@@ -1,0 +1,82 @@
+name: VPS_1 isolated SSH deploy + rollback
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'pilot/**'
+      - 'tools/build_pilot.py'
+      - 'tools/validate_release.py'
+      - 'scripts/deploy_isolated_pilot.sh'
+      - '.github/workflows/vps1-pilot-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: vps1-isolated-pilot-deploy
+  cancel-in-progress: false
+
+jobs:
+  isolated-deploy:
+    if: ${{ vars.VPS1_TAILSCALE_READY == 'yes' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build and verify isolated artifact
+        run: |
+          set -Eeuo pipefail
+          python3 -m unittest discover -s tests -v
+          python3 tools/build_pilot.py
+          python3 tools/validate_release.py --manifest dist/release.json
+          bash -n scripts/deploy_isolated_pilot.sh
+      - name: Connect to Tailscale using existing GitHub OIDC
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Configure pinned SSH host and private key
+        env:
+          SSH_KEY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          if [[ -z "${SSH_KEY:-}" ]]; then
+            echo 'BLOCKED: set VPS1_SSH_PRIVATE_KEY in GitHub Actions secrets'
+            exit 1
+          fi
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$RUNNER_TEMP/vps1_id_ed25519"
+          chmod 0600 "$RUNNER_TEMP/vps1_id_ed25519"
+          ssh-keygen -y -f "$RUNNER_TEMP/vps1_id_ed25519" | grep -q '^ssh-ed25519 '
+          printf '%s\n' '100.113.253.99 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAtrAUnyLuDM3FsUw/E2EtVtHF3f3d4nRonXxl/oIpmQ' > "$RUNNER_TEMP/vps1_known_hosts"
+          chmod 0600 "$RUNNER_TEMP/vps1_known_hosts"
+          {
+            echo 'Host vps1-ci-pilot'
+            echo '  HostName 100.113.253.99'
+            echo '  User vps1deploy'
+            echo "  IdentityFile $RUNNER_TEMP/vps1_id_ed25519"
+            echo "  UserKnownHostsFile $RUNNER_TEMP/vps1_known_hosts"
+            echo '  StrictHostKeyChecking yes'
+            echo '  BatchMode yes'
+            echo '  IdentitiesOnly yes'
+            echo '  ConnectTimeout 20'
+            echo '  ServerAliveInterval 10'
+          } > "$HOME/.ssh/config"
+          chmod 0600 "$HOME/.ssh/config"
+      - name: Authenticate remote non-root account
+        run: |
+          set -Eeuo pipefail
+          timeout 45s ssh vps1-ci-pilot 'set -eu; test "$(id -un)" = vps1deploy; test "$(id -u)" -ne 0; mkdir -p "$HOME/vps1-ci-pilot/incoming"; chmod 700 "$HOME/vps1-ci-pilot" "$HOME/vps1-ci-pilot/incoming"; echo VPS1_SSH_AUTHENTICATION=PASS'
+      - name: Upload archive and run atomic pilot + synthetic rollback
+        run: |
+          set -Eeuo pipefail
+          timeout 90s scp -q dist/pilot-site.tar.gz dist/release.json scripts/deploy_isolated_pilot.sh vps1-ci-pilot:vps1-ci-pilot/incoming/
+          timeout 90s ssh vps1-ci-pilot 'bash "$HOME/vps1-ci-pilot/incoming/deploy_isolated_pilot.sh"'
+      - name: Independently verify active isolated release
+        run: |
+          set -Eeuo pipefail
+          timeout 45s ssh vps1-ci-pilot 'set -eu; root="$HOME/vps1-ci-pilot"; test -L "$root/current"; test -f "$root/current/index.html"; grep -Fq "Pilot UI PASS" "$root/current/index.html"; echo VPS1_FINAL_SSH_DEPLOY_READBACK=PASS'
