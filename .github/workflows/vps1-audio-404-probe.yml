@@ -63,3 +63,31 @@ jobs:
             print("AUDIO_ROOT_ACCESS",root,"exists",p.exists(),"readable",os.access(p,os.R_OK),"traversable",os.access(p,os.X_OK))
           print("READ_ONLY_DIAGNOSTIC=COMPLETE")
           PY
+      - name: Inspect Audio Downloader route mapping and UI download code
+        run: |
+          set -Eeuo pipefail
+          timeout 60s ssh vps1-audio 'python3 -' <<'PY'
+          import pathlib, re
+          base=pathlib.Path("/opt/vps1-voice-studio-omnivoice/releases/live-20260921-v1")
+          names=("audio_downloader_api.py","vps1_omnivoice_app.py","templates/voice_studio.html")
+          for rel in names:
+            p=base/rel
+            if not p.is_file(): print("FILE_UNAVAILABLE",rel);continue
+            lines=p.read_text(errors="replace").splitlines()
+            if rel=="audio_downloader_api.py":
+              for i,s in enumerate(lines):
+                if (i<100 and s.strip().startswith(("JOBS =","DB =","ROOT =","DATA =","router ="))) or s.strip().startswith("@router.") or s.strip().startswith("@app."):
+                  print("BACKEND_ROUTE_OR_PATH",i+1,s[:180])
+            elif rel=="vps1_omnivoice_app.py":
+              for i,s in enumerate(lines):
+                if "include_router" in s or "mount(" in s or "audio_downloader" in s:
+                  print("APP_MOUNT",i+1,s[:180])
+            else:
+              matches=[i for i,s in enumerate(lines) if "Download unavailable" in s or "audio_url" in s or "Audio endpoint did not return" in s]
+              for i in matches[:5]:
+                print("UI_DOWNLOAD_CONTEXT_BEGIN",i+1)
+                for j in range(max(0,i-8),min(len(lines),i+15)):
+                  print(str(j+1)+":"+lines[j][:180])
+                print("UI_DOWNLOAD_CONTEXT_END")
+          print("ROUTE_MAPPING_AUDIT=PASS")
+          PY
