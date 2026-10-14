@@ -91,3 +91,19 @@ jobs:
                 print("UI_DOWNLOAD_CONTEXT_END")
           print("ROUTE_MAPPING_AUDIT=PASS")
           PY
+      - name: Print only live Audio Downloader request-path statements
+        run: |
+          set -Eeuo pipefail
+          timeout 55s ssh vps1-audio 'python3 -' <<'PY'
+          from pathlib import Path
+          p=Path("/opt/vps1-voice-studio-omnivoice/releases/live-20260921-v1/templates/voice_studio.html")
+          lines=p.read_text().splitlines()
+          keys=("Audio endpoint did not return", "Download unavailable", "audio-download", "audioDownloader", "audio-downloader", "adDownload")
+          hits=[i for i,s in enumerate(lines) if any(k in s for k in keys)]
+          print("AUDIO_UI_MATCHES",len(hits))
+          for i in hits[-38:]:
+            if i<1250:continue
+            line=lines[i]
+            print("AUDIO_UI_LINE",i+1,line[:1250])
+          print("AUDIO_UI_PATH_SCAN=COMPLETE")
+          PY
