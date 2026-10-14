@@ -107,3 +107,23 @@ jobs:
             print("AUDIO_UI_LINE",i+1,line[:1250])
           print("AUDIO_UI_PATH_SCAN=COMPLETE")
           PY
+      - name: Print exact queue and browser download implementation
+        run: |
+          set -Eeuo pipefail
+          timeout 70s ssh vps1-audio 'python3 -' <<'PY'
+          from pathlib import Path
+          base=Path("/opt/vps1-voice-studio-omnivoice/releases/live-20260921-v1")
+          items={
+            "audio_downloader_api.py":[(20,58),(85,142),(187,245),(300,357)],
+            "templates/voice_studio.html":[(1935,2011)]
+          }
+          for rel,ranges in items.items():
+            p=base/rel
+            if not p.is_file(): print("MISSING",rel);continue
+            lines=p.read_text(errors="replace").splitlines()
+            for lo,hi in ranges:
+              print("SOURCE_SECTION_BEGIN",rel,lo,hi)
+              for i in range(lo-1,min(hi,len(lines))):
+                print(f"{i+1:04d} {lines[i][:390]}")
+              print("SOURCE_SECTION_END")
+          PY
