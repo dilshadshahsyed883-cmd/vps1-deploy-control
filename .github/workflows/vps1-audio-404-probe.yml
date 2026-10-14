@@ -1,0 +1,65 @@
+name: Voice Studio Audio 404 targeted source probe
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/vps1-audio-404-probe.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  probe-audio-only:
+    if: ${{ vars.VPS1_TAILSCALE_READY == 'yes' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Join Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Connect with pinned SSH key
+        env:
+          SSH_KEY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "$SSH_KEY"
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$RUNNER_TEMP/id_ed25519"
+          chmod 0600 "$RUNNER_TEMP/id_ed25519"
+          printf '%s\n' '100.113.253.99 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAtrAUnyLuDM3FsUw/E2EtVtHF3f3d4nRonXxl/oIpmQ' > "$RUNNER_TEMP/known_hosts"
+          printf '%s\n' 'Host vps1-audio' '  HostName 100.113.253.99' '  User vps1deploy' "  IdentityFile $RUNNER_TEMP/id_ed25519" "  UserKnownHostsFile $RUNNER_TEMP/known_hosts" '  StrictHostKeyChecking yes' '  BatchMode yes' '  IdentitiesOnly yes' '  ConnectTimeout 20' > "$HOME/.ssh/config"
+          chmod 0600 "$HOME/.ssh/config"
+      - name: Inspect audio download source and current file gates (read-only)
+        run: |
+          set -Eeuo pipefail
+          timeout 70s ssh vps1-audio 'python3 -' <<'PY'
+          import ast, hashlib, os, pathlib, re, stat, sys
+          assert os.geteuid() != 0
+          print("REMOTE_USER=", os.getlogin() if False else os.geteuid())
+          candidates=[
+            pathlib.Path("/opt/vps1-voice-studio-omnivoice/releases/live-20260921-v1/audio_downloader_api.py"),
+            pathlib.Path("/home/ubuntu/apps/audio_downloader_voice_studio/audio_downloader_api.py")
+          ]
+          for p in candidates:
+            try:
+              s=p.stat()
+              print("AUDIO_SOURCE_PATH=",str(p),"exists=YES read=",os.access(p,os.R_OK),"size=",s.st_size,"sha256=",hashlib.sha256(p.read_bytes()).hexdigest() if os.access(p,os.R_OK) else "UNREADABLE")
+              if not os.access(p,os.R_OK): continue
+              source=p.read_text()
+              tree=ast.parse(source)
+              for n in ast.walk(tree):
+                if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name in ("download_audio","sanitized_row","run_job"):
+                  lines=source.splitlines()
+                  part="\n".join(lines[n.lineno-1:min(n.end_lineno,n.lineno+94)])
+                  part=re.sub(r"(?i)(password|secret|token|api_key)\s*=\s*(['\"]).*?\2",r"\1='<REDACTED>'",part)
+                  print("FUNCTION_BEGIN",n.name,"LINES",n.lineno,n.end_lineno)
+                  print(part)
+                  print("FUNCTION_END")
+            except Exception as e: print("SOURCE_PROBE_ERROR",type(e).__name__)
+          for root in ("/home/ubuntu/apps/audio_downloader_voice_studio","/opt/vps1-voice-studio-omnivoice/releases/live-20260921-v1"):
+            p=pathlib.Path(root)
+            print("AUDIO_ROOT_ACCESS",root,"exists",p.exists(),"readable",os.access(p,os.R_OK),"traversable",os.access(p,os.X_OK))
+          print("READ_ONLY_DIAGNOSTIC=COMPLETE")
+          PY
