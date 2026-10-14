@@ -1,0 +1,30 @@
+name: VPS_1 direct connection test (no deploy)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: vps1-connection-test
+  cancel-in-progress: false
+
+jobs:
+  check-vps:
+    if: ${{ vars.VPS1_TAILSCALE_READY == 'yes' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Connect GitHub runner to Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Verify VPS_1 is reachable
+        run: |
+          set -Eeuo pipefail
+          timeout 60s tailscale ping -c 2 100.113.253.99
+          echo 'VPS1_TAILSCALE_CONNECTIVITY=PASS'
