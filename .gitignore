@@ -218,3 +218,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# VPS_1 deploy control secrets/artifacts
+.env.*
+*.pem
+*.key
+*.tar.gz
