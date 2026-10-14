@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VPS_1 Deployment Pilot</title>
+<style>body{font-family:system-ui,sans-serif;max-width:680px;padding:3rem 1rem;margin:auto;color:#123;background:#f8fafc}.panel{padding:2rem;border:1px solid #e2e8f0;border-radius:16px;background:white}button{padding:.8rem 1rem;background:#164e63;color:white;border:0;border-radius:9px;cursor:pointer}</style></head>
+<body><main class="panel"><h1>VPS_1 — isolated deployment pilot</h1>
+<p>Offline static canary. No production service integrations.</p>
+<button type="button" id="pilot-test">Test pilot UI</button>
+<p id="pilot-result" role="status" aria-live="polite">Not tested</p></main>
+<script>document.getElementById('pilot-test').addEventListener('click',()=>{document.getElementById('pilot-result').textContent='Pilot UI PASS'})</script></body></html>

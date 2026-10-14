@@ -1,0 +1,28 @@
+name: Verify isolated pilot (no VPS deployment)
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: "pilot-validate-${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+jobs:
+  offline-pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Python tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Build pilot artifact
+        run: python3 tools/build_pilot.py
+      - name: Verify archive and release manifest
+        run: python3 tools/validate_release.py --manifest dist/release.json
+      - name: Lint Bridge-compatible Bash
+        run: bash -n scripts/preflight_readonly.sh
+      - name: Confirm no deployment job exists
+        run: test ! -e .github/workflows/deploy.yml
