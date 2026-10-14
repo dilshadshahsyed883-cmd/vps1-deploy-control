@@ -127,3 +127,15 @@ jobs:
                 print(f"{i+1:04d} {lines[i][:390]}")
               print("SOURCE_SECTION_END")
           PY
+      - name: Capture exact DB schema and update helper
+        run: |
+          set -Eeuo pipefail
+          timeout 50s ssh vps1-audio 'python3 -' <<'PY'
+          from pathlib import Path
+          p=Path("/opt/vps1-voice-studio-omnivoice/releases/live-20260921-v1/audio_downloader_api.py")
+          a=p.read_text().splitlines()
+          for lo,hi in ((56,80),(242,260)):
+            print("SAFE_SCHEMA_BEGIN",lo,hi)
+            for i in range(lo-1,hi):print(f"{i+1:04d} {a[i][:340]}")
+            print("SAFE_SCHEMA_END")
+          PY
