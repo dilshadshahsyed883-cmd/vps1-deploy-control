@@ -10,7 +10,12 @@ import threading
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from PySide6.QtGui import QImageReader
+# Qt image inspection is only needed by the administrator cleanup endpoint.
+# Avoid preventing unrelated ACS web APIs from starting on headless Ubuntu.
+try:
+    from PySide6.QtGui import QImageReader
+except ImportError:
+    QImageReader = None
 
 from smart_scroll.local_ai_tools import download_pexels_backgrounds, list_background_images
 from .auth import Principal, get_current_principal
@@ -231,6 +236,8 @@ def cleanup(principal: Principal = Depends(get_current_principal)) -> dict:
     _require_admin(principal)
     if _active_render_count():
         raise HTTPException(409, "Active render detected; library was not changed")
+    if QImageReader is None:
+        raise HTTPException(status_code=503, detail="Image library cleanup requires PySide6")
     broken: list[Path] = []; duplicates: list[Path] = []; seen: dict[str, Path] = {}
     for path in _media():
         reader = QImageReader(str(path))
