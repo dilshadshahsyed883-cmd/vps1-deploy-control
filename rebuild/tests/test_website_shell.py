@@ -25,9 +25,27 @@ class WebsiteShellTests(unittest.TestCase):
         catalog = website_shell.catalog(self.groups, self.profiles)
         self.assertEqual([a["id"] for a in catalog["apps"]], ["scene-builder", "new-app"])
         self.assertEqual(catalog["apps"][0]["path"], "/scene-builder/")
-        self.assertTrue(catalog["apps"][0]["route_configured"])
+        self.assertFalse(catalog["apps"][0]["route_configured"])
         self.assertFalse(catalog["apps"][1]["route_configured"])
         self.assertFalse(any(a["runtime_verified"] for a in catalog["apps"]))
+
+    def test_explicit_registry_controls_shell_not_install_profile(self):
+        known = {
+            "schema_version": 1,
+            "domain": "app.scenebuilder.online",
+            "apps": [{
+                "id": "scene-builder", "path": "/scene-builder/",
+                "upstream_port": 18081, "prefix_mode": "preserve",
+                "websocket": False, "service_unit": "vps1-scene-builder.service",
+            }],
+        }
+        catalog = website_shell.catalog(self.groups, self.profiles, known)
+        self.assertTrue(catalog["apps"][0]["route_configured"])
+        self.assertFalse(catalog["apps"][1]["route_configured"])
+        known["apps"][0]["id"] = "auto-script"
+        known["apps"][0]["path"] = "/auto-script/"
+        with self.assertRaises(ValueError):
+            website_shell.catalog(self.groups, self.profiles, known)
 
     def test_mismatched_registration_and_unsafe_slug_fail_closed(self):
         bad = {"groups": [{"id": "../unsafe"}]}
@@ -46,7 +64,7 @@ class WebsiteShellTests(unittest.TestCase):
             result = website_shell.build(root, self.groups, self.profiles)
             shell = root / "srv/fresh-website/shell"
             self.assertEqual(result["navigation_apps"], 2)
-            self.assertEqual(result["routed_apps"], 1)
+            self.assertEqual(result["routed_apps"], 0)
             self.assertEqual(result["services_activated"], 0)
             self.assertTrue((shell / "index.html").is_file())
             self.assertTrue((shell / "assets/shell.css").is_file())
@@ -55,6 +73,7 @@ class WebsiteShellTests(unittest.TestCase):
             self.assertEqual(payload["apps"][1]["id"], "new-app")
             self.assertNotIn("auto-script", (shell / "assets/apps.json").read_text())
             self.assertIn("appFrame", (shell / "index.html").read_text())
+            self.assertIn("themeToggle", (shell / "index.html").read_text())
 
     def test_cannot_write_to_host(self):
         with self.assertRaises(ValueError):
