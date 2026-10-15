@@ -1,0 +1,29 @@
+name: Verify guarded candidate activation and rollback (NO production)
+on:
+  pull_request:
+    paths:
+      - 'rebuild/release_transaction.py'
+      - 'rebuild/fresh_vps.py'
+      - 'rebuild/tests/test_release_transaction.py'
+      - '.github/workflows/fresh-vps-release-transaction.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  synthetic-transaction:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Forced health-failure and restart-failure rollback tests
+        run: python3 -m unittest rebuild.tests.test_release_transaction -v
+      - name: Ensure production remains off in repo
+        run: |
+          python3 - <<'PY'
+          import json
+          c=json.load(open("rebuild/groups.json"))
+          assert c["production_deploy_enabled"] is False
+          assert c["fresh_install_enabled"] is False
+          assert c["offline_applications"] == ["auto-script"]
+          print("PRODUCTION_DISABLED=PASS")
+          PY
