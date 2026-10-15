@@ -4,6 +4,7 @@ on:
     paths:
       - 'rebuild/remaining_contract_ci.py'
       - 'rebuild/auto_script_isolated_contract.py'
+      - 'rebuild/remaining_workers_smoke.py'
       - 'rebuild/systemd_storage_ci.py'
       - 'apps/auto-script/**'
       - 'apps/local-upload-manager/**'
@@ -44,6 +45,17 @@ jobs:
             --root "/tmp/fresh-vps-remaining-$GITHUB_RUN_ID" \
             > "$RUNNER_TEMP/auto-script-contract.json"
           cat "$RUNNER_TEMP/auto-script-contract.json"
+      - name: Install worker-only isolated Python prerequisites
+        run: |
+          python -m pip install --disable-pip-version-check --quiet \
+            -r apps/local-upload-manager/part01/requirements.txt \
+            pillow==11.1.0
+      - name: Boot real fresh worker idle loops without external credentials
+        run: |
+          python -m rebuild.remaining_workers_smoke \
+            --root "/tmp/fresh-vps-remaining-$GITHUB_RUN_ID" \
+            > "$RUNNER_TEMP/remaining-workers.json"
+          cat "$RUNNER_TEMP/remaining-workers.json"
       - name: Activate real isolated systemd unit, switch releases and rollback
         run: |
           python -m rebuild.systemd_storage_ci \
