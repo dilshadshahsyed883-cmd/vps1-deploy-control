@@ -41,6 +41,14 @@ jobs:
           a=(root/"srv/fresh-website/venvs/short-stream/lib").exists()
           b=(root/"srv/fresh-website/venvs/short-maker/lib").exists()
           assert a and b
+          import glob
+          first=glob.glob(str(root/"srv/fresh-website/venvs/short-stream/lib/python*/site-packages/fastapi/__init__.py"))
+          second=glob.glob(str(root/"srv/fresh-website/venvs/short-maker/lib/python*/site-packages/fastapi/__init__.py"))
+          assert len(first)==len(second)==1
+          a_stat=os.stat(first[0])
+          b_stat=os.stat(second[0])
+          assert (a_stat.st_dev,a_stat.st_ino)==(b_stat.st_dev,b_stat.st_ino), "identical uv packages were not hardlinked"
+          print("PASS: real fastapi files in two venvs share one filesystem inode")
           assert s["within_budget"] and s["host_reserve_ok"]
           assert not (root/"srv/fresh-website/venvs/auto-script").exists()
           print("PASS: shared uv cache, independent venvs, actual source installs, 30 GB admission gate")
