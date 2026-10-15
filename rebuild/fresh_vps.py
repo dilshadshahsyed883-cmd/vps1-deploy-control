@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 import re
 import sys
-from rebuild import builder
+from rebuild import builder, website_shell
 
 ROOT=Path(__file__).resolve().parents[1]
 PROFILE_PATH=ROOT/"rebuild/install-profiles.json"
@@ -199,14 +199,18 @@ def render(root):
             if not (path/service.get("requirements","requirements.txt")).is_file():
                 blockers[app]="runtime Python dependency lock not supplied"
             if item.get("pending"):blockers[app]=item["pending"]
+    shell = website_shell.build(root, builder.config(), p)
     (nginx/"fresh-website.conf").write_text(
         "# CANDIDATE ONLY: never enabled automatically; operator must create auth file\n"
         "server {\n    listen 127.0.0.1:8888;\n    server_name _;\n"
         "    auth_basic \"Fresh Website - Authentication Required\";\n"
         "    auth_basic_user_file /etc/fresh-website/auth.htpasswd;\n"
+        "    location = / { alias /srv/fresh-website/shell/index.html; }\n"
+        "    location ^~ /shell-assets/ { alias /srv/fresh-website/shell/assets/; }\n"
         + "".join(routes)+"}\n")
     return {"service_unit_candidates":len(list(units.glob("fresh-*.service"))),
-            "enabled_services":0,"nginx_enabled":False,"runtime_blockers":blockers}
+            "enabled_services":0,"nginx_enabled":False,"runtime_blockers":blockers,
+            "website_shell":shell}
 
 def assemble(raw,sha):
     root=root_dir(raw);root.mkdir(parents=True,exist_ok=True)
