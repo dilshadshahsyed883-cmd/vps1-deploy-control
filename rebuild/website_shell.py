@@ -10,6 +10,10 @@ import re
 import shutil
 from pathlib import Path
 
+from tools.render_nginx_routes import load_registry, validate_registry
+
+LIVE_ROUTES = Path(__file__).resolve().parents[1] / 'infrastructure/registry/apps.json'
+
 ASSETS = Path(__file__).resolve().parent / "shell"
 SLUG = re.compile(r"[a-z][a-z0-9-]{1,63}\Z")
 TITLES = {
@@ -26,19 +30,29 @@ TITLES = {
 }
 
 
-def catalog(group_config: dict, install_profiles: dict) -> dict:
+def catalog(group_config: dict, install_profiles: dict, route_registry: dict | None = None) -> dict:
     """Build allowlisted, same-origin navigation from installed app registrations."""
     groups = group_config["groups"]
     profiles = install_profiles["groups"]
     ids = [group["id"] for group in groups]
     if len(ids) != len(set(ids)) or set(ids) != set(profiles):
         raise ValueError("shell registration mismatch")
+    # A configured installation profile is NOT a verified public route.
+    # The live GitOps registry intentionally stays empty before Agent inventory.
+    if route_registry is None:
+        route_registry = load_registry(LIVE_ROUTES)
+    entries = validate_registry(route_registry)
+    verified_ids = {entry["id"] for entry in entries}
+    if not verified_ids.issubset(set(ids)):
+        raise ValueError("route points to unknown app")
     apps = []
     for group in groups:
         app = group["id"]
         if not isinstance(app, str) or not SLUG.fullmatch(app):
             raise ValueError("unsafe application ID")
         if group.get("deployment_mode", "active") == "offline":
+            if app in verified_ids:
+                raise ValueError("offline app must not have live route")
             continue
         profile = profiles[app]
         if profile.get("deployment_mode") == "offline" or profile.get("parallel_owner"):
@@ -51,7 +65,7 @@ def catalog(group_config: dict, install_profiles: dict) -> dict:
             "id": app,
             "title": TITLES.get(app, app.replace("-", " ").title()),
             "path": "/" + app + "/",
-            "route_configured": bool(services),
+            "route_configured": bool(services) and app in verified_ids,
             "runtime_verified": False,
         })
     return {"schema_version": 1, "apps": apps}

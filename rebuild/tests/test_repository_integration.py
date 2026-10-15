@@ -69,11 +69,14 @@ class RepositorySourceOfTruthContract(unittest.TestCase):
         manifest = website_shell.catalog(self.groups, {"groups": self.profiles})
         self.assertEqual({x["id"] for x in manifest["apps"]}, set(self.active))
         self.assertNotIn("auto-script", {x["id"] for x in manifest["apps"]})
+        # Installation profiles list desired services, never confirmed public routes.
+        # Only independently verified Nginx GitOps entries enable navigation.
+        verified_routes = {entry["id"] for entry in
+                           document("infrastructure/registry/apps.json")["apps"]}
         for item in manifest["apps"]:
             self.assertEqual(item["path"], "/" + item["id"] + "/")
             self.assertIs(item["runtime_verified"], False)
-            self.assertEqual(item["route_configured"],
-                             bool(self.profiles[item["id"]]["services"]))
+            self.assertEqual(item["route_configured"], item["id"] in verified_routes)
         markup = (ROOT / "rebuild/shell/index.html").read_text()
         client = (ROOT / "rebuild/shell/assets/shell.js").read_text()
         self.assertIn('id="appFrame"', markup)

@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "origin": "synthetic-ci-only",
+  "evidence_report": "CI FIXTURE - NOT VPS EVIDENCE",
+  "apps": [
+    {
+      "id": "ci-canary",
+      "path": "/ci-canary/",
+      "upstream_port": 18081,
+      "prefix_mode": "preserve",
+      "websocket": true,
+      "service_unit": "vps1-ci-canary.service",
+      "auth_policy": "inherited-site-auth",
+      "static_paths": ["/ci-canary/assets/"],
+      "websocket_path": "/ci-canary/ws",
+      "prefix_browser_verified": false
+    }
+  ]
+}
