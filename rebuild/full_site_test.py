@@ -104,6 +104,7 @@ def schemas(root):
             env["SCRIPT_WORK_DATA_DIR"]=str(target/"script-work")
             env["SCENE_PERMANENT_ROOT"]=str(target/"permanent")
             env["MASTER_CONTROLLER_DB_PATH"]=str(target/"master_controller.sqlite3")
+            env["AUTOFLOW_FLOW_RESULT_ROOT"]=str(target/"flow-results")
         if name=="acs":
             env["AUTO_CAPTION_CODE_ROOT"]=str(source)
             env["AUTO_CAPTION_DB_PATH"]=str(target/"data/database/auto_caption.db")

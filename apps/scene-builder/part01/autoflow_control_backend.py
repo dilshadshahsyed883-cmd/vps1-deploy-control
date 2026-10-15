@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import HTTPException, Request
 
 APP_DIR = Path(__file__).resolve().parent
-DB_PATH = APP_DIR / "data" / "master_controller.sqlite3"
+DB_PATH = Path(os.getenv("MASTER_CONTROLLER_DB_PATH", str(APP_DIR / "data" / "master_controller.sqlite3")))
 
 STAGES = ("script", "scene", "voice", "audio", "video", "thumbnail", "approval", "upload")
 ASSETS = ("script", "scene", "voice", "audio", "video", "thumbnail")

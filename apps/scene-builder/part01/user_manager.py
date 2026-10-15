@@ -4,7 +4,7 @@ import getpass, hashlib, hmac, os, sqlite3, sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-DB = Path("/opt/scene-builder-web/data/web.sqlite3")
+DB = Path(os.getenv("WEB_DATA_DIR", "/opt/scene-builder-web/data")) / "web.sqlite3"
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat()

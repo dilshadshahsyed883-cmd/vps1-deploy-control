@@ -12,6 +12,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+import os
 
 from fastapi import HTTPException, Request, WebSocket
 from fastapi.responses import FileResponse
@@ -22,7 +23,7 @@ LEASE_MINUTES = 12
 WORKER_ONLINE_SECONDS = 45
 MAX_IMAGE_BYTES = 12 * 1024 * 1024
 MAX_IMAGES = 4
-RESULT_ROOT = Path('/home/ubuntu/.local/share/autoflow-flow/results')
+RESULT_ROOT = Path(os.getenv('AUTOFLOW_FLOW_RESULT_ROOT', '/home/ubuntu/.local/share/autoflow-flow/results'))
 WS_CONNECTIONS: dict[str, WebSocket] = {}
 
 
