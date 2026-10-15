@@ -1,0 +1,27 @@
+# INERT DOCUMENTATION TEMPLATE: do not install before Agent inventory, backup and review.
+# One worker/service contract per app; no guessed ExecStart, user or state path.
+[Unit]
+Description=VPS1 {{APP_ID}} {{WORKER_ID}} worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{VERIFIED_UNPRIVILEGED_USER}}
+Group={{VERIFIED_UNPRIVILEGED_GROUP}}
+WorkingDirectory={{IMMUTABLE_APP_RELEASE_PATH}}
+EnvironmentFile=/etc/vps1-apps/{{APP_ID}}.env
+Environment=PYTHONNOUSERSITE=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart={{VERIFIED_VENV_BIN_OR_SYSTEM_TOOL}} {{VERIFIED_WORKER_ARGUMENTS}}
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ReadWritePaths={{VERIFIED_APP_OWNED_STATE_PATH}}
+# Validate sandbox directives against actual Chrome/FFmpeg/GPU/Drive requirements.
+
+[Install]
+WantedBy=multi-user.target
