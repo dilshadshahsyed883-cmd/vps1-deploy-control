@@ -41,7 +41,8 @@ def embedded_credential(content,filename):
                 targets=[node.target.id] if isinstance(node.target,ast.Name) else []
                 value=node.value
             if (isinstance(value,ast.Constant) and isinstance(value.value,str)
-                and len(value.value)>=12 and any(sensitive.search(k) for k in targets)):
+                and len(value.value)>=12 and any(sensitive.search(k) for k in targets)
+                and not any(value.value == k and k.isupper() for k in targets)):
                 return True
             if isinstance(node,ast.Dict):
                 for k,v in zip(node.keys,node.values):

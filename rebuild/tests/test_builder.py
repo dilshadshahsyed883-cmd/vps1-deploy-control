@@ -137,6 +137,14 @@ class FreshVpsSafety(unittest.TestCase):
    self.assertIn('os.environ.get("FRESH_LUM_TOKEN_URI"',text)
    self.assertNotIn('environ["FRESH_LUM_TOKEN_URI"]',text)
 
+ def test_symbolic_token_status_names_are_not_secrets(self):
+  with tempfile.TemporaryDirectory() as d:
+   p=Path(d);source=p/'states.py'
+   source.write_text('MISSING_TOKEN = "MISSING_TOKEN"\nINVALID_TOKEN = "INVALID_TOKEN"\n')
+   self.assertEqual(builder.file_list(p)[0][0],'states.py')
+   source.write_text('CLIENT_SECRET = "super-long-actual-secret"\n')
+   with self.assertRaises(ValueError):builder.file_list(p)
+
  def test_order(self):
   ordered=builder.ordered_groups();self.assertEqual(len(ordered),11)
   self.assertLess(ordered.index('vps-storage-manager'),ordered.index('scene-builder'))
