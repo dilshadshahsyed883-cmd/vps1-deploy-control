@@ -6,7 +6,7 @@ from pathlib import Path
 
 APP_NAME = 'Video Merger'
 RELEASE_ID = 'V1J_LIBRARY_PROXY_FILENAME'
-BASE = Path('/opt/video-merger')
+BASE = Path(os.environ.get('VIDEO_MERGER_ROOT', '/opt/video-merger')).expanduser()
 DATA = BASE / 'data'
 WORK = BASE / 'work'
 DB_PATH = DATA / 'video_merger.db'

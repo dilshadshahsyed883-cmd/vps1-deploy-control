@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 ROOT = Path(__file__).resolve().parent
-DATA = ROOT / "data"
+DATA = Path(os.environ.get("SML_DATA_ROOT", str(ROOT / "data"))).expanduser()
 SOURCES_DIR = DATA / "sources"
 CLIPS_DIR = DATA / "clips"
 THUMBS_DIR = DATA / "thumbs"
