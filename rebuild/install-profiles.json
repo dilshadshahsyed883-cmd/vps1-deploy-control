@@ -34,10 +34,10 @@
     "auto-caption-studio": {
       "services": [
         {
-          "part": "part01/web_backend",
-          "module": "app:app",
+          "part": "part01",
+          "module": "web_backend.app:app",
           "port": 8144,
-          "requirements": "requirements-web.txt"
+          "requirements": "web_backend/requirements-web.txt"
         }
       ],
       "pending": "render/prefetch/compress workers need individual units"

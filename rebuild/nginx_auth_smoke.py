@@ -13,7 +13,7 @@ import urllib.error
 import urllib.request
 from rebuild import fresh_vps
 
-SERVICES=[("scene-builder",8080),("short-maker",8146),("short-stream",8145)]
+SERVICES=[("scene-builder",8080,"health"),("auto-caption-studio",8144,"health"),("self-media-library",8147,"api/health"),("short-maker",8146,"health"),("short-stream",8145,"health")]
 NGINX_PORT=18888
 
 def probe(url,username=None,password=None):
@@ -47,7 +47,7 @@ def run(root):
     locations=[]
     processes=[]
     try:
-        for app,port in SERVICES:
+        for app,port,endpoint in SERVICES:
             cwd=root/"srv/fresh-website/current"/app/"part01"
             env=os.environ.copy()
             if app=="scene-builder":
@@ -63,9 +63,18 @@ def run(root):
                     "AUTOFLOW_FLOW_RESULT_ROOT":str(data/"flow-results")
                 })
             else:
-                env["SHORT_MAKER_DATA" if app=="short-maker" else "SHORT_STREAM_DATA"]=str(root/"var/lib/fresh-website"/app)
+                if app=="auto-caption-studio":
+                    data=root/"var/lib/fresh-website/auto-caption-studio/acs"
+                    env.update({"AUTO_CAPTION_APP_ROOT":str(data),
+                                "AUTO_CAPTION_CODE_ROOT":str(cwd),
+                                "AUTO_CAPTION_DB_PATH":str(data/"data/database/auto_caption.db")})
+                elif app=="self-media-library":
+                    env["SML_DATA_ROOT"]=str(root/"var/lib/fresh-website/self-media-library/sml")
+                else:
+                    env["SHORT_MAKER_DATA" if app=="short-maker" else "SHORT_STREAM_DATA"]=str(root/"var/lib/fresh-website"/app)
             env["PYTHONDONTWRITEBYTECODE"]="1"
-            p=subprocess.Popen([sys.executable,"-m","uvicorn","app:app",
+            module="web_backend.app:app" if app=="auto-caption-studio" else "app:app"
+            p=subprocess.Popen([sys.executable,"-m","uvicorn",module,
                                 "--host","127.0.0.1","--port",str(port)],
                                cwd=cwd,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
             processes.append(p)
@@ -97,8 +106,8 @@ def run(root):
                 raise RuntimeError("test service exited early; "+log.read_text()[-800:] if log.exists() else "process died")
             try:
                 result=[]
-                for app,_ in SERVICES:
-                    url="http://127.0.0.1:"+str(NGINX_PORT)+"/"+app+"/health"
+                for app,_,endpoint in SERVICES:
+                    url="http://127.0.0.1:"+str(NGINX_PORT)+"/"+app+"/"+endpoint
                     unauthorized,_=probe(url)
                     authorized,body=probe(url,"ci-test-user",password)
                     if unauthorized!=401:
@@ -113,6 +122,12 @@ def run(root):
                     if app=="scene-builder":
                         if not payload.get("version") or "worker" not in payload:
                             raise ValueError("wrong Scene Builder health contract")
+                    elif app=="auto-caption-studio":
+                        if payload.get("app")!="Auto Caption Studio":
+                            raise ValueError("wrong ACS health contract")
+                    elif app=="self-media-library":
+                        if not payload.get("version"):
+                            raise ValueError("wrong Self Media Library health contract")
                     elif payload.get("app")!=app:
                         raise ValueError("wrong upstream for "+app)
                     result.append({"app":app,"auth_required":True,"health":"PASS"})
