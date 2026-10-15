@@ -18,7 +18,7 @@ FILES = (
 )
 SECRET_PATTERNS = (
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
-    re.compile(r"(?im)^\s*(?:secret_key|password|api_key|access_token|refresh_token|client_secret)\s*=\s*\S+"),
+    re.compile(r"""(?im)^\s*(?:secret_key|password|api_key|access_token|refresh_token|client_secret)\s*=\s*['"][^'"]+['"]"""),
     re.compile(r"ghp_[A-Za-z0-9]{30,}"),
     re.compile(r"AIza[A-Za-z0-9_-]{25,}"),
 )
