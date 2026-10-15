@@ -1,0 +1,81 @@
+name: Fresh VPS coordinated clean Ubuntu installation and rollback
+on:
+  pull_request:
+    paths:
+      - "apps/**"
+      - "rebuild/**"
+      - ".github/workflows/fresh-vps-full-install.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  one-shot-full-site:
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:24.04
+    timeout-minutes: 30
+    steps:
+      - name: Install reproducible clean Ubuntu system tools
+        run: |
+          set -Eeuo pipefail
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git ca-certificates python3 python3-venv python3-pip \
+            nginx apache2-utils ffmpeg curl
+      - uses: actions/checkout@v4
+      - name: Prepare isolated Python 3.12 runtime
+        run: |
+          set -Eeuo pipefail
+          python3 -m venv /tmp/fresh-ci-venv
+          /tmp/fresh-ci-venv/bin/pip install --disable-pip-version-check \
+            -r rebuild/runtime-smoke-requirements.txt \
+            "requests==2.32.3" "jinja2==3.1.6"
+          echo "/tmp/fresh-ci-venv/bin" >> "$GITHUB_PATH"
+      - name: One coordinated source, schema, queue and worker build
+        run: |
+          set -Eeuo pipefail
+          export PYTHONDONTWRITEBYTECODE=1
+          python3 -m unittest discover -s rebuild/tests -v
+          python3 -m rebuild.full_site_test --root /tmp/fresh-vps-one-shot --revision "$GITHUB_SHA" \
+            > /tmp/fresh-vps-one-shot-result.json
+          python3 -m rebuild.fresh_vps verify --root /tmp/fresh-vps-one-shot
+          python3 - <<'PY'
+          import json
+          x=json.load(open("/tmp/fresh-vps-one-shot-result.json"))
+          assert x["source_groups_staged"] == 10
+          assert len(x["native_fresh_database_contracts"]) == 9
+          assert x["runtime_records_imported"] == 0
+          assert x["cutover"] == "DISABLED"
+          assert x["full_website_rebuild_pass"] is False
+          print("PASS: fresh isolated SQLite initialization and independent empty queues")
+          PY
+      - name: Authenticated Nginx, app startups, and safe rollback
+        run: |
+          set -Eeuo pipefail
+          python3 rebuild/nginx_auth_smoke.py --root /tmp/fresh-vps-one-shot
+          python3 rebuild/smoke_services.py --root /tmp/fresh-vps-one-shot
+          python3 - <<'PY'
+          from pathlib import Path
+          from rebuild import fresh_vps
+          root=Path("/tmp/fresh-vps-one-shot")
+          app="short-maker"
+          original=(root/"srv/fresh-website/current"/app/"part01/app.py").read_bytes()
+          first=(root/"srv/fresh-website/current"/app).resolve()
+          marker="e"*40
+          fresh_vps.deploy_app(root,app,marker)
+          assert (root/"srv/fresh-website/current"/app).resolve()!=first
+          fresh_vps.rollback(root,app)
+          assert (root/"srv/fresh-website/current"/app).resolve()==first
+          assert (root/"srv/fresh-website/current"/app/"part01/app.py").read_bytes()==original
+          print("PASS: actual staged app revision rollback")
+          PY
+      - name: Publish integrated test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-vps-integrated-test
+          path: |
+            /tmp/fresh-vps-one-shot-result.json
+            /tmp/fresh-vps-one-shot/srv/fresh-website/integrated-test-report.json
+          if-no-files-found: ignore
+          retention-days: 7
