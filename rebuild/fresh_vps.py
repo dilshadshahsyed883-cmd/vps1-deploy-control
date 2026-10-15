@@ -58,7 +58,18 @@ def sources(app):
     out=[]
     for path in sorted(src.rglob("*")):
         rel=path.relative_to(src)
-        if any(p.lower() in SKIP for p in rel.parts) or "algrow" in str(rel).lower():
+        # A Python *source package* named db must not be confused with a
+        # mutable SQLite database directory. Only the exact LUM repository
+        # code package is exempt; actual .db/.sqlite files are never imported.
+        lum_db_code = (
+            app == "local-upload-manager"
+            and len(rel.parts) >= 5
+            and rel.parts[0] in ("part01", "part02", "part03")
+            and rel.parts[1:4] == ("desktop_core", "modules", "db")
+            and path.suffix.lower() == ".py"
+        )
+        banned = {segment.lower() for segment in rel.parts if segment.lower() in SKIP}
+        if "algrow" in str(rel).lower() or (banned and not (lum_db_code and banned == {"db"})):
             continue
         if path.is_symlink():raise ValueError("source symlink "+str(rel))
         if not path.is_file() or path.suffix.lower() not in EXT:continue

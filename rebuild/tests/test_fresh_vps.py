@@ -30,6 +30,20 @@ class FreshRootfsTests(unittest.TestCase):
                 files=f.sources("short-maker")
             self.assertEqual([item[0] for item in files],["part01/app.py"])
 
+    def test_real_lum_database_repository_source_is_not_runtime_data(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo=Path(d)
+            package=repo/"apps/local-upload-manager/part01/desktop_core/modules/db"
+            package.mkdir(parents=True)
+            (package/"__init__.py").write_text("# source module\n")
+            (package/"repository.py").write_text("class QueueRepository: pass\n")
+            (package/"old-data.sqlite3").write_bytes(b"SQLite format 3\\x00")
+            with patch.object(f,"ROOT",repo):
+                items=f.sources("local-upload-manager")
+            self.assertEqual([path for path,_ in items],
+                ["part01/desktop_core/modules/db/__init__.py",
+                 "part01/desktop_core/modules/db/repository.py"])
+
     def test_credential_content_blocks_release(self):
         with tempfile.TemporaryDirectory() as d:
             repo=Path(d);src=repo/"apps/short-maker"
