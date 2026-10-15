@@ -1,0 +1,41 @@
+ACS Documentary Scroll Production Profile v5
+
+SOURCE MANIFEST SHA256
+794dcd6aaa7a069a0ea1756df347b6aadc356181dae3e4b6bb2dbca17f2cc0b4
+
+SOURCE UPLOAD
+file_count=3
+total_bytes=34225587
+completed_at=2026-08-22T18:11:37.725010+00:00
+
+SOURCE SETTINGS COUNT
+193
+
+REUSABLE GROUPS INCORPORATED
+- Canvas/output: width, height, fps, CRF, encoder, post-render compression
+- Pipeline/sync: auto pipeline, auto backgrounds, auto sync, voice-centered start
+- Scrolling text: font fallback, font size, spacing, margins, text width/X, scroll speed
+- Text plate: enabled/follow mode, color, opacity, padding, radius, fixed-plate geometry
+- Foreground: story visualizer requirement, X/Y/width/opacity
+- Background: gradient colors, brightness, dark overlay
+- Pexels: library reuse, image mode, interval, motion, transitions, timing
+- Audio: voice volume/speed/processing, music/ducking defaults
+- Caption compatibility: script source, better sync, language auto, SRT/gap tightening
+
+INTENTIONALLY EXCLUDED FROM GENERIC PRESET
+- project_id/job_id/queue status and retry state
+- project_name and full script text
+- audio/output/local Windows paths
+- Pexels API key and runtime cache file paths
+- Piper model/speaker/output paths
+- metadata.scene_sync_plan and other project-specific scene/character data
+- language-specific Arabic story template and project-specific font selection
+
+IMPROVEMENTS OVER THE SINGLE SOURCE PROJECT
+- Generic language-aware Auto Font rather than Arabic-only font/template.
+- Cinematic motion enabled with moderate 100% speed / 42% intensity.
+- Auto Pexels interval reduced to 8 seconds for documentary visual variation.
+- Neutral black outline replaces project-specific red outline.
+- Story visualizer explicitly enabled because the renderer gates foreground rendering through it.
+- Auto Pexels consumes the protected preset cache; live renderer downloads remain disabled.
+- Drive-verified immediate cleanup remains outside the preset and unchanged.

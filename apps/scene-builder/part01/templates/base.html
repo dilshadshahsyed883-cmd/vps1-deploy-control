@@ -1,0 +1,265 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Scene Builder</title><link rel="stylesheet" href="/static/styles.css"><link rel="stylesheet" href="/static/deployment2.css?v=1"><link rel="stylesheet" href="/static/user_management_redesign.css?v=1"><link rel="stylesheet" href="/static/scene_builder_workspace_v175.css?v=175d-r6"><link rel="stylesheet" href="/static/responsive_system_v1.css?v=20260824-r1"><link rel="stylesheet" href="/static/dashboard_control_center.css?v=20260825-v1">
+<style>
+.story-suite-main{max-width:none;padding:26px 34px 42px}
+.story-suite-main.acs-main{padding:26px 34px 42px}
+.story-suite-main>.story-suite-header,.story-suite-main>.story-work-tabs,.story-suite-main>.acs-suite-tabs,.story-suite-main>.sw-shell,.story-suite-main>#algrow-app,.story-suite-main>.acs-shell{width:100%;max-width:1400px;margin-left:auto;margin-right:auto}
+.story-suite-main>.story-suite-header{margin-bottom:18px}
+.story-work-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;padding:6px;margin-bottom:16px;border:1px solid #dce4ef;border-radius:13px;background:#e9eef7;box-shadow:0 4px 14px rgba(31,45,74,.04)}
+.story-work-tabs a{display:flex;align-items:center;justify-content:center;min-height:42px;padding:9px 14px;border-radius:9px;color:#475467;font-size:13px;font-weight:800;text-align:center;text-decoration:none;transition:background .16s ease,color .16s ease,box-shadow .16s ease}
+.story-work-tabs a:hover{background:#f5f7fb;color:#344054}.story-work-tabs a.active{background:#fff;color:#2457d6;box-shadow:0 3px 10px rgba(31,45,74,.11)}
+@media(max-width:760px){.story-suite-main,.story-suite-main.acs-main{padding:18px 14px 30px}.story-work-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}.story-work-tabs a{min-height:40px;padding:8px 9px}}
+
+/* VIDEO_STUDIO_UI_UNIFIED_V1 */
+[data-video-studio-subnav="1"]{width:100%!important;max-width:1400px!important;margin-left:auto!important;margin-right:auto!important;box-sizing:border-box!important}
+.story-suite-main.acs-main{max-width:none!important;padding:26px 34px 42px!important}
+.story-suite-main.acs-main>.story-suite-header{width:100%!important;max-width:1400px!important;margin-left:auto!important;margin-right:auto!important;margin-bottom:18px!important}
+.story-suite-main.acs-main>.acs-shell{width:100%!important;max-width:1400px!important;height:calc(100vh - 250px)!important;min-height:680px!important;margin:0 auto 30px!important;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;overflow:hidden!important}
+.story-suite-main.acs-main #acs-studio-frame{display:block!important;width:100%!important;height:100%!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important}
+@media(max-width:760px){.story-suite-main.acs-main{padding:72px 14px 30px!important}.story-suite-main.acs-main>.acs-shell{height:calc(100dvh - 190px)!important;min-height:560px!important;margin-bottom:16px!important}}
+
+</style>
+<style id="universal-theme-v3">
+:root {
+  --sb-bg: #f8fafc;
+  --sb-card: #ffffff;
+  --sb-border: #e2e8f0;
+  --sb-accent: #4f46e5;
+  --sb-text: #0f172a;
+  --sb-muted: #64748b;
+  --sb-spacing-sm: 8px;
+  --sb-spacing-md: 16px;
+  --sb-spacing-lg: 24px;
+  --sb-radius: 12px;
+  --sb-radius-sm: 8px;
+}
+body { background-color: var(--sb-bg) !important; color: var(--sb-text) !important; font-family: 'Inter', system-ui, -apple-system, sans-serif !important; margin: 0; }
+.card, .panel, .live-control-card, #title-to-publish-panel { background-color: var(--sb-card) !important; border: 1px solid var(--sb-border) !important; border-radius: var(--sb-radius) !important; box-shadow: 0 1px 3px 0 rgba(0,0,0,0.1), 0 1px 2px 0 rgba(0,0,0,0.06) !important; padding: var(--sb-spacing-lg) !important; margin-bottom: var(--sb-spacing-lg) !important; }
+h1, h2, h3, h4, h5, h6 { margin-top: 0 !important; margin-bottom: var(--sb-spacing-md) !important; color: var(--sb-text) !important; }
+label { display: block !important; margin-bottom: var(--sb-spacing-sm) !important; font-weight: 600 !important; font-size: 13px !important; color: var(--sb-muted) !important; }
+.form-control, input[type="text"], input[type="number"], input[type="password"], select, textarea { background-color: #ffffff !important; border: 1px solid var(--sb-border) !important; border-radius: var(--sb-radius-sm) !important; padding: 10px 14px !important; box-sizing: border-box !important; margin-bottom: var(--sb-spacing-md) !important; width: 100%; max-width: 100%; color: var(--sb-text) !important; transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out; font-family: inherit !important; font-size: 14px !important; }
+.form-control:focus, input[type="text"]:focus, input[type="password"]:focus, select:focus, textarea:focus { border-color: var(--sb-accent) !important; outline: none !important; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1) !important; }
+.btn-primary, button.primary { background-color: var(--sb-accent) !important; border-color: var(--sb-accent) !important; color: #ffffff !important; border-radius: var(--sb-radius-sm) !important; font-weight: 600 !important; padding: 10px 20px !important; cursor: pointer; display: inline-block; margin-top: 4px; border: none !important; }
+.btn-secondary, button.secondary { background-color: #ffffff !important; border: 1px solid var(--sb-border) !important; color: var(--sb-text) !important; border-radius: var(--sb-radius-sm) !important; font-weight: 600 !important; padding: 10px 20px !important; cursor: pointer; display: inline-block; margin-top: 4px; }
+.btn-primary:hover, button.primary:hover { opacity: 0.9 !important; }
+.row, .form-group, .mb-3, .mt-3 { margin-bottom: var(--sb-spacing-md) !important; }
+</style>
+
+<style id="acs-ui-overrides">
+/* Force ACS wrapper to flow naturally without inner scrollbar */
+.acs-shell, .acs-workspace, #acs-scroll-wrapper, div[style*="overflow-y: auto"] {
+    height: auto !important;
+    max-height: none !important;
+    overflow-y: visible !important;
+}
+/* Hide specific big headers in ACS if they use a class */
+.acs-header-block, .page-header { display: none !important; }
+/* Normalize ACS subtabs to Scene Builder standard */
+.acs-subnav a.active, .sub-tabs a.active, .acs-tabs a.active, .nav-pills .nav-link.active, .story-work-tabs a.active {
+    background-color: #ffffff !important;
+    color: #2457d6 !important;
+    box-shadow: 0 3px 10px rgba(31,45,74,0.11) !important;
+    border: 1px solid #dce4ef !important;
+}
+.acs-subnav a, .sub-tabs a, .acs-tabs a {
+    color: #475467 !important;
+    font-weight: 800 !important;
+}
+/* Standardize worker card borders */
+.worker-card, .status-card, .acs-card, .card {
+    border-left: 1px solid var(--sb-border) !important;
+}
+</style>
+
+
+<style id="acs-ui-overrides-v2">
+/* Universal Theme Integration */
+:root {
+  --sb-bg: #f8fafc;
+  --sb-card: #ffffff;
+  --sb-border: #e2e8f0;
+  --sb-accent: #4f46e5;
+  --sb-text: #0f172a;
+  --sb-muted: #64748b;
+  --sb-spacing-sm: 8px;
+  --sb-spacing-md: 16px;
+  --sb-spacing-lg: 24px;
+  --sb-radius: 12px;
+  --sb-radius-sm: 8px;
+  --bg: #f8fafc;
+  --panel: #ffffff;
+  --line: #e2e8f0;
+}
+body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-text) !important; font-family: 'Inter', system-ui, -apple-system, sans-serif !important; }
+
+/* 1. Remove forced heights and double scrollbars in ACS */
+.acs-shell, .acs-workspace, #acs-scroll-wrapper, .scroll-container, .main-scroll, div[style*="overflow-y: auto"], div[style*="overflow-y: scroll"], div[style*="height: 100vh"] {
+    height: auto !important;
+    max-height: none !important;
+    overflow-y: visible !important;
+}
+
+/* 2. Hide Auto Caption Studio Headers */
+.head h2, .head p, .acs-header-block, .page-header { display: none !important; }
+.head { margin-bottom: 0 !important; }
+
+/* 3. Normalize ACS subtabs to Scene Builder standard */
+.acs-subnav a.active, .sub-tabs a.active, .acs-tabs a.active, .nav-pills .nav-link.active, .story-work-tabs a.active, .tabs a.active {
+    background-color: #ffffff !important;
+    color: #2457d6 !important;
+    box-shadow: 0 3px 10px rgba(31,45,74,0.11) !important;
+    border: 1px solid #dce4ef !important;
+}
+.acs-subnav a, .sub-tabs a, .acs-tabs a, .tabs a {
+    color: #475467 !important;
+    font-weight: 800 !important;
+    background-color: transparent !important;
+}
+
+/* 4. Standardize worker card borders and margins */
+.worker-card, .status-card, .acs-card, .card {
+    border-left: 1px solid var(--sb-border) !important;
+    background-color: var(--sb-card) !important; 
+    border: 1px solid var(--sb-border) !important; 
+    border-radius: var(--sb-radius) !important; 
+    box-shadow: 0 1px 3px 0 rgba(0,0,0,0.1), 0 1px 2px 0 rgba(0,0,0,0.06) !important; 
+    padding: var(--sb-spacing-lg) !important;
+}
+</style>
+
+</head>
+<body class="{% if page=='dashboard' %}dashboard-page{% endif %}">
+<button id="mobile-nav-toggle" class="mobile-nav-toggle" type="button"
+  aria-label="Open navigation menu" aria-controls="app-sidebar" aria-expanded="false">
+  <span></span><span></span><span></span>
+</button>
+<div id="mobile-nav-overlay" class="mobile-nav-overlay" hidden></div>
+<aside id="app-sidebar" class="sidebar">
+  <div class="brand"><div class="logo">S</div><div><strong>Scene Builder</strong><small>Team Studio</small></div></div>
+  <nav>
+    <a class="{% if page=='dashboard' %}active{% endif %}" href="/">Dashboard</a>
+
+    <a class="{% if page=='local_upload_manager' %}active{% endif %}" href="/local-upload-manager">Auto Uploader</a>
+    <a class="{% if page in ['queue','settings','audit_media','auto_caption_studio','auto_caption_live'] %}active{% endif %}" href="/queue">Video Studio</a>
+
+<a class="{% if page=='voice_studio' %}active{% endif %}" href="/voice-studio">Voice Studio</a>
+<a class="{% if page=='auto_script' %}active{% endif %}" href="/auto-script">Auto Script</a>
+
+    <!-- YOUTUBE_NICHE_RESEARCH_V1_NAV -->
+<!-- STORY_WORK_V1_NAV -->
+    {% if request.session.get("app_access") == "all" or request.session.get("is_admin") %}
+    {% endif %}
+
+    {% if request.session.get("app_access") in ["scene_builder","both","all"] or request.session.get("is_admin") %}
+    {% endif %}
+
+
+
+    {# SCENE_AUDIO_ENGINE_NAV_REMOVED_V1: Audio Engine lives inside Scene Builder Settings #}
+
+    {% if request.session.get("app_access") in ["lum","all"] or request.session.get("is_admin") %}
+    {% endif %}
+
+
+
+    {% if request.session.get("is_admin") %}
+    <a class="{% if page in ['admin','storage_manager','user_management'] %}active{% endif %}" href="/admin">Admin</a>
+    {% endif %}
+  </nav>
+  <div class="sidebar-account">
+    <div class="sidebar-account-name">{{ username or 'team' }}</div>
+    <form action="/logout" method="post"><button type="submit">Log out</button></form>
+  </div>
+  <div class="server-dot"><span></span> VPS Connected</div>
+</aside>
+<main class="{% if page in ['auto_caption_studio','auto_caption_live'] %}acs-main {% endif %}{% if page in ['script_work','algrow_voice','auto_caption_studio','auto_caption_live'] %}story-suite-main {% endif %}{% if page=='atomic_flow' %}atomic-flow-main{% endif %}{% if page=='youtube_niche_research' %} ynr-main{% endif %}">
+{% if page in ['queue','settings','audit_media','auto_caption_studio','auto_caption_live'] %}<nav data-video-studio-subnav="1" aria-label="Video Studio" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;margin:0 0 18px;background:#f8faff;border:1px solid #dfe5ef;border-radius:11px;box-shadow:0 2px 8px rgba(28,44,78,.03)"><a href="/queue" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;{% if page in ['queue','settings','audit_media'] %}background:#315edb;color:#fff;border-color:#315edb{% else %}background:#fff;color:#34415b{% endif %}">Scene Builder</a><a href="/auto-caption/studio" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;{% if page in ['auto_caption_studio','auto_caption_live'] %}background:#315edb;color:#fff;border-color:#315edb{% else %}background:#fff;color:#34415b{% endif %}">Auto Caption Studio</a><a href="/short-maker/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;background:#fff;color:#34415b">Short Maker</a><a href="/video-merger/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;background:#fff;color:#34415b">Video Merger</a></nav>{% endif %}
+
+{% if page in ['queue','settings','audit_media'] %}
+<header class="scene-workspace-header">
+  <nav class="scene-workspace-tabs" aria-label="Scene Builder">
+    <a class="{% if page=='queue' %}active{% endif %}" href="/queue">Queue</a>
+    <a class="{% if page=='settings' %}active{% endif %}" href="/settings">Settings</a>
+    <a class="{% if page=='audit_media' %}active{% endif %}" href="/audit-media">Audit Media{% if audit_waiting_count|default(0) %}<span class="scene-audit-count">{{ audit_waiting_count }}</span>{% endif %}</a>
+  </nav>
+  
+</header>
+{% elif page=='user_management' %}
+<header><div><h1>User Management</h1></div></header>
+{% else %}
+<header class="{% if page in ['script_work','algrow_voice','auto_caption_studio','auto_caption_live'] %}story-suite-header{% endif %}"><div><h1>{% block title %}{% endblock %}</h1><p>{% block subtitle %}{% endblock %}</p></div></header>
+{% endif %}
+{% if page in ['script_work','algrow_voice'] %}
+<!-- STORY_WORK_SUITE_TABS_V2 -->
+<nav class="story-work-tabs" aria-label="Auto Caption Studio">
+<a href="/auto-caption/studio">Auto Caption Studio</a>
+</nav>
+{% endif %}
+{% block content %}{% endblock %}</main>{% block scripts %}{% endblock %}
+<script>
+/* MOBILE_NAVIGATION_CONTROLLER */
+(() => {
+  const toggle = document.getElementById('mobile-nav-toggle');
+  const sidebar = document.getElementById('app-sidebar');
+  const overlay = document.getElementById('mobile-nav-overlay');
+  if (!toggle || !sidebar || !overlay) return;
+
+  const openMenu = () => {
+    document.body.classList.add('mobile-nav-open');
+    sidebar.classList.add('mobile-open');
+    overlay.hidden = false;
+    requestAnimationFrame(() => overlay.classList.add('visible'));
+    toggle.setAttribute('aria-expanded', 'true');
+    toggle.setAttribute('aria-label', 'Close navigation menu');
+  };
+
+  const closeMenu = () => {
+    document.body.classList.remove('mobile-nav-open');
+    sidebar.classList.remove('mobile-open');
+    overlay.classList.remove('visible');
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-label', 'Open navigation menu');
+    window.setTimeout(() => {
+      if (!overlay.classList.contains('visible')) overlay.hidden = true;
+    }, 220);
+  };
+
+  toggle.addEventListener('click', () => {
+    sidebar.classList.contains('mobile-open') ? closeMenu() : openMenu();
+  });
+  overlay.addEventListener('click', closeMenu);
+  sidebar.querySelectorAll('nav a').forEach(link => link.addEventListener('click', closeMenu));
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') closeMenu();
+  });
+  window.addEventListener('resize', () => {
+    if (window.innerWidth > 760) closeMenu();
+  });
+})();
+</script>
+
+<script>
+/* WHOLE_WEB_MOBILE_NAV_GUARD_V2 */
+(() => {
+  const body=document.body;
+  const toggle=document.getElementById('mobile-nav-toggle');
+  const sidebar=document.getElementById('app-sidebar');
+  const overlay=document.getElementById('mobile-nav-overlay');
+  if(!body||!toggle||!sidebar||!overlay)return;
+  const hardClose=()=>{
+    body.classList.remove('mobile-nav-open');
+    sidebar.classList.remove('mobile-open');
+    overlay.classList.remove('visible');
+    overlay.hidden=true;
+    toggle.setAttribute('aria-expanded','false');
+    toggle.setAttribute('aria-label','Open navigation menu');
+  };
+  window.addEventListener('pageshow',hardClose);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!sidebar.classList.contains('mobile-open'))hardClose();});
+  sidebar.querySelectorAll('nav a').forEach(a=>a.addEventListener('click',()=>{
+    body.classList.remove('mobile-nav-open');
+    overlay.classList.remove('visible');
+    overlay.hidden=true;
+  },{capture:true}));
+})();
+</script>
+</body></html>

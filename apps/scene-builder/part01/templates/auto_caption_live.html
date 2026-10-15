@@ -1,0 +1,282 @@
+{% extends "base.html" %}
+{% block title %}Auto Caption Studio{% endblock %}
+{% block subtitle %}Caption, media, presets, and final-video production workspace{% endblock %}
+<!-- ACS_HIDE_EMBEDDED_VIDEO_STUDIO_NAV_V3 -->
+{% block content %}
+
+{% if request.query_params.get('embed') == '1' %}
+<style id="ACS_LIVE_EMBED_REFERENCE_V1">
+html,body{background:#fff!important;overflow-x:hidden!important}
+.sidebar,.mobile-nav-toggle,.mobile-nav-overlay,.story-suite-header,.story-work-tabs,.acs-suite-tabs,[data-video-studio-subnav="1"]{display:none!important}
+main,.story-suite-main,.acs-main{margin-left:0!important;padding:0!important;width:100%!important;max-width:none!important}
+.story-suite-main>*{width:100%!important;max-width:none!important;margin-left:0!important;margin-right:0!important}
+</style>
+<script>
+document.addEventListener('DOMContentLoaded',()=>{
+  for(const e of document.querySelectorAll('h1,h2,h3,h4,b,strong,span')){
+    if((e.textContent||'').trim()==='Algrow'){
+      const card=e.closest('.card,.worker-card,[class*="worker"],[class*="engine"]');
+      if(card) card.style.display='none';
+    }
+  }
+});
+</script>
+{% endif %}
+
+{% include "acs_studio_nav.html" %}
+<style>
+.acl-lanes{display:grid;grid-template-columns:repeat(2,minmax(280px,1fr));gap:12px;margin-bottom:16px}
+.acl-card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;box-shadow:0 8px 24px rgba(34,45,78,.05)}
+.acl-number{font-size:28px;font-weight:800;line-height:1}.acl-muted{color:var(--muted)}.acl-error{color:var(--bad)}
+.acl-label{margin-top:8px;font-size:13px;color:var(--muted)}
+.acl-head,.acl-row{display:flex;align-items:center;justify-content:space-between;gap:12px}.acl-head h2{margin:0;font-size:16px}
+.acl-lane{position:relative;min-height:0;padding:14px 16px;overflow:hidden}.acl-lane:before{content:'';position:absolute;inset:0 auto 0 0;width:3px;background:#cbd5e1}
+.acl-lane[data-worker="voice"]:before{background:#8b5cf6}.acl-lane[data-worker="render"]:before{background:#2563eb}.acl-lane[data-worker="compress"]:before{background:#0891b2}.acl-lane[data-worker="upload"]:before{background:#16a34a}
+.acl-worker-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.acl-worker-identity,.acl-worker-meta{display:flex;align-items:center;gap:9px;min-width:0}.acl-worker-identity h2{margin:0;font-size:16px;white-space:nowrap}
+.acl-queue-pill{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;background:#f1f5f9;color:#64748b;font-size:11px;font-weight:700;white-space:nowrap}.acl-queue-pill.has-work{background:#eff6ff;color:#1d4ed8}
+.acl-worker-body{margin-top:13px;min-width:0}.acl-project{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.acl-worker-empty{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}.acl-worker-empty strong{color:#475569}.acl-worker-empty span:before{content:'·';margin-right:8px;color:#94a3b8}
+.acl-worker-body .acl-one{margin-top:5px}.acl-bar{height:6px;background:#e9eef5;border-radius:10px;overflow:hidden;margin-top:9px}.acl-fill{height:100%;background:linear-gradient(90deg,#2563eb,#60a5fa)}
+.acl-progress-line{display:flex;align-items:center;justify-content:space-between;margin-top:5px;font-size:12px}.acl-worker-pct{font-weight:800;color:#334155}
+.acl-row{border-top:1px solid var(--line);padding:13px 0}.acl-row:first-child{border-top:0}.acl-main{min-width:0;flex:1}
+.acl-one{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.acl-pct{width:52px;text-align:right;font-weight:800}
+.acl-table-wrap{overflow:auto}.acl-table{width:100%;border-collapse:collapse;font-size:13px}
+.acl-table th,.acl-table td{padding:10px 9px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:right}
+.acl-table th:first-child,.acl-table td:first-child{text-align:left}
+.acl-table th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.acl-batch{cursor:pointer}.acl-batch:hover{background:#f8fafc}
+.acl-detail{display:none;background:#f8fafc}.acl-detail.open{display:table-row}.acl-detail>td{padding:0!important}
+.acl-project-table{width:100%;border-collapse:collapse}
+.acl-project-table th,.acl-project-table td{padding:9px 12px;font-size:12px;text-align:left}
+.acl-project-table th:nth-child(n+2),.acl-project-table td:nth-child(n+2){text-align:center}
+.acl-pill{display:inline-block;padding:3px 7px;border-radius:999px;background:#e8eef8;font-size:11px;font-weight:700}
+.acl-pill.yes{background:#dcfce7;color:#166534}.acl-pill.no{background:#fee2e2;color:#991b1b}
+.acl-good{color:#15803d;font-weight:800}.acl-bad{color:#b91c1c;font-weight:800}
+.acl-section{margin-bottom:16px}
+
+.acl-batch-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:10px}
+.acl-priority{display:flex;gap:6px;flex-wrap:wrap}
+.acl-state{display:inline-flex;align-items:center;gap:5px;padding:4px 8px;border-radius:999px;background:#f1f5f9;color:#475569;font-size:11px;font-weight:700}
+.acl-state:before{content:'';width:7px;height:7px;border-radius:50%;background:#94a3b8}
+.acl-state.running:before{background:#f59e0b}.acl-state.active:before{background:#2563eb}.acl-state.paused:before{background:#7c3aed}
+.acl-state.attention:before{background:#dc2626}.acl-state.cancelled:before{background:#64748b}.acl-state.completed:before{background:#16a34a}
+.acl-pager{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.acl-page-btn{border:1px solid var(--line);border-radius:9px;padding:8px 12px;background:#fff;cursor:pointer}.acl-page-btn:hover{background:#f8fafc}.acl-page-btn:disabled{opacity:.42;cursor:not-allowed}
+.acl-page-center{display:flex;gap:9px;align-items:center;justify-content:center;flex-wrap:wrap}
+.acl-batch.cancelled{opacity:.72}.acl-batch.completed{background:#fbfffc}
+.acl-worker-state{font-size:10px;letter-spacing:.03em;font-weight:800;border-radius:999px;padding:5px 8px;background:#e2e8f0;color:#475569;white-space:nowrap}
+.acl-worker-state.working{background:#dbeafe;color:#1d4ed8}.acl-worker-state.idle{background:#dcfce7;color:#166534}
+.acl-worker-state.paused{background:#fef3c7;color:#92400e}.acl-worker-state.offline,.acl-worker-state.stopped{background:#fee2e2;color:#991b1b}
+.acl-control{display:inline-flex;align-items:center;gap:6px;border:1px solid #d7dee9;background:#fff;color:#334155;border-radius:8px;padding:6px 9px;font-size:11px;font-weight:750;white-space:nowrap;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.04);transition:border-color .15s,background .15s,color .15s}
+.acl-control:hover{border-color:#f59e0b;background:#fffbeb;color:#92400e}.acl-control.resume{border-color:#86efac;background:#f0fdf4;color:#166534}.acl-control:disabled{opacity:.55;cursor:wait}.acl-control-icon{display:inline-grid;place-items:center;width:17px;height:17px;border-radius:5px;background:#f1f5f9;font-size:10px;line-height:1}.acl-control.resume .acl-control-icon{background:#dcfce7}
+@media(max-width:760px){.acl-hide-mobile{display:none}}
+@media(max-width:680px){.acl-lanes{grid-template-columns:1fr}.acl-worker-head{align-items:flex-start;flex-direction:column}.acl-worker-meta{width:100%;justify-content:space-between}}
+</style>
+
+<section class="acl-lanes" id="acl-lanes"></section>
+
+<section class="acl-card acl-section">
+  <div class="acl-head">
+    <div><h2>Live batch audit</h2><div class="acl-muted" style="margin-top:4px">Running → Active/Queued → Paused → Failed/Attention → Cancelled → Completed</div></div>
+    <span id="acl-updated" class="acl-muted">Connecting…</span>
+  </div>
+  <div class="acl-batch-toolbar"><div id="acl-priority-summary" class="acl-priority"></div><span class="acl-state">10 per page</span></div>
+  <div class="acl-table-wrap" style="margin-top:10px">
+    <table class="acl-table">
+      <thead>
+        <tr>
+          <th>Batch</th>
+          <th>Total</th>
+          <th>Voice ready</th>
+          <th>Completed / Uploaded</th>
+          <th>Queued</th>
+          <th>Running</th>
+          <th>Failed</th>
+          <th>Other</th>
+        </tr>
+      </thead>
+      <tbody id="acl-batches">
+        <tr><td colspan="8" class="acl-muted">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="acl-pager">
+    <button class="acl-page-btn" id="acl-batch-prev">Previous</button>
+    <div class="acl-page-center"><span id="acl-batch-page-info" class="acl-muted"></span></div>
+    <button class="acl-page-btn" id="acl-batch-next">Next</button>
+  </div>
+</section>
+
+{% include "acs_live_operations.html" %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pct=n=>Math.max(0,Math.min(100,Number(n)||0));
+const openBatches=new Set();
+const batchPager={page:0,limit:10,items:[]};
+let controlBusy='';
+
+function workerJob(worker){
+  const job=worker?.current;
+  if(!job)return `<div class="acl-worker-body acl-worker-empty"><strong>${worker?.online?'No active job':'Worker offline'}</strong><span>${esc(worker?.runtime?.message||'Waiting for work')}</span></div>`;
+  const p=pct(job.progress);
+  return `<div class="acl-worker-body"><div class="acl-project">${esc(job.project_name||job.project_id||job.id)}</div><div class="acl-one acl-muted">${esc(job.message||job.current_stage||job.status||'Working')}</div>${job.progress==null?'':`<div class="acl-bar"><div class="acl-fill" style="width:${p}%"></div></div><div class="acl-progress-line"><span class="acl-muted">Progress</span><span class="acl-worker-pct">${p}%</span></div>`}</div>`
+}
+
+function renderWorkers(live){
+  const definitions=[
+    ['voice','Algrow',live.pipeline_counts.algrow_queue],
+    ['render','Renderer',live.pipeline_counts.renderer_queue],
+    ['compress','Compressor',live.pipeline_counts.compression_queue],
+    ['upload','Drive uploader',live.pipeline_counts.upload_queue]
+  ];
+  document.getElementById('acl-lanes').innerHTML=definitions.map(([key,title,waiting])=>{
+    const worker=live.workers?.[key]||{state:'offline',paused:false,online:false};
+    const state=worker.paused?'paused':worker.state||'offline';
+    const action=worker.paused?'resume':'pause';
+    const button=live.can_control?`<button class="acl-control ${action==='resume'?'resume':''}" data-worker="${key}" data-action="${action}" ${controlBusy===key?'disabled':''}><span class="acl-control-icon" aria-hidden="true">${action==='resume'?'▶':'Ⅱ'}</span>${action==='resume'?'Resume':'Pause after current'}</button>`:'';
+    const queueClass=Number(waiting)>0?' has-work':'';
+    return `<article class="acl-card acl-lane" data-worker="${key}"><div class="acl-worker-head"><div class="acl-worker-identity"><h2>${title}</h2><span class="acl-queue-pill${queueClass}">${Number(waiting)||0} waiting</span></div><div class="acl-worker-meta"><span class="acl-worker-state ${esc(state)}">${esc(state.toUpperCase())}</span>${button}</div></div>${workerJob(worker)}</article>`;
+  }).join('');
+  document.querySelectorAll('.acl-control').forEach(button=>button.addEventListener('click',()=>setPipeline(button.dataset.worker,button.dataset.action)));
+}
+
+async function setPipeline(name,action){
+  if(controlBusy)return;
+  controlBusy=name;
+  try{
+    const response=await fetch(`/auto-caption/api/acs-control/pipelines/${encodeURIComponent(name)}/${action}`,{method:'POST',headers:{'Accept':'application/json'},credentials:'same-origin'});
+    if(response.status===401){location.href='/login';throw new Error('Authentication required')}
+    const payload=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(payload.detail||`HTTP ${response.status}`);
+    await refreshAutoCaption();
+  }catch(error){
+    const updated=document.getElementById('acl-updated');
+    updated.textContent=`Control failed: ${error.message}`;
+    updated.className='acl-error';
+  }finally{
+    controlBusy='';
+  }
+}
+
+function liveBatchClass(b){
+  const running=Number(b.running)||0,queued=Number(b.queued)||0,failed=Number(b.failed)||0,cancelled=Number(b.cancelled)||0,total=Number(b.total)||0,completed=Number(b.completed_uploaded)||0;
+  const status=String(b.status||b.control_state||'').toLowerCase();
+  if(running>0||status==='running')return {rank:0,key:'running',label:'Running'};
+  if(status==='paused')return {rank:2,key:'paused',label:'Paused'};
+  if(failed>0||status==='failed'||status==='interrupted')return {rank:3,key:'attention',label:'Failed / Attention'};
+  if((cancelled>0&&cancelled+completed>=total)||status==='cancelled'||status==='canceled')return {rank:4,key:'cancelled',label:'Cancelled'};
+  if(total>0&&completed>=total||status==='completed')return {rank:5,key:'completed',label:'Completed'};
+  if(queued>0||total>completed+cancelled)return {rank:1,key:'active',label:'Active / Queued'};
+  return {rank:5,key:'completed',label:'Completed'};
+}
+function liveBatchTime(b){return Date.parse(b.updated_at||b.created_at||b.started_at||0)||0}
+
+function renderBatches(batches){
+  const body=document.getElementById('acl-batches');
+  const ordered=(Array.isArray(batches)?batches:[]).map(b=>({b,c:liveBatchClass(b)}))
+    .sort((x,y)=>x.c.rank-y.c.rank||liveBatchTime(y.b)-liveBatchTime(x.b)||String(y.b.batch_id||'').localeCompare(String(x.b.batch_id||'')));
+  batchPager.items=ordered;
+  const pageCount=Math.max(1,Math.ceil(ordered.length/batchPager.limit));
+  if(batchPager.page>=pageCount)batchPager.page=pageCount-1;
+  const start=batchPager.page*batchPager.limit,end=Math.min(start+batchPager.limit,ordered.length);
+  const page=ordered.slice(start,end);
+
+  const totals={running:0,active:0,paused:0,attention:0,cancelled:0,completed:0};
+  ordered.forEach(x=>totals[x.c.key]=(totals[x.c.key]||0)+1);
+  document.getElementById('acl-priority-summary').innerHTML=[
+    ['running','Running'],['active','Active'],['paused','Paused'],['attention','Attention'],['cancelled','Cancelled'],['completed','Completed']
+  ].filter(([k])=>totals[k]).map(([k,l])=>`<span class="acl-state ${k}">${l}: ${totals[k]}</span>`).join('');
+
+  document.getElementById('acl-batch-page-info').textContent=`${ordered.length?start+1:0}–${end} of ${ordered.length} batches`;
+  document.getElementById('acl-batch-prev').disabled=batchPager.page===0;
+  document.getElementById('acl-batch-next').disabled=end>=ordered.length;
+
+  if(!page.length){
+    body.innerHTML='<tr><td colspan="8" class="acl-muted">No batches found.</td></tr>';
+    return;
+  }
+  body.innerHTML=page.map(({b,c},i)=>{
+    const key=`batch-${esc(b.batch_id)}`;
+    const other=(Number(b.cancelled)||0)+(Number(b.other)||0);
+    const projects=(b.projects||[]).map(p=>{
+      const link=p.drive_web_url||p.drive_remote_path;
+      return `<tr>
+        <td>${esc(p.project_name)}</td>
+        <td><span class="acl-pill ${p.voice_ready?'yes':'no'}">${p.voice_ready?'YES':'NO'}</span></td>
+        <td>${esc(p.status)}</td>
+        <td>${esc(p.stage)}</td>
+        <td>${esc(p.drive_status||'')}</td>
+        <td>${link?`<a href="${esc(link)}" target="_blank" rel="noopener">Drive</a>`:''}</td>
+        <td>${esc(p.error||'')}</td>
+      </tr>`;
+    }).join('');
+    const opened=openBatches.has(key);
+    return `<tr class="acl-batch ${esc(c.key)}" data-key="${key}" title="${esc(c.label)}">
+      <td><b>${esc(b.batch_id)}</b><div style="margin-top:4px"><span class="acl-state ${esc(c.key)}">${esc(c.label)}</span></div></td>
+      <td>${Number(b.total)||0}</td>
+      <td class="${Number(b.voice_ready)===Number(b.total)?'acl-good':''}">${Number(b.voice_ready)||0}</td>
+      <td class="acl-good">${Number(b.completed_uploaded)||0}</td>
+      <td>${Number(b.queued)||0}</td>
+      <td>${Number(b.running)||0}</td>
+      <td class="${Number(b.failed)?'acl-bad':''}">${Number(b.failed)||0}</td>
+      <td>${other}</td>
+    </tr>
+    <tr class="acl-detail ${opened?'open':''}" data-detail="${key}">
+      <td colspan="8">
+        <div class="acl-table-wrap">
+          <table class="acl-project-table">
+            <thead><tr><th>Project</th><th>Voice</th><th>Job</th><th>Stage</th><th>Drive</th><th>Link</th><th>Error</th></tr></thead>
+            <tbody>${projects||'<tr><td colspan="7" class="acl-muted">No projects.</td></tr>'}</tbody>
+          </table>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  body.querySelectorAll('.acl-batch').forEach(row=>{
+    row.addEventListener('click',()=>{
+      const key=row.dataset.key;
+      const detail=body.querySelector(`[data-detail="${CSS.escape(key)}"]`);
+      if(!detail)return;
+      detail.classList.toggle('open');
+      if(detail.classList.contains('open'))openBatches.add(key);else openBatches.delete(key);
+    });
+  });
+}
+
+async function fetchJson(url){
+  const response=await fetch(url,{cache:'no-store',credentials:'same-origin'});
+  if(response.status===401){location.href='/login';throw new Error('Authentication required')}
+  if(!response.ok)throw new Error(`HTTP ${response.status}`);
+  return await response.json();
+}
+
+async function refreshAutoCaption(){
+  const updated=document.getElementById('acl-updated');
+  try{
+    const [live,audit]=await Promise.all([
+      fetchJson('/auto-caption/api/live'),
+      fetchJson('/auto-caption/api/live-audit')
+    ]);
+
+    renderWorkers(live);
+
+    renderBatches(audit.batches||[]);
+
+    updated.textContent=new Date(audit.updated_at||live.updated_at).toLocaleTimeString();
+    updated.className='acl-muted';
+  }catch(error){
+    updated.textContent=`Update failed: ${error.message}`;
+    updated.className='acl-error';
+  }
+}
+
+document.getElementById('acl-batch-prev').addEventListener('click',()=>{if(batchPager.page>0){batchPager.page--;renderBatches(batchPager.items.map(x=>x.b))}});
+document.getElementById('acl-batch-next').addEventListener('click',()=>{batchPager.page++;renderBatches(batchPager.items.map(x=>x.b))});
+refreshAutoCaption();
+setInterval(refreshAutoCaption,2000);
+</script>
+{% endblock %}

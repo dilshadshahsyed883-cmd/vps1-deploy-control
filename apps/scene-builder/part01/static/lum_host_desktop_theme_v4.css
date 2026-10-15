@@ -1,0 +1,57 @@
+/* LUM_HOST_DESKTOP_THEME_V4
+   Light LUM workspace matching desktop preview, while leaving global sidebar/navigation untouched. */
+
+body:has(#lum-host-frame){
+  background:#f7f8fc!important;
+}
+body:has(#lum-host-frame) main,
+body:has(#lum-host-frame) .main,
+body:has(#lum-host-frame) .main-content,
+body:has(#lum-host-frame) .content,
+body:has(#lum-host-frame) .content-area,
+body:has(#lum-host-frame) .page,
+body:has(#lum-host-frame) .page-content,
+body:has(#lum-host-frame) .page-container,
+body:has(#lum-host-frame) .container{
+  max-width:none!important;
+  background:#f7f8fc!important;
+  color:#172033!important;
+  font-family:Inter,"Segoe UI",Arial,sans-serif!important;
+}
+body:has(#lum-host-frame) h1{
+  color:#172033!important;
+  font-family:Inter,"Segoe UI",Arial,sans-serif!important;
+  font-size:25px!important;
+  font-weight:700!important;
+  letter-spacing:-.02em!important;
+}
+body:has(#lum-host-frame) .subtitle,
+body:has(#lum-host-frame) .page-subtitle,
+body:has(#lum-host-frame) header p{
+  color:#6b768b!important;
+}
+#lum-host-frame,.lum-host-frame{
+  display:block!important;
+  width:100%!important;
+  max-width:none!important;
+  min-width:0!important;
+  margin:0!important;
+  padding:0!important;
+  border:0!important;
+  border-radius:0!important;
+  box-shadow:none!important;
+  background:#f7f8fc!important;
+  color-scheme:light;
+}
+body:has(#lum-host-frame) *:has(> #lum-host-frame){
+  width:100%!important;
+  max-width:none!important;
+  margin-left:0!important;
+  margin-right:0!important;
+  padding-left:0!important;
+  padding-right:0!important;
+  border-left:0!important;
+  border-right:0!important;
+  box-shadow:none!important;
+  background:#f7f8fc!important;
+}

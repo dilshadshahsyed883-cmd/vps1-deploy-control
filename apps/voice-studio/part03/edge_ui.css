@@ -1,0 +1,22 @@
+<style id="voiceStudioEdgeEngineV1Css">
+body.vs-edge-active .enginebar, body.vs-edge-active section.page,body.vs-edge-active #vsKokoroWorkspace{display:none!important}
+#vsEdgeWorkspace[hidden]{display:none!important}
+#vsEdgeWorkspace{display:block;padding:10px 0 28px;color:#101828}
+#vsEdgeWorkspace .vse-card{background:#fff;border:1px solid #e2e7ef;border-radius:14px;padding:18px;margin:0 0 14px}
+#vsEdgeWorkspace .vse-title{font:750 24px system-ui,sans-serif;margin:2px 0 8px}
+#vsEdgeWorkspace .vse-note{font:12px system-ui,sans-serif;color:#64748b;line-height:1.65}
+#vsEdgeWorkspace .vse-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:10px}
+#vsEdgeWorkspace label{display:block;font:700 12px system-ui,sans-serif;margin-bottom:5px}
+#vsEdgeWorkspace input,#vsEdgeWorkspace select,#vsEdgeWorkspace textarea{width:100%;padding:10px;border:1px solid #d0d5dd;border-radius:8px;box-sizing:border-box;background:#fff;color:#111827}
+#vsEdgeWorkspace textarea{min-height:100px;resize:vertical}
+#vsEdgeWorkspace .vse-btn{border:0;border-radius:8px;padding:10px 14px;margin:3px 6px 3px 0;background:#6356de;color:#fff;font-weight:750;cursor:pointer}
+#vsEdgeWorkspace .vse-btn[disabled]{opacity:.5;cursor:not-allowed}
+#vsEdgeWorkspace .vse-btn.alt{background:#e4e7ec;color:#344054}
+#vsEdgeWorkspace .vse-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+#vsEdgeWorkspace .vse-tabs button{padding:10px 13px;border:1px solid #ddd;border-radius:8px;background:#f4f4fa;color:#475467;font-weight:700;cursor:pointer}
+#vsEdgeWorkspace .vse-tabs button[aria-selected="true"]{background:#6356de;color:#fff}
+#vsEdgeWorkspace table{width:100%;border-collapse:collapse;font-size:12px}
+#vsEdgeWorkspace td,#vsEdgeWorkspace th{text-align:left;padding:9px;border-bottom:1px solid #ddd;overflow-wrap:anywhere}
+@media(max-width:760px){ #vsEdgeWorkspace .vse-row{grid-template-columns:1fr}}
+</style>
+

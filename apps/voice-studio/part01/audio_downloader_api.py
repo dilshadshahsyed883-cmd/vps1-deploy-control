@@ -1,0 +1,730 @@
+"""Isolated YouTube audio extraction queue for the existing Voice Studio service.
+
+All job state and audio belong to AUDIO_DOWNLOADER_ROOT; other voice engines are untouched.
+Only explicitly authorized YouTube video URLs are accepted. No cookies or account bypass.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import sqlite3
+import subprocess
+import threading
+import time
+import uuid
+from datetime import datetime, timezone
+from contextlib import contextmanager
+from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
+
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
+from typing import Literal
+
+ROOT = Path(os.environ.get('AUDIO_DOWNLOADER_ROOT', '/home/ubuntu/apps/audio_downloader_voice_studio'))
+DATA = ROOT / 'data'
+DB = DATA / 'jobs.sqlite3'
+JOBS = DATA / 'jobs'
+DRIVE_REMOTE = os.environ.get('AUDIO_DOWNLOADER_DRIVE_REMOTE', 'gdrive')
+DRIVE_BASE = 'Audio Downloader'
+RCLONE_CONFIG = '/home/ubuntu/.config/masterctl/rclone.conf'
+YTDLP = os.environ.get('AUDIO_DOWNLOADER_YTDLP_BIN', str(ROOT / '.venv' / 'bin' / 'yt-dlp'))
+router = APIRouter(prefix='/tts/api/audio-downloader', tags=['Voice Studio Audio Downloader'])
+VIDEO_ID = re.compile(r'^[a-zA-Z0-9_-]{11}$')
+JOB_ID = re.compile(r'^ADJ-[A-F0-9]{16}$')
+_worker: threading.Thread | None = None
+
+
+def utc() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec='seconds')
+
+
+@contextmanager
+def db():
+    con = sqlite3.connect(str(DB), timeout=30, isolation_level=None)
+    con.row_factory = sqlite3.Row
+    con.execute('PRAGMA busy_timeout=25000')
+    try:
+        yield con
+    finally:
+        con.close()
+
+
+def init_storage() -> None:
+    JOBS.mkdir(parents=True, exist_ok=True, mode=0o750)
+    with db() as con:
+        con.execute('PRAGMA journal_mode=WAL')
+        con.execute('''CREATE TABLE IF NOT EXISTS jobs (
+            job_id TEXT PRIMARY KEY, batch_id TEXT NOT NULL, video_id TEXT NOT NULL,
+            url TEXT NOT NULL, project TEXT NOT NULL, folder TEXT NOT NULL,
+            format TEXT NOT NULL, quality INTEGER NOT NULL,
+            auto_upload INTEGER NOT NULL, keep_metadata INTEGER NOT NULL,
+            status TEXT NOT NULL, title TEXT, local_file TEXT, drive_path TEXT,
+            error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+            started_at TEXT, completed_at TEXT
+        )''')
+        con.execute('CREATE INDEX IF NOT EXISTS audio_job_queue ON jobs(status,created_at)')
+        if 'drive_url' not in {col[1] for col in con.execute('PRAGMA table_info(jobs)').fetchall()}:
+            try:
+                con.execute('ALTER TABLE jobs ADD COLUMN drive_url TEXT')
+            except sqlite3.OperationalError as exc:
+                if 'duplicate column name' not in str(exc).lower():
+                    raise
+
+
+def recover_interrupted_jobs() -> None:
+    # Only at application startup; do not mark actively processing jobs failed on API requests.
+    with db() as con:
+        con.execute("UPDATE jobs SET status='failed',error='Interrupted by service restart; retry manually',updated_at=? WHERE status IN ('downloading','uploading')", (utc(),))
+
+
+def video_url(value: str) -> tuple[str, str]:
+    if not isinstance(value, str) or len(value) > 350:
+        raise ValueError('Invalid YouTube URL length')
+    try:
+        p = urlsplit(value.strip())
+        bad_authority = bool(p.username or p.password or p.port)
+    except ValueError as exc:
+        raise ValueError('Invalid YouTube URL') from exc
+    if p.scheme != 'https' or bad_authority:
+        raise ValueError('Only HTTPS YouTube links are supported')
+    domain = (p.hostname or '').lower()
+    if domain in ('youtu.be', 'www.youtu.be'):
+        video = p.path.strip('/')
+        if '/' in video:
+            raise ValueError('Invalid short link')
+    elif domain in ('youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com'):
+        if p.path == '/watch':
+            ids = parse_qs(p.query, keep_blank_values=False).get('v', [])
+            video = ids[0] if len(ids) == 1 else ''
+        elif p.path.startswith('/shorts/') or p.path.startswith('/live/'):
+            parts = p.path.strip('/').split('/')
+            video = parts[1] if len(parts) == 2 else ''
+        else:
+            video = ''
+    else:
+        raise ValueError('Link must be a YouTube video')
+    if not VIDEO_ID.fullmatch(video):
+        raise ValueError('Invalid YouTube video ID (playlists are not supported)')
+    return video, 'https://www.youtube.com/watch?v=' + video
+
+
+def safe_folder(s: str, default='Untitled', maxlen=65) -> str:
+    value = re.sub(r'[^a-zA-Z0-9 _-]', '-', (s or '')).strip(' .-_')[:maxlen]
+    return value or default
+
+
+class BatchRequest(BaseModel):
+    links: list[str] = Field(min_length=1, max_length=30)
+    project_name: str = Field(default='Audio Batch', max_length=90)
+    drive_folder: str = Field(default='YouTube Audio', max_length=90)
+    format: Literal['mp3', 'wav'] = 'mp3'
+    quality: Literal[128, 192, 256] = 192
+    auto_upload: bool = True
+    keep_metadata: bool = False
+    permission_confirmed: bool = False
+
+
+def sanitized_row(row: sqlite3.Row) -> dict:
+    data = dict(row)
+    data.pop('local_file', None)
+    data['drive_url'] = data.get('drive_url') if data.get('status') == 'delivered' else None
+    data['audio_url'] = ('/tts/api/audio-downloader/jobs/' + data['job_id'] + '/audio') if row['local_file'] and Path(row['local_file']).is_file() else None
+    data['auto_upload'] = bool(data['auto_upload'])
+    data['keep_metadata'] = bool(data['keep_metadata'])
+    return data
+
+
+def deps() -> dict:
+    ytdlp = YTDLP if Path(YTDLP).is_file() and os.access(YTDLP, os.X_OK) else shutil.which('yt-dlp')
+    ffmpeg = shutil.which('ffmpeg')
+    rclone = shutil.which('rclone')
+    drive_cfg = Path(RCLONE_CONFIG).is_file()
+    return {'ytdlp': ytdlp, 'ffmpeg': ffmpeg, 'rclone': rclone, 'drive_configured': drive_cfg, 'ready': bool(ytdlp and ffmpeg), 'upload_ready': bool(rclone and drive_cfg)}
+
+
+@router.get('/status')
+def status():
+    init_storage()
+    d = deps()
+    with db() as con:
+        q = con.execute('SELECT status,COUNT(*) AS n FROM jobs GROUP BY status').fetchall()
+    return {'ready': d['ready'], 'reason': '' if d['ready'] else 'yt-dlp or FFmpeg unavailable',
+            'upload_ready': d['upload_ready'], 'drive_root': f'{DRIVE_REMOTE}:{DRIVE_BASE}',
+            'formats': ['mp3', 'wav'], 'quality': [128, 192, 256],
+            'queue': {v['status']: v['n'] for v in q}, 'worker': bool(_worker and _worker.is_alive())}
+
+
+@router.post('/jobs', status_code=201)
+def enqueue(payload: BatchRequest):
+    if not payload.permission_confirmed:
+        raise HTTPException(422, 'Confirm you have permission to download the content')
+    if not deps()['ready']:
+        raise HTTPException(503, 'Downloader unavailable: yt-dlp or FFmpeg not installed')
+    if payload.auto_upload and not deps()['upload_ready']:
+        raise HTTPException(503, 'Google Drive upload is not configured')
+    ids: list[tuple[str, str]] = []
+    try:
+        for link in payload.links:
+            ids.append(video_url(link))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    project = safe_folder(payload.project_name, 'Audio Batch')
+    folder = safe_folder(payload.drive_folder, 'YouTube Audio')
+    init_storage()
+    batch_id = 'ADB-' + uuid.uuid4().hex[:12].upper()
+    created = utc()
+    jobs = []
+    with db() as con:
+        con.execute('BEGIN IMMEDIATE')
+        try:
+            for video, url in ids:
+                jid = 'ADJ-' + uuid.uuid4().hex[:16].upper()
+                con.execute('''INSERT INTO jobs(job_id,batch_id,video_id,url,project,folder,format,quality,
+                    auto_upload,keep_metadata,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                    (jid, batch_id, video, url, project, folder, payload.format, payload.quality,
+                     int(payload.auto_upload), int(payload.keep_metadata), 'queued', created, created))
+                jobs.append(jid)
+            con.execute('COMMIT')
+        except BaseException:
+            con.execute('ROLLBACK')
+            raise
+    return {'batch_id': batch_id, 'created': len(jobs), 'job_ids': jobs}
+
+
+@router.get('/jobs')
+def list_jobs(limit: int = 100):
+    init_storage()
+    limit = max(1, min(limit, 200))
+    with db() as con:
+        rows = con.execute('SELECT * FROM jobs ORDER BY created_at DESC,job_id DESC LIMIT ?', (limit,)).fetchall()
+    return {'jobs': [sanitized_row(row) for row in rows]}
+
+
+def row_for(jid: str):
+    if not JOB_ID.fullmatch(jid):
+        raise HTTPException(404, 'Unknown audio job')
+    with db() as con:
+        row = con.execute('SELECT * FROM jobs WHERE job_id=?', (jid,)).fetchone()
+    if row is None:
+        raise HTTPException(404, 'Unknown audio job')
+    return row
+
+
+@router.get('/jobs/{job_id}')
+def get_job(job_id: str):
+    init_storage()
+    return sanitized_row(row_for(job_id))
+
+
+@router.post('/jobs/{job_id}/{action}')
+def job_action(job_id: str, action: Literal['cancel', 'retry']):
+    init_storage()
+    row = row_for(job_id)
+    with db() as con:
+        if action == 'cancel' and row['status'] == 'queued':
+            con.execute("UPDATE jobs SET status='cancelled',updated_at=? WHERE job_id=? AND status='queued'", (utc(), job_id))
+        elif action == 'retry' and row['status'] in ('failed', 'cancelled'):
+            con.execute("UPDATE jobs SET status='queued',error=NULL,started_at=NULL,completed_at=NULL,updated_at=? WHERE job_id=? AND status IN ('failed','cancelled')", (utc(), job_id))
+        else:
+            raise HTTPException(409, 'Action not available for this job status')
+    return {'job_id': job_id, 'action': action, 'ok': True}
+
+
+@router.get('/jobs/{job_id}/audio')
+def download_audio(job_id: str):
+    init_storage()
+    row = row_for(job_id)
+    local = row['local_file']
+    if not local:
+        raise HTTPException(404, 'Audio not ready')
+    f = Path(local).resolve()
+    expected = (JOBS / job_id).resolve()
+    if expected not in f.parents or not f.is_file():
+        raise HTTPException(404, 'Audio not found')
+    return FileResponse(str(f), media_type='audio/mpeg' if f.suffix == '.mp3' else 'audio/wav', filename=f.name)
+
+
+def _update(jid: str, new_state: str, **kwargs):
+    columns = ['status=?', 'updated_at=?']
+    values: list = [new_state, utc()]
+    for key in ('title', 'local_file', 'drive_path', 'drive_url', 'error', 'started_at', 'completed_at'):
+        if key in kwargs:
+            columns.append(key + '=?')
+            values.append(kwargs[key])
+    values.append(jid)
+    with db() as con:
+        con.execute(f'UPDATE jobs SET {", ".join(columns)} WHERE job_id=?', values)
+
+
+def _claim():
+    with db() as con:
+        con.execute('BEGIN IMMEDIATE')
+        row = con.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created_at,job_id LIMIT 1").fetchone()
+        if not row:
+            con.execute('COMMIT')
+            return None
+        con.execute("UPDATE jobs SET status='downloading',started_at=?,updated_at=? WHERE job_id=?", (utc(), utc(), row['job_id']))
+        con.execute('COMMIT')
+    return dict(row)
+
+
+def verified_drive_public_link(remote: str, local_path=None, expected_format='mp3') -> str:
+    """Check stored Drive file and anonymous download bytes before allowing local deletion."""
+    import hashlib
+    import urllib.parse
+    import urllib.request
+    if not isinstance(remote, str) or not remote.startswith(DRIVE_REMOTE + ':' + DRIVE_BASE + '/'):
+        raise RuntimeError('Unexpected Google Drive path')
+    if any(x in remote for x in ('..', '\\', '\n', '\r')):
+        raise RuntimeError('Unsafe Google Drive path')
+    tool = deps()['rclone']
+    if not tool:
+        raise RuntimeError('Google Drive link tool unavailable')
+    cmd = [tool, '--config', RCLONE_CONFIG]
+    probe = subprocess.run(cmd + ['lsjson', '--stat', '--hash', remote], capture_output=True, text=True, timeout=120, check=False)
+    if probe.returncode:
+        raise RuntimeError('Google Drive size/hash verification unavailable')
+    try:
+        stat = json.loads(probe.stdout)
+        size = int(stat['Size'])
+    except (ValueError, KeyError, TypeError) as exc:
+        raise RuntimeError('Google Drive remote stat invalid') from exc
+    if size < 1024:
+        raise RuntimeError('Google Drive file unexpectedly small')
+    if local_path is not None:
+        local = Path(local_path)
+        if not local.is_file() or local.stat().st_size != size:
+            raise RuntimeError('Local and Drive file sizes differ')
+        remote_md5 = (stat.get('Hashes') or {}).get('MD5', '').lower()
+        if not remote_md5:
+            hashes = subprocess.run(cmd + ['md5sum', remote], capture_output=True, text=True, timeout=120, check=False)
+            if hashes.returncode:
+                raise RuntimeError('Google Drive MD5 unavailable, keep local file')
+            remote_md5 = hashes.stdout.strip().split()[0].lower()
+        local_md5 = hashlib.md5()
+        with local.open('rb') as inp:
+            for piece in iter(lambda: inp.read(1<<20), b''):
+                local_md5.update(piece)
+        if local_md5.hexdigest() != remote_md5:
+            raise RuntimeError('Google Drive content hash mismatch, keep local file')
+    link = subprocess.run(cmd + ['link', remote], capture_output=True, text=True, timeout=120, check=False)
+    if link.returncode:
+        raise RuntimeError('Google Drive anyone-with-link permission failed')
+    provided = (link.stdout.strip().splitlines() or [''])[-1].strip()
+    parts = urllib.parse.urlsplit(provided)
+    if parts.scheme != 'https' or parts.hostname != 'drive.google.com':
+        raise RuntimeError('Unexpected Google Drive share link')
+    match = re.fullmatch(r'/file/d/([a-zA-Z0-9_-]+)/view/?', parts.path)
+    file_id = (match.group(1) if match else urllib.parse.parse_qs(parts.query).get('id', [''])[0])
+    if not re.fullmatch(r'[a-zA-Z0-9_-]{12,}', file_id):
+        raise RuntimeError('Google Drive share link missing file ID')
+    canonical = 'https://drive.google.com/file/d/' + file_id + '/view?usp=sharing'
+    # Important: no OAuth/cookies here. An anonymous response must actually be binary audio.
+    test_url = 'https://drive.google.com/uc?export=download&id=' + urllib.parse.quote(file_id)
+    req = urllib.request.Request(test_url, headers={'Range': 'bytes=0-1023', 'User-Agent':'Mozilla/5.0'})
+    try:
+        with urllib.request.urlopen(req, timeout=35) as resp:
+            mime = resp.headers.get('Content-Type','').split(';')[0].lower().strip()
+            header = resp.read(64)
+    except Exception as exc:
+        raise RuntimeError('Google Drive anonymous audio download not verified') from exc
+    audio_magic = header.startswith(b'ID3') or (header[:1] == b'\xff' and len(header)>1 and (header[1] & 0xe0)==0xe0)
+    wav_magic = header.startswith(b'RIFF')
+    if mime not in ('audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'application/octet-stream'):
+        raise RuntimeError('Drive anonymous access returned non-audio content')
+    if not (audio_magic if expected_format == 'mp3' else wav_magic):
+        raise RuntimeError('Drive anonymous response did not contain audio bytes')
+    return canonical
+
+
+def run_job(job: dict):
+    jid = job['job_id']
+    folder = JOBS / jid
+    folder.mkdir(mode=0o750, parents=True, exist_ok=True)
+    state = deps()
+    tool = state['ytdlp']
+    if not tool or not state['ffmpeg']:
+        raise RuntimeError('yt-dlp/FFmpeg unavailable')
+    audio_format = job['format']
+    out_template = str(folder / '%(title).70s [%(id)s].%(ext)s')
+    args = [tool, '--no-playlist', '--no-warnings', '--no-progress', '--no-cache-dir',
+            '--no-overwrites', '--restrict-filenames', '--max-filesize', '120M',
+            '--extract-audio', '--audio-format', audio_format, '--audio-quality', str(job['quality']) + 'K',
+            '--print', 'after_move:filepath', '-o', out_template]
+    if job['keep_metadata']:
+        args.append('--embed-metadata')
+    args.append(job['url'])
+    p = subprocess.run(args, capture_output=True, text=True, timeout=1800, cwd=str(folder), check=False, env=_youtube_proxy_env())
+    if p.returncode:
+        # No sensitive environment values or full command line in errors.
+        raise RuntimeError('yt-dlp failed: ' + _safe_proxy_error((p.stderr or p.stdout or 'unknown error')[-350:]))
+    paths = [Path(x.strip()) for x in (p.stdout or '').splitlines() if x.strip()]
+    paths = [x for x in paths if x.is_file() and x.suffix.lower() == '.' + audio_format and folder.resolve() in x.resolve().parents]
+    if not paths:
+        paths = sorted(folder.glob('*.' + audio_format))
+    if len(paths) != 1:
+        raise RuntimeError('Expected exactly one downloaded audio file')
+    original = paths[0]
+    safe = re.sub(r'[^a-zA-Z0-9._ -]', '_', original.stem).strip(' ._')[:105] or job['video_id']
+    final = folder / f'{safe}_{jid}.{audio_format}'
+    if original != final:
+        original.rename(final)
+    if final.stat().st_size <= 1000 or final.stat().st_size > 150 * 1024 * 1024:
+        raise RuntimeError('Unexpected downloaded audio size')
+    _update(jid, 'downloaded', title=safe, local_file=str(final))
+    if not job['auto_upload']:
+        _update(jid, 'completed', completed_at=utc())
+        return
+    if not state['upload_ready']:
+        raise RuntimeError('Google Drive connection unavailable')
+    _update(jid, 'uploading')
+    remote = (f'{DRIVE_REMOTE}:{DRIVE_BASE}/'
+              f'{safe_folder(job["folder"])}/{safe_folder(job["project"])}/{final.name}')
+    cmd = [state['rclone'], '--config', RCLONE_CONFIG, 'copyto', str(final), remote,
+           '--retries', '2', '--low-level-retries', '2', '--timeout', '5m', '--contimeout', '30s']
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=1500, check=False)
+    if result.returncode:
+        raise RuntimeError('Google Drive upload failed; retry available')
+    # Verify the destination's exact stored byte size before declaring delivered.
+    stat = subprocess.run([state['rclone'], '--config', RCLONE_CONFIG, 'lsjson', '--stat', remote],
+                          capture_output=True, text=True, timeout=120, check=False)
+    if stat.returncode:
+        raise RuntimeError('Upload verification unavailable')
+    try:
+        info = json.loads(stat.stdout)
+        size = int(info['Size'])
+    except (ValueError, KeyError, TypeError) as exc:
+        raise RuntimeError('Could not verify Drive destination size') from exc
+    if size != final.stat().st_size:
+        raise RuntimeError('Drive uploaded file size differs from local file')
+    public_url = verified_drive_public_link(remote, final, audio_format)
+    _update(jid, 'delivered', drive_path=remote, drive_url=public_url, completed_at=utc())
+    # No file deletion before remote size, MD5 and unauthenticated audio checks pass.
+    try:
+        if final.is_file() and final.resolve().parent == (JOBS / jid).resolve():
+            final.unlink()
+            _update(jid, 'delivered', local_file=None)
+    except OSError:
+        # Delivery remains valid; local cleanup can be retried without re-downloading.
+        pass
+
+
+def worker_loop():
+    while True:
+        try:
+            item = _claim()
+            if item:
+                try:
+                    run_job(item)
+                except Exception as exc:
+                    _update(item['job_id'], 'failed', error=str(exc)[:420])
+            else:
+                time.sleep(3)
+        except Exception:
+            time.sleep(5)
+
+
+def start_worker():
+    global _worker
+    init_storage()
+    if _worker is None or not _worker.is_alive():
+        recover_interrupted_jobs()
+        _bootstrap_audio_proxy_config()
+        _worker = threading.Thread(target=worker_loop, name='voice-studio-audio-downloader', daemon=True)
+        _worker.start()
+
+
+# AUDIO_DOWNLOADER_PROXY_V1 — private proxy profiles, copied once from Video Merger.
+# The original Video Merger service, settings and DB are never written to.
+import ipaddress
+import socket
+import tempfile
+import urllib.request
+import urllib.parse
+
+_PROXY_PATH = DATA / 'proxy_settings.json'
+_PROXY_LOCK = threading.RLock()
+_VIDEO_PROXY_CONFIG = None  # Test override only; production discovers its path from the Video Merger source.
+
+
+def _resolve_merger_proxy_path():
+    # Resolve the Video Merger-owned JSON path without executing its application.
+    if _VIDEO_PROXY_CONFIG is not None:
+        return Path(_VIDEO_PROXY_CONFIG)
+    import ast
+    source = Path('/opt/video-merger/app.py')
+    tree = ast.parse(source.read_text(encoding='utf-8'))
+    # Evaluate only literal path construction, never import or execute Video Merger.
+    known = {
+        'BASE': Path('/opt/video-merger'),
+        'DATA': Path('/opt/video-merger/data'),
+        'PROXY_CONFIG_DIR': Path('/opt/video-merger/data'),
+    }
+    def static(expr):
+        if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
+            return expr.value
+        if isinstance(expr, ast.Name) and expr.id in known:
+            return known[expr.id]
+        if isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.Div):
+            return Path(static(expr.left)) / str(static(expr.right))
+        if isinstance(expr, ast.Call) and isinstance(expr.func, ast.Name) and expr.func.id == 'Path' and len(expr.args)==1:
+            return Path(str(static(expr.args[0])))
+        if isinstance(expr, ast.Call) and isinstance(expr.func, ast.Attribute) and expr.func.attr in ('resolve','expanduser') and not expr.args:
+            p=Path(static(expr.func.value))
+            return p.expanduser() if expr.func.attr=='expanduser' else p.resolve()
+        raise ValueError('Unrecognized Video Merger proxy config path syntax')
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id in ('BASE','DATA','PROXY_CONFIG_DIR','PROXY_CONFIG_PATH'):
+                    try:
+                        known[target.id]=Path(static(node.value))
+                    except (ValueError, TypeError, OSError):
+                        continue
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id in ('PROXY_CONFIG_DIR','PROXY_CONFIG_PATH'):
+            try: known[node.target.id]=Path(static(node.value))
+            except (ValueError, TypeError,OSError): pass
+    p = known.get('PROXY_CONFIG_PATH')
+    if p is None:
+        return None
+    p=p.resolve()
+    # Never follow a source-specified path outside known Video Merger-owned configuration roots.
+    authorized = (Path('/opt/video-merger').resolve(),Path('/home/ubuntu/.config/video-merger').resolve(),Path('/home/ubuntu/.config/video-merger-proxy').resolve())
+    if not any(p == root or root in p.parents for root in authorized):
+        return None
+    return p
+
+
+def _import_merger_config():
+    # Read existing Video Merger JSON in memory; never write to the source.
+    path=_resolve_merger_proxy_path()
+    if not path or not path.is_file():
+        return None
+    obj=json.loads(path.read_text(encoding='utf-8'))
+    if not isinstance(obj,dict):
+        return None
+    raw=obj.get('profiles')
+    if not isinstance(raw,list):
+        return None
+    profiles=[]
+    for item in raw[:16]:
+        if not isinstance(item,dict):
+            continue
+        host=str(item.get('host') or '').strip()
+        try:port=int(item.get('port') or 0)
+        except (TypeError,ValueError):continue
+        if not _safe_proxy_host(host) or not 1 <= port <= 65535:
+            continue
+        profiles.append({
+           'id':str(item.get('id') or uuid.uuid4().hex[:12]),
+           'name':str(item.get('name') or 'Imported proxy')[:70],
+           'host':host,'port':port,
+           'username':str(item.get('username') or ''),
+           'password':str(item.get('password') or ''),
+        })
+    if not profiles:
+        return None
+    active=str(obj.get('active_id') or '')
+    if active not in {p['id'] for p in profiles}:
+        active=profiles[0]['id']
+    enabled=obj.get('enabled',True)
+    if isinstance(enabled,str):enabled=enabled.lower() in ('true','yes','on','1')
+    return {'enabled':bool(enabled),'active_id':active,'profiles':profiles,
+            'origin':'copied-once-from-video-merger'}
+
+def _safe_proxy_host(host: str) -> bool:
+    if not host or len(host) > 253 or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9.-]*', host):
+        return False
+    if host.lower() in ('localhost', 'localhost.localdomain') or host.endswith('.local'):
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_global
+    except ValueError:
+        return not (host.endswith('.') or host.startswith('127.') or '..' in host)
+
+
+def _write_proxy_config(cfg):
+    DATA.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if os.stat(DATA).st_uid == os.geteuid():
+        os.chmod(DATA, 0o700)
+    f = None
+    try:
+        # Never print payload, path-based secrets, or URLs in logs.
+        fd, f = tempfile.mkstemp(prefix='.audio-proxy-', dir=str(DATA))
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, 'w', encoding='utf-8') as out:
+            json.dump(cfg, out, ensure_ascii=True)
+        os.replace(f, _PROXY_PATH)
+        f = None
+        os.chmod(_PROXY_PATH, 0o600)
+    finally:
+        if f:
+            try: os.unlink(f)
+            except OSError: pass
+
+
+def _bootstrap_audio_proxy_config():
+    with _PROXY_LOCK:
+        if _PROXY_PATH.is_file():
+            return
+        try:
+            cfg = _import_merger_config() or _proxy_blank()
+        except (OSError, sqlite3.Error, ValueError):
+            cfg = _proxy_blank()
+        _write_proxy_config(cfg)
+
+
+def _read_proxy_config():
+    with _PROXY_LOCK:
+        if not _PROXY_PATH.is_file():
+            _bootstrap_audio_proxy_config()
+        try:
+            return json.loads(_PROXY_PATH.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            return _proxy_blank()
+
+
+def _public_proxy_config(cfg):
+    return {'enabled': bool(cfg.get('enabled')), 'active_id': cfg.get('active_id') or '',
+            'origin': cfg.get('origin', 'audio-downloader'),
+            'profiles': [{k:v for k,v in p.items() if k != 'password'} |
+                         {'password_saved': bool(p.get('password'))} for p in cfg.get('profiles', [])]}
+
+
+def _selected_proxy(cfg=None):
+    cfg = cfg or _read_proxy_config()
+    if not cfg.get('enabled'):
+        return None
+    return next((p for p in cfg.get('profiles', []) if p.get('id') == cfg.get('active_id')), None)
+
+
+def _youtube_proxy_env():
+    env = os.environ.copy()
+    profile = _selected_proxy()
+    if not profile:
+        return env
+    try:
+        credentials = ''
+        if profile.get('username'):
+            credentials = urllib.parse.quote(profile['username'], safe='') + ':' + urllib.parse.quote(profile.get('password') or '', safe='') + '@'
+        url = 'http://' + credentials + profile['host'] + ':' + str(int(profile['port']))
+    except (KeyError, ValueError):
+        raise RuntimeError('Invalid Audio Downloader proxy settings')
+    for key in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','http_proxy','https_proxy','all_proxy'):
+        env[key] = url
+    env.pop('NO_PROXY', None)
+    env.pop('no_proxy', None)
+    return env
+
+
+def _safe_proxy_error(error):
+    error = re.sub(r'https?://[^\s]+@[^\s]+', '[proxy-credentials-redacted]', str(error), flags=re.I)
+    cfg = _read_proxy_config()
+    for profile in cfg.get('profiles', []):
+        for key in ('password','username'):
+            value = profile.get(key)
+            if value and len(str(value)) >= 3:
+                error = error.replace(str(value), '[redacted]')
+                error = error.replace(urllib.parse.quote(str(value),safe=''), '[redacted]')
+    return error.replace('\x00','')[:350]
+
+
+class ProxyProfileRequest(BaseModel):
+    id: str = ''
+    name: str = Field(min_length=1, max_length=70)
+    host: str = Field(min_length=1, max_length=253)
+    port: int = Field(ge=1, le=65535)
+    username: str = Field(default='', max_length=300)
+    password: str = Field(default='', max_length=300)
+
+
+class ProxyEnabledRequest(BaseModel):
+    enabled: bool
+
+
+@router.get('/proxy')
+def get_proxy():
+    return _public_proxy_config(_read_proxy_config())
+
+
+@router.post('/proxy/profiles')
+def save_proxy_profile(payload: ProxyProfileRequest):
+    if not _safe_proxy_host(payload.host):
+        raise HTTPException(422, 'Invalid proxy host')
+    with _PROXY_LOCK:
+        cfg = _read_proxy_config()
+        existing = next((p for p in cfg['profiles'] if p['id'] == payload.id), None)
+        value = payload.model_dump()
+        if existing and not payload.password:
+            value['password'] = existing.get('password','')
+        value['id'] = existing['id'] if existing else uuid.uuid4().hex[:12]
+        if existing:
+            cfg['profiles'] = [value if p['id'] == existing['id'] else p for p in cfg['profiles']]
+        else:
+            if len(cfg['profiles']) >= 16:
+                raise HTTPException(422, 'Maximum 16 proxy profiles')
+            cfg['profiles'].append(value)
+        if not cfg.get('active_id'):
+            cfg['active_id'] = value['id']
+        cfg['origin'] = 'audio-downloader'
+        _write_proxy_config(cfg)
+    return _public_proxy_config(cfg)
+
+
+@router.post('/proxy/enable')
+def enable_proxy(payload: ProxyEnabledRequest):
+    with _PROXY_LOCK:
+        cfg = _read_proxy_config()
+        if payload.enabled and not _selected_proxy({**cfg, 'enabled': True}):
+            raise HTTPException(422, 'Select a proxy profile first')
+        cfg['enabled'] = payload.enabled
+        _write_proxy_config(cfg)
+    return _public_proxy_config(cfg)
+
+
+@router.post('/proxy/profiles/{profile_id}/activate')
+def activate_proxy(profile_id: str):
+    with _PROXY_LOCK:
+        cfg = _read_proxy_config()
+        if not any(p['id'] == profile_id for p in cfg['profiles']):
+            raise HTTPException(404, 'Unknown proxy profile')
+        cfg['active_id'] = profile_id
+        _write_proxy_config(cfg)
+    return _public_proxy_config(cfg)
+
+
+@router.delete('/proxy/profiles/{profile_id}')
+def remove_proxy(profile_id: str):
+    with _PROXY_LOCK:
+        cfg = _read_proxy_config()
+        cfg['profiles'] = [p for p in cfg['profiles'] if p['id'] != profile_id]
+        if cfg['active_id'] == profile_id:
+            cfg['active_id'] = cfg['profiles'][0]['id'] if cfg['profiles'] else ''
+        if not cfg['profiles']:
+            cfg['enabled'] = False
+        _write_proxy_config(cfg)
+    return _public_proxy_config(cfg)
+
+
+@router.post('/proxy/profiles/{profile_id}/test')
+def verify_proxy(profile_id: str):
+    cfg = _read_proxy_config()
+    p = next((x for x in cfg['profiles'] if x['id'] == profile_id), None)
+    if not p:
+        raise HTTPException(404, 'Unknown proxy profile')
+    try:
+        usr = urllib.parse.quote(p.get('username') or '', safe='')
+        pw = urllib.parse.quote(p.get('password') or '', safe='')
+        creds = (usr+':'+pw+'@') if usr else ''
+        url = f'http://{creds}{p["host"]}:{int(p["port"])}'
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({'http':url, 'https':url}))
+        with opener.open(urllib.request.Request('https://www.youtube.com/robots.txt',headers={'User-Agent':'Mozilla/5.0'}),timeout=15) as response:
+            ok = response.status in (200, 206)
+        return {'ok': ok, 'message': 'Proxy connected to YouTube' if ok else 'Proxy connection unsuccessful'}
+    except Exception:
+        return {'ok': False, 'message': 'Proxy connection failed. Check profile credentials or provider status.'}

@@ -1,0 +1,294 @@
+{% extends "base.html" %}
+{% block content %}
+<link rel="stylesheet" href="/static/master_controller.css?v=20260905flowpair1">
+<section class="af-shell" id="af-app">
+  <button class="af-mobile-menu" id="af-mobile-menu" aria-label="Open navigation">☰</button>
+  <header class="af-header">
+    <div>
+      <span class="af-eyebrow">YOUTUBE AUTOMATION CONTROLLER</span>
+      <h1>Auto Flow <span>Frontend Preview V4</span></h1>
+      <p>Project-based control for channel workflow, approvals, scheduling and publishing.</p>
+    </div>
+    <div class="af-header-actions">
+      <span class="af-pill neutral">Frontend only</span>
+      <button class="af-btn ghost" id="af-ai-btn">✦ AI Design Assistant</button>
+    </div>
+  </header>
+
+  <nav class="af-tabs" aria-label="Auto Flow sections">
+    <button class="active" data-tab="dashboard">Dashboard</button>
+    <button data-tab="projects">Projects</button>
+    <button data-tab="workflow">Workflow</button>
+    <button data-tab="resources">Resources</button>
+    <button data-tab="activity">Activity</button>
+  </nav>
+
+  <section class="af-tab-panel active" id="af-tab-dashboard">
+    <div class="af-attention-strip" id="af-attention-strip">
+      <button data-attention="error"><b>1 Error</b><span>Render needs action</span></button>
+      <button data-attention="blocked"><b>2 Blocked</b><span>Waiting on dependency</span></button>
+      <button data-attention="approval"><b>6 Approvals</b><span>Thumbnail review</span></button>
+      <span class="af-attention-hint">Needs Attention · click to filter</span>
+    </div>
+
+    <section class="af-attention-queue" id="af-attention-queue">
+      <div class="af-attention-queue-head">
+        <div><small>UNIFIED OPERATIONS QUEUE</small><h2>Needs Attention</h2><p>Errors, approvals and outdated dependencies across active work.</p></div>
+        <div class="af-attention-queue-tools"><span id="af-attention-count">0 items</span><button class="af-btn ghost" id="af-attention-toggle">Collapse</button></div>
+      </div>
+      <div class="af-attention-queue-list" id="af-attention-queue-list"></div>
+    </section>
+
+    <div class="af-summary-grid">
+      <article><small>Channels</small><strong>4</strong><span>3 active · 1 paused</span></article>
+      <article><small>Working</small><strong>11</strong><span>Across all channels</span></article>
+      <article><small>Needs Approval</small><strong>6</strong><span>Thumbnail approval</span></article>
+      <article><small>Scheduled</small><strong>22</strong><span>Next 7 days</span></article>
+      <article><small>Needs Attention</small><strong>3</strong><span>2 blocked · 1 error</span></article>
+    </div>
+
+  </section>
+
+  <section class="af-tab-panel" id="af-tab-projects">
+    <div class="af-toolbar">
+      <label class="af-search"><span>⌕</span><input id="af-global-search" placeholder="Search ID, title or channel"></label>
+      <select id="af-global-filter" aria-label="Global filter">
+        <option value="all">All</option>
+        <option value="attention">Needs Attention</option>
+        <option value="running">Running</option>
+        <option value="approval">Approval</option>
+        <option value="ready">Ready</option>
+        <option value="uploaded">Uploaded</option>
+        <option value="archived">Archived</option>
+      </select>
+      <select id="af-global-sort" aria-label="Global sort">
+        <option value="priority">Sort: Priority</option>
+        <option value="sheet">Sort: Sheet Order</option>
+        <option value="upload">Sort: Upload Time</option>
+        <option value="status">Sort: Status</option>
+        <option value="id">Sort: ID</option>
+      </select>
+      <button class="af-btn ghost" id="af-sync">↻ Sync Now</button>
+      <span class="af-sync-note">Sheet ↔ Web · latest edit wins</span>
+    </div>
+
+    <div id="af-project-list-view" class="af-view active">
+      <div class="af-card">
+        <div class="af-card-head">
+          <div><small>PROJECTS</small><h2>Channels</h2></div>
+          <div class="af-legend"><span class="dot running"></span> Running <span class="dot blocked"></span> Attention</div>
+        </div>
+        <div class="af-table-wrap">
+          <table class="af-table af-project-table">
+            <thead><tr><th>Channel</th><th>Sheet</th><th>Total</th><th>Working</th><th>Approval</th><th>Next Upload</th><th>Status</th><th></th></tr></thead>
+            <tbody id="af-project-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="af-project-detail-view" class="af-view">
+      <button class="af-back" id="af-back-projects">← Back to Projects</button>
+      <div id="af-channel-header"></div>
+      <div class="af-subtabs">
+        <button class="active" data-subtab="videos">Videos</button>
+        <button data-subtab="control">Control Center</button>
+        <button data-subtab="schedule">Schedule</button>
+        <button data-subtab="thumbnails">Thumbnails</button>
+        <button data-subtab="settings">Channel Settings</button>
+      </div>
+
+      <section class="af-subpanel active" id="af-sub-videos">
+        <section class="af-video-command-strip" id="af-video-command-strip" hidden>
+          <div class="af-video-command-main"><span class="af-command-kicker">SELECTED VIDEO</span><strong id="af-command-video-id">—</strong><span id="af-command-video-title">Select a video row</span><span id="af-command-flags"></span></div>
+          <div class="af-video-command-actions">
+            <button data-video-command="Pause">Pause</button><button data-video-command="Resume">Resume</button><button data-video-command="Retry">Retry</button><button data-video-command="Start From Here">Start From Here</button><button data-video-command="Change Voice">Change Voice</button><button data-video-command="Replace Asset">Replace Asset</button><button data-video-command="Lock Asset">Lock Asset</button><button data-video-command="Schedule">Schedule</button><button class="af-command-rebuild" data-video-command="Rebuild From Here">Rebuild From Here</button>
+          </div>
+          <div class="af-command-dependency" id="af-command-dependency" hidden></div>
+        </section>
+        <div class="af-list-tools">
+          <label class="af-search"><span>⌕</span><input id="af-video-search" placeholder="Search videos"></label>
+          <select id="af-video-filter"><option value="all">All Status</option><option value="attention">Needs Attention</option><option value="approval">Approval</option><option value="scheduled">Scheduled</option><option value="uploaded">Uploaded</option></select>
+          <button class="af-btn ghost" id="af-bulk-btn" disabled>Bulk Actions</button><span class="af-list-priority">Thumbnail · Approval · Upload · Status</span>
+          <span id="af-selected-count" class="af-selected-count"></span>
+        </div>
+        <div class="af-card af-table-card">
+          <div class="af-table-wrap">
+            <table class="af-table af-video-table">
+              <thead><tr><th><input type="checkbox" id="af-select-all"></th><th>ID</th><th>Thumbnail</th><th class="title-col">Full Title</th><th>Script</th><th>Scene</th><th>Voice</th><th>Video</th><th>Approval</th><th>Upload</th><th>Status</th></tr></thead>
+              <tbody id="af-video-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+
+      <section class="af-subpanel" id="af-sub-control">
+        <div class="af-control-center">
+          <section class="af-cc-commandbar">
+            <div class="af-cc-command-main">
+              <div><small>CONTROL CENTER</small><h2>Manual Override & Automation Control</h2><p>Automation stays on by default. Manual decisions and locks always win.</p></div>
+              <div class="af-cc-command-actions">
+                <button class="af-btn ghost" data-cc-action="Pause Workflow">Pause Workflow</button>
+                <button class="af-btn ghost" data-cc-action="Pause Scheduling">Pause Scheduling</button>
+                <button class="af-btn ghost" data-cc-action="Resume">Resume</button>
+                <button class="af-btn danger" id="af-emergency-open">Emergency Stop</button>
+                <button class="af-btn primary" data-cc-action="Sync Now">↻ Sync Now</button>
+              </div>
+            </div>
+            <div class="af-cc-scopebar">
+              <label>Control Scope<select id="af-cc-scope"><option value="channel">Entire Channel</option><option value="selected">Selected Videos</option><option value="one">One Video</option></select></label>
+              <label>Target Video<select id="af-cc-video"></select></label>
+              <span class="af-cc-scope-note" id="af-cc-scope-note">Entire channel selected</span>
+            </div>
+          </section>
+
+          <section class="af-card af-cc-bulk">
+            <div class="af-card-head"><div><small>BULK COMMANDS</small><h2>Selected Scope Actions</h2></div><span class="af-pill neutral">Frontend wiring ready</span></div>
+            <div class="af-cc-actions-grid">
+              <button data-cc-action="Pause selected items">Pause</button><button data-cc-action="Resume selected items">Resume</button><button data-cc-action="Retry failed stage">Retry</button><button data-cc-action="Start From Stage">Start From Stage</button>
+              <button id="af-cc-voice-action">Change Voice Profile</button><button data-cc-action="Change Schedule">Change Schedule</button><button data-cc-action="Change Thumbnail Approval">Thumbnail Approval</button><button data-cc-action="Lock selected assets">Lock Assets</button><button data-cc-action="Unlock selected assets">Unlock Assets</button>
+            </div>
+          </section>
+
+          <section class="af-card af-cc-pipeline-card">
+            <div class="af-card-head"><div><small>PIPELINE CONTROL</small><h2>Stage-by-Stage Control</h2></div><span class="af-cc-rule">Manual override → automation yields</span></div>
+            <div class="af-cc-pipeline" id="af-cc-pipeline"></div>
+          </section>
+
+          <div class="af-cc-two-col">
+            <section class="af-card">
+              <div class="af-card-head"><div><small>MANUAL CONTROL</small><h2 id="af-cc-manual-title">Video Assets</h2></div><span class="af-pill manual">MANUAL READY</span></div>
+              <div class="af-cc-dependency" id="af-cc-dependency"><b>Dependency protection</b><span>Editing Script, Scene Plan, or Audio can mark downstream stages OUTDATED. Auto Flow will not rebuild until you choose it.</span><button class="af-btn ghost" data-cc-action="Rebuild From Changed Stage">Rebuild From Here</button></div>
+              <div class="af-cc-assets" id="af-cc-assets"></div>
+            </section>
+
+            <section class="af-card af-voice-panel">
+              <div class="af-card-head"><div><small>ALGROW VOICE</small><h2>Voice Profile</h2></div><span class="af-pill success">Profile Selection</span></div>
+              <label class="af-voice-select">Profile<select id="af-voice-profile"><option>Declan Documentary</option><option>Natural Male 02</option><option>Warm Narrator</option></select></label>
+              <div class="af-voice-id"><span>Voice ID</span><code id="af-voice-id">declan_sage_01</code></div>
+              <div class="af-voice-settings">
+                <label><span>Stability <b id="af-stability-value">50</b></span><input id="af-stability" type="range" min="0" max="100" value="50"></label>
+                <label><span>Similarity <b id="af-similarity-value">80</b></span><input id="af-similarity" type="range" min="0" max="100" value="80"></label>
+                <label><span>Style <b id="af-style-value">10</b></span><input id="af-style" type="range" min="0" max="100" value="10"></label>
+                <label class="af-speaker-boost"><span>Speaker Boost</span><input id="af-speaker-boost" type="checkbox" checked></label>
+              </div>
+              <div class="af-voice-actions"><button class="af-btn ghost" data-cc-action="Test Voice">▶ Test Voice</button><button class="af-btn ghost" data-cc-action="Save Voice Profile">Save Profile</button><button class="af-btn primary" data-cc-action="Apply Voice Profile">Apply to Scope</button></div>
+              <p class="af-voice-note">Changing profile does not regenerate existing audio automatically. Use Regenerate Voice when you decide.</p>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <section class="af-subpanel" id="af-sub-schedule">
+        <div class="af-card">
+          <div class="af-card-head"><div><small>SCHEDULING</small><h2>Today’s Upload Queue</h2></div><span id="af-usage-pill" class="af-pill neutral">3 / 5 uploads</span></div>
+          <div class="af-schedule-info"><span>Next free slot: <b>4:00 PM</b></span><span>Manual slots are locked</span><span>Conflicts are blocked</span></div>
+          <div id="af-schedule-list" class="af-schedule-list"></div>
+          <div class="af-schedule-footer"><span>Drag to reorder within the day. Edit time directly. Changes apply only after Save Order.</span><button class="af-btn primary" id="af-save-order">Save Order</button></div>
+        </div>
+      </section>
+
+      <!-- AUTOFLOW_THUMBNAIL_PHASE1_UI_V1 -->
+      <section class="af-subpanel" id="af-sub-thumbnails">
+        <div class="af-card af-thumbnail-queue-card">
+          <div class="af-card-head af-thumb-head"><div><small>THUMBNAILS</small><h2>Thumbnail Queue</h2><p>Sheet-driven thumbnail jobs for this channel.</p></div><label class="af-switch-row"><input id="af-thumb-approval-toggle" type="checkbox" checked><span>Require Thumbnail Approval</span></label></div>
+          <div class="af-thumb-queue-toolbar">
+            <div class="af-thumb-view-tabs"><button class="active" id="af-thumb-view-queue">Queue <b id="af-thumb-queue-count">0</b></button><button id="af-thumb-view-completed">Completed <b id="af-thumb-completed-count">0</b></button></div>
+            <button class="af-btn ghost" id="af-thumb-refresh">↻ Refresh Queue</button>
+          </div>
+          <div id="af-thumbnail-grid" class="af-thumb-queue-list"></div>
+        </div>
+      </section>
+
+      <section class="af-subpanel" id="af-sub-settings">
+        <div class="af-card">
+          <div class="af-card-head"><div><small>CHANNEL SETTINGS</small><h2>Automation Defaults</h2></div><span class="af-pill success">Sheet Synced</span></div>
+          <div class="af-settings-grid">
+            <label>Daily Upload Limit<input value="5" type="number"></label>
+            <label>Upload Gap<select><option>2 hours</option><option>3 hours</option><option>4 hours</option></select></label>
+            <label>Default First Upload Time<input value="10:00" type="time"></label>
+            <label>Thumbnail Approval<select><option>Required</option><option>Automatic</option></select></label>
+          </div>
+          <div class="af-stage-toggles"><label><input type="checkbox" checked> Script</label><label><input type="checkbox" checked> Scene Plan</label><label><input type="checkbox" checked> Voice</label><label><input type="checkbox" checked> Audio</label><label><input type="checkbox" checked> Scene Builder</label><label><input type="checkbox" checked> Thumbnail</label><label><input type="checkbox" checked> Upload</label></div>
+          <div class="af-channel-actions"><button class="af-btn ghost">Pause Scheduling</button><button class="af-btn ghost">Pause Workflow</button><button class="af-btn ghost">Duplicate Configuration</button><button class="af-btn danger">Archive Channel</button></div>
+        </div>
+      </section>
+    </div>
+  </section>
+
+  <section class="af-tab-panel" id="af-tab-workflow">
+    <div class="af-card"><div class="af-card-head"><div><small>WORKFLOW</small><h2>Automation Pipeline</h2></div><span class="af-pill neutral">UI preview</span></div><div class="af-pipeline"><div><b>1</b><strong>Sheet</strong><span>Source of truth</span></div><i>→</i><div><b>2</b><strong>ChatGPT Work</strong><span>Script · Scene · Prompt</span></div><i>→</i><div><b>3</b><strong>Algrow</strong><span>Voice</span></div><i>→</i><div><b>4</b><strong>Audio</strong><span>Processing</span></div><i>→</i><div><b>5</b><strong>Scene Builder</strong><span>Render</span></div><i>→</i><div><b>6</b><strong>Thumbnail</strong><span>Approval gate</span></div><i>→</i><div><b>7</b><strong>LUM</strong><span>Schedule · Upload · Verify</span></div></div></div>
+  </section>
+
+  <section class="af-tab-panel" id="af-tab-resources">
+    <div class="af-card" id="af-sheet-docs-card"><div class="af-card-head"><div><small>SHEET &amp; DOCS</small><h2>Project Resources</h2><p>Loading live project references…</p></div><span class="af-pill neutral">Loading</span></div></div>
+  </section>
+
+  <section class="af-tab-panel" id="af-tab-activity">
+    <div class="af-card"><div class="af-card-head"><div><small>ACTIVITY</small><h2>Human-readable Activity</h2></div><button class="af-btn ghost">Advanced Logs</button></div><div class="af-activity"><div><time>03:22</time><span>WU-TR-003 thumbnail returned and is waiting for approval.</span></div><div><time>03:19</time><span>WU-TR-002 scheduled for 12:00 PM.</span></div><div><time>03:16</time><span>WU-TR-001 render started.</span></div><div><time>03:11</time><span>Sheet sync completed.</span></div></div></div>
+  </section>
+
+  <aside class="af-drawer" id="af-ai-drawer" aria-hidden="true">
+    <div class="af-drawer-head"><div><span class="af-ai-icon">✦</span><div><strong>AI Design Assistant</strong><small>Based on your approved preferences</small></div></div><button data-close="ai">×</button></div>
+    <div class="af-ai-list"><article><b>Keep actions hidden until status is clicked</b><span>Matches your clean table preference.</span><div><button>Approve</button><button>Change</button></div></article><article><b>Keep full titles visible</b><span>Rows can grow vertically instead of truncating titles.</span><div><button>Approve</button><button>Change</button></div></article><article><b>Uploaded status becomes View</b><span>Clicking View opens YouTube directly after verification.</span><div><button>Approve</button><button>Change</button></div></article></div>
+  </aside>
+
+  <aside class="af-drawer detail" id="af-detail-drawer" aria-hidden="true"><div id="af-detail-content"></div></aside>
+
+  <div class="af-modal-backdrop" id="af-thumb-modal" hidden>
+    <div class="af-thumb-modal-card">
+      <button class="af-modal-x" id="af-thumb-close">×</button>
+      <div class="af-large-thumb" id="af-large-thumb"></div>
+      <div class="af-thumb-modal-info"><div><small id="af-thumb-id"></small><h3 id="af-thumb-title"></h3><div id="af-thumb-history" class="af-thumb-history"></div></div><div class="af-thumb-modal-actions"><button class="af-btn success" id="af-approve-thumb">Approve</button><button class="af-btn danger" id="af-reject-thumb">Reject</button><button class="af-btn ghost" id="af-redesign-thumb">Redesign Prompt</button></div></div>
+      <div class="af-reject-box" id="af-reject-box" hidden><label>Reason for rejection<textarea id="af-reject-reason" placeholder="Describe what should change..."></textarea></label><div><button class="af-btn ghost" id="af-cancel-reject">Cancel</button><button class="af-btn primary" id="af-send-redesign">Send for Redesign</button></div></div>
+    </div>
+  </div>
+
+  <div class="af-editor-backdrop" id="af-editor-modal" hidden>
+    <section class="af-editor-shell" role="dialog" aria-modal="true" aria-labelledby="af-editor-title">
+      <header class="af-editor-head">
+        <div><small id="af-editor-kicker">SCRIPT</small><h2 id="af-editor-title">Editor</h2><p id="af-editor-subtitle"></p></div>
+        <button class="af-editor-x" id="af-editor-close" aria-label="Close editor">×</button>
+      </header>
+      <div class="af-editor-toolbar">
+        <div class="af-editor-metrics"><span><b id="af-editor-words">0</b> words</span><span>≈ <b id="af-editor-duration">0:00</b> voice</span><span id="af-editor-save-state">Saved</span></div>
+        <div class="af-editor-top-actions"><button class="af-btn ghost" id="af-editor-doc">Open Google Doc</button><button class="af-btn ghost" id="af-editor-history-btn">Version History</button></div>
+      </div>
+      <main class="af-editor-workspace">
+        <textarea id="af-editor-text" spellcheck="true"></textarea>
+        <aside class="af-editor-history" id="af-editor-history" hidden>
+          <div class="af-editor-history-head"><strong>Version History</strong><button id="af-editor-history-close">×</button></div>
+          <div id="af-editor-history-list"></div>
+        </aside>
+      </main>
+      <footer class="af-editor-footer"><span>Live backend when project data exists · mock fallback remains for UI preview.</span><div><button class="af-btn ghost" id="af-editor-cancel">Cancel</button><button class="af-btn primary" id="af-editor-save">Save</button></div></footer>
+    </section>
+  </div>
+
+  <div class="af-modal-backdrop" id="af-emergency-modal" hidden>
+    <div class="af-emergency-card">
+      <button class="af-modal-x" id="af-emergency-close">×</button>
+      <small>EMERGENCY CONTROL</small>
+      <h2>Stop selected workers / stages</h2>
+      <p>Select only what you want to stop. Nothing is stopped automatically.</p>
+      <div class="af-emergency-options">
+        <label><input type="checkbox" value="ChatGPT"> ChatGPT</label>
+        <label><input type="checkbox" value="Algrow"> Algrow</label>
+        <label><input type="checkbox" value="Audio"> Audio</label>
+        <label><input type="checkbox" value="Scene Builder"> Scene Builder</label>
+        <label><input type="checkbox" value="Thumbnail"> Thumbnail</label>
+        <label><input type="checkbox" value="Upload"> Upload</label>
+      </div>
+      <div class="af-emergency-actions">
+        <button class="af-btn ghost" id="af-emergency-cancel">Cancel</button>
+        <button class="af-btn danger" id="af-emergency-apply">Stop Selected</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="af-toast" id="af-toast" aria-live="polite"></div>
+</section>
+<script src="/static/master_controller.js?v=20260905flowworker120"></script>
+<script src="/static/autoflow_sheet_docs.js?v=20260905sdgid1"></script>
+{% endblock %}

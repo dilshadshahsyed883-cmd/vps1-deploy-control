@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<link rel="stylesheet" href="/static/atomic_flow.css?v=20260828-v2">
+<section class="atomic-flow-shell" data-atomic-flow>
+  <header class="atomic-flow-hero">
+    <div><p class="eyebrow">Orchestration</p><h1>Atomic Flow</h1><p class="lede">One controlled handoff from source links to a verified final MP4.</p></div>
+    <div class="atomic-flow-badge" id="af-feature-badge">Loading status…</div>
+  </header>
+  <section class="atomic-flow-card atomic-flow-controls" aria-labelledby="af-controls-title">
+    <div class="card-heading"><div><p class="eyebrow">Run setup</p><h2 id="af-controls-title">Choose owners and profiles</h2></div><span class="readonly-chip">Existing profiles are read-only here</span></div>
+    <div class="atomic-flow-grid">
+      <label>Group<select id="af-group"></select></label>
+      <label>Script Profile<select id="af-script-profile"></select></label>
+      <label>Voice Profile<select id="af-voice-profile"></select></label>
+      <label>ACS Preset<select id="af-acs-preset"></select></label>
+    </div>
+    <label class="af-links-label" for="af-links">Links <span>one per line; use <code>PERMANENT_ID | URL</code></span></label>
+    <textarea id="af-links" rows="6" placeholder="YT-000123 | https://example.com/source"></textarea>
+    <div class="af-actions"><button class="button button-secondary" id="af-validate" type="button">Validate links</button><button class="button button-primary" id="af-start" type="button">Start</button></div>
+    <div id="af-validation" class="af-message" role="status" aria-live="polite"></div>
+  </section>
+  <section class="atomic-flow-card"><div class="card-heading"><div><p class="eyebrow">Execution path</p><h2>Atomic pipeline</h2></div><span class="muted">ACS owns final-video generation</span></div><ol class="atomic-pipeline" id="af-pipeline"></ol></section>
+  <section class="atomic-flow-card"><div class="card-heading"><div><p class="eyebrow">Recent runs</p><h2>Run ledger</h2></div><button class="button button-quiet" id="af-refresh" type="button">Refresh</button></div><div class="af-table-wrap"><table class="af-table"><thead><tr><th>Flow ID</th><th>Status</th><th>Stage</th><th>Created</th></tr></thead><tbody id="af-runs"><tr><td colspan="4" class="muted">No runs yet.</td></tr></tbody></table></div></section>
+</section>
+<script src="/static/atomic_flow.js" defer></script>
+{% endblock %}

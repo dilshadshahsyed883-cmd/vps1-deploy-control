@@ -1,0 +1,9 @@
+COMPONENT=ACS
+LIVE_SOURCE=/home/ubuntu/apps/auto_caption_studio/current/web_backend
+MANIFEST_ROW=ACS|/home/ubuntu/apps/auto_caption_studio/current/web_backend|.|web_flow_api.py;acs_studio.html|.env;*.env;data/;logs/;releases/;backups/;secrets/;venv/;shared/;*.sqlite3;*.db;*.log;*.pyc;__pycache__/;uploads/;outputs/;previews/;temp/;queue/;cache/;browser/;*token*;*credential*|06_COMPONENT_MASTERS/ACS|06_COMPONENT_MASTERS/ACS/LATEST.txt|components/acs/current
+BUILD_UTC=2026-08-29T08:11:50Z
+SECRETS_RUNTIME_DATA_QUEUES_CACHES_BROWSER_PROFILES_EXCLUDED=YES
+PATCH_ID=ACS_FINAL_QUEUE_COMPRESSION_RELEASE_20260829T143818Z
+PATCH_BASE=ACS_MASTER_CURRENT_20260829T075958Z_1852192.zip
+PATCH_SCOPE=Fixed queue mode; production slot releases at ready_upload; Drive verification and cleanup remain independent
+PATCH_VALIDATION=PASS

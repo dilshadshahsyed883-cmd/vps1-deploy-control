@@ -1,0 +1,3 @@
+/opt/script-work-browser/start.sh
+/etc/systemd/system/script-work-browser.service
+/etc/scene-builder-web/script-work-rclone.conf

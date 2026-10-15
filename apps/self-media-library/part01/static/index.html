@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Self Media Library</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">SM</div>
+      <div><strong>Self Media</strong><span>Library</span></div>
+    </div>
+    <nav id="nav">
+      <button data-page="dashboard" class="nav-item active"><span>⌂</span> Dashboard</button>
+      <button data-page="sources" class="nav-item"><span>＋</span> Sources</button>
+      <button data-page="processing" class="nav-item"><span>◌</span> Processing</button>
+      <button data-page="library" class="nav-item"><span>▦</span> Library</button>
+      <button data-page="trash" class="nav-item"><span>♲</span> Trash</button>
+      <button data-page="settings" class="nav-item"><span>⚙</span> Settings</button>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="health-dot" id="healthDot"></div>
+      <div><b id="healthText">Checking engine…</b><span>Library Engine v1.0</span></div>
+    </div>
+  </aside>
+
+  <main>
+    <header class="topbar">
+      <div>
+        <h1 id="pageTitle">Dashboard</h1>
+        <p id="pageSubtitle">Build and control your reusable clip library.</p>
+      </div>
+      <button class="primary" id="topAddSource">＋ Add source video</button>
+    </header>
+
+    <section id="page-dashboard" class="page active">
+      <div class="stats" id="stats"></div>
+      <div class="two-col">
+        <article class="panel">
+          <div class="panel-head"><div><h2>Recent sources</h2><p>Latest videos entering the library.</p></div><button class="link-btn" data-goto="sources">View all</button></div>
+          <div id="recentSources" class="source-list"></div>
+        </article>
+        <article class="panel">
+          <div class="panel-head"><div><h2>Library health</h2><p>Quick review of current clip states.</p></div></div>
+          <div id="healthSummary" class="health-summary"></div>
+        </article>
+      </div>
+      <article class="panel">
+        <div class="panel-head"><div><h2>Recent clips</h2><p>Newest assets created by the library engine.</p></div><button class="link-btn" data-goto="library">Open library</button></div>
+        <div id="recentClips" class="clip-grid compact"></div>
+      </article>
+    </section>
+
+    <section id="page-sources" class="page">
+      <article class="drop-panel" id="dropPanel">
+        <input type="file" id="sourceFile" accept="video/*" hidden />
+        <div class="drop-icon">＋</div>
+        <h2>Add source video</h2>
+        <p>Upload a video. The engine will detect shots and create clips up to 4 seconds long.</p>
+        <button class="primary" id="chooseSource">Choose video</button>
+        <small>MP4, MOV, MKV, WEBM, M4V, AVI</small>
+      </article>
+      <article class="panel">
+        <div class="panel-head"><div><h2>Source videos</h2><p>Original videos and their processing history.</p></div><button class="ghost" id="refreshSources">Refresh</button></div>
+        <div id="sourcesList" class="source-list"></div>
+      </article>
+    </section>
+
+    <section id="page-processing" class="page">
+      <article class="panel">
+        <div class="panel-head"><div><h2>Processing queue</h2><p>Shot detection → clip creation → automatic metadata.</p></div><button class="ghost" id="refreshProcessing">Refresh</button></div>
+        <div id="processingList" class="processing-list"></div>
+      </article>
+    </section>
+
+    <section id="page-library" class="page">
+      <div class="library-toolbar">
+        <div class="searchbox"><span>⌕</span><input id="clipSearch" placeholder="Search keywords: mountain drone lake…" /></div>
+        <select id="statusFilter"><option value="all">All states</option><option value="candidate">Candidate</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>
+        <select id="sortFilter"><option value="newest">Newest</option><option value="oldest">Oldest</option><option value="quality">Best quality</option><option value="duration">Longest</option></select>
+      </div>
+      <div class="bulkbar hidden" id="bulkBar">
+        <strong><span id="selectedCount">0</span> selected</strong>
+        <div>
+          <button class="ghost" data-bulk-status="approved">Approve</button>
+          <button class="ghost" data-bulk-status="rejected">Reject</button>
+          <button class="ghost" id="bulkKeyword">Keyword</button>
+          <button class="danger-soft" id="bulkDelete">Move to trash</button>
+          <button class="link-btn" id="clearSelection">Clear</button>
+        </div>
+      </div>
+      <div class="library-meta"><span id="resultCount">0 clips</span><button class="link-btn" id="selectVisible">Select visible</button></div>
+      <div id="libraryGrid" class="clip-grid"></div>
+      <div class="pager"><button class="ghost" id="loadMore">Load more</button></div>
+    </section>
+
+    <section id="page-trash" class="page">
+      <article class="panel">
+        <div class="panel-head"><div><h2>Trash</h2><p>Restore clips or permanently remove their files and metadata.</p></div></div>
+        <div id="trashGrid" class="clip-grid"></div>
+      </article>
+    </section>
+
+    <section id="page-settings" class="page">
+      <article class="panel settings-panel">
+        <div class="panel-head"><div><h2>Library processing</h2><p>Stable controls for how new library clips are created.</p></div><div class="ai-pill" id="aiPill">AI status</div></div>
+        <div class="setting-row"><div><b>Minimum clip length</b><span>Do not keep fragments shorter than this.</span></div><div class="number-field"><input id="clipMin" type="number" min="1" max="4" step="0.5"/><span>sec</span></div></div>
+        <div class="setting-row"><div><b>Maximum clip length</b><span>Hard cap for library clips.</span></div><div class="number-field"><input id="clipMax" type="number" min="2" max="8" step="0.5"/><span>sec</span></div></div>
+        <div class="setting-row"><div><b>Scene sensitivity</b><span>Higher values detect only stronger visual cuts.</span></div><input id="sceneThreshold" type="range" min="0.15" max="0.6" step="0.01"/></div>
+        <div class="setting-row"><div><b>Automatic AI metadata</b><span>Run the configured vision analyzer after clipping.</span></div><label class="switch"><input id="aiAuto" type="checkbox"><span></span></label></div>
+        <div class="setting-row"><div><b>Duplicate detection</b><span>Keep the control ready for perceptual duplicate checks.</span></div><label class="switch"><input id="dupToggle" type="checkbox"><span></span></label></div>
+        <div class="setting-row"><div><b>Quality filter</b><span>Score clips before they become permanent library candidates.</span></div><label class="switch"><input id="qualityToggle" type="checkbox"><span></span></label></div>
+      </article>
+
+      <article class="panel settings-panel settings-spaced">
+        <div class="panel-head"><div><h2>Google Drive backend</h2><p>Drive is the durable library store. Local source cleanup happens only after verification.</p></div><div class="ai-pill" id="drivePill">Drive status</div></div>
+        <div class="setting-row"><div><b>Enable Drive-backed library</b><span>Require Drive preflight before processing and auto-upload every generated asset.</span></div><label class="switch"><input id="driveEnabled" type="checkbox"><span></span></label></div>
+        <div class="setting-row"><div><b>rclone remote</b><span>Name of the configured Google Drive remote on this VPS.</span></div><input id="driveRemote" class="setting-text" placeholder="gdrive"/></div>
+        <div class="setting-row"><div><b>Drive root folder</b><span>Clips, thumbnails and metadata folders are created inside this folder.</span></div><input id="driveRoot" class="setting-text" placeholder="Self Media Library"/></div>
+        <div class="setting-row"><div><b>Verify every upload</b><span>Compare remote file size and MD5 when Google Drive exposes the hash.</span></div><label class="switch"><input id="driveVerify" type="checkbox"><span></span></label></div>
+        <div class="setting-row"><div><b>Sync keyword metadata to Drive</b><span>Keyword, status, trash and AI changes update each clip's Drive JSON sidecar.</span></div><label class="switch"><input id="driveSyncMetadata" type="checkbox"><span></span></label></div>
+        <div class="setting-row"><div><b>Auto-clean local source</b><span>Delete the original source only after a fresh all-clips Drive verification gate passes.</span></div><label class="switch"><input id="sourceCleanup" type="checkbox"><span></span></label></div>
+        <div class="runtime-box" id="driveRuntimeBox">
+          <div><b>Runtime Drive configuration</b><span id="driveRuntimeState">Checking…</span></div>
+          <code id="driveConfigPath"></code>
+          <small id="driveLastTest"></small>
+        </div>
+        <div class="settings-actions"><button class="ghost" id="testDrive">Test Drive</button><button class="primary" id="saveSettings">Save settings</button></div>
+      </article>
+    </section>
+  </main>
+</div>
+
+<div class="drawer-backdrop hidden" id="drawerBackdrop"></div>
+<aside class="drawer hidden" id="clipDrawer">
+  <div class="drawer-head"><div><span class="eyebrow">CLIP INSPECTOR</span><h2 id="drawerTitle">Clip</h2></div><button class="icon-btn" id="closeDrawer">×</button></div>
+  <div class="drawer-video"><video id="drawerVideo" controls muted playsinline></video></div>
+  <div class="drawer-section"><label>AI description</label><p id="drawerDescription"></p></div>
+  <div class="drawer-section"><label>Keywords</label><div class="chips" id="keywordChips"></div><div class="keyword-add"><input id="newKeyword" placeholder="Add keyword"/><button class="ghost" id="addKeyword">Add</button></div></div>
+  <div class="drawer-grid">
+    <div><label>Source</label><b id="drawerSource"></b></div>
+    <div><label>Timestamp</label><b id="drawerTime"></b></div>
+    <div><label>Quality</label><b id="drawerQuality"></b></div>
+    <div><label>Drive</label><b id="drawerDrive"></b></div>
+    <div><label>Status</label><select id="drawerStatus"><option value="candidate">Candidate</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select></div>
+  </div>
+  <div class="drawer-actions"><button class="ghost" id="reanalyzeClip">↻ Re-analyze</button><button class="ghost" id="syncClipDrive">☁ Sync Drive</button><button class="primary" id="saveClip">Save changes</button><button class="danger-soft" id="deleteClip">Move to trash</button></div>
+</aside>
+
+<div class="modal hidden" id="keywordModal">
+  <div class="modal-card"><h3>Bulk keyword</h3><p>Add or remove one keyword from all selected clips.</p><input id="bulkKeywordInput" placeholder="e.g. Iceland"/><div class="modal-actions"><button class="ghost" id="cancelKeywordModal">Cancel</button><button class="ghost" id="removeBulkKeyword">Remove</button><button class="primary" id="addBulkKeyword">Add</button></div></div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Administration{% endblock %}
+{% block subtitle %}System controls, project diagnostics and protected maintenance{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/admin_settings_compact.css?v=1">
+
+{% if request.query_params.get('saved') == '1' %}
+<div class="ac-success"><strong>Administration settings saved.</strong><span>Changes apply to new uploads and cleanup checks.</span></div>
+{% endif %}
+
+<section class="ac-top-grid">
+  <article class="ac-card">
+    <div class="ac-card-head">
+      <div class="ac-icon">D</div>
+      <div><h3>Google Drive delivery</h3><p>Existing VPS Drive connection and output destination.</p></div>
+      <span class="ac-badge {% if drive_enabled %}ok{% endif %}">{% if drive_enabled %}Connected{% else %}Unavailable{% endif %}</span>
+    </div>
+    <div class="ac-inline-stats">
+      <div><small>REMOTE</small><strong>{{ drive_remote or 'gdrive' }}</strong></div>
+      <div><small>DESTINATION</small><strong>{{ drive_base_dir or 'Default folder' }}</strong></div>
+      <button type="button" class="button secondary ac-small-button" id="admin-drive-test">Test connection</button>
+    </div>
+    <div id="admin-drive-result" class="ac-result" hidden></div>
+
+    <div class="ac-drive-cleanup" style="margin-top:18px;padding-top:16px;border-top:1px solid #e3e7f0">
+      <div style="margin-bottom:12px">
+        <h3 style="margin:0 0 4px">VPS Storage Manager</h3>
+        <p style="margin:0;color:#64709a">CPU, RAM, disk, verified project cleanup, caches and automatic policies.</p>
+      </div>
+      <a class="button" href="/admin/storage">Open Storage Manager</a>
+    </div>
+  </article>
+
+  <article class="ac-card" style="display:flex;flex-direction:column">
+    <div class="ac-card-head">
+      <div class="ac-icon">A</div>
+      <div><h3>Limits and team controls</h3><p>Project limits and team communication.</p></div>
+    </div>
+    <form action="/admin/system-settings" method="post" class="ac-admin-form"
+      style="flex:1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:auto minmax(230px,1fr) auto;align-content:stretch">
+      <label><span><strong>Project quota</strong><small>0 = unlimited</small></span><input name="quota_limit" type="number" min="0" value="{{ quota_limit }}"></label>
+      <label><span><strong>Storage limit</strong><small>0 = unlimited</small></span><div class="ac-unit"><input name="allowed_storage_gb" type="number" min="0" step=".1" value="{{ allowed_storage_gb }}"><b>GB</b></div></label>
+      <label class="ac-announcement-field"
+        style="grid-column:1/-1;display:flex;flex-direction:column;min-height:0;padding:16px 18px;border:1px solid #dfe4ef;border-radius:12px;background:linear-gradient(180deg,#fbfcff 0%,#f7f9fd 100%)">
+        <span style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:12px">
+          <span>
+            <strong style="display:block;font-size:14px;margin-bottom:4px">Team announcement</strong>
+            <small style="display:block;color:#64709a">Displayed read-only on the Dashboard for all users.</small>
+          </span>
+          <small style="color:#8b94ad;white-space:nowrap">Maximum 1,000 characters</small>
+        </span>
+        <textarea name="announcement" rows="8" maxlength="1000"
+          placeholder="Write a short announcement for all users"
+          style="flex:1;width:100%;box-sizing:border-box;min-height:170px;resize:vertical;border:1px solid #cfd6e5;border-radius:10px;padding:14px 15px;font:inherit;line-height:1.5;background:#fff;box-shadow:inset 0 1px 2px rgba(17,24,39,.03)">{{ announcement }}</textarea>
+      </label>
+      <div class="ac-form-foot"
+        style="grid-column:1/-1;align-self:end;display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:14px">
+        <small>Storage policies are managed from <a href="/admin/storage">Storage Manager</a>.</small>
+        <button class="button ac-small-button" type="submit" style="min-width:170px">Save admin controls</button>
+      </div>
+    </form>
+  </article>
+</section>
+
+<section class="admin-two-column">
+  <section class="panel">
+    <div class="panel-head"><div><h2>Audit trail</h2><p>Recent admin and system events.</p></div></div>
+    <div class="audit-list">{% for e in audit_events %}<div class="audit-item"><span></span><div><strong>{{ e.event_type }}</strong><small>{{ e.created_at }} · {{ e.message }}</small></div></div>{% else %}<div class="empty">No audit events yet.</div>{% endfor %}</div>
+  </section>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('admin-drive-test').onclick=async()=>{const box=document.getElementById('admin-drive-result');box.hidden=false;box.textContent='Testing connection…';try{const r=await fetch('/api/drive/test'),p=await r.json();box.className='ac-result '+(p.ok?'success':'error');box.textContent=p.ok?`Connected: ${p.drive_remote||'gdrive'} ${p.drive_base_dir||''}`:'Drive is unavailable.';}catch(e){box.className='ac-result error';box.textContent=e.message;}};
+</script>
+{% endblock %}

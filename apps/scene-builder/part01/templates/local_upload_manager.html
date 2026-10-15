@@ -1,0 +1,264 @@
+
+<link rel="stylesheet" href="/static/lum_host_desktop_theme_v4.css?v=20260826-v4">
+{% extends "base.html" %}
+{% block title %}Auto Uploader{% endblock %}
+{% block subtitle %}YouTube upload workspace{% endblock %}
+{% block content %}
+
+<!-- AUTO_UPLOADER_UNIFIED_SHELL_V1 -->
+<style>
+  .lum-shared-tabs{
+    display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px;
+    margin:0 0 10px;padding:6px;border:1px solid #dce4ef;border-radius:13px;
+    background:#e9eef7;box-shadow:0 4px 14px rgba(31,45,74,.04)
+  }
+  .lum-shared-tabs button{
+    appearance:none;border:0;background:transparent;color:#475467;border-radius:9px;
+    min-height:40px;padding:8px 10px;font:800 12px/1.2 inherit;cursor:pointer;
+    transition:background .16s ease,color .16s ease,box-shadow .16s ease
+  }
+  .lum-shared-tabs button:hover{background:#f5f7fb;color:#344054}
+  .lum-shared-tabs button.active{background:#fff;color:#2457d6;box-shadow:0 3px 10px rgba(31,45,74,.11)}
+  .lum-engine-selector{
+    display:flex;align-items:center;gap:8px;padding:0 0 10px;margin:0
+  }
+  .lum-engine-selector[hidden]{display:none!important}
+  .lum-engine-selector button{
+    appearance:none;border:1px solid #d7dbe3;background:#fff;color:#4a5160;
+    border-radius:9px;padding:8px 14px;font:600 13px/1.2 inherit;cursor:pointer;
+    box-shadow:0 1px 2px rgba(0,0,0,.04)
+  }
+  .lum-engine-selector button.active{background:#111827;color:#fff;border-color:#111827}
+  .lum-engine-selector .lum-engine-state{margin-left:auto;font-size:12px;color:#6b7280}
+  @media(max-width:1050px){
+    .lum-shared-tabs{grid-template-columns:repeat(4,minmax(0,1fr))}
+  }
+  @media(max-width:760px){
+    .lum-shared-tabs{grid-template-columns:repeat(2,minmax(0,1fr));padding:5px}
+    .lum-shared-tabs button{min-height:38px;padding:8px 7px}
+    .lum-engine-selector{padding:0 4px 8px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+    .lum-engine-selector button{padding:9px 8px}
+    .lum-engine-selector .lum-engine-state{display:none}
+  }
+</style>
+
+<nav class="lum-shared-tabs" aria-label="Auto Uploader workspace">
+  <button type="button" data-lum-shared-tab="dashboard">Dashboard</button>
+  <button type="button" data-lum-shared-tab="channels">Channels</button>
+  <button type="button" data-lum-shared-tab="sheets">Sheets Sync</button>
+  <button type="button" data-lum-shared-tab="auto_engine">Auto Engine</button>
+  <button type="button" data-lum-shared-tab="add_video">Add Video</button>
+  <button type="button" data-lum-shared-tab="bulk_import">Bulk Import</button>
+  <button type="button" data-lum-shared-tab="queue">Queue</button>
+  <button type="button" data-lum-shared-tab="logs">Logs</button>
+</nav>
+
+<div class="lum-engine-selector" id="lum-engine-selector" role="tablist" aria-label="Auto Engine" hidden>
+  <button type="button" role="tab" data-lum-engine="1" data-engine-src="/LUM/app?embedded=1&tab=auto_engine" class="active" aria-selected="true">Engine 1</button>
+  <button type="button" role="tab" data-lum-engine="2" data-engine-src="/local-upload-manager-engine2/app?embedded=1&tab=auto_engine" aria-selected="false">Engine 2</button>
+  <button type="button" role="tab" data-lum-engine="3" data-engine-src="/local-upload-manager-engine3/app?embedded=1&tab=auto_engine" aria-selected="false">Shorts</button>
+  <button type="button" role="tab" data-lum-engine="4" data-engine-src="/short-stream/?embedded=1" aria-selected="false">Short Stream</button>
+  <span class="lum-engine-state" id="lum-engine-state">Engine 1</span>
+</div>
+
+<section class="lum-host-shell" style="margin:0;padding:0;min-height:calc(100vh - 120px);">
+  <iframe id="lum-host-frame" class="lum-host-frame"
+    src="about:blank"
+    data-default-src="/LUM/app?embedded=1&tab=dashboard"
+    title="Auto Uploader"
+    style="display:block;width:100%;height:calc(100vh - 120px);min-height:720px;border:0;border-radius:14px;background:#f6f7fb;"
+    loading="eager"
+    referrerpolicy="same-origin">
+  </iframe>
+</section>
+
+<script>
+/* AUTO_UPLOADER_UNIFIED_SHELL_CONTROLLER_V1 */
+(() => {
+  const frame=document.getElementById('lum-host-frame');
+  const sharedButtons=[...document.querySelectorAll('[data-lum-shared-tab]')];
+  const selector=document.getElementById('lum-engine-selector');
+  const engineButtons=[...document.querySelectorAll('[data-lum-engine]')];
+  const state=document.getElementById('lum-engine-state');
+  if(!frame||!sharedButtons.length||!selector||!engineButtons.length)return;
+
+  const validTabs=['dashboard','channels','sheets','auto_engine','add_video','bulk_import','queue','logs'];
+  const validEngines=['1','2','3','4'];
+  const tabKey='vps1-auto-uploader-tab';
+  const engineKey='vps1-auto-uploader-engine';
+
+  let currentTab='dashboard';
+  let currentEngine='1';
+
+  try{
+    const savedTab=localStorage.getItem(tabKey);
+    const savedEngine=localStorage.getItem(engineKey);
+    if(validTabs.includes(savedTab))currentTab=savedTab;
+    if(validEngines.includes(savedEngine))currentEngine=savedEngine;
+  }catch(_){}
+
+  const canonicalTab=(raw)=>{
+    if(raw==='upload')return 'add_video';
+    if(raw==='authentication')return 'channels';
+    return validTabs.includes(raw)?raw:'dashboard';
+  };
+
+  const sourceFor=(tab,engine)=>{
+    if(tab!=='auto_engine')return `/LUM/app?embedded=1&tab=${encodeURIComponent(tab)}`;
+    if(engine==='2')return '/local-upload-manager-engine2/app?embedded=1&tab=auto_engine';
+    if(engine==='3')return '/local-upload-manager-engine3/app?embedded=1&tab=auto_engine';
+    if(engine==='4')return '/short-stream/?embedded=1';
+    return '/LUM/app?embedded=1&tab=auto_engine';
+  };
+
+  const save=()=>{
+    try{
+      localStorage.setItem(tabKey,currentTab);
+      localStorage.setItem(engineKey,currentEngine);
+    }catch(_){}
+  };
+
+  const render=()=>{
+    sharedButtons.forEach(b=>{
+      const on=b.dataset.lumSharedTab===currentTab;
+      b.classList.toggle('active',on);
+      b.setAttribute('aria-current',on?'page':'false');
+    });
+    selector.hidden=currentTab!=='auto_engine';
+    engineButtons.forEach(b=>{
+      const on=b.dataset.lumEngine===currentEngine;
+      b.classList.toggle('active',on);
+      b.setAttribute('aria-selected',on?'true':'false');
+    });
+    if(state){
+      state.textContent=currentEngine==='2'?'Engine 2':
+        currentEngine==='3'?'Shorts':
+        currentEngine==='4'?'Short Stream':'Engine 1';
+    }
+  };
+
+  const load=(tab,engine)=>{
+    currentTab=canonicalTab(tab);
+    if(validEngines.includes(engine))currentEngine=engine;
+    save();
+    render();
+    const src=sourceFor(currentTab,currentEngine);
+    frame.dataset.defaultSrc=src;
+    if(frame.getAttribute('src')!==src)frame.setAttribute('src',src);
+  };
+
+  const hideChildPrimaryNav=()=>{
+    try{
+      const d=frame.contentDocument;
+      if(!d)return;
+      const exactTabs=new Set(['upload','authentication','dashboard','channels','sheets','auto_engine','add_video','bulk_import','queue','logs']);
+      const links=[...d.querySelectorAll('a[href]')].filter(a=>{
+        try{
+          const u=new URL(a.getAttribute('href'),frame.contentWindow.location.href);
+          const t=u.searchParams.get('tab');
+          const keys=[...u.searchParams.keys()];
+          return exactTabs.has(t)&&keys.every(k=>k==='tab');
+        }catch(_){return false;}
+      });
+      const counts=new Map();
+      for(const a of links){
+        const p=a.parentElement;
+        if(p)counts.set(p,(counts.get(p)||0)+1);
+      }
+      let best=null,bestCount=0;
+      for(const [p,n] of counts.entries()){
+        if(n>bestCount){best=p;bestCount=n;}
+      }
+      if(best&&bestCount>=5&&best!==d.body&&best!==d.documentElement){
+        best.style.setProperty('display','none','important');
+        best.setAttribute('data-parent-shell-hidden','1');
+      }else{
+        links.forEach(a=>a.style.setProperty('display','none','important'));
+      }
+    }catch(_){}
+  };
+
+  const syncFromChild=()=>{
+    let u;
+    try{u=new URL(frame.contentWindow.location.href);}catch(_){return;}
+    const path=u.pathname||'';
+    let engine='1';
+    if(path.startsWith('/local-upload-manager-engine2'))engine='2';
+    else if(path.startsWith('/local-upload-manager-engine3'))engine='3';
+    else if(path.startsWith('/short-stream'))engine='4';
+
+    if(engine==='4'){
+      currentTab='auto_engine';
+      currentEngine='4';
+      save();render();hideChildPrimaryNav();
+      return;
+    }
+
+    const rawTab=u.searchParams.get('tab')||'dashboard';
+    const tab=canonicalTab(rawTab);
+
+    if(engine!=='1'&&tab!=='auto_engine'){
+      currentTab=tab;
+      currentEngine=engine;
+      save();render();
+      const src=sourceFor(tab,'1');
+      frame.dataset.defaultSrc=src;
+      frame.setAttribute('src',src);
+      return;
+    }
+
+    currentTab=tab;
+    currentEngine=engine;
+    save();render();hideChildPrimaryNav();
+  };
+
+  sharedButtons.forEach(btn=>btn.addEventListener('click',()=>{
+    const tab=btn.dataset.lumSharedTab||'dashboard';
+    load(tab,currentEngine);
+  }));
+
+  engineButtons.forEach(btn=>btn.addEventListener('click',()=>{
+    load('auto_engine',btn.dataset.lumEngine||'1');
+  }));
+
+  frame.addEventListener('load',()=>{
+    window.setTimeout(syncFromChild,0);
+    window.setTimeout(hideChildPrimaryNav,60);
+  });
+
+  render();
+  frame.dataset.defaultSrc=sourceFor(currentTab,currentEngine);
+})();
+</script>
+<script src="/static/lum_host_state_v1.js?v=20260826-v1"></script>
+
+{% endblock %}
+
+<script>
+/* LUM_MOBILE_IFRAME_AUTOSIZE_V2 */
+(() => {
+  const frame=document.getElementById('lum-host-frame');
+  if(!frame)return;
+  let observer=null,timer=0;
+  const sync=()=>{
+    if(window.innerWidth>760){frame.style.removeProperty('height');frame.style.removeProperty('min-height');return;}
+    try{
+      const d=frame.contentDocument;if(!d)return;
+      const h=Math.max(560,d.documentElement?.scrollHeight||0,d.body?.scrollHeight||0);
+      frame.style.setProperty('height',`${h+4}px`,'important');
+      frame.style.setProperty('min-height','560px','important');
+    }catch(_){ }
+  };
+  const attach=()=>{
+    if(observer){observer.disconnect();observer=null;}
+    sync();
+    try{
+      const d=frame.contentDocument;
+      if(d&&window.ResizeObserver){observer=new ResizeObserver(()=>{clearTimeout(timer);timer=setTimeout(sync,30);});if(d.documentElement)observer.observe(d.documentElement);if(d.body)observer.observe(d.body);}
+    }catch(_){ }
+  };
+  frame.addEventListener('load',attach);
+  window.addEventListener('resize',()=>{clearTimeout(timer);timer=setTimeout(sync,60);},{passive:true});
+  setTimeout(attach,80);
+})();
+</script>

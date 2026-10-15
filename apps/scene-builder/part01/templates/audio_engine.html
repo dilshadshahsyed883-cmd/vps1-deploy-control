@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Audio Engine{% endblock %}
+{% block subtitle %}Documentary narration, timing and music ducking{% endblock %}
+
+{% block content %}
+<style>
+.ae-host-toolbar{display:flex;justify-content:flex-end;align-items:center;margin:-6px 0 12px;min-height:30px}
+.ae-host-status{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid #cfe7dc;border-radius:999px;background:#eff9f4;color:#187a55;font-size:12px;font-weight:700}
+.ae-host-status i{width:7px;height:7px;border-radius:50%;background:currentColor;display:inline-block}
+.ae-host-status.bad{border-color:#f0caca;background:#fff3f2;color:#b23a35}
+.ae-frame-wrap{width:100%;min-width:0}
+#audio-engine-frame{display:block;width:100%;height:900px;border:0;background:transparent}
+@media(max-width:700px){.ae-host-toolbar{justify-content:flex-start}#audio-engine-frame{height:1100px}}
+</style>
+<div class="ae-host-toolbar"><span id="ae-host-status" class="ae-host-status"><i></i><span>Checking Audio Engine</span></span></div>
+<div class="ae-frame-wrap">
+  <iframe id="audio-engine-frame" src="/audio-engine/app" title="Audio Engine workspace" loading="eager"></iframe>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const frame = document.getElementById('audio-engine-frame');
+  const status = document.getElementById('ae-host-status');
+  let ro = null;
+  const setStatus = async () => {
+    try {
+      const r = await fetch('/audio-engine/health', {cache:'no-store'});
+      if (!r.ok) throw new Error('health '+r.status);
+      const j = await r.json();
+      status.className='ae-host-status';
+      status.querySelector('span').textContent=`Engine online · v${j.version || ''} · ${j.free_gb ?? '?'} GB free`;
+    } catch (e) {
+      status.className='ae-host-status bad';
+      status.querySelector('span').textContent='Audio Engine unavailable';
+    }
+  };
+  const fit = () => {
+    try {
+      const d = frame.contentDocument;
+      if (!d) return;
+      const top = d.querySelector('.top');
+      if (top) top.style.display='none';
+      const shell = d.querySelector('.shell');
+      if (shell) {
+        shell.style.maxWidth='none';
+        shell.style.margin='0';
+        shell.style.padding='0';
+      }
+      d.documentElement.style.background='transparent';
+      d.body.style.background='transparent';
+      const h=Math.max(760,d.body.scrollHeight,d.documentElement.scrollHeight);
+      frame.style.height=(h+8)+'px';
+      if (!ro && window.ResizeObserver) {
+        ro=new ResizeObserver(()=>{
+          const nh=Math.max(760,d.body.scrollHeight,d.documentElement.scrollHeight);
+          frame.style.height=(nh+8)+'px';
+        });
+        ro.observe(d.body);
+      }
+    } catch (_) {}
+  };
+  frame.addEventListener('load', fit);
+  setStatus();
+  setInterval(setStatus, 30000);
+})();
+</script>
+{% endblock %}
+

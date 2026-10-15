@@ -1,0 +1,20 @@
+<!-- VOICE_STUDIO_EDGE_ENGINE_V1 -->
+<section id="vsEdgeWorkspace" hidden aria-label="Edge TTS Studio">
+ <div class="vse-card"><div class="vse-title">Edge TTS</div><div class="vse-note">Online Microsoft neural voices through independent Edge TTS worker. OmniVoice and Kokoro queues remain separate. Generated text is sent to the external speech service.</div>
+ <p id="vseState" role="status">Checking worker...</p>
+ <nav class="vse-tabs" aria-label="Edge TTS sections"><button type="button" data-vse-section="production" aria-selected="true">Production</button><button type="button" data-vse-section="voices" aria-selected="false">Voices</button><button type="button" data-vse-section="queue" aria-selected="false">Queue</button><button type="button" data-vse-section="system" aria-selected="false">System</button></nav></div>
+ <div id="vseProduction" class="vse-card">
+  <h3>Text-to-Speech Production</h3><p class="vse-note">Queue single narration or 1–100 UTF-8 TXT files. MP3, WAV, TXT and timed SRT when metadata is available. Pausing a running job takes effect between speech chunks.</p>
+  <div class="vse-row"><div><label for="vseLocale">Language / region</label><select id="vseLocale" disabled><option>Waiting for voice catalog</option></select></div><div><label for="vseVoice">Neural voice</label><select id="vseVoice" disabled><option>Waiting for voice catalog</option></select></div></div>
+  <div class="vse-row"><div><label for="vseRate">Speed adjustment (%)</label><input type="number" id="vseRate" min="-50" max="100" step="5" value="0"></div><div><label for="vsePitch">Pitch adjustment (Hz)</label><input type="number" id="vsePitch" min="-50" max="50" step="5" value="0"></div></div>
+  <div class="vse-row"><div><label for="vseVolume">Volume adjustment (%)</label><input type="number" id="vseVolume" min="-50" max="100" step="5" value="0"></div><div><label for="vseBatchName">Batch/project name</label><input id="vseBatchName" maxlength="100" placeholder="Edge Project"></div></div>
+  <p><label for="vseText">Narration</label><textarea id="vseText" maxlength="50000" placeholder="Enter text for audio generation..."></textarea></p>
+  <p><label for="vseFiles">TXT batch files (UTF-8)</label><input id="vseFiles" type="file" accept=".txt,text/plain" multiple></p>
+  <button id="vseSingle" type="button" class="vse-btn" disabled>Queue narration</button><button id="vseBatch" type="button" class="vse-btn" disabled>Queue TXT batch</button>
+  <p id="vseMessage" role="status" class="vse-note"></p>
+ </div>
+ <div id="vseVoices" class="vse-card" hidden><h3>Online voice library</h3><p id="vseVoicesSummary" class="vse-note">Waiting for catalog.</p><div id="vseVoiceRows" class="vse-note"></div></div>
+ <div id="vseQueue" class="vse-card" hidden><h3>Edge TTS independent queue</h3><button type="button" id="vseRefresh" class="vse-btn alt">Refresh</button><p class="vse-note">Queued, processing, paused, retry and delivered status. Pause/resume/cancel applies to each Edge job only.</p><table><thead><tr><th>File</th><th>Job status</th><th>Files</th><th>Controls</th></tr></thead><tbody id="vseQueueRows"><tr><td colspan="4">No Edge jobs yet.</td></tr></tbody></table></div>
+ <div id="vseSystem" class="vse-card" hidden><h3>Edge TTS engine</h3><pre id="vseDetails" style="white-space:pre-wrap;overflow-wrap:anywhere">Worker not checked yet.</pre><p class="vse-note">Standalone worker and queue. External connection required; online service availability and licensing are separate from local deployment.</p></div>
+</section>
+

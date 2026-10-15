@@ -1,0 +1,52 @@
+/* LUM_HOST_GLOBAL_CLARITY_V3
+   Make the Scene Builder LUM host use the same dark/full-width workspace geometry as Dashboard. */
+
+body:has(#lum-host-frame){
+  background:#07111f!important;color:#e8eef7!important;
+}
+body:has(#lum-host-frame) main,
+body:has(#lum-host-frame) .main,
+body:has(#lum-host-frame) .main-content,
+body:has(#lum-host-frame) .content,
+body:has(#lum-host-frame) .content-area,
+body:has(#lum-host-frame) .page,
+body:has(#lum-host-frame) .page-content,
+body:has(#lum-host-frame) .page-container,
+body:has(#lum-host-frame) .container{
+  width:auto!important;max-width:none!important;background:#07111f!important;
+}
+body:has(#lum-host-frame) main{
+  padding-right:0!important;
+}
+body:has(#lum-host-frame) h1{
+  color:#f5f8fc!important;
+  font-family:"Segoe UI Variable","Segoe UI",Inter,Roboto,Arial,sans-serif!important;
+  font-size:27px!important;font-weight:700!important;letter-spacing:-.02em!important;
+}
+body:has(#lum-host-frame) .subtitle,
+body:has(#lum-host-frame) .page-subtitle,
+body:has(#lum-host-frame) header p{
+  color:#7fa1c5!important;
+}
+#lum-host-frame,.lum-host-frame{
+  display:block!important;width:100%!important;max-width:none!important;
+  min-width:0!important;margin:0!important;padding:0!important;border:0!important;
+  border-radius:0!important;box-shadow:none!important;background:#07111f!important;
+  color-scheme:dark;
+}
+/* Remove only decorative wrappers directly around LUM iframe. */
+body:has(#lum-host-frame) *:has(> #lum-host-frame){
+  width:100%!important;max-width:none!important;
+  margin-left:0!important;margin-right:0!important;
+  padding-left:0!important;padding-right:0!important;
+  border-left:0!important;border-right:0!important;
+  box-shadow:none!important;background:#07111f!important;
+}
+@media(max-width:900px){
+  body:has(#lum-host-frame) main,
+  body:has(#lum-host-frame) .main-content,
+  body:has(#lum-host-frame) .content,
+  body:has(#lum-host-frame) .page-content{
+    padding-left:10px!important;padding-right:4px!important;
+  }
+}

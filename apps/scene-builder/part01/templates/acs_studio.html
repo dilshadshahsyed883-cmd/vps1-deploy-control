@@ -1,0 +1,588 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Auto Caption Studio — New Web Flow</title>
+<style>
+:root{
+  --bg:#f5f7fb;--panel:#ffffff;--panel2:#f8f9fd;--soft:#f0efff;--line:#e7eaf1;
+  --text:#152033;--muted:#738098;--blue:#5b5ce2;--blue2:#7a4ee8;--green:#16a36a;
+  --yellow:#e99a22;--red:#dc4c64;--shadow:0 10px 26px rgba(37,63,120,.06)
+}
+*{box-sizing:border-box} body{margin:0;background:#fff;color:var(--text);font:14px/1.45 Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+button,input,select{font:inherit}.top{height:64px;padding:0 24px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);background:#101526;position:sticky;top:0;z-index:20}
+.brand{display:flex;align-items:center;gap:12px}.logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,#6c63ff,#8e57ed);display:grid;place-items:center;font-weight:900}.brand h1{font-size:17px;margin:0;color:#fff}.brand small{color:#8790a8}.live{display:flex;gap:8px;align-items:center;color:#aeb6ca}.dot{width:9px;height:9px;border-radius:50%;background:var(--green);box-shadow:0 0 0 5px rgba(46,203,143,.08)}
+.shell{padding:0}.workspace{max-width:none;margin:0;border:0;border-radius:0;overflow:hidden;background:#fff;box-shadow:none}
+.tabs{display:flex;gap:4px;padding:8px;border-bottom:1px solid #dfe6f3;background:#f3f6fb;overflow:auto}.tab{border:0;background:transparent;color:var(--muted);font-weight:700;padding:10px 14px;border-radius:9px;cursor:pointer;white-space:nowrap}.tab:hover{background:#eceeff;color:#4546bc}.tab.active{background:#5556df;color:white;box-shadow:0 7px 18px rgba(85,86,223,.18)}
+.page{display:none;padding:18px}.page.active{display:block}.head{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-bottom:16px}.head h2{margin:0;font-size:20px}.head p{margin:3px 0 0;color:var(--muted)}.actions{display:flex;gap:8px;flex-wrap:wrap}
+.btn{border:1px solid #dfe3ec;background:#fff;color:#152033;padding:9px 12px;border-radius:9px;font-weight:700;cursor:pointer}.btn:hover{background:#f0efff;border-color:#c9c8ff;color:#4546bc}.btn.primary{background:#5b5ce2;border-color:#5b5ce2;color:#fff}.btn.green{background:#e9fbf2;border-color:#bdebd2;color:#117443}.btn.red{background:#fff0f2;border-color:#ffd8df;color:#dc4c64}.btn.ghost{background:transparent}
+.grid{display:grid;gap:14px}.g4{grid-template-columns:repeat(4,minmax(0,1fr))}.g3{grid-template-columns:repeat(3,minmax(0,1fr))}.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.card{border:1px solid var(--line);border-radius:13px;background:var(--panel);padding:15px}.card h3{margin:0 0 11px;font-size:14px}.metric b{display:block;font-size:25px}.metric span,.small{font-size:12px;color:var(--muted)}
+.badge{display:inline-flex;padding:4px 8px;border:1px solid var(--line);border-radius:99px;color:var(--muted);font-size:11px}.badge.good{background:#e7f8f0;border-color:#bdebd4;color:#16a36a}.badge.warn{background:#fff3de;border-color:#f1d39e;color:#b96f00}.save-state{font-size:12px;font-weight:800;color:#117443;padding:5px 9px;border:1px solid #bdebd2;background:#e9fbf2;border-radius:999px;white-space:nowrap}
+.field{display:grid;gap:6px}.field label{font-size:12px;color:var(--muted);font-weight:700}input[type=text],input[type=password],input[type=number],select{width:100%;border:1px solid #dfe3ec;background:#fff;color:#152033;border-radius:8px;padding:9px 10px;outline:none}input:focus,select:focus{border-color:var(--blue)} input[readonly]{color:#738098;background:#f7f8fc}input[type=color]{width:100%;height:38px;border:1px solid #dfe3ec;border-radius:8px;background:#fff;padding:3px}input[type=range]{width:100%}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.check{display:flex;align-items:center;gap:8px}.check input{accent-color:var(--blue)}.setting{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:10px 0;border-bottom:1px solid #e7eaf1}.setting:last-child{border-bottom:0}.setting small{display:block;color:var(--muted);margin-top:2px}
+.toggle{position:relative;width:44px;height:24px;display:inline-block}.toggle input{display:none}.slider{position:absolute;inset:0;border-radius:99px;background:#d8dce6;cursor:pointer}.slider:before{content:"";position:absolute;width:18px;height:18px;left:3px;top:3px;border-radius:50%;background:white;transition:.18s}.toggle input:checked+.slider{background:var(--blue)}.toggle input:checked+.slider:before{transform:translateX(20px)}
+.queue{width:100%;border-collapse:collapse}.queue th,.queue td{padding:11px 9px;border-bottom:1px solid #e7eaf1;text-align:left}.queue th{font-size:11px;color:var(--muted);text-transform:uppercase}.progress{height:7px;background:#edf0f5;border-radius:99px;overflow:hidden}.progress i{display:block;height:100%;background:#5b5ce2}
+.drop{border:1px dashed #c9d1df;border-radius:14px;background:#fafbfe;padding:28px;text-align:center;color:var(--muted)}.drop strong{display:block;color:var(--text);font-size:15px;margin-bottom:5px}
+.preset-grid{display:grid;grid-template-columns:repeat(5,minmax(160px,1fr));gap:10px}.preset{border:1px solid #dfe6f3;background:#fafbfe;border-radius:12px;padding:13px;cursor:pointer;min-height:116px}.preset:hover{border-color:#aeb9ff;transform:translateY(-1px)}.preset.active{border-color:#5b5ce5;box-shadow:0 0 0 2px rgba(91,92,229,.10);background:#f5f5ff}.preset b{display:block;margin-bottom:5px}.preset .tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:10px}.tag{font-size:10px;padding:3px 6px;border-radius:99px;background:#efefff;color:#5556df}
+.preview-box{margin-top:14px;border:1px solid #dfe6f3;border-radius:14px;overflow:hidden;background:#f7f9fd}.preview-toolbar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#fff;border-bottom:1px solid #dfe6f3}.stage{height:540px;position:relative;display:flex;align-items:flex-end;justify-content:center;padding:32px;background:linear-gradient(rgba(3,9,18,.12),rgba(3,9,18,.58)),radial-gradient(circle at 22% 22%,#315664 0 12%,transparent 13%),linear-gradient(140deg,#648892,#193843 45%,#101d2b)}.mountains{position:absolute;inset:0;opacity:.35;background:linear-gradient(158deg,transparent 0 52%,#0d242e 53% 66%,transparent 67%),linear-gradient(195deg,transparent 0 61%,#264b53 62% 75%,transparent 76%)}.safe{position:absolute;inset:8%;border:1px dashed rgba(255,255,255,.17);border-radius:10px}.caption{z-index:2;width:76%;text-align:center;font-size:46px;font-weight:800;line-height:1.12;color:white;text-shadow:0 3px 14px rgba(0,0,0,.72);margin-bottom:8%}.caption span{color:#ffd75b}
+.subtabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}.pill{border:1px solid #dfe6f3;background:#f3f6fb;color:#5d6882;padding:7px 10px;border-radius:99px;cursor:pointer}.pill.active{background:#5556df;border-color:#5556df;color:white}
+.control-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.section{border:1px solid #e1e7f1;border-radius:11px;padding:12px;background:#fafbfe}.section h4{margin:0 0 10px;font-size:12px;color:#152033}.two{display:grid;grid-template-columns:1fr 1fr;gap:9px}.three{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}.notice{padding:10px 12px;border-radius:9px;border:1px solid #d9dcf1;background:#f6f7ff;color:#59657e}.folder{display:grid;grid-template-columns:1.1fr .8fr .7fr .7fr auto;gap:8px;align-items:center;padding:10px;border-bottom:1px solid #e7eaf1}.folder:last-child{border-bottom:0}.folder code{color:#738098;font-size:11px}.profile{display:grid;grid-template-columns:1.2fr .8fr 1fr 1fr .6fr auto;gap:8px;align-items:center;padding:10px;border-bottom:1px solid #e7eaf1}.profile:last-child{border-bottom:0}
+@media(max-width:1100px){.g4,.g3,.g2,.control-grid{grid-template-columns:1fr 1fr}.preset-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:700px){.shell{padding:0}.page{padding:12px}.g4,.g3,.g2,.control-grid,.two,.three,.preset-grid{grid-template-columns:1fr}.stage{height:430px}.folder,.profile{grid-template-columns:1fr}.top{padding:0 13px}}
+</style>
+
+<style id="whole-web-responsive-system-v1">
+html,body{width:100%;max-width:100%;overflow-x:hidden}
+.shell,.workspace,.page,.card{min-width:0}
+table{max-width:100%}
+@media(max-width:760px){
+  .shell{padding:0!important}
+  .workspace{width:100%;max-width:100%;border-radius:10px}
+  .top{height:auto!important;min-height:52px;align-items:flex-start;flex-wrap:wrap;gap:8px;padding:8px 10px!important}
+  .brand{min-width:0}.brand small{display:none}
+  .head{align-items:flex-start!important;flex-direction:column!important;gap:9px}
+  .head .actions{width:100%;display:flex;flex-wrap:wrap}
+  .head .actions .btn{min-height:40px;flex:1 1 auto}
+  .tabs{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .tabs::-webkit-scrollbar{display:none}
+  .tab{min-height:40px}
+  .page{padding:10px!important}
+  .g4,.g3,.g2,.control-grid,.two,.three,.preset-grid,.upload-primary-grid,.upload-secondary-grid{grid-template-columns:1fr!important}
+  .drive-batch-stats{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .folder,.profile{grid-template-columns:1fr!important}
+  .category-tools{grid-template-columns:1fr!important}
+  .category-tools .btn{width:100%}
+  .preview-toolbar{align-items:flex-start!important;flex-direction:column!important}
+  .preview-toolbar>.row{width:100%;margin-left:0!important;justify-content:flex-start!important;overflow-x:auto;flex-wrap:nowrap!important;padding-bottom:2px}
+  .preview-toolbar>.row>*{flex:0 0 auto}
+  .stage{height:auto!important;min-height:0!important;aspect-ratio:16/9;padding:12px!important}
+  .caption{font-size:clamp(18px,7vw,34px)!important;width:88%!important}
+  .text-mode-master .mode-row .field{min-width:0!important}
+  .preset-media-toolbar .grow{min-width:0!important}
+  .instant-live-audio{left:8px!important;right:8px!important;width:calc(100% - 16px)!important}
+}
+@media(max-width:430px){
+  .drive-batch-stats{grid-template-columns:1fr!important}
+  .btn{min-height:40px}
+}
+</style>
+
+
+<style id="acs-ui-overrides-v2">
+/* Universal Theme Integration */
+:root {
+  --sb-bg: #f8fafc;
+  --sb-card: #ffffff;
+  --sb-border: #e2e8f0;
+  --sb-accent: #4f46e5;
+  --sb-text: #0f172a;
+  --sb-muted: #64748b;
+  --sb-spacing-sm: 8px;
+  --sb-spacing-md: 16px;
+  --sb-spacing-lg: 24px;
+  --sb-radius: 12px;
+  --sb-radius-sm: 8px;
+  --bg: #f8fafc;
+  --panel: #ffffff;
+  --line: #e2e8f0;
+}
+body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-text) !important; font-family: 'Inter', system-ui, -apple-system, sans-serif !important; }
+
+/* 1. Remove forced heights and double scrollbars in ACS */
+.acs-shell, .acs-workspace, #acs-scroll-wrapper, .scroll-container, .main-scroll, div[style*="overflow-y: auto"], div[style*="overflow-y: scroll"], div[style*="height: 100vh"] {
+    height: auto !important;
+    max-height: none !important;
+    overflow-y: visible !important;
+}
+
+/* 2. Hide Auto Caption Studio Headers */
+.head h2, .head p, .acs-header-block, .page-header { display: none !important; }
+.head { margin-bottom: 0 !important; }
+
+/* 3. Normalize ACS subtabs to Scene Builder standard */
+.acs-subnav a.active, .sub-tabs a.active, .acs-tabs a.active, .nav-pills .nav-link.active, .story-work-tabs a.active, .tabs a.active {
+    background-color: #ffffff !important;
+    color: #2457d6 !important;
+    box-shadow: 0 3px 10px rgba(31,45,74,0.11) !important;
+    border: 1px solid #dce4ef !important;
+}
+.acs-subnav a, .sub-tabs a, .acs-tabs a, .tabs a {
+    color: #475467 !important;
+    font-weight: 800 !important;
+    background-color: transparent !important;
+}
+
+/* 4. Standardize worker card borders and margins */
+.worker-card, .status-card, .acs-card, .card {
+    border-left: 1px solid var(--sb-border) !important;
+    background-color: var(--sb-card) !important; 
+    border: 1px solid var(--sb-border) !important; 
+    border-radius: var(--sb-radius) !important; 
+    box-shadow: 0 1px 3px 0 rgba(0,0,0,0.1), 0 1px 2px 0 rgba(0,0,0,0.06) !important; 
+    padding: var(--sb-spacing-lg) !important;
+}
+</style>
+
+</head>
+<body>
+<div class="shell"><div class="workspace">
+  <div class="tabs">
+    <button class="tab active" data-page="queue">Queue</button>
+    <button class="tab" data-page="upload">Upload</button>
+    <button class="tab" data-page="preset">Preset</button>
+    <button class="tab" data-page="captions">Captions</button>
+    <button class="tab" data-page="pexels">Pexels</button>
+    <button class="tab" data-page="fg">FG</button>
+    <button class="tab" data-page="voice">Voice</button>
+    <button class="tab" data-page="music">Music</button>
+    <button class="tab" data-page="output">Output</button>
+    <button class="tab" data-page="admin">Admin</button>
+  </div>
+
+  <section class="page active" id="queue">
+    <div class="head"><div><h2>Production Queue</h2><p>New web-flow projects only. Existing legacy ACS remains separate.</p></div><div class="actions"><span class="save-state page-save-state">✓ Saved</span><button class="btn">Pause after current</button><button class="btn">Resume</button><button class="btn primary" data-go="upload">New Upload</button></div></div>
+    <div class="grid g4"><div class="card metric"><b>—</b><span>Waiting</span></div><div class="card metric"><b>—</b><span>Processing</span></div><div class="card metric"><b>—</b><span>Delivered</span></div><div class="card metric"><b>—</b><span>Needs attention</span></div></div>
+    <div class="grid g2" style="margin-top:14px">
+      <div class="card"><h3>Production Priority</h3><div class="setting"><div><b>Scene Builder</b><small>Gets next heavy production slot first.</small></div><span class="badge">Checking…</span></div><div class="setting"><div><b>ACS</b><small>Continues from the next safe stage.</small></div><span class="badge">Checking…</span></div></div>
+      <div class="card"><h3>Queue Controls</h3>
+      <div class="field"><label>Queue Mode</label><select data-autosave><option>Normal</option><option>Verified Serial</option></select></div>
+      <div class="setting"><div><b>Scene Builder priority</b><small>ACS yields the next heavy slot when Scene Builder has claimable work.</small></div><label class="toggle"><input data-autosave type="checkbox" checked><span class="slider"></span></label></div>
+      <div class="setting"><div><b>Pause after current safe stage</b><small>Do not interrupt an active unsafe operation.</small></div><label class="toggle"><input data-autosave type="checkbox"><span class="slider"></span></label></div>
+      <p class="small">These queue settings live here and auto-save.</p>
+    </div>
+    </div>
+    <div class="card" style="margin-top:14px;overflow:auto"><table class="queue"><thead><tr><th>Project</th><th>Preset</th><th>FG Library</th><th>Stage</th><th>Progress</th><th>Drive</th><th>Controls</th></tr></thead><tbody><tr><td colspan="7" class="small">Loading live queue…</td></tr></tbody></table></div>
+  </section>
+
+  <section class="page" id="upload">
+    <div class="head"><div><h2>Upload</h2><p>Single, multiple, or browser folder submission. Verification follows the selected preset.</p></div><div class="actions"><span class="save-state page-save-state">✓ Saved</span><button class="btn">Clear Finished</button><button class="btn primary">Submit Ready</button></div></div>
+    <div class="card" style="margin-bottom:14px">
+      <div class="three">
+        <div class="field"><label>Voice Mode</label>
+          <select id="uploadVoiceMode" data-autosave>
+            <option selected>Upload Audio</option>
+            <option>Algrow Voice</option>
+          </select>
+        </div>
+        <div class="field"><label>Selected Preset</label>
+          <select id="uploadPreset" data-autosave>
+            <option>Documentary Scroll</option>
+            <option>Clean Caption</option>
+            <option>English Shorts</option>
+            <option>Urdu Storytelling</option>
+            <option>Dark Viral</option>
+          </select>
+        </div>
+        <div class="field"><label>Preset Verification Mode</label><input type="text" id="verificationMode" value="Scrolling Text + Pexels Images + FG + Voice" readonly></div>
+        <div class="field"><label>Preset Status</label><input type="text" value="Ready for preflight" readonly></div>
+        <div class="field"><label>Queue Item Rule</label><input type="text" id="queueRule" value="TXT + audio exact basename pair" readonly></div>
+      </div>
+      <p class="small" style="margin:9px 0 0">Like Scene Builder, choose the preset before submission. Upload checks are generated from that preset instead of using one fixed checklist for every project.</p>
+    </div>
+    <div class="drop">
+      <strong>Select a folder containing paired TXT + audio files</strong>
+      Each queue item is created only from an exact same-basename pair, for example <b>project01.txt + project01.mp3</b>.
+      Unpaired TXT or audio files are rejected and never enter the queue.
+      <div class="row" style="justify-content:center;margin-top:14px">
+        <button class="btn primary">Select Folder</button>
+        <button class="btn">Select Files</button>
+      </div>
+      <div class="small" style="margin-top:10px">Accepted audio examples: .mp3, .wav, .m4a. Matching is based on the filename before the extension.</div>
+    </div>
+    <div class="grid g4" style="margin-top:14px">
+      <div class="card metric"><b>24</b><span>Files detected</span></div>
+      <div class="card metric"><b>10</b><span>Valid TXT + audio pairs</span></div>
+      <div class="card metric"><b>3</b><span>Unpaired files</span></div>
+      <div class="card metric"><b>3</b><span>Rejected before queue</span></div>
+    </div>
+    <div class="card" style="margin-top:14px;overflow:auto">
+      <div class="head" style="margin-bottom:8px">
+        <div><h3 style="margin:0">Folder Pairing</h3><p>Only valid same-name pairs can become queue items.</p></div>
+        <span class="badge good">10 queue items ready</span>
+      </div>
+      <table class="queue">
+        <thead><tr><th>Base Name</th><th>TXT</th><th>Audio</th><th>Preset</th><th>FG Library</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td><b>Iceland_001</b></td><td>Iceland_001.txt</td><td>Iceland_001.mp3</td><td>Documentary Scroll</td><td><select data-autosave><option selected>Mountains / Couples</option><option>Travel People</option><option>Wildlife</option><option>None</option></select></td><td><span class="badge good">Queue item</span></td></tr>
+          <tr><td><b>Cuba_004</b></td><td>Cuba_004.txt</td><td>Cuba_004.wav</td><td>Documentary Scroll</td><td><select data-autosave><option>Mountains / Couples</option><option selected>Travel People</option><option>Wildlife</option><option>None</option></select></td><td><span class="badge good">Queue item</span></td></tr>
+          <tr><td><b>Portugal_009</b></td><td>Portugal_009.txt</td><td>—</td><td>—</td><td>—</td><td><span class="badge warn">Rejected: audio missing</span></td></tr>
+          <tr><td><b>Laos_002</b></td><td>—</td><td>Laos_002.mp3</td><td>—</td><td>—</td><td><span class="badge warn">Rejected: TXT missing</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="head" style="margin-bottom:10px"><div><h3 style="margin:0">Preset-Based Preflight</h3><p id="preflightSubtitle">Checking requirements for Documentary Scroll</p></div><span class="badge good" id="preflightBadge">6/6 checks ready</span></div>
+      <div id="presetChecks" class="control-grid"></div>
+    </div>
+    <div class="card" style="margin-top:14px"><h3>Upload Defaults</h3><div class="control-grid">
+      <label class="check"><input data-autosave type="checkbox" checked> Duplicate detection</label>
+      <label class="check"><input data-autosave type="checkbox" checked> Block output-name conflicts</label>
+      <label class="check"><input data-autosave type="checkbox" checked> Upload Audio mode requires exact TXT + audio pair</label>
+      <label class="check"><input data-autosave type="checkbox" checked> Validate Drive destination before queue</label>
+      <label class="check"><input data-autosave type="checkbox" checked> Keep browser upload progress after submit</label>
+      <label class="check"><input data-autosave type="checkbox" checked> Warn before leaving unfinished upload</label>
+    </div><p class="small">These upload behaviors auto-save here; no separate Settings tab.</p></div>
+  </section>
+
+  <section class="page" id="preset">
+    <div class="head"><div><h2>Presets</h2><p>Preset selection and management at the top. Preview only underneath.</p></div><div class="actions"><span class="save-state page-save-state">✓ Saved</span><button class="btn">Duplicate</button><button class="btn">Delete</button><button class="btn primary">New Preset</button></div></div>
+    <div class="preset-grid">
+      <div class="preset active" data-preset="Documentary Scroll"><b>Documentary Scroll</b><span class="small">Scrolling text · Pexels Images · FG Mountains · Voice: Declan</span><div class="tags"><span class="tag">Scroll</span><span class="tag">Images</span><span class="tag">FG</span></div></div>
+      <div class="preset" data-preset="Clean Caption"><b>Clean Caption</b><span class="small">Caption video · White/Black · No FG · Natural voice</span><div class="tags"><span class="tag">Caption</span><span class="tag">Clean</span></div></div>
+      <div class="preset" data-preset="English Shorts"><b>English Shorts</b><span class="small">Heavy captions · Spoken highlight · Dynamic visuals</span><div class="tags"><span class="tag">Karaoke</span><span class="tag">Dynamic</span></div></div>
+      <div class="preset" data-preset="Urdu Storytelling"><b>Urdu Storytelling</b><span class="small">Urdu font · Scroll · Story FG · Warm music</span><div class="tags"><span class="tag">Urdu</span><span class="tag">Story</span></div></div>
+      <div class="preset" data-preset="Dark Viral"><b>Dark Viral</b><span class="small">Viral yellow · Dark plate · Strong ducking</span><div class="tags"><span class="tag">Viral</span><span class="tag">Music</span></div></div>
+    </div>
+    <div class="preview-box">
+      <div class="preview-toolbar"><b id="previewTitle">Preview · Documentary Scroll</b><div class="row"><span class="badge good">Live Preview</span><button class="btn green">Approve Preview</button></div></div>
+      <div class="stage"><div class="mountains"></div><div class="safe"></div><div class="caption">Life in Iceland feels <span>different</span> the moment the landscape opens around you.</div></div>
+    </div>
+  </section>
+
+  <section class="page" id="captions">
+    <div class="head"><div><h2>Captions & Scrolling Text</h2><p>Both proven desktop modes remain available.</p></div><span class="save-state page-save-state">✓ Saved</span></div>
+    <div class="subtabs"><button class="pill active" data-capmode="caption">Caption Video</button><button class="pill" data-capmode="scroll">Scrolling Text</button><button class="pill" data-capmode="style">Common Text Style</button></div>
+    <div class="cap-pane" id="cap-caption">
+      <div class="grid g3">
+        <div class="card"><h3>Caption Controls</h3><div class="setting"><div><b>Enable captions</b></div><label class="toggle"><input data-autosave type="checkbox" checked><span class="slider"></span></label></div><div class="field"><label>Position</label><select data-autosave><option>Bottom</option><option>Center</option><option>Top</option></select></div><div class="field" style="margin-top:9px"><label>Words per Caption</label><input data-autosave type="number" value="8" min="2" max="24"></div></div>
+        <div class="card"><h3>Source & Sync</h3><div class="field"><label>Text Source</label><select data-autosave><option>Voice-to-text Transcript</option><option>Original Script Words</option></select></div><div class="field" style="margin-top:9px"><label>Timing Sync</label><select data-autosave><option>Better Sync — voice-to-text</option><option>Fast Sync — script duration</option></select></div><div class="field" style="margin-top:9px"><label>Language</label><select data-autosave><option>Auto</option><option>English</option><option>Urdu</option><option>Hindi</option></select></div></div>
+        <div class="card"><h3>Heavy Caption Lab</h3><div class="setting"><div><b>Heavy captions</b></div><label class="toggle"><input data-autosave type="checkbox"><span class="slider"></span></label></div><div class="field"><label>Preset</label><select data-autosave><option>Story Pro</option><option>Viral Pop</option><option>Glass</option><option>Documentary</option><option>Minimal</option></select></div><label class="check" style="margin-top:10px"><input data-autosave type="checkbox"> Highlight active spoken word</label><label class="check"><input data-autosave type="checkbox" checked> Tighten tiny silent gaps</label></div>
+      </div>
+    </div>
+    <div class="cap-pane" id="cap-scroll" style="display:none">
+      <div class="grid g3">
+        <div class="card"><h3>Scrolling Mode</h3><div class="field"><label>Start Mode</label><select data-autosave><option>Voice Centered</option><option>Classic</option><option>Immediate</option><option>Centered</option></select></div><div class="setting"><div><b>Auto-sync to audio</b></div><label class="toggle"><input data-autosave type="checkbox" checked><span class="slider"></span></label></div><div class="field"><label>Manual Speed</label><input data-autosave type="number" value="80"><span class="small">px/sec when auto sync is off</span></div></div>
+        <div class="card"><h3>Timing</h3><div class="field"><label>Extra Start</label><input data-autosave type="number" value="0" step=".1"></div><div class="field" style="margin-top:9px"><label>Extra End</label><input data-autosave type="number" value="0" step=".1"></div><div class="field" style="margin-top:9px"><label>Text Width</label><input data-autosave type="range" value="85"><span class="small">85%</span></div></div>
+        <div class="card"><h3>Layout</h3><div class="field"><label>Alignment</label><select data-autosave><option>Center</option><option>Left</option><option>Right</option><option>Justify</option></select></div><div class="field" style="margin-top:9px"><label>Line Height</label><input data-autosave type="range" min="80" max="250" value="135"></div><div class="field" style="margin-top:9px"><label>Paragraph Spacing</label><input data-autosave type="number" value="26"></div></div>
+      </div>
+    </div>
+    <div class="cap-pane" id="cap-style" style="display:none">
+      <div class="grid g3">
+        <div class="card"><h3>Font</h3><div class="field"><label>Family</label><select data-autosave><option>Inter</option><option>Jameel Noori Nastaleeq Kasheeda</option><option>Noto Sans</option><option>Montserrat</option></select></div><div class="two" style="margin-top:9px"><div class="field"><label>Size</label><input data-autosave type="number" value="54"></div><div class="field"><label>Width</label><input data-autosave type="number" value="85"></div></div><div class="row" style="margin-top:10px"><label class="check"><input data-autosave type="checkbox"> Bold</label><label class="check"><input data-autosave type="checkbox"> Italic</label><label class="check"><input data-autosave type="checkbox"> Underline</label></div></div>
+        <div class="card"><h3>Color & Plate</h3><div class="two"><div class="field"><label>Text</label><input data-autosave type="color" value="#ffffff"></div><div class="field"><label>Highlight</label><input data-autosave type="color" value="#ffd54a"></div></div><label class="check" style="margin-top:10px"><input data-autosave type="checkbox" checked> Background box</label><div class="two" style="margin-top:9px"><div class="field"><label>Box Color</label><input data-autosave type="color" value="#000000"></div><div class="field"><label>Opacity</label><input data-autosave type="number" value="45"></div></div></div>
+        <div class="card"><h3>Stroke & Shadow</h3><label class="check"><input data-autosave type="checkbox"> Stroke</label><div class="two" style="margin-top:9px"><div class="field"><label>Stroke Color</label><input data-autosave type="color" value="#000000"></div><div class="field"><label>Width</label><input data-autosave type="number" value="2"></div></div><label class="check" style="margin-top:10px"><input data-autosave type="checkbox" checked> Shadow</label></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="page" id="pexels">
+    <div class="head"><div><h2>Pexels</h2><p>Images, videos, keywords, libraries, API key and essential motion controls.</p></div><span class="save-state page-save-state">✓ Saved</span></div>
+    <div class="notice" style="margin-bottom:14px">
+      <b>Protected reusable Pexels library:</b> downloaded/library media stored in the configured VPS Pexels library is reusable across projects and excluded from normal project cleanup.
+      Cleanup removes project working copies only, never the reusable Pexels library.
+    </div>
+    <div class="grid g2">
+      <div class="card"><h3>Media Source</h3>
+        <div class="setting"><div><b>Use Pexels</b><small>Allow Pexels/local library visuals.</small></div><label class="toggle"><input data-autosave type="checkbox" checked><span class="slider"></span></label></div>
+        <div class="field"><label>Media Type</label><select data-autosave><option>Images</option><option>Videos</option><option>Mix Images + Videos</option></select></div>
+        <div class="field" style="margin-top:9px"><label>Pexels API Key</label><div class="row"><input data-autosave type="password" value="xxxxxxxxxxxxxxxx" style="flex:1"><button class="btn">Save Key</button></div></div>
+        <div class="setting"><div><b>Use Live Pexels API media</b><small>OFF uses VPS library first.</small></div><label class="toggle"><input data-autosave type="checkbox"><span class="slider"></span></label></div>
+      </div>
+      <div class="card"><h3>Keywords & Library</h3>
+        <div class="field"><label>Manual Keywords</label><input data-autosave type="text" value="nature, mountains, village, cinematic drone"></div>
+        <div class="setting"><div><b>Auto-fetch keywords from script</b></div><label class="toggle"><input data-autosave type="checkbox" checked><span class="slider"></span></label></div>
+        <div class="field"><label>VPS Pexels Library</label><div class="row"><input data-autosave type="text" value="/srv/acs/pexels_library" style="flex:1"><button class="btn">Scan</button><button class="btn">Fill</button></div></div>
+        <div class="row" style="margin-top:10px"><span class="badge good">1,842 images</span><span class="badge">126 videos</span></div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:14px"><h3>Motion & Timing</h3><div class="control-grid">
+      <div class="field"><label>Image Duration</label><input data-autosave type="number" value="8"><span class="small">seconds</span></div>
+      <div class="field"><label>Video Clip Duration</label><input data-autosave type="number" value="4"><span class="small">seconds</span></div>
+      <div class="field"><label>Motion Style</label><select data-autosave><option>Cinematic</option><option>Very Slow</option><option>Dynamic</option></select></div>
+      <div class="field"><label>Motion Speed</label><input data-autosave type="range" min="25" max="300" value="100"></div>
+      <div class="field"><label>Motion Intensity</label><input data-autosave type="range" min="0" max="100" value="42"></div>
+      <div class="field"><label>Image Transition</label><select data-autosave><option>Crossfade</option><option>Clean Cut</option><option>Slow Dissolve</option><option>Varied Subtle</option></select></div>
+    </div><div class="row" style="margin-top:12px"><label class="check"><input data-autosave type="checkbox" checked> Enable image motion</label><label class="check"><input data-autosave type="checkbox" checked> Avoid repeated motion</label><label class="check"><input data-autosave type="checkbox" checked> Protect low-resolution images</label><label class="check"><input data-autosave type="checkbox"> Single background full video</label></div></div>
+  </section>
+
+  <section class="page" id="fg">
+    <div class="head"><div><h2>Foreground Libraries</h2><p>Multiple persistent VPS folders. These folders stay outside automatic project cleanup.</p></div><div class="actions"><span class="save-state page-save-state">✓ Saved</span><button class="btn">Scan All</button><button class="btn primary">Add VPS Folder</button></div></div>
+    <div class="notice" style="margin-bottom:14px">
+      <b>Protected reusable library:</b> FG folders live permanently on the VPS and are outside all project cleanup paths.
+      Every queue item selects one FG library (or None). Project cleanup can remove only project-owned working files.
+      An FG library can be removed only from this tab with an explicit removal action.
+    </div>
+    <div class="card">
+      <div class="folder"><b>Mountains / Couples</b><code>/srv/acs/fg/mountains_couples</code><span>286 files</span><span class="badge good">Active</span><button class="btn red">Remove</button></div>
+      <div class="folder"><b>Travel People</b><code>/srv/acs/fg/travel_people</code><span>194 files</span><span class="badge good">Active</span><button class="btn red">Remove</button></div>
+      <div class="folder"><b>Wildlife</b><code>/srv/acs/fg/wildlife</code><span>371 files</span><span class="badge">Available</span><button class="btn red">Remove</button></div>
+    </div>
+    <div class="grid g2" style="margin-top:14px">
+      <div class="card"><h3>Add Folder</h3><div class="field"><label>Library Name</label><input data-autosave type="text" placeholder="e.g. Beach People"></div><div class="field" style="margin-top:9px"><label>VPS Folder</label><input data-autosave type="text" placeholder="/srv/acs/fg/beach_people"></div><div class="row" style="margin-top:10px"><button class="btn">Validate Folder</button><button class="btn primary">Add Library</button></div></div>
+      <div class="card"><h3>Foreground Placement Defaults</h3>
+        <div class="three"><div class="field"><label>X</label><input id="fgX" data-autosave type="number" min="0" max="100" value="17"></div><div class="field"><label>Y</label><input id="fgY" data-autosave type="number" min="0" max="100" value="58"></div><div class="field"><label>Size</label><input id="fgSize" data-autosave type="number" min="5" max="100" value="39"></div></div>
+        <div class="field" style="margin-top:9px"><label>Opacity</label><input id="fgOpacity" data-autosave type="range" min="0" max="100" value="100"></div>
+        <p class="small">Individual presets can choose which persistent FG library to use.</p>
+        <div style="margin-top:12px">
+          <div class="small" style="margin-bottom:6px;font-weight:700">16:9 Placement Preview</div>
+          <div id="fgPreview" style="position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;border:1px solid var(--line);border-radius:10px;background:linear-gradient(145deg,#567b86,#193642 52%,#0d1725)">
+            <div style="position:absolute;inset:0;background:linear-gradient(160deg,transparent 0 58%,rgba(8,29,36,.85) 59% 74%,transparent 75%)"></div>
+            <div id="fgSubject" style="position:absolute;left:17%;top:58%;width:39%;aspect-ratio:1/1;transform:translate(-50%,-50%);opacity:1;border-radius:50% 50% 44% 44%;background:radial-gradient(circle at 50% 28%,#f0c4a5 0 15%,#3f2d2c 16% 22%,transparent 23%),linear-gradient(180deg,transparent 0 34%,#d6d8dc 35% 74%,#26364d 75%);filter:drop-shadow(0 10px 18px rgba(0,0,0,.4))"></div>
+            <div style="position:absolute;left:10px;bottom:8px;font-size:10px;color:rgba(255,255,255,.76);background:rgba(0,0,0,.35);padding:4px 7px;border-radius:99px">Single-image placement preview</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="page" id="voice">
+    <div class="head"><div><h2>Voice</h2><p>Exactly two production modes: Upload Audio or Algrow Voice.</p></div><div class="actions"><span class="save-state page-save-state">✓ Saved</span><button class="btn">Refresh Profiles</button><button class="btn primary">New Voice Profile</button></div></div>
+    <div class="grid g2" style="margin-bottom:14px">
+      <div class="card" style="border-color:var(--blue)">
+        <div class="row" style="justify-content:space-between"><h3 style="margin:0">Mode 1 · Upload Audio</h3><span class="badge good">Folder Pair Mode</span></div>
+        <p class="small">The folder uploader requires <b>TXT + audio with the same basename</b>. A valid pair becomes one queue item. Unpaired files are rejected.</p>
+        <div class="field"><label>Accepted Audio</label><input type="text" readonly value=".mp3, .wav, .m4a"></div>
+      </div>
+      <div class="card">
+        <div class="row" style="justify-content:space-between"><h3 style="margin:0">Mode 2 · Algrow Voice</h3><span class="badge">Generated Voice</span></div>
+        <p class="small">TXT is submitted to the existing Algrow voice sidecar using the selected reusable voice profile. Generated audio then joins the normal ACS production flow.</p>
+        <div class="field"><label>Default Algrow Voice Profile</label><select data-autosave><option>Declan Sage</option><option>Documentary Male</option><option>Urdu Story Voice</option></select></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="profile"><b>Declan Sage</b><span>English</span><span>Multilingual v2</span><span>Stability 50 · Similarity 75</span><span class="badge good">Enabled</span><div><button class="btn">Edit</button> <button class="btn">Duplicate</button></div></div>
+      <div class="profile"><b>Documentary Male</b><span>English</span><span>Multilingual v2</span><span>Stability 62 · Similarity 80</span><span class="badge good">Enabled</span><div><button class="btn">Edit</button> <button class="btn">Duplicate</button></div></div>
+      <div class="profile"><b>Urdu Story Voice</b><span>Urdu</span><span>Multilingual v2</span><span>Stability 55 · Similarity 78</span><span class="badge good">Enabled</span><div><button class="btn">Edit</button> <button class="btn">Duplicate</button></div></div>
+    </div>
+    <div class="grid g2" style="margin-top:14px">
+      <div class="card"><h3>Profile Editor</h3><div class="two"><div class="field"><label>Profile Name</label><input data-autosave type="text" value="Declan Sage"></div><div class="field"><label>Language</label><input data-autosave type="text" value="English"></div></div><div class="field" style="margin-top:9px"><label>ElevenLabs Voice ID</label><input data-autosave type="password" value="xxxxxxxxxxxxxxxx"></div><div class="field" style="margin-top:9px"><label>Model</label><select data-autosave><option>Multilingual v2</option><option>Eleven Multilingual v2</option></select></div><div class="three" style="margin-top:9px"><div class="field"><label>Stability</label><input data-autosave type="number" value="50"></div><div class="field"><label>Similarity</label><input data-autosave type="number" value="75"></div><div class="field"><label>Style</label><input data-autosave type="number" value="0"></div></div><div class="two" style="margin-top:9px"><div class="field"><label>Speed</label><input data-autosave type="number" value="1.0" step=".05"></div><div><label class="check" style="margin-top:27px"><input data-autosave type="checkbox" checked> Speaker Boost</label></div></div><div class="row" style="margin-top:12px"><span class="save-state">✓ Auto-saved</span><button class="btn red">Delete</button></div></div>
+      <div class="card"><h3>Project Voice Controls</h3><div class="field"><label>Default Voice Profile</label><select data-autosave><option>Declan Sage</option><option>Documentary Male</option><option>Urdu Story Voice</option></select></div><div class="field" style="margin-top:9px"><label>Voice Volume</label><input data-autosave type="range" min="0" max="300" value="100"></div><div class="field" style="margin-top:9px"><label>Voice Speed</label><input data-autosave type="range" min="50" max="200" value="100"></div><div class="field" style="margin-top:9px"><label>Voice Processing</label><select data-autosave><option>Natural (Recommended)</option><option>Off</option><option>Clear</option><option>Strong</option></select></div></div>
+    </div>
+  </section>
+
+  <section class="page" id="music">
+    <div class="head"><div><h2>Music</h2><p>Dedicated music, rotation, fades and narration ducking controls.</p></div><span class="save-state page-save-state">✓ Saved</span></div>
+    <div class="grid g2">
+      <div class="card"><h3>Background Music</h3><div class="setting"><div><b>Enable background music</b></div><label class="toggle"><input data-autosave type="checkbox" checked><span class="slider"></span></label></div><div class="field"><label>VPS Music Library</label><div class="row"><input data-autosave type="text" value="/srv/acs/music" style="flex:1"><button class="btn">Choose</button><button class="btn">Scan</button></div></div><div class="field" style="margin-top:9px"><label>Base Volume</label><input data-autosave type="range" min="0" max="50" value="12"></div><div class="setting"><div><b>Auto duck under narration</b></div><label class="toggle"><input data-autosave type="checkbox" checked><span class="slider"></span></label></div><div class="field"><label>Ducking Strength</label><select data-autosave><option>Medium (Recommended)</option><option>Light</option><option>Strong</option></select></div></div>
+      <div class="card"><h3>Rotation & Fades</h3><div class="field"><label>Rotation</label><select data-autosave><option>Sequential (Recommended)</option><option>Random — avoid immediate repeat</option><option>Shuffle Cycle</option></select></div><div class="row" style="margin-top:10px"><label class="check"><input data-autosave type="checkbox" checked> Remember rotation after restart</label><label class="check"><input data-autosave type="checkbox" checked> Normalize loudness</label></div><div class="row" style="margin-top:10px"><label class="check"><input data-autosave type="checkbox" checked> Loop if short</label><label class="check"><input data-autosave type="checkbox" checked> Trim if long</label></div><div class="three" style="margin-top:10px"><div class="field"><label>Loop Crossfade</label><input data-autosave type="number" value=".5" step=".05"></div><div class="field"><label>Fade In</label><input data-autosave type="number" value="1.5" step=".25"></div><div class="field"><label>Fade Out</label><input data-autosave type="number" value="2" step=".25"></div></div><p class="small">Track assignment stays frozen for queue retry/restart.</p></div>
+    </div>
+  </section>
+
+  <section class="page" id="output">
+    <div class="head"><div><h2>Output</h2><p>Render, compression and verified Drive delivery controls.</p></div><span class="save-state page-save-state">✓ Saved</span></div>
+    <div class="grid g3">
+      <div class="card"><h3>Video</h3><div class="field"><label>Aspect Ratio</label><select data-autosave><option>16:9 Landscape</option><option>9:16 Portrait / Shorts</option></select></div><div class="two" style="margin-top:9px"><div class="field"><label>Resolution</label><select data-autosave><option>720p</option><option>480p</option><option>1080p — web extension</option></select></div><div class="field"><label>FPS</label><input data-autosave type="number" min="12" max="60" value="24"></div></div><div class="field" style="margin-top:9px"><label>Quality</label><select data-autosave><option>High Quality (CRF 20)</option><option>Good Quality (CRF 22)</option><option selected>Balanced (CRF 23)</option><option>Small File (CRF 25)</option><option>Custom CRF</option></select></div><div class="field" style="margin-top:9px"><label>CPU FFmpeg Preset</label><select data-autosave><option>ultrafast</option><option>veryfast</option><option>faster</option><option>fast</option><option>medium</option></select></div></div>
+      <div class="card"><h3>Post Render Compression</h3><div class="setting"><div><b>Compress after render</b><small>Before next queue item.</small></div><label class="toggle"><input data-autosave type="checkbox"><span class="slider"></span></label></div><div class="field"><label>Compression Quality</label><select data-autosave><option>Balanced Fast</option><option>High Quality</option><option>Smaller File</option></select></div><div class="field" style="margin-top:9px"><label>Encoder</label><select data-autosave><option>CPU Fast (Reliable)</option><option>CPU Quality</option></select></div><label class="check" style="margin-top:10px"><input data-autosave type="checkbox" checked> Replace only when compressed file is smaller</label></div>
+      <div class="card"><h3>Drive Delivery</h3><div class="setting"><div><b>Upload to Drive</b></div><label class="toggle"><input data-autosave type="checkbox" checked><span class="slider"></span></label></div><div class="field"><label>Drive Destination</label><select data-autosave><option>ACS Final Videos</option><option>Documentaries / Batch A</option><option>Assigned User Folder</option></select></div><div class="setting"><div><b>Verify Drive before Delivered</b></div><label class="toggle"><input data-autosave type="checkbox" checked><span class="slider"></span></label></div><div class="setting"><div><b>Clean project after verification</b><small>Deletes project-owned working files only.</small></div><label class="toggle"><input data-autosave type="checkbox" checked><span class="slider"></span></label></div>
+    <div class="small" style="margin-top:8px">Protected from cleanup: FG libraries · Pexels library · Music library · Voice profiles</div></div>
+    </div>
+    <div class="card" style="margin-top:14px"><h3>Output Naming & Queue</h3><div class="three"><div class="field"><label>Output Name</label><input data-autosave type="text" value="{project_id}.mp4"></div><div class="field"><label>Queue Output Folder</label><input data-autosave type="text" value="/srv/acs/output"></div><div class="field"><label>Encoder</label><select data-autosave><option>CPU x264 / H.264</option></select></div></div></div>
+  </section>
+
+  <section class="page" id="admin">
+    <div class="head"><div><h2>Admin</h2><p>ACS-only operations and maintenance.</p></div><button class="btn">Refresh</button></div>
+    <div class="grid g3">
+      <div class="card"><h3>Workers</h3><div class="setting"><span>Renderer</span><span class="badge good">Healthy</span></div><div class="setting"><span>Compressor</span><span class="badge good">Healthy</span></div><div class="setting"><span>Drive Uploader</span><span class="badge good">Healthy</span></div></div>
+      <div class="card"><h3>Storage</h3><div class="setting"><span>Active projects</span><b>12.8 GB</b></div><div class="setting"><span>Cleanup eligible</span><b>4.1 GB</b></div><div class="setting"><span>Persistent libraries</span><b>18.6 GB</b></div></div>
+      <div class="card"><h3>Maintenance</h3><button class="btn" style="width:100%;margin-bottom:8px">Scan Orphans</button><button class="btn" style="width:100%;margin-bottom:8px">Verify Delivered Projects</button><button class="btn red" style="width:100%">Clean Verified Projects</button></div>
+    </div>
+  </section>
+
+</div></div>
+<script>
+const tabs=[...document.querySelectorAll('.tab')], pages=[...document.querySelectorAll('.page')];
+function openPage(id){
+  tabs.forEach(t=>t.classList.toggle('active',t.dataset.page===id));
+  pages.forEach(p=>p.classList.toggle('active',p.id===id));
+}
+tabs.forEach(t=>t.onclick=()=>openPage(t.dataset.page));
+document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>openPage(b.dataset.go));
+
+/* Preset selection cards: preview only below. */
+document.querySelectorAll('.preset').forEach(p=>p.onclick=()=>{
+  document.querySelectorAll('.preset').forEach(x=>x.classList.remove('active'));
+  p.classList.add('active');
+  document.getElementById('previewTitle').textContent='Preview · '+p.dataset.preset;
+  const uploadPreset=document.getElementById('uploadPreset');
+  if(uploadPreset){uploadPreset.value=p.dataset.preset;updatePresetChecks();}
+  markUnsaved();
+});
+
+/* Captions internal sub-tabs. */
+document.querySelectorAll('[data-capmode]').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('[data-capmode]').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  document.querySelectorAll('.cap-pane').forEach(x=>x.style.display='none');
+  document.getElementById('cap-'+b.dataset.capmode).style.display='block';
+});
+
+/* Scene Builder-style debounced autosave simulation. */
+const globalState=document.getElementById('globalSaveState');
+const pageStates=[...document.querySelectorAll('.page-save-state')];
+let autoSaveTimer=null, saveSerial=0;
+
+function setSaveState(text,color,border,bg){
+  [globalState,...pageStates].filter(Boolean).forEach(el=>{
+    el.textContent=text;
+    if(color)el.style.color=color;
+    if(border)el.style.borderColor=border;
+    if(bg)el.style.background=bg;
+  });
+}
+function collectState(){
+  const state={};
+  document.querySelectorAll('[data-autosave]').forEach((el,i)=>{
+    const key=el.id||el.name||('field_'+i);
+    state[key]=el.type==='checkbox'?el.checked:el.value;
+  });
+  state.selectedPreset=document.querySelector('.preset.active')?.dataset.preset||'Documentary Scroll';
+  return state;
+}
+function autoSave(){
+  clearTimeout(autoSaveTimer); autoSaveTimer=null;
+  const serial=++saveSerial;
+  setSaveState('Saving…','#4546bc','#d9dcf1','#f0efff');
+  setTimeout(()=>{
+    try{localStorage.setItem('acs-ui-preview-v5',JSON.stringify(collectState()));}catch(e){}
+    if(serial===saveSerial)setSaveState('✓ Saved','#117443','#bdebd2','#e9fbf2');
+  },260);
+}
+function markUnsaved(){
+  setSaveState('Unsaved changes','#9a6500','#f1d39e','#fff3de');
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer=setTimeout(autoSave,650);
+}
+document.querySelectorAll('[data-autosave]').forEach(el=>{
+  el.addEventListener('change',markUnsaved);
+  if(['range','text','number'].includes(el.type))el.addEventListener('input',markUnsaved);
+});
+
+/* Upload verification is generated from the selected preset. */
+const presetRequirements={
+  'Documentary Scroll':{
+    mode:'Scrolling Text + Pexels Images + FG + Voice',
+    checks:[
+      ['TXT + audio filename pair','Exact same basename required'],['Preset selected','Documentary Scroll'],
+      ['Scrolling Text settings','Required'],
+      ['Pexels image source','Required'],
+      ['FG library','Mountains / Couples'],
+      ['Voice profile','Declan Sage or optional voice mode'],
+      ['Output + Drive','Verified destination required']
+    ]
+  },
+  'Clean Caption':{
+    mode:'Caption Video + No FG + Voice',
+    checks:[
+      ['TXT + audio filename pair','Exact same basename required'],['Preset selected','Clean Caption'],
+      ['Caption mode','Caption Video'],
+      ['Foreground','Not required'],
+      ['Voice','Required or accepted later when optional mode is enabled'],
+      ['Media source','Video / image allowed'],
+      ['Output + Drive','Verified destination required']
+    ]
+  },
+  'English Shorts':{
+    mode:'Heavy Captions + Dynamic Pexels + Voice',
+    checks:[
+      ['TXT + audio filename pair','Exact same basename required'],['Preset selected','English Shorts'],
+      ['Heavy captions','Required'],
+      ['Pexels media','Dynamic source required'],
+      ['Foreground','Optional'],
+      ['Voice profile','English profile required'],
+      ['Output','Portrait/shorts-compatible output required']
+    ]
+  },
+  'Urdu Storytelling':{
+    mode:'Urdu Scroll + FG + Voice + Music',
+    checks:[
+      ['TXT + audio filename pair','Exact same basename required'],['Preset selected','Urdu Storytelling'],
+      ['Scrolling Text','Required'],
+      ['Urdu font','Required'],
+      ['FG library','Story library required'],
+      ['Urdu voice profile','Required'],
+      ['Music + Drive','Preset music and verified delivery']
+    ]
+  },
+  'Dark Viral':{
+    mode:'Heavy Captions + Dark Style + Music',
+    checks:[
+      ['TXT + audio filename pair','Exact same basename required'],['Preset selected','Dark Viral'],
+      ['Caption styling','Dark Viral style required'],
+      ['Pexels source','Required'],
+      ['FG','Preset-dependent'],
+      ['Music ducking','Required'],
+      ['Output + Drive','Verified destination required']
+    ]
+  }
+};
+function updatePresetChecks(){
+  const sel=document.getElementById('uploadPreset');
+  if(!sel)return;
+  const cfg=presetRequirements[sel.value]||presetRequirements['Documentary Scroll'];
+  document.getElementById('verificationMode').value=cfg.mode;
+  document.getElementById('preflightSubtitle').textContent='Checking requirements for '+sel.value;
+  const voiceMode=document.getElementById('uploadVoiceMode')?.value||'Upload Audio';
+  const voiceCheck=voiceMode==='Upload Audio'
+    ? ['Voice mode','Upload Audio: TXT + audio same basename required']
+    : ['Voice mode','Algrow Voice: TXT required; audio generated by sidecar'];
+  const checks=[voiceCheck,...cfg.checks.filter(x=>x[0]!=='TXT + audio filename pair')];
+  document.getElementById('preflightBadge').textContent=checks.length+'/'+checks.length+' checks ready';
+  document.getElementById('presetChecks').innerHTML=checks.map(([name,detail])=>
+    `<div class="section"><div class="row" style="justify-content:space-between"><b>${name}</b><span class="badge good">Ready</span></div><div class="small" style="margin-top:5px">${detail}</div></div>`
+  ).join('');
+}
+document.getElementById('uploadPreset')?.addEventListener('change',()=>{updatePresetChecks();markUnsaved();});
+const uploadVoiceMode=document.getElementById('uploadVoiceMode');
+function updateVoiceModeRule(){
+  if(!uploadVoiceMode)return;
+  const isUpload=uploadVoiceMode.value==='Upload Audio';
+  const rule=document.getElementById('queueRule');
+  if(rule)rule.value=isUpload?'TXT + audio exact basename pair':'TXT → Algrow Voice → normal ACS flow';
+  const drop=document.querySelector('#upload .drop');
+  if(drop){
+    drop.querySelector('strong').textContent=isUpload
+      ? 'Select a folder containing paired TXT + audio files'
+      : 'Select a folder containing TXT files for Algrow Voice';
+  }
+  updatePresetChecks();
+}
+uploadVoiceMode?.addEventListener('change',()=>{updateVoiceModeRule();markUnsaved();});
+
+updateVoiceModeRule();
+
+/* FG 16:9 placement preview. */
+function updateFgPreview(){
+  const subject=document.getElementById('fgSubject');
+  if(!subject)return;
+  const x=Math.max(0,Math.min(100,Number(document.getElementById('fgX').value||0)));
+  const y=Math.max(0,Math.min(100,Number(document.getElementById('fgY').value||0)));
+  const size=Math.max(5,Math.min(100,Number(document.getElementById('fgSize').value||5)));
+  const opacity=Math.max(0,Math.min(100,Number(document.getElementById('fgOpacity').value||0)))/100;
+  subject.style.left=x+'%';
+  subject.style.top=y+'%';
+  subject.style.width=size+'%';
+  subject.style.opacity=opacity;
+}
+['fgX','fgY','fgSize','fgOpacity'].forEach(id=>{
+  const el=document.getElementById(id);
+  el?.addEventListener('input',updateFgPreview);
+  el?.addEventListener('change',updateFgPreview);
+});
+updateFgPreview();
+
+/* Restore autosaved preview values when possible. */
+try{
+  const saved=JSON.parse(localStorage.getItem('acs-ui-preview-v5')||'{}');
+  document.querySelectorAll('[data-autosave]').forEach((el,i)=>{
+    const key=el.id||el.name||('field_'+i);
+    if(!(key in saved))return;
+    if(el.type==='checkbox')el.checked=!!saved[key];
+    else el.value=saved[key];
+  });
+  if(saved.selectedPreset){
+    const card=[...document.querySelectorAll('.preset')].find(x=>x.dataset.preset===saved.selectedPreset);
+    if(card){
+      document.querySelectorAll('.preset').forEach(x=>x.classList.remove('active'));
+      card.classList.add('active');
+      document.getElementById('previewTitle').textContent='Preview · '+saved.selectedPreset;
+    }
+  }
+}catch(e){}
+updatePresetChecks();
+updateFgPreview();
+</script>
+</body>
+</html>

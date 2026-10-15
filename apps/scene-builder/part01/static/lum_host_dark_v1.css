@@ -1,0 +1,3 @@
+/* Local Upload Manager host-only polish */
+#lum-host-frame,.lum-host-frame{background:#07111f!important;border-color:#1f3048!important}
+body:has(#lum-host-frame) #lum-host-frame{color-scheme:dark}

@@ -1,0 +1,162 @@
+[
+  {
+    "id": "bf_alice",
+    "name": "Bf Alice",
+    "language": "en-gb"
+  },
+  {
+    "id": "bf_emma",
+    "name": "Bf Emma",
+    "language": "en-gb"
+  },
+  {
+    "id": "bf_isabella",
+    "name": "Bf Isabella",
+    "language": "en-gb"
+  },
+  {
+    "id": "bf_lily",
+    "name": "Bf Lily",
+    "language": "en-gb"
+  },
+  {
+    "id": "bm_daniel",
+    "name": "Bm Daniel",
+    "language": "en-gb"
+  },
+  {
+    "id": "bm_fable",
+    "name": "Bm Fable",
+    "language": "en-gb"
+  },
+  {
+    "id": "bm_george",
+    "name": "Bm George",
+    "language": "en-gb"
+  },
+  {
+    "id": "bm_lewis",
+    "name": "Bm Lewis",
+    "language": "en-gb"
+  },
+  {
+    "id": "af_alloy",
+    "name": "Af Alloy",
+    "language": "en-us"
+  },
+  {
+    "id": "af_aoede",
+    "name": "Af Aoede",
+    "language": "en-us"
+  },
+  {
+    "id": "af_bella",
+    "name": "Af Bella",
+    "language": "en-us"
+  },
+  {
+    "id": "af_heart",
+    "name": "Af Heart",
+    "language": "en-us"
+  },
+  {
+    "id": "af_jessica",
+    "name": "Af Jessica",
+    "language": "en-us"
+  },
+  {
+    "id": "af_kore",
+    "name": "Af Kore",
+    "language": "en-us"
+  },
+  {
+    "id": "af_nicole",
+    "name": "Af Nicole",
+    "language": "en-us"
+  },
+  {
+    "id": "af_nova",
+    "name": "Af Nova",
+    "language": "en-us"
+  },
+  {
+    "id": "af_river",
+    "name": "Af River",
+    "language": "en-us"
+  },
+  {
+    "id": "af_sarah",
+    "name": "Af Sarah",
+    "language": "en-us"
+  },
+  {
+    "id": "af_sky",
+    "name": "Af Sky",
+    "language": "en-us"
+  },
+  {
+    "id": "am_adam",
+    "name": "Am Adam",
+    "language": "en-us"
+  },
+  {
+    "id": "am_echo",
+    "name": "Am Echo",
+    "language": "en-us"
+  },
+  {
+    "id": "am_eric",
+    "name": "Am Eric",
+    "language": "en-us"
+  },
+  {
+    "id": "am_fenrir",
+    "name": "Am Fenrir",
+    "language": "en-us"
+  },
+  {
+    "id": "am_liam",
+    "name": "Am Liam",
+    "language": "en-us"
+  },
+  {
+    "id": "am_michael",
+    "name": "Am Michael",
+    "language": "en-us"
+  },
+  {
+    "id": "am_onyx",
+    "name": "Am Onyx",
+    "language": "en-us"
+  },
+  {
+    "id": "am_puck",
+    "name": "Am Puck",
+    "language": "en-us"
+  },
+  {
+    "id": "am_santa",
+    "name": "Am Santa",
+    "language": "en-us"
+  },
+  {
+    "id": "hf_alpha",
+    "name": "Hf Alpha",
+    "language": "hi"
+  },
+  {
+    "id": "hf_beta",
+    "name": "Hf Beta",
+    "language": "hi"
+  },
+  {
+    "id": "hm_omega",
+    "name": "Hm Omega",
+    "language": "hi"
+  },
+  {
+    "id": "hm_psi",
+    "name": "Hm Psi",
+    "language": "hi"
+  }
+]
