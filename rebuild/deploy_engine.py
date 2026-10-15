@@ -303,6 +303,22 @@ class Engine:
                                      error=type(exc).__name__+": "+str(exc), now=now)
         return self.queue.finish(job_id, token, "VERIFIED", now=now)
 
+    def run_forever(self, *, poll_seconds=1.0, stop_event=None, max_cycles=None):
+        """Single-claim polling daemon; stopping never cancels an in-flight app."""
+        if poll_seconds <= 0 or (max_cycles is not None and max_cycles < 1):
+            raise ValueError("invalid worker polling configuration")
+        cycles = 0
+        while stop_event is None or not stop_event.is_set():
+            self.once()
+            cycles += 1
+            if max_cycles is not None and cycles >= max_cycles:
+                return cycles
+            if stop_event is None:
+                time.sleep(poll_seconds)
+            else:
+                stop_event.wait(poll_seconds)
+        return cycles
+
     def reconcile(self, job_id):
         row = self.queue._snapshot(job_id)
         if not row or row["status"] != "NEEDS_ATTENTION":
@@ -328,10 +344,23 @@ def main():
     e.add_argument("--app", required=True)
     e.add_argument("--sha", required=True)
     sub.add_parser("list")
+    sim = sub.add_parser("simulate-worker", help="execute ONLY isolated /tmp rehearsal")
+    sim.add_argument("--root", required=True)
+    sim.add_argument("--once", action="store_true")
     args = parser.parse_args()
     q = QueueStore(args.db)
-    print(json.dumps(q.enqueue(args.app, args.sha) if args.command=="enqueue" else q.list(),
-                     sort_keys=True, indent=2))
+    if args.command == "enqueue":
+        result = q.enqueue(args.app, args.sha)
+    elif args.command == "simulate-worker":
+        # These callbacks deliberately model success; never use this CLI as a
+        # production health monitor or a service restart mechanism.
+        backend = SimulatedBackend(args.root, restart=lambda app: None,
+                                   healthy=lambda app, sha: True)
+        worker = Engine(q, backend)
+        result = worker.once() if args.once else {"cycles": worker.run_forever()}
+    else:
+        result = q.list()
+    print(json.dumps(result, sort_keys=True, indent=2))
 
 
 if __name__ == "__main__":
