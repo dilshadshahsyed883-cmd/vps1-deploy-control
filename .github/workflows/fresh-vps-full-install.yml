@@ -64,6 +64,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           python3 -m rebuild.nginx_auth_smoke --root /tmp/fresh-vps-one-shot
+          python3 -m rebuild.remaining_services_smoke --root /tmp/fresh-vps-one-shot
           python3 rebuild/smoke_services.py --root /tmp/fresh-vps-one-shot
           python3 - <<'PY'
           from pathlib import Path
