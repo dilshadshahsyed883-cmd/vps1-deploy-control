@@ -65,7 +65,8 @@ def run(root):
             else:
                 if app=="auto-caption-studio":
                     data=root/"var/lib/fresh-website/auto-caption-studio/acs"
-                    env.update({"AUTO_CAPTION_APP_ROOT":str(data),
+                    env.update({"FRESH_WEBSITE_INSTALL":"1",
+                                "AUTO_CAPTION_APP_ROOT":str(data),
                                 "AUTO_CAPTION_CODE_ROOT":str(cwd),
                                 "AUTO_CAPTION_DB_PATH":str(data/"data/database/auto_caption.db")})
                 elif app=="self-media-library":

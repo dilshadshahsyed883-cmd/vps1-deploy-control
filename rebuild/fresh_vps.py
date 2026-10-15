@@ -146,7 +146,7 @@ def render(root):
         if app=="auto-script":continue
         templates={
           "scene-builder": "FRESH_WEBSITE_INSTALL=1\nWEB_DATA_DIR=/var/lib/fresh-website/scene-builder/scene\nMASTER_CONTROLLER_DB_PATH=/var/lib/fresh-website/scene-builder/scene/master_controller.sqlite3\nSCENE_PERMANENT_ROOT=/var/lib/fresh-website/scene-builder/scene/permanent\nSCRIPT_WORK_DATA_DIR=/var/lib/fresh-website/scene-builder/scene/script-work\n",
-          "auto-caption-studio": "AUTO_CAPTION_APP_ROOT=/var/lib/fresh-website/auto-caption-studio/acs\nAUTO_CAPTION_DB_PATH=/var/lib/fresh-website/auto-caption-studio/acs/data/database/auto_caption.db\n",
+          "auto-caption-studio": "FRESH_WEBSITE_INSTALL=1\\nAUTO_CAPTION_APP_ROOT=/var/lib/fresh-website/auto-caption-studio/acs\nAUTO_CAPTION_DB_PATH=/var/lib/fresh-website/auto-caption-studio/acs/data/database/auto_caption.db\n",
           "local-upload-manager": "LUM_DATA_DIR=/var/lib/fresh-website/local-upload-manager/lum1\nYOUTUBE_UPLOAD_MANAGER_DATA_DIR=/var/lib/fresh-website/local-upload-manager/lum1/core\n",
           "voice-studio": "VOICE_CLONE_ROOT=/var/lib/fresh-website/voice-studio/omnivoice\n",
           "short-stream": "SHORT_STREAM_DATA=/var/lib/fresh-website/short-stream\n",

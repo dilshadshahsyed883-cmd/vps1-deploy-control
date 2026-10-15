@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import shutil
 import uuid
@@ -19,7 +20,14 @@ from .auth import (
     require_job_access,
     require_project_access,
 )
-from .algrow_bridge import snapshot as algrow_snapshot
+# Fresh rebuild explicitly excludes Algrow Voice; preserve legacy behavior
+# for the untouched existing VPS and only disable the dependency in fresh mode.
+if os.getenv("FRESH_WEBSITE_INSTALL", "0") == "1":
+    def algrow_snapshot(_owner=None) -> dict:
+        return {"available": False, "paused": True, "runtime": {}, "active": 0,
+                "received": 0, "queue": 0, "status": "excluded"}
+else:
+    from .algrow_bridge import snapshot as algrow_snapshot
 from .config import database_path, projects_root, web_root
 from .database import connect, initialize_storage, migration_status
 from .job_states import InvalidJobTransition
