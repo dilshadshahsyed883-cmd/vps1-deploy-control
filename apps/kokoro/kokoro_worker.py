@@ -1,0 +1,172 @@
+"""Single-worker isolated Kokoro ONNX CPU synthesis + verified Drive spool."""
+from __future__ import annotations
+import json, os, re, shutil, sqlite3, subprocess, sys, threading, time
+from datetime import datetime, timezone
+from pathlib import Path
+import numpy as np
+import soundfile as sf
+from kokoro_onnx import Kokoro
+
+ROOT=Path(os.environ.get('KOKORO_STUDIO_ROOT','/home/ubuntu/apps/kokoro_voice_studio'))
+DATA=ROOT/'data';DB=DATA/'kokoro_jobs.sqlite3'
+MODEL=ROOT/'models/kokoro-v1.0.int8.onnx'; VOICES=ROOT/'models/voices-v1.0.bin'
+RCLONE=shutil.which('rclone') or '';RCFILE='/home/ubuntu/.config/masterctl/rclone.conf'
+LANGS={'af':'en-us','am':'en-us','bf':'en-gb','bm':'en-gb','hf':'hi','hm':'hi'}
+
+def now():return datetime.now(timezone.utc).isoformat(timespec='seconds')
+def db():
+ c=sqlite3.connect(str(DB),timeout=25)
+ c.row_factory=sqlite3.Row
+ c.execute('pragma busy_timeout=20000')
+ return c
+
+def heartbeat(ready:bool,reason:str=''):
+ DATA.mkdir(parents=True,exist_ok=True)
+ target=DATA/'heartbeat.json';tmp=DATA/'heartbeat.json.part'
+ tmp.write_text(json.dumps({'ready':ready,'reason':reason,'epoch':time.time(),'at':now()}))
+ os.replace(tmp,target)
+
+def heartbeat_loop():
+ while True:
+  try:heartbeat(True)
+  except Exception:pass
+  time.sleep(8)
+
+def catalog(engine):
+ all_voices=engine.get_voices()
+ voices=[]
+ for voice in all_voices:
+  language=LANGS.get(voice[:2]);
+  if language:voices.append({'id':voice,'name':voice.replace('_',' ').title(),'language':language})
+ voices.sort(key=lambda v:(v['language'],v['id']))
+ tmp=ROOT/'voice_catalog.json.part';tmp.write_text(json.dumps(voices,indent=2));os.replace(tmp,ROOT/'voice_catalog.json')
+ return voices
+
+def split_sentences(s:str,max_chars:int=280):
+ chunks=[]
+ for paragraph in s.splitlines():
+  words=paragraph.split()
+  part=[];size=0
+  for word in words:
+   extra=len(word)+(1 if part else 0)
+   if part and size+extra>max_chars:
+    chunks.append(' '.join(part));part=[];size=0
+   if len(word)>max_chars:
+    if part:chunks.append(' '.join(part));part=[];size=0
+    chunks.extend(word[i:i+max_chars] for i in range(0,len(word),max_chars))
+   else:part.append(word);size+=extra
+  if part:chunks.append(' '.join(part))
+ return [c for c in chunks if c.strip()]
+
+def update(job_id,**updates):
+ if not updates:return
+ fields=', '.join(k+'=?' for k in updates)
+ with db() as c:c.execute(f'update jobs set {fields} where job_id=?',(*updates.values(),job_id))
+
+def process_job(engine,row):
+ jid=row['job_id'];source=Path(row['input_file']);out=source.with_suffix('.wav')
+ try:
+  if not source.is_file():raise RuntimeError('TXT input missing')
+  text=source.read_text(encoding='utf-8')
+  chunks=split_sentences(text)
+  if not chunks:raise RuntimeError('No synthesizable text')
+  catalog_items=json.loads((ROOT/'voice_catalog.json').read_text())
+  if not any(v['id']==row['voice'] and v['language']==row['language'] for v in catalog_items):raise RuntimeError('Voice selection is not in verified catalog')
+  with sf.SoundFile(str(out),mode='w',samplerate=24000,channels=1,subtype='PCM_16',format='WAV') as wav:
+   for i,chunk in enumerate(chunks):
+    samples,sr=engine.create(chunk,voice=row['voice'],speed=float(row['speed']),lang=row['language'])
+    if sr!=24000:raise RuntimeError('Unexpected sample rate')
+    mono=np.asarray(samples,dtype='float32').reshape(-1)
+    if mono.size==0:raise RuntimeError('Empty audio segment')
+    wav.write(mono)
+    if i+1<len(chunks):wav.write(np.zeros(24000//6,dtype='float32'))
+  meta=sf.info(str(out))
+  if out.stat().st_size<2000 or meta.duration<=0:raise RuntimeError('Invalid generated WAV')
+  update(jid,status='completed',finished_at=now(),wav_file=str(out),delivery_status='pending',error=None)
+  print('KOKORO_GENERATED='+jid+'|DURATION='+str(round(meta.duration,2)),flush=True)
+ except Exception as exc:
+  if out.exists():out.unlink()
+  update(jid,status='failed',finished_at=now(),delivery_status='not_applicable',error=type(exc).__name__+': '+str(exc)[:180])
+  print('KOKORO_JOB_FAILED='+jid+'|TYPE='+type(exc).__name__,flush=True)
+
+def pick():
+ with db() as c:
+  row=c.execute("select * from jobs where status='queued' order by created_at,job_id limit 1").fetchone()
+  if not row:return None
+  c.execute("update jobs set status='processing',started_at=? where job_id=? and status='queued'",(now(),row['job_id']))
+  return row
+
+def run_rclone(*args):
+ cmd=[RCLONE,'--config',RCFILE,'--tpslimit','1','--tpslimit-burst','1','--retries','1','--low-level-retries','1',*args]
+ r=subprocess.run(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=160,text=True)
+ if r.returncode:
+  diagnostic=(r.stderr or '').lower()[-8192:]
+  if any(w in diagnostic for w in ('429','rate limit','ratelimit','too many requests','quota exceeded','user rate limit')):
+   category='rate_or_quota'
+  elif any(w in diagnostic for w in ('401','unauthorized','invalid_grant','invalid token','token expired')):
+   category='authentication'
+  elif any(w in diagnostic for w in ('403','forbidden','permission denied','access denied','insufficient permissions')):
+   category='permission'
+  elif any(w in diagnostic for w in ('not found','404','directory not found','path does not exist')):
+   category='remote_not_found'
+  elif any(w in diagnostic for w in ('timeout','timed out','connection reset','connection refused','network is unreachable','tls handshake')):
+   category='network'
+  else:
+   category='other'
+  raise RuntimeError('Drive operation unsuccessful:'+category)
+ return r.stdout
+
+def verified_copy(local:Path,remote:str):
+ run_rclone('copyto',str(local),remote)
+ data=json.loads(run_rclone('lsjson','--stat',remote))
+ if int(data.get('Size',-1))!=local.stat().st_size:raise RuntimeError('Drive size verification failed')
+
+def deliver_once():
+ if not RCLONE or not Path(RCFILE).is_file():return
+ with db() as c:
+  row=c.execute("select * from jobs where status='completed' and delivery_status!='delivered' and next_delivery_retry<=? order by created_at limit 1",(time.time(),)).fetchone()
+ if row is None:return
+ jid=row['job_id'];txt=Path(row['input_file']);wav=Path(row['wav_file'] or '')
+ if not txt.is_file() or not wav.is_file():
+  update(jid,delivery_status='blocked',delivery_error='Local pair missing',next_delivery_retry=time.time()+3600)
+  return
+ remote='gdrive:Omni Voice/Kokoro/'+row['language']+'/'+row['batch_id']+'/'+row['output_basename']
+ try:
+  update(jid,delivery_status='transferring')
+  verified_copy(txt,remote+'.txt')
+  verified_copy(wav,remote+'.wav')
+  update(jid,delivery_status='delivered',delivery_error=None,drive_wav=remote+'.wav',drive_txt=remote+'.txt')
+  print('KOKORO_DRIVE_PAIR_VERIFIED='+jid,flush=True)
+ except Exception as exc:
+  retries=int(row['delivery_retries'] or 0)+1
+  delay=min(3600,120*2**min(5,retries-1))
+  failure=('verification_size_mismatch' if isinstance(exc,RuntimeError) and str(exc)=='Drive size verification failed' else (str(exc).split(':',1)[1] if isinstance(exc,RuntimeError) and str(exc).startswith('Drive operation unsuccessful:') else type(exc).__name__))
+  update(jid,delivery_status='retry_pending',delivery_retries=retries,next_delivery_retry=time.time()+delay,delivery_error=failure)
+  print('KOKORO_DRIVE_RETRY='+jid+'|CATEGORY='+failure+'|DELAY_SEC='+str(delay),flush=True)
+
+def main():
+ if not MODEL.is_file() or not VOICES.is_file():raise SystemExit('Models missing')
+ print('KOKORO_WORKER_START='+now(),flush=True)
+ engine=Kokoro(str(MODEL),str(VOICES))
+ verified=catalog(engine)
+ if not verified:raise SystemExit('Voice catalog empty')
+ DATA.mkdir(parents=True,exist_ok=True)
+ with db() as c:
+  c.execute("update jobs set status='failed',error='Interrupted during worker restart' where status='processing'")
+ if '--smoke' in sys.argv:
+  print('KOKORO_SMOKE_READY|VOICE_COUNT='+str(len(verified)))
+  return
+ thread=threading.Thread(target=heartbeat_loop,daemon=True);thread.start()
+ heartbeat(True)
+ while True:
+  try:
+   job=pick()
+   if job:process_job(engine,job)
+   else:
+    deliver_once()
+    time.sleep(4)
+  except Exception as exc:
+   print('KOKORO_LOOP_ERROR='+type(exc).__name__,flush=True)
+   time.sleep(8)
+
+if __name__=='__main__':main()
