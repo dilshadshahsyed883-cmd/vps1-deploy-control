@@ -88,8 +88,12 @@ def run(root):
                     url="http://127.0.0.1:"+str(NGINX_PORT)+"/"+app+"/health"
                     unauthorized,_=probe(url)
                     authorized,body=probe(url,"ci-test-user",password)
-                    if unauthorized!=401 or authorized!=200:
-                        raise ValueError(app+" authentication bypass/route mismatch: "+str((unauthorized,authorized))+(" nginx_log="+log.read_text()[-1400:] if log.exists() else ""))
+                    if unauthorized!=401:
+                        raise ValueError(app+" authentication bypass: unauthenticated="+str(unauthorized))
+                    if authorized in (502,503,504):
+                        raise urllib.error.URLError("upstream still starting: "+str(authorized))
+                    if authorized!=200:
+                        raise ValueError(app+" authorized route mismatch: "+str(authorized)+(" nginx_log="+log.read_text()[-1400:] if log.exists() else ""))
                     payload=json.loads(body)
                     if payload.get("app")!=app or payload.get("ok") is not True:
                         raise ValueError("wrong upstream health for "+app)
