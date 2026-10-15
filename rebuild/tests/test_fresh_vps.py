@@ -12,6 +12,18 @@ class FreshRootfsTests(unittest.TestCase):
         self.assertEqual(p["groups"]["auto-script"]["deployment_mode"], "offline")
         self.assertEqual(len(f.managed_groups()),10)
         self.assertNotIn("algrow-voice",p["groups"])
+        self.assertEqual(p["groups"]["video-merger"]["services"][0]["kind"],"script")
+        self.assertEqual(p["groups"]["vps-storage-manager"]["services"][0]["args"],["serve"])
+
+    def test_guarded_standalone_service_candidates(self):
+        merger=f.service_unit("video-merger",{"kind":"script","part":"part01","entry":"app.py","port":8148})
+        storage=f.service_unit("vps-storage-manager",{"kind":"script","part":"part01","entry":"storage_manager.py","args":["serve"],"port":8149})
+        self.assertIn("bin/python app.py",merger)
+        self.assertIn("bin/python storage_manager.py serve",storage)
+        for candidate in (merger,storage):
+            self.assertIn("NoNewPrivileges=true",candidate)
+            self.assertIn("ConditionPathExists=/etc/fresh-website/enabled/",candidate)
+            self.assertIn("ProtectSystem=strict",candidate)
 
     def test_reject_host_root_and_relative_paths(self):
         for value in ("/","/etc","/opt/new","/var/data","/srv/new","/home/user","relative","/tmp"):
