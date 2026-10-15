@@ -1,0 +1,59 @@
+name: Fresh VPS remaining apps, real systemd and rollback gate
+on:
+  pull_request:
+    paths:
+      - 'rebuild/remaining_contract_ci.py'
+      - 'rebuild/systemd_storage_ci.py'
+      - 'apps/auto-script/**'
+      - 'apps/local-upload-manager/**'
+      - 'apps/scene-builder/part01/script_extractor_service.py'
+      - '.github/workflows/fresh-vps-remaining-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  remaining-three:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Isolated dependencies only
+        run: |
+          set -Eeuo pipefail
+          python -m pip install --disable-pip-version-check --quiet \
+            fastapi==0.115.12 httpx==0.28.1 requests==2.32.3 \
+            itsdangerous==2.2.0 uvicorn==0.34.2
+      - name: Stage already-imported source without old eight runtime checks
+        run: |
+          python -m rebuild.fresh_vps assemble \
+            --root "/tmp/fresh-vps-remaining-$GITHUB_RUN_ID" --sha "$GITHUB_SHA" \
+            > "$RUNNER_TEMP/remaining-staged.json"
+      - name: Test Script Work native routes and independent SQLite; record Auto Script/LUM gates
+        run: |
+          python -m rebuild.remaining_contract_ci \
+            --root "/tmp/fresh-vps-remaining-$GITHUB_RUN_ID" \
+            > "$RUNNER_TEMP/remaining-contracts.json"
+          cat "$RUNNER_TEMP/remaining-contracts.json"
+      - name: Activate real isolated systemd unit, switch releases and rollback
+        run: |
+          python -m rebuild.systemd_storage_ci \
+            --root "/tmp/fresh-vps-remaining-$GITHUB_RUN_ID" --revision "$GITHUB_SHA" \
+            > "$RUNNER_TEMP/remaining-systemd.json"
+          cat "$RUNNER_TEMP/remaining-systemd.json"
+      - name: Gate unmet live-source requirements
+        if: always()
+        run: |
+          python - <<'PY'
+          import json,os,pathlib
+          base=pathlib.Path(os.environ["RUNNER_TEMP"])
+          report=base/"remaining-contracts.json"
+          if not report.is_file():
+              raise SystemExit("BLOCKED: targeted contracts did not run")
+          state=json.loads(report.read_text())
+          if state["remaining_source_blockers"]:
+              raise SystemExit("BLOCKED: missing "+", ".join(state["remaining_source_blockers"]))
+          print("Source intake gates PASS; full end-to-end 11-app gate remains separately required")
+          PY
