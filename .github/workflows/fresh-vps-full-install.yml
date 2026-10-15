@@ -43,10 +43,13 @@ jobs:
           python3 -m rebuild.full_site_test --root /tmp/fresh-vps-one-shot --revision "$GITHUB_SHA" \
             > /tmp/fresh-vps-one-shot-result.json
           python3 -m rebuild.fresh_vps verify --root /tmp/fresh-vps-one-shot
+          python3 -m rebuild.stage_auto_script stage --root /tmp/fresh-vps-one-shot --sha "$GITHUB_SHA"
+          python3 -m rebuild.stage_auto_script verify --root /tmp/fresh-vps-one-shot --sha "$GITHUB_SHA"
           python3 - <<'PY'
           import json
           x=json.load(open("/tmp/fresh-vps-one-shot-result.json"))
           assert x["source_groups_staged"] == 10
+          assert (Path("/tmp/fresh-vps-one-shot")/"srv/fresh-website/current/auto-script/auto_script.py").is_file()
           assert len(x["native_fresh_database_contracts"]) == 13
           from pathlib import Path
           actual = {r["schema"] for r in x["native_fresh_database_contracts"]}
