@@ -34,6 +34,7 @@ def registry():
     assert p["version"]==1
     assert set(p["groups"])=={x["id"] for x in groups}
     assert p["groups"]["auto-script"]["parallel_owner"] is True
+    assert p["groups"]["auto-script"]["deployment_mode"] == "offline"
     used=set()
     for app,group in p["groups"].items():
         if not re.fullmatch(r"[a-z][a-z0-9-]+",app):raise ValueError("unsafe app")
@@ -49,7 +50,7 @@ def registry():
     return p
 
 def managed_groups():
-    return [x["id"] for x in builder.config()["groups"] if not x["parallel_owner"]]
+    return [x["id"] for x in builder.config()["groups"] if not x["parallel_owner"] and x.get("deployment_mode") != "offline"]
 
 def sources(app):
     if app not in managed_groups():raise ValueError("parallel-owned or unknown source")
@@ -155,9 +156,9 @@ def render(root):
     routes=[]
     blockers={}
     for app,item in p["groups"].items():
-        if app=="auto-script":continue
+        if item.get("deployment_mode") == "offline":continue
         templates={
-          "scene-builder": "FRESH_WEBSITE_INSTALL=1\nWEB_DATA_DIR=/var/lib/fresh-website/scene-builder/scene\nMASTER_CONTROLLER_DB_PATH=/var/lib/fresh-website/scene-builder/scene/master_controller.sqlite3\nSCENE_PERMANENT_ROOT=/var/lib/fresh-website/scene-builder/scene/permanent\nSCRIPT_WORK_DATA_DIR=/var/lib/fresh-website/scene-builder/scene/script-work\n",
+          "scene-builder": "FRESH_WEBSITE_INSTALL=1\nFRESH_AUTO_SCRIPT_READY=0\nWEB_DATA_DIR=/var/lib/fresh-website/scene-builder/scene\nMASTER_CONTROLLER_DB_PATH=/var/lib/fresh-website/scene-builder/scene/master_controller.sqlite3\nSCENE_PERMANENT_ROOT=/var/lib/fresh-website/scene-builder/scene/permanent\nSCRIPT_WORK_DATA_DIR=/var/lib/fresh-website/scene-builder/scene/script-work\n",
           "auto-caption-studio": "FRESH_WEBSITE_INSTALL=1\nAUTO_CAPTION_APP_ROOT=/var/lib/fresh-website/auto-caption-studio/acs\nAUTO_CAPTION_DB_PATH=/var/lib/fresh-website/auto-caption-studio/acs/data/database/auto_caption.db\n",
           "local-upload-manager": "LUM_DATA_DIR=/var/lib/fresh-website/local-upload-manager/lum1\nYOUTUBE_UPLOAD_MANAGER_DATA_DIR=/var/lib/fresh-website/local-upload-manager/lum1/core\n",
           "voice-studio": "VOICE_CLONE_ROOT=/var/lib/fresh-website/voice-studio/omnivoice\nKOKORO_STUDIO_ROOT=/var/lib/fresh-website/voice-studio/kokoro\nEDGE_STUDIO_ROOT=/var/lib/fresh-website/voice-studio/edge\nAUDIO_DOWNLOADER_ROOT=/var/lib/fresh-website/voice-studio/audio-downloader\n",

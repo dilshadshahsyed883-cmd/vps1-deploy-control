@@ -6,7 +6,7 @@ on:
         description: Individual registered app ID
         required: true
         type: choice
-        options: [scene-builder, auto-script, script-work, voice-studio, auto-caption-studio, local-upload-manager, short-stream, short-maker, video-merger, self-media-library, vps-storage-manager]
+        options: [scene-builder, script-work, voice-studio, auto-caption-studio, local-upload-manager, short-stream, short-maker, video-merger, self-media-library, vps-storage-manager]
 permissions:
   contents: read
   id-token: write
@@ -30,7 +30,7 @@ jobs:
           if not c['fresh_install_enabled'] or not c['production_deploy_enabled']:
               raise SystemExit('BLOCKED: explicit cutover not enabled')
           g=next((x for x in c['groups'] if x['id']==os.environ['TARGET_APP']),None)
-          assert g is not None
+          assert g is not None and g.get("deployment_mode") != "offline"
           with open(os.environ['GITHUB_OUTPUT'],'a') as f:
               f.write('lock='+g['lock']+'\n')
           PY

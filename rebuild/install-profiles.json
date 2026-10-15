@@ -14,7 +14,9 @@
     },
     "auto-script": {
       "parallel_owner": true,
-      "services": []
+      "services": [],
+      "deployment_mode": "offline",
+      "pending": "OFFLINE: excluded from installation, service activation, routes, CI functional gates and cutover"
     },
     "script-work": {
       "services": [],

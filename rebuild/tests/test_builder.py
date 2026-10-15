@@ -146,12 +146,17 @@ class FreshVpsSafety(unittest.TestCase):
    with self.assertRaises(ValueError):builder.file_list(p)
 
  def test_order(self):
-  ordered=builder.ordered_groups();self.assertEqual(len(ordered),11)
+  ordered=builder.ordered_groups();self.assertEqual(len(ordered),10)
+  self.assertNotIn('auto-script', ordered)
   self.assertLess(ordered.index('vps-storage-manager'),ordered.index('scene-builder'))
  def test_missing_sources_fail_closed(self):
-  self.assertFalse(builder.state()['ready'])
+  state=builder.state()
+  self.assertTrue(state['ready'])
+  self.assertEqual(state['active_target'],10)
+  self.assertEqual(state['offline'],[{'app':'auto-script','status':'OFFLINE_USER_EXCLUDED'}])
   with tempfile.TemporaryDirectory() as d:
-   with self.assertRaises(ValueError):builder.stage_rootfs(Path(d))
+   with self.assertRaises(ValueError):
+    builder.artifact('auto-script','a'*40,Path(d))
  def test_archive_sha256_and_tamper(self):
   with tempfile.TemporaryDirectory() as d:
    root=Path(d);app=root/'apps'/'video-merger';app.mkdir(parents=True);(app/'main.py').write_text('print("ok")\n')

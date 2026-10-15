@@ -40,5 +40,7 @@ jobs:
           import json
           c=json.load(open('rebuild/groups.json'))
           assert all(c[k] is False for k in ('production_deploy_enabled','fresh_install_enabled','automatic_database_migrations','legacy_database_import','legacy_queue_import','legacy_media_import'))
-          print('PASS: no production deploy or historical-data import')
+          assert c["offline_applications"] == ["auto-script"]
+          assert c["active_application_target"] == 10
+          print("PASS: ten active groups; Auto Script OFFLINE; no production deploy")
           PY

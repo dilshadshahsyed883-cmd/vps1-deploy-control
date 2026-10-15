@@ -37,6 +37,7 @@ jobs:
           p=os.path.join(os.environ["RUNNER_TEMP"],"fresh-build-result.json")
           d=json.load(open(p))
           assert len(d["apps"])==10
+          assert not os.path.exists(os.path.join("/tmp", "fresh-vps-builder-"+os.environ["GITHUB_RUN_ID"],"srv/fresh-website/current/auto-script"))
           assert d["configuration"]["enabled_services"]==0
           assert d["cutover"]=="DISABLED"
           assert d["database_state"]=="EMPTY_DIRECTORIES_NO_SCHEMA_IMPORTED"

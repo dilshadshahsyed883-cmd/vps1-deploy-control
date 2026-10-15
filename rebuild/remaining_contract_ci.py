@@ -31,26 +31,10 @@ def check(root_arg):
                 raise RuntimeError("Script Work queue not empty")
     groups={"script-work":{"routes":"PASS","db":"PASS","queue_empty":True,
                             "external_worker_not_started":True}}
-    # Auto Script source is owned by Agent 1 and must originate on the live
-    # VPS only through Drive Bridge, not a fabricated replacement.
+    # Auto Script is preserved in GitHub, but explicitly excluded from the
+    # active rebuild and not a source/runtime readiness prerequisite.
     root_repo=pathlib.Path(__file__).resolve().parents[1]
-    auto=root_repo/"apps/auto-script"
-    required=["auto_script.py","templates/auto_script.html",
-              "static/auto_script.js","static/auto_script.css"]
-    missing=[x for x in required if not (auto/x).is_file()]
-    if missing:
-        groups["auto-script"]={"source":"BLOCKED_MISSING_LIVE_SOURCE","missing":missing}
-    else:
-        manifest=auto/"SOURCE_SHA256.json"
-        if not manifest.is_file():raise RuntimeError("missing Auto Script source integrity manifest")
-        files=json.loads(manifest.read_text())["files"]
-        hashes={obj["path"]:obj["sha256"] for obj in files}
-        for item in required:
-            if item not in hashes or hashlib.sha256((auto/item).read_bytes()).hexdigest()!=hashes[item]:
-                raise RuntimeError("Auto Script source digest mismatch")
-        compile((auto/"auto_script.py").read_text(),str(auto/"auto_script.py"),"exec")
-        groups["auto-script"]={"source":"VERIFIED","entrypoint_compile":"PASS",
-                              "shared_website_router":"PENDING_END_TO_END"}
+    groups["auto-script"]={"source":"OFFLINE_USER_EXCLUDED","functional_gate":"NOT_APPLICABLE"}
     lum=root_repo/"apps/local-upload-manager"
     dirs=[lum/f"part0{x}/desktop_core/modules/db/__init__.py" for x in (1,2,3)]
     missing_lum=[str(p.relative_to(root_repo)) for p in dirs if not p.is_file()]
@@ -59,7 +43,7 @@ def check(root_arg):
     blocked=[k for k,v in groups.items() if v.get("source","").startswith("BLOCKED")]
     return {"result":"PASS_VERIFIED_SUBSET_BLOCKED_FULL_11" if blocked else "PASS_SOURCE_GATES",
             "groups":groups,"remaining_source_blockers":blocked,
-            "11_app_complete":False,"production_modified":False}
+            "active_application_target":10,"auto_script":"OFFLINE","11_app_complete":False,"production_modified":False}
 
 if __name__=="__main__":
     parser=argparse.ArgumentParser();parser.add_argument("--root",required=True)

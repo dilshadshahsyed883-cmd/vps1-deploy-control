@@ -70,7 +70,12 @@ def config():
     names=[g['id'] for g in c['groups']]
     if len(names)!=11 or len(set(names))!=11 or 'algrow-voice' in names:
         raise ValueError('fixed 11-group scope violated')
+    offline=[g['id'] for g in c['groups'] if g.get('deployment_mode')=='offline']
+    if offline != ['auto-script'] or c.get('active_application_target') != 10 or c.get('offline_applications') != offline:
+        raise ValueError('Auto Script must remain offline and ten active applications registered')
     for g in c['groups']:
+        if g.get('deployment_mode','active') not in ('active','offline'):
+            raise ValueError('invalid deployment mode')
         if not re.fullmatch(r'[a-z][a-z0-9-]+',g['id']) or not re.fullmatch(r'[a-z][a-z0-9-]+',g['lock']):
             raise ValueError('unsafe app ID / concurrency lock')
         if any(n not in names or n==g['id'] for n in g['needs']):
@@ -139,8 +144,11 @@ def file_list(folder):
 
 
 def state():
-    c=config(); found=[]; missing=[]
+    c=config(); found=[]; missing=[]; offline=[]
     for g in c['groups']:
+        if g.get('deployment_mode') == 'offline':
+            offline.append({'app':g['id'],'status':'OFFLINE_USER_EXCLUDED'})
+            continue
         if g['parallel_owner']:
             # Only ready when separately-owned branch is merged AND tested.
             missing.append({'app':g['id'],'status':'PARALLEL_OWNER_UNVERIFIED'})
@@ -148,11 +156,11 @@ def state():
             items=file_list(source_path(g))
             found.append({'app':g['id'],'files':len(items),'lock_group':g['lock']})
         else:missing.append({'app':g['id'],'status':'SOURCE_MISSING'})
-    return {'source_present':found,'pending':missing,'ready':not missing}
+    return {'source_present':found,'pending':missing,'offline':offline,'active_target':10,'ready':not missing}
 
 
 def ordered_groups():
-    todo={g['id']:set(g['needs']) for g in config()['groups']}
+    todo={g['id']:set(g['needs']) for g in config()['groups'] if g.get('deployment_mode') != 'offline'}
     result=[]
     while todo:
         ready=sorted(k for k,v in todo.items() if not v)
@@ -165,7 +173,7 @@ def ordered_groups():
 def artifact(app, sha, out_dir):
     if not re.fullmatch(r'[a-fA-F0-9]{40}',sha):raise ValueError('commit SHA required')
     groups={x['id']:x for x in config()['groups']}
-    if app not in groups or groups[app]['parallel_owner']:
+    if app not in groups or groups[app]['parallel_owner'] or groups[app].get('deployment_mode') == 'offline':
         raise ValueError('unknown or parallel-owned app: '+app)
     files=file_list(source_path(groups[app]))
     out_dir.mkdir(parents=True,exist_ok=True)
@@ -205,6 +213,7 @@ def stage_rootfs(destination):
     if destination.resolve()==Path('/') or str(destination.resolve()).startswith(('/etc/','/opt/','/var/')):
         raise ValueError('unsafe destination')
     for group in config()['groups']:
+        if group.get('deployment_mode') == 'offline': continue
         src=source_path(group);target=destination/'srv/fresh-website/apps'/group['id']
         target.mkdir(exist_ok=True,parents=True)
         for rel,data in file_list(src):

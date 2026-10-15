@@ -9,6 +9,7 @@ class FreshRootfsTests(unittest.TestCase):
         p=f.registry()
         self.assertEqual(len(p["groups"]),11)
         self.assertTrue(p["groups"]["auto-script"]["parallel_owner"])
+        self.assertEqual(p["groups"]["auto-script"]["deployment_mode"], "offline")
         self.assertEqual(len(f.managed_groups()),10)
         self.assertNotIn("algrow-voice",p["groups"])
 
