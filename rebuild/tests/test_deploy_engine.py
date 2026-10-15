@@ -158,6 +158,29 @@ class QueueEngineTests(unittest.TestCase):
         self.assertEqual(QueueStore(self.db).list()[0]["revision"], NEW)
         self.assertEqual(QueueStore(self.db).claim(now=100)["app"], "short-maker")
 
+    def test_transient_error_after_preflight_requires_manual_reconcile(self):
+        self.queue.enqueue("short-maker", NEW)
+        def fail_during_activation(app, sha):
+            raise RetryablePreparationError("possibly activated before I/O failure")
+        self.backend.activate = fail_during_activation
+        row = self.engine.once(now=100)
+        self.assertEqual(row["status"], "NEEDS_ATTENTION")
+        self.assertIsNone(self.engine.once(now=200))
+
+    def test_persistent_worker_loop_finishes_multiple_jobs(self):
+        self.queue.enqueue("short-maker", NEW)
+        self.queue.enqueue("voice-studio", NEXT)
+        self.assertEqual(self.engine.run_forever(max_cycles=3, poll_seconds=0.001), 3)
+        self.assertEqual([j["status"] for j in self.queue.list()],
+                         ["VERIFIED", "VERIFIED"])
+
+    def test_symlink_database_path_rejected(self):
+        target = Path(self.tmp.name) / "real.sqlite3"
+        link = Path(self.tmp.name) / "linked.sqlite3"
+        link.symlink_to(target)
+        with self.assertRaises(ValueError):
+            QueueStore(link)
+
     def test_prototype_queue_migration_blocks_orphaned_claim(self):
         legacy_db = Path(self.tmp.name) / "legacy.sqlite3"
         legacy = IntentQueue(legacy_db)
@@ -172,8 +195,7 @@ class QueueEngineTests(unittest.TestCase):
         barrier = threading.Barrier(len(apps))
         def submit(i):
             barrier.wait()
-            return QueueStore(self.db).enqueue(apps[i], hex(i + 10)[2:] * 40
-                      if False else chr(97+i)*40)
+            return QueueStore(self.db).enqueue(apps[i], chr(97+i)*40)
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
             jobs = list(pool.map(submit, range(len(apps))))
         self.assertEqual(len({j["id"] for j in jobs}), 4)
