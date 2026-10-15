@@ -129,6 +129,14 @@ class FreshVpsSafety(unittest.TestCase):
    (p/'example.json').write_text('{"client_secret":"abcdefghijklmnop"}')
    with self.assertRaises(ValueError):builder.file_list(p)
 
+ def test_lum_oauth_token_uri_is_public_endpoint_not_a_credential(self):
+  for part in ("part01","part02","part03"):
+   src=builder.ROOT/"apps/local-upload-manager"/part/"lum_engine/dual_auth_connections.py"
+   text=src.read_text()
+   self.assertIn('https://oauth2.googleapis.com/token',text)
+   self.assertIn('os.environ.get("FRESH_LUM_TOKEN_URI"',text)
+   self.assertNotIn('environ["FRESH_LUM_TOKEN_URI"]',text)
+
  def test_order(self):
   ordered=builder.ordered_groups();self.assertEqual(len(ordered),11)
   self.assertLess(ordered.index('vps-storage-manager'),ordered.index('scene-builder'))

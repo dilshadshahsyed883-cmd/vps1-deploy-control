@@ -13,7 +13,7 @@ from typing import Any, Dict
 BUILD_MARKER = "LUM_DUAL_AUTH_CONNECTIONS_V2"
 GOOGLE_CALLBACK_URI = "https://app.scenebuilder.online/LUM/oauth/google/callback"
 AUTH_URI = "https://accounts.google.com/o/oauth2/v2/auth"
-TOKEN_URI = __import__("os").environ["FRESH_LUM_TOKEN_URI"]
+TOKEN_URI = os.environ.get("FRESH_LUM_TOKEN_URI", "https://oauth2.googleapis.com/token")
 CERT_URI = "https://www.googleapis.com/oauth2/v1/certs"
 STATE_TTL_MINUTES = 10
 METHOD_LEGACY = "legacy"
