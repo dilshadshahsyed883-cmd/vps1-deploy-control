@@ -287,6 +287,8 @@ class RetryablePreparationError(RuntimeError):
 class SimulatedBackend:
     """Existing synthetic atomic activation/rollback; root must stay under /tmp."""
 
+    requires_verified_artifact = False  # CI rehearsal only, never production
+
     def __init__(self, root, *, restart, healthy):
         from rebuild.fresh_vps import root_dir
         self.root = root_dir(root)
@@ -321,6 +323,10 @@ class Engine:
         if job is None:
             return None
         job_id, token = job["id"], job["token"]
+        if (getattr(self.backend, "requires_verified_artifact", True)
+                and not job["archive_sha256"]):
+            return self.queue.finish(job_id, token, "FAILED",
+                                     error="missing authenticated and verified artifact", now=now)
         try:
             previous_sha = self.backend.preflight(job["app"], job["revision"])
             self.queue.previous(job_id, token, previous_sha)
