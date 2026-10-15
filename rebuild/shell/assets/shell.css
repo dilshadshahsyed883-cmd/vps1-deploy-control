@@ -51,3 +51,11 @@ body { margin: 0; background: var(--suite-bg); color: var(--suite-text); }
   #appFrame { height: calc(100dvh - 159px); min-height: 450px; }
   .welcome-card { padding: 22px; }
 }
+
+/* Shared chrome theme only; embedded application styles remain app-owned. */
+.theme-toggle { border: 1px solid var(--suite-border); border-radius: 8px; padding: 8px 12px; color: var(--suite-text); background: var(--suite-surface); font: inherit; font-size: 12px; cursor: pointer; }
+:root[data-theme="dark"] { color-scheme: dark; --suite-bg: #101421; --suite-surface: #1c2332; --suite-text: #eaf0ff; --suite-muted: #acb8d2; --suite-border: #374057; --suite-primary: #9c96ff; --suite-primary-soft: #302c54; }
+:root[data-theme="dark"] .suite-sidebar, :root[data-theme="dark"] .menu-toggle { background: var(--suite-surface); color: var(--suite-text); }
+:root[data-theme="dark"] .app-link { color: var(--suite-text); }
+:root[data-theme="dark"] .app-link:hover, :root[data-theme="dark"] .app-link:focus-visible { background: var(--suite-primary-soft); }
+:root[data-theme="dark"] #appFrame { background: var(--suite-surface); }

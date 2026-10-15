@@ -12,6 +12,24 @@ const loadHint = document.getElementById("loadHint");
 const navToggle = document.getElementById("navToggle");
 const suiteSidebar = document.getElementById("suiteSidebar");
 let apps = new Map();
+const themeToggle = document.getElementById("themeToggle");
+function setShellTheme(theme) {
+  const dark = theme === "dark";
+  document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+  themeToggle.textContent = dark ? "Light theme" : "Dark theme";
+  themeToggle.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
+  themeToggle.setAttribute("aria-pressed", String(dark));
+}
+let savedTheme = null;
+try { savedTheme = window.localStorage.getItem("vps1-shell-theme"); } catch (_) {}
+const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+setShellTheme(savedTheme === "dark" || (savedTheme !== "light" && prefersDark) ? "dark" : "light");
+themeToggle.addEventListener("click", () => {
+  const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+  setShellTheme(next);
+  try { window.localStorage.setItem("vps1-shell-theme", next); } catch (_) {}
+});
+
 
 function selectedAppId() {
   const match = /^#\/([a-z][a-z0-9-]{1,63})$/.exec(location.hash);
