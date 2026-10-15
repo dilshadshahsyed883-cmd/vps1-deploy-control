@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from rebuild import stage_auto_script
+from rebuild import stage_auto_script, builder
 
 FILES = {
     "auto_script.py": b"def demo():\n    return True\n",
@@ -15,6 +15,10 @@ FILES = {
 }
 
 
+@unittest.skipIf(
+    builder.config().get("offline_applications") == ["auto-script"],
+    "Auto Script OFFLINE: preserve source, do not stage/test active integration",
+)
 class IsolatedAutoScriptTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="fresh-autoscript-test-", dir="/tmp")
