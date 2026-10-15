@@ -32,6 +32,12 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(p["source_release_candidates"], [])
         self.assertTrue(p["shell_build_required"])
 
+    def test_packaging_engine_change_rebuilds_all_artifacts_without_deploy(self):
+        p = plan(["rebuild/builder.py"])
+        self.assertEqual(len(p["source_release_candidates"]), 10)
+        self.assertTrue(p["all_app_source_packaging_required"])
+        self.assertFalse(p["production_deployment_authorized"])
+
     def test_unknown_app_fail_closed(self):
         for path in ("apps/new-app/main.py", "apps/../secrets.env", "/etc/passwd"):
             with self.subTest(path=path), self.assertRaises(ValueError):

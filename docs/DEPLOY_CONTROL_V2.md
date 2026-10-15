@@ -40,3 +40,9 @@ external OAuth, FFmpeg media processing or 30 GB real VPS disk usage.
 Only mark verified when independently proven. Production deployment remains
 blocked until the OVH snapshot/restore, per-app service/worker gates,
 explicit cutover approval and tested rollback are satisfied.
+
+## Selective source artifacts
+The PR artifact workflow now selects only direct changed active app source groups.
+Core builder/registry/artifact workflow changes regenerate all ten source artifacts.
+Manual workflow dispatch keeps one-app/all-app selection. A non-source
+change never authorizes production deployment or stages live services.

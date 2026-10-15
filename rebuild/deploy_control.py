@@ -17,6 +17,13 @@ FLAGS = ("production_deploy_enabled", "fresh_install_enabled",
          "automatic_database_migrations", "legacy_database_import",
          "legacy_queue_import", "legacy_media_import")
 OUTCOMES = {"verified": "VERIFIED", "failed": "FAILED", "rolled_back": "ROLLED_BACK"}
+# Changes to these packaging/registry contracts require fresh source artifacts
+# for every active app, never an automatic production deployment.
+PACKAGING_ALL = {
+    "rebuild/builder.py", "rebuild/fresh_vps.py", "rebuild/groups.json",
+    "rebuild/install-profiles.json", "scripts/stage_fresh_app.py",
+    ".github/workflows/fresh-vps-app-artifacts.yml",
+}
 
 
 def registry():
@@ -86,12 +93,15 @@ def plan(paths):
         if not more:
             break
         validation |= more
+    package_all = bool(set(changed) & PACKAGING_ALL)
+    releases = set(active) if package_all else set(direct)
     rank = {app: n for n, app in enumerate(ordered(groups, active))}
     sort = lambda x: sorted(x, key=lambda name: rank[name])
     return {
         "schema_version": 1,
         "changed_paths": changed,
-        "source_release_candidates": sort(direct),
+        "source_release_candidates": sort(releases),
+        "all_app_source_packaging_required": package_all,
         "validation_apps": sort(validation),
         "offline_app_changes": sorted(inactive),
         "shell_build_required": shell,
