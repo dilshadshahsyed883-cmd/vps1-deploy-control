@@ -78,7 +78,7 @@ def sources(app):
             raise ValueError("secret filename "+str(rel))
         if path.stat().st_size>4_000_000:raise ValueError("oversize source")
         data=path.read_bytes()
-        if b"\0" in data or any(rx.search(data) for rx in builder.SECRET_PATTERNS):
+        if b"\0" in data or builder.embedded_credential(data,path):
             raise ValueError("secret or binary source "+str(rel))
         out.append((str(rel),data))
     if not out:raise ValueError("source group empty "+app)

@@ -116,6 +116,19 @@ class FreshVpsSafety(unittest.TestCase):
    f.write_text('{"client_secret":"abcdefghijklmnop12345"}\n')
    with self.assertRaises(ValueError):builder.file_list(p)
 
+ def test_env_credential_lookup_allowed_but_literals_rejected(self):
+  with tempfile.TemporaryDirectory() as d:
+   p=Path(d);source=p/'connector.py'
+   source.write_text('import os\nclient_secret = os.environ["FRESH_LUM_CLIENT_SECRET"]\n')
+   self.assertEqual(builder.file_list(p)[0][0],'connector.py')
+   source.write_text('client_secret = "abcdefghijklmnop"\n')
+   with self.assertRaises(ValueError):builder.file_list(p)
+   source.write_text('client_secret = "ghp_'+'a'*32+'"\n')
+   with self.assertRaises(ValueError):builder.file_list(p)
+   source.unlink()
+   (p/'example.json').write_text('{"client_secret":"abcdefghijklmnop"}')
+   with self.assertRaises(ValueError):builder.file_list(p)
+
  def test_order(self):
   ordered=builder.ordered_groups();self.assertEqual(len(ordered),11)
   self.assertLess(ordered.index('vps-storage-manager'),ordered.index('scene-builder'))
