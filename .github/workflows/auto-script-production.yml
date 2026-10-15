@@ -5,6 +5,7 @@ on:
       - 'apps/auto-script/**'
       - 'tools/build_auto_script_release.py'
       - 'tests/test_auto_script_release.py'
+      - 'scripts/auto_script_apply_on_vps.sh'
       - '.github/workflows/auto-script-production.yml'
   push:
     branches: [main]
@@ -12,6 +13,7 @@ on:
       - 'apps/auto-script/**'
       - 'tools/build_auto_script_release.py'
       - 'tests/test_auto_script_release.py'
+      - 'scripts/auto_script_apply_on_vps.sh'
       - '.github/workflows/auto-script-production.yml'
   workflow_dispatch:
 
@@ -29,6 +31,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           python3 -m unittest discover -s tests -p 'test_auto_script_release.py' -v
+          bash -n scripts/auto_script_apply_on_vps.sh
           python3 tools/build_auto_script_release.py
           python3 - <<'PY'
           import hashlib,json,pathlib,tarfile
