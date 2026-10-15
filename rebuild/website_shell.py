@@ -11,7 +11,7 @@ import shutil
 from pathlib import Path
 
 ASSETS = Path(__file__).resolve().parent / "shell"
-SLUG = re.compile(r"[a-z][a-z0-9-]{1,63}\\Z")
+SLUG = re.compile(r"[a-z][a-z0-9-]{1,63}\Z")
 TITLES = {
     "scene-builder": "Scene Builder",
     "script-work": "Script Work",
