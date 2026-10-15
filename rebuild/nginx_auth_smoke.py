@@ -13,7 +13,7 @@ import urllib.error
 import urllib.request
 from rebuild import fresh_vps
 
-SERVICES=[("short-maker",8146),("short-stream",8145)]
+SERVICES=[("scene-builder",8080),("short-maker",8146),("short-stream",8145)]
 NGINX_PORT=18888
 
 def probe(url,username=None,password=None):
@@ -50,7 +50,20 @@ def run(root):
         for app,port in SERVICES:
             cwd=root/"srv/fresh-website/current"/app/"part01"
             env=os.environ.copy()
-            env["SHORT_MAKER_DATA" if app=="short-maker" else "SHORT_STREAM_DATA"]=str(root/"var/lib/fresh-website"/app)
+            if app=="scene-builder":
+                data=root/"var/lib/fresh-website/scene-builder/scene"
+                env.update({
+                    "FRESH_WEBSITE_INSTALL":"1",
+                    "WEB_DATA_DIR":str(data),
+                    "SESSION_SECRET":"ci-scene-site-only",
+                    "WEB_ACCESS_KEY":"",
+                    "MASTER_CONTROLLER_DB_PATH":str(data/"master_controller.sqlite3"),
+                    "SCRIPT_WORK_DATA_DIR":str(data/"script-work"),
+                    "SCENE_PERMANENT_ROOT":str(data/"permanent"),
+                    "AUTOFLOW_FLOW_RESULT_ROOT":str(data/"flow-results")
+                })
+            else:
+                env["SHORT_MAKER_DATA" if app=="short-maker" else "SHORT_STREAM_DATA"]=str(root/"var/lib/fresh-website"/app)
             env["PYTHONDONTWRITEBYTECODE"]="1"
             p=subprocess.Popen([sys.executable,"-m","uvicorn","app:app",
                                 "--host","127.0.0.1","--port",str(port)],
@@ -95,8 +108,13 @@ def run(root):
                     if authorized!=200:
                         raise ValueError(app+" authorized route mismatch: "+str(authorized)+(" nginx_log="+log.read_text()[-1400:] if log.exists() else ""))
                     payload=json.loads(body)
-                    if payload.get("app")!=app or payload.get("ok") is not True:
-                        raise ValueError("wrong upstream health for "+app)
+                    if payload.get("ok") is not True:
+                        raise ValueError("unhealthy upstream "+app)
+                    if app=="scene-builder":
+                        if not payload.get("version") or "worker" not in payload:
+                            raise ValueError("wrong Scene Builder health contract")
+                    elif payload.get("app")!=app:
+                        raise ValueError("wrong upstream for "+app)
                     result.append({"app":app,"auth_required":True,"health":"PASS"})
                 return {"nginx_syntax":"PASS","basic_auth_enforcement":"PASS",
                         "reverse_proxy_apps":result,"nginx_listen":"loopback_only"}
