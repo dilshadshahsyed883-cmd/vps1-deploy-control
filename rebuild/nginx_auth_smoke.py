@@ -36,7 +36,10 @@ def run(root):
     password=secrets.token_urlsafe(22)
     subprocess.run(["htpasswd","-bc",str(auth),"ci-test-user",password],
                    check=True,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
-    auth.chmod(0o600)
+    # Nginx worker runs as www-data; only root and that group may read hashes.
+    import grp
+    os.chown(auth,0,grp.getgrnam("www-data").gr_gid)
+    auth.chmod(0o640)
     runtime=root/"nginx-smoke"
     runtime.mkdir(parents=True,exist_ok=True)
     log=runtime/"error.log"
@@ -85,7 +88,7 @@ def run(root):
                     unauthorized,_=probe(url)
                     authorized,body=probe(url,"ci-test-user",password)
                     if unauthorized!=401 or authorized!=200:
-                        raise ValueError(app+" authentication bypass/route mismatch: "+str((unauthorized,authorized)))
+                        raise ValueError(app+" authentication bypass/route mismatch: "+str((unauthorized,authorized))+(" nginx_log="+log.read_text()[-1400:] if log.exists() else ""))
                     payload=json.loads(body)
                     if payload.get("app")!=app or payload.get("ok") is not True:
                         raise ValueError("wrong upstream health for "+app)
