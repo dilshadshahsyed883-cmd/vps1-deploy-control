@@ -1,0 +1,41 @@
+name: Fresh VPS Builder isolated release and rollback verification
+on:
+  pull_request:
+    paths:
+      - 'rebuild/**'
+      - 'apps/**'
+      - '.github/workflows/fresh-vps-builder-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  isolated-rootfs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Builder safety and rollback tests
+        run: python3 -m unittest discover -s rebuild/tests -v
+      - name: Assemble ten app groups into isolated rootfs without host changes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          DEST="/tmp/fresh-vps-builder-$GITHUB_RUN_ID"
+          python3 -m rebuild.fresh_vps assemble --root "$DEST" --sha "$GITHUB_SHA" > "$RUNNER_TEMP/fresh-build-result.json"
+          python3 -m rebuild.fresh_vps verify --root "$DEST"
+          test ! -e "$DEST/etc/nginx/sites-enabled/fresh-website.conf"
+          test -z "$(ls -A "$DEST/etc/fresh-website/enabled")"
+          test ! -e /srv/fresh-website
+          python3 - <<'PY'
+          import json,os
+          p=os.path.join(os.environ["RUNNER_TEMP"],"fresh-build-result.json")
+          d=json.load(open(p))
+          assert len(d["apps"])==10
+          assert d["configuration"]["enabled_services"]==0
+          assert d["cutover"]=="DISABLED"
+          assert d["database_state"]=="EMPTY_DIRECTORIES_NO_SCHEMA_IMPORTED"
+          print("PASS: isolated release staging, empty runtime roots, no host install")
+          PY

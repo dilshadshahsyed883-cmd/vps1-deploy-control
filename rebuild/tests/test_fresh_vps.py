@@ -1,0 +1,82 @@
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+from rebuild import fresh_vps as f
+
+class FreshRootfsTests(unittest.TestCase):
+    def test_11_groups_with_separate_auto_script_owner(self):
+        p=f.registry()
+        self.assertEqual(len(p["groups"]),11)
+        self.assertTrue(p["groups"]["auto-script"]["parallel_owner"])
+        self.assertEqual(len(f.managed_groups()),10)
+        self.assertNotIn("algrow-voice",p["groups"])
+
+    def test_reject_host_root_and_relative_paths(self):
+        for value in ("/","/etc","/opt/new","/var/data","/srv/new","/home/user","relative","/tmp"):
+            with self.assertRaises(ValueError):
+                f.root_dir(value)
+
+    def test_source_filter_drops_old_backups_and_dangerous_scripts(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo=Path(d)
+            src=repo/"apps/short-maker"
+            (src/".acs_backups").mkdir(parents=True)
+            (src/"part01").mkdir()
+            (src/"part01/app.py").write_text("from fastapi import FastAPI\napp=FastAPI()\n")
+            (src/".acs_backups/old.py").write_text("old=1\n")
+            (src/"part01/production_reset.sh").write_text("rm -rf /")
+            with patch.object(f,"ROOT",repo):
+                files=f.sources("short-maker")
+            self.assertEqual([item[0] for item in files],["part01/app.py"])
+
+    def test_credential_content_blocks_release(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo=Path(d);src=repo/"apps/short-maker"
+            src.mkdir(parents=True)
+            (src/"app.py").write_text("token='ghp_"+"a"*32+"'\n")
+            with patch.object(f,"ROOT",repo):
+                with self.assertRaises(ValueError):f.sources("short-maker")
+
+    def test_atomic_staging_empty_runtime_and_rollback(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo=Path(d)/"source"
+            src=repo/"apps/short-maker/part01"
+            src.mkdir(parents=True)
+            app=src/"app.py";app.write_text("x=1\n")
+            root=Path(d)/"isolated"
+            with patch.object(f,"ROOT",repo):
+                first=f.deploy_app(root,"short-maker","a"*40)
+                self.assertEqual(first["files"],1)
+                self.assertEqual(list((root/"var/lib/fresh-website/short-maker/queue").iterdir()),[])
+                self.assertEqual(list((root/"var/lib/fresh-website/short-maker/db").iterdir()),[])
+                app.write_text("x=2\n")
+                f.deploy_app(root,"short-maker","b"*40)
+                self.assertEqual((root/"srv/fresh-website/current/short-maker/part01/app.py").read_text(),"x=2\n")
+                self.assertEqual(f.rollback(root,"short-maker")["restored_revision"],"a"*40)
+                self.assertEqual((root/"srv/fresh-website/current/short-maker/part01/app.py").read_text(),"x=1\n")
+
+    def test_no_rollback_without_previous_release(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(ValueError):f.rollback(d,"scene-builder")
+
+    def test_verify_detects_modified_source_and_enabled_units(self):
+        with tempfile.TemporaryDirectory() as d:
+            repo=Path(d)/"repo"
+            src=repo/"apps/short-stream/part01"
+            src.mkdir(parents=True)
+            (src/"app.py").write_text("x=1\n")
+            root=Path(d)/"rootfs"
+            with patch.object(f,"ROOT",repo),patch.object(f,"managed_groups",return_value=["short-stream"]):
+                f.deploy_app(root,"short-stream","a"*40)
+                enabled=root/"etc/fresh-website/enabled"
+                enabled.mkdir(parents=True)
+                self.assertEqual(f.verify(root)["result"],"PASS")
+                (enabled/"short-stream").touch()
+                with self.assertRaises(ValueError):f.verify(root)
+                (enabled/"short-stream").unlink()
+                (root/"srv/fresh-website/current/short-stream/part01/app.py").write_text("tampered\n")
+                with self.assertRaises(ValueError):f.verify(root)
+
+if __name__=="__main__":
+    unittest.main()
