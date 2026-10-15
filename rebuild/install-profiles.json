@@ -68,10 +68,11 @@
         {
           "part": "part01",
           "module": "app:app",
-          "port": 8146
+          "port": 8146,
+          "requirements": "requirements.txt"
         }
       ],
-      "pending": "ffmpeg and Image library dependencies pending"
+      "pending": "Real FFmpeg queued media render and independent Drive delivery still require isolated end-to-end verification"
     },
     "video-merger": {
       "services": [],
