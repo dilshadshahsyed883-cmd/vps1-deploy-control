@@ -46,7 +46,7 @@ jobs:
           import json
           x=json.load(open("/tmp/fresh-vps-one-shot-result.json"))
           assert x["source_groups_staged"] == 10
-          assert len(x["native_fresh_database_contracts"]) == 9
+          assert len(x["native_fresh_database_contracts"]) == 10
           assert x["runtime_records_imported"] == 0
           assert x["cutover"] == "DISABLED"
           assert x["full_website_rebuild_pass"] is False

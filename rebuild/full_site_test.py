@@ -18,6 +18,9 @@ import time
 from rebuild import fresh_vps
 
 SCHEMAS = (
+    ("scene", "scene-builder", "part01",
+     "from app import init_db; init_db()",
+     "WEB_DATA_DIR", "scene"),
     ("acs", "auto-caption-studio", "part01",
      "from web_backend.database import initialize_storage, run_migrations; initialize_storage(); run_migrations()",
      "AUTO_CAPTION_APP_ROOT", "acs"),
@@ -94,6 +97,13 @@ def schemas(root):
         target.mkdir(parents=True,exist_ok=True)
         env=os.environ.copy()
         env[env_key]=str(target)
+        if name=="scene":
+            env["FRESH_WEBSITE_INSTALL"]="1"
+            env["SESSION_SECRET"]="ci-scene-site-only"
+            env["WEB_ACCESS_KEY"]=""
+            env["SCRIPT_WORK_DATA_DIR"]=str(target/"script-work")
+            env["SCENE_PERMANENT_ROOT"]=str(target/"permanent")
+            env["MASTER_CONTROLLER_DB_PATH"]=str(target/"master_controller.sqlite3")
         if name=="acs":
             env["AUTO_CAPTION_CODE_ROOT"]=str(source)
             env["AUTO_CAPTION_DB_PATH"]=str(target/"data/database/auto_caption.db")

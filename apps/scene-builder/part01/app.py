@@ -89,16 +89,19 @@ register_script_processor_api(app)
 # SCRIPT_WORK_PROCESSOR_REGISTER
 # SCRIPT_WORK_FUNCTIONAL_V1_REGISTER
 
-# ALGROW_VOICE_WEB_TAB_V1_IMPORT
-from algrow_voice_web import register_algrow_voice_web
-# ALGROW_VOICE_WEB_TAB_V1_REGISTER
-register_algrow_voice_web(app, templates)
+# In a clean rebuild Algrow Voice is completely excluded; existing VPS
+# behavior stays unchanged unless explicitly launched with fresh mode.
+if os.getenv("FRESH_WEBSITE_INSTALL", "0") != "1":
+    from algrow_voice_web import register_algrow_voice_web
+    register_algrow_voice_web(app, templates)
 
 # MASTER_CONTROLLER_V1_IMPORT
 from master_controller import register_master_controller
 register_master_controller(app, templates)
-from auto_script import register_auto_script
-register_auto_script(app, templates)
+# Auto Script remains owned by the parallel GitHub branch.
+if os.getenv("FRESH_WEBSITE_INSTALL", "0") != "1" or os.getenv("FRESH_AUTO_SCRIPT_READY", "0") == "1":
+    from auto_script import register_auto_script
+    register_auto_script(app, templates)
 
 CAPTION_FONTS = {
     "inter_semibold": {"label": "Inter SemiBold", "filename": "Inter-SemiBold.ttf", "family": "Inter"},

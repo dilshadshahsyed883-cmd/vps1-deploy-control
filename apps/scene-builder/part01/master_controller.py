@@ -5,12 +5,13 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+import os
 
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 APP_DIR = Path(__file__).resolve().parent
-DB_PATH = APP_DIR / "data" / "master_controller.sqlite3"
+DB_PATH = Path(os.getenv("MASTER_CONTROLLER_DB_PATH", str(APP_DIR / "data" / "master_controller.sqlite3")))
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 TRANSITIONS: dict[str, tuple[str, str] | None] = {
