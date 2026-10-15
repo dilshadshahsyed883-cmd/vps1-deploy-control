@@ -70,14 +70,20 @@ def safe_path(value):
 def plan(paths):
     groups, profiles, active, offline = registry()
     changed = sorted({safe_path(x.strip()) for x in paths if x.strip()})
-    direct, inactive = set(), set()
+    direct, inactive, snapshots = set(), set(), set()
     validate_all, shell = False, False
     for path in changed:
         parts = PurePosixPath(path).parts
         if parts[0] == "apps":
             if len(parts) < 3:
                 raise ValueError("ambiguous app source change")
-            app = ALIASES.get(parts[1], parts[1])
+            # Standalone Kokoro is a source snapshot. The deployed Voice
+            # Studio release reads apps/voice-studio/, NOT apps/kokoro/.
+            # Block stale releases until an explicit sync updates app-owned code.
+            if parts[1] in ALIASES:
+                snapshots.add(ALIASES[parts[1]])
+                continue
+            app = parts[1]
             if app not in groups:
                 raise ValueError("unregistered app source: " + path)
             (inactive if app in offline else direct).add(app)
@@ -86,7 +92,7 @@ def plan(paths):
             shell |= path.startswith("rebuild/shell/") or path == "rebuild/website_shell.py"
         elif path.startswith(".github/workflows/fresh-vps-"):
             validate_all = True
-    validation = set(active) if validate_all else set(direct)
+    validation = set(active) if validate_all else (set(direct) | snapshots)
     while True:
         more = {app for app in active - validation
                 if set(groups[app]["needs"]) & validation}
@@ -94,7 +100,7 @@ def plan(paths):
             break
         validation |= more
     package_all = bool(set(changed) & PACKAGING_ALL)
-    releases = set(active) if package_all else set(direct)
+    releases = (set(active) if package_all else set(direct)) - snapshots
     rank = {app: n for n, app in enumerate(ordered(groups, active))}
     sort = lambda x: sorted(x, key=lambda name: rank[name])
     return {
@@ -104,6 +110,7 @@ def plan(paths):
         "all_app_source_packaging_required": package_all,
         "validation_apps": sort(validation),
         "offline_app_changes": sorted(inactive),
+        "source_snapshot_sync_required": sorted(snapshots),
         "shell_build_required": shell,
         "runtime_blockers": {app: profiles[app].get("pending", "no services configured")
                              for app in sort(direct)

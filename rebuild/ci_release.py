@@ -21,6 +21,7 @@ SHARED_FILES = frozenset({
     "scripts/stage_fresh_app.py",
 })
 SHARED_PREFIXES = ("rebuild/shell/",)
+SOURCE_SNAPSHOTS = {"kokoro": "voice-studio"}
 SHA = re.compile(r"[a-f0-9]{40}\Z")
 
 
@@ -34,6 +35,9 @@ def classify(paths, registry):
             raise ValueError("unsafe changed path")
         parts = path.split("/")
         if parts[0] == "apps":
+            if len(parts) >= 3 and parts[1] in SOURCE_SNAPSHOTS:
+                requires_review.add("snapshot requires owned app source sync: " + path)
+                continue
             if len(parts) < 3 or parts[1] not in groups:
                 requires_review.add("unregistered app path: " + path)
                 continue

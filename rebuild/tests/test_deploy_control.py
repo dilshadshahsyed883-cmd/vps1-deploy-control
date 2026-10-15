@@ -21,10 +21,18 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(p["source_release_candidates"], ["scene-builder"])
         self.assertIn("voice-studio", p["validation_apps"])
 
-    def test_alias_and_offline(self):
+    def test_snapshot_requires_sync_and_offline_is_excluded(self):
         p = plan(["apps/kokoro/kokoro_api.py", "apps/auto-script/auto_script.py"])
-        self.assertEqual(p["source_release_candidates"], ["voice-studio"])
+        self.assertEqual(p["source_release_candidates"], [])
+        self.assertEqual(p["source_snapshot_sync_required"], ["voice-studio"])
+        self.assertIn("voice-studio", p["validation_apps"])
         self.assertEqual(p["offline_app_changes"], ["auto-script"])
+
+    def test_snapshot_blocks_stale_voice_studio_artifact(self):
+        p = plan(["apps/kokoro/kokoro_worker.py",
+                  "apps/voice-studio/part01/kokoro_api.py"])
+        self.assertEqual(p["source_release_candidates"], [])
+        self.assertEqual(p["source_snapshot_sync_required"], ["voice-studio"])
 
     def test_shared(self):
         p = plan(["rebuild/dependency-budget.json", "rebuild/shell/assets/shell.css"])

@@ -8,7 +8,9 @@ This change sits on the draft migration PR #7, not production main.
 - Source changes designate only the changed app for a future immutable release;
   dependents enter the test matrix, not automatic deployments.
 - Shared or rebuild changes validate all active groups.
-- Kokoro source is owned by Voice Studio; unknown IDs fail closed.
+- Kokoro standalone snapshot is not Voice Studio's deployable source tree.
+  Snapshot edits flag a required source synchronization and suppress stale
+  Voice Studio release artifacts; unknown IDs fail closed.
 - Auto Script is OFFLINE in this migration and cannot enter release/queue.
 - A durable SQLite FIFO of deployment INTENTS with (app, commit) deduplication,
   one host-wide claimed request and strict terminal outcomes.

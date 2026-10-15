@@ -31,6 +31,13 @@ class ClassificationTest(unittest.TestCase):
         self.assertEqual(r["apps"], [])
         self.assertEqual(r["offline_ignored"], ["auto-script"])
 
+    def test_kokoro_snapshot_needs_app_owned_sync(self):
+        r = ci_release.classify(["apps/kokoro/kokoro_api.py",
+                                 "apps/voice-studio/part01/kokoro_api.py"], REGISTRY)
+        self.assertTrue(r["manual_review"])
+        self.assertEqual(r["apps"], [])
+        self.assertIn("snapshot requires owned app source sync", " ".join(r["reasons"]))
+
     def test_shared_shell_blocks_release_even_with_app_change(self):
         r = ci_release.classify([
             "apps/voice-studio/part01/a.py", "rebuild/shell/index.html"
