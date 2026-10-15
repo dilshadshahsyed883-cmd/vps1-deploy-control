@@ -1,0 +1,51 @@
+name: Fresh VPS shared uv cache and 30 GB budget gate (no VPS deployment)
+on:
+  pull_request:
+    paths:
+      - 'rebuild/dependency-budget.json'
+      - 'rebuild/dependency_budget.py'
+      - 'rebuild/tests/test_dependency_budget.py'
+      - 'rebuild/requirements-script-work.txt'
+      - 'apps/short-stream/part01/requirements.txt'
+      - '.github/workflows/fresh-vps-dependency-budget.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  uv-budget:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: Validate ten app dependency map, isolation and hardlink accounting
+        run: |
+          set -Eeuo pipefail
+          python3 -m unittest rebuild.tests.test_dependency_budget -v
+          python3 -m rebuild.dependency_budget plan > "$RUNNER_TEMP/dependency-plan.json"
+          python3 -m rebuild.dependency_budget install \
+            --root "/tmp/fresh-uv-budget-$GITHUB_RUN_ID" --python "$(command -v python3)" \
+            --app short-stream --app short-maker > "$RUNNER_TEMP/dependency-install.json"
+          python3 -m rebuild.dependency_budget check \
+            --root "/tmp/fresh-uv-budget-$GITHUB_RUN_ID" > "$RUNNER_TEMP/dependency-size.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          root=Path("/tmp/fresh-uv-budget-"+os.environ["GITHUB_RUN_ID"])
+          s=json.loads((Path(os.environ["RUNNER_TEMP"])/"dependency-size.json").read_text())
+          a=(root/"srv/fresh-website/venvs/short-stream/lib").exists()
+          b=(root/"srv/fresh-website/venvs/short-maker/lib").exists()
+          assert a and b
+          assert s["within_budget"] and s["host_reserve_ok"]
+          assert not (root/"srv/fresh-website/venvs/auto-script").exists()
+          print("PASS: shared uv cache, independent venvs, actual source installs, 30 GB admission gate")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fresh-dependency-budget-evidence
+          path: ${{ runner.temp }}/dependency-*.json
+          if-no-files-found: ignore
