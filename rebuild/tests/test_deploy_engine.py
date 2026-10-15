@@ -7,11 +7,11 @@ import threading
 import unittest
 from pathlib import Path
 
-from rebuild import fresh_vps
+from rebuild import fresh_vps, builder
 from rebuild.deploy_control import IntentQueue
 from rebuild.deploy_engine import (
     Engine, QueueStore, RetryablePreparationError, SimulatedBackend,
-    deployment_contracts,
+    deployment_contracts, verify_release_candidate,
 )
 from rebuild.release_transaction import PromotionFailed
 
@@ -21,6 +21,8 @@ NEXT = "c" * 40
 
 
 class Backend:
+    requires_verified_artifact = False  # tests explicitly model simulation
+
     def __init__(self):
         self.current = OLD
         self.calls = []
@@ -104,6 +106,29 @@ class QueueEngineTests(unittest.TestCase):
             self.engine.once(now=now)
         self.assertEqual(self.queue.list()[0]["status"], "FAILED")
         self.assertEqual(self.queue.list()[0]["attempts"], 3)
+
+
+    def test_checked_source_manifest_pins_artifact_hash(self):
+        out = Path(self.tmp.name) / "artifacts"
+        manifest = builder.artifact("short-maker", NEW, out)
+        digest = verify_release_candidate("short-maker", NEW, manifest)
+        job = self.queue.enqueue_verified("short-maker", NEW, manifest)
+        self.assertEqual(job["archive_sha256"], digest)
+        self.assertEqual(self.queue.enqueue_verified("short-maker", NEW, manifest)["id"], job["id"])
+        with self.assertRaises(ValueError):
+            verify_release_candidate("short-maker", NEXT, manifest)
+        archive = out / ("short-maker-" + NEW[:12] + ".tar.gz")
+        with archive.open("ab") as stream:
+            stream.write(b"TAMPERED")
+        with self.assertRaises(ValueError):
+            self.queue.enqueue_verified("short-maker", NEW, manifest)
+
+    def test_non_simulated_backend_requires_artifact_digest(self):
+        self.queue.enqueue("short-maker", NEW)
+        self.backend.requires_verified_artifact = True
+        outcome = self.engine.once(now=100)
+        self.assertEqual(outcome["status"], "FAILED")
+        self.assertEqual(self.backend.calls, [])
 
     def test_rollback_terminal_keeps_queue_progressing(self):
         self.queue.enqueue("short-maker", NEW)
