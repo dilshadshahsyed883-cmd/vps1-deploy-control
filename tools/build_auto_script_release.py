@@ -18,7 +18,7 @@ FILES = (
 )
 SECRET_PATTERNS = (
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
-    re.compile(r"(?im)^\\s*(?:secret_key|password|api_key|access_token|refresh_token|client_secret)\\s*=\\s*['\\\"][^'\\\"]+['\\\"]"),
+    re.compile(r"(?im)^\s*(?:secret_key|password|api_key|access_token|refresh_token|client_secret)\s*=\s*\S+"),
     re.compile(r"ghp_[A-Za-z0-9]{30,}"),
     re.compile(r"AIza[A-Za-z0-9_-]{25,}"),
 )
@@ -35,7 +35,7 @@ def validate_source(root):
             raise ValueError("Oversize source: " + name)
         data = path.read_bytes()
         text = data.decode("utf-8")
-        if "\\x00" in text or any(p.search(text) for p in SECRET_PATTERNS):
+        if "\x00" in text or any(p.search(text) for p in SECRET_PATTERNS):
             raise ValueError("Unsafe source content: " + name)
         if name.endswith(".py"):
             ast.parse(text, filename=name)
@@ -55,7 +55,7 @@ def build(root, output):
             for name, data in items
         ],
     }
-    catalog_bytes = (json.dumps(catalog, sort_keys=True, separators=(",", ":")) + "\\n").encode()
+    catalog_bytes = (json.dumps(catalog, sort_keys=True, separators=(",", ":")) + "\n").encode()
     archive = output / "auto-script.tar.gz"
     with archive.open("wb") as fh:
         with gzip.GzipFile(fileobj=fh, mode="wb", mtime=0, filename="") as gz:
@@ -75,7 +75,7 @@ def build(root, output):
         "schema_version": 1,
         "sha256": digest,
     }
-    (output / "release.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\\n")
+    (output / "release.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
     print("AUTO_SCRIPT_RELEASE_SHA256=" + digest)
     return digest
 
