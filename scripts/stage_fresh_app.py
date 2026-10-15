@@ -179,9 +179,40 @@ def rollback(app, *, root=None):
             "revision":target.name,"production_modified":False}
 
 
+def audit(app, revision, archive, manifest, *, root=None):
+    """Read-only proof of the GitHub artifact, active staging pointer and files."""
+    safe_app(app)
+    safe_revision(revision)
+    root = approved_root() if root is None else Path(root)
+    payload, expected = load_manifest(app, revision, archive, manifest)
+    release_base = root / "releases" / app
+    target = release_base / revision
+    current = root / "current" / app
+    for directory in (root, root / "releases", release_base, root / "current"):
+        if directory.is_symlink():
+            raise ValueError("staging directory replaced by symlink")
+    if not current.is_symlink() or not target.is_dir() or target.is_symlink():
+        raise ValueError("staged release or pointer missing")
+    if current.resolve(strict=True) != target.resolve(strict=True):
+        raise ValueError("active source revision differs from expected commit")
+    if any(p.is_symlink() for p in target.rglob("*")):
+        raise ValueError("release contains symlinks")
+    metadata_path = target / "_staging_manifest.json"
+    if not metadata_path.is_file() or metadata_path.is_symlink():
+        raise ValueError("release provenance missing")
+    metadata = json.loads(metadata_path.read_text())
+    if metadata != {"app": app, "revision": revision,
+                    "source_sha256": payload["sha256"]}:
+        raise ValueError("release provenance differs from GitHub artifact")
+    check_release(target, expected)
+    return {"status": "STAGING_AUDIT_PASS", "app": app,
+            "revision": revision, "verified_files": len(expected),
+            "production_modified": False, "service_started": False}
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("stage", "rollback"))
+    parser.add_argument("action", choices=("stage", "rollback", "audit"))
     parser.add_argument("--app", required=True)
     parser.add_argument("--sha")
     parser.add_argument("--archive")
@@ -189,10 +220,11 @@ def main():
     a = parser.parse_args()
     if os.geteuid() == 0:
         parser.error("must be run by an unprivileged account")
-    if a.action == "stage":
+    if a.action in ("stage", "audit"):
         if not all((a.sha, a.archive, a.manifest)):
-            parser.error("stage requires SHA, archive and manifest")
-        outcome = stage(a.app, a.sha, a.archive, a.manifest)
+            parser.error(a.action + " requires SHA, archive and manifest")
+        action = stage if a.action == "stage" else audit
+        outcome = action(a.app, a.sha, a.archive, a.manifest)
     else:
         outcome = rollback(a.app)
     print(json.dumps(outcome, sort_keys=True))
