@@ -1,0 +1,31 @@
+name: Repository source-of-truth contract (NO VPS)
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: repo-contract-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  repository-contract:
+    name: validate-git-source-of-truth
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify ten apps, provenance, shell, offline Auto Script and SHA256
+        run: python3 -m unittest rebuild.tests.test_repository_integration -v
+      - name: Verify existing source/build/rollback tests
+        run: python3 -m unittest discover -s rebuild/tests -v
+      - name: Emit source presence and installation dependency evidence (read-only)
+        run: |
+          python3 rebuild/builder.py state
+          python3 rebuild/builder.py plan
