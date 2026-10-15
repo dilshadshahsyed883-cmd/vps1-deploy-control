@@ -8,6 +8,7 @@ NO production executor, SSH, service restart or cutover is shipped here.
 """
 import argparse
 import json
+from contextlib import contextmanager
 import os
 import re
 import sqlite3
@@ -51,7 +52,7 @@ class QueueStore:
 
     def __init__(self, path, *, lease_seconds=1800, max_attempts=3):
         self.path = Path(path).absolute()
-        if self.path == Path("/") or self.path.is_symlink() or self.path.parent.is_symlink():
+        if self.path == Path("/") or any(p.is_symlink() for p in (self.path, *self.path.parents)):
             raise ValueError("unsafe queue location or symlink")
         if lease_seconds < 1 or max_attempts < 1:
             raise ValueError("invalid retry or lease configuration")
@@ -92,13 +93,17 @@ class QueueStore:
         except OSError:
             pass
 
+    @contextmanager
     def _db(self):
         db = sqlite3.connect(str(self.path), timeout=30, isolation_level=None)
-        db.row_factory = sqlite3.Row
-        db.execute("PRAGMA busy_timeout=30000")
-        db.execute("PRAGMA journal_mode=WAL")
-        db.execute("PRAGMA foreign_keys=ON")
-        return db
+        try:
+            db.row_factory = sqlite3.Row
+            db.execute("PRAGMA busy_timeout=30000")
+            db.execute("PRAGMA journal_mode=WAL")
+            db.execute("PRAGMA foreign_keys=ON")
+            yield db
+        finally:
+            db.close()
 
     @staticmethod
     def _row(db, job_id):
@@ -276,8 +281,12 @@ class Engine:
             self.queue.heartbeat(job_id, token, now=now)
             self.backend.activate(job["app"], job["revision"])
         except RetryablePreparationError as exc:
-            return self.queue.finish(job_id, token, "FAILED", error=str(exc),
-                                     retryable=True, now=now)
+            # Even a transient-looking exception after capturing the old
+            # release may originate in activation: never blindly retry.
+            before_activation = self.queue._snapshot(job_id)["previous_sha"] is None
+            return self.queue.finish(job_id, token,
+                                     "FAILED" if before_activation else "NEEDS_ATTENTION",
+                                     error=str(exc), retryable=before_activation, now=now)
         except release_transaction.PromotionFailed as exc:
             status = ("ROLLED_BACK" if "prior healthy revision verified restored" in str(exc)
                       else "NEEDS_ATTENTION")
