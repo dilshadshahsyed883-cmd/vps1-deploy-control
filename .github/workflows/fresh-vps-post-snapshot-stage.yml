@@ -1,0 +1,120 @@
+name: VPS1 snapshot-gated non-production app staging
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: One of the ten active applications (Auto Script excluded)
+        required: true
+        type: choice
+        options:
+          - scene-builder
+          - script-work
+          - voice-studio
+          - auto-caption-studio
+          - local-upload-manager
+          - short-stream
+          - short-maker
+          - video-merger
+          - self-media-library
+          - vps-storage-manager
+      ovh_snapshot_reference:
+        description: Verified OVH snapshot identifier, for audit only
+        required: true
+        type: string
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: vps1-post-snapshot-staging-${{ inputs.app }}
+  cancel-in-progress: false
+jobs:
+  stage-only:
+    # User must first verify snapshot and separately enable BOTH GitHub vars.
+    # This job never reloads Nginx, touches production services or imports live DBs.
+    if: github.ref == 'refs/heads/main' && vars.VPS1_OVH_SNAPSHOT_VERIFIED == 'yes' && vars.VPS1_POST_SNAPSHOT_STAGING_APPROVED == 'yes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate snapshot reference, offline exclusion and immutable release
+        env:
+          SELECTED_APP: ${{ inputs.app }}
+          SNAPSHOT_REF: ${{ inputs.ovh_snapshot_reference }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json,os,re
+          c=json.load(open("rebuild/groups.json"))
+          app=os.environ["SELECTED_APP"]
+          assert app != "auto-script"
+          assert app in [x["id"] for x in c["groups"] if x.get("deployment_mode") != "offline"]
+          assert 6 <= len(os.environ["SNAPSHOT_REF"]) <= 128
+          assert re.fullmatch(r"[A-Za-z0-9_.:-]+",os.environ["SNAPSHOT_REF"])
+          assert c["production_deploy_enabled"] is False
+          assert c["fresh_install_enabled"] is False
+          print("OFFLINE staging only; OVH snapshot reference syntactically validated, not provider-verified")
+          PY
+      - name: Build one source-only artifact and checksum
+        env:
+          SELECTED_APP: ${{ inputs.app }}
+        run: |
+          set -Eeuo pipefail
+          python3 rebuild/builder.py package --app "$SELECTED_APP" --sha "$GITHUB_SHA" --output "$RUNNER_TEMP/fresh-build"
+          python3 rebuild/builder.py verify --manifest "$RUNNER_TEMP/fresh-build/$SELECTED_APP-${GITHUB_SHA:0:12}.tar.gz.manifest.json"
+          python3 -m unittest rebuild.tests.test_stage_fresh_app -v
+      - name: Connect with existing GitHub OIDC and Tailscale controls
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Configure pinned non-root VPS SSH identity
+        env:
+          SSH_KEY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${SSH_KEY:-}"
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$RUNNER_TEMP/vps1_id_ed25519"
+          chmod 0600 "$RUNNER_TEMP/vps1_id_ed25519"
+          ssh-keygen -y -f "$RUNNER_TEMP/vps1_id_ed25519" | grep -q '^ssh-ed25519 '
+          printf '%s\n' '100.113.253.99 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAtrAUnyLuDM3FsUw/E2EtVtHF3f3d4nRonXxl/oIpmQ' > "$RUNNER_TEMP/vps1_known_hosts"
+          chmod 0600 "$RUNNER_TEMP/vps1_known_hosts"
+          {
+            echo 'Host vps1-ci-fresh-stage'
+            echo '  HostName 100.113.253.99'
+            echo '  User vps1deploy'
+            echo "  IdentityFile $RUNNER_TEMP/vps1_id_ed25519"
+            echo "  UserKnownHostsFile $RUNNER_TEMP/vps1_known_hosts"
+            echo '  StrictHostKeyChecking yes'
+            echo '  BatchMode yes'
+            echo '  IdentitiesOnly yes'
+            echo '  ConnectTimeout 20'
+          } > "$HOME/.ssh/config"
+          chmod 0600 "$HOME/.ssh/config"
+      - name: Upload and verify on restricted isolated staging home
+        env:
+          SELECTED_APP: ${{ inputs.app }}
+        run: |
+          set -Eeuo pipefail
+          SSH_HOST=vps1-ci-fresh-stage
+          ARCHIVE="$RUNNER_TEMP/fresh-build/$SELECTED_APP-${GITHUB_SHA:0:12}.tar.gz"
+          MANIFEST="$ARCHIVE.manifest.json"
+          timeout 45s ssh "$SSH_HOST" 'test "$(id -un)" = vps1deploy; test "$(id -u)" -ne 0; mkdir -p "$HOME/vps1-ci-pilot/incoming"; chmod 0700 "$HOME/vps1-ci-pilot/incoming"'
+          timeout 90s scp -q "$ARCHIVE" "$MANIFEST" scripts/stage_fresh_app.py "$SSH_HOST:vps1-ci-pilot/incoming/"
+          # Positional app is strictly validated above and choice-restricted.
+          timeout 90s ssh "$SSH_HOST" python3 vps1-ci-pilot/incoming/stage_fresh_app.py stage \
+            --app "$SELECTED_APP" --sha "$GITHUB_SHA" \
+            --archive "vps1-ci-pilot/incoming/$(basename "$ARCHIVE")" \
+            --manifest "vps1-ci-pilot/incoming/$(basename "$MANIFEST")"
+      - name: Confirm existing site remains outside staging
+        env:
+          SELECTED_APP: ${{ inputs.app }}
+        run: |
+          set -Eeuo pipefail
+          timeout 45s ssh vps1-ci-fresh-stage python3 -c \
+            'from pathlib import Path; import sys; p=Path.home()/"vps1-ci-pilot/fresh-staging/current"/sys.argv[1]; assert p.is_symlink() and p.resolve().is_file() is False; print("GITHUB_NONROOT_STAGING_POINTER=PASS; PRODUCTION_NOT_DEPLOYED")' "$SELECTED_APP"

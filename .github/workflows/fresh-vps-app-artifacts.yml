@@ -1,0 +1,62 @@
+name: Fresh VPS ten independent source artifacts (Auto Script OFFLINE)
+on:
+  pull_request:
+    paths:
+      - 'apps/**'
+      - 'rebuild/**'
+      - 'scripts/stage_fresh_app.py'
+      - '.github/workflows/fresh-vps-app-artifacts.yml'
+  workflow_dispatch:
+    inputs:
+      app:
+        description: Package one active app, or all ten
+        type: choice
+        required: true
+        default: all
+        options:
+          - all
+          - scene-builder
+          - script-work
+          - voice-studio
+          - auto-caption-studio
+          - local-upload-manager
+          - short-stream
+          - short-maker
+          - video-merger
+          - self-media-library
+          - vps-storage-manager
+permissions:
+  contents: read
+jobs:
+  per-app-artifact:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [scene-builder, script-work, voice-studio, auto-caption-studio, local-upload-manager, short-stream, short-maker, video-merger, self-media-library, vps-storage-manager]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build and verify individual immutable source release
+        if: ${{ github.event_name == 'pull_request' || inputs.app == 'all' || inputs.app == matrix.app }}
+        env:
+          TARGET_APP: ${{ matrix.app }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/fresh-package"
+          python3 rebuild/builder.py package --app "$TARGET_APP" --sha "$GITHUB_SHA" --output "$RUNNER_TEMP/fresh-package"
+          python3 rebuild/builder.py verify --manifest "$RUNNER_TEMP/fresh-package/$TARGET_APP-${GITHUB_SHA:0:12}.tar.gz.manifest.json"
+          python3 -m unittest rebuild.tests.test_stage_fresh_app -v
+          echo "RELEASE_APP=$TARGET_APP"
+          echo "RELEASE_SHA=$GITHUB_SHA"
+      - name: Retain source archive and SHA256 manifest
+        if: ${{ github.event_name == 'pull_request' || inputs.app == 'all' || inputs.app == matrix.app }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-rebuild-${{ matrix.app }}-${{ github.sha }}
+          path: ${{ runner.temp }}/fresh-package/*
+          if-no-files-found: error
+          retention-days: 30
