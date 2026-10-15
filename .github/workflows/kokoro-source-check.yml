@@ -1,0 +1,35 @@
+name: Kokoro source checks
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/kokoro/**'
+      - 'tests/test_kokoro_snapshot.py'
+      - '.github/workflows/kokoro-source-check.yml'
+  pull_request:
+    paths:
+      - 'apps/kokoro/**'
+      - 'tests/test_kokoro_snapshot.py'
+      - '.github/workflows/kokoro-source-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kokoro-source-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kokoro-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate Kokoro source snapshot
+        run: python3 -m unittest discover -s tests -p 'test_kokoro_snapshot.py' -v
