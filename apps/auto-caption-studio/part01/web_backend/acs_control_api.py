@@ -8,7 +8,14 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from .auth import Principal, get_current_principal, job_for_principal
-from .algrow_bridge import set_paused as set_algrow_paused
+# Algrow Voice is excluded from fresh installations. Do not report success
+# for control actions targeting a service that is deliberately absent.
+import os
+if os.getenv("FRESH_WEBSITE_INSTALL", "0") == "1":
+    def set_algrow_paused(_paused: bool, _actor: str) -> None:
+        raise RuntimeError("Algrow Voice is excluded from the fresh website")
+else:
+    from .algrow_bridge import set_paused as set_algrow_paused
 from .config import app_root
 from .database import connect, initialize_storage, now_iso
 from .job_states import InvalidJobTransition
