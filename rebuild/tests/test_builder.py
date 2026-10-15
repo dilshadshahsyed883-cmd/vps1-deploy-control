@@ -94,6 +94,28 @@ class FreshVpsSafety(unittest.TestCase):
     target=root/'outside.py';target.write_text('pass\n');p.symlink_to(target)
     with self.assertRaises(ValueError):builder.file_list(app)
 
+ def test_runtime_environment_expression_not_embedded_credential(self):
+  with tempfile.TemporaryDirectory() as d:
+   root=Path(d);app=root/'apps/local-upload-manager'
+   pkg=app/'part01/lum_engine'
+   pkg.mkdir(parents=True)
+   (pkg/'dual_auth_connections.py').write_text(
+      "client_secret = os.environ.get('FRESH_LUM_CLIENT_SECRET','')\n"
+      "access_token = os.getenv('FRESH_LUM_ACCESS_TOKEN')\n"
+      "password = __import__('os').environ.get('FRESH_LUM_PASSWORD')\n")
+   with patch.object(builder,'ROOT',root):
+    result=builder.file_list(app)
+   self.assertEqual(len(result),1)
+   self.assertTrue(result[0][0].endswith('dual_auth_connections.py'))
+
+ def test_reject_static_credential_literals_but_not_identifiers(self):
+  with tempfile.TemporaryDirectory() as d:
+   p=Path(d);f=p/'auth.py'
+   f.write_text("client_secret = 'abcdefghijklmnop12345'\n")
+   with self.assertRaises(ValueError):builder.file_list(p)
+   f.write_text('{"client_secret":"abcdefghijklmnop12345"}\n')
+   with self.assertRaises(ValueError):builder.file_list(p)
+
  def test_order(self):
   ordered=builder.ordered_groups();self.assertEqual(len(ordered),11)
   self.assertLess(ordered.index('vps-storage-manager'),ordered.index('scene-builder'))

@@ -19,7 +19,7 @@ ROOT=Path(__file__).resolve().parents[1]
 GROUPS=ROOT/'rebuild/groups.json'
 BANNED_SEGMENTS={'.git','node_modules','__pycache__','data','database','db','cache','caches','logs','log','queues','queue','uploads','output','outputs','media','generated','runtime','secrets','credentials','venv','.venv','backups','backup','releases','.ssh','sessions','.next','dist'}
 DENY_FILENAME=re.compile(r'(^\.env(?:\.|$)|^id_(rsa|ed25519)|rclone\.conf$|oauth.*\.json$|secret|credentials?|token\.json|cookie|\.pem$|\.key$|\.pfx$|\.p12$|\.sqlite|\.db$|\.mp4$|\.mp3$|\.wav$|\.log$)',re.I)
-SECRET_PATTERNS=[re.compile(x,re.I|re.M) for x in (rb'-----BEGIN [A-Z ]*PRIVATE KEY-----',rb'gh[pousr]_[A-Za-z0-9_]{20,}',rb'AKIA[A-Z0-9]{16}',rb'AIza[A-Za-z0-9_-]{35}',rb'ya29\.[A-Za-z0-9._-]{20,}',rb'(?m)^\s*(?:api[_-]?key|client[_-]?secret|refresh[_-]?token|access[_-]?token|password)\s*[:=]\s*[\x22\x27]?[A-Za-z0-9_./+\-=]{12,}')]
+SECRET_PATTERNS=[re.compile(x,re.I|re.M) for x in (rb'-----BEGIN [A-Z ]*PRIVATE KEY-----',rb'gh[pousr]_[A-Za-z0-9_]{20,}',rb'AKIA[A-Z0-9]{16}',rb'AIza[A-Za-z0-9_-]{35}',rb'ya29\.[A-Za-z0-9._-]{20,}',rb'(?m)^\s*(?:api[_-]?key|client[_-]?secret|refresh[_-]?token|access[_-]?token|password)\s*[:=]\s*[\x22\x27][A-Za-z0-9_./+\-=]{12,}',rb'\x22(?:api[_-]?key|client[_-]?secret|refresh[_-]?token|access[_-]?token|password)\x22\s*:\s*\x22[^\x22]{12,}\x22')]
 
 
 def config():
