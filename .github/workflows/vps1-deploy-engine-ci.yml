@@ -3,6 +3,8 @@ on:
   push:
     branches:
       - feature/durable-deployment-engine-20261015
+      - 'integration/**'
+      - 'migration/**'
     paths:
       - 'rebuild/deploy_engine.py'
       - 'rebuild/deploy-contracts.json'
@@ -11,7 +13,8 @@ on:
   pull_request:
     branches:
       - main
-      - integration/vps1-source-queue-nginx-20261015
+      - 'migration/**'
+      - 'integration/**'
     paths:
       - 'rebuild/**'
       - '.github/workflows/vps1-deploy-engine-ci.yml'
