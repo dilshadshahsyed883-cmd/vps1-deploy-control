@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'rebuild/remaining_contract_ci.py'
+      - 'rebuild/auto_script_isolated_contract.py'
       - 'rebuild/systemd_storage_ci.py'
       - 'apps/auto-script/**'
       - 'apps/local-upload-manager/**'
@@ -25,7 +26,7 @@ jobs:
           set -Eeuo pipefail
           python -m pip install --disable-pip-version-check --quiet \
             fastapi==0.115.12 httpx==0.28.1 requests==2.32.3 \
-            itsdangerous==2.2.0 uvicorn==0.34.2
+            itsdangerous==2.2.0 uvicorn==0.34.2 jinja2==3.1.6
       - name: Stage already-imported source without old eight runtime checks
         run: |
           python -m rebuild.fresh_vps assemble \
@@ -37,6 +38,12 @@ jobs:
             --root "/tmp/fresh-vps-remaining-$GITHUB_RUN_ID" \
             > "$RUNNER_TEMP/remaining-contracts.json"
           cat "$RUNNER_TEMP/remaining-contracts.json"
+      - name: Imported Auto Script signed-session authentication, UI and empty queue
+        run: |
+          python -m rebuild.auto_script_isolated_contract \
+            --root "/tmp/fresh-vps-remaining-$GITHUB_RUN_ID" \
+            > "$RUNNER_TEMP/auto-script-contract.json"
+          cat "$RUNNER_TEMP/auto-script-contract.json"
       - name: Activate real isolated systemd unit, switch releases and rollback
         run: |
           python -m rebuild.systemd_storage_ci \
