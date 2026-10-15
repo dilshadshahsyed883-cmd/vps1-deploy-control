@@ -9,7 +9,8 @@
           "port": 8080,
           "requirements": "requirements.txt"
         }
-      ]
+      ],
+      "pending": "Main app still imports excluded Algrow Voice and parallel-owned Auto Script; isolate optional integrations before enabling"
     },
     "auto-script": {
       "parallel_owner": true,
@@ -84,7 +85,8 @@
           "port": 8147,
           "requirements": "requirements.txt"
         }
-      ]
+      ],
+      "pending": "Actual file paths, SQLite fresh schema bootstrap and Google Drive credentials require clean-host exercise"
     },
     "vps-storage-manager": {
       "services": [],
