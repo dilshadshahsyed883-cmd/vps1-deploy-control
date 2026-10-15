@@ -11,6 +11,8 @@ from pathlib import Path
 import re
 import sys
 
+# Allow both python -m tools.review_nginx_contracts and direct CLI invocation.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools.render_nginx_routes import load_registry, render, validate_registry
 
 NAME = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
