@@ -14,7 +14,7 @@ from pathlib import Path, PurePosixPath
 from rebuild import builder, website_shell
 
 ROOT = Path(__file__).resolve().parents[2]
-HEX256 = re.compile(r"[0-9a-f]{64}\\Z")
+HEX256 = re.compile(r"[0-9a-f]{64}\Z")
 
 
 def document(relative):
