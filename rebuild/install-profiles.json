@@ -77,8 +77,15 @@
       "pending": "Real FFmpeg queued media render and independent Drive delivery still require isolated end-to-end verification"
     },
     "video-merger": {
-      "services": [],
-      "pending": "hard-coded /opt/video-merger and embedded SQLite path need rebase"
+      "services": [
+        {
+          "part": "part01",
+          "kind": "script",
+          "entry": "app.py",
+          "port": 8148
+        }
+      ],
+      "pending": "External Drive and media-worker integration deferred until approved post-snapshot runtime verification"
     },
     "self-media-library": {
       "services": [
@@ -92,8 +99,18 @@
       "pending": "Actual file paths, SQLite fresh schema bootstrap and Google Drive credentials require clean-host exercise"
     },
     "vps-storage-manager": {
-      "services": [],
-      "pending": "storage cleanup and reset scripts must not auto-execute"
+      "services": [
+        {
+          "part": "part01",
+          "kind": "script",
+          "entry": "storage_manager.py",
+          "args": [
+            "serve"
+          ],
+          "port": 8149
+        }
+      ],
+      "pending": "Admin token and guarded storage privileges deferred until approved post-snapshot runtime verification"
     }
   }
 }
