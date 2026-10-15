@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "groups": [
+    {"id":"scene-builder", "lock":"website-shared", "needs":["vps-storage-manager"], "parallel_owner":false},
+    {"id":"auto-script", "lock":"website-shared", "needs":["scene-builder"], "parallel_owner":true},
+    {"id":"script-work", "lock":"website-shared", "needs":["scene-builder"], "parallel_owner":false},
+    {"id":"voice-studio", "lock":"voice-studio-shared", "needs":["scene-builder"], "parallel_owner":false},
+    {"id":"auto-caption-studio", "lock":"acs-shared", "needs":["scene-builder"], "parallel_owner":false},
+    {"id":"local-upload-manager", "lock":"lum-shared", "needs":["scene-builder"], "parallel_owner":false},
+    {"id":"short-stream", "lock":"media-shared", "needs":["scene-builder"], "parallel_owner":false},
+    {"id":"short-maker", "lock":"media-shared", "needs":["scene-builder"], "parallel_owner":false},
+    {"id":"video-merger", "lock":"media-shared", "needs":["scene-builder"], "parallel_owner":false},
+    {"id":"self-media-library", "lock":"website-shared", "needs":["scene-builder"], "parallel_owner":false},
+    {"id":"vps-storage-manager", "lock":"storage-shared", "needs":[], "parallel_owner":false}
+  ],
+  "production_deploy_enabled": false,
+  "fresh_install_enabled": false,
+  "automatic_database_migrations": false,
+  "legacy_database_import": false,
+  "legacy_queue_import": false,
+  "legacy_media_import": false
+}

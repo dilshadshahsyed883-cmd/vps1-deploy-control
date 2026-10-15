@@ -1,0 +1,44 @@
+name: Fresh VPS 11-group source validation (no production deployment)
+on:
+  pull_request:
+    paths:
+      - 'apps/**'
+      - 'shared/**'
+      - 'infrastructure/**'
+      - 'rebuild/**'
+      - '.github/workflows/fresh-vps-*'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/**'
+      - 'shared/**'
+      - 'infrastructure/**'
+      - 'rebuild/**'
+      - '.github/workflows/fresh-vps-*'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  security-and-coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Safety and builder tests
+        run: python3 -m unittest discover -s rebuild/tests -v
+      - name: Dependency ordering and source coverage
+        run: |
+          python3 rebuild/builder.py plan
+          python3 rebuild/builder.py state > "$RUNNER_TEMP/fresh-vps-source-coverage.json"
+          cat "$RUNNER_TEMP/fresh-vps-source-coverage.json"
+      - name: Confirm production paths are not enabled
+        run: |
+          python3 - <<'PY'
+          import json
+          c=json.load(open('rebuild/groups.json'))
+          assert all(c[k] is False for k in ('production_deploy_enabled','fresh_install_enabled','automatic_database_migrations','legacy_database_import','legacy_queue_import','legacy_media_import'))
+          print('PASS: no production deploy or historical-data import')
+          PY
