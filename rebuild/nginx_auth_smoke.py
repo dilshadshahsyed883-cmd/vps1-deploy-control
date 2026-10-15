@@ -102,8 +102,12 @@ def run(root):
         processes.append(gateway)
         deadline=time.monotonic()+25
         while time.monotonic()<deadline:
-            if any(p.poll() is not None for p in processes):
-                raise RuntimeError("test service exited early; "+log.read_text()[-800:] if log.exists() else "process died")
+            for index,proc in enumerate(processes):
+                if proc.poll() is not None:
+                    label=SERVICES[index][0] if index<len(SERVICES) else "nginx"
+                    err=proc.stderr.read().decode(errors="replace")[-2500:] if proc.stderr else ""
+                    raise RuntimeError("test service "+label+" exited rc="+str(proc.returncode)+" stderr="+err+
+                                       (" nginx="+log.read_text()[-600:] if log.exists() else ""))
             try:
                 result=[]
                 for app,_,endpoint in SERVICES:
