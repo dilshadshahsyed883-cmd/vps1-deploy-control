@@ -56,8 +56,20 @@ def run(root_arg):
                    stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,check=True)
     os.chown(ht,0,grp.getgrnam("www-data").gr_gid);ht.chmod(0o640)
     active=[];names=[];locations=[]
+    # The original sanitized transfer excluded a Python source package named
+    # "db", mistaking it for runtime database data. Report its unavailability
+    # as an explicit full-site blocker instead of fabricating a healthy LUM.
+    blocked={}
+    specs=[]
+    for spec in SERVICES:
+        if spec[0]=="local-upload-manager":
+            src=root/"srv/fresh-website/current/local-upload-manager/part01/desktop_core/modules/db/__init__.py"
+            if not src.is_file():
+                blocked["local-upload-manager"]="required desktop_core.modules.db source has not been imported"
+                continue
+        specs.append(spec)
     try:
-        for name,port,route,kind,entry in SERVICES:
+        for name,port,route,kind,entry in specs:
             wd=root/"srv/fresh-website/current"/name/"part01"
             if not wd.is_dir():raise ValueError("source unavailable "+name)
             cmd=([sys.executable,"-m","uvicorn",entry,"--host","127.0.0.1","--port",str(port)]
@@ -83,7 +95,7 @@ def run(root_arg):
                 if p.poll() is not None:
                     err=p.stderr.read().decode(errors="replace")[-2000:]
                     raise RuntimeError(name+" exited "+str(p.returncode)+": "+err)
-            for name,port,route,kind,entry in SERVICES:
+            for name,port,route,kind,entry in specs:
                 if name in finished:continue
                 url="http://127.0.0.1:18889/"+name+route
                 try:
@@ -103,11 +115,12 @@ def run(root_arg):
                     finished[name]={"authenticated_health":"PASS","isolated_data":True}
                 except (URLError,TimeoutError,ConnectionError):
                     continue
-            if len(finished)==len(SERVICES):
-                return {"result":"PASS","services":finished,"production_modified":False,
+            if len(finished)==len(specs):
+                return {"result":"PASS_TESTED_SERVICES_WITH_BLOCKERS" if blocked else "PASS_ALL_TARGETED_SERVICES",
+                        "services":finished,"blocked":blocked,"production_modified":False,
                         "external_jobs_executed":False}
             time.sleep(.25)
-        raise TimeoutError("failed health: "+",".join(sorted(set(s[0] for s in SERVICES)-set(finished))))
+        raise TimeoutError("failed health: "+",".join(sorted(set(s[0] for s in specs)-set(finished))))
     finally:
         for p in reversed(active):
             if p.poll() is None:
