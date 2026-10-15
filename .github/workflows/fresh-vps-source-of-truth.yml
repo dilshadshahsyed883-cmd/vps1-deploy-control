@@ -22,9 +22,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     outputs:
-      matrix: ${{ steps.detect.outputs.matrix }
-      count: ${{ steps.detect.outputs.count }
-      manual_review: ${{ steps.detect.outputs.manual_review }
+      matrix: ${{ steps.detect.outputs.matrix }}
+      count: ${{ steps.detect.outputs.count }}
+      manual_review: ${{ steps.detect.outputs.manual_review }}
     steps:
       - name: Checkout full diff ancestry
         uses: actions/checkout@v4
@@ -37,8 +37,8 @@ jobs:
       - name: Identify precisely changed active application groups
         id: detect
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }
-          HEAD_SHA: ${{ github.sha }
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
           set -Eeuo pipefail
           python3 -m rebuild.ci_release --base "$BASE_SHA" --head "$HEAD_SHA" > "$RUNNER_TEMP/source-classification.json"
@@ -60,7 +60,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: vps1-source-classification
-          path: ${{ runner.temp }/source-classification.json
+          path: ${{ runner.temp }}/source-classification.json
           retention-days: 30
 
   candidate:
@@ -70,12 +70,12 @@ jobs:
     timeout-minutes: 12
     strategy:
       fail-fast: false
-      matrix: ${{ fromJson(needs.classify.outputs.matrix) }
+      matrix: ${{ fromJson(needs.classify.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
       - name: Build only changed app's immutable source package
         env:
-          TARGET_APP: ${{ matrix.app }
+          TARGET_APP: ${{ matrix.app }}
         run: |
           set -Eeuo pipefail
           python3 rebuild/builder.py package --app "$TARGET_APP" --sha "$GITHUB_SHA" --output "$RUNNER_TEMP/candidate"
@@ -85,8 +85,8 @@ jobs:
       - name: Retain independent SHA256 release candidate
         uses: actions/upload-artifact@v4
         with:
-          name: vps1-candidate-${{ matrix.app }-${{ github.sha }
-          path: ${{ runner.temp }/candidate/*
+          name: vps1-candidate-${{ matrix.app }}-${{ github.sha }}
+          path: ${{ runner.temp }}/candidate/*
           if-no-files-found: error
           retention-days: 30
 
@@ -111,20 +111,20 @@ jobs:
       id-token: write
     strategy:
       fail-fast: false
-      matrix: ${{ fromJson(needs.classify.outputs.matrix) }
+      matrix: ${{ fromJson(needs.classify.outputs.matrix) }}
     concurrency:
-      group: vps1-fresh-staging-${{ matrix.app }
+      group: vps1-fresh-staging-${{ matrix.app }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - name: Download immutable artifact from this run
         uses: actions/download-artifact@v4
         with:
-          name: vps1-candidate-${{ matrix.app }-${{ github.sha }
-          path: ${{ runner.temp }/candidate
+          name: vps1-candidate-${{ matrix.app }}-${{ github.sha }}
+          path: ${{ runner.temp }}/candidate
       - name: Re-verify artifact before entering private network
         env:
-          TARGET_APP: ${{ matrix.app }
+          TARGET_APP: ${{ matrix.app }}
         run: |
           set -Eeuo pipefail
           python3 rebuild/builder.py verify --manifest "$RUNNER_TEMP/candidate/$TARGET_APP-${GITHUB_SHA:0:12}.tar.gz.manifest.json"
@@ -133,12 +133,12 @@ jobs:
       - name: Join restricted VPS tailnet
         uses: tailscale/github-action@v4
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }
-          audience: ${{ secrets.TS_AUDIENCE }
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
           tags: tag:ci
       - name: Use pinned SSH host and non-root deploy identity
         env:
-          SSH_KEY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }
+          SSH_KEY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
         run: |
           set -Eeuo pipefail
           test -n "$SSH_KEY"
@@ -162,7 +162,7 @@ jobs:
           chmod 0600 "$HOME/.ssh/config"
       - name: Stage app in isolated non-production home and audit SHA/readback
         env:
-          TARGET_APP: ${{ matrix.app }
+          TARGET_APP: ${{ matrix.app }}
         run: |
           set -Eeuo pipefail
           ARCHIVE="$TARGET_APP-${GITHUB_SHA:0:12}.tar.gz"
