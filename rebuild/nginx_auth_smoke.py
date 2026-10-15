@@ -60,6 +60,7 @@ def run(root):
                 "  location /"+app+"/ { proxy_pass http://127.0.0.1:"+str(port)+
                 "/; proxy_set_header Host $host; proxy_set_header X-Forwarded-Proto $scheme; }\n")
         config=(
+          "user www-data;\n"+
           "worker_processes 1;\n"+
           "pid "+str(runtime/"nginx.pid")+";\n"+
           "error_log "+str(log)+" error;\n"+
