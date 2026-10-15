@@ -74,7 +74,8 @@ def sources(app):
         if path.is_symlink():raise ValueError("source symlink "+str(rel))
         if not path.is_file() or path.suffix.lower() not in EXT:continue
         if path.suffix==".sh" and SHELL_DENY.search(path.name):continue
-        if builder.DENY_FILENAME.search(path.name):raise ValueError("secret filename "+str(rel))
+        if builder.DENY_FILENAME.search(path.name) and not builder._is_lum_sensitive_named_python_helper(src,rel,path):
+            raise ValueError("secret filename "+str(rel))
         if path.stat().st_size>4_000_000:raise ValueError("oversize source")
         data=path.read_bytes()
         if b"\0" in data or any(rx.search(data) for rx in builder.SECRET_PATTERNS):

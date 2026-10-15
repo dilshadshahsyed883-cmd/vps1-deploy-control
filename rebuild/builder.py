@@ -61,6 +61,19 @@ def _is_lum_db_python_source(folder, rel, path):
     return path.is_file() and path.suffix.lower()=='.py'
 
 
+def _is_lum_sensitive_named_python_helper(folder,rel,path):
+    """Only the code helper secret_store.py within LUM's three owned parts.
+
+    A module name containing 'secret' is not itself a secret. All file-content
+    scanners still run and literal credentials remain prohibited.
+    """
+    return (folder == ROOT/'apps'/'local-upload-manager'
+            and len(rel.parts)==4
+            and rel.parts[0] in ('part01','part02','part03')
+            and rel.parts[1:]==('desktop_core','modules','secret_store.py')
+            and path.is_file())
+
+
 def file_list(folder):
     result=[]
     for p in sorted(folder.rglob('*')):
@@ -72,7 +85,8 @@ def file_list(folder):
         if 'algrow' in str(rel).lower():
             raise ValueError('Algrow is strictly out of scope '+str(rel))
         if not p.is_file():continue
-        if DENY_FILENAME.search(p.name):raise ValueError('sensitive file name '+str(rel))
+        if DENY_FILENAME.search(p.name) and not _is_lum_sensitive_named_python_helper(folder,rel,p):
+            raise ValueError('sensitive file name '+str(rel))
         if p.stat().st_size>4_000_000:raise ValueError('oversize source '+str(rel))
         content=p.read_bytes()
         if b'\0' in content:raise ValueError('binary source '+str(rel))

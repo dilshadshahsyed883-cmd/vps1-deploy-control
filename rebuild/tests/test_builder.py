@@ -59,6 +59,21 @@ class FreshVpsSafety(unittest.TestCase):
       builder.file_list(app)
      p.unlink()
 
+ def test_lum_secret_store_module_is_code_only_not_credentials(self):
+  with tempfile.TemporaryDirectory() as d:
+   root=Path(d);app=root/'apps'/'local-upload-manager'
+   pkg=app/'part02/desktop_core/modules';pkg.mkdir(parents=True)
+   source=pkg/'secret_store.py'
+   source.write_text('def secure_file_for_current_user(path): return path\n')
+   with patch.object(builder,'ROOT',root):
+    self.assertEqual(builder.file_list(app)[0][0],
+                     'part02/desktop_core/modules/secret_store.py')
+    source.write_text('access_token = "ghp_'+'a'*32+'"\n')
+    with self.assertRaises(ValueError):builder.file_list(app)
+    source.unlink()
+    bad=pkg/'my_secret.py';bad.write_text('pass\n')
+    with self.assertRaises(ValueError):builder.file_list(app)
+
  def test_other_apps_cannot_use_db_package_exception(self):
   with tempfile.TemporaryDirectory() as d:
    root=Path(d);app=root/'apps'/'voice-studio'
