@@ -1,0 +1,102 @@
+{
+  "modules": [
+    {
+      "path": "apps/local-upload-manager/part01/desktop_core/modules/db/__init__.py",
+      "sha256": "899ddd1421ca637738b809446e39c750c8e6d5340425cdd9b78220637ae54574"
+    },
+    {
+      "path": "apps/local-upload-manager/part01/desktop_core/modules/db/auto_engine_repository.py",
+      "sha256": "d26906e7e02748009161d73812afad063854663603afede8b3415beec3551571"
+    },
+    {
+      "path": "apps/local-upload-manager/part01/desktop_core/modules/db/channel_repository.py",
+      "sha256": "e204ff0925a0e7bc060cdefe7a9ae39b16ea256cde6e4135346fac9923da0305"
+    },
+    {
+      "path": "apps/local-upload-manager/part01/desktop_core/modules/db/connection.py",
+      "sha256": "7bcde060e91ffbbad7098f926586b4a10185f9b0d69da4a57818fb9897055ef0"
+    },
+    {
+      "path": "apps/local-upload-manager/part01/desktop_core/modules/db/migrations.py",
+      "sha256": "93c297a1474537a94590072ed9aa4a9fa0a100ed627fed286ab196aef1b15a01"
+    },
+    {
+      "path": "apps/local-upload-manager/part01/desktop_core/modules/db/portability_repository.py",
+      "sha256": "f80197f634ee9d44c07f846faf184c9d2181937a4b5ba9339a630202a6e865d4"
+    },
+    {
+      "path": "apps/local-upload-manager/part01/desktop_core/modules/db/queue_repository.py",
+      "sha256": "b4f03d7456f8f9c3f7fe14d1f425bf0420774ada90b6c8435ad45ac7822ddd59"
+    },
+    {
+      "path": "apps/local-upload-manager/part01/desktop_core/modules/db/repository_base.py",
+      "sha256": "6f0e7410977d495108963749a66c3620872965b10b0c5c082cb5cecb679b2ac2"
+    },
+    {
+      "path": "apps/local-upload-manager/part02/desktop_core/modules/db/__init__.py",
+      "sha256": "899ddd1421ca637738b809446e39c750c8e6d5340425cdd9b78220637ae54574"
+    },
+    {
+      "path": "apps/local-upload-manager/part02/desktop_core/modules/db/auto_engine_repository.py",
+      "sha256": "d26906e7e02748009161d73812afad063854663603afede8b3415beec3551571"
+    },
+    {
+      "path": "apps/local-upload-manager/part02/desktop_core/modules/db/channel_repository.py",
+      "sha256": "e204ff0925a0e7bc060cdefe7a9ae39b16ea256cde6e4135346fac9923da0305"
+    },
+    {
+      "path": "apps/local-upload-manager/part02/desktop_core/modules/db/connection.py",
+      "sha256": "7bcde060e91ffbbad7098f926586b4a10185f9b0d69da4a57818fb9897055ef0"
+    },
+    {
+      "path": "apps/local-upload-manager/part02/desktop_core/modules/db/migrations.py",
+      "sha256": "93c297a1474537a94590072ed9aa4a9fa0a100ed627fed286ab196aef1b15a01"
+    },
+    {
+      "path": "apps/local-upload-manager/part02/desktop_core/modules/db/portability_repository.py",
+      "sha256": "f80197f634ee9d44c07f846faf184c9d2181937a4b5ba9339a630202a6e865d4"
+    },
+    {
+      "path": "apps/local-upload-manager/part02/desktop_core/modules/db/queue_repository.py",
+      "sha256": "01f74befd0af7b708b7d63ac54e234ed5ffaa0a050ca7f55cf99e56c9d5217ca"
+    },
+    {
+      "path": "apps/local-upload-manager/part02/desktop_core/modules/db/repository_base.py",
+      "sha256": "6f0e7410977d495108963749a66c3620872965b10b0c5c082cb5cecb679b2ac2"
+    },
+    {
+      "path": "apps/local-upload-manager/part03/desktop_core/modules/db/__init__.py",
+      "sha256": "899ddd1421ca637738b809446e39c750c8e6d5340425cdd9b78220637ae54574"
+    },
+    {
+      "path": "apps/local-upload-manager/part03/desktop_core/modules/db/auto_engine_repository.py",
+      "sha256": "d26906e7e02748009161d73812afad063854663603afede8b3415beec3551571"
+    },
+    {
+      "path": "apps/local-upload-manager/part03/desktop_core/modules/db/channel_repository.py",
+      "sha256": "e204ff0925a0e7bc060cdefe7a9ae39b16ea256cde6e4135346fac9923da0305"
+    },
+    {
+      "path": "apps/local-upload-manager/part03/desktop_core/modules/db/connection.py",
+      "sha256": "7bcde060e91ffbbad7098f926586b4a10185f9b0d69da4a57818fb9897055ef0"
+    },
+    {
+      "path": "apps/local-upload-manager/part03/desktop_core/modules/db/migrations.py",
+      "sha256": "93c297a1474537a94590072ed9aa4a9fa0a100ed627fed286ab196aef1b15a01"
+    },
+    {
+      "path": "apps/local-upload-manager/part03/desktop_core/modules/db/portability_repository.py",
+      "sha256": "f80197f634ee9d44c07f846faf184c9d2181937a4b5ba9339a630202a6e865d4"
+    },
+    {
+      "path": "apps/local-upload-manager/part03/desktop_core/modules/db/queue_repository.py",
+      "sha256": "01f74befd0af7b708b7d63ac54e234ed5ffaa0a050ca7f55cf99e56c9d5217ca"
+    },
+    {
+      "path": "apps/local-upload-manager/part03/desktop_core/modules/db/repository_base.py",
+      "sha256": "6f0e7410977d495108963749a66c3620872965b10b0c5c082cb5cecb679b2ac2"
+    }
+  ],
+  "runtime_imported": false,
+  "source": "AGENT1_TARGETED_LUM_DB_PYTHON"
+}

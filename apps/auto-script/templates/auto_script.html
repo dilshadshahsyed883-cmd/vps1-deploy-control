@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Auto Script{% endblock %}
+{% block subtitle %}Channel-based metadata, script and scene-plan generation with fresh ChatGPT sessions and verified Google delivery.{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/auto_script.css?v=2">
+<section class="as-shell" id="auto-script-app">
+  <div class="as-hero">
+    <div>
+      <span class="as-eyebrow">AUTOMATION</span>
+      <h2>Auto Script Control Center</h2>
+      <p>Each channel uses its exact Google Sheet sub-tab and three master prompts. Metadata is written to the Sheet, Script and Scene Plan are verified in separate Google Docs, then <b>Done = YES</b>.</p>
+    </div>
+    <div class="as-actions">
+      <span class="as-live" id="as-scheduler">Checking scheduler…</span>
+      <button class="as-btn ghost" id="as-run-all">Run scan now</button>
+      <button class="as-btn primary" id="as-add-channel">+ Add channel</button>
+    </div>
+  </div>
+
+  <div class="as-stats">
+    <div><span>Channels</span><strong id="as-stat-channels">0</strong></div>
+    <div><span>Active queue</span><strong id="as-stat-active">0</strong></div>
+    <div><span>Completed</span><strong id="as-stat-done">0</strong></div>
+    <div><span>Errors</span><strong id="as-stat-errors">0</strong></div>
+  </div>
+
+  <section class="as-card">
+    <div class="as-card-head">
+      <div><small>CONFIGURATION</small><h3>Channels</h3></div>
+      <span>Sheet GID is strict — Auto Script never falls back to another tab.</span>
+    </div>
+    <div class="as-table-wrap">
+      <table class="as-table">
+        <thead><tr><th>Channel</th><th>Sheet GID</th><th>Daily</th><th>Today</th><th>Script / Scene Docs</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody id="as-channels-body"><tr><td colspan="7" class="as-empty">No channels configured.</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="as-card">
+    <div class="as-card-head">
+      <div><small>EXECUTION</small><h3>Generation Queue</h3></div>
+      <span>Fresh ChatGPT chat for Metadata, Script and Scene Plan · verified Sheet/Docs writes · max 3 retries per stage.</span>
+    </div>
+    <div class="as-table-wrap">
+      <table class="as-table">
+        <thead><tr><th>Channel</th><th>VID</th><th>Title</th><th>Status</th><th>Attempts</th><th>Documents</th><th>Updated</th><th></th></tr></thead>
+        <tbody id="as-items-body"><tr><td colspan="8" class="as-empty">No queue items yet.</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="as-grid-2">
+    <section class="as-card">
+      <div class="as-card-head"><div><small>OUTPUT</small><h3>Google Docs</h3></div><span>Separate Script and Scene Plan rollover</span></div>
+      <div id="as-docs" class="as-docs"><div class="as-empty">No documents created yet.</div></div>
+    </section>
+    <section class="as-card">
+      <div class="as-card-head"><div><small>DIAGNOSTICS</small><h3>Errors / Attention</h3></div><span>Latest 20</span></div>
+      <div id="as-errors" class="as-errors"><div class="as-empty">No errors.</div></div>
+    </section>
+  </div>
+</section>
+
+<div class="as-modal-backdrop" id="as-modal" hidden>
+  <div class="as-modal" role="dialog" aria-modal="true" aria-labelledby="as-modal-title">
+    <div class="as-modal-head">
+      <div><small>CHANNEL CONFIGURATION</small><h3 id="as-modal-title">Add channel</h3></div>
+      <button class="as-icon-btn" id="as-modal-close" aria-label="Close">×</button>
+    </div>
+    <form id="as-channel-form">
+      <input type="hidden" id="as-id">
+      <div class="as-form-grid">
+        <label>Channel name<input id="as-name" required placeholder="Example: Tech Hindi"></label>
+        <label>Daily script limit<input id="as-daily" type="number" min="1" max="500" value="5" required></label>
+        <label class="wide">Google Sheet URL<input id="as-sheet-url" required placeholder="https://docs.google.com/spreadsheets/d/..."></label>
+        <label>Exact sub-sheet GID<input id="as-sheet-gid" inputmode="numeric" required placeholder="0"></label>
+        <label>Timezone<input id="as-timezone" value="Asia/Karachi" required></label>
+        <label class="wide">Google Docs folder URL <span>(optional)</span><input id="as-docs-folder" placeholder="https://drive.google.com/drive/folders/..."></label>
+        <label>Max VID tabs per Doc<input id="as-max-tabs" type="number" min="1" max="500" value="50" required></label>
+        <label>Preferred ChatGPT worker ID <span>(optional)</span><input id="as-worker" placeholder="Leave blank for any paired worker"></label>
+        <label class="wide">Metadata master prompt<textarea id="as-meta-prompt" rows="7" required placeholder="Instructions for Description + Tags generation..."></textarea></label>
+        <label class="wide">Script master prompt<textarea id="as-script-prompt" rows="10" required placeholder="Complete master script-writing prompt for this channel..."></textarea></label>
+        <label class="wide">Scene Plan master prompt<textarea id="as-scene-prompt" rows="10" required placeholder="Complete scene-plan prompt that will receive the finished script..."></textarea></label>
+      </div>
+      <div class="as-contract">
+        <div><b>Fresh chat:</b> Always ON</div>
+        <div><b>Completion:</b> Metadata verified → Script Doc verified → Scene Plan Doc verified → Sheet Done = YES</div>
+        <div><b>Isolation:</b> Auto Script uses its own database; Auto Flow trigger state is not used.</div>
+      </div>
+      <div class="as-modal-actions">
+        <label class="as-check"><input id="as-enabled" type="checkbox" checked> Channel enabled</label>
+        <div><button type="button" class="as-btn ghost" id="as-cancel">Cancel</button><button class="as-btn primary" type="submit">Save channel</button></div>
+      </div>
+    </form>
+  </div>
+</div>
+<script src="/static/auto_script.js?v=2"></script>
+{% endblock %}
