@@ -5,7 +5,7 @@
 ## Responsibilities
 
 - **Tab 1 / integration:** Reconcile the draft source-of-truth PRs and integration branch; make `rebuild/deploy_engine.py`, `rebuild/deploy-contracts.json` and `vps1-deploy-engine-ci.yml` a reviewed cohesive part of source of truth. This PR intentionally targets `integration/vps1-source-queue-nginx-20261015`, not `main`, to preserve in-progress reconciliation and prevent duplicate queue implementations.
-- **Tab 2 / executor (this change):** Durable SQLite host-wide FIFO, immutable full SHA intake, app ownership validation, duplicate suppression, stale-claim recovery, retry policy, strict states, dry-run simulated promotion/rollback. It extends the V2 queue *concept*; existing `IntentQueue` prototype is retained for backwards compatibility. The new database schema can upgrade an older prototype database in place. Migrated orphaned `CLAIMED` rows are quarantined.
+- **Tab 2 / executor (this change):** Durable SQLite host-wide FIFO, immutable full SHA intake, app ownership validation, duplicate suppression, stale-claim recovery, retry policy, strict states, verified archive admission and dry-run simulated promotion/rollback. It extends the V2 queue *concept*; existing `IntentQueue` prototype is retained for backwards compatibility. The new database schema can upgrade an older prototype database in place. Migrated orphaned `CLAIMED` rows are quarantined.
 - **Tab 3 / infrastructure:** Confirm Nginx, per-app service/worker names, dependencies, migration strategy, health endpoints, read-only verification permissions, release directory ownership and rollback procedures. No unreviewed service names or migration paths are assumed by this module.
 - **Tab 4 / activation:** Perform verified OVH snapshot + restore demonstration, external DB/queue/uploads backup validation, canonical VPS/Agent Drive Bridge bootstrap, queue database ownership and persistence, legitimate runner-to-host intent handoff, exact GitHub release artifact SHA256 and trusted commit verification, service/worker preflight, migration policy, authenticated health checks, controlled failure test, rollback exercise and post-rollback verification. Only after separately approved production safeguards can a hardened on-host backend be installed and production workflows be enabled.
 
@@ -16,7 +16,8 @@ Approved commit on protected branch
   -> GitHub source-of-truth classifier
   -> affected app builds/tests (in parallel by app)
   -> immutable source package + SHA256 release manifest
-  -> [Tab 4 verified/restricted agent handoff REQUIRED]
+  -> [Tab 4 authenticated GitHub provenance + approved Drive Bridge handoff REQUIRED]
+  -> strict per-app archive SHA256 and immutable manifest admission
   -> one persistent host-wide SQLite queue
   -> FIFO claim with exclusive lease
   -> verify deployed source/manifest + snapshot/backup and runtime contracts
@@ -47,11 +48,12 @@ On a crash, never infer success from prior job logs. Compare actual active Git S
 ```bash
 python3 -m rebuild.deploy_engine --db /tmp/vps1-test/queue.sqlite3 enqueue --app short-maker --sha <FULL_40_CHAR_COMMIT_SHA>
 python3 -m rebuild.deploy_engine --db /tmp/vps1-test/queue.sqlite3 list
+python3 -m rebuild.deploy_engine --db /tmp/vps1-test/queue.sqlite3 enqueue-verified --app short-maker --sha <FULL_40_CHAR_COMMIT_SHA> --manifest /tmp/trusted-candidates/short-maker-<SHA12>.tar.gz.manifest.json
 python3 -m unittest rebuild.tests.test_deploy_engine -v
 python3 -m unittest discover -s rebuild/tests -v
 ```
 
-The CLI only accepts intents and lists persistent state. There is deliberately no production deploy command. Use a dedicated file on a persistent VPS filesystem after authorized bootstrap; don't store the production queue in `/tmp`, `RUNNER_TEMP`, a Git working tree, or multiple independent runner-local databases. Back up both the queue DB and the deployment state before applying schema changes.
+The CLI accepts unverified *intents* for simulation; `enqueue-verified` additionally checks exact app/revision/archive digest and pins the artifact SHA256 in the durable record. This integrity check does not authenticate the GitHub run: Tab 4 must obtain the artifact from a trusted protected source and validate provenance before invoking it. Use `simulate-worker --root /tmp/APPROVED_TEST_ROOT --once` only after preparing a synthetic rootfs with an existing known-good release. The simulated worker deliberately mocks service restarts and health checks, so it must never be used to verify live production. There is deliberately no production deploy command. Use a dedicated file on a persistent VPS filesystem after authorized bootstrap; don't store the production queue in `/tmp`, `RUNNER_TEMP`, a Git working tree, or multiple independent runner-local databases. Back up both the queue DB and the deployment state before applying schema changes.
 
 ## Per-app runtime contract
 
