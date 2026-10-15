@@ -51,7 +51,7 @@ def registry():
                 if app not in safe or (service.get("entry"),service.get("args",[]))!=safe[app]:
                     raise ValueError("unapproved standalone service")
             elif kind=="asgi":
-                if not re.fullmatch(r"[a-zA-Z][\\w.]*(?<!\\.):[a-zA-Z][\\w]*",service["module"]):
+                if not re.fullmatch(r"[a-zA-Z][\w.]*(?<!\.):[a-zA-Z][\w]*",service["module"]):
                     raise ValueError("unsafe ASGI target")
             else:
                 raise ValueError("unknown service kind")
