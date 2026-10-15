@@ -1,0 +1,102 @@
+name: VPS1 staged integrity watch (NO production)
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: One staged application or all ten
+        required: true
+        type: choice
+        default: all
+        options: [all, scene-builder, script-work, voice-studio, auto-caption-studio, local-upload-manager, short-stream, short-maker, video-merger, self-media-library, vps-storage-manager]
+  schedule:
+    - cron: '13 4 * * *'
+  pull_request:
+    paths:
+      - 'scripts/stage_fresh_app.py'
+      - 'rebuild/tests/test_stage_fresh_app.py'
+      - '.github/workflows/vps1-staging-drift.yml'
+permissions:
+  contents: read
+jobs:
+  local-tests:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest rebuild.tests.test_stage_fresh_app -v
+  audit:
+    if: >-
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+      github.ref == 'refs/heads/main' &&
+      vars.VPS1_OVH_SNAPSHOT_VERIFIED == 'yes' &&
+      vars.VPS1_POST_SNAPSHOT_STAGING_APPROVED == 'yes' &&
+      vars.VPS1_STAGING_DRIFT_WATCH_APPROVED == 'yes'
+    runs-on: ubuntu-24.04
+    environment: staging
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: vps1-staging-integrity-readonly
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm validator is correct
+        run: |
+          set -Eeuo pipefail
+          python3 -m unittest rebuild.tests.test_stage_fresh_app -v
+          python3 -m py_compile scripts/stage_fresh_app.py
+      - uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{secrets.TS_OAUTH_CLIENT_ID}}
+          audience: ${{secrets.TS_AUDIENCE}}
+          tags: tag:ci
+      - name: Prepare pinned non-root SSH identity
+        env:
+          SSH_KEY: ${{secrets.VPS1_SSH_PRIVATE_KEY}}
+        run: |
+          set -Eeuo pipefail
+          test -n "$SSH_KEY"
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$RUNNER_TEMP/vps1_id_ed25519"
+          chmod 0600 "$RUNNER_TEMP/vps1_id_ed25519"
+          ssh-keygen -y -f "$RUNNER_TEMP/vps1_id_ed25519" | grep -q '^ssh-ed25519 '
+          printf '%s\n' '100.113.253.99 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAtrAUnyLuDM3FsUw/E2EtVtHF3f3d4nRonXxl/oIpmQ' > "$RUNNER_TEMP/vps1_known_hosts"
+          chmod 0600 "$RUNNER_TEMP/vps1_known_hosts"
+          {
+            echo 'Host vps1-ci-readonly'
+            echo '  HostName 100.113.253.99'
+            echo '  User vps1deploy'
+            echo "  IdentityFile $RUNNER_TEMP/vps1_id_ed25519"
+            echo "  UserKnownHostsFile $RUNNER_TEMP/vps1_known_hosts"
+            echo '  StrictHostKeyChecking yes'
+            echo '  BatchMode yes'
+            echo '  IdentitiesOnly yes'
+            echo '  ConnectTimeout 20'
+          } > "$HOME/.ssh/config"
+          chmod 0600 "$HOME/.ssh/config"
+      - name: Verify staged source files, never touch production
+        env:
+          SELECTED_APP: ${{inputs.app || 'all'}}
+        run: |
+          set -Eeuo pipefail
+          failures=0
+          checked=0
+          ssh vps1-ci-readonly 'test "$(id -un)" = vps1deploy && test "$(id -u)" -ne 0'
+          for app in scene-builder script-work voice-studio auto-caption-studio local-upload-manager short-stream short-maker video-merger self-media-library vps-storage-manager; do
+            if [[ "$SELECTED_APP" != "all" && "$SELECTED_APP" != "$app" ]]; then
+              continue
+            fi
+            checked=$((checked+1))
+            if ssh vps1-ci-readonly python3 - inspect-active --app "$app" < scripts/stage_fresh_app.py; then
+              echo "PASS staged integrity: $app" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "FAIL / not staged: $app" >> "$GITHUB_STEP_SUMMARY"
+              failures=$((failures+1))
+            fi
+          done
+          test "$checked" -ge 1
+          echo "Checked $checked; failures=$failures" >> "$GITHUB_STEP_SUMMARY"
+          test "$failures" -eq 0

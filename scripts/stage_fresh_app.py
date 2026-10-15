@@ -34,6 +34,21 @@ def approved_root():
     return root
 
 
+def ensure_staging_dirs(root, app):
+    """Reject compromised intermediate directories before making any writes."""
+    root = Path(root)
+    for path in (root, root / "releases", root / "releases" / app,
+                 root / "current", root / "previous"):
+        if path.is_symlink():
+            raise ValueError("staging directory symlink is forbidden: " + str(path))
+        if path.exists() and not path.is_dir():
+            raise ValueError("staging directory is not a directory: " + str(path))
+    if root.exists():
+        resolved = root.resolve(strict=True)
+        if (root / "releases" / app).resolve().is_relative_to(resolved) is False:
+            raise ValueError("staging path escaped approved root")
+
+
 def safe_app(app):
     if app not in ALLOWED:
         raise ValueError("offline or unknown app: " + str(app))
@@ -85,7 +100,9 @@ def stage(app, revision, archive, manifest, *, root=None):
     safe_app(app)
     safe_revision(revision)
     root = approved_root() if root is None else Path(root)
+    ensure_staging_dirs(root, app)
     root.mkdir(parents=True, exist_ok=True)
+    ensure_staging_dirs(root, app)
     payload, expected = load_manifest(app, revision, archive, manifest)
     release_base = root / "releases" / app
     release_base.mkdir(parents=True, exist_ok=True)
@@ -119,7 +136,7 @@ def stage(app, revision, archive, manifest, *, root=None):
             if seen != set(expected):
                 raise ValueError("missing archive member")
             (partial / "_staging_manifest.json").write_text(json.dumps({
-                "app": app, "revision": revision, "source_sha256": payload["sha256"]
+                "app": app, "revision": revision, "source_sha256": payload["sha256"], "files": expected
             }, sort_keys=True) + "\n")
             os.rename(partial, target)
     check_release(target, expected)
@@ -156,6 +173,7 @@ def stage(app, revision, archive, manifest, *, root=None):
 def rollback(app, *, root=None):
     safe_app(app)
     root = approved_root() if root is None else Path(root)
+    ensure_staging_dirs(root, app)
     current = root / "current" / app
     previous = root / "previous" / app
     release_base = root / "releases" / app
@@ -173,15 +191,94 @@ def rollback(app, *, root=None):
     pending.symlink_to(target)
     os.replace(pending, current)
     newprevious = root / "previous" / ("." + app + ".next")
+    if newprevious.exists() or newprevious.is_symlink():
+        raise ValueError("rollback previous pointer conflict")
     newprevious.symlink_to(old)
     os.replace(newprevious, previous)
     return {"status":"STAGING_ROLLBACK_PASS","app":app,
             "revision":target.name,"production_modified":False}
 
 
+def audit(app, revision, archive, manifest, *, root=None):
+    """Read-only proof of the GitHub artifact, active staging pointer and files."""
+    safe_app(app)
+    safe_revision(revision)
+    root = approved_root() if root is None else Path(root)
+    payload, expected = load_manifest(app, revision, archive, manifest)
+    release_base = root / "releases" / app
+    target = release_base / revision
+    current = root / "current" / app
+    for directory in (root, root / "releases", release_base, root / "current"):
+        if directory.is_symlink():
+            raise ValueError("staging directory replaced by symlink")
+    if not current.is_symlink() or not target.is_dir() or target.is_symlink():
+        raise ValueError("staged release or pointer missing")
+    if current.resolve(strict=True) != target.resolve(strict=True):
+        raise ValueError("active source revision differs from expected commit")
+    if any(p.is_symlink() for p in target.rglob("*")):
+        raise ValueError("release contains symlinks")
+    metadata_path = target / "_staging_manifest.json"
+    if not metadata_path.is_file() or metadata_path.is_symlink():
+        raise ValueError("release provenance missing")
+    metadata = json.loads(metadata_path.read_text())
+    if metadata != {"app": app, "revision": revision,
+                    "source_sha256": payload["sha256"], "files": expected}:
+        raise ValueError("release provenance differs from GitHub artifact")
+    check_release(target, expected)
+    return {"status": "STAGING_AUDIT_PASS", "app": app,
+            "revision": revision, "verified_files": len(expected),
+            "production_modified": False, "service_started": False}
+
+
+
+def inspect_active(app, *, revision=None, root=None):
+    """Read-only local release integrity check, not GitHub-origin attestation."""
+    safe_app(app)
+    if revision is not None:
+        safe_revision(revision)
+    root = approved_root() if root is None else Path(root)
+    ensure_staging_dirs(root, app)
+    releases = root / "releases" / app
+    current = root / "current" / app
+    for folder in (root, root / "releases", releases, root / "current"):
+        if folder.is_symlink():
+            raise ValueError("symlink in staging root")
+    if not current.is_symlink():
+        raise ValueError("active stage missing")
+    target = current.resolve(strict=True)
+    if not target.is_dir() or target.is_symlink() or target.parent != releases.resolve():
+        raise ValueError("active stage escaped app release directory")
+    safe_revision(target.name)
+    if revision is not None and target.name != revision:
+        raise ValueError("wrong active commit SHA")
+    if any(p.is_symlink() for p in target.rglob("*")):
+        raise ValueError("symlink found in immutable release")
+    mp = target / "_staging_manifest.json"
+    if not mp.is_file() or mp.is_symlink():
+        raise ValueError("missing stored source manifest")
+    record = json.loads(mp.read_text())
+    files = record.get("files")
+    if (record.get("app") != app or record.get("revision") != target.name
+            or not re.fullmatch(r"[a-f0-9]{64}", str(record.get("source_sha256", "")))
+            or not isinstance(files, dict) or not 0 < len(files) <= MAX_FILES):
+        raise ValueError("invalid local release metadata")
+    for name, digest in files.items():
+        if not isinstance(name, str):
+            raise ValueError("invalid release path")
+        rel = PurePosixPath(name)
+        if (not rel.parts or rel.is_absolute() or ".." in rel.parts
+                or "." in rel.parts or str(rel) != name
+                or not re.fullmatch(r"[a-f0-9]{64}", str(digest))):
+            raise ValueError("invalid file checksum record")
+    check_release(target, files)
+    return {"status": "STAGING_LOCAL_DRIFT_CHECK_PASS", "app": app,
+            "revision": target.name, "files_verified": len(files),
+            "github_manifest_compared": False, "production_modified": False}
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("stage", "rollback"))
+    parser.add_argument("action", choices=("stage", "rollback", "audit", "inspect-active"))
     parser.add_argument("--app", required=True)
     parser.add_argument("--sha")
     parser.add_argument("--archive")
@@ -189,10 +286,13 @@ def main():
     a = parser.parse_args()
     if os.geteuid() == 0:
         parser.error("must be run by an unprivileged account")
-    if a.action == "stage":
+    if a.action in ("stage", "audit"):
         if not all((a.sha, a.archive, a.manifest)):
-            parser.error("stage requires SHA, archive and manifest")
-        outcome = stage(a.app, a.sha, a.archive, a.manifest)
+            parser.error(a.action + " requires SHA, archive and manifest")
+        action = stage if a.action == "stage" else audit
+        outcome = action(a.app, a.sha, a.archive, a.manifest)
+    elif a.action == "inspect-active":
+        outcome = inspect_active(a.app, revision=a.sha)
     else:
         outcome = rollback(a.app)
     print(json.dumps(outcome, sort_keys=True))
