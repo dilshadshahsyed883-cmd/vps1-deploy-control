@@ -122,6 +122,44 @@ class StageAppSafetyTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             stage_fresh_app.inspect_active("auto-script", root=self.root/"stage")
 
+    def test_stage_refuses_symlinked_release_directory(self):
+        a, am = self.archive(SHA_A)
+        stage = self.root/"stage"
+        stage.mkdir()
+        (stage/"releases").symlink_to(self.root, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "symlink"):
+            stage_fresh_app.stage("short-maker", SHA_A, a, am, root=stage)
+        self.assertFalse((self.root/"short-maker").exists())
+
+    def test_stage_refuses_symlinked_app_directory(self):
+        a, am = self.archive(SHA_A)
+        stage = self.root/"stage"
+        (stage/"releases").mkdir(parents=True)
+        (stage/"releases/short-maker").symlink_to(self.root, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "symlink"):
+            stage_fresh_app.stage("short-maker", SHA_A, a, am, root=stage)
+
+    def test_stage_refuses_symlinked_current_and_previous_dir(self):
+        a, am = self.archive(SHA_A)
+        for name in ("current", "previous"):
+            with self.subTest(name=name):
+                stage = self.root/("stage-"+name)
+                stage.mkdir()
+                (stage/name).symlink_to(self.root, target_is_directory=True)
+                with self.assertRaisesRegex(ValueError, "symlink"):
+                    stage_fresh_app.stage("short-maker", SHA_A, a, am, root=stage)
+
+    def test_rollback_refuses_symlinked_previous_container(self):
+        a, am = self.archive(SHA_A)
+        stage = self.root/"stage"
+        stage_fresh_app.stage("short-maker", SHA_A, a, am, root=stage)
+        other = self.root/"other"
+        other.mkdir()
+        (stage/"previous").rmdir()
+        (stage/"previous").symlink_to(other, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "symlink"):
+            stage_fresh_app.rollback("short-maker", root=stage)
+
     def test_no_restart_or_production_management_in_source(self):
         body=Path(stage_fresh_app.__file__).read_text()
         self.assertNotIn("systemctl", body)

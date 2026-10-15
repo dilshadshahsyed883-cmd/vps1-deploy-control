@@ -34,6 +34,21 @@ def approved_root():
     return root
 
 
+def ensure_staging_dirs(root, app):
+    """Reject compromised intermediate directories before making any writes."""
+    root = Path(root)
+    for path in (root, root / "releases", root / "releases" / app,
+                 root / "current", root / "previous"):
+        if path.is_symlink():
+            raise ValueError("staging directory symlink is forbidden: " + str(path))
+        if path.exists() and not path.is_dir():
+            raise ValueError("staging directory is not a directory: " + str(path))
+    if root.exists():
+        resolved = root.resolve(strict=True)
+        if (root / "releases" / app).resolve().is_relative_to(resolved) is False:
+            raise ValueError("staging path escaped approved root")
+
+
 def safe_app(app):
     if app not in ALLOWED:
         raise ValueError("offline or unknown app: " + str(app))
@@ -85,7 +100,9 @@ def stage(app, revision, archive, manifest, *, root=None):
     safe_app(app)
     safe_revision(revision)
     root = approved_root() if root is None else Path(root)
+    ensure_staging_dirs(root, app)
     root.mkdir(parents=True, exist_ok=True)
+    ensure_staging_dirs(root, app)
     payload, expected = load_manifest(app, revision, archive, manifest)
     release_base = root / "releases" / app
     release_base.mkdir(parents=True, exist_ok=True)
@@ -156,6 +173,7 @@ def stage(app, revision, archive, manifest, *, root=None):
 def rollback(app, *, root=None):
     safe_app(app)
     root = approved_root() if root is None else Path(root)
+    ensure_staging_dirs(root, app)
     current = root / "current" / app
     previous = root / "previous" / app
     release_base = root / "releases" / app
@@ -173,6 +191,8 @@ def rollback(app, *, root=None):
     pending.symlink_to(target)
     os.replace(pending, current)
     newprevious = root / "previous" / ("." + app + ".next")
+    if newprevious.exists() or newprevious.is_symlink():
+        raise ValueError("rollback previous pointer conflict")
     newprevious.symlink_to(old)
     os.replace(newprevious, previous)
     return {"status":"STAGING_ROLLBACK_PASS","app":app,
@@ -217,6 +237,7 @@ def inspect_active(app, *, revision=None, root=None):
     if revision is not None:
         safe_revision(revision)
     root = approved_root() if root is None else Path(root)
+    ensure_staging_dirs(root, app)
     releases = root / "releases" / app
     current = root / "current" / app
     for folder in (root, root / "releases", releases, root / "current"):
