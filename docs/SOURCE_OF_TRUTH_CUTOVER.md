@@ -39,6 +39,18 @@ Staging remains restricted to the already established non-root
 Nginx, switch production routes or import database/media. Production rollout
 is NOT implemented or authorized in this lane.
 
+## Optional staging integrity watch
+
+The new staging-only drift workflow can check one or all ten active groups
+read-only each day or on demand, once snapshot and staging are approved.
+The additional variable `VPS1_STAGING_DRIFT_WATCH_APPROVED=yes` is required.
+It runs the trusted GitHub-checkout validator via SSH stdin without
+copying the script to the VPS. It checks the stored release digests,
+active commit SHA, unexpected files and symlink escapes; unstaged apps
+are not reported as successful. Auto Script remains offline.
+Local metadata can itself be tampered with: this is local integrity
+monitoring, not independent GitHub artifact attestation or production monitoring.
+
 ## Remaining hard blockers to production automation
 
 1. Verify OVH snapshot and non-snapshot runtime backups/restore.
