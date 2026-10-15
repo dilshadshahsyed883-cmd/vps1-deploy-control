@@ -852,8 +852,9 @@ if __name__=='__main__':
             print('Initial Drive roots check: OK', flush=True)
         except Exception as e:
             print(f'Initial Drive root check failed (will retry on use): {e}', flush=True)
-    threading.Thread(target=initial_drive_probe,daemon=True).start()
-    t=threading.Thread(target=worker,daemon=True); t.start()
+    if os.environ.get('FRESH_WEBSITE_SMOKE_TEST') != '1':
+        threading.Thread(target=initial_drive_probe,daemon=True).start()
+        t=threading.Thread(target=worker,daemon=True); t.start()
     port=int(os.environ.get('VIDEO_MERGER_PORT','8129'))
     httpd=ThreadingHTTPServer(('127.0.0.1',port),Handler)
     print(f'Video Merger listening on 127.0.0.1:{port}',flush=True)

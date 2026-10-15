@@ -23,7 +23,7 @@ LISTEN_HOST = os.getenv("STORAGE_MANAGER_HOST", "127.0.0.1")
 LISTEN_PORT = int(os.getenv("STORAGE_MANAGER_PORT", "8799"))
 AUTH_TOKEN = os.getenv("STORAGE_MANAGER_TOKEN", "").strip()
 
-STATE_ROOT = Path("/var/lib/vps-storage-manager")
+STATE_ROOT = Path(os.getenv("STORAGE_MANAGER_STATE_ROOT", "/var/lib/vps-storage-manager"))
 STATE_DB = STATE_ROOT / "storage-manager.sqlite3"
 SNAPSHOT_FILE = STATE_ROOT / "latest-snapshot.json"
 BACKUP_ROOT = STATE_ROOT / "db-backups"
@@ -1158,6 +1158,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(500, {"ok": False, "error": str(exc)})
 
     def do_POST(self) -> None:
+        if os.getenv("FRESH_WEBSITE_SMOKE_TEST") == "1":
+            return self.respond(403, {"ok": False, "error": "fresh smoke test read-only"})
         if not self.authenticated():
             return self.respond(403, {"ok": False, "error": "forbidden"})
         path = self.path.split("?", 1)[0]
@@ -1186,7 +1188,8 @@ def serve() -> None:
     if not AUTH_TOKEN:
         raise SystemExit("STORAGE_MANAGER_TOKEN is required")
     init_state()
-    threading.Thread(target=scheduler_loop, name="storage-scheduler", daemon=True).start()
+    if os.getenv("FRESH_WEBSITE_SMOKE_TEST") != "1":
+        threading.Thread(target=scheduler_loop, name="storage-scheduler", daemon=True).start()
     server = ThreadingHTTPServer((LISTEN_HOST, LISTEN_PORT), Handler)
     server.serve_forever()
 

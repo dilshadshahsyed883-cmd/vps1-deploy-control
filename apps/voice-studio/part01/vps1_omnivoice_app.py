@@ -1,5 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
+import os
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -19,7 +20,11 @@ def _startup():
     vc.init_storage()
     ko.init_storage()
     ed.init_storage()
-    ad.start_worker()
+    if os.getenv("FRESH_WEBSITE_SMOKE_TEST", "0") == "1":
+        # Exercise genuine storage initialization but prevent external extraction.
+        ad.init_storage()
+    else:
+        ad.start_worker()
 @app.get("/",response_class=HTMLResponse)
 @app.get("/app",response_class=HTMLResponse)
 def studio(request:Request): return templates.TemplateResponse(request, "voice_studio.html", {})
