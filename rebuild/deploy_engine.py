@@ -29,6 +29,36 @@ RETRY_BASE_SECONDS = 30
 RETRY_MAX_SECONDS = 900
 
 
+def verify_release_candidate(app, revision, manifest_path):
+    """Integrity admission for a locally obtained artifact; NOT GitHub provenance.
+
+    The Tab 4 host handoff must first independently authenticate the GitHub
+    run/commit and download provenance. This guards tampering and wrong-app
+    binaries after that retrieval; it does not replace that trust decision.
+    """
+    from rebuild import builder
+    if not SHA.fullmatch(revision):
+        raise ValueError("full immutable Git revision required")
+    groups, _, active, _ = registry()
+    if app not in active or groups[app].get("parallel_owner"):
+        raise ValueError("unregistered or offline app release")
+    manifest = Path(manifest_path)
+    expected_name = f"{app}-{revision[:12]}.tar.gz"
+    archive = manifest.parent / expected_name
+    if (manifest.name != expected_name + ".manifest.json"
+            or manifest.is_symlink() or archive.is_symlink()
+            or not manifest.is_file() or not archive.is_file()):
+        raise ValueError("unsafe or missing release files")
+    report = json.loads(manifest.read_text())
+    if (report.get("app") != app or report.get("commit_sha") != revision
+            or report.get("archive") != expected_name
+            or not re.fullmatch("[a-f0-9]{64}", report.get("sha256", ""))):
+        raise ValueError("release artifact does not match app and commit")
+    if builder.verify(manifest) != app:
+        raise ValueError("release manifest verification failed")
+    return report["sha256"]
+
+
 def deployment_contracts():
     """Registry-checked per-app services, workers, dependencies and migrations."""
     source = Path(__file__).with_name("deploy-contracts.json")
@@ -79,6 +109,7 @@ class QueueStore:
                 "token": "TEXT",
                 "previous_sha": "TEXT",
                 "error": "TEXT",
+                "archive_sha256": "TEXT",
             }
             for field, definition in extras.items():
                 if field not in existing:
@@ -124,6 +155,22 @@ class QueueStore:
                              (app, revision)).fetchone()
             db.commit()
             return dict(row)
+
+    def enqueue_verified(self, app, revision, manifest_path):
+        """Register verified bytes of an app artifact under the immutable SHA."""
+        digest = verify_release_candidate(app, revision, manifest_path)
+        item = self.enqueue(app, revision)
+        with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = self._row(db, item["id"])
+            if row["archive_sha256"] not in (None, digest):
+                db.rollback()
+                raise ValueError("conflicting archived bytes for immutable app SHA")
+            db.execute("UPDATE requests SET archive_sha256=? WHERE id=?",
+                       (digest, item["id"]))
+            item = self._row(db, item["id"])
+            db.commit()
+            return item
 
     def claim(self, *, now=None):
         now = time.time() if now is None else now
@@ -343,6 +390,10 @@ def main():
     e = sub.add_parser("enqueue")
     e.add_argument("--app", required=True)
     e.add_argument("--sha", required=True)
+    v = sub.add_parser("enqueue-verified", help="integrity check a trusted GitHub candidate")
+    v.add_argument("--app", required=True)
+    v.add_argument("--sha", required=True)
+    v.add_argument("--manifest", required=True)
     sub.add_parser("list")
     sim = sub.add_parser("simulate-worker", help="execute ONLY isolated /tmp rehearsal")
     sim.add_argument("--root", required=True)
@@ -351,6 +402,8 @@ def main():
     q = QueueStore(args.db)
     if args.command == "enqueue":
         result = q.enqueue(args.app, args.sha)
+    elif args.command == "enqueue-verified":
+        result = q.enqueue_verified(args.app, args.sha, args.manifest)
     elif args.command == "simulate-worker":
         # These callbacks deliberately model success; never use this CLI as a
         # production health monitor or a service restart mechanism.
