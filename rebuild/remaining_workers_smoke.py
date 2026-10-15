@@ -59,6 +59,7 @@ def run(arg):
                 d=root/"var/lib/fresh-website"/app/("lum"+idx)
                 env.update({"LUM_DATA_DIR":str(d),
                             "YOUTUBE_UPLOAD_MANAGER_DATA_DIR":str(d/"core"),
+                            "LUM_AUTO_ENGINE_V6_ROOT":str(d/"auto_engine_v6"),
                             "LUM_SUITE_AUTH":"0"})
             elif app=="voice-studio":
                 d=root/"var/lib/fresh-website"/app/"omnivoice"
