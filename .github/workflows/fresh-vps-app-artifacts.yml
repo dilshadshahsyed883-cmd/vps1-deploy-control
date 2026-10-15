@@ -1,47 +1,79 @@
-name: Fresh VPS ten independent source artifacts (Auto Script OFFLINE)
+name: Fresh VPS selective independent source artifacts (Auto Script OFFLINE)
 on:
   pull_request:
     paths:
-      - 'apps/**'
-      - 'rebuild/**'
-      - 'scripts/stage_fresh_app.py'
-      - '.github/workflows/fresh-vps-app-artifacts.yml'
+      - "apps/**"
+      - "rebuild/**"
+      - "scripts/stage_fresh_app.py"
+      - ".github/workflows/fresh-vps-app-artifacts.yml"
   workflow_dispatch:
     inputs:
       app:
-        description: Package one active app, or all ten
+        description: Build one active app or all ten
         type: choice
         required: true
         default: all
-        options:
-          - all
-          - scene-builder
-          - script-work
-          - voice-studio
-          - auto-caption-studio
-          - local-upload-manager
-          - short-stream
-          - short-maker
-          - video-merger
-          - self-media-library
-          - vps-storage-manager
+        options: [all, scene-builder, script-work, voice-studio, auto-caption-studio, local-upload-manager, short-stream, short-maker, video-merger, self-media-library, vps-storage-manager]
 permissions:
   contents: read
 jobs:
+  select:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+      count: ${{ steps.select.outputs.count }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: select
+        name: Resolve only changed source groups (never deploy)
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json,os,pathlib,subprocess
+          from rebuild.deploy_control import plan,registry,ordered
+          event=json.load(open(os.environ["GITHUB_EVENT_PATH"]))
+          groups,profiles,active,offline=registry()
+          if os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch":
+              requested=event.get("inputs",{}).get("app","all")
+              if requested != "all" and requested not in active:
+                  raise SystemExit("BLOCKED: offline or unregistered app")
+              apps=ordered(groups,active) if requested == "all" else [requested]
+          else:
+              pr=event["pull_request"]
+              base,head=pr["base"]["sha"],pr["head"]["sha"]
+              diff=subprocess.check_output(["git","diff","--name-only",
+                  "--diff-filter=ACMRTD",base,head],text=True).splitlines()
+              decision=plan(diff)
+              apps=decision["source_release_candidates"]
+              print("DIRECT_APP_CANDIDATES",apps)
+              print("CI_VALIDATION_APPS",decision["validation_apps"])
+              print("OFFLINE_APP_CHANGES",decision["offline_app_changes"])
+          matrix=json.dumps({"include":[{"app":a} for a in apps]},separators=(",",":"))
+          with open(os.environ["GITHUB_OUTPUT"],"a") as output:
+              output.write("matrix="+matrix+"\n")
+              output.write("count="+str(len(apps))+"\n")
+          print("SELECTED_SOURCE_ARTIFACTS",len(apps))
+          PY
   per-app-artifact:
+    needs: select
+    if: ${{ needs.select.outputs.count != '0' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     strategy:
       fail-fast: false
-      matrix:
-        app: [scene-builder, script-work, voice-studio, auto-caption-studio, local-upload-manager, short-stream, short-maker, video-merger, self-media-library, vps-storage-manager]
+      matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-      - name: Build and verify individual immutable source release
-        if: ${{ github.event_name == 'pull_request' || inputs.app == 'all' || inputs.app == matrix.app }}
+          python-version: "3.12"
+      - name: Build and verify immutable source artifact
         env:
           TARGET_APP: ${{ matrix.app }}
         run: |
@@ -52,9 +84,7 @@ jobs:
           python3 -m unittest rebuild.tests.test_stage_fresh_app -v
           echo "RELEASE_APP=$TARGET_APP"
           echo "RELEASE_SHA=$GITHUB_SHA"
-      - name: Retain source archive and SHA256 manifest
-        if: ${{ github.event_name == 'pull_request' || inputs.app == 'all' || inputs.app == matrix.app }}
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: fresh-rebuild-${{ matrix.app }}-${{ github.sha }}
           path: ${{ runner.temp }}/fresh-package/*

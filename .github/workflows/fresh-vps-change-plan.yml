@@ -1,0 +1,56 @@
+name: Fresh VPS change plan and durable queue tests (no deployment)
+on:
+  pull_request:
+    paths:
+      - "apps/**"
+      - "rebuild/**"
+      - ".github/workflows/fresh-vps-*"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-controller:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test planner and persistent FIFO
+        run: python3 -m unittest rebuild.tests.test_deploy_control -v
+      - name: Calculate changed paths
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json,os,pathlib,subprocess
+          event=json.load(open(os.environ["GITHUB_EVENT_PATH"]))
+          if "pull_request" in event:
+              pr=event["pull_request"]
+              a,b=pr["base"]["sha"],pr["head"]["sha"]
+              output=subprocess.check_output(["git","diff","--name-only",
+                  "--diff-filter=ACMRTD",a,b],text=True)
+          else:
+              output="rebuild/groups.json\n"
+          (pathlib.Path(os.environ["RUNNER_TEMP"])/"changed-paths.txt").write_text(output)
+          PY
+      - name: Produce a non-executable release impact plan
+        run: |
+          set -Eeuo pipefail
+          python3 -m rebuild.deploy_control plan --paths "$RUNNER_TEMP/changed-paths.txt" > "$RUNNER_TEMP/deployment-plan.json"
+          python3 - <<'PY'
+          import json,os,pathlib
+          p=json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])/"deployment-plan.json").read_text())
+          assert p["production_deployment_authorized"] is False
+          assert p["deploy_command_executed"] is False
+          print("SOURCE_ONLY_PASS",p["source_release_candidates"],p["runtime_blockers"])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fresh-app-change-plan
+          path: ${{ runner.temp }}/deployment-plan.json
+          retention-days: 14
+          if-no-files-found: error
