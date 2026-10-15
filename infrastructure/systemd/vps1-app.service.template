@@ -1,0 +1,21 @@
+# DOCUMENTATION TEMPLATE - NOT A RUNNABLE SERVICE. Never install without replacing and auditing placeholders.
+[Unit]
+Description=VPS1 application {{APP_ID}}
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{APP_UNPRIVILEGED_USER}}
+Group={{APP_UNPRIVILEGED_GROUP}}
+WorkingDirectory={{APP_RELEASE_CURRENT}}
+EnvironmentFile=-/etc/vps1-apps/{{APP_ID}}.env
+ExecStart={{APP_VERIFIED_LAUNCH_COMMAND}}
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

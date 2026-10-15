@@ -1,0 +1,46 @@
+name: Verify VPS1 Nginx GitOps (read-only)
+on:
+  push:
+    paths:
+      - 'infrastructure/**'
+      - 'tools/render_nginx_routes.py'
+      - 'scripts/apply_nginx_routes.sh'
+      - 'tests/test_nginx_routes.py'
+      - 'tests/fixtures/nginx-apps.json'
+      - '.github/workflows/infra-nginx-validate.yml'
+  pull_request:
+    paths:
+      - 'infrastructure/**'
+      - 'tools/render_nginx_routes.py'
+      - 'scripts/apply_nginx_routes.sh'
+      - 'tests/test_nginx_routes.py'
+      - 'tests/fixtures/nginx-apps.json'
+      - '.github/workflows/infra-nginx-validate.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: nginx-config-validation
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit tests (no VPS connection)
+        run: python3 -m unittest discover -s tests -v
+      - name: Compile production registry and synthetic canary
+        run: |
+          set -Eeuo pipefail
+          python3 tools/render_nginx_routes.py --registry infrastructure/registry/apps.json --output build/nginx/live/vps1-managed-routes.conf
+          python3 tools/render_nginx_routes.py --registry tests/fixtures/nginx-apps.json --output build/nginx/canary/vps1-managed-routes.conf --require-nonempty
+          bash -n scripts/apply_nginx_routes.sh
+          bash scripts/apply_nginx_routes.sh --check build/nginx/live/vps1-managed-routes.conf
+      - name: Nginx syntax test (isolated Docker container; no VPS changes)
+        run: |
+          set -Eeuo pipefail
+          for kind in live canary; do
+            printf '%s\n' 'events {}' 'http {' '  server {' '    listen 8080;' '    server_name app.scenebuilder.online;' '    include /etc/nginx/vps1/vps1-managed-routes.conf;' '  }' '}' > "build/nginx/$kind/nginx.conf"
+            docker run --rm --network none -v "$PWD/build/nginx/$kind:/etc/nginx/vps1:ro" nginx:stable-alpine nginx -t -c /etc/nginx/vps1/nginx.conf
+          done

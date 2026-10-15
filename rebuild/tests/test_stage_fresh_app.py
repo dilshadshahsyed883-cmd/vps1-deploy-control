@@ -50,6 +50,78 @@ class StageAppSafetyTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             stage_fresh_app.stage("short-maker", SHA_A, a, am,root=self.root/"stage")
 
+
+    def test_audit_matches_commit_and_files(self):
+        a, am = self.archive(SHA_A)
+        stage_fresh_app.stage("short-maker", SHA_A, a, am, root=self.root/"stage")
+        result = stage_fresh_app.audit("short-maker", SHA_A, a, am, root=self.root/"stage")
+        self.assertEqual(result["status"], "STAGING_AUDIT_PASS")
+        self.assertEqual(result["revision"], SHA_A)
+
+    def test_audit_detects_tampering(self):
+        a, am = self.archive(SHA_A)
+        stage_fresh_app.stage("short-maker", SHA_A, a, am, root=self.root/"stage")
+        p = self.root/"stage/current/short-maker/part01/app.py"
+        p.write_text("tampered")
+        with self.assertRaises(ValueError):
+            stage_fresh_app.audit("short-maker", SHA_A, a, am, root=self.root/"stage")
+
+    def test_audit_detects_wrong_active_revision(self):
+        a, am = self.archive(SHA_A)
+        stage_fresh_app.stage("short-maker", SHA_A, a, am, root=self.root/"stage")
+        b, bm = self.archive(SHA_B)
+        stage_fresh_app.stage("short-maker", SHA_B, b, bm, root=self.root/"stage")
+        with self.assertRaises(ValueError):
+            stage_fresh_app.audit("short-maker", SHA_A, a, am, root=self.root/"stage")
+
+    def test_audit_detects_extra_file(self):
+        a, am = self.archive(SHA_A)
+        stage_fresh_app.stage("short-maker", SHA_A, a, am, root=self.root/"stage")
+        (self.root/"stage/current/short-maker/rogue.py").write_text("rogue")
+        with self.assertRaises(ValueError):
+            stage_fresh_app.audit("short-maker", SHA_A, a, am, root=self.root/"stage")
+
+    def test_local_drift_clean_revision(self):
+        a, am = self.archive(SHA_A)
+        stage_fresh_app.stage("short-maker", SHA_A, a, am, root=self.root/"stage")
+        x = stage_fresh_app.inspect_active("short-maker", revision=SHA_A, root=self.root/"stage")
+        self.assertEqual(x["status"], "STAGING_LOCAL_DRIFT_CHECK_PASS")
+        self.assertFalse(x["github_manifest_compared"])
+
+    def test_local_drift_wrong_expected_sha(self):
+        a, am = self.archive(SHA_A)
+        stage_fresh_app.stage("short-maker", SHA_A, a, am, root=self.root/"stage")
+        with self.assertRaises(ValueError):
+            stage_fresh_app.inspect_active("short-maker", revision=SHA_B, root=self.root/"stage")
+
+    def test_local_drift_tampered_file(self):
+        a, am = self.archive(SHA_A)
+        stage_fresh_app.stage("short-maker", SHA_A, a, am, root=self.root/"stage")
+        (self.root/"stage/current/short-maker/part01/app.py").write_text("tampered")
+        with self.assertRaises(ValueError):
+            stage_fresh_app.inspect_active("short-maker", root=self.root/"stage")
+
+    def test_local_drift_added_file(self):
+        a, am = self.archive(SHA_A)
+        stage_fresh_app.stage("short-maker", SHA_A, a, am, root=self.root/"stage")
+        (self.root/"stage/current/short-maker/new.py").write_text("rogue")
+        with self.assertRaises(ValueError):
+            stage_fresh_app.inspect_active("short-maker", root=self.root/"stage")
+
+    def test_local_drift_modified_manifest(self):
+        a, am = self.archive(SHA_A)
+        stage_fresh_app.stage("short-maker", SHA_A, a, am, root=self.root/"stage")
+        mp = self.root/"stage/current/short-maker/_staging_manifest.json"
+        data = json.loads(mp.read_text())
+        data["files"]["part01/app.py"] = "f"*64
+        mp.write_text(json.dumps(data))
+        with self.assertRaises(ValueError):
+            stage_fresh_app.inspect_active("short-maker", root=self.root/"stage")
+
+    def test_local_drift_offline_app_blocked(self):
+        with self.assertRaises(ValueError):
+            stage_fresh_app.inspect_active("auto-script", root=self.root/"stage")
+
     def test_no_restart_or_production_management_in_source(self):
         body=Path(stage_fresh_app.__file__).read_text()
         self.assertNotIn("systemctl", body)

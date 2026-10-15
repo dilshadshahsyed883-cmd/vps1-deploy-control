@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "domain": "app.scenebuilder.online",
+  "apps": [
+    {
+      "id": "ci-canary",
+      "path": "/ci-canary/",
+      "upstream_port": 18081,
+      "prefix_mode": "preserve",
+      "websocket": true,
+      "service_unit": "vps1-ci-canary.service"
+    }
+  ]
+}

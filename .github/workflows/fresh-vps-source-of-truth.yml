@@ -1,0 +1,179 @@
+name: VPS1 GitHub source-of-truth release candidates (NO production)
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/**'
+      - 'rebuild/**'
+      - 'scripts/stage_fresh_app.py'
+      - '.github/workflows/fresh-vps-source-of-truth.yml'
+  pull_request:
+    paths:
+      - 'apps/**'
+      - 'rebuild/**'
+      - 'scripts/stage_fresh_app.py'
+      - '.github/workflows/fresh-vps-source-of-truth.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  classify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    outputs:
+      matrix: ${{ steps.detect.outputs.matrix }}
+      count: ${{ steps.detect.outputs.count }}
+      manual_review: ${{ steps.detect.outputs.manual_review }}
+    steps:
+      - name: Checkout full diff ancestry
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify app classifier, integrity checks, and release boundaries
+        run: |
+          set -Eeuo pipefail
+          python3 -m unittest discover -s rebuild/tests -v
+      - name: Identify precisely changed active application groups
+        id: detect
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          python3 -m rebuild.ci_release --base "$BASE_SHA" --head "$HEAD_SHA" > "$RUNNER_TEMP/source-classification.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          data=json.loads((Path(os.environ["RUNNER_TEMP"])/"source-classification.json").read_text())
+          with open(os.environ["GITHUB_OUTPUT"],"a") as output:
+              output.write("matrix="+json.dumps(data["matrix"], separators=(",",":"))+"\n")
+              output.write("count="+str(data["count"])+"\n")
+              output.write("manual_review="+str(data["manual_review"]).lower()+"\n")
+          if data["manual_review"]:
+              print("::warning::Shared, unregistered or deployment contract change: automated staging BLOCKED")
+              for reason in data["reasons"]:
+                  print("MANUAL_REVIEW:",reason)
+          print("SAFE_APP_CANDIDATES:",",".join(data["apps"]) or "(none)")
+          print("OFFLINE_EXCLUDED:",",".join(data["offline_ignored"]) or "(none)")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vps1-source-classification
+          path: ${{ runner.temp }}/source-classification.json
+          retention-days: 30
+
+  candidate:
+    needs: classify
+    if: needs.classify.outputs.manual_review == 'false' && needs.classify.outputs.count != '0'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.classify.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build only changed app's immutable source package
+        env:
+          TARGET_APP: ${{ matrix.app }}
+        run: |
+          set -Eeuo pipefail
+          python3 rebuild/builder.py package --app "$TARGET_APP" --sha "$GITHUB_SHA" --output "$RUNNER_TEMP/candidate"
+          python3 rebuild/builder.py verify --manifest "$RUNNER_TEMP/candidate/$TARGET_APP-${GITHUB_SHA:0:12}.tar.gz.manifest.json"
+          echo "CANDIDATE_APP=$TARGET_APP"
+          echo "CANDIDATE_SHA=$GITHUB_SHA"
+      - name: Retain independent SHA256 release candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: vps1-candidate-${{ matrix.app }}-${{ github.sha }}
+          path: ${{ runner.temp }}/candidate/*
+          if-no-files-found: error
+          retention-days: 30
+
+  auto-stage:
+    needs: [classify, candidate]
+    # FOUR independent opt-in controls, protected main only, and no shared-file
+    # changes. Not a production workflow. Nothing on the VPS is restarted.
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.classify.outputs.manual_review == 'false' &&
+      needs.classify.outputs.count != '0' &&
+      vars.VPS1_OVH_SNAPSHOT_VERIFIED == 'yes' &&
+      vars.VPS1_POST_SNAPSHOT_STAGING_APPROVED == 'yes' &&
+      vars.VPS1_GITHUB_BRANCH_PROTECTION_CONFIRMED == 'yes' &&
+      vars.VPS1_GITHUB_AUTO_STAGE_APPROVED == 'yes'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: staging
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.classify.outputs.matrix) }}
+    concurrency:
+      group: vps1-fresh-staging-${{ matrix.app }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download immutable artifact from this run
+        uses: actions/download-artifact@v4
+        with:
+          name: vps1-candidate-${{ matrix.app }}-${{ github.sha }}
+          path: ${{ runner.temp }}/candidate
+      - name: Re-verify artifact before entering private network
+        env:
+          TARGET_APP: ${{ matrix.app }}
+        run: |
+          set -Eeuo pipefail
+          python3 rebuild/builder.py verify --manifest "$RUNNER_TEMP/candidate/$TARGET_APP-${GITHUB_SHA:0:12}.tar.gz.manifest.json"
+          test "$GITHUB_REF" = refs/heads/main
+          echo 'PRODUCTION_ROUTING=NOT_AUTHORIZED'
+      - name: Join restricted VPS tailnet
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Use pinned SSH host and non-root deploy identity
+        env:
+          SSH_KEY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "$SSH_KEY"
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$RUNNER_TEMP/vps1_id_ed25519"
+          chmod 0600 "$RUNNER_TEMP/vps1_id_ed25519"
+          ssh-keygen -y -f "$RUNNER_TEMP/vps1_id_ed25519" | grep -q '^ssh-ed25519 '
+          printf '%s\n' '100.113.253.99 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAtrAUnyLuDM3FsUw/E2EtVtHF3f3d4nRonXxl/oIpmQ' > "$RUNNER_TEMP/vps1_known_hosts"
+          chmod 0600 "$RUNNER_TEMP/vps1_known_hosts"
+          {
+            echo 'Host vps1-ci-fresh-stage'
+            echo '  HostName 100.113.253.99'
+            echo '  User vps1deploy'
+            echo "  IdentityFile $RUNNER_TEMP/vps1_id_ed25519"
+            echo "  UserKnownHostsFile $RUNNER_TEMP/vps1_known_hosts"
+            echo '  StrictHostKeyChecking yes'
+            echo '  BatchMode yes'
+            echo '  IdentitiesOnly yes'
+            echo '  ConnectTimeout 20'
+          } > "$HOME/.ssh/config"
+          chmod 0600 "$HOME/.ssh/config"
+      - name: Stage app in isolated non-production home and audit SHA/readback
+        env:
+          TARGET_APP: ${{ matrix.app }}
+        run: |
+          set -Eeuo pipefail
+          ARCHIVE="$TARGET_APP-${GITHUB_SHA:0:12}.tar.gz"
+          DEST="vps1-ci-pilot/incoming"
+          ssh vps1-ci-fresh-stage 'test "$(id -un)" = vps1deploy && test "$(id -u)" -ne 0 && mkdir -p "$HOME/vps1-ci-pilot/incoming" && chmod 700 "$HOME/vps1-ci-pilot/incoming"'
+          scp -q "$RUNNER_TEMP/candidate/$ARCHIVE" "$RUNNER_TEMP/candidate/$ARCHIVE.manifest.json" scripts/stage_fresh_app.py "vps1-ci-fresh-stage:$DEST/"
+          ssh vps1-ci-fresh-stage python3 "$DEST/stage_fresh_app.py" stage --app "$TARGET_APP" --sha "$GITHUB_SHA" --archive "$DEST/$ARCHIVE" --manifest "$DEST/$ARCHIVE.manifest.json"
+          if ! ssh vps1-ci-fresh-stage python3 "$DEST/stage_fresh_app.py" audit --app "$TARGET_APP" --sha "$GITHUB_SHA" --archive "$DEST/$ARCHIVE" --manifest "$DEST/$ARCHIVE.manifest.json"; then
+            echo "::error::Staging SHA or filesystem integrity mismatch"
+            ssh vps1-ci-fresh-stage python3 "$DEST/stage_fresh_app.py" rollback --app "$TARGET_APP" || true
+            exit 1
+          fi
+          echo "STAGING_SOURCE_OF_TRUTH=PASS app=$TARGET_APP sha=$GITHUB_SHA"
+          echo "PRODUCTION_DEPLOYMENT=NOT_ATTEMPTED"
