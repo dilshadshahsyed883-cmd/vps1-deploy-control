@@ -121,7 +121,7 @@ ConditionPathExists=/etc/fresh-website/enabled/{app}
 User=freshweb
 Group=freshweb
 WorkingDirectory=/srv/fresh-website/current/{app}/{part}
-EnvironmentFile=-/etc/fresh-website/{app}.env
+EnvironmentFile=/etc/fresh-website/{app}.env
 Environment=PYTHONDONTWRITEBYTECODE=1
 ExecStart=/srv/fresh-website/venvs/{app}/bin/python -m uvicorn {mod} --host 127.0.0.1 --port {port}
 Restart=on-failure
@@ -144,9 +144,19 @@ def render(root):
     blockers={}
     for app,item in p["groups"].items():
         if app=="auto-script":continue
+        templates={
+          "scene-builder": "FRESH_WEBSITE_INSTALL=1\nWEB_DATA_DIR=/var/lib/fresh-website/scene-builder/scene\nMASTER_CONTROLLER_DB_PATH=/var/lib/fresh-website/scene-builder/scene/master_controller.sqlite3\nSCENE_PERMANENT_ROOT=/var/lib/fresh-website/scene-builder/scene/permanent\nSCRIPT_WORK_DATA_DIR=/var/lib/fresh-website/scene-builder/scene/script-work\n",
+          "auto-caption-studio": "AUTO_CAPTION_APP_ROOT=/var/lib/fresh-website/auto-caption-studio/acs\nAUTO_CAPTION_DB_PATH=/var/lib/fresh-website/auto-caption-studio/acs/data/database/auto_caption.db\n",
+          "local-upload-manager": "LUM_DATA_DIR=/var/lib/fresh-website/local-upload-manager/lum1\nYOUTUBE_UPLOAD_MANAGER_DATA_DIR=/var/lib/fresh-website/local-upload-manager/lum1/core\n",
+          "voice-studio": "VOICE_CLONE_ROOT=/var/lib/fresh-website/voice-studio/omnivoice\n",
+          "short-stream": "SHORT_STREAM_DATA=/var/lib/fresh-website/short-stream\n",
+          "short-maker": "SHORT_MAKER_DATA=/var/lib/fresh-website/short-maker\n",
+          "self-media-library": "SML_DATA_ROOT=/var/lib/fresh-website/self-media-library/sml\n"
+        }
         (env/(app+".env.example")).write_text(
-            "# Fresh integration credentials belong in a separate chmod-600 .env\n"
-            f"FRESH_APP_DATA=/var/lib/fresh-website/{app}\n")
+            "# Values for a separately provisioned chmod-600 .env file; no secrets in Git\n"
+            f"FRESH_APP_DATA=/var/lib/fresh-website/{app}\n"
+            + templates.get(app,""))
         services=item.get("services",[])
         if not services: blockers[app]=item.get("pending","startup contract not confirmed")
         for service in services:
@@ -161,8 +171,10 @@ def render(root):
                 blockers[app]="runtime Python dependency lock not supplied"
             if item.get("pending"):blockers[app]=item["pending"]
     (nginx/"fresh-website.conf").write_text(
-        "# CANDIDATE ONLY: not enabled; auth/route review required\n"
+        "# CANDIDATE ONLY: never enabled automatically; operator must create auth file\n"
         "server {\n    listen 127.0.0.1:8888;\n    server_name _;\n"
+        "    auth_basic \"Fresh Website - Authentication Required\";\n"
+        "    auth_basic_user_file /etc/fresh-website/auth.htpasswd;\n"
         + "".join(routes)+"}\n")
     return {"service_unit_candidates":len(list(units.glob("fresh-*.service"))),
             "enabled_services":0,"nginx_enabled":False,"runtime_blockers":blockers}

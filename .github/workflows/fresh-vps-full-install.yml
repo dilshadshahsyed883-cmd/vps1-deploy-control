@@ -50,6 +50,14 @@ jobs:
           assert x["runtime_records_imported"] == 0
           assert x["cutover"] == "DISABLED"
           assert x["full_website_rebuild_pass"] is False
+          assert len(x["worker_unit_candidates"]) == 9
+          from pathlib import Path
+          root=Path("/tmp/fresh-vps-one-shot")
+          for unit in x["worker_unit_candidates"]:
+              script=(root/"etc/systemd/system"/("fresh-"+unit+".service")).read_text()
+              assert "EnvironmentFile=/etc/fresh-website/"+unit+".env" in script
+              assert (root/"etc/fresh-website"/(unit+".env.example")).is_file()
+          assert "auth_basic_user_file /etc/fresh-website/auth.htpasswd" in (root/"etc/nginx/sites-available/fresh-website.conf").read_text()
           print("PASS: fresh isolated SQLite initialization and independent empty queues")
           PY
       - name: Authenticated Nginx, app startups, and safe rollback

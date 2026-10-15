@@ -136,12 +136,27 @@ def worker_candidates(root):
             raise ValueError("worker entrypoint missing "+unit+" "+candidate)
         path=units/("fresh-"+unit+".service")
         argv=command.replace("python ","/srv/fresh-website/venvs/"+group+"/bin/python ",1)
+        extras={
+            "lum1-worker": "LUM_DATA_DIR=/var/lib/fresh-website/local-upload-manager/lum1\nYOUTUBE_UPLOAD_MANAGER_DATA_DIR=/var/lib/fresh-website/local-upload-manager/lum1/core\n",
+            "lum2-worker": "LUM_DATA_DIR=/var/lib/fresh-website/local-upload-manager/lum2\nYOUTUBE_UPLOAD_MANAGER_DATA_DIR=/var/lib/fresh-website/local-upload-manager/lum2/core\n",
+            "lum3-worker": "LUM_DATA_DIR=/var/lib/fresh-website/local-upload-manager/lum3\nYOUTUBE_UPLOAD_MANAGER_DATA_DIR=/var/lib/fresh-website/local-upload-manager/lum3/core\n",
+            "kokoro-worker": "KOKORO_STUDIO_ROOT=/var/lib/fresh-website/voice-studio/kokoro\n",
+            "edge-worker": "EDGE_STUDIO_ROOT=/var/lib/fresh-website/voice-studio/edge\n",
+            "omnivoice-dispatcher": "VOICE_CLONE_ROOT=/var/lib/fresh-website/voice-studio/omnivoice\n",
+            "omnivoice-drive-spooler": "VOICE_CLONE_ROOT=/var/lib/fresh-website/voice-studio/omnivoice\n",
+            "acs-stage-worker": "AUTO_CAPTION_APP_ROOT=/var/lib/fresh-website/auto-caption-studio/acs\n",
+            "acs-queue-worker": "AUTO_CAPTION_APP_ROOT=/var/lib/fresh-website/auto-caption-studio/acs\n"
+        }
+        (root/"etc/fresh-website"/(unit+".env.example")).write_text(
+            "# Configure runtime secrets separately; never commit .env files\n"+
+            extras.get(unit,"")
+        )
         path.write_text(
             "[Unit]\nDescription=Fresh Website "+unit+"\nAfter=network-online.target\n"
             "ConditionPathExists=/etc/fresh-website/enabled/"+unit+"\n\n"
             "[Service]\nType=simple\nUser=freshweb\nGroup=freshweb\n"
             "WorkingDirectory=/srv/fresh-website/current/"+group+"/"+part+"\n"
-            "EnvironmentFile=-/etc/fresh-website/"+group+".env\n"
+            "EnvironmentFile=/etc/fresh-website/"+unit+".env\n"
             "Environment=PYTHONDONTWRITEBYTECODE=1\nExecStart="+argv+"\n"
             "Restart=on-failure\nNoNewPrivileges=true\nProtectSystem=strict\n"
             "ReadWritePaths=/var/lib/fresh-website/"+group+"\n\n"
