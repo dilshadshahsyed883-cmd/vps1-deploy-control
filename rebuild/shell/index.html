@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>VPS1 Studio · Applications</title>
+  <link rel="stylesheet" href="/shell-assets/shell.css">
+  <script src="/shell-assets/shell.js" defer></script>
+</head>
+<body>
+  <header class="suite-header">
+    <button id="navToggle" class="menu-toggle" type="button" aria-label="Toggle applications" aria-expanded="false" aria-controls="suiteSidebar">☰</button>
+    <a class="brand" href="#/"><span class="brand-mark">S</span><span>VPS1 Studio</span></a>
+    <span class="header-hint">One workspace · Independent applications</span>
+  </header>
+  <div class="suite-layout">
+    <aside id="suiteSidebar" class="suite-sidebar" aria-label="Application navigation">
+      <p class="section-label">WORKSPACE</p>
+      <nav aria-label="Applications">
+        <a id="homeLink" class="app-link" href="#/">Overview</a>
+        <div id="appList" class="app-list" aria-live="polite"></div>
+      </nav>
+      <p class="sidebar-note">Application pages, queues, data and releases stay independent.</p>
+    </aside>
+    <main id="workspace" class="workspace" tabindex="-1">
+      <div class="workspace-title">
+        <div><span class="eyebrow">APPLICATION</span><h1 id="pageTitle">Workspace</h1></div>
+        <span id="pageStatus" class="status-label">Preview shell</span>
+      </div>
+      <section id="homePanel" class="welcome-card">
+        <h2>Choose an application</h2>
+        <p>Use the sidebar to open each application's own interface, without replacing its backend or deployment lifecycle.</p>
+        <p class="disclaimer">A configured route is not a live-health verification. The fresh VPS cutover remains disabled.</p>
+      </section>
+      <section id="unavailablePanel" class="welcome-card" hidden>
+        <h2>App UI route not configured yet</h2>
+        <p>This application is registered, but its independent web entrypoint still needs integration and testing.</p>
+      </section>
+      <iframe id="appFrame" title="Selected application" referrerpolicy="same-origin" hidden></iframe>
+      <p id="loadHint" class="load-hint" hidden>Opening isolated app route. Runtime availability has not been verified.</p>
+    </main>
+  </div>
+</body>
+</html>
