@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "groups": {
+    "scene-builder": {
+      "services": [
+        {
+          "part": "part01",
+          "module": "app:app",
+          "port": 8080,
+          "requirements": "requirements.txt"
+        }
+      ]
+    },
+    "auto-script": {
+      "parallel_owner": true,
+      "services": []
+    },
+    "script-work": {
+      "services": [],
+      "pending": "isolated Chrome/Xvfb authentication and process lifecycle unverified"
+    },
+    "voice-studio": {
+      "services": [
+        {
+          "part": "part01",
+          "module": "vps1_omnivoice_app:app",
+          "port": 8143,
+          "requirements": "requirements.txt"
+        }
+      ],
+      "pending": "OmniVoice, Kokoro and Edge each need separate worker contracts"
+    },
+    "auto-caption-studio": {
+      "services": [
+        {
+          "part": "part01/web_backend",
+          "module": "app:app",
+          "port": 8144,
+          "requirements": "requirements-web.txt"
+        }
+      ],
+      "pending": "render/prefetch/compress workers need individual units"
+    },
+    "local-upload-manager": {
+      "services": [
+        {
+          "part": "part01",
+          "module": "lum_engine.standalone_app:app",
+          "port": 8015,
+          "requirements": "requirements.txt"
+        }
+      ],
+      "pending": "engine2/3 workers and schedulers need explicit units"
+    },
+    "short-stream": {
+      "services": [
+        {
+          "part": "part01",
+          "module": "app:app",
+          "port": 8145
+        }
+      ],
+      "pending": "ffmpeg/live publisher dependencies pending"
+    },
+    "short-maker": {
+      "services": [
+        {
+          "part": "part01",
+          "module": "app:app",
+          "port": 8146
+        }
+      ],
+      "pending": "ffmpeg and Image library dependencies pending"
+    },
+    "video-merger": {
+      "services": [],
+      "pending": "hard-coded /opt/video-merger and embedded SQLite path need rebase"
+    },
+    "self-media-library": {
+      "services": [
+        {
+          "part": "part01",
+          "module": "app:app",
+          "port": 8147,
+          "requirements": "requirements.txt"
+        }
+      ]
+    },
+    "vps-storage-manager": {
+      "services": [],
+      "pending": "storage cleanup and reset scripts must not auto-execute"
+    }
+  }
+}
