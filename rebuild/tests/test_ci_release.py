@@ -51,6 +51,16 @@ class ClassificationTest(unittest.TestCase):
         self.assertTrue(r["manual_review"])
         self.assertEqual(r["apps"], [])
 
+    def test_unknown_workflow_or_script_blocks_app_rollout(self):
+        for path in (".github/workflows/new-deploy.yml",
+                     "rebuild/unknown_installer.py", "scripts/helper.sh",
+                     ".gitignore"):
+            with self.subTest(path=path):
+                result = ci_release.classify(
+                    ["apps/voice-studio/part01/a.py", path], REGISTRY)
+                self.assertTrue(result["manual_review"])
+                self.assertEqual(result["apps"], [])
+
     def test_docs_and_tests_never_roll_out_code(self):
         r = ci_release.classify([
             "docs/SOURCE_OF_TRUTH_CUTOVER.md", "rebuild/tests/test_ci_release.py"

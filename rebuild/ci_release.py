@@ -44,8 +44,15 @@ def classify(paths, registry):
                 requires_review.add("parallel-owned app: " + parts[1])
             else:
                 candidates.add(parts[1])
+        elif path.startswith(("docs/", "tests/", "rebuild/tests/")) or path in ("README.md", "SECURITY.md"):
+            # Test and documentation edits are not executable release changes.
+            continue
         elif path in SHARED_FILES or any(path.startswith(p) for p in SHARED_PREFIXES):
             requires_review.add("shared deployment contract: " + path)
+        else:
+            # Fail closed for unknown scripts, workflows, infra, hidden files or
+            # future rootfs tooling; no implicit safe-default for new paths.
+            requires_review.add("unreviewed control-plane change: " + path)
 
     # One changed central contract blocks every app rollout in this commit.
     manual = bool(requires_review)
