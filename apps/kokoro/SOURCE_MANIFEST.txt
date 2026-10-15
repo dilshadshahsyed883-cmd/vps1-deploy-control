@@ -1,0 +1,10 @@
+Snapshot: VPS1_AGENT1_KOKORO_SOURCE_ONLY_SNAPSHOT_V6_20261015
+Archive SHA-256: 02140e81d9b09fddc10294a535817681305f6d331a11a61d18d01b8bd9601a09
+Manifest SHA-256: f4a72e63665a694d7ea8c31d17bdae9fab30d4fca798a7b68e7e8d710c7c18fb
+
+Included:
+kokoro_api.py
+kokoro_worker.py
+voice_catalog.json
+
+Excluded: models, databases, runtime data, generated outputs, backups, and secrets.
