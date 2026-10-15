@@ -119,7 +119,7 @@ def stage(app, revision, archive, manifest, *, root=None):
             if seen != set(expected):
                 raise ValueError("missing archive member")
             (partial / "_staging_manifest.json").write_text(json.dumps({
-                "app": app, "revision": revision, "source_sha256": payload["sha256"]
+                "app": app, "revision": revision, "source_sha256": payload["sha256"], "files": expected
             }, sort_keys=True) + "\n")
             os.rename(partial, target)
     check_release(target, expected)
@@ -202,7 +202,7 @@ def audit(app, revision, archive, manifest, *, root=None):
         raise ValueError("release provenance missing")
     metadata = json.loads(metadata_path.read_text())
     if metadata != {"app": app, "revision": revision,
-                    "source_sha256": payload["sha256"]}:
+                    "source_sha256": payload["sha256"], "files": expected}:
         raise ValueError("release provenance differs from GitHub artifact")
     check_release(target, expected)
     return {"status": "STAGING_AUDIT_PASS", "app": app,
@@ -210,9 +210,54 @@ def audit(app, revision, archive, manifest, *, root=None):
             "production_modified": False, "service_started": False}
 
 
+
+def inspect_active(app, *, revision=None, root=None):
+    """Read-only local release integrity check, not GitHub-origin attestation."""
+    safe_app(app)
+    if revision is not None:
+        safe_revision(revision)
+    root = approved_root() if root is None else Path(root)
+    releases = root / "releases" / app
+    current = root / "current" / app
+    for folder in (root, root / "releases", releases, root / "current"):
+        if folder.is_symlink():
+            raise ValueError("symlink in staging root")
+    if not current.is_symlink():
+        raise ValueError("active stage missing")
+    target = current.resolve(strict=True)
+    if not target.is_dir() or target.is_symlink() or target.parent != releases.resolve():
+        raise ValueError("active stage escaped app release directory")
+    safe_revision(target.name)
+    if revision is not None and target.name != revision:
+        raise ValueError("wrong active commit SHA")
+    if any(p.is_symlink() for p in target.rglob("*")):
+        raise ValueError("symlink found in immutable release")
+    mp = target / "_staging_manifest.json"
+    if not mp.is_file() or mp.is_symlink():
+        raise ValueError("missing stored source manifest")
+    record = json.loads(mp.read_text())
+    files = record.get("files")
+    if (record.get("app") != app or record.get("revision") != target.name
+            or not re.fullmatch(r"[a-f0-9]{64}", str(record.get("source_sha256", "")))
+            or not isinstance(files, dict) or not 0 < len(files) <= MAX_FILES):
+        raise ValueError("invalid local release metadata")
+    for name, digest in files.items():
+        if not isinstance(name, str):
+            raise ValueError("invalid release path")
+        rel = PurePosixPath(name)
+        if (not rel.parts or rel.is_absolute() or ".." in rel.parts
+                or "." in rel.parts or str(rel) != name
+                or not re.fullmatch(r"[a-f0-9]{64}", str(digest))):
+            raise ValueError("invalid file checksum record")
+    check_release(target, files)
+    return {"status": "STAGING_LOCAL_DRIFT_CHECK_PASS", "app": app,
+            "revision": target.name, "files_verified": len(files),
+            "github_manifest_compared": False, "production_modified": False}
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("stage", "rollback", "audit"))
+    parser.add_argument("action", choices=("stage", "rollback", "audit", "inspect-active"))
     parser.add_argument("--app", required=True)
     parser.add_argument("--sha")
     parser.add_argument("--archive")
@@ -225,6 +270,8 @@ def main():
             parser.error(a.action + " requires SHA, archive and manifest")
         action = stage if a.action == "stage" else audit
         outcome = action(a.app, a.sha, a.archive, a.manifest)
+    elif a.action == "inspect-active":
+        outcome = inspect_active(a.app, revision=a.sha)
     else:
         outcome = rollback(a.app)
     print(json.dumps(outcome, sort_keys=True))
