@@ -43,12 +43,31 @@ def source_path(g):
     return ROOT/'apps'/g['id']
 
 
+def _is_lum_db_python_source(folder, rel, path):
+    """Only the LUM *source package* named db, never runtime database files.
+
+    Exempts the exact part01/02/03/desktop_core/modules/db Python package
+    from the banned-directory rule. The other banned segments remain strict.
+    """
+    if folder != ROOT / 'apps' / 'local-upload-manager':
+        return False
+    parts=rel.parts
+    if len(parts) not in (4, 5):
+        return False
+    if parts[0] not in ('part01','part02','part03') or parts[1:4] != ('desktop_core','modules','db'):
+        return False
+    if len(parts)==4:
+        return path.is_dir()
+    return path.is_file() and path.suffix.lower()=='.py'
+
+
 def file_list(folder):
     result=[]
     for p in sorted(folder.rglob('*')):
         rel=p.relative_to(folder)
         if p.is_symlink():raise ValueError('symlinks prohibited '+str(p))
-        if any(part.lower() in BANNED_SEGMENTS for part in rel.parts):
+        banned={part.lower() for part in rel.parts if part.lower() in BANNED_SEGMENTS}
+        if banned and not (banned == {'db'} and _is_lum_db_python_source(folder,rel,p)):
             raise ValueError('runtime directory found '+str(rel))
         if 'algrow' in str(rel).lower():
             raise ValueError('Algrow is strictly out of scope '+str(rel))

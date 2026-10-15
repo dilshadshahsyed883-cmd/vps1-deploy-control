@@ -24,6 +24,61 @@ class FreshVpsSafety(unittest.TestCase):
   with tempfile.TemporaryDirectory() as d:
    p=Path(d);(p/'test.py').write_text('"-----BEGIN RSA PRIVATE KEY-----"')
    with self.assertRaises(ValueError):builder.file_list(p)
+ def test_lum_python_db_package_allowed_only_for_verified_parts(self):
+  with tempfile.TemporaryDirectory() as d:
+   root=Path(d)
+   app=root/'apps'/'local-upload-manager'
+   for part in ('part01','part02','part03'):
+    pkg=app/part/'desktop_core'/'modules'/'db'
+    pkg.mkdir(parents=True)
+    (pkg/'__init__.py').write_text('from .repository import QueueRepository\\n')
+    (pkg/'repository.py').write_text('class QueueRepository: pass\\n')
+   with patch.object(builder,'ROOT',root):
+    names={name for name,_ in builder.file_list(app)}
+   self.assertEqual(len(names),6)
+   self.assertIn('part01/desktop_core/modules/db/repository.py',names)
+   self.assertIn('part02/desktop_core/modules/db/repository.py',names)
+   self.assertIn('part03/desktop_core/modules/db/repository.py',names)
+
+ def test_runtime_db_and_other_banned_paths_remain_blocked(self):
+  with tempfile.TemporaryDirectory() as d:
+   root=Path(d);app=root/'apps'/'local-upload-manager'
+   package=app/'part01/desktop_core/modules/db'
+   package.mkdir(parents=True);(package/'__init__.py').write_text('pass\\n')
+   with patch.object(builder,'ROOT',root):
+    for relative,body in (
+      ('part01/desktop_core/modules/db/jobs.sqlite3','SQLite format 3'),
+      ('part01/desktop_core/modules/db/config.json','{}'),
+      ('part01/desktop_core/modules/db/.env','SECRET=x'),
+      ('part01/desktop_core/modules/db/nested/module.py','pass'),
+      ('part01/data/queue.py','pass'),
+      ('part01/desktop_core/modules/secrets/token.py','pass'),
+    ):
+     p=app/relative;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(body)
+     with self.subTest(path=relative),self.assertRaises(ValueError):
+      builder.file_list(app)
+     p.unlink()
+
+ def test_other_apps_cannot_use_db_package_exception(self):
+  with tempfile.TemporaryDirectory() as d:
+   root=Path(d);app=root/'apps'/'voice-studio'
+   pkg=app/'part01/desktop_core/modules/db'
+   pkg.mkdir(parents=True);(pkg/'__init__.py').write_text('pass\\n')
+   with patch.object(builder,'ROOT',root),self.assertRaises(ValueError):
+    builder.file_list(app)
+
+ def test_source_db_package_secret_and_symlink_checks_still_apply(self):
+  with tempfile.TemporaryDirectory() as d:
+   root=Path(d);app=root/'apps'/'local-upload-manager'
+   pkg=app/'part01/desktop_core/modules/db'
+   pkg.mkdir(parents=True);p=pkg/'__init__.py'
+   with patch.object(builder,'ROOT',root):
+    p.write_text('token="ghp_'+'a'*32+'"\\n')
+    with self.assertRaises(ValueError):builder.file_list(app)
+    p.unlink()
+    target=root/'outside.py';target.write_text('pass\\n');p.symlink_to(target)
+    with self.assertRaises(ValueError):builder.file_list(app)
+
  def test_order(self):
   ordered=builder.ordered_groups();self.assertEqual(len(ordered),11)
   self.assertLess(ordered.index('vps-storage-manager'),ordered.index('scene-builder'))
