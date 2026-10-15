@@ -21,6 +21,15 @@ SCHEMAS = (
     ("scene", "scene-builder", "part01",
      "from app import init_db; init_db()",
      "WEB_DATA_DIR", "scene"),
+    ("script-work", "scene-builder", "part01",
+     "from script_extractor_service import _init_storage; _init_storage()",
+     "SCRIPT_WORK_DATA_DIR", "script-work"),
+    ("audio-downloader", "voice-studio", "part01",
+     "from audio_downloader_api import init_storage; init_storage()",
+     "AUDIO_DOWNLOADER_ROOT", "audio-downloader"),
+    ("storage-manager", "vps-storage-manager", "part01",
+     "from storage_manager import init_state; init_state()",
+     "STORAGE_MANAGER_STATE_ROOT", "storage"),
     ("acs", "auto-caption-studio", "part01",
      "from web_backend.database import initialize_storage, run_migrations; initialize_storage(); run_migrations()",
      "AUTO_CAPTION_APP_ROOT", "acs"),
@@ -163,6 +172,29 @@ def worker_candidates(root):
             "ReadWritePaths=/var/lib/fresh-website/"+group+"\n\n"
             "[Install]\nWantedBy=multi-user.target\n")
         created.append(unit)
+
+    # Standalone guarded services are not workers, but own independent unit
+    # candidates. No unit is enabled or deployed by this isolated builder.
+    for name,group,entry in (
+        ("video-merger","video-merger","app.py"),
+        ("vps-storage-manager","vps-storage-manager","storage_manager.py serve"),
+    ):
+        source=root/"srv/fresh-website/current"/group/"part01"
+        if not (source/entry.split()[0]).is_file():
+            raise ValueError("standalone service source unavailable "+name)
+        template=(root/"etc/fresh-website"/(group+".env.example"))
+        if not template.is_file():
+            raise ValueError("service environment template missing "+group)
+        unit=units/("fresh-"+name+".service")
+        unit.write_text("[Unit]\nDescription=Fresh Website "+name+"\nAfter=network-online.target\n"
+                        "ConditionPathExists=/etc/fresh-website/enabled/"+name+"\n\n"
+                        "[Service]\nUser=freshweb\nGroup=freshweb\n"
+                        "WorkingDirectory=/srv/fresh-website/current/"+group+"/part01\n"
+                        "EnvironmentFile=/etc/fresh-website/"+group+".env\n"
+                        "ExecStart=/srv/fresh-website/venvs/"+group+"/bin/python "+entry+"\n"
+                        "NoNewPrivileges=true\nPrivateTmp=true\nProtectSystem=strict\n"
+                        "ReadWritePaths=/var/lib/fresh-website/"+group+"\n"
+                        "Restart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n")
     return created
 
 def build(root,revision):

@@ -159,10 +159,13 @@ def render(root):
           "scene-builder": "FRESH_WEBSITE_INSTALL=1\nWEB_DATA_DIR=/var/lib/fresh-website/scene-builder/scene\nMASTER_CONTROLLER_DB_PATH=/var/lib/fresh-website/scene-builder/scene/master_controller.sqlite3\nSCENE_PERMANENT_ROOT=/var/lib/fresh-website/scene-builder/scene/permanent\nSCRIPT_WORK_DATA_DIR=/var/lib/fresh-website/scene-builder/scene/script-work\n",
           "auto-caption-studio": "FRESH_WEBSITE_INSTALL=1\nAUTO_CAPTION_APP_ROOT=/var/lib/fresh-website/auto-caption-studio/acs\nAUTO_CAPTION_DB_PATH=/var/lib/fresh-website/auto-caption-studio/acs/data/database/auto_caption.db\n",
           "local-upload-manager": "LUM_DATA_DIR=/var/lib/fresh-website/local-upload-manager/lum1\nYOUTUBE_UPLOAD_MANAGER_DATA_DIR=/var/lib/fresh-website/local-upload-manager/lum1/core\n",
-          "voice-studio": "VOICE_CLONE_ROOT=/var/lib/fresh-website/voice-studio/omnivoice\n",
+          "voice-studio": "VOICE_CLONE_ROOT=/var/lib/fresh-website/voice-studio/omnivoice\nKOKORO_STUDIO_ROOT=/var/lib/fresh-website/voice-studio/kokoro\nEDGE_STUDIO_ROOT=/var/lib/fresh-website/voice-studio/edge\nAUDIO_DOWNLOADER_ROOT=/var/lib/fresh-website/voice-studio/audio-downloader\n",
           "short-stream": "SHORT_STREAM_DATA=/var/lib/fresh-website/short-stream\n",
           "short-maker": "SHORT_MAKER_DATA=/var/lib/fresh-website/short-maker\n",
-          "self-media-library": "SML_DATA_ROOT=/var/lib/fresh-website/self-media-library/sml\n"
+          "self-media-library": "SML_DATA_ROOT=/var/lib/fresh-website/self-media-library/sml\n",
+          "script-work": "SCRIPT_WORK_DATA_DIR=/var/lib/fresh-website/scene-builder/script-work\n",
+          "video-merger": "VIDEO_MERGER_ROOT=/var/lib/fresh-website/video-merger/video-merger\nVIDEO_MERGER_PROXY_CONFIG_DIR=/var/lib/fresh-website/video-merger/video-merger/config\n",
+          "vps-storage-manager": "STORAGE_MANAGER_STATE_ROOT=/var/lib/fresh-website/vps-storage-manager/storage\n"
         }
         (env/(app+".env.example")).write_text(
             "# Values for a separately provisioned chmod-600 .env file; no secrets in Git\n"
