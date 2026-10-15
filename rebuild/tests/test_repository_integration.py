@@ -66,7 +66,7 @@ class RepositorySourceOfTruthContract(unittest.TestCase):
             self.assertIs(self.groups[flag], False, flag)
 
     def test_website_shell_owns_navigation_not_application_ui(self):
-        manifest = website_shell.catalog(self.groups, self.profiles)
+        manifest = website_shell.catalog(self.groups, {"groups": self.profiles})
         self.assertEqual({x["id"] for x in manifest["apps"]}, set(self.active))
         self.assertNotIn("auto-script", {x["id"] for x in manifest["apps"]})
         for item in manifest["apps"]:
