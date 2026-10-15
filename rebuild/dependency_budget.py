@@ -153,7 +153,7 @@ def install(root_raw, python, uv_exe="uv", apps=None):
         if entry["requires"]:
             args = [uv_exe, "pip", "sync", "--python", str(venv / "bin/python")]
             for rel in entry["requires"]:
-                args.extend(["--requirement", str(REPO / rel)])
+                args.append(str(REPO / rel))
             subprocess.run(args, check=True, env=env, stdout=subprocess.PIPE,
                            stderr=subprocess.PIPE, text=True)
         report = require_capacity(root)
