@@ -206,7 +206,6 @@ def build(root,revision):
     untouched=True
     auth_status="CANDIDATE_ONLY_REQUIRE_EXTERNAL_SECRET"
     blockers={
-      "auto-script":"parallel-owned application source is not yet integrated into PR #7",
       "scene-builder":"Algrow import and parallel-owned Auto Script integration must be decoupled",
       "script-work":"Chrome/Xvfb browser setup and authenticated startup not validated",
       "voice-studio":"OmniVoice/Kokoro/Edge worker packages, ONNX models and external APIs not runtime-verified",
@@ -220,6 +219,8 @@ def build(root,revision):
     }
     report={
        "source_groups_staged":len(staged["apps"]),
+       "active_application_target":10,
+       "auto_script_status":"OFFLINE_USER_EXCLUDED",
        "source_integrity":ver,
        "native_fresh_database_contracts":native,
        "worker_unit_candidates":workers,
@@ -229,7 +230,7 @@ def build(root,revision):
        "nginx_auth":auth_status,
        "production_modified":not untouched,
        "cutover":"DISABLED",
-       "all_11_runtime_healthy":False,
+       "all_active_10_runtime_healthy":False,
        "full_website_rebuild_pass":False,
        "remaining_external_and_runtime_gates":blockers,
        "test_status":"PASS_ISOLATED_SCHEMA_AND_BUILD_NOT_FULL_INSTALL"
