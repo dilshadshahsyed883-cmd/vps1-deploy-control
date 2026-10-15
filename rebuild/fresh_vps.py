@@ -45,8 +45,16 @@ def registry():
             if not isinstance(port,int) or not 1024<=port<=65535 or port in used:
                 raise ValueError("conflicting service port")
             used.add(port)
-            if not re.fullmatch(r"[a-zA-Z][\w.]*(?<!\.):[a-zA-Z][\w]*",service["module"]):
-                raise ValueError("unsafe ASGI target")
+            kind=service.get("kind","asgi")
+            if kind=="script":
+                safe={"video-merger":("app.py",[]),"vps-storage-manager":("storage_manager.py",["serve"])}
+                if app not in safe or (service.get("entry"),service.get("args",[]))!=safe[app]:
+                    raise ValueError("unapproved standalone service")
+            elif kind=="asgi":
+                if not re.fullmatch(r"[a-zA-Z][\\w.]*(?<!\\.):[a-zA-Z][\\w]*",service["module"]):
+                    raise ValueError("unsafe ASGI target")
+            else:
+                raise ValueError("unknown service kind")
     return p
 
 def managed_groups():
@@ -124,7 +132,11 @@ def deploy_app(root,app,sha):
     return {"app":app,"files":len(files),"release":sha}
 
 def service_unit(app,service):
-    part=service["part"];mod=service["module"];port=service["port"]
+    part=service["part"];port=service["port"]
+    if service.get("kind","asgi") == "script":
+        exec_command=" ".join(["/srv/fresh-website/venvs/"+app+"/bin/python",service["entry"],*service.get("args",[])])
+    else:
+        exec_command="/srv/fresh-website/venvs/"+app+"/bin/python -m uvicorn "+service["module"]+" --host 127.0.0.1 --port "+str(port)
     return f"""[Unit]
 Description=Fresh Website {app}
 After=network-online.target
@@ -136,7 +148,7 @@ Group=freshweb
 WorkingDirectory=/srv/fresh-website/current/{app}/{part}
 EnvironmentFile=/etc/fresh-website/{app}.env
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/srv/fresh-website/venvs/{app}/bin/python -m uvicorn {mod} --host 127.0.0.1 --port {port}
+ExecStart={exec_command}
 Restart=on-failure
 NoNewPrivileges=true
 ProtectSystem=strict
@@ -166,8 +178,8 @@ def render(root):
           "short-maker": "SHORT_MAKER_DATA=/var/lib/fresh-website/short-maker\n",
           "self-media-library": "SML_DATA_ROOT=/var/lib/fresh-website/self-media-library/sml\n",
           "script-work": "SCRIPT_WORK_DATA_DIR=/var/lib/fresh-website/scene-builder/script-work\n",
-          "video-merger": "VIDEO_MERGER_ROOT=/var/lib/fresh-website/video-merger/video-merger\nVIDEO_MERGER_PROXY_CONFIG_DIR=/var/lib/fresh-website/video-merger/video-merger/config\n",
-          "vps-storage-manager": "STORAGE_MANAGER_STATE_ROOT=/var/lib/fresh-website/vps-storage-manager/storage\n"
+          "video-merger": "VIDEO_MERGER_ROOT=/var/lib/fresh-website/video-merger/video-merger\nVIDEO_MERGER_PROXY_CONFIG_DIR=/var/lib/fresh-website/video-merger/video-merger/config\nVIDEO_MERGER_PORT=8148\n",
+          "vps-storage-manager": "STORAGE_MANAGER_STATE_ROOT=/var/lib/fresh-website/vps-storage-manager/storage\nSTORAGE_MANAGER_HOST=127.0.0.1\nSTORAGE_MANAGER_PORT=8149\n"
         }
         (env/(app+".env.example")).write_text(
             "# Values for a separately provisioned chmod-600 .env file; no secrets in Git\n"
@@ -178,11 +190,12 @@ def render(root):
         for service in services:
             part=service["part"]
             path=root/"srv/fresh-website/current"/app/part
-            module=service["module"].split(":")[0].replace(".","/")+".py"
+            module=service["entry"] if service.get("kind")=="script" else service["module"].split(":")[0].replace(".","/")+".py"
             if not (path/module).is_file():
-                raise ValueError("ASGI entrypoint missing: "+app+"/"+module)
+                raise ValueError("service entrypoint missing: "+app+"/"+module)
             (units/("fresh-"+app+".service")).write_text(service_unit(app,service))
-            routes.append(f"    location /{app}/ {{ proxy_pass http://127.0.0.1:{service['port']}/; }}\n")
+            suffix="" if app=="video-merger" else "/"
+            routes.append(f"    location /{app}/ {{ proxy_pass http://127.0.0.1:{service['port']}{suffix}; }}\n")
             if not (path/service.get("requirements","requirements.txt")).is_file():
                 blockers[app]="runtime Python dependency lock not supplied"
             if item.get("pending"):blockers[app]=item["pending"]
