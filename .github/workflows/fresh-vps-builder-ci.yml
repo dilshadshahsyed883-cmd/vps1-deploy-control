@@ -19,6 +19,9 @@ jobs:
           python-version: '3.12'
       - name: Builder safety and rollback tests
         run: python3 -m unittest discover -s rebuild/tests -v
+      - name: Install isolated application runtime dependencies
+        run: |
+          python3 -m pip install --disable-pip-version-check -r rebuild/runtime-smoke-requirements.txt
       - name: Assemble ten app groups into isolated rootfs without host changes
         shell: bash
         run: |
@@ -39,3 +42,7 @@ jobs:
           assert d["database_state"]=="EMPTY_DIRECTORIES_NO_SCHEMA_IMPORTED"
           print("PASS: isolated release staging, empty runtime roots, no host install")
           PY
+      - name: Start Short Stream and Short Maker from fresh isolated rootfs
+        run: |
+          DEST="/tmp/fresh-vps-builder-$GITHUB_RUN_ID"
+          python3 rebuild/smoke_services.py --root "$DEST"
