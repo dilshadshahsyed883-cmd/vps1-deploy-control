@@ -31,7 +31,9 @@ jobs:
   stage-only:
     # User must first verify snapshot and separately enable BOTH GitHub vars.
     # This job never reloads Nginx, touches production services or imports live DBs.
-    if: github.ref == 'refs/heads/main' && vars.VPS1_OVH_SNAPSHOT_VERIFIED == 'yes' && vars.VPS1_POST_SNAPSHOT_STAGING_APPROVED == 'yes'
+    # SECURITY GATE #21: no SSH/Tailscale access from GitHub CI during Phase 1.
+    # Re-enable only via separately reviewed Phase 2 PR after privileges and Agent 1 evidence.
+    if: false && github.ref == 'refs/heads/main' && vars.VPS1_OVH_SNAPSHOT_VERIFIED == 'yes' && vars.VPS1_POST_SNAPSHOT_STAGING_APPROVED == 'yes'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: staging
