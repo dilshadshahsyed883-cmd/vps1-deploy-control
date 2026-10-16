@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "python_minor": "3.12",
+  "application_budget_bytes": 30000000000,
+  "minimum_free_bytes": 5000000000,
+  "cache_path": "var/cache/fresh-website/uv",
+  "models_path": "var/lib/fresh-website/models",
+  "shared_external_system_tools": [
+    "python3.12",
+    "ffmpeg"
+  ],
+  "install_groups": [
+    {
+      "app": "scene-builder",
+      "requires": [
+        "apps/scene-builder/part01/requirements.txt"
+      ],
+      "category": "standard"
+    },
+    {
+      "app": "script-work",
+      "requires": [
+        "apps/scene-builder/part01/requirements.txt",
+        "rebuild/requirements-script-work.txt"
+      ],
+      "category": "browser"
+    },
+    {
+      "app": "voice-studio",
+      "requires": [
+        "apps/voice-studio/part01/requirements.txt"
+      ],
+      "category": "heavy-ai"
+    },
+    {
+      "app": "auto-caption-studio",
+      "requires": [
+        "apps/auto-caption-studio/part01/web_backend/requirements-web.txt"
+      ],
+      "category": "heavy-ai"
+    },
+    {
+      "app": "local-upload-manager",
+      "requires": [
+        "apps/local-upload-manager/part01/requirements.txt"
+      ],
+      "category": "standard"
+    },
+    {
+      "app": "short-stream",
+      "requires": [
+        "apps/short-stream/part01/requirements.txt"
+      ],
+      "category": "standard"
+    },
+    {
+      "app": "short-maker",
+      "requires": [
+        "apps/short-maker/part01/requirements.txt"
+      ],
+      "category": "standard"
+    },
+    {
+      "app": "video-merger",
+      "requires": [],
+      "category": "stdlib"
+    },
+    {
+      "app": "self-media-library",
+      "requires": [
+        "apps/self-media-library/part01/requirements.txt"
+      ],
+      "category": "standard"
+    },
+    {
+      "app": "vps-storage-manager",
+      "requires": [],
+      "category": "stdlib"
+    }
+  ]
+}

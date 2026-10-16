@@ -1,0 +1,24 @@
+/* LUM_HOST_FULL_WIDTH_V2 */
+#lum-host-frame,.lum-host-frame{
+  display:block!important;
+  width:100%!important;
+  max-width:none!important;
+  margin:0!important;
+  padding:0!important;
+  border:0!important;
+  border-radius:0!important;
+  box-shadow:none!important;
+  background:#0a1220!important;
+  color-scheme:dark;
+}
+/* Remove decorative wrapper around the iframe, but leave the global sidebar/header intact. */
+body:has(#lum-host-frame) *:has(> #lum-host-frame){
+  width:100%!important;
+  max-width:none!important;
+  margin:0!important;
+  padding:0!important;
+  border:0!important;
+  border-radius:0!important;
+  box-shadow:none!important;
+  background:#0a1220!important;
+}

@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "groups": {
+    "scene-builder": {
+      "services": [
+        {
+          "part": "part01",
+          "module": "app:app",
+          "port": 8080,
+          "requirements": "requirements.txt"
+        }
+      ],
+      "pending": "Main app still imports excluded Algrow Voice and parallel-owned Auto Script; isolate optional integrations before enabling"
+    },
+    "auto-script": {
+      "parallel_owner": true,
+      "services": [],
+      "deployment_mode": "offline",
+      "pending": "OFFLINE: excluded from installation, service activation, routes, CI functional gates and cutover"
+    },
+    "script-work": {
+      "services": [],
+      "pending": "isolated Chrome/Xvfb authentication and process lifecycle unverified"
+    },
+    "voice-studio": {
+      "services": [
+        {
+          "part": "part01",
+          "module": "vps1_omnivoice_app:app",
+          "port": 8143,
+          "requirements": "requirements.txt"
+        }
+      ],
+      "pending": "OmniVoice, Kokoro and Edge each need separate worker contracts"
+    },
+    "auto-caption-studio": {
+      "services": [
+        {
+          "part": "part01",
+          "module": "web_backend.app:app",
+          "port": 8144,
+          "requirements": "web_backend/requirements-web.txt"
+        }
+      ],
+      "pending": "render/prefetch/compress workers need individual units"
+    },
+    "local-upload-manager": {
+      "services": [
+        {
+          "part": "part01",
+          "module": "lum_engine.standalone_app:app",
+          "port": 8015,
+          "requirements": "requirements.txt"
+        }
+      ],
+      "pending": "engine2/3 workers and schedulers need explicit units"
+    },
+    "short-stream": {
+      "services": [
+        {
+          "part": "part01",
+          "module": "app:app",
+          "port": 8145
+        }
+      ],
+      "pending": "ffmpeg/live publisher dependencies pending"
+    },
+    "short-maker": {
+      "services": [
+        {
+          "part": "part01",
+          "module": "app:app",
+          "port": 8146,
+          "requirements": "requirements.txt"
+        }
+      ],
+      "pending": "Real FFmpeg queued media render and independent Drive delivery still require isolated end-to-end verification"
+    },
+    "video-merger": {
+      "services": [
+        {
+          "part": "part01",
+          "kind": "script",
+          "entry": "app.py",
+          "port": 8148
+        }
+      ],
+      "pending": "External Drive and media-worker integration deferred until approved post-snapshot runtime verification"
+    },
+    "self-media-library": {
+      "services": [
+        {
+          "part": "part01",
+          "module": "app:app",
+          "port": 8147,
+          "requirements": "requirements.txt"
+        }
+      ],
+      "pending": "Actual file paths, SQLite fresh schema bootstrap and Google Drive credentials require clean-host exercise"
+    },
+    "vps-storage-manager": {
+      "services": [
+        {
+          "part": "part01",
+          "kind": "script",
+          "entry": "storage_manager.py",
+          "args": [
+            "serve"
+          ],
+          "port": 8149
+        }
+      ],
+      "pending": "Admin token and guarded storage privileges deferred until approved post-snapshot runtime verification"
+    }
+  }
+}

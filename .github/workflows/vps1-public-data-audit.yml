@@ -1,0 +1,32 @@
+name: VPS1 public source/data exposure guard (no VPS)
+on:
+  pull_request:
+    paths:
+      - 'apps/**'
+      - 'rebuild/**'
+      - 'tools/audit_public_source.py'
+      - 'tests/test_public_source_audit.py'
+      - '.github/workflows/vps1-public-data-audit.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/**'
+      - 'rebuild/**'
+      - 'tools/audit_public_source.py'
+      - 'tests/test_public_source_audit.py'
+      - '.github/workflows/vps1-public-data-audit.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-data-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test public inventory policy offline
+        run: python3 -m unittest discover -s tests -p 'test_public_source_audit.py' -v
+      - name: Check all tracked filenames and manifest/backup privacy
+        run: python3 tools/audit_public_source.py

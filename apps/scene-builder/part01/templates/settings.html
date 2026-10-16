@@ -1,0 +1,1136 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block subtitle %}Scene Builder production controls and reusable presets{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/scene_builder_controls.css?v=175d-r4">
+<style>
+{% for key, font in caption_fonts.items() %}@font-face{font-family:'{{ font.family }}';src:url('/static/fonts/{{ font.filename }}');font-display:swap;font-weight:400 900}
+{% endfor %}
+.sb-settings-viewbar{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:14px;padding:12px 14px;border:1px solid #e3e7f0;border-radius:12px;background:#fff}.sb-settings-viewbar>div{display:flex;flex-direction:column;gap:2px}.sb-view-toggle{display:flex;align-items:center;gap:12px;margin:0}.sb-settings.presets-only .sb-subtabs button:not([data-tab="presets"]){display:none}.sb-settings.presets-only .sb-tab-panel:not([data-panel="presets"]){display:none!important}.sb-settings .sb-section-head p,.sb-settings .sb-control-grid small,.sb-settings .sb-note,.sb-settings .sb-preset-card small,.sb-settings .sb-settings-viewbar small,.sb-settings .sb-library-head small,.sb-settings .sb-ai-categories small,.sb-settings .sb-key-manager small,.sb-settings .sb-preview p{display:none!important}.sb-settings .sb-control-grid small:has(output){display:inline!important}.sb-settings .sb-control-grid{gap:10px}.sb-settings .sb-control-grid>label{min-height:54px;padding:10px 12px}.sb-selected-preset{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:14px 0 10px;padding:12px 14px;border:1px solid #dfe4ee;border-radius:12px;background:#fff}.sb-selected-preset strong{font-size:16px}.sb-selected-preset-status{font-size:12px;font-weight:700;color:#18794e}.sb-summary-section{margin-top:12px}.sb-summary-section>h4,.sb-timing-group>h4{margin:0 0 8px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#667085}.sb-summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.sb-summary-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 11px;border:1px solid #e6e9f0;border-radius:10px;background:#fff;min-height:44px}.sb-summary-row>span:first-child{font-weight:650}.sb-summary-row select,.sb-summary-row input[type=number]{max-width:150px}.sb-timing-groups{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.sb-timing-group{border:1px solid #e3e7f0;border-radius:12px;background:#fff;padding:12px}.sb-timing-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}.sb-timing-pair label{display:flex;flex-direction:column;gap:5px;font-weight:650}.sb-timing-pair input{width:100%}.sb-pexels-strategy{margin-top:10px}.sb-preset-card>span:last-child{font-size:12px;color:#667085}.sb-preset-lock{font-size:11px}.sb-save-bar{display:none!important}.sb-save-bar small{display:none!important}@media(max-width:760px){.sb-settings-viewbar{position:sticky;top:0;z-index:4}.sb-subtabs{overflow-x:auto;white-space:nowrap;scrollbar-width:thin}.sb-summary-grid{grid-template-columns:1fr}.sb-timing-groups{grid-template-columns:1fr}.sb-preset-grid{grid-template-columns:1fr}.sb-selected-preset{position:sticky;top:58px;z-index:3}}
+
+.sb-preset-context{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:0 0 14px;padding:14px 16px;border:1px solid #dfe4ee;border-radius:14px;background:linear-gradient(135deg,#fff,#f7f8ff)}.sb-preset-context strong{font-size:17px}.sb-preset-context .sb-muted{font-size:11px;letter-spacing:.08em}.sb-settings.presets-only .sb-preset-context{margin-bottom:10px}.sb-preset-audio{margin-top:14px}.sb-universal-label{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:22px 0 10px;padding-top:18px;border-top:1px solid #e6e9f0}.sb-universal-label h4{margin:0}.sb-preset-grid+.sb-note{margin-top:12px}.sb-settings .sb-preset-context small{display:none!important}
+</style>
+<form id="settings-form" class="sb-settings" method="post">
+  <input type="hidden" name="quota_limit" value="{{ quota_limit }}">
+  <input type="hidden" name="allowed_storage_gb" value="{{ allowed_storage_gb }}">
+  <input type="hidden" name="retention_free_gb" value="{{ retention_free_gb }}">
+  <input type="hidden" name="announcement" value="{{ announcement }}">
+  {% if retention_enabled %}<input type="hidden" name="retention_enabled" value="on">{% endif %}
+
+  {% if request.query_params.get('saved') %}<div class="sb-saved">Settings saved. New submissions will use the updated controls.</div>{% endif %}
+
+  <div class="sb-settings-viewbar">
+    <div><strong>Settings View</strong></div>
+    <label class="sb-view-toggle"><span>Presets Only</span><span class="pro-switch"><input id="presets-only-toggle" type="checkbox"><i></i></span></label>
+  </div>
+
+  <div class="sb-preset-context">
+    <div><span class="sb-muted">SELECTED PRESET</span><br><strong id="selected-preset-name">{{ default_scene_profile.label }}</strong></div>
+    <span id="preset-save-state" class="sb-selected-preset-status">✓ Saved</span>
+  </div>
+
+  <nav class="sb-subtabs" aria-label="Scene Builder settings">
+    <button type="button" data-tab="presets" class="active">Presets</button>
+    <button type="button" data-tab="timing">Timing</button>
+    <button type="button" data-tab="media">Stock Media</button>
+    <button type="button" data-tab="creative">Colour & Motion</button>
+    <button type="button" data-tab="captions">Captions</button>
+    <button type="button" data-tab="audio">Audio Engine</button>
+    {# Music & SFX moved inside Audio Engine · SCENE_AUDIO_ENGINE_EMBED_V1 #}
+    <button type="button" data-tab="output">Output</button>
+  </nav>
+
+  <section class="sb-tab-panel active" data-panel="presets">
+    <div class="sb-section-head"><div><h3>Presets</h3></div><button type="button" class="button" id="preset-new">+ New Preset</button></div>
+    <div class="sb-preset-grid">
+      {% for preset_id, preset in scene_presets.items() %}
+      <div class="sb-preset-item {% if preset_id==default_scene_preset %}selected{% endif %}" data-preset-id="{{ preset_id }}" data-preset-label="{{ preset.label }}" data-user-preset="{{ '1' if preset.is_user_preset else '0' }}">
+        <label class="sb-preset-card {% if preset_id==default_scene_preset %}selected{% endif %}">
+          <input type="radio" name="default_scene_preset" value="{{ preset_id }}" {% if preset_id==default_scene_preset %}checked{% endif %}>
+          <span class="sb-preset-check">✓</span>
+          <strong>{{ preset.label }}</strong>
+          <span>{{ preset.quality }} · {{ preset.aspect_ratio }} · {{ preset.fps }} fps</span>
+        </label>
+        <div class="sb-preset-actions">
+          <button type="button" class="button secondary mini" data-preset-duplicate="{{ preset_id }}">Duplicate</button>
+          {% if preset.is_user_preset %}
+          <button type="button" class="button secondary mini" data-preset-rename="{{ preset_id }}">Rename</button>
+          <button type="button" class="button secondary mini danger" data-preset-delete="{{ preset_id }}">Delete</button>
+          {% else %}<span class="sb-preset-lock">Built-in template</span>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="sb-note">Select a preset to edit its values in Timing, Stock Media, Colour & Motion, Captions, Audio Engine, and Output.</div>
+
+  </section>
+
+  <section class="sb-tab-panel" data-panel="timing">
+    <div class="sb-section-head"><div><h3>Timing</h3></div></div>
+    <div class="sb-control-grid">
+      <label><span><strong>Timing strategy</strong></span><select name="timing_mode"><option value="auto_repair" {% if timing_mode=='auto_repair' %}selected{% endif %}>Auto Repair</option><option value="whisper" {% if timing_mode=='whisper' %}selected{% endif %}>Whisper</option><option value="narration_weighted" {% if timing_mode=='narration_weighted' %}selected{% endif %}>Narration weighted</option></select></label>
+      <label><span><strong>Narration Start</strong></span><select id="narration-start-mode" name="narration_start_mode"><option value="auto" {% if narration_start_mode=='auto' %}selected{% endif %}>Auto</option><option value="manual" {% if narration_start_mode=='manual' %}selected{% endif %}>Manual</option></select></label>
+      <label><span><strong>Manual Start</strong></span><div class="sb-number"><input id="narration-start-manual" name="narration_start_manual_seconds" type="number" min="0" max="3600" step="0.1" value="{{ narration_start_manual_seconds }}"><em>seconds</em></div></label>
+      <label><span><strong>Opening Intro</strong></span><span class="pro-switch"><input id="preset-intro-enabled" type="checkbox" name="preset_intro_enabled"><i></i></span></label>
+      <label><span><strong>Intro Duration</strong></span><div class="sb-number"><input id="preset-intro-duration" name="preset_intro_duration_seconds" type="number" min="1" max="600" step="1" value="15"><em>seconds</em></div></label>
+      <label><span><strong>First 2-Minute Visual Audit</strong></span><span class="pro-switch"><input id="preset-visual-audit" type="checkbox" name="preset_first_two_minute_visual_audit_enabled"><i></i></span></label>
+    </div>
+    <div class="sb-timing-groups">
+      <div class="sb-timing-group"><h4>Intro Media</h4><div class="sb-timing-pair"><label>Min<input name="intro_media_min_seconds" type="number" min="0.25" max="10" step="0.25" value="{{ intro_media_min_seconds }}"></label><label>Max<input name="intro_media_max_seconds" type="number" min="0.25" max="15" step="0.25" value="{{ intro_media_max_seconds }}"></label></div></div>
+      <div class="sb-timing-group"><h4>First 2 Minutes</h4><div class="sb-timing-pair"><label>Min<input name="hook_media_min_seconds" type="number" min="0.25" max="10" step="0.25" value="{{ hook_media_min_seconds }}"></label><label>Max<input name="hook_media_max_seconds" type="number" min="0.25" max="15" step="0.25" value="{{ hook_media_max_seconds }}"></label></div></div>
+      <div class="sb-timing-group"><h4>General Media</h4><div class="sb-timing-pair"><label>Min<input name="general_media_min_seconds" type="number" min="0.25" max="10" step="0.25" value="{{ general_media_min_seconds }}"></label><label>Max<input name="general_media_max_seconds" type="number" min="0.25" max="15" step="0.25" value="{{ general_media_max_seconds }}"></label></div></div>
+    </div>
+    <input type="hidden" name="min_scene_seconds" value="{{ general_media_min_seconds }}">
+    <input type="hidden" name="max_scene_seconds" value="{{ general_media_max_seconds }}">
+  </section>
+
+  <section class="sb-tab-panel" data-panel="media">
+    <div class="sb-section-head"><div><h3>Stock-media strategy</h3><p>Control visual type, variety and fallback behavior.</p></div></div>
+    <div class="sb-control-grid">
+      <label><span><strong>Pexels</strong></span><span class="pro-switch"><input type="checkbox" name="pexels_enabled" {% if pexels_enabled %}checked{% endif %}><i></i></span></label>
+      <label><span><strong>Media mix</strong><small>Determines the preferred result order.</small></span><select name="media_mix"><option value="video_first" {% if media_mix=='video_first' %}selected{% endif %}>Video first</option><option value="alternate" {% if media_mix=='alternate' %}selected{% endif %}>Alternate video and image</option><option value="video_heavy" {% if media_mix=='video_heavy' %}selected{% endif %}>Video heavy</option><option value="image_heavy" {% if media_mix=='image_heavy' %}selected{% endif %}>Image heavy</option><option value="random" {% if media_mix=='random' %}selected{% endif %}>Balanced random</option></select></label>
+      <label><span><strong>Pexels Selection</strong></span><select name="pexels_selection_mode"><option value="first_result" {% if pexels_selection_mode=='first_result' %}selected{% endif %}>First Result</option><option value="best_match" {% if pexels_selection_mode=='best_match' %}selected{% endif %}>Best Match</option><option value="top_n_random" {% if pexels_selection_mode=='top_n_random' %}selected{% endif %}>Top N Random</option><option value="popularity" {% if pexels_selection_mode=='popularity' %}selected{% endif %}>Provider Order</option><option value="best_match_variety" {% if pexels_selection_mode=='best_match_variety' %}selected{% endif %}>Best Match + Variety</option></select></label>
+      <label><span><strong>Search Pool</strong></span><input name="pexels_search_pool" type="number" min="1" max="40" step="1" value="{{ pexels_search_pool }}"></label>
+      <label><span><strong>Avoid Used Media</strong></span><span class="pro-switch"><input type="checkbox" name="pexels_avoid_used_media" {% if pexels_avoid_used_media %}checked{% endif %}><i></i></span></label>
+      <label><span><strong>Avoid Same Creator</strong></span><span class="pro-switch"><input type="checkbox" name="pexels_avoid_same_creator" {% if pexels_avoid_same_creator %}checked{% endif %}><i></i></span></label>
+      <label><span><strong>Prefer Landscape</strong></span><span class="pro-switch"><input type="checkbox" name="pexels_prefer_landscape" {% if pexels_prefer_landscape %}checked{% endif %}><i></i></span></label>
+      <label><span><strong>Prefer Video</strong></span><span class="pro-switch"><input type="checkbox" name="pexels_prefer_video" {% if pexels_prefer_video %}checked{% endif %}><i></i></span></label>
+      <label><span><strong>Allow stock videos</strong><small>Search and download moving footage.</small></span><span class="pro-switch"><input type="checkbox" name="use_video_backgrounds" {% if use_video_backgrounds %}checked{% endif %}><i></i></span></label>
+      <label><span><strong>Allow stock images</strong><small>Use stills with professional motion when needed.</small></span><span class="pro-switch"><input type="checkbox" name="use_image_backgrounds" {% if use_image_backgrounds %}checked{% endif %}><i></i></span></label>
+    </div>
+    <div class="sb-note"><strong>Fallback order:</strong> primary keyword → backup keywords → next ordered provider result → safe visual fallback. Every fallback is recorded in the job audit.</div>
+    {% if request.session.get("is_admin") %}
+    <div id="sb-pexels-key-manager" class="sb-key-manager" data-csrf="{{ settings_csrf }}">
+      <div class="sb-key-manager-head">
+        <div><strong>Pexels API Keys</strong><small>Add or remove supplemental keys used by Scene Builder. Keys stay masked after saving.</small></div>
+        <span class="sb-key-count"><b id="sb-pexels-total">{{ pexels_total_key_count }}</b> active</span>
+      </div>
+      <div class="sb-key-add-row">
+        <input id="sb-pexels-new-key" type="password" autocomplete="off" placeholder="Paste new Pexels API key">
+        <button id="sb-pexels-add-key" type="button" class="button">Add Key</button>
+      </div>
+      <div id="sb-pexels-key-list" class="sb-key-list">
+        {% for key in pexels_managed_keys %}
+        <div class="sb-key-row" data-key-id="{{ key.key_id }}"><code>{{ key.masked }}</code><span>Managed key</span><button type="button" class="button secondary mini" data-pexels-remove="{{ key.key_id }}">Remove</button></div>
+        {% endfor %}
+        {% if pexels_environment_key_count %}<div class="sb-key-row protected"><code>{{ pexels_environment_key_count }} server key{% if pexels_environment_key_count != 1 %}s{% endif %}</code><span>Protected environment configuration</span><em>Read only</em></div>{% endif %}
+        {% if not pexels_managed_keys and not pexels_environment_key_count %}<div class="sb-empty" id="sb-pexels-empty">No Pexels keys configured.</div>{% endif %}
+      </div>
+      <small id="sb-pexels-key-message" class="sb-key-message">Changes apply to new media requests immediately.</small>
+    </div>
+    {% endif %}
+  </section>
+
+  <section class="sb-tab-panel" data-panel="creative">
+    <div class="sb-section-head"><div><h3>Motion, transitions and colour</h3><p>Creative direction is frozen per project when it enters the Queue.</p></div></div>
+    <div class="sb-control-grid">
+      <label><span><strong>Transitions</strong></span><span class="pro-switch"><input type="checkbox" name="transition_engine_enabled" {% if transition_engine_enabled %}checked{% endif %}><i></i></span></label>
+      <label><span><strong>Visual motion</strong><small>Applied primarily to still images.</small></span><select name="motion_style"><option value="very_slow" {% if motion_style=='very_slow' %}selected{% endif %}>Very slow</option><option value="cinematic" {% if motion_style=='cinematic' %}selected{% endif %}>Cinematic</option><option value="dynamic" {% if motion_style=='dynamic' %}selected{% endif %}>Dynamic</option></select></label>
+      <label><span><strong>Transition control</strong><small>Editorial Auto is recommended for professional output.</small></span><select name="transition_mode"><option value="auto_editorial" {% if transition_mode=='auto_editorial' %}selected{% endif %}>Editorial Auto · Recommended</option><option value="cuts_only" {% if transition_mode=='cuts_only' %}selected{% endif %}>Cuts only</option><option value="scene_plan" {% if transition_mode=='scene_plan' %}selected{% endif %}>Use scene-plan directions</option><option value="off" {% if transition_mode=='off' %}selected{% endif %}>Off</option></select></label>
+      <label><span><strong>Transition preset</strong><small>Restrained cut, dissolve, fade and occasional push ratios.</small></span><select name="transition_preset">{% for value,label in [('documentary','Editorial Documentary'),('cinematic','Cinematic Balanced'),('smooth','Smooth Narrative'),('energetic','Energetic Clean'),('minimal','Minimal Cuts'),('storytelling','Emotional Storytelling')] %}<option value="{{ value }}" {% if transition_preset==value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+      <label><span><strong>Transition intensity</strong><small><output id="transition-value">{{ transition_intensity }}</output>%</small></span><input data-output="transition-value" name="transition_intensity" type="range" min="0" max="100" value="{{ transition_intensity }}"></label>
+      <label><span><strong>Base transition length</strong><small>Automatically shortened for quick scenes.</small></span><div class="sb-number"><input name="transition_duration" type="number" min="0.12" max="0.50" step="0.01" value="{{ transition_duration }}"><em>seconds</em></div></label>
+      <label><span><strong>Automatic colour grading</strong><small>Normalize footage before applying the selected look.</small></span><span class="pro-switch"><input type="checkbox" name="lut_enabled" {% if lut_enabled %}checked{% endif %}><i></i></span></label>
+      <label><span><strong>LUT pack</strong><small>Validated LUT collection installed in the engine.</small></span><select id="lut-pack" name="lut_pack">{% for key, pack in lut_packs.items() %}<option value="{{ key }}" {% if lut_pack==key %}selected{% endif %}>{{ pack.label }}</option>{% endfor %}</select></label>
+      <label><span><strong>LUT preset</strong><small>Only valid looks from the selected pack are available.</small></span><select id="lut-preset" name="lut_preset">{% for preset in lut_packs[lut_pack].presets %}<option value="{{ preset }}" {% if lut_preset==preset %}selected{% endif %}>{{ preset|replace('_',' ')|title }}</option>{% endfor %}</select></label>
+      <label><span><strong>Grade strength</strong><small><output id="lut-value">{{ lut_strength }}</output>%</small></span><input data-output="lut-value" name="lut_strength" type="range" min="0" max="100" value="{{ lut_strength }}"></label>
+      <label><span><strong>Normalize before LUT</strong><small>Applies restrained correction before the creative look.</small></span><span class="pro-switch"><input type="checkbox" name="lut_normalize_enabled" {% if lut_normalize_enabled %}checked{% endif %}><i></i></span></label>
+    </div>
+  </section>
+
+  <section class="sb-tab-panel" data-panel="captions">
+    <div class="sb-section-head"><div><h3>Caption system</h3><p>Whisper remains authoritative for caption words and timing.</p></div></div>
+    <div class="sb-caption-layout">
+      <div class="sb-control-grid one-column">
+        <label><span><strong>Automatic captions</strong><small>May be disabled without breaking visual timing in v10.</small></span><span class="pro-switch"><input id="captions-enabled" type="checkbox" name="captions_enabled" {% if captions_enabled %}checked{% endif %}><i></i></span></label>
+        <label><span><strong>Karaoke</strong></span><span class="pro-switch"><input id="caption-karaoke-enabled" type="checkbox" name="caption_karaoke_enabled" {% if caption_karaoke_enabled %}checked{% endif %}><i></i></span></label>
+        <label><span><strong>Words per caption</strong><small>Recommended: 3.</small></span><input id="caption-words" name="caption_words" type="number" min="1" max="5" value="{{ caption_words }}"></label>
+        <label><span><strong>Caption style</strong><small>Real renderer preset for new projects.</small></span><select id="caption-style" name="caption_style">{% for key, style in caption_styles.items() %}<option value="{{ key }}" {% if caption_style==key %}selected{% endif %}>{{ style.label }}</option>{% endfor %}</select></label>
+        <label><span><strong>Font</strong><small>Installed locally on the VPS.</small></span><select id="caption-font" name="caption_font">{% for key, font in caption_fonts.items() %}<option value="{{ key }}" data-family="{{ font.family }}" {% if caption_font==key %}selected{% endif %}>{{ font.label }}</option>{% endfor %}</select></label>
+        <label><span><strong>Font size</strong><small>18–120 pixels.</small></span><input id="caption-size" name="caption_font_size" type="number" min="18" max="120" value="{{ caption_font_size }}"></label>
+        <label><span><strong>Position</strong><small>Safe caption placement within the frame.</small></span><select id="caption-position" name="caption_position"><option value="bottom" {% if caption_position=='bottom' %}selected{% endif %}>Bottom</option><option value="center" {% if caption_position=='center' %}selected{% endif %}>Centre</option><option value="top" {% if caption_position=='top' %}selected{% endif %}>Top</option></select></label>
+        <label><span><strong>Outline width</strong><small><output id="caption-outline-value">{{ caption_outline_width }}</output> pixels</small></span><input id="caption-outline-width" data-output="caption-outline-value" name="caption_outline_width" type="range" min="0" max="8" value="{{ caption_outline_width }}"></label>
+        <label><span><strong>Caption shadow</strong><small>Add separation from complex footage.</small></span><span class="pro-switch"><input id="caption-shadow" type="checkbox" name="caption_shadow_enabled" {% if caption_shadow_enabled %}checked{% endif %}><i></i></span></label>
+        <label><span><strong>Background opacity</strong><small><output id="caption-opacity-value">{{ caption_background_opacity }}</output>%</small></span><input id="caption-opacity" name="caption_background_opacity" type="range" min="0" max="100" value="{{ caption_background_opacity }}"></label>
+        <div class="sb-colors"><label>Text<input id="caption-text" type="color" name="caption_text_color" value="{{ caption_text_color }}"></label><label>Outline<input id="caption-outline" type="color" name="caption_outline_color" value="{{ caption_outline_color }}"></label><label>Highlight<input id="caption-highlight" type="color" name="caption_highlight_color" value="{{ caption_highlight_color }}"></label><label>Background<input id="caption-background" type="color" name="caption_background_color" value="{{ caption_background_color }}"></label></div>
+      </div>
+      <div class="sb-preview"><div class="sb-preview-head"><strong>Renderer-matched preview</strong><small id="caption-preview-meta">1920×1080 scale</small></div><div id="caption-preview-stage" class="sb-preview-stage"><div class="sb-preview-safe"></div><div id="caption-demo"><span>Your</span> <span>caption</span> <span>preview</span></div></div><div class="sb-preview-status"><span id="caption-font-status">Font loaded</span><span>Safe area</span><span>Whisper timing</span></div><p>Size, font, position, colours, outline, shadow and box treatment use the same values sent to the renderer.</p></div>
+    </div>
+  </section>
+
+  <section class="sb-tab-panel" data-panel="audio">
+    <div class="sb-section-head"><div><h3>Narration</h3><p>Narration processing for the selected preset.</p></div></div>
+    <div class="sb-control-grid">
+      <label><span><strong>Narration volume</strong><small><output id="voice-volume-value">{{ voice_volume_percent }}</output>%</small></span><input data-output="voice-volume-value" name="voice_volume_percent" type="range" min="0" max="150" value="{{ voice_volume_percent }}"></label>
+      <label><span><strong>Voice processing</strong><small>Off preserves the uploaded narration exactly.</small></span><select name="voice_processing_preset"><option value="off" {% if voice_processing_preset=='off' %}selected{% endif %}>Off · preserve source</option><option value="natural" {% if voice_processing_preset=='natural' %}selected{% endif %}>Natural</option><option value="clear" {% if voice_processing_preset=='clear' %}selected{% endif %}>Clear</option><option value="strong" {% if voice_processing_preset=='strong' %}selected{% endif %}>Strong</option></select></label>
+    </div>
+    
+  </section>
+
+
+  <section class="sb-tab-panel" data-panel="library">
+    <div class="sb-section-head"><div><h3>Music & SFX</h3></div></div>
+    <input type="hidden" id="preset-music-playlist-json" name="preset_music_playlist_json" value="[]">
+    <input type="hidden" id="preset-ai-categories-json" name="preset_music_ai_allowed_categories_json" value="[]">
+
+    <div class="sb-preset-audio">
+      <div class="sb-summary-section"><h4>Selected Preset</h4></div>
+      <div class="sb-control-grid">
+        <label><span><strong>Background Music</strong></span><span class="pro-switch"><input id="preset-music-enabled" type="checkbox" name="preset_music_enabled"><i></i></span></label>
+        <label><span><strong>AI Music Selection</strong></span><span class="pro-switch"><input id="preset-music-ai" type="checkbox" name="preset_music_ai_select"><i></i></span></label>
+        <label><span><strong>Music Volume</strong><small><output id="preset-music-volume-value">12</output>%</small></span><input id="preset-music-volume" data-output="preset-music-volume-value" name="preset_music_volume_percent" type="range" min="0" max="100" value="12"></label>
+        <label><span><strong>Narration Ducking</strong></span><span class="pro-switch"><input id="preset-music-duck" type="checkbox" name="preset_music_ducking_enabled"><i></i></span></label>
+        <label><span><strong>Ducking Strength</strong></span><select id="preset-duck-strength" name="preset_music_ducking_strength"><option value="light">Light</option><option value="medium">Medium</option><option value="strong">Strong</option></select></label>
+        <label><span><strong>Normalize Music</strong></span><span class="pro-switch"><input id="preset-music-normalize" type="checkbox" name="preset_music_normalize"><i></i></span></label>
+        <label><span><strong>Loop Playlist</strong></span><span class="pro-switch"><input id="preset-music-loop" type="checkbox" name="preset_music_playlist_loop"><i></i></span></label>
+        <label><span><strong>Track Crossfade</strong></span><div class="sb-number"><input id="preset-music-crossfade" name="preset_music_crossfade_seconds" type="number" min="0" max="8" step="0.25" value="1.5"><em>seconds</em></div></label>
+        <label><span><strong>Track 1 for Intro</strong></span><span class="pro-switch"><input id="preset-track1-intro" type="checkbox" name="preset_music_use_track1_for_intro"><i></i></span></label>
+        <label><span><strong>Intro Track in Main</strong></span><span class="pro-switch"><input id="preset-track1-main" type="checkbox" name="preset_music_allow_intro_track_in_main"><i></i></span></label>
+        <label><span><strong>SFX</strong></span><span class="pro-switch"><input id="preset-sfx-enabled" type="checkbox" name="preset_sfx_enabled"><i></i></span></label>
+        <label><span><strong>Environment SFX</strong></span><span class="pro-switch"><input id="preset-env-sfx" type="checkbox" name="preset_environment_sfx_enabled"><i></i></span></label>
+        <label><span><strong>Transition SFX</strong></span><span class="pro-switch"><input id="preset-trans-sfx" type="checkbox" name="preset_transition_sfx_enabled"><i></i></span></label>
+        <label><span><strong>SFX Amount</strong></span><select id="preset-sfx-amount" name="preset_sfx_amount"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
+        <label><span><strong>Environment SFX Volume</strong><small><output id="preset-env-volume-value">18</output>%</small></span><input id="preset-env-volume" data-output="preset-env-volume-value" name="preset_environment_sfx_volume_percent" type="range" min="0" max="60" value="18"></label>
+        <label><span><strong>Transition SFX Volume</strong><small><output id="preset-trans-volume-value">24</output>%</small></span><input id="preset-trans-volume" data-output="preset-trans-volume-value" name="preset_transition_sfx_volume_percent" type="range" min="0" max="60" value="24"></label>
+      </div>
+
+      <div class="sb-playlist-panel">
+        <div class="sb-library-head"><div><strong>Preset Music Playlist</strong></div><button type="button" class="button secondary" id="open-music-picker">+ Add From Music Library</button></div>
+        <div id="preset-playlist" class="sb-playlist"></div>
+        <div id="music-picker" class="sb-picker" hidden>
+          <div class="sb-picker-head"><strong>Music Library</strong><button type="button" class="button secondary" id="close-music-picker">Close</button></div>
+          <div id="music-picker-items" class="sb-asset-grid"></div>
+        </div>
+        <div class="sb-ai-categories"><strong>Allowed AI Music Categories</strong><div id="ai-category-options"></div></div>
+      </div>
+    </div>
+
+    <div class="sb-universal-label"><h4>Universal Permanent Library</h4><span class="sb-badge good">Universal</span></div>
+    <div class="sb-library-columns">
+      <div class="sb-library-card">
+        <div class="sb-library-head"><div><h4>Music Library</h4></div><label class="button secondary sb-file-button">Upload Music<input id="music-library-upload" type="file" accept="audio/*,.m4a,.aac,.flac,.ogg,.opus" multiple hidden></label></div>
+        <input id="music-library-search" class="sb-library-search" placeholder="Search music, category or tags">
+        <div id="music-library-list" class="sb-library-list"></div>
+      </div>
+      <div class="sb-library-card">
+        <div class="sb-library-head"><div><h4>SFX Library</h4></div><label class="button secondary sb-file-button">Upload SFX<input id="sfx-library-upload" type="file" accept="audio/*,.m4a,.aac,.flac,.ogg,.opus" multiple hidden></label></div>
+        <input id="sfx-library-search" class="sb-library-search" placeholder="Search SFX, category or tags">
+        <div id="sfx-library-list" class="sb-library-list"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sb-tab-panel" data-panel="output">
+    <div class="sb-section-head"><div><h3>Output and encoding</h3><p>Professional defaults suitable for the current four-vCPU VPS.</p></div></div>
+    <div class="sb-control-grid">
+      <label><span><strong>Custom resolution</strong><small>Used by Custom Web Settings.</small></span><select name="quality"><option value="480p" {% if quality=='480p' %}selected{% endif %}>480p</option><option value="720p" {% if quality=='720p' %}selected{% endif %}>720p</option><option value="1080p" {% if quality=='1080p' %}selected{% endif %}>1080p</option></select></label>
+      <label><span><strong>Aspect ratio</strong><small>Landscape, vertical or square.</small></span><select name="custom_aspect_ratio"><option value="16:9" {% if custom_aspect_ratio=='16:9' %}selected{% endif %}>16:9 Landscape</option><option value="9:16" {% if custom_aspect_ratio=='9:16' %}selected{% endif %}>9:16 Vertical</option><option value="1:1" {% if custom_aspect_ratio=='1:1' %}selected{% endif %}>1:1 Square</option></select></label>
+      <label><span><strong>Frame rate</strong><small>24 for cinematic, 30 for social.</small></span><select name="output_fps"><option value="24" {% if output_fps=='24' %}selected{% endif %}>24 fps</option><option value="25" {% if output_fps=='25' %}selected{% endif %}>25 fps</option><option value="30" {% if output_fps=='30' %}selected{% endif %}>30 fps</option><option value="60" {% if output_fps=='60' %}selected{% endif %}>60 fps</option></select></label>
+      <label><span><strong>Quality CRF</strong><small>Lower is better quality; 20 is recommended.</small></span><input name="quality_crf" type="number" min="16" max="30" value="{{ quality_crf }}"></label>
+      <label><span><strong>Encoder speed</strong><small>Veryfast balances VPS speed and file size.</small></span><select name="ffmpeg_preset">{% for value in ['ultrafast','veryfast','faster','fast','medium'] %}<option value="{{ value }}" {% if ffmpeg_preset==value %}selected{% endif %}>{{ value|title }}</option>{% endfor %}</select></label>
+      <label><span><strong>Post-render compression</strong><small>Optional; Drive upload occurs after successful compression.</small></span><span class="pro-switch"><input type="checkbox" name="post_render_compress_enabled" {% if post_render_compress_enabled %}checked{% endif %}><i></i></span></label>
+      <label><span><strong>Drive Upload</strong></span><span class="pro-switch"><input type="checkbox" name="drive_upload_enabled" {% if drive_upload_enabled %}checked{% endif %}><i></i></span></label>
+      <label><span><strong>Auto Clean After Drive</strong></span><span class="pro-switch"><input id="preset-auto-clean" type="checkbox" name="preset_auto_clean_project_after_drive"><i></i></span></label>
+      <input id="preset-auto-clean-confirmation" type="hidden" name="preset_auto_clean_disable_confirmation" value="">
+    </div>
+  </section>
+
+  <div class="sb-save-bar"><div><strong id="settings-change-state">Ready</strong></div><button class="button" type="submit">Save Settings</button></div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+
+<div id="auto-clean-confirm-modal" class="sb-confirm-modal" hidden>
+  <div class="sb-confirm-backdrop" data-auto-clean-cancel></div>
+  <div class="sb-confirm-card" role="dialog" aria-modal="true" aria-labelledby="auto-clean-confirm-title">
+    <h3 id="auto-clean-confirm-title">Disable Auto Clean?</h3>
+    <p>Type <strong>CLEAN OFF</strong> to keep local project files after verified Drive delivery.</p>
+    <input id="auto-clean-confirm-input" type="text" autocomplete="off" placeholder="CLEAN OFF">
+    <div class="sb-confirm-actions">
+      <button type="button" class="button secondary" data-auto-clean-cancel>Cancel</button>
+      <button type="button" class="button danger" id="auto-clean-confirm-button" disabled>Disable Auto Clean</button>
+    </div>
+  </div>
+</div>
+<script>
+(() => {
+  const form=document.getElementById('settings-form');
+  const tabs=[...document.querySelectorAll('.sb-subtabs button')];
+  const panels=[...document.querySelectorAll('.sb-tab-panel')];
+  const presetsOnlyToggle=document.getElementById('presets-only-toggle');
+  function openTab(name){tabs.forEach(x=>x.classList.toggle('active',x.dataset.tab===name));panels.forEach(x=>x.classList.toggle('active',x.dataset.panel===name));sessionStorage.setItem('sbSettingsTab',name);}
+  function applyPresetsOnly(enabled){form.classList.toggle('presets-only',enabled);presetsOnlyToggle.checked=enabled;localStorage.setItem('sceneBuilderPresetsOnly',enabled?'1':'0');if(enabled)openTab('presets');else openTab(sessionStorage.getItem('sbSettingsTab')||'presets');}
+  tabs.forEach(button=>button.addEventListener('click',()=>openTab(button.dataset.tab)));
+  const presetsOnlySaved=localStorage.getItem('sceneBuilderPresetsOnly');
+  applyPresetsOnly(presetsOnlySaved===null?false:presetsOnlySaved==='1');
+  presetsOnlyToggle.addEventListener('change',()=>applyPresetsOnly(presetsOnlyToggle.checked));
+  async function presetApi(url,options={}){const response=await fetch(url,{headers:{'Content-Type':'application/json',...(options.headers||{})},...options});let data={};try{data=await response.json();}catch{}if(!response.ok)throw new Error(data.detail||data.error||('Request failed: '+response.status));return data;}
+  function selectedPresetId(){return document.querySelector('[name=default_scene_preset]:checked')?.value||'{{ default_scene_preset }}';}
+  const saveState=document.getElementById('preset-save-state');
+  const changeState=document.getElementById('settings-change-state');
+  let autoSaveTimer=null;let autoSaveSerial=0;
+  function setSaveState(text,color='#18794e'){if(saveState){saveState.textContent=text;saveState.style.color=color;}if(changeState)changeState.textContent=text;}
+  function durationSettingsValid(){
+    for(const [minName,maxName] of [['intro_media_min_seconds','intro_media_max_seconds'],['hook_media_min_seconds','hook_media_max_seconds'],['general_media_min_seconds','general_media_max_seconds']]){
+      const minimum=Number(mainField(minName)?.value||0),maximum=Number(mainField(maxName)?.value||0);
+      if(!(minimum>0&&maximum>=minimum))return false;
+    }
+    return true;
+  }
+  async function autoSaveSettings(){
+    clearTimeout(autoSaveTimer);autoSaveTimer=null;
+    if(!durationSettingsValid()){setSaveState('Save Failed','#b42318');return;}
+    syncPresetHidden();const serial=++autoSaveSerial;setSaveState('Saving...','#3568c9');
+    try{
+      const response=await fetch('/settings',{method:'POST',body:new FormData(form),redirect:'follow'});
+      if(!response.ok)throw new Error('Settings save failed');
+      if(serial===autoSaveSerial)setSaveState('✓ Saved','#18794e');
+    }catch(error){if(serial===autoSaveSerial)setSaveState('Save Failed','#b42318');console.error(error);}
+  }
+  function markUnsaved(){setSaveState('Unsaved changes','#b54708');clearTimeout(autoSaveTimer);autoSaveTimer=setTimeout(autoSaveSettings,650);}
+  function mainField(name){return form.querySelector(`[name="${name}"]:not([data-mirror-name])`);}
+  const narrationStartMode=document.getElementById('narration-start-mode');
+  const narrationStartManual=document.getElementById('narration-start-manual');
+  function syncNarrationStartMode(){if(narrationStartManual)narrationStartManual.readOnly=(narrationStartMode?.value||'auto')!=='manual';}
+  narrationStartMode?.addEventListener('change',syncNarrationStartMode);syncNarrationStartMode();
+  function syncMirrorFromMain(mirror){
+    const main=mainField(mirror.dataset.mirrorName);if(!main)return;
+    if(mirror.tagName==='SELECT'&&main.tagName==='SELECT'){mirror.innerHTML=[...main.options].map(option=>`<option value="${option.value.replaceAll('&','&amp;').replaceAll('"','&quot;')}">${option.textContent}</option>`).join('');}
+    if(mirror.type==='checkbox')mirror.checked=main.checked;else mirror.value=main.value;
+  }
+  function syncAllMirrors(){document.querySelectorAll('[data-mirror-name]').forEach(syncMirrorFromMain);}
+  document.querySelectorAll('[data-mirror-name]').forEach(mirror=>{mirror.addEventListener('change',()=>{const main=mainField(mirror.dataset.mirrorName);if(!main)return;if(mirror.type==='checkbox')main.checked=mirror.checked;else main.value=mirror.value;main.dispatchEvent(new Event('change',{bubbles:true}));});});
+  form.querySelectorAll('input,select,textarea').forEach(field=>{if(!field.dataset.mirrorName&&field.type!=='hidden')field.addEventListener('change',()=>{syncAllMirrors();markUnsaved();});});
+  document.querySelectorAll('.sb-preset-card input').forEach(input=>input.addEventListener('change',()=>{window.location.href='/settings?preset='+encodeURIComponent(input.value);}));
+  document.getElementById('preset-new')?.addEventListener('click',async()=>{const name=prompt('New preset name');if(name===null)return;try{const data=await presetApi('/api/presets',{method:'POST',body:JSON.stringify({name,copy_from:selectedPresetId()})});window.location.href='/settings?preset='+encodeURIComponent(data.preset_id);}catch(error){alert(error.message);}});
+  document.querySelectorAll('[data-preset-duplicate]').forEach(button=>button.addEventListener('click',async()=>{const item=button.closest('.sb-preset-item');const suggested=(item?.dataset.presetLabel||'Preset')+' Copy';const name=prompt('Name for duplicated preset',suggested);if(name===null)return;try{const data=await presetApi('/api/presets/'+encodeURIComponent(button.dataset.presetDuplicate)+'/duplicate',{method:'POST',body:JSON.stringify({name})});window.location.href='/settings?preset='+encodeURIComponent(data.preset_id);}catch(error){alert(error.message);}}));
+  document.querySelectorAll('[data-preset-rename]').forEach(button=>button.addEventListener('click',async()=>{const item=button.closest('.sb-preset-item');const name=prompt('Rename preset',item?.dataset.presetLabel||'');if(name===null)return;try{await presetApi('/api/presets/'+encodeURIComponent(button.dataset.presetRename)+'/rename',{method:'POST',body:JSON.stringify({name})});window.location.href='/settings?preset='+encodeURIComponent(button.dataset.presetRename);}catch(error){alert(error.message);}}));
+  document.querySelectorAll('[data-preset-delete]').forEach(button=>button.addEventListener('click',async()=>{const item=button.closest('.sb-preset-item');const label=item?.dataset.presetLabel||'this preset';if(!confirm('Delete preset "'+label+'"?\n\nOnly the preset configuration is deleted. Music/SFX libraries and existing projects are not deleted.'))return;try{const data=await presetApi('/api/presets/'+encodeURIComponent(button.dataset.presetDelete),{method:'DELETE'});window.location.href='/settings?preset='+encodeURIComponent(data.default_scene_preset||'cinematic_documentary');}catch(error){alert(error.message);}}));
+  document.querySelectorAll('input[type=range][data-output]').forEach(input=>{const output=document.getElementById(input.dataset.output);input.addEventListener('input',()=>output.textContent=input.value);});
+  const lutPacks={{ lut_packs|tojson }};const lutPack=document.getElementById('lut-pack');const lutPreset=document.getElementById('lut-preset');function updateLuts(){const values=lutPacks[lutPack.value]?.presets||[];const previous=lutPreset.value;lutPreset.innerHTML=values.map(value=>`<option value="${value}">${value.replaceAll('_',' ').replace(/\b\w/g,c=>c.toUpperCase())}</option>`).join('');if(values.includes(previous))lutPreset.value=previous;syncAllMirrors();}lutPack.addEventListener('change',updateLuts);
+  const captionStyles={{ caption_styles|tojson }};
+  const demo=document.getElementById('caption-demo');
+  const previewStage=document.getElementById('caption-preview-stage');
+  const hexRgba=(hex,opacity)=>{const value=String(hex||'#000000').replace('#','');const r=parseInt(value.slice(0,2),16),g=parseInt(value.slice(2,4),16),b=parseInt(value.slice(4,6),16);return `rgba(${r},${g},${b},${Math.max(0,Math.min(1,opacity))})`;};
+  async function captionPreview(){
+    const enabled=document.getElementById('captions-enabled').checked;
+    const count=Math.max(1,Math.min(5,Number(document.getElementById('caption-words').value||3)));
+    const words=['Professional','English','caption','preview','system'];
+    const styleName=document.getElementById('caption-style').value;
+    const style=captionStyles[styleName]||captionStyles.karaoke;
+    const karaokeEnabled=document.getElementById('caption-karaoke-enabled').checked;
+    const textColor=document.getElementById('caption-text').value;
+    const highlightColor=document.getElementById('caption-highlight').value;
+    demo.innerHTML=words.slice(0,count).map((word,index)=>`<span style="color:${karaokeEnabled&&index===0?highlightColor:textColor}">${word}</span>`).join(' ');
+    demo.className='caption-style-'+styleName;
+    const fontSelect=document.getElementById('caption-font');
+    const family=fontSelect.options[fontSelect.selectedIndex].dataset.family;
+    const stageScale=Math.max(.15,previewStage.clientWidth/1920);
+    const rendererSize=Math.max(18,Math.min(120,Number(document.getElementById('caption-size').value||48)));
+    const outline=Math.max(0,Math.min(8,Number(document.getElementById('caption-outline-width').value||0)));
+    const shadowEnabled=Boolean(style.shadow)&&document.getElementById('caption-shadow').checked;
+    const opacity=Number(document.getElementById('caption-opacity').value||0);
+    const position=document.getElementById('caption-position').value;
+    previewStage.style.alignItems=position==='top'?'start':position==='center'?'center':'end';
+    demo.style.fontFamily=`"${family}", sans-serif`;
+    demo.style.fontSize=(rendererSize*stageScale)+'px';
+    demo.style.fontWeight=style.bold?'800':'500';
+    demo.style.color=textColor;
+    demo.style.webkitTextStroke=(outline*stageScale)+'px '+document.getElementById('caption-outline').value;
+    demo.style.textShadow=shadowEnabled?`${2*stageScale}px ${2*stageScale}px ${Math.max(1,2*stageScale)}px rgba(0,0,0,.9)`:'none';
+    demo.style.backgroundColor=style.background?hexRgba(document.getElementById('caption-background').value,opacity/100):'transparent';
+    demo.style.border='0';
+    demo.style.padding=style.background?`${Math.max(3,8*stageScale)}px ${Math.max(6,14*stageScale)}px`:'0';
+    demo.style.opacity=enabled?'1':'.28';
+    document.getElementById('caption-opacity-value').textContent=opacity;
+    document.getElementById('caption-preview-meta').textContent=`1920×1080 · ${rendererSize}px renderer size`;
+    const status=document.getElementById('caption-font-status');
+    status.textContent='Loading '+family+'…';
+    try{await document.fonts.load(`700 ${Math.max(12,rendererSize*stageScale)}px "${family}"`);status.textContent=family+' loaded';}catch(_){status.textContent=family;}
+  }
+  ['captions-enabled','caption-karaoke-enabled','caption-words','caption-style','caption-font','caption-size','caption-position','caption-outline-width','caption-shadow','caption-opacity','caption-text','caption-outline','caption-highlight','caption-background'].forEach(id=>{const field=document.getElementById(id);field.addEventListener('input',captionPreview);field.addEventListener('change',captionPreview);});
+  new ResizeObserver(captionPreview).observe(previewStage);
+  captionPreview();
+  // V17.4 preset Intro/Music/SFX + permanent library controls.
+  const presetConfigs={{ preset_media_configs|tojson }};
+  let musicLibrary={{ music_library|tojson }};
+  let sfxLibrary={{ sfx_library|tojson }};
+  let currentPlaylist=[];
+  let previewAudio=null;
+  const byId=id=>document.getElementById(id);
+  const checked=(id,value)=>{const el=byId(id);if(el)el.checked=Boolean(value);};
+  const value=(id,v)=>{const el=byId(id);if(el)el.value=v??'';};
+  const safe=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const durationText=v=>{const n=Number(v||0);if(!n)return '—';const m=Math.floor(n/60),sec=Math.floor(n%60);return `${m}:${String(sec).padStart(2,'0')}`;};
+  const musicById=id=>musicLibrary.find(x=>x.asset_id===id);
+  function syncPresetHidden(){
+    byId('preset-music-playlist-json').value=JSON.stringify(currentPlaylist.map((x,i)=>({asset_id:x.asset_id,order:i+1,role:x.role||'general'})));
+    const cats=[...document.querySelectorAll('#ai-category-options input:checked')].map(x=>x.value);
+    byId('preset-ai-categories-json').value=JSON.stringify(cats);
+  }
+  function playAsset(kind,id,button){
+    if(previewAudio){previewAudio.pause();previewAudio=null;document.querySelectorAll('[data-previewing]').forEach(x=>{x.textContent='▶ Preview';x.removeAttribute('data-previewing');});}
+    const audio=new Audio(`/api/audio-library/${kind}/${encodeURIComponent(id)}/stream`);previewAudio=audio;button.textContent='■ Stop';button.dataset.previewing='1';
+    const reset=()=>{if(previewAudio===audio)previewAudio=null;button.textContent='▶ Preview';button.removeAttribute('data-previewing');};
+    audio.addEventListener('ended',reset,{once:true});audio.addEventListener('error',reset,{once:true});audio.play().catch(reset);
+  }
+  function renderPlaylist(){
+    const host=byId('preset-playlist');
+    if(!currentPlaylist.length){host.innerHTML='<div class="sb-empty">No manual tracks selected. Add tracks from the permanent Music Library or enable AI music selection.</div>';syncPresetHidden();return;}
+    host.innerHTML=currentPlaylist.map((row,index)=>{const asset=musicById(row.asset_id)||{};return `<div class="sb-playlist-row" draggable="true" data-index="${index}"><span class="sb-drag">☰</span><div class="sb-track-main"><strong>${index+1}. ${safe(asset.display_name||row.asset_id)}</strong><small>${safe(asset.category||'uncategorized')} · ${durationText(asset.duration)}</small></div><select data-role-index="${index}" aria-label="Track role"><option value="intro" ${row.role==='intro'?'selected':''}>Intro</option><option value="main" ${row.role==='main'?'selected':''}>Main</option><option value="outro" ${row.role==='outro'?'selected':''}>Outro</option><option value="general" ${(!row.role||row.role==='general')?'selected':''}>General</option></select><button type="button" class="button secondary mini" data-preview-music="${safe(row.asset_id)}">▶ Preview</button><button type="button" class="button secondary mini" data-up="${index}" ${index===0?'disabled':''}>↑</button><button type="button" class="button secondary mini" data-down="${index}" ${index===currentPlaylist.length-1?'disabled':''}>↓</button><button type="button" class="button secondary mini danger" data-remove="${index}">Remove</button></div>`;}).join('');
+    host.querySelectorAll('[data-role-index]').forEach(el=>el.addEventListener('change',()=>{currentPlaylist[Number(el.dataset.roleIndex)].role=el.value;syncPresetHidden();markUnsaved();}));
+    host.querySelectorAll('[data-preview-music]').forEach(el=>el.addEventListener('click',()=>playAsset('music',el.dataset.previewMusic,el)));
+    host.querySelectorAll('[data-up]').forEach(el=>el.addEventListener('click',()=>{const i=Number(el.dataset.up);[currentPlaylist[i-1],currentPlaylist[i]]=[currentPlaylist[i],currentPlaylist[i-1]];renderPlaylist();markUnsaved();}));
+    host.querySelectorAll('[data-down]').forEach(el=>el.addEventListener('click',()=>{const i=Number(el.dataset.down);[currentPlaylist[i+1],currentPlaylist[i]]=[currentPlaylist[i],currentPlaylist[i+1]];renderPlaylist();markUnsaved();}));
+    host.querySelectorAll('[data-remove]').forEach(el=>el.addEventListener('click',()=>{currentPlaylist.splice(Number(el.dataset.remove),1);renderPlaylist();renderMusicPicker();markUnsaved();}));
+    let dragFrom=null;host.querySelectorAll('.sb-playlist-row').forEach(row=>{row.addEventListener('dragstart',()=>dragFrom=Number(row.dataset.index));row.addEventListener('dragover',e=>e.preventDefault());row.addEventListener('drop',e=>{e.preventDefault();const to=Number(row.dataset.index);if(dragFrom===null||to===dragFrom)return;const [item]=currentPlaylist.splice(dragFrom,1);currentPlaylist.splice(to,0,item);dragFrom=null;renderPlaylist();markUnsaved();});});
+    syncPresetHidden();
+  }
+  function renderMusicPicker(){
+    const selected=new Set(currentPlaylist.map(x=>x.asset_id));
+    byId('music-picker-items').innerHTML=musicLibrary.length?musicLibrary.map(asset=>`<div class="sb-asset-pick"><div><strong>${safe(asset.display_name)}</strong><small>${safe(asset.category||'custom')} · ${durationText(asset.duration)}</small></div><button type="button" class="button secondary mini" data-picker-preview="${safe(asset.asset_id)}">▶ Preview</button><button type="button" class="button mini" data-add-track="${safe(asset.asset_id)}" ${selected.has(asset.asset_id)?'disabled':''}>${selected.has(asset.asset_id)?'Added':'+ Add'}</button></div>`).join(''):'<div class="sb-empty">Music Library is empty. Upload reusable tracks in Music & SFX Library.</div>';
+    byId('music-picker-items').querySelectorAll('[data-picker-preview]').forEach(el=>el.addEventListener('click',()=>playAsset('music',el.dataset.pickerPreview,el)));
+    byId('music-picker-items').querySelectorAll('[data-add-track]').forEach(el=>el.addEventListener('click',()=>{if(!selected.has(el.dataset.addTrack)){currentPlaylist.push({asset_id:el.dataset.addTrack,role:currentPlaylist.length===0?'intro':'main'});renderPlaylist();renderMusicPicker();markUnsaved();}}));
+  }
+  function renderAiCategories(selected=[]){
+    const cats=[...new Set(musicLibrary.map(x=>String(x.category||'custom')).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+    const chosen=new Set(selected.map(String));
+    byId('ai-category-options').innerHTML=cats.length?cats.map(cat=>`<label class="sb-chip-check"><input type="checkbox" value="${safe(cat)}" ${chosen.has(cat)?'checked':''}><span>${safe(cat)}</span></label>`).join(''):'<span class="sb-muted">Upload categorized music to create an AI selection pool.</span>';
+    byId('ai-category-options').querySelectorAll('input').forEach(el=>el.addEventListener('change',()=>{syncPresetHidden();markUnsaved();}));syncPresetHidden();
+  }
+  function loadPresetConfig(){
+    const preset=document.querySelector('[name=default_scene_preset]:checked')?.value||'custom';
+    const c=presetConfigs[preset]||{};
+    checked('preset-intro-enabled',c.intro_enabled);value('preset-intro-duration',c.intro_duration_seconds||15);checked('preset-visual-audit',c.first_two_minute_visual_audit_enabled);
+    checked('preset-music-enabled',c.music_enabled);checked('preset-music-ai',c.music_ai_select_from_library);value('preset-music-volume',c.music_volume_percent??12);byId('preset-music-volume-value').textContent=valueOr('preset-music-volume');
+    checked('preset-music-duck',c.music_ducking_enabled!==false);value('preset-duck-strength',c.music_ducking_strength||'medium');checked('preset-music-normalize',c.music_normalize!==false);checked('preset-music-loop',c.music_playlist_loop!==false);value('preset-music-crossfade',c.music_track_crossfade_seconds??1.5);checked('preset-track1-intro',c.music_use_track1_for_intro!==false);checked('preset-track1-main',c.music_allow_intro_track_in_main);
+    checked('preset-sfx-enabled',c.sfx_enabled);checked('preset-env-sfx',c.environment_sfx_enabled!==false);checked('preset-trans-sfx',c.transition_sfx_library_enabled!==false);value('preset-sfx-amount',c.sfx_amount||'medium');value('preset-env-volume',c.environment_sfx_volume_percent??18);byId('preset-env-volume-value').textContent=valueOr('preset-env-volume');value('preset-trans-volume',c.transition_sfx_volume_percent??24);byId('preset-trans-volume-value').textContent=valueOr('preset-trans-volume');checked('preset-auto-clean',c.auto_clean_project_after_drive!==false);byId('preset-auto-clean-confirmation').value=c.auto_clean_project_after_drive===false?'CLEAN OFF':'';
+    currentPlaylist=Array.isArray(c.music_playlist)?c.music_playlist.map(x=>({asset_id:String(x.asset_id||''),role:String(x.role||'general')})).filter(x=>musicById(x.asset_id)):[];
+    renderPlaylist();renderMusicPicker();renderAiCategories(Array.isArray(c.music_ai_allowed_categories)?c.music_ai_allowed_categories:[]);
+  }
+  function valueOr(id){return byId(id)?.value||'';}
+  ['preset-music-volume','preset-env-volume','preset-trans-volume'].forEach(id=>byId(id)?.addEventListener('input',()=>{const out=byId(id+'-value');if(out)out.textContent=byId(id).value;}));
+  byId('open-music-picker').addEventListener('click',()=>{byId('music-picker').hidden=false;renderMusicPicker();});byId('close-music-picker').addEventListener('click',()=>byId('music-picker').hidden=true);
+
+  function renderLibrary(kind){
+    const list=kind==='music'?musicLibrary:sfxLibrary;const host=byId(`${kind}-library-list`);const query=(byId(`${kind}-library-search`).value||'').toLowerCase().trim();const rows=list.filter(x=>!query||[x.display_name,x.category,(x.tags||[]).join(' ')].join(' ').toLowerCase().includes(query));
+    host.innerHTML=rows.length?rows.map(asset=>`<div class="sb-library-row"><div class="sb-track-main"><strong>${safe(asset.display_name)}</strong><small>${safe(asset.category||'custom')} · ${durationText(asset.duration)} · ${Math.max(1,Math.round(Number(asset.size_bytes||0)/1024/1024))} MB${asset.used_by_presets?.length?' · used by '+asset.used_by_presets.length+' preset(s)':''}</small><span>${safe((asset.tags||[]).join(', '))}</span></div><button type="button" class="button secondary mini" data-library-preview="${kind}:${safe(asset.asset_id)}">▶ Preview</button><button type="button" class="button secondary mini" data-library-edit="${kind}:${safe(asset.asset_id)}">Edit</button><button type="button" class="button secondary mini danger" data-library-delete="${kind}:${safe(asset.asset_id)}">Delete</button></div>`).join(''):'<div class="sb-empty">No matching assets.</div>';
+    host.querySelectorAll('[data-library-preview]').forEach(el=>el.addEventListener('click',()=>{const [k,id]=el.dataset.libraryPreview.split(':');playAsset(k,id,el);}));
+    host.querySelectorAll('[data-library-edit]').forEach(el=>el.addEventListener('click',async()=>{const [k,id]=el.dataset.libraryEdit.split(':');const source=(k==='music'?musicLibrary:sfxLibrary).find(x=>x.asset_id===id);const display_name=prompt('Display name',source?.display_name||'');if(display_name===null)return;const category=prompt('Category',source?.category||'custom');if(category===null)return;const tags=prompt('Tags, comma separated',(source?.tags||[]).join(', '));if(tags===null)return;const r=await fetch(`/api/audio-library/${k}/${encodeURIComponent(id)}/update`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({display_name,category,tags:tags.split(',').map(x=>x.trim()).filter(Boolean)})});if(!r.ok){alert(await r.text());return;}location.reload();}));
+    host.querySelectorAll('[data-library-delete]').forEach(el=>el.addEventListener('click',async()=>{const [k,id]=el.dataset.libraryDelete.split(':');if(!confirm('Permanently delete this reusable '+k+' asset?'))return;const r=await fetch(`/api/audio-library/${k}/${encodeURIComponent(id)}`,{method:'DELETE'});if(!r.ok){alert(await r.text());return;}location.reload();}));
+  }
+  async function uploadLibrary(kind,input){
+    if(!input.files?.length)return;const data=new FormData();[...input.files].forEach(file=>data.append('files',file));data.append('category','custom');input.disabled=true;try{const r=await fetch(`/api/audio-library/${kind}/upload`,{method:'POST',body:data});if(!r.ok){alert(await r.text());return;}location.reload();}finally{input.disabled=false;}
+  }
+  byId('music-library-upload').addEventListener('change',e=>uploadLibrary('music',e.target));byId('sfx-library-upload').addEventListener('change',e=>uploadLibrary('sfx',e.target));byId('music-library-search').addEventListener('input',()=>renderLibrary('music'));byId('sfx-library-search').addEventListener('input',()=>renderLibrary('sfx'));
+
+  const pexelsManager=byId('sb-pexels-key-manager');
+  if(pexelsManager){
+    const csrf=pexelsManager.dataset.csrf||'';
+    const message=byId('sb-pexels-key-message');
+    const input=byId('sb-pexels-new-key');
+    const addButton=byId('sb-pexels-add-key');
+    const list=byId('sb-pexels-key-list');
+    const total=byId('sb-pexels-total');
+    const setMessage=(text,error=false)=>{message.textContent=text;message.classList.toggle('error',Boolean(error));};
+    const renderPexelsKeys=payload=>{
+      total.textContent=String(payload.total_key_count??0);
+      const managed=Array.isArray(payload.keys)?payload.keys:[];
+      const envCount=Number(payload.environment_key_count||0);
+      const rows=managed.map(key=>`<div class="sb-key-row" data-key-id="${safe(key.key_id)}"><code>${safe(key.masked)}</code><span>Managed key</span><button type="button" class="button secondary mini" data-pexels-remove="${safe(key.key_id)}">Remove</button></div>`);
+      if(envCount>0)rows.push(`<div class="sb-key-row protected"><code>${envCount} server key${envCount===1?'':'s'}</code><span>Protected environment configuration</span><em>Read only</em></div>`);
+      if(!rows.length)rows.push('<div class="sb-empty">No Pexels keys configured.</div>');
+      list.innerHTML=rows.join('');
+      bindPexelsRemove();
+    };
+    const mutatePexels=async payload=>{
+      const response=await fetch('/api/settings/pexels-keys',{method:'POST',headers:{'Content-Type':'application/json','X-Settings-CSRF':csrf},body:JSON.stringify(payload)});
+      if(!response.ok)throw new Error((await response.text())||'Pexels key update failed');
+      return await response.json();
+    };
+    const bindPexelsRemove=()=>list.querySelectorAll('[data-pexels-remove]').forEach(button=>button.addEventListener('click',async()=>{
+      if(!confirm('Remove this Pexels API key?'))return;
+      button.disabled=true;setMessage('Removing key…');
+      try{renderPexelsKeys(await mutatePexels({action:'remove',key_id:button.dataset.pexelsRemove}));setMessage('Pexels key removed.');}
+      catch(error){setMessage(error.message||'Unable to remove key.',true);button.disabled=false;}
+    }));
+    addButton.addEventListener('click',async()=>{
+      const key=(input.value||'').trim();
+      if(!key){setMessage('Paste a Pexels API key first.',true);input.focus();return;}
+      addButton.disabled=true;input.disabled=true;setMessage('Adding key…');
+      try{renderPexelsKeys(await mutatePexels({action:'add',key}));input.value='';setMessage('Pexels key added and available for new media requests.');}
+      catch(error){setMessage(error.message||'Unable to add key.',true);}
+      finally{addButton.disabled=false;input.disabled=false;}
+    });
+    input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();addButton.click();}});
+    bindPexelsRemove();
+  }
+
+  const autoCleanToggle=byId('preset-auto-clean'),autoCleanModal=byId('auto-clean-confirm-modal'),autoCleanInput=byId('auto-clean-confirm-input'),autoCleanConfirm=byId('auto-clean-confirm-button'),autoCleanHidden=byId('preset-auto-clean-confirmation');
+  function closeAutoCleanConfirm(){autoCleanModal.hidden=true;autoCleanInput.value='';autoCleanConfirm.disabled=true;}
+  if(autoCleanToggle&&autoCleanModal){
+    autoCleanToggle.addEventListener('change',()=>{
+      if(autoCleanToggle.checked){autoCleanHidden.value='';markUnsaved();return;}
+      autoCleanToggle.checked=true;autoCleanHidden.value='';autoCleanModal.hidden=false;autoCleanInput.value='';autoCleanConfirm.disabled=true;setTimeout(()=>autoCleanInput.focus(),20);
+    });
+    autoCleanInput.addEventListener('input',()=>autoCleanConfirm.disabled=autoCleanInput.value.trim()!=='CLEAN OFF');
+    autoCleanConfirm.addEventListener('click',()=>{if(autoCleanInput.value.trim()!=='CLEAN OFF')return;autoCleanToggle.checked=false;autoCleanHidden.value='CLEAN OFF';closeAutoCleanConfirm();markUnsaved();});
+    autoCleanModal.querySelectorAll('[data-auto-clean-cancel]').forEach(el=>el.addEventListener('click',()=>{autoCleanToggle.checked=true;autoCleanHidden.value='';closeAutoCleanConfirm();}));
+  }
+  form.addEventListener('submit',()=>{clearTimeout(autoSaveTimer);syncPresetHidden();setSaveState('Saving...','#3568c9');});
+  renderLibrary('music');renderLibrary('sfx');loadPresetConfig();syncAllMirrors();
+  const selectedCard=document.querySelector('.sb-preset-item.selected');if(selectedCard&&byId('selected-preset-name'))byId('selected-preset-name').textContent=selectedCard.dataset.presetLabel||'Selected Preset';
+
+})();
+</script>
+
+<!-- SCENE_AUDIO_ENGINE_EMBED_V2 · UI_ONLY -->
+<style>
+.aev2-shell{margin-top:2px}.aev2-status{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 13px;margin:0 0 12px;border:1px solid #e3e7f0;border-radius:12px;background:#fff}.aev2-status strong{font-size:14px}.aev2-status span{font-size:12px;color:#667085}
+.aev2-tabs{display:flex;gap:7px;overflow-x:auto;padding:0 0 12px;scrollbar-width:thin}.aev2-tabs button,.aev2-inner-tabs button{border:1px solid #dfe4ee;background:#fff;border-radius:9px;padding:8px 13px;font-weight:750;white-space:nowrap;cursor:pointer}.aev2-tabs button.active,.aev2-inner-tabs button.active{background:#111827;color:#fff;border-color:#111827}.aev2-panel{display:none}.aev2-panel.active{display:block}
+.aev2-card{border:1px solid #e3e7f0;border-radius:12px;background:#fff;padding:14px;margin-bottom:12px}.aev2-card h4{margin:0 0 4px}.aev2-sub{font-size:12px;color:#667085;margin:0 0 12px}.aev2-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.aev2-grid.five{grid-template-columns:repeat(5,minmax(0,1fr))}.aev2-grid.four{grid-template-columns:repeat(4,minmax(0,1fr))}.aev2-field{display:flex;flex-direction:column;gap:5px;font-weight:650}.aev2-field span{font-size:12px}.aev2-field input,.aev2-field select{width:100%;min-height:38px}.aev2-toggle{display:flex;align-items:center;gap:8px;font-weight:700;font-size:12px}.aev2-toggle input{width:auto}.aev2-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.aev2-actions button{cursor:pointer}.aev2-summary{padding:10px 12px;margin-top:10px;border:1px solid #e1e6f0;border-radius:10px;background:#f7f8fb;color:#475467;font-size:12px}.aev2-section-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:18px 0 8px}.aev2-section-title h4{margin:0}.aev2-badge{font-size:10px;font-weight:800;padding:4px 8px;border-radius:999px;background:#eef2ff;color:#4056b5}.aev2-manual[aria-disabled="true"]{opacity:.72}.aev2-manual[aria-disabled="true"] input{background:#f8fafc}.aev2-studio-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.aev2-drop{border:1.5px dashed #c8d0df;border-radius:12px;padding:14px;background:#fafbfc}.aev2-drop strong{display:block;margin-bottom:5px}.aev2-drop input{width:100%;margin-top:9px}.aev2-audio-pair{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}.aev2-audio-box{border:1px solid #e3e7f0;border-radius:10px;padding:10px;background:#fafbfc}.aev2-audio-box audio,.aev2-output-list audio{width:100%;margin-top:8px}.aev2-output-row{display:grid;grid-template-columns:minmax(180px,1fr) 110px 1.2fr;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid #eef0f4}.aev2-output-row:last-child{border-bottom:0}.aev2-muted{font-size:12px;color:#667085}.aev2-good{color:#18794e}.aev2-bad{color:#b42318}.aev2-inner-tabs{display:flex;gap:7px;margin-bottom:10px}.aev2-library-pane{display:none}.aev2-library-pane.active{display:block}.aev2-compat{padding:10px 12px;border:1px solid #e3e7f0;border-radius:10px;background:#fafbfc}.aev2-compat .sb-section-head{margin-bottom:8px}.aev2-compat .sb-section-head h3{font-size:14px;margin:0}.aev2-compat .sb-control-grid{margin-bottom:0}.aev2-project-mix .sb-section-head>div>h3{font-size:14px}.aev2-library-wrap .sb-library-columns{display:block}.aev2-library-wrap .sb-library-card{margin:0}.aev2-library-wrap .sb-universal-label{display:none!important}
+@media(max-width:1100px){.aev2-grid.five{grid-template-columns:repeat(3,minmax(0,1fr))}.aev2-grid.four,.aev2-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:760px){.aev2-grid,.aev2-grid.four,.aev2-grid.five,.aev2-studio-grid,.aev2-audio-pair,.aev2-output-row{grid-template-columns:1fr}}
+</style>
+<script>
+(() => {
+  const audioPanel=document.querySelector('.sb-tab-panel[data-panel="audio"]');
+  const libraryPanel=document.querySelector('.sb-tab-panel[data-panel="library"]');
+  if(!audioPanel||!libraryPanel||audioPanel.dataset.aeUiV2==='1') return;
+  audioPanel.dataset.aeUiV2='1';
+
+  const voiceNodes=[...audioPanel.childNodes];
+  const presetAudio=libraryPanel.querySelector('.sb-preset-audio');
+  const libraryColumns=libraryPanel.querySelector('.sb-library-columns');
+  const universalLabel=libraryPanel.querySelector('.sb-universal-label');
+  const hiddenPlaylist=libraryPanel.querySelector('#preset-music-playlist-json');
+  const hiddenCats=libraryPanel.querySelector('#preset-ai-categories-json');
+  if(!presetAudio||!libraryColumns){ console.error('Audio Engine UI V2: source Music/SFX nodes missing'); return; }
+
+  audioPanel.innerHTML='';
+  libraryPanel.remove();
+
+  const shell=document.createElement('div'); shell.className='aev2-shell';
+  shell.innerHTML=`
+    <div class="aev2-status"><div><strong>Audio Engine</strong><div class="aev2-muted">Scene Builder audio workspace</div></div><span id="aev2-health">Checking engine…</span></div>
+    <nav class="aev2-tabs" aria-label="Audio Engine workspace">
+      <button type="button" class="active" data-aev2-tab="processing">Processing</button>
+      <button type="button" data-aev2-tab="ducking">Music Ducking</button>
+      <button type="button" data-aev2-tab="library">Library</button>
+      <button type="button" data-aev2-tab="studio">Studio</button>
+    </nav>
+
+    <section class="aev2-panel active" data-aev2-panel="processing">
+      <div class="aev2-card">
+        <h4>Audio Engine Processing</h4><p class="aev2-sub">These settings are also used by Studio for manual preview and output.</p>
+        <div class="aev2-grid">
+          <label class="aev2-field"><span>Preset</span><select id="aev2-preset"><option value="documentary">Documentary Voice</option></select></label>
+          <label class="aev2-field"><span>Mode</span><select id="aev2-mode"><option value="auto">Auto</option><option value="manual">Manual</option></select></label>
+          <label class="aev2-field"><span>Output format</span><select id="aev2-format"><option value="mp3">MP3 · 192 kbps</option><option value="wav">WAV · 48 kHz</option></select></label>
+        </div>
+        <div id="aev2-summary" class="aev2-summary">Loading preset settings…</div>
+      </div>
+
+      <div class="aev2-card">
+        <div class="aev2-section-title"><h4>Timing</h4><span class="aev2-badge">Audio Engine</span></div>
+        <div class="aev2-grid five">
+          <label class="aev2-field"><span>Narration starts after</span><input id="aev2-narration_start" type="number" min="0" max="60" step="0.1" value="2.5"></label>
+          <label class="aev2-field"><span>Music starts after</span><input id="aev2-music_start" type="number" min="0" max="60" step="0.1" value="0"></label>
+          <label class="aev2-field"><span>Music fade-in</span><input id="aev2-music_fade_in" type="number" min="0" max="30" step="0.1" value="2"></label>
+          <label class="aev2-field"><span>Narration fade-in</span><input id="aev2-narration_fade_in" type="number" min="0" max="5" step="0.05" value="0.1"></label>
+          <label class="aev2-field"><span>Music fade-out</span><input id="aev2-music_fade_out" type="number" min="0" max="30" step="0.1" value="3"></label>
+        </div>
+      </div>
+
+      <div class="aev2-card">
+        <div class="aev2-section-title"><h4>Voice Engineering</h4><span class="aev2-badge">Full controls</span></div>
+        <div class="aev2-actions" style="margin:0 0 10px"><label class="aev2-toggle"><input id="aev2-noise_enabled" type="checkbox"> Noise cleanup</label></div>
+        <div id="aev2-manual-voice" class="aev2-manual">
+          <div class="aev2-grid four">
+            <label class="aev2-field"><span>Noise floor (dB)</span><input id="aev2-noise_floor" type="number" min="-70" max="-20" step="1" value="-48"></label>
+            <label class="aev2-field"><span>Noise reduction (dB)</span><input id="aev2-noise_reduction" type="number" min="0.01" max="24" step="1" value="5"></label>
+            <label class="aev2-field"><span>High-pass (Hz)</span><input id="aev2-highpass" type="number" min="30" max="180" step="5" value="70"></label>
+            <label class="aev2-field"><span>De-esser</span><input id="aev2-deesser" type="number" min="0" max="1" step="0.05" value="0.18"></label>
+            <label class="aev2-field"><span>Bass EQ (dB)</span><input id="aev2-bass_gain" type="number" min="-8" max="8" step="0.5" value="0.8"></label>
+            <label class="aev2-field"><span>Mud control (dB)</span><input id="aev2-mud_gain" type="number" min="-8" max="8" step="0.5" value="-1.2"></label>
+            <label class="aev2-field"><span>Presence EQ (dB)</span><input id="aev2-presence_gain" type="number" min="-8" max="8" step="0.5" value="1.2"></label>
+            <label class="aev2-field"><span>Air EQ (dB)</span><input id="aev2-air_gain" type="number" min="-8" max="8" step="0.5" value="0.3"></label>
+            <label class="aev2-field"><span>Comp threshold</span><input id="aev2-comp_threshold" type="number" min="0.01" max="1" step="0.005" value="0.18"></label>
+            <label class="aev2-field"><span>Comp ratio</span><input id="aev2-comp_ratio" type="number" min="1" max="20" step="0.1" value="2.4"></label>
+            <label class="aev2-field"><span>Comp attack (ms)</span><input id="aev2-comp_attack" type="number" min="0.1" max="1000" step="1" value="12"></label>
+            <label class="aev2-field"><span>Comp release (ms)</span><input id="aev2-comp_release" type="number" min="1" max="5000" step="5" value="140"></label>
+            <label class="aev2-field"><span>Comp makeup</span><input id="aev2-comp_makeup" type="number" min="0" max="8" step="0.1" value="1"></label>
+            <label class="aev2-field"><span>Target loudness (LUFS)</span><input id="aev2-target_lufs" type="number" min="-24" max="-10" step="0.5" value="-16"></label>
+            <label class="aev2-field"><span>Loudness range (LRA)</span><input id="aev2-lra" type="number" min="1" max="20" step="0.5" value="10"></label>
+            <label class="aev2-field"><span>Limiter ceiling (dBTP)</span><input id="aev2-true_peak" type="number" min="-6" max="-0.1" step="0.1" value="-1.5"></label>
+            <label class="aev2-field"><span>Loudness trim (dB)</span><input id="aev2-output_gain_db" type="number" min="-12" max="12" step="0.5" value="0"></label>
+          </div>
+        </div>
+      </div>
+
+      <div class="aev2-card aev2-compat" id="aev2-voice-compat"></div>
+      <div class="aev2-card aev2-project-mix" id="aev2-project-mix"></div>
+    </section>
+
+    <!-- SCENE_AUDIO_ENGINE_DUCKING_TAB_V1 · UI_ONLY -->
+    <section class="aev2-panel" data-aev2-panel="ducking">
+      <div class="aev2-card">
+        <div class="aev2-section-title"><h4>Music Ducking</h4><span class="aev2-badge">Audio Engine</span></div>
+        <p class="aev2-sub">All Audio Engine music ducking and music-bed mastering controls are kept here.</p>
+        <div class="aev2-actions" style="margin:0 0 10px"><label class="aev2-toggle"><input id="aev2-duck_enabled" type="checkbox" checked> Auto Music Duck</label></div>
+        <div class="aev2-grid four">
+          <label class="aev2-field"><span>Duck depth (dB)</span><input id="aev2-duck_db" type="number" min="0" max="24" step="0.5" value="11"></label>
+          <label class="aev2-field"><span>Duck attack (ms)</span><input id="aev2-duck_attack" type="number" min="0.01" max="2000" step="5" value="25"></label>
+          <label class="aev2-field"><span>Duck release (ms)</span><input id="aev2-duck_release" type="number" min="0.01" max="9000" step="25" value="700"></label>
+          <label class="aev2-field"><span>Music bed trim (dB)</span><input id="aev2-music_level_db" type="number" min="-40" max="6" step="0.5" value="-2"></label>
+          <label class="aev2-field"><span>Music normalization target (LUFS)</span><input id="aev2-music_base_lufs" type="number" min="-35" max="-14" step="0.5" value="-24"></label>
+        </div>
+      </div>
+    </section>
+
+    <section class="aev2-panel" data-aev2-panel="library">
+      <div class="aev2-card aev2-library-wrap">
+        <div class="aev2-section-title"><h4>Library</h4><span class="aev2-badge">Permanent assets</span></div>
+        <nav class="aev2-inner-tabs" aria-label="Audio library">
+          <button type="button" class="active" data-aev2-library="music">Music</button>
+          <button type="button" data-aev2-library="sfx">SFX</button>
+        </nav>
+        <div class="aev2-library-pane active" data-aev2-library-pane="music" id="aev2-music-library"></div>
+        <div class="aev2-library-pane" data-aev2-library-pane="sfx" id="aev2-sfx-library"></div>
+      </div>
+    </section>
+
+    <section class="aev2-panel" data-aev2-panel="studio">
+      <div class="aev2-card">
+        <div class="aev2-section-title"><div><h4>Studio</h4><div class="aev2-muted">Manual audio only · uses the current Processing settings</div></div><span class="aev2-badge">Manual</span></div>
+        <div class="aev2-studio-grid">
+          <div class="aev2-drop"><strong>Input narration</strong><div class="aev2-muted">Select one or more files.</div><input id="aev2-files" type="file" multiple accept="audio/*,video/mp4,.aac,.flac,.m4a,.mp3,.mp4,.ogg,.opus,.wav"></div>
+          <div class="aev2-drop"><strong>Optional music</strong><div class="aev2-muted">Used only for this manual Studio job.</div><input id="aev2-music" type="file" accept="audio/*,.aac,.flac,.m4a,.mp3,.ogg,.opus,.wav"></div>
+        </div>
+        <div class="aev2-actions"><button type="button" class="button secondary" id="aev2-preview-btn">Preview 20s</button><button type="button" class="button" id="aev2-process-btn">Process</button><button type="button" class="button secondary" id="aev2-refresh">Refresh Outputs</button></div>
+        <div id="aev2-studio-message" class="aev2-muted" style="margin-top:9px"></div>
+        <div class="aev2-audio-pair">
+          <div class="aev2-audio-box"><strong>Original</strong><audio id="aev2-original" controls></audio></div>
+          <div class="aev2-audio-box"><strong>Processed Preview</strong><audio id="aev2-preview" controls></audio></div>
+        </div>
+      </div>
+      <div class="aev2-card"><div class="aev2-section-title"><h4>Output</h4><span class="aev2-badge">Manual jobs</span></div><div id="aev2-output-list" class="aev2-output-list"></div></div>
+    </section>`;
+  audioPanel.appendChild(shell);
+
+  const compat=shell.querySelector('#aev2-voice-compat');
+  voiceNodes.forEach(n=>compat.appendChild(n));
+  const voiceTitle=compat.querySelector('h3'); if(voiceTitle) voiceTitle.textContent='Scene Builder Project Narration';
+  const voiceP=compat.querySelector('.sb-section-head p'); if(voiceP) voiceP.textContent='Project narration compatibility controls.';
+
+  const projectMix=shell.querySelector('#aev2-project-mix');
+  if(hiddenPlaylist) projectMix.appendChild(hiddenPlaylist);
+  if(hiddenCats) projectMix.appendChild(hiddenCats);
+  projectMix.appendChild(presetAudio);
+  const mixHeading=document.createElement('div'); mixHeading.className='aev2-section-title'; mixHeading.innerHTML='<h4>Project Music & SFX</h4><span class="aev2-badge">Scene Builder project</span>'; projectMix.prepend(mixHeading);
+
+  const musicCard=libraryColumns.querySelector('.sb-library-card:nth-child(1)');
+  const sfxCard=libraryColumns.querySelector('.sb-library-card:nth-child(2)');
+  if(musicCard) shell.querySelector('#aev2-music-library').appendChild(musicCard);
+  if(sfxCard) shell.querySelector('#aev2-sfx-library').appendChild(sfxCard);
+  if(universalLabel) universalLabel.remove();
+
+  const topButtons=[...shell.querySelectorAll('[data-aev2-tab]')], topPanels=[...shell.querySelectorAll('[data-aev2-panel]')];
+  const openTop=name=>{topButtons.forEach(b=>b.classList.toggle('active',b.dataset.aev2Tab===name));topPanels.forEach(p=>p.classList.toggle('active',p.dataset.aev2Panel===name));localStorage.setItem('sceneBuilderAudioEngineTabV2',name);if(name==='studio')loadJobs();};
+  topButtons.forEach(b=>b.addEventListener('click',()=>openTop(b.dataset.aev2Tab)));
+  let savedTop=localStorage.getItem('sceneBuilderAudioEngineTabV2')||'processing'; if(!['processing','ducking','library','studio'].includes(savedTop))savedTop='processing'; openTop(savedTop);
+
+  const libButtons=[...shell.querySelectorAll('[data-aev2-library]')], libPanes=[...shell.querySelectorAll('[data-aev2-library-pane]')];
+  const openLibrary=name=>{libButtons.forEach(b=>b.classList.toggle('active',b.dataset.aev2Library===name));libPanes.forEach(p=>p.classList.toggle('active',p.dataset.aev2LibraryPane===name));localStorage.setItem('sceneBuilderAudioLibraryTab',name);};
+  libButtons.forEach(b=>b.addEventListener('click',()=>openLibrary(b.dataset.aev2Library))); openLibrary(localStorage.getItem('sceneBuilderAudioLibraryTab')==='sfx'?'sfx':'music');
+
+  const q=new URLSearchParams(location.search); if(q.get('tab')==='audio-engine')document.querySelector('.sb-subtabs [data-tab="audio"]')?.click();
+  if(sessionStorage.getItem('sbSettingsTab')==='library'){sessionStorage.setItem('sbSettingsTab','audio');document.querySelector('.sb-subtabs [data-tab="audio"]')?.click();}
+
+  const acsEmbed=new URLSearchParams(location.search).get('acs_audio_embed')==='1'; const B=acsEmbed?'/acs-audio-engine':'/audio-engine', sourceApp=acsEmbed?'acs':'scene_builder', externalPrefix=acsEmbed?'acs-manual-':'scene-builder-manual-', el=id=>document.getElementById(id); let presets={}, objectUrl='';
+  const numericKeys=['narration_start','music_start','music_fade_in','narration_fade_in','music_fade_out','noise_floor','noise_reduction','highpass','bass_gain','mud_gain','presence_gain','air_gain','deesser','comp_threshold','comp_ratio','comp_attack','comp_release','comp_makeup','target_lufs','lra','true_peak','output_gain_db','duck_db','duck_attack','duck_release','music_level_db','music_base_lufs'];
+  const setMsg=(text,bad=false)=>{const n=el('aev2-studio-message');if(!n)return;n.textContent=text||'';n.classList.toggle('aev2-bad',!!bad);n.classList.toggle('aev2-good',!bad&&!!text);};
+  const getVal=k=>el('aev2-'+k)?.value;
+  const setVal=(k,v)=>{const n=el('aev2-'+k);if(n&&v!==undefined&&v!==null)n.value=v;};
+
+  function updateMode(){const manual=el('aev2-mode').value==='manual';const host=el('aev2-manual-voice');host.setAttribute('aria-disabled',manual?'false':'true');host.querySelectorAll('input').forEach(i=>i.readOnly=!manual);updateSummary();saveProcessing();}
+  function updateSummary(){const p=presets[el('aev2-preset').value];const mode=el('aev2-mode').value.toUpperCase();el('aev2-summary').textContent=p?`${p.name} · ${mode} · ${getVal('target_lufs')} LUFS · duck ${getVal('duck_db')} dB · limiter ${getVal('true_peak')} dBTP`:`${mode} processing`;}
+  function processingState(){const o={preset:el('aev2-preset').value,mode:el('aev2-mode').value,output_format:el('aev2-format').value,noise_enabled:el('aev2-noise_enabled').checked,duck_enabled:el('aev2-duck_enabled').checked};numericKeys.forEach(k=>o[k]=getVal(k));return o;}
+  // SCENE_AUDIO_ENGINE_BACKEND_SETTINGS_UI_V1
+  let backendSaveTimer=null, backendSavePromise=Promise.resolve();
+  async function persistProcessingNow(){
+    const state=processingState();
+    try{localStorage.setItem('sceneBuilderAudioEngineProcessingV2',JSON.stringify(state));}catch(_){}
+    const r=await fetch(B+'/api/v1/settings/'+sourceApp,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(state)});
+    const d=await r.json(); if(!r.ok||!d.ok)throw new Error(d.error||'Could not save Audio Engine settings');
+    return d.settings||state;
+  }
+  function saveProcessing(){
+    try{localStorage.setItem('sceneBuilderAudioEngineProcessingV2',JSON.stringify(processingState()));}catch(_){}
+    clearTimeout(backendSaveTimer);
+    backendSaveTimer=setTimeout(()=>{backendSaveTimer=null;backendSavePromise=persistProcessingNow().catch(()=>null);},350);
+  }
+  async function flushProcessing(){
+    if(backendSaveTimer){clearTimeout(backendSaveTimer);backendSaveTimer=null;backendSavePromise=persistProcessingNow().catch(()=>null);}
+    await backendSavePromise;
+  }
+  function applyState(s){if(!s)return;if(s.preset&&presets[s.preset])el('aev2-preset').value=s.preset;if(s.mode)el('aev2-mode').value=s.mode;if(s.output_format)el('aev2-format').value=s.output_format;if('noise_enabled' in s)el('aev2-noise_enabled').checked=!!s.noise_enabled;if('duck_enabled' in s)el('aev2-duck_enabled').checked=!!s.duck_enabled;numericKeys.forEach(k=>{if(k in s)setVal(k,s[k]);});updateMode();}
+  function applyDefaults(key,keepMode=false){const d=presets[key]?.defaults||{};numericKeys.forEach(k=>{if(k in d)setVal(k,d[k]);});el('aev2-noise_enabled').checked=!!d.noise_enabled;el('aev2-duck_enabled').checked=(d.duck_enabled??true);if(!keepMode)el('aev2-mode').value='auto';updateMode();}
+
+  async function loadPresets(){try{const r=await fetch(B+'/api/v1/presets');const d=await r.json();presets=d.presets||d||{};const keys=Object.keys(presets);if(keys.length){el('aev2-preset').innerHTML=keys.map(k=>`<option value="${k}">${presets[k]?.name||presets[k]?.label||k}</option>`).join('');const fallback=keys.includes('documentary')?'documentary':keys[0];el('aev2-preset').value=fallback;applyDefaults(fallback);let saved=null;try{const sr=await fetch(B+'/api/v1/settings/'+sourceApp,{cache:'no-store'});const sd=await sr.json();if(sr.ok&&sd.ok&&sd.settings)saved=sd.settings;}catch(_){}if(!saved){try{saved=JSON.parse(localStorage.getItem('sceneBuilderAudioEngineProcessingV2')||'null');}catch(_){}}if(saved)applyState(saved);}}catch(_){updateSummary();}}
+  async function loadHealth(){try{const r=await fetch(B+'/health');const d=await r.json();if(!r.ok||!d.ok)throw new Error();el('aev2-health').textContent=`Online · ${d.queue?.running||0} running · ${d.free_gb??'—'} GB free`;el('aev2-health').className='aev2-good';}catch(_){el('aev2-health').textContent='Engine unavailable';el('aev2-health').className='aev2-bad';}}
+
+  el('aev2-preset').addEventListener('change',()=>applyDefaults(el('aev2-preset').value));
+  el('aev2-mode').addEventListener('change',updateMode);
+  shell.querySelectorAll('[id^="aev2-"] input,[id^="aev2-"] select').forEach(n=>{if(['aev2-files','aev2-music','aev2-preset','aev2-mode'].includes(n.id))return;n.addEventListener('change',()=>{updateSummary();saveProcessing();});n.addEventListener('input',()=>{updateSummary();saveProcessing();});});
+
+  function buildFD(preview=false){const files=el('aev2-files').files;if(!files.length)throw new Error('Select narration input first.');const fd=new FormData();if(preview)fd.append('file',files[0],files[0].name);else [...files].forEach(f=>fd.append('files',f,f.name));const music=el('aev2-music').files[0];if(music)fd.append('music_file',music,music.name);const state=processingState();fd.set('preset',state.preset||'documentary');fd.set('mode',state.mode||'auto');fd.set('output_format',state.output_format||'mp3');fd.set('source_app',sourceApp);fd.set('external_id',externalPrefix+Date.now());numericKeys.forEach(k=>fd.set(k,String(state[k]??'')));fd.set('duck_enabled',state.duck_enabled?'1':'0');fd.set('noise_enabled',state.noise_enabled?'1':'0');return fd;}
+
+  el('aev2-preview-btn').addEventListener('click',async()=>{const b=el('aev2-preview-btn');try{b.disabled=true;await flushProcessing();setMsg('Building preview…');const files=el('aev2-files').files;if(!files.length)throw new Error('Select narration input first.');if(objectUrl)URL.revokeObjectURL(objectUrl);objectUrl=URL.createObjectURL(files[0]);el('aev2-original').src=objectUrl;const r=await fetch(B+'/api/v1/preview',{method:'POST',body:buildFD(true)});const d=await r.json();if(!r.ok)throw new Error(d.error||'Preview failed');el('aev2-preview').src=(d.preview_url||'')+'?t='+Date.now();setMsg('Preview ready.');}catch(e){setMsg(e.message||'Preview failed',true);}finally{b.disabled=false;}});
+  el('aev2-process-btn').addEventListener('click',async()=>{const b=el('aev2-process-btn');try{b.disabled=true;await flushProcessing();setMsg('Submitting manual Studio job…');const r=await fetch(B+'/api/v1/jobs',{method:'POST',body:buildFD(false)});const d=await r.json();if(!r.ok)throw new Error(d.error||'Processing submit failed');setMsg(`${(d.jobs||[]).length} manual job(s) queued.`);await loadJobs();}catch(e){setMsg(e.message||'Submit failed',true);}finally{b.disabled=false;}});
+  async function loadJobs(){try{const r=await fetch(B+'/api/v1/jobs?limit=100');const d=await r.json();if(!r.ok)throw new Error(d.error||'Could not load outputs');const rows=(d.jobs||[]).filter(j=>String(j.external_id||'').startsWith(externalPrefix)).slice(0,30);el('aev2-output-list').innerHTML=rows.length?rows.map(j=>`<div class="aev2-output-row"><div><strong>${j.original_name||j.id}</strong><div class="aev2-muted">${j.external_id||j.id}</div></div><div><strong>${j.status}</strong><div class="aev2-muted">${Math.round(Number(j.progress||0))}%</div></div><div>${j.status==='completed'&&j.output_url?`<audio controls preload="none" src="${j.output_url}"></audio><div class="aev2-actions"><a class="button secondary mini" href="${j.output_url}" download>Download</a></div>`:(j.error?`<span class="aev2-bad">${String(j.error).slice(0,120)}</span>`:'—')}</div></div>`).join(''):'<div class="aev2-muted">No manual Studio outputs yet.</div>'; }catch(e){setMsg(e.message||'Could not load outputs',true);}}
+  el('aev2-refresh').addEventListener('click',()=>{loadJobs();loadHealth();});
+  // SCENE_AUDIO_ENGINE_SFX_OFF_MUSIC_MOVE_V1
+  (()=>{
+    const duckPanel=shell.querySelector('[data-aev2-panel="ducking"],[data-aev2-panel="music-ducking"],[data-aev2-panel="music_ducking"]');
+    const projectMix=shell.querySelector('#aev2-project-mix');
+    if(!duckPanel||!projectMix){ console.error('Audio UI cleanup: Music Ducking panel/project mix missing'); return; }
+
+    // Move music-specific timing out of Processing and into Music Ducking.
+    const timingFields=['aev2-music_start','aev2-music_fade_in','aev2-music_fade_out']
+      .map(id=>document.getElementById(id)?.closest('label')).filter(Boolean);
+    if(timingFields.length){
+      const timingCard=document.createElement('div');
+      timingCard.className='aev2-card'; timingCard.id='aev2-music-timing-card';
+      timingCard.innerHTML='<div class="aev2-section-title"><h4>Music Timing</h4><span class="aev2-badge">Music</span></div><div class="aev2-grid" id="aev2-music-timing-grid"></div>';
+      const grid=timingCard.querySelector('#aev2-music-timing-grid');
+      timingFields.forEach(n=>grid.appendChild(n));
+      const firstCard=duckPanel.querySelector('.aev2-card');
+      if(firstCard) firstCard.insertAdjacentElement('afterend',timingCard); else duckPanel.appendChild(timingCard);
+      const narrationStart=document.getElementById('aev2-narration_start');
+      const narrationCard=narrationStart?.closest('.aev2-card');
+      const h=narrationCard?.querySelector('.aev2-section-title h4'); if(h) h.textContent='Narration Timing';
+    }
+
+    // Move all remaining Scene Builder music settings under Music Ducking.
+    duckPanel.appendChild(projectMix);
+    const mixHeading=projectMix.querySelector('.aev2-section-title h4'); if(mixHeading) mixHeading.textContent='Project Music';
+    const mixBadge=projectMix.querySelector('.aev2-section-title .aev2-badge'); if(mixBadge) mixBadge.textContent='Scene Builder project';
+
+    // SFX is disabled and hidden from project settings.
+    const sfxChecks=['preset-sfx-enabled','preset-env-sfx','preset-trans-sfx'];
+    sfxChecks.forEach(id=>{const n=document.getElementById(id);if(!n)return;n.checked=false;n.dispatchEvent(new Event('change',{bubbles:true}));});
+    const sfxRanges=['preset-env-volume','preset-trans-volume'];
+    sfxRanges.forEach(id=>{const n=document.getElementById(id);if(!n)return;n.value='0';n.dispatchEvent(new Event('input',{bubbles:true}));n.dispatchEvent(new Event('change',{bubbles:true}));});
+    const amount=document.getElementById('preset-sfx-amount'); if(amount){amount.value='low';amount.dispatchEvent(new Event('change',{bubbles:true}));}
+    ['preset-sfx-enabled','preset-env-sfx','preset-trans-sfx','preset-sfx-amount','preset-env-volume','preset-trans-volume'].forEach(id=>{
+      const n=document.getElementById(id); const row=n?.closest('label'); if(row) row.style.display='none';
+    });
+    projectMix.querySelectorAll('label').forEach(row=>{if(/\bSFX\b/i.test(row.textContent||'')) row.style.display='none';});
+  })();
+  Promise.all([loadPresets(),loadHealth()]).then(loadJobs);
+})();
+</script>
+
+<!-- SCENE_SETTINGS_MODAL_REFACTOR_V1 -->
+<style>
+/* Compact Settings workspace: keep high-frequency choices visible and move dense controls into professional modals. */
+.sb-preset-actions{display:none!important}
+.sb-preset-item{cursor:pointer;transition:border-color .16s ease,box-shadow .16s ease,transform .16s ease}
+.sb-preset-item:hover{border-color:#c8c5ff;box-shadow:0 6px 18px rgba(33,37,82,.08);transform:translateY(-1px)}
+.sb-preset-item .sb-preset-card{cursor:pointer}
+.sb-modal-open{overflow:hidden}
+.sbm-backdrop{position:fixed;inset:0;z-index:9998;background:rgba(15,23,42,.46);backdrop-filter:blur(2px);display:none;align-items:center;justify-content:center;padding:18px}
+.sbm-backdrop.open{display:flex}
+.sbm-dialog{width:min(920px,96vw);max-height:88vh;background:#fff;border:1px solid #e2e5ee;border-radius:18px;box-shadow:0 24px 80px rgba(15,23,42,.22);display:flex;flex-direction:column;overflow:hidden}
+.sbm-dialog.small{width:min(560px,96vw)}
+.sbm-head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 18px;border-bottom:1px solid #e8eaf1;background:#fbfcff;position:sticky;top:0;z-index:2}
+.sbm-head h3{margin:0;font-size:18px}.sbm-head small{display:block;color:#667085;margin-top:2px}
+.sbm-close{border:0;background:#f0f2f7;width:34px;height:34px;border-radius:10px;font-size:21px;line-height:1;cursor:pointer;color:#344054}
+.sbm-body{padding:18px;overflow:auto;overscroll-behavior:contain}
+.sbm-foot{display:flex;justify-content:flex-end;gap:9px;padding:13px 18px;border-top:1px solid #e8eaf1;background:#fff;position:sticky;bottom:0}
+.sbm-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:14px}
+.sbm-action{border:1px solid #e2e5ee;background:#fff;border-radius:12px;padding:12px;text-align:left;cursor:pointer;font-weight:700;color:#344054}
+.sbm-action:hover{border-color:#b9b5ff;background:#f8f7ff}.sbm-action.danger{color:#b42318;background:#fffafa}.sbm-action.primary{background:#5c5ce6;color:#fff;border-color:#5c5ce6}
+.sbm-control-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-top:14px}
+.sbm-control-grid button{min-height:46px;border:1px solid #e2e5ee;background:#f9fafc;border-radius:11px;cursor:pointer;font-weight:700;color:#344054}
+.sbm-control-grid button:hover{border-color:#b9b5ff;background:#f6f5ff}
+.sbm-field{display:flex;flex-direction:column;gap:7px;margin-top:12px}.sbm-field span{font-size:12px;font-weight:750;color:#344054}.sbm-field input{width:100%;border:1px solid #d9dde8;border-radius:10px;padding:11px 12px;font:inherit}
+.sbm-note{padding:11px 12px;background:#f7f8fb;border:1px solid #e6e9f0;border-radius:11px;color:#667085;font-size:12px}
+.aev2-compact-launcher{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 14px;border:1px solid #e3e7f0;border-radius:13px;background:linear-gradient(135deg,#fff,#fafaff);margin-top:10px}
+.aev2-compact-launcher strong{display:block;font-size:14px}.aev2-compact-launcher small{display:block;color:#667085;margin-top:2px}.aev2-compact-launcher .button{white-space:nowrap}
+[data-aev2-panel="ducking"].aev2-modalized>.aev2-card,[data-aev2-panel="music-ducking"].aev2-modalized>.aev2-card,[data-aev2-panel="music_ducking"].aev2-modalized>.aev2-card{display:none!important}
+.aev2-processing-hidden{display:none!important}
+.sbm-body .aev2-card{display:block!important;margin:0 0 12px!important}
+.sbm-body .aev2-processing-hidden{display:block!important}
+.sbm-body #aev2-project-mix{display:block!important}
+@media(max-width:760px){
+ .sbm-backdrop{padding:0;align-items:flex-end}.sbm-dialog,.sbm-dialog.small{width:100vw;max-width:none;max-height:92vh;border-radius:18px 18px 0 0;border-bottom:0}
+ .sbm-body{padding:14px}.sbm-head{padding:14px}.sbm-foot{padding:12px 14px}.sbm-actions,.sbm-control-grid{grid-template-columns:1fr}
+ .aev2-compact-launcher{align-items:flex-start;flex-direction:column}.aev2-compact-launcher .button{width:100%}
+ .sb-preset-item:hover{transform:none}
+}
+</style>
+<script>
+(() => {
+  if(window.__sceneSettingsModalV1)return; window.__sceneSettingsModalV1=true;
+  const form=document.getElementById('settings-form'); if(!form)return;
+  const qs=(s,r=document)=>r.querySelector(s), qsa=(s,r=document)=>[...r.querySelectorAll(s)];
+  const overlay=document.createElement('div'); overlay.className='sbm-backdrop'; overlay.id='sbm-backdrop';
+  overlay.innerHTML=`<div class="sbm-dialog" id="sbm-dialog" role="dialog" aria-modal="true" aria-labelledby="sbm-title"><div class="sbm-head"><div><h3 id="sbm-title">Settings</h3><small id="sbm-subtitle"></small></div><button type="button" class="sbm-close" id="sbm-close" aria-label="Close">×</button></div><div class="sbm-body" id="sbm-body"></div><div class="sbm-foot" id="sbm-foot"><button type="button" class="button secondary" id="sbm-cancel">Close</button></div></div>`;
+  form.appendChild(overlay);
+  const dialog=qs('#sbm-dialog'), title=qs('#sbm-title'), subtitle=qs('#sbm-subtitle'), body=qs('#sbm-body'), foot=qs('#sbm-foot');
+  let restoreNodes=[];
+  const restoreMoved=()=>{restoreNodes.reverse().forEach(({node,ph})=>{if(ph.parentNode)ph.replaceWith(node)});restoreNodes=[];};
+  const closeModal=()=>{restoreMoved();overlay.classList.remove('open');document.body.classList.remove('sb-modal-open');body.innerHTML='';foot.innerHTML='<button type="button" class="button secondary" id="sbm-cancel">Close</button>';qs('#sbm-cancel')?.addEventListener('click',closeModal);dialog.classList.remove('small');};
+  const openModal=(t,sub='',small=false)=>{restoreMoved();body.innerHTML='';foot.innerHTML='<button type="button" class="button secondary" id="sbm-cancel">Close</button>';title.textContent=t;subtitle.textContent=sub;dialog.classList.toggle('small',!!small);overlay.classList.add('open');document.body.classList.add('sb-modal-open');qs('#sbm-cancel')?.addEventListener('click',closeModal);setTimeout(()=>qs('#sbm-close')?.focus(),0);};
+  qs('#sbm-close').addEventListener('click',closeModal);overlay.addEventListener('click',e=>{if(e.target===overlay)closeModal()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&overlay.classList.contains('open'))closeModal()});
+  const moveIntoModal=(nodes)=>{nodes.filter(Boolean).forEach(node=>{const ph=document.createComment('sbm-placeholder');node.parentNode.insertBefore(ph,node);restoreNodes.push({node,ph});body.appendChild(node)});};
+  const withPrompt=(value,fn)=>{const old=window.prompt;window.prompt=()=>value;try{fn()}finally{setTimeout(()=>{window.prompt=old},0)}};
+  const withConfirm=(fn)=>{const old=window.confirm;window.confirm=()=>true;try{fn()}finally{setTimeout(()=>{window.confirm=old},0)}};
+  const openTab=(name)=>{const b=qs(`.sb-subtabs [data-tab="${name}"]`);if(b){closeModal();b.click();setTimeout(()=>b.scrollIntoView({behavior:'smooth',block:'nearest',inline:'center'}),50)}};
+
+  /* Preset management: one clean modal per preset; reuse existing backend-bound buttons. */
+  qsa('.sb-preset-item').forEach(item=>{
+    item.setAttribute('tabindex','0');item.setAttribute('role','button');
+    const id=item.dataset.presetId||'', label=item.dataset.presetLabel||id, user=item.dataset.userPreset==='1';
+    const launch=(ev)=>{if(ev)ev.preventDefault();openModal(label,'Preset actions and controls',true);
+      const selected=qs(`input[name="default_scene_preset"][value="${CSS.escape(id)}"]`)?.checked;
+      body.innerHTML=`<div class="sbm-note">${selected?'Currently selected preset.':'Select this preset or manage it below.'}</div><div class="sbm-actions"><button type="button" class="sbm-action primary" id="sbm-select-preset">${selected?'Selected ✓':'Select preset'}</button><button type="button" class="sbm-action" id="sbm-duplicate-preset">Duplicate</button>${user?'<button type="button" class="sbm-action" id="sbm-rename-preset">Rename</button><button type="button" class="sbm-action danger" id="sbm-delete-preset">Delete</button>':''}</div><h4 style="margin:18px 0 0">Preset controls</h4><div class="sbm-control-grid"><button type="button" data-sbm-tab="timing">Timing</button><button type="button" data-sbm-tab="media">Stock Media</button><button type="button" data-sbm-tab="creative">Colour & Motion</button><button type="button" data-sbm-tab="captions">Captions</button><button type="button" data-sbm-tab="audio">Audio Engine</button><button type="button" data-sbm-tab="output">Output</button></div>`;
+      qs('#sbm-select-preset')?.addEventListener('click',()=>{const r=qs(`input[name="default_scene_preset"][value="${CSS.escape(id)}"]`);if(r){r.checked=true;r.dispatchEvent(new Event('change',{bubbles:true}));r.dispatchEvent(new Event('click',{bubbles:true}))}closeModal()});
+      qs('#sbm-duplicate-preset')?.addEventListener('click',()=>{closeModal();qs(`[data-preset-duplicate="${CSS.escape(id)}"]`)?.click()});
+      qs('#sbm-rename-preset')?.addEventListener('click',()=>{openModal('Rename preset',label,true);body.innerHTML=`<label class="sbm-field"><span>Preset name</span><input id="sbm-name" value="${String(label).replace(/&/g,'&amp;').replace(/"/g,'&quot;')}"></label>`;foot.innerHTML='<button type="button" class="button secondary" id="sbm-back">Cancel</button><button type="button" class="button" id="sbm-rename-go">Rename</button>';qs('#sbm-back').onclick=closeModal;qs('#sbm-rename-go').onclick=()=>{const v=qs('#sbm-name').value.trim();if(!v)return;closeModal();withPrompt(v,()=>qs(`[data-preset-rename="${CSS.escape(id)}"]`)?.click())}});
+      qs('#sbm-delete-preset')?.addEventListener('click',()=>{openModal('Delete preset',label,true);body.innerHTML='<div class="sbm-note" style="color:#b42318;background:#fff7f7">Delete this custom preset? This action uses the existing Scene Builder preset delete workflow.</div>';foot.innerHTML='<button type="button" class="button secondary" id="sbm-back">Cancel</button><button type="button" class="button danger" id="sbm-delete-go">Delete</button>';qs('#sbm-back').onclick=closeModal;qs('#sbm-delete-go').onclick=()=>{closeModal();withConfirm(()=>qs(`[data-preset-delete="${CSS.escape(id)}"]`)?.click())}});
+      qsa('[data-sbm-tab]',body).forEach(b=>b.addEventListener('click',()=>openTab(b.dataset.sbmTab)));
+    };
+    item.addEventListener('click',e=>{if(e.target.closest('input,button,a,select'))return;launch(e)});
+    item.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){launch(e)}});
+  });
+
+  const newBtn=qs('#preset-new');
+  if(newBtn){newBtn.addEventListener('click',e=>{if(newBtn.dataset.sbmBypass==='1'){newBtn.dataset.sbmBypass='0';return}e.preventDefault();e.stopImmediatePropagation();openModal('New preset','Create a reusable Scene Builder preset',true);body.innerHTML='<label class="sbm-field"><span>Preset name</span><input id="sbm-new-name" placeholder="e.g. Documentary Clean"></label>';foot.innerHTML='<button type="button" class="button secondary" id="sbm-new-cancel">Cancel</button><button type="button" class="button" id="sbm-new-go">Create preset</button>';qs('#sbm-new-cancel').onclick=closeModal;qs('#sbm-new-go').onclick=()=>{const v=qs('#sbm-new-name').value.trim();if(!v)return;closeModal();newBtn.dataset.sbmBypass='1';withPrompt(v,()=>newBtn.click())};setTimeout(()=>qs('#sbm-new-name')?.focus(),30)},true)}
+
+  /* Audio Engine Processing: keep preset/mode/output visible; move dense engineering cards into one modal. */
+  const proc=qs('[data-aev2-panel="processing"]');
+  if(proc){const cards=qsa(':scope > .aev2-card',proc);const dense=cards.slice(1);dense.forEach(c=>c.classList.add('aev2-processing-hidden'));if(dense.length){const launch=document.createElement('div');launch.className='aev2-compact-launcher';launch.innerHTML='<div><strong>Advanced Processing</strong><small>Narration timing, voice engineering and project narration controls.</small></div><button type="button" class="button secondary" id="aev2-open-processing-modal">Open Controls</button>';cards[0]?.insertAdjacentElement('afterend',launch);qs('#aev2-open-processing-modal')?.addEventListener('click',()=>{openModal('Audio Processing Controls','Advanced narration and voice engineering');moveIntoModal(dense)})}}
+
+  /* Music Ducking: collapse the long stack to a one-row launcher and show the real controls in a scrollable modal. */
+  const duck=qs('[data-aev2-panel="ducking"], [data-aev2-panel="music-ducking"], [data-aev2-panel="music_ducking"]');
+  if(duck){const duckCards=qsa(':scope > .aev2-card',duck);if(duckCards.length){duck.classList.add('aev2-modalized');const launch=document.createElement('div');launch.className='aev2-compact-launcher';launch.id='aev2-ducking-launcher';
+      const summary=()=>{const on=qs('#aev2-duck_enabled')?.checked;const db=qs('#aev2-duck_db')?.value;const bg=qs('#preset-music-enabled')?.checked;const vol=qs('#preset-music-volume')?.value||qs('[name="preset_music_volume_percent"]')?.value;return `${on?'Auto Duck ON':'Auto Duck OFF'}${db?` · ${db} dB`:''}${bg?' · Background music ON':''}${vol?` · ${vol}%`:''}`};
+      launch.innerHTML=`<div><strong>Music Ducking & Project Music</strong><small id="aev2-duck-compact-summary">${summary()}</small></div><button type="button" class="button secondary" id="aev2-open-ducking-modal">Open Controls</button>`;duck.insertBefore(launch,duck.firstChild);qs('#aev2-open-ducking-modal')?.addEventListener('click',()=>{openModal('Music Ducking Controls','Ducking, timing, project music and playlist');moveIntoModal(duckCards)});duck.addEventListener('input',()=>{const n=qs('#aev2-duck-compact-summary');if(n)n.textContent=summary()});duck.addEventListener('change',()=>{const n=qs('#aev2-duck-compact-summary');if(n)n.textContent=summary()})}}
+})();
+</script>
+
+\n
+
+<!-- AUDIO_ENGINE_SIMPLE_UI_FINAL_V1 -->
+<style>
+/* AUDIO_ENGINE_SIMPLE_UI_FINAL_V1: keep daily controls inline; only engineering values use small popups. */
+.aefx-popup-source{display:none!important}
+.aefx-modal-body .aefx-popup-source{display:block!important;margin:0!important}
+.aefx-mini-launcher{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 13px;margin:10px 0 12px;border:1px solid #e3e7f0;border-radius:12px;background:#fafbff}
+.aefx-mini-launcher strong{font-size:13px}.aefx-mini-launcher span{display:block;margin-top:2px;font-size:11px;color:#667085}
+.aefx-mini-launcher .button{white-space:nowrap}
+.aefx-modal{position:fixed;inset:0;z-index:1400;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(15,23,42,.46)}
+.aefx-modal.open{display:flex}.aefx-modal-card{width:min(920px,96vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;background:#fff;border:1px solid #e2e5ee;border-radius:16px;box-shadow:0 24px 80px rgba(15,23,42,.22)}
+.aefx-modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid #eceef3}.aefx-modal-head h3{margin:0;font-size:16px}.aefx-modal-head small{color:#667085}.aefx-modal-close{border:0;background:#f2f4f7;border-radius:9px;width:34px;height:34px;cursor:pointer;font-size:20px}
+.aefx-modal-body{padding:14px 16px;overflow:auto}.aefx-modal-foot{display:flex;justify-content:flex-end;padding:12px 16px;border-top:1px solid #eceef3}
+.aefx-studio-toolbar{display:grid;grid-template-columns:minmax(190px,1fr) auto;gap:10px;align-items:end;padding:12px;margin-bottom:12px;border:1px solid #e3e7f0;border-radius:12px;background:#fafbff}
+.aefx-studio-toolbar label{display:flex;flex-direction:column;gap:5px;font-weight:700;font-size:12px}.aefx-studio-toolbar select{min-height:38px;width:100%}.aefx-studio-note{font-size:11px;color:#667085;margin-top:4px}
+.aefx-studio-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.aefx-studio-grid .aev2-field{margin:0}
+@media(max-width:760px){.aefx-mini-launcher{align-items:flex-start;flex-direction:column}.aefx-mini-launcher .button{width:100%}.aefx-modal{padding:0;align-items:flex-end}.aefx-modal-card{width:100vw;max-width:none;max-height:92vh;border-radius:18px 18px 0 0;border-bottom:0}.aefx-studio-toolbar,.aefx-studio-grid{grid-template-columns:1fr}}
+</style>
+<script>
+(() => {
+  if(window.__audioEngineSimpleUiFinalV1)return;
+  window.__audioEngineSimpleUiFinalV1=true;
+  const form=document.getElementById('settings-form');
+  const shell=document.querySelector('.aev2-shell');
+  if(!form||!shell)return;
+  const $=(s,r=document)=>r.querySelector(s);
+  const $$=(s,r=document)=>[...r.querySelectorAll(s)];
+  const byId=id=>document.getElementById(id);
+
+  /* Undo only the earlier Audio Engine mega-modal treatment. Preset-management dialogs remain untouched. */
+  byId('aev2-open-processing-modal')?.closest('.aev2-compact-launcher')?.remove();
+  byId('aev2-ducking-launcher')?.remove();
+  $$('.aev2-processing-hidden',shell).forEach(n=>n.classList.remove('aev2-processing-hidden'));
+  const duckPanel=$('[data-aev2-panel="ducking"], [data-aev2-panel="music-ducking"], [data-aev2-panel="music_ducking"]',shell);
+  duckPanel?.classList.remove('aev2-modalized');
+  const musicTab=$('[data-aev2-tab="ducking"]',shell); if(musicTab)musicTab.textContent='Music';
+
+  /* Tiny reusable engineering popup. */
+  const modal=document.createElement('div'); modal.className='aefx-modal'; modal.id='aefx-modal';
+  modal.innerHTML='<div class="aefx-modal-card" role="dialog" aria-modal="true"><div class="aefx-modal-head"><div><h3 id="aefx-modal-title">Settings</h3><small id="aefx-modal-sub"></small></div><button type="button" class="aefx-modal-close" aria-label="Close">×</button></div><div class="aefx-modal-body" id="aefx-modal-body"></div><div class="aefx-modal-foot"><button type="button" class="button secondary" id="aefx-modal-done">Close</button></div></div>';
+  form.appendChild(modal);
+  const modalBody=byId('aefx-modal-body'), modalTitle=byId('aefx-modal-title'), modalSub=byId('aefx-modal-sub');
+  let restoreNode=null, restorePlaceholder=null, customClose=null;
+  const closeModal=()=>{
+    if(customClose){try{customClose();}catch(_){} customClose=null;}
+    if(restoreNode&&restorePlaceholder?.parentNode)restorePlaceholder.replaceWith(restoreNode);
+    restoreNode=null;restorePlaceholder=null;modalBody.innerHTML='';modal.classList.remove('open');document.body.classList.remove('sb-modal-open');
+  };
+  const openMoved=(node,title,sub)=>{
+    closeModal(); if(!node)return; restoreNode=node;restorePlaceholder=document.createComment('aefx-placeholder');node.parentNode.insertBefore(restorePlaceholder,node);modalBody.appendChild(node);modalTitle.textContent=title;modalSub.textContent=sub||'';modal.classList.add('open');document.body.classList.add('sb-modal-open');
+  };
+  const openCustom=(html,title,sub,onClose)=>{closeModal();modalBody.innerHTML=html;modalTitle.textContent=title;modalSub.textContent=sub||'';customClose=onClose||null;modal.classList.add('open');document.body.classList.add('sb-modal-open');};
+  modal.querySelector('.aefx-modal-close').addEventListener('click',closeModal);byId('aefx-modal-done').addEventListener('click',closeModal);modal.addEventListener('click',e=>{if(e.target===modal)closeModal()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&modal.classList.contains('open'))closeModal()});
+
+  /* Processing: narration timing/volume remain inline; only technical voice engineering is popup-only. */
+  const proc=$('[data-aev2-panel="processing"]',shell);
+  const productionSub=proc?.querySelector('.aev2-card .aev2-sub');if(productionSub)productionSub.textContent='Production Audio Engine settings for the selected Scene Builder preset.';
+  const voiceCard=proc ? $$('.aev2-card',proc).find(c=>c.querySelector('#aev2-noise_floor')||/Voice Engineering/i.test(c.textContent||'')) : null;
+  if(voiceCard){voiceCard.classList.add('aefx-popup-source');const launch=document.createElement('div');launch.className='aefx-mini-launcher';launch.innerHTML='<div><strong>Voice Engineering</strong><span>Noise cleanup, EQ, compressor, loudness and limiter.</span></div><button type="button" class="button secondary" id="aefx-open-voice">Voice Engineering</button>';voiceCard.insertAdjacentElement('afterend',launch);byId('aefx-open-voice').addEventListener('click',()=>openMoved(voiceCard,'Voice Engineering','Technical narration processing values only.'));}
+  byId('aev2-narration_fade_in')?.closest('label')?.style.setProperty('display','none','important');
+
+  /* Music: daily controls stay inline. Fade-out is preserved internally but hidden. */
+  byId('aev2-music_fade_out')?.closest('label')?.style.setProperty('display','none','important');
+  const duckCard=duckPanel ? $$('.aev2-card',duckPanel).find(c=>c.querySelector('#aev2-duck_db')) : null;
+  if(duckCard){
+    byId('aev2-duck_enabled')?.closest('.aev2-actions')?.style.setProperty('display','none','important');
+    duckCard.classList.add('aefx-popup-source');
+    const launch=document.createElement('div');launch.className='aefx-mini-launcher';launch.innerHTML='<div><strong>Ducking Settings</strong><span>Depth, attack, release and music-bed mastering values.</span></div><button type="button" class="button secondary" id="aefx-open-duck">Ducking Settings</button>';
+    duckPanel.insertBefore(launch,duckPanel.firstChild);byId('aefx-open-duck').addEventListener('click',()=>openMoved(duckCard,'Ducking Settings','Technical music ducking values only.'));
+  }
+
+  /* Project Music automation: Background Music is the master switch. */
+  const bg=byId('preset-music-enabled');
+  const hiddenProjectIds=['preset-music-ai','preset-music-duck','preset-duck-strength','preset-music-normalize','preset-music-loop','preset-music-crossfade','preset-track1-intro','preset-track1-main'];
+  hiddenProjectIds.forEach(id=>byId(id)?.closest('label')?.style.setProperty('display','none','important'));
+  $('.sb-ai-categories',shell)?.style.setProperty('display','none','important');
+  const setCheck=(id,value)=>{const n=byId(id);if(n)n.checked=!!value;};
+  const setValue=(id,value)=>{const n=byId(id);if(n)n.value=String(value);};
+  function syncProjectMusicAutomation(scheduleSave=false,syncAe=true){
+    const on=!!bg?.checked;
+    setCheck('preset-music-ai',false);
+    setCheck('preset-music-duck',on);
+    setValue('preset-duck-strength','medium');
+    setCheck('preset-music-normalize',true);
+    setCheck('preset-music-loop',true);
+    setValue('preset-music-crossfade','1.5');
+    setCheck('preset-track1-intro',false);
+    const aeDuck=byId('aev2-duck_enabled');
+    if(syncAe&&aeDuck&&aeDuck.checked!==on){aeDuck.checked=on;aeDuck.dispatchEvent(new Event('change',{bubbles:true}));}
+    if(scheduleSave)form.dispatchEvent(new Event('change',{bubbles:true}));
+  }
+  syncProjectMusicAutomation(true,false);
+  bg?.addEventListener('change',()=>syncProjectMusicAutomation(false,true));
+  byId('aev2-preset')?.addEventListener('change',()=>setTimeout(()=>syncProjectMusicAutomation(false,true),0));
+  setTimeout(()=>syncProjectMusicAutomation(false,true),900);
+  setTimeout(()=>syncProjectMusicAutomation(false,true),2200);
+
+  /* Studio is isolated from production settings. It never calls the production settings save endpoint. */
+  const studio=$('[data-aev2-panel="studio"]',shell);
+  const studioTitle=studio?.querySelector('.aev2-section-title .aev2-muted');if(studioTitle)studioTitle.textContent='Manual narration testing · processed inside the Scene Builder worker';
+  const studioGrid=studio?.querySelector('.aev2-studio-grid');
+  if(studio&&studioGrid){
+    const toolbar=document.createElement('div');toolbar.className='aefx-studio-toolbar';toolbar.innerHTML='<label>Studio Audio Preset<select id="aefx-studio-preset"><option value="documentary">Documentary Voice</option></select><span class="aefx-studio-note">Voice-only test · project music remains owned by Scene Builder.</span></label><button type="button" class="button secondary" id="aefx-studio-engineering">Voice Engineering</button>';
+    studioGrid.insertAdjacentElement('beforebegin',toolbar);
+  }
+  const studioPreset=byId('aefx-studio-preset');
+  const numericKeys=['narration_start','music_start','music_fade_in','narration_fade_in','music_fade_out','noise_floor','noise_reduction','highpass','bass_gain','mud_gain','presence_gain','air_gain','deesser','comp_threshold','comp_ratio','comp_attack','comp_release','comp_makeup','target_lufs','lra','true_peak','output_gain_db','duck_db','duck_attack','duck_release','music_level_db','music_base_lufs'];
+  const studioVoiceFields=[
+    ['noise_floor','Noise floor (dB)','-70','-20','1'],['noise_reduction','Noise reduction (dB)','0.01','24','1'],['highpass','High-pass (Hz)','30','180','5'],['deesser','De-esser','0','1','0.05'],
+    ['bass_gain','Bass EQ (dB)','-8','8','0.5'],['mud_gain','Mud control (dB)','-8','8','0.5'],['presence_gain','Presence EQ (dB)','-8','8','0.5'],['air_gain','Air EQ (dB)','-8','8','0.5'],
+    ['comp_threshold','Comp threshold','0.01','1','0.005'],['comp_ratio','Comp ratio','1','20','0.1'],['comp_attack','Comp attack (ms)','0.1','1000','1'],['comp_release','Comp release (ms)','1','5000','5'],
+    ['comp_makeup','Comp makeup','0','8','0.1'],['target_lufs','Target loudness (LUFS)','-24','-10','0.5'],['lra','Loudness range (LRA)','1','20','0.5'],['true_peak','Limiter ceiling (dBTP)','-6','-0.1','0.1'],['output_gain_db','Loudness trim (dB)','-12','12','0.5']
+  ];
+  const fallback={narration_start:0,music_start:0,music_fade_in:2,narration_fade_in:0.1,music_fade_out:3,noise_floor:-48,noise_reduction:5,highpass:70,bass_gain:0.8,mud_gain:-1.2,presence_gain:1.2,air_gain:0.3,deesser:0.18,comp_threshold:0.18,comp_ratio:2.4,comp_attack:12,comp_release:140,comp_makeup:1,target_lufs:-16,lra:10,true_peak:-1.5,output_gain_db:0,duck_db:11,duck_attack:25,duck_release:700,music_level_db:-2,music_base_lufs:-24};
+  let studioPresets={},studioState={preset:'documentary',mode:'manual',output_format:'mp3',noise_enabled:false,duck_enabled:true,...fallback},studioObjectUrl='';
+  function resetStudioState(key){const d=studioPresets[key]?.defaults||{};studioState={preset:key,mode:'manual',output_format:'mp3',noise_enabled:!!d.noise_enabled,duck_enabled:(d.duck_enabled??true),...fallback,...d,preset:key,mode:'manual',output_format:'mp3'};}
+  // SCENE_INTERNAL_AUDIO_STUDIO_UI_V1
+  async function loadStudioPresets(){try{const r=await fetch('/api/internal-audio/presets',{cache:'no-store'});const d=await r.json();studioPresets=d.presets||{};const keys=Object.keys(studioPresets);if(keys.length&&studioPreset){studioPreset.innerHTML=keys.map(k=>`<option value="${k}">${studioPresets[k]?.name||studioPresets[k]?.label||k}</option>`).join('');const start=keys.includes('documentary')?'documentary':keys[0];studioPreset.value=start;resetStudioState(start);}}catch(_){resetStudioState('documentary');}}
+  studioPreset?.addEventListener('change',()=>resetStudioState(studioPreset.value));
+  byId('aefx-studio-engineering')?.addEventListener('click',()=>{
+    const rows=studioVoiceFields.map(([k,label,min,max,step])=>`<label class="aev2-field"><span>${label}</span><input data-studio-key="${k}" type="number" min="${min}" max="${max}" step="${step}" value="${studioState[k]??''}"></label>`).join('');
+    openCustom(`<div class="aefx-studio-note" style="margin:0 0 10px">Temporary Studio values only. Closing this popup keeps them for this page session; production presets are not changed.</div><label class="aev2-toggle" style="margin-bottom:12px"><input id="aefx-studio-noise" type="checkbox" ${studioState.noise_enabled?'checked':''}> Noise cleanup</label><div class="aefx-studio-grid">${rows}</div>`,'Studio Voice Engineering','Manual test values only.');
+    byId('aefx-studio-noise')?.addEventListener('change',e=>{studioState.noise_enabled=!!e.target.checked});
+    $$('[data-studio-key]',modalBody).forEach(n=>n.addEventListener('input',()=>{studioState[n.dataset.studioKey]=n.value}));
+  });
+  function studioFD(){
+    const files=byId('aev2-files')?.files;if(!files?.length)throw new Error('Select narration input first.');
+    const fd=new FormData();fd.append('file',files[0],files[0].name);
+    fd.set('preset',studioState.preset||'documentary');fd.set('mode','manual');fd.set('source_app','scene_builder');fd.set('external_id','scene-builder-manual-'+Date.now());
+    numericKeys.forEach(k=>fd.set(k,String(studioState[k]??fallback[k]??'')));fd.set('noise_enabled',studioState.noise_enabled?'1':'0');return fd;
+  }
+  const studioMsg=(text,bad=false)=>{const n=byId('aev2-studio-message');if(!n)return;n.textContent=text||'';n.classList.toggle('aev2-bad',!!bad);n.classList.toggle('aev2-good',!bad&&!!text);};
+  async function runInternalStudio(label){
+    const files=byId('aev2-files')?.files;if(!files?.length)throw new Error('Select narration input first.');
+    if(studioObjectUrl)URL.revokeObjectURL(studioObjectUrl);studioObjectUrl=URL.createObjectURL(files[0]);if(byId('aev2-original'))byId('aev2-original').src=studioObjectUrl;
+    studioMsg(label+' narration inside Scene Builder worker…');
+    const r=await fetch('/api/internal-audio/studio/process',{method:'POST',body:studioFD()});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.detail||d.error||'Internal Studio processing failed');
+    if(!d.output_url)throw new Error('Internal Studio returned no output URL');const out=byId('aev2-preview');if(out)out.src=d.output_url+(d.output_url.includes('?')?'&':'?')+'t='+Date.now();
+    const qc=d.result?.qc||{};studioMsg('Internal Studio ready'+(qc.pass===true?' · QC passed':''));return d;
+  }
+  const oldPreview=byId('aev2-preview-btn');if(oldPreview){const b=oldPreview.cloneNode(true);oldPreview.replaceWith(b);b.addEventListener('click',async()=>{try{b.disabled=true;await runInternalStudio('Previewing');}catch(e){studioMsg(e.message||'Preview failed',true);}finally{b.disabled=false;}});}
+  const oldProcess=byId('aev2-process-btn');if(oldProcess){const b=oldProcess.cloneNode(true);oldProcess.replaceWith(b);b.addEventListener('click',async()=>{try{b.disabled=true;await runInternalStudio('Processing');}catch(e){studioMsg(e.message||'Processing failed',true);}finally{b.disabled=false;}});}
+  loadStudioPresets();
+})();
+</script>
+
+
+<!-- AUDIO_ENGINE_SCENE_STYLE_CLEANUP_V1 · UI_ONLY -->
+<style>
+.aev2-status{justify-content:flex-end;padding:0;margin:0 0 10px;border:0;background:transparent}
+.aev2-status>div{display:none!important}
+.aev2-sub,.aev2-badge,.aefx-mini-launcher span,.aefx-modal-head small,.aefx-studio-note,
+[data-aev2-panel="studio"] .aev2-section-title .aev2-muted,.aev2-drop .aev2-muted{display:none!important}
+[data-aev2-panel="processing"]>.aev2-card:first-child>h4{display:none!important}
+.aev2-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;overflow:visible;padding:6px;margin:0 0 14px;border:1px solid #dfe4ee;border-radius:13px;background:#f0f2f7}
+.aev2-tabs button{min-height:40px;border:0!important;border-radius:9px!important;background:transparent!important;color:#667085!important;padding:8px 11px!important;font-size:13px;font-weight:750;white-space:nowrap;box-shadow:none}
+.aev2-tabs button:hover{background:#f8f9fc!important;color:#344054!important}
+.aev2-tabs button.active{background:#fff!important;color:#5c5ce6!important;box-shadow:0 1px 3px rgba(16,24,40,.10)!important}
+.aev2-inner-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:5px;margin:0 0 12px;border:1px solid #dfe4ee;border-radius:12px;background:#f0f2f7}
+.aev2-inner-tabs button{min-height:38px;border:0!important;border-radius:8px!important;background:transparent!important;color:#667085!important;font-weight:750;box-shadow:none}
+.aev2-inner-tabs button.active{background:#fff!important;color:#5c5ce6!important;box-shadow:0 1px 3px rgba(16,24,40,.10)!important}
+.aev2-card,.aev2-audio-box,.aev2-drop,.aefx-mini-launcher,.aev2-library-wrap .sb-library-card{border-color:#e3e7f0!important;border-radius:12px!important;background:#fff!important;box-shadow:none!important}
+.aev2-card{padding:13px;margin-bottom:12px}
+.aev2-section-title{margin:12px 0 8px}
+.aefx-mini-launcher{padding:10px 12px}
+.aefx-mini-launcher strong{font-size:13px}
+.aev2-field span{color:#344054}
+#aev2-health{font-size:12px;font-weight:700}
+@media(max-width:760px){
+  .aev2-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .aev2-tabs button{white-space:normal}
+}
+</style>
+
+<!-- SCENE_TIMING_SINGLE_SOURCE_V1
+     One visible home for user-facing timeline placement controls.
+     Legacy Audio Engine timing inputs stay in the DOM for compatibility/persistence. -->
+<script id="scene-timing-single-source-v1">
+(()=>{
+  'use strict';
+
+  function hideField(id){
+    const field=document.getElementById(id);
+    const label=field?.closest('label');
+    if(label) label.style.setProperty('display','none','important');
+  }
+
+  function consolidateTiming(){
+    const timingPanel=document.querySelector('.sb-tab-panel[data-panel="timing"]');
+    const timingGrid=timingPanel?.querySelector('.sb-control-grid');
+    if(!timingPanel||!timingGrid) return;
+
+    // Opening Intro and Intro Duration are intentionally retired from the visible UI.
+    // Missing-ID access in the existing preset loader is already null-safe.
+    ['preset-intro-enabled','preset-intro-duration'].forEach(id=>{
+      document.getElementById(id)?.closest('label')?.remove();
+    });
+
+    // Keep the REAL Audio Engine music_start input, but give it one visible home:
+    // Scene Builder > Timing. Moving the node preserves listeners/persistence.
+    const musicStart=document.getElementById('aev2-music_start');
+    if(musicStart){
+      let host=document.getElementById('sb-music-start-after-host');
+      if(!host){
+        host=document.createElement('label');
+        host.id='sb-music-start-after-host';
+        host.innerHTML='<span><strong>Music Starts After</strong></span><div class="sb-number"><em>seconds</em></div>';
+        const audit=document.getElementById('preset-visual-audit')?.closest('label');
+        if(audit&&audit.parentElement===timingGrid) timingGrid.insertBefore(host,audit);
+        else timingGrid.appendChild(host);
+      }
+
+      if(!host.contains(musicStart)){
+        const oldLabel=musicStart.closest('label');
+        const numberWrap=host.querySelector('.sb-number');
+        const unit=numberWrap?.querySelector('em');
+        if(numberWrap){
+          if(unit) numberWrap.insertBefore(musicStart,unit);
+          else numberWrap.appendChild(musicStart);
+        }
+        if(oldLabel&&oldLabel!==host&&!oldLabel.contains(musicStart)) oldLabel.remove();
+      }
+      musicStart.min='0';
+      musicStart.max='60';
+      musicStart.step='0.1';
+      musicStart.setAttribute('aria-label','Music Starts After');
+    }
+
+    // No duplicate editable timing controls inside Audio Engine.
+    // Keep the underlying compatibility fields in DOM so existing preset/state code works.
+    ['aev2-narration_start','aev2-narration_fade_in','aev2-music_fade_in','aev2-music_fade_out'].forEach(hideField);
+
+    const narrationTimingCard=document.getElementById('aev2-narration_start')?.closest('.aev2-card');
+    if(narrationTimingCard) narrationTimingCard.style.setProperty('display','none','important');
+    const musicTimingCard=document.getElementById('aev2-music-timing-card');
+    if(musicTimingCard) musicTimingCard.style.setProperty('display','none','important');
+
+    // Manual Start is useful only when Narration Start = Manual.
+    const mode=document.getElementById('narration-start-mode');
+    const manualLabel=document.getElementById('narration-start-manual')?.closest('label');
+    const syncManual=()=>{
+      if(manualLabel) manualLabel.style.display=(mode?.value==='manual')?'':'none';
+    };
+    if(mode&&!mode.dataset.singleSourceBound){
+      mode.dataset.singleSourceBound='1';
+      mode.addEventListener('change',syncManual);
+    }
+    syncManual();
+  }
+
+  // Run after the older Audio Engine cleanup layers, and once more after async preset load.
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',()=>{
+      consolidateTiming();
+      setTimeout(consolidateTiming,900);
+    },{once:true});
+  }else{
+    consolidateTiming();
+    setTimeout(consolidateTiming,900);
+  }
+})();
+</script>
+
+
+<!-- ACS_AUDIO_ENGINE_COMPONENT_ONLY_V1 -->
+<style>
+html.acs-audio-component,html.acs-audio-component body{background:#f7f8fc!important;margin:0!important;padding:0!important;overflow:hidden!important}
+html.acs-audio-component #settings-form{max-width:none!important;width:100%!important;margin:0!important;padding:10px!important;box-sizing:border-box!important}
+</style>
+<script>
+(()=>{
+ const params=new URLSearchParams(location.search);
+ if(params.get('acs_audio_embed')!=='1')return;
+ let tries=0;
+ const boot=()=>{
+  tries++;
+  const form=document.getElementById('settings-form');
+  const audio=form?.querySelector('.sb-tab-panel[data-panel="audio"]');
+  const shell=audio?.querySelector('.aev2-shell');
+  if(!form||!audio||!shell){if(tries<60)setTimeout(boot,100);return;}
+  document.documentElement.classList.add('acs-audio-component');
+  if(form.parentElement!==document.body)document.body.appendChild(form);
+  [...document.body.children].forEach(n=>{
+   if(n===form||n.matches('script,style,.sbm-backdrop,.sb-confirm-modal'))return;
+   n.style.setProperty('display','none','important');
+  });
+  form.querySelector('.sb-settings-viewbar')?.style.setProperty('display','none','important');
+  form.querySelector('.sb-preset-context')?.style.setProperty('display','none','important');
+  form.querySelector('.sb-subtabs')?.style.setProperty('display','none','important');
+  form.querySelectorAll('.sb-tab-panel').forEach(p=>{
+   const keep=p.dataset.panel==='audio';
+   p.style.setProperty('display',keep?'block':'none','important');
+   p.classList.toggle('active',keep);
+  });
+  audio.style.setProperty('padding','0','important'); audio.style.setProperty('margin','0','important');
+  const tabs=[...shell.querySelectorAll('.aev2-tabs [data-aev2-tab]')];
+  const duck=tabs.find(x=>x.dataset.aev2Tab==='ducking'); if(duck)duck.textContent='Music';
+  const names=tabs.map(x=>(x.textContent||'').trim());
+  if(names.join('|')!=='Processing|Music|Library|Studio')console.error('ACS audio component contract mismatch',names);
+  const report=()=>{
+   const h=Math.max(form.scrollHeight,form.getBoundingClientRect().height,document.documentElement.scrollHeight)+4;
+   parent.postMessage({type:'acs-audio-engine-height',height:h},'*');
+  };
+  report(); setTimeout(report,120); setTimeout(report,700);
+  if(window.ResizeObserver)new ResizeObserver(report).observe(form);
+ };
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(boot,0),{once:true}); else setTimeout(boot,0);
+})();
+</script>
+{% endblock %}

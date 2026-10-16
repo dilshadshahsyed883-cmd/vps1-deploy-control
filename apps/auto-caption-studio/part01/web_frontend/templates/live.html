@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ app_name }}</title>
+<style>
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b172a;background:#f3f6fb;--blue:#2563eb;--green:#15803d;--red:#b91c1c;--line:#dce3ee}
+*{box-sizing:border-box}body{margin:0}.wrap{max-width:1580px;margin:0 auto;padding:20px}.top{display:flex;justify-content:space-between;gap:16px;align-items:flex-end;margin-bottom:16px}.top h1{margin:0 0 5px;font-size:25px}.muted{color:#64748b}.error{color:var(--red)}
+.summary{display:grid;grid-template-columns:repeat(6,minmax(130px,1fr));gap:12px;margin-bottom:16px}.card{background:#fff;border:1px solid var(--line);border-radius:15px;padding:16px;box-shadow:0 1px 2px rgba(15,23,42,.03)}.number{font-size:27px;font-weight:800;line-height:1}.label{font-size:13px;margin-top:8px;color:#64748b}
+.workers{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr));gap:12px;margin-bottom:16px}.worker{min-height:205px;display:flex;flex-direction:column}.worker-head{display:flex;justify-content:space-between;align-items:center;gap:10px}.worker h2{font-size:16px;margin:0}.badge{font-size:11px;font-weight:800;border-radius:999px;padding:5px 8px;background:#e2e8f0;color:#475569}.badge.working{background:#dbeafe;color:#1d4ed8}.badge.idle{background:#dcfce7;color:#166534}.badge.paused{background:#fef3c7;color:#92400e}.badge.offline,.badge.stopped{background:#fee2e2;color:#991b1b}.queue-count{margin-top:13px;font-size:13px;color:#64748b}.queue-count b{color:#0f172a}.project{font-weight:750;margin-top:13px}.one{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bar{height:8px;background:#edf1f7;border-radius:99px;margin-top:10px;overflow:hidden}.fill{height:100%;background:var(--blue)}.pct{font-weight:700;font-size:12px;margin-top:5px}.worker-actions{margin-top:auto;padding-top:14px}.control{width:100%;border:1px solid #f59e0b;background:#fffbeb;color:#92400e;border-radius:9px;padding:9px 10px;font-weight:800;cursor:pointer}.control.resume{border-color:#22c55e;background:#f0fdf4;color:#166534}.control:disabled{opacity:.55;cursor:wait}
+.section-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:0 0 12px}.section-head h2{margin:0;font-size:18px}.table-wrap{overflow:auto}.audit-table{width:100%;border-collapse:collapse;font-size:13px}.audit-table th,.audit-table td{padding:10px 9px;border-bottom:1px solid #e8edf5;text-align:right;white-space:nowrap}.audit-table th:first-child,.audit-table td:first-child{text-align:left}.audit-table th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#64748b}.audit-table tbody tr.batch-row{cursor:pointer}.audit-table tbody tr.batch-row:hover{background:#f8fafc}.good{color:var(--green);font-weight:700}.bad{color:var(--red);font-weight:700}.details{display:none;background:#f8fafc}.details.open{display:table-row}.details td{padding:0!important}.project-table{width:100%;border-collapse:collapse}.project-table th,.project-table td{padding:9px 12px;font-size:12px;text-align:left}.project-table th:nth-child(n+2),.project-table td:nth-child(n+2){text-align:center}.pill{display:inline-block;padding:3px 7px;border-radius:999px;background:#e8eef8;font-size:11px;font-weight:700}.pill.yes{background:#dcfce7;color:#166534}.pill.no{background:#fee2e2;color:#991b1b}.recent{margin-top:16px}.row{display:grid;grid-template-columns:minmax(0,1fr) 80px 100px;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid #e8edf5}.row:last-child{border-bottom:0}.row-main{min-width:0}a{color:var(--blue);text-decoration:none}
+@media(max-width:1150px){.summary{grid-template-columns:repeat(3,1fr)}.workers{grid-template-columns:repeat(2,1fr)}}@media(max-width:700px){.workers{grid-template-columns:1fr}.hide-mobile{display:none}.row{grid-template-columns:minmax(0,1fr) 55px}}@media(max-width:560px){.wrap{padding:12px}.summary{grid-template-columns:repeat(2,1fr)}.top{align-items:flex-start;flex-direction:column}}
+</style>
+
+<style id="acs-ui-overrides-v2">
+/* Universal Theme Integration */
+:root {
+  --sb-bg: #f8fafc;
+  --sb-card: #ffffff;
+  --sb-border: #e2e8f0;
+  --sb-accent: #4f46e5;
+  --sb-text: #0f172a;
+  --sb-muted: #64748b;
+  --sb-spacing-sm: 8px;
+  --sb-spacing-md: 16px;
+  --sb-spacing-lg: 24px;
+  --sb-radius: 12px;
+  --sb-radius-sm: 8px;
+  --bg: #f8fafc;
+  --panel: #ffffff;
+  --line: #e2e8f0;
+}
+body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-text) !important; font-family: 'Inter', system-ui, -apple-system, sans-serif !important; }
+
+/* 1. Remove forced heights and double scrollbars in ACS */
+.acs-shell, .acs-workspace, #acs-scroll-wrapper, .scroll-container, .main-scroll, div[style*="overflow-y: auto"], div[style*="overflow-y: scroll"], div[style*="height: 100vh"] {
+    height: auto !important;
+    max-height: none !important;
+    overflow-y: visible !important;
+}
+
+/* 2. Hide Auto Caption Studio Headers */
+.head h2, .head p, .acs-header-block, .page-header { display: none !important; }
+.head { margin-bottom: 0 !important; }
+
+/* 3. Normalize ACS subtabs to Scene Builder standard */
+.acs-subnav a.active, .sub-tabs a.active, .acs-tabs a.active, .nav-pills .nav-link.active, .story-work-tabs a.active, .tabs a.active {
+    background-color: #ffffff !important;
+    color: #2457d6 !important;
+    box-shadow: 0 3px 10px rgba(31,45,74,0.11) !important;
+    border: 1px solid #dce4ef !important;
+}
+.acs-subnav a, .sub-tabs a, .acs-tabs a, .tabs a {
+    color: #475467 !important;
+    font-weight: 800 !important;
+    background-color: transparent !important;
+}
+
+/* 4. Standardize worker card borders and margins */
+.worker-card, .status-card, .acs-card, .card {
+    border-left: 1px solid var(--sb-border) !important;
+    background-color: var(--sb-card) !important; 
+    border: 1px solid var(--sb-border) !important; 
+    border-radius: var(--sb-radius) !important; 
+    box-shadow: 0 1px 3px 0 rgba(0,0,0,0.1), 0 1px 2px 0 rgba(0,0,0,0.06) !important; 
+    padding: var(--sb-spacing-lg) !important;
+}
+</style>
+
+</head>
+<body>
+<main class="wrap">
+  <div class="top">
+    <div><h1>Auto Caption Studio Live</h1><div id="batch" class="muted">Loading…</div></div>
+    <div class="muted">Live queues · refreshes every 2 seconds · <span id="updated">Loading…</span></div>
+  </div>
+  <section class="summary" id="summary"></section>
+  <section class="workers" id="workers"></section>
+  <section class="card">
+    <div class="section-head"><h2>Live batch audit</h2><span class="muted">Click a batch for project details</span></div>
+    <div class="table-wrap"><table class="audit-table"><thead><tr><th>Batch</th><th>Total</th><th>Voice Ready</th><th>Drive Verified</th><th>Queued</th><th>Running</th><th>Failed</th><th>Other</th></tr></thead><tbody id="batchRows"><tr><td colspan="8" class="muted">Loading…</td></tr></tbody></table></div>
+  </section>
+  <section class="card recent"><div class="section-head"><h2>Recent projects</h2><span class="muted">Latest ACS activity</span></div><div id="projects"></div></section>
+</main>
+<script>
+const root=(location.pathname.startsWith('/auto-caption/')?'/auto-caption':'');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pct=n=>Math.max(0,Math.min(100,Number(n)||0));
+const openBatches=new Set();let controlBusy='';
+function currentLine(worker){const j=worker?.current;if(!j)return `<div class="project muted">${worker?.online?'Idle':'Worker offline'}</div><div class="one muted">${esc(worker?.runtime?.message||'Waiting for work')}</div>`;const p=pct(j.progress);return `<div class="project one">${esc(j.project_name||j.project_id||j.id)}</div><div class="one muted">${esc(j.message||j.current_stage||j.status||'Working')}</div>${j.progress==null?'':`<div class="bar"><div class="fill" style="width:${p}%"></div></div><div class="pct">${p}%</div>`}`}
+function renderWorkers(d){const definitions=[['voice','Algrow',d.pipeline_counts.algrow_queue],['render','Renderer',d.pipeline_counts.renderer_queue],['compress','Compressor',d.pipeline_counts.compression_queue],['upload','Drive uploader',d.pipeline_counts.upload_queue]];document.querySelector('#workers').innerHTML=definitions.map(([key,title,queue])=>{const worker=d.workers[key]||{state:'offline',paused:false,online:false};const state=worker.paused?'paused':worker.state||'offline';const action=worker.paused?'resume':'pause';const button=d.can_control?`<div class="worker-actions"><button class="control ${action==='resume'?'resume':''}" data-worker="${key}" data-action="${action}" ${controlBusy===key?'disabled':''}>${action==='resume'?'Resume':'Pause after current'}</button></div>`:'';return `<article class="card worker"><div class="worker-head"><h2>${title}</h2><span class="badge ${esc(state)}">${esc(state.toUpperCase())}</span></div><div class="queue-count"><b>${Number(queue)||0}</b> waiting</div>${currentLine(worker)}${button}</article>`}).join('');document.querySelectorAll('.control').forEach(button=>button.addEventListener('click',()=>setPipeline(button.dataset.worker,button.dataset.action)))}
+async function setPipeline(name,action){if(controlBusy)return;controlBusy=name;try{const response=await fetch(`${root}/api/acs-control/pipelines/${encodeURIComponent(name)}/${action}`,{method:'POST',headers:{'Accept':'application/json'}});const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.detail||`HTTP ${response.status}`);await refresh()}catch(error){document.querySelector('#updated').textContent=`Control failed: ${error.message}`;document.querySelector('#updated').className='error'}finally{controlBusy=''}}
+function renderBatchRows(batches){const body=document.querySelector('#batchRows');if(!batches.length){body.innerHTML='<tr><td colspan="8" class="muted">No batches found.</td></tr>';return}body.innerHTML=batches.map((b,i)=>{const key=`b${i}`;const other=(b.cancelled||0)+(b.other||0);const projects=(b.projects||[]).map(p=>{const link=p.drive_web_url||p.drive_remote_path;return `<tr><td>${esc(p.project_name)}</td><td><span class="pill ${p.voice_ready?'yes':'no'}">${p.voice_ready?'YES':'NO'}</span></td><td>${esc(p.status)}</td><td>${esc(p.stage)}</td><td>${esc(p.drive_status||'')}</td><td>${link?`<a href="${esc(link)}" target="_blank" rel="noopener">Drive</a>`:''}</td><td>${esc(p.error||'')}</td></tr>`}).join('');const isOpen=openBatches.has(key);return `<tr class="batch-row" data-key="${key}"><td><b>${esc(b.batch_id)}</b></td><td>${b.total}</td><td class="${b.voice_ready===b.total?'good':''}">${b.voice_ready}</td><td class="good">${b.completed_uploaded}</td><td>${b.queued}</td><td>${b.running}</td><td class="${b.failed?'bad':''}">${b.failed}</td><td>${other}</td></tr><tr class="details ${isOpen?'open':''}" data-detail="${key}"><td colspan="8"><div class="table-wrap"><table class="project-table"><thead><tr><th>Project</th><th>Voice</th><th>Job</th><th>Stage</th><th>Drive</th><th>Link</th><th>Error</th></tr></thead><tbody>${projects||'<tr><td colspan="7" class="muted">No projects.</td></tr>'}</tbody></table></div></td></tr>`}).join('');body.querySelectorAll('.batch-row').forEach(row=>row.addEventListener('click',()=>{const key=row.dataset.key;const detail=body.querySelector(`[data-detail="${key}"]`);if(!detail)return;detail.classList.toggle('open');if(detail.classList.contains('open'))openBatches.add(key);else openBatches.delete(key)}))}
+async function refresh(){try{const [liveResp,auditResp]=await Promise.all([fetch(`${root}/api/live`,{cache:'no-store'}),fetch(`${root}/api/live-audit`,{cache:'no-store'})]);if(!liveResp.ok)throw new Error(`Live HTTP ${liveResp.status}`);if(!auditResp.ok)throw new Error(`Audit HTTP ${auditResp.status}`);const d=await liveResp.json();const a=await auditResp.json();const b=d.active_batch;document.querySelector('#batch').textContent=b?`Active batch ${b.id.slice(0,8)} · ${b.category}`:'No active batch';document.querySelector('#updated').textContent=new Date(a.updated_at||d.updated_at).toLocaleTimeString();const c=d.pipeline_counts;const cards=[['Received from Drive',c.received_from_drive],['Algrow queue',c.algrow_queue],['Renderer queue',c.renderer_queue],['Compression queue',c.compression_queue],['Upload queue',c.upload_queue],['Google Drive verified',c.drive_verified]];document.querySelector('#summary').innerHTML=cards.map(x=>`<div class="card"><div class="number">${Number(x[1])||0}</div><div class="label">${x[0]}</div></div>`).join('');renderWorkers(d);renderBatchRows(a.batches||[]);document.querySelector('#projects').innerHTML=(d.recent_projects||[]).map(j=>{const link=j.drive_web_url||j.drive_remote_path;return `<div class="row"><div class="row-main"><div class="one"><b>${esc(j.project_name)}</b> · ${esc(j.category||'Uncategorized')}</div><div class="one muted">${esc(j.current_stage||j.status)} · ${esc(j.message||'')}</div></div><div class="pct">${pct(j.progress)}%</div><div class="hide-mobile">${link?`<a href="${esc(link)}" target="_blank" rel="noopener">Drive</a>`:esc(j.status)}</div></div>`}).join('')||'<div class="row muted">No projects yet.</div>';document.querySelector('#updated').className='muted'}catch(e){document.querySelector('#updated').textContent=`Update failed: ${e.message}`;document.querySelector('#updated').className='error'}}
+refresh();setInterval(refresh,2000);
+</script>
+</body>
+</html>

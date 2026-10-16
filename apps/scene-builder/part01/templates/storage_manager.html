@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}VPS Storage Manager{% endblock %}
+{% block subtitle %}Live resources, verified project cleanup and automatic retention{% endblock %}
+
+{% block content %}
+{% include "admin_workspace_nav.html" %}
+<link rel="stylesheet" href="/static/storage_manager.css?v=174">
+<div id="storage-app" data-csrf="{{ storage_csrf }}">
+  <section class="sm-hero">
+    <div>
+      <span class="sm-kicker">SYSTEM CONTROL</span>
+      <h2>Storage and resource command center</h2>
+      <p>Only allowlisted caches and projects with verified Drive delivery can be reclaimed.</p>
+      <div class="sm-inline-indicators"><span class="sm-compact-indicator {% if drive_connected %}online{% endif %}"><i></i>Google Drive · {% if drive_connected %}Connected{% else %}Attention{% endif %}</span></div>
+    </div>
+    <div class="sm-hero-actions">
+      <span id="manager-status" class="sm-status"><i></i> Connecting</span>
+      <button id="refresh-metrics" class="button secondary" type="button">Refresh metrics</button>
+      <button id="run-scan" class="button" type="button">Scan reclaimable space</button>
+      <button id="full-production-clean" class="button danger-button" type="button">Full Production Clean</button>
+    </div>
+  </section>
+
+  <section class="sm-metrics">
+    <article class="sm-metric">
+      <div><small>CPU</small><strong id="cpu-value">—</strong></div>
+      <span id="cpu-detail">Loading</span><div class="sm-bar"><i id="cpu-bar"></i></div>
+    </article>
+    <article class="sm-metric">
+      <div><small>RAM</small><strong id="ram-value">—</strong></div>
+      <span id="ram-detail">Loading</span><div class="sm-bar"><i id="ram-bar"></i></div>
+    </article>
+    <article class="sm-metric">
+      <div><small>DISK</small><strong id="disk-value">—</strong></div>
+      <span id="disk-detail">Loading</span><div class="sm-bar"><i id="disk-bar"></i></div>
+    </article>
+    <article class="sm-metric sm-reclaim">
+      <div><small>SAFE TO RECLAIM</small><strong id="reclaim-value">—</strong></div>
+      <span id="reclaim-detail">Run a verified scan</span>
+    </article>
+  </section>
+
+  <section class="sm-grid sm-overview-grid">
+    <article class="sm-panel">
+      <div class="sm-panel-head sm-service-panel-head">
+        <div><h3>Service health</h3><p>Live systemd state. Inactive allowlisted workers can be started safely without SSH.</p></div>
+        <span class="sm-service-control-note">Allowlisted controls</span>
+      </div>
+      <div id="service-grid" class="sm-service-grid"><div class="sm-loading">Loading services…</div></div>
+    </article>
+    <article class="sm-panel">
+      <div class="sm-panel-head"><div><h3>Highest resource processes</h3><p>Live CPU and memory consumers.</p></div></div>
+      <div id="process-list" class="sm-process-list"><div class="sm-loading">Loading processes…</div></div>
+    </article>
+  </section>
+
+  <section class="sm-panel sm-cleanup-panel">
+    <div class="sm-panel-head">
+      <div><h3>Safely reclaimable storage</h3><p>Select categories after reviewing the latest scan. Project eligibility is rechecked immediately before deletion.</p></div>
+      <div class="sm-head-actions">
+        <small id="scan-time">No scan loaded</small>
+        <button id="select-recommended" class="button secondary sm-small" type="button">Select recommended</button>
+      </div>
+    </div>
+    <div id="category-grid" class="sm-category-grid"><div class="sm-loading">Loading storage scan…</div></div>
+    <div class="sm-cleanup-footer">
+      <div><strong id="selected-total">0 B selected</strong><small>Permanent deletion; database history and Drive copies remain.</small></div>
+      <button id="reclaim-button" class="button danger-button" type="button" disabled>Reclaim selected storage</button>
+    </div>
+  </section>
+
+  <section class="sm-grid sm-policy-grid">
+    <article class="sm-panel">
+      <div class="sm-panel-head"><div><h3>Automatic cleanup policy</h3><p>Disabled by default. Every automatic run uses the same verification rules.</p></div></div>
+      <form id="policy-form" class="sm-policy-form">
+        <label class="sm-switch-row"><span><strong>Automatic cleanup</strong><small>Run without opening this page</small></span><span class="sm-switch"><input id="auto-enabled" type="checkbox"><i></i></span></label>
+        <label><span><strong>Trigger mode</strong><small>Low-space is the safest default</small></span><select id="auto-mode"><option value="low_space">Only below free-space target</option><option value="scheduled">Every scan interval</option></select></label>
+        <label><span><strong>Minimum free space</strong><small>Start cleanup below this level</small></span><div class="sm-unit"><input id="minimum-free" type="number" min="1" max="2000" step="0.5"><b>GB</b></div></label>
+        <label><span><strong>Project retention</strong><small>Wait after verified upload</small></span><div class="sm-unit"><input id="retention-hours" type="number" min="1" max="8760"><b>hours</b></div></label>
+        <label><span><strong>Scan interval</strong><small>Automatic policy check frequency</small></span><div class="sm-unit"><input id="scan-interval" type="number" min="5" max="1440"><b>minutes</b></div></label>
+        <label><span><strong>Journal retention</strong><small>Newest system logs remain</small></span><div class="sm-unit"><input id="journal-max" type="number" min="100" max="4096"><b>MB</b></div></label>
+        <label><span><strong>Temporary-file age</strong><small>Only older allowlisted files</small></span><div class="sm-unit"><input id="temp-days" type="number" min="1" max="90"><b>days</b></div></label>
+        <fieldset><legend>Automatic categories</legend><div id="auto-categories" class="sm-auto-categories"></div></fieldset>
+        <button class="button" type="submit">Save automatic policy</button>
+        <div id="policy-result" class="sm-result" hidden></div>
+      </form>
+    </article>
+
+    <article class="sm-panel">
+      <div class="sm-panel-head"><div><h3>Cleanup history</h3><p>Recorded results and reclaimed disk space.</p></div></div>
+      <div id="history-list" class="sm-history-list"><div class="sm-loading">Loading history…</div></div>
+    </article>
+  </section>
+
+  <section class="sm-panel">
+    <div class="sm-panel-head"><div><h3>Verified project candidates</h3><p>These local files already have successful Drive-delivery evidence.</p></div></div>
+    <div class="sm-table-wrap">
+      <div class="sm-table-head"><span>Application</span><span>Project</span><span>Local size</span><span>Verification</span></div>
+      <div id="project-candidates"><div class="sm-loading">No candidate details loaded.</div></div>
+    </div>
+  </section>
+
+  <dialog id="confirm-dialog" class="sm-dialog">
+    <form method="dialog">
+      <h3>Confirm permanent cleanup</h3>
+      <p>The selected local data will be permanently removed. Uploaded Drive files and database history will remain.</p>
+      <div id="confirm-summary" class="sm-confirm-summary"></div>
+      <label>Type <strong>RECLAIM</strong> to continue<input id="confirm-text" autocomplete="off" spellcheck="false"></label>
+      <div class="sm-dialog-actions"><button value="cancel" class="button secondary">Cancel</button><button id="confirm-run" value="default" class="button danger-button" disabled>Reclaim now</button></div>
+    </form>
+  </dialog>
+
+  <div id="storage-toast" class="sm-toast" hidden></div>
+</div>
+{% endblock %}
+
+{% block scripts %}<script src="/static/storage_manager.js?v=174"></script>{% endblock %}

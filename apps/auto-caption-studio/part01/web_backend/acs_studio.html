@@ -1,0 +1,1353 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Auto Caption Studio</title>
+<style>
+:root{
+  --bg:#f5f7fb;--panel:#ffffff;--panel2:#f8f9fd;--soft:#f0efff;--line:#e7eaf1;
+  --text:#152033;--muted:#738098;--blue:#5b5ce2;--blue2:#7a4ee8;--green:#16a36a;
+  --yellow:#e99a22;--red:#dc4c64;--shadow:0 10px 26px rgba(37,63,120,.06)
+}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+button,input,select{font:inherit}.top{height:64px;padding:0 24px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);background:#101526;position:sticky;top:0;z-index:20}
+.brand{display:flex;align-items:center;gap:12px}.logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,#6c63ff,#8e57ed);display:grid;place-items:center;font-weight:900}.brand h1{font-size:17px;margin:0;color:#fff}.brand small{color:#8790a8}.live{display:flex;gap:8px;align-items:center;color:#aeb6ca}.dot{width:9px;height:9px;border-radius:50%;background:var(--green);box-shadow:0 0 0 5px rgba(46,203,143,.08)}
+.shell{padding:18px 22px 30px}.workspace{max-width:1500px;margin:auto;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:#fff;box-shadow:var(--shadow)}
+.tabs{display:flex;gap:4px;padding:8px;border-bottom:1px solid #dfe6f3;background:#f3f6fb;overflow:auto}.tab{border:0;background:transparent;color:var(--muted);font-weight:700;padding:10px 14px;border-radius:9px;cursor:pointer;white-space:nowrap}.tab:hover{background:#eceeff;color:#4546bc}.tab.active{background:#5556df;color:white;box-shadow:0 7px 18px rgba(85,86,223,.18)}.tab-link{text-decoration:none;display:inline-flex;align-items:center}
+.page{display:none;padding:18px}.page.active{display:block}.head{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-bottom:16px}.head h2{margin:0;font-size:20px}.head p{margin:3px 0 0;color:var(--muted)}.actions{display:flex;gap:8px;flex-wrap:wrap}
+.btn{border:1px solid #dfe3ec;background:#fff;color:#152033;padding:9px 12px;border-radius:9px;font-weight:700;cursor:pointer}.btn:hover{background:#f0efff;border-color:#c9c8ff;color:#4546bc}.btn.primary{background:#5b5ce2;border-color:#5b5ce2;color:#fff}.btn.green{background:#e9fbf2;border-color:#bdebd2;color:#117443}.btn.red{background:#fff0f2;border-color:#ffd8df;color:#dc4c64}.btn.ghost{background:transparent}
+.grid{display:grid;gap:14px}.g4{grid-template-columns:repeat(4,minmax(0,1fr))}.g3{grid-template-columns:repeat(3,minmax(0,1fr))}.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.card{border:1px solid var(--line);border-radius:13px;background:var(--panel);padding:15px}.card h3{margin:0 0 11px;font-size:14px}.metric b{display:block;font-size:25px}.metric span,.small{font-size:12px;color:var(--muted)}
+.badge{display:inline-flex;padding:4px 8px;border:1px solid var(--line);border-radius:99px;color:var(--muted);font-size:11px}.badge.good{background:#e7f8f0;border-color:#bdebd4;color:#16a36a}.badge.warn{background:#fff3de;border-color:#f1d39e;color:#b96f00}.save-state{font-size:12px;font-weight:800;color:#117443;padding:5px 9px;border:1px solid #bdebd2;background:#e9fbf2;border-radius:999px;white-space:nowrap}
+.field{display:grid;gap:6px}.field label{font-size:12px;color:var(--muted);font-weight:700}input[type=text],input[type=password],input[type=number],select{width:100%;border:1px solid #dfe3ec;background:#fff;color:#152033;border-radius:8px;padding:9px 10px;outline:none}input:focus,select:focus{border-color:var(--blue)} input[readonly]{color:#738098;background:#f7f8fc}input[type=color]{width:100%;height:38px;border:1px solid #dfe3ec;border-radius:8px;background:#fff;padding:3px}input[type=range]{width:100%}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.check{display:flex;align-items:center;gap:8px}.check input{accent-color:var(--blue)}.setting{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:10px 0;border-bottom:1px solid #e7eaf1}.setting:last-child{border-bottom:0}.setting small{display:block;color:var(--muted);margin-top:2px}
+.toggle{position:relative;width:44px;height:24px;display:inline-block}.toggle input{display:none}.slider{position:absolute;inset:0;border-radius:99px;background:#d8dce6;cursor:pointer}.slider:before{content:"";position:absolute;width:18px;height:18px;left:3px;top:3px;border-radius:50%;background:white;transition:.18s}.toggle input:checked+.slider{background:var(--blue)}.toggle input:checked+.slider:before{transform:translateX(20px)}
+.queue{width:100%;border-collapse:collapse}.queue th,.queue td{padding:11px 9px;border-bottom:1px solid #e7eaf1;text-align:left}.queue th{font-size:11px;color:var(--muted);text-transform:uppercase}.progress{height:7px;background:#edf0f5;border-radius:99px;overflow:hidden}.progress i{display:block;height:100%;background:#5b5ce2}
+.drop{border:1px dashed #c9d1df;border-radius:14px;background:#fafbfe;padding:28px;text-align:center;color:var(--muted)}.drop strong{display:block;color:var(--text);font-size:15px;margin-bottom:5px}
+.preset-grid{display:grid;grid-template-columns:repeat(5,minmax(160px,1fr));gap:10px}.preset{border:1px solid #dfe6f3;background:#fafbfe;border-radius:12px;padding:13px;cursor:pointer;min-height:116px}.preset:hover{border-color:#aeb9ff;transform:translateY(-1px)}.preset.active{border-color:#5b5ce5;box-shadow:0 0 0 2px rgba(91,92,229,.10);background:#f5f5ff}.preset b{display:block;margin-bottom:5px}.preset .tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:10px}.tag{font-size:10px;padding:3px 6px;border-radius:99px;background:#efefff;color:#5556df}
+.preview-box{margin-top:14px;border:1px solid #dfe6f3;border-radius:14px;overflow:hidden;background:#f7f9fd}.preview-toolbar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#fff;border-bottom:1px solid #dfe6f3}.stage{width:100%;aspect-ratio:16/9;height:auto;position:relative;display:flex;align-items:flex-end;justify-content:center;padding:32px;background:linear-gradient(rgba(3,9,18,.12),rgba(3,9,18,.58)),radial-gradient(circle at 22% 22%,#315664 0 12%,transparent 13%),linear-gradient(140deg,#648892,#193843 45%,#101d2b)}.mountains{position:absolute;inset:0;opacity:.35;background:linear-gradient(158deg,transparent 0 52%,#0d242e 53% 66%,transparent 67%),linear-gradient(195deg,transparent 0 61%,#264b53 62% 75%,transparent 76%)}.safe{position:absolute;inset:8%;border:1px dashed rgba(255,255,255,.17);border-radius:10px}.caption{z-index:2;width:76%;text-align:center;font-size:46px;font-weight:800;line-height:1.12;color:white;text-shadow:0 3px 14px rgba(0,0,0,.72);margin-bottom:8%}.caption span{color:#ffd75b}
+.subtabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}.pill{border:1px solid #dfe6f3;background:#f3f6fb;color:#5d6882;padding:7px 10px;border-radius:99px;cursor:pointer}.pill.active{background:#5556df;border-color:#5556df;color:white}
+.control-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.section{border:1px solid #e1e7f1;border-radius:11px;padding:12px;background:#fafbfe}.section h4{margin:0 0 10px;font-size:12px;color:#152033}.two{display:grid;grid-template-columns:1fr 1fr;gap:9px}.three{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}.notice{padding:10px 12px;border-radius:9px;border:1px solid #d9dcf1;background:#f6f7ff;color:#59657e}.folder{display:grid;grid-template-columns:1.1fr .8fr .7fr .7fr auto;gap:8px;align-items:center;padding:10px;border-bottom:1px solid #e7eaf1}.folder:last-child{border-bottom:0}.folder code{color:#738098;font-size:11px}.profile{display:grid;grid-template-columns:1.2fr .8fr 1fr 1fr .6fr auto;gap:8px;align-items:center;padding:10px;border-bottom:1px solid #e7eaf1}.profile:last-child{border-bottom:0}
+@media(max-width:1100px){.g4,.g3,.g2,.control-grid{grid-template-columns:1fr 1fr}.preset-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:700px){.shell{padding:10px}.page{padding:12px}.g4,.g3,.g2,.control-grid,.two,.three,.preset-grid{grid-template-columns:1fr}.stage{height:430px}.folder,.profile{grid-template-columns:1fr}.top{padding:0 13px}}
+.preset-video-frame{position:relative;width:100%;aspect-ratio:16/9;background:#07121c;overflow:hidden}.preset-video-frame video{display:none;width:100%;height:100%;object-fit:contain;background:#07121c}.preset-video-placeholder{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:28px;color:#d5deea;background:linear-gradient(145deg,#35545d,#102934 52%,#0c1722)}.preset-video-placeholder.hidden{display:none}.preview-placeholder-actions{display:flex;justify-content:center;gap:9px;margin-top:14px;flex-wrap:wrap}.preview-meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;background:#fff;border-top:1px solid #dfe6f3}.preview-ref-upload{display:none}.preview-play-overlay{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:7;width:74px;height:74px;border-radius:50%;border:2px solid rgba(255,255,255,.9);background:rgba(0,0,0,.58);color:#fff;font-size:30px;display:none;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 8px 30px rgba(0,0,0,.35)}.preview-play-overlay:hover{background:rgba(0,0,0,.72)}.preview-render-overlay{position:absolute;inset:0;z-index:6;display:none;place-items:center;background:rgba(4,13,22,.42);color:#fff;text-align:center;pointer-events:none}.preview-render-overlay.show{display:grid}.preview-render-card{padding:13px 18px;border-radius:12px;background:rgba(4,13,22,.78);backdrop-filter:blur(5px);font-weight:800}.layout-guides-control{font-size:12px;color:#556070;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.main-live-layer{position:absolute;inset:0;pointer-events:none;z-index:8;display:none}.main-live-layer.guides-on{display:block}.preview-guide-box{position:absolute;border:2px dashed #ff2d2d;background:rgba(255,45,45,.035);box-sizing:border-box}.preview-guide-box span{position:absolute;left:5px;top:5px;background:rgba(0,0,0,.72);color:#fff;padding:2px 5px;border-radius:4px;font-size:10px}.preview-guide-text{border-color:#ff2d2d}.preview-guide-fg{border-color:#29d3ff;background:rgba(41,211,255,.035)}.preview-guide-center-v,.preview-guide-center-h{position:absolute;background:rgba(255,255,255,.42)}.preview-guide-center-v{top:0;bottom:0;left:50%;width:1px}.preview-guide-center-h{left:0;right:0;top:50%;height:1px}.inline-status{display:inline-flex;align-items:center;min-height:34px}.inline-status{display:inline-flex;align-items:center;min-height:34px}.category-tools{display:flex;gap:6px;align-items:center}.category-tools select{min-width:180px;flex:1}.range-readout{display:flex;align-items:center;gap:8px}.range-readout input[type=range]{flex:1}.range-readout output{min-width:44px;text-align:right;font-size:12px;color:var(--muted);font-weight:700}.visual-plan-card{margin-top:14px}.visual-plan-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.visual-plan-file{display:none}.progress-shell{height:9px;border-radius:999px;background:#e8ecf5;overflow:hidden;margin-top:10px}.progress-bar{height:100%;width:0%;background:#5b5ce2;transition:width .25s ease}.font-auto-status{margin-top:7px;padding:7px 9px;border-radius:8px;background:#f6f7fb;border:1px solid #e3e7f1}.bg-control-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.bg-control-grid .wide{grid-column:1/-1}@media(max-width:760px){.bg-control-grid{grid-template-columns:1fr}}.instant-live-preview{position:absolute;inset:0;display:block;overflow:hidden;background:#102934;z-index:1}.instant-live-bg,.instant-live-fg{position:absolute;user-select:none;pointer-events:none}.instant-live-bg{inset:0;width:100%;height:100%;object-fit:cover;z-index:1}.instant-live-fallback{position:absolute;inset:0;z-index:0;background:linear-gradient(145deg,#35545d,#102934 52%,#0c1722)}.instant-live-fg{z-index:3;transform:translate(-50%,-50%);height:auto;object-fit:contain;object-position:center bottom}.instant-live-plate{position:absolute;z-index:4;transform:translate(-50%,-50%);display:none;pointer-events:none}.instant-live-viewport{position:absolute;inset:0;z-index:5;overflow:hidden;pointer-events:none}.instant-live-scroll{position:absolute;white-space:normal;overflow-wrap:break-word;word-break:normal;will-change:top}.instant-live-scroll-inner{box-decoration-break:clone;-webkit-box-decoration-break:clone}.instant-live-audio{position:absolute;left:16px;right:16px;bottom:14px;width:calc(100% - 32px);z-index:10;opacity:.94}.instant-live-play{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:11;width:76px;height:76px;border-radius:50%;border:2px solid rgba(255,255,255,.9);background:rgba(0,0,0,.6);color:#fff;font-size:30px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 8px 30px rgba(0,0,0,.35)}.instant-live-note{position:absolute;left:10px;top:10px;z-index:12;background:rgba(4,13,22,.72);color:#fff;padding:5px 8px;border-radius:7px;font-size:10px;font-weight:800}.text-mode-master{margin:12px 0 14px}.text-mode-master .mode-row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}.text-mode-master .mode-row .field{min-width:250px;flex:1}.text-mode-output{font-weight:900;letter-spacing:.04em;white-space:nowrap}.text-mode-help{margin-top:7px}.scroll-follow-lines{box-decoration-break:clone;-webkit-box-decoration-break:clone}
+/* ACS_DRIVE_BATCH_PRO_UI_V10 */
+.upload-primary-grid,.upload-secondary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:end}
+.upload-secondary-grid{margin-top:12px}
+.category-tools{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:7px;align-items:stretch}.category-tools .btn{height:40px}
+.drive-batch-card{display:none;margin-bottom:14px;border:1px solid #d9e2ef;background:#fbfcff}.drive-batch-card.show{display:block}.drive-batch-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.drive-batch-stats{display:grid;grid-template-columns:repeat(6,minmax(88px,1fr));gap:8px;margin-top:10px}.drive-batch-stat{padding:9px 10px;border:1px solid #e4e8f0;border-radius:9px;background:#fff}.drive-batch-stat b,.drive-batch-stat span{display:block}.drive-batch-stat b{font-size:17px}.drive-batch-stat span{font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:800;letter-spacing:.04em}
+.preset-grid{grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px}.preset{min-height:92px;padding:11px}.preset .tags{margin-top:7px}.preset-compact-card{padding:12px}.preset-media-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.preset-media-toolbar .grow{flex:1;min-width:160px}.preset-media-status{font-size:12px;color:var(--muted);white-space:nowrap}.visual-plan-card .progress-shell{display:none}.visual-plan-card.preparing .progress-shell{display:block}.preview-toolbar{gap:10px;flex-wrap:wrap}.preview-toolbar>b{white-space:nowrap}.preview-toolbar>.row{margin-left:auto;justify-content:flex-end}.preview-toolbar #presetPreviewStatus{display:none}.preview-meta{padding:6px 12px;min-height:30px}.preview-meta .small:empty{display:none}.preset-media-toolbar+.progress-shell{margin-top:7px}.upload-drive-note{white-space:normal}
+#upload .head p,#preset .head p{display:none}#upload .card .head p{display:none}
+@media(max-width:1050px){.upload-primary-grid,.upload-secondary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.drive-batch-stats{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:700px){.upload-primary-grid,.upload-secondary-grid{grid-template-columns:1fr}.drive-batch-stats{grid-template-columns:repeat(2,1fr)}.preview-toolbar>.row{margin-left:0;justify-content:flex-start}}
+
+/* ACS_SCENE_AUDIO_ENGINE_SHARED_UI_V1 */
+#voice > :not(#sceneAudioEngineFrame){display:none!important}
+#sceneAudioEngineFrame{display:block!important;width:100%;height:780px;min-height:620px;border:0;background:#f7f8fc;border-radius:14px;overflow:hidden}
+@media(max-width:760px){#sceneAudioEngineFrame{height:720px;min-height:560px;border-radius:10px}}
+</style>
+
+<style id="whole-web-responsive-system-v1">
+html,body{width:100%;max-width:100%;overflow-x:hidden}
+.shell,.workspace,.page,.card{min-width:0}
+table{max-width:100%}
+@media(max-width:760px){
+  .shell{padding:6px!important}
+  .workspace{width:100%;max-width:100%;border-radius:10px}
+  .top{height:auto!important;min-height:52px;align-items:flex-start;flex-wrap:wrap;gap:8px;padding:8px 10px!important}
+  .brand{min-width:0}.brand small{display:none}
+  .head{align-items:flex-start!important;flex-direction:column!important;gap:9px}
+  .head .actions{width:100%;display:flex;flex-wrap:wrap}
+  .head .actions .btn{min-height:40px;flex:1 1 auto}
+  .tabs{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .tabs::-webkit-scrollbar{display:none}
+  .tab{min-height:40px}
+  .page{padding:10px!important}
+  .g4,.g3,.g2,.control-grid,.two,.three,.preset-grid,.upload-primary-grid,.upload-secondary-grid{grid-template-columns:1fr!important}
+  .drive-batch-stats{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .folder,.profile{grid-template-columns:1fr!important}
+  .category-tools{grid-template-columns:1fr!important}
+  .category-tools .btn{width:100%}
+  .preview-toolbar{align-items:flex-start!important;flex-direction:column!important}
+  .preview-toolbar>.row{width:100%;margin-left:0!important;justify-content:flex-start!important;overflow-x:auto;flex-wrap:nowrap!important;padding-bottom:2px}
+  .preview-toolbar>.row>*{flex:0 0 auto}
+  .stage{height:auto!important;min-height:0!important;aspect-ratio:16/9;padding:12px!important}
+  .caption{font-size:clamp(18px,7vw,34px)!important;width:88%!important}
+  .text-mode-master .mode-row .field{min-width:0!important}
+  .preset-media-toolbar .grow{min-width:0!important}
+  .instant-live-audio{left:8px!important;right:8px!important;width:calc(100% - 16px)!important}
+}
+@media(max-width:430px){
+  .drive-batch-stats{grid-template-columns:1fr!important}
+  .btn{min-height:40px}
+}
+</style>
+
+
+<style id="ACS_QUEUE_LIVE_REFERENCE_FIX_V1">
+#queue.acs-live-reference-v1 > :not(.acs-live-embed-v1){display:none!important}
+#queue .acs-live-embed-v1{display:block!important;width:100%;height:1550px;min-height:900px;border:0;background:#fff;border-radius:0}
+@media(max-width:900px){#queue .acs-live-embed-v1{height:1750px}}
+</style>
+
+<style id="acs-ui-overrides-v2">
+/* Universal Theme Integration */
+:root {
+  --sb-bg: #f8fafc;
+  --sb-card: #ffffff;
+  --sb-border: #e2e8f0;
+  --sb-accent: #4f46e5;
+  --sb-text: #0f172a;
+  --sb-muted: #64748b;
+  --sb-spacing-sm: 8px;
+  --sb-spacing-md: 16px;
+  --sb-spacing-lg: 24px;
+  --sb-radius: 12px;
+  --sb-radius-sm: 8px;
+  --bg: #f8fafc;
+  --panel: #ffffff;
+  --line: #e2e8f0;
+}
+body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-text) !important; font-family: 'Inter', system-ui, -apple-system, sans-serif !important; }
+
+/* 1. Remove forced heights and double scrollbars in ACS */
+.acs-shell, .acs-workspace, #acs-scroll-wrapper, .scroll-container, .main-scroll, div[style*="overflow-y: auto"], div[style*="overflow-y: scroll"], div[style*="height: 100vh"] {
+    height: auto !important;
+    max-height: none !important;
+    overflow-y: visible !important;
+}
+
+/* 2. Hide Auto Caption Studio Headers */
+.head h2, .head p, .acs-header-block, .page-header { display: none !important; }
+.head { margin-bottom: 0 !important; }
+
+/* 3. Normalize ACS subtabs to Scene Builder standard */
+.acs-subnav a.active, .sub-tabs a.active, .acs-tabs a.active, .nav-pills .nav-link.active, .story-work-tabs a.active, .tabs a.active {
+    background-color: #ffffff !important;
+    color: #2457d6 !important;
+    box-shadow: 0 3px 10px rgba(31,45,74,0.11) !important;
+    border: 1px solid #dce4ef !important;
+}
+.acs-subnav a, .sub-tabs a, .acs-tabs a, .tabs a {
+    color: #475467 !important;
+    font-weight: 800 !important;
+    background-color: transparent !important;
+}
+
+/* 4. Standardize worker card borders and margins */
+.worker-card, .status-card, .acs-card, .card {
+    border-left: 1px solid var(--sb-border) !important;
+    background-color: var(--sb-card) !important; 
+    border: 1px solid var(--sb-border) !important; 
+    border-radius: var(--sb-radius) !important; 
+    box-shadow: 0 1px 3px 0 rgba(0,0,0,0.1), 0 1px 2px 0 rgba(0,0,0,0.06) !important; 
+    padding: var(--sb-spacing-lg) !important;
+}
+</style>
+
+</head>
+<body>
+<span id="globalSaveState" class="save-state" hidden aria-hidden="true">✓ Saved</span>
+
+
+<div class="shell"><div class="workspace">
+  <div class="tabs">
+    <button class="tab active" data-page="queue">Queue</button>
+    <button class="tab" data-page="upload">Upload</button>
+    <button class="tab" data-page="drive-profiles">Drive Profiles</button>
+    <button class="tab" data-page="preset">Preset</button>
+    <button class="tab" data-page="captions">Captions</button>
+    <button class="tab" data-page="pexels">Pexels</button>
+    <button class="tab" data-page="fg">FG</button>
+    <button class="tab" data-page="voice">Audio Engine</button>
+    <button class="tab" data-page="output">Output</button>
+</div>
+
+  <section class="page active acs-live-reference-v1" id="queue">
+<iframe class="acs-live-embed-v1" title="ACS Live production monitor" src="/auto-caption/live?embed=1"></iframe>
+
+    <div class="head"><div><h2>Production Queue</h2><p>New web-flow projects only. Existing legacy ACS remains separate.</p></div><div class="actions"><span class="save-state page-save-state">✓ Saved</span><button class="btn">Pause after current</button><button class="btn">Resume</button><button class="btn primary" data-go="upload">New Upload</button></div></div>
+    <div class="grid g4"><div class="card metric"><b>—</b><span>Waiting</span></div><div class="card metric"><b>—</b><span>Processing</span></div><div class="card metric"><b>—</b><span>Delivered</span></div><div class="card metric"><b>—</b><span>Needs attention</span></div></div>
+    <div class="grid g2" style="margin-top:14px">
+      <div class="card"><h3>Production Priority</h3><div class="setting"><div><b>Scene Builder</b><small>Gets next heavy production slot first.</small></div><span class="badge">Checking…</span></div><div class="setting"><div><b>ACS</b><small>Continues from the next safe stage.</small></div><span class="badge">Checking…</span></div></div>
+      <div class="card"><h3>Queue Controls</h3>
+      <div class="setting"><div><b>Scene Builder priority</b><small>ACS yields the next heavy slot when Scene Builder has claimable work.</small></div><label class="toggle"><input data-autosave type="checkbox" checked><span class="slider"></span></label></div>
+      <div class="setting"><div><b>Pause after current safe stage</b><small>Do not interrupt an active unsafe operation.</small></div><label class="toggle"><input data-autosave type="checkbox"><span class="slider"></span></label></div>
+      <p class="small">These queue settings live here and auto-save.</p>
+    </div>
+    </div>
+    <div class="card" style="margin-top:14px;overflow:auto"><table class="queue"><thead><tr><th>Project</th><th>Preset</th><th>FG Library</th><th>Stage</th><th>Progress</th><th>Voice Size</th><th>Drive</th><th>Controls</th></tr></thead><tbody><tr><td colspan="8" class="small">Loading live queue…</td></tr></tbody></table></div>
+  </section>
+
+  <section class="page" id="upload">
+    <div class="head"><div><h2>Upload</h2></div><div class="actions"><span class="save-state page-save-state">✓ Saved</span><button class="btn">Clear Finished</button><button class="btn primary">Submit Ready</button></div></div>
+    <div class="card drive-batch-card" id="driveBatchActivity">
+      <div class="drive-batch-head"><div><b id="driveBatchTitle">Drive Batch</b><div class="small" id="driveBatchLine">Persistent queue · browser may close safely</div></div><div class="row"><span class="badge" id="driveBatchState">Running</span><button class="btn" type="button" id="driveBatchStop">Stop After Current</button><button class="btn primary" type="button" id="driveBatchResume">Resume</button></div></div>
+      <div class="drive-batch-stats"><div class="drive-batch-stat"><b id="dbTotal">0</b><span>Total</span></div><div class="drive-batch-stat"><b id="dbOnDrive">0</b><span>On Drive</span></div><div class="drive-batch-stat"><b id="dbCopying">0</b><span>Copying</span></div><div class="drive-batch-stat"><b id="dbWaiting">0</b><span>Next Ready</span></div><div class="drive-batch-stat"><b id="dbActive">0</b><span>Active</span></div><div class="drive-batch-stat"><b id="dbCompleted">0</b><span>Completed</span></div></div>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <div class="upload-primary-grid">
+        <div class="field"><label>Voice Mode</label>
+          <select id="uploadVoiceMode" data-autosave>
+            <option selected>Upload Audio</option>
+            <option>Algrow Voice</option>
+          </select>
+        </div>
+        <div class="field"><label>Selected Preset</label>
+          <select id="uploadPreset" data-autosave>
+            <option>Documentary Scroll</option>
+            <option>Clean Caption</option>
+            <option>English Shorts</option>
+            <option>Urdu Storytelling</option>
+            <option>Dark Viral</option>
+          </select>
+        </div>
+        <div class="field"><label>Category / Drive Folder</label>
+          <div class="category-tools"><select id="uploadCategory"></select><button class="btn" type="button" id="uploadCategoryAdd">Add</button><button class="btn red" type="button" id="uploadCategoryDelete">Delete</button></div>
+        </div>
+      </div>
+      <div class="upload-secondary-grid">
+        <div class="field"><label>Preset Verification</label><input type="text" id="verificationMode" value="Scrolling Text + Pexels Images + FG + Voice" readonly></div>
+        <div class="field"><label>Preset Status</label><input type="text" value="Ready for preflight" readonly></div>
+        <div class="field"><label>Queue Item Rule</label><input type="text" id="queueRule" value="TXT + audio exact basename pair" readonly></div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <div class="head" style="margin-bottom:8px"><div><h3 style="margin:0">Input Source</h3></div></div>
+      <div class="row">
+        <button class="btn primary" type="button" id="uploadPcSource">PC Folder / Files</button>
+        <button class="btn" type="button" id="uploadDriveSource">Google Drive Folder</button>
+      </div>
+      <div id="uploadDrivePane" style="display:none;margin-top:12px">
+        <div class="field"><label>Drive Folder URL / ID / Path</label><div class="row"><input id="uploadDriveFolder" type="text" placeholder="Paste Drive folder URL, folder ID, or path such as Incoming Audio / Batch A" style="flex:1"><button class="btn primary" type="button" id="uploadDriveScan">Scan Drive Folder</button><span id="uploadDriveStatus" class="badge inline-status">Ready</span></div></div>
+        <p class="small upload-drive-note" style="margin:7px 0 0">Exact TXT + audio basename pair · source moves to <b>Used</b> only after VPS verification.</p>
+      </div>
+    </div>
+    <div class="drop">
+      <strong>Select a folder containing paired TXT + audio files</strong>
+      Each queue item is created only from an exact same-basename pair, for example <b>project01.txt + project01.mp3</b>.
+      Unpaired TXT or audio files are rejected and never enter the queue.
+      <div class="row" style="justify-content:center;margin-top:14px">
+        <button class="btn primary">Select Folder</button>
+        <button class="btn">Select Files</button>
+      </div>
+      <div class="small" style="margin-top:10px">Accepted audio examples: .mp3, .wav, .m4a. Matching is based on the filename before the extension.</div>
+    </div>
+    <div class="grid g4" style="margin-top:14px">
+      <div class="card metric"><b>24</b><span>Files detected</span></div>
+      <div class="card metric"><b>10</b><span>Valid TXT + audio pairs</span></div>
+      <div class="card metric"><b>3</b><span>Unpaired files</span></div>
+      <div class="card metric"><b>3</b><span>Rejected before queue</span></div>
+    </div>
+    <div class="card" style="margin-top:14px;overflow:auto">
+      <div class="head" style="margin-bottom:8px">
+        <div><h3 style="margin:0">Folder Pairing</h3><p>Only valid same-name pairs can become queue items.</p></div>
+        <span class="badge good">10 queue items ready</span>
+      </div>
+      <table class="queue">
+        <thead><tr><th>Base Name</th><th>TXT</th><th>Audio</th><th>Preset</th><th>FG Library</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td><b>Iceland_001</b></td><td>Iceland_001.txt</td><td>Iceland_001.mp3</td><td>Documentary Scroll</td><td><select data-autosave><option selected>Mountains / Couples</option><option>Travel People</option><option>Wildlife</option><option>None</option></select></td><td><span class="badge good">Queue item</span></td></tr>
+          <tr><td><b>Cuba_004</b></td><td>Cuba_004.txt</td><td>Cuba_004.wav</td><td>Documentary Scroll</td><td><select data-autosave><option>Mountains / Couples</option><option selected>Travel People</option><option>Wildlife</option><option>None</option></select></td><td><span class="badge good">Queue item</span></td></tr>
+          <tr><td><b>Portugal_009</b></td><td>Portugal_009.txt</td><td>—</td><td>—</td><td>—</td><td><span class="badge warn">Rejected: audio missing</span></td></tr>
+          <tr><td><b>Laos_002</b></td><td>—</td><td>Laos_002.mp3</td><td>—</td><td>—</td><td><span class="badge warn">Rejected: TXT missing</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="head" style="margin-bottom:10px"><div><h3 style="margin:0">Preset-Based Preflight</h3><p id="preflightSubtitle">Checking requirements for Documentary Scroll</p></div><span class="badge good" id="preflightBadge">6/6 checks ready</span></div>
+      <div id="presetChecks" class="control-grid"></div>
+    </div>
+    <div class="card" style="margin-top:14px"><h3>Upload Defaults</h3><div class="control-grid">
+      <label class="check"><input data-autosave type="checkbox" checked> Duplicate detection</label>
+      <label class="check"><input data-autosave type="checkbox" checked> Block output-name conflicts</label>
+      <label class="check"><input data-autosave type="checkbox" checked> Upload Audio mode requires exact TXT + audio pair</label>
+      <label class="check"><input data-autosave type="checkbox" checked> Validate Drive destination before queue</label>
+      <label class="check"><input data-autosave type="checkbox" checked> Keep browser upload progress after submit</label>
+      <label class="check"><input data-autosave type="checkbox" checked> Warn before leaving unfinished upload</label>
+    </div><p class="small">These upload behaviors auto-save here; no separate Settings tab.</p></div>
+  </section>
+
+  <!-- DRIVE_PROFILES_PHASE1_V1_UI -->
+  <section class="page" id="drive-profiles">
+    <div class="head">
+      <div><h2>Drive Profiles</h2><p>Save Google Drive folders once. Saved profiles can automatically refill ACS only when the production queue is fully empty.</p></div>
+      <div class="actions"><span class="save-state page-save-state" id="dpSaveState">✓ Ready</span><button class="btn" type="button" id="dpReloadBtn">Refresh</button></div>
+    </div>
+
+    <div class="grid g3" style="margin-bottom:14px">
+      <div class="card metric"><b id="dpEnabledCount">0</b><span>Enabled Profiles</span></div>
+      <div class="card metric"><b id="dpLastGlobalSync">—</b><span>Last Global Sync</span></div>
+      <div class="card metric"><b id="dpRuntimeState">Active</b><span>Queue-empty auto refill</span></div>
+    </div>
+
+    <div class="grid g2" style="align-items:start">
+      <div class="card">
+        <h3>Auto Refill Settings</h3>
+        <div class="setting"><div><b>Auto Refill Queue</b><small>Scans immediately when the production queue becomes empty; while it stays empty, retries at the selected interval.</small></div><label class="toggle"><input type="checkbox" id="dpAutoRefill"><span class="slider"></span></label></div>
+        <div class="field" style="margin-top:12px"><label>Idle Recheck</label><select id="dpIdleMinutes"><option value="1">1 minute</option><option value="5">5 minutes</option><option value="10">10 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">60 minutes</option></select></div>
+        <div class="row" style="margin-top:12px"><button class="btn primary" type="button" id="dpSaveSettingsBtn">Save Settings</button><button class="btn" type="button" id="dpSyncAllBtn" title="Sync all enabled profiles when the queue is empty">Sync All Enabled Now</button></div>
+        <p class="small" id="dpRuntimeNote" style="margin-top:10px">Runtime status: active. Auto refill scans immediately when queue count reaches zero. If it stays empty, the Idle Recheck interval controls retry scans.</p>
+      </div>
+
+      <div class="card">
+        <h3 id="dpFormTitle">Add Drive Profile</h3>
+        <input type="hidden" id="dpEditId">
+        <div class="field"><label>Profile Name</label><input id="dpName" type="text" placeholder="Hindi Daily"></div>
+        <div class="field"><label>Google Drive Folder URL / ID / Path</label><input id="dpFolder" type="text" placeholder="Paste the Drive folder once"></div>
+        <div class="grid g2">
+          <div class="field"><label>Category</label><select id="dpCategory"></select></div>
+          <div class="field"><label>Preset</label><select id="dpPreset"></select></div>
+        </div>
+        <div class="grid g2">
+          <div class="field"><label>Voice Mode</label><input id="dpVoiceMode" type="text" placeholder="Use uploaded audio"></div>
+          <div class="field"><label>Enabled</label><select id="dpEnabled"><option value="true">Enabled</option><option value="false">Disabled</option></select></div>
+        </div>
+        <div class="row" style="margin-top:12px"><button class="btn primary" type="button" id="dpSaveProfileBtn">Save Profile</button><button class="btn" type="button" id="dpCancelEditBtn">Clear</button></div>
+        <p class="small" id="dpFormMessage" style="margin-top:10px"></p>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px;overflow:auto">
+      <div class="head" style="margin-bottom:8px"><div><h3 style="margin:0">Saved Drive Profiles</h3><p class="small" style="margin:4px 0 0">Only enabled profiles will be considered by Phase 2 auto refill.</p></div></div>
+      <table class="queue">
+        <thead><tr><th>Name</th><th>Category</th><th>Preset</th><th>Voice Mode</th><th>Folder</th><th>Enabled</th><th>Last Sync</th><th>Last Result</th><th>Controls</th></tr></thead>
+        <tbody id="dpRows"><tr><td colspan="9" class="small">Loading Drive Profiles…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+
+  <section class="page" id="preset">
+    <div class="head"><div><h2>Presets</h2></div><div class="actions"><span class="save-state page-save-state">✓ Saved</span><button class="btn">Duplicate</button><button class="btn">Delete</button><button class="btn primary">New Preset</button></div></div>
+    <div class="preset-grid">
+      <div class="preset active" data-preset="Documentary Scroll"><b>Documentary Scroll</b><span class="small">Scrolling text · Pexels Images · FG Mountains · Voice: Declan</span><div class="tags"><span class="tag">Scroll</span><span class="tag">Images</span><span class="tag">FG</span></div></div>
+      <div class="preset" data-preset="Clean Caption"><b>Clean Caption</b><span class="small">Caption video · White/Black · No FG · Natural voice</span><div class="tags"><span class="tag">Caption</span><span class="tag">Clean</span></div></div>
+      <div class="preset" data-preset="English Shorts"><b>English Shorts</b><span class="small">Heavy captions · Spoken highlight · Dynamic visuals</span><div class="tags"><span class="tag">Karaoke</span><span class="tag">Dynamic</span></div></div>
+      <div class="preset" data-preset="Urdu Storytelling"><b>Urdu Storytelling</b><span class="small">Urdu font · Scroll · Story FG · Warm music</span><div class="tags"><span class="tag">Urdu</span><span class="tag">Story</span></div></div>
+      <div class="preset" data-preset="Dark Viral"><b>Dark Viral</b><span class="small">Viral yellow · Dark plate · Strong ducking</span><div class="tags"><span class="tag">Viral</span><span class="tag">Music</span></div></div>
+    </div>
+    <div class="card" id="presetProfileCard">
+      <div class="row" style="justify-content:space-between;align-items:flex-start;gap:14px">
+        <div>
+          <h3 id="presetProfileName" style="margin:0">Documentary Scroll · Production Profile</h3>
+          <p class="small" id="presetProfilePurpose" style="margin:5px 0 0">Complete reusable production settings for this preset.</p>
+        </div>
+        <span class="badge good" id="presetProfileVersion">Profile</span>
+      </div>
+      <div class="control-grid" id="presetProfileFacts" style="margin-top:10px"></div>
+      <p class="small" id="presetProfileSource" style="margin:9px 0 0"></p>
+    </div>
+    <div class="card visual-plan-card preset-compact-card" id="presetVisualPlanCard">
+      <div class="preset-media-toolbar">
+        <label class="row" style="gap:8px;margin:0"><input id="autoPexelsMedia" type="checkbox" checked><b>Auto Pexels Media</b></label>
+        <button class="btn primary" type="button" id="previewScriptUploadBtn">Upload Preview Script (.txt)</button>
+        <input class="visual-plan-file" id="previewScriptFile" type="file" accept=".txt,text/plain">
+        <span class="preset-media-status grow" id="visualPlanCounts">Default preview script</span>
+        <span class="badge" id="visualPlanBadge">Ready</span>
+      </div>
+      <div class="progress-shell" style="margin-top:9px"><div class="progress-bar" id="visualPlanProgress"></div></div>
+      <div class="small" id="visualPlanMessage" style="margin-top:6px"></div>
+    </div>
+    <div class="preview-box">
+      <div class="preview-toolbar"><b id="previewTitle">Main Preview · Documentary Scroll</b><div class="row"><span class="badge good" id="presetPreviewStatus" style="display:none">Live Preview</span><button class="btn primary" id="livePreviewBtn">▶ Live Preview</button><button class="btn" id="uploadPreviewAudioBtn">Set Preview Audio</button><input id="previewReferenceAudioInput" class="preview-ref-upload" type="file" accept="audio/*"><button class="btn" id="renderPresetPreviewBtn">Render Final</button><label class="layout-guides-control"><input type="checkbox" id="previewLayoutGuides"> Layout Guides</label><button class="btn green">Approve Preview</button></div></div>
+      <div class="preset-video-frame" id="presetPreviewFrame">
+        <div class="instant-live-preview" id="instantLivePreview"><div class="instant-live-fallback"></div><img class="instant-live-bg" id="instantLiveBg" alt=""><img class="instant-live-fg" id="instantLiveFg" alt=""><div class="instant-live-plate" id="instantLivePlate"></div><div class="instant-live-viewport"><div class="instant-live-scroll" id="instantLiveScroll"><span class="instant-live-scroll-inner" id="instantLiveText"></span></div></div><button type="button" class="instant-live-play" id="instantLivePlay" aria-label="Play live preview">▶</button><audio class="instant-live-audio" id="instantLiveAudio" controls preload="metadata"></audio><div class="instant-live-note">Instant Live Preview · no render</div></div>
+        <video id="presetPreviewVideo" controls playsinline preload="metadata"></video>
+        <button type="button" class="preview-play-overlay" id="previewPlayOverlay" aria-label="Play rendered preview">▶</button>
+        <div class="preset-video-placeholder hidden" id="presetPreviewPlaceholder"><div><b>Live Preview</b><div class="small" id="previewPlaceholderText" style="margin-top:7px">Live Preview is direct and queue-free. Final rendering is optional.</div><div class="preview-placeholder-actions"><button class="btn" type="button" id="renderPresetPreviewPlaceholderBtn">Render Final</button></div></div></div>
+        <div class="preview-render-overlay" id="previewRenderOverlay"><div class="preview-render-card" id="previewRenderOverlayText">Rendering exact ACS preview…</div></div>
+        <div class="main-live-layer" id="mainLiveLayer">
+          <div class="preview-guide-box preview-guide-fg" id="mainGuideFg"><span>FG</span></div>
+          <div class="preview-guide-box preview-guide-text" id="mainGuideText"><span id="mainGuideTextLabel">Scrolling viewport</span></div>
+          <div class="preview-guide-center-v"></div><div class="preview-guide-center-h"></div>
+        </div>
+      </div>
+      <div class="preview-meta"><span class="small" id="previewReferenceInfo">Preview assets</span><span class="small" id="previewRenderInfo"></span></div>
+    </div>
+  </section>
+
+  <section class="page" id="captions">
+    <div class="head"><div><h2>Captions & Scrolling Text</h2><p>Choose exactly what the production renderer will output. Editor tabs below never change the render mode.</p></div><div class="actions"><span class="save-state page-save-state">✓ Saved</span><button class="btn" type="button" id="captionMainPreviewBtn">Main Preview</button></div></div>
+    <div class="card text-mode-master"><h3>Text Render Mode</h3><div class="mode-row"><div class="field"><label>Production Output</label><select id="textRenderMode"><option value="scroll">Scrolling Text</option><option value="caption">Caption Video</option><option value="off">Off — no text</option></select></div><span class="badge good text-mode-output" id="textRenderOutput">OUTPUT: SCROLLING TEXT</span></div><div class="small text-mode-help" id="textRenderHelp">Scrolling Text uses the uploaded script directly and renders it bottom-to-top.</div></div>
+    <div class="subtabs"><button class="pill active" data-capmode="scroll">Scrolling Controls</button><button class="pill" data-capmode="caption">Caption Controls</button><button class="pill" data-capmode="style">Common Text Style</button></div>
+    <div class="cap-pane" id="cap-caption">
+      <div class="grid g3">
+        <div class="card"><h3>Caption Controls</h3><div class="notice" style="margin-bottom:10px">These controls apply only when <b>Text Render Mode = Caption Video</b>.</div><div class="field"><label>Position</label><select data-autosave><option>Bottom</option><option>Center</option><option>Top</option></select></div><div class="field" style="margin-top:9px"><label>Words per Caption</label><input data-autosave type="number" value="8" min="2" max="24"></div></div>
+        <div class="card"><h3>Source & Sync</h3><div class="field"><label>Text Source</label><select data-autosave><option>Voice-to-text Transcript</option><option>Original Script Words</option></select></div><div class="field" style="margin-top:9px"><label>Timing Sync</label><select data-autosave><option>Better Sync — voice-to-text</option><option>Fast Sync — script duration</option></select></div><div class="field" style="margin-top:9px"><label>Language</label><select data-autosave><option>Auto</option><option>English</option><option>Urdu</option><option>Hindi</option></select></div></div>
+        <div class="card"><h3>Heavy Caption Lab</h3><div class="setting"><div><b>Heavy captions</b></div><label class="toggle"><input data-autosave type="checkbox"><span class="slider"></span></label></div><div class="field"><label>Preset</label><select data-autosave><option>Story Pro</option><option>Viral Pop</option><option>Glass</option><option>Documentary</option><option>Minimal</option></select></div><label class="check" style="margin-top:10px"><input data-autosave type="checkbox"> Highlight active spoken word</label><label class="check"><input data-autosave type="checkbox" checked> Tighten tiny silent gaps</label></div>
+      </div>
+    </div>
+    <div class="cap-pane" id="cap-scroll" style="display:none">
+      <div class="grid g3">
+        <div class="card"><h3>Scrolling Mode</h3><div class="field"><label>Start Mode</label><select data-autosave><option>Voice Centered</option><option>Classic</option><option>Immediate</option><option>Centered</option></select></div><div class="setting"><div><b>Auto-sync to audio</b></div><label class="toggle"><input data-autosave type="checkbox" checked><span class="slider"></span></label></div><div class="field"><label>Manual Speed</label><input data-autosave type="number" value="80"><span class="small">px/sec when auto sync is off</span></div></div>
+        <div class="card"><h3>Timing</h3><div class="field"><label>Extra Start</label><input data-autosave type="number" value="0" step=".1"></div><div class="field" style="margin-top:9px"><label>Extra End</label><input data-autosave type="number" value="0" step=".1"></div><div class="field" style="margin-top:9px"><label>Text Width</label><input data-autosave type="range" value="85"><span class="small">85%</span></div></div>
+        <div class="card"><h3>Layout</h3><div class="field"><label>Alignment</label><select data-autosave><option>Center</option><option>Left</option><option>Right</option><option>Justify</option></select></div><div class="field" style="margin-top:9px"><label>Position X</label><div class="range-readout"><input id="scrollTextX" data-autosave type="range" min="0" max="100" value="50"><output id="scrollTextXValue">50%</output></div><span class="small">Horizontal text anchor: 0% left · 50% center · 100% right</span></div><div class="field" style="margin-top:9px"><label>Line Height</label><input data-autosave type="range" min="80" max="250" value="135"></div><div class="field" style="margin-top:9px"><label>Paragraph Spacing</label><input data-autosave type="number" value="26"></div></div>
+      </div>
+    </div>
+    <div class="cap-pane" id="cap-style" style="display:none">
+      <div class="grid g3">
+        <div class="card"><h3>Font</h3><div class="two"><div class="field"><label>Mode</label><select id="fontMode"><option value="auto">Auto Detect</option><option value="manual">Manual</option></select></div><div class="field"><label>Family</label><select id="fontFamily" data-autosave><option>Noto Sans</option></select></div></div><div class="font-auto-status small" id="fontAutoStatus">Loading VPS renderer fonts…</div><div class="two" style="margin-top:9px"><div class="field"><label>Size</label><input data-autosave type="number" value="54"></div><div class="field"><label>Width</label><input data-autosave type="number" value="85"></div></div><div class="row" style="margin-top:10px"><label class="check"><input data-autosave type="checkbox"> Bold</label><label class="check"><input data-autosave type="checkbox"> Italic</label><label class="check"><input data-autosave type="checkbox"> Underline</label></div></div>
+        <div class="card"><h3>Color & Plate</h3><div class="two"><div class="field"><label>Text</label><input data-autosave type="color" value="#ffffff"></div><div class="field"><label>Highlight</label><input data-autosave type="color" value="#ffd54a"></div></div><div class="field" style="margin-top:9px"><label>Scrolling Background Mode</label><select id="textBackgroundMode"><option value="off">Off</option><option value="whole">Whole Text Block</option><option value="follow">Follow Text</option></select></div><div class="bg-control-grid" style="margin-top:9px"><div class="field"><label>Box Color</label><input id="textBgColor" type="color" value="#000000"></div><div class="field"><label>Opacity %</label><input id="textBgOpacity" type="number" min="0" max="100" value="45"></div><div class="field"><label>Padding X px</label><input id="textBgPaddingX" type="number" min="0" value="24"></div><div class="field"><label>Padding Y px</label><input id="textBgPaddingY" type="number" min="0" value="24"></div><div class="field"><label>Corner Radius px</label><input id="textBgFollowRadius" type="number" min="0" value="18"></div></div><div class="small" id="textBackgroundHelp" style="margin-top:7px">Whole Text Block = one moving box behind the complete scrolling text block. Follow Text = separate dynamic boxes behind wrapped text lines. Caption Video keeps its proven active-caption background behavior.</div></div>
+        <div class="card"><h3>Stroke & Shadow</h3><label class="check"><input data-autosave type="checkbox"> Stroke</label><div class="two" style="margin-top:9px"><div class="field"><label>Stroke Color</label><input data-autosave type="color" value="#000000"></div><div class="field"><label>Width</label><input data-autosave type="number" value="2"></div></div><label class="check" style="margin-top:10px"><input data-autosave type="checkbox" checked> Shadow</label></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="page" id="pexels">
+    <div class="head"><div><h2>Pexels</h2><p>Images, videos, keywords, libraries, API key and essential motion controls.</p></div><span class="save-state page-save-state">✓ Saved</span></div>
+    <div class="notice" style="margin-bottom:14px">
+      <b>Protected reusable Pexels library:</b> downloaded/library media stored in the configured VPS Pexels library is reusable across projects and excluded from normal project cleanup.
+      Cleanup removes project working copies only, never the reusable Pexels library.
+    </div>
+    <div class="grid g2">
+      <div class="card"><h3>Media Source</h3>
+        <div class="setting"><div><b>Use Pexels</b><small>Allow Pexels/local library visuals.</small></div><label class="toggle"><input data-autosave type="checkbox" checked><span class="slider"></span></label></div>
+        <div class="field"><label>Media Type</label><select data-autosave><option>Images</option><option>Videos</option><option>Mix Images + Videos</option></select></div>
+        <div class="field" style="margin-top:9px"><label>Pexels API Key</label><div class="row"><input data-autosave type="password" value="xxxxxxxxxxxxxxxx" style="flex:1"><button class="btn">Save Key</button></div></div>
+        <div class="setting"><div><b>Use Live Pexels API media</b><small>OFF uses VPS library first.</small></div><label class="toggle"><input data-autosave type="checkbox"><span class="slider"></span></label></div>
+      </div>
+      <div class="card"><h3>Keywords & Library</h3>
+        <div class="field"><label>Manual Keywords</label><input data-autosave type="text" value="nature, mountains, village, cinematic drone"></div>
+        <div class="setting"><div><b>Auto-fetch keywords from script</b></div><label class="toggle"><input data-autosave type="checkbox" checked><span class="slider"></span></label></div>
+        <div class="two" style="margin-top:10px">
+          <div class="field"><label>Images per Keyword</label><input id="pexelsImagesPerKeyword" type="number" min="1" max="20" value="3" step="1"></div>
+          <div class="field"><label>Download Preference</label><select id="pexelsFillMode"><option value="new_only">New images only (recommended)</option><option value="new_or_reuse">New first, reuse saved if needed</option></select></div>
+        </div>
+        <p class="small" style="margin:8px 0">Fill processes every unique manual keyword (up to 500). Existing photos are protected. Targets depend on Pexels results and rate limits.</p>
+        <div id="pexelsSmartFillStatus" hidden aria-hidden="true"></div>
+        <div class="row" style="margin-top:7px"><button class="btn" type="button" id="pexelsRetryIncompleteBtn">Retry Incomplete Keywords</button></div>
+        <div class="field"><label>VPS Pexels Library</label><div class="row"><input data-autosave type="text" value="/srv/acs/pexels_library" style="flex:1"><button class="btn">Scan</button><button class="btn">Fill</button></div></div>
+        <div class="row" style="margin-top:10px"><span class="badge good">1,842 images</span><span class="badge">126 videos</span></div>
+      </div>
+    </div>
+    <!-- ACS_PEXELS_SMART_DASHBOARD_V2: live workflow overview and protected media previews -->
+    <style>
+    #pexels .acsP2 { margin-top:16px; border-radius:16px; border:1px solid #dbe4f0; padding:18px; background:linear-gradient(160deg,#f7faff,#fff 55%); color:#172538; }
+    #pexels .acsP2 * { box-sizing:border-box; }
+    #pexels .acsP2-title { font-size:18px; font-weight:800; letter-spacing:-.02em; }
+    #pexels .acsP2-sub { color:#58677e; font-size:12px; margin-top:4px; }
+    #pexels .acsP2-head { display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap; }
+    #pexels .acsP2-status { display:inline-flex;align-items:center;border-radius:99px;background:#edf3ff;color:#234b90;padding:6px 12px;font-size:12px;font-weight:700; }
+    #pexels .acsP2-metrics { display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-top:16px; }
+    #pexels .acsP2-metric { background:#fff;border:1px solid #e1e8f2;border-radius:12px;padding:12px; min-width:0; }
+    #pexels .acsP2-metric strong { font-size:22px;display:block;color:#172b48;line-height:1.2; }
+    #pexels .acsP2-metric span {font-size:11px;color:#657389;display:block;margin-top:4px;}
+    #pexels .acsP2-progress {width:100%;height:10px;background:#e5ecf4;border-radius:50px;overflow:hidden;margin-top:14px;}
+    #pexels #acsP2Bar {width:0%;height:100%;background:linear-gradient(90deg,#326eda,#2cbdad);transition:width .25s;}
+    #pexels .acsP2-toolbar {display:flex;align-items:end;gap:10px;flex-wrap:wrap;margin-top:16px;}
+    #pexels .acsP2-toolbar label {font-size:11px;font-weight:700;color:#506079;display:grid;gap:5px;}
+    #pexels .acsP2-toolbar input,#pexels .acsP2-toolbar select {border:1px solid #ced9e8;background:#fff;border-radius:9px;padding:9px;color:#20314c;min-height:38px;}
+    #pexels .acsP2-toolbar input {width:min(240px,70vw);}
+    #pexels .acsP2-btn {border:1px solid #ced9e8;border-radius:9px;min-height:38px;padding:8px 12px;background:white;color:#2d4768;cursor:pointer;font-weight:700;font-size:12px;}
+    #pexels .acsP2-btn:hover {background:#ecf3ff;}
+    #pexels .acsP2-workspace {display:grid;grid-template-columns:minmax(250px,1fr) minmax(300px,1.15fr);gap:12px;margin-top:14px;align-items:start;}
+    #pexels .acsP2-panel {background:#fff;border:1px solid #e0e7f0;border-radius:12px;min-width:0;overflow:hidden;}
+    #pexels .acsP2-panelHead {padding:12px 14px;border-bottom:1px solid #e7edf5;font-weight:750;font-size:13px;display:flex;justify-content:space-between;align-items:center;}
+    #pexels .acsP2-results {padding:7px;max-height:390px;overflow:auto;}
+    #pexels .acsP2-result {width:100%;text-align:left;background:#fff;border:1px solid transparent;border-radius:9px;padding:10px;cursor:pointer;display:flex;gap:8px;justify-content:space-between;align-items:center;}
+    #pexels .acsP2-result:hover,#pexels .acsP2-result.sel {background:#f0f5ff;border-color:#d2def4;}
+    #pexels .acsP2-key {font-weight:700;font-size:12px;max-width:250px;overflow-wrap:anywhere;}
+    #pexels .acsP2-meta {font-size:11px;color:#66778c;white-space:nowrap;}
+    #pexels .acsP2-gallery {padding:12px;min-height:160px;}
+    #pexels .acsP2-images {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;}
+    #pexels .acsP2-image {aspect-ratio:4/3;border:1px solid #dfe5ed;background:#eef2f6;border-radius:8px;object-fit:cover;width:100%;height:auto;}
+    #pexels .acsP2-empty {color:#607087;font-size:12px;padding:16px;line-height:1.55;}
+    @media(max-width:950px){#pexels .acsP2-metrics {grid-template-columns:repeat(3,minmax(0,1fr));}#pexels .acsP2-workspace {grid-template-columns:1fr;}}
+    @media(max-width:520px){#pexels .acsP2-metrics {grid-template-columns:repeat(2,minmax(0,1fr));}#pexels .acsP2-images {grid-template-columns:repeat(2,minmax(0,1fr));}}
+    </style>
+    <div class="acsP2" id="acsP2Dashboard" aria-label="Pexels smart download dashboard">
+      <div class="acsP2-head"><div><div class="acsP2-title">Smart Pexels Dashboard</div><div class="acsP2-sub">Keyword downloads, saved-library previews and retry tracking. Existing media stays protected.</div></div><span id="acsP2Status" class="acsP2-status">Checking status</span></div>
+      <div class="acsP2-metrics">
+        <div class="acsP2-metric"><strong id="acsP2Keywords">0</strong><span>Keywords processed / total</span></div>
+        <div class="acsP2-metric"><strong id="acsP2Target">0</strong><span>Image target</span></div>
+        <div class="acsP2-metric"><strong id="acsP2New">0</strong><span>New downloaded</span></div>
+        <div class="acsP2-metric"><strong id="acsP2Reused">0</strong><span>Reused from library</span></div>
+        <div class="acsP2-metric"><strong id="acsP2Missing">0</strong><span>Missing images</span></div>
+      </div>
+      <div class="acsP2-progress"><div id="acsP2Bar"></div></div>
+      <p id="acsP2Message" class="acsP2-sub" aria-live="polite">Loading last batch...</p>
+      <div class="acsP2-toolbar"><label>Search keyword<input type="search" id="acsP2Search" placeholder="Find in latest batch"></label><label>Status<select id="acsP2Filter"><option value="all">All keywords</option><option value="complete">Complete</option><option value="incomplete">Incomplete</option><option value="pending">Pending</option></select></label><button class="acsP2-btn" id="acsP2Refresh" type="button">Refresh results</button></div>
+      <div class="acsP2-workspace"><div class="acsP2-panel"><div class="acsP2-panelHead"><span>Keyword results</span><span id="acsP2Filtered">0</span></div><div class="acsP2-results" id="acsP2Results"><div class="acsP2-empty">No download batches yet.</div></div><div style="padding:10px"><button id="acsP2More" type="button" class="acsP2-btn" hidden>Show more keywords</button></div></div><div class="acsP2-panel"><div class="acsP2-panelHead"><span id="acsP2GalleryTitle">Saved image previews</span><span id="acsP2GalleryCount">—</span></div><div class="acsP2-gallery" id="acsP2Gallery"><div class="acsP2-empty">Select a keyword to see images already saved on the VPS.</div></div></div></div>
+    </div>
+    <!-- ACS_PEXELS_SMART_DASHBOARD_V2_END -->
+    <div class="card" style="margin-top:14px"><h3>Motion & Timing</h3><div class="control-grid">
+      <div class="field"><label>Image Duration</label><input data-autosave type="number" value="8"><span class="small">seconds</span></div>
+      <div class="field"><label>Video Clip Duration</label><input data-autosave type="number" value="4"><span class="small">seconds</span></div>
+      <div class="field"><label>Motion Style</label><select data-autosave><option>Cinematic</option><option>Very Slow</option><option>Dynamic</option></select></div>
+      <div class="field"><label>Motion Speed</label><input data-autosave type="range" min="25" max="300" value="100"></div>
+      <div class="field"><label>Motion Intensity</label><input data-autosave type="range" min="0" max="100" value="42"></div>
+      <div class="field"><label>Image Transition</label><select data-autosave><option>Crossfade</option><option>Clean Cut</option><option>Slow Dissolve</option><option>Varied Subtle</option></select></div>
+    </div><div class="row" style="margin-top:12px"><label class="check"><input data-autosave type="checkbox" checked> Enable image motion</label><label class="check"><input data-autosave type="checkbox" checked> Avoid repeated motion</label><label class="check"><input data-autosave type="checkbox" checked> Protect low-resolution images</label><label class="check"><input data-autosave type="checkbox"> Single background full video</label></div></div>
+  </section>
+
+  <!-- ACS_FG_PC_UPLOAD_V1_START -->
+  <section class="page" id="fg">
+    <div class="head"><div><h2>Foreground Libraries</h2><p>Upload reusable FG folders from your PC or register folders that already exist on the VPS.</p></div><div class="actions"><span class="save-state page-save-state">✓ Saved</span><button class="btn" type="button" id="fgMainPreviewBtn">Main Preview</button><button class="btn">Scan All</button><button class="btn" id="fgPcTopButton">Upload Folder from PC</button><button class="btn primary">Add VPS Folder</button></div></div>
+    <div class="notice" style="margin-bottom:14px">
+      <b>Protected reusable library:</b> FG folders live permanently on the VPS and stay outside all project cleanup paths.
+      Every queue item can select one FG library (or None). Project cleanup removes only project-owned working files.
+      Libraries are managed only from this FG tab.
+    </div>
+    <div class="card" id="fgLibraryList">
+      <div class="small">Loading protected FG libraries…</div>
+    </div>
+    <div class="grid g2" style="margin-top:14px">
+      <div class="card"><h3>Add Folder</h3>
+        <div class="subtabs" style="margin-bottom:12px">
+          <button class="pill active" type="button" id="fgPcModeButton">Upload Folder from PC</button>
+          <button class="pill" type="button" id="fgVpsModeButton">Add Existing VPS Folder</button>
+        </div>
+
+        <div id="fgPcPane">
+          <input id="fgPcFolderInput" type="file" webkitdirectory directory multiple accept=".png,.jpg,.jpeg,.webp,.bmp" style="display:none">
+          <div class="field"><label>New Library Name</label><input id="fgPcLibraryName" type="text" placeholder="e.g. Beach People"></div>
+          <div class="drop" id="fgPcDrop" style="margin-top:10px;padding:20px">
+            <strong id="fgPcSelectionTitle">Select an image folder from your PC</strong>
+            <span id="fgPcSelectionInfo">PNG, JPG, JPEG, WEBP and BMP are accepted.</span>
+            <div class="row" style="justify-content:center;margin-top:12px"><button class="btn primary" type="button" id="fgPcChooseButton">Choose PC Folder</button></div>
+          </div>
+          <div id="fgPcProgressWrap" style="display:none;margin-top:12px">
+            <div class="row" style="justify-content:space-between"><b id="fgPcProgressText">Preparing…</b><span class="small" id="fgPcProgressCount">0 / 0</span></div>
+            <div class="progress" style="margin-top:7px"><i id="fgPcProgressBar" style="width:0%"></i></div>
+            <div class="small" id="fgPcDuplicateText" style="margin-top:6px"></div>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <button class="btn primary" type="button" id="fgPcUploadButton" disabled>Upload & Add Library</button>
+            <button class="btn red" type="button" id="fgPcCancelButton" style="display:none">Cancel Upload</button>
+          </div>
+          <p class="small" style="margin:10px 0 0">The uploaded library is stored under ACS protected FG storage on the VPS. Normal Delivered/Cleanup operations cannot delete it.</p>
+        </div>
+
+        <div id="fgVpsPane" style="display:none">
+          <div class="field"><label>Library Name</label><input data-autosave type="text" placeholder="e.g. Beach People"></div>
+          <div class="field" style="margin-top:9px"><label>VPS Folder</label><input data-autosave type="text" placeholder="/srv/acs/fg/beach_people"></div>
+          <div class="row" style="margin-top:10px"><button class="btn">Validate Folder</button><button class="btn primary">Add Library</button></div>
+          <p class="small" style="margin:10px 0 0">Use this mode only when the folder already exists on the VPS.</p>
+        </div>
+      </div>
+
+      <div class="card"><h3>Foreground Placement Defaults</h3>
+        <div class="field" style="margin-bottom:9px"><label>Preset Default FG Library</label><select id="presetFgSelect" data-autosave><option value="">None</option></select></div>
+        <div class="three"><div class="field"><label>X</label><input id="fgX" data-autosave type="number" min="0" max="100" value="17"></div><div class="field"><label>Y</label><input id="fgY" data-autosave type="number" min="0" max="100" value="58"></div><div class="field"><label>Size</label><input id="fgSize" data-autosave type="number" min="5" max="100" value="39"></div></div>
+        <div class="field" style="margin-top:9px"><label>Opacity</label><input id="fgOpacity" data-autosave type="range" min="0" max="100" value="100"></div>
+        <p class="small">Individual presets can choose which persistent FG library to use. The separate FG preview has been removed; X, Y, Size and Opacity now update the single Main Preview.</p>
+        <button class="btn" type="button" id="fgOpenMainPreviewInline" style="margin-top:10px">Open Main Preview</button>
+      </div>
+    </div>
+  </section>
+  <!-- ACS_FG_PC_UPLOAD_V1_END -->
+
+  <!-- ACS_INTERNAL_AUDIO_ENGINE_UI_V1 -->
+  <section class="page" id="voice">
+    <iframe id="sceneAudioEngineFrame" src="/acs-audio-engine/" scrolling="no" title="ACS Audio Engine" loading="eager"></iframe>
+    <div class="head"><div><h2>Audio Engine</h2><p>ACS-owned narration engineering, voice sources, profiles, background music and final mixing in one internal workspace.</p></div><div class="actions"><span class="save-state page-save-state">✓ Saved</span><button class="btn">Refresh Profiles</button><button class="btn primary">New Voice Profile</button></div></div>
+    
+    <div class="card">
+      <div class="profile"><b>Declan Sage</b><span>English</span><span>Multilingual v2</span><span>Stability 50 · Similarity 75</span><span class="badge good">Enabled</span><div><button class="btn">Edit</button> <button class="btn">Duplicate</button></div></div>
+      <div class="profile"><b>Documentary Male</b><span>English</span><span>Multilingual v2</span><span>Stability 62 · Similarity 80</span><span class="badge good">Enabled</span><div><button class="btn">Edit</button> <button class="btn">Duplicate</button></div></div>
+      <div class="profile"><b>Urdu Story Voice</b><span>Urdu</span><span>Multilingual v2</span><span>Stability 55 · Similarity 78</span><span class="badge good">Enabled</span><div><button class="btn">Edit</button> <button class="btn">Duplicate</button></div></div>
+    </div>
+    <div class="grid g2" style="margin-top:14px">
+      <div class="card"><h3>Profile Editor</h3><div class="two"><div class="field"><label>Profile Name</label><input data-autosave type="text" value="Declan Sage"></div><div class="field"><label>Language</label><input data-autosave type="text" value="English"></div></div><div class="field" style="margin-top:9px"><label>ElevenLabs Voice ID</label><input data-autosave type="password" value="xxxxxxxxxxxxxxxx"></div><div class="field" style="margin-top:9px"><label>Model</label><select data-autosave><option>Multilingual v2</option><option>Eleven Multilingual v2</option></select></div><div class="three" style="margin-top:9px"><div class="field"><label>Stability</label><input data-autosave type="number" value="50"></div><div class="field"><label>Similarity</label><input data-autosave type="number" value="75"></div><div class="field"><label>Style</label><input data-autosave type="number" value="0"></div></div><div class="two" style="margin-top:9px"><div class="field"><label>Speed</label><input data-autosave type="number" value="1.0" step=".05"></div><div><label class="check" style="margin-top:27px"><input data-autosave type="checkbox" checked> Speaker Boost</label></div></div><div class="row" style="margin-top:12px"><span class="save-state">✓ Auto-saved</span><button class="btn red">Delete</button></div></div>
+      <div class="card"><h3>Project Voice Controls</h3><div class="field"><label>Default Voice Profile</label><select data-autosave><option>Declan Sage</option><option>Documentary Male</option><option>Urdu Story Voice</option></select></div><div class="field" style="margin-top:9px"><label>Voice Volume</label><input data-autosave type="range" min="0" max="300" value="100"></div><div class="field" style="margin-top:9px"><label>Voice Speed</label><input data-autosave type="range" min="50" max="200" value="100"></div><div class="field" style="margin-top:9px"><label>Voice Processing</label><select data-autosave><option>Natural (Recommended)</option><option>Off</option><option>Clear</option><option>Strong</option></select></div></div>
+    </div>
+  <div class="card" id="internalAudioEngineCard" style="margin-top:14px;border-color:#c9c8ff">
+    <div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Audio Engine</h3><span id="audioEngineFullStatus" class="badge">Checking full engine...</span></div>
+    <div class="setting"><div><b>Use Audio Engine in ACS renders</b><small>The Scene Builder worker engine is copied into ACS and runs before ACS voice speed/volume and the ACS-owned music mixer.</small></div><label class="toggle"><input id="audioEngineEnabled" type="checkbox" checked><span class="slider"></span></label></div>
+    <div class="two" style="margin-top:9px">
+      <div class="field"><label>Automatic Render Preset</label><select id="audioEnginePreset"><option value="documentary">Documentary Voice</option><option value="clean">Clean Narration</option><option value="natural">Natural Voice</option><option value="deep">Deep Voice</option><option value="youtube">Loud YouTube Voice</option></select></div>
+      <div class="field"><label>Processing Mode</label><select id="audioEngineMode" data-ae-key="mode"><option value="auto">Auto</option><option value="manual">Manual overrides</option></select></div>
+    </div>
+    <details style="margin-top:10px">
+      <summary style="cursor:pointer;font-weight:700">Automatic render advanced overrides</summary>
+      <div class="notice" style="margin:10px 0">Leave numeric fields blank to use the selected preset. These controls are passed directly into the copied Scene Builder engine for ACS renders.</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:9px">
+        <div class="field"><label>Noise reduction</label><select data-ae-key="noise_enabled"><option value="">Preset default</option><option value="true">On</option><option value="false">Off</option></select></div>
+        <div class="field"><label>Noise floor</label><input data-ae-key="noise_floor" type="number" step=".5" placeholder="preset"></div>
+        <div class="field"><label>Noise reduction dB</label><input data-ae-key="noise_reduction" type="number" step=".5" placeholder="preset"></div>
+        <div class="field"><label>High-pass Hz</label><input data-ae-key="highpass" type="number" step="1" placeholder="preset"></div>
+        <div class="field"><label>Bass gain</label><input data-ae-key="bass_gain" type="number" step=".1" placeholder="preset"></div>
+        <div class="field"><label>Mud gain</label><input data-ae-key="mud_gain" type="number" step=".1" placeholder="preset"></div>
+        <div class="field"><label>Presence gain</label><input data-ae-key="presence_gain" type="number" step=".1" placeholder="preset"></div>
+        <div class="field"><label>Air gain</label><input data-ae-key="air_gain" type="number" step=".1" placeholder="preset"></div>
+        <div class="field"><label>De-esser</label><input data-ae-key="deesser" type="number" step=".01" placeholder="preset"></div>
+        <div class="field"><label>Comp threshold</label><input data-ae-key="comp_threshold" type="number" step=".01" placeholder="preset"></div>
+        <div class="field"><label>Comp ratio</label><input data-ae-key="comp_ratio" type="number" step=".1" placeholder="preset"></div>
+        <div class="field"><label>Comp attack ms</label><input data-ae-key="comp_attack" type="number" step="1" placeholder="preset"></div>
+        <div class="field"><label>Comp release ms</label><input data-ae-key="comp_release" type="number" step="1" placeholder="preset"></div>
+        <div class="field"><label>Comp makeup</label><input data-ae-key="comp_makeup" type="number" step=".1" placeholder="preset"></div>
+        <div class="field"><label>Narration fade-in</label><input data-ae-key="narration_fade_in" type="number" step=".01" placeholder="preset"></div>
+        <div class="field"><label>Target LUFS</label><input data-ae-key="target_lufs" type="number" step=".1" placeholder="preset"></div>
+        <div class="field"><label>LRA</label><input data-ae-key="lra" type="number" step=".1" placeholder="preset"></div>
+        <div class="field"><label>True peak dBTP</label><input data-ae-key="true_peak" type="number" step=".1" placeholder="preset"></div>
+        <div class="field"><label>Output gain dB</label><input data-ae-key="output_gain_db" type="number" step=".1" placeholder="preset"></div>
+      </div>
+      <div class="row" style="margin-top:10px"><button class="btn" type="button" id="audioEngineResetOverrides">Reset overrides</button></div>
+    </details>
+    <div class="notice" style="margin-top:10px">ACS render order: source voice → copied Scene Builder Audio Engine → voice speed/volume → ACS music normalization/ducking/fades → renderer. Music/timeline remain owned by ACS to avoid double mixing.</div>
+    <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px">
+      <div class="row" style="justify-content:space-between;align-items:center"><b>Full Audio Engine Workspace</b><span class="small">Same workspace Scene Builder embeds</span></div>
+      <iframe id="audioEngineFullFrame" src="about:blank" title="ACS Audio Engine workspace" loading="eager" style="display:block;width:100%;height:900px;border:0;background:transparent;margin-top:8px;border-radius:12px"></iframe>
+    </div>
+  </div>
+
+  
+  </section>
+
+  <section class="page" id="output">
+    <div class="head"><div><h2>Output</h2><p>Render, compression and verified Drive delivery controls.</p></div><span class="save-state page-save-state">✓ Saved</span></div>
+    <div class="grid g3">
+      <div class="card"><h3>Video</h3><div class="field"><label>Aspect Ratio</label><select data-autosave><option>16:9 Landscape</option><option>9:16 Portrait / Shorts</option></select></div><div class="two" style="margin-top:9px"><div class="field"><label>Resolution</label><select data-autosave><option>720p</option><option>480p</option><option>1080p — web extension</option></select></div><div class="field"><label>FPS</label><input data-autosave type="number" min="12" max="60" value="24"></div></div><div class="field" style="margin-top:9px"><label>Quality</label><select data-autosave><option>High Quality (CRF 20)</option><option>Good Quality (CRF 22)</option><option selected>Balanced (CRF 23)</option><option>Small File (CRF 25)</option><option>Custom CRF</option></select></div><div class="field" style="margin-top:9px"><label>CPU FFmpeg Preset</label><select data-autosave><option>ultrafast</option><option>veryfast</option><option>faster</option><option>fast</option><option>medium</option></select></div></div>
+      <div class="card"><h3>Post Render Compression</h3><div class="setting"><div><b>Compress after render</b><small>Before next queue item.</small></div><label class="toggle"><input data-autosave type="checkbox"><span class="slider"></span></label></div><div class="field"><label>Compression Quality</label><select data-autosave><option>Balanced Fast</option><option>High Quality</option><option>Smaller File</option></select></div><div class="field" style="margin-top:9px"><label>Encoder</label><select data-autosave><option>CPU Fast (Reliable)</option><option>CPU Quality</option></select></div><label class="check" style="margin-top:10px"><input data-autosave type="checkbox" checked> Replace only when compressed file is smaller</label></div>
+      <div class="card"><h3>Drive Delivery</h3><div class="setting"><div><b>Upload to Drive</b></div><label class="toggle"><input data-autosave type="checkbox" checked><span class="slider"></span></label></div><div class="field"><label>Drive Destination</label><select data-autosave><option>ACS Final Videos</option><option>Documentaries / Batch A</option><option>Assigned User Folder</option></select></div><div class="setting"><div><b>Verify Drive before Delivered</b></div><label class="toggle"><input data-autosave type="checkbox" checked><span class="slider"></span></label></div><div class="setting"><div><b>Clean after Drive verified</b><small>Deletes project-owned working files only after verified Drive delivery.</small></div><label class="toggle"><input data-autosave type="checkbox" checked><span class="slider"></span></label></div>
+    <div class="small" style="margin-top:8px">Protected from cleanup: FG libraries · Pexels library · Music library · Voice profiles</div></div>
+    </div>
+    <div class="card" style="margin-top:14px"><h3>Output Naming & Queue</h3><div class="three"><div class="field"><label>Output Name</label><input data-autosave type="text" value="{project_id}.mp4"></div><div class="field"><label>Queue Output Folder</label><input data-autosave type="text" value="/srv/acs/output"></div><div class="field"><label>Encoder</label><select data-autosave><option>CPU x264 / H.264</option></select></div></div></div>
+  </section>
+
+
+</div></div>
+<script>
+if(window.top===window && location.pathname!=="/auto-caption/studio" && !new URLSearchParams(location.search).has("embed")){location.replace("/auto-caption/studio"+location.hash);}
+const API='/auto-caption/api/web-flow';
+const PEXELS_API='/auto-caption/api/pexels-library';
+const tabs=[...document.querySelectorAll('.tab[data-page]')], pages=[...document.querySelectorAll('.page')];
+const appState={bootstrap:null,presets:[],fg:[],voices:[],fonts:[],visualPlan:null,visualPollTimer:null,selectedPresetId:'',uploadItems:[],uploadFileCount:0,uploadSource:'pc',profileId:'',queueTimer:null};
+let presetSaveTimer=null,pendingSettings={},pendingPresetPatch={};
+let previewRenderTimer=null,previewPollTimer=null,previewLastUrl="";
+let instantLiveScript="",instantLiveRaf=0,instantLiveView="live";
+const globalState=document.getElementById('globalSaveState');
+const pageStates=[...document.querySelectorAll('.page-save-state')];
+
+function openPage(id,syncHash=true){
+  if(!pages.some(p=>p.id===id))id='queue';
+  tabs.forEach(t=>t.classList.toggle('active',t.dataset.page===id));
+  pages.forEach(p=>p.classList.toggle('active',p.id===id));
+  if(syncHash&&location.hash!==`#${id}`)history.replaceState(null,'',`#${id}`);
+  if(window.parent!==window){try{window.parent.history.replaceState(null,'',`/auto-caption/studio#${id}`);}catch(_){}}
+}
+tabs.forEach(t=>t.onclick=()=>openPage(t.dataset.page));
+window.addEventListener('hashchange',()=>openPage(location.hash.slice(1)||'queue',false));
+document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>openPage(b.dataset.go));
+
+function txt(v){return String(v??'');}
+function norm(v){return txt(v).replace(/\s+/g,' ').trim();}
+function esc(v){return txt(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function fmtBytes(n){n=Number(n||0);for(const u of ['B','KB','MB','GB','TB']){if(n<1024||u==='TB')return `${n<10&&u!=='B'?n.toFixed(1):Math.round(n)} ${u}`;n/=1024;}return '0 B';}
+function setSaveState(text,color,border,bg){[globalState,...pageStates].filter(Boolean).forEach(el=>{el.textContent=text;if(color)el.style.color=color;if(border)el.style.borderColor=border;if(bg)el.style.background=bg;});}
+function markUnsaved(){setSaveState('Unsaved changes','#9a6500','#f1d39e','#fff3de');}
+function markSaving(){setSaveState('Saving…','#4546bc','#d9dcf1','#f0efff');}
+function markSaved(){setSaveState('✓ Saved','#117443','#bdebd2','#e9fbf2');}
+function toast(message,error=false){let el=document.getElementById('acsToast');if(!el){el=document.createElement('div');el.id='acsToast';Object.assign(el.style,{position:'fixed',right:'18px',bottom:'18px',zIndex:9999,maxWidth:'430px',padding:'11px 14px',borderRadius:'10px',fontWeight:'700',boxShadow:'0 12px 30px rgba(0,0,0,.18)'});document.body.appendChild(el);}el.textContent=message;el.style.background=error?'#fff0f2':'#e9fbf2';el.style.color=error?'#b83246':'#117443';el.style.border='1px solid '+(error?'#ffd8df':'#bdebd2');el.style.display='block';clearTimeout(el._timer);el._timer=setTimeout(()=>el.style.display='none',3500);}
+async function api(path,{method='GET',body=null,form=null}={}){const options={method,credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}};if(form){options.body=form;}else if(body!==null){options.headers['Content-Type']='application/json';options.body=JSON.stringify(body);}const r=await fetch(API+path,options);let data={};try{data=await r.json();}catch{}if(!r.ok)throw new Error(data.detail||data.message||`HTTP ${r.status}`);return data;}
+async function pexelsApi(path,{method='GET',body=null}={}){const options={method,credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}};if(body!==null){options.headers['Content-Type']='application/json';options.body=JSON.stringify(body);}const r=await fetch(PEXELS_API+path,options);let data={};try{data=await r.json();}catch{}if(!r.ok)throw new Error(data.detail||`HTTP ${r.status}`);return data;}
+function page(id){return document.getElementById(id);}
+function card(pageId,title){const root=page(pageId);if(!root)return null;return [...root.querySelectorAll('.card')].find(c=>norm(c.querySelector('h3')?.textContent)===title)||null;}
+function fieldControl(pageId,label,cardTitle=null,occ=0){const root=cardTitle?card(pageId,cardTitle):page(pageId);if(!root)return null;const hits=[...root.querySelectorAll('.field')].filter(f=>norm(f.querySelector('label')?.textContent)===label);return hits[occ]?.querySelector('input,select,textarea')||null;}
+function checkControl(pageId,label,cardTitle=null){const root=cardTitle?card(pageId,cardTitle):page(pageId);if(!root)return null;for(const container of root.querySelectorAll('.setting,label.check')){if(norm(container.textContent).includes(label)){const el=container.querySelector('input[type=checkbox]');if(el)return el;}}return null;}
+function buttonByText(root,text){if(!root)return null;return [...root.querySelectorAll('button')].find(b=>norm(b.textContent)===text)||null;}
+function selectedPreset(){return appState.presets.find(p=>txt(p.id)===txt(appState.selectedPresetId))||appState.presets[0]||null;}
+function fgName(id){return appState.fg.find(x=>txt(x.id)===txt(id))?.name||'None';}
+function voiceName(id){return appState.voices.find(x=>txt(x.id)===txt(id))?.name||'No profile';}
+function optionFill(select,items,selected,noneLabel=null){if(!select)return;const rows=[];if(noneLabel!==null)rows.push(`<option value="">${esc(noneLabel)}</option>`);for(const item of items)rows.push(`<option value="${esc(item.id)}">${esc(item.name)}</option>`);select.innerHTML=rows.join('');select.value=selected||'';}
+
+/* ---------- preset settings bindings ---------- */
+const bindings=[];
+function addBinding(el,key,{toServer=v=>v,fromServer=v=>v,event='change'}={}){if(!el)return;el.dataset.wired='preset';bindings.push({el,key,toServer,fromServer});const handler=()=>{const preset=selectedPreset();if(!preset)return;const value=toServer(el.type==='checkbox'?el.checked:el.value);preset.settings=preset.settings||{};preset.settings[key]=value;updateMainPreviewOverlay();schedulePresetSave({[key]:value});};el.addEventListener(event,handler);if(event!=='input'&&['range','number','text','color'].includes(el.type))el.addEventListener('input',handler);}
+function addField(pageId,cardTitle,label,key,opts={}){addBinding(fieldControl(pageId,label,cardTitle,opts.occ||0),key,opts);}
+function addCheck(pageId,cardTitle,label,key,opts={}){addBinding(checkControl(pageId,label,cardTitle),key,{...opts,toServer:v=>!!v,fromServer:v=>!!v});}
+const lower=v=>norm(v).toLowerCase();
+const maps={
+ captionSource:{'Voice-to-text Transcript':'whisper','Original Script Words':'script'},sync:{'Better Sync — voice-to-text':'better','Fast Sync — script duration':'fast'},lang:{Auto:'auto',English:'en',Urdu:'ur',Hindi:'hi'},
+ heavy:{'Story Pro':'story_pro','Viral Pop':'viral_pop',Glass:'glass',Documentary:'documentary',Minimal:'minimal'},start:{'Voice Centered':'voice_centered',Classic:'classic',Immediate:'immediate',Centered:'centered'},
+ motion:{Cinematic:'cinematic','Very Slow':'very_slow',Dynamic:'dynamic'},transition:{Crossfade:'crossfade','Clean Cut':'cut','Slow Dissolve':'dissolve','Varied Subtle':'varied'},
+ voiceProc:{'Natural (Recommended)':'natural',Off:'off',Clear:'clear',Strong:'strong'},duck:{'Medium (Recommended)':'medium',Light:'light',Strong:'strong'},rotation:{'Sequential (Recommended)':'sequential','Random — avoid immediate repeat':'random','Shuffle Cycle':'shuffle'},
+ quality:{'High Quality (CRF 20)':20,'Good Quality (CRF 22)':22,'Balanced (CRF 23)':23,'Small File (CRF 25)':25,'Custom CRF':23}
+};
+function invMap(map,value){const hit=Object.entries(map).find(([,v])=>String(v)===String(value));return hit?hit[0]:Object.keys(map)[0];}
+function initBindings(){
+ addField('captions','Caption Controls','Position','caption_position',{toServer:lower,fromServer:v=>({bottom:'Bottom',center:'Center',top:'Top'}[v]||'Bottom')});
+ addField('captions','Caption Controls','Words per Caption','caption_max_words',{toServer:Number});
+ addField('captions','Source & Sync','Text Source','caption_text_source',{toServer:v=>maps.captionSource[v]||'whisper',fromServer:v=>invMap(maps.captionSource,v)});
+ addField('captions','Source & Sync','Timing Sync','caption_sync_mode',{toServer:v=>maps.sync[v]||'better',fromServer:v=>invMap(maps.sync,v)});
+ addField('captions','Source & Sync','Language','caption_language',{toServer:v=>maps.lang[v]||'auto',fromServer:v=>invMap(maps.lang,v)});
+ addCheck('captions','Heavy Caption Lab','Heavy captions','caption_heavy_enabled');
+ addField('captions','Heavy Caption Lab','Preset','caption_heavy_preset',{toServer:v=>maps.heavy[v]||'story_pro',fromServer:v=>invMap(maps.heavy,v)});
+ addCheck('captions','Heavy Caption Lab','Highlight active spoken word','caption_karaoke_enabled');
+ addCheck('captions','Heavy Caption Lab','Tighten tiny silent gaps','caption_gap_tighten');
+ addField('captions','Scrolling Mode','Start Mode','start_mode',{toServer:v=>maps.start[v]||'voice_centered',fromServer:v=>invMap(maps.start,v)});
+ addCheck('captions','Scrolling Mode','Auto-sync to audio','auto_sync_audio');
+ addField('captions','Scrolling Mode','Manual Speed','manual_speed_px_per_sec',{toServer:Number});
+ addField('captions','Timing','Extra Start','extra_start_seconds',{toServer:Number});
+ addField('captions','Timing','Extra End','extra_end_seconds',{toServer:Number});
+ addField('captions','Timing','Text Width','text_width_percent',{toServer:Number});
+ addField('captions','Layout','Alignment','alignment',{toServer:lower,fromServer:v=>({center:'Center',left:'Left',right:'Right',justify:'Justify'}[v]||'Center')});
+ addField('captions','Layout','Position X','text_x_percent',{toServer:Number});
+ addField('captions','Layout','Line Height','line_height_percent',{toServer:Number});
+ addField('captions','Layout','Paragraph Spacing','paragraph_spacing',{toServer:Number});
+ addBinding(document.getElementById('fontFamily'),'font_family');addField('captions','Font','Size','font_size',{toServer:Number});addField('captions','Font','Width','text_width_percent',{toServer:Number});
+ addCheck('captions','Font','Bold','bold');addCheck('captions','Font','Italic','italic');addCheck('captions','Font','Underline','underline');
+ addField('captions','Color & Plate','Text','text_color');addField('captions','Color & Plate','Highlight','caption_highlight_color');
+ addCheck('captions','Stroke & Shadow','Stroke','outline_enabled');addField('captions','Stroke & Shadow','Stroke Color','outline_color');addField('captions','Stroke & Shadow','Width','outline_width',{toServer:Number});addCheck('captions','Stroke & Shadow','Shadow','shadow_enabled');
+ addCheck('pexels','Media Source','Use Pexels','pexels_enabled');addCheck('pexels','Media Source','Use Live Pexels API media','pexels_download_enabled');addField('pexels','Keywords & Library','Manual Keywords','pexels_query');addCheck('pexels','Keywords & Library','Auto-fetch keywords from script','pexels_auto_keywords');
+ addField('pexels','Motion & Timing','Image Duration','pexels_interval_seconds',{toServer:Number});addField('pexels','Motion & Timing','Video Clip Duration','pexels_video_interval_seconds',{toServer:Number});addField('pexels','Motion & Timing','Motion Style','visual_motion_style',{toServer:v=>maps.motion[v]||'cinematic',fromServer:v=>invMap(maps.motion,v)});addField('pexels','Motion & Timing','Motion Speed','pexels_motion_speed_percent',{toServer:Number});addField('pexels','Motion & Timing','Motion Intensity','pexels_motion_intensity_percent',{toServer:Number});addField('pexels','Motion & Timing','Image Transition','image_transition_mode',{toServer:v=>maps.transition[v]||'crossfade',fromServer:v=>invMap(maps.transition,v)});addCheck('pexels','Motion & Timing','Enable image motion','motion_enabled');addCheck('pexels','Motion & Timing','Avoid repeated motion','visual_avoid_repeated_motion');addCheck('pexels','Motion & Timing','Protect low-resolution images','visual_quality_protection');addCheck('pexels','Motion & Timing','Single background full video','single_background_enabled');
+ addField('fg','Foreground Placement Defaults','X','foreground_x_percent',{toServer:Number});addField('fg','Foreground Placement Defaults','Y','foreground_y_percent',{toServer:Number});addField('fg','Foreground Placement Defaults','Size','foreground_width_percent',{toServer:Number});addField('fg','Foreground Placement Defaults','Opacity','foreground_opacity_percent',{toServer:Number});
+ addField('voice','Project Voice Controls','Voice Volume','voice_volume_percent',{toServer:Number});addField('voice','Project Voice Controls','Voice Speed','voice_speed_percent',{toServer:Number});addField('voice','Project Voice Controls','Voice Processing','voice_processing_preset',{toServer:v=>maps.voiceProc[v]||'natural',fromServer:v=>invMap(maps.voiceProc,v)});
+ 
+
+ addField('output','Video','FPS','fps',{toServer:Number});addField('output','Video','CPU FFmpeg Preset','ffmpeg_preset');addCheck('output','Post Render Compression','Compress after render','post_render_compress_enabled');addField('output','Post Render Compression','Compression Quality','post_render_compress_quality');addField('output','Post Render Compression','Encoder','post_render_compress_encoder');addCheck('output','Post Render Compression','Replace only when compressed file is smaller','post_render_compress_overwrite_only_smaller');
+}
+function applyBindings(){const p=selectedPreset();if(!p)return;const s=p.settings||{};for(const b of bindings){if(!(b.key in s))continue;const v=b.fromServer(s[b.key]);if(b.el.type==='checkbox')b.el.checked=!!v;else b.el.value=v??'';}applySpecialControls();applyFontControls();applyTextBackgroundControls();updateMainPreviewOverlay();updateScrollTextXReadout();}
+function schedulePresetSave(partial){const p=selectedPreset();if(!p)return;Object.assign(pendingSettings,partial||{});p.preview_approved=false;markUnsaved();clearTimeout(presetSaveTimer);presetSaveTimer=setTimeout(savePresetNow,650);renderPreviewApproval();}
+async function savePresetNow(){const p=selectedPreset();if(!p||(!Object.keys(pendingSettings).length&&!Object.keys(pendingPresetPatch).length))return;const settings={...pendingSettings};const extra={...pendingPresetPatch};pendingSettings={};pendingPresetPatch={};markSaving();try{const r=await api(`/presets/${encodeURIComponent(p.id)}`,{method:'PUT',body:{...extra,settings:Object.keys(settings).length?settings:undefined,preview_approved:false}});Object.assign(p,r.preset);markSaved();renderPresetCards();scheduleRealPresetPreview();}catch(e){Object.assign(pendingSettings,settings);Object.assign(pendingPresetPatch,extra);setSaveState('Save failed','#b83246','#ffd8df','#fff0f2');toast(e.message,true);}}
+async function patchPreset(extra){const p=selectedPreset();if(!p)return;markSaving();try{const r=await api(`/presets/${encodeURIComponent(p.id)}`,{method:'PUT',body:extra});Object.assign(p,r.preset);markSaved();renderPresetCards();applySpecialControls();scheduleRealPresetPreview();}catch(e){setSaveState('Save failed','#b83246','#ffd8df','#fff0f2');toast(e.message,true);}}
+
+/* ---------- special preset controls ---------- */
+function initSpecialControls(){
+ const media=fieldControl('pexels','Media Type','Media Source');media?.addEventListener('change',()=>{const p=selectedPreset();if(!p)return;const v=media.value;p.settings.use_image_backgrounds=v!=='Videos';p.settings.use_video_backgrounds=v!=='Images';schedulePresetSave({use_image_backgrounds:p.settings.use_image_backgrounds,use_video_backgrounds:p.settings.use_video_backgrounds});});
+ const aspect=fieldControl('output','Aspect Ratio','Video'),resolution=fieldControl('output','Resolution','Video'),quality=fieldControl('output','Quality','Video');
+ const saveSize=()=>{const p=selectedPreset();if(!p)return;const portrait=aspect.value.startsWith('9:16');const res=resolution.value.startsWith('1080')?1080:resolution.value.startsWith('480')?480:720;let w,h;if(portrait){w=res;h=res===1080?1920:res===720?1280:854;}else{h=res;w=res===1080?1920:res===720?1280:854;}p.settings.width=w;p.settings.height=h;schedulePresetSave({width:w,height:h});};aspect?.addEventListener('change',saveSize);resolution?.addEventListener('change',saveSize);quality?.addEventListener('change',()=>{const crf=maps.quality[quality.value]??23;selectedPreset().settings.quality_crf=crf;schedulePresetSave({quality_crf:crf});});
+ const drive=checkControl('output','Upload to Drive','Drive Delivery');drive?.addEventListener('change',()=>setMeta('web_drive_upload_enabled',!!drive.checked));
+ const dest=fieldControl('output','Drive Destination','Drive Delivery');dest?.addEventListener('change',()=>setMeta('web_drive_category',dest.value));
+ const verify=checkControl('output','Verify Drive before Delivered','Drive Delivery'),clean=checkControl('output','Clean after Drive verified','Drive Delivery');if(verify){verify.checked=true;verify.disabled=true;}if(clean){clean.checked=true;clean.disabled=true;}
+ const outName=fieldControl('output','Output Name','Output Naming & Queue');outName?.addEventListener('change',()=>setMeta('web_output_name_template',outName.value));const outFolder=fieldControl('output','Queue Output Folder','Output Naming & Queue');if(outFolder){outFolder.value='Server-managed project output';outFolder.readOnly=true;}const enc=fieldControl('output','Encoder','Output Naming & Queue');if(enc)enc.disabled=true;
+ const mediaKey=fieldControl('pexels','Pexels API Key','Media Source');if(mediaKey){mediaKey.value='';mediaKey.placeholder='Server key (not displayed)';mediaKey.removeAttribute('data-autosave');}
+ const libInput=fieldControl('pexels','VPS Pexels Library','Keywords & Library');if(libInput){libInput.readOnly=true;libInput.removeAttribute('data-autosave');}
+
+}
+function setMeta(key,value){const p=selectedPreset();if(!p)return;p.settings.metadata={...(p.settings.metadata||{}),[key]:value};schedulePresetSave({metadata:p.settings.metadata});}
+function applySpecialControls(){const p=selectedPreset();if(!p)return;const s=p.settings||{},m=s.metadata||{};const media=fieldControl('pexels','Media Type','Media Source');if(media)media.value=s.use_image_backgrounds&&s.use_video_backgrounds?'Mix Images + Videos':s.use_video_backgrounds?'Videos':'Images';const aspect=fieldControl('output','Aspect Ratio','Video'),res=fieldControl('output','Resolution','Video');if(aspect)aspect.value=Number(s.height||720)>Number(s.width||1280)?'9:16 Portrait / Shorts':'16:9 Landscape';if(res){const long=Math.max(Number(s.width||1280),Number(s.height||720));res.value=long>=1900?'1080p — web extension':long<=854?'480p':'720p';}const q=fieldControl('output','Quality','Video');if(q)q.value=invMap(maps.quality,Number(s.quality_crf||23));const drive=checkControl('output','Upload to Drive','Drive Delivery');if(drive)drive.checked=m.web_drive_upload_enabled!==false;const dest=fieldControl('output','Drive Destination','Drive Delivery');if(dest)dest.value=m.web_drive_category||'ACS Final Videos';const out=fieldControl('output','Output Name','Output Naming & Queue');if(out)out.value=m.web_output_name_template||'{project_id}.mp4';updatePresetFgSelect();updateVoiceSelects();applyAudioEngineControls();}
+
+/* ---------- preset UI ---------- */
+function presetSummary(p){
+  const s=p.settings||{};
+  const mode=textRenderModeFromSettings(s)==='off'?'Text off':(textRenderModeFromSettings(s)==='caption'?'Caption video':'Scrolling text');
+  const media=p.auto_pexels_media!==false?'Auto Pexels TXT':(s.use_image_backgrounds&&s.use_video_backgrounds?'Pexels Mix':s.use_video_backgrounds?'Pexels Videos':'Pexels Images');
+  const font=(p.font_mode||'auto')==='manual'?`Manual ${s.font_family||'font'}`:'Auto Font';
+  const plate=textBackgroundModeFromSettings(s)==='whole'?'Whole Text Block':(textBackgroundModeFromSettings(s)==='follow'?'Follow Text':'No Plate');
+  const fg=p.fg_library_id?fgName(p.fg_library_id):(s.story_visualizer_enabled?'FG Ready':'No FG');
+  return `${mode} · ${font} · ${plate} · ${media} · ${fg}`;
+}
+function renderPresetProfile(){
+  const p=selectedPreset(); if(!p)return;
+  const s=p.settings||{}, info=p.profile_info||{};
+  const name=document.getElementById('presetProfileName');
+  const purpose=document.getElementById('presetProfilePurpose');
+  const version=document.getElementById('presetProfileVersion');
+  const facts=document.getElementById('presetProfileFacts');
+  const source=document.getElementById('presetProfileSource');
+  if(name)name.textContent=`${p.name} · Production Profile`;
+  if(purpose)purpose.textContent=info.purpose||'Reusable production settings saved with this preset.';
+  if(version){version.textContent=info.version?`Profile ${info.version}`:'Custom profile';version.className='badge good';}
+  const rows=[
+    ['Flow',info.flow||`${textRenderModeFromSettings(s)==='caption'?'Caption':(textRenderModeFromSettings(s)==='off'?'No-text':'Scrolling')} production flow`],
+    ['Typography',info.text||`${(p.font_mode||'auto')==='manual'?'Manual':'Auto'} font · ${s.font_size||40}px`],
+    ['Text Background',info.text_background||(textBackgroundModeFromSettings(s)==='whole'?'Whole Text Block':(textBackgroundModeFromSettings(s)==='follow'?'Follow Text':'Off'))],
+    ['Foreground',info.foreground||(s.story_visualizer_enabled?'Story FG renderer ready':'Off')],
+    ['Media',info.media||`${p.auto_pexels_media!==false?'Auto Pexels':'Manual media'} · preset cache`],
+    ['Audio',info.audio||`Auto sync ${s.auto_sync_audio!==false?'on':'off'}`],
+    ['Output',info.output||`${s.width||1280}×${s.height||720} · ${s.fps||24}fps`],
+    ['Safety',info.safety||'Project/runtime data is not stored in the preset.']
+  ];
+  if(facts)facts.innerHTML=rows.map(([k,v])=>`<div class="section"><h4>${esc(k)}</h4><div class="small" style="line-height:1.45">${esc(v)}</div></div>`).join('');
+  if(source)source.textContent=info.source||'Values shown are the currently saved preset settings.';
+}
+function renderPresetCards(){
+  const grid=page('preset').querySelector('.preset-grid');
+  grid.innerHTML=appState.presets.map(p=>{
+    const s=p.settings||{};
+    const tm=textRenderModeFromSettings(s),bm=textBackgroundModeFromSettings(s);const tags=[tm==='caption'?'Caption':(tm==='off'?'Text Off':'Scroll'),(p.font_mode||'auto')==='manual'?'Manual Font':'Auto Font',bm==='whole'?'Whole Text':(bm==='follow'?'Follow Text':'No Plate'),p.auto_pexels_media!==false?'Auto Pexels':'Manual Media'];
+    if(p.fg_library_id||s.story_visualizer_enabled)tags.push('FG');
+    return `<div class="preset ${p.id===appState.selectedPresetId?'active':''}" data-id="${esc(p.id)}"><b>${esc(p.name)}</b><span class="small">${esc(presetSummary(p))}</span><div class="tags">${tags.map(x=>`<span class="tag">${esc(x)}</span>`).join('')}</div></div>`;
+  }).join('');
+  grid.querySelectorAll('.preset').forEach(el=>el.onclick=()=>selectPreset(el.dataset.id,true));
+  renderPresetProfile();
+  renderPreviewApproval();
+}
+async function selectPreset(id,persist){if(!appState.presets.some(p=>p.id===id))return;appState.selectedPresetId=id;previewLastUrl='';applyBindings();renderPresetCards();fillUploadPreset();await refreshPresetVisualPlan(false);if(persist){try{await api('/user-state',{method:'PUT',body:{selected_preset_id:id}});}catch(e){toast(e.message,true);}}}
+function renderPreviewApproval(){const p=selectedPreset();if(!p)return;document.getElementById('previewTitle').textContent=`Main Preview · ${p.name}`;refreshRealPresetPreview(false);}
+function scheduleRealPresetPreview(){clearTimeout(previewRenderTimer);refreshInstantLivePreview(false);refreshRealPresetPreview(false);}
+async function queueRealPresetPreview(){const p=selectedPreset();if(!p)return;const mediaBusy=['queued','running'].includes(String(appState.visualPlan?.prepare?.status||''));if(mediaBusy)return toast('Auto Pexels is still preparing missing media. Render when it finishes.',true);try{const status=await api(`/presets/${encodeURIComponent(p.id)}/preview/status`);if(!status.reference?.audio_ready){renderRealPreviewStatus(status);return toast('Set Preview Audio first.',true);}const r=await api(`/presets/${encodeURIComponent(p.id)}/preview/render`,{method:'POST'});renderRealPreviewStatus(r);startPreviewPolling();}catch(e){toast(e.message,true);refreshRealPresetPreview(false);}}
+function startPreviewPolling(){clearInterval(previewPollTimer);previewPollTimer=setInterval(()=>refreshRealPresetPreview(false),1800);}
+async function refreshRealPresetPreview(_autoQueue=false){const p=selectedPreset();if(!p)return;try{const status=await api(`/presets/${encodeURIComponent(p.id)}/preview/status`);renderRealPreviewStatus(status);if(status.active){startPreviewPolling();return;}clearInterval(previewPollTimer);previewPollTimer=null;}catch(e){const b=document.getElementById('presetPreviewStatus');if(b){b.textContent='Preview unavailable';b.className='badge warn';}}}
+function rgbaFromHex(color,alpha){const raw=String(color||'#000000').trim(),m=raw.match(/^#([0-9a-f]{6})$/i);if(!m)return raw;const n=parseInt(m[1],16);return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${Math.max(0,Math.min(1,alpha))})`;}
+async function loadInstantLiveScript(){const p=selectedPreset();if(!p)return'';try{const r=await fetch(`${API}/presets/${encodeURIComponent(p.id)}/preview-script/text?v=${Date.now()}`,{credentials:'same-origin',cache:'no-store'});if(!r.ok)throw new Error(`HTTP ${r.status}`);instantLiveScript=await r.text();}catch(e){instantLiveScript=appState.visualPlan?.script_excerpt||'Upload a preview TXT to see scrolling text.';}return instantLiveScript;}
+function instantLivePosition(){const p=selectedPreset(),frame=document.getElementById('presetPreviewFrame'),scroll=document.getElementById('instantLiveScroll'),text=document.getElementById('instantLiveText'),audio=document.getElementById('instantLiveAudio');if(!p||!frame||!scroll||!text)return;const s=p.settings||{},mode=textRenderModeFromSettings(s),H=Math.max(1,frame.clientHeight),scale=H/720;if(mode==='off'){scroll.style.display='none';return;}scroll.style.display='block';let progress=0;if(audio&&isFinite(audio.duration)&&audio.duration>0)progress=Math.max(0,Math.min(1,audio.currentTime/audio.duration));if(mode==='caption'){const words=String(instantLiveScript||'').trim().split(/\s+/).filter(Boolean),n=Math.max(1,Number(s.caption_max_words||6)),chunks=[];for(let i=0;i<words.length;i+=n)chunks.push(words.slice(i,i+n).join(' '));text.textContent=chunks.length?chunks[Math.min(chunks.length-1,Math.floor(progress*chunks.length))]:'Caption preview';const pos=String(s.caption_position||'bottom').toLowerCase(),y=pos==='top'?H*.20:(pos==='center'?H*.50:H*.76);scroll.style.top=`${Math.max(0,y-scroll.offsetHeight/2)}px`;return;}text.textContent=instantLiveScript||'Upload a preview TXT to see scrolling text.';const lineH=Math.max(1,Number(s.font_size||54)*Math.max(50,Math.min(350,Number(s.line_height_percent||100)+Number(s.text_line_spacing||0)))/100*scale),textH=Math.max(lineH,scroll.scrollHeight),center=H*.5;let start=center-lineH/2,end=center-textH+lineH/2;const off=Math.max(-100,Math.min(100,Number(s.text_offset_y_percent||0)))*H/100;start+=off;end+=off;scroll.style.top=`${start+(end-start)*progress}px`;}
+function stopInstantLiveLoop(){if(instantLiveRaf)cancelAnimationFrame(instantLiveRaf);instantLiveRaf=0;}
+function startInstantLiveLoop(){stopInstantLiveLoop();const tick=()=>{instantLivePosition();const a=document.getElementById('instantLiveAudio');if(a&&!a.paused&&!a.ended)instantLiveRaf=requestAnimationFrame(tick);else instantLiveRaf=0;};instantLiveRaf=requestAnimationFrame(tick);}
+function showInstantLive(){instantLiveView='live';const live=document.getElementById('instantLivePreview'),video=document.getElementById('presetPreviewVideo'),play=document.getElementById('previewPlayOverlay');if(live)live.style.display='block';if(video){video.pause();video.style.display='none';}if(play)play.style.display='none';document.getElementById('presetPreviewPlaceholder')?.classList.add('hidden');const b=document.getElementById('presetPreviewStatus');if(b){b.textContent='Live Preview';b.className='badge good';}refreshInstantLivePreview(false);}
+function showExactPreview(){instantLiveView='exact';const live=document.getElementById('instantLivePreview'),video=document.getElementById('presetPreviewVideo');if(live)live.style.display='none';if(video&&video.getAttribute('src'))video.style.display='block';}
+async function refreshInstantLivePreview(resetAudio=false){const p=selectedPreset(),live=document.getElementById('instantLivePreview');if(!p||!live)return;const s=p.settings||{},mode=textRenderModeFromSettings(s),bg=document.getElementById('instantLiveBg'),fg=document.getElementById('instantLiveFg'),plate=document.getElementById('instantLivePlate'),scroll=document.getElementById('instantLiveScroll'),text=document.getElementById('instantLiveText'),audio=document.getElementById('instantLiveAudio'),play=document.getElementById('instantLivePlay');if(!instantLiveScript)await loadInstantLiveScript();const scale=Math.max(1,live.clientWidth)/1280,ml=Math.max(0,Number(s.margin_left??100)),mr=Math.max(0,Number(s.margin_right??55)),usable=Math.max(100,1280-ml-mr),tw=Math.max(20,Math.min(250,Number(s.text_width_percent??85))),sw=Math.max(10,Math.min(300,Number(s.text_scale_width_percent??100))),docW=Math.max(100,usable*tw/100*sw/100),minX=ml,maxX=Math.min(1280-docW-mr,1280-docW),xp=Math.max(0,Math.min(100,Number(s.text_x_percent??50))),offX=Math.max(-100,Math.min(100,Number(s.text_offset_x_percent??0)))*1280/100,x=Math.max(-1280,Math.min(1280,(maxX<minX?(1280-docW)/2:minX+(maxX-minX)*xp/100)+offX));scroll.style.width=`${docW*scale}px`;scroll.style.left=`${x*scale}px`;scroll.style.textAlign=String(s.alignment||'center');scroll.style.fontFamily='"'+String(s.font_family||'Noto Sans').replace(/"/g,'')+'", sans-serif';scroll.style.fontSize=`${Math.max(8,Number(s.font_size||54))*scale}px`;scroll.style.lineHeight=String(Math.max(.5,Number(s.line_height_percent||100)/100));scroll.style.letterSpacing=`${Number(s.character_spacing||0)*scale}px`;scroll.style.color=String(s.text_color||'#ffffff');scroll.style.opacity=String(Math.max(0,Math.min(100,Number(s.text_opacity_percent??s.text_opacity??100)))/100);scroll.style.webkitTextStroke=!!s.outline_enabled?`${Math.max(0,Number(s.outline_width||2))*scale}px ${String(s.outline_color||'#000000')}`:'0 transparent';scroll.style.textShadow=!!s.shadow_enabled?`${Number(s.shadow_offset_x||3)*scale}px ${Number(s.shadow_offset_y||3)*scale}px 2px ${String(s.shadow_color||'#000000')}`:'none';scroll.style.background='transparent';scroll.style.padding='0';scroll.style.borderRadius='0';text.style.background='transparent';text.style.padding='0';text.style.borderRadius='0';text.classList.remove('scroll-follow-lines');plate.style.display='none';const bm=textBackgroundModeFromSettings(s),op=Math.max(0,Math.min(100,Number(s.text_background_opacity_percent??45)))/100,bgc=String(s.text_background_color||'#000000'),px=Math.max(0,Number(s.text_background_padding_x??s.text_background_padding??24))*scale,py=Math.max(0,Number(s.text_background_padding_y??s.text_background_padding??24))*scale,r=Math.max(0,Number(s.text_background_radius??18))*scale;if(mode==='caption'){text.textContent='';if(s.text_background_enabled){scroll.style.background=rgbaFromHex(bgc,op);scroll.style.padding=`${py}px ${px}px`;scroll.style.borderRadius=`${r}px`;}}else if(mode==='scroll'){text.textContent=instantLiveScript||'Upload a preview TXT to see scrolling text.';if(bm==='whole'){scroll.style.background=rgbaFromHex(bgc,op);scroll.style.padding=`${py}px ${px}px`;scroll.style.borderRadius=`${r}px`;}else if(bm==='follow'){text.style.background=rgbaFromHex(bgc,op);text.style.padding=`${py}px ${px}px`;text.style.borderRadius=`${r}px`;text.classList.add('scroll-follow-lines');}}
+if(bg){bg.src=`${API}/presets/${encodeURIComponent(p.id)}/preview/live-background?v=${encodeURIComponent(appState.visualPlan?.prepare?.media_revision||p.updated_at||p.id)}`;bg.onerror=()=>{bg.style.display='none';};bg.onload=()=>{bg.style.display='block';};}if(fg){if(p.fg_library_id){fg.style.display='block';fg.style.left=`${Number(s.foreground_x_percent??17)}%`;fg.style.top=`${Number(s.foreground_y_percent??58)}%`;fg.style.width=`${Math.max(5,Number(s.foreground_width_percent??39))}%`;fg.style.opacity=String(Math.max(0,Math.min(100,Number(s.foreground_opacity_percent??100)))/100);fg.src=`${API}/fg-libraries/${encodeURIComponent(p.fg_library_id)}/preview?v=${encodeURIComponent(p.updated_at||p.id)}`;}else fg.style.display='none';}
+if(audio){const wanted=`${API}/preview-reference/audio-file`;if(resetAudio||audio.dataset.src!==wanted){const old=audio.currentTime||0,wasPlaying=!audio.paused;audio.src=wanted;audio.dataset.src=wanted;audio.load();audio.addEventListener('loadedmetadata',()=>{if(old&&old<audio.duration)audio.currentTime=old;instantLivePosition();if(wasPlaying)audio.play().catch(()=>{});},{once:true});}}if(play){play.style.display=audio&&audio.getAttribute('src')?'flex':'none';play.textContent=audio?.ended?'↻':'▶';}requestAnimationFrame(instantLivePosition);}
+function initInstantLivePreview(){const btn=document.getElementById('livePreviewBtn'),play=document.getElementById('instantLivePlay'),audio=document.getElementById('instantLiveAudio');if(btn)btn.onclick=async()=>{showInstantLive();await queueRealPresetPreview();if(audio?.paused)audio.play().catch(()=>{});};if(play&&audio){play.onclick=async()=>{try{if(audio.ended)audio.currentTime=0;if(audio.paused)await audio.play();else audio.pause();}catch(e){}};audio.addEventListener('play',()=>{play.style.display='none';startInstantLiveLoop();});audio.addEventListener('pause',()=>{play.textContent='▶';play.style.display='flex';stopInstantLiveLoop();instantLivePosition();});audio.addEventListener('ended',()=>{play.textContent='↻';play.style.display='flex';stopInstantLiveLoop();instantLivePosition();});audio.addEventListener('seeked',instantLivePosition);audio.addEventListener('timeupdate',instantLivePosition);audio.addEventListener('loadedmetadata',instantLivePosition);}window.addEventListener('resize',()=>requestAnimationFrame(()=>{updateMainPreviewOverlay();instantLivePosition();}));showInstantLive();}
+function bindPreviewVideoPlayer(){const video=document.getElementById('presetPreviewVideo'),play=document.getElementById('previewPlayOverlay');if(!video||!play||video.dataset.playerWired)return;video.dataset.playerWired='1';const sync=()=>{const visible=video.style.display!=='none'&&!!video.getAttribute('src');play.style.display=visible&&video.paused&&!video.ended?'flex':visible&&video.ended?'flex':'none';play.textContent=video.ended?'↻':'▶';};play.onclick=async()=>{try{if(video.ended)video.currentTime=0;await video.play();}catch(e){}};video.addEventListener('play',sync);video.addEventListener('pause',sync);video.addEventListener('ended',sync);video.addEventListener('loadeddata',sync);video.addEventListener('emptied',sync);}
+function openExplicitFinalRender(){const p=selectedPreset();if(!p)return;if(!p.preview_approved)return toast('Approve Preview before final rendering.',true);openPage('upload');const sel=document.getElementById('uploadPreset');if(sel){sel.value=p.id;sel.dispatchEvent(new Event('change'));}const ready=(appState.uploadItems||[]).some(x=>x.valid);if(ready)submitReady();else toast('Final render is explicit: add the project inputs, then click Submit Ready.');}function initPreviewRenderControls(){const top=document.getElementById('renderPresetPreviewBtn'),inside=document.getElementById('renderPresetPreviewPlaceholderBtn'),guides=document.getElementById('previewLayoutGuides'),layer=document.getElementById('mainLiveLayer');if(top)top.onclick=openExplicitFinalRender;if(inside)inside.onclick=openExplicitFinalRender;if(guides&&layer){guides.checked=false;guides.onchange=()=>{layer.classList.toggle('guides-on',!!guides.checked);updateMainPreviewOverlay();};}bindPreviewVideoPlayer();initInstantLivePreview();}
+function renderRealPreviewStatus(status){const p=selectedPreset();if(!p||String(status.preset_id||'')!==String(p.id))return;const badge=document.getElementById('presetPreviewStatus'),info=document.getElementById('previewRenderInfo'),ref=document.getElementById('previewReferenceInfo'),video=document.getElementById('presetPreviewVideo'),ph=document.getElementById('presetPreviewPlaceholder'),phText=document.getElementById('previewPlaceholderText'),renderBtn=document.getElementById('renderPresetPreviewBtn'),renderBtn2=document.getElementById('renderPresetPreviewPlaceholderBtn'),renderOverlay=document.getElementById('previewRenderOverlay'),renderOverlayText=document.getElementById('previewRenderOverlayText'),play=document.getElementById('previewPlayOverlay');const rs=status.reference||{},mediaBusy=['queued','running'].includes(String(appState.visualPlan?.prepare?.status||''));ref.textContent=rs.audio_ready?`Live TXT + audio ready · ${Math.round(rs.audio_seconds||0)} sec`:'Preview TXT ready · set one preview audio file of any length';if(status.active){const pct=Number(status.active_progress||0);badge.textContent=pct>0?`Rendering ${pct}%`:'Rendering…';badge.className='badge warn';info.textContent=[status.active_stage,status.active_message].filter(Boolean).join(' · ')||'ACS renderer is building the playable MP4.';renderOverlay?.classList.add('show');if(renderOverlayText)renderOverlayText.textContent=pct>0?`Rendering with ACS · ${pct}%`:'Rendering with ACS…';}else{renderOverlay?.classList.remove('show');if(status.is_current){badge.textContent='Preview Ready';badge.className='badge good';info.textContent='Live Preview matches the current preset settings.';}else if(status.video_ready){badge.textContent='Needs Render';badge.className='badge warn';info.textContent='Changes since approval are shown in Live Preview; approve again when satisfied.';}else{badge.textContent=rs.audio_ready?(mediaBusy?'Preparing Pexels…':'Ready to Render'):'Preview Audio Required';badge.className=rs.audio_ready&&!mediaBusy?'badge good':'badge warn';info.textContent=!rs.audio_ready?'Set Preview Audio, then render.':mediaBusy?'Auto Pexels is preparing missing media before the preview render.':'Click Live Preview. No production job or final video is created.';}}
+ if(status.video_ready){const url=`${API}/presets/${encodeURIComponent(p.id)}/preview/video?v=${encodeURIComponent(status.completed_hash||Date.now())}`;if(previewLastUrl!==url){previewLastUrl=url;video.src=url;video.load();}ph.classList.add('hidden');video.style.display=instantLiveView==='exact'?'block':'none';}else{video.removeAttribute('src');video.load();video.style.display='none';ph.classList.add('hidden');if(phText)phText.textContent=!rs.audio_ready?'Set Preview Audio first.':mediaBusy?'Auto Pexels is preparing media. The Render Preview button will enable when ready.':'Click Render Preview. The finished MP4 will appear here with Play/Pause, seek, volume and fullscreen controls.';if(play)play.style.display='none';}
+ const canRender=!!rs.audio_ready&&!status.active&&!mediaBusy&&!status.is_current;for(const b of [renderBtn,renderBtn2])if(b){b.disabled=!canRender;b.textContent=status.active?'Rendering…':status.is_current?'Preview Ready':mediaBusy?'Preparing Media…':'Render Final';b.title=!rs.audio_ready?'Set Preview Audio first.':mediaBusy?'Wait for Auto Pexels to finish.':status.is_current?'Current settings are previewed.':'Open the explicit final-production action; approval alone never renders.';}
+ bindPreviewVideoPlayer();if(status.video_ready&&instantLiveView==='exact'&&video.paused&&play)play.style.display='flex';if(instantLiveView==='live'&&!status.active){badge.textContent='Live Preview';badge.className='badge good';info.textContent='Instant browser preview is active. Render Final is optional.';}
+ const btn=buttonByText(page('preset'),'Approve Preview')||page('preset').querySelector('.preview-toolbar .btn.green');if(btn){btn.textContent=status.preview_approved?'Preview Approved ✓':'Approve Preview';btn.disabled=!!status.preview_approved||!status.is_current;btn.title=status.is_current?'Approve this exact rendered preset preview':'Render the current preset settings before approval';btn.onclick=async()=>{try{const r=await api(`/presets/${encodeURIComponent(p.id)}`,{method:'PUT',body:{preview_approved:true}});Object.assign(p,r.preset);await refreshRealPresetPreview(false);renderPresetCards();toast('Current rendered preset preview approved.');}catch(e){toast(e.message,true);}};}}
+function initPreviewReferenceUpload(){const btn=document.getElementById('uploadPreviewAudioBtn'),input=document.getElementById('previewReferenceAudioInput');if(!btn||!input)return;const isAdmin=!!appState.bootstrap?.principal?.is_admin;btn.style.display=isAdmin?'inline-flex':'none';btn.onclick=()=>input.click();input.onchange=async()=>{const file=input.files?.[0];if(!file)return;const form=new FormData();form.append('audio_file',file,file.name);btn.disabled=true;btn.textContent='Uploading Reference…';try{await api('/preview-reference/audio',{method:'POST',form});toast('Preview audio saved. Live Preview is ready.');await refreshBootstrap(false);await refreshInstantLivePreview(true);await refreshRealPresetPreview(false);}catch(e){toast(e.message,true);}finally{btn.disabled=false;btn.textContent='Set Preview Audio';input.value='';}};}
+function initPresetButtons(){const actions=page('preset').querySelector('.head .actions');buttonByText(actions,'New Preset').onclick=async()=>{const name=prompt('Preset name');if(!name)return;try{const r=await api('/presets',{method:'POST',body:{name,clone_from:appState.selectedPresetId}});appState.presets.push(r.preset);await selectPreset(r.preset.id,true);toast('Preset created.');}catch(e){toast(e.message,true);}};const dup=buttonByText(actions,'Duplicate');if(dup)dup.onclick=async()=>{const p=selectedPreset();if(!p)return;try{const r=await api('/presets',{method:'POST',body:{name:p.name+' Copy',clone_from:p.id}});appState.presets.push(r.preset);await selectPreset(r.preset.id,true);}catch(e){toast(e.message,true);}};const del=buttonByText(actions,'Delete');if(del)del.onclick=async()=>{const p=selectedPreset();if(!p||!confirm(`Delete preset "${p.name}"?`))return;try{await api(`/presets/${encodeURIComponent(p.id)}`,{method:'DELETE'});appState.presets=appState.presets.filter(x=>x.id!==p.id);await selectPreset(appState.presets[0].id,true);toast('Preset deleted.');}catch(e){toast(e.message,true);}};}
+
+
+/* ---------- renderer fonts + text background ---------- */
+function renderFontOptions(){const sel=document.getElementById('fontFamily'),p=selectedPreset();if(!sel)return;const current=String(p?.settings?.font_family||sel.value||'Noto Sans');const rows=(appState.fonts||[]).map(name=>`<option value="${esc(name)}">${esc(name)}</option>`);if(current&&!(appState.fonts||[]).some(x=>String(x).toLowerCase()===current.toLowerCase()))rows.unshift(`<option value="${esc(current)}">${esc(current)} · unavailable</option>`);sel.innerHTML=rows.join('')||'<option>Noto Sans</option>';const exact=(appState.fonts||[]).find(x=>String(x).toLowerCase()===current.toLowerCase());sel.value=exact||current;}
+async function updateAutoFontStatus(){const p=selectedPreset(),status=document.getElementById('fontAutoStatus'),sel=document.getElementById('fontFamily'),mode=document.getElementById('fontMode');if(!p||!status||!sel||!mode)return;const manual=(p.font_mode||'auto')==='manual';mode.value=manual?'manual':'auto';sel.disabled=!manual;if(manual){const ok=(appState.fonts||[]).some(x=>String(x).toLowerCase()===String(sel.value||'').toLowerCase());status.textContent=ok?`Manual: ${sel.value} · VPS renderer available`:`Manual font unavailable on VPS: ${sel.value}`;return;}const lang=String(p.settings?.caption_language||'auto');if(lang==='auto'){const def=appState.bootstrap?.fonts?.script_defaults?.universal||'Noto Sans';status.textContent=`Auto Detect: script/language is detected from each project TXT at render time · Latin/default → ${def}`;return;}try{const r=await api('/fonts/detect',{method:'POST',body:{text:'',language:lang}});status.textContent=r.family?`Auto Detect: ${r.script||lang} → ${r.family}`:`Auto Detect: no compatible VPS font found for ${r.script||lang}`;}catch(e){status.textContent='Auto Detect status unavailable: '+e.message;}}
+function applyFontControls(){const p=selectedPreset();if(!p)return;renderFontOptions();const mode=document.getElementById('fontMode');if(mode)mode.value=(p.font_mode||'auto')==='manual'?'manual':'auto';updateAutoFontStatus();}
+function initFontControls(){const mode=document.getElementById('fontMode'),family=document.getElementById('fontFamily');if(mode)mode.onchange=async()=>{const p=selectedPreset();if(!p)return;p.font_mode=mode.value==='manual'?'manual':'auto';p.preview_approved=false;family.disabled=p.font_mode!=='manual';try{await patchPreset({font_mode:p.font_mode,preview_approved:false});await updateAutoFontStatus();}catch(e){toast(e.message,true);}};family?.addEventListener('change',()=>updateAutoFontStatus());}
+function textBackgroundModeFromSettings(s){if(!s?.text_background_enabled)return'off';const explicit=String(s.text_background_mode||'').toLowerCase();if(['off','whole','follow'].includes(explicit))return explicit;return'whole';}
+function applyTextBackgroundControls(){const p=selectedPreset();if(!p)return;const s=p.settings||{},mode=document.getElementById('textBackgroundMode');if(!mode)return;mode.value=textBackgroundModeFromSettings(s);const vals={textBgColor:s.text_background_color||'#000000',textBgOpacity:Number(s.text_background_opacity_percent??45),textBgPaddingX:Number(s.text_background_padding_x??s.text_background_padding??24),textBgPaddingY:Number(s.text_background_padding_y??s.text_background_padding??24),textBgFollowRadius:Number(s.text_background_radius??18)};for(const[id,v]of Object.entries(vals)){const el=document.getElementById(id);if(el)el.value=v;}const current=textRenderModeFromSettings(s);mode.disabled=current!=='scroll';document.getElementById('textBackgroundHelp').textContent=current==='scroll'?'Whole Text Block = one moving box behind the complete text document. Follow Text = separate dynamic boxes behind wrapped lines.':(current==='caption'?'Scrolling background modes are disabled in Caption Video. Caption backgrounds keep the proven active-caption behavior.':'Text output is Off. Background controls will apply when Scrolling Text is selected.');}
+function initTextBackgroundControls(){const pval=id=>document.getElementById(id);const mappings=[['textBgColor','text_background_color',String],['textBgOpacity','text_background_opacity_percent',Number],['textBgPaddingX','text_background_padding_x',Number],['textBgPaddingY','text_background_padding_y',Number],['textBgFollowRadius','text_background_radius',Number]];for(const[id,key,cast]of mappings){const el=pval(id);if(!el)continue;const h=()=>{const p=selectedPreset();if(!p)return;p.settings=p.settings||{};p.settings[key]=cast(el.value);if(key==='text_background_padding_x'||key==='text_background_padding_y')p.settings.text_background_padding=Math.max(Number(p.settings.text_background_padding_x??0),Number(p.settings.text_background_padding_y??0));updateMainPreviewOverlay();schedulePresetSave({[key]:p.settings[key],...(key.startsWith('text_background_padding_')?{text_background_padding:p.settings.text_background_padding}:{})});};el.addEventListener('input',h);el.addEventListener('change',h);}const mode=pval('textBackgroundMode');if(mode)mode.onchange=()=>{const p=selectedPreset();if(!p)return;const chosen=mode.value,enabled=chosen!=='off';p.settings.text_background_mode=chosen;p.settings.text_background_enabled=enabled;p.settings.text_background_follow_text=enabled;applyTextBackgroundControls();updateMainPreviewOverlay();schedulePresetSave({text_background_mode:chosen,text_background_enabled:enabled,text_background_follow_text:enabled});};}
+
+/* ---------- preset Pexels visual TXT ---------- */
+function renderPresetVisualPlan(v){const prev=appState.visualPlan,wasRunning=['queued','running'].includes(String(prev?.prepare?.status||''));appState.visualPlan=v||null;const badge=document.getElementById('visualPlanBadge'),counts=document.getElementById('visualPlanCounts'),msg=document.getElementById('visualPlanMessage'),bar=document.getElementById('visualPlanProgress'),toggle=document.getElementById('autoPexelsMedia');if(!badge)return;const custom=!!v?.custom_script_ready,total=Number(v?.query_count||0),cached=Number(v?.cached_query_count||0),missing=Number(v?.missing_count||0),state=v?.prepare||{},done=Number(state.done||0),ptotal=Number(state.total||total||1),running=['queued','running'].includes(String(state.status||'')),enabled=v?.auto_pexels_media!==false;if(toggle)toggle.checked=enabled;badge.textContent=custom?(running?'Preparing media…':'Preview TXT ready'):'Default script';badge.className='badge '+(custom?'good':'');counts.textContent=custom?`${Number(v.script_chars||0).toLocaleString()} chars · ${total} visual queries · ${cached} cached${missing?` · ${missing} missing`:''}`:'Using protected default preview script. Upload .txt to use your own scrolling preview.';if(!enabled)msg.textContent='Auto Pexels Media is OFF. Uploaded preview TXT still drives the scrolling preview.';else if(!custom)msg.textContent='Auto Pexels waits for your preview TXT; no manual media-preparation step is required.';else msg.textContent=state.message||(missing===0?'All requested Pexels media is cached. No extra API calls needed.':'Auto Pexels downloads only missing media and preserves existing cache.');bar.style.width=`${custom?Math.max(0,Math.min(100,running?done/Math.max(1,ptotal)*100:(total?cached/Math.max(1,total)*100:0))):0}%`;updateMainPreviewOverlay();updatePreflight();if(running)startPresetVisualPolling();else{clearInterval(appState.visualPollTimer);appState.visualPollTimer=null;if(wasRunning)refreshRealPresetPreview(false);}const vpCard=document.getElementById('presetVisualPlanCard');if(vpCard)vpCard.classList.toggle('preparing',['queued','running'].includes(String(prepare?.status||'')));}
+async function refreshPresetVisualPlan(silent=true){const p=selectedPreset();if(!p)return;try{const r=await api(`/presets/${encodeURIComponent(p.id)}/preview-script`);renderPresetVisualPlan(r);}catch(e){if(!silent)toast(e.message,true);}}
+function startPresetVisualPolling(){if(appState.visualPollTimer)return;appState.visualPollTimer=setInterval(()=>refreshPresetVisualPlan(true),2000);}
+function initPresetVisualPlan(){const btn=document.getElementById('previewScriptUploadBtn'),input=document.getElementById('previewScriptFile'),toggle=document.getElementById('autoPexelsMedia');btn.onclick=()=>input.click();input.onchange=async()=>{const p=selectedPreset(),file=input.files?.[0];if(!p||!file)return;if(!String(file.name||'').toLowerCase().endsWith('.txt')){toast('Preview script must be a .txt file.',true);input.value='';return;}const form=new FormData();form.append('script_file',file,file.name);btn.disabled=true;btn.textContent='Uploading Preview Script…';try{const r=await api(`/presets/${encodeURIComponent(p.id)}/preview-script`,{method:'POST',form});p.preview_approved=false;renderPresetVisualPlan(r);renderPresetCards();instantLiveScript='';await refreshInstantLivePreview(false);refreshRealPresetPreview(false);toast(r.auto_started?'Preview TXT loaded. Live Preview ready; Auto Pexels started for missing media.':'Preview TXT loaded. Live Preview ready.');}catch(e){toast(e.message,true);}finally{btn.disabled=false;btn.textContent='Upload Preview Script (.txt)';input.value='';}};toggle.onchange=async()=>{const p=selectedPreset();if(!p)return;toggle.disabled=true;try{const r=await api(`/presets/${encodeURIComponent(p.id)}/auto-pexels`,{method:'PUT',body:{enabled:!!toggle.checked}});p.auto_pexels_media=!!toggle.checked;p.preview_approved=false;renderPresetVisualPlan(r);renderPresetCards();refreshRealPresetPreview(false);toast(toggle.checked?(r.auto_started?'Auto Pexels enabled and missing-media preparation started.':'Auto Pexels enabled.'):'Auto Pexels disabled. Cached media was kept.');}catch(e){toggle.checked=!toggle.checked;toast(e.message,true);}finally{toggle.disabled=false;}};}
+
+function textRenderModeFromSettings(s){if(!s||s.captions_enabled===false)return'off';return s.caption_mode?'caption':'scroll';}
+function syncTextRenderModeUi(){const p=selectedPreset(),sel=document.getElementById('textRenderMode'),badge=document.getElementById('textRenderOutput'),help=document.getElementById('textRenderHelp');if(!p||!sel)return;const mode=textRenderModeFromSettings(p.settings||{});sel.value=mode;if(badge){badge.textContent='OUTPUT: '+(mode==='scroll'?'SCROLLING TEXT':mode==='caption'?'CAPTION VIDEO':'NO TEXT');badge.className='badge text-mode-output '+(mode==='off'?'warn':'good');}if(help)help.textContent=mode==='scroll'?'Scrolling Text: uploaded script goes directly to the scrolling renderer; no Whisper transcription.':mode==='caption'?'Caption Video: timed caption segments are rendered using caption controls.':'Off: final video renders without caption or scrolling-text overlay.';}
+function setTextRenderMode(mode,save=true){const p=selectedPreset();if(!p)return;p.settings=p.settings||{};if(mode==='caption'){p.settings.captions_enabled=true;p.settings.caption_mode=true;}else if(mode==='scroll'){p.settings.captions_enabled=true;p.settings.caption_mode=false;p.settings.caption_text_source='script';}else{p.settings.captions_enabled=false;p.settings.caption_mode=false;}syncTextRenderModeUi();applyTextBackgroundControls();updateMainPreviewOverlay();updatePreflight();if(save)schedulePresetSave({captions_enabled:p.settings.captions_enabled,caption_mode:p.settings.caption_mode,...(mode==='scroll'?{caption_text_source:'script'}:{})});}
+function initTextRenderMode(){const sel=document.getElementById('textRenderMode');if(sel)sel.onchange=()=>setTextRenderMode(sel.value,true);syncTextRenderModeUi();}
+/* ---------- captions mode ---------- */
+function initCaptionMode(){document.querySelectorAll('[data-capmode]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-capmode]').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.cap-pane').forEach(x=>x.style.display='none');document.getElementById('cap-'+b.dataset.capmode).style.display='block';});}
+function showCaptionModeFromPreset(){const p=selectedPreset();if(!p)return;const target=textRenderModeFromSettings(p.settings||{})==='caption'?'caption':'scroll';const b=document.querySelector(`[data-capmode="${target}"]`);if(b){document.querySelectorAll('[data-capmode]').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.cap-pane').forEach(x=>x.style.display='none');document.getElementById('cap-'+target).style.display='block';}syncTextRenderModeUi();applyTextBackgroundControls();}
+
+/* ---------- FG reusable libraries ---------- */
+function ensurePresetFgSelect(){const c=card('fg','Foreground Placement Defaults');if(!c||document.getElementById('presetFgLibrary'))return;const div=document.createElement('div');div.className='field';div.style.marginBottom='10px';div.innerHTML='<label>Preset Default FG Library</label><select id="presetFgLibrary"></select>';c.insertBefore(div,c.children[1]||null);div.querySelector('select').onchange=async e=>{const p=selectedPreset();if(!p)return;p.fg_library_id=e.target.value;p.preview_approved=false;await patchPreset({fg_library_id:e.target.value,preview_approved:false});updateMainPreviewOverlay();};}
+function updatePresetFgSelect(){ensurePresetFgSelect();const sel=document.getElementById('presetFgLibrary'),p=selectedPreset();optionFill(sel,appState.fg,p?.fg_library_id||'','None');updateMainPreviewOverlay();}
+function renderFgLibraries(){const container=page('fg').querySelector('.notice + .card');container.innerHTML=appState.fg.map(x=>`<div class="folder"><b>${esc(x.name)}</b><code>${esc(x.path)}</code><span>${Number(x.file_count||0)} files</span><span class="badge ${x.exists?'good':''}">${x.exists?'Protected':'Unavailable'}</span><button class="btn red" data-remove-fg="${esc(x.id)}" ${x.id==='shared-fg-assets'?'disabled':''}>Remove</button></div>`).join('')||'<div class="small">No FG libraries registered.</div>';container.querySelectorAll('[data-remove-fg]').forEach(b=>b.onclick=async()=>{const item=appState.fg.find(x=>x.id===b.dataset.removeFg);if(!item||!confirm(`Unregister ${item.name}? Files stay on VPS.`))return;try{await api(`/fg-libraries/${encodeURIComponent(item.id)}`,{method:'DELETE'});await refreshBootstrap(false);toast('FG library unregistered. Files were not deleted.');}catch(e){toast(e.message,true);}});updatePresetFgSelect();}
+function updateScrollTextXReadout(){const el=document.getElementById('scrollTextX'),out=document.getElementById('scrollTextXValue');if(el&&out)out.textContent=`${Number(el.value||50)}%`;}
+function updateMainPreviewOverlay(){const p=selectedPreset(),layer=document.getElementById('mainLiveLayer'),fg=document.getElementById('mainGuideFg'),text=document.getElementById('mainGuideText'),label=document.getElementById('mainGuideTextLabel');if(!p||!layer||!fg||!text)return;const s=p.settings||{},mode=textRenderModeFromSettings(s),H=720;const fgW=Math.max(5,Math.min(100,Number(s.foreground_width_percent??39)));fg.style.display=(p.fg_library_id||s.foreground_enabled)?'block':'none';fg.style.width=`${fgW}%`;fg.style.height=`${Math.min(92,Math.max(20,fgW*1.35))}%`;fg.style.left=`${Math.max(0,Math.min(100,Number(s.foreground_x_percent??17)-fgW/2))}%`;fg.style.top=`${Math.max(0,Math.min(100,Number(s.foreground_y_percent??58)-Math.min(92,Math.max(20,fgW*1.35))/2))}%`;if(mode==='off'){text.style.display='none';if(label)label.textContent='Text off';}else{text.style.display='block';const tw=Math.max(20,Math.min(95,Number(s.text_width_percent??85)));text.style.width=`${tw}%`;text.style.left=`${Math.max(0,Math.min(100,Number(s.text_x_percent??50)-tw/2))}%`;if(mode==='caption'){const pos=String(s.caption_position||'bottom').toLowerCase(),cy=pos==='top'?23:pos==='center'?50:78;text.style.height='22%';text.style.top=`${Math.max(0,cy-11)}%`;if(label)label.textContent='Caption region';}else{const mt=Math.max(0,Number(s.margin_top??80))/H*100,mb=Math.max(0,Number(s.margin_bottom??80))/H*100;text.style.top=`${Math.min(92,mt)}%`;text.style.height=`${Math.max(8,100-Math.min(92,mt)-Math.min(92,mb))}%`;if(label)label.textContent='Scrolling viewport';}}updateScrollTextXReadout();syncTextRenderModeUi();refreshInstantLivePreview(false);}
+function openMainPreview(){openPage('preset');const box=document.querySelector('#preset .preview-box');if(box)setTimeout(()=>box.scrollIntoView({behavior:'smooth',block:'start'}),40);updateMainPreviewOverlay();}
+
+function initFgActions(){document.getElementById('fgMainPreviewBtn')?.addEventListener('click',openMainPreview);document.getElementById('fgOpenMainPreviewInline')?.addEventListener('click',openMainPreview);const addCard=card('fg','Add Folder'),name=fieldControl('fg','Library Name','Add Folder'),path=fieldControl('fg','VPS Folder','Add Folder');const validate=buttonByText(addCard,'Validate Folder'),add=buttonByText(addCard,'Add Library'),topAdd=buttonByText(page('fg').querySelector('.head .actions'),'Add VPS Folder'),scan=buttonByText(page('fg').querySelector('.head .actions'),'Scan All');if(topAdd)topAdd.onclick=()=>name.focus();if(scan)scan.onclick=()=>refreshBootstrap(false);if(validate)validate.onclick=async()=>{try{const r=await api('/fg-libraries/validate',{method:'POST',body:{name:name.value||'FG Library',path:path.value||'',create:false}});toast(`Valid folder: ${r.library.file_count} image(s)`);}catch(e){toast(e.message,true);}};if(add)add.onclick=async()=>{try{await api('/fg-libraries',{method:'POST',body:{name:name.value,path:path.value||'',create:false}});name.value='';path.value='';await refreshBootstrap(false);toast('Protected FG library added.');}catch(e){toast(e.message,true);}};}
+
+/* ---------- Pexels ---------- */
+function renderPexelsInfo(){const p=appState.bootstrap?.pexels||{};const lib=fieldControl('pexels','VPS Pexels Library','Keywords & Library');if(lib)lib.value=p.path||'';const badges=card('pexels','Keywords & Library')?.querySelectorAll('.row .badge')||[];if(badges[0])badges[0].textContent=`${Number(p.image_count||0).toLocaleString()} images`;if(badges[1])badges[1].textContent=`${Number(p.video_count||0).toLocaleString()} videos`;const key=fieldControl('pexels','Pexels API Key','Media Source');if(key)key.placeholder=`Server keys configured: ${p.key_count||0}`;}
+function initPexelsActions(){const mediaCard=card('pexels','Media Source'),kwCard=card('pexels','Keywords & Library');const saveKey=buttonByText(mediaCard,'Save Key'),key=fieldControl('pexels','Pexels API Key','Media Source');if(saveKey)saveKey.onclick=async()=>{if(!key.value.trim())return toast('Enter a Pexels API key first.',true);try{await api('/pexels/key',{method:'PUT',body:{key:key.value.trim()}});key.value='';await refreshBootstrap(false);toast('Server Pexels key saved.');}catch(e){toast(e.message,true);}};const scan=buttonByText(kwCard,'Scan');if(scan)scan.onclick=()=>refreshBootstrap(false);const fill=buttonByText(kwCard,'Fill');if(fill)fill.onclick=async()=>{const keywords=fieldControl('pexels','Manual Keywords','Keywords & Library')?.value.trim();if(!keywords)return toast('Enter keywords first.',true);try{await pexelsApi('/fill-batch',{method:'POST',body:{keywords,images_per_keyword:Number(document.getElementById('pexelsImagesPerKeyword')?.value||3),mode:document.getElementById('pexelsFillMode')?.value||'new_only'}});toast('Smart Pexels batch queued.');startPexelsSmartPolling();}catch(e){toast(e.message,true);}};}
+
+/* ACS_PEXELS_SMART_BATCH_V2_START */
+let pexelsSmartTimer=null;
+let acsP2State={rows:[], selected:"", more:24, lastJob:"", galleryToken:0};
+function acsP2Number(id,value){const el=document.getElementById(id);if(el)el.textContent=Number(value||0).toLocaleString();}
+function acsP2Rows(){const term=(document.getElementById('acsP2Search')?.value||'').toLowerCase().trim();const fl=document.getElementById('acsP2Filter')?.value||'all';return acsP2State.rows.filter(r=>{
+ const matches=String(r.keyword||'').toLowerCase().includes(term),complete=Number(r.downloaded||0)+Number(r.reused||0)>=Number(r.requested||0);
+ return matches && (fl==='all'||(fl==='complete'&&complete)||(fl==='incomplete'&&!complete)||(fl==='pending'&&String(r.status)==='pending'));
+});}
+function acsP2RenderRows(){
+ const panel=document.getElementById('acsP2Results');if(!panel)return;
+ const rows=acsP2Rows(),count=document.getElementById('acsP2Filtered');if(count)count.textContent=rows.length.toLocaleString()+' matches';
+ const items=rows.slice(0,acsP2State.more);
+ panel.innerHTML=items.length?items.map((r,i)=>{
+   const done=Number(r.downloaded||0)+Number(r.reused||0),total=Number(r.requested||0),ok=done>=total;
+   const safe=esc(String(r.keyword||''));
+   return `<button class="acsP2-result ${acsP2State.selected===r.keyword?'sel':''}" type="button" data-acs-p2-index="${i}" title="${safe}"><span><span class="acsP2-key">${safe}</span><span style="display:block;font-size:11px;color:#64758a;margin-top:3px">${Number(r.downloaded||0)} new · ${Number(r.reused||0)} reused${r.reason?' · '+esc(String(r.reason)):''}</span></span><span class="acsP2-meta">${done}/${total} ${ok?'✓':'•'}</span></button>`;
+ }).join(''):'<div class="acsP2-empty">No matching keywords.</div>';
+ panel.querySelectorAll('[data-acs-p2-index]').forEach(b=>b.onclick=()=>{
+   const row=items[Number(b.dataset.acsP2Index)];if(row)acsP2LoadGallery(String(row.keyword||''));
+ });
+ const more=document.getElementById('acsP2More');if(more)more.hidden=rows.length<=acsP2State.more;
+}
+async function acsP2LoadGallery(keyword){
+ acsP2State.selected=keyword;acsP2RenderRows();
+ const title=document.getElementById('acsP2GalleryTitle'),panel=document.getElementById('acsP2Gallery'),count=document.getElementById('acsP2GalleryCount');
+ if(!panel)return;if(title)title.textContent=keyword;if(count)count.textContent='Loading';
+ panel.innerHTML='<div class="acsP2-empty">Loading saved image previews...</div>';
+ const token=++acsP2State.galleryToken;
+ try{
+   const d=await pexelsApi('/fill-batch/gallery?keyword='+encodeURIComponent(keyword));
+   if(token!==acsP2State.galleryToken)return;
+   const images=Array.isArray(d.images)?d.images:[];
+   if(count)count.textContent=Number(d.total||images.length).toLocaleString()+' images';
+   const grid=document.createElement('div');grid.className='acsP2-images';
+   images.forEach(img=>{const picture=document.createElement('img');picture.className='acsP2-image';picture.loading='lazy';picture.decoding='async';picture.alt='Saved Pexels image for '+keyword;picture.title=String(img.name||'');picture.src=PEXELS_API+'/fill-batch/image?keyword='+encodeURIComponent(keyword)+'&name='+encodeURIComponent(String(img.name||''));grid.appendChild(picture);});
+   panel.replaceChildren(images.length?grid:Object.assign(document.createElement('div'),{className:'acsP2-empty',textContent:'No saved images found for this keyword.'}));
+ }catch(err){if(token===acsP2State.galleryToken){panel.textContent='Could not load images: '+String(err.message||err);if(count)count.textContent='Error';}}
+}
+async function refreshPexelsSmartStatus(){
+ const old=document.getElementById('pexelsSmartFillStatus');
+ try{
+   const d=await pexelsApi('/fill-batch/status');
+   const active=['queued','running'].includes(String(d.status||'')),rows=Array.isArray(d.rows)?d.rows:[];
+   const job=String(d.job_id||'');if(job!==acsP2State.lastJob){acsP2State.lastJob=job;acsP2State.more=24;acsP2State.selected='';acsP2State.galleryToken++;const pane=document.getElementById('acsP2Gallery');if(pane)pane.innerHTML='<div class="acsP2-empty">Choose a keyword to preview downloaded images.</div>';}
+   acsP2State.rows=rows;
+   const pct=Math.max(0,Math.min(100,Number(d.progress||0)));
+   const state=document.getElementById('acsP2Status');if(state)state.textContent=String(d.status||'idle').replaceAll('_',' ');
+   const msg=document.getElementById('acsP2Message');if(msg)msg.textContent=String(d.message||'Ready')+' · '+pct+'% complete';
+   const bar=document.getElementById('acsP2Bar');if(bar)bar.style.width=pct+'%';
+   acsP2Number('acsP2Keywords',String(Number(d.processed||0))+'/'+String(Number(d.total_keywords||0)));
+   const k=document.getElementById('acsP2Keywords');if(k)k.textContent=Number(d.processed||0).toLocaleString()+' / '+Number(d.total_keywords||0).toLocaleString();
+   acsP2Number('acsP2Target',d.requested_total);acsP2Number('acsP2New',d.downloaded);acsP2Number('acsP2Reused',d.reused);
+   const missing=rows.reduce((t,r)=>t+Math.max(0,Number(r.requested||0)-Number(r.downloaded||0)-Number(r.reused||0)),0);
+   acsP2Number('acsP2Missing',missing);
+   if(old)old.textContent='Smart fill '+String(d.status||'idle')+': '+Number(d.downloaded||0)+' new, '+Number(d.reused||0)+' reused';
+   acsP2RenderRows();
+   if(!active && pexelsSmartTimer){clearInterval(pexelsSmartTimer);pexelsSmartTimer=null;}
+ }catch(err){const msg=document.getElementById('acsP2Message');if(msg)msg.textContent='Could not refresh batch: '+String(err.message||err);}
+}
+function startPexelsSmartPolling(){refreshPexelsSmartStatus();if(!pexelsSmartTimer)pexelsSmartTimer=setInterval(refreshPexelsSmartStatus,2200);}
+const pexelsRetryButton=document.getElementById('pexelsRetryIncompleteBtn');
+if(pexelsRetryButton)pexelsRetryButton.onclick=async()=>{
+ try{await pexelsApi('/fill-batch',{method:'POST',body:{retry_incomplete:true,keywords:'',images_per_keyword:Number(document.getElementById('pexelsImagesPerKeyword')?.value||3),mode:document.getElementById('pexelsFillMode')?.value||'new_only'}});toast('Retrying only incomplete Pexels keywords.');startPexelsSmartPolling();}
+ catch(err){toast(err.message,true);}
+};
+document.getElementById('acsP2Search')?.addEventListener('input',()=>{acsP2State.more=24;acsP2RenderRows();});
+document.getElementById('acsP2Filter')?.addEventListener('change',()=>{acsP2State.more=24;acsP2RenderRows();});
+document.getElementById('acsP2More')?.addEventListener('click',()=>{acsP2State.more+=24;acsP2RenderRows();});
+document.getElementById('acsP2Refresh')?.addEventListener('click',()=>{refreshPexelsSmartStatus();if(acsP2State.selected)acsP2LoadGallery(acsP2State.selected);});
+setTimeout(refreshPexelsSmartStatus,900);
+/* ACS_PEXELS_SMART_BATCH_V2_END */
+
+/* ---------- Voice profiles ---------- */
+function voiceEditorElements(){const c=card('voice','Profile Editor');return {name:fieldControl('voice','Profile Name','Profile Editor'),language:fieldControl('voice','Language','Profile Editor'),voice_id:fieldControl('voice','ElevenLabs Voice ID','Profile Editor'),model:fieldControl('voice','Model','Profile Editor'),stability:fieldControl('voice','Stability','Profile Editor'),similarity:fieldControl('voice','Similarity','Profile Editor'),style:fieldControl('voice','Style','Profile Editor'),speed:fieldControl('voice','Speed','Profile Editor'),speaker_boost:checkControl('voice','Speaker Boost','Profile Editor'),del:buttonByText(c,'Delete')};}
+function renderVoiceProfiles(){const list=page('voice').querySelector('.grid.g2 + .card');if(list){list.innerHTML=appState.voices.map(v=>`<div class="profile"><b>${esc(v.name)}</b><span>${esc(v.language)}</span><span>${esc(v.model)}</span><span>Stability ${v.stability} · Similarity ${v.similarity}</span><span class="badge ${v.enabled?'good':''}">${v.enabled?'Enabled':'Disabled'}</span><div><button class="btn" data-edit-voice="${esc(v.id)}">Edit</button> <button class="btn" data-dup-voice="${esc(v.id)}">Duplicate</button></div></div>`).join('')||'<div class="small">No voice profiles yet.</div>';list.querySelectorAll('[data-edit-voice]').forEach(b=>b.onclick=()=>loadVoiceEditor(b.dataset.editVoice));list.querySelectorAll('[data-dup-voice]').forEach(b=>b.onclick=()=>duplicateVoice(b.dataset.dupVoice));}updateVoiceSelects();}
+function updateVoiceSelects(){const p=selectedPreset();const selectors=[fieldControl('voice','Default Algrow Voice Profile','Mode 2 · Algrow Voice'),fieldControl('voice','Default Voice Profile','Project Voice Controls')].filter(Boolean);for(const sel of selectors){optionFill(sel,appState.voices,p?.voice_profile_id||'','No profile');if(!sel.dataset.voiceWired){sel.dataset.voiceWired='1';sel.onchange=async()=>{const pr=selectedPreset();if(!pr)return;pr.voice_profile_id=sel.value;pr.preview_approved=false;for(const other of selectors)other.value=sel.value;await patchPreset({voice_profile_id:sel.value,preview_approved:false});};}}}
+function loadVoiceEditor(id){const v=appState.voices.find(x=>x.id===id),e=voiceEditorElements();appState.profileId=id||'';if(!v){for(const [k,el] of Object.entries(e)){if(el&&el.tagName!=='BUTTON'){if(el.type==='checkbox')el.checked=true;else el.value=k==='speed'?'1.0':k==='stability'?'50':k==='similarity'?'75':k==='style'?'0':'';}}return;}for(const key of ['name','language','voice_id','model','stability','similarity','style','speed'])if(e[key])e[key].value=v[key]??'';if(e.speaker_boost)e.speaker_boost.checked=!!v.speaker_boost;}
+let profileTimer=null;function scheduleVoiceProfileSave(){clearTimeout(profileTimer);profileTimer=setTimeout(saveVoiceProfile,800);}
+async function saveVoiceProfile(){const e=voiceEditorElements(),payload={id:appState.profileId||'',name:e.name.value.trim(),language:e.language.value.trim(),voice_id:e.voice_id.value.trim(),model:e.model.value,stability:Number(e.stability.value||50),similarity:Number(e.similarity.value||75),style:Number(e.style.value||0),speed:Number(e.speed.value||1),speaker_boost:!!e.speaker_boost.checked,enabled:true};if(!payload.name||!payload.language||!payload.voice_id)return;markSaving();try{const r=await api('/voice-profiles',{method:'POST',body:payload});const idx=appState.voices.findIndex(x=>x.id===r.profile.id);if(idx>=0)appState.voices[idx]=r.profile;else appState.voices.push(r.profile);appState.profileId=r.profile.id;renderVoiceProfiles();markSaved();}catch(e2){toast(e2.message,true);}}
+async function duplicateVoice(id){const src=appState.voices.find(x=>x.id===id);if(!src)return;try{const r=await api('/voice-profiles',{method:'POST',body:{...src,id:'',name:src.name+' Copy'}});appState.voices.push(r.profile);renderVoiceProfiles();loadVoiceEditor(r.profile.id);}catch(e){toast(e.message,true);}}
+function initVoiceActions(){const e=voiceEditorElements();for(const [k,el] of Object.entries(e)){if(!el||el.tagName==='BUTTON')continue;el.addEventListener('change',scheduleVoiceProfileSave);if(['text','password','number'].includes(el.type))el.addEventListener('input',scheduleVoiceProfileSave);}if(e.del)e.del.onclick=async()=>{if(!appState.profileId||!confirm('Delete this voice profile?'))return;try{await api(`/voice-profiles/${encodeURIComponent(appState.profileId)}`,{method:'DELETE'});appState.voices=appState.voices.filter(x=>x.id!==appState.profileId);appState.profileId='';renderVoiceProfiles();loadVoiceEditor('');}catch(err){toast(err.message,true);}};const actions=page('voice').querySelector('.head .actions');buttonByText(actions,'New Voice Profile').onclick=()=>loadVoiceEditor('');buttonByText(actions,'Refresh Profiles').onclick=()=>refreshBootstrap(false);}
+
+/* ---------- Music ---------- */
+
+/* ---------- ACS Internal Audio Engine ---------- */
+function applyAudioEngineControls(){const p=selectedPreset(),enabled=document.getElementById('audioEngineEnabled'),preset=document.getElementById('audioEnginePreset');if(!p||!enabled||!preset)return;const meta=p.settings?.metadata||{},cfg=(meta.acs_internal_audio_engine&&typeof meta.acs_internal_audio_engine==='object')?meta.acs_internal_audio_engine:{};enabled.checked=cfg.enabled!==false;preset.value=cfg.preset||'documentary';document.querySelectorAll('#internalAudioEngineCard [data-ae-key]').forEach(el=>{const k=el.dataset.aeKey;if(k==='mode'){el.value=cfg.mode||'auto';return;}if(k==='noise_enabled'){el.value=cfg[k]===true?'true':cfg[k]===false?'false':'';return;}el.value=(cfg[k]===undefined||cfg[k]===null)?'':String(cfg[k]);});}
+function saveAudioEngineControls(){const p=selectedPreset(),enabled=document.getElementById('audioEngineEnabled'),preset=document.getElementById('audioEnginePreset');if(!p||!enabled||!preset)return;const cfg={enabled:!!enabled.checked,preset:preset.value||'documentary',mode:document.getElementById('audioEngineMode')?.value||'auto',ownership:'acs',version:2};document.querySelectorAll('#internalAudioEngineCard [data-ae-key]').forEach(el=>{const k=el.dataset.aeKey;if(k==='mode')return;if(k==='noise_enabled'){if(el.value!=='')cfg[k]=el.value==='true';return;}if(el.value!==''){const n=Number(el.value);if(Number.isFinite(n))cfg[k]=n;}});p.settings=p.settings||{};p.settings.metadata={...(p.settings.metadata||{}),acs_internal_audio_engine:cfg};schedulePresetSave({metadata:p.settings.metadata});}
+async function refreshFullAudioEngineHealth(){const badge=document.getElementById('audioEngineFullStatus');if(!badge)return;try{const r=await fetch('/acs-audio-engine/health',{cache:'no-store'});const d=await r.json();if(!r.ok||!d.ok)throw new Error('unhealthy');badge.className='badge good';badge.textContent=`Full Engine ${d.version||''} Online`;}catch(_){badge.className='badge warn';badge.textContent='Full Engine Offline';}}
+function initAudioEngineControls(){const enabled=document.getElementById('audioEngineEnabled'),preset=document.getElementById('audioEnginePreset');enabled?.addEventListener('change',saveAudioEngineControls);preset?.addEventListener('change',()=>{saveAudioEngineControls();applyAudioEngineControls();});document.querySelectorAll('#internalAudioEngineCard [data-ae-key]').forEach(el=>el.addEventListener('change',saveAudioEngineControls));document.getElementById('audioEngineResetOverrides')?.addEventListener('click',()=>{document.querySelectorAll('#internalAudioEngineCard [data-ae-key]').forEach(el=>{el.value=el.dataset.aeKey==='mode'?'auto':'';});saveAudioEngineControls();});applyAudioEngineControls();refreshFullAudioEngineHealth();setInterval(refreshFullAudioEngineHealth,30000);}
+
+/* ---------- Queue ---------- */
+function queueFgSelect(job){const id=job.web_fg_library_id||'';if(!['queued','held'].includes(job.status))return esc(fgName(id));return `<select data-job-fg="${esc(job.id)}"><option value="">None</option>${appState.fg.map(x=>`<option value="${esc(x.id)}" ${x.id===id?'selected':''}>${esc(x.name)}</option>`).join('')}</select>`;}
+function renderQueue(data){const c=data.counts||{};const metrics=page('queue').querySelectorAll('.metric b');[c.waiting,c.processing,c.delivered,c.attention].forEach((v,i)=>{if(metrics[i])metrics[i].textContent=Number(v||0);});const runtime=data.runtime||{};const priority=card('queue','Production Priority');if(priority){const settings=priority.querySelectorAll('.setting');if(settings[0])settings[0].querySelector('.badge').textContent=runtime.scene_builder_busy?'Busy / Priority':'Priority ready';if(settings[1])settings[1].querySelector('.badge').textContent=runtime.scene_builder_busy?'Waiting for SB':'ACS slot available';}
+ const tbody=page('queue').querySelector('.queue tbody');tbody.innerHTML=(data.jobs||[]).map(j=>{const stage=norm(j.current_stage||j.pipeline_stage||j.status).replaceAll('_',' ');const drive=j.drive_verified?'Verified':(j.drive_status||'—');const canWait=['queued','held'].includes(j.status);const retry=['failed','interrupted','cancelled'].includes(j.status);return `<tr><td><b>${esc(j.client_item_id||j.project_id)}</b><br><span class="small">${esc(j.batch_id||'')}</span></td><td>${esc(j.web_preset_name||'')}</td><td>${queueFgSelect(j)}</td><td><span class="badge ${j.status==='running'?'good':retry?'warn':''}">${esc(stage)}</span></td><td style="min-width:150px"><div class="progress"><i style="width:${Math.max(0,Math.min(100,Number(j.progress||0)))}%"></i></div><span class="small">${Number(j.progress||0)}%</span></td><td>${Number(j.voice_size_bytes||0)>0?esc(fmtBytes(j.voice_size_bytes)):'—'}</td><td>${esc(drive)}</td><td><div class="row">${canWait?`<button class="btn" data-move="up" data-job="${j.id}">↑</button><button class="btn" data-move="down" data-job="${j.id}">↓</button>`:''}${retry?`<button class="btn" data-retry="${j.id}">Retry</button>`:''}${!['completed','cancelled'].includes(j.status)?`<button class="btn red" data-cancel="${j.id}">Cancel</button>`:''}<button class="btn" data-detail="${j.id}">Details</button></div></td></tr>`;}).join('')||'<tr><td colspan="8" class="small">No New Web Flow jobs yet.</td></tr>';
+ tbody.querySelectorAll('[data-job-fg]').forEach(s=>s.onchange=async()=>{try{await api(`/queue/jobs/${encodeURIComponent(s.dataset.jobFg)}/fg`,{method:'PUT',body:{fg_library_id:s.value}});await refreshQueue();}catch(e){toast(e.message,true);}});tbody.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>queueAction(`/queue/jobs/${b.dataset.cancel}/cancel`));tbody.querySelectorAll('[data-retry]').forEach(b=>b.onclick=()=>queueAction(`/queue/jobs/${b.dataset.retry}/retry`));tbody.querySelectorAll('[data-move]').forEach(b=>b.onclick=()=>queueAction(`/queue/jobs/${b.dataset.job}/move`,{direction:b.dataset.move}));tbody.querySelectorAll('[data-detail]').forEach(b=>b.onclick=()=>{const j=(data.jobs||[]).find(x=>x.id===b.dataset.detail);alert(JSON.stringify({project:j?.client_item_id,status:j?.status,stage:j?.current_stage,message:j?.message,error:j?.error_text,drive:j?.drive_remote_path,voice_size:Number(j?.voice_size_bytes||0)>0?fmtBytes(j.voice_size_bytes):'—',drive_url:j?.drive_web_url},null,2));});
+ const q=data.queue_settings||{};const sp=checkControl('queue','Scene Builder priority','Queue Controls'),ps=checkControl('queue','Pause after current safe stage','Queue Controls');if(sp)sp.checked=q.scene_builder_priority!==false;if(ps)ps.checked=!!q.paused;
+}
+async function queueAction(path,body=null){try{await api(path,{method:'POST',body});await refreshQueue();}catch(e){toast(e.message,true);}}
+async function refreshQueue(){try{renderQueue(await api('/queue'));await refreshDriveBatches();}catch(e){toast('Queue refresh: '+e.message,true);}}
+function initQueueActions(){const actions=page('queue').querySelector('.head .actions');const pause=buttonByText(actions,'Pause after current'),resume=buttonByText(actions,'Resume');if(pause)pause.onclick=()=>queueAction('/queue/pause');if(resume)resume.onclick=()=>queueAction('/queue/resume');const sp=checkControl('queue','Scene Builder priority','Queue Controls'),ps=checkControl('queue','Pause after current safe stage','Queue Controls');const admin=!!appState.bootstrap?.principal?.is_admin;[sp,ps].filter(Boolean).forEach(x=>x.disabled=!admin);sp?.addEventListener('change',async()=>{try{await api('/queue-settings',{method:'PUT',body:{scene_builder_priority:sp.checked}});}catch(e){toast(e.message,true);}});ps?.addEventListener('change',()=>queueAction(ps.checked?'/queue/pause':'/queue/resume'));}
+
+/* ---------- Upload ---------- */
+const AUDIO_EXT=new Set(['mp3','wav','m4a','aac','flac','ogg']);
+function createFileInputs(){const folder=document.createElement('input');folder.type='file';folder.multiple=true;folder.webkitdirectory=true;folder.style.display='none';folder.id='acsFolderInput';const files=document.createElement('input');files.type='file';files.multiple=true;files.style.display='none';files.id='acsFilesInput';document.body.append(folder,files);folder.onchange=()=>{appState.uploadSource='pc';setUploadSourceUi();analyzeUpload([...folder.files]);};files.onchange=()=>{appState.uploadSource='pc';setUploadSourceUi();analyzeUpload([...files.files]);};const drop=page('upload').querySelector('.drop');buttonByText(drop,'Select Folder').onclick=()=>folder.click();buttonByText(drop,'Select Files').onclick=()=>files.click();}
+function fileStem(file){const name=file.name;const dot=name.lastIndexOf('.');return dot>0?name.slice(0,dot):name;}
+function analyzeUpload(files){const mode=document.getElementById('uploadVoiceMode').value==='Algrow Voice'?'algrow_voice':'upload_audio';const buckets=new Map();for(const f of files){const rel=f.webkitRelativePath||f.name;const dir=rel.includes('/')?rel.slice(0,rel.lastIndexOf('/')+1):'';const stem=fileStem(f);const key=(dir+stem).toLowerCase();if(!buckets.has(key))buckets.set(key,{stem,txt:[],audio:[],other:[]});const ext=f.name.split('.').pop().toLowerCase();if(ext==='txt')buckets.get(key).txt.push(f);else if(AUDIO_EXT.has(ext))buckets.get(key).audio.push(f);else buckets.get(key).other.push(f);}const preset=selectedPreset();const seenStems=new Set();const items=[];for(const bucket of buckets.values()){let valid=false,result='';if(seenStems.has(bucket.stem.toLowerCase())){result='Rejected: duplicate basename';}else if(mode==='upload_audio'){valid=bucket.txt.length===1&&bucket.audio.length===1;if(!valid)result=bucket.txt.length!==1?(bucket.txt.length?'Rejected: multiple TXT':'Rejected: TXT missing'):(bucket.audio.length?'Rejected: multiple audio':'Rejected: audio missing');}else{valid=bucket.txt.length===1;if(!valid)result=bucket.txt.length?'Rejected: multiple TXT':'Rejected: TXT missing';}if(valid)seenStems.add(bucket.stem.toLowerCase());items.push({origin:'pc',base:bucket.stem,txt:bucket.txt[0]||null,audio:bucket.audio[0]||null,valid,result:valid?'Ready':result,fgId:preset?.fg_library_id||'',status:valid?'Ready':result});}appState.uploadItems=items;appState.uploadFileCount=files.length;renderUploadItems();}
+function fgOptions(selected){return `<option value="">None</option>${appState.fg.map(x=>`<option value="${esc(x.id)}" ${x.id===selected?'selected':''}>${esc(x.name)}</option>`).join('')}`;}
+function renderUploadItems(){const valid=appState.uploadItems.filter(x=>x.valid),bad=appState.uploadItems.filter(x=>!x.valid);const metrics=page('upload').querySelectorAll('.grid.g4 .metric b');[appState.uploadFileCount,valid.length,bad.length,bad.length].forEach((v,i)=>{if(metrics[i])metrics[i].textContent=v;});const badge=page('upload').querySelector('.card[style*="overflow:auto"] .head .badge');if(badge)badge.textContent=`${valid.length} queue item(s) ready`;const tbody=page('upload').querySelector('.queue tbody'),preset=selectedPreset();tbody.innerHTML=appState.uploadItems.map((x,i)=>`<tr><td><b>${esc(x.base)}</b></td><td>${esc(x.txt?.name||x.txt_name||'—')}</td><td>${esc(x.audio?.name||x.audio_name||(document.getElementById('uploadVoiceMode').value==='Algrow Voice'?'Generated by Algrow':'—'))}</td><td>${esc(preset?.name||'')}</td><td>${x.valid?`<select data-upload-fg="${i}">${fgOptions(x.fgId)}</select>`:'—'}</td><td><span class="badge ${x.valid?'good':'warn'}">${esc(x.status)}</span></td></tr>`).join('')||'<tr><td colspan="6" class="small">Select PC files or scan a Drive folder to begin.</td></tr>';tbody.querySelectorAll('[data-upload-fg]').forEach(s=>s.onchange=()=>appState.uploadItems[Number(s.dataset.uploadFg)].fgId=s.value);updatePreflight();}
+function setUploadSourceUi(){const pc=document.getElementById('uploadPcSource'),drive=document.getElementById('uploadDriveSource'),pane=document.getElementById('uploadDrivePane'),drop=page('upload').querySelector('.drop');const isDrive=appState.uploadSource==='drive';pc.classList.toggle('primary',!isDrive);drive.classList.toggle('primary',isDrive);pane.style.display=isDrive?'block':'none';drop.style.display=isDrive?'none':'';}
+function uploadCategoryState(){const state=appState.bootstrap?.user_state||{};let categories=Array.isArray(state.upload_categories)?state.upload_categories.slice():['ACS Final Videos'];categories=categories.map(x=>norm(x)).filter(Boolean).filter((x,i,a)=>a.findIndex(y=>y.toLowerCase()===x.toLowerCase())===i);if(!categories.length)categories=['ACS Final Videos'];let selected=norm(state.selected_upload_category)||categories[0];if(!categories.some(x=>x.toLowerCase()===selected.toLowerCase()))selected=categories[0];return {categories,selected};}
+function fillUploadCategories(){const sel=document.getElementById('uploadCategory');if(!sel)return;const st=uploadCategoryState();sel.innerHTML=st.categories.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');sel.value=st.selected;}
+async function saveUploadCategories(categories,selected){try{const r=await api('/user-state',{method:'PUT',body:{upload_categories:categories,selected_upload_category:selected}});appState.bootstrap.user_state=r.state;fillUploadCategories();markSaved();}catch(e){toast(e.message,true);}}
+async function addUploadCategory(){const current=uploadCategoryState();const raw=prompt('New category / Drive folder name:','');if(raw===null)return;const name=norm(raw).replace(/[\\/]+/g,' ');if(!name)return toast('Enter a category name.',true);if(current.categories.some(x=>x.toLowerCase()===name.toLowerCase()))return saveUploadCategories(current.categories,current.categories.find(x=>x.toLowerCase()===name.toLowerCase()));current.categories.push(name);await saveUploadCategories(current.categories,name);}
+async function deleteUploadCategory(){const current=uploadCategoryState(),sel=document.getElementById('uploadCategory');const name=norm(sel?.value||current.selected);if(current.categories.length<=1)return toast('At least one category must remain.',true);if(!confirm(`Remove category "${name}" from the dropdown? Existing Drive files and project history will not be deleted.`))return;const categories=current.categories.filter(x=>x.toLowerCase()!==name.toLowerCase());await saveUploadCategories(categories,categories[0]);}
+async function scanDriveFolder(){if(document.getElementById('uploadVoiceMode').value!=='Upload Audio')return toast('Google Drive Folder source requires Upload Audio mode so TXT + audio can be paired exactly.',true);const folder=document.getElementById('uploadDriveFolder').value.trim(),status=document.getElementById('uploadDriveStatus');if(!folder)return toast('Paste a Drive folder URL, folder ID, or path.',true);appState.uploadSource='drive';setUploadSourceUi();appState.uploadItems=[];appState.uploadFileCount=0;renderUploadItems();if(status){status.className='badge inline-status';status.textContent='Scanning…';}const btn=document.getElementById('uploadDriveScan');if(btn)btn.disabled=true;try{const r=await api('/upload/drive-scan',{method:'POST',body:{folder}});const preset=selectedPreset();appState.uploadItems=(r.items||[]).map(x=>({...x,origin:'drive',fgId:preset?.fg_library_id||'',status:x.result||'Ready'}));appState.uploadFileCount=Number(r.file_count||0);renderUploadItems();if(status){status.className='badge good inline-status';status.textContent=`${r.valid_pairs||0} matched`;}toast(`${r.valid_pairs||0} exact TXT + audio Drive pair(s) ready.`);}catch(e){if(status){status.className='badge warn inline-status';status.textContent='Scan failed';}toast(e.message,true);}finally{if(btn)btn.disabled=false;}}
+
+function fillUploadPreset(){const sel=document.getElementById('uploadPreset'),p=selectedPreset();sel.innerHTML=appState.presets.map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('');sel.value=p?.id||'';}
+function updateVoiceModeRule(){const mode=document.getElementById('uploadVoiceMode').value,rule=document.getElementById('queueRule'),drop=page('upload').querySelector('.drop');rule.value=mode==='Upload Audio'?'TXT + audio exact basename pair':'TXT → Algrow Voice → normal ACS flow';drop.querySelector('strong').textContent=mode==='Upload Audio'?'Select a folder containing paired TXT + audio files':'Select a folder containing TXT files for Algrow Voice';updatePreflight();}
+function updatePreflight(){const p=selectedPreset();if(!p)return;const s=p.settings||{},voiceMode=document.getElementById('uploadVoiceMode').value;const media=s.use_image_backgrounds&&s.use_video_backgrounds?'Pexels Images + Videos':s.use_video_backgrounds?'Pexels Videos':'Pexels Images';const tm=textRenderModeFromSettings(s),mode=tm==='caption'?'Caption Video':tm==='scroll'?'Scrolling Text':'Text Off';document.getElementById('verificationMode').value=[mode,s.pexels_enabled?media:'No Pexels',p.fg_library_id?`FG: ${fgName(p.fg_library_id)}`:'No FG',voiceMode].join(' + ');const vp=appState.visualPlan,autoPexels=p.auto_pexels_media!==false;const pexDetail=!s.pexels_enabled?'Not required':autoPexels&&vp?.custom_script_ready?`${vp.cached_query_count||0}/${vp.query_count||0} auto-Pexels queries cached${vp.missing_count?` · ${vp.missing_count} missing`:''}`:`${appState.bootstrap?.pexels?.image_count||0} images / ${appState.bootstrap?.pexels?.video_count||0} videos`;const pexReady=!s.pexels_enabled||!autoPexels||!vp?.custom_script_ready||Number(vp.missing_count||0)===0;const checks=[['Preset selected',p.name,!!p],['Preview approved',p.preview_approved?'Approved':'Approval required',!!p.preview_approved],['Voice mode',voiceMode,true],['Pexels library',pexDetail,pexReady],['FG library',p.fg_library_id?fgName(p.fg_library_id):'Not required',!p.fg_library_id||!!appState.fg.find(x=>x.id===p.fg_library_id)],['Music library',s.music_enabled?`${appState.bootstrap?.music?.file_count||0} track(s)`:'Not required',!s.music_enabled||Number(appState.bootstrap?.music?.file_count||0)>0]];if(voiceMode==='Algrow Voice')checks.push(['Algrow profile',voiceName(p.voice_profile_id),!!appState.voices.find(x=>x.id===p.voice_profile_id&&x.enabled)]);const ready=checks.filter(x=>x[2]).length;document.getElementById('preflightSubtitle').textContent=`Checking requirements for ${p.name}`;const badge=document.getElementById('preflightBadge');badge.textContent=`${ready}/${checks.length} checks ready`;badge.className='badge '+(ready===checks.length?'good':'warn');document.getElementById('presetChecks').innerHTML=checks.map(([n,d,ok])=>`<div class="section"><div class="row" style="justify-content:space-between"><b>${esc(n)}</b><span class="badge ${ok?'good':'warn'}">${ok?'Ready':'Required'}</span></div><div class="small" style="margin-top:5px">${esc(d)}</div></div>`).join('');}
+async function submitReady(){const p=selectedPreset(),items=appState.uploadItems.filter(x=>x.valid);if(!p)return;if(!p.preview_approved)return toast('Approve the selected preset preview before submission.',true);if(!items.length)return toast('No valid upload items are ready.',true);const voiceMode=document.getElementById('uploadVoiceMode').value==='Algrow Voice'?'algrow_voice':'upload_audio';if(appState.uploadSource==='drive'&&voiceMode!=='upload_audio')return toast('Google Drive Folder source requires Upload Audio mode.',true);if(appState.uploadSource==='drive'&&items.length>500)return toast('A Drive batch can contain up to 500 projects.',true);if(voiceMode==='algrow_voice'&&!appState.voices.find(x=>x.id===p.voice_profile_id&&x.enabled))return toast('Select an enabled Algrow voice profile in the Audio Engine.',true);const category=norm(document.getElementById('uploadCategory')?.value)||'ACS Final Videos';const submitBtn=buttonByText(page('upload').querySelector('.head .actions'),'Submit Ready');if(submitBtn)submitBtn.disabled=true;
+ try{
+   if(appState.uploadSource==='drive'){
+     const folder=document.getElementById('uploadDriveFolder').value.trim();if(!folder)throw new Error('Scan a Drive folder first.');
+     await api('/upload/drive-batch',{method:'POST',body:{folder,preset_id:p.id,category,items:items.map(x=>({base:x.base,txt_remote:x.txt_remote,audio_remote:x.audio_remote,fg_library_id:x.fgId||''}))}});
+     items.forEach(x=>x.status='Saved · waiting on Drive');renderUploadItems();await api('/user-state',{method:'PUT',body:{selected_upload_category:category}});
+     toast(`${items.length} projects saved. ACS copies one at a time and keeps one next project ready. You can close this page.`);await refreshDriveBatches();await refreshQueue();openPage('queue');return;
+   }
+   let batch=await api('/upload/session',{method:'POST',body:{expected_count:items.length,preset_id:p.id,voice_mode:voiceMode,category}});await api('/user-state',{method:'PUT',body:{selected_upload_category:category}});let order=0;for(const item of items){order++;item.status='Uploading…';renderUploadItems();try{const form=new FormData();form.append('batch_id',batch.batch_id);form.append('preset_id',p.id);form.append('fg_library_id',item.fgId||'');form.append('item_order',String(order));form.append('text_file',item.txt,item.txt.name);let path;if(voiceMode==='upload_audio'){form.append('audio_file',item.audio,item.audio.name);path='/upload/pair';}else{form.append('voice_profile_id',p.voice_profile_id);path='/upload/algrow';}await api(path,{method:'POST',form});item.status=voiceMode==='upload_audio'?'VPS Ready':'Algrow queued';}catch(e){item.valid=false;item.status='Rejected: '+e.message;toast(`${item.base}: ${e.message}`,true);}renderUploadItems();}const successful=items.filter(x=>!x.status.startsWith('Rejected')).length;if(successful!==items.length){if(voiceMode==='upload_audio'){try{await api(`/upload/abort/${encodeURIComponent(batch.batch_id)}`,{method:'POST'});}catch(abortError){toast('Submission failed and automatic held-batch cleanup also failed: '+abortError.message,true);return;}}return toast(voiceMode==='upload_audio'?'Some items failed. Held VPS items were removed; fix the rejected files and submit again.':'Some Algrow items failed. Successful TXT items may already be visible to the voice sidecar; inspect them before resubmitting.',true);}const done=await api(`/upload/finalize/${encodeURIComponent(batch.batch_id)}`,{method:'POST',body:{expected_count:items.length}});toast(done.status==='waiting_for_algrow'?'TXT projects sent to Algrow Voice.':'Verified folder released to ACS queue.');await refreshQueue();openPage('queue');
+ }catch(e){toast(e.message,true);}finally{if(submitBtn)submitBtn.disabled=false;}}
+
+let activeDriveBatchId='';
+function renderDriveBatchActivity(batches){const box=document.getElementById('driveBatchActivity');if(!box)return;const active=(batches||[]).find(b=>!['completed','failed','cancelled'].includes(String(b.batch_status||'')))||(batches||[])[0];if(!active){box.classList.remove('show');activeDriveBatchId='';return;}activeDriveBatchId=active.batch_id;box.classList.add('show');document.getElementById('driveBatchTitle').textContent=`${active.category||'Drive Batch'} · ${active.total||0} projects`;const current=active.current_project?`Current: ${active.current_project}`:'No active project';const next=active.next_project?` · Next: ${active.next_project}`:'';document.getElementById('driveBatchLine').textContent=`${current}${next} · ${active.used_folder||'Used'} · browser-independent`;const state=document.getElementById('driveBatchState');const cs=String(active.control_state||'active');state.textContent=cs==='paused'?'Paused':cs==='pause_after_current'?'Stopping after current':'Running';state.className='badge '+(cs==='active'?'good':'warn');for(const [id,key] of [['dbTotal','total'],['dbOnDrive','on_drive'],['dbCopying','copying'],['dbWaiting','waiting'],['dbActive','active'],['dbCompleted','completed']]){const el=document.getElementById(id);if(el)el.textContent=Number(active[key]||0);}const stop=document.getElementById('driveBatchStop'),resume=document.getElementById('driveBatchResume');if(stop)stop.disabled=cs!=='active';if(resume)resume.disabled=cs==='active';}
+async function refreshDriveBatches(){try{const r=await api('/drive-batches');renderDriveBatchActivity(r.batches||[]);}catch(e){console.warn('Drive batch status',e);}}
+async function driveBatchControl(action){if(!activeDriveBatchId)return;try{await api(`/drive-batches/${encodeURIComponent(activeDriveBatchId)}/${action}`,{method:'POST'});await refreshDriveBatches();toast(action==='resume'?'Drive batch resumed.':'Batch will stop after the current project. All queue data is preserved.');}catch(e){toast(e.message,true);}}
+function initUploadActions(){fillUploadPreset();fillUploadCategories();document.getElementById('driveBatchStop').onclick=()=>driveBatchControl('stop-after-current');document.getElementById('driveBatchResume').onclick=()=>driveBatchControl('resume');const presetSel=document.getElementById('uploadPreset'),voice=document.getElementById('uploadVoiceMode');document.getElementById('uploadCategoryAdd').onclick=addUploadCategory;document.getElementById('uploadCategoryDelete').onclick=deleteUploadCategory;document.getElementById('uploadCategory').onchange=async e=>{const st=uploadCategoryState();await saveUploadCategories(st.categories,e.target.value);};const applyPresetVoiceMode=()=>{const p=selectedPreset();if(!p)return;voice.value=p.voice_mode==='algrow_voice'?'Algrow Voice':'Upload Audio';};presetSel.onchange=async()=>{await selectPreset(presetSel.value,true);applyPresetVoiceMode();appState.uploadItems.forEach(x=>x.fgId=selectedPreset()?.fg_library_id||'');appState.uploadFileCount=0;renderUploadItems();updateVoiceModeRule();};voice.innerHTML='<option value="Upload Audio">Upload Audio</option><option value="Algrow Voice">Algrow Voice</option>';applyPresetVoiceMode();voice.onchange=async()=>{updateVoiceModeRule();appState.uploadItems=[];appState.uploadFileCount=0;renderUploadItems();const mode=voice.value==='Algrow Voice'?'algrow_voice':'upload_audio';try{await Promise.all([api('/user-state',{method:'PUT',body:{upload_voice_mode:mode}}),patchPreset({voice_mode:mode,preview_approved:false})]);}catch(e){toast(e.message,true);}};updateVoiceModeRule();const actions=page('upload').querySelector('.head .actions');buttonByText(actions,'Submit Ready').onclick=submitReady;buttonByText(actions,'Clear Finished').onclick=()=>{appState.uploadItems=[];appState.uploadFileCount=0;renderUploadItems();};document.getElementById('uploadPcSource').onclick=()=>{appState.uploadSource='pc';setUploadSourceUi();appState.uploadItems=[];appState.uploadFileCount=0;renderUploadItems();};document.getElementById('uploadDriveSource').onclick=()=>{appState.uploadSource='drive';setUploadSourceUi();appState.uploadItems=[];appState.uploadFileCount=0;renderUploadItems();};document.getElementById('uploadDriveScan').onclick=scanDriveFolder;createFileInputs();setUploadSourceUi();renderUploadItems();}
+
+/* ---------- Admin ---------- */
+
+/* ---------- global bootstrap ---------- */
+async function refreshBootstrap(first=false){const data=await api('/bootstrap');appState.bootstrap=data;appState.presets=data.presets||[];appState.fg=data.fg_libraries||[];appState.voices=data.voice_profiles||[];appState.fonts=data.fonts?.families||[];renderFontOptions();if(first){appState.selectedPresetId=data.user_state?.selected_preset_id&&appState.presets.some(p=>p.id===data.user_state.selected_preset_id)?data.user_state.selected_preset_id:appState.presets[0]?.id||'';}else if(!appState.presets.some(p=>p.id===appState.selectedPresetId)){appState.selectedPresetId=appState.presets[0]?.id||'';}renderPresetCards();renderFgLibraries();renderVoiceProfiles();renderPexelsInfo();fillUploadPreset();fillUploadCategories();applyBindings();showCaptionModeFromPreset();updateMainPreviewOverlay();await refreshPresetVisualPlan(true);updatePreflight();if(first){const admin=!!data.principal?.is_admin;const pexKey=fieldControl('pexels','Pexels API Key','Media Source'),saveKey=buttonByText(card('pexels','Media Source'),'Save Key'),musicPath=fieldControl('music','VPS Music Library','Background Music');if(pexKey)pexKey.disabled=!admin;if(saveKey)saveKey.disabled=!admin;if(musicPath)musicPath.readOnly=!admin;}}
+async function boot(){try{initBindings();initSpecialControls();initFontControls();initTextBackgroundControls();initCaptionMode();initTextRenderMode();initPresetVisualPlan();document.getElementById('captionMainPreviewBtn')?.addEventListener('click',openMainPreview);document.getElementById('scrollTextX')?.addEventListener('input',()=>{updateScrollTextXReadout();updateMainPreviewOverlay();});initPresetButtons();initFgActions();initPexelsActions();initVoiceActions();initAudioEngineControls();const queueWarmup=refreshQueue();await refreshBootstrap(true);initPreviewReferenceUpload();initPreviewRenderControls();refreshRealPresetPreview(false);initQueueActions();initUploadActions();await queueWarmup;await refreshQueue();const initialPage=['music','audio'].includes(location.hash.slice(1))?'voice':(location.hash.slice(1)||'queue');openPage(initialPage,false);markSaved();appState.queueTimer=setInterval(refreshQueue,3000);}catch(e){setSaveState('Connection error','#b83246','#ffd8df','#fff0f2');toast(e.message,true);console.error(e);}}
+boot();
+
+</script>
+
+<script>
+/* ACS_FG_PC_UPLOAD_V1_SCRIPT */
+(()=>{
+  const root=document.getElementById('fg');
+  if(!root)return;
+  const allowed=new Set(['png','jpg','jpeg','webp','bmp']);
+  const topButton=document.getElementById('fgPcTopButton');
+  const pcMode=document.getElementById('fgPcModeButton');
+  const vpsMode=document.getElementById('fgVpsModeButton');
+  const pcPane=document.getElementById('fgPcPane');
+  const vpsPane=document.getElementById('fgVpsPane');
+  const input=document.getElementById('fgPcFolderInput');
+  const choose=document.getElementById('fgPcChooseButton');
+  const upload=document.getElementById('fgPcUploadButton');
+  const cancel=document.getElementById('fgPcCancelButton');
+  const name=document.getElementById('fgPcLibraryName');
+  const title=document.getElementById('fgPcSelectionTitle');
+  const info=document.getElementById('fgPcSelectionInfo');
+  const wrap=document.getElementById('fgPcProgressWrap');
+  const ptext=document.getElementById('fgPcProgressText');
+  const pcount=document.getElementById('fgPcProgressCount');
+  const pbar=document.getElementById('fgPcProgressBar');
+  const dup=document.getElementById('fgPcDuplicateText');
+  let files=[];
+  let activeSession='';
+  let cancelling=false;
+
+  function showMode(mode){
+    const pc=mode==='pc';
+    pcPane.style.display=pc?'block':'none';
+    vpsPane.style.display=pc?'none':'block';
+    pcMode.classList.toggle('active',pc);
+    vpsMode.classList.toggle('active',!pc);
+  }
+  pcMode.onclick=()=>showMode('pc');
+  vpsMode.onclick=()=>showMode('vps');
+  topButton.onclick=()=>{showMode('pc');input.click();};
+  choose.onclick=()=>input.click();
+
+  function rel(f){return f.webkitRelativePath||f.name;}
+  function extension(f){const n=f.name||'';return n.includes('.')?n.split('.').pop().toLowerCase():'';}
+  function updateSelection(){
+    const bytes=files.reduce((n,f)=>n+Number(f.size||0),0);
+    title.textContent=files.length?`${files.length} image(s) selected`:'Select an image folder from your PC';
+    info.textContent=files.length?`${(bytes/1024/1024).toFixed(1)} MB · ${rel(files[0]).split('/')[0]||'Folder'}`:'PNG, JPG, JPEG, WEBP and BMP are accepted.';
+    upload.disabled=!files.length||!name.value.trim();
+  }
+  name.addEventListener('input',updateSelection);
+  input.onchange=()=>{
+    const all=[...(input.files||[])];
+    files=all.filter(f=>allowed.has(extension(f)));
+    if(files.length){
+      const first=rel(files[0]);
+      const folder=first.includes('/')?first.split('/')[0]:'';
+      if(!name.value.trim()&&folder)name.value=folder;
+    }
+    if(all.length&&!files.length)toast('The selected folder contains no supported FG images.',true);
+    else if(all.length!==files.length)toast(`${all.length-files.length} unsupported file(s) were ignored.`);
+    updateSelection();
+  };
+
+  function setProgress(done,total,text,duplicates=0){
+    wrap.style.display='block';
+    const pct=total?Math.round(done*100/total):0;
+    pbar.style.width=pct+'%';
+    pcount.textContent=`${done} / ${total}`;
+    ptext.textContent=text||`${pct}%`;
+    dup.textContent=duplicates?`${duplicates} duplicate image(s) detected and stored once.`:'';
+  }
+
+  async function newOrResumeSession(){
+    const prior=localStorage.getItem('acs_fg_pc_upload_session')||'';
+    const body={name:name.value.trim(),total_files:files.length,resume_session_id:prior};
+    try{return await api('/fg-upload/session',{method:'POST',body});}
+    catch(e){
+      if(prior){localStorage.removeItem('acs_fg_pc_upload_session');return await api('/fg-upload/session',{method:'POST',body:{...body,resume_session_id:''}});}
+      throw e;
+    }
+  }
+
+  upload.onclick=async()=>{
+    if(!files.length||!name.value.trim())return;
+    cancelling=false;upload.disabled=true;cancel.style.display='inline-flex';input.disabled=true;name.disabled=true;
+    let duplicates=0;
+    try{
+      const session=await newOrResumeSession();
+      activeSession=session.session_id;
+      localStorage.setItem('acs_fg_pc_upload_session',activeSession);
+      setProgress(session.uploaded_count||0,files.length,'Uploading…',session.duplicate_count||0);
+      let done=0;
+      for(const f of files){
+        if(cancelling)throw new Error('Upload cancelled');
+        const form=new FormData();form.append('relative_path',rel(f));form.append('file',f,f.name);
+        const r=await api(`/fg-upload/session/${encodeURIComponent(activeSession)}/file`,{method:'POST',form});
+        done++;
+        if(r.duplicate)duplicates++;
+        setProgress(done,files.length,`Uploading ${done} of ${files.length}…`,duplicates);
+      }
+      setProgress(files.length,files.length,'Finalizing protected VPS library…',duplicates);
+      const result=await api(`/fg-upload/session/${encodeURIComponent(activeSession)}/finalize`,{method:'POST'});
+      localStorage.removeItem('acs_fg_pc_upload_session');activeSession='';
+      setProgress(files.length,files.length,'✓ Protected FG library ready',duplicates);
+      toast(`${result.library?.name||name.value} added as a protected VPS FG library.`);
+      files=[];input.value='';name.value='';updateSelection();
+      await refreshBootstrap(false);
+    }catch(e){
+      if(!cancelling)toast(e.message,true);
+      else toast('FG upload cancelled.');
+      upload.disabled=!files.length||!name.value.trim();
+    }finally{
+      cancel.style.display='none';input.disabled=false;name.disabled=false;cancelling=false;
+    }
+  };
+
+  cancel.onclick=async()=>{
+    cancelling=true;
+    if(activeSession){
+      try{await api(`/fg-upload/session/${encodeURIComponent(activeSession)}/abort`,{method:'POST'});}catch(e){}
+      localStorage.removeItem('acs_fg_pc_upload_session');activeSession='';
+    }
+  };
+
+  showMode('pc');
+  updateSelection();
+})();
+</script>
+
+
+<script id="DRIVE_PROFILES_PHASE1_V1_JS">
+(()=>{
+  const DP_API='/auto-caption/api/web-flow/drive-profiles';
+  let dpProfiles=[];
+  const $=id=>document.getElementById(id);
+  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  async function req(path='',opts={}){
+    const o={credentials:'same-origin',headers:{'Content-Type':'application/json'},...opts};
+    const r=await fetch(DP_API+path,o); let data={}; try{data=await r.json()}catch(_){}
+    if(!r.ok) throw new Error(data.detail||`HTTP ${r.status}`); return data;
+  }
+  function clearForm(){
+    $('dpEditId').value=''; $('dpFormTitle').textContent='Add Drive Profile';
+    ['dpName','dpFolder','dpCategory','dpPreset','dpVoiceMode'].forEach(id=>$(id).value='');
+    $('dpEnabled').value='true'; $('dpFormMessage').textContent='';
+  }
+  function render(data){
+    dpProfiles=Array.isArray(data.profiles)?data.profiles:[];
+    const settings=data.settings||{};
+    $('dpAutoRefill').checked=!!settings.auto_refill_enabled;
+    $('dpIdleMinutes').value=String(settings.idle_recheck_minutes||15);
+    $('dpEnabledCount').textContent=String(dpProfiles.filter(x=>x.enabled).length);
+    const syncs=dpProfiles.map(x=>x.last_sync).filter(Boolean).sort();
+    const rt=data.runtime||{};$('dpLastGlobalSync').textContent=(rt.last_global_sync|| (syncs.length?syncs[syncs.length-1]:'')).replace?.('T',' ').replace?.('Z','')||'—';if($('dpRuntimeState'))$('dpRuntimeState').textContent=String(rt.status||'Active').replaceAll('_',' ');if($('dpRuntimeNote')){$('dpRuntimeNote').textContent=`Runtime: ${String(rt.status||'active').replaceAll('_',' ')} · ${rt.last_result||'Waiting for queue-empty trigger'}`;}
+    $('dpRows').innerHTML=dpProfiles.length?dpProfiles.map(p=>`<tr>
+      <td><b>${esc(p.name)}</b></td><td>${esc(p.category||'—')}</td><td>${esc(p.preset||'—')}</td><td>${esc(p.voice_mode||'—')}</td>
+      <td title="${esc(p.folder_ref)}" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.folder_ref)}</td>
+      <td><span class="badge ${p.enabled?'good':''}">${p.enabled?'Enabled':'Disabled'}</span></td>
+      <td>${esc(p.last_sync||'Never')}</td><td>${esc(p.last_result||'Never synced')}</td>
+      <td><div class="row"><button class="btn" type="button" data-dp-edit="${esc(p.id)}">Edit</button><button class="btn red" type="button" data-dp-delete="${esc(p.id)}">Delete</button></div></td>
+    </tr>`).join(''):'<tr><td colspan="9" class="small">No Drive Profiles saved yet.</td></tr>';
+  }
+  async function load(){
+    try{render(await req()); $('dpSaveState').textContent='✓ Loaded';}
+    catch(e){$('dpRows').innerHTML=`<tr><td colspan="9" class="small">${esc(e.message)}</td></tr>`; $('dpSaveState').textContent='Load failed';}
+  }
+  async function saveProfile(){
+    const id=$('dpEditId').value.trim();
+    const payload={name:$('dpName').value.trim(),folder_ref:$('dpFolder').value.trim(),category:$('dpCategory').value.trim(),preset:$('dpPreset').value.trim(),voice_mode:$('dpVoiceMode').value.trim(),enabled:$('dpEnabled').value==='true'};
+    if(!payload.name||!payload.folder_ref){$('dpFormMessage').textContent='Profile name and Drive folder are required.';return;}
+    try{await req(id?`/${encodeURIComponent(id)}`:'',{method:id?'PUT':'POST',body:JSON.stringify(payload)}); clearForm(); await load(); $('dpFormMessage').textContent='Saved.';}
+    catch(e){$('dpFormMessage').textContent=e.message;}
+  }
+  async function saveSettings(){
+    try{await req('/settings',{method:'PUT',body:JSON.stringify({auto_refill_enabled:$('dpAutoRefill').checked,idle_recheck_minutes:Number($('dpIdleMinutes').value||15)})}); $('dpRuntimeNote').textContent='Settings saved. Auto refill obeys the queue-empty guard.'; await load();}
+    catch(e){$('dpRuntimeNote').textContent=e.message;}
+  }
+  document.addEventListener('click',async e=>{
+    const edit=e.target.closest('[data-dp-edit]'); if(edit){const p=dpProfiles.find(x=>String(x.id)===edit.dataset.dpEdit); if(!p)return; $('dpEditId').value=p.id; $('dpFormTitle').textContent='Edit Drive Profile'; $('dpName').value=p.name||''; $('dpFolder').value=p.folder_ref||''; $('dpCategory').value=p.category||''; $('dpPreset').value=p.preset||''; $('dpVoiceMode').value=p.voice_mode||''; $('dpEnabled').value=p.enabled?'true':'false'; return;}
+    const del=e.target.closest('[data-dp-delete]'); if(del){const p=dpProfiles.find(x=>String(x.id)===del.dataset.dpDelete); if(!p||!confirm(`Delete Drive Profile “${p.name}”?`))return; try{await req(`/${encodeURIComponent(p.id)}`,{method:'DELETE'}); await load();}catch(err){alert(err.message);} }
+  });
+  document.addEventListener('DOMContentLoaded',()=>{
+    $('dpReloadBtn')?.addEventListener('click',load);
+    $('dpSaveProfileBtn')?.addEventListener('click',saveProfile);
+    $('dpCancelEditBtn')?.addEventListener('click',clearForm);
+    $('dpSaveSettingsBtn')?.addEventListener('click',saveSettings);
+    $('dpSyncAllBtn')?.addEventListener('click',async()=>{try{const r=await req('/sync-enabled',{method:'POST',body:'{}'});$('dpRuntimeNote').textContent=r.message||'Sync requested.';setTimeout(load,1200);}catch(e){$('dpRuntimeNote').textContent=e.message;}});
+    load();
+  });
+})();
+</script>
+
+
+
+<script id="DRIVE_PROFILE_CATEGORY_PRESET_DROPDOWNS_V1">
+(()=>{
+  const q=id=>document.getElementById(id);
+  const escOpt=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const unique=(arr)=>arr.filter(Boolean).filter((x,i,a)=>a.findIndex(y=>String(y).toLowerCase()===String(x).toLowerCase())===i);
+
+  function sourceCategories(){
+    try{
+      if(typeof uploadCategoryState==='function'){
+        const st=uploadCategoryState();
+        if(st && Array.isArray(st.categories) && st.categories.length) return unique(st.categories.map(x=>String(x).trim()));
+      }
+    }catch(_){ }
+    const src=q('uploadCategory');
+    return src ? unique([...src.options].map(o=>String(o.value||o.textContent||'').trim())) : [];
+  }
+
+  function sourcePresets(){
+    const src=q('uploadPreset');
+    if(src && src.options.length){
+      return [...src.options].map(o=>({value:String(o.value||'').trim(),label:String(o.textContent||o.value||'').trim()})).filter(x=>x.value);
+    }
+    try{
+      if(typeof appState!=='undefined' && Array.isArray(appState.presets)){
+        return appState.presets.map(p=>({value:String(p.id||p.name||'').trim(),label:String(p.name||p.id||'').trim()})).filter(x=>x.value);
+      }
+    }catch(_){ }
+    return [];
+  }
+
+  function syncDpChoices(categoryWanted='', presetWanted=''){
+    const cat=q('dpCategory'), pre=q('dpPreset');
+    if(!cat || !pre) return;
+
+    const currentCat=String(categoryWanted || cat.value || '').trim();
+    const cats=sourceCategories();
+    if(currentCat && !cats.some(x=>x.toLowerCase()===currentCat.toLowerCase())) cats.push(currentCat);
+    cat.innerHTML=cats.map(x=>`<option value="${escOpt(x)}">${escOpt(x)}</option>`).join('');
+    if(currentCat){
+      const hit=cats.find(x=>x.toLowerCase()===currentCat.toLowerCase());
+      if(hit) cat.value=hit;
+    }
+    if(!cat.value && cats.length) cat.value=cats[0];
+
+    const currentPre=String(presetWanted || pre.value || '').trim();
+    const presets=sourcePresets();
+    let hit=presets.find(x=>x.value.toLowerCase()===currentPre.toLowerCase() || x.label.toLowerCase()===currentPre.toLowerCase());
+    if(currentPre && !hit){ presets.push({value:currentPre,label:currentPre}); hit=presets[presets.length-1]; }
+    pre.innerHTML=presets.map(x=>`<option value="${escOpt(x.value)}">${escOpt(x.label)}</option>`).join('');
+    if(hit) pre.value=hit.value;
+    if(!pre.value && presets.length){
+      const upload=q('uploadPreset');
+      const selected=upload ? String(upload.value||'') : '';
+      pre.value=presets.some(x=>x.value===selected) ? selected : presets[0].value;
+    }
+  }
+
+  function refreshSoon(){
+    setTimeout(()=>syncDpChoices(),0);
+    setTimeout(()=>syncDpChoices(),250);
+    setTimeout(()=>syncDpChoices(),900);
+  }
+
+  document.addEventListener('click',e=>{
+    const edit=e.target.closest?.('[data-dp-edit]');
+    if(edit){
+      const row=edit.closest('tr');
+      const cells=row ? row.querySelectorAll('td') : [];
+      const cat=cells[1]?.textContent?.trim()||'';
+      const pre=cells[2]?.textContent?.trim()||'';
+      setTimeout(()=>syncDpChoices(cat==='—'?'':cat, pre==='—'?'':pre),0);
+      return;
+    }
+    if(e.target.closest?.('#dpCancelEditBtn') || e.target.closest?.('[data-page="drive-profiles"]')) refreshSoon();
+  });
+
+  document.addEventListener('DOMContentLoaded',()=>{
+    refreshSoon();
+    const catSource=q('uploadCategory'), preSource=q('uploadPreset');
+    const observer=new MutationObserver(()=>syncDpChoices());
+    if(catSource) observer.observe(catSource,{childList:true,subtree:true});
+    if(preSource) observer.observe(preSource,{childList:true,subtree:true});
+  });
+})();
+</script>
+
+
+<!-- DRIVE_PROFILES_SAVE_SETTINGS_FIX_V1 -->
+<script id="DRIVE_PROFILES_SAVE_SETTINGS_FIX_V1">
+(()=>{
+  const API='/auto-caption/api/web-flow/drive-profiles';
+  const q=id=>document.getElementById(id);
+
+  async function readJson(resp){
+    try{return await resp.json();}catch(_){return {};}
+  }
+
+  async function saveDriveProfileSettingsFixed(){
+    const btn=q('dpSaveSettingsBtn');
+    const note=q('dpRuntimeNote');
+    const state=q('dpSaveState');
+    const auto=q('dpAutoRefill');
+    const idle=q('dpIdleMinutes');
+    if(!btn || !auto || !idle) return;
+
+    const wanted={
+      auto_refill_enabled:!!auto.checked,
+      idle_recheck_minutes:Number(idle.value||15)
+    };
+    const oldText=btn.textContent;
+    btn.disabled=true;
+    btn.textContent='Saving…';
+    if(note) note.textContent='Saving Auto Refill settings…';
+    if(state) state.textContent='Saving…';
+
+    try{
+      const put=await fetch(API+'/settings',{
+        method:'PUT',
+        credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(wanted)
+      });
+      const putData=await readJson(put);
+      if(!put.ok) throw new Error(putData.detail||putData.message||`Save failed (HTTP ${put.status})`);
+
+      const check=await fetch(API,{credentials:'same-origin',cache:'no-store'});
+      const checkData=await readJson(check);
+      if(!check.ok) throw new Error(checkData.detail||checkData.message||`Saved, but read-back failed (HTTP ${check.status})`);
+      const saved=checkData.settings||putData.settings||{};
+      const savedAuto=!!saved.auto_refill_enabled;
+      const savedIdle=Number(saved.idle_recheck_minutes||15);
+      if(savedAuto!==wanted.auto_refill_enabled || savedIdle!==wanted.idle_recheck_minutes){
+        throw new Error('Settings save read-back did not match the selected values.');
+      }
+
+      auto.checked=savedAuto;
+      idle.value=String(savedIdle);
+      if(note) note.textContent=`Settings saved ✓ Auto Refill ${savedAuto?'ON':'OFF'} · Idle recheck ${savedIdle} minutes`;
+      if(state) state.textContent='✓ Saved';
+    }catch(err){
+      if(note) note.textContent='Save failed: '+(err?.message||String(err));
+      if(state) state.textContent='Save failed';
+      console.error('Drive Profile settings save failed',err);
+    }finally{
+      btn.disabled=false;
+      btn.textContent=oldText||'Save Settings';
+    }
+  }
+
+  function bindSaveButton(){
+    const btn=q('dpSaveSettingsBtn');
+    if(!btn || btn.dataset.saveSettingsFixV1==='1') return;
+    btn.dataset.saveSettingsFixV1='1';
+    btn.addEventListener('click',ev=>{
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      saveDriveProfileSettingsFixed();
+    },true);
+  }
+
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',bindSaveButton,{once:true});
+  }else{
+    bindSaveButton();
+  }
+  new MutationObserver(bindSaveButton).observe(document.documentElement,{childList:true,subtree:true});
+})();
+</script>
+
+</body>
+</html>
+
+<script id="acsSceneAudioEngineHeightBridge">
+(()=>{
+ const frame=document.getElementById('sceneAudioEngineFrame'); if(!frame)return;
+ window.addEventListener('message',e=>{
+  if(e.source!==frame.contentWindow)return;
+  const d=e.data||{}; if(d.type!=='acs-audio-engine-height')return;
+  const h=Math.max(560,Math.min(6000,Number(d.height)||0)); if(h)frame.style.height=h+'px';
+ });
+})();
+</script>

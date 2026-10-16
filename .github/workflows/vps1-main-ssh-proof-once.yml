@@ -3,6 +3,13 @@ on:
   pull_request:
     paths:
       - '.github/workflows/vps1-main-ssh-proof-once.yml'
+      - '.github/workflows/vps1-pilot-deploy.yml'
+      - '.github/workflows/vps1-audio-404-probe.yml'
+      - '.github/workflows/vps1-connection-check.yml'
+      - '.github/scripts/verify_vps1_security_integration.py'
+      - '.github/workflows/fresh-vps-post-snapshot-stage.yml'
+      - '.github/workflows/fresh-vps-source-of-truth.yml'
+      - '.github/workflows/vps1-staging-drift.yml'
   push:
     branches: [main]
     paths:
@@ -26,16 +33,11 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Verify this PR modifies exactly one non-deployment workflow
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      - name: Verify migration security invariants (offline)
         run: |
           set -Eeuo pipefail
-          changed="$(git diff --name-only --diff-filter=ACMRTD "$BASE_SHA" "$HEAD_SHA")"
-          test "$changed" = '.github/workflows/vps1-main-ssh-proof-once.yml'
-          ! grep -q 'workflow_dispatch:' .github/workflows/vps1-main-ssh-proof-once.yml
-          echo 'GITHUB_PROOF_PR_ONLY_ONE_SAFE_WORKFLOW=PASS'
+          python3 .github/scripts/verify_vps1_security_integration.py
+          echo 'GITHUB_INTEGRATION_SECURITY_CONTRACT=PASS'
       - name: Verify existing main-branch pilot and release tests offline
         run: |
           set -Eeuo pipefail
@@ -45,8 +47,12 @@ jobs:
           echo 'GITHUB_PROOF_OFFLINE_TESTS=PASS'
 
   main-readonly-ssh:
+    # Fail closed until production-environment credentials and repository fallback are verified.
+    # Only a separately reviewed change may re-enable this remote read-only proof.
     name: main-only-oidc-ssh-readback
+    environment: production
     if: >-
+      false &&
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
       contains(github.event.head_commit.message, '[vps1-ssh-proof-authorized]')
@@ -78,7 +84,7 @@ jobs:
           chmod 0600 "$scratch/identity"
           ssh-keygen -y -P '' -f "$scratch/identity" > "$scratch/public"
           actual="$(ssh-keygen -lf "$scratch/public" -E sha256 | awk '{print $2}')"
-          expected='SHA256:pHVIA8i/zuowqpDCaGbKc4bWGNcp/DRziKemWZS0ZdQ'
+          expected='SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
           test "$actual" = "$expected" || { echo 'SSH_IDENTITY_FINGERPRINT=BLOCKED'; exit 1; }
           echo 'SSH_IDENTITY_FINGERPRINT=PASS'
           # Agent1 2026-10-14 host key; never trust unauthenticated ssh-keyscan.

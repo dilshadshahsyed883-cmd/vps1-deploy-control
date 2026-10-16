@@ -1,0 +1,75 @@
+name: VPS1 durable deployment engine CI (synthetic only)
+on:
+  push:
+    branches:
+      - feature/durable-deployment-engine-20261015
+      - 'integration/**'
+      - 'migration/**'
+    paths:
+      - 'rebuild/deploy_engine.py'
+      - 'rebuild/deploy-contracts.json'
+      - 'rebuild/tests/test_deploy_engine.py'
+      - '.github/workflows/vps1-deploy-engine-ci.yml'
+  pull_request:
+    branches:
+      - main
+      - 'migration/**'
+      - 'integration/**'
+    paths:
+      - 'rebuild/**'
+      - '.github/workflows/vps1-deploy-engine-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: vps1-deploy-engine-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  simulation:
+    name: Queue + failure + concurrency + rollback simulation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Compile checked in controller
+        run: python -m compileall -q rebuild/deploy_engine.py rebuild/deploy_control.py rebuild/release_transaction.py
+      - name: Run production-isolated queue engine and rollback tests
+        run: |
+          set -Eeuo pipefail
+          python -m unittest rebuild.tests.test_deploy_engine rebuild.tests.test_deploy_control rebuild.tests.test_release_transaction -v
+      - name: Verify integration with remaining offline source tooling
+        run: python -m unittest discover -s rebuild/tests -v
+      - name: Verify persistent CLI intake and duplicate suppression
+        run: |
+          set -Eeuo pipefail
+          python -m rebuild.deploy_engine --db "$RUNNER_TEMP/vps1-control.sqlite3" enqueue --app short-maker --sha "$GITHUB_SHA" > "$RUNNER_TEMP/first.json"
+          python -m rebuild.deploy_engine --db "$RUNNER_TEMP/vps1-control.sqlite3" enqueue --app short-maker --sha "$GITHUB_SHA" > "$RUNNER_TEMP/second.json"
+          python - "$RUNNER_TEMP/first.json" "$RUNNER_TEMP/second.json" <<'PY'
+          import json,sys
+          a,b=[json.load(open(p)) for p in sys.argv[1:]]
+          assert a["id"]==b["id"] and a["status"]=="QUEUED"
+          print("DURABLE_INTENT_DUPLICATE_SUPPRESSION=PASS")
+          PY
+      - name: Enforce production and migration default OFF
+        run: |
+          python - <<'PY'
+          from rebuild.deploy_control import registry
+          from rebuild.deploy_engine import deployment_contracts
+          groups,profiles,active,offline=registry()
+          contracts=deployment_contracts()
+          assert len(active)==10 and offline=={"auto-script"}
+          assert set(contracts)==active
+          assert all(not c["runtime_verified"] and
+                     not c["migrations"]["automatic"] for c in contracts.values())
+          print("PRODUCTION_DEPLOYMENT_NOT_PERFORMED")
+          print("ALL_RUNTIME_CONTRACTS_REQUIRE_TAB4_VALIDATION")
+          PY

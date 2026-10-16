@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Auto Caption Studio</title>
+  <link rel="stylesheet" href="/auto-caption/static/app.css?v=20260824-rwd1">
+
+<style id="acs-ui-overrides-v2">
+/* Universal Theme Integration */
+:root {
+  --sb-bg: #f8fafc;
+  --sb-card: #ffffff;
+  --sb-border: #e2e8f0;
+  --sb-accent: #4f46e5;
+  --sb-text: #0f172a;
+  --sb-muted: #64748b;
+  --sb-spacing-sm: 8px;
+  --sb-spacing-md: 16px;
+  --sb-spacing-lg: 24px;
+  --sb-radius: 12px;
+  --sb-radius-sm: 8px;
+  --bg: #f8fafc;
+  --panel: #ffffff;
+  --line: #e2e8f0;
+}
+body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-text) !important; font-family: 'Inter', system-ui, -apple-system, sans-serif !important; }
+
+/* 1. Remove forced heights and double scrollbars in ACS */
+.acs-shell, .acs-workspace, #acs-scroll-wrapper, .scroll-container, .main-scroll, div[style*="overflow-y: auto"], div[style*="overflow-y: scroll"], div[style*="height: 100vh"] {
+    height: auto !important;
+    max-height: none !important;
+    overflow-y: visible !important;
+}
+
+/* 2. Hide Auto Caption Studio Headers */
+.head h2, .head p, .acs-header-block, .page-header { display: none !important; }
+.head { margin-bottom: 0 !important; }
+
+/* 3. Normalize ACS subtabs to Scene Builder standard */
+.acs-subnav a.active, .sub-tabs a.active, .acs-tabs a.active, .nav-pills .nav-link.active, .story-work-tabs a.active, .tabs a.active {
+    background-color: #ffffff !important;
+    color: #2457d6 !important;
+    box-shadow: 0 3px 10px rgba(31,45,74,0.11) !important;
+    border: 1px solid #dce4ef !important;
+}
+.acs-subnav a, .sub-tabs a, .acs-tabs a, .tabs a {
+    color: #475467 !important;
+    font-weight: 800 !important;
+    background-color: transparent !important;
+}
+
+/* 4. Standardize worker card borders and margins */
+.worker-card, .status-card, .acs-card, .card {
+    border-left: 1px solid var(--sb-border) !important;
+    background-color: var(--sb-card) !important; 
+    border: 1px solid var(--sb-border) !important; 
+    border-radius: var(--sb-radius) !important; 
+    box-shadow: 0 1px 3px 0 rgba(0,0,0,0.1), 0 1px 2px 0 rgba(0,0,0,0.06) !important; 
+    padding: var(--sb-spacing-lg) !important;
+}
+</style>
+
+</head>
+<body>
+<div class="app-shell">
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-mark">AC</div>
+      <div>
+        <h1>Auto Caption Studio</h1>
+        <p>Create, preview, render, and download captioned videos.</p>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <span id="healthBadge" class="badge neutral">Checking service…</span>
+      <button id="newProjectBtn" class="btn ghost">New project</button>
+    </div>
+  </header>
+
+  <main class="main-grid">
+    <aside class="sidebar card">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">Project</span>
+          <h2>Source files</h2>
+        </div>
+        <span id="saveState" class="tiny-state">Not saved</span>
+      </div>
+
+      <label class="field">
+        <span>Project name</span>
+        <input id="projectName" value="Auto Caption Project">
+      </label>
+
+      <label class="field">
+        <span>Existing project</span>
+        <select id="projectSelect">
+          <option value="">Select a project</option>
+        </select>
+      </label>
+
+      <div class="upload-grid">
+        <label class="upload-box">
+          <input id="audioFile" type="file" accept=".wav,.mp3,.m4a,.aac,.flac,.ogg">
+          <strong>Upload audio</strong>
+          <span id="audioFileName">WAV, MP3, M4A, AAC, FLAC, OGG</span>
+        </label>
+
+        <label class="upload-box">
+          <input id="scriptFile" type="file" accept=".txt">
+          <strong>Upload script</strong>
+          <span id="scriptFileName">Optional TXT file</span>
+        </label>
+      </div>
+
+      <button id="createProjectBtn" class="btn primary full">Create project and upload</button>
+      <div id="projectMessage" class="inline-message"></div>
+
+      <div class="divider"></div>
+
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">Captions</span>
+          <h2>Style and timing</h2>
+        </div>
+      </div>
+
+      <div class="segmented" id="captionSourceGroup">
+        <button data-value="script" class="active">Script</button>
+        <button data-value="whisper">Whisper</button>
+      </div>
+
+      <div class="form-grid two">
+        <label class="field">
+          <span>Preset</span>
+          <select data-setting="caption_heavy_preset">
+            <option value="story_pro">Story Pro</option>
+            <option value="clean">Clean</option>
+            <option value="bold">Bold</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Position</span>
+          <select data-setting="caption_position">
+            <option value="bottom">Bottom</option>
+            <option value="center">Center</option>
+            <option value="top">Top</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Words per caption</span>
+          <input data-setting="caption_max_words" data-kind="integer" type="number" min="1" max="8" value="3">
+        </label>
+
+        <label class="field whisper-only">
+          <span>Whisper model</span>
+          <select data-setting="caption_whisper_model">
+            <option value="tiny">Tiny — fastest</option>
+            <option value="base">Base</option>
+            <option value="small">Small — recommended</option>
+            <option value="medium">Medium — slower</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Font size</span>
+          <input data-setting="font_size" data-kind="integer" type="number" min="18" max="96" value="48">
+        </label>
+
+        <label class="field">
+          <span>Font family</span>
+          <input data-setting="font_family" value="DejaVu Sans">
+        </label>
+      </div>
+
+      <div class="color-row">
+        <label>
+          <span>Text</span>
+          <input data-setting="text_color" type="color" value="#ffffff">
+        </label>
+        <label>
+          <span>Highlight</span>
+          <input data-setting="caption_highlight_color" type="color" value="#ffd54a">
+        </label>
+        <label>
+          <span>Box</span>
+          <input data-setting="text_background_color" type="color" value="#000000">
+        </label>
+      </div>
+
+      <label class="range-field">
+        <div><span>Background opacity</span><strong id="opacityValue">65%</strong></div>
+        <input id="opacityRange" data-setting="text_background_opacity_percent" data-kind="integer" type="range" min="0" max="100" value="65">
+      </label>
+
+      <details class="advanced-panel">
+        <summary>Advanced settings</summary>
+        <div class="form-grid two">
+          <label class="field">
+            <span>Language</span>
+            <input data-setting="caption_language" placeholder="auto">
+          </label>
+          <label class="field">
+            <span>Timing offset</span>
+            <input data-setting="caption_timing_offset" data-kind="number" type="number" step="0.05" value="0">
+          </label>
+          <label class="field">
+            <span>Width</span>
+            <input data-setting="width" data-kind="integer" type="number" value="1920">
+          </label>
+          <label class="field">
+            <span>Height</span>
+            <input data-setting="height" data-kind="integer" type="number" value="1080">
+          </label>
+          <label class="field">
+            <span>FPS</span>
+            <input data-setting="fps" data-kind="integer" type="number" value="30">
+          </label>
+          <label class="field">
+            <span>Quality CRF</span>
+            <input data-setting="quality_crf" data-kind="integer" type="number" min="16" max="35" value="23">
+          </label>
+          <label class="field">
+            <span>FFmpeg preset</span>
+            <select data-setting="ffmpeg_preset">
+              <option value="ultrafast">Ultra fast</option>
+              <option value="veryfast">Very fast</option>
+              <option value="fast">Fast</option>
+              <option value="medium">Medium</option>
+            </select>
+          </label>
+        </div>
+      </details>
+
+      <div class="sticky-actions">
+        <button id="saveSettingsBtn" class="btn secondary" disabled>Save settings</button>
+        <button id="previewBtn" class="btn primary" disabled>Generate 15s preview</button>
+        <button id="renderBtn" class="btn success" disabled>Render full video</button>
+      </div>
+    </aside>
+
+    <section class="studio-column">
+      <div class="preview-card card">
+        <div class="section-heading preview-title">
+          <div>
+            <span class="eyebrow">Preview</span>
+            <h2 id="currentProjectTitle">No project selected</h2>
+          </div>
+          <span id="currentStatusBadge" class="badge neutral">Idle</span>
+        </div>
+
+        <div class="video-stage" id="videoStage">
+          <video id="videoPreview" controls playsinline></video>
+          <div id="emptyPreview" class="empty-preview">
+            <div class="play-orb">▶</div>
+            <strong>Your preview will appear here</strong>
+            <span>Create a project, adjust captions, then generate a 15-second preview.</span>
+          </div>
+          <div id="captionMock" class="caption-mock">Live caption style preview</div>
+        </div>
+
+        <div class="render-progress">
+          <div class="progress-meta">
+            <div>
+              <strong id="progressTitle">Waiting</strong>
+              <span id="progressStage">No active render</span>
+            </div>
+            <strong id="progressPercent">0%</strong>
+          </div>
+          <div class="progress-track"><div id="progressFill"></div></div>
+        </div>
+
+        <div class="preview-actions">
+          <a id="openPreviewBtn" class="btn ghost disabled" target="_blank">Open preview</a>
+          <a id="downloadBtn" class="btn success disabled" target="_blank">Download output</a>
+          <button id="cancelBtn" class="btn danger" disabled>Cancel</button>
+          <button id="retryBtn" class="btn secondary" disabled>Retry</button>
+        </div>
+      </div>
+
+      <div class="queue-card card">
+        <div class="queue-header">
+          <div>
+            <span class="eyebrow">Queue</span>
+            <h2>My renders</h2>
+          </div>
+          <div class="queue-filters">
+            <button data-filter="all" class="active">All</button>
+            <button data-filter="active">Active</button>
+            <button data-filter="completed">Completed</button>
+            <button data-filter="failed">Failed</button>
+          </div>
+        </div>
+
+        <div id="queueSummary" class="queue-summary"></div>
+        <div id="queueList" class="queue-list"></div>
+      </div>
+    </section>
+
+    <aside class="activity-column card">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">Activity</span>
+          <h2>Render details</h2>
+        </div>
+      </div>
+
+      <div class="activity-stat-grid">
+        <div><span>Status</span><strong id="detailStatus">Idle</strong></div>
+        <div><span>Progress</span><strong id="detailProgress">0%</strong></div>
+        <div><span>Created</span><strong id="detailCreated">—</strong></div>
+        <div><span>Job ID</span><strong id="detailJob">—</strong></div>
+      </div>
+
+      <h3>Live log</h3>
+      <pre id="logOutput">Select a queue item to view its log.</pre>
+    </aside>
+  </main>
+</div>
+
+<div id="toast" class="toast"></div>
+<script src="/auto-caption/static/app.js"></script>
+</body>
+</html>

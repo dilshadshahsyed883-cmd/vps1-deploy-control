@@ -1,0 +1,158 @@
+#!/usr/bin/env python3
+"""Prove Nginx auth and real local service proxy inside isolated Ubuntu rootfs."""
+import argparse
+import base64
+import json
+import os
+from pathlib import Path
+import secrets
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from rebuild import fresh_vps
+
+SERVICES=[("scene-builder",8080,"health"),("auto-caption-studio",8144,"health"),("self-media-library",8147,"api/health"),("short-maker",8146,"health"),("short-stream",8145,"health")]
+NGINX_PORT=18888
+
+def probe(url,username=None,password=None):
+    headers={}
+    if username is not None:
+        encoded=base64.b64encode((username+":"+password).encode()).decode()
+        headers["Authorization"]="Basic "+encoded
+    req=urllib.request.Request(url,headers=headers)
+    try:
+        with urllib.request.urlopen(req,timeout=2) as r:
+            return r.status,r.read(65536)
+    except urllib.error.HTTPError as e:
+        return e.code,e.read(2048)
+
+def run(root):
+    root=fresh_vps.root_dir(root)
+    env_root=root/"etc/fresh-website"
+    env_root.mkdir(parents=True,exist_ok=True)
+    auth=env_root/"ci-auth.htpasswd"
+    password=secrets.token_urlsafe(22)
+    subprocess.run(["htpasswd","-bc",str(auth),"ci-test-user",password],
+                   check=True,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+    # Nginx worker runs as www-data; only root and that group may read hashes.
+    import grp
+    os.chown(auth,0,grp.getgrnam("www-data").gr_gid)
+    auth.chmod(0o640)
+    runtime=root/"nginx-smoke"
+    runtime.mkdir(parents=True,exist_ok=True)
+    log=runtime/"error.log"
+    ngconf=runtime/"nginx.conf"
+    locations=[]
+    processes=[]
+    try:
+        for app,port,endpoint in SERVICES:
+            cwd=root/"srv/fresh-website/current"/app/"part01"
+            env=os.environ.copy()
+            if app=="scene-builder":
+                data=root/"var/lib/fresh-website/scene-builder/scene"
+                env.update({
+                    "FRESH_WEBSITE_INSTALL":"1",
+                    "WEB_DATA_DIR":str(data),
+                    "SESSION_SECRET":"ci-scene-site-only",
+                    "WEB_ACCESS_KEY":"",
+                    "MASTER_CONTROLLER_DB_PATH":str(data/"master_controller.sqlite3"),
+                    "SCRIPT_WORK_DATA_DIR":str(data/"script-work"),
+                    "SCENE_PERMANENT_ROOT":str(data/"permanent"),
+                    "AUTOFLOW_FLOW_RESULT_ROOT":str(data/"flow-results")
+                })
+            else:
+                if app=="auto-caption-studio":
+                    data=root/"var/lib/fresh-website/auto-caption-studio/acs"
+                    env.update({"FRESH_WEBSITE_INSTALL":"1",
+                                "AUTO_CAPTION_APP_ROOT":str(data),
+                                "AUTO_CAPTION_CODE_ROOT":str(cwd),
+                                "AUTO_CAPTION_DB_PATH":str(data/"data/database/auto_caption.db")})
+                elif app=="self-media-library":
+                    env["SML_DATA_ROOT"]=str(root/"var/lib/fresh-website/self-media-library/sml")
+                else:
+                    env["SHORT_MAKER_DATA" if app=="short-maker" else "SHORT_STREAM_DATA"]=str(root/"var/lib/fresh-website"/app)
+            env["PYTHONDONTWRITEBYTECODE"]="1"
+            module="web_backend.app:app" if app=="auto-caption-studio" else "app:app"
+            p=subprocess.Popen([sys.executable,"-m","uvicorn",module,
+                                "--host","127.0.0.1","--port",str(port)],
+                               cwd=cwd,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+            processes.append(p)
+            locations.append(
+                "  location /"+app+"/ { proxy_pass http://127.0.0.1:"+str(port)+
+                "/; proxy_set_header Host $host; proxy_set_header X-Forwarded-Proto $scheme; }\n")
+        config=(
+          "user www-data;\n"+
+          "worker_processes 1;\n"+
+          "pid "+str(runtime/"nginx.pid")+";\n"+
+          "error_log "+str(log)+" error;\n"+
+          "events { worker_connections 128; }\n"+
+          "http {\n  access_log off;\n  server {\n"
+          "  listen 127.0.0.1:"+str(NGINX_PORT)+";\n"
+          "  server_name localhost;\n"
+          "  auth_basic \"Fresh website test\";\n"
+          "  auth_basic_user_file "+str(auth)+";\n"
+          +"".join(locations)+"  location / { return 404; }\n"
+          "  }\n}\n")
+        ngconf.write_text(config)
+        subprocess.run(["nginx","-t","-c",str(ngconf)],check=True,
+                       stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        gateway=subprocess.Popen(["nginx","-c",str(ngconf),"-g","daemon off;"],
+                                 stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+        processes.append(gateway)
+        deadline=time.monotonic()+25
+        while time.monotonic()<deadline:
+            for index,proc in enumerate(processes):
+                if proc.poll() is not None:
+                    label=SERVICES[index][0] if index<len(SERVICES) else "nginx"
+                    err=proc.stderr.read().decode(errors="replace")[-2500:] if proc.stderr else ""
+                    raise RuntimeError("test service "+label+" exited rc="+str(proc.returncode)+" stderr="+err+
+                                       (" nginx="+log.read_text()[-600:] if log.exists() else ""))
+            try:
+                result=[]
+                for app,_,endpoint in SERVICES:
+                    url="http://127.0.0.1:"+str(NGINX_PORT)+"/"+app+"/"+endpoint
+                    unauthorized,_=probe(url)
+                    authorized,body=probe(url,"ci-test-user",password)
+                    if unauthorized!=401:
+                        raise ValueError(app+" authentication bypass: unauthenticated="+str(unauthorized))
+                    if authorized in (502,503,504):
+                        raise urllib.error.URLError("upstream still starting: "+str(authorized))
+                    if authorized!=200:
+                        raise ValueError(app+" authorized route mismatch: "+str(authorized)+(" nginx_log="+log.read_text()[-1400:] if log.exists() else ""))
+                    payload=json.loads(body)
+                    if payload.get("ok") is not True:
+                        raise ValueError("unhealthy upstream "+app)
+                    if app=="scene-builder":
+                        if not payload.get("version") or "worker" not in payload:
+                            raise ValueError("wrong Scene Builder health contract")
+                    elif app=="auto-caption-studio":
+                        if payload.get("app")!="Auto Caption Studio":
+                            raise ValueError("wrong ACS health contract")
+                    elif app=="self-media-library":
+                        if not payload.get("version"):
+                            raise ValueError("wrong Self Media Library health contract")
+                    elif payload.get("app")!=app:
+                        raise ValueError("wrong upstream for "+app)
+                    result.append({"app":app,"auth_required":True,"health":"PASS"})
+                return {"nginx_syntax":"PASS","basic_auth_enforcement":"PASS",
+                        "reverse_proxy_apps":result,"nginx_listen":"loopback_only"}
+            except (urllib.error.URLError,TimeoutError,ConnectionError):
+                time.sleep(0.3)
+        raise TimeoutError("protected Nginx routes never became ready")
+    finally:
+        for p in reversed(processes):
+            if p.poll() is None:
+                p.terminate()
+                try:p.communicate(timeout=4)
+                except subprocess.TimeoutExpired:p.kill();p.communicate()
+
+if __name__=="__main__":
+    parser=argparse.ArgumentParser()
+    parser.add_argument("--root",required=True)
+    args=parser.parse_args()
+    try:print(json.dumps(run(args.root),indent=2))
+    except Exception as e:
+        print("NGINX_INTEGRATION_FAILED: "+str(e),file=sys.stderr)
+        sys.exit(1)

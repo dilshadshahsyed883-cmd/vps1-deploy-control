@@ -1,0 +1,26 @@
+{
+  "files": [
+    {
+      "bytes": 56677,
+      "path": "auto_script.py",
+      "sha256": "b6b473d318c47010cb2e4120ca917ba59bf3ca44796d69fd6a0867e4d81d90cb"
+    },
+    {
+      "bytes": 5907,
+      "path": "templates/auto_script.html",
+      "sha256": "bc6b34973a4659d90043c482d307ef66921f3a67a7468f7119c624f2224f0e70"
+    },
+    {
+      "bytes": 8781,
+      "path": "static/auto_script.js",
+      "sha256": "a43a544aba68aaac763d154f38fa3f6f6cfa96d9dcc0580b5fca499038321646"
+    },
+    {
+      "bytes": 5350,
+      "path": "static/auto_script.css",
+      "sha256": "3d44fea1eb2c73fb02e7e9f213a075927a5755beab4b09139070bbb822a5a672"
+    }
+  ],
+  "runtime_data_imported": false,
+  "source": "VPS1_AGENT1_LIVE_SOURCE_ONLY"
+}

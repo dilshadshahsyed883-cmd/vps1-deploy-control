@@ -1,0 +1,48 @@
+name: Fresh VPS install gate (disabled until separately approved)
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: Individual registered app ID
+        required: true
+        type: choice
+        options: [scene-builder, script-work, voice-studio, auto-caption-studio, local-upload-manager, short-stream, short-maker, video-merger, self-media-library, vps-storage-manager]
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  verify-cutover:
+    if: github.ref == 'refs/heads/main' && vars.VPS1_FRESH_CUTOVER_APPROVED == 'yes'
+    runs-on: ubuntu-latest
+    outputs:
+      lock: ${{ steps.guard.outputs.lock }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: guard
+        env:
+          TARGET_APP: ${{ inputs.app }}
+        run: |
+          set -Eeuo pipefail
+          python3 rebuild/builder.py state
+          python3 - <<'PY'
+          import os,json
+          c=json.load(open('rebuild/groups.json'))
+          if not c['fresh_install_enabled'] or not c['production_deploy_enabled']:
+              raise SystemExit('BLOCKED: explicit cutover not enabled')
+          g=next((x for x in c['groups'] if x['id']==os.environ['TARGET_APP']),None)
+          assert g is not None and g.get("deployment_mode") != "offline"
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              f.write('lock='+g['lock']+'\n')
+          PY
+  deployment:
+    needs: verify-cutover
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: fresh-vps-prod-${{ needs.verify-cutover.outputs.lock }}
+      cancel-in-progress: false
+    steps:
+      - name: Fail closed while per-app allowlist and backup are unverified
+        run: |
+          echo 'BLOCKED: fresh installation requires separate validated target, exact service ownership, schema bootstrap, health and rollback proof.'
+          exit 1

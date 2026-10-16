@@ -1,0 +1,204 @@
+{% extends "base.html" %}{% block title %}Queue{% endblock %}{% block subtitle %}{% endblock %}{% block content %}
+<link rel="stylesheet" href="/static/queue_settings_polish.css?v=175d-r4">
+<style>
+.queue-mode-card{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:16px 18px}.queue-mode-left{display:flex;align-items:center;gap:14px;min-width:0}.queue-mode-left h2{margin:0;font-size:17px}.queue-mode-state{font-size:12px;color:#667085;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:540px}.queue-mode-buttons{display:flex;gap:8px}.queue-mode-buttons button.active{background:#111827;color:#fff;border-color:#111827}.queue-mode-buttons button[disabled]{opacity:.6;cursor:wait}.job-row.detailed{grid-template-columns:minmax(220px,1fr) 130px 150px 48px minmax(280px,360px)}.job-row.detailed .actions{flex-wrap:wrap;align-items:center}.job-row.detailed .actions form{margin:0}.job-row.detailed .actions .button,.job-row.detailed .actions button{white-space:nowrap}.status.ready_to_render{background:#eaf2ff;color:#3568c9}.status.waiting_for_audit{background:#fff3de;color:#b36b12}.status.drive_uploading{background:#e7f8f0;color:#16a36a}.status.ready_to_upload{background:#fff3de;color:#e99a22}.queue-section-gap{margin-top:18px}.queue-log-panel{margin-top:18px}.queue-log-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.queue-log-head h2{margin:0}.log-view{max-height:520px;overflow:auto;white-space:pre-wrap;word-break:break-word}.folder-row small{display:block}.queue-new-project-card .field-help{margin-top:4px}.project-toolbar{grid-template-columns:minmax(220px,1fr) 190px auto}.project-toolbar .project-clear-filter{align-self:end}.queue-new-project-wrap{margin-top:18px}.queue-job-group{margin-top:18px}.queue-job-group:first-child{margin-top:8px}.queue-job-group h3{margin:0 0 10px;font-size:13px;letter-spacing:.06em;color:#667085}.queue-job-group .job-row+ .job-row{margin-top:8px}
+@media(max-width:900px){.queue-mode-card{align-items:flex-start;flex-direction:column}.queue-mode-left{align-items:flex-start;flex-direction:column;gap:4px}.queue-mode-state{white-space:normal;max-width:none}.job-row.detailed{grid-template-columns:1fr 100px}.project-toolbar{grid-template-columns:1fr}.job-row.detailed .actions{grid-column:1/-1}}
+.queue-preset-channel-row{display:grid;grid-template-columns:minmax(220px,1fr) minmax(260px,1fr);gap:12px;align-items:end}.scene-channel-field{display:grid;grid-template-columns:minmax(160px,1fr) auto;gap:8px;align-items:end}.scene-channel-field label{margin:0}.scene-channel-actions{display:flex;gap:6px;padding-bottom:1px}.scene-channel-actions .button{min-height:38px}.scene-channel-field select{width:100%}@media(max-width:760px){.queue-preset-channel-row{grid-template-columns:1fr}.scene-channel-field{grid-template-columns:1fr}.scene-channel-actions{padding-bottom:0}}
+</style>
+
+<section class="panel queue-mode-card">
+  <div class="queue-mode-left"><h2>Queue Behavior</h2><span id="queue-mode-state" class="queue-mode-state">{{ serial_reason }}</span></div>
+  <div class="queue-mode-buttons" role="group" aria-label="Queue behavior">
+    <button type="button" class="button secondary {% if queue_mode=='normal' %}active{% endif %}" data-queue-mode="normal">Normal</button>
+    <button type="button" class="button secondary {% if queue_mode=='verified_serial' %}active{% endif %}" data-queue-mode="verified_serial">Verified Serial</button>
+  </div>
+</section>
+
+<style>/* SCENE_QUEUE_CIRCUIT_CONDITIONAL_FIX_V1 */#pipeline-circuit-banner[hidden]{display:none!important}</style>
+<section id="pipeline-circuit-banner" class="submission-banner error" hidden><strong>Pipeline paused</strong><span id="pipeline-circuit-message">Safety circuit is paused.</span>{% if account.is_admin %}<form action="/queue/pipeline/resume" method="post" style="margin:0"><button class="button" type="submit">Resume</button></form>{% endif %}</section>
+{% if submitted_job_id %}<section class="submission-banner success"><strong>{% if duplicate_submission %}Existing project reused{% else %}Project accepted{% endif %}</strong><a href="#jobs">View project</a></section>{% endif %}
+{% if submission_error %}<section class="submission-banner error"><strong>Submission failed</strong><span>{{ submission_error }}</span></section>{% endif %}
+
+<section class="queue-new-project-wrap">
+<form id="project-form" class="panel form-card queue-new-project-card" action="/queue/submit" method="post" enctype="multipart/form-data" novalidate>
+  <h2>New Project</h2>
+  <div class="queue-preset-channel-row" data-feature="SCENE_CHANNEL_UI_V1">
+    <label class="preset-field">Preset
+      <select id="preset-id" name="preset_id">{% for preset_id, preset in scene_presets.items() %}<option value="{{ preset_id }}" {% if preset_id==default_scene_preset %}selected{% endif %}>{{ preset.label }}</option>{% endfor %}</select>
+    </label>
+    <div class="scene-channel-field">
+      <label>Channel<select id="channel-name" name="channel_name"><option value="General">General</option></select></label>
+      <div class="scene-channel-actions"><button id="channel-add" class="button secondary mini" type="button">+ Add</button><button id="channel-remove" class="button secondary mini" type="button">Remove</button></div>
+    </div>
+  </div>
+  <div id="submission-message" class="submission-message" role="status" aria-live="polite" hidden></div>
+  <label>Project name<input id="project-name" name="project_name" required maxlength="120" placeholder="Nigeria Documentary" autocomplete="off"></label>
+  <label>Scene TXT<input id="script-file" name="script_file" type="file" accept=".txt,text/plain" required><small id="script-summary" class="field-help">UTF-8 TXT · maximum 10 MB</small></label>
+  <label>Narration<input id="audio-file" name="audio_file" type="file" accept="audio/*,video/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.wma,.aiff,.aif,.amr,.ac3,.mka,.mp2,.webm,.mp4,.mov,.mkv,.avi,.mpeg,.mpg,.mts,.m2ts" required><small id="audio-summary" class="field-help">FFmpeg-compatible media · maximum {{ max_upload_mb }} MB</small></label>
+  <div id="upload-progress" class="upload-progress" hidden><div class="upload-progress-head"><strong id="upload-stage">Ready</strong><span id="upload-percent">0%</span></div><div class="bar"><span id="upload-bar" style="width:0%"></span></div><p id="upload-detail">Preparing submission…</p></div>
+  <button id="submit-button" class="button" type="submit">Submit Project</button>
+</form>
+</section>
+
+<section class="panel folder-queue-panel queue-section-gap">
+  <div class="panel-head folder-head"><div><h2>Folder Upload</h2></div><div class="folder-controls">
+    <label class="button secondary folder-picker">Select Folder<input id="folder-picker" type="file" webkitdirectory directory multiple hidden></label>
+    <button id="folder-start" class="button" type="button" disabled>Start</button>
+    <button id="folder-pause" class="button secondary" type="button" disabled>Pause</button>
+    <button id="folder-clear" class="button secondary" type="button" disabled>Clear Finished</button>
+  </div></div>
+  <div id="folder-summary" class="folder-summary">No folder selected.</div>
+  <div id="folder-queue" class="folder-queue"><div class="empty">Select a folder containing matching TXT and narration filenames.</div></div>
+</section>
+
+<section class="panel all-projects-panel queue-section-gap">
+  <div class="panel-head projects-head"><div><h2>Projects</h2></div><b class="live">● Live</b></div>
+  <div class="project-toolbar">
+    <label class="project-search"><span>Search</span><input id="project-filter-search" type="search" placeholder="Project name"></label>
+    <label><span>Status</span><select id="project-filter-status">
+      <option value="">All statuses</option><option value="queued">Queued</option><option value="waiting_for_audit">Needs Audit</option><option value="preparing">Preparing</option><option value="rendering">Rendering</option><option value="ready_to_upload">Waiting for Drive</option><option value="drive_uploading">Drive Uploading</option><option value="completed">Completed</option><option value="cleaned">Cleaned</option><option value="failed">Failed</option><option value="cancelled">Cancelled</option>
+    </select></label>
+    <button id="project-filter-clear" class="button secondary project-clear-filter" type="button">Clear</button>
+  </div>
+  <div id="project-result-summary" class="project-result-summary">Loading…</div>
+  <div id="jobs" class="job-list"></div>
+</section>
+
+{% endblock %}
+
+{% block scripts %}<script>
+(() => {
+const pipelineCircuitBanner=document.getElementById('pipeline-circuit-banner');
+const pipelineCircuitMessage=document.getElementById('pipeline-circuit-message');
+const queueModeButtons=[...document.querySelectorAll('[data-queue-mode]')];
+const queueModeState=document.getElementById('queue-mode-state');
+let queueMode='{{ queue_mode }}';
+let serialActiveJobId='{{ serial_active_job_id }}';
+async function setQueueMode(mode){
+  if(mode===queueMode)return;
+  queueModeButtons.forEach(b=>b.disabled=true);queueModeState.textContent='Applying…';
+  try{
+    const r=await fetch('/api/queue/mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode})});
+    const p=await r.json();if(!r.ok)throw new Error(p.detail||p.error||'Could not change queue behavior');
+    queueMode=p.queue_mode||mode;serialActiveJobId=p.serial_active_job_id||'';renderQueueMode(p);
+  }catch(e){alert(e.message);await refreshLive();}
+  finally{queueModeButtons.forEach(b=>b.disabled=false);}
+}
+function renderQueueMode(state){
+  queueMode=state.queue_mode||queueMode;serialActiveJobId=state.serial_active_job_id||'';
+  queueModeButtons.forEach(b=>b.classList.toggle('active',b.dataset.queueMode===queueMode));
+  queueModeState.textContent=state.serial_reason|| (queueMode==='verified_serial'?'Verified Serial active':'Normal queue active');
+}
+queueModeButtons.forEach(b=>b.addEventListener('click',()=>setQueueMode(b.dataset.queueMode)));
+
+const form=document.getElementById('project-form');const presetSelect=document.getElementById('preset-id');const channelSelect=document.getElementById('channel-name');const channelAdd=document.getElementById('channel-add');const channelRemove=document.getElementById('channel-remove');const presetData={{ scene_presets|tojson }};const nameInput=document.getElementById('project-name');const scriptInput=document.getElementById('script-file');const audioInput=document.getElementById('audio-file');const submitButton=document.getElementById('submit-button');const message=document.getElementById('submission-message');const progress=document.getElementById('upload-progress');const bar=document.getElementById('upload-bar');const percent=document.getElementById('upload-percent');const stage=document.getElementById('upload-stage');const uploadDetail=document.getElementById('upload-detail');const scriptSummary=document.getElementById('script-summary');const audioSummary=document.getElementById('audio-summary');
+const allowedMedia=new Set(['mp3','wav','m4a','aac','flac','ogg','opus','wma','aiff','aif','amr','ac3','mka','mp2','webm','mp4','mov','mkv','avi','mpeg','mpg','mts','m2ts']);const maxAudio={{ max_upload_mb }}*1024*1024;let dirty=false,submitting=false;
+presetSelect.addEventListener('change',()=>{dirty=true;});channelSelect?.addEventListener('change',()=>{dirty=true;});
+async function sceneChannelRequest(path,payload){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify(payload||{})});let d={};try{d=await r.json();}catch(_){}if(!r.ok||!d.ok)throw new Error(d.error||`Channel request failed (HTTP ${r.status})`);return d;}
+function renderSceneChannels(channels,selected){if(!channelSelect)return;const values=(Array.isArray(channels)&&channels.length?channels:['General']);channelSelect.innerHTML=values.map(name=>{const v=String(name);const esc=v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');return `<option value="${esc}">${esc}</option>`;}).join('');const wanted=selected||localStorage.getItem('sceneBuilderSelectedChannel')||'General';channelSelect.value=values.includes(wanted)?wanted:(values.includes('General')?'General':values[0]);localStorage.setItem('sceneBuilderSelectedChannel',channelSelect.value);}
+async function loadSceneChannels(selected=''){try{const r=await fetch('/api/scene-builder/channels',{cache:'no-store',headers:{'Accept':'application/json'}});const d=await r.json();if(r.ok&&d.ok)renderSceneChannels(d.channels,selected);}catch(_){renderSceneChannels(['General'],'General');}}
+channelSelect?.addEventListener('change',()=>localStorage.setItem('sceneBuilderSelectedChannel',channelSelect.value));
+channelAdd?.addEventListener('click',async()=>{const name=window.prompt('Add channel name');if(!name||!name.trim())return;channelAdd.disabled=true;try{const d=await sceneChannelRequest('/api/scene-builder/channels/add',{name:name.trim()});renderSceneChannels(d.channels,d.selected);}catch(err){showMessage(err.message);}finally{channelAdd.disabled=false;}});
+channelRemove?.addEventListener('click',async()=>{const name=channelSelect?.value||'General';if(name==='General'){showMessage('General is the permanent fallback channel.');return;}if(!window.confirm(`Remove channel “${name}” from the dropdown? Existing Drive folders and videos will not be deleted.`))return;channelRemove.disabled=true;try{const d=await sceneChannelRequest('/api/scene-builder/channels/remove',{name});renderSceneChannels(d.channels,d.selected);}catch(err){showMessage(err.message);}finally{channelRemove.disabled=false;}});
+loadSceneChannels();
+const humanSize=n=>n<1024?`${n} B`:n<1048576?`${(n/1024).toFixed(1)} KB`:`${(n/1048576).toFixed(1)} MB`;
+function showMessage(text,type='error'){message.hidden=false;message.className=`submission-message ${type}`;message.textContent=text;}function clearMessage(){message.hidden=true;message.textContent='';message.className='submission-message';}function setProgress(value,title,text){progress.hidden=false;const n=Math.max(0,Math.min(100,Math.round(value)));bar.style.width=`${n}%`;percent.textContent=`${n}%`;stage.textContent=title;uploadDetail.textContent=text;}
+function validate(){clearMessage();const name=nameInput.value.trim();if(!name){showMessage('Enter a project name.');return false;}const txt=scriptInput.files[0];if(!txt||!txt.name.toLowerCase().endsWith('.txt')||!txt.size||txt.size>10*1024*1024){showMessage('Select a valid Scene TXT file.');return false;}const media=audioInput.files[0];if(!media){showMessage('Select narration media.');return false;}const ext=(media.name.split('.').pop()||'').toLowerCase();if(!allowedMedia.has(ext)||!media.size||media.size>maxAudio){showMessage('Select valid narration media within the upload limit.');return false;}return true;}
+nameInput.addEventListener('input',()=>{dirty=true;});scriptInput.addEventListener('change',()=>{dirty=true;const f=scriptInput.files[0];scriptSummary.textContent=f?`${f.name} · ${humanSize(f.size)}`:'UTF-8 TXT · maximum 10 MB';if(f){const base=f.name.replace(/\.[^.]+$/,'').trim();nameInput.value=base||'Untitled Project';}});audioInput.addEventListener('change',()=>{dirty=true;const f=audioInput.files[0];audioSummary.textContent=f?`${f.name} · ${humanSize(f.size)}`:'FFmpeg-compatible media · maximum {{ max_upload_mb }} MB';});
+function submitFiles(projectName,presetId,channelName,txt,media,onProgress){return new Promise((resolve,reject)=>{const data=new FormData();data.append('project_name',projectName);data.append('preset_id',presetId);data.append('channel_name',channelName||'General');data.append('script_file',txt,txt.name);data.append('audio_file',media,media.name);data.append('audio_engine_processed',media.__audioEngineProcessed?'1':'0');data.append('audio_engine_enabled',media.__audioEngineEnabled===false?'0':'1');data.append('audio_engine_preset',media.__audioEnginePreset||'documentary');const xhr=new XMLHttpRequest();xhr.open('POST','/queue/submit',true);xhr.setRequestHeader('X-Requested-With','XMLHttpRequest');xhr.setRequestHeader('Accept','application/json');xhr.upload.onprogress=e=>{if(e.lengthComputable)onProgress(Math.round((e.loaded/e.total)*85),'Uploading');};xhr.upload.onload=()=>onProgress(92,'Packaging');xhr.onload=()=>{let p={};try{p=JSON.parse(xhr.responseText||'{}');}catch(_){}if(xhr.status>=200&&xhr.status<300&&p.ok){onProgress(100,p.duplicate?'Existing job reused':'Accepted');resolve(p);}else reject(new Error(p.error||`Submission failed (HTTP ${xhr.status})`));};xhr.onerror=()=>reject(new Error('Network connection interrupted.'));xhr.send(data);});}
+form.addEventListener('submit',e=>{e.preventDefault();if(submitting||!validate())return;submitting=true;submitButton.disabled=true;submitButton.textContent='Submitting…';submitFiles(nameInput.value.trim(),presetSelect.value,channelSelect?.value||'General',scriptInput.files[0],audioInput.files[0],(p,s)=>setProgress(p,s,p<90?'Uploading…':'Building VPS package…')).then(data=>{setProgress(100,data.duplicate?'Existing job':'Accepted','Project accepted by VPS');dirty=false;setTimeout(()=>location.href=data.redirect||'/queue',500);}).catch(err=>{submitting=false;submitButton.disabled=false;submitButton.textContent='Submit Project';progress.hidden=true;showMessage(err.message);});});
+
+/* Folder upload: pair TXT and narration by the same relative filename. */
+const picker=document.getElementById('folder-picker'),queueBox=document.getElementById('folder-queue'),summary=document.getElementById('folder-summary'),startBtn=document.getElementById('folder-start'),pauseBtn=document.getElementById('folder-pause'),clearBtn=document.getElementById('folder-clear');const STORE='sceneBuilderFolderQueueV175c';let folderQueue=[],running=false,paused=false;
+function ext(name){const i=name.lastIndexOf('.');return i>=0?name.slice(i+1).toLowerCase():'';}function baseKey(file){const rel=(file.webkitRelativePath||file.name).replace(/\\/g,'/');const slash=rel.lastIndexOf('/');const dir=slash>=0?rel.slice(0,slash+1).toLowerCase():'';const name=slash>=0?rel.slice(slash+1):rel;const dot=name.lastIndexOf('.');return dir+(dot>=0?name.slice(0,dot):name).toLowerCase();}
+function persist(){localStorage.setItem(STORE,JSON.stringify(folderQueue.map(x=>({id:x.id,name:x.name,txtName:x.txtName,mediaName:x.mediaName,status:x.status==='uploading'?'interrupted':x.status,progress:x.progress||0,error:x.error||'',jobId:x.jobId||'',duplicate:!!x.duplicate}))));}
+function restore(){try{const old=JSON.parse(localStorage.getItem(STORE)||'[]');if(Array.isArray(old)&&old.length){folderQueue=old.map(x=>({...x,txt:null,media:null,status:['waiting','uploading','paused','interrupted'].includes(x.status)?'needs_files':x.status}));renderFolder();}}catch(_){}}
+function scan(files){const txts=new Map(),medias=new Map();for(const file of files){const k=baseKey(file);if(k.endsWith('_music'))continue;const e=ext(file.name);if(e==='txt')txts.set(k,file);else if(allowedMedia.has(e)){if(medias.has(k)){const prev=medias.get(k);medias.set(k,Array.isArray(prev)?[...prev,file]:[prev,file]);}else medias.set(k,file);}}const keys=[...new Set([...txts.keys(),...medias.keys()])].sort();folderQueue=keys.map(k=>{const t=txts.get(k),m=medias.get(k);const ambiguous=Array.isArray(m);const ok=t&&m&&!ambiguous;const short=(k.split('/').pop()||k);return{id:k,name:short,txt:t||null,media:ambiguous?null:m||null,txtName:t?.name||'',mediaName:ambiguous?m.map(f=>f.name).join(', '):(m?.name||''),status:ok?'waiting':'invalid',progress:0,error:ambiguous?'Multiple narration files match this TXT.':!t?'Missing TXT.':'Missing narration.',jobId:'',duplicate:false};});persist();renderFolder();}
+function statusLabel(r){return({waiting:'Waiting',uploading:'Uploading',failed:'Failed',completed:'Submitted',duplicate:'Existing job',invalid:'Invalid',needs_files:'Reselect folder',interrupted:'Interrupted'})[r.status]||r.status;}
+function renderFolder(){if(!folderQueue.length){queueBox.innerHTML='<div class="empty">Select a folder containing matching TXT and narration filenames.</div>';summary.textContent='No folder selected.';}else{const ready=folderQueue.filter(x=>x.status==='waiting').length,done=folderQueue.filter(x=>['completed','duplicate'].includes(x.status)).length,bad=folderQueue.filter(x=>['invalid','failed','needs_files','interrupted'].includes(x.status)).length;summary.textContent=`${folderQueue.length} projects · ${ready} ready · ${done} submitted · ${bad} attention`;queueBox.innerHTML=folderQueue.map((r,i)=>`<div class="folder-row"><div><strong>${escapeHtml(r.name)}</strong><small>${escapeHtml(r.txtName||'No TXT')} ↔ ${escapeHtml(r.mediaName||'No narration')}</small>${r.error?`<small class="row-error">${escapeHtml(r.error)}</small>`:''}</div><div class="status ${['completed','duplicate'].includes(r.status)?'completed':r.status==='failed'||r.status==='invalid'?'failed':r.status==='uploading'?'preparing':'queued'}">${statusLabel(r)}</div><div><div class="progress-mini"><span style="width:${r.progress||0}%"></span></div></div><div class="actions"><button type="button" class="danger" data-remove="${i}">Remove</button></div></div>`).join('');}startBtn.disabled=!folderQueue.some(x=>x.status==='waiting'&&x.txt&&x.media)||running;pauseBtn.disabled=!running;clearBtn.disabled=!folderQueue.some(x=>['completed','duplicate','invalid','failed'].includes(x.status))||running;queueBox.querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>{folderQueue.splice(Number(b.dataset.remove),1);persist();renderFolder();});}
+function escapeHtml(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+async function runFolder(){if(running)return;running=true;paused=false;const activePreset=presetSelect.value;const activeChannel=channelSelect?.value||'General';presetSelect.disabled=true;if(channelSelect)channelSelect.disabled=true;renderFolder();for(const row of folderQueue){if(paused)break;if(row.status!=='waiting'||!row.txt||!row.media)continue;row.status='uploading';row.error='';row.progress=1;persist();renderFolder();try{const result=await submitFiles(row.name,activePreset,activeChannel,row.txt,row.media,p=>{row.progress=p;persist();renderFolder();});row.progress=100;row.jobId=result.job_id||'';row.duplicate=!!result.duplicate;row.status=result.duplicate?'duplicate':'completed';}catch(err){row.status='failed';row.error=err.message;row.progress=Math.min(row.progress||0,99);}persist();renderFolder();}running=false;presetSelect.disabled=false;if(channelSelect)channelSelect.disabled=false;renderFolder();}
+picker.addEventListener('change',()=>{if(picker.files?.length)scan([...picker.files]);picker.value='';});startBtn.onclick=runFolder;pauseBtn.onclick=()=>{paused=true;pauseBtn.disabled=true;};clearBtn.onclick=()=>{folderQueue=folderQueue.filter(r=>!['completed','duplicate','invalid','failed'].includes(r.status));persist();renderFolder();};
+window.addEventListener('beforeunload',e=>{if((dirty&&!submitting)||folderQueue.some(x=>['waiting','uploading'].includes(x.status))){e.preventDefault();e.returnValue='';}});
+
+const jobsBox=document.getElementById('jobs'),projectSearch=document.getElementById('project-filter-search'),projectStatus=document.getElementById('project-filter-status'),projectClear=document.getElementById('project-filter-clear'),projectSummary=document.getElementById('project-result-summary');let liveProjects=[];
+function esc(s){return escapeHtml(s);}function statusText(s){return s==='waiting_for_audit'?'Needs Audit':String(s||'').replaceAll('_',' ');}
+function actionsFor(j){const s=String(j.status||'').toLowerCase();let out=`<a class="button secondary" href="/queue/${encodeURIComponent(j.id)}/log.txt">Download Logs TXT</a>`;if(['completed','cleaned'].includes(s)){if(j.drive_view_url)out+=`<a class="button" href="${esc(j.drive_view_url)}" target="_blank" rel="noopener noreferrer">View</a>`;if(s==='completed'&&String(j.drive_status||'')==='completed'&&!j.files_cleaned_at)out+=`<form action="/queue/${encodeURIComponent(j.id)}/clean-now" method="post" onsubmit="return confirm('Clean all local files for this Drive-verified project now?')"><button type="submit" class="secondary">Clean Now</button></form>`;}else if(s==='waiting_for_audit')out+=`<a class="button" href="/audit-media?job=${encodeURIComponent(j.id)}">Open Audit</a><form action="/queue/${encodeURIComponent(j.id)}/cancel" method="post"><button type="submit" class="secondary">Cancel</button></form>`;else if(['failed','cancelled'].includes(s)){if(j.resume_available)out+=`<form action="/queue/${encodeURIComponent(j.id)}/resume" method="post"><button type="submit">Resume</button></form>`;out+=`<form action="/queue/${encodeURIComponent(j.id)}/restart-stage" method="post"><button type="submit" class="secondary">Restart Stage</button></form><form action="/queue/${encodeURIComponent(j.id)}/restart" method="post"><button type="submit" class="secondary">Restart Job</button></form>`;if(queueMode==='verified_serial'&&serialActiveJobId===j.id)out+=`<form action="/queue/${encodeURIComponent(j.id)}/serial-skip" method="post" onsubmit="return confirm('Skip this failed/cancelled project and continue the Verified Serial queue?')"><button type="submit" class="secondary">Skip & Continue</button></form>`;}else if(s==='ready_to_render'&&Number(j.manual_start_required||0)===1)out+=`<form action="/queue/${encodeURIComponent(j.id)}/start" method="post"><button type="submit">Start</button></form>`;else out+=`<form action="/queue/${encodeURIComponent(j.id)}/cancel" method="post"><button type="submit" class="secondary">Cancel</button></form>`;return out;}
+function projectRow(j){return `<div class="job-row detailed"><div class="job-primary"><strong>${esc(j.project_name||'Untitled')}</strong><small>${esc(j.message||j.stage||'')}</small></div><div class="status ${esc(j.status)}">${esc(statusText(j.status))}</div><div class="progress-mini"><span style="width:${j.progress||0}%"></span></div><b>${j.progress||0}%</b><div class="actions">${actionsFor(j)}</div></div>`;}
+function projectGroup(status){const s=String(status||'').toLowerCase();if(['queued'].includes(s))return 'WAITING';if(['completed','cleaned'].includes(s))return 'COMPLETED';if(['failed','cancelled'].includes(s))return 'FAILED';return 'ACTIVE';}
+function renderProjects(){const q=(projectSearch.value||'').toLowerCase().trim(),sf=(projectStatus.value||'').toLowerCase();const rows=liveProjects.filter(j=>(!q||String(j.project_name||'').toLowerCase().includes(q))&&(!sf||String(j.status||'').toLowerCase()===sf)).slice(0,100);const order=['ACTIVE','WAITING','COMPLETED','FAILED'];const grouped=Object.fromEntries(order.map(x=>[x,[]]));rows.forEach(j=>grouped[projectGroup(j.status)].push(j));jobsBox.innerHTML=order.map(label=>grouped[label].length?`<section class="queue-job-group"><h3>${label}</h3>${grouped[label].map(projectRow).join('')}</section>`:'').join('')||'<div class="empty">No projects match.</div>';projectSummary.textContent=`${rows.length} project${rows.length===1?'':'s'}`;}
+async function refreshLive(){try{const p=await(await fetch('/api/jobs')).json();liveProjects=Array.isArray(p.jobs)?p.jobs:[];const h=p.health||{};renderQueueMode(h);const paused=Boolean(h.pipeline_paused);const blocking=new Set(['queued','preparing','downloading_media','ready_to_render','rendering','ready_to_upload','drive_uploading','running']);const blocked=liveProjects.some(j=>blocking.has(String(j.status||'').toLowerCase()));const showCircuit=paused&&blocked;pipelineCircuitBanner.hidden=!showCircuit;pipelineCircuitBanner.style.display=showCircuit?'':'none';if(showCircuit)pipelineCircuitMessage.textContent=(h.pipeline_pause||{}).reason||'Safety circuit is paused.';renderProjects();}catch(e){projectSummary.textContent='Unable to refresh projects.';}}
+projectSearch.addEventListener('input',renderProjects);projectStatus.addEventListener('change',renderProjects);projectClear.addEventListener('click',()=>{projectSearch.value='';projectStatus.value='';renderProjects();});
+restore();refreshLive();setInterval(refreshLive,3000);
+})();
+</script>
+<!-- SCENE_AUDIO_ENGINE_QUEUE_WIRE_V1 -->
+<style>
+.ae-queue-wire{margin:10px 0;padding:12px 14px;border:1px solid #e3e7f0;border-radius:12px;background:#f8fafc}.ae-queue-wire-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.ae-queue-wire strong{font-size:13px}.ae-queue-wire small{color:#667085}.ae-queue-wire-controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:9px}.ae-queue-wire-controls label{display:flex;align-items:center;gap:7px;margin:0}.ae-queue-wire-controls select{min-width:170px}@media(max-width:700px){.ae-queue-wire-head{align-items:flex-start;flex-direction:column}.ae-queue-wire-controls{align-items:stretch;flex-direction:column}.ae-queue-wire-controls select{width:100%}}
+</style>
+<script>
+(() => {
+  if(typeof submitFiles!=='function'||document.getElementById('ae-queue-wire'))return;
+  const formEl=document.getElementById('project-form'), presetField=formEl?.querySelector('.preset-field'); if(!formEl||!presetField)return;
+  const box=document.createElement('div');box.id='ae-queue-wire';box.className='ae-queue-wire';box.innerHTML=`<div class="ae-queue-wire-head"><div><strong>Audio Engine</strong><div><small>Narration preprocessing before Scene Builder. Music & SFX remain scene-aware inside the Audio Engine workspace.</small></div></div><span id="aeq-status"><small>Checking…</small></span></div><div class="ae-queue-wire-controls"><label><input id="aeq-enabled" type="checkbox" checked> Process narration with Audio Engine</label><label>Preset <select id="aeq-preset"><option value="documentary">Documentary</option></select></label><a class="button secondary mini" href="/settings?tab=audio-engine">Open Audio Engine</a></div>`;presetField.insertAdjacentElement('afterend',box);
+  const enabled=document.getElementById('aeq-enabled'), aePreset=document.getElementById('aeq-preset'), status=document.getElementById('aeq-status');
+  // SCENE_PARENT_CHILD_AUDIO_PRESET_V1: child Audio Engine preset saves upward into the selected Scene Builder parent preset.
+  enabled.checked=localStorage.getItem('sceneBuilderAudioEngineQueueEnabled')!=='0';
+  let aePresetKeys=[], parentBindingSeq=0;
+  async function saveParentAudioBinding(scenePresetId=presetSelect?.value){
+    if(!scenePresetId||!aePreset.value)return;
+    localStorage.setItem('sceneBuilderAudioEngineQueueEnabled',enabled.checked?'1':'0');
+    localStorage.setItem('sceneBuilderAudioEngineQueuePreset',aePreset.value);
+    try{
+      const r=await fetch('/api/presets/'+encodeURIComponent(scenePresetId)+'/audio-engine',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({enabled:!!enabled.checked,audio_engine_preset:aePreset.value})});
+      const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'Parent preset save failed');
+      status.innerHTML='<small style="color:#18794e">Saved · Audio preset → Scene preset</small>';
+    }catch(_){status.innerHTML='<small style="color:#b42318">Audio preset active · parent link not saved</small>';}
+  }
+  async function loadParentAudioBinding(scenePresetId){
+    const seq=++parentBindingSeq;if(!scenePresetId)return;
+    try{
+      const r=await fetch('/api/presets/'+encodeURIComponent(scenePresetId)+'/audio-engine',{cache:'no-store',headers:{'Accept':'application/json'}});const d=await r.json();
+      if(seq!==parentBindingSeq)return;
+      if(r.ok&&d.ok&&d.configured&&aePresetKeys.includes(d.audio_engine_preset)){
+        enabled.checked=d.enabled!==false;aePreset.value=d.audio_engine_preset;aeSettings.preset=aePreset.value;
+        localStorage.setItem('sceneBuilderAudioEngineQueueEnabled',enabled.checked?'1':'0');localStorage.setItem('sceneBuilderAudioEngineQueuePreset',aePreset.value);
+        status.innerHTML='<small style="color:#18794e">Loaded from Scene preset · '+aePreset.value+'</small>';
+        return;
+      }
+    }catch(_){}
+    const serverPreset=aeSettings.preset;const saved=localStorage.getItem('sceneBuilderAudioEngineQueuePreset');
+    aePreset.value=aePresetKeys.includes(serverPreset)?serverPreset:(aePresetKeys.includes(saved)?saved:(aePresetKeys.includes('documentary')?'documentary':aePresetKeys[0]));
+    aeSettings.preset=aePreset.value;await saveParentAudioBinding(scenePresetId);
+  }
+  enabled.addEventListener('change',()=>saveParentAudioBinding());
+  aePreset.addEventListener('change',()=>{aeSettings.preset=aePreset.value;saveParentAudioBinding();});
+  presetSelect?.addEventListener('change',()=>loadParentAudioBinding(presetSelect.value));
+  // SCENE_INTERNAL_AUDIO_QUEUE_UI_V1
+  // Queue submits original narration; the Scene Builder worker owns voice DSP.
+  let aeSettings={preset:'documentary'};
+  const internalPresetFallback={documentary:{name:'Documentary Voice'},clean:{name:'Clean Narration'},natural:{name:'Natural Voice'},deep:{name:'Deep Voice'},youtube:{name:'Loud YouTube Voice'}};
+  async function setup(){
+    let presets={};
+    try{const r=await fetch('/api/internal-audio/presets',{cache:'no-store'});const d=await r.json();if(r.ok&&d.ok)presets=d.presets||{};}catch(_){}
+    if(!presets||!Object.keys(presets).length)presets=internalPresetFallback;
+    aePresetKeys=Object.keys(presets);
+    aePreset.innerHTML=aePresetKeys.map(k=>`<option value="${k}">${presets[k]?.name||presets[k]?.label||k}</option>`).join('');
+    const saved=localStorage.getItem('sceneBuilderAudioEngineQueuePreset');
+    aePreset.value=aePresetKeys.includes(saved)?saved:(aePresetKeys.includes('documentary')?'documentary':aePresetKeys[0]);
+    aeSettings.preset=aePreset.value;
+    await loadParentAudioBinding(presetSelect?.value);
+    if(!status.textContent.includes('Saved')&&!status.textContent.includes('Loaded'))status.innerHTML='<small style="color:#18794e">Internal Scene Builder worker · ready</small>';
+  }
+  const originalSubmitFiles=submitFiles;
+  submitFiles=async function(projectName,presetId,channelName,txt,media,onProgress){
+    // SCENE_AUDIO_ENGINE_BACKEND_PIPELINE_V2: browser selects policy only.
+    // SCENE_PARENT_CHILD_AUDIO_PRESET_V1: preserve channel argument while applying the child Audio Engine preset.
+    // The backend performs Audio Engine processing, verifies completion, then packages its output.
+    try{media.__audioEngineEnabled=!!enabled.checked;media.__audioEnginePreset=(aePreset.value||aeSettings.preset||'documentary');return await originalSubmitFiles(projectName,presetId,channelName,txt,media,onProgress);}catch(e){throw new Error(e.message||'Scene Builder submission failed');}
+  };
+  setup();
+})();
+</script>
+
+{% endblock %}

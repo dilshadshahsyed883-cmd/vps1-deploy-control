@@ -1,0 +1,88 @@
+.admin-workspace-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 0 20px;
+  padding: 6px;
+  border: 1px solid #e2e7f0;
+  border-radius: 16px;
+  background: #f7f8fc;
+  box-shadow: 0 8px 24px rgba(28, 39, 72, .05);
+}
+
+.admin-workspace-tab {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  color: #667085;
+  text-decoration: none;
+  transition: background .18s ease, border-color .18s ease, color .18s ease, box-shadow .18s ease;
+}
+
+.admin-workspace-tab:hover {
+  color: #3530a4;
+  background: #fff;
+  border-color: #e2e4f5;
+}
+
+.admin-workspace-tab.active {
+  color: #312e81;
+  background: #fff;
+  border-color: #d9d7fb;
+  box-shadow: 0 6px 18px rgba(72, 62, 190, .11);
+}
+
+.admin-workspace-tab > span:last-child {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.admin-workspace-tab strong {
+  color: inherit;
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.admin-workspace-tab small {
+  overflow: hidden;
+  margin-top: 3px;
+  color: #8a93a8;
+  font-size: 11px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-workspace-icon {
+  display: grid;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 10px;
+  color: #4f46e5;
+  background: #eeedff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .02em;
+}
+
+.admin-workspace-tab.active .admin-workspace-icon {
+  color: #fff;
+  background: linear-gradient(135deg, #6d5fe9, #4f46d7);
+}
+
+@media (max-width: 760px) {
+  .admin-workspace-tabs {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-workspace-tab small {
+    white-space: normal;
+  }
+}

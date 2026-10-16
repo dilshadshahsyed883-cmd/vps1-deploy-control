@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}User Management{% endblock %}
+{% block subtitle %}{% endblock %}
+{% block content %}
+{% include "admin_workspace_nav.html" %}
+{% if message %}<div class="notice success">{{ message }}</div>{% endif %}
+{% if error %}<div class="notice error">{{ error }}</div>{% endif %}
+
+<section class="um-create-card">
+  <div class="um-section-heading">
+    <div><h2>Create user</h2><p>Create an account and assign its daily quota and plan.</p></div>
+  </div>
+  <form method="post" class="um-create-form">
+    <input type="hidden" name="action" value="create">
+    <label><span>Username</span><input name="username" required minlength="3" maxlength="40" pattern="[A-Za-z0-9_.-]+" placeholder="e.g. editor01"></label>
+    <label><span>Secret key</span><input name="secret_key" type="password" required minlength="8" placeholder="Minimum 8 characters"></label>
+    <label class="um-small-field"><span>Daily quota</span><input name="daily_render_limit" type="number" min="0" value="10" required><small>0 = unlimited</small></label><label class="um-small-field"><span>App access</span><select name="app_access"><option value="scene_builder">Scene Builder</option><option value="auto_caption">Auto Caption</option><option value="lum">Local Upload Manager</option><option value="both">Scene Builder + Auto Caption</option><option value="all">All 3 apps</option></select></label>
+    <label class="um-small-field"><span>Plan</span><select name="plan_days"><option value="7">7 days</option><option value="15">15 days</option><option value="30" selected>30 days</option></select></label>
+    <button class="button um-create-button" type="submit">Create user</button>
+  </form>
+</section>
+
+<section class="um-accounts-card">
+  <div class="um-toolbar">
+    <div class="um-section-heading"><div><h2>Accounts</h2><p>Quota counts successful renders completed today.</p></div></div>
+    <div class="um-filters">
+      <label class="um-search"><span class="sr-only">Search users</span><input id="um-search" type="search" placeholder="Search users"></label>
+      <select id="um-role-filter" aria-label="Filter by role"><option value="all">All roles</option><option value="admin">Administrators</option><option value="user">Users</option></select>
+      <select id="um-status-filter" aria-label="Filter by status"><option value="all">All statuses</option><option value="active">Active</option><option value="disabled">Disabled</option><option value="expired">Expired</option></select>
+    </div>
+  </div>
+
+  <div class="um-table-wrap">
+    <table class="um-table">
+      <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Usage</th><th>Plan</th><th>Ends</th><th>Jobs</th><th>Last login</th><th></th></tr></thead>
+      <tbody id="um-user-body">
+      {% for user in users %}
+        {% set role = 'admin' if user.is_admin else 'user' %}
+        {% set status_key = user.subscription_status|lower %}
+        <tr class="um-user-row" data-name="{{ user.username|lower }}" data-role="{{ role }}" data-status="{{ status_key }}">
+          <td data-label="User"><div class="um-user-identity"><span class="um-avatar">{{ user.username[:1]|upper }}</span><div><strong>{{ user.username }}</strong><small>{{ user.job_count }} {% if user.job_count == 1 %}job{% else %}jobs{% endif %}</small></div></div></td>
+          <td data-label="Role"><span class="um-role-badge {{ role }}">{% if user.is_admin %}Admin · All apps{% elif user.app_access == "auto_caption" %}Auto Caption User{% elif user.app_access == "lum" %}Local Upload Manager User{% elif user.app_access == "both" %}Scene Builder + Auto Caption{% elif user.app_access == "all" %}All Apps User{% else %}Scene Builder User{% endif %}</span></td>
+          <td data-label="Status"><span class="um-status-badge {{ status_key }}">{{ user.subscription_status }}</span></td>
+          <td data-label="Usage"><div class="um-usage"><strong>{{ user.today_used }} / {% if user.daily_render_limit %}{{ user.daily_render_limit }}{% else %}∞{% endif %}</strong>{% if user.daily_render_limit %}<span><i style="width:{{ [((user.today_used / user.daily_render_limit) * 100)|round, 100]|min }}%"></i></span>{% endif %}</div></td>
+          <td data-label="Plan"><strong class="um-cell-main">{% if user.is_admin %}No expiry{% else %}{{ user.subscription_plan_days }} days{% endif %}</strong></td>
+          <td data-label="Ends"><span class="um-cell-muted">{% if user.is_admin %}—{% else %}{{ (user.subscription_end_at or '')[:10] }}{% endif %}</span></td>
+          <td data-label="Jobs"><span class="um-cell-muted">{{ user.job_count }}</span></td>
+          <td data-label="Last login"><span class="um-cell-muted">{{ (user.last_login_at or 'Never')[:10] }}</span></td>
+          <td class="um-actions-cell"><button type="button" class="button secondary um-manage-button" data-modal="um-modal-{{ loop.index }}">Manage</button></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="9"><div class="empty">No accounts found.</div></td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <div id="um-empty-filter" class="um-filter-empty" hidden>No users match the selected filters.</div>
+  </div>
+</section>
+
+{% for user in users %}
+<div id="um-modal-{{ loop.index }}" class="um-modal" hidden role="dialog" aria-modal="true" aria-labelledby="um-modal-title-{{ loop.index }}">
+  <div class="um-modal-backdrop" data-close-modal></div>
+  <div class="um-modal-panel">
+    <div class="um-modal-header">
+      <div><span class="um-avatar large">{{ user.username[:1]|upper }}</span><div><h2 id="um-modal-title-{{ loop.index }}">{{ user.username }}</h2><p>{% if user.is_admin %}Administrator account{% else %}User account · {{ user.subscription_status }}{% endif %}</p></div></div>
+      <button type="button" class="um-modal-close" data-close-modal aria-label="Close">×</button>
+    </div>
+    <div class="um-modal-summary">
+      <div><small>Daily usage</small><strong>{{ user.today_used }} / {% if user.daily_render_limit %}{{ user.daily_render_limit }}{% else %}Unlimited{% endif %}</strong></div>
+      <div><small>Plan</small><strong>{% if user.is_admin %}No expiry{% else %}{{ user.subscription_plan_days }} days{% endif %}</strong></div>
+      <div><small>Ends</small><strong>{% if user.is_admin %}—{% else %}{{ (user.subscription_end_at or '')[:10] }}{% endif %}</strong></div>
+      <div><small>Jobs</small><strong>{{ user.job_count }}</strong></div>
+    </div>
+
+    <div class="um-modal-section">
+      <h3>Daily quota</h3>
+      <form method="post" class="um-inline-form"><input type="hidden" name="action" value="save"><input type="hidden" name="username" value="{{ user.username }}"><input type="hidden" name="plan_days" value="{{ user.subscription_plan_days or 30 }}"><label><span>Maximum successful renders per day</span><input name="daily_render_limit" type="number" min="0" value="{{ user.daily_render_limit }}"><small>Use 0 for unlimited.</small></label><label><span>Application access</span><select name="app_access" {% if user.is_admin %}disabled{% endif %}><option value="scene_builder" {% if user.app_access == "scene_builder" %}selected{% endif %}>Scene Builder only</option><option value="auto_caption" {% if user.app_access == "auto_caption" %}selected{% endif %}>Auto Caption only</option><option value="lum" {% if user.app_access == "lum" %}selected{% endif %}>Local Upload Manager only</option><option value="both" {% if user.app_access == "both" %}selected{% endif %}>Scene Builder + Auto Caption</option><option value="all" {% if user.app_access == "all" or user.is_admin %}selected{% endif %}>All 3 applications</option></select>{% if user.is_admin %}<input type="hidden" name="app_access" value="all">{% endif %}</label><button class="button" type="submit">Save access & quota</button></form>
+    </div>
+
+    {% if not user.is_admin %}
+    <div class="um-modal-section">
+      <h3>Subscription</h3>
+      <form method="post" class="um-inline-form"><input type="hidden" name="action" value="extend"><input type="hidden" name="username" value="{{ user.username }}"><input type="hidden" name="daily_render_limit" value="{{ user.daily_render_limit }}"><label><span>Extend subscription</span><select name="plan_days"><option value="7">Add 7 days</option><option value="15">Add 15 days</option><option value="30">Add 30 days</option></select></label><button class="button" type="submit">Extend plan</button></form>
+    </div>
+    {% endif %}
+
+    <div class="um-modal-section">
+      <h3>Security</h3>
+      <form method="post" class="um-inline-form"><input type="hidden" name="action" value="reset_password"><input type="hidden" name="username" value="{{ user.username }}"><input type="hidden" name="daily_render_limit" value="{{ user.daily_render_limit }}"><input type="hidden" name="plan_days" value="{{ user.subscription_plan_days or 30 }}"><label><span>New secret key</span><input name="secret_key" type="password" minlength="8" placeholder="Minimum 8 characters" required></label><button class="button secondary" type="submit">Reset key</button></form>
+    </div>
+
+    {% if not user.is_admin %}
+    <div class="um-modal-footer">
+      <form method="post"><input type="hidden" name="username" value="{{ user.username }}"><input type="hidden" name="daily_render_limit" value="{{ user.daily_render_limit }}"><input type="hidden" name="plan_days" value="{{ user.subscription_plan_days or 30 }}">{% if user.is_active %}<input type="hidden" name="action" value="disable"><button class="button danger-button" type="submit">Disable account</button>{% else %}<input type="hidden" name="action" value="enable"><button class="button" type="submit">Enable account</button>{% endif %}</form>
+      {% if user.job_count == 0 %}<form method="post" onsubmit="return confirm('Delete {{ user.username }} permanently?');"><input type="hidden" name="action" value="delete"><input type="hidden" name="username" value="{{ user.username }}"><input type="hidden" name="daily_render_limit" value="{{ user.daily_render_limit }}"><input type="hidden" name="plan_days" value="{{ user.subscription_plan_days or 30 }}"><button class="button danger-link" type="submit">Delete user</button></form>{% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const search = document.getElementById('um-search');
+  const role = document.getElementById('um-role-filter');
+  const status = document.getElementById('um-status-filter');
+  const rows = [...document.querySelectorAll('.um-user-row')];
+  const empty = document.getElementById('um-empty-filter');
+  const applyFilters = () => {
+    const q = (search?.value || '').trim().toLowerCase();
+    let visible = 0;
+    rows.forEach(row => {
+      const show = (!q || row.dataset.name.includes(q)) &&
+        (!role || role.value === 'all' || row.dataset.role === role.value) &&
+        (!status || status.value === 'all' || row.dataset.status === status.value);
+      row.hidden = !show;
+      if (show) visible++;
+    });
+    if (empty) empty.hidden = visible !== 0;
+  };
+  [search, role, status].forEach(el => el?.addEventListener(el === search ? 'input' : 'change', applyFilters));
+
+  const closeModal = modal => {
+    modal.hidden = true;
+    document.body.classList.remove('um-modal-open');
+  };
+  document.querySelectorAll('.um-manage-button').forEach(button => button.addEventListener('click', () => {
+    const modal = document.getElementById(button.dataset.modal);
+    if (!modal) return;
+    modal.hidden = false;
+    document.body.classList.add('um-modal-open');
+    modal.querySelector('input:not([type="hidden"]), select, button')?.focus();
+  }));
+  document.querySelectorAll('[data-close-modal]').forEach(button => button.addEventListener('click', () => closeModal(button.closest('.um-modal'))));
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      const modal = document.querySelector('.um-modal:not([hidden])');
+      if (modal) closeModal(modal);
+    }
+  });
+})();
+</script>
+{% endblock %}

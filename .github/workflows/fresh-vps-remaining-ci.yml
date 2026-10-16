@@ -1,0 +1,71 @@
+name: Fresh VPS remaining apps, real systemd and rollback gate
+on:
+  pull_request:
+    paths:
+      - 'rebuild/remaining_contract_ci.py'
+      - 'rebuild/remaining_workers_smoke.py'
+      - 'rebuild/systemd_storage_ci.py'
+      - 'apps/local-upload-manager/**'
+      - 'apps/scene-builder/part01/script_extractor_service.py'
+      - '.github/workflows/fresh-vps-remaining-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  remaining-three:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Isolated dependencies only
+        run: |
+          set -Eeuo pipefail
+          python -m pip install --disable-pip-version-check --quiet \
+            fastapi==0.115.12 httpx==0.28.1 requests==2.32.3 \
+            itsdangerous==2.2.0 uvicorn==0.34.2 jinja2==3.1.6
+      - name: Stage already-imported source without old eight runtime checks
+        run: |
+          python -m rebuild.fresh_vps assemble \
+            --root "/tmp/fresh-vps-remaining-$GITHUB_RUN_ID" --sha "$GITHUB_SHA" \
+            > "$RUNNER_TEMP/remaining-staged.json"
+      - name: Test Script Work native routes and independent SQLite; confirm Auto Script OFFLINE and LUM gates
+        run: |
+          python -m rebuild.remaining_contract_ci \
+            --root "/tmp/fresh-vps-remaining-$GITHUB_RUN_ID" \
+            > "$RUNNER_TEMP/remaining-contracts.json"
+          cat "$RUNNER_TEMP/remaining-contracts.json"
+      - name: Install worker-only isolated Python prerequisites
+        run: |
+          python -m pip install --disable-pip-version-check --quiet \
+            -r apps/local-upload-manager/part01/requirements.txt \
+            pillow==11.1.0
+      - name: Boot real fresh worker idle loops without external credentials
+        run: |
+          python -m rebuild.remaining_workers_smoke \
+            --root "/tmp/fresh-vps-remaining-$GITHUB_RUN_ID" \
+            > "$RUNNER_TEMP/remaining-workers.json"
+          cat "$RUNNER_TEMP/remaining-workers.json"
+      - name: Activate real isolated systemd unit, switch releases and rollback
+        run: |
+          python -m rebuild.systemd_storage_ci \
+            --root "/tmp/fresh-vps-remaining-$GITHUB_RUN_ID" --revision "$GITHUB_SHA" \
+            > "$RUNNER_TEMP/remaining-systemd.json"
+          cat "$RUNNER_TEMP/remaining-systemd.json"
+      - name: Gate unmet live-source requirements
+        if: always()
+        run: |
+          python - <<'PY'
+          import json,os,pathlib
+          base=pathlib.Path(os.environ["RUNNER_TEMP"])
+          report=base/"remaining-contracts.json"
+          if not report.is_file():
+              raise SystemExit("BLOCKED: targeted contracts did not run")
+          state=json.loads(report.read_text())
+          if state["remaining_source_blockers"]:
+              raise SystemExit("BLOCKED: missing "+", ".join(state["remaining_source_blockers"]))
+          assert state["auto_script"] == "OFFLINE"
+          print("Source intake PASS; Auto Script OFFLINE; active 10-app E2E is a separate gate")
+          PY

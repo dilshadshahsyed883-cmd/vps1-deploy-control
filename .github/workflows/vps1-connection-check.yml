@@ -13,7 +13,9 @@ concurrency:
 
 jobs:
   check-vps:
-    if: ${{ vars.VPS1_TAILSCALE_READY == 'yes' }}
+    # PHASE 1: fail-closed. Variable alone must never authorize live VPS access.
+    if: ${{ false && vars.VPS1_TAILSCALE_READY == 'yes' }}
+    environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:

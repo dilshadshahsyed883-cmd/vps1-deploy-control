@@ -1,0 +1,144 @@
+/* WHOLE_WEB_RESPONSIVE_SYSTEM_V1
+   Layout-only overrides. No workflow/API/queue behavior changes. */
+html,body{max-width:100%;overflow-x:hidden}
+body{min-width:0}
+main,.main,.content{min-width:0}
+main>*{min-width:0}
+img,video,canvas,svg{max-width:100%}
+iframe{max-width:100%}
+input,select,textarea,button{max-width:100%}
+pre,code{overflow-wrap:anywhere}
+.panel,.card,.cards>*,.grid-two>*,.settings-layout>*,.professional-settings>*{min-width:0}
+.lum-host-shell{width:100%;max-width:100%;min-width:0}
+.lum-host-frame{display:block;width:100%;max-width:100%;border:0;background:#f6f7fb}
+
+/* Small laptops: recover useful workspace width without changing desktop design. */
+@media (min-width:901px) and (max-width:1180px){
+  .sidebar{width:200px;padding-left:14px;padding-right:14px}
+  main{margin-left:200px;padding:22px 22px;max-width:none}
+  .sidebar nav a{padding-left:11px;padding-right:11px}
+  .cards{gap:12px}
+  .panel,.cards article{padding:17px}
+}
+
+/* Tablets / narrow laptops. Existing 76px rail is preserved, but content becomes fluid. */
+@media (min-width:761px) and (max-width:900px){
+  main{max-width:none;width:auto;min-width:0}
+  header{min-width:0;gap:12px}
+  .account{min-width:0}
+  .account span{max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .notice{gap:12px}
+  .panel-head{gap:12px;flex-wrap:wrap}
+}
+
+/* Phone / portrait tablet foundation. */
+@media (max-width:760px){
+  html,body{width:100%;max-width:100%;overflow-x:hidden!important}
+  main,.main,.content{
+    margin-left:0!important;
+    width:100%!important;
+    max-width:none!important;
+    min-width:0!important;
+    padding:12px!important;
+  }
+  header:not(.app-header):not(.top):not(.app-topbar){
+    min-width:0;
+    gap:10px;
+    padding-left:50px;
+    align-items:flex-start;
+  }
+  header h1{font-size:clamp(20px,6vw,26px);line-height:1.2}
+  header p{font-size:12px}
+  .account{margin-left:auto;min-width:0;gap:6px}
+  .account span{display:none}
+  .account button{min-height:38px;padding:7px 9px}
+  .mobile-nav-toggle{width:44px!important;height:44px!important;top:10px!important;left:10px!important;border-radius:11px!important}
+  .sidebar{
+    display:flex!important;
+    width:min(84vw,300px)!important;
+    max-width:300px!important;
+    transform:translateX(-105%);
+    padding:18px 14px!important;
+    overflow-y:auto;
+    overflow-x:hidden;
+  }
+  .sidebar.mobile-open{transform:translateX(0)!important}
+  .sidebar .brand{margin-bottom:20px}
+  .sidebar nav a{font-size:14px!important;padding:11px 12px!important}
+  .mobile-nav-overlay{inset:0!important;width:100vw!important;height:100dvh!important}
+  .notice{align-items:flex-start;flex-direction:column;padding:15px 16px}
+  .cards{grid-template-columns:1fr!important;gap:10px}
+  .panel,.cards article{padding:14px;border-radius:13px}
+  .panel-head{align-items:flex-start;flex-direction:column;gap:10px}
+  .panel-head>.button,.panel-head>button{width:100%}
+  .button{min-height:40px}
+  .actions{flex-wrap:wrap;justify-content:flex-start}
+  .actions .button,.actions button,.actions a{max-width:100%}
+  .settings-card-heading,.settings-card-head{align-items:flex-start;flex-direction:column}
+  .job-row,.job-row.detailed{min-width:0}
+  .job-row small{white-space:normal}
+  .project-id-line{flex-wrap:wrap}
+  .project-id-code{white-space:normal;overflow-wrap:anywhere}
+  .scene-workspace-header,.admin-workspace-header{padding-left:50px!important}
+  .scene-workspace-tabs,.admin-workspace-tabs,.acs-suite-tabs{
+    max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none
+  }
+  .scene-workspace-tabs::-webkit-scrollbar,.admin-workspace-tabs::-webkit-scrollbar,.acs-suite-tabs::-webkit-scrollbar{display:none}
+  .audit-toolbar{max-width:100%}
+  .audit-modal,.um-modal{max-width:100vw}
+  .sm-toast,.av-toast{left:12px;right:12px;max-width:none}
+  .settings-save-bar,.audit-sticky-approve{max-width:calc(100vw - 24px)}
+  .lum-host-shell{min-height:calc(100dvh - 78px)!important}
+  .lum-host-frame{
+    height:calc(100dvh - 78px)!important;
+    min-height:560px!important;
+    border-radius:10px!important;
+  }
+  .acs-main{padding:4px!important}
+  .acs-shell{height:calc(100dvh - 8px)!important;min-height:560px!important;border-radius:10px!important}
+}
+
+/* Algrow-specific mobile containment. */
+@media (max-width:760px){
+  #algrow-app{width:100%;max-width:100%;min-width:0}
+  .av-toolbar,.av-panel-head{align-items:flex-start!important;flex-wrap:wrap}
+  .av-health{width:100%;max-width:100%!important}
+  .av-control-grid,.av-queue-filters,.av-settings-grid{grid-template-columns:1fr!important}
+  .av-metrics{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .av-table-wrap{width:100%;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .av-table{min-width:760px}
+  .av-browser-frame{height:min(430px,60dvh)!important}
+  .av-pager{flex-wrap:wrap}
+}
+@media (max-width:430px){
+  main,.main,.content{padding:10px!important}
+  .av-metrics{grid-template-columns:1fr!important}
+  .dashboard-runtime-strip{grid-template-columns:1fr!important}
+  .sb-production-metrics{grid-template-columns:1fr 1fr 1fr}
+}
+
+@media(max-width:760px){
+  .acl-table,.acl-project-table{font-size:11px}
+  .sm-table-wrap,.admin-project-table{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .um-table-wrap{max-width:100%}
+}
+
+/* WHOLE_WEB_MOBILE_HOTFIX_V2 */
+@media (max-width:760px){
+  .mobile-nav-overlay{pointer-events:none!important}
+  .mobile-nav-overlay.visible{pointer-events:auto!important}
+  .mobile-nav-overlay[hidden]{display:none!important;pointer-events:none!important;opacity:0!important}
+  body:not(.mobile-nav-open){overflow-y:auto!important;overflow-x:hidden!important;position:static!important}
+  main,.main,.content{overflow:visible!important;min-height:0!important}
+  .scene-workspace-tabs,.admin-workspace-tabs,.acs-suite-tabs,.tabs,.lum-tabs{pointer-events:auto!important;touch-action:pan-x pinch-zoom;-webkit-overflow-scrolling:touch}
+  .scene-workspace-tabs a,.admin-workspace-tabs a,.acs-suite-tabs a,.tabs .tab,.lum-tabs a{pointer-events:auto!important;touch-action:manipulation}
+  .lum-host-frame{pointer-events:auto!important;touch-action:auto!important;width:100%!important;max-width:100%!important}
+}
+.sidebar-account{margin-top:auto!important;padding:12px!important;border:1px solid #2b334b!important;border-radius:12px!important;background:linear-gradient(180deg,#171e31,#131a2b)!important;box-shadow:0 8px 24px rgba(0,0,0,.12)!important;gap:9px!important}
+.sidebar-account-name{color:#fff!important;font-size:13px!important;line-height:1.25!important;font-weight:800!important;white-space:normal!important;overflow-wrap:anywhere!important}
+.sidebar-account-name:before{content:"Signed in";display:block;margin-bottom:3px;color:#838da8;font-size:9px;line-height:1;font-weight:900;text-transform:uppercase;letter-spacing:.09em}
+.sidebar-account form{margin:0!important}
+.sidebar-account button{width:100%!important;min-height:38px!important;border:1px solid #39425f!important;border-radius:9px!important;background:#202940!important;color:#f7f8ff!important;padding:8px 11px!important;font-weight:800!important;text-align:center!important;transition:background .15s ease,border-color .15s ease,transform .15s ease!important}
+.sidebar-account button:hover,.sidebar-account button:focus-visible{background:#2a3551!important;border-color:#515e82!important;outline:none!important}
+.sidebar .server-dot{margin-top:9px!important;padding:7px 8px 0!important;flex:0 0 auto!important}
+@media(max-width:760px){.sidebar{height:100dvh!important;min-height:0!important;padding-bottom:14px!important}.sidebar-account{margin-top:auto!important}.sidebar .server-dot{display:block!important}}

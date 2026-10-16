@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Story Work{% endblock %}
+{% block subtitle %}Extract YouTube scripts, edit them in Google Docs, and deliver verified batches{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/script_work_v1.css?v=20260830-delivery-layout">
+
+<section class="sw-shell" id="script-work-app">
+  <div class="sw-panel active" data-sw-panel="extractor">
+    <nav class="sw-subtabs" aria-label="Script Extractor views">
+      <button class="active" type="button" data-extractor-tab="workflow">Batch Workflow</button>
+      <button type="button" data-extractor-tab="browser">Live Browser</button>
+    </nav>
+
+    <div class="sw-extractor-view active" data-extractor-view="workflow">
+      <div class="sw-step-grid">
+        <article class="sw-card sw-step-card">
+          <div class="sw-card-head"><span class="sw-step-no">1</span><div><h3>Group &amp; Batch</h3><p>Select a permanent Group. Every saved link set creates one short, permanent Batch ID.</p></div></div>
+          <div class="sw-field-row sw-group-row">
+            <label class="sw-field grow"><span>Active group</span><select id="sw-group-select"><option value="">Select group</option></select></label>
+            <button id="sw-add-group" class="sw-btn secondary" type="button">Add Group</button>
+            <button id="sw-remove-group" class="sw-btn danger-ghost" type="button">Remove Group</button>
+          </div>
+          <label class="sw-field"><span>Links for a new Batch</span><textarea id="sw-link-input" rows="6" placeholder="https://www.youtube.com/watch?v=..."></textarea></label>
+          <div class="sw-actions">
+            <button id="sw-save-links" class="sw-btn primary" type="button">Save Group Links</button>
+            <button id="sw-clear-links" class="sw-btn ghost" type="button">Clear Input</button>
+          </div>
+          <div class="sw-table-wrap">
+            <table class="sw-table sw-group-table"><thead><tr><th>Batch ID</th><th>Total Links</th><th>Drive Documents</th><th>Status</th><th>Controls</th></tr></thead><tbody id="sw-link-table"><tr class="empty-row"><td colspan="5">No Batches created.</td></tr></tbody></table>
+          </div>
+        </article>
+
+        <article class="sw-card sw-step-card">
+          <div class="sw-card-head"><span class="sw-step-no">2</span><div><h3>Extracted Batch Document</h3><p>The Batch document is created under Extracted Scripts / Group. You can still validate or assign another editable document.</p></div></div>
+          <label class="sw-field"><span>YouTube batch</span><select id="sw-doc-batch"><option value="">Select batch from Step 1</option></select></label>
+          <label class="sw-field"><span>Google Docs link or document ID</span><input id="sw-doc-link" type="text" autocomplete="off" placeholder="https://docs.google.com/document/d/..."></label>
+          <div class="sw-actions">
+            <button id="sw-create-doc" class="sw-btn secondary" type="button">Create New Doc</button>
+            <button id="sw-validate-doc" class="sw-btn secondary" type="button">Validate Document</button>
+            <button id="sw-save-doc" class="sw-btn primary" type="button">Save Assignment</button>
+          </div>
+          <div class="sw-assignment"><span>Selected batch</span><strong id="sw-assigned-batch">Not selected</strong><span>Document</span><strong id="sw-assigned-doc">Not assigned</strong></div>
+          <div id="sw-google-status" class="sw-inline-note">Checking fixed Google account…</div>
+        </article>
+
+        <article class="sw-card sw-step-card sw-wide">
+          <div class="sw-card-head"><span class="sw-step-no">3</span><div><h3>Extract Scripts</h3><p>Jobs are persistent. Pause, resume, stop, and retry remain under your control.</p></div></div>
+          <div class="sw-counter-grid">
+            <div><strong id="sw-count-pending">0</strong><span>Pending</span></div>
+            <div><strong id="sw-count-processing">0</strong><span>Processing</span></div>
+            <div><strong id="sw-count-completed">0</strong><span>Completed</span></div>
+            <div><strong id="sw-count-failed">0</strong><span>Failed</span></div>
+          </div>
+          <div class="sw-actions sw-queue-actions">
+            <button id="sw-start" class="sw-btn primary" type="button">Start</button>
+            <button id="sw-pause" class="sw-btn warn" type="button">Pause</button>
+            <button id="sw-resume" class="sw-btn secondary" type="button">Resume</button>
+            <button id="sw-stop" class="sw-btn danger-ghost" type="button">Stop</button>
+            <button id="sw-retry" class="sw-btn ghost" type="button">Retry Failed</button>
+          </div>
+          <div id="sw-extractor-status" class="sw-status"><span class="sw-status-dot"></span><strong>Ready</strong><small>Add links and assign a Google Doc to begin.</small></div>
+        </article>
+      </div>
+    </div>
+
+    <div class="sw-extractor-view" data-extractor-view="browser" hidden>
+      <article class="sw-card sw-browser-card">
+        <div class="sw-browser-head">
+          <div><h3>Live Script Extractor Browser</h3><p>A genuine persistent Chrome session. You can browse, sign in/out, and use YouTube normally.</p></div>
+          <div class="sw-actions"><button id="sw-browser-refresh" class="sw-btn secondary" type="button">Refresh Page</button><button id="sw-browser-fullscreen" class="sw-btn primary" type="button">Fullscreen</button></div>
+        </div>
+        <div id="sw-browser-stage" class="sw-browser-stage">
+          <iframe id="sw-browser-frame" title="Interactive Script Work Chrome browser" allow="clipboard-read; clipboard-write; fullscreen" data-src="/script-work/viewer/vnc.html?autoconnect=1&resize=scale&reconnect=1&path=script-work/viewer/websockify&quality=7&compression=2"></iframe>
+        </div>
+        <div id="sw-browser-status" class="sw-inline-note">Connecting to dedicated Chrome…</div>
+      </article>
+    </div>
+  </div>
+
+  <div class="sw-panel" data-sw-panel="processor" hidden>
+    <div class="sw-processor-grid">
+      <article class="sw-card">
+        <div class="sw-section-head"><h3>Google Docs Source</h3><p>Select a completed extracted Batch. Newest completed Batch appears first.</p></div>
+        <label class="sw-field"><span>Extracted batch</span><select id="sw-processor-group"><option value="">Select extracted batch</option></select></label>
+        <label class="sw-field"><span>Google Doc link</span><input id="sw-processor-doc" type="text" readonly placeholder="Filled from selected batch"></label>
+      </article>
+
+      <article class="sw-card">
+        <div class="sw-section-head"><h3>Batch Settings</h3><p>Choose the output name, category, intro, serial, and byte-size rules.</p></div>
+        <div class="sw-form-grid">
+          <label class="sw-field"><span>Batch ID</span><div class="sw-input-action"><input id="sw-batch-id" type="text" readonly placeholder="Follows the extracted Batch"><button id="sw-generate-batch" type="button">Keep ID</button></div></label>
+          <label class="sw-field"><span>Category</span><div class="sw-input-action"><select id="sw-category"><option>general</option></select><button id="sw-add-category" type="button">Add</button><button id="sw-delete-category" type="button">Delete</button></div></label>
+          <label class="sw-field"><span>Saved Intro TXT on VPS</span><div class="sw-input-action"><select id="sw-intro-select"><option value="">No intro selected</option></select><button id="sw-add-intro" type="button">Add</button><button id="sw-remove-intro" type="button">Remove</button></div><input id="sw-intro-file" type="file" accept=".txt,text/plain" hidden></label>
+          <label class="sw-field"><span>Start serial</span><input id="sw-start-serial" type="number" min="1" value="1"></label>
+          <label class="sw-field"><span>Minimum size</span><div class="sw-size-control"><input id="sw-min-size" type="number" min="0" step="0.1" value="0"><select id="sw-min-unit"><option>KB</option><option>MB</option></select></div></label>
+          <label class="sw-field"><span>Maximum size</span><div class="sw-size-control"><input id="sw-max-size" type="number" min="0" step="0.1" value="0"><select id="sw-max-unit"><option>KB</option><option>MB</option></select></div></label>
+        </div>
+      </article>
+
+      <article class="sw-card sw-processing-options-card">
+        <div class="sw-section-head"><h3>Processing Options</h3><p>Duplicate history is persistent by category. Removal supports comma-separated whole words or phrases.</p></div>
+        <div class="sw-option-list">
+          <label class="sw-switch-row"><input id="sw-duplicate" type="checkbox" checked><span><strong>Duplicate check</strong><small>Skip matching script content from this batch or category history</small></span></label>
+          <label class="sw-switch-row"><input id="sw-remove-words" type="checkbox"><span><strong>Remove words or phrases</strong><small>Case-insensitive and bounded to whole terms</small></span></label>
+          <label class="sw-switch-row"><input id="sw-skip-failed" type="checkbox" checked><span><strong>Skip failed scripts</strong><small>Continue and record every reason in the Processing Report tab</small></span></label>
+          <label class="sw-switch-row"><input id="sw-auto-process" type="checkbox"><span><strong>Auto Process Extracted Batch</strong><small>Automatically process newly completed extracted batches; manual processing stays available when off</small></span></label>
+          <label class="sw-field"><span>Global permanent removal words or phrases</span><input id="sw-removal-words" type="text" placeholder="Story, title line, Transcript"></label>
+        </div>
+      </article>
+
+      <article class="sw-card sw-run-card">
+        <div class="sw-section-head sw-run-head">
+          <h3>Processing &amp; Delivery</h3>
+          <p>Clean each script · create or update one Google Doc · preserve unrelated tabs</p>
+        </div>
+        <div class="sw-drive-path"><span>Destination</span><strong>Google Drive / Script Work / Processed Scripts / Group / Batch ID</strong><small>Each successful script becomes a Google Docs tab. Skipped reasons are stored in Processing Report.</small></div>
+        <div class="sw-actions sw-delivery-actions"><button id="sw-process" class="sw-btn primary large" type="button">Process to Google Docs</button><button id="sw-download" class="sw-btn secondary" type="button">Open Processed Doc</button><button id="sw-open-drive" class="sw-btn secondary" type="button">Open Processed Folder</button></div>
+        <div id="sw-processor-status" class="sw-status compact"><span class="sw-status-dot"></span><strong>Ready</strong><small>Select a batch to process.</small></div>
+      </article>
+    </div>
+  </div>
+
+  <div id="sw-toast" class="sw-toast" role="status" aria-live="polite"></div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/script_work_functional.js?v=20260830-phase2-lifecycle"></script>{% endblock %}

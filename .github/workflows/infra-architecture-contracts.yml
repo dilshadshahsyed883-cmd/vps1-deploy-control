@@ -1,0 +1,63 @@
+name: VPS1 infrastructure contracts (offline only)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/infra-architecture-contracts.yml'
+      - 'infrastructure/**'
+      - 'tools/render_nginx_routes.py'
+      - 'tools/review_nginx_contracts.py'
+      - 'tests/test_nginx*'
+      - 'tests/fixtures/nginx-*'
+      - 'rebuild/website_shell.py'
+      - 'rebuild/shell/**'
+      - 'rebuild/tests/test_website_shell.py'
+      - 'rebuild/storage_admission.py'
+      - 'rebuild/tests/test_storage_admission.py'
+      - 'rebuild/dependency_budget.py'
+      - 'rebuild/dependency-budget.json'
+  push:
+    paths:
+      - '.github/workflows/infra-architecture-contracts.yml'
+      - 'infrastructure/**'
+      - 'tools/review_nginx_contracts.py'
+      - 'rebuild/website_shell.py'
+      - 'rebuild/shell/**'
+      - 'rebuild/storage_admission.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  architecture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify strict routing, preview shell and independent storage plans
+        run: |
+          set -Eeuo pipefail
+          python3 -m unittest discover -s tests -p 'test_nginx*.py' -v
+          python3 -m unittest rebuild.tests.test_website_shell rebuild.tests.test_storage_admission -v
+          python3 -m py_compile tools/render_nginx_routes.py tools/review_nginx_contracts.py rebuild/storage_admission.py rebuild/website_shell.py
+          python3 tools/review_nginx_contracts.py --registry infrastructure/registry/apps.json > "$RUNNER_TEMP/live-route-review.json"
+          python3 tools/review_nginx_contracts.py --fixture --registry tests/fixtures/nginx-apps.json --inventory tests/fixtures/nginx-inventory.json > "$RUNNER_TEMP/synthetic-route-review.json"
+          bash -n scripts/apply_nginx_routes.sh
+          python3 tools/render_nginx_routes.py --registry tests/fixtures/nginx-apps.json --output "$RUNNER_TEMP/routes.conf" --require-nonempty
+          bash scripts/apply_nginx_routes.sh --check "$RUNNER_TEMP/routes.conf"
+      - name: Synthetic server-context syntax and no direct VPS access
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/nginx"
+          cp "$RUNNER_TEMP/routes.conf" "$RUNNER_TEMP/nginx/routes.conf"
+          printf '%s\n' 'events {}' 'http {' 'server {' 'listen 8080;' 'server_name app.scenebuilder.online;' 'include /etc/nginx/ci/routes.conf;' '}' '}' > "$RUNNER_TEMP/nginx/nginx.conf"
+          docker run --rm --network none -v "$RUNNER_TEMP/nginx:/etc/nginx/ci:ro" nginx:stable-alpine nginx -t -c /etc/nginx/ci/nginx.conf
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: infrastructure-review-evidence
+          path: |
+            ${{ runner.temp }}/live-route-review.json
+            ${{ runner.temp }}/synthetic-route-review.json
+          if-no-files-found: ignore

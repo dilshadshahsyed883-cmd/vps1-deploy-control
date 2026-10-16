@@ -1,0 +1,63 @@
+name: VPS1 public source and full-history secret gate (no VPS)
+on:
+  pull_request:
+  workflow_dispatch:
+
+# This job is intentionally GitHub-only: no deployment environment, OIDC,
+# SSH credentials, repository secrets, self-hosted runners, or VPS access.
+permissions:
+  contents: read
+
+jobs:
+  gitleaks-history-and-tree:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout all refs without persistent GitHub credentials
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify complete reachable Git history
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          # Include every published branch and tag rather than just PR checkout refs.
+          git fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*'
+          git fetch origin '+refs/tags/*:refs/tags/*'
+          test "$(git rev-parse --is-shallow-repository)" = false
+          test "$(git rev-list --all --count)" -gt 0
+          printf 'History scan scope: all locally fetched refs; no shallow checkout.\n'
+
+      - name: Scan all reachable commits and current source with redacted findings
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          # Digest-pinned official binary; container cannot access the network.
+          # Findings are stored only in ephemeral runner.temp, NEVER printed or
+          # uploaded as artifacts because this is a PUBLIC repository.
+          run_gitleaks() {
+            local mode="$1"; shift
+            docker run --rm --network none \
+              -e GIT_CONFIG_COUNT=1 \
+              -e GIT_CONFIG_KEY_0=safe.directory \
+              -e GIT_CONFIG_VALUE_0=/repo \
+              -v "$GITHUB_WORKSPACE:/repo:ro" \
+              -v "$RUNNER_TEMP:/private" \
+              ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+              "$mode" /repo "$@" \
+              --redact=100 --no-banner --log-level=error \
+              --report-format=json --report-path="/private/vps1-gitleaks-$mode.json"
+          }
+
+          set +e
+          run_gitleaks git --log-opts=--all > /dev/null 2>&1
+          git_result=$?
+          run_gitleaks dir > /dev/null 2>&1
+          dir_result=$?
+          set -e
+
+          # No scan reports leave the ephemeral runner. Only aggregate dispositions.
+          python3 tools/review_gitleaks_findings.py "$RUNNER_TEMP" "$git_result" "$dir_result"

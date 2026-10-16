@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{% block title %}Local Upload Manager{% endblock %}</title>
+  <link rel="stylesheet" href="{{ base_path }}/static/standalone.css?v=20260824-rwd2">
+  <link rel="stylesheet" href="{{ base_path }}/static/local_upload_manager.css?v=20260904-generate-feedback-v1">
+  <link rel="stylesheet" href="{{ base_path }}/static/lum_desktop_theme_v4.css?v=20260826-v4">
+</head>
+<body class="{% if embedded_view %}lum-embedded{% endif %}">
+  {% if not embedded_view %}<header class="app-topbar">
+    <div class="app-brand">
+      <div class="brand-mark">LU</div>
+      <div><strong>Local Upload Manager</strong><span>{% block subtitle %}VPS YouTube uploader{% endblock %}</span></div>
+    </div>
+    {% if user %}
+    <div class="app-userbar">
+      {% if user.is_admin %}
+      <form class="admin-mode-toggle" method="post" action="{{ base_path }}/mode" aria-label="Administrator interface mode">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <button name="mode" value="simple" type="submit" class="{{ 'active' if user.effective_ui_mode == 'simple' else '' }}">Simple</button>
+        <button name="mode" value="heavy" type="submit" class="{{ 'active' if user.effective_ui_mode == 'heavy' else '' }}">Heavy</button>
+      </form>
+      <span class="access-pill">Administrator · Both modes</span>
+      {% else %}
+      <span class="mode-pill">{{ user.effective_ui_mode|capitalize }} mode</span>
+      {% endif %}
+      <strong class="user-name">{{ user.username }}</strong>
+      {% if user.is_admin and not suite_auth %}<a href="{{ base_path }}/users">Users</a>{% endif %}
+      {% if suite_auth %}
+      <form method="post" action="/logout"><button type="submit">Sign out</button></form>
+      {% else %}
+      <form method="post" action="{{ base_path }}/logout"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit">Sign out</button></form>
+      {% endif %}
+    </div>
+    {% endif %}
+  </header>{% endif %}
+  <main class="app-main">{% block content %}{% endblock %}</main>
+<script src="{{ base_path }}/static/channels_subtabs_v5_1.js?v=20260824-v5.1" defer></script>
+<script src="{{ base_path }}/static/auto_engine_v6.js?v=20260904-queue-live-v1" defer></script>
+<script src="{{ base_path }}/static/navigation_state_v1.js?v=20260826-v1" defer></script>
+  <script src="{{ base_path }}/static/lum_ux_state_v2.js?v=20260826-v1" defer></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+<style>
+.acs-suite-tabs{display:flex;gap:4px;padding:8px;margin:0 0 16px;border:1px solid #dfe6f3;border-radius:12px;background:#f3f6fb;overflow:auto}
+.acs-suite-tabs a{border:0;background:transparent;color:#738098;font-weight:700;padding:10px 14px;border-radius:9px;white-space:nowrap;text-decoration:none}
+.acs-suite-tabs a:hover{background:#eceeff;color:#4546bc}.acs-suite-tabs a.active{background:#5556df;color:#fff;box-shadow:0 7px 18px rgba(85,86,223,.18)}
+</style>
+<nav class="acs-suite-tabs" aria-label="Auto Caption Studio">
+  <a href="/auto-caption/studio#queue">Queue</a>
+  <a href="/auto-caption/studio#upload">Upload</a>
+  <a href="/auto-caption/studio#preset">Preset</a>
+  <a href="/auto-caption/studio#captions">Captions</a>
+  <a href="/auto-caption/studio#pexels">Pexels</a>
+  <a href="/auto-caption/studio#fg">FG</a>
+  <a href="/auto-caption/studio#voice">Voice</a>
+  <a href="/auto-caption/studio#music">Music</a>
+  <a href="/auto-caption/studio#output">Output</a>
+  <a href="/auto-caption/live" class="{% if page=='auto_caption_live' %}active{% endif %}" {% if page=='auto_caption_live' %}aria-current="page"{% endif %}>ACS Live</a>
+</nav>

@@ -1,0 +1,96 @@
+<style id="vps1-admin-subtab-ui-v2">
+  .admin-workspace-tabs{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    padding:6px;
+    margin:10px 0 18px;
+    border:1px solid #e6e9f2;
+    border-radius:14px;
+    background:#f8f9fc;
+    box-shadow:0 1px 2px rgba(15,23,42,.04);
+  }
+  .admin-workspace-tab{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    min-height:42px;
+    padding:8px 14px;
+    border:1px solid transparent;
+    border-radius:10px;
+    text-decoration:none !important;
+    color:#596174;
+    font-size:13px;
+    line-height:1.15;
+    transition:background .15s ease,border-color .15s ease,box-shadow .15s ease,color .15s ease,transform .15s ease;
+  }
+  .admin-workspace-tab:hover{
+    background:#fff;
+    border-color:#e2e6ef;
+    color:#20263a;
+    box-shadow:0 2px 8px rgba(15,23,42,.06);
+    transform:translateY(-1px);
+  }
+  .admin-workspace-tab.active,
+  .admin-workspace-tab[aria-current="page"]{
+    background:#fff;
+    border-color:#d9def0;
+    color:#232b55;
+    box-shadow:0 3px 10px rgba(38,51,112,.10);
+  }
+  .admin-workspace-icon{
+    display:grid;
+    place-items:center;
+    width:28px;
+    height:28px;
+    flex:0 0 28px;
+    border-radius:8px;
+    background:#eef1f7;
+    color:#667085;
+    font-size:12px;
+    font-weight:800;
+    letter-spacing:.02em;
+  }
+  .admin-workspace-tab.active .admin-workspace-icon,
+  .admin-workspace-tab[aria-current="page"] .admin-workspace-icon{
+    background:#4f46e5;
+    color:#fff;
+  }
+  .admin-workspace-tab > span:last-child{
+    display:flex;
+    flex-direction:column;
+    gap:2px;
+    white-space:nowrap;
+  }
+  .admin-workspace-tab strong{
+    display:block;
+    font-size:13px;
+    font-weight:750;
+    color:inherit;
+  }
+  .admin-workspace-tab small{
+    display:block;
+    margin:0;
+    font-size:11px;
+    font-weight:500;
+    color:#8a93a6;
+  }
+  .admin-workspace-tab.active small,
+  .admin-workspace-tab[aria-current="page"] small{
+    color:#69728c;
+  }
+  @media (max-width:760px){
+    .admin-workspace-tabs{display:flex;width:100%;overflow-x:auto;padding:5px;}
+    .admin-workspace-tab{flex:1 0 auto;min-width:170px;}
+  }
+</style>
+<nav class="admin-workspace-tabs" aria-label="Administration sections">
+  <a href="/admin/storage" class="admin-workspace-tab {% if page == 'storage_manager' %}active{% endif %}" {% if page == 'storage_manager' %}aria-current="page"{% endif %}>
+    <span class="admin-workspace-icon" aria-hidden="true">S</span>
+    <span><strong>Storage</strong><small>Resources and cleanup</small></span>
+  </a>
+  <a href="/user-management" class="admin-workspace-tab {% if page == 'user_management' %}active{% endif %}" {% if page == 'user_management' %}aria-current="page"{% endif %}>
+    <span class="admin-workspace-icon" aria-hidden="true">U</span>
+    <span><strong>User Management</strong><small>Access and quotas</small></span>
+  </a>
+</nav>

@@ -1,0 +1,144 @@
+{% extends "base.html" %}{% block title %}Audit Media{% endblock %}{% block subtitle %}Review first two-minute visuals{% endblock %}{% block content %}
+{% if not selected_job %}
+<section class="scene-compact-summary">
+  <span class="summary-chip attention"><strong>{{ waiting_jobs|length }}</strong> needs audit</span>
+  <span class="summary-chip">Visual review only · final 00:00–02:00</span>
+</section>
+<section class="panel">
+  <div class="panel-head compact-head"><div><h2>Waiting for audit</h2><p>Open only the projects that need your visual judgment. Waiting projects do not occupy the render lane.</p></div></div>
+  <div class="audit-project-list">
+    {% for job in waiting_jobs %}
+    <div class="audit-project-row">
+      <div><strong>{{ job.project_name or 'Untitled' }}</strong><small>{{ job.message or job.stage or 'Needs Visual Audit' }}</small></div>
+      <span class="audit-stat"><b>{{ job.progress or 34 }}%</b> prepared</span>
+      <span class="status waiting_for_audit">Needs Audit</span>
+      <a class="button" href="/audit-media?job={{ job.id|urlencode }}">Open Audit</a>
+    </div>
+    {% else %}
+    <div class="empty">No projects currently need Visual Audit.</div>
+    {% endfor %}
+  </div>
+</section>
+{% else %}
+<section class="audit-toolbar">
+  <div class="audit-toolbar-left">
+    <a class="button secondary" href="/audit-media">← Projects</a>
+    <strong id="audit-project-name">{{ selected_job.project_name or 'Untitled' }}</strong>
+    <span class="muted">First 2 min</span>
+  </div>
+  <div class="audit-toolbar-right">
+    <button class="audit-filter active" type="button" data-filter="all">All</button>
+    <button class="audit-filter" type="button" data-filter="changed">Changed</button>
+    <button class="audit-filter" type="button" data-filter="attention">Needs Attention</button>
+  </div>
+</section>
+<div id="audit-flash" class="submission-message" role="status" aria-live="polite" hidden></div>
+<section id="audit-grid" class="audit-grid"></section>
+<div id="audit-empty" class="panel empty" hidden>No scenes match this filter.</div>
+<div class="audit-sticky-approve">
+  <div id="audit-summary">Loading audit…</div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <button id="audit-approve-all" class="button secondary" type="button">Approve All Remaining</button>
+    <button id="audit-continue" class="button" type="button">Approve &amp; Continue</button>
+  </div>
+</div>
+<div id="keyword-modal" class="audit-modal" hidden>
+  <div class="audit-modal-card" role="dialog" aria-modal="true" aria-labelledby="keyword-title">
+    <h3 id="keyword-title">Change keyword</h3>
+    <p>Only this project's visual is changed. The original Scene Plan stays untouched.</p>
+    <input id="keyword-input" type="text" maxlength="240" autocomplete="off">
+    <div class="audit-modal-actions"><button id="keyword-cancel" class="button secondary" type="button">Cancel</button><button id="keyword-save" class="button" type="button">Search New Media</button></div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+{% if selected_job %}
+<script>
+(() => {
+  const jobId={{ selected_job.id|tojson }};
+  let audit={{ (audit or {})|tojson }};
+  let filter='all';
+  let keywordItem=null;
+  const grid=document.getElementById('audit-grid');
+  const empty=document.getElementById('audit-empty');
+  const summary=document.getElementById('audit-summary');
+  const approveAll=document.getElementById('audit-approve-all');
+  const continueBtn=document.getElementById('audit-continue');
+  const flash=document.getElementById('audit-flash');
+  const modal=document.getElementById('keyword-modal');
+  const keywordInput=document.getElementById('keyword-input');
+  const esc=v=>String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  const time=v=>{const n=Math.max(0,Number(v)||0),m=Math.floor(n/60),s=Math.floor(n%60);return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`};
+  const show=(text,type='success')=>{flash.hidden=false;flash.className=`submission-message ${type}`;flash.textContent=text;clearTimeout(show.t);show.t=setTimeout(()=>flash.hidden=true,2600)};
+  const api=async(url,opts={})=>{const r=await fetch(url,opts);let data={};try{data=await r.json()}catch{data={detail:await r.text()}}if(!r.ok)throw new Error(data.detail||data.message||`Request failed (${r.status})`);return data};
+  const itemById=id=>(audit.items||[]).find(x=>String(x.item_id)===String(id));
+  function qualifies(i){if(filter==='changed')return !!i.changed;if(filter==='attention')return !i.has_media||!!i.error;return true}
+  function stopOthers(except){document.querySelectorAll('.audit-preview video').forEach(v=>{if(v!==except&&!v.paused)v.pause()})}
+  function card(i){
+    const missing=!i.has_media;
+    const media=i.has_media ? (String(i.assigned_media_type||'video').toLowerCase()==='image'
+      ? `<img loading="lazy" src="${esc(i.preview_url)}" alt="${esc(i.scene_code)} preview">`
+      : `<video controls preload="metadata" playsinline src="${esc(i.preview_url)}"></video>`)
+      : `<div class="no-media">⚠ No Media Found</div>`;
+    const source=String(i.source_type||'').toLowerCase();
+    const query=i.query_override||i.keyword_used||i.original_query||'';
+    return `<article class="audit-card ${i.changed?'changed':''} ${missing?'missing':''}" data-item="${esc(i.item_id)}">
+      <div class="audit-preview">${media}</div>
+      <div class="audit-card-body">
+        <div class="audit-card-meta"><div><strong>${esc(i.scene_code||i.item_id)}</strong><small>${time(i.final_start)}–${time(i.final_end)}${i.kind==='intro'?' · Intro':''}</small></div><span class="audit-source-badge ${source==='uploaded'?'uploaded':''}">${esc(source||'missing')}</span></div>
+        <div class="audit-narration">${i.kind==='intro'?'<span class="muted">Intro visual · no narration</span>':esc(i.narration||'No narration excerpt')}</div>
+        <div class="audit-query"><b>Query:</b> ${esc(query||'—')}</div>
+        ${i.error?`<div class="submission-message error" style="display:block">${esc(i.error)}</div>`:''}
+        <div class="audit-actions">
+          <button type="button" data-action="preview" ${missing?'disabled':''}>Preview</button>
+          <button type="button" data-action="replace" class="primary">Get New</button>
+          <button type="button" data-action="keyword">Change Keyword</button>
+          <label>Upload<input type="file" data-action="upload" accept="video/*,.mp4,.mov,.mkv,.webm,.avi,.m4v" hidden></label>
+        </div>
+        <div class="audit-status-line"><span>${i.changed?'Modified':'Original selection'}</span><span>${i.approved?'✓ Reviewed':'Needs review'} · r${Number(i.revision||0)}</span></div>
+      </div></article>`;
+  }
+  function render(){
+    const items=(audit.items||[]).filter(qualifies);
+    grid.innerHTML=items.map(card).join('');empty.hidden=items.length!==0;
+    const total=Number(audit.scene_count||audit.items?.length||0),changed=Number(audit.changed_count||0),missing=Number(audit.missing_count||0),approved=Number(audit.approved_count||0);
+    summary.innerHTML=`<b>${total}</b> scenes · <b>${changed}</b> changed · <b>${missing}</b> missing · <b>${approved}/${total}</b> reviewed`;
+    continueBtn.disabled=missing>0||approved<total||!!audit.approved;
+    approveAll.disabled=missing>0&&approved>=total-missing || !!audit.approved;
+    grid.querySelectorAll('video').forEach(v=>v.addEventListener('play',()=>stopOthers(v)));
+  }
+  async function mutate(itemId,kind,extra={}){
+    const i=itemById(itemId);if(!i)return;
+    const cardEl=grid.querySelector(`[data-item="${CSS.escape(String(itemId))}"]`);cardEl?.classList.add('busy');
+    try{
+      let data;
+      if(kind==='replace') data=await api(`/api/audit-media/${encodeURIComponent(jobId)}/${encodeURIComponent(itemId)}/replace`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:i.revision})});
+      else if(kind==='keyword') data=await api(`/api/audit-media/${encodeURIComponent(jobId)}/${encodeURIComponent(itemId)}/keyword`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:i.revision,keyword:extra.keyword})});
+      audit=data;render();show('Saved ✓');
+    }catch(e){show(e.message,'error');}
+    finally{cardEl?.classList.remove('busy')}
+  }
+  grid.addEventListener('click',e=>{
+    const btn=e.target.closest('button[data-action]');if(!btn)return;
+    const cardEl=btn.closest('.audit-card');if(!cardEl)return;const id=cardEl.dataset.item;const action=btn.dataset.action;
+    if(action==='preview'){const v=cardEl.querySelector('video');if(v){stopOthers(v);v.paused?v.play():v.pause()}else cardEl.querySelector('img')?.scrollIntoView({behavior:'smooth',block:'center'});}
+    if(action==='replace')mutate(id,'replace');
+    if(action==='keyword'){const i=itemById(id);keywordItem=id;keywordInput.value=i?.query_override||i?.keyword_used||i?.original_query||'';modal.hidden=false;setTimeout(()=>keywordInput.focus(),0)}
+  });
+  grid.addEventListener('change',async e=>{
+    const input=e.target.closest('input[data-action="upload"]');if(!input||!input.files?.[0])return;
+    const cardEl=input.closest('.audit-card'),id=cardEl.dataset.item,i=itemById(id),fd=new FormData();fd.append('file',input.files[0]);fd.append('revision',String(i?.revision||0));
+    try{cardEl.classList.add('busy');audit=await api(`/api/audit-media/${encodeURIComponent(jobId)}/${encodeURIComponent(id)}/upload`,{method:'POST',body:fd});render();show('Replacement uploaded · Saved ✓')}catch(err){show(err.message,'error')}finally{cardEl.classList.remove('busy');input.value=''}
+  });
+  document.querySelectorAll('.audit-filter').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.audit-filter').forEach(x=>x.classList.remove('active'));b.classList.add('active');filter=b.dataset.filter;render()}));
+  document.getElementById('keyword-cancel').onclick=()=>{modal.hidden=true;keywordItem=null};
+  modal.addEventListener('click',e=>{if(e.target===modal){modal.hidden=true;keywordItem=null}});
+  document.getElementById('keyword-save').onclick=async()=>{const id=keywordItem,keyword=keywordInput.value.trim();if(!id||!keyword)return;modal.hidden=true;keywordItem=null;await mutate(id,'keyword',{keyword})};
+  approveAll.onclick=async()=>{try{audit=await api(`/api/audit-media/${encodeURIComponent(jobId)}/approve-all`,{method:'POST'});render();show('All available scenes reviewed ✓')}catch(e){show(e.message,'error')}};
+  continueBtn.onclick=async()=>{if(!confirm('Approve the first 2-minute visuals and continue automatic production?'))return;try{continueBtn.disabled=true;await api(`/api/audit-media/${encodeURIComponent(jobId)}/continue`,{method:'POST'});location.href='/queue'}catch(e){show(e.message,'error');render()}};
+  if(!audit||!Array.isArray(audit.items)){api(`/api/audit-media/${encodeURIComponent(jobId)}`).then(d=>{audit=d;render()}).catch(e=>show(e.message,'error'))}else render();
+})();
+</script>
+{% endif %}
+{% endblock %}
