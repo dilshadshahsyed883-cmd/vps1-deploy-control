@@ -56,10 +56,11 @@ jobs:
           print("FOUR_SENSITIVE_JOBS_ENVIRONMENT_BOUND=PASS")
           print("THREE_LEGACY_VPS_REMOTE_JOBS_HARD_DISABLED=PASS")
           proof=open(".github/workflows/vps1-main-ssh-proof-once.yml",encoding="utf-8").read()
+          job=proof.split("  main-readonly-ssh:",1)[1]
           expected_pin="SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E"
           obsolete_pin="SHA256:pHVIA8i/zuowqpDCaGbKc4bWGNcp/DRziKemWZS0ZdQ"
-          assert "expected='"+expected_pin+"'" in proof
-          assert obsolete_pin not in proof
+          assert "expected='"+expected_pin+"'" in job
+          assert obsolete_pin not in job
           for required in (
               "github.event_name == 'push'",
               "github.ref == 'refs/heads/main'",
@@ -69,7 +70,7 @@ jobs:
               "vps1deploy@100.113.253.99",
               "VPS1_DEPLOYMENT=NOT_ATTEMPTED",
           ):
-              assert required in proof, required
+              assert required in job, required
           print("CORRECTED_SSH_PIN_MAIN_ONLY_NO_DEPLOY_GUARDS=PASS")
           PY
           ! grep -q 'workflow_dispatch:' .github/workflows/vps1-main-ssh-proof-once.yml
