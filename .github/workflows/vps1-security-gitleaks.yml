@@ -95,7 +95,7 @@ jobs:
                   tracked = subprocess.check_output(
                       ["git", "-C", __import__("os").environ["GITHUB_WORKSPACE"],
                        "ls-files", "-z"], text=True
-                  ).split("\\x00")
+                  ).split(chr(0))
                   tracked_index = {name: index for index, name in enumerate(tracked) if name}
                   def safe_index(row):
                       path = str(row.get("File", "")) if isinstance(row, dict) else ""
