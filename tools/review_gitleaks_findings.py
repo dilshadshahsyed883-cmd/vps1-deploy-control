@@ -74,7 +74,7 @@ def main():
                 f"- {mode}: total={len(data)}, exact-reviewed-legacy-fixtures={ignored}, "
                 f"unresolved={unresolved}, exit={status}, status={'PASS' if passed else 'BLOCKED'}"
             )
-            print(f"GITLEAKS_{mode.upper()}={'PASS' if passed else 'BLOCKED'}")
+            print(f"GITLEAKS_{mode.upper()}={'PASS' if passed else 'BLOCKED'}; TOTAL={len(data)}; REVIEWED={ignored}; UNRESOLVED={unresolved}; EXIT={status}")
             failed |= not passed
         except (ValueError, OSError, KeyError):
             failed = True
