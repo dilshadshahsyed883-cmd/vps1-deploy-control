@@ -3,6 +3,9 @@ on:
   pull_request:
     paths:
       - '.github/workflows/vps1-main-ssh-proof-once.yml'
+      - '.github/workflows/vps1-pilot-deploy.yml'
+      - '.github/workflows/vps1-audio-404-probe.yml'
+      - '.github/workflows/vps1-connection-check.yml'
   push:
     branches: [main]
     paths:
@@ -33,7 +36,26 @@ jobs:
         run: |
           set -Eeuo pipefail
           changed="$(git diff --name-only --diff-filter=ACMRTD "$BASE_SHA" "$HEAD_SHA")"
-          test "$changed" = '.github/workflows/vps1-main-ssh-proof-once.yml'
+          # Allow only the four security-only workflow modifications in this PR.
+          python3 - <<'PY'
+          import os,subprocess
+          files=set(subprocess.check_output(["git","diff","--name-only","--diff-filter=ACMRTD",os.environ["BASE_SHA"],os.environ["HEAD_SHA"]],text=True).splitlines())
+          allowed={
+            ".github/workflows/vps1-main-ssh-proof-once.yml",
+            ".github/workflows/vps1-pilot-deploy.yml",
+            ".github/workflows/vps1-audio-404-probe.yml",
+            ".github/workflows/vps1-connection-check.yml",
+          }
+          assert files and files <= allowed, files
+          for name in allowed:
+              content=open(name,encoding="utf-8").read()
+              assert "    environment: production" in content, name
+              assert "secrets." in content, name
+              if name != ".github/workflows/vps1-main-ssh-proof-once.yml":
+                  assert "if: ${{ false && vars.VPS1_TAILSCALE_READY == 'yes' }}" in content, name
+          print("FOUR_SENSITIVE_JOBS_ENVIRONMENT_BOUND=PASS")
+          print("THREE_LEGACY_VPS_REMOTE_JOBS_HARD_DISABLED=PASS")
+          PY
           ! grep -q 'workflow_dispatch:' .github/workflows/vps1-main-ssh-proof-once.yml
           echo 'GITHUB_PROOF_PR_ONLY_ONE_SAFE_WORKFLOW=PASS'
       - name: Verify existing main-branch pilot and release tests offline
@@ -46,6 +68,7 @@ jobs:
 
   main-readonly-ssh:
     name: main-only-oidc-ssh-readback
+    environment: production
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
