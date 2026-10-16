@@ -36,7 +36,7 @@ assert 'environment: production' in pj
 disabled(pj, proof_name)
 # Fail closed until a separate explicitly authorized commit pins a real prior-main SHA.
 # This draft preparation MUST NOT create an executable job.
-guard = re.search(r"(?m)^    if: >-\\n((?:      .*\\n)+)", pj)
+guard = re.search(r"(?m)^    if: >-\n((?:      .*\n)+)", pj)
 assert guard, "SSH proof job guard missing"
 guard_lines = [line.strip() for line in guard.group(1).splitlines()]
 assert guard_lines == [
