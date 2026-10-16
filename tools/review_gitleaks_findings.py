@@ -13,7 +13,6 @@ LINE_HASH = {
     114: "e4086f94841f93d7d0f229b9463e480f65206b3fce08f73597c34f71154ab057",
     116: "ce236acbde0f04ad0978f3e233c6fddaecd59d85565f6e0cd0bfde07759cdc7a",
 }
-VALUE_HASH = "5220010829485f7c8447ed437ff189d1741e0a703dfc663d93dc390343e2de67"
 EXPECTED_NEXT = "with self.assertRaises(ValueError):builder.file_list(p)"
 
 
@@ -33,8 +32,8 @@ def reviewed_legacy_fixture(finding, mode, root):
         return False
     if number not in LINE_HASH:
         return False
-    if digest(str(finding.get("Secret", ""))) != VALUE_HASH:
-        return False
+    # Scanner --redact=100 also redacts the JSON secret field.
+    # Instead validate the exact historical source-line SHA256 below.
     commit = str(finding.get("Commit", ""))
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         return False
