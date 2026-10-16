@@ -56,7 +56,7 @@ jobs:
           print("FOUR_SENSITIVE_JOBS_ENVIRONMENT_BOUND=PASS")
           print("THREE_LEGACY_VPS_REMOTE_JOBS_HARD_DISABLED=PASS")
           proof=open(".github/workflows/vps1-main-ssh-proof-once.yml",encoding="utf-8").read()
-          job=proof.split("  main-readonly-ssh:",1)[1]
+          job=proof.rsplit("\n  main-readonly-ssh:\n",1)[1]
           expected_pin="SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E"
           obsolete_pin="SHA256:pHVIA8i/zuowqpDCaGbKc4bWGNcp/DRziKemWZS0ZdQ"
           assert "expected='"+expected_pin+"'" in job
