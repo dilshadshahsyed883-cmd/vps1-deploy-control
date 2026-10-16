@@ -81,12 +81,24 @@ jobs:
                   if not isinstance(data, list):
                       raise ValueError("unexpected format")
                   count = len(data)
+                  # Rule IDs (strictly sanitized) give safe categories while
+                  # preventing credentials, paths and commit data in logs.
+                  import collections
+                  import re
+                  categories = collections.Counter(
+                      str(row.get("RuleID", "unknown")) for row in data
+                      if isinstance(row, dict)
+                  )
+                  category_line = ", ".join(
+                      f"{re.sub(r'[^a-zA-Z0-9_-]', '', key)[:60]}={value}"
+                      for key, value in sorted(categories.items())
+                  ) or "none"
               except (ValueError, OSError):
                   print(f"GITLEAKS_{mode.upper()}_REPORT=INVALID; EXIT={status}")
                   lines.append(f"- {mode}: report invalid; manual follow-up required.")
                   failed = True
               else:
-                  print(f"GITLEAKS_{mode.upper()}_FINDINGS={count}; EXIT={status}")
+                  print(f"GITLEAKS_{mode.upper()}_FINDINGS={count}; EXIT={status}; RULE_CATEGORIES={category_line}")
                   lines.append(f"- {mode}: {count} potential finding(s); tool exit {status}.")
                   if count or status != 0:
                       failed = True
