@@ -1,0 +1,267 @@
+{
+  "schema_version": 1,
+  "source": "N7G3",
+  "completeness": "PARTIAL_FILE_SCOPED",
+  "observed_utc": "2026-10-16T15:24:53Z",
+  "source_url": "https://drive.google.com/file/d/1n4tkU7qnT0pGO06sL9RQ2i97dL1QJ0Jd/view",
+  "routes": [
+    {
+      "path": "/_internal/auto-caption-auth",
+      "upstream_port": 8080,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/_internal/local-upload-manager-auth",
+      "upstream_port": 8080,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/auto-caption",
+      "upstream_port": null,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/auto-caption/api/",
+      "upstream_port": 8100,
+      "auth_mentioned": "YES",
+      "websocket": false
+    },
+    {
+      "path": "/auto-caption/",
+      "upstream_port": null,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/auto-caption/live",
+      "upstream_port": 8080,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/auto-caption/",
+      "upstream_port": 8080,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/api/master-controller/chatgpt/ws",
+      "upstream_port": 8080,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": true
+    },
+    {
+      "path": "/",
+      "upstream_port": 8080,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/lum-oauth",
+      "upstream_port": null,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/lum-privacy",
+      "upstream_port": null,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/lum-terms",
+      "upstream_port": null,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/LUM",
+      "upstream_port": null,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/LUM/health",
+      "upstream_port": 8015,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/LUM/",
+      "upstream_port": 8015,
+      "auth_mentioned": "YES",
+      "websocket": false
+    },
+    {
+      "path": "/local-upload-manager-engine2",
+      "upstream_port": null,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/local-upload-manager-engine2/health",
+      "upstream_port": 8102,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/local-upload-manager-engine2/",
+      "upstream_port": 8102,
+      "auth_mentioned": "YES",
+      "websocket": false
+    },
+    {
+      "path": "/local-upload-manager-engine3",
+      "upstream_port": null,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/local-upload-manager-engine3/health",
+      "upstream_port": 8103,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/local-upload-manager-engine3/",
+      "upstream_port": 8103,
+      "auth_mentioned": "YES",
+      "websocket": false
+    },
+    {
+      "path": "/algrow-voice/viewer/websockify",
+      "upstream_port": 8080,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": true
+    },
+    {
+      "path": "/lumconnection",
+      "upstream_port": null,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/lumconnection/health",
+      "upstream_port": 8016,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/lumconnection/",
+      "upstream_port": 8016,
+      "auth_mentioned": "YES",
+      "websocket": false
+    },
+    {
+      "path": "/acs-audio-engine",
+      "upstream_port": null,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/acs-audio-engine/",
+      "upstream_port": 8126,
+      "auth_mentioned": "YES",
+      "websocket": false
+    },
+    {
+      "path": "/script-work/viewer/websockify",
+      "upstream_port": 8080,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": true
+    },
+    {
+      "path": "/short-maker",
+      "upstream_port": null,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/short-maker/",
+      "upstream_port": 8131,
+      "auth_mentioned": "YES",
+      "websocket": false
+    },
+    {
+      "path": "/short-stream",
+      "upstream_port": null,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/short-stream/",
+      "upstream_port": 8132,
+      "auth_mentioned": "YES",
+      "websocket": false
+    },
+    {
+      "path": "/video-merger",
+      "upstream_port": null,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/video-merger/health",
+      "upstream_port": 8129,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/video-merger/",
+      "upstream_port": 8129,
+      "auth_mentioned": "YES",
+      "websocket": false
+    },
+    {
+      "path": "/_internal/audio-engine-auth",
+      "upstream_port": 8080,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/audio-engine",
+      "upstream_port": null,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/audio-engine/",
+      "upstream_port": 8080,
+      "auth_mentioned": "YES",
+      "websocket": false
+    },
+    {
+      "path": "/audio-engine/app",
+      "upstream_port": 8125,
+      "auth_mentioned": "YES",
+      "websocket": false
+    },
+    {
+      "path": "/audio-engine/app/",
+      "upstream_port": null,
+      "auth_mentioned": "UNKNOWN",
+      "websocket": false
+    },
+    {
+      "path": "/audio-engine/health",
+      "upstream_port": 8125,
+      "auth_mentioned": "YES",
+      "websocket": false
+    },
+    {
+      "path": "/audio-engine/api/",
+      "upstream_port": 8125,
+      "auth_mentioned": "YES",
+      "websocket": false
+    },
+    {
+      "path": "/audio-engine/media/",
+      "upstream_port": 8125,
+      "auth_mentioned": "YES",
+      "websocket": false
+    }
+  ]
+}
