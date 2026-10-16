@@ -20,9 +20,9 @@ concurrency:
 
 jobs:
   isolated-deploy:
-    # SECURITY GATE #21: no SSH/Tailscale access from GitHub CI during Phase 1.
-    # Re-enable only via separately reviewed Phase 2 PR after privileges and Agent 1 evidence.
+    # PHASE 1: fail-closed. Variable alone must never authorize live VPS access.
     if: ${{ false && vars.VPS1_TAILSCALE_READY == 'yes' }}
+    environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
