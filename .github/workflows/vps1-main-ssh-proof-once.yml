@@ -50,6 +50,8 @@ jobs:
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
       contains(github.event.head_commit.message, '[vps1-ssh-proof-authorized]')
+    environment:
+      name: production
     runs-on: ubuntu-24.04
     timeout-minutes: 7
     permissions:
