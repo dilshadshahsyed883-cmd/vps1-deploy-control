@@ -26,7 +26,10 @@ jobs:
       - uses: actions/checkout@v4
       - run: python3 -m unittest rebuild.tests.test_stage_fresh_app -v
   audit:
+    # PHASE 1 HOLD: no scheduled/dispatch SSH until Agent 1 verification
+    # and independently reviewed Phase 2 enablement; old vars cannot unblock.
     if: >-
+      false &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
       github.ref == 'refs/heads/main' &&
       vars.VPS1_OVH_SNAPSHOT_VERIFIED == 'yes' &&

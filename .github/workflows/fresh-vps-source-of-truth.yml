@@ -92,9 +92,11 @@ jobs:
 
   auto-stage:
     needs: [classify, candidate]
-    # FOUR independent opt-in controls, protected main only, and no shared-file
-    # changes. Not a production workflow. Nothing on the VPS is restarted.
+    # PHASE 1 CUTOVER HOLD: never contact VPS on a merge to main.
+    # Variables alone are not release authorization. Phase 2 must explicitly
+    # remove the literal false gate in a separately reviewed change.
     if: >-
+      false &&
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
       needs.classify.outputs.manual_review == 'false' &&

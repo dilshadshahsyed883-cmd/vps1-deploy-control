@@ -83,6 +83,19 @@ class RepositorySourceOfTruthContract(unittest.TestCase):
         self.assertIn('appFrame.setAttribute("src", item.path)', client)
         self.assertIn("shell-assets/apps.json", client)
 
+    def test_phase1_github_remote_lanes_are_unconditionally_disabled(self):
+        # Merely setting GitHub vars cannot open any automatic VPS connection.
+        for workflow, job in (
+            ("fresh-vps-source-of-truth.yml", "auto-stage"),
+            ("vps1-staging-drift.yml", "audit"),
+        ):
+            with self.subTest(workflow=workflow):
+                body = (ROOT / ".github/workflows" / workflow).read_text()
+                section = body.split("\n  " + job + ":\n", 1)[1]
+                condition = section.split("\n    runs-on:", 1)[0]
+                self.assertRegex(condition, r"(?m)^    if: >-\n      false &&\n")
+                self.assertIn("github.ref == 'refs/heads/main'", condition)
+
     def test_nginx_requires_separate_host_route_adoption(self):
         registry = document("infrastructure/registry/apps.json")
         self.assertEqual(registry["domain"], "app.scenebuilder.online")

@@ -1,6 +1,6 @@
 # VPS_1 — GitHub source of truth and guarded release candidates
 
-Canonical code source: private repository dilshadshahsyed883-cmd/vps1-deploy-control.
+Canonical candidate source: PUBLIC repository dilshadshahsyed883-cmd/vps1-deploy-control (visibility verified 2026-10-16).
 This lane is based on the unmerged fresh-rebuild PR and does **not** change
 production. Existing Drive Bridge and snapshot/cutover safeguards remain in force.
 
@@ -26,8 +26,15 @@ production. Existing Drive Bridge and snapshot/cutover safeguards remain in forc
 
 Pull request: classify and test; build each safe changed application; NEVER
 contact VPS. Merges into main: repeat tests/build; keep artifact evidence.
-Optional automatic staging requires all these GitHub repository variables to
-be exactly yes:
+PHASE 1 HARD HOLD: the automatic main-push `auto-stage` job has an explicit
+literal `false &&` condition. Even with all variables enabled it CANNOT SSH,
+scp or stage on VPS_1. Candidate build/test remains available without host
+access. This hold must only be removed by a separately reviewed Phase 2 change
+after snapshot/restore, mutable data backups, Agent 1 Drive Bridge evidence,
+protected main, security review and explicit user approval.
+
+Historically optional staging requires these GitHub repository variables to
+be exactly yes (currently INSUFFICIENT without removing the hard hold):
 
 - VPS1_OVH_SNAPSHOT_VERIFIED
 - VPS1_POST_SNAPSHOT_STAGING_APPROVED
@@ -41,8 +48,12 @@ is NOT implemented or authorized in this lane.
 
 ## Optional staging integrity watch
 
-The new staging-only drift workflow can check one or all ten active groups
-read-only each day or on demand, once snapshot and staging are approved.
+The staged integrity `audit` job is also statically disabled for Phase 1,
+including the scheduled main-branch trigger; unknown old GitHub variables
+cannot initiate VPS SSH. Re-enabling requires a reviewed Phase 2 change.
+
+Once separately authorized, it can check one or all ten active groups
+read-only each day or on demand.
 The additional variable `VPS1_STAGING_DRIFT_WATCH_APPROVED=yes` is required.
 It runs the trusted GitHub-checkout validator via SSH stdin without
 copying the script to the VPS. It checks the stored release digests,
@@ -50,6 +61,19 @@ active commit SHA, unexpected files and symlink escapes; unstaged apps
 are not reported as successful. Auto Script remains offline.
 Local metadata can itself be tampered with: this is local integrity
 monitoring, not independent GitHub artifact attestation or production monitoring.
+
+## PUBLIC exposure and non-production main merge security gate
+
+The repository is currently PUBLIC. No credential/history leak clearance is
+claimed from a current-tree filename scan or a passing source CI suite.
+Before treating main as the authoritative release source, complete a dedicated
+full Git-history and working-tree secret scan, inspect imported backups and
+sensitive paths, verify GitHub Actions environment/secret access, revoke or
+rotate any exposed credential, and review third-party code/license exposure.
+Repository visibility must not be changed automatically. Existing isolated
+pilot workflow also supports main-push execution only for pilot-specific paths;
+this migration does not change those paths. Do not merge additional pilot
+changes without a separate trigger review.
 
 ## Remaining hard blockers to production automation
 
