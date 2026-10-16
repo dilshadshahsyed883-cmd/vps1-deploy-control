@@ -1,0 +1,99 @@
+name: VPS1 one-time CI SSH proof (READ ONLY - NO DEPLOY)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/vps1-main-ssh-proof-once.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vps1-main-ssh-proof-once.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vps1-one-time-ci-ssh-proof
+  cancel-in-progress: false
+
+jobs:
+  source-contract:
+    if: ${{ github.event_name == 'pull_request' }}
+    name: validate-git-source-of-truth
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify this PR modifies exactly one non-deployment workflow
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+          changed="$(git diff --name-only --diff-filter=ACMRTD "$BASE_SHA" "$HEAD_SHA")"
+          test "$changed" = '.github/workflows/vps1-main-ssh-proof-once.yml'
+          ! grep -q 'workflow_dispatch:' .github/workflows/vps1-main-ssh-proof-once.yml
+          echo 'GITHUB_PROOF_PR_ONLY_ONE_SAFE_WORKFLOW=PASS'
+      - name: Verify existing main-branch pilot and release tests offline
+        run: |
+          set -Eeuo pipefail
+          python3 -m unittest discover -s tests -v
+          python3 tools/build_pilot.py
+          python3 tools/validate_release.py --manifest dist/release.json
+          echo 'GITHUB_PROOF_OFFLINE_TESTS=PASS'
+
+  main-readonly-ssh:
+    name: main-only-oidc-ssh-readback
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      contains(github.event.head_commit.message, '[vps1-ssh-proof-authorized]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Join restricted tailnet with main-only GitHub OIDC tag:ci
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Authenticate existing non-root SSH identity (NO VPS changes)
+        shell: bash
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          [ -n "${PRIVATE_IDENTITY:-}" ] || { echo 'VPS1_SSH_PRIVATE_KEY_UNAVAILABLE=BLOCKED'; exit 1; }
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/identity"
+          unset PRIVATE_IDENTITY
+          chmod 0600 "$scratch/identity"
+          ssh-keygen -y -P '' -f "$scratch/identity" > "$scratch/public"
+          actual="$(ssh-keygen -lf "$scratch/public" -E sha256 | awk '{print $2}')"
+          expected='SHA256:pHVIA8i/zuowqpDCaGbKc4bWGNcp/DRziKemWZS0ZdQ'
+          test "$actual" = "$expected" || { echo 'SSH_IDENTITY_FINGERPRINT=BLOCKED'; exit 1; }
+          echo 'SSH_IDENTITY_FINGERPRINT=PASS'
+          # Agent1 2026-10-14 host key; never trust unauthenticated ssh-keyscan.
+          printf '%s\n' '100.113.253.99 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAtrAUnyLuDM3FsUw/E2EtVtHF3f3d4nRonXxl/oIpmQ' > "$scratch/known_hosts"
+          timeout 75s ssh -T -p 22 -i "$scratch/identity" \
+            -o UserKnownHostsFile="$scratch/known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            -o UpdateHostKeys=no \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o PreferredAuthentications=publickey \
+            -o PasswordAuthentication=no \
+            -o KbdInteractiveAuthentication=no \
+            -o ConnectTimeout=20 \
+            vps1deploy@100.113.253.99 \
+            'set -eu; test "$(id -un)" = vps1deploy; test "$(id -u)" != 0; if id -Gn | grep -Eq "(^| )(sudo|wheel)( |$)"; then echo PRIVILEGED_GROUP=BLOCKED; exit 1; fi; echo VPS1_SSH_USER_NONROOT=PASS; echo VPS1_REMOTE_READ_ONLY=PASS'
+          echo 'VPS1_GITHUB_OIDC_SSH_AUTH=PASS'
+          echo 'VPS1_DEPLOYMENT=NOT_ATTEMPTED'
