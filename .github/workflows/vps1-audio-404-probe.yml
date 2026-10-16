@@ -9,7 +9,9 @@ permissions:
   id-token: write
 jobs:
   probe-audio-only:
-    if: ${{ vars.VPS1_TAILSCALE_READY == 'yes' }}
+    # SECURITY GATE #21: no SSH/Tailscale access from GitHub CI during Phase 1.
+    # Re-enable only via separately reviewed Phase 2 PR after privileges and Agent 1 evidence.
+    if: ${{ false && vars.VPS1_TAILSCALE_READY == 'yes' }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
