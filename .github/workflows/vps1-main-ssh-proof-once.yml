@@ -55,6 +55,22 @@ jobs:
                   assert "false && vars.VPS1_TAILSCALE_READY" in content, name
           print("FOUR_SENSITIVE_JOBS_ENVIRONMENT_BOUND=PASS")
           print("THREE_LEGACY_VPS_REMOTE_JOBS_HARD_DISABLED=PASS")
+          proof=open(".github/workflows/vps1-main-ssh-proof-once.yml",encoding="utf-8").read()
+          expected_pin="SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E"
+          obsolete_pin="SHA256:pHVIA8i/zuowqpDCaGbKc4bWGNcp/DRziKemWZS0ZdQ"
+          assert "expected='"+expected_pin+"'" in proof
+          assert obsolete_pin not in proof
+          for required in (
+              "github.event_name == 'push'",
+              "github.ref == 'refs/heads/main'",
+              "contains(github.event.head_commit.message, '[vps1-ssh-proof-authorized]')",
+              "StrictHostKeyChecking=yes",
+              "UpdateHostKeys=no",
+              "vps1deploy@100.113.253.99",
+              "VPS1_DEPLOYMENT=NOT_ATTEMPTED",
+          ):
+              assert required in proof, required
+          print("CORRECTED_SSH_PIN_MAIN_ONLY_NO_DEPLOY_GUARDS=PASS")
           PY
           ! grep -q 'workflow_dispatch:' .github/workflows/vps1-main-ssh-proof-once.yml
           echo 'GITHUB_PROOF_PR_ONLY_ONE_SAFE_WORKFLOW=PASS'
@@ -101,7 +117,7 @@ jobs:
           chmod 0600 "$scratch/identity"
           ssh-keygen -y -P '' -f "$scratch/identity" > "$scratch/public"
           actual="$(ssh-keygen -lf "$scratch/public" -E sha256 | awk '{print $2}')"
-          expected='SHA256:pHVIA8i/zuowqpDCaGbKc4bWGNcp/DRziKemWZS0ZdQ'
+          expected='SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
           test "$actual" = "$expected" || { echo 'SSH_IDENTITY_FINGERPRINT=BLOCKED'; exit 1; }
           echo 'SSH_IDENTITY_FINGERPRINT=PASS'
           # Agent1 2026-10-14 host key; never trust unauthenticated ssh-keyscan.
