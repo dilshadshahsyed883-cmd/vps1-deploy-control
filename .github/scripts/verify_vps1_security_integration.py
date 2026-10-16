@@ -34,6 +34,26 @@ assert pin in proof and obsolete not in proof
 pj = job(proof, 'main-readonly-ssh')
 assert 'environment: production' in pj
 disabled(pj, proof_name)
+# Fail closed until a separate explicitly authorized commit pins a real prior-main SHA.
+# This draft preparation MUST NOT create an executable job.
+guard = re.search(r"(?m)^    if: >-\n((?:      .*\n)+)", pj)
+assert guard, "SSH proof job guard missing"
+guard_lines = [line.strip() for line in guard.group(1).splitlines()]
+assert guard_lines == [
+    "false &&",
+    "github.event_name == 'push' &&",
+    "github.ref == 'refs/heads/main' &&",
+    "github.run_attempt == 1 &&",
+    "github.event.before == 'PENDING_SEPARATE_AUTHORIZATION' &&",
+    "contains(github.event.head_commit.message, '[vps1-ssh-proof-authorized]')",
+], "SSH proof conditions changed or accidentally enabled"
+preflight_name = "- name: Reject replay or unexpected ref before OIDC"
+join_action = "uses: tailscale/github-action@v4"
+assert pj.count(preflight_name) == 1
+assert pj.index(preflight_name) < pj.index(join_action), "OIDC starts before preflight"
+preflight = pj[pj.index(preflight_name):pj.index(join_action)]
+for check in ('test "$GITHUB_RUN_ATTEMPT" = "1"', 'test "$GITHUB_EVENT_NAME" = "push"', 'test "$GITHUB_REF" = "refs/heads/main"'):
+    assert check in preflight, "missing fail-closed preflight: " + check
 for term in ("github.event_name == 'push'", "github.ref == 'refs/heads/main'", '[vps1-ssh-proof-authorized]', "expected='" + pin + "'", 'StrictHostKeyChecking=yes','UpdateHostKeys=no','vps1deploy@100.113.253.99','VPS1_DEPLOYMENT=NOT_ATTEMPTED'):
     assert term in pj, term
 for file,name in legacy.items():
@@ -58,5 +78,6 @@ print('PROTECTED_FOUR_WORKFLOWS=PASS')
 print('CORRECTED_SSH_PIN_AND_MAIN_ONLY=PASS')
 print('THREE_LEGACY_GUARDS=PASS')
 print('SEVEN_CREDENTIAL_CONSUMERS_STATICALLY_DISABLED=PASS')
+print('SSH_PROOF_REPLAY_AND_PRIOR_SHA_HOLDS=PASS')
 print('NO_REPOSITORY_SECRET_RUNTIME_FALLBACK=PASS_BY_FAIL_CLOSED_JOBS')
 print('ELEVEN_GROUPS_AUTO_SCRIPT_OFFLINE=PASS')
