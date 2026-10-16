@@ -1,0 +1,119 @@
+name: Auto Script / isolated production CI-CD
+on:
+  pull_request:
+    paths:
+      - 'apps/auto-script/**'
+      - 'tools/build_auto_script_release.py'
+      - 'tests/test_auto_script_release.py'
+      - 'scripts/auto_script_apply_on_vps.sh'
+      - '.github/workflows/auto-script-production.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/auto-script/**'
+      - 'tools/build_auto_script_release.py'
+      - 'tests/test_auto_script_release.py'
+      - 'scripts/auto_script_apply_on_vps.sh'
+      - '.github/workflows/auto-script-production.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  validate-and-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate source-only archive and tests
+        run: |
+          set -Eeuo pipefail
+          python3 -m unittest discover -s tests -p 'test_auto_script_release.py' -v
+          bash -n scripts/auto_script_apply_on_vps.sh
+          python3 tools/build_auto_script_release.py
+          python3 - <<'PY'
+          import hashlib,json,pathlib,tarfile
+          d=pathlib.Path("dist/auto-script")
+          manifest=json.loads((d/"release.json").read_text())
+          assert manifest["app_id"]=="auto-script"
+          assert hashlib.sha256((d/"auto-script.tar.gz").read_bytes()).hexdigest()==manifest["sha256"]
+          with tarfile.open(d/"auto-script.tar.gz") as tar:
+              assert len(tar.getmembers())==5
+              assert all(x.isfile() and x.name.startswith("auto-script/") for x in tar.getmembers())
+          print("AUTO_SCRIPT_CI_RELEASE=PASS",manifest["sha256"])
+          PY
+      - name: Publish exact checked release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: auto-script-${{ github.sha }}
+          path: |
+            dist/auto-script/auto-script.tar.gz
+            dist/auto-script/release.json
+          retention-days: 30
+          if-no-files-found: error
+
+  deploy:
+    needs: validate-and-release
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.AUTOSCRIPT_PRODUCTION_READY == 'yes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: auto-script-production
+    concurrency:
+      group: auto-script-production
+      cancel-in-progress: false
+    steps:
+      - name: Restore validated immutable release
+        uses: actions/download-artifact@v4
+        with:
+          name: auto-script-${{ github.sha }}
+          path: dist/auto-script
+      - name: Join existing Tailscale OIDC network
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Configure pinned SSH identity (reuse verified VPS endpoint)
+        env:
+          SSH_KEY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${SSH_KEY:-}"
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$RUNNER_TEMP/auto_script_id_ed25519"
+          chmod 0600 "$RUNNER_TEMP/auto_script_id_ed25519"
+          ssh-keygen -y -f "$RUNNER_TEMP/auto_script_id_ed25519" | grep -q '^ssh-ed25519 '
+          printf '%s\n' '100.113.253.99 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAtrAUnyLuDM3FsUw/E2EtVtHF3f3d4nRonXxl/oIpmQ' > "$RUNNER_TEMP/auto_script_known_hosts"
+          {
+            echo 'Host vps1-auto-script'
+            echo '  HostName 100.113.253.99'
+            echo '  User vps1deploy'
+            echo "  IdentityFile $RUNNER_TEMP/auto_script_id_ed25519"
+            echo "  UserKnownHostsFile $RUNNER_TEMP/auto_script_known_hosts"
+            echo '  StrictHostKeyChecking yes'
+            echo '  BatchMode yes'
+            echo '  IdentitiesOnly yes'
+            echo '  ConnectTimeout 20'
+          } > "$HOME/.ssh/config"
+          chmod 0600 "$HOME/.ssh/config"
+      - name: Verify digest, upload only Auto Script release
+        run: |
+          set -Eeuo pipefail
+          SHA="$GITHUB_SHA"
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
+          DIGEST="$(python3 -c 'import json;print(json.load(open("dist/auto-script/release.json"))["sha256"])')"
+          [[ "$DIGEST" =~ ^[0-9a-f]{64}$ ]]
+          echo "$DIGEST  dist/auto-script/auto-script.tar.gz" | sha256sum -c -
+          timeout 35s ssh vps1-auto-script "mkdir -p -m 700 ~/auto-script-incoming/$SHA"
+          timeout 60s scp -q dist/auto-script/auto-script.tar.gz dist/auto-script/release.json "vps1-auto-script:auto-script-incoming/$SHA/"
+          echo "AUTO_SCRIPT_UPLOADED_DIGEST=$DIGEST"
+      - name: Invoke root-owned app-specific allowlisted deploy and rollback
+        run: |
+          set -Eeuo pipefail
+          SHA="$GITHUB_SHA"
+          DIGEST="$(python3 -c 'import json;print(json.load(open("dist/auto-script/release.json"))["sha256"])')"
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ && "$DIGEST" =~ ^[0-9a-f]{64}$ ]]
+          timeout 140s ssh vps1-auto-script "sudo -n /usr/local/sbin/auto-script-apply-release $SHA $DIGEST"
+          echo "AUTO_SCRIPT_REMOTE_RELEASE_STEP=PASS"
