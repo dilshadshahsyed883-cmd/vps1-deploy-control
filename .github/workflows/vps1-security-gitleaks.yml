@@ -23,6 +23,9 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          # Include every published branch and tag rather than just PR checkout refs.
+          git fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*'
+          git fetch origin '+refs/tags/*:refs/tags/*'
           test "$(git rev-parse --is-shallow-repository)" = false
           test "$(git rev-list --all --count)" -gt 0
           printf 'History scan scope: all locally fetched refs; no shallow checkout.\n'
@@ -56,79 +59,5 @@ jobs:
           dir_result=$?
           set -e
 
-          # Display aggregate counts only. Do not print match, file paths,
-          # commit metadata or raw reports in public CI logs.
-          python3 - "$RUNNER_TEMP" "$git_result" "$dir_result" <<'PY'
-          import json
-          import pathlib
-          import sys
-
-          root = pathlib.Path(sys.argv[1])
-          results = {"git": int(sys.argv[2]), "dir": int(sys.argv[3])}
-          failed = False
-          lines = ["### Gitleaks redacted review (no findings disclosed)"]
-          for mode, status in results.items():
-              path = root / f"vps1-gitleaks-{mode}.json"
-              if not path.exists():
-                  print(f"GITLEAKS_{mode.upper()}_REPORT=MISSING; EXIT={status}")
-                  lines.append(f"- {mode}: scan report missing; manual follow-up required.")
-                  failed = True
-                  continue
-              try:
-                  data = json.loads(path.read_text(encoding="utf-8"))
-                  if data is None:
-                      data = []
-                  if not isinstance(data, list):
-                      raise ValueError("unexpected format")
-                  count = len(data)
-                  # Rule IDs (strictly sanitized) give safe categories while
-                  # preventing credentials, paths and commit data in logs.
-                  import collections
-                  import re
-                  categories = collections.Counter(
-                      str(row.get("RuleID", "unknown")) for row in data
-                      if isinstance(row, dict)
-                  )
-                  # Use opaque index into the public tracked-file list, not
-                  # paths or matching lines. Reviewers can resolve privately.
-                  import subprocess
-                  tracked = subprocess.check_output(
-                      ["git", "-C", __import__("os").environ["GITHUB_WORKSPACE"],
-                       "ls-files", "-z"], text=True
-                  ).split(chr(0))
-                  tracked_index = {name: index for index, name in enumerate(tracked) if name}
-                  def safe_index(row):
-                      path = str(row.get("File", "")) if isinstance(row, dict) else ""
-                      path = path.removeprefix("/repo/").removeprefix("./")
-                      return tracked_index.get(path, -1)
-                  indexes = sorted({safe_index(row) for row in data})
-                  index_line = ",".join(str(index) for index in indexes)
-                  # Numeric line coordinates only, never matching content.
-                  coordinate_line = ",".join(
-                      str(row.get("StartLine", "?"))[:8]
-                      for row in data if isinstance(row, dict)
-                  )
-                  category_line = ", ".join(
-                      f"{re.sub(r'[^a-zA-Z0-9_-]', '', key)[:60]}={value}"
-                      for key, value in sorted(categories.items())
-                  ) or "none"
-              except (ValueError, OSError):
-                  print(f"GITLEAKS_{mode.upper()}_REPORT=INVALID; EXIT={status}")
-                  lines.append(f"- {mode}: report invalid; manual follow-up required.")
-                  failed = True
-              else:
-                  print(f"GITLEAKS_{mode.upper()}_FINDINGS={count}; EXIT={status}; RULE_CATEGORIES={category_line}; OPAQUE_FILE_INDEX={index_line}; LINES={coordinate_line}")
-                  lines.append(f"- {mode}: {count} potential finding(s); tool exit {status}.")
-                  if count or status != 0:
-                      failed = True
-              finally:
-                  path.unlink(missing_ok=True)
-          lines.append("- Reports are not uploaded; any findings require private triage and credential rotation.")
-          lines.append("- This scans reachable history and checked-out files, not inaccessible or deleted remote objects.")
-          summary = "\n".join(lines) + "\n"
-          with open(pathlib.Path(__import__("os").environ["GITHUB_STEP_SUMMARY"]), "a", encoding="utf-8") as out:
-              out.write(summary)
-          print("GITLEAKS_RESULT=BLOCKED" if failed else "GITLEAKS_RESULT=PASS")
-          if failed:
-              raise SystemExit(1)
-          PY
+          # No scan reports leave the ephemeral runner. Only aggregate dispositions.
+          python3 tools/review_gitleaks_findings.py "$RUNNER_TEMP" "$git_result" "$dir_result"
