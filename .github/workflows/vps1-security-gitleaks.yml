@@ -70,18 +70,23 @@ jobs:
           for mode, status in results.items():
               path = root / f"vps1-gitleaks-{mode}.json"
               if not path.exists():
+                  print(f"GITLEAKS_{mode.upper()}_REPORT=MISSING; EXIT={status}")
                   lines.append(f"- {mode}: scan report missing; manual follow-up required.")
                   failed = True
                   continue
               try:
                   data = json.loads(path.read_text(encoding="utf-8"))
+                  if data is None:
+                      data = []
                   if not isinstance(data, list):
                       raise ValueError("unexpected format")
                   count = len(data)
               except (ValueError, OSError):
+                  print(f"GITLEAKS_{mode.upper()}_REPORT=INVALID; EXIT={status}")
                   lines.append(f"- {mode}: report invalid; manual follow-up required.")
                   failed = True
               else:
+                  print(f"GITLEAKS_{mode.upper()}_FINDINGS={count}; EXIT={status}")
                   lines.append(f"- {mode}: {count} potential finding(s); tool exit {status}.")
                   if count or status != 0:
                       failed = True
