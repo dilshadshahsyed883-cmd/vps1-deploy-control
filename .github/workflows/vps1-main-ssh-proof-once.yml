@@ -6,6 +6,10 @@ on:
       - '.github/workflows/vps1-pilot-deploy.yml'
       - '.github/workflows/vps1-audio-404-probe.yml'
       - '.github/workflows/vps1-connection-check.yml'
+      - '.github/scripts/verify_vps1_security_integration.py'
+      - '.github/workflows/fresh-vps-post-snapshot-stage.yml'
+      - '.github/workflows/fresh-vps-source-of-truth.yml'
+      - '.github/workflows/vps1-staging-drift.yml'
   push:
     branches: [main]
     paths:
@@ -29,52 +33,11 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Verify this PR modifies exactly one non-deployment workflow
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      - name: Verify migration security invariants (offline)
         run: |
           set -Eeuo pipefail
-          changed="$(git diff --name-only --diff-filter=ACMRTD "$BASE_SHA" "$HEAD_SHA")"
-          # Allow only the four security-only workflow modifications in this PR.
-          python3 - <<'PY'
-          import os,subprocess
-          files=set(subprocess.check_output(["git","diff","--name-only","--diff-filter=ACMRTD",os.environ["BASE_SHA"],os.environ["HEAD_SHA"]],text=True).splitlines())
-          allowed={
-            ".github/workflows/vps1-main-ssh-proof-once.yml",
-            ".github/workflows/vps1-pilot-deploy.yml",
-            ".github/workflows/vps1-audio-404-probe.yml",
-            ".github/workflows/vps1-connection-check.yml",
-          }
-          assert files and files <= allowed, files
-          for name in allowed:
-              content=open(name,encoding="utf-8").read()
-              assert "    environment: production" in content, name
-              assert "secrets." in content, name
-              if name != ".github/workflows/vps1-main-ssh-proof-once.yml":
-                  assert "false && vars.VPS1_TAILSCALE_READY" in content, name
-          print("FOUR_SENSITIVE_JOBS_ENVIRONMENT_BOUND=PASS")
-          print("THREE_LEGACY_VPS_REMOTE_JOBS_HARD_DISABLED=PASS")
-          proof=open(".github/workflows/vps1-main-ssh-proof-once.yml",encoding="utf-8").read()
-          job=proof.rsplit("\n  main-readonly-ssh:\n",1)[1]
-          expected_pin="SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E"
-          obsolete_pin="SHA256:pHVIA8i/zuowqpDCaGbKc4bWGNcp/DRziKemWZS0ZdQ"
-          assert "expected='"+expected_pin+"'" in job
-          assert obsolete_pin not in job
-          for required in (
-              "github.event_name == 'push'",
-              "github.ref == 'refs/heads/main'",
-              "contains(github.event.head_commit.message, '[vps1-ssh-proof-authorized]')",
-              "StrictHostKeyChecking=yes",
-              "UpdateHostKeys=no",
-              "vps1deploy@100.113.253.99",
-              "VPS1_DEPLOYMENT=NOT_ATTEMPTED",
-          ):
-              assert required in job, required
-          print("CORRECTED_SSH_PIN_MAIN_ONLY_NO_DEPLOY_GUARDS=PASS")
-          PY
-          ! grep -q 'workflow_dispatch:' .github/workflows/vps1-main-ssh-proof-once.yml
-          echo 'GITHUB_PROOF_PR_ONLY_ONE_SAFE_WORKFLOW=PASS'
+          python3 .github/scripts/verify_vps1_security_integration.py
+          echo 'GITHUB_INTEGRATION_SECURITY_CONTRACT=PASS'
       - name: Verify existing main-branch pilot and release tests offline
         run: |
           set -Eeuo pipefail
@@ -84,9 +47,12 @@ jobs:
           echo 'GITHUB_PROOF_OFFLINE_TESTS=PASS'
 
   main-readonly-ssh:
+    # Fail closed until production-environment credentials and repository fallback are verified.
+    # Only a separately reviewed change may re-enable this remote read-only proof.
     name: main-only-oidc-ssh-readback
     environment: production
     if: >-
+      false &&
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
       contains(github.event.head_commit.message, '[vps1-ssh-proof-authorized]')
