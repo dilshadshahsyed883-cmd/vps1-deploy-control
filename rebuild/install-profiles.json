@@ -15,7 +15,7 @@
         "port": 18080,
         "bind": "127.0.0.1",
         "mode": "read-only-source",
-        "unit": "apps/scene-builder/runtime/vps1-scene-candidate.service",
+        "unit": "apps/scene-builder/candidate/vps1-scene-candidate.service",
         "auto_script": false,
         "algrow": false,
         "worker_loops": false,
@@ -125,7 +125,7 @@
         "port": 8149,
         "bind": "127.0.0.1",
         "mode": "read-only-source",
-        "unit": "apps/vps-storage-manager/runtime/vps1-storage-candidate.service",
+        "unit": "apps/vps-storage-manager/candidate/vps1-storage-candidate.service",
         "verified_on_vps": false
       }
     }

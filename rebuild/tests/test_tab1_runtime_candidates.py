@@ -27,16 +27,16 @@ class RuntimeCandidates(unittest.TestCase):
                 compile(path.read_text(), str(path), "exec")
 
     def test_nonroot_fail_closed_unit_templates(self):
-        for unit in (ROOT / "apps/vps-storage-manager/runtime/vps1-storage-candidate.service",
-                     ROOT / "apps/scene-builder/runtime/vps1-scene-candidate.service"):
+        for unit in (ROOT / "apps/vps-storage-manager/candidate/vps1-storage-candidate.service",
+                     ROOT / "apps/scene-builder/candidate/vps1-scene-candidate.service"):
             text = unit.read_text()
             for required in ("NoNewPrivileges=yes", "ProtectSystem=strict", "CapabilityBoundingSet=", "127.0.0.1"):
                 self.assertIn(required, text)
             self.assertNotIn("User=root", text)
         self.assertIn("FRESH_WEBSITE_SMOKE_TEST=1",
-                      (ROOT / "apps/vps-storage-manager/runtime/vps1-storage-candidate.service").read_text())
+                      (ROOT / "apps/vps-storage-manager/candidate/vps1-storage-candidate.service").read_text())
         self.assertIn("FRESH_AUTO_SCRIPT_READY=0",
-                      (ROOT / "apps/scene-builder/runtime/vps1-scene-candidate.service").read_text())
+                      (ROOT / "apps/scene-builder/candidate/vps1-scene-candidate.service").read_text())
         groups = json.loads((ROOT / "rebuild/groups.json").read_text())
         for flag in ("production_deploy_enabled", "fresh_install_enabled",
                      "automatic_database_migrations", "legacy_database_import", "legacy_queue_import"):
