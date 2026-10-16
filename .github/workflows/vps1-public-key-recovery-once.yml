@@ -1,0 +1,41 @@
+name: VPS1 one-time public SSH key recovery - NO VPS
+on:
+  push:
+    branches:
+      - security/vps1-ssh-public-key-recovery-20261016
+    paths:
+      - .github/workflows/vps1-public-key-recovery-once.yml
+permissions:
+  contents: read
+jobs:
+  recover-public-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - name: Compare repository SSH identity with existing Agent1 fingerprint
+        shell: bash
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          [ -n "${PRIVATE_IDENTITY:-}" ] || { echo "PRIVATE_IDENTITY_NOT_CONFIGURED"; exit 1; }
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$tmp/identity"
+          unset PRIVATE_IDENTITY
+          ssh-keygen -y -P '' -f "$tmp/identity" > "$tmp/public"
+          test "$(wc -l < "$tmp/public")" -eq 1
+          grep -Eq '^ssh-ed25519 [A-Za-z0-9+/=]+( .*)?$' "$tmp/public"
+          actual="$(ssh-keygen -lf "$tmp/public" -E sha256 | awk '{print $2}')"
+          expected='SHA256:pHVIA8i/zuowqpDCaGbKc4bWGNcp/DRziKemWZS0ZdQ'
+          if [ "$actual" != "$expected" ]; then
+            echo 'KEY_FINGERPRINT_MISMATCH: refusing public key recovery'
+            exit 1
+          fi
+          echo 'VPS1_EXISTING_PUBLIC_KEY_FINGERPRINT_MATCH=PASS'
+          echo 'VPS1_PUBLIC_KEY_BEGIN'
+          cat "$tmp/public"
+          echo 'VPS1_PUBLIC_KEY_END'
+          echo 'VPS1_PRIVATE_KEY_EXPOSURE=NONE; VPS1_REMOTE_EXECUTION=NOT_ATTEMPTED'
