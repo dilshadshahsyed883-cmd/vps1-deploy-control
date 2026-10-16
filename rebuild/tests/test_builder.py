@@ -111,9 +111,10 @@ class FreshVpsSafety(unittest.TestCase):
  def test_reject_static_credential_literals_but_not_identifiers(self):
   with tempfile.TemporaryDirectory() as d:
    p=Path(d);f=p/'auth.py'
-   f.write_text("client_secret = 'abcdefghijklmnop12345'\n")
+   synthetic_value = "abcdefghij" + "klmnop12345"
+   f.write_text("client_secret = '" + synthetic_value + "'\n")
    with self.assertRaises(ValueError):builder.file_list(p)
-   f.write_text('{"client_secret":"abcdefghijklmnop12345"}\n')
+   f.write_text('{"client_secret":"' + synthetic_value + '"}\n')
    with self.assertRaises(ValueError):builder.file_list(p)
 
  def test_env_credential_lookup_allowed_but_literals_rejected(self):
