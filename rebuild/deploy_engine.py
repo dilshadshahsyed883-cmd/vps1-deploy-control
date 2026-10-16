@@ -159,16 +159,31 @@ class QueueStore:
     def enqueue_verified(self, app, revision, manifest_path):
         """Register verified bytes of an app artifact under the immutable SHA."""
         digest = verify_release_candidate(app, revision, manifest_path)
-        item = self.enqueue(app, revision)
+        # Publish the intent and its verified digest in ONE transaction.
+        # Calling enqueue() first exposed a temporarily unverified QUEUED row
+        # to a concurrent production worker, which could fail it permanently.
+        groups, _, _, _ = registry()
         with self._db() as db:
             db.execute("BEGIN IMMEDIATE")
-            row = self._row(db, item["id"])
-            if row["archive_sha256"] not in (None, digest):
+            db.execute("""INSERT OR IGNORE INTO requests
+                          (app,revision,lock_group,archive_sha256)
+                          VALUES(?,?,?,?)""",
+                       (app, revision, groups[app]["lock"], digest))
+            row = db.execute("SELECT * FROM requests WHERE app=? AND revision=?",
+                             (app, revision)).fetchone()
+            item = dict(row)
+            if item["archive_sha256"] not in (None, digest):
                 db.rollback()
                 raise ValueError("conflicting archived bytes for immutable app SHA")
-            db.execute("UPDATE requests SET archive_sha256=? WHERE id=?",
-                       (digest, item["id"]))
-            item = self._row(db, item["id"])
+            if item["archive_sha256"] is None:
+                # Never retrofit trusted bytes onto a previously claimed or
+                # completed unverified intent.
+                if item["status"] != "QUEUED":
+                    db.rollback()
+                    raise ValueError("cannot verify an already processed intent")
+                db.execute("UPDATE requests SET archive_sha256=? WHERE id=?",
+                           (digest, item["id"]))
+                item = self._row(db, item["id"])
             db.commit()
             return item
 
@@ -333,6 +348,14 @@ class Engine:
             # Refresh the lease before the side-effectful transaction.
             self.queue.heartbeat(job_id, token, now=now)
             self.backend.activate(job["app"], job["revision"])
+            # An activation call returning without error is not proof of
+            # the correct active revision or healthy app/worker state.
+            active_sha, healthy = self.backend.inspect(job["app"])
+            if active_sha != job["revision"] or healthy is not True:
+                return self.queue.finish(
+                    job_id, token, "NEEDS_ATTENTION",
+                    error="post-activation SHA or health verification failed",
+                    now=now)
         except RetryablePreparationError as exc:
             # Even a transient-looking exception after capturing the old
             # release may originate in activation: never blindly retry.
