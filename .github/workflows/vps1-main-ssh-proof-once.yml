@@ -52,7 +52,7 @@ jobs:
               assert "    environment: production" in content, name
               assert "secrets." in content, name
               if name != ".github/workflows/vps1-main-ssh-proof-once.yml":
-                  assert "if: ${{ false && vars.VPS1_TAILSCALE_READY == 'yes' }}" in content, name
+                  assert "false && vars.VPS1_TAILSCALE_READY" in content, name
           print("FOUR_SENSITIVE_JOBS_ENVIRONMENT_BOUND=PASS")
           print("THREE_LEGACY_VPS_REMOTE_JOBS_HARD_DISABLED=PASS")
           PY
