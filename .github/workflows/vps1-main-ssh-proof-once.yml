@@ -52,9 +52,10 @@ jobs:
     name: main-only-oidc-ssh-readback
     environment: production
     if: >-
-      false &&
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
+      github.run_attempt == 1 &&
+      github.event.before == 'd225a1f9de8cea9578c9e4659ade221a1b2bbaf6' &&
       contains(github.event.head_commit.message, '[vps1-ssh-proof-authorized]')
     runs-on: ubuntu-24.04
     timeout-minutes: 7
@@ -62,6 +63,15 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - name: Reject replay or unexpected ref before OIDC
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = "1" || { echo 'SSH_PROOF_RERUN=BLOCKED'; exit 1; }
+          test "$GITHUB_EVENT_NAME" = "push" || { echo 'SSH_PROOF_EVENT=BLOCKED'; exit 1; }
+          test "$GITHUB_REF" = "refs/heads/main" || { echo 'SSH_PROOF_REF=BLOCKED'; exit 1; }
+          test "$(jq -r '.before' "$GITHUB_EVENT_PATH")" = 'd225a1f9de8cea9578c9e4659ade221a1b2bbaf6' || { echo 'SSH_PROOF_BEFORE_SHA=BLOCKED'; exit 1; }
+          jq -er '.head_commit.message | contains("[vps1-ssh-proof-authorized]")' "$GITHUB_EVENT_PATH" >/dev/null || { echo 'SSH_PROOF_MARKER=BLOCKED'; exit 1; }
       - name: Join restricted tailnet with main-only GitHub OIDC tag:ci
         uses: tailscale/github-action@v4
         with:

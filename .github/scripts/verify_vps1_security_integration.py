@@ -33,7 +33,29 @@ assert 'branches: [main]' in proof.split('\njobs:',1)[0]
 assert pin in proof and obsolete not in proof
 pj = job(proof, 'main-readonly-ssh')
 assert 'environment: production' in pj
-disabled(pj, proof_name)
+# This is the one-time exception; all other six credential-consuming jobs remain disabled.
+# Release-bound previous-main SHA, first run attempt and explicit marker are mandatory.
+# No general remote-job exemption is permitted.
+guard = re.search(r"(?m)^    if: >-\n((?:      .*\n)+)", pj)
+assert guard, "SSH proof job guard missing"
+guard_lines = [line.strip() for line in guard.group(1).splitlines()]
+assert guard_lines == [
+    "github.event_name == 'push' &&",
+    "github.ref == 'refs/heads/main' &&",
+    "github.run_attempt == 1 &&",
+    "github.event.before == 'd225a1f9de8cea9578c9e4659ade221a1b2bbaf6' &&",
+    "contains(github.event.head_commit.message, '[vps1-ssh-proof-authorized]')",
+], "SSH proof conditions changed or accidentally enabled"
+preflight_name = "- name: Reject replay or unexpected ref before OIDC"
+join_action = "uses: tailscale/github-action@v4"
+assert pj.count(preflight_name) == 1
+assert pj.index(preflight_name) < pj.index(join_action), "OIDC starts before preflight"
+preflight = pj[pj.index(preflight_name):pj.index(join_action)]
+for check in ('test "$GITHUB_RUN_ATTEMPT" = "1"', 'test "$GITHUB_EVENT_NAME" = "push"', 'test "$GITHUB_REF" = "refs/heads/main"'):
+    assert check in preflight, "missing fail-closed preflight: " + check
+for check in ("jq -r '.before' \"$GITHUB_EVENT_PATH\"", "jq -er '.head_commit.message | contains("):
+    assert check in preflight, "missing push-event preflight: " + check
+assert 'd225a1f9de8cea9578c9e4659ade221a1b2bbaf6' in preflight, "missing approved before SHA in preflight"
 for term in ("github.event_name == 'push'", "github.ref == 'refs/heads/main'", '[vps1-ssh-proof-authorized]', "expected='" + pin + "'", 'StrictHostKeyChecking=yes','UpdateHostKeys=no','vps1deploy@100.113.253.99','VPS1_DEPLOYMENT=NOT_ATTEMPTED'):
     assert term in pj, term
 for file,name in legacy.items():
@@ -57,6 +79,7 @@ for f in ('production_deploy_enabled','fresh_install_enabled','automatic_databas
 print('PROTECTED_FOUR_WORKFLOWS=PASS')
 print('CORRECTED_SSH_PIN_AND_MAIN_ONLY=PASS')
 print('THREE_LEGACY_GUARDS=PASS')
-print('SEVEN_CREDENTIAL_CONSUMERS_STATICALLY_DISABLED=PASS')
-print('NO_REPOSITORY_SECRET_RUNTIME_FALLBACK=PASS_BY_FAIL_CLOSED_JOBS')
+print('SIX_UNRELATED_CREDENTIAL_CONSUMERS_STATICALLY_DISABLED=PASS')
+print('ONE_SHOT_PROOF_EVENT_AND_PREVIOUS_MAIN_SHA=PASS')
+print('PRODUCTION_SECRET_PROVENANCE=OWNER_ATTESTED_NOT_VERIFIED_OFFLINE')
 print('ELEVEN_GROUPS_AUTO_SCRIPT_OFFLINE=PASS')
