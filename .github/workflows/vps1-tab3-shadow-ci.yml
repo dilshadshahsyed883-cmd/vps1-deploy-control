@@ -1,0 +1,51 @@
+name: VPS1 TAB3 offline shadow, Nginx compatibility and rollback
+on:
+  pull_request:
+    paths:
+      - 'rebuild/shadow_release.py'
+      - 'rebuild/nginx_route_compat.py'
+      - 'rebuild/tests/test_shadow_release.py'
+      - 'rebuild/tests/test_nginx_route_compat.py'
+      - 'infrastructure/registry/n7g3-sanitized-routes.json'
+      - '.github/workflows/vps1-tab3-shadow-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: vps1-tab3-offline-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  offline-shadow:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Run offline admission, idempotency, concurrency, rollback and Nginx tests
+        run: |
+          python -m compileall -q rebuild/shadow_release.py rebuild/nginx_route_compat.py
+          python -m unittest rebuild.tests.test_shadow_release rebuild.tests.test_nginx_route_compat -v
+          python -m unittest rebuild.tests.test_release_transaction rebuild.tests.test_deploy_engine -v
+      - name: Assert never enable production or protected SSH
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from rebuild.nginx_route_compat import load, report
+          c=json.loads(Path('rebuild/groups.json').read_text())
+          assert c['production_deploy_enabled'] is False
+          assert c['fresh_install_enabled'] is False
+          assert c['offline_applications']==['auto-script']
+          assert len(load())==43 and report(load())['production_switch_allowed'] is False
+          assert 'false &&' in Path('.github/workflows/vps1-main-ssh-proof-once.yml').read_text()
+          assert 'exit 1' in Path('.github/workflows/fresh-vps-cutover.yml').read_text()
+          print('SHADOW_ONLY=PASS')
+          PY
