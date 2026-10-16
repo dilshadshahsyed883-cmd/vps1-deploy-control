@@ -25,7 +25,7 @@ BLOCKED_NAMES = frozenset({
 })
 BAD_PARTS = frozenset({"node_modules", ".venv", "venv", "__pycache__", ".ssh", ".aws", ".gnupg"})
 EMAIL = re.compile(rb"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[A-Za-z]{2,}")
-PRIVATE_KEY = re.compile(rb"(?m)^\\s{0,4}-----BEGIN (?:RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----")
+PRIVATE_KEY = re.compile(rb"(?m)^ *-----BEGIN (?:RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----")
 ABS_HOME = re.compile(rb"/home/([^/\s\"']+)/")
 ROOT_USER = re.compile(rb"/root/")
 
