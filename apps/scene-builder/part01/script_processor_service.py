@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import secrets
 import threading
@@ -867,7 +868,8 @@ def _start_processor_worker() -> None:
 
 def register_script_processor_api(app: Any) -> None:
     _init()
-    _start_processor_worker()
+    if os.getenv("VPS1_RUNTIME_CANDIDATE") != "1":
+        _start_processor_worker()
 
     @app.get("/api/script-work/processor/state")
     def processor_state(request: Request, group: str = ""):

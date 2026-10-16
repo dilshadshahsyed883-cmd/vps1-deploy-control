@@ -937,7 +937,10 @@ def _no_vnc_path(path: str) -> str:
 
 
 def register_script_work_api(app: Any, templates: Any = None) -> None:
-    _start_worker()
+    if os.getenv("VPS1_RUNTIME_CANDIDATE") == "1":
+        _init_storage()  # schema for isolated fresh queue, never drain jobs
+    else:
+        _start_worker()
 
     @app.get("/api/script-work/state")
     def api_state(request: Request, group: str = "", batch: str = ""):

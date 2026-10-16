@@ -24,7 +24,17 @@
         "enabled": false
       },
       "runtime_verified": false,
-      "pending": "Main app still imports excluded Algrow Voice and parallel-owned Auto Script; isolate optional integrations before enabling"
+      "pending": "Main app still imports excluded Algrow Voice and parallel-owned Auto Script; isolate optional integrations before enabling",
+      "shadow_candidate": {
+        "port": 18080,
+        "bind": "127.0.0.1",
+        "mode": "read-only-source",
+        "unit": "apps/scene-builder/runtime/vps1-scene-candidate.service",
+        "auto_script": false,
+        "algrow": false,
+        "worker_loops": false,
+        "verified_on_vps": false
+      }
     },
     "script-work": {
       "dependencies": [
@@ -233,7 +243,14 @@
         "enabled": false
       },
       "runtime_verified": false,
-      "pending": "Admin token and guarded storage privileges deferred until approved post-snapshot runtime verification"
+      "pending": "Admin token and guarded storage privileges deferred until approved post-snapshot runtime verification",
+      "shadow_candidate": {
+        "port": 8149,
+        "bind": "127.0.0.1",
+        "mode": "read-only-source",
+        "unit": "apps/vps-storage-manager/runtime/vps1-storage-candidate.service",
+        "verified_on_vps": false
+      }
     }
   }
 }
