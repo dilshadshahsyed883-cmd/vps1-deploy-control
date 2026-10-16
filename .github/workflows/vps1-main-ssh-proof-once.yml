@@ -55,6 +55,8 @@ jobs:
       false &&
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
+      github.run_attempt == 1 &&
+      github.event.before == 'PENDING_SEPARATE_AUTHORIZATION' &&
       contains(github.event.head_commit.message, '[vps1-ssh-proof-authorized]')
     runs-on: ubuntu-24.04
     timeout-minutes: 7
@@ -62,6 +64,13 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - name: Reject replay or unexpected ref before OIDC
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = "1" || { echo 'SSH_PROOF_RERUN=BLOCKED'; exit 1; }
+          test "$GITHUB_EVENT_NAME" = "push" || { echo 'SSH_PROOF_EVENT=BLOCKED'; exit 1; }
+          test "$GITHUB_REF" = "refs/heads/main" || { echo 'SSH_PROOF_REF=BLOCKED'; exit 1; }
       - name: Join restricted tailnet with main-only GitHub OIDC tag:ci
         uses: tailscale/github-action@v4
         with:
