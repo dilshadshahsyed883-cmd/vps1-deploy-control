@@ -1,0 +1,98 @@
+name: VPS1 public source and full-history secret gate (no VPS)
+on:
+  pull_request:
+  workflow_dispatch:
+
+# This job is intentionally GitHub-only: no deployment environment, OIDC,
+# SSH credentials, repository secrets, self-hosted runners, or VPS access.
+permissions:
+  contents: read
+
+jobs:
+  gitleaks-history-and-tree:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout all refs without persistent GitHub credentials
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify complete reachable Git history
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse --is-shallow-repository)" = false
+          test "$(git rev-list --all --count)" -gt 0
+          printf 'History scan scope: all locally fetched refs; no shallow checkout.\n'
+
+      - name: Scan all reachable commits and current source with redacted findings
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          # Digest-pinned official binary; container cannot access the network.
+          # Findings are stored only in ephemeral runner.temp, NEVER printed or
+          # uploaded as artifacts because this is a PUBLIC repository.
+          run_gitleaks() {
+            local mode="$1"; shift
+            docker run --rm --network none \
+              -e GIT_CONFIG_COUNT=1 \
+              -e GIT_CONFIG_KEY_0=safe.directory \
+              -e GIT_CONFIG_VALUE_0=/repo \
+              -v "$GITHUB_WORKSPACE:/repo:ro" \
+              -v "$RUNNER_TEMP:/private" \
+              ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+              "$mode" /repo "$@" \
+              --redact=100 --no-banner --log-level=error \
+              --report-format=json --report-path="/private/vps1-gitleaks-$mode.json"
+          }
+
+          set +e
+          run_gitleaks git --log-opts=--all > /dev/null 2>&1
+          git_result=$?
+          run_gitleaks dir > /dev/null 2>&1
+          dir_result=$?
+          set -e
+
+          # Display aggregate counts only. Do not print match, file paths,
+          # commit metadata or raw reports in public CI logs.
+          python3 - "$RUNNER_TEMP" "$git_result" "$dir_result" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          root = pathlib.Path(sys.argv[1])
+          results = {"git": int(sys.argv[2]), "dir": int(sys.argv[3])}
+          failed = False
+          lines = ["### Gitleaks redacted review (no findings disclosed)"]
+          for mode, status in results.items():
+              path = root / f"vps1-gitleaks-{mode}.json"
+              if not path.exists():
+                  lines.append(f"- {mode}: scan report missing; manual follow-up required.")
+                  failed = True
+                  continue
+              try:
+                  data = json.loads(path.read_text(encoding="utf-8"))
+                  if not isinstance(data, list):
+                      raise ValueError("unexpected format")
+                  count = len(data)
+              except (ValueError, OSError):
+                  lines.append(f"- {mode}: report invalid; manual follow-up required.")
+                  failed = True
+              else:
+                  lines.append(f"- {mode}: {count} potential finding(s); tool exit {status}.")
+                  if count or status != 0:
+                      failed = True
+              finally:
+                  path.unlink(missing_ok=True)
+          lines.append("- Reports are not uploaded; any findings require private triage and credential rotation.")
+          lines.append("- This scans reachable history and checked-out files, not inaccessible or deleted remote objects.")
+          summary = "\n".join(lines) + "\n"
+          with open(pathlib.Path(__import__("os").environ["GITHUB_STEP_SUMMARY"]), "a", encoding="utf-8") as out:
+              out.write(summary)
+          print("GITLEAKS_RESULT=BLOCKED" if failed else "GITLEAKS_RESULT=PASS")
+          if failed:
+              raise SystemExit(1)
+          PY
