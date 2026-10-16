@@ -103,6 +103,11 @@ jobs:
                       return tracked_index.get(path, -1)
                   indexes = sorted({safe_index(row) for row in data})
                   index_line = ",".join(str(index) for index in indexes)
+                  # Numeric line coordinates only, never matching content.
+                  coordinate_line = ",".join(
+                      str(row.get("StartLine", "?"))[:8]
+                      for row in data if isinstance(row, dict)
+                  )
                   category_line = ", ".join(
                       f"{re.sub(r'[^a-zA-Z0-9_-]', '', key)[:60]}={value}"
                       for key, value in sorted(categories.items())
@@ -112,7 +117,7 @@ jobs:
                   lines.append(f"- {mode}: report invalid; manual follow-up required.")
                   failed = True
               else:
-                  print(f"GITLEAKS_{mode.upper()}_FINDINGS={count}; EXIT={status}; RULE_CATEGORIES={category_line}; OPAQUE_FILE_INDEX={index_line}")
+                  print(f"GITLEAKS_{mode.upper()}_FINDINGS={count}; EXIT={status}; RULE_CATEGORIES={category_line}; OPAQUE_FILE_INDEX={index_line}; LINES={coordinate_line}")
                   lines.append(f"- {mode}: {count} potential finding(s); tool exit {status}.")
                   if count or status != 0:
                       failed = True
