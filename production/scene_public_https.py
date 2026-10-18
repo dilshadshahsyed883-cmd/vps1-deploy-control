@@ -189,6 +189,126 @@ def install(revision):
             note("ROLLBACK=SCENE_SITE_ONLY_EXISTING_GATEWAY_PRESERVED")
         raise
 
+
+# Scoped Voice HTTPS publication called only after Voice Studio's shared gateway
+# release has passed all seven existing app checks.
+VOICE_ANCHOR = ' location / {\\n    proxy_pass http://127.0.0.1:18080;'
+VOICE_EXTRA = """ location = /voice-studio { return 302 /voice-studio/; }
+ location ^~ /voice-studio/ {
+    proxy_pass http://127.0.0.1:8888;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+ }
+"""
+
+def publish_voice_on_scene_https():
+    """Append only the authenticated Voice path; rollback precisely on failure."""
+    import base64
+    import http.client
+    import ssl
+    from production.gateway import LOGIN as WORKSPACE_LOGIN
+    from production.runtime import BASE as PROD_BASE
+
+    guard(os.geteuid() == 0 and socket.gethostname().split('.')[0] == HOST,
+          "protected VPS_1 root required")
+    guard(SITE.is_file() and ENABLED.is_symlink() and ENABLED.resolve() == SITE,
+          "existing Scene HTTPS site mismatch")
+    guard(CERT.is_file() and KEY.is_file(), "existing signed TLS certificate absent")
+    state=json.loads((PROD_BASE/'production-status.json').read_text())
+    required={'short-maker','short-stream','self-media-library','video-merger',
+              'auto-caption-studio','local-upload-manager','voice-studio'}
+    guard(state.get('gateway')=='ACTIVE' and required.issubset(state.get('apps',[])),
+          "seven-app gateway is not ready")
+    for service in ('nginx.service','vps1-production-voice-studio.service',
+                    'vps1-scene-candidate.service'):
+        guard(subprocess.run(['systemctl','is-active','--quiet',service]).returncode==0,
+              service+" is not active")
+    guard(WORKSPACE_LOGIN.is_file(), "existing gateway credentials unavailable")
+    creds=json.loads(WORKSPACE_LOGIN.read_text())
+    guard(len(creds.get('username',''))>0 and len(creds.get('password',''))>0,
+          "invalid gateway credentials")
+    auth='Basic '+base64.b64encode(
+        (creds['username']+':'+creds['password']).encode()).decode()
+    opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    def http_gateway(path, authenticated=False):
+        headers={'Authorization':auth} if authenticated else {}
+        req=urllib.request.Request('http://127.0.0.1:8888'+path,headers=headers)
+        try:
+            with opener.open(req,timeout=10) as r:return r.status,r.read(260000)
+        except urllib.error.HTTPError as e:return e.code,b''
+    def https_host(path, authenticated=False):
+        # Correct SNI/certificate verification without public DNS/network dependence.
+        raw=socket.create_connection(('127.0.0.1',443),timeout=10)
+        tls=ssl.create_default_context().wrap_socket(raw,server_hostname=DOMAIN)
+        try:
+            conn=http.client.HTTPSConnection(DOMAIN)
+            conn.sock=tls
+            headers={'Host':DOMAIN}
+            if authenticated:headers['Authorization']=auth
+            conn.request('GET',path,headers=headers)
+            response=conn.getresponse()
+            return response.status,response.read(260000)
+        finally:tls.close()
+    status,_=http_gateway('/voice-studio/healthz')
+    guard(status==401,"gateway anonymous Voice auth is not enforced")
+    status,body=http_gateway('/voice-studio/healthz',True)
+    guard(status==200 and json.loads(body).get('ok') is True,
+          "authenticated Voice gateway is not healthy")
+    status,_=https_host('/login')
+    guard(status==200,"existing Scene HTTPS login is not available")
+    original=SITE.read_text()
+    guard(original.count(VOICE_ANCHOR)==1,"unrecognized Scene TLS proxy location")
+    guard(original.count('server_name app.scenebuilder.online;')==2 and
+          'listen 443 ssl;' in original, "unexpected Scene HTTPS site config")
+    guard('location ^~ /voice-studio/' not in original or VOICE_EXTRA in original,
+          "Voice route owned by unknown config")
+    changed=VOICE_EXTRA not in original
+    def swap(text):
+        with tempfile.NamedTemporaryFile('w',dir=str(SITE.parent),prefix='.voice-web-',
+                                         delete=False) as f:
+            tmp=Path(f.name)
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        try:
+            tmp.chmod(0o644)
+            os.replace(tmp,SITE)
+        finally:tmp.unlink(missing_ok=True)
+    try:
+        if changed:
+            swap(original.replace(VOICE_ANCHOR,VOICE_EXTRA+VOICE_ANCHOR,1))
+            run(['nginx','-t'],timeout=15)
+            run(['systemctl','reload','nginx'],timeout=18)
+        status,_=https_host('/voice-studio/healthz')
+        guard(status==401,"HTTPS Voice anonymous protection failed")
+        status,body=https_host('/voice-studio/healthz',True)
+        guard(status==200 and json.loads(body).get('ok') is True,"HTTPS Voice health failed")
+        status,body=https_host('/voice-studio/',True)
+        guard(status==200 and (b'<html' in body.lower() or b'<!doctype' in body.lower()),
+              "HTTPS Voice UI HTML failed")
+        status,_=https_host('/login')
+        guard(status==200,"Scene login regression")
+        status,_=https_host('/internal/runtime-ready')
+        guard(status==404,"Scene internal endpoint exposed")
+        for route in ['/short-maker/health','/auto-caption-studio/health',
+                      '/local-upload-manager/health']:
+            status,_=http_gateway(route)
+            guard(status==401,"existing gateway auth regression")
+        note('VOICE_HTTPS=LIVE URL=https://app.scenebuilder.online/voice-studio/')
+        note('VOICE_HTTPS=AUTH_401_AND_UI_HEALTH_200_PASS; SCENE_AND_GATEWAY_PRESERVED')
+    except BaseException:
+        if changed:
+            swap(original)
+            subprocess.run(['nginx','-t'],capture_output=True,timeout=12)
+            subprocess.run(['systemctl','reload','nginx'],capture_output=True,timeout=18)
+            note('VOICE_HTTPS=ROLLED_BACK_PREVIOUS_SCENE_SITE_RESTORED')
+        raise
+
+
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("action",choices=["deploy"])
