@@ -96,8 +96,8 @@ jobs:
           expected='SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
           test "$actual" = "$expected" || { echo 'SSH_IDENTITY_FINGERPRINT=BLOCKED'; exit 1; }
           echo 'SSH_IDENTITY_FINGERPRINT=PASS'
-          # Agent1 2026-10-14 host key; never trust unauthenticated ssh-keyscan.
-          printf '%s\n' '100.113.253.99 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAtrAUnyLuDM3FsUw/E2EtVtHF3f3d4nRonXxl/oIpmQ' > "$scratch/known_hosts"
+          # Agent 1 verified fresh-VPS ED25519 host public key on 2026-10-18; never trust unauthenticated ssh-keyscan.
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
           timeout 75s ssh -T -p 22 -i "$scratch/identity" \
             -o UserKnownHostsFile="$scratch/known_hosts" \
             -o StrictHostKeyChecking=yes \
@@ -108,7 +108,7 @@ jobs:
             -o PasswordAuthentication=no \
             -o KbdInteractiveAuthentication=no \
             -o ConnectTimeout=20 \
-            vps1deploy@100.113.253.99 \
+            vps1deploy@100.87.55.92 \
             'set -eu; test "$(id -un)" = vps1deploy; test "$(id -u)" != 0; if id -Gn | grep -Eq "(^| )(sudo|wheel)( |$)"; then echo PRIVILEGED_GROUP=BLOCKED; exit 1; fi; echo VPS1_SSH_USER_NONROOT=PASS; echo VPS1_REMOTE_READ_ONLY=PASS'
           echo 'VPS1_GITHUB_OIDC_SSH_AUTH=PASS'
           echo 'VPS1_DEPLOYMENT=NOT_ATTEMPTED'

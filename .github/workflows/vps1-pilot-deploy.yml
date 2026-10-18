@@ -54,11 +54,11 @@ jobs:
           printf '%s\n' "$SSH_KEY" > "$RUNNER_TEMP/vps1_id_ed25519"
           chmod 0600 "$RUNNER_TEMP/vps1_id_ed25519"
           ssh-keygen -y -f "$RUNNER_TEMP/vps1_id_ed25519" | grep -q '^ssh-ed25519 '
-          printf '%s\n' '100.113.253.99 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAtrAUnyLuDM3FsUw/E2EtVtHF3f3d4nRonXxl/oIpmQ' > "$RUNNER_TEMP/vps1_known_hosts"
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$RUNNER_TEMP/vps1_known_hosts"
           chmod 0600 "$RUNNER_TEMP/vps1_known_hosts"
           {
             echo 'Host vps1-ci-pilot'
-            echo '  HostName 100.113.253.99'
+            echo '  HostName 100.87.55.92'
             echo '  User vps1deploy'
             echo "  IdentityFile $RUNNER_TEMP/vps1_id_ed25519"
             echo "  UserKnownHostsFile $RUNNER_TEMP/vps1_known_hosts"

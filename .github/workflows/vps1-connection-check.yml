@@ -28,13 +28,13 @@ jobs:
       - name: Verify VPS_1 is reachable
         run: |
           set -Eeuo pipefail
-          timeout 60s tailscale ping -c 2 100.113.253.99
+          timeout 60s tailscale ping -c 2 100.87.55.92
           echo 'VPS1_TAILSCALE_CONNECTIVITY=PASS'
       - name: Verify existing OpenSSH handshake on private Tailscale IP
         run: |
           set -Eeuo pipefail
           # Read-only protocol probe. Does NOT authenticate or trust scanned host keys.
-          scan="$(timeout 30s ssh-keyscan -T 10 -p 22 -t rsa,ecdsa,ed25519 100.113.253.99 2>/dev/null)"
+          scan="$(timeout 30s ssh-keyscan -T 10 -p 22 -t rsa,ecdsa,ed25519 100.87.55.92 2>/dev/null)"
           printf '%s\n' "$scan" | grep -Eq '^100[.]113[.]253[.]99 (ssh-ed25519|ecdsa-sha2-nistp256|ssh-rsa) '
           echo 'VPS1_OPENSSH_PORT22_HANDSHAKE=PASS'
           echo 'VPS1_SSH_AUTHENTICATION=NOT_TESTED'
