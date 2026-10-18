@@ -9,6 +9,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/vps1-web-tailscale-readback.yml'
+      - 'production/web_preflight.py'
 permissions:
   contents: read
 concurrency:
