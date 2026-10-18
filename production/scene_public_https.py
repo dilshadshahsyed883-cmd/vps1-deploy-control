@@ -192,7 +192,7 @@ def install(revision):
 
 # Scoped Voice HTTPS publication called only after Voice Studio's shared gateway
 # release has passed all seven existing app checks.
-VOICE_ANCHOR = ' location / {\\n    proxy_pass http://127.0.0.1:18080;'
+VOICE_ANCHOR = ' location / {\n    proxy_pass http://127.0.0.1:18080;'
 VOICE_EXTRA = """ location = /voice-studio { return 302 /voice-studio/; }
  location ^~ /voice-studio/ {
     proxy_pass http://127.0.0.1:8888;
