@@ -38,6 +38,8 @@ def nginx_config(apps, shell, auth, listen='80 default_server', loopback=True):
         lines += [f'    location = {prefix} {{ return 302 {prefix}/; }}',
                   f'    location ^~ {prefix}/ {{', f'        proxy_pass {destination};',
                   '        proxy_http_version 1.1;', '        proxy_set_header Host $host;',
+                  '        proxy_set_header Upgrade $http_upgrade;',
+                  '        proxy_set_header Connection "upgrade";',
                   '        proxy_set_header X-Forwarded-Proto $scheme;',
                   '        proxy_set_header X-Auth-User $remote_user;',
                   '        proxy_set_header X-App-Access both;',
@@ -49,7 +51,9 @@ def nginx_config(apps, shell, auth, listen='80 default_server', loopback=True):
             # The imported apps use root-relative URLs in inline JS and in JSON
             # media responses. Rewrite only their known app endpoints, preserving
             # external URLs and filesystem/config strings in the API.
-            roots = ['api/', 'static/', 'media/', 'outputs/', 'jobs/', 'live']
+            roots = ['api/', 'static/', 'media/', 'outputs/', 'jobs', 'live']
+            if app == 'scene-builder':
+                roots += ['app', 'login', 'logout', 'dashboard', 'script-work/', 'storage-manager', 'scene-builder']
             if app == 'voice-studio':
                 roots.append('tts/')
             lines += ['        sub_filter_once off;',
@@ -64,6 +68,11 @@ def nginx_config(apps, shell, auth, listen='80 default_server', loopback=True):
             lines += [f'        proxy_redirect ~^(/.*)$ {prefix}$1;',
                       f'        proxy_cookie_path / {prefix}/;']
         lines.append('    }')
+    if 'scene-builder' in apps:
+        lines += ['    location = /script-work/ { return 302 /scene-builder/script-work; }',
+                  '    location = /script-work { return 302 /scene-builder/script-work; }',
+                  '    location = /vps-storage-manager/ { return 302 /scene-builder/admin/storage; }',
+                  '    location = /vps-storage-manager { return 302 /scene-builder/admin/storage; }']
     lines += ['    location / { return 404; }', '}']
     return '\n'.join(lines) + '\n'
 
@@ -87,6 +96,10 @@ def shell_files(apps, target):
     manifest = {'schema_version': 1, 'apps': [
         {'id': app, 'title': app.replace('-', ' ').title(), 'path': '/' + app + '/',
          'route_configured': True, 'runtime_verified': True} for app in apps]}
+    if 'scene-builder' in apps:
+        manifest['apps'] += [{'id': app, 'title': title, 'path': '/' + app + '/',
+                             'route_configured': True, 'runtime_verified': True}
+                            for app, title in [('script-work', 'Script Work'), ('vps-storage-manager', 'VPS Storage Manager')]]
     atomic_json(target / 'assets/apps.json', manifest, 0o644)
 
 

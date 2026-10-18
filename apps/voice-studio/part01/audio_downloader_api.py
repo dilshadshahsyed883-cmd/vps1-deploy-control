@@ -451,12 +451,18 @@ _PROXY_LOCK = threading.RLock()
 _VIDEO_PROXY_CONFIG = None  # Test override only; production discovers its path from the Video Merger source.
 
 
+def _proxy_blank():
+    return {'enabled': False, 'active_id': '', 'profiles': [], 'origin': 'audio-downloader'}
+
+
 def _resolve_merger_proxy_path():
     # Resolve the Video Merger-owned JSON path without executing its application.
     if _VIDEO_PROXY_CONFIG is not None:
         return Path(_VIDEO_PROXY_CONFIG)
     import ast
     source = Path('/opt/video-merger/app.py')
+    if not source.is_file():
+        return None
     tree = ast.parse(source.read_text(encoding='utf-8'))
     # Evaluate only literal path construction, never import or execute Video Merger.
     known = {
