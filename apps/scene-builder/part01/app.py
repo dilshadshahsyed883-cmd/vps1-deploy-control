@@ -26,6 +26,11 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from smart_scroll.ai_scene_txt import extract_intro_queries, parse_outer_ai_scene_txt
 from storage_manager_client import storage_manager_request
+
+RUNTIME_CANDIDATE = os.getenv("VPS1_RUNTIME_CANDIDATE") == "1"
+if RUNTIME_CANDIDATE:
+    from runtime_guard import validate_candidate_environment
+    validate_candidate_environment()
 from audio_library_v174 import (
     MANIFEST_PATH as AUDIO_LIBRARY_MANIFEST, MUSIC_ROOT, PERMANENT_ROOT, SFX_ROOT,
     asset_path as audio_asset_path, create_asset_record, delete_asset, ensure_library,
@@ -99,7 +104,7 @@ if os.getenv("FRESH_WEBSITE_INSTALL", "0") != "1":
 from master_controller import register_master_controller
 register_master_controller(app, templates)
 # Auto Script remains owned by the parallel GitHub branch.
-if os.getenv("FRESH_WEBSITE_INSTALL", "0") != "1" or os.getenv("FRESH_AUTO_SCRIPT_READY", "0") == "1":
+if not RUNTIME_CANDIDATE and (os.getenv("FRESH_WEBSITE_INSTALL", "0") != "1" or os.getenv("FRESH_AUTO_SCRIPT_READY", "0") == "1"):
     from auto_script import register_auto_script
     register_auto_script(app, templates)
 
@@ -672,6 +677,10 @@ def require_login(request: Request) -> None:
 
 @app.middleware("http")
 async def authentication(request: Request, call_next):
+    if RUNTIME_CANDIDATE and request.method not in ("GET", "HEAD", "OPTIONS"):
+        return JSONResponse({"ok": False, "error": "shadow candidate is read-only"}, status_code=403)
+    if RUNTIME_CANDIDATE and request.url.path == "/internal/runtime-ready":
+        return await call_next(request)
     # AUTOFLOW_STAGE12_PC_EXTENSION_MIDDLEWARE_BYPASS
     # Bypass only the website redirect. master_controller._require_api still
     # enforces a normal web session or the private PC-extension bridge token.
@@ -3672,7 +3681,20 @@ def acs_admin(request: Request):
 
 @app.get("/health")
 def web_health():
+    if RUNTIME_CANDIDATE:
+        return {"ok": True, "worker": "disabled", "mode": "shadow-read-only", "version": app.version}
     return {"ok": True, "worker": get_health(), "version": "7.7.11-professional-editor-v17.5d-r6-internal-audio-studio-v1"}
+
+
+@app.get("/internal/runtime-ready", include_in_schema=False)
+def runtime_ready(request: Request):
+    if not RUNTIME_CANDIDATE:
+        raise HTTPException(404)
+    expected = os.getenv("SCENE_RUNTIME_PROBE_TOKEN", "")
+    supplied = request.headers.get("X-Runtime-Probe-Token", "")
+    if not expected or not hmac.compare_digest(supplied, expected):
+        raise HTTPException(403, "Forbidden")
+    return {"ok": True, "mode": "shadow-read-only", "side_effect_workers": "disabled"}
 
 
 # ATOMIC_FLOW_V1_REGISTER
