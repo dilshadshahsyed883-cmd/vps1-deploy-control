@@ -28,10 +28,12 @@ def main():
     if len(sys.argv) != 4:
         raise ValueError('expected operation, exact main revision and application')
     operation, revision, selected = sys.argv[1:]
-    if operation not in {'install', 'rollback'} or not re.fullmatch('[a-f0-9]{40}', revision):
+    if operation not in {'install', 'rollback', 'nginx-route-only', 'nginx-route-rollback'} or not re.fullmatch('[a-f0-9]{40}', revision):
         raise ValueError('invalid production request')
     if selected != 'all' and selected not in APPS:
         raise ValueError('application not allowed')
+    if operation.startswith('nginx-route-') and selected in {'all', 'scene-builder'}:
+        raise ValueError('route-only operation requires one approved independent app')
     apps = list(APPS) if selected == 'all' else [selected]
     # No arbitrary ref or historic commit may execute with root privileges.
     current = command(['git', 'ls-remote', REMOTE, 'refs/heads/main']).split()[0]
@@ -48,6 +50,12 @@ def main():
         command(['git', 'checkout', '--detach', 'FETCH_HEAD'], cwd=checkout)
     if command(['git', 'rev-parse', 'HEAD'], cwd=checkout) != revision:
         raise RuntimeError('control checkout revision mismatch')
+    if operation.startswith('nginx-route-'):
+        # No application restart, gateway reconstruction, queue or database touch.
+        subprocess.run(['/usr/bin/python3', '-m', 'production.nginx_route_only',
+                        operation, '--revision', revision, '--app', selected],
+                       cwd=checkout, check=True)
+        return
     subprocess.run(['/usr/bin/python3', '-m', 'production.runtime', operation,
                     '--revision', revision, '--apps', *apps], cwd=checkout, check=True)
     # Keep every still-active app in the gateway when updating one app.
