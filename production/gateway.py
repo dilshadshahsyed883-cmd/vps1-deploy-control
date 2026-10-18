@@ -120,6 +120,25 @@ def auth_credentials():
     return json.loads(LOGIN.read_text())
 
 
+def open_during_reload(opener, request, *, timeout, retries=12, pause=0.6):
+    """Allow bounded Nginx worker handover; never accept a missing route as PASS.
+
+    A graceful reload may briefly route a request to the old configuration.
+    Only transient 404/502/503 or connection errors are retried; 401 is still
+    required for anonymous access and 200 for authenticated access.
+    """
+    for attempt in range(retries):
+        try:
+            return opener.open(request, timeout=timeout)
+        except urllib.error.HTTPError as exc:
+            if exc.code not in (404, 502, 503) or attempt + 1 == retries:
+                raise
+        except urllib.error.URLError:
+            if attempt + 1 == retries:
+                raise
+        time.sleep(pause)
+
+
 def verify_gateway(apps, credentials, port=8888):
     auth = base64.b64encode((credentials['username'] + ':' + credentials['password']).encode()).decode()
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -128,17 +147,17 @@ def verify_gateway(apps, credentials, port=8888):
         path = spec['health'] if app in {'video-merger', 'local-upload-manager'} else '/' + app + spec['health']
         url = f'http://127.0.0.1:{port}' + path
         try:
-            opener.open(url, timeout=5)
-            raise RuntimeError('anonymous app route exposed: ' + app)
+            with open_during_reload(opener, url, timeout=5):
+                raise RuntimeError('anonymous app route exposed: ' + app)
         except urllib.error.HTTPError as exc:
             if exc.code != 401:
                 raise
         req = urllib.request.Request(url, headers={'Authorization': 'Basic ' + auth})
-        with opener.open(req, timeout=10) as response:
+        with open_during_reload(opener, req, timeout=10) as response:
             if response.status != 200 or json.loads(response.read()).get('ok') is not True:
                 raise RuntimeError('authenticated route failed: ' + app)
         ui_path = spec['ui'] if app in {'video-merger', 'local-upload-manager'} else '/' + app + spec['ui']
-        with opener.open(urllib.request.Request(f'http://127.0.0.1:{port}' + ui_path,
+        with open_during_reload(opener, urllib.request.Request(f'http://127.0.0.1:{port}' + ui_path,
                                               headers={'Authorization': 'Basic ' + auth}), timeout=10) as response:
             if response.status != 200 or 'text/html' not in response.headers.get('Content-Type', ''):
                 raise RuntimeError('browser document route failed: ' + app)
