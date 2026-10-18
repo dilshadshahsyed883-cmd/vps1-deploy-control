@@ -110,6 +110,9 @@ class RouteRenderTests(unittest.TestCase):
                                 str(cert)).replace(
                                     "/etc/letsencrypt/live/app.scenebuilder.online/privkey.pem",
                                     str(key))
+            # Same TLS/server/location syntax without binding privileged test ports.
+            site = site.replace("listen 80;", "listen 18880;")
+            site = site.replace("listen 443 ssl;", "listen 18443 ssl;")
             config = root / "nginx.conf"
             config.write_text(f"pid {root}/nginx.pid;\n" +
                               f"error_log {root}/nginx-error.log;\n" +
