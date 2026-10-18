@@ -121,11 +121,11 @@ def route_config(app):
 
 def add_route(site, app):
     """Return (new site, changed); cannot modify unowned or existing locations."""
+    guard(WORKSPACE_INCLUDE not in site,
+          "prior workspace include needs separate reconciliation")
     base, names = owned_routes(site)
     if app in names or standalone(base, app):
         return site, False
-    guard(WORKSPACE_INCLUDE not in site,
-          "prior workspace include needs separate reconciliation")
     p = "/" + app
     guard(("location ^~ " + p + "/") not in site and
           ("location = " + p + " ") not in site,
