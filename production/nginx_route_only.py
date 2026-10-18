@@ -242,16 +242,20 @@ def check_app(app, auth, *, session_owned=False):
                   "app HTTPS browser document unavailable: " + app)
 
 
-def preflight(revision, app):
+def preflight(revision, app, *, require_app=True):
     check_host(revision)
     guard(app in APPS, "only independent app HTTPS routes may be published")
     guard(SITE.is_file() and not SITE.is_symlink() and ENABLED.is_symlink()
           and ENABLED.resolve() == SITE,
           "Scene HTTPS site ownership mismatch")
     guard(CERT.is_file() and KEY.is_file(), "existing Scene certificate missing")
-    for unit in ("nginx.service", "vps1-scene-candidate.service",
-                 "vps1-production-" + app + ".service"):
+    for unit in ("nginx.service", "vps1-scene-candidate.service"):
         guard(active(unit), "required service unavailable: " + unit)
+    if not require_app:
+        # The route must remain removable when its backend or gateway is down.
+        return None
+    guard(active("vps1-production-" + app + ".service"),
+          "required app service unavailable: " + app)
     data = json.loads((BASE / "production-status.json").read_text())
     guard(data.get("gateway") == "ACTIVE" and app in data.get("apps", []),
           "app not published in existing authenticated workspace gateway")
@@ -312,7 +316,7 @@ def publish(revision, app):
 
 
 def rollback(revision, app):
-    auth = preflight(revision, app)
+    preflight(revision, app, require_app=False)
     record_file = TRANSACTIONS / (app + ".json")
     guard(record_file.is_file() and not record_file.is_symlink(),
           "no recorded route-only release for app")
@@ -337,10 +341,14 @@ def rollback(revision, app):
         route.unlink()
         command(["nginx", "-t"])
         command(["systemctl", "reload", "nginx"])
-        check_scene()
         record["state"] = "ROLLED_BACK"
         record["rollback_revision"] = revision
         atomic(record_file, (json.dumps(record, sort_keys=True) + "\n").encode(), 0o600)
+        # A dead app/Scene service must not undo a successful route rollback.
+        try:
+            check_scene()
+        except Exception:
+            print("SCENE_HEALTH=DEGRADED_AFTER_ROUTE_ROLLBACK", flush=True)
         print("NGINX_ROUTE_ROLLBACK=PASS APP=" + app, flush=True)
     except BaseException:
         atomic(route, route_config(app).encode())
