@@ -176,6 +176,24 @@ def public_apps_for_release(requested, *, previous=None, is_active=None):
     return selected
 
 
+def public_apps_for_revision(candidates, revision, *, previous=None, is_active=None):
+    """Publish current-release apps, preserving previous routes.
+
+    Older remote helpers pass all running services including unpublished pilots.
+    Require a matching release record for each newly exposed app.
+    """
+    updated = []
+    for app in candidates:
+        if app not in CATALOG:
+            raise RuntimeError('unknown gateway candidate')
+        record = BASE / 'control/state' / (app + '.json')
+        if record.is_file():
+            recorded = json.loads(record.read_text())
+            if recorded.get('status') == 'ACTIVE' and recorded.get('revision') == revision:
+                updated.append(app)
+    return public_apps_for_release(updated, previous=previous, is_active=is_active)
+
+
 def install(apps):
     for app in apps:
         http_check(app)
@@ -227,7 +245,7 @@ def main():
     args = parser.parse_args()
     check_host(args.revision)
     with deployment_lock():
-        install(args.apps)
+        install(public_apps_for_revision(args.apps, args.revision))
 
 
 if __name__ == '__main__':
