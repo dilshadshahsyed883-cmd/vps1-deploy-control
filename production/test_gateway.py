@@ -4,7 +4,8 @@ import subprocess
 import tempfile
 import unittest
 
-from production.gateway import nginx_config, public_apps_for_release, public_apps_for_revision
+from production.gateway import (legacy_voice_publication_required, nginx_config,
+                                public_apps_for_release, public_apps_for_revision)
 from production.runtime import CATALOG
 
 
@@ -42,6 +43,30 @@ class GatewaySelectionTest(unittest.TestCase):
             public_apps_for_release([], previous=[], is_active=lambda _: True)
         with self.assertRaisesRegex(RuntimeError, 'unknown public'):
             public_apps_for_release(['random-service'], previous=[], is_active=lambda _: True)
+
+    def test_legacy_voice_publisher_skips_existing_sso_and_unrelated_release(self):
+        from unittest.mock import patch
+        import json
+        revision = 'a' * 40
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'control/state').mkdir(parents=True)
+            (root / 'control/state/voice-studio.json').write_text(json.dumps({
+                'revision': revision, 'status': 'ACTIVE'}))
+            site = root / 'scene.conf'
+            site.write_text('reviewed scene')
+            with patch('production.gateway.BASE', root), \
+                 patch('production.scene_public_https.SITE', site), \
+                 patch('production.scene_session_routes.active', return_value=True):
+                self.assertFalse(legacy_voice_publication_required(
+                    ['voice-studio'], ['voice-studio'], revision))
+                self.assertFalse(legacy_voice_publication_required(
+                    ['auto-caption-studio'], ['voice-studio', 'auto-caption-studio'], revision))
+            with patch('production.gateway.BASE', root), \
+                 patch('production.scene_public_https.SITE', site), \
+                 patch('production.scene_session_routes.active', return_value=False):
+                self.assertTrue(legacy_voice_publication_required(
+                    ['voice-studio'], ['voice-studio'], revision))
 
 
 
