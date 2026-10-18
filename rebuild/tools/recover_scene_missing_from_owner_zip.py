@@ -22,11 +22,14 @@ MODULES = (
     "scene_txt_pipeline", "transition_engine", "v2_renderer", "v3_engine",
 )
 RELATIVE = Path("apps/scene-builder/part02/smart_scroll")
+OWNER_SHA256 = "0a8867fd3be32ded4a72cd67fadb5e0fef6f1fc3d73ca0f49809076164f60a40"
 
 def recover(source: Path, checkout: Path, *, apply: bool = False) -> dict:
     if not (checkout / "apps/scene-builder/part02/api_server.py").is_file():
         raise RuntimeError("not a Scene Builder source checkout")
     source = source.resolve()
+    if hashlib.sha256(source.read_bytes()).hexdigest() != OWNER_SHA256:
+        raise RuntimeError("only the owner-provided archived source is accepted")
     data = {}
     with zipfile.ZipFile(source) as archive:
         files = archive.infolist()
