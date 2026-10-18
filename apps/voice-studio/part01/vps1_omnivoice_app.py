@@ -37,6 +37,27 @@ def health():
     cfg=vc.effective_omnivoice_config()
     online,error=vc.omnivoice_worker_health(timeout_seconds=4.0) if cfg.get("endpoint_url") else (False,"not_configured")
     return {"ok":True,"app":"VPS1 OmniVoice Voice Studio","profiles":int(profiles),"jobs":int(jobs),"omnivoice_configured":bool(cfg.get("saved_endpoint_url") or cfg.get("endpoint_url")),"omnivoice_enabled":bool(cfg.get("enabled")),"worker_online":bool(online),"worker_error":str(error or "")}
+@app.get("/tts/api/studio/readiness")
+def studio_readiness():
+    """One safe status endpoint for each isolated Voice Studio engine."""
+    kokoro = ko.status()
+    edge = ed.status()
+    omni = vc.effective_omnivoice_config()
+    connected = bool(omni.get("enabled") and omni.get("endpoint_url"))
+    online, error = vc.omnivoice_worker_health(timeout_seconds=3.0) if connected else (False, "not_configured")
+    downloader = ad.status()
+    return {
+        "ok": True,
+        "engines": {
+            "kokoro": {"ready": bool(kokoro.get("ready")), "reason": kokoro.get("reason", "")},
+            "edge": {"ready": bool(edge.get("ready")), "reason": edge.get("reason", "")},
+            "omnivoice": {"ready": bool(online), "configured": bool(omni.get("saved_endpoint_url")),
+                          "enabled": bool(omni.get("enabled")), "reason": str(error or "")},
+            "audio_downloader": {"ready": bool(downloader.get("ready")),
+                                 "worker_online": bool(downloader.get("worker"))},
+        },
+    }
+
 @app.get("/tts/api/status")
 def compat_status(): return {"busy":False,"queue_paused":False,"mode":"omnivoice-only"}
 @app.get("/tts/api/voices")

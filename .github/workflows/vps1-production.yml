@@ -24,7 +24,8 @@ jobs:
     if: >-
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'workflow_dispatch' ||
-       contains(github.event.head_commit.message, '[vps1-production-release]'))
+       contains(github.event.head_commit.message, '[vps1-production-release]') ||
+       contains(github.event.head_commit.message, '[vps1-production-release:voice-studio]'))
     environment: production
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -43,7 +44,7 @@ jobs:
         env:
           PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
           SOURCE_SHA: ${{ github.sha }}
-          APP_SELECTION: ${{ inputs.app || 'all' }}
+          APP_SELECTION: ${{ github.event_name == 'workflow_dispatch' && inputs.app || contains(github.event.head_commit.message, '[vps1-production-release:voice-studio]') && 'voice-studio' || 'all' }}
           OPERATION: ${{ inputs.operation || 'install' }}
         run: |
           set -Eeuo pipefail

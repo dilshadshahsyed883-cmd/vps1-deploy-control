@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'production/**'
+      - 'apps/voice-studio/**'
       - '.github/workflows/vps1-production-runtime-ci.yml'
   workflow_dispatch:
 permissions:

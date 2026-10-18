@@ -20,14 +20,14 @@ fi
 [[ "$(git -C "$checkout" rev-parse HEAD)" == "$revision" ]]
 cd "$checkout"
 python3 -m production.runtime install --revision "$revision" "$@"
-python3 - <<'PY'
-import subprocess
-from production.runtime import CATALOG, deployment_lock
-from production.gateway import install
-active = [app for app in CATALOG if subprocess.run(
-    ['systemctl', 'is-active', '--quiet', 'vps1-production-' + app + '.service']).returncode == 0]
+python3 - "$@" <<'PY'
+import sys
+from production.runtime import deployment_lock
+from production.gateway import install, public_apps_for_release
+if len(sys.argv) < 3 or sys.argv[1] != '--apps':
+    raise SystemExit('explicit --apps release selection required')
 with deployment_lock():
-    install(active)
+    install(public_apps_for_release(sys.argv[2:]))
 PY
 # The existing dedicated SSH account can invoke this one validated command.
 # No sudo group, unrestricted shell or GitHub credential change is introduced.
