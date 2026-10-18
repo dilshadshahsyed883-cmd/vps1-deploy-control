@@ -1,0 +1,33 @@
+# SOURCE ONLY, never enable without new authorization.
+[Unit]
+Description=VPS1 isolated read-only Storage Manager candidate
+After=network.target
+[Service]
+Type=simple
+User=vps1storage
+Group=vps1storage
+WorkingDirectory=/srv/fresh-website/current/vps-storage-manager/part01
+EnvironmentFile=/etc/fresh-website/vps-storage-manager.env
+Environment=VPS1_RUNTIME_CANDIDATE=1
+Environment=FRESH_WEBSITE_SMOKE_TEST=1
+Environment=STORAGE_MANAGER_HOST=127.0.0.1
+Environment=STORAGE_MANAGER_PORT=8149
+Environment=STORAGE_MANAGER_STATE_ROOT=/var/lib/fresh-website/vps-storage-manager
+StateDirectory=fresh-website/vps-storage-manager
+ExecStart=/usr/bin/python3 /srv/fresh-website/current/vps-storage-manager/part01/storage_manager.py serve
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadWritePaths=/var/lib/fresh-website/vps-storage-manager
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+Restart=on-failure
+RestartSec=3
+TimeoutStartSec=20
+TimeoutStopSec=10
+[Install]
+WantedBy=multi-user.target
