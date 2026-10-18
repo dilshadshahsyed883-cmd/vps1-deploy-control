@@ -41,6 +41,22 @@ class WebPreflightTests(unittest.TestCase):
             self.assertEqual(got["services"][0]["listen"], "EXPOSED")
             self.assertEqual(got["independent_https"]["voice-studio"]["state"], "MISSING")
 
+    def test_cert_symlink_permission_denied_is_not_marked_absent(self):
+        with mock.patch.object(w.Path, "is_file", side_effect=PermissionError(13, "Permission denied")):
+            self.assertEqual(w.safe_presence(w.CERT), "UNVERIFIABLE_NON_ROOT")
+
+    def test_nginx_permission_denied_is_not_a_syntax_failure(self):
+        class Completed:
+            returncode = 1
+            stderr = "nginx: open() \"/etc/letsencrypt/live/key\" failed (13: Permission denied)"
+        with mock.patch.object(w.shutil, "which", return_value="/usr/sbin/nginx"), \
+             mock.patch.object(w, "process", return_value=Completed()):
+            self.assertEqual(w.nginx_syntax_state(), "UNVERIFIABLE_NON_ROOT")
+
+    def test_helper_permission_denied_is_reported(self):
+        with mock.patch.object(w.Path, "is_file", side_effect=PermissionError(13, "Permission denied")):
+            self.assertEqual(w.helper_state(), "UNVERIFIABLE_NON_ROOT")
+
     def test_loopback_listener_detection(self):
         class Completed:
             returncode = 0
