@@ -687,6 +687,24 @@
       {% endif %}
     </section>
 {% elif mode == 'heavy' and tab == 'auto_engine' %}
+    <section class="lum-card">
+      <div class="lum-card-head">
+        <div><h2>Unified Auto Uploader · Four Modes</h2>
+          <p>Each mode keeps its own profiles, channels, queues, schedules and permanent upload history. Switching views never starts an upload.</p></div>
+      </div>
+      <nav class="lum-ae-tabs lum-ae-tabs-primary" aria-label="Auto Uploader modes">
+        {% for key in ['engine1', 'engine2', 'shorts', 'short_stream'] %}
+        <a class="lum-button {{ 'primary' if auto_mode == key else 'secondary' }}"
+           href="{{ base_path }}/app?tab=auto_engine&auto_mode={{ key }}"
+           aria-current="{{ 'page' if auto_mode == key else 'false' }}">{{ mode_registry.selected_modes[key].label }}</a>
+        {% endfor %}
+      </nav>
+      <p class="lum-note">Mode histories remain isolated. Existing Engine 1 controls apply only to Engine 1. Separate engine uploads are not enabled without ownership, duplicate and OAuth verification.</p>
+      {% if mode_registry.cross_mode_record_collisions %}
+        <div class="lum-alert error">Cross-mode receipt collision(s) detected: {{ mode_registry.cross_mode_record_collisions }}. Do not activate additional upload workers before reconciling these identities.</div>
+      {% endif %}
+    </section>
+    {% if auto_mode == 'engine1' %}
     {% set ae = auto_v6 %}
     {% set p = ae.selected if ae else None %}
     {% set src = ae.source if ae else {} %}
@@ -1007,6 +1025,37 @@
         </tbody></table></div>
       </section>
     </div>
+
+    </div>
+    {% else %}
+      {% set selected_mode = mode_registry.selected_modes[auto_mode] %}
+      <section class="lum-card">
+        <div class="lum-card-head"><div><h2>{{ selected_mode.label }}</h2>
+          <p>{{ selected_mode.message }}</p></div>
+          <span class="lum-badge warn">{{ selected_mode.status | replace('_',' ') | upper }}</span>
+        </div>
+        {% if auto_mode == 'short_stream' %}
+          <p>Livestream sessions are managed by the independent Short Stream application, not by a YouTube video-upload queue.</p>
+          <div class="lum-metrics"><div><span>Local session snapshots</span><strong>{{ selected_mode.sessions if selected_mode.sessions is not none else 'Not available' }}</strong></div></div>
+          <a class="lum-button secondary" href="/short-stream/">Open separate Short Stream app</a>
+          <p class="lum-note">Active streaming, stream destinations and stream keys are not exposed in this read-only view.</p>
+        {% else %}
+          <div class="lum-metrics">
+            <div><span>Profiles</span><strong>{{ selected_mode.stats.profiles }}</strong></div>
+            <div><span>Channels</span><strong>{{ selected_mode.stats.channels }}</strong></div>
+            <div><span>Queue rows</span><strong>{{ selected_mode.stats.queue }}</strong></div>
+            <div><span>Schedule runs</span><strong>{{ selected_mode.stats.schedules }}</strong></div>
+            <div><span>Permanent upload records</span><strong>{{ selected_mode.stats.upload_records }}</strong></div>
+          </div>
+          {% if selected_mode.status == 'not_provisioned' %}
+            <p class="lum-note">This mode's isolated database is not installed on the fresh VPS. Historical records and OAuth must be reconciled, not replaced or guessed.</p>
+          {% else %}
+            <p class="lum-note">These counts are read directly from the mode's separate SQLite databases using read-only access. They are not proof that the scheduler, OAuth, or YouTube upload works.</p>
+          {% endif %}
+        {% endif %}
+        <p><strong>Upload safety:</strong> no actions are available from this view. Existing Engine 1 records and live queue are not shared or modified.</p>
+      </section>
+    {% endif %}
 
 {% elif mode == 'heavy' and tab == 'add_video' %}
     {{ upload_form(False) }}
