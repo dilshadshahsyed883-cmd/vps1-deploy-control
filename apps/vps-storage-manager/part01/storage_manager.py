@@ -1111,6 +1111,26 @@ def scheduler_loop() -> None:
         _stop_event.wait(max(300, wait_seconds))
 
 
+def validate_candidate_runtime() -> None:
+    """Fail closed before state initialization or socket binding."""
+    if os.getenv("VPS1_RUNTIME_CANDIDATE") != "1":
+        return
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        raise SystemExit("candidate cannot run as root")
+    if os.getenv("FRESH_WEBSITE_SMOKE_TEST") != "1":
+        raise SystemExit("candidate requires read-only smoke flag")
+    if LISTEN_HOST != "127.0.0.1" or LISTEN_PORT == 8799 or not 1024 <= LISTEN_PORT <= 65535:
+        raise SystemExit("candidate requires dedicated loopback port")
+    if not os.getenv("STORAGE_MANAGER_STATE_ROOT") or not STATE_ROOT.is_absolute():
+        raise SystemExit("candidate requires explicit isolated state")
+    root = STATE_ROOT.resolve()
+    legacy = Path("/var/lib/vps-storage-manager")
+    if root == legacy or legacy in root.parents:
+        raise SystemExit("candidate cannot use legacy storage state")
+    if len(AUTH_TOKEN) < 24:
+        raise SystemExit("candidate token must be securely injected")
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "VPSStorageManager/1"
 
@@ -1158,8 +1178,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(500, {"ok": False, "error": str(exc)})
 
     def do_POST(self) -> None:
-        if os.getenv("FRESH_WEBSITE_SMOKE_TEST") == "1":
-            return self.respond(403, {"ok": False, "error": "fresh smoke test read-only"})
+        if os.getenv("FRESH_WEBSITE_SMOKE_TEST") == "1" or os.getenv("VPS1_RUNTIME_CANDIDATE") == "1":
+            return self.respond(403, {"ok": False, "error": "candidate read-only"})
         if not self.authenticated():
             return self.respond(403, {"ok": False, "error": "forbidden"})
         path = self.path.split("?", 1)[0]
@@ -1185,10 +1205,11 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def serve() -> None:
+    validate_candidate_runtime()
     if not AUTH_TOKEN:
         raise SystemExit("STORAGE_MANAGER_TOKEN is required")
     init_state()
-    if os.getenv("FRESH_WEBSITE_SMOKE_TEST") != "1":
+    if os.getenv("FRESH_WEBSITE_SMOKE_TEST") != "1" and os.getenv("VPS1_RUNTIME_CANDIDATE") != "1":
         threading.Thread(target=scheduler_loop, name="storage-scheduler", daemon=True).start()
     server = ThreadingHTTPServer((LISTEN_HOST, LISTEN_PORT), Handler)
     server.serve_forever()
@@ -1198,10 +1219,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=("serve", "scan", "metrics", "history"), default="serve", nargs="?")
     args = parser.parse_args()
-    init_state()
     if args.command == "serve":
         serve()
-    elif args.command == "scan":
+    else:
+        init_state()
+    if args.command == "scan":
         print(json.dumps(perform_scan(), indent=2))
     elif args.command == "metrics":
         print(json.dumps(metrics(), indent=2))
