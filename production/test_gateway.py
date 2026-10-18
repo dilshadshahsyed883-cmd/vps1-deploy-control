@@ -107,5 +107,58 @@ class GatewaySyntaxTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
 
 
+class WorkspaceHttpsTest(unittest.TestCase):
+    def test_scene_routes_preserved_and_drift_rejected(self):
+        from production.workspace_https import site_config, INCLUDE
+        from production.scene_public_https import nginx_https
+        expected = nginx_https()
+        updated = site_config(expected)
+        self.assertEqual(updated.replace(' include ' + str(INCLUDE) + ';\n', ''), expected)
+        with self.assertRaises(RuntimeError):
+            site_config(expected + '# concurrent update')
+
+    def test_existing_voice_and_caption_routes_are_preserved_once(self):
+        from production.workspace_https import config, site_config, INCLUDE, known_scene_sites
+        from production.scene_public_https import VOICE_EXTRA
+        from production.route_auto_caption_scene_https import ROUTE as ACS_ROUTE
+        for site in known_scene_sites():
+            updated = site_config(site)
+            self.assertEqual(updated.replace(' include ' + str(INCLUDE) + ';\n', ''), site)
+            self.assertEqual(updated.count(' include ' + str(INCLUDE) + ';'), 1)
+            snippet = config(site)
+            for app, marker in (('voice-studio', VOICE_EXTRA),
+                                ('auto-caption-studio', ACS_ROUTE)):
+                if marker in site:
+                    self.assertNotIn('location ^~ /' + app + '/ {', snippet)
+                else:
+                    self.assertIn('location ^~ /' + app + '/ {', snippet)
+            self.assertIn('location ^~ /short-maker/ {', snippet)
+        with self.assertRaises(RuntimeError):
+            config(known_scene_sites()[0] + '\n# unexpected route')
+
+    def test_all_backend_routes_require_workspace_auth(self):
+        from production.workspace_https import config, APPS
+        generated = config()
+        self.assertEqual(generated.count('auth_basic_user_file'), len(APPS) + 1)
+        self.assertNotIn('18080', generated)
+        self.assertNotIn('8000', generated)
+        for app in APPS:
+            route = generated.split('location ^~ /' + app + '/ {')[1].split('}')[0]
+            self.assertIn('auth_basic_user_file', route)
+            self.assertIn('proxy_pass', route)
+
+    @unittest.skipUnless(shutil.which('nginx'), 'real Nginx parser in Ubuntu CI')
+    def test_workspace_routes_with_real_nginx_parser(self):
+        from production.workspace_https import config
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            conf = root / 'nginx.conf'
+            conf.write_text(f'pid {root}/pid; error_log {root}/error.log;\n'
+                'events {} http { access_log off; server { listen 127.0.0.1:18891;\n'
+                + config() + 'location / { proxy_pass http://127.0.0.1:18080; } } }')
+            result = subprocess.run(['nginx', '-t', '-c', str(conf)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+
 if __name__ == '__main__':
     unittest.main()
