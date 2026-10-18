@@ -3506,7 +3506,9 @@ def workspace_session_auth(request: Request, app: str = ""):
             permitted = False
         if not permitted:
             return Response(status_code=403)
-    access = "both" if admin else str(account.get("app_access") or "scene_builder")
+    # The Caption backend interprets access="both" as administrator. Never
+    # pass a broad account grant to it for a non-admin Scene user.
+    access = "both" if admin else ("auto_caption" if app == "auto-caption-studio" else "lum")
     return Response(status_code=204, headers={
         "X-Auth-User": str(account.get("username") or ""),
         "X-App-Access": access,
