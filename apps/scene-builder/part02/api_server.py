@@ -4493,7 +4493,8 @@ def health():
             )
         }
     return {
-        "ok": True,
+        "ok": not WORKER_ADMISSION_ONLY,
+        "admission_only": WORKER_ADMISSION_ONLY,
         "worker": "scene-builder-persistent-queue",
         "worker_api_version": WORKER_API_VERSION,
         "worker_build": WORKER_BUILD,
