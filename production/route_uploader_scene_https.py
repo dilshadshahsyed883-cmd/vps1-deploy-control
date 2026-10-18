@@ -40,6 +40,7 @@ TRANSACTIONS = Path("/srv/fresh-website/transactions/scene-uploader-https")
 # Nginx performs the Scene session check; client-supplied identity headers are
 # overwritten with values from the protected authorization subrequest.
 ROUTE = """ # VPS1_SCENE_SESSION_UPLOADER_ROUTE_V1
+ location = /local-upload-manager/ { return 308 /local-upload-manager; }
  location = /local-upload-manager {
     proxy_pass http://127.0.0.1:18080;
     proxy_http_version 1.1;
@@ -73,6 +74,11 @@ ROUTE = """ # VPS1_SCENE_SESSION_UPLOADER_ROUTE_V1
     proxy_send_timeout 300s;
  }
 """
+# The previous approved production route lacked only the exact slash handler.
+# Recognize precisely that old route for an app-scoped, reversible upgrade.
+LEGACY_ROUTE = ROUTE.replace(
+    " location = /local-upload-manager/ { return 308 /local-upload-manager; }\n", "", 1
+)
 
 
 def guard(condition: bool, message: str) -> None:
@@ -87,9 +93,12 @@ def add_route(original: str) -> tuple[str, bool]:
           and "location = /internal/runtime-ready { return 404; }" in original,
           "unexpected Scene TLS guard")
     if MARKER in original:
-        guard(original.count(MARKER) == 1 and ROUTE in original,
+        guard(original.count(MARKER) == 1, "duplicate uploader route marker")
+        if ROUTE in original:
+            return original, False
+        guard(LEGACY_ROUTE in original,
               "existing uploader route differs from this release")
-        return original, False
+        return original.replace(LEGACY_ROUTE, ROUTE, 1), True
     guard("location = /local-upload-manager " not in original
           and "location ^~ /local-upload-manager/" not in original
           and "location = /_scene_uploader_auth" not in original,
@@ -205,6 +214,17 @@ def verify(cookie: str, *, published: bool) -> None:
     guard(status == 404, "Scene internal probe exposed")
     verify_outer_shell(cookie, published=published)
     if published:
+        # The slash URL must return to Scene's original sidebar, not the
+        # standalone LUM application. Old Nginx workers may linger briefly.
+        for attempt in range(12):
+            status, _, _ = https_get("/local-upload-manager/", cookie)
+            if status == 308:
+                break
+            guard(attempt < 11 and status in OUTER_HANDOVER_HTTP | {200},
+                  "Uploader trailing slash still bypasses Scene sidebar")
+            time.sleep(0.6)
+        else:
+            raise RuntimeError("BLOCKED: uploader slash route did not settle")
         # Nginx reload can briefly serve old workers. Never accept old 404/303.
         for attempt in range(12):
             unauth, _, _ = https_get("/local-upload-manager/app")

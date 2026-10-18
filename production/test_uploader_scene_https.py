@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 from production.route_uploader_scene_https import (
-    MARKER, ROUTE, add_route, retire_legacy_managed_route, verify_outer_shell,
+    MARKER, ROUTE, LEGACY_ROUTE, add_route, retire_legacy_managed_route, verify_outer_shell,
 )
 from production.scene_public_https import nginx_https
 
@@ -23,6 +23,7 @@ class UploaderSceneRouteTests(unittest.TestCase):
         self.assertTrue(changed)
         self.assertIn("location ^~ /local-upload-manager/ {", config)
         self.assertIn("location = /local-upload-manager {", ROUTE)
+        self.assertIn("location = /local-upload-manager/ { return 308 /local-upload-manager; }", ROUTE)
         exact = ROUTE.split(" location = /_scene_uploader_auth", 1)[0]
         self.assertIn("proxy_pass http://127.0.0.1:18080;", exact)
         self.assertNotIn("8015", exact)
@@ -55,6 +56,16 @@ class UploaderSceneRouteTests(unittest.TestCase):
             add_route(initial.replace(" location / {", " location ^~ /local-upload-manager/ { return 200; }\n location / {", 1))
         with self.assertRaisesRegex(RuntimeError, "differs"):
             add_route(patched.replace("127.0.0.1:8015", "127.0.0.1:1"))
+
+    def test_exact_previous_uploader_route_upgrades_without_other_changes(self):
+        previous = nginx_https().replace(
+            " location / {\\n    proxy_pass http://127.0.0.1:18080;",
+            LEGACY_ROUTE + " location / {\\n    proxy_pass http://127.0.0.1:18080;", 1)
+        upgraded, changed = add_route(previous)
+        self.assertTrue(changed)
+        self.assertIn(ROUTE, upgraded)
+        self.assertNotIn(LEGACY_ROUTE + " location / {", upgraded)
+        self.assertEqual(add_route(upgraded), (upgraded, False))
 
     def test_retires_only_reviewed_legacy_uploader_include(self):
         from unittest.mock import patch

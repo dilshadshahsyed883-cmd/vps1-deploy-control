@@ -11,6 +11,11 @@ on:
       - 'production/gateway.py'
       - '.github/workflows/vps1-production.yml'
       - 'apps/scene-builder/part01/templates/local_upload_manager.html'
+      - 'apps/scene-builder/part01/templates/base.html'
+      - 'apps/scene-builder/part01/templates/acs_studio_shell.html'
+      - 'apps/scene-builder/part01/templates/video_studio_embed.html'
+      - 'apps/scene-builder/part01/app.py'
+      - 'production/test_scene_video_studio_shell.py'
       - 'apps/scene-builder/part01/static/lum_host_state_v1.js'
       - 'rebuild/tests/test_scene_public_https.py'
       - '.github/workflows/vps1-scene-public-ci.yml'
@@ -51,7 +56,7 @@ jobs:
                   assert test.returncode==0,(name,test.stderr)
           PY
       - name: Validate Scene authenticated Auto Uploader Nginx route
-        run: python3 -m unittest production.test_uploader_scene_https production.test_scene_uploader_ui_release -v
+        run: python3 -m unittest production.test_uploader_scene_https production.test_scene_uploader_ui_release production.test_scene_video_studio_shell -v
       - name: Prove no website/worker/legacy remote action enabled
         run: |
           python3 - <<'PY'
