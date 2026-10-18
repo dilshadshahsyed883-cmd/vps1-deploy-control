@@ -6,7 +6,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: vps1-production
+  group: vps1-five-https-routes
   cancel-in-progress: false
 
 jobs:
