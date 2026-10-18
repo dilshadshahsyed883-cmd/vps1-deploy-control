@@ -112,7 +112,8 @@ class RouteRenderTests(unittest.TestCase):
                                     str(key))
             config = root / "nginx.conf"
             config.write_text(f"pid {root}/nginx.pid;\n" +
-                              "events {} http {\n" + site + "\n}\n")
+                              f"error_log {root}/nginx-error.log;\n" +
+                              "events {} http { access_log off;\n" + site + "\n}\n")
             result = subprocess.run(["nginx", "-t", "-p", str(root), "-c", str(config)],
                                     capture_output=True, text=True, timeout=20)
             self.assertEqual(result.returncode, 0, result.stderr)
