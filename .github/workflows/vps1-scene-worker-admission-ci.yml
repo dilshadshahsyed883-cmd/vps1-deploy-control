@@ -4,6 +4,7 @@ on:
     paths:
       - 'apps/scene-builder/part02/api_server.py'
       - 'rebuild/tests/test_scene_worker_admission.py'
+      - 'production/install_scene_worker_admission.py'
       - '.github/workflows/vps1-scene-worker-admission-ci.yml'
   workflow_dispatch:
 permissions:
@@ -26,6 +27,29 @@ jobs:
             'requests==2.32.3' 'pillow==11.1.0' 'httpx==0.28.1'
       - name: Real existing Scene Builder worker FastAPI + protected queue smoke
         run: python -m unittest rebuild.tests.test_scene_worker_admission -v
+      - name: Validate isolated host installer Python and rollback gates
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import ast
+          s=Path("production/install_scene_worker_admission.py").read_text()
+          ast.parse(s)
+          for marker in (
+            "vps1-scene-worker-admission.service",
+            "ReadWritePaths={STATE}",
+            "SCENE_WORKER_ADMISSION_ONLY=1",
+            "DRIVE_UPLOAD_ENABLED=0",
+            "AUTO_CLEAN_MEDIA_AFTER_RENDER=0",
+            "ROLLBACK=WORKER_UNIT_RELEASE_ENV_ONLY",
+            "SOURCE_COMMIT=",
+            "PREEXISTING_NEVER",
+          ):
+            if marker=="PREEXISTING_NEVER":
+              assert "existing admission resource; no overwrite" in s
+            else:
+              assert marker in s
+          assert "ssh ubuntu@" not in s
+          PY
       - name: Guard all unrelated app deploy/Auto Script flags
         run: |
           python - <<'PY'
