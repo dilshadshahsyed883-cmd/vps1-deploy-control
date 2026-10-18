@@ -1,0 +1,36 @@
+# One-time, non-deploying proof that GitHub production requires no manual reviewer.
+# This job deliberately has NO VPS, network, OIDC, sudo, credentials or app access.
+name: VPS1 production approval-free gate proof (NO VPS)
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vps1-production-approval-proof.yml'
+permissions:
+  contents: read
+jobs:
+  production-gate-proof:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'dilshadshahsyed883-cmd' &&
+      contains(github.event.head_commit.message, '[vps1-approval-free-proof]')
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - name: Assert owner-only protected-main production environment admitted
+        shell: bash
+        env:
+          SOURCE_REF: ${{ github.ref }}
+          GITHUB_ACTOR_LOGIN: ${{ github.actor }}
+          EVENT_TYPE: ${{ github.event_name }}
+        run: |
+          set -Eeuo pipefail
+          test "$SOURCE_REF" = refs/heads/main
+          test "$GITHUB_ACTOR_LOGIN" = dilshadshahsyed883-cmd
+          test "$EVENT_TYPE" = push
+          echo 'APPROVAL_FREE_PRODUCTION_ENVIRONMENT=PASS'
+          echo 'VPS_OPERATIONS=NONE'
+          echo 'SECRET_ACCESS=NONE'
+          echo 'APPLICATION_DEPLOYMENT=NONE'
