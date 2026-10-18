@@ -5,6 +5,8 @@ on:
       - 'apps/scene-builder/part02/smart_scroll/v2_renderer.py'
       - 'apps/scene-builder/part02/smart_scroll/__init__.py'
       - 'rebuild/tests/test_scene_renderer_v2_restore.py'
+      - 'rebuild/tests/test_scene_missing_owner_zip_import.py'
+      - 'rebuild/tools/recover_scene_missing_from_owner_zip.py'
       - '.github/workflows/vps1-scene-renderer-restore.yml'
   workflow_dispatch:
 permissions:
@@ -19,6 +21,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           python3 -m unittest rebuild.tests.test_scene_renderer_v2_restore -v
+          python3 -m unittest rebuild.tests.test_scene_missing_owner_zip_import -v
       - name: Do not mistake source recovery for live render-worker admission
         run: |
           python3 - <<'PY'
