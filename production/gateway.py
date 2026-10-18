@@ -145,6 +145,55 @@ def verify_gateway(apps, credentials, port=8888):
         event(app=app, gateway='PASS', anonymous='DENIED', html_ui='PASS')
 
 
+def public_apps_for_release(requested, *, previous=None, is_active=None):
+    """Preserve public routes; never auto-publish every active internal app.
+
+    A separately installed Scene/Storage candidate may intentionally be kept
+    off the public gateway. Only previously public apps and this release's
+    explicitly selected apps are eligible for a new gateway cutover.
+    """
+    if previous is None:
+        state_path = BASE / 'production-status.json'
+        state = json.loads(state_path.read_text()) if state_path.is_file() else {}
+        if state and state.get('gateway') != 'ACTIVE':
+            raise RuntimeError('previous public gateway state is not active')
+        previous = state.get('apps', [])
+    if not isinstance(previous, (list, tuple)) or not isinstance(requested, (list, tuple)):
+        raise RuntimeError('invalid gateway app set')
+    for name in [*previous, *requested]:
+        if name not in CATALOG:
+            raise RuntimeError('unknown public app: ' + str(name))
+    selected = [app for app in CATALOG if app in previous or app in requested]
+    if not selected:
+        raise RuntimeError('refusing empty public gateway release')
+    if is_active is None:
+        is_active = lambda app: subprocess.run(
+            ['systemctl', 'is-active', '--quiet', 'vps1-production-' + app + '.service']
+        ).returncode == 0
+    for app in selected:
+        if not is_active(app):
+            raise RuntimeError('required public service is not active: ' + app)
+    return selected
+
+
+def public_apps_for_revision(candidates, revision, *, previous=None, is_active=None):
+    """Publish current-release apps, preserving previous routes.
+
+    Older remote helpers pass all running services including unpublished pilots.
+    Require a matching release record for each newly exposed app.
+    """
+    updated = []
+    for app in candidates:
+        if app not in CATALOG:
+            raise RuntimeError('unknown gateway candidate')
+        record = BASE / 'control/state' / (app + '.json')
+        if record.is_file():
+            recorded = json.loads(record.read_text())
+            if recorded.get('status') == 'ACTIVE' and recorded.get('revision') == revision:
+                updated.append(app)
+    return public_apps_for_release(updated, previous=previous, is_active=is_active)
+
+
 def install(apps):
     for app in apps:
         http_check(app)
@@ -196,7 +245,7 @@ def main():
     args = parser.parse_args()
     check_host(args.revision)
     with deployment_lock():
-        install(args.apps)
+        install(public_apps_for_revision(args.apps, args.revision))
 
 
 if __name__ == '__main__':
