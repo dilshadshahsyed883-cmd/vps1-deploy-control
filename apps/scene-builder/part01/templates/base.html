@@ -138,11 +138,21 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
   <nav>
     <a class="{% if page=='dashboard' %}active{% endif %}" href="/">Dashboard</a>
 
-    <a class="{% if page=='local_upload_manager' %}active{% endif %}" href="/local-upload-manager">Auto Uploader</a>
-    <a class="{% if page in ['queue','settings','audit_media','auto_caption_studio','auto_caption_live'] %}active{% endif %}" href="/queue">Video Studio</a>
-
-<a class="{% if page=='voice_studio' %}active{% endif %}" href="/voice-studio">Voice Studio</a>
-<a class="{% if page=='auto_script' %}active{% endif %}" href="/auto-script">Auto Script</a>
+    <a class="{% if page in ['queue','settings','audit_media','auto_caption_studio','auto_caption_live'] %}active{% endif %}" href="/queue">Scene Builder / Video Studio</a>
+    {% if request.session.get("is_admin") %}
+    <a href="/short-maker/">Short Maker</a>
+    <a href="/short-stream/">Short Stream</a>
+    <a href="/self-media-library/">Self Media Library</a>
+    <a href="/video-merger/">Video Merger</a>
+    <a href="/voice-studio/">Voice Studio</a>
+    {% endif %}
+    {% if request.session.get("is_admin") or request.session.get("app_access") in ["auto_caption","both","all"] %}
+    <a href="/auto-caption-studio/">Auto Caption Studio</a>
+    {% endif %}
+    {% if request.session.get("is_admin") or request.session.get("app_access") in ["lum","all"] %}
+    <a class="{% if page=='local_upload_manager' %}active{% endif %}" href="/local-upload-manager/">Local Upload Manager</a>
+    {% endif %}
+    {# Auto Script remains OFFLINE and must not be advertised as accessible. #}
 
     <!-- YOUTUBE_NICHE_RESEARCH_V1_NAV -->
 <!-- STORY_WORK_V1_NAV -->
