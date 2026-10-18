@@ -57,7 +57,8 @@ class DomainCutoverContract(unittest.TestCase):
         self.assertNotIn('auth_basic off;',augmented)
         source=(ROOT/'production/gateway.py').read_text()
         self.assertIn('publish_voice_on_scene_https()',source)
-        self.assertIn("if 'voice-studio' in args.apps and 'voice-studio' in selected:",source)
+        self.assertIn('legacy_voice_publication_required(args.apps, selected, args.revision)',source)
+        self.assertIn("return not active('voice-studio', SITE.read_text())",source)
 
     def test_syntax_and_immutable_host_gates(self):
         for f in ("production/scene_public_https.py","production/scene_login_upgrade.py"):
