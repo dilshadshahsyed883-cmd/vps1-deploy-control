@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "domain": "app.scenebuilder.online",
+  "status": "ROUTE_HTTPS_LIVE_VERIFIED",
+  "status_scope": "Trusted TLS/SNI, Nginx route, anonymous 401, authenticated API health 200 and UI HTML 200. Not end-to-end business feature UAT.",
+  "verified_at_utc": "2026-10-18T21:21:50Z",
+  "git_main_release_sha": "38c1a07a07a6a9dade2d8cfafe6ca6d6c85e0ed8",
+  "github_run_id": 39167302988,
+  "github_run_url": "https://github.com/dilshadshahsyed883-cmd/vps1-deploy-control/actions/runs/39167302988",
+  "github_job_id": 117792817922,
+  "github_conclusion": "success",
+  "host_transport": "GitHub Actions -> Tailscale -> restricted non-root SSH -> root-owned allowlisted deployment helper",
+  "helper_upgrade": {
+    "job_id": "VPS1_AGENT1_REMOTE_DEPLOY_HELPER_UPGRADE_20261019_U1H1",
+    "result": "PASS",
+    "source_blob_sha": "21f69a74f909278a70356c74e625570c2fcf93f8",
+    "drive_report": "https://drive.google.com/file/d/1TmQH7AYGLT8bq7O2KRWe86_2aRbZFb0n/view"
+  },
+  "scene_builder": {
+    "url": "https://app.scenebuilder.online/",
+    "login_url": "https://app.scenebuilder.online/login",
+    "login_http_200": "VERIFIED",
+    "health_json": "VERIFIED",
+    "internal_endpoint_denial_http_404": "VERIFIED",
+    "owner_functional_uat": "PENDING"
+  },
+  "routes": [
+    {
+      "app": "short-maker",
+      "https_url": "https://app.scenebuilder.online/short-maker/",
+      "api_health_url": "https://app.scenebuilder.online/short-maker/health",
+      "ui_url": "https://app.scenebuilder.online/short-maker/",
+      "upstream_port": 8146,
+      "route_phase": "new",
+      "anonymous_http_401": "VERIFIED",
+      "authenticated_http_200_health_and_ui": "VERIFIED",
+      "post_cutover_repeat_check": "VERIFIED",
+      "owner_functional_uat": "PENDING"
+    },
+    {
+      "app": "short-stream",
+      "https_url": "https://app.scenebuilder.online/short-stream/",
+      "api_health_url": "https://app.scenebuilder.online/short-stream/health",
+      "ui_url": "https://app.scenebuilder.online/short-stream/",
+      "upstream_port": 8145,
+      "route_phase": "new",
+      "anonymous_http_401": "VERIFIED",
+      "authenticated_http_200_health_and_ui": "VERIFIED",
+      "post_cutover_repeat_check": "VERIFIED",
+      "owner_functional_uat": "PENDING"
+    },
+    {
+      "app": "self-media-library",
+      "https_url": "https://app.scenebuilder.online/self-media-library/",
+      "api_health_url": "https://app.scenebuilder.online/self-media-library/api/health",
+      "ui_url": "https://app.scenebuilder.online/self-media-library/",
+      "upstream_port": 8147,
+      "route_phase": "new",
+      "anonymous_http_401": "VERIFIED",
+      "authenticated_http_200_health_and_ui": "VERIFIED",
+      "post_cutover_repeat_check": "VERIFIED",
+      "owner_functional_uat": "PENDING"
+    },
+    {
+      "app": "video-merger",
+      "https_url": "https://app.scenebuilder.online/video-merger/",
+      "api_health_url": "https://app.scenebuilder.online/video-merger/health",
+      "ui_url": "https://app.scenebuilder.online/video-merger/",
+      "upstream_port": 8148,
+      "route_phase": "new",
+      "anonymous_http_401": "VERIFIED",
+      "authenticated_http_200_health_and_ui": "VERIFIED",
+      "post_cutover_repeat_check": "VERIFIED",
+      "owner_functional_uat": "PENDING"
+    },
+    {
+      "app": "local-upload-manager",
+      "https_url": "https://app.scenebuilder.online/local-upload-manager/",
+      "api_health_url": "https://app.scenebuilder.online/local-upload-manager/health",
+      "ui_url": "https://app.scenebuilder.online/local-upload-manager/app",
+      "upstream_port": 8015,
+      "route_phase": "new",
+      "anonymous_http_401": "VERIFIED",
+      "authenticated_http_200_health_and_ui": "VERIFIED",
+      "post_cutover_repeat_check": "VERIFIED",
+      "owner_functional_uat": "PENDING"
+    },
+    {
+      "app": "voice-studio",
+      "https_url": "https://app.scenebuilder.online/voice-studio/",
+      "api_health_url": "https://app.scenebuilder.online/voice-studio/healthz",
+      "ui_url": "https://app.scenebuilder.online/voice-studio/",
+      "upstream_port": 8143,
+      "route_phase": "preexisting",
+      "anonymous_http_401": "VERIFIED",
+      "authenticated_http_200_health_and_ui": "VERIFIED",
+      "post_cutover_repeat_check": "VERIFIED",
+      "owner_functional_uat": "PENDING"
+    },
+    {
+      "app": "auto-caption-studio",
+      "https_url": "https://app.scenebuilder.online/auto-caption-studio/",
+      "api_health_url": "https://app.scenebuilder.online/auto-caption-studio/health",
+      "ui_url": "https://app.scenebuilder.online/auto-caption-studio/",
+      "upstream_port": 8144,
+      "route_phase": "preexisting",
+      "anonymous_http_401": "VERIFIED",
+      "authenticated_http_200_health_and_ui": "VERIFIED",
+      "post_cutover_repeat_check": "VERIFIED",
+      "owner_functional_uat": "PENDING"
+    }
+  ],
+  "new_routes_verified": 5,
+  "previous_routes_preserved_and_verified": 2,
+  "workspace_gateway_auth": "PRESERVED",
+  "nginx_syntax_and_reload": "PASS_DURING_EACH_ROUTE_RELEASE",
+  "auto_script": "OFFLINE",
+  "app_restarts_during_route_release": 0,
+  "data_database_queue_mutations": "NONE_BY_ROUTE_RELEASE",
+  "owner_functional_uat": "PENDING",
+  "history": {
+    "previous_failed_attempt": "https://github.com/dilshadshahsyed883-cmd/vps1-deploy-control/actions/runs/39166757775",
+    "previous_first_route_rollback": "PASS",
+    "successful_retry": "https://github.com/dilshadshahsyed883-cmd/vps1-deploy-control/actions/runs/39167302988"
+  },
+  "publication_note": "Evidence of VPS HTTPS routing only; this is not a claim that all app features or external integrations passed owner acceptance."
+}
