@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 from production.route_uploader_scene_https import (
-    MARKER, ROUTE, add_route,
+    MARKER, ROUTE, add_route, retire_legacy_managed_route,
 )
 from production.scene_public_https import nginx_https
 
@@ -52,6 +52,28 @@ class UploaderSceneRouteTests(unittest.TestCase):
             add_route(initial.replace(" location / {", " location ^~ /local-upload-manager/ { return 200; }\n location / {", 1))
         with self.assertRaisesRegex(RuntimeError, "differs"):
             add_route(patched.replace("127.0.0.1:8015", "127.0.0.1:1"))
+
+    def test_retires_only_reviewed_legacy_uploader_include(self):
+        from unittest.mock import patch
+        include = " include /etc/nginx/snippets/vps1-route-local-upload-manager.conf;\n"
+        site = "before\n" + include + "after\n"
+        with patch("production.nginx_route_only.owned_routes",
+                   return_value=("reviewed", ["local-upload-manager"])):
+            updated, changed = retire_legacy_managed_route(site)
+        self.assertTrue(changed)
+        self.assertEqual(updated, "before\nafter\n")
+
+    def test_leaves_site_without_legacy_uploader_include_unchanged(self):
+        site = "reviewed scene site\n"
+        self.assertEqual(retire_legacy_managed_route(site), (site, False))
+
+    def test_rejects_unreviewed_legacy_uploader_include(self):
+        from unittest.mock import patch
+        include = " include /etc/nginx/snippets/vps1-route-local-upload-manager.conf;\n"
+        with patch("production.nginx_route_only.owned_routes",
+                   return_value=("reviewed", ["short-maker"])):
+            with self.assertRaisesRegex(RuntimeError, "reviewed managed route"):
+                retire_legacy_managed_route(include)
 
     def test_parent_ui_and_embedded_state_use_one_registered_mode_endpoint(self):
         html = HTML.read_text()
