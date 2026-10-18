@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 from production.route_uploader_scene_https import (
-    MARKER, ROUTE, add_route, retire_legacy_managed_route,
+    MARKER, ROUTE, add_route, retire_legacy_managed_route, verify_outer_shell,
 )
 from production.scene_public_https import nginx_https
 
@@ -74,6 +74,35 @@ class UploaderSceneRouteTests(unittest.TestCase):
                    return_value=("reviewed", ["short-maker"])):
             with self.assertRaisesRegex(RuntimeError, "reviewed managed route"):
                 retire_legacy_managed_route(include)
+
+    def test_outer_shell_retries_retired_nginx_worker_then_requires_html(self):
+        from unittest.mock import patch
+        responses = [
+            (308, "text/html", b""),
+            (200, "text/html; charset=utf-8",
+             b'<iframe src="/local-upload-manager/app?embedded=1"></iframe>'),
+        ]
+        with patch("production.route_uploader_scene_https.https_get",
+                   side_effect=responses) as request, \
+             patch("production.route_uploader_scene_https.time.sleep"):
+            verify_outer_shell("session=valid", published=True)
+        self.assertEqual(request.call_count, 2)
+
+    def test_outer_shell_persistent_old_route_fails_closed(self):
+        from unittest.mock import patch
+        with patch("production.route_uploader_scene_https.https_get",
+                   return_value=(308, "text/html", b"")), \
+             patch("production.route_uploader_scene_https.time.sleep"):
+            with self.assertRaisesRegex(RuntimeError, "outer shell regressed"):
+                verify_outer_shell("session=valid", published=True)
+
+    def test_outer_shell_does_not_retry_unexpected_server_error(self):
+        from unittest.mock import patch
+        with patch("production.route_uploader_scene_https.https_get",
+                   return_value=(500, "text/html", b"")) as request:
+            with self.assertRaisesRegex(RuntimeError, "outer shell regressed"):
+                verify_outer_shell("session=valid", published=True)
+        self.assertEqual(request.call_count, 1)
 
     def test_parent_ui_and_embedded_state_use_one_registered_mode_endpoint(self):
         html = HTML.read_text()

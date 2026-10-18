@@ -163,6 +163,28 @@ def https_get(path: str, cookie: str = "") -> tuple[int, str, bytes]:
             return response.status, response.getheader("Content-Type", ""), response.read(180000)
 
 
+OUTER_HANDOVER_HTTP = frozenset((301, 302, 303, 307, 308, 401, 404, 502, 503))
+
+
+def verify_outer_shell(cookie: str, *, published: bool) -> None:
+    """Verify Scene owns the exact uploader path after graceful reload.
+
+    Existing Nginx workers may briefly return the retired redirect/challenge.
+    Retry only that bounded post-publication set; never accept it as success.
+    """
+    attempts = 12 if published else 1
+    for attempt in range(attempts):
+        status, content_type, body = https_get("/local-upload-manager", cookie)
+        if status == 200 and "html" in content_type.lower():
+            guard(b"/local-upload-manager/app?" in body and b"/LUM/app" not in body,
+                  "Scene embedded UI still points to legacy uploader route")
+            return
+        guard(published and status in OUTER_HANDOVER_HTTP and attempt + 1 < attempts,
+              "Scene Auto Uploader outer shell regressed")
+        time.sleep(0.6)
+    raise RuntimeError("BLOCKED: Scene Auto Uploader outer shell regressed")
+
+
 def verify(cookie: str, *, published: bool) -> None:
     status, ct, body = https_get("/login")
     guard(status == 200 and "html" in ct.lower(), "Scene HTTPS login regressed")
@@ -171,11 +193,7 @@ def verify(cookie: str, *, published: bool) -> None:
           "Scene HTTPS health regressed")
     status, _, _ = https_get("/internal/runtime-ready")
     guard(status == 404, "Scene internal probe exposed")
-    status, ct, body = https_get("/local-upload-manager", cookie)
-    guard(status == 200 and "html" in ct.lower(),
-          "Scene Auto Uploader outer shell regressed")
-    guard(b"/local-upload-manager/app?" in body and b"/LUM/app" not in body,
-          "Scene embedded UI still points to legacy uploader route")
+    verify_outer_shell(cookie, published=published)
     if published:
         # Nginx reload can briefly serve old workers. Never accept old 404/303.
         for attempt in range(12):
