@@ -13,7 +13,7 @@ import subprocess
 import sys
 
 REMOTE = 'https://github.com/dilshadshahsyed883-cmd/vps1-deploy-control.git'
-APPS = ('short-maker', 'short-stream', 'self-media-library', 'video-merger',
+APPS = ('scene-builder', 'short-maker', 'short-stream', 'self-media-library', 'video-merger',
         'voice-studio', 'auto-caption-studio', 'local-upload-manager')
 BASE = Path('/srv/fresh-website/control/releases')
 

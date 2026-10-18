@@ -48,6 +48,12 @@ def smoke(app):
         env = {**os.environ, **environment(app, state), 'FRESH_WEBSITE_SMOKE_TEST': '1'}
         # Test data never points at a production path or a Drive credential.
         env['RCLONE_CONFIG'] = str(state / 'absent-rclone.conf')
+        env['PATH'] = str(Path(sys.executable).parent) + os.pathsep + os.environ.get('PATH', '')
+        if app == 'scene-builder':
+            env.update(PYTHONPATH=str(REPO), WEB_USERNAME='runtime-test', WEB_ACCESS_KEY='runtime-test-only')
+        if app == 'voice-studio':
+            # Start the genuine empty-queue downloader worker; no network job is submitted.
+            env['FRESH_WEBSITE_SMOKE_TEST'] = '0'
         with socket.socket() as sock:
             sock.bind(('127.0.0.1', 0))
             port = sock.getsockname()[1]
@@ -100,6 +106,12 @@ def smoke(app):
                     if projects.status_code != 200:
                         raise RuntimeError('authenticated ACS project API unavailable')
                     result['project_api'] = 'PASS'
+                if app == 'voice-studio':
+                    downloader = client.get('/tts/api/audio-downloader/status')
+                    downloader.raise_for_status()
+                    if not downloader.json().get('ready') or not downloader.json().get('worker'):
+                        raise RuntimeError('audio downloader toolchain unavailable')
+                    result['audio_downloader_toolchain'] = 'PASS'
                 return result
         finally:
             proc.terminate()

@@ -35,19 +35,26 @@ CORE = ['fastapi==0.115.12', 'uvicorn==0.34.2', 'python-multipart==0.0.20',
         'pillow==11.1.0', 'requests==2.32.3', 'jinja2==3.1.6',
         'itsdangerous==2.2.0', 'httpx==0.28.1']
 CATALOG = {
+    'scene-builder': dict(port=8080, module='production.scene_entry:app', health='/health',
+                          ui='/', runtime='scene-builder-production',
+                          packages=CORE + ['playwright==1.56.0', 'websockets==15.0.1']),
     'short-maker': dict(port=8146, module='app:app', health='/health', ui='/', packages=CORE),
     'short-stream': dict(port=8145, module='app:app', health='/health', ui='/', packages=CORE),
     'self-media-library': dict(port=8147, module='app:app', health='/api/health', ui='/', packages=CORE),
     'video-merger': dict(port=8148, script='app.py', health='/video-merger/health',
                          ui='/video-merger/', packages=['yt-dlp']),
     'voice-studio': dict(port=8143, module='vps1_omnivoice_app:app', health='/healthz',
-                         ui='/', packages=CORE + ['edge-tts==7.2.8', 'soundfile', 'numpy', 'yt-dlp']),
+                         ui='/', packages=CORE + ['edge-tts==7.2.8', 'kokoro-onnx==0.6.0', 'soundfile', 'numpy', 'yt-dlp']),
     'auto-caption-studio': dict(port=8144, module='web_backend.app:app', health='/health',
-                                ui='/', packages=CORE),
+                                ui='/', packages=CORE + ['PySide6==6.8.3', 'faster-whisper==1.1.1']),
     'local-upload-manager': dict(port=8015, module='lum_engine.standalone_app:app',
                                  health='/local-upload-manager/health', ui='/local-upload-manager/app',
                                  requirements='part01/requirements.txt'),
 }
+
+
+def runtime_name(app):
+    return CATALOG[app].get('runtime', app)
 
 
 def event(**values):
@@ -108,7 +115,21 @@ def check_host(revision):
 def environment(app, state):
     env = {'PYTHONDONTWRITEBYTECODE': '1', 'FRESH_WEBSITE_INSTALL': '1',
            'RCLONE_CONFIG': RCLONE}
-    if app == 'short-maker':
+    if app == 'scene-builder':
+        credentials = Path('/root/vps1-production-login.json')
+        password = json.loads(credentials.read_text())['password'] if os.geteuid() == 0 and credentials.is_file() else secrets.token_urlsafe(32)
+        env.update(WEB_DATA_DIR=str(state / 'web'), SCENE_PERMANENT_ROOT=str(state / 'permanent'),
+                   SCRIPT_WORK_DATA_DIR=str(state / 'script-work'), SCRIPT_PROCESSOR_DATA_DIR=str(state / 'script-processor'),
+                   MASTER_CONTROLLER_DB_PATH=str(state / 'master-controller.sqlite3'),
+                   AUTOFLOW_FLOW_RESULT_ROOT=str(state / 'flow-results'), FRESH_AUTO_SCRIPT_READY='0',
+                   WEB_USERNAME='admin', WEB_ACCESS_KEY=password, SESSION_SECRET=secrets.token_urlsafe(48),
+                   PYTHONPATH=str(REPO), STORAGE_MANAGER_URL='http://127.0.0.1:8149')
+        token_file = CONFIG / 'vps-storage-manager.env'
+        if os.geteuid() == 0 and token_file.is_file():
+            for line in token_file.read_text().splitlines():
+                if line.startswith('STORAGE_MANAGER_TOKEN='):
+                    env['STORAGE_MANAGER_TOKEN'] = line.split('=', 1)[1]
+    elif app == 'short-maker':
         env['SHORT_MAKER_DATA'] = str(state)
     elif app == 'short-stream':
         env['SHORT_STREAM_DATA'] = str(state)
@@ -152,8 +173,9 @@ StartLimitBurst=5
 Type=simple
 User=ubuntu
 Group=ubuntu
-WorkingDirectory={BASE}/current/{app}/part01
+WorkingDirectory={BASE}/current/{runtime_name(app)}/part01
 EnvironmentFile={CONFIG}/production-{app}.env
+Environment=PATH={BASE}/venvs/{app}/{revision}/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart={command}
 Restart=on-failure
 RestartSec=3
@@ -163,7 +185,7 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths={DATA}/{app} -/home/ubuntu/.config/masterctl
+ReadWritePaths={DATA}/{runtime_name(app)} -/home/ubuntu/.config/masterctl
 
 [Install]
 WantedBy=multi-user.target
@@ -208,7 +230,7 @@ def backup_databases(state, destination):
 def stage_source(app, revision):
     # Reuse the repository's tested source-only export and credential exclusion.
     from rebuild.fresh_vps import sources
-    release = BASE / 'releases' / app / revision
+    release = BASE / 'releases' / runtime_name(app) / revision
     files = sources(app)
     manifest = {'app': app, 'revision': revision,
                 'files': {n: hashlib.sha256(b).hexdigest() for n, b in files}}
@@ -234,7 +256,9 @@ def stage_source(app, revision):
 def restore(app, previous):
     unit_name = f'vps1-production-{app}.service'
     unit = Path('/etc/systemd/system') / unit_name
-    current = BASE / 'current' / app
+    current = BASE / 'current' / runtime_name(app)
+    from production import workers
+    workers.stop(app)
     subprocess.run(['systemctl', 'stop', unit_name], capture_output=True)
     if previous['unit'] is None:
         subprocess.run(['systemctl', 'disable', unit_name], capture_output=True)
@@ -249,6 +273,7 @@ def restore(app, previous):
     if previous['active']:
         run(['systemctl', 'start', unit_name], quiet=True)
         http_check(app)
+    workers.restore(previous.get('workers', {}))
     event(app=app, rollback='PASS', data='PRESERVED')
 
 
@@ -257,21 +282,23 @@ def install_app(app, revision):
         raise ValueError('app is not owned by this installer')
     unit_name = f'vps1-production-{app}.service'
     unit = Path('/etc/systemd/system') / unit_name
-    current = BASE / 'current' / app
-    state = DATA / app
+    current = BASE / 'current' / runtime_name(app)
+    state = DATA / runtime_name(app)
     record = BASE / 'control/state' / (app + '.json')
     if current.exists() and not current.is_symlink():
         raise RuntimeError('existing app path is not a release pointer')
     if current.is_symlink() and not record.is_file():
         raise RuntimeError('existing app belongs to a different installer')
     old = str(current.resolve(strict=True)) if current.is_symlink() else None
-    if old and not Path(old).is_relative_to(BASE / 'releases' / app):
+    if old and not Path(old).is_relative_to(BASE / 'releases' / runtime_name(app)):
         raise RuntimeError('existing pointer escaped app releases')
     active = subprocess.run(['systemctl', 'is-active', '--quiet', unit_name]).returncode == 0
     if not active:
         free_port(CATALOG[app]['port'])
     previous = {'current': old, 'unit': unit.read_text() if unit.exists() else None, 'active': active}
-    if old == str(BASE / 'releases' / app / revision) and active:
+    from production import workers
+    previous['workers'] = workers.snapshot(app)
+    if old == str(BASE / 'releases' / runtime_name(app) / revision) and active:
         stage_source(app, revision)
         http_check(app)
         event(app=app, result='PASS_ALREADY_INSTALLED', revision=revision)
@@ -313,6 +340,7 @@ def install_app(app, revision):
     # Only the app being replaced is stopped. Other apps and all agents stay up.
     if active:
         run(['systemctl', 'stop', unit_name], quiet=True)
+    workers.stop(app)
     changed = False
     try:
         backups = backup_databases(state, journal / 'sqlite-backup')
@@ -325,6 +353,10 @@ def install_app(app, revision):
         run(['systemctl', 'enable', unit_name], timeout=60, quiet=True)
         run(['systemctl', 'restart', unit_name], timeout=60, quiet=True)
         health = http_check(app)
+        workers.install(app, revision)
+        if app == 'scene-builder':
+            from production.browser_runtime import install as install_browser
+            install_browser()
         if shutil.disk_usage('/').free < 5_000_000_000:
             raise RuntimeError('operational disk reserve breached')
         atomic_json(record, {'revision': revision, 'unit': unit_name, 'previous': previous,
