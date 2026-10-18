@@ -52,5 +52,5 @@ jobs:
           assert not g['production_deploy_enabled'] and not g['fresh_install_enabled']
           # Production HTTPS GitHub CI must not SSH, touch VPS or invoke certbot.
           code=Path('.github/workflows/vps1-scene-public-ci.yml').read_text()
-          assert 'ssh -T' not in code and 'certbot certonly' not in code
+          assert ('ssh' + ' -T') not in code and ('certbot' + ' certonly') not in code
           PY
