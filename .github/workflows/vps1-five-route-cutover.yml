@@ -1,0 +1,91 @@
+name: VPS1 five missing HTTPS routes (protected cutover)
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: vps1-production
+  cancel-in-progress: false
+
+jobs:
+  five-route-cutover:
+    # Only a separately authorized protected-main merge with this exact marker
+    # can enable a route cutover. No PR execution, no automatic app deployment.
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.run_attempt == 1 &&
+      contains(github.event.head_commit.message, '[vps1-route-five-cutover]')
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Join existing production Tailscale network
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+
+      - name: Sequential app-scoped Nginx releases and authenticated verification
+        shell: bash
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test -n "$PRIVATE_IDENTITY"
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/identity"
+          unset PRIVATE_IDENTITY
+          chmod 0600 "$scratch/identity"
+          ssh-keygen -y -P '' -f "$scratch/identity" > "$scratch/public"
+          fingerprint="$(ssh-keygen -lf "$scratch/public" -E sha256 | awk '{print $2}')"
+          test "$fingerprint" = 'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
+
+          remote() {
+            timeout 350s ssh -T -p 22 -i "$scratch/identity" \
+              -o UserKnownHostsFile="$scratch/known_hosts" \
+              -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+              -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o PreferredAuthentications=publickey -o PasswordAuthentication=no \
+              -o KbdInteractiveAuthentication=no -o ConnectTimeout=20 \
+              -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+              vps1deploy@100.87.55.92 \
+              "sudo -n /usr/local/sbin/vps1-production-deploy nginx-route-only $SOURCE_SHA $1"
+          }
+
+          echo 'ORDER=short-maker,short-stream,self-media-library,video-merger,local-upload-manager'
+          for app in short-maker short-stream self-media-library video-merger local-upload-manager; do
+            echo "CUTOVER_START=$app"
+            # Root-owned helper validates exact protected main SHA, app allowlist,
+            # existing Scene+Voice+Caption site, nginx -t, auth 401,
+            # authenticated health 200 and UI HTML 200; app-only rollback on failure.
+            remote "$app"
+            echo "CUTOVER_VERIFIED=$app"
+          done
+
+          # Verify every added route still serves authenticated UI/API after all
+          # Nginx reloads. An already-published route uses a strict no-op check.
+          for app in short-maker short-stream self-media-library video-merger local-upload-manager; do
+            remote "$app"
+            echo "POST_CUTOVER_VERIFIED=$app"
+          done
+          # Assert the two preexisting protected app routes were not regressed.
+          for app in voice-studio auto-caption-studio; do
+            remote "$app"
+            echo "EXISTING_ROUTE_PRESERVED=$app"
+          done
+          echo 'FIVE_ROUTE_CUTOVER=PASS'
+          echo 'OWNER_FUNCTIONAL_UAT=PENDING'
