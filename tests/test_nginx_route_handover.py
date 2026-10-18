@@ -47,6 +47,27 @@ class HTTPSHandoverTests(unittest.TestCase):
                 release.require_https_status("/short-maker/health", expected=200, app="short-maker", authorization="Basic test", pause=0)
         sleep.assert_not_called()
 
+    def test_scene_cookie_retries_stale_basic_worker_401(self):
+        probe = mock.Mock(side_effect=[
+            (401, "", b"stale Basic challenge"),
+            (200, "application/json", b'{"ok":true}'),
+        ])
+        with mock.patch.object(release, "tls_get", probe), mock.patch.object(release.time, "sleep"):
+            content_type, body = release.require_https_status(
+                "/short-stream/health", expected=200, app="short-stream",
+                cookie="session=test", attempts=3, pause=0)
+        self.assertEqual(content_type, "application/json")
+        self.assertEqual(body, b'{"ok":true}')
+        self.assertEqual(probe.call_count, 2)
+
+    def test_scene_cookie_stuck_401_still_fails_closed(self):
+        with mock.patch.object(release, "tls_get", return_value=(401, "", b"")), \
+             mock.patch.object(release.time, "sleep"):
+            with self.assertRaisesRegex(RuntimeError, "expected=200 observed=401"):
+                release.require_https_status(
+                    "/short-stream/health", expected=200, app="short-stream",
+                    cookie="session=test", attempts=2, pause=0)
+
     def test_check_app_requires_health_json_and_html(self):
         statuses = [
             (302, "text/html", b"scene login"), (401, "", b"denied"),
