@@ -58,13 +58,12 @@ class WebPreflightTests(unittest.TestCase):
             self.assertEqual(w.helper_state(), "UNVERIFIABLE_NON_ROOT")
 
     def test_route_ownership_summarizes_only_route_presence(self):
-        from unittest.mock import mock_open
         site = ("server {\n"
                 " location = /internal/runtime-ready { return 404; }\n"
                 " location ^~ /voice-studio/ { proxy_pass http://127.0.0.1:8888; }\n"
                 " location / { proxy_pass http://127.0.0.1:18080; }\n"
                 "}\n")
-        with mock.patch.object(w.Path, "read_text", mock_open(read_data=site)):
+        with mock.patch.object(w.Path, "read_text", return_value=site):
             found = w.site_route_ownership()
             self.assertTrue(found["reviewed_marker_present"])
             self.assertTrue(found["routes_or_workspace_include"]["voice-studio"])
