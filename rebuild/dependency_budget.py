@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""GitHub-only shared-Python/uv dependency builder and 30 GB admission gate.
+"""GitHub-only shared-Python/uv dependency builder with free-space protection.
 
 All installation writes are restricted to an isolated /tmp fresh-rootfs.
 No production service, Nginx, system Python site-packages, or VPS_1 is changed.
-This is an admission/monitoring check, not a filesystem quota for future writes.
+No fixed application-size budget is enforced. Only host free-space safety is checked.
 """
 import argparse
 import hashlib
@@ -29,8 +29,10 @@ def config():
     apps = [entry["app"] for entry in entries]
     if len(apps) != 10 or len(set(apps)) != 10 or set(apps) != registered:
         raise ValueError("dependency manifest must exactly cover ten active groups")
-    if "auto-script" in apps or data["application_budget_bytes"] != 30_000_000_000:
-        raise ValueError("offline Auto Script or wrong fixed storage budget")
+    if "auto-script" in apps:
+        raise ValueError("offline Auto Script must stay excluded")
+    if "application_budget_bytes" in data:
+        raise ValueError("obsolete fixed application storage cap must not be restored")
     if data["minimum_free_bytes"] < 5_000_000_000 or data["python_minor"] != "3.12":
         raise ValueError("safety reserve or shared Python version changed")
     for entry in entries:
@@ -83,12 +85,10 @@ def snapshot(root):
     allocated = disk_bytes(root) if root.is_dir() else 0
     free = shutil.disk_usage(root if root.exists() else Path("/tmp")).free
     report = {
-        "budget_bytes": cfg["application_budget_bytes"],
         "allocated_unique_inode_bytes": allocated,
-        "remaining_budget_bytes": cfg["application_budget_bytes"] - allocated,
+        "fixed_application_cap_bytes": None,
         "host_free_bytes": free,
         "minimum_free_bytes": cfg["minimum_free_bytes"],
-        "within_budget": allocated <= cfg["application_budget_bytes"],
         "host_reserve_ok": free >= cfg["minimum_free_bytes"],
         "active_apps": 10, "auto_script": "OFFLINE",
         "python_binary_shared": True, "uv_cache_shared": str(cache),
@@ -100,8 +100,8 @@ def snapshot(root):
 
 def require_capacity(root):
     s = snapshot(root)
-    if not s["within_budget"] or not s["host_reserve_ok"]:
-        raise ValueError("30 GB admission budget or host 5 GB reserve exceeded")
+    if not s["host_reserve_ok"]:
+        raise ValueError("host free-space safety reserve not available")
     return s
 
 
@@ -159,7 +159,7 @@ def install(root_raw, python, uv_exe="uv", apps=None):
         report = require_capacity(root)
         results.append({"app": app, "category": entry["category"],
                         "venv": str(venv), "requirements": entry["requires"],
-                        "budget_remaining_bytes": report["remaining_budget_bytes"]})
+                        "host_free_bytes": report["host_free_bytes"]})
     return {"status": "PASS_ISOLATED_DEPENDENCIES", "python": interpreter,
             "uv_link_mode": "hardlink", "applications": results,
             "disk": require_capacity(root), "production_modified": False}
@@ -186,5 +186,5 @@ if __name__ == "__main__":
     try:
         main()
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:
-        print("BLOCKED_DEPENDENCY_BUDGET:", str(exc), file=sys.stderr)
+        print("BLOCKED_DEPENDENCY_STORAGE:", str(exc), file=sys.stderr)
         sys.exit(1)

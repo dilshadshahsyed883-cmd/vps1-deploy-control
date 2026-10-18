@@ -47,5 +47,5 @@ classifiers. This validates Git code only, NOT production behavior.
 
 Main protection is still not enforced; configuring required status checks
 and least-privilege production environments requires GitHub administration.
-No production executor/rollback or real model/worker/browser/30 GB VPS
+No production executor/rollback or real model/worker/browser/VPS disk
 measurement is verified. No live changes are authorized by this PR.
