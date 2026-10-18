@@ -30,8 +30,8 @@ jobs:
           install -d -m 0700 "$HOME/.ssh"
           printf '%s\n' "$SSH_KEY" > "$RUNNER_TEMP/id_ed25519"
           chmod 0600 "$RUNNER_TEMP/id_ed25519"
-          printf '%s\n' '100.113.253.99 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAtrAUnyLuDM3FsUw/E2EtVtHF3f3d4nRonXxl/oIpmQ' > "$RUNNER_TEMP/known_hosts"
-          printf '%s\n' 'Host vps1-audio' '  HostName 100.113.253.99' '  User vps1deploy' "  IdentityFile $RUNNER_TEMP/id_ed25519" "  UserKnownHostsFile $RUNNER_TEMP/known_hosts" '  StrictHostKeyChecking yes' '  BatchMode yes' '  IdentitiesOnly yes' '  ConnectTimeout 20' > "$HOME/.ssh/config"
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$RUNNER_TEMP/known_hosts"
+          printf '%s\n' 'Host vps1-audio' '  HostName 100.87.55.92' '  User vps1deploy' "  IdentityFile $RUNNER_TEMP/id_ed25519" "  UserKnownHostsFile $RUNNER_TEMP/known_hosts" '  StrictHostKeyChecking yes' '  BatchMode yes' '  IdentitiesOnly yes' '  ConnectTimeout 20' > "$HOME/.ssh/config"
           chmod 0600 "$HOME/.ssh/config"
       - name: Inspect audio download source and current file gates (read-only)
         run: |

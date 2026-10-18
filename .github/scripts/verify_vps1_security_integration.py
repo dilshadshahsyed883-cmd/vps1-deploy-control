@@ -54,7 +54,7 @@ assert pj.index(preflight_name) < pj.index(join_action), "OIDC starts before pre
 preflight = pj[pj.index(preflight_name):pj.index(join_action)]
 for check in ('test "$GITHUB_RUN_ATTEMPT" = "1"', 'test "$GITHUB_EVENT_NAME" = "push"', 'test "$GITHUB_REF" = "refs/heads/main"'):
     assert check in preflight, "missing fail-closed preflight: " + check
-for term in ("github.event_name == 'push'", "github.ref == 'refs/heads/main'", '[vps1-ssh-proof-authorized]', "expected='" + pin + "'", 'StrictHostKeyChecking=yes','UpdateHostKeys=no','vps1deploy@100.113.253.99','VPS1_DEPLOYMENT=NOT_ATTEMPTED'):
+for term in ("github.event_name == 'push'", "github.ref == 'refs/heads/main'", '[vps1-ssh-proof-authorized]', "expected='" + pin + "'", 'StrictHostKeyChecking=yes','UpdateHostKeys=no','vps1deploy@100.87.55.92','VPS1_DEPLOYMENT=NOT_ATTEMPTED'):
     assert term in pj, term
 for file,name in legacy.items():
     part = job((root/file).read_text(),name)
@@ -66,8 +66,16 @@ for file,name in staging.items():
     disabled(part,file)
     assert all(s in part for s in credentials),file
 found = {f.name for f in root.glob('*.yml') if any(c in f.read_text() for c in credentials)}
-expected = set(legacy)|set(staging)|{proof_name}
+expected = set(legacy)|set(staging)|{proof_name, 'vps1-production.yml'}
 assert found == expected, 'unreviewed credential consumers: '+repr(found ^ expected)
+production = (root/'vps1-production.yml').read_text()
+production_job = job(production, 'deploy')
+for term in ('environment: production', "github.ref == 'refs/heads/main'",
+             "github.event_name == 'workflow_dispatch'", '[vps1-production-release]',
+             'sudo -n /usr/local/sbin/vps1-production-deploy', 'StrictHostKeyChecking=yes',
+             'UpdateHostKeys=no', pin, '100.87.55.92 ssh-ed25519'):
+    assert term in production_job, 'production release contract missing: ' + term
+
 groups=json.loads(Path('rebuild/groups.json').read_text())
 assert len(groups['groups']) == 11 and len({g['id'] for g in groups['groups']}) == 11
 assert [g['id'] for g in groups['groups'] if g.get('deployment_mode')=='offline']==['auto-script']

@@ -803,7 +803,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if p in (PREFIX, PREFIX+'/'):
                 user=(self.headers.get('X-Auth-User') or 'team').strip()[:120] or 'team'
-                page=(BASE/'templates/index.html').read_text(encoding='utf-8').replace('{{AUTH_USER}}', html.escape(user))
+                page=(Path(__file__).resolve().parent/'templates/index.html').read_text(encoding='utf-8').replace('{{AUTH_USER}}', html.escape(user))
                 return self.send_bytes(200,page.encode('utf-8'),'text/html; charset=utf-8')
             if p==PREFIX+'/health': return self.send_json(200,{'ok':True,'app':APP_NAME,'release':RELEASE_ID,'paused':setting('paused','0')=='1'})
             if p==PREFIX+'/api/state':
