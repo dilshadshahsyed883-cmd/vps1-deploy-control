@@ -17,6 +17,11 @@ jobs:
     timeout-minutes: 7
     steps:
       - uses: actions/checkout@v4
+      - name: Install actual FFmpeg/FFprobe test tools
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Exact source SHA, Python syntax, real FFmpeg MP4 encode/probe
         run: |
           set -Eeuo pipefail
