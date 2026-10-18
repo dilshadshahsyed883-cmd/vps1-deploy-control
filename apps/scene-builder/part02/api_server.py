@@ -23,7 +23,7 @@ from contextvars import ContextVar
 from typing import Any
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, Request
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, JSONResponse
 
 from smart_scroll.caption_sync import build_caption_segments, detect_first_speech_start
 from smart_scroll.audio_mixer import prepare_final_audio
@@ -46,6 +46,15 @@ JOBS = BASE / "jobs"
 JOBS.mkdir(parents=True, exist_ok=True)
 DB_PATH = BASE / "queue.sqlite3"
 TOKEN = os.getenv("SCENE_WORKER_TOKEN", "").strip()
+WORKER_ADMISSION_ONLY = os.getenv("SCENE_WORKER_ADMISSION_ONLY", "0") == "1"
+if WORKER_ADMISSION_ONLY:
+    # Never attach admission to any existing production job queue.
+    if (len(TOKEN) < 32 or "scene-worker-admission" not in str(BASE)
+            or not BASE.is_absolute() or
+            os.getenv("DRIVE_UPLOAD_ENABLED", "0") != "0" or
+            os.getenv("AUTO_CLEAN_MEDIA_AFTER_RENDER", "0") != "0"):
+        raise RuntimeError("admission requires isolated state, long token and disabled drive/cleanup")
+
 MAX_UPLOAD = int(os.getenv("MAX_UPLOAD_MB", "5000")) * 1024 * 1024
 PERMANENT_ROOT = (BASE / "permanent").resolve()
 PERMANENT_MUSIC_DIR = PERMANENT_ROOT / "music"
@@ -164,6 +173,18 @@ _audit_locks: dict[str, threading.RLock] = {}
 def _audit_lock(job_id: str) -> threading.RLock:
     with _audit_locks_guard:
         return _audit_locks.setdefault(str(job_id), threading.RLock())
+
+
+@app.middleware("http")
+async def admission_read_only_gate(request: Request, call_next):
+    if WORKER_ADMISSION_ONLY:
+        if request.method != "GET" or request.url.path not in ("/health", "/jobs"):
+            return JSONResponse({"ok": False, "error": "worker admission: mutations disabled"}, status_code=403)
+        if request.url.path == "/jobs":
+            supplied = str(request.headers.get("x-scene-worker-token") or "").strip()
+            if not hmac.compare_digest(supplied, TOKEN):
+                return JSONResponse({"ok": False, "error": "worker authorization required"}, status_code=401)
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -4449,6 +4470,9 @@ def sb2_web(request: Request, view: str = "dashboard"):
 @app.on_event("startup")
 def startup() -> None:
     init_db()
+    if WORKER_ADMISSION_ONLY:
+        # Create isolated schema; do not start queue-processing or cleanup loops.
+        return
     for index in range(PIPELINE_WORKERS):
         threading.Thread(
             target=worker_loop,
@@ -4469,7 +4493,8 @@ def health():
             )
         }
     return {
-        "ok": True,
+        "ok": not WORKER_ADMISSION_ONLY,
+        "admission_only": WORKER_ADMISSION_ONLY,
         "worker": "scene-builder-persistent-queue",
         "worker_api_version": WORKER_API_VERSION,
         "worker_build": WORKER_BUILD,
