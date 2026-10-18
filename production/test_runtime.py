@@ -9,6 +9,11 @@ from production import runtime
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_edge_tts_uses_current_supported_websocket_handshake(self):
+        voice = runtime.CATALOG['voice-studio']
+        self.assertIn('edge-tts==7.3.1', voice['packages'])
+        self.assertNotIn('edge-tts==7.2.8', voice['packages'])
+
     def test_sqlite_backup_includes_wal_and_preserves_source(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
