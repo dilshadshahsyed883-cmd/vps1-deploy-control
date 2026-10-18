@@ -54,17 +54,17 @@
 </nav>
 
 <div class="lum-engine-selector" id="lum-engine-selector" role="tablist" aria-label="Auto Engine" hidden>
-  <button type="button" role="tab" data-lum-engine="1" data-engine-src="/LUM/app?embedded=1&tab=auto_engine" class="active" aria-selected="true">Engine 1</button>
-  <button type="button" role="tab" data-lum-engine="2" data-engine-src="/local-upload-manager-engine2/app?embedded=1&tab=auto_engine" aria-selected="false">Engine 2</button>
-  <button type="button" role="tab" data-lum-engine="3" data-engine-src="/local-upload-manager-engine3/app?embedded=1&tab=auto_engine" aria-selected="false">Shorts</button>
-  <button type="button" role="tab" data-lum-engine="4" data-engine-src="/short-stream/?embedded=1" aria-selected="false">Short Stream</button>
+  <button type="button" role="tab" data-lum-engine="1" data-engine-src="/local-upload-manager/app?embedded=1&tab=auto_engine&auto_mode=engine1" class="active" aria-selected="true">Engine 1</button>
+  <button type="button" role="tab" data-lum-engine="2" data-engine-src="/local-upload-manager/app?embedded=1&tab=auto_engine&auto_mode=engine2" aria-selected="false">Engine 2</button>
+  <button type="button" role="tab" data-lum-engine="3" data-engine-src="/local-upload-manager/app?embedded=1&tab=auto_engine&auto_mode=shorts" aria-selected="false">Shorts</button>
+  <button type="button" role="tab" data-lum-engine="4" data-engine-src="/local-upload-manager/app?embedded=1&tab=auto_engine&auto_mode=short_stream" aria-selected="false">Short Stream</button>
   <span class="lum-engine-state" id="lum-engine-state">Engine 1</span>
 </div>
 
 <section class="lum-host-shell" style="margin:0;padding:0;min-height:calc(100vh - 120px);">
   <iframe id="lum-host-frame" class="lum-host-frame"
     src="about:blank"
-    data-default-src="/LUM/app?embedded=1&tab=dashboard"
+    data-default-src="/local-upload-manager/app?embedded=1&tab=dashboard"
     title="Auto Uploader"
     style="display:block;width:100%;height:calc(100vh - 120px);min-height:720px;border:0;border-radius:14px;background:#f6f7fb;"
     loading="eager"
@@ -104,11 +104,10 @@
   };
 
   const sourceFor=(tab,engine)=>{
-    if(tab!=='auto_engine')return `/LUM/app?embedded=1&tab=${encodeURIComponent(tab)}`;
-    if(engine==='2')return '/local-upload-manager-engine2/app?embedded=1&tab=auto_engine';
-    if(engine==='3')return '/local-upload-manager-engine3/app?embedded=1&tab=auto_engine';
-    if(engine==='4')return '/short-stream/?embedded=1';
-    return '/LUM/app?embedded=1&tab=auto_engine';
+    const app='/local-upload-manager/app?embedded=1';
+    if(tab!=='auto_engine')return `${app}&tab=${encodeURIComponent(tab)}`;
+    const mode={1:'engine1',2:'engine2',3:'shorts',4:'short_stream'}[engine]||'engine1';
+    return `${app}&tab=auto_engine&auto_mode=${mode}`;
   };
 
   const save=()=>{
@@ -181,34 +180,12 @@
   const syncFromChild=()=>{
     let u;
     try{u=new URL(frame.contentWindow.location.href);}catch(_){return;}
-    const path=u.pathname||'';
-    let engine='1';
-    if(path.startsWith('/local-upload-manager-engine2'))engine='2';
-    else if(path.startsWith('/local-upload-manager-engine3'))engine='3';
-    else if(path.startsWith('/short-stream'))engine='4';
-
-    if(engine==='4'){
-      currentTab='auto_engine';
-      currentEngine='4';
-      save();render();hideChildPrimaryNav();
-      return;
-    }
-
-    const rawTab=u.searchParams.get('tab')||'dashboard';
-    const tab=canonicalTab(rawTab);
-
-    if(engine!=='1'&&tab!=='auto_engine'){
-      currentTab=tab;
-      currentEngine=engine;
-      save();render();
-      const src=sourceFor(tab,'1');
-      frame.dataset.defaultSrc=src;
-      frame.setAttribute('src',src);
-      return;
-    }
-
+    if(u.pathname!=='/local-upload-manager/app')return;
+    const tab=canonicalTab(u.searchParams.get('tab')||'dashboard');
+    const engines={engine1:'1',engine2:'2',shorts:'3',short_stream:'4'};
+    const selected=engines[u.searchParams.get('auto_mode')||'engine1']||'1';
     currentTab=tab;
-    currentEngine=engine;
+    if(tab==='auto_engine')currentEngine=selected;
     save();render();hideChildPrimaryNav();
   };
 
