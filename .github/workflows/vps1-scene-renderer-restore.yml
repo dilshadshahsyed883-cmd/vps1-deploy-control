@@ -1,0 +1,34 @@
+name: Scene Builder owner renderer source restoration (no VPS)
+on:
+  pull_request:
+    paths:
+      - 'apps/scene-builder/part02/smart_scroll/v2_renderer.py'
+      - 'apps/scene-builder/part02/smart_scroll/__init__.py'
+      - 'rebuild/tests/test_scene_renderer_v2_restore.py'
+      - '.github/workflows/vps1-scene-renderer-restore.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate-owner-supplied-renderer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Exact source SHA, Python syntax, real FFmpeg MP4 encode/probe
+        run: |
+          set -Eeuo pipefail
+          python3 -m unittest rebuild.tests.test_scene_renderer_v2_restore -v
+      - name: Do not mistake source recovery for live render-worker admission
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import ast,json
+          data=json.loads(Path('rebuild/groups.json').read_text())
+          assert data['offline_applications']==['auto-script']
+          assert data['fresh_install_enabled'] is False
+          assert data['production_deploy_enabled'] is False
+          tree=ast.parse(Path('apps/scene-builder/part02/smart_scroll/v2_renderer.py').read_text())
+          required={n.module for n in tree.body if isinstance(n,ast.ImportFrom) and n.level==1}
+          assert {'lut_engine','transition_engine','ffmpeg_utils','scene_txt_pipeline'}<=required
+          PY
