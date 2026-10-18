@@ -223,7 +223,7 @@ def public_path(app, name):
 RELOAD_TRANSIENT_HTTP = frozenset((302, 303, 307, 308, 404, 502, 503))
 
 
-def require_https_status(url, *, expected, app, authorization="", attempts=18, pause=0.6):
+def require_https_status(url, *, expected, app, authorization="", cookie="", attempts=18, pause=0.6):
     """Wait for verified Nginx handover; fail closed on unexpected HTTP codes.
 
     The expected 401 protects unauthenticated routes. Authenticated 200 is
@@ -231,7 +231,7 @@ def require_https_status(url, *, expected, app, authorization="", attempts=18, p
     Scene login redirect is only retried for a short, bounded interval.
     """
     for i in range(attempts):
-        status, content_type, body = tls_get(url, authorization=authorization)
+        status, content_type, body = tls_get(url, authorization=authorization, cookie=cookie)
         if status == expected:
             return content_type, body
         guard(status in RELOAD_TRANSIENT_HTTP and i + 1 < attempts,
