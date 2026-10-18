@@ -123,7 +123,7 @@ class WorkspaceHttpsTest(unittest.TestCase):
         from production.route_auto_caption_scene_https import ROUTE as ACS_ROUTE
         for site in known_scene_sites():
             updated = site_config(site)
-            self.assertEqual(updated.replace(' include ' + str(INCLUDE) + ';\\n', ''), site)
+            self.assertEqual(updated.replace(' include ' + str(INCLUDE) + ';\n', ''), site)
             self.assertEqual(updated.count(' include ' + str(INCLUDE) + ';'), 1)
             snippet = config(site)
             for app, marker in (('voice-studio', VOICE_EXTRA),
@@ -134,7 +134,7 @@ class WorkspaceHttpsTest(unittest.TestCase):
                     self.assertIn('location ^~ /' + app + '/ {', snippet)
             self.assertIn('location ^~ /short-maker/ {', snippet)
         with self.assertRaises(RuntimeError):
-            config(known_scene_sites()[0] + '\\n# unexpected route')
+            config(known_scene_sites()[0] + '\n# unexpected route')
 
     def test_all_backend_routes_require_workspace_auth(self):
         from production.workspace_https import config, APPS
