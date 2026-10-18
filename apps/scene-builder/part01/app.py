@@ -697,9 +697,9 @@ async def authentication(request: Request, call_next):
         or _af_path == "/api/master-controller/health"
     ):
         return await call_next(request)
-    if request.url.path in {"/internal/auto-caption-auth", "/internal/local-upload-manager-auth", "/internal/audio-engine-auth"}:
+    if request.url.path in {"/internal/auto-caption-auth", "/internal/local-upload-manager-auth", "/internal/audio-engine-auth", "/internal/workspace-auth"}:
         return await call_next(request)
-    public_paths = {"/login", "/health", "/internal/auto-caption-auth", "/internal/local-upload-manager-auth", "/internal/audio-engine-auth"}
+    public_paths = {"/login", "/health", "/internal/auto-caption-auth", "/internal/local-upload-manager-auth", "/internal/audio-engine-auth", "/internal/workspace-auth"}
     if request.url.path.startswith("/static/") or request.url.path in public_paths:
         return await call_next(request)
     if not logged_in(request):
@@ -3470,6 +3470,48 @@ def auto_caption_auth(request: Request):
         "X-Auth-User": str(account.get("username") or ""),
         "X-App-Access": access,
         "X-Is-Admin": "1" if bool(account.get("is_admin")) else "0",
+    })
+
+
+# This endpoint is for Nginx's INTERNAL auth_request subrequests only.
+# The Scene session cookie remains the single login source of truth. Nginx
+# overwrites identity headers from these response headers, never from clients.
+SCENE_SSO_APP_IDS = frozenset({
+    "short-maker", "short-stream", "self-media-library", "video-merger",
+    "voice-studio", "auto-caption-studio", "local-upload-manager",
+})
+
+
+@app.get("/internal/workspace-auth")
+def workspace_session_auth(request: Request, app: str = ""):
+    """Validate one existing Scene session for one named independent app.
+
+    Non-admin accounts retain the historical Caption/LUM grant boundaries;
+    applications without a defined non-admin role remain administrator-only.
+    """
+    if app not in SCENE_SSO_APP_IDS:
+        return Response(status_code=403)
+    if not logged_in(request):
+        return Response(status_code=401)
+    account = user_account(str(request.session.get("username") or ""))
+    if not account or not int(account.get("is_active") or 0) or account.get("subscription_expired"):
+        return Response(status_code=401)
+    admin = bool(account.get("is_admin"))
+    if not admin:
+        if app == "auto-caption-studio":
+            permitted = app_access_allows(account, "auto_caption")
+        elif app == "local-upload-manager":
+            permitted = app_access_allows(account, "lum")
+        else:
+            permitted = False
+        if not permitted:
+            return Response(status_code=403)
+    access = "both" if admin else str(account.get("app_access") or "scene_builder")
+    return Response(status_code=204, headers={
+        "X-Auth-User": str(account.get("username") or ""),
+        "X-App-Access": access,
+        "X-Is-Admin": "1" if admin else "0",
+        "Cache-Control": "no-store",
     })
 
 
