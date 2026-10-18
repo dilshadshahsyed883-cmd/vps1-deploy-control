@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = (
     ROOT / ".github/workflows/vps1-production.yml",
     ROOT / ".github/workflows/vps1-five-route-cutover.yml",
+    ROOT / ".github/workflows/vps1-complete-production.yml",
 )
 OWNER = "github.actor == 'dilshadshahsyed883-cmd'"
 
@@ -37,6 +38,12 @@ class OwnerOnlyProductionAdmission(unittest.TestCase):
         self.assertIn("[vps1-route-five-cutover]", routes)
         self.assertIn("github.event_name == 'push'", routes)
         self.assertIn("github.run_attempt == 1", routes)
+        complete = WORKFLOWS[2].read_text()
+        self.assertIn("[vps1-complete-production]", complete)
+        self.assertIn("remote install scene-builder", complete)
+        self.assertIn("remote install short-maker", complete)
+        self.assertIn("remote nginx-route-only short-maker", complete)
+        self.assertIn("AUTO_SCRIPT=OFFLINE", complete)
 
     def test_no_admin_bypass_or_approval_robot(self):
         for path in WORKFLOWS:
