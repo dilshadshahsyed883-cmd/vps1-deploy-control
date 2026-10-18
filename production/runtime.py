@@ -281,6 +281,13 @@ def restore(app, previous):
 def install_app(app, revision):
     if app not in CATALOG:
         raise ValueError('app is not owned by this installer')
+    # The public Scene service is the original isolated candidate on port 18080,
+    # not the later generic port-8080 service.  Keep its unit/env/data ownership
+    # and update only its immutable source pointer through the same root helper.
+    if app == 'scene-builder' and (BASE / 'current/scene-builder').is_symlink():
+        from production.scene_candidate_release import install as install_scene_candidate
+        install_scene_candidate(revision)
+        return
     unit_name = f'vps1-production-{app}.service'
     unit = Path('/etc/systemd/system') / unit_name
     current = BASE / 'current' / runtime_name(app)
