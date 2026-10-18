@@ -1,4 +1,4 @@
-name: Fresh VPS shared uv dependencies and free-space safety (offline only)
+name: Fresh VPS shared uv cache and 30 GB budget gate (no VPS deployment)
 on:
   pull_request:
     paths:
@@ -12,7 +12,7 @@ on:
 permissions:
   contents: read
 jobs:
-  uv-dependencies:
+  uv-budget:
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
@@ -49,14 +49,13 @@ jobs:
           b_stat=os.stat(second[0])
           assert (a_stat.st_dev,a_stat.st_ino)==(b_stat.st_dev,b_stat.st_ino), "identical uv packages were not hardlinked"
           print("PASS: real fastapi files in two venvs share one filesystem inode")
-          assert s["host_reserve_ok"]
-          assert s["fixed_application_cap_bytes"] is None
+          assert s["within_budget"] and s["host_reserve_ok"]
           assert not (root/"srv/fresh-website/venvs/auto-script").exists()
-          print("PASS: shared uv cache, independent venvs, actual installs; no fixed app cap")
+          print("PASS: shared uv cache, independent venvs, actual source installs, 30 GB admission gate")
           PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: fresh-dependency-safety-evidence
+          name: fresh-dependency-budget-evidence
           path: ${{ runner.temp }}/dependency-*.json
           if-no-files-found: ignore

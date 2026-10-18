@@ -1,0 +1,56 @@
+name: VPS1 Scene Builder isolated runtime smoke (no VPS)
+on:
+  pull_request:
+    paths:
+      - 'apps/scene-builder/**'
+      - 'rebuild/tests/test_scene_pilot_smoke.py'
+      - 'rebuild/pilots/install_scene_builder_candidate.py'
+      - '.github/workflows/vps1-scene-pilot-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  scene-shadow-real-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install only Scene Builder pinned dependencies
+        run: python -m pip install -r apps/scene-builder/part01/requirements.txt
+      - name: Prepare isolated non-root runtime state
+        run: |
+          set -Eeuo pipefail
+          sudo install -d -o "$(id -u)" -g "$(id -g)" -m 0750 /var/lib/fresh-website/scene-builder
+      - name: Real FastAPI imports, HTTP health, probe authorization and blocked writes
+        run: python -m unittest rebuild.tests.test_scene_pilot_smoke -v
+      - name: Validate pinned app-only deploy installer without host actions
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          p=Path('rebuild/pilots/install_scene_builder_candidate.py')
+          source=p.read_text()
+          ast.parse(source)
+          assert 'master-drive-agent.service' in source
+          assert 'vps1-storage-candidate.service' in source
+          assert 'vps1-scene-candidate.service' in source
+          assert 'RESULT=PASS_ISOLATED_SCENE_BUILDER_CANDIDATE' in source
+          assert 'ROLLBACK=SCENE_ONLY' in source
+          assert 'SSH_PRIVATE_KEY' not in source
+          PY
+      - name: Ensure production remains fail closed
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          g=json.loads(Path('rebuild/groups.json').read_text())
+          assert g['fresh_install_enabled'] is False and g['production_deploy_enabled'] is False
+          assert g['offline_applications']==['auto-script']
+          candidate=Path('apps/scene-builder/candidate/vps1-scene-candidate.service').read_text()
+          assert '127.0.0.1' in candidate
+          assert 'FRESH_AUTO_SCRIPT_READY=0' in candidate
+          assert 'User=vps1scene' in candidate
+          PY

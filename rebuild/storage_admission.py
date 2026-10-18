@@ -43,9 +43,8 @@ def plan(action, app, ledger, free_bytes, new_app_bytes=0):
             raise ValueError("app already installed; updating requires measured replacement plan")
         projected = total + new_app_bytes
         free_after = free_bytes - new_app_bytes
-        # No artificial 30 GB application cap. Admit based on measured host
-        # free space after this install, keeping a minimum safety reserve.
-        allowed = free_after >= config["minimum_free_bytes"]
+        allowed = (projected <= config["application_budget_bytes"] and
+                   free_after >= config["minimum_free_bytes"])
         # Note: shared cached wheel downloads and model growth need their own
         # measured reservation as part of new_app_bytes before installation.
         return {"action": action, "app": app, "admitted": allowed,

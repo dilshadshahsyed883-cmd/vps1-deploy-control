@@ -23,30 +23,27 @@ FFmpeg and OS libraries are system-level dependencies installed only once.
 - Standalone standard-library services receive lightweight venvs with no
   invented third-party requirements.
 
-## Storage policy — no fixed application cap
+## Storage budget
 
-There is **no 30 GB (or other fixed) application footprint limit** and no
-mandatory separate 30 GB investigation, modeling, or capacity-report step.
-`rebuild/dependency-budget.json` does not define `application_budget_bytes`.
-The builder may install beyond 30 GB when physical host space allows.
+`30,000,000,000` decimal bytes for the staged application tree (source
+releases, venvs, uv cache, app DBs/queues/uploads/work and shared models).
+`5,000,000,000` bytes of host disk remain free at admission and after each
+installation. The scanner counts allocated disk blocks once per unique
+device/inode to avoid double-counting hardlinked files. It is not an
+estimate based on package download size.
 
-The lightweight safety check only verifies currently available host free space
-against `minimum_free_bytes` (currently 5,000,000,000 decimal bytes).
-It runs within the existing isolated install/check operation, not as a
-separate approval or investigation workflow. CI reports unique inode-allocated
-disk usage for observability without comparing it to an application cap.
+**Important:** The budget check is a fail-closed deployment *admission*
+gate, **not** a persistent OS/filesystem quota on future uploads/jobs. A
+true 30 GB hard cap for application growth requires a filesystem quota
+or per-service limits and recurring usage checks after snapshot/cutover.
+Python system packages, OS logs and FFmpeg installed outside the app
+tree are not counted in the 30 GB application footprint.
 
-Per-app planning in `rebuild/storage_admission.py` only refuses an install
-when the measured host free space after its expected new files would fall
-below the safety reserve. Estimates used for disk-full prevention are not a
-global app budget, storage quota, or extra capacity research gate.
-Actual OS/filesystem limits still apply. Existing artifact-integrity,
-non-root runtime, credential, data, service-health and rollback safety
-protections are unchanged.
-
-The full ten-app dependency/model/browser stack has not been measured
-on the fresh host, and GitHub CI does not prove sufficient physical disk
-for a future live installation. Do not claim live space was verified.
+The full ten-app dependency/model/Chrome stack has not yet been installed
+and measured on the target VPS. CI currently runs an **actual uv install**
+for two lightweight independent apps; heavy workers and models remain
+explicitly unverified. Never claim the whole site fits in 30 GB without
+real post-snapshot VPS measurements.
 
 ## Pre/post cutover
 

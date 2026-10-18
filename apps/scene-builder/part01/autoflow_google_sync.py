@@ -760,7 +760,9 @@ def google_status(project_id: int) -> dict[str,Any]:
 
 
 def register_autoflow_google_sync(app) -> None:
-    init_google_schema(); _start_worker()
+    init_google_schema()
+    if os.getenv("VPS1_RUNTIME_CANDIDATE") != "1":
+        _start_worker()
 
     @app.get("/api/master-controller/projects/{project_id}/google/status")
     def api_google_status(project_id:int, request:Request):
