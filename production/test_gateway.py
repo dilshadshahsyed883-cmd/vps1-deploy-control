@@ -8,6 +8,28 @@ from production.gateway import nginx_config, public_apps_for_release
 from production.runtime import CATALOG
 
 
+class GatewaySelectionTest(unittest.TestCase):
+    def test_voice_release_keeps_old_six_and_excludes_unpublished_scene(self):
+        public = ['short-maker', 'short-stream', 'self-media-library',
+                  'video-merger', 'auto-caption-studio', 'local-upload-manager']
+        ready = set(CATALOG)  # Scene may be running internally but is not public.
+        selected = public_apps_for_release(['voice-studio'], previous=public,
+                                           is_active=lambda app: app in ready)
+        self.assertEqual(set(selected), set(public) | {'voice-studio'})
+        self.assertNotIn('scene-builder', selected)
+
+    def test_missing_existing_public_app_blocks_release(self):
+        with self.assertRaisesRegex(RuntimeError, 'required public service'):
+            public_apps_for_release(['voice-studio'], previous=['short-maker'],
+                                    is_active=lambda app: app == 'voice-studio')
+
+    def test_empty_and_unknown_public_release_rejected(self):
+        with self.assertRaisesRegex(RuntimeError, 'empty public'):
+            public_apps_for_release([], previous=[], is_active=lambda _: True)
+        with self.assertRaisesRegex(RuntimeError, 'unknown public'):
+            public_apps_for_release(['random-service'], previous=[], is_active=lambda _: True)
+
+
 class GatewaySyntaxTest(unittest.TestCase):
     @unittest.skipUnless(shutil.which('nginx'), 'Nginx is exercised in clean Ubuntu CI')
     def test_real_nginx_parser_accepts_all_native_and_prefixed_routes(self):
