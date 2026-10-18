@@ -264,7 +264,11 @@ def main():
     args = parser.parse_args()
     check_host(args.revision)
     with deployment_lock():
-        install(public_apps_for_revision(args.apps, args.revision))
+        selected = public_apps_for_revision(args.apps, args.revision)
+        install(selected)
+        if 'voice-studio' in args.apps and 'voice-studio' in selected:
+            from production.scene_public_https import publish_voice_on_scene_https
+            publish_voice_on_scene_https()
 
 
 if __name__ == '__main__':

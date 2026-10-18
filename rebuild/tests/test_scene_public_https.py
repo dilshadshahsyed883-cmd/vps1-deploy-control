@@ -43,6 +43,22 @@ class DomainCutoverContract(unittest.TestCase):
         self.assertNotIn("sites-enabled/vps1-production.conf",tls)
         self.assertIn("return 308 https://$host$request_uri;",tls)
 
+    def test_voice_https_insertion_preserves_scene_and_routes_through_auth_gateway(self):
+        original=https.nginx_https()
+        self.assertEqual(original.count(https.VOICE_ANCHOR),1)
+        augmented=original.replace(https.VOICE_ANCHOR,https.VOICE_EXTRA+https.VOICE_ANCHOR,1)
+        self.assertIn('location ^~ /voice-studio/',augmented)
+        self.assertIn('proxy_pass http://127.0.0.1:8888;',augmented)
+        self.assertIn('location = /voice-studio { return 302 /voice-studio/; }',augmented)
+        self.assertIn('proxy_pass http://127.0.0.1:18080;',augmented)
+        self.assertIn('ssl_certificate /etc/letsencrypt/live/app.scenebuilder.online/fullchain.pem;',augmented)
+        self.assertEqual(augmented.count('server_name app.scenebuilder.online;'),2)
+        self.assertEqual(augmented.count('location ^~ /voice-studio/'),1)
+        self.assertNotIn('auth_basic off;',augmented)
+        source=(ROOT/'production/gateway.py').read_text()
+        self.assertIn('publish_voice_on_scene_https()',source)
+        self.assertIn("if 'voice-studio' in args.apps and 'voice-studio' in selected:",source)
+
     def test_syntax_and_immutable_host_gates(self):
         for f in ("production/scene_public_https.py","production/scene_login_upgrade.py"):
             text=(ROOT/f).read_text()
