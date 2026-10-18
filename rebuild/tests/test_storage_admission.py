@@ -15,9 +15,10 @@ class StoragePlanTests(unittest.TestCase):
         self.assertEqual(out["projected_bytes"], 2050)
         self.assertFalse(out["destructive_actions"])
 
-    def test_fails_on_budget_or_disk_reserve(self):
+    def test_only_fails_on_disk_reserve(self):
         self.assertFalse(storage_admission.plan("install", "short-stream", self.ledger, 5_000_000_000, 1000)["admitted"])
-        self.assertFalse(storage_admission.plan("install", "short-stream", self.ledger, 60_000_000_000, 30_000_000_000)["admitted"])
+        self.assertTrue(storage_admission.plan("install", "short-stream", self.ledger, 60_000_000_000, 40_000_000_000)["admitted"])
+        self.assertFalse(storage_admission.plan("install", "short-stream", self.ledger, 42_000_000_000, 40_000_000_000)["admitted"])
 
     def test_remove_does_not_erase_shared_model(self):
         out = storage_admission.plan("remove", "short-maker", self.ledger, 6_000_000_000)
