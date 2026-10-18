@@ -267,6 +267,15 @@ def publish_voice_on_scene_https():
     guard('location ^~ /voice-studio/' not in original or VOICE_EXTRA in original,
           "Voice route owned by unknown config")
     changed=VOICE_EXTRA not in original
+    def voice_tls_wait(path, expected, authenticated=False):
+        # nginx -s reload is graceful; old workers can briefly serve old routes.
+        import time
+        last=(0,b'')
+        for attempt in range(12):
+            last=https_host(path,authenticated)
+            if last[0]==expected:return last
+            if attempt<11:time.sleep(0.6)
+        return last
     def swap(text):
         with tempfile.NamedTemporaryFile('w',dir=str(SITE.parent),prefix='.voice-web-',
                                          delete=False) as f:
@@ -283,11 +292,11 @@ def publish_voice_on_scene_https():
             swap(original.replace(VOICE_ANCHOR,VOICE_EXTRA+VOICE_ANCHOR,1))
             run(['nginx','-t'],timeout=15)
             run(['systemctl','reload','nginx'],timeout=18)
-        status,_=https_host('/voice-studio/healthz')
+        status,_=voice_tls_wait('/voice-studio/healthz',401)
         guard(status==401,"HTTPS Voice anonymous protection failed")
-        status,body=https_host('/voice-studio/healthz',True)
+        status,body=voice_tls_wait('/voice-studio/healthz',200,True)
         guard(status==200 and json.loads(body).get('ok') is True,"HTTPS Voice health failed")
-        status,body=https_host('/voice-studio/',True)
+        status,body=voice_tls_wait('/voice-studio/',200,True)
         guard(status==200 and (b'<html' in body.lower() or b'<!doctype' in body.lower()),
               "HTTPS Voice UI HTML failed")
         status,_=https_host('/login')
