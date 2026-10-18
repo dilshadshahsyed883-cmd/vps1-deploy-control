@@ -10,6 +10,8 @@ on:
       - 'production/route_auto_caption_scene_https.py'
       - 'production/scene_public_https.py'
       - '.github/workflows/vps1-production.yml'
+      - '.github/workflows/vps1-five-route-cutover.yml'
+      - 'tests/test_production_owner_only.py'
       - '.github/workflows/vps1-nginx-route-only-ci.yml'
   workflow_dispatch:
 permissions:
@@ -34,4 +36,5 @@ jobs:
           set -Eeuo pipefail
           python3 -m compileall -q production/nginx_route_only.py production/remote_deploy.py
           python3 -m unittest production.test_nginx_route_only production.test_gateway -v
+          python3 -m unittest discover -s tests -p 'test_production_owner_only.py' -v
           echo 'NGINX_ROUTE_ONLY_CI=PASS_VPS_UNCHANGED'
