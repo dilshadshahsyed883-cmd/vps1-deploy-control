@@ -1,0 +1,46 @@
+name: VPS1 production runtime startup and functional tests
+on:
+  pull_request:
+    paths:
+      - 'production/**'
+      - '.github/workflows/vps1-production-runtime-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [short-maker, short-stream, self-media-library, video-merger, voice-studio, auto-caption-studio, local-upload-manager]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install media runtime
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ffmpeg nginx
+      - name: Install the actual selected application dependencies
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          python - <<'PY'
+          import os, subprocess, sys
+          from production.runtime import CATALOG, REPO
+          app = os.environ['APP']
+          spec = CATALOG[app]
+          packages = spec.get('packages')
+          args = packages if packages else ['-r', str(REPO / 'apps' / app / spec['requirements'])]
+          subprocess.run([sys.executable, '-m', 'pip', 'install', *args, 'httpx==0.28.1'], check=True)
+          PY
+      - name: Check source, SQLite backup, atomic release and real HTTP features
+        env:
+          APP: ${{ matrix.app }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          bash -n production/bootstrap.sh
+          python -m unittest production.test_runtime -v
+          python -m unittest production.test_gateway -v
+          python -m production.smoke --app "$APP"

@@ -1,0 +1,73 @@
+name: VPS1 production applications
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      app:
+        description: Application
+        type: choice
+        default: all
+        options: [all, short-maker, short-stream, self-media-library, video-merger, voice-studio, auto-caption-studio, local-upload-manager]
+      operation:
+        description: Release operation
+        type: choice
+        default: install
+        options: [install, rollback]
+permissions:
+  contents: read
+concurrency:
+  group: vps1-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       contains(github.event.head_commit.message, '[vps1-production-release]'))
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Join existing production tailnet identity
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Run app-scoped protected-main release command
+        shell: bash
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+          SOURCE_SHA: ${{ github.sha }}
+          APP_SELECTION: ${{ inputs.app || 'all' }}
+          OPERATION: ${{ inputs.operation || 'install' }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          case "$APP_SELECTION" in
+            all|short-maker|short-stream|self-media-library|video-merger|voice-studio|auto-caption-studio|local-upload-manager) ;;
+            *) exit 1 ;;
+          esac
+          case "$OPERATION" in install|rollback) ;; *) exit 1 ;; esac
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/identity"
+          unset PRIVATE_IDENTITY
+          ssh-keygen -y -P '' -f "$scratch/identity" > "$scratch/public"
+          actual="$(ssh-keygen -lf "$scratch/public" -E sha256 | awk '{print $2}')"
+          test "$actual" = 'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
+          timeout 2100s ssh -T -p 22 -i "$scratch/identity" \
+            -o UserKnownHostsFile="$scratch/known_hosts" \
+            -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=20 \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+            vps1deploy@100.87.55.92 \
+            "sudo -n /usr/local/sbin/vps1-production-deploy $OPERATION $SOURCE_SHA $APP_SELECTION"
