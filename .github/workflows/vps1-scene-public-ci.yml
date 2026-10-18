@@ -38,7 +38,7 @@ jobs:
                   body=body.replace('/etc/letsencrypt/live/app.scenebuilder.online/privkey.pem',str(key))
                   conf=root/(name+'.conf')
                   conf.write_text('events {} \n http { \n'+body+'\n }\n')
-                  test=subprocess.run(['nginx','-t','-p',t,'-c',str(conf)],
+                  test=subprocess.run(['sudo','nginx','-t','-p',t,'-c',str(conf)],
                     capture_output=True,text=True)
                   assert test.returncode==0,(name,test.stderr)
           PY
