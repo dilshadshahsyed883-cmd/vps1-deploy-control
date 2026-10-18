@@ -4,6 +4,7 @@ on:
     paths:
       - 'apps/scene-builder/**'
       - 'rebuild/tests/test_scene_pilot_smoke.py'
+      - 'rebuild/pilots/install_scene_builder_candidate.py'
       - '.github/workflows/vps1-scene-pilot-ci.yml'
   workflow_dispatch:
 permissions:
@@ -25,6 +26,21 @@ jobs:
           sudo install -d -o "$(id -u)" -g "$(id -g)" -m 0750 /var/lib/fresh-website/scene-builder
       - name: Real FastAPI imports, HTTP health, probe authorization and blocked writes
         run: python -m unittest rebuild.tests.test_scene_pilot_smoke -v
+      - name: Validate pinned app-only deploy installer without host actions
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          p=Path('rebuild/pilots/install_scene_builder_candidate.py')
+          source=p.read_text()
+          ast.parse(source)
+          assert 'master-drive-agent.service' in source
+          assert 'vps1-storage-candidate.service' in source
+          assert 'vps1-scene-candidate.service' in source
+          assert 'RESULT=PASS_ISOLATED_SCENE_BUILDER_CANDIDATE' in source
+          assert 'ROLLBACK=SCENE_ONLY' in source
+          assert 'SSH_PRIVATE_KEY' not in source
+          PY
       - name: Ensure production remains fail closed
         run: |
           python - <<'PY'
