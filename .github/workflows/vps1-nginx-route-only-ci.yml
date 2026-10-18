@@ -1,0 +1,37 @@
+name: VPS1 Nginx route-only release tests (offline, no VPS)
+on:
+  pull_request:
+    paths:
+      - 'production/nginx_route_only.py'
+      - 'production/remote_deploy.py'
+      - 'production/test_nginx_route_only.py'
+      - 'production/workspace_https.py'
+      - 'production/route_uploader_scene_https.py'
+      - 'production/route_auto_caption_scene_https.py'
+      - 'production/scene_public_https.py'
+      - '.github/workflows/vps1-production.yml'
+      - '.github/workflows/vps1-nginx-route-only-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  nginx-route-only-offline:
+    name: nginx-route-only-offline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install only the real Nginx parser
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends nginx openssl
+      - name: Assert operation allowlist, route ownership, auth and rollback
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          set -Eeuo pipefail
+          python3 -m compileall -q production/nginx_route_only.py production/remote_deploy.py
+          python3 -m unittest production.test_nginx_route_only production.test_gateway -v
+          echo 'NGINX_ROUTE_ONLY_CI=PASS_VPS_UNCHANGED'
