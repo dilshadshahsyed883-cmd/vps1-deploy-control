@@ -58,7 +58,11 @@ class ImportMissingSceneModules(unittest.TestCase):
                     if item.filename=="app/smart_scroll/transition_engine.py":
                         data=b"VALUE = 'tampered'\n"
                     rewritten.writestr(item.filename,data)
-            with self.assertRaisesRegex(RuntimeError,"SHA mismatch"):
+            with self.assertRaisesRegex(RuntimeError,"only the owner-provided archived source"):
+                mod.recover(tampered,p,apply=True)
+            # Even if test bypasses outer archive pin, inner manifest rejects tampering.
+            mod.OWNER_SHA256=hashlib.sha256(tampered.read_bytes()).hexdigest()
+            with self.assertRaisesRegex(RuntimeError,"source SHA mismatch"):
                 mod.recover(tampered,p,apply=True)
 
 if __name__=="__main__":
