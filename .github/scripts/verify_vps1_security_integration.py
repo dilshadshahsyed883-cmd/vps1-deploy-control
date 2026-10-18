@@ -50,7 +50,7 @@ join_action = "uses: tailscale/github-action@v4"
 assert pj.count(preflight_name) == 1
 assert pj.index(preflight_name) < pj.index(join_action), "OIDC starts before preflight"
 preflight = pj[pj.index(preflight_name):pj.index(join_action)]
-for check in ('test "$GITHUB_RUN_ATTEMPT" = "1"', 'test "$GITHUB_EVENT_NAME" = "push"', 'test "$GITHUB_REF" = "refs/heads/main"', "jq -r '.before'", "jq -er '.head_commit.message | contains(", '${main}'):
+for check in ('test "$GITHUB_RUN_ATTEMPT" = "1"', 'test "$GITHUB_EVENT_NAME" = "push"', 'test "$GITHUB_REF" = "refs/heads/main"', "jq -r '.before'", "jq -er '.head_commit.message | contains(", '195d14789dc4c3bda01ed01e523e4684b061976c'):
     assert check in preflight, "missing fail-closed preflight: " + check
 for term in ("github.event_name == 'push'", "github.ref == 'refs/heads/main'", '[vps1-ssh-proof-authorized]', "expected='" + pin + "'", 'StrictHostKeyChecking=yes','UpdateHostKeys=no','vps1deploy@100.87.55.92','VPS1_DEPLOYMENT=NOT_ATTEMPTED'):
     assert term in pj, term
