@@ -44,8 +44,8 @@ class OwnerSourceRecovery(unittest.TestCase):
         self.assertIn("_validate_final_mp4(",content.decode())
 
     def test_speed_filter_and_real_mp4_validation(self):
-        if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
-            self.skipTest("FFmpeg suite not present on runner")
+        self.assertTrue(shutil.which("ffmpeg"), "FFmpeg must be installed in CI")
+        self.assertTrue(shutil.which("ffprobe"), "FFprobe must be installed in CI")
         fn=extracted()
         self.assertEqual(fn["_atempo_filters_for_speed"](1),[])
         self.assertEqual(fn["_atempo_filters_for_speed"](4),["atempo=2.00000","atempo=2.00000"])
