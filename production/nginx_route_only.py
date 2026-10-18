@@ -212,6 +212,29 @@ def public_path(app, name):
     return "/" + app + value
 
 
+# Old Nginx workers can briefly serve the existing Scene login redirect
+# after a graceful reload. Redirects are never accepted as successful auth.
+RELOAD_TRANSIENT_HTTP = frozenset((302, 303, 307, 308, 404, 502, 503))
+
+
+def require_https_status(url, *, expected, app, authorization="", attempts=18, pause=0.6):
+    """Wait for verified Nginx handover; fail closed on unexpected HTTP codes.
+
+    The expected 401 protects unauthenticated routes. Authenticated 200 is
+    accepted only by the caller after checking API JSON or UI HTML. A stale
+    Scene login redirect is only retried for a short, bounded interval.
+    """
+    for i in range(attempts):
+        status, content_type, body = tls_get(url, authorization=authorization)
+        if status == expected:
+            return content_type, body
+        guard(status in RELOAD_TRANSIENT_HTTP and i + 1 < attempts,
+              "HTTPS route validation failed: " + app +
+              " expected=" + str(expected) + " observed=" + str(status))
+        time.sleep(pause)
+    raise RuntimeError("unreachable HTTPS check")
+
+
 def check_app(app, auth, *, session_owned=False):
     if session_owned:
         # Session-bound uploader is intentionally NOT converted to Basic Auth.
@@ -221,20 +244,9 @@ def check_app(app, auth, *, session_owned=False):
     path = public_path(app, "health")
     ui = public_path(app, "ui")
     for url in (path, ui):
-        for i in range(12):
-            status, ct, body = tls_get(url)
-            if status == 401:
-                break
-            guard(i < 11 and status in (404, 502, 503),
-                  "anonymous app HTTPS route not protected: " + app)
-            time.sleep(0.5)
-        for i in range(12):
-            status, ct, body = tls_get(url, authorization=auth)
-            if status == 200:
-                break
-            guard(i < 11 and status in (404, 502, 503),
-                  "authenticated app HTTPS route unavailable: " + app)
-            time.sleep(0.5)
+        require_https_status(url, expected=401, app=app)
+        ct, body = require_https_status(url, expected=200, app=app,
+                                        authorization=auth)
         if url == path:
             guard(json.loads(body).get("ok") is True, "app health payload invalid: " + app)
         else:
