@@ -22,7 +22,10 @@ class UploaderSceneRouteTests(unittest.TestCase):
         config, changed = add_route(nginx_https())
         self.assertTrue(changed)
         self.assertIn("location ^~ /local-upload-manager/ {", config)
-        self.assertNotIn("location = /local-upload-manager {", ROUTE)
+        self.assertIn("location = /local-upload-manager {", ROUTE)
+        exact = ROUTE.split(" location = /_scene_uploader_auth", 1)[0]
+        self.assertIn("proxy_pass http://127.0.0.1:18080;", exact)
+        self.assertNotIn("8015", exact)
         self.assertIn("location / {\n    proxy_pass http://127.0.0.1:18080;", config)
 
     def test_identity_from_scene_auth_not_visitor_headers(self):

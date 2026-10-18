@@ -33,11 +33,20 @@ ANCHOR = " location / {\n    proxy_pass http://127.0.0.1:18080;"
 MARKER = "# VPS1_SCENE_SESSION_UPLOADER_ROUTE_V1"
 TRANSACTIONS = Path("/srv/fresh-website/transactions/scene-uploader-https")
 
-# An exact /local-upload-manager request remains Scene Builder's outer shell.
+# An explicit exact /local-upload-manager proxy keeps Scene Builder's outer
+# shell. Without it, Nginx automatically redirects to the slash-terminated
+# uploader prefix because that location has proxy_pass.
 # Only /local-upload-manager/* is handed to the isolated uploader service.
 # Nginx performs the Scene session check; client-supplied identity headers are
 # overwritten with values from the protected authorization subrequest.
 ROUTE = """ # VPS1_SCENE_SESSION_UPLOADER_ROUTE_V1
+ location = /local-upload-manager {
+    proxy_pass http://127.0.0.1:18080;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+ }
  location = /_scene_uploader_auth {
     internal;
     proxy_pass http://127.0.0.1:18080/internal/local-upload-manager-auth;
@@ -81,7 +90,8 @@ def add_route(original: str) -> tuple[str, bool]:
         guard(original.count(MARKER) == 1 and ROUTE in original,
               "existing uploader route differs from this release")
         return original, False
-    guard("location ^~ /local-upload-manager/" not in original
+    guard("location = /local-upload-manager " not in original
+          and "location ^~ /local-upload-manager/" not in original
           and "location = /_scene_uploader_auth" not in original,
           "uploader route is already owned by another config")
     return original.replace(ANCHOR, ROUTE + ANCHOR, 1), True
