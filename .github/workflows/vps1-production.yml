@@ -23,6 +23,7 @@ jobs:
   deploy:
     if: >-
       github.ref == 'refs/heads/main' &&
+      github.actor == 'dilshadshahsyed883-cmd' &&
       (github.event_name == 'workflow_dispatch' ||
        contains(github.event.head_commit.message, '[vps1-production-release]') ||
        contains(github.event.head_commit.message, '[vps1-production-release:voice-studio]') ||
