@@ -14,14 +14,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [short-maker, short-stream, self-media-library, video-merger, voice-studio, auto-caption-studio, local-upload-manager]
+        app: [scene-builder, short-maker, short-stream, self-media-library, video-merger, voice-studio, auto-caption-studio, local-upload-manager]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install media runtime
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ffmpeg nginx
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ffmpeg nginx espeak-ng
       - name: Install the actual selected application dependencies
         env:
           APP: ${{ matrix.app }}
@@ -44,3 +44,6 @@ jobs:
           python -m unittest production.test_runtime -v
           python -m unittest production.test_gateway -v
           python -m production.smoke --app "$APP"
+      - name: Real CPU speech using official immutable model release
+        if: matrix.app == 'voice-studio'
+        run: python -m production.worker_smoke

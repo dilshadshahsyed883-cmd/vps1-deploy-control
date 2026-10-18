@@ -8,7 +8,7 @@ on:
         description: Application
         type: choice
         default: all
-        options: [all, short-maker, short-stream, self-media-library, video-merger, voice-studio, auto-caption-studio, local-upload-manager]
+        options: [all, scene-builder, short-maker, short-stream, self-media-library, video-merger, voice-studio, auto-caption-studio, local-upload-manager]
       operation:
         description: Release operation
         type: choice
@@ -52,7 +52,7 @@ jobs:
           test "$GITHUB_REF" = refs/heads/main
           [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
           case "$APP_SELECTION" in
-            all|short-maker|short-stream|self-media-library|video-merger|voice-studio|auto-caption-studio|local-upload-manager) ;;
+            all|scene-builder|short-maker|short-stream|self-media-library|video-merger|voice-studio|auto-caption-studio|local-upload-manager) ;;
             *) exit 1 ;;
           esac
           case "$OPERATION" in install|rollback) ;; *) exit 1 ;; esac
