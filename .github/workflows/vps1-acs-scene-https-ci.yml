@@ -1,0 +1,47 @@
+name: Auto Caption Studio on Scene HTTPS — offline Nginx/auth route
+on:
+  pull_request:
+    paths:
+      - 'production/route_auto_caption_scene_https.py'
+      - 'rebuild/tests/test_auto_caption_scene_https_route.py'
+      - '.github/workflows/vps1-acs-scene-https-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  scene-acs-authenticated-subroute:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify prefix, auth delegation, fail-closed rollback, GitOps flags
+        run: python3 -m unittest rebuild.tests.test_auto_caption_scene_https_route -v
+      - name: Nginx syntax with throwaway TLS certificate (offline)
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends nginx
+          python3 - <<'PY'
+          from pathlib import Path
+          import tempfile,subprocess
+          from production import scene_public_https as scene
+          from production import route_auto_caption_scene_https as acs
+          with tempfile.TemporaryDirectory(prefix='acs-scene-nginx-ci-') as root:
+              p=Path(root)
+              crt=p/'test.crt'
+              key=p/'test.key'
+              subprocess.run(['openssl','req','-x509','-newkey','rsa:2048',
+                  '-nodes','-keyout',str(key),'-out',str(crt),
+                  '-days','1','-subj','/CN=app.scenebuilder.online'],
+                  capture_output=True,check=True,timeout=20)
+              rendered=acs.add_route(scene.nginx_https())
+              rendered=rendered.replace('/etc/letsencrypt/live/app.scenebuilder.online/fullchain.pem',str(crt))
+              rendered=rendered.replace('/etc/letsencrypt/live/app.scenebuilder.online/privkey.pem',str(key))
+              conf=p/'nginx.conf'
+              conf.write_text('events {} \n http {\n'+rendered+'\n}\n')
+              result=subprocess.run(['sudo','nginx','-t','-p',root,'-c',str(conf)],
+                  capture_output=True,text=True,timeout=15)
+              assert result.returncode==0,result.stderr
+          PY
