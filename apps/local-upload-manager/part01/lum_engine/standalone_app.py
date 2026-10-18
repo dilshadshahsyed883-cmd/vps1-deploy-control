@@ -19,6 +19,7 @@ from .config import (
 )
 from .oauth_web import complete_oauth, list_clients, save_client_json, save_shared_client_json, start_oauth
 from .project_store import ProjectStore
+from .four_modes import registry as four_mode_registry, validate_mode as validate_auto_mode
 from .reports import generate_health_report, list_reports, report_path
 from .worker import VPSUploadWorker
 from desktop_core.modules.auth_manager import AuthManager
@@ -375,7 +376,7 @@ def root() -> RedirectResponse:
 
 
 @app.get(route("/app"), response_class=HTMLResponse)
-def app_page(request: Request, tab: str = "", message: str = "", error: str = "", embedded: int = 0, source_id: int = 0, auto_profile_id: int = 0, new_profile: int = 0):
+def app_page(request: Request, tab: str = "", message: str = "", error: str = "", embedded: int = 0, source_id: int = 0, auto_profile_id: int = 0, new_profile: int = 0, auto_mode: str = "engine1"):
     user = current_user(request)
     if SUITE_AUTH_ENABLED and embedded:
         request.session["lum_embedded"] = "1"
@@ -396,7 +397,12 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         "rows": [], "summary": {}, "groups": [], "sheets": [], "oauth_inventory": {}
     }
     pc_sync_history = list_sync_history() if selected == "channels" else []
-    auto_v6 = v6_profile_context(db, v6_store, int(auto_profile_id or 0)) if selected == "auto_engine" else {}
+    try:
+        selected_auto_mode = validate_auto_mode(auto_mode)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Unknown uploader mode")
+    mode_registry = four_mode_registry() if selected == "auto_engine" else {}
+    auto_v6 = v6_profile_context(db, v6_store, int(auto_profile_id or 0)) if selected == "auto_engine" and selected_auto_mode == "engine1" else {}
     if selected == "auto_engine" and auto_v6:
         # LUM_SCHEDULER_CONTROL_LIVE_V1: runtime-only presentation state.
         # This does not mutate scheduler_armed or profile schedules.
@@ -455,7 +461,7 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
             "ready_profiles": len(_ready),
             "next_run": (min(_next).strftime("%a %d %b · %H:%M PKT") if _armed and _next else "No eligible schedule"),
         }
-    if selected == "auto_engine" and int(new_profile or 0):
+    if selected == "auto_engine" and selected_auto_mode == "engine1" and int(new_profile or 0):
         auto_v6 = dict(auto_v6 or {})
         auto_v6["selected"] = None
         auto_v6["source"] = {}
@@ -486,6 +492,8 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         "oauth_inventory": channel_context["oauth_inventory"],
         "pc_sync_history": pc_sync_history,
         "auto_v6": auto_v6,
+        "auto_mode": selected_auto_mode,
+        "mode_registry": mode_registry,
         "reports": list_reports(),
         "csrf": csrf(request),
         "oauth_url": str(request.session.get("lum_oauth_url") or ""),
@@ -494,6 +502,13 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         "suite_auth": SUITE_AUTH_ENABLED,
         "embedded_view": embedded_view,
     })
+
+
+@app.get(route("/api/auto-modes"))
+def four_mode_status(request: Request):
+    user = current_user(request)
+    require_heavy(user)
+    return JSONResponse(four_mode_registry())
 
 
 @app.get(route("/users"), response_class=HTMLResponse)
