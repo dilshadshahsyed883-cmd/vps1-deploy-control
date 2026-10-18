@@ -1,0 +1,75 @@
+name: VPS1 Scene session SSO admission (READ ONLY)
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: vps1-scene-sso-readback
+  cancel-in-progress: false
+jobs:
+  scene-session-admission:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'dilshadshahsyed883-cmd' &&
+      contains(github.event.head_commit.message, '[vps1-scene-sso-readback]')
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Connect restricted Tailscale CI identity
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Inspect only Scene auth path availability
+        shell: bash
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          keydir="$(mktemp -d)"
+          trap 'rm -rf "$keydir"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$keydir/id"
+          unset PRIVATE_IDENTITY
+          chmod 0600 "$keydir/id"
+          ssh-keygen -y -P '' -f "$keydir/id" > "$keydir/pub"
+          actual="$(ssh-keygen -lf "$keydir/pub" -E sha256 | awk '{print $2}')"
+          test "$actual" = 'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$keydir/known_hosts"
+          timeout 90s ssh -T -i "$keydir/id" -p 22 \
+            -o UserKnownHostsFile="$keydir/known_hosts" \
+            -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o PasswordAuthentication=no \
+            -o ConnectTimeout=20 vps1deploy@100.87.55.92 \
+            'bash -s' <<'REMOTE'
+          set -Eeuo pipefail
+          test "$(id -un)" = vps1deploy
+          if systemctl is-active --quiet vps1-scene-candidate.service; then
+            echo 'SCENE_CANDIDATE_SERVICE=ACTIVE'
+          else
+            echo 'SCENE_CANDIDATE_SERVICE=NOT_ACTIVE'
+          fi
+          directory="$(systemctl show vps1-scene-candidate.service -p WorkingDirectory --value)"
+          case "$directory" in
+            /srv/fresh-website/*|/opt/*)
+              printf 'SCENE_WORKING_DIRECTORY=%s\n' "$directory"
+              ;;
+            *) echo 'SCENE_WORKING_DIRECTORY=UNVERIFIED' ;;
+          esac
+          status="$(curl --noproxy '*' -sS -o /dev/null -w '%{http_code}' \
+            --connect-timeout 3 --max-time 7 \
+            'http://127.0.0.1:18080/internal/workspace-auth?app=short-maker' || echo unavailable)"
+          echo "SCENE_SESSION_BRIDGE_ANONYMOUS_HTTP=$status"
+          case "$status" in
+            401) echo 'SCENE_SESSION_BRIDGE_SOURCE_PRESENT=YES' ;;
+            *) echo 'SCENE_SESSION_BRIDGE_SOURCE_PRESENT=NOT_PROVEN' ;;
+          esac
+          echo 'VPS_CHANGES=NONE'
+          REMOTE
