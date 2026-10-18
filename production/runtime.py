@@ -44,7 +44,7 @@ CATALOG = {
     'video-merger': dict(port=8148, script='app.py', health='/video-merger/health',
                          ui='/video-merger/', packages=['yt-dlp']),
     'voice-studio': dict(port=8143, module='vps1_omnivoice_app:app', health='/healthz',
-                         ui='/', packages=CORE + ['edge-tts==7.2.8', 'kokoro-onnx==0.6.0', 'soundfile', 'numpy', 'yt-dlp']),
+                         ui='/', packages=CORE + ['edge-tts==7.3.1', 'kokoro-onnx==0.6.0', 'soundfile', 'numpy', 'yt-dlp']),
     'auto-caption-studio': dict(port=8144, module='web_backend.app:app', health='/health',
                                 ui='/', packages=CORE + ['PySide6==6.8.3', 'faster-whisper==1.1.1']),
     'local-upload-manager': dict(port=8015, module='lum_engine.standalone_app:app',
