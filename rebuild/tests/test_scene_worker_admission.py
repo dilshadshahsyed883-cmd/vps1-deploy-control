@@ -3,6 +3,7 @@
 Import ACTUAL api_server module, initialize NEW isolated SQLite DB, call HTTP
 routes through FastAPI TestClient. No existing queue, worker or live VPS touched.
 """
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,7 @@ from unittest.mock import patch
 sys.dont_write_bytecode = True
 PART2 = Path(__file__).resolve().parents[2] / "apps/scene-builder/part02"
 
+@unittest.skipUnless(importlib.util.find_spec("fastapi") is not None and importlib.util.find_spec("httpx") is not None, "worker FastAPI deps are installed in dedicated admission CI")
 class SceneWorkerAdmission(unittest.TestCase):
     def test_real_api_startup_auth_empty_queue_no_mutations(self):
         from fastapi.testclient import TestClient
