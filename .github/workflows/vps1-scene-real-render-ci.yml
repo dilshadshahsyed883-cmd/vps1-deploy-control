@@ -1,0 +1,49 @@
+name: Scene Builder real V2 MP4 render integration (offline, no VPS)
+on:
+  pull_request:
+    paths:
+      - 'apps/scene-builder/part02/smart_scroll/**'
+      - 'rebuild/tests/test_scene_v2_real_mp4.py'
+      - '.github/workflows/vps1-scene-real-render-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-ffmpeg-render:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install FFmpeg and FFprobe on clean Ubuntu
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: Assert FFmpeg binaries
+        run: |
+          set -Eeuo pipefail
+          ffmpeg -version | head -n 1
+          ffprobe -version | head -n 1
+      - name: Install minimal Python media dependency only
+        run: python3 -m pip install 'requests==2.32.5'
+      - name: Actual restored-renderer audio+visual MP4 and FFprobe tests
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          MIN_FREE_SPACE_GB: '1'
+        run: python3 -m unittest rebuild.tests.test_scene_v2_real_mp4 -v
+      - name: Preserve fail-closed production and queues
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          groups=json.loads(Path("rebuild/groups.json").read_text())
+          assert groups["offline_applications"] == ["auto-script"]
+          assert groups["fresh_install_enabled"] is False
+          assert groups["production_deploy_enabled"] is False
+          assert Path("apps/scene-builder/part02/smart_scroll/v2_renderer.py").is_file()
+          assert Path("apps/scene-builder/part02/smart_scroll/caption_sync.py").is_file()
+          assert Path("apps/scene-builder/part02/smart_scroll/project_model.py").is_file()
+          PY
