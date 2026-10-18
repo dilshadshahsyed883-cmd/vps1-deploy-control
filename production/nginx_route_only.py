@@ -39,6 +39,8 @@ def managed_re():
     return re.compile(r"^ include " + re.escape(str(SNIPPET_DIR)) +
                       r"/vps1-route-([a-z0-9-]+)\.conf;\n", re.M)
 WORKSPACE_INCLUDE = " include /etc/nginx/snippets/vps1-workspace-https.conf;\n"
+# Public requests cannot call the Scene internal SSO introspection endpoint.
+SCENE_SESSION_HIDE = " location = /internal/workspace-auth { return 404; }\n"
 
 
 def guard(condition, message):
@@ -77,12 +79,16 @@ def owned_routes(site):
     guard(len(names) == len(set(names)) and all(a in APPS for a in names),
           "unknown or repeated managed Nginx route")
     base = managed_re().sub("", site)
+    guard(base.count(SCENE_SESSION_HIDE) <= 1, "duplicate internal SSO deny location")
+    base = base.replace(SCENE_SESSION_HIDE, "", 1)
     guard(base in known_sites(), "existing Scene HTTPS site drift; no Nginx change")
     guard(site.count(INCLUDE_MARKER) == 1, "Scene HTTPS marker mismatch")
     for app in names:
         path = snippet_path(app)
         guard(path.is_file() and not path.is_symlink(), "managed route snippet absent: " + app)
-        guard(path.read_text() == route_config(app), "managed route snippet drift: " + app)
+        from production.scene_session_routes import config as session_route_config, APP_IDS
+        accepted = (route_config(app), session_route_config(app)) if app in APP_IDS else (route_config(app),)
+        guard(path.read_text() in accepted, "managed route snippet drift: " + app)
         guard(not standalone(base, app), "duplicate managed and preexisting route: " + app)
     return base, names
 
@@ -279,6 +285,18 @@ def preflight(revision, app, *, require_app=True):
 def publish(revision, app):
     auth = preflight(revision, app)
     old = SITE.read_text()
+    # Existing HTTPS apps transition one at a time to the already-validated
+    # Scene cookie, never reinstalling or restarting app services.
+    from production import scene_session_routes as sso
+    if app in sso.APP_IDS:
+        base, managed = owned_routes(old)
+        if sso.active(app, old):
+            sso.verify(app, sso.ready_cookie(app))
+            print("SCENE_SESSION_SSO=ALREADY_LIVE APP=" + app, flush=True)
+            return
+        if app in managed or standalone(base, app):
+            sso.migrate(revision, app)
+            return
     new, changed = add_route(old, app)
     base, names = owned_routes(old)
     if not changed:
@@ -329,6 +347,13 @@ def publish(revision, app):
 
 def rollback(revision, app):
     preflight(revision, app, require_app=False)
+    from production import scene_session_routes as sso
+    sso_record = TRANSACTIONS / ("sso-" + app + ".json")
+    if app in sso.APP_IDS and sso_record.is_file() and not sso_record.is_symlink():
+        state = json.loads(sso_record.read_text())
+        if state.get("state") == "ACTIVE":
+            sso.rollback(revision, app)
+            return
     record_file = TRANSACTIONS / (app + ".json")
     guard(record_file.is_file() and not record_file.is_symlink(),
           "no recorded route-only release for app")
