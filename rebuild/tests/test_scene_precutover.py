@@ -10,6 +10,10 @@ import secrets
 import sys
 import unittest
 
+# Existing repository-wide release builder treats source __pycache__ as drift.
+# Prevent this module from creating bytecode in apps/ during unittest discovery.
+sys.dont_write_bytecode = True
+
 ROOT = Path("/var/lib/fresh-website/scene-builder")
 SOURCE = Path(__file__).resolve().parents[2] / "apps/scene-builder/part01"
 sys.path.insert(0, str(SOURCE))
