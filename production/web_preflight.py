@@ -126,14 +126,41 @@ def service_state(unit):
 
 
 def helper_state():
-    if not HELPER.is_file() or HELPER.is_symlink():
-        return "ABSENT_OR_UNEXPECTED"
-    expected = REPO / "production/remote_deploy.py"
-    if not expected.is_file():
-        return "SOURCE_UNAVAILABLE"
-    installed_sha = hashlib.sha256(HELPER.read_bytes()).digest()
-    source_sha = hashlib.sha256(expected.read_bytes()).digest()
-    return "SOURCE_MATCH" if installed_sha == source_sha else "UPGRADE_REQUIRED_OR_DIFFERENT_REVISION"
+    try:
+        if not HELPER.is_file() or HELPER.is_symlink():
+            return "ABSENT_OR_UNEXPECTED"
+        expected = REPO / "production/remote_deploy.py"
+        if not expected.is_file():
+            return "SOURCE_UNAVAILABLE"
+        installed_sha = hashlib.sha256(HELPER.read_bytes()).digest()
+        source_sha = hashlib.sha256(expected.read_bytes()).digest()
+        return "SOURCE_MATCH" if installed_sha == source_sha else "UPGRADE_REQUIRED_OR_DIFFERENT_REVISION"
+    except PermissionError:
+        return "UNVERIFIABLE_NON_ROOT"
+
+
+def safe_presence(path):
+    """Do not traverse root-only ACME symlinks or relax file permissions."""
+    try:
+        return "PRESENT" if path.is_file() else "ABSENT"
+    except PermissionError:
+        return "UNVERIFIABLE_NON_ROOT"
+
+
+def nginx_syntax_state():
+    """nginx -t commonly requires root to read private TLS keys."""
+    if not shutil.which("nginx"):
+        return "UNAVAILABLE"
+    probe = process(["nginx", "-t"], timeout=12)
+    if probe is None:
+        return "UNAVAILABLE"
+    if probe.returncode == 0:
+        return "PASS"
+    # Distinguish non-root inspection limits from actual Nginx failure.
+    stderr = (probe.stderr or "").lower()
+    if "permission denied" in stderr or "operation not permitted" in stderr:
+        return "UNVERIFIABLE_NON_ROOT"
+    return "FAIL"
 
 
 def gateway_anon_status():
@@ -171,11 +198,10 @@ def host_inventory(source):
             "ERROR_OR_UNAVAILABLE"
         )
         routes[item["app"]] = {"anonymous_http_status": code, "state": state}
-    nginx = process(["nginx", "-t"], timeout=12) if shutil.which("nginx") else None
     return {
         "services": checks,
-        "nginx_syntax": "PASS" if nginx and nginx.returncode == 0 else "FAIL_OR_UNAVAILABLE",
-        "site_present": SITE.is_file(), "certificate_present": CERT.is_file(),
+        "nginx_syntax": nginx_syntax_state(),
+        "site_present": safe_presence(SITE), "certificate_present": safe_presence(CERT),
         "scene_login_status": tls_probe("/login"),
         "scene_health_status": tls_probe("/health"),
         "workspace_unauthenticated_status": tls_probe("/workspace/"),
