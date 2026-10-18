@@ -134,7 +134,7 @@ class ReleaseTransactionTests(unittest.TestCase):
             patcher = mock.patch.object(routes, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
-        for name, fake in (("preflight", lambda sha, app: "Basic simulated"),
+        for name, fake in (("preflight", lambda sha, app, **kw: "Basic simulated"),
                            ("check_app", lambda *a, **kw: None),
                            ("check_scene", lambda: None),
                            ("command", lambda *a, **kw: None)):
