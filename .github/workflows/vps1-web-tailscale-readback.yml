@@ -1,0 +1,122 @@
+name: VPS1 web readiness via protected Tailscale SSH (READ ONLY)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/vps1-web-tailscale-readback.yml'
+      - 'production/web_preflight.py'
+      - 'tests/test_web_preflight.py'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vps1-web-tailscale-readback.yml'
+permissions:
+  contents: read
+concurrency:
+  group: vps1-web-tailscale-readback
+  cancel-in-progress: false
+
+jobs:
+  source-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate audited read-only tool offline
+        run: |
+          set -Eeuo pipefail
+          python3 -m unittest discover -s tests -p test_web_preflight.py -v
+          python3 -m production.web_preflight > "$RUNNER_TEMP/source-inventory.json"
+          python3 - "$RUNNER_TEMP/source-inventory.json" <<'PY'
+          import json,sys
+          data=json.load(open(sys.argv[1]))
+          assert data['mode']=='source_only' and data['deployed'] is False
+          assert data['auto_script']=='OFFLINE'
+          PY
+
+  host-readback:
+    # One guarded non-root read-only check, triggered by protected-main merge.
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.run_attempt == 1
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    needs: source-contract
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Join existing restricted production Tailscale identity
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Collect sanitized non-root VPS readback
+        shell: bash
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test -n "$PRIVATE_IDENTITY"
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/id"
+          unset PRIVATE_IDENTITY
+          chmod 0600 "$scratch/id"
+          ssh-keygen -y -P '' -f "$scratch/id" > "$scratch/pub"
+          fingerprint="$(ssh-keygen -lf "$scratch/pub" -E sha256 | awk '{print $2}')"
+          test "$fingerprint" = 'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
+          timeout 390s ssh -T -p 22 -i "$scratch/id" \
+            -o UserKnownHostsFile="$scratch/known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            -o UpdateHostKeys=no \
+            -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o PreferredAuthentications=publickey -o PasswordAuthentication=no \
+            -o KbdInteractiveAuthentication=no -o ConnectTimeout=20 \
+            vps1deploy@100.87.55.92 "bash -s -- $SOURCE_SHA" > "$RUNNER_TEMP/host-readback.json" <<'REMOTE'
+          set -Eeuo pipefail
+          sha="$1"
+          [[ "$sha" =~ ^[a-f0-9]{40}$ ]]
+          test "$(id -un)" = vps1deploy
+          test "$(id -u)" != 0
+          repo='https://github.com/dilshadshahsyed883-cmd/vps1-deploy-control.git'
+          current="$(timeout 35s git ls-remote "$repo" refs/heads/main | awk '{print $1}')"
+          test "$current" = "$sha"
+          work="$(mktemp -d /tmp/vps1-github-web-readback-XXXXXX)"
+          trap 'rm -rf "$work"' EXIT
+          git -C "$work" init -q
+          git -C "$work" remote add origin "$repo"
+          timeout 90s git -C "$work" fetch -q --depth=1 origin "$sha"
+          git -C "$work" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$work" rev-parse HEAD)" = "$sha"
+          cd "$work"
+          python3 -m production.web_preflight --host
+          REMOTE
+          python3 - "$RUNNER_TEMP/host-readback.json" <<'PY'
+          import json,sys
+          r=json.load(open(sys.argv[1]))
+          assert r['mode']=='host_read_only'
+          assert r['deployed'] is False
+          assert r['auto_script']=='OFFLINE'
+          assert len(r['host']['services'])>=10
+          h=r['host']
+          print('HOST_WEB_SOURCE_READBACK=PASS')
+          print('NGINX_SYNTAX='+h['nginx_syntax'])
+          print('DEPLOY_HELPER='+h['installed_helper'])
+          print('SCENE_LOGIN_STATUS='+str(h['scene_login_status']))
+          print('ROUTES='+','.join(k+':'+v['state'] for k,v in h['independent_https'].items()))
+          print('WEB_DEPLOYMENT=NOT_ATTEMPTED')
+          PY
+      - name: Save sanitized read-only report to this GitHub run
+        uses: actions/upload-artifact@v4
+        with:
+          name: vps1-web-host-readback
+          path: ${{ runner.temp }}/host-readback.json
+          retention-days: 14
