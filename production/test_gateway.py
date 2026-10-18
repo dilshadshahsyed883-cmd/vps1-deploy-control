@@ -44,6 +44,55 @@ class GatewaySelectionTest(unittest.TestCase):
             public_apps_for_release(['random-service'], previous=[], is_active=lambda _: True)
 
 
+
+class GatewayReloadRetryTests(unittest.TestCase):
+    def test_transient_404_recovers_to_authentication_challenge(self):
+        from urllib.error import HTTPError
+        from production.gateway import open_during_reload
+        class StaleNginx:
+            def __init__(self): self.calls = 0
+            def open(self, url, timeout):
+                self.calls += 1
+                raise HTTPError(url, 404 if self.calls == 1 else 401,
+                                'route in handover', {}, None)
+        client = StaleNginx()
+        with self.assertRaises(HTTPError) as raised:
+            open_during_reload(client, '/voice-studio/healthz', timeout=2,
+                               retries=3, pause=0)
+        self.assertEqual(raised.exception.code, 401)
+        self.assertEqual(client.calls, 2)
+
+    def test_persistent_404_stays_failed(self):
+        from urllib.error import HTTPError
+        from production.gateway import open_during_reload
+        class MissingRoute:
+            def __init__(self): self.calls = 0
+            def open(self, url, timeout):
+                self.calls += 1
+                raise HTTPError(url, 404, 'route missing', {}, None)
+        client = MissingRoute()
+        with self.assertRaises(HTTPError) as raised:
+            open_during_reload(client, '/voice-studio/healthz', timeout=2,
+                               retries=3, pause=0)
+        self.assertEqual(raised.exception.code, 404)
+        self.assertEqual(client.calls, 3)
+
+    def test_auth_401_never_downgraded_or_retried(self):
+        from urllib.error import HTTPError
+        from production.gateway import open_during_reload
+        class Denied:
+            def __init__(self): self.calls = 0
+            def open(self, url, timeout):
+                self.calls += 1
+                raise HTTPError(url, 401, 'auth required', {}, None)
+        client = Denied()
+        with self.assertRaises(HTTPError) as raised:
+            open_during_reload(client, '/voice-studio/healthz', timeout=2,
+                               retries=5, pause=0)
+        self.assertEqual(raised.exception.code, 401)
+        self.assertEqual(client.calls, 1)
+
+
 class GatewaySyntaxTest(unittest.TestCase):
     @unittest.skipUnless(shutil.which('nginx'), 'Nginx is exercised in clean Ubuntu CI')
     def test_real_nginx_parser_accepts_all_native_and_prefixed_routes(self):
