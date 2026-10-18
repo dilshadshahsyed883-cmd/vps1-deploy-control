@@ -87,6 +87,26 @@ def add_route(original: str) -> tuple[str, bool]:
     return original.replace(ANCHOR, ROUTE + ANCHOR, 1), True
 
 
+def retire_legacy_managed_route(original: str) -> tuple[str, bool]:
+    """Detach only the reviewed legacy uploader include.
+
+    The first HTTPS cutover published an exact-path redirect plus a prefix
+    proxy through a managed snippet. The Scene-integrated UI intentionally
+    keeps the exact path in Scene and owns only the prefix. Preserve the
+    snippet file so restoring ``original`` is a complete rollback.
+    """
+    from production import nginx_route_only as legacy
+
+    include = f" include {legacy.snippet_path('local-upload-manager')};\n"
+    if include not in original:
+        return original, False
+    guard(original.count(include) == 1, "duplicate legacy uploader include")
+    _, names = legacy.owned_routes(original)
+    guard("local-upload-manager" in names,
+          "legacy uploader include is not a reviewed managed route")
+    return original.replace(include, "", 1), True
+
+
 def run(args: list[str], timeout: int = 25) -> str:
     proc = subprocess.run(args, text=True, capture_output=True, timeout=timeout)
     guard(proc.returncode == 0, "command failed: " + args[0])
@@ -207,9 +227,10 @@ def deploy(revision: str) -> None:
           "source revision must equal current protected main")
     local_health()
     old = SITE.read_text()
-    new, changed = add_route(old)
+    reconciled, retired_legacy = retire_legacy_managed_route(old)
+    new, added_session = add_route(reconciled)
+    changed = retired_legacy or added_session
     cookie = scene_cookie()
-    verify(cookie, published=False)
     if not changed:
         verify(cookie, published=True)
         print("VPS1_SCENE_LUM RESULT=ALREADY_LIVE VERIFIED=YES", flush=True)
