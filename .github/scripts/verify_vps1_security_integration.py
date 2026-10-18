@@ -64,8 +64,15 @@ for file,name in staging.items():
     disabled(part,file)
     assert all(s in part for s in credentials),file
 found = {f.name for f in root.glob('*.yml') if any(c in f.read_text() for c in credentials)}
-expected = set(legacy)|set(staging)|{proof_name}
+expected = set(legacy)|set(staging)|{proof_name, 'vps1-production.yml'}
 assert found == expected, 'unreviewed credential consumers: '+repr(found ^ expected)
+production = (root/'vps1-production.yml').read_text()
+production_job = job(production, 'deploy')
+for term in ('environment: production', "github.ref == 'refs/heads/main'",
+             "github.event_name == 'workflow_dispatch'", '[vps1-production-release]',
+             'sudo -n /usr/local/sbin/vps1-production-deploy', 'StrictHostKeyChecking=yes',
+             'UpdateHostKeys=no', pin, '100.87.55.92 ssh-ed25519'):
+    assert term in production_job, 'production release contract missing: ' + term
 
 # Fresh VPS identity verified by Agent 1 through Drive Bridge on 2026-10-18.
 fresh_tailnet_ip = '100.87.55.92'

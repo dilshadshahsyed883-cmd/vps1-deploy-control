@@ -1,0 +1,122 @@
+"""Real subprocess startup and bounded functional checks, using temporary data."""
+from __future__ import annotations
+
+import argparse
+import io
+import json
+import os
+from pathlib import Path
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+
+from production.runtime import CATALOG, REPO, environment
+
+
+def render_short(client):
+    from PIL import Image
+    png = io.BytesIO()
+    Image.new('RGB', (96, 96), '#4675c0').save(png, format='PNG')
+    response = client.post('/api/jobs', files={'images': ('test.png', png.getvalue(), 'image/png')},
+                           data={'video_duration': '.3', 'image_duration': '.3', 'fps': '24',
+                                 'motion': 'none', 'output_count': '1',
+                                 'upload_to_drive': 'false', 'verified_clean': 'false'})
+    response.raise_for_status()
+    job = response.json()['job_id']
+    deadline = time.monotonic() + 90
+    while time.monotonic() < deadline:
+        state = client.get('/api/jobs/' + job).json()
+        if state.get('status') == 'failed':
+            raise RuntimeError('real render failed: ' + str(state.get('error')))
+        if state.get('status') == 'completed':
+            output = client.get('/' + state['outputs'][0]['url'])
+            output.raise_for_status()
+            if len(output.content) < 1000 or b'ftyp' not in output.content[:32]:
+                raise RuntimeError('rendered output is not an MP4')
+            return {'render': 'PASS', 'output_bytes': len(output.content), 'drive_transfer': False}
+        time.sleep(.25)
+    raise TimeoutError('render did not finish')
+
+
+def smoke(app):
+    import httpx
+    spec = CATALOG[app]
+    with tempfile.TemporaryDirectory(prefix='vps1-runtime-') as tmp:
+        state = Path(tmp)
+        env = {**os.environ, **environment(app, state), 'FRESH_WEBSITE_SMOKE_TEST': '1'}
+        # Test data never points at a production path or a Drive credential.
+        env['RCLONE_CONFIG'] = str(state / 'absent-rclone.conf')
+        with socket.socket() as sock:
+            sock.bind(('127.0.0.1', 0))
+            port = sock.getsockname()[1]
+        if 'script' in spec:
+            env['VIDEO_MERGER_PORT'] = str(port)
+            command = [sys.executable, spec['script']]
+        else:
+            command = [sys.executable, '-m', 'uvicorn', spec['module'],
+                       '--host', '127.0.0.1', '--port', str(port)]
+        source = REPO / 'apps' / app / 'part01'
+        if app == 'auto-caption-studio':
+            env['AUTO_CAPTION_CODE_ROOT'] = str(source)
+        log = (state / 'runtime.log').open('w+')
+        proc = subprocess.Popen(command, cwd=source, env=env,
+                                stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
+        try:
+            with httpx.Client(base_url=f'http://127.0.0.1:{port}', timeout=5, trust_env=False,
+                              headers={'X-Auth-User': 'runtime-test', 'X-App-Access': 'both', 'X-Is-Admin': '1'},
+                              follow_redirects=False) as client:
+                deadline = time.monotonic() + 45
+                while time.monotonic() < deadline:
+                    if proc.poll() is not None:
+                        log.seek(0)
+                        raise RuntimeError('startup failed: ' + log.read()[-4500:])
+                    try:
+                        response = client.get(spec['health'])
+                        if response.status_code == 200 and response.json().get('ok') is True:
+                            break
+                    except (httpx.TransportError, ValueError):
+                        pass
+                    time.sleep(.2)
+                else:
+                    log.seek(0)
+                    raise TimeoutError('health unavailable: ' + log.read()[-4500:])
+                ui = client.get(spec['ui'])
+                if ui.status_code != 200 or 'text/html' not in ui.headers.get('content-type', ''):
+                    log.seek(0)
+                    raise RuntimeError(f'UI failed: {ui.status_code} {ui.text[:400]}\n' + log.read()[-4500:])
+                result = {'app': app, 'health': 'PASS', 'html_ui': 'PASS', 'external_jobs': False}
+                if app == 'short-maker':
+                    result.update(render_short(client))
+                if app == 'self-media-library':
+                    stats = client.get('/api/stats')
+                    stats.raise_for_status()
+                    if stats.json()['sources'] != 0:
+                        raise RuntimeError('unexpected imported media state')
+                    result['empty_library'] = 'PASS'
+                if app == 'auto-caption-studio':
+                    projects = client.get('/api/projects')
+                    if projects.status_code != 200:
+                        raise RuntimeError('authenticated ACS project API unavailable')
+                    result['project_api'] = 'PASS'
+                return result
+        finally:
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+            log.close()
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--app', required=True, choices=sorted(CATALOG))
+    args = parser.parse_args()
+    print(json.dumps(smoke(args.app), sort_keys=True))
+
+
+if __name__ == '__main__':
+    main()
