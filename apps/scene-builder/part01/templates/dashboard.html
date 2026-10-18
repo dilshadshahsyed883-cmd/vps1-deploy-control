@@ -21,6 +21,26 @@
       <article class="health-card"><span>Services Health</span><strong id="services-ratio">—</strong><small id="services-note">Checking services</small></article>
     </div>
     <div class="app-grid" id="overview-app-grid"></div>
+    <section aria-label="Applications in your logged-in workspace" class="dashboard-card" id="single-login-workspace">
+      <h2>Your applications</h2>
+      <p>One Scene Builder login opens your authorized applications. Each application keeps its independent interface.</p>
+      <nav class="app-grid" aria-label="Open a studio application">
+        <a href="/queue">Scene Builder</a>
+        {% if request.session.get("is_admin") %}
+        <a href="/short-maker/">Short Maker</a>
+        <a href="/short-stream/">Short Stream</a>
+        <a href="/self-media-library/">Self Media Library</a>
+        <a href="/video-merger/">Video Merger</a>
+        <a href="/voice-studio/">Voice Studio</a>
+        {% endif %}
+        {% if request.session.get("is_admin") or request.session.get("app_access") in ["auto_caption","both","all"] %}
+        <a href="/auto-caption-studio/">Auto Caption Studio</a>
+        {% endif %}
+        {% if request.session.get("is_admin") or request.session.get("app_access") in ["lum","all"] %}
+        <a href="/local-upload-manager/">Local Upload Manager</a>
+        {% endif %}
+      </nav>
+    </section>
     <div class="dashboard-bottom-grid">
       <article class="dashboard-card resource-card">
         <h2>System Resources</h2>
