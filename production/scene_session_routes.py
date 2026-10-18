@@ -135,6 +135,13 @@ def migrate(revision, app):
     cookie = ready_cookie(app)
     before_site = old.SITE.read_text()
     after_site, previous_route, had_route = _legacy(app, before_site)
+    # Block direct public access to Scene introspection, while internal Nginx
+    # auth_request still reaches 18080 over its private loopback listener.
+    if old.SCENE_SESSION_HIDE not in after_site:
+        old.guard(after_site.count(old.INCLUDE_MARKER) == 1,
+                  "Scene internal endpoint deny anchor not unique")
+        after_site = after_site.replace(old.INCLUDE_MARKER,
+                    old.SCENE_SESSION_HIDE + old.INCLUDE_MARKER, 1)
     route = old.snippet_path(app)
     new_route = config(app).encode()
     if not had_route:
