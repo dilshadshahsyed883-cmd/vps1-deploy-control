@@ -3,11 +3,28 @@ import ast
 import json
 from pathlib import Path
 import unittest
+from unittest.mock import patch
+import io
+import urllib.error
 from production import scene_public_https as https
+from production import scene_login_upgrade as login_upgrade
 
 ROOT=Path(__file__).resolve().parents[2]
 
 class DomainCutoverContract(unittest.TestCase):
+    def test_scene_health_retries_after_early_connection_refusal(self):
+        response=io.BytesIO(b'{"ok":true}')
+        response.status=200
+        with patch.object(login_upgrade.urllib.request,"urlopen",side_effect=[urllib.error.URLError(ConnectionRefusedError()),response]) as probe:
+            with patch.object(login_upgrade.time,"sleep",return_value=None):
+                self.assertTrue(login_upgrade.get_health(timeout=1.0))
+        self.assertEqual(probe.call_count,2)
+
+    def test_scene_health_times_out_closed(self):
+        with patch.object(login_upgrade.urllib.request,"urlopen",side_effect=urllib.error.URLError(ConnectionRefusedError())):
+            with patch.object(login_upgrade.time,"monotonic",side_effect=[100.0,101.0]):
+                self.assertFalse(login_upgrade.get_health(timeout=1.0))
+
     def test_nginx_canary_and_https_isolation(self):
         http=https.nginx_http_only()
         tls=https.nginx_https()

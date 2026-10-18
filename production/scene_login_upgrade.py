@@ -14,6 +14,7 @@ import socket
 import sqlite3
 import subprocess
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from urllib.parse import urlencode
@@ -37,9 +38,24 @@ def run(cmd,timeout=120,cwd=None):
     if r.returncode:raise RuntimeError("command failed: "+str(cmd[0])+" exit="+str(r.returncode))
     return r.stdout.strip()
 
-def get_health():
-    with urllib.request.urlopen("http://127.0.0.1:18080/health",timeout=5) as resp:
-        return resp.status==200 and json.load(resp).get("ok") is True
+def get_health(timeout=35):
+    """Wait for the actual HTTP listener after systemd Type=simple restart.
+
+    systemctl restart can return before uvicorn has bound the local port.
+    Fail closed when the health probe never becomes ready.
+    """
+    deadline=time.monotonic()+timeout
+    while True:
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:18080/health",timeout=3) as resp:
+                if resp.status==200 and json.load(resp).get("ok") is True:
+                    return True
+        except (urllib.error.URLError,TimeoutError,ConnectionError,ValueError):
+            pass
+        remaining=deadline-time.monotonic()
+        if remaining<=0:
+            return False
+        time.sleep(min(1.0,remaining))
 
 def require_host(sha):
     guard(os.geteuid()==0,"pre-existing Agent1 sudo authority required")
