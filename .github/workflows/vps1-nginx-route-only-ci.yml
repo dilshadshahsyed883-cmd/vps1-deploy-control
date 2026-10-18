@@ -3,6 +3,9 @@ on:
   pull_request:
     paths:
       - 'production/nginx_route_only.py'
+      - 'production/scene_session_routes.py'
+      - 'apps/scene-builder/part01/app.py'
+      - 'tests/test_scene_session_sso.py'
       - 'production/remote_deploy.py'
       - 'production/test_nginx_route_only.py'
       - 'production/workspace_https.py'
@@ -36,5 +39,6 @@ jobs:
           set -Eeuo pipefail
           python3 -m compileall -q production/nginx_route_only.py production/remote_deploy.py
           python3 -m unittest production.test_nginx_route_only production.test_gateway -v
+          python3 -m unittest discover -s tests -p 'test_scene_session_sso.py' -v
           python3 -m unittest discover -s tests -p 'test_production_owner_only.py' -v
           echo 'NGINX_ROUTE_ONLY_CI=PASS_VPS_UNCHANGED'
