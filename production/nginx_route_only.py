@@ -35,7 +35,9 @@ APPS = tuple(a for a in CATALOG if a != "scene-builder")
 SNIPPET_DIR = Path("/etc/nginx/snippets")
 TRANSACTIONS = BASE / "transactions/nginx-route-only"
 INCLUDE_MARKER = " location = /internal/runtime-ready { return 404; }"
-MANAGED_RE = re.compile(r"^ include /etc/nginx/snippets/vps1-route-([a-z0-9-]+)\.conf;\n", re.M)
+def managed_re():
+    return re.compile(r"^ include " + re.escape(str(SNIPPET_DIR)) +
+                      r"/vps1-route-([a-z0-9-]+)\.conf;\n", re.M)
 WORKSPACE_INCLUDE = " include /etc/nginx/snippets/vps1-workspace-https.conf;\n"
 
 
@@ -71,10 +73,10 @@ def known_sites():
 
 def owned_routes(site):
     """Return (original reviewed site, app IDs) after exact managed-include check."""
-    names = MANAGED_RE.findall(site)
+    names = managed_re().findall(site)
     guard(len(names) == len(set(names)) and all(a in APPS for a in names),
           "unknown or repeated managed Nginx route")
-    base = MANAGED_RE.sub("", site)
+    base = managed_re().sub("", site)
     guard(base in known_sites(), "existing Scene HTTPS site drift; no Nginx change")
     guard(site.count(INCLUDE_MARKER) == 1, "Scene HTTPS marker mismatch")
     for app in names:
