@@ -3711,6 +3711,25 @@ def auto_caption_live(request: Request):
         },
     )
 
+# VIDEO_STUDIO_SUBTABS_V1: Scene owns the frame; each app remains independently routed.
+@app.get("/video-studio/{studio_app}", response_class=HTMLResponse)
+def video_studio_embedded_app(request: Request, studio_app: str):
+    allowed = {
+        "short-maker": ("Short Maker", "/short-maker/"),
+        "video-merger": ("Video Merger", "/video-merger/"),
+    }
+    if studio_app not in allowed:
+        raise HTTPException(404, "Unknown Video Studio app")
+    require_login(request)
+    require_admin(request)
+    title, url = allowed[studio_app]
+    return templates.TemplateResponse(
+        "video_studio_embed.html",
+        {"request": request, "page": "video_studio_embedded",
+         "studio_app": studio_app, "studio_title": title,
+         "studio_url": url, "username": request.session.get("username", "team")},
+    )
+
 
 @app.get("/auto-caption/studio", response_class=HTMLResponse)
 def auto_caption_studio(request: Request):
