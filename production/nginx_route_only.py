@@ -234,7 +234,12 @@ def require_https_status(url, *, expected, app, authorization="", cookie="", att
         status, content_type, body = tls_get(url, authorization=authorization, cookie=cookie)
         if status == expected:
             return content_type, body
-        guard(status in RELOAD_TRANSIENT_HTTP and i + 1 < attempts,
+        # During a Basic-to-Scene-session migration an old graceful Nginx
+        # worker can still challenge the valid Scene cookie with 401. Retry
+        # that exact authenticated-cookie handover only; anonymous checks and
+        # legacy Basic authentication still fail immediately on wrong 401s.
+        stale_basic_worker = bool(cookie) and not authorization and expected == 200 and status == 401
+        guard((status in RELOAD_TRANSIENT_HTTP or stale_basic_worker) and i + 1 < attempts,
               "HTTPS route validation failed: " + app +
               " expected=" + str(expected) + " observed=" + str(status))
         time.sleep(pause)
