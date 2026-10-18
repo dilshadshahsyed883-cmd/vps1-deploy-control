@@ -295,6 +295,16 @@ def publish(revision, app):
             print("SCENE_SESSION_SSO=ALREADY_LIVE APP=" + app, flush=True)
             return
         if app in managed or standalone(base, app):
+            # A same-SHA recheck of a just-published legacy route must remain
+            # strictly idempotent. A subsequent protected-main release is the
+            # only event eligible to migrate this app to Scene sessions.
+            previous = TRANSACTIONS / (app + ".json")
+            if app in managed and previous.is_file():
+                state = json.loads(previous.read_text())
+                if state.get("state") == "ACTIVE" and state.get("revision") == revision:
+                    check_app(app, auth)
+                    print("NGINX_ROUTE_ONLY=ALREADY_LIVE APP=" + app, flush=True)
+                    return
             sso.migrate(revision, app)
             return
     new, changed = add_route(old, app)
