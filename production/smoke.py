@@ -115,6 +115,18 @@ def smoke(app):
                     if projects.status_code != 200:
                         raise RuntimeError('authenticated ACS project API unavailable')
                     result['project_api'] = 'PASS'
+                if app == 'local-upload-manager':
+                    # Exercise the real authenticated Auto Engine screen using only
+                    # isolated temporary state. No queue, schedule or upload POST.
+                    auto_ui = client.get(spec['ui'] + '?tab=auto_engine')
+                    if auto_ui.status_code != 200 or 'text/html' not in auto_ui.headers.get('content-type', ''):
+                        raise RuntimeError('Auto Engine UI unavailable: ' + str(auto_ui.status_code))
+                    if 'auto engine' not in auto_ui.text.lower():
+                        raise RuntimeError('Auto Engine tab did not render')
+                    if not response.json().get('worker_alive'):
+                        raise RuntimeError('local upload manager web queue worker unavailable')
+                    result['auto_engine_read_only_ui'] = 'PASS'
+                    result['web_queue_worker'] = 'PASS'
                 if app == 'voice-studio':
                     downloader = client.get('/tts/api/audio-downloader/status')
                     downloader.raise_for_status()
