@@ -1,0 +1,32 @@
+name: VPS1 web API and port inventory (offline only)
+on:
+  pull_request:
+    paths:
+      - 'production/web_preflight.py'
+      - 'production/runtime.py'
+      - 'tests/test_web_preflight.py'
+      - '.github/workflows/vps1-web-inventory-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inventory-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile inventory
+        run: python3 -m py_compile production/web_preflight.py
+      - name: Test source contracts and unsafe listener classification
+        run: python3 -m unittest discover -s tests -p test_web_preflight.py -v
+      - name: Produce source-only inventory (no VPS access)
+        run: python3 -m production.web_preflight > "$RUNNER_TEMP/vps1-source-inventory.json"
+      - name: Validate source inventory shape
+        run: |
+          python3 - "$RUNNER_TEMP/vps1-source-inventory.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1]))
+          assert x['mode']=='source_only' and x['deployed'] is False
+          assert x['auto_script']=='OFFLINE'
+          assert len(x['source_catalog'])>=10
+          PY
