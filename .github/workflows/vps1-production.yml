@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       app:
-        description: Application
+        description: Application (route-only requires one app, never all)
         type: choice
         default: all
         options: [all, scene-builder, short-maker, short-stream, self-media-library, video-merger, voice-studio, auto-caption-studio, local-upload-manager]
@@ -13,7 +13,7 @@ on:
         description: Release operation
         type: choice
         default: install
-        options: [install, rollback]
+        options: [install, rollback, nginx-route-only, nginx-route-rollback]
 permissions:
   contents: read
 concurrency:
@@ -57,7 +57,13 @@ jobs:
             all|scene-builder|short-maker|short-stream|self-media-library|video-merger|voice-studio|auto-caption-studio|local-upload-manager) ;;
             *) exit 1 ;;
           esac
-          case "$OPERATION" in install|rollback) ;; *) exit 1 ;; esac
+          case "$OPERATION" in install|rollback|nginx-route-only|nginx-route-rollback) ;; *) exit 1 ;; esac
+          if [[ "$OPERATION" == nginx-route-* ]]; then
+            case "$APP_SELECTION" in
+              short-maker|short-stream|self-media-library|video-merger|voice-studio|auto-caption-studio|local-upload-manager) ;;
+              *) echo "BLOCKED: route-only requires a single independent app"; exit 1 ;;
+            esac
+          fi
           scratch="$(mktemp -d)"
           trap 'rm -rf "$scratch"' EXIT
           printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/identity"
