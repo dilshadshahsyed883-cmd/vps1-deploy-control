@@ -17,7 +17,8 @@ import urllib.request
 
 from production import gateway
 from production.runtime import CATALOG, check_host, deployment_lock
-from production.scene_public_https import SITE, nginx_https
+from production.scene_public_https import SITE, nginx_https, VOICE_ANCHOR, VOICE_EXTRA
+from production.route_auto_caption_scene_https import ROUTE as ACS_ROUTE, add_route as add_acs_route
 
 APPS = tuple(a for a in CATALOG if a != 'scene-builder')
 INCLUDE = Path('/etc/nginx/snippets/vps1-workspace-https.conf')
@@ -26,9 +27,30 @@ ORIGIN = 'https://app.scenebuilder.online'
 MARKER = ' location = /internal/runtime-ready { return 404; }'
 
 
-def config():
-    source = gateway.nginx_config(list(APPS), PAGE.parent, gateway.AUTH)
-    start = source.index('    location = /' + APPS[0])
+def known_scene_sites():
+    """Exactly the reviewed Scene site and prior Voice/Caption route releases."""
+    base = nginx_https()
+    voice = base.replace(VOICE_ANCHOR, VOICE_EXTRA + VOICE_ANCHOR, 1)
+    caption = add_acs_route(base)
+    return (base, voice, caption,
+            add_acs_route(voice),
+            caption.replace(VOICE_ANCHOR, VOICE_EXTRA + VOICE_ANCHOR, 1))
+
+
+def config(previous=None):
+    if previous is not None and previous not in known_scene_sites():
+        raise RuntimeError('Scene HTTPS configuration changed; preserve and reconcile it')
+    # Reuse deployed, authenticated Voice/Caption locations. An Nginx duplicate
+    # location would fail the reload and must not disrupt existing users.
+    already = set()
+    if previous is not None:
+        if VOICE_EXTRA in previous:
+            already.add('voice-studio')
+        if ACS_ROUTE in previous:
+            already.add('auto-caption-studio')
+    selected = [app for app in APPS if app not in already]
+    source = gateway.nginx_config(selected, PAGE.parent, gateway.AUTH)
+    start = source.index('    location = /' + selected[0])
     end = source.index('    location / { return 404; }')
     routes = source[start:end]
     # App backend routes retain their established URI/WS/redirect contracts.
@@ -43,7 +65,7 @@ def config():
 
 
 def site_config(previous):
-    if previous != nginx_https():
+    if previous not in known_scene_sites() or previous.count(MARKER) != 1:
         raise RuntimeError('Scene HTTPS configuration changed; preserve and reconcile it')
     return previous.replace(MARKER, ' include ' + str(INCLUDE) + ';\n' + MARKER, 1)
 
@@ -114,7 +136,7 @@ def install(revision):
         print('BACKUP=' + str(journal), flush=True)
         try:
             INCLUDE.parent.mkdir(parents=True, exist_ok=True)
-            INCLUDE.write_text(config()); INCLUDE.chmod(0o644)
+            INCLUDE.write_text(config(previous.decode())); INCLUDE.chmod(0o644)
             PAGE.write_text(page()); PAGE.chmod(0o644)
             if SITE.read_bytes() != previous: raise RuntimeError('concurrent Scene site change')
             SITE.write_text(desired)
