@@ -45,6 +45,42 @@ class SessionRouteContract(unittest.TestCase):
                 self.assertIn("proxy_set_header Upgrade $http_upgrade;", text)
                 self.assertIn("location ^~ /" + app + "/", text)
 
+    @unittest.skipUnless(__import__("shutil").which("nginx") and
+                         __import__("shutil").which("openssl"),
+                         "real Nginx parser only on Ubuntu CI")
+    def test_nginx_parser_accepts_session_proxy_with_existing_routes(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            cert, key = root / "tls.crt", root / "tls.key"
+            subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048",
+                "-nodes", "-keyout", str(key), "-out", str(cert),
+                "-days", "1", "-subj", "/CN=app.scenebuilder.online"],
+                check=True, capture_output=True, timeout=30)
+            scene = nginx_https().replace(VOICE_ANCHOR, VOICE_EXTRA + VOICE_ANCHOR, 1)
+            scene = add_caption(scene)
+            scene, _ = add_uploader(scene)
+            snippet_name = str(root / "short-maker.conf")
+            with mock.patch.object(legacy, "SNIPPET_DIR", root):
+                scene, changed = legacy.add_route(scene, "short-maker")
+                self.assertTrue(changed)
+                include = f" include {legacy.snippet_path('short-maker')};\\n"
+                scene = scene.replace(include, session.config("short-maker"))
+            scene = scene.replace(legacy.INCLUDE_MARKER,
+                legacy.SCENE_SESSION_HIDE + legacy.INCLUDE_MARKER)
+            scene = scene.replace("/etc/letsencrypt/live/app.scenebuilder.online/fullchain.pem", str(cert))
+            scene = scene.replace("/etc/letsencrypt/live/app.scenebuilder.online/privkey.pem", str(key))
+            scene = scene.replace("listen 80;", "listen 18880;")
+            scene = scene.replace("listen 443 ssl;", "listen 18443 ssl;")
+            config_file = root / "nginx.conf"
+            config_file.write_text(
+                f"pid {root}/nginx.pid;\\nerror_log {root}/error.log;\\n" +
+                "events {} http { access_log off;\\n" + scene + "\\n}\\n")
+            tested = subprocess.run(["nginx", "-t", "-p", str(root),
+                                      "-c", str(config_file)],
+                                     capture_output=True, text=True, timeout=20)
+            self.assertEqual(tested.returncode, 0, tested.stderr)
+
     def test_existing_lum_scene_bridge_stays_independent(self):
         self.assertNotIn("local-upload-manager", session.APP_IDS)
         with self.assertRaisesRegex(RuntimeError, "unsupported"):
