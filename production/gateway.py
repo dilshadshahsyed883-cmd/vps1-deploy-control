@@ -266,6 +266,14 @@ def main():
     with deployment_lock():
         selected = public_apps_for_revision(args.apps, args.revision)
         install(selected)
+        # Only an actual uploader release at this exact SHA may update the
+        # independent Scene candidate iframe + Scene HTTPS uploader route.
+        if 'local-upload-manager' in args.apps and 'local-upload-manager' in selected:
+            record = BASE / 'control/state/local-upload-manager.json'
+            state = json.loads(record.read_text()) if record.is_file() else {}
+            if state.get('status') == 'ACTIVE' and state.get('revision') == args.revision:
+                from production.scene_uploader_ui_release import activate
+                activate(args.revision)
         if 'voice-studio' in args.apps and 'voice-studio' in selected:
             from production.scene_public_https import publish_voice_on_scene_https
             publish_voice_on_scene_https()
