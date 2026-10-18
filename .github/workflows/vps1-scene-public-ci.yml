@@ -1,0 +1,49 @@
+name: Scene Builder public HTTPS and source upgrade (offline only)
+on:
+  pull_request:
+    paths:
+      - 'production/scene_public_https.py'
+      - 'production/scene_login_upgrade.py'
+      - 'rebuild/tests/test_scene_public_https.py'
+      - '.github/workflows/vps1-scene-public-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  scene-domain-and-rollback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python syntax and immutable source/rollback constraints
+        run: python3 -m unittest rebuild.tests.test_scene_public_https -v
+      - name: Nginx syntax (isolated temp test, no production gateway)
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends nginx
+          python3 - <<'PY'
+          import tempfile,subprocess
+          from pathlib import Path
+          from production.scene_public_https import nginx_http_only,nginx_https
+          with tempfile.TemporaryDirectory() as t:
+              root=Path(t)
+              for name,body in [('acme',nginx_http_only()),('tls',nginx_https())]:
+                  conf=root/(name+'.conf')
+                  conf.write_text('events {} \n http { \n'+body+'\n }\n')
+                  test=subprocess.run(['nginx','-t','-p',t,'-c',str(conf)],
+                    capture_output=True,text=True)
+                  assert test.returncode==0,(name,test.stderr)
+          PY
+      - name: Prove no website/worker/legacy remote action enabled
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          g=json.loads(Path('rebuild/groups.json').read_text())
+          assert g['offline_applications']==['auto-script']
+          assert not g['production_deploy_enabled'] and not g['fresh_install_enabled']
+          # Production HTTPS GitHub CI must not SSH, touch VPS or invoke certbot.
+          code=Path('.github/workflows/vps1-scene-public-ci.yml').read_text()
+          assert 'ssh -T' not in code and 'certbot certonly' not in code
+          PY
