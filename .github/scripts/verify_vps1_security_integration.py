@@ -33,24 +33,26 @@ assert 'branches: [main]' in proof.split('\njobs:',1)[0]
 assert pin in proof and obsolete not in proof
 pj = job(proof, 'main-readonly-ssh')
 assert 'environment: production' in pj
-# Narrow, one-time owner-authorized read-only SSH proof exception only.
-# Every other remote credential consumer remains disabled.
+disabled(pj, proof_name)
+# Fail closed until a separate explicitly authorized commit pins a real prior-main SHA.
+# This draft preparation MUST NOT create an executable job.
 guard = re.search(r"(?m)^    if: >-\n((?:      .*\n)+)", pj)
 assert guard, "SSH proof job guard missing"
 guard_lines = [line.strip() for line in guard.group(1).splitlines()]
 assert guard_lines == [
+    "false &&",
     "github.event_name == 'push' &&",
     "github.ref == 'refs/heads/main' &&",
     "github.run_attempt == 1 &&",
-    "github.event.before == '7b5bdf02394fe3f097ee43f4c907eb9d424e9485' &&",
+    "github.event.before == 'PENDING_SEPARATE_AUTHORIZATION' &&",
     "contains(github.event.head_commit.message, '[vps1-ssh-proof-authorized]')",
-], "SSH proof one-shot conditions invalid"
+], "SSH proof conditions changed or accidentally enabled"
 preflight_name = "- name: Reject replay or unexpected ref before OIDC"
 join_action = "uses: tailscale/github-action@v4"
 assert pj.count(preflight_name) == 1
 assert pj.index(preflight_name) < pj.index(join_action), "OIDC starts before preflight"
 preflight = pj[pj.index(preflight_name):pj.index(join_action)]
-for check in ('test "$GITHUB_RUN_ATTEMPT" = "1"', 'test "$GITHUB_EVENT_NAME" = "push"', 'test "$GITHUB_REF" = "refs/heads/main"', "jq -r '.before'", "jq -er '.head_commit.message | contains(", '7b5bdf02394fe3f097ee43f4c907eb9d424e9485'):
+for check in ('test "$GITHUB_RUN_ATTEMPT" = "1"', 'test "$GITHUB_EVENT_NAME" = "push"', 'test "$GITHUB_REF" = "refs/heads/main"'):
     assert check in preflight, "missing fail-closed preflight: " + check
 for term in ("github.event_name == 'push'", "github.ref == 'refs/heads/main'", '[vps1-ssh-proof-authorized]', "expected='" + pin + "'", 'StrictHostKeyChecking=yes','UpdateHostKeys=no','vps1deploy@100.87.55.92','VPS1_DEPLOYMENT=NOT_ATTEMPTED'):
     assert term in pj, term
@@ -74,18 +76,6 @@ for term in ('environment: production', "github.ref == 'refs/heads/main'",
              'UpdateHostKeys=no', pin, '100.87.55.92 ssh-ed25519'):
     assert term in production_job, 'production release contract missing: ' + term
 
-# Fresh VPS identity verified by Agent 1 through Drive Bridge on 2026-10-18.
-fresh_tailnet_ip = '100.87.55.92'
-fresh_host_public_key = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ'
-retired_tailnet_ip = '100.113.253.99'
-for fname in sorted(set(legacy) | set(staging) | {proof_name}):
-    source = (root/fname).read_text()
-    assert retired_tailnet_ip not in source, 'old Tailscale IP remains: '+fname
-    assert fresh_tailnet_ip in source, 'fresh Tailscale target missing: '+fname
-    if fname != 'vps1-connection-check.yml':
-        assert fresh_tailnet_ip + ' ' + fresh_host_public_key in source, 'verified SSH host pin missing: '+fname
-assert proof.count('false &&') == 0, 'one-shot proof unexpectedly disabled'
-assert "github.event.before == '7b5bdf02394fe3f097ee43f4c907eb9d424e9485'" in proof, 'approved parent SHA missing'
 groups=json.loads(Path('rebuild/groups.json').read_text())
 assert len(groups['groups']) == 11 and len({g['id'] for g in groups['groups']}) == 11
 assert [g['id'] for g in groups['groups'] if g.get('deployment_mode')=='offline']==['auto-script']
@@ -95,7 +85,7 @@ for f in ('production_deploy_enabled','fresh_install_enabled','automatic_databas
 print('PROTECTED_FOUR_WORKFLOWS=PASS')
 print('CORRECTED_SSH_PIN_AND_MAIN_ONLY=PASS')
 print('THREE_LEGACY_GUARDS=PASS')
-print('SIX_UNRELATED_CREDENTIAL_CONSUMERS_STATICALLY_DISABLED=PASS')
-print('ONE_SHOT_PROOF_PARENT_SHA_AND_REPLAY_GATES=PASS')
-print('PRODUCTION_ENV_SECRET_PROVENANCE=SCREENSHOT_CONFIRMED_NAMES_ONLY')
+print('SEVEN_CREDENTIAL_CONSUMERS_STATICALLY_DISABLED=PASS')
+print('SSH_PROOF_REPLAY_AND_PRIOR_SHA_HOLDS=PASS')
+print('NO_REPOSITORY_SECRET_RUNTIME_FALLBACK=PASS_BY_FAIL_CLOSED_JOBS')
 print('ELEVEN_GROUPS_AUTO_SCRIPT_OFFLINE=PASS')

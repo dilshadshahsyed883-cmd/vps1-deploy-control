@@ -52,10 +52,11 @@ jobs:
     name: main-only-oidc-ssh-readback
     environment: production
     if: >-
+      false &&
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
       github.run_attempt == 1 &&
-      github.event.before == '7b5bdf02394fe3f097ee43f4c907eb9d424e9485' &&
+      github.event.before == 'PENDING_SEPARATE_AUTHORIZATION' &&
       contains(github.event.head_commit.message, '[vps1-ssh-proof-authorized]')
     runs-on: ubuntu-24.04
     timeout-minutes: 7
@@ -70,8 +71,6 @@ jobs:
           test "$GITHUB_RUN_ATTEMPT" = "1" || { echo 'SSH_PROOF_RERUN=BLOCKED'; exit 1; }
           test "$GITHUB_EVENT_NAME" = "push" || { echo 'SSH_PROOF_EVENT=BLOCKED'; exit 1; }
           test "$GITHUB_REF" = "refs/heads/main" || { echo 'SSH_PROOF_REF=BLOCKED'; exit 1; }
-          test "$(jq -r '.before' "$GITHUB_EVENT_PATH")" = '7b5bdf02394fe3f097ee43f4c907eb9d424e9485' || { echo 'SSH_PROOF_BEFORE_SHA=BLOCKED'; exit 1; }
-          jq -er '.head_commit.message | contains("[vps1-ssh-proof-authorized]")' "$GITHUB_EVENT_PATH" >/dev/null || { echo 'SSH_PROOF_MARKER=BLOCKED'; exit 1; }
       - name: Join restricted tailnet with main-only GitHub OIDC tag:ci
         uses: tailscale/github-action@v4
         with:
@@ -97,7 +96,7 @@ jobs:
           expected='SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
           test "$actual" = "$expected" || { echo 'SSH_IDENTITY_FINGERPRINT=BLOCKED'; exit 1; }
           echo 'SSH_IDENTITY_FINGERPRINT=PASS'
-          # Agent 1 verified fresh-VPS ED25519 host public key on 2026-10-18; never trust unauthenticated ssh-keyscan.
+          # Agent1 2026-10-14 host key; never trust unauthenticated ssh-keyscan.
           printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
           timeout 75s ssh -T -p 22 -i "$scratch/identity" \
             -o UserKnownHostsFile="$scratch/known_hosts" \

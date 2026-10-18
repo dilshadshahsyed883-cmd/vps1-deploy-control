@@ -13,7 +13,7 @@ class DependencyBudgetTests(unittest.TestCase):
         c = b.config()
         self.assertEqual(len(c["install_groups"]), 10)
         self.assertNotIn("auto-script", [g["app"] for g in c["install_groups"]])
-        self.assertNotIn("application_budget_bytes", c)
+        self.assertEqual(c["application_budget_bytes"], 30_000_000_000)
         self.assertEqual(c["python_minor"], "3.12")
 
     def test_reject_live_roots(self):
@@ -32,10 +32,10 @@ class DependencyBudgetTests(unittest.TestCase):
             second.unlink()
             self.assertEqual(single, b.disk_bytes(root))
 
-    def test_missing_host_reserve_fails_closed(self):
+    def test_missing_capacity_fails_closed(self):
         with tempfile.TemporaryDirectory(prefix="fresh-budget-", dir="/tmp") as t:
             with patch.object(b, "snapshot", return_value={
-                "host_reserve_ok": False
+                "within_budget": False, "host_reserve_ok": True
             }):
                 with self.assertRaises(ValueError):
                     b.require_capacity(t)
@@ -50,7 +50,7 @@ class DependencyBudgetTests(unittest.TestCase):
                 return type("Result", (), {"stdout": ""})()
             with patch.object(b.subprocess, "run", side_effect=fake_run), \
                  patch.object(b, "require_capacity", return_value={
-                    "host_free_bytes": 10_000_000, "host_reserve_ok": True
+                    "remaining_budget_bytes": 10_000_000, "host_reserve_ok": True
                  }):
                 result = b.install(t, "/usr/bin/python3", uv_exe="uv",
                                    apps=["short-maker", "short-stream"])

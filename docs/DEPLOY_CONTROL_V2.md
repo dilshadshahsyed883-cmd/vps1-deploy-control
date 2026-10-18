@@ -28,7 +28,7 @@ and authorized separately using the canonical Drive Bridge process.
 
 GitHub main protection and production-environment permissions also require
 administrative verification. The source-only CI tests cannot verify browser,
-external OAuth, FFmpeg media processing or actual VPS disk usage.
+external OAuth, FFmpeg media processing or 30 GB real VPS disk usage.
 
 ## Offline usage examples
     git diff --name-only BASE HEAD > /tmp/changed-paths.txt

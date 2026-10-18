@@ -1,6 +1,7 @@
 {
   "version": 1,
   "python_minor": "3.12",
+  "application_budget_bytes": 30000000000,
   "minimum_free_bytes": 5000000000,
   "cache_path": "var/cache/fresh-website/uv",
   "models_path": "var/lib/fresh-website/models",
