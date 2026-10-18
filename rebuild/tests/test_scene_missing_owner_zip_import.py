@@ -34,6 +34,9 @@ class ImportMissingSceneModules(unittest.TestCase):
                 for key,raw in content.items():
                     zipfile_out.writestr(key,raw)
                 zipfile_out.writestr("FILE_SHA256SUMS.txt",manifest)
+            self.assertEqual(mod.OWNER_SHA256,"0a8867fd3be32ded4a72cd67fadb5e0fef6f1fc3d73ca0f49809076164f60a40")
+            # Fixture uses its own SHA; production importer stays pinned to the owner ZIP.
+            mod.OWNER_SHA256=hashlib.sha256(archive.read_bytes()).hexdigest()
             dry=mod.recover(archive,p)
             self.assertEqual(dry["manifest_files_verified"],84)
             self.assertEqual(len(dry["missing"]),len(mod.MODULES)-1)
