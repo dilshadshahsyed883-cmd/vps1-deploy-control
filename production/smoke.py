@@ -125,6 +125,21 @@ def smoke(app):
                         raise RuntimeError('Auto Engine tab did not render')
                     if not response.json().get('worker_alive'):
                         raise RuntimeError('local upload manager web queue worker unavailable')
+                    # Every mode must render separately without an upload POST.
+                    mode_status = client.get('/local-upload-manager/api/auto-modes')
+                    mode_status.raise_for_status()
+                    modes = mode_status.json()
+                    if set(modes['selected_modes']) != {'engine1', 'engine2', 'shorts', 'short_stream'}:
+                        raise RuntimeError('four-mode registry incomplete')
+                    if modes['cross_mode_uploads_enabled']:
+                        raise RuntimeError('unverified cross-mode uploader was enabled')
+                    for mode in ('engine1', 'engine2', 'shorts', 'short_stream'):
+                        page = client.get(spec['ui'] + '?tab=auto_engine&auto_mode=' + mode)
+                        if page.status_code != 200 or modes['selected_modes'][mode]['label'] not in page.text:
+                            raise RuntimeError('isolated Auto Uploader mode view failed: ' + mode)
+                    if client.get(spec['ui'] + '?tab=auto_engine&auto_mode=../../').status_code != 400:
+                        raise RuntimeError('unknown upload mode was accepted')
+                    result['four_mode_isolation_ui'] = 'PASS'
                     result['auto_engine_read_only_ui'] = 'PASS'
                     result['web_queue_worker'] = 'PASS'
                 if app == 'voice-studio':
