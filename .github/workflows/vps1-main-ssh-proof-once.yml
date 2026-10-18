@@ -47,16 +47,15 @@ jobs:
           echo 'GITHUB_PROOF_OFFLINE_TESTS=PASS'
 
   main-readonly-ssh:
-    # Fail closed until production-environment credentials and repository fallback are verified.
-    # Only a separately reviewed change may re-enable this remote read-only proof.
+    # ONE-SHOT OWNER AUTHORIZATION: exact preceding main SHA and signed-in main-only marker.
+    # Proof-only SSH, no deploy; all six other credential-consuming remote jobs stay hard-disabled.
     name: main-only-oidc-ssh-readback
     environment: production
     if: >-
-      false &&
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
       github.run_attempt == 1 &&
-      github.event.before == 'PENDING_SEPARATE_AUTHORIZATION' &&
+      github.event.before == '195d14789dc4c3bda01ed01e523e4684b061976c' &&
       contains(github.event.head_commit.message, '[vps1-ssh-proof-authorized]')
     runs-on: ubuntu-24.04
     timeout-minutes: 7
@@ -71,6 +70,8 @@ jobs:
           test "$GITHUB_RUN_ATTEMPT" = "1" || { echo 'SSH_PROOF_RERUN=BLOCKED'; exit 1; }
           test "$GITHUB_EVENT_NAME" = "push" || { echo 'SSH_PROOF_EVENT=BLOCKED'; exit 1; }
           test "$GITHUB_REF" = "refs/heads/main" || { echo 'SSH_PROOF_REF=BLOCKED'; exit 1; }
+          test "$(jq -r '.before' "$GITHUB_EVENT_PATH")" = '195d14789dc4c3bda01ed01e523e4684b061976c' || { echo 'SSH_PROOF_BEFORE_SHA=BLOCKED'; exit 1; }
+          jq -er '.head_commit.message | contains("[vps1-ssh-proof-authorized]")' "$GITHUB_EVENT_PATH" >/dev/null || { echo 'SSH_PROOF_MARKER=BLOCKED'; exit 1; }
       - name: Join restricted tailnet with main-only GitHub OIDC tag:ci
         uses: tailscale/github-action@v4
         with:
