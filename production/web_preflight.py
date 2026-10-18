@@ -163,6 +163,44 @@ def nginx_syntax_state():
     return "FAIL"
 
 
+def helper_route_capability():
+    """Check only an allowlisted operation marker, never return helper source."""
+    try:
+        if not HELPER.is_file() or HELPER.is_symlink():
+            return "NOT_INSTALLED"
+        return "YES" if b"nginx-route-only" in HELPER.read_bytes() else "NO"
+    except PermissionError:
+        return "UNVERIFIABLE_NON_ROOT"
+
+
+def site_route_ownership():
+    """Summarize reviewed Nginx locations without disclosing the vhost file."""
+    try:
+        data = SITE.read_text()
+    except FileNotFoundError:
+        return {"status": "SITE_ABSENT"}
+    except PermissionError:
+        return {"status": "UNVERIFIABLE_NON_ROOT"}
+    matches = {}
+    for app in CATALOG:
+        if app == "scene-builder":
+            continue
+        prefix = "/" + app + "/"
+        matches[app] = (
+            f"location ^~ {prefix}" in data or
+            f"include /etc/nginx/snippets/vps1-route-{app}.conf;" in data or
+            ("include /etc/nginx/snippets/vps1-workspace-https.conf;" in data)
+        )
+    return {
+        "status": "READABLE",
+        "reviewed_marker_present": data.count(
+            "location = /internal/runtime-ready { return 404; }") == 1,
+        "workspace_include": "include /etc/nginx/snippets/vps1-workspace-https.conf;" in data,
+        "scene_public_upstream": "proxy_pass http://127.0.0.1:18080;" in data,
+        "routes_or_workspace_include": matches,
+    }
+
+
 def gateway_anon_status():
     try:
         with request.urlopen(f"http://127.0.0.1:{GATEWAY_PORT}/", timeout=4) as r:
@@ -207,6 +245,8 @@ def host_inventory(source):
         "workspace_unauthenticated_status": tls_probe("/workspace/"),
         "gateway_unauthenticated_status": gateway_anon_status(),
         "installed_helper": helper_state(),
+        "helper_route_only_capability": helper_route_capability(),
+        "scene_site_route_ownership": site_route_ownership(),
         "independent_https": routes,
     }
 
