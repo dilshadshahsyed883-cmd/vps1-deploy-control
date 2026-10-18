@@ -257,6 +257,24 @@ def install(apps):
         raise
 
 
+def legacy_voice_publication_required(requested, selected, revision):
+    """Run the old standalone publisher only for a current Voice release.
+
+    Once Voice owns a Scene-session snippet, adding the historical standalone
+    location would create a duplicate Nginx route.  Other app releases must
+    never republish Voice merely because its service is still active.
+    """
+    if 'voice-studio' not in requested or 'voice-studio' not in selected:
+        return False
+    record = BASE / 'control/state/voice-studio.json'
+    state = json.loads(record.read_text()) if record.is_file() else {}
+    if state.get('status') != 'ACTIVE' or state.get('revision') != revision:
+        return False
+    from production.scene_public_https import SITE
+    from production.scene_session_routes import active
+    return not active('voice-studio', SITE.read_text())
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--revision', required=True)
@@ -274,7 +292,7 @@ def main():
             if state.get('status') == 'ACTIVE' and state.get('revision') == args.revision:
                 from production.scene_uploader_ui_release import activate
                 activate(args.revision)
-        if 'voice-studio' in args.apps and 'voice-studio' in selected:
+        if legacy_voice_publication_required(args.apps, selected, args.revision):
             from production.scene_public_https import publish_voice_on_scene_https
             publish_voice_on_scene_https()
 
