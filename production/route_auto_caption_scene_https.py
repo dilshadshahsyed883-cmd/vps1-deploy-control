@@ -29,7 +29,7 @@ ENABLED=Path("/etc/nginx/sites-enabled/vps1-scene-public.conf")
 AUTH=Path("/root/vps1-production-login.json")
 TX=Path("/srv/fresh-website/transactions/auto-caption-scene-https")
 MARKER="# VPS1_AUTO_CAPTION_HTTPS_ROUTE_V1"
-ANCHOR=" location = /internal/runtime-ready { return 404; }\n location / {"
+ANCHOR=" location / {\n    proxy_pass http://127.0.0.1:18080;"
 
 ROUTE = """ # VPS1_AUTO_CAPTION_HTTPS_ROUTE_V1: delegate Basic authentication to existing local Nginx gateway.
  location = /auto-caption-studio { return 308 /auto-caption-studio/; }
@@ -64,12 +64,12 @@ def add_route(text):
     guard(MARKER not in text,"already routed by this release; use verification instead")
     guard("location ^~ /auto-caption-studio/" not in text,
           "unowned Auto Caption route already exists; refusing overwrite")
-    guard(text.count(ANCHOR)==1,"existing Scene HTTPS site differs; fail closed")
+    guard(text.count(ANCHOR)==1 and "location = /internal/runtime-ready { return 404; }" in text,
+          "existing Scene HTTPS site differs; fail closed")
     guard(text.count("listen 443 ssl;")==1 and
           text.count("server_name app.scenebuilder.online;")==2,
           "domain or HTTPS server structure unexpected")
-    return text.replace(ANCHOR,
-                        " location = /internal/runtime-ready { return 404; }\n"+ROUTE+" location / {",1)
+    return text.replace(ANCHOR,ROUTE+ANCHOR,1)
 
 def atomic(path,data,mode=0o644):
     with tempfile.NamedTemporaryFile(mode="wb",dir=path.parent,
