@@ -129,6 +129,8 @@ def environment(app, state):
     elif app == 'local-upload-manager':
         env.update(LUM_DATA_DIR=str(state / 'lum1'),
                    YOUTUBE_UPLOAD_MANAGER_DATA_DIR=str(state / 'lum1/core'),
+                   LUM_AUTO_ENGINE_V6_ROOT=str(state / 'lum1/auto_engine_v6'),
+                   LUM_GOOGLE_OAUTH_ROOT=str(state / 'lum1/secure'),
                    LUM_SESSION_SECRET=secrets.token_urlsafe(48),
                    LUM_BASE_PATH='/local-upload-manager', LUM_SUITE_AUTH='1',
                    LUM_SUITE_LOGIN_URL='/', LUM_COOKIE_SECURE='0')
