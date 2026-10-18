@@ -31,6 +31,7 @@ from desktop_core.modules.token_utils import (
     is_verified_channel_id,
 )
 from desktop_core.modules.upload_identity import DuplicateUploadError
+from .service_status import auto_engine_service_units
 
 
 DATA_ROOT = Path(os.environ.get("LUM_AUTO_ENGINE_V6_ROOT", "/var/lib/local-upload-manager/auto_engine_v6"))
@@ -1372,13 +1373,14 @@ def profile_context(pc_db:Any,store:V6Store,profile_id:int=0) -> Dict[str,Any]:
                 thumb=store.thumb(int(src["thumbnail_asset_id"]))
                 row["thumbnail_filename"]=clean((thumb or {}).get("original_filename"))
         queue.append(row)
+    unit_names = auto_engine_service_units()
     return {
         "profiles":profiles,"selected":selected,"source":source,"thumbnails":thumbs,"thumbnail_trash":trash,
         "videos":videos,"eligible_channels":eligible,"groups":pc_db.list_channel_groups(),
         "queue":queue,"records":store.history_records(500),"record_stats":record_stats(store),
         "missed":store.missed(),"engine":store.engine(),
-        "worker_service":service_state("lum-auto-engine-v6-worker.service"),
-        "scheduler_service":service_state("lum-auto-engine-v6-scheduler.service"),
+        "worker_service":service_state(unit_names["worker"]),
+        "scheduler_service":service_state(unit_names["scheduler"]),
     }
 # LUM_CHANNEL_ID_AUTO_ENGINE_V1
 # Channel-based, per-row metadata sync layered on top of the proven V6 upload engine.
