@@ -28,8 +28,12 @@ from smart_scroll.ai_scene_txt import extract_intro_queries, parse_outer_ai_scen
 from storage_manager_client import storage_manager_request
 
 RUNTIME_CANDIDATE = os.getenv("VPS1_RUNTIME_CANDIDATE") == "1"
+SCENE_PRECUTOVER_EDITING = os.getenv("VPS1_SCENE_PRECUTOVER_EDITING", "0") == "1"
+if SCENE_PRECUTOVER_EDITING and not RUNTIME_CANDIDATE:
+    raise RuntimeError("precutover editing cannot run outside guarded candidate mode")
 if RUNTIME_CANDIDATE:
     from runtime_guard import validate_candidate_environment
+    from precutover_policy import mutation_allowed as candidate_mutation_allowed
     validate_candidate_environment()
 from audio_library_v174 import (
     MANIFEST_PATH as AUDIO_LIBRARY_MANIFEST, MUSIC_ROOT, PERMANENT_ROOT, SFX_ROOT,
@@ -678,7 +682,8 @@ def require_login(request: Request) -> None:
 @app.middleware("http")
 async def authentication(request: Request, call_next):
     if RUNTIME_CANDIDATE and request.method not in ("GET", "HEAD", "OPTIONS"):
-        return JSONResponse({"ok": False, "error": "shadow candidate is read-only"}, status_code=403)
+        if not candidate_mutation_allowed(request.method, request.url.path, SCENE_PRECUTOVER_EDITING):
+            return JSONResponse({"ok": False, "error": "candidate: write requires separate approval"}, status_code=403)
     if RUNTIME_CANDIDATE and request.url.path == "/internal/runtime-ready":
         return await call_next(request)
     # AUTOFLOW_STAGE12_PC_EXTENSION_MIDDLEWARE_BYPASS
