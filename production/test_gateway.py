@@ -4,7 +4,7 @@ import subprocess
 import tempfile
 import unittest
 
-from production.gateway import nginx_config
+from production.gateway import nginx_config, public_apps_for_release
 from production.runtime import CATALOG
 
 
