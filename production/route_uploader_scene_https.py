@@ -154,6 +154,8 @@ def verify(cookie: str, *, published: bool) -> None:
     status, ct, body = https_get("/local-upload-manager", cookie)
     guard(status == 200 and "html" in ct.lower(),
           "Scene Auto Uploader outer shell regressed")
+    guard(b"/local-upload-manager/app?" in body and b"/LUM/app" not in body,
+          "Scene embedded UI still points to legacy uploader route")
     if published:
         # Nginx reload can briefly serve old workers. Never accept old 404/303.
         for attempt in range(12):
