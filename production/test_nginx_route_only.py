@@ -111,7 +111,8 @@ class RouteRenderTests(unittest.TestCase):
                                     "/etc/letsencrypt/live/app.scenebuilder.online/privkey.pem",
                                     str(key))
             config = root / "nginx.conf"
-            config.write_text("events {} http {\n" + site + "\n}\n")
+            config.write_text(f"pid {root}/nginx.pid;\n" +
+                              "events {} http {\n" + site + "\n}\n")
             result = subprocess.run(["nginx", "-t", "-p", str(root), "-c", str(config)],
                                     capture_output=True, text=True, timeout=20)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -221,7 +222,7 @@ class DeploymentDispatchTests(unittest.TestCase):
             self.assertIn(literal, source)
         for literal in ("nginx-route-only", "nginx-route-rollback",
                         "production.nginx_route_only",
-                        "only independent app"):
+                        "one approved independent app"):
             self.assertIn(literal, helper)
 
 
