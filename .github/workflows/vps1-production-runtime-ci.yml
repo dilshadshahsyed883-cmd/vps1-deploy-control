@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'production/**'
+      - 'apps/local-upload-manager/**'
       - 'apps/voice-studio/**'
       - '.github/workflows/vps1-production-runtime-ci.yml'
   workflow_dispatch:
@@ -44,6 +45,7 @@ jobs:
           bash -n production/bootstrap.sh
           python -m unittest production.test_runtime -v
           python -m unittest production.test_uploader_status -v
+          python -m unittest production.test_uploader_four_modes -v
           python -m unittest production.test_gateway -v
           python -m production.smoke --app "$APP"
       - name: Real CPU speech using official immutable model release
