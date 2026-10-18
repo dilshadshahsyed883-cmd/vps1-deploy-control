@@ -64,7 +64,7 @@ class SessionRouteContract(unittest.TestCase):
             with mock.patch.object(legacy, "SNIPPET_DIR", root):
                 scene, changed = legacy.add_route(scene, "short-maker")
                 self.assertTrue(changed)
-                include = f" include {legacy.snippet_path('short-maker')};\\n"
+                include = f" include {legacy.snippet_path('short-maker')};\n"
                 scene = scene.replace(include, session.config("short-maker"))
             scene = scene.replace(legacy.INCLUDE_MARKER,
                 legacy.SCENE_SESSION_HIDE + legacy.INCLUDE_MARKER)
@@ -74,8 +74,8 @@ class SessionRouteContract(unittest.TestCase):
             scene = scene.replace("listen 443 ssl;", "listen 18443 ssl;")
             config_file = root / "nginx.conf"
             config_file.write_text(
-                f"pid {root}/nginx.pid;\\nerror_log {root}/error.log;\\n" +
-                "events {} http { access_log off;\\n" + scene + "\\n}\\n")
+                f"pid {root}/nginx.pid;\nerror_log {root}/error.log;\n" +
+                "events {} http { access_log off;\n" + scene + "\n}\n")
             tested = subprocess.run(["nginx", "-t", "-p", str(root),
                                       "-c", str(config_file)],
                                      capture_output=True, text=True, timeout=20)
