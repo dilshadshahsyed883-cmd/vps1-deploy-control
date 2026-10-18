@@ -17,6 +17,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install FFmpeg and FFprobe on clean Ubuntu
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Assert FFmpeg binaries
         run: |
           set -Eeuo pipefail
