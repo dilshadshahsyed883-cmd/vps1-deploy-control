@@ -57,6 +57,29 @@ class WebPreflightTests(unittest.TestCase):
         with mock.patch.object(w.Path, "is_file", side_effect=PermissionError(13, "Permission denied")):
             self.assertEqual(w.helper_state(), "UNVERIFIABLE_NON_ROOT")
 
+    def test_route_ownership_summarizes_only_route_presence(self):
+        site = ("server {\n"
+                " location = /internal/runtime-ready { return 404; }\n"
+                " location ^~ /voice-studio/ { proxy_pass http://127.0.0.1:8888; }\n"
+                " location / { proxy_pass http://127.0.0.1:18080; }\n"
+                "}\n")
+        with mock.patch.object(w.Path, "read_text", return_value=site):
+            found = w.site_route_ownership()
+            self.assertTrue(found["reviewed_marker_present"])
+            self.assertTrue(found["routes_or_workspace_include"]["voice-studio"])
+            self.assertFalse(found["routes_or_workspace_include"]["short-maker"])
+            self.assertTrue(found["scene_public_upstream"])
+
+    def test_helper_operation_capability_distinguishes_old_helper(self):
+        with mock.patch.object(w.Path, "is_file", return_value=True), \
+             mock.patch.object(w.Path, "is_symlink", return_value=False), \
+             mock.patch.object(w.Path, "read_bytes", return_value=b"legacy install rollback"):
+            self.assertEqual(w.helper_route_capability(), "NO")
+        with mock.patch.object(w.Path, "is_file", return_value=True), \
+             mock.patch.object(w.Path, "is_symlink", return_value=False), \
+             mock.patch.object(w.Path, "read_bytes", return_value=b"allow nginx-route-only"):
+            self.assertEqual(w.helper_route_capability(), "YES")
+
     def test_loopback_listener_detection(self):
         class Completed:
             returncode = 0
