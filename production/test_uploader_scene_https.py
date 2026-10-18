@@ -1,0 +1,97 @@
+"""Offline contracts for Scene HTTPS Auto Uploader session routing (no uploads)."""
+from __future__ import annotations
+
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import unittest
+
+from production.route_uploader_scene_https import (
+    MARKER, ROUTE, add_route,
+)
+from production.scene_public_https import nginx_https
+
+ROOT = Path(__file__).resolve().parents[1]
+HTML = ROOT / "apps/scene-builder/part01/templates/local_upload_manager.html"
+STATE = ROOT / "apps/scene-builder/part01/static/lum_host_state_v1.js"
+
+
+class UploaderSceneRouteTests(unittest.TestCase):
+    def test_scene_outer_shell_is_not_overridden(self):
+        config, changed = add_route(nginx_https())
+        self.assertTrue(changed)
+        self.assertIn("location ^~ /local-upload-manager/ {", config)
+        self.assertNotIn("location = /local-upload-manager {", ROUTE)
+        self.assertIn("location / {\n    proxy_pass http://127.0.0.1:18080;", config)
+
+    def test_identity_from_scene_auth_not_visitor_headers(self):
+        for snippet in (
+            "location = /_scene_uploader_auth {",
+            "    internal;",
+            "proxy_pass http://127.0.0.1:18080/internal/local-upload-manager-auth;",
+            "auth_request /_scene_uploader_auth;",
+            "auth_request_set $scene_lum_user $upstream_http_x_auth_user;",
+            "auth_request_set $scene_lum_access $upstream_http_x_app_access;",
+            "auth_request_set $scene_lum_admin $upstream_http_x_is_admin;",
+            "proxy_set_header X-Auth-User $scene_lum_user;",
+            "proxy_set_header X-App-Access $scene_lum_access;",
+            "proxy_set_header X-Is-Admin $scene_lum_admin;",
+        ):
+            self.assertIn(snippet, ROUTE)
+
+    def test_add_route_is_idempotent_and_refuses_unknown_changes(self):
+        initial = nginx_https()
+        patched, changed = add_route(initial)
+        self.assertTrue(changed)
+        self.assertEqual(patched.count(MARKER), 1)
+        again, changed = add_route(patched)
+        self.assertFalse(changed)
+        self.assertEqual(patched, again)
+        with self.assertRaisesRegex(RuntimeError, "another config"):
+            add_route(initial.replace(" location / {", " location ^~ /local-upload-manager/ { return 200; }\n location / {", 1))
+        with self.assertRaisesRegex(RuntimeError, "differs"):
+            add_route(patched.replace("127.0.0.1:8015", "127.0.0.1:1"))
+
+    def test_parent_ui_and_embedded_state_use_one_registered_mode_endpoint(self):
+        html = HTML.read_text()
+        state = STATE.read_text()
+        self.assertNotIn("/LUM/app", html + state)
+        self.assertNotIn("/local-upload-manager-engine2", html)
+        self.assertNotIn("/local-upload-manager-engine3", html)
+        self.assertIn("data-default-src=\"/local-upload-manager/app?", html)
+        self.assertIn("u.pathname!=='/local-upload-manager/app'", html)
+        self.assertIn("'short_stream'", html)
+        self.assertIn("'engine2'", html)
+        self.assertIn("out.searchParams.set('auto_mode',autoMode)", state)
+        self.assertIn("u.pathname!=='/local-upload-manager/app'", state)
+
+    @unittest.skipUnless(shutil.which("nginx"), "Nginx is installed in Ubuntu CI")
+    def test_nginx_parses_authenticated_alias(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = add_route(nginx_https())[0]
+            # Syntax-check TLS directives against a locally generated test cert.
+            crt = root / "test.crt"
+            key = root / "test.key"
+            subprocess.run([
+                "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+                "-keyout", str(key), "-out", str(crt), "-days", "1",
+                "-subj", "/CN=app.scenebuilder.online"
+            ], check=True, capture_output=True, timeout=20)
+            config = config.replace(
+                "/etc/letsencrypt/live/app.scenebuilder.online/fullchain.pem", str(crt)
+            ).replace(
+                "/etc/letsencrypt/live/app.scenebuilder.online/privkey.pem", str(key)
+            )
+            conf = root / "nginx.conf"
+            conf.write_text("events {}\nhttp {\n" + config + "\n}\n")
+            command = ["nginx", "-t", "-p", str(root), "-c", str(conf)]
+            if hasattr(__import__("os"), "geteuid") and __import__("os").geteuid() != 0:
+                command.insert(0, "sudo")
+            tested = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(tested.returncode, 0, tested.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()
