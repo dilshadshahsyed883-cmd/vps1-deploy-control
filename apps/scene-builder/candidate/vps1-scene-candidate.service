@@ -1,0 +1,34 @@
+# SOURCE ONLY, never enable without new authorization.
+[Unit]
+Description=VPS1 isolated Scene Builder candidate
+After=network.target
+[Service]
+Type=simple
+User=vps1scene
+Group=vps1scene
+WorkingDirectory=/srv/fresh-website/current/scene-builder/part01
+EnvironmentFile=/etc/fresh-website/scene-builder.env
+Environment=VPS1_RUNTIME_CANDIDATE=1
+Environment=FRESH_WEBSITE_INSTALL=1
+Environment=FRESH_AUTO_SCRIPT_READY=0
+Environment=ATOMIC_FLOW_ENABLED=0
+Environment=WEB_HOST=127.0.0.1
+Environment=WEB_PORT=18080
+StateDirectory=fresh-website/scene-builder
+ExecStart=/srv/fresh-website/venvs/scene-builder/bin/python /srv/fresh-website/current/scene-builder/part01/run.py
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadWritePaths=/var/lib/fresh-website/scene-builder
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+Restart=on-failure
+RestartSec=3
+TimeoutStartSec=20
+TimeoutStopSec=10
+[Install]
+WantedBy=multi-user.target
