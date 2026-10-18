@@ -93,6 +93,15 @@ def smoke(app):
                     log.seek(0)
                     raise RuntimeError(f'UI failed: {ui.status_code} {ui.text[:400]}\n' + log.read()[-4500:])
                 result = {'app': app, 'health': 'PASS', 'html_ui': 'PASS', 'external_jobs': False}
+                if app == 'scene-builder':
+                    channels = client.post('/api/scene-builder/channels/add', json={'name': 'Runtime check'})
+                    channels.raise_for_status()
+                    if not channels.json().get('ok') or 'Runtime check' not in channels.json()['channels']:
+                        raise RuntimeError('Scene channel editing failed')
+                    saved = json.loads((state / 'scene_channels.json').read_text())
+                    if 'Runtime check' not in str(saved):
+                        raise RuntimeError('Scene channel state was not persisted')
+                    result['channel_editing'] = 'PASS'
                 if app == 'short-maker':
                     result.update(render_short(client))
                 if app == 'self-media-library':

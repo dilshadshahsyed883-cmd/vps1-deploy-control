@@ -1,0 +1,44 @@
+name: Scene Builder pre-cutover login and safe editing (no VPS)
+on:
+  pull_request:
+    paths:
+      - 'apps/scene-builder/**'
+      - 'rebuild/tests/test_scene_precutover.py'
+      - '.github/workflows/vps1-scene-precutover-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  scene-https-login-and-guard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install only pinned Scene Builder dependencies and isolated test transport
+        run: |
+          set -Eeuo pipefail
+          python -m pip install -r apps/scene-builder/part01/requirements.txt
+          python -m pip install 'httpx==0.28.1'
+      - name: Prepare CI-only fresh non-root state
+        run: |
+          set -Eeuo pipefail
+          sudo install -d -o "$(id -u)" -g "$(id -g)" -m 0750 /var/lib/fresh-website/scene-builder
+      - name: Real cookie/login, safe preset edit, denied worker mutations
+        run: python -m unittest rebuild.tests.test_scene_precutover -v
+      - name: Confirm production release/cutover flags still hard OFF
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          g=json.loads(Path('rebuild/groups.json').read_text())
+          assert g['fresh_install_enabled'] is False
+          assert g['production_deploy_enabled'] is False
+          assert g['offline_applications']==['auto-script']
+          service=Path('apps/scene-builder/candidate/vps1-scene-candidate.service').read_text()
+          assert 'Environment=FRESH_AUTO_SCRIPT_READY=0' in service
+          assert 'User=vps1scene' in service
+          assert 'VPS1_SCENE_PRECUTOVER_EDITING=1' not in service
+          PY

@@ -3,7 +3,7 @@
 
 Runtime data and credentials stay on the host. A failed app is restored before
 the next app runs. This module deliberately does not change GitHub SSH jobs,
-Scene Builder, the existing Storage Manager or Auto Script.
+the existing Scene Builder pilot, Storage Manager or Auto Script.
 """
 from __future__ import annotations
 
@@ -119,6 +119,7 @@ def environment(app, state):
         credentials = Path('/root/vps1-production-login.json')
         password = json.loads(credentials.read_text())['password'] if os.geteuid() == 0 and credentials.is_file() else secrets.token_urlsafe(32)
         env.update(WEB_DATA_DIR=str(state / 'web'), SCENE_PERMANENT_ROOT=str(state / 'permanent'),
+                   SCENE_CHANNELS_FILE=str(state / 'scene_channels.json'),
                    SCRIPT_WORK_DATA_DIR=str(state / 'script-work'), SCRIPT_PROCESSOR_DATA_DIR=str(state / 'script-processor'),
                    MASTER_CONTROLLER_DB_PATH=str(state / 'master-controller.sqlite3'),
                    AUTOFLOW_FLOW_RESULT_ROOT=str(state / 'flow-results'), FRESH_AUTO_SCRIPT_READY='0',
