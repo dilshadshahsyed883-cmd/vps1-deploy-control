@@ -115,12 +115,46 @@ def smoke(app):
                     if projects.status_code != 200:
                         raise RuntimeError('authenticated ACS project API unavailable')
                     result['project_api'] = 'PASS'
+                if app == 'local-upload-manager':
+                    # Exercise the real authenticated Auto Engine screen using only
+                    # isolated temporary state. No queue, schedule or upload POST.
+                    auto_ui = client.get(spec['ui'] + '?tab=auto_engine')
+                    if auto_ui.status_code != 200 or 'text/html' not in auto_ui.headers.get('content-type', ''):
+                        raise RuntimeError('Auto Engine UI unavailable: ' + str(auto_ui.status_code))
+                    if 'auto engine' not in auto_ui.text.lower():
+                        raise RuntimeError('Auto Engine tab did not render')
+                    if not response.json().get('worker_alive'):
+                        raise RuntimeError('local upload manager web queue worker unavailable')
+                    result['auto_engine_read_only_ui'] = 'PASS'
+                    result['web_queue_worker'] = 'PASS'
                 if app == 'voice-studio':
                     downloader = client.get('/tts/api/audio-downloader/status')
                     downloader.raise_for_status()
                     if not downloader.json().get('ready') or not downloader.json().get('worker'):
                         raise RuntimeError('audio downloader toolchain unavailable')
                     result['audio_downloader_toolchain'] = 'PASS'
+                    readiness = client.get('/tts/api/studio/readiness')
+                    readiness.raise_for_status()
+                    payload = readiness.json()
+                    engines = payload.get('engines', {})
+                    if not payload.get('ok') or set(engines) != {
+                        'kokoro', 'edge', 'omnivoice', 'audio_downloader'
+                    }:
+                        raise RuntimeError('Voice Studio three-engine readiness API failed')
+                    for mode, endpoint in [
+                        ('kokoro', '/tts/api/kokoro/status'),
+                        ('edge', '/tts/api/edge/status'),
+                    ]:
+                        response = client.get(endpoint)
+                        response.raise_for_status()
+                        if 'ready' not in response.json():
+                            raise RuntimeError('Voice engine status unavailable: ' + mode)
+                    config = client.get('/tts/api/clone/omnivoice/config')
+                    config.raise_for_status()
+                    if config.json().get('engine') != 'omnivoice':
+                        raise RuntimeError('OmniVoice configuration API failed')
+                    result['voice_three_engine_apis'] = 'PASS'
+                    result['omnivoice_external_gpu_tested'] = False
                 return result
         finally:
             proc.terminate()
