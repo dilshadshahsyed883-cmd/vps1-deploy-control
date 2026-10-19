@@ -5,6 +5,11 @@ on:
       - "apps/scene-builder/part01/app.py"
       - "apps/scene-builder/part01/templates/**"
       - "apps/scene-builder/part01/static/user_management_redesign.css"
+      - "apps/scene-builder/part01/static/vps1_native_site_shell.*"
+      - "tests/test_scene_native_sidebar_role.js"
+      - "production/test_scene_video_studio_shell.py"
+      - "production/scene_candidate_release.py"
+      - "tests/test_scene_candidate_release.py"
       - "tests/test_scene_user_roles.py"
       - "tests/test_scene_session_sso.py"
       - ".github/workflows/vps1-scene-user-roles-ci.yml"
@@ -14,6 +19,11 @@ on:
       - "apps/scene-builder/part01/app.py"
       - "apps/scene-builder/part01/templates/**"
       - "apps/scene-builder/part01/static/user_management_redesign.css"
+      - "apps/scene-builder/part01/static/vps1_native_site_shell.*"
+      - "tests/test_scene_native_sidebar_role.js"
+      - "production/test_scene_video_studio_shell.py"
+      - "production/scene_candidate_release.py"
+      - "tests/test_scene_candidate_release.py"
       - "tests/test_scene_user_roles.py"
       - "tests/test_scene_session_sso.py"
       - ".github/workflows/vps1-scene-user-roles-ci.yml"
@@ -32,3 +42,9 @@ jobs:
         run: python -m py_compile apps/scene-builder/part01/app.py tests/test_scene_user_roles.py tests/test_scene_session_sso.py
       - name: Two-role user behavior regression
         run: python -m unittest discover -s tests -p test_scene_user_roles.py -v
+      - name: Shared sidebar JavaScript syntax and real role behavior
+        run: |
+          node --check apps/scene-builder/part01/static/vps1_native_site_shell.js
+          node --test tests/test_scene_native_sidebar_role.js
+      - name: Candidate route and native sidebar release contracts
+        run: python -m unittest tests.test_scene_candidate_release -v
