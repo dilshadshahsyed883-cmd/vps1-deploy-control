@@ -1,0 +1,67 @@
+name: VPS1 Scene two-role production release
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+# Separate from the complete-site workflow's pending slot, while the installed
+# production deployment helper serializes actual host writes and owns rollback.
+concurrency:
+  group: vps1-scene-user-roles-release
+  cancel-in-progress: false
+jobs:
+  scene-only:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'dilshadshahsyed883-cmd' &&
+      github.run_attempt == 1 &&
+      contains(github.event.head_commit.message, '[vps1-scene-user-roles-release]')
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Join existing VPS1 protected Tailscale connection
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Install only Scene Builder with existing rollback helper
+        shell: bash
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/identity"
+          unset PRIVATE_IDENTITY
+          chmod 0600 "$scratch/identity"
+          ssh-keygen -y -P '' -f "$scratch/identity" > "$scratch/public"
+          test "$(ssh-keygen -lf "$scratch/public" -E sha256 | awk '{print $2}')" = \
+            'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
+          echo 'PHASE=SCENE_BUILDER_ONLY'
+          timeout 2400s ssh -T -p 22 -i "$scratch/identity" \
+            -o UserKnownHostsFile="$scratch/known_hosts" \
+            -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+            -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o PreferredAuthentications=publickey -o PasswordAuthentication=no \
+            -o ConnectTimeout=20 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+            vps1deploy@100.87.55.92 \
+            "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA scene-builder"
+          echo 'SCENE_TWO_ROLE_SOURCE=INSTALLED'
+          echo 'NON_ADMIN_ADMIN_PAGE=GUARDED_BY_SCENE_BACKEND'
+          echo 'OTHER_APP_INSTALLS=NONE'
+          echo 'USER_DATA_RESET=NONE'
+          echo 'AUTO_SCRIPT=OFFLINE'
+          echo 'OWNER_FUNCTIONAL_UAT=PENDING'
