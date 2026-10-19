@@ -180,11 +180,11 @@ class SessionRouteContract(unittest.TestCase):
         ast.parse(src)
         self.assertIn('@app.get("/internal/workspace-auth")', src)
         self.assertIn('request.session.get("username")', src)
-        self.assertIn("account.get(\"subscription_expired\")", src)
-        self.assertIn("if not permitted:", src)
-        self.assertIn('return Response(status_code=403)', src)
-        self.assertIn('else "lum")', src)
-        self.assertIn('"auto_caption" if app == "auto-caption-studio"', src)
+        self.assertIn('if app not in SCENE_SSO_APP_IDS:', src)
+        self.assertIn('if not account or not int(account.get("is_active") or 0):', src)
+        self.assertIn('access = "both" if admin else (', src)
+        self.assertIn('"auto_caption" if app == "auto-caption-studio" else', src)
+        self.assertIn('"lum" if app == "local-upload-manager" else "scene_builder"', src)
         self.assertEqual(src.count('"/internal/workspace-auth"'), 3)
 
     def test_only_exact_reviewed_nginx_site_with_optional_hide(self):
