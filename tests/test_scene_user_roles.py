@@ -207,6 +207,16 @@ class RoleBehaviorTests(unittest.TestCase):
         self.post("delete", "editor")
         self.assertIsNone(self.account("editor"))
 
+    def test_candidate_policy_grants_only_exact_admin_post(self):
+        policy = ROOT / "apps/scene-builder/part01/precutover_policy.py"
+        source = policy.read_text()
+        self.assertIn('_ADMIN_USER_MANAGEMENT = ("POST", "/user-management")', source)
+        self.assertIn('if (method, path) == _ADMIN_USER_MANAGEMENT:', source)
+        app_source = SOURCE
+        self.assertIn("candidate_mutation_allowed(request.method, request.url.path, SCENE_PRECUTOVER_EDITING)", app_source)
+        self.assertIn('require_admin(request)\n    expected', app_source)
+        self.assertIn("Invalid user-management action token", app_source)
+
     def test_ui_only_two_roles_and_admin_sidebar_guard(self):
         self.assertIn('name="role"', TEMPLATE)
         self.assertIn('value="non_admin"', TEMPLATE)
