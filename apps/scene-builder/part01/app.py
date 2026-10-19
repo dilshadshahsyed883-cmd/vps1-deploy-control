@@ -3769,8 +3769,8 @@ def canonical_auto_stream(request: Request):
     import html as _html
     username = _html.escape(str(account.get("username") or ""), quote=True)
     assets = ('<meta name="vps1-username" content="' + username + '">'
-              '<link rel="stylesheet" href="/static/vps1_native_site_shell.css?v=20261019-unified-v2">'
-              '<script src="/static/vps1_native_site_shell.js?v=20261019-stream-v1" data-workspace="stream" defer></script>')
+              '<link rel="stylesheet" href="/static/vps1_native_site_shell.css?v=20261020-upload-studio-v1">'
+              '<script src="/static/vps1_native_site_shell.js?v=20261020-upload-studio-v1" data-workspace="stream" defer></script>')
     page = upstream.text.replace("</head>", assets + "</head>", 1)
     return HTMLResponse(page, headers={"Cache-Control": "no-store, max-age=0"})
 
@@ -3879,10 +3879,10 @@ async def _vps1_voice_studio_proxy(request:_VSRequest,upstream_path:str):
         # Bust that stale browser cache without deploying/restarting its engine.
         content=content.replace(
             b"vps1_native_site_shell.js?v=1",
-            b"vps1_native_site_shell.js?v=20261019-voice-nav-v2",
+            b"vps1_native_site_shell.js?v=20261020-upload-studio-v1",
         ).replace(
             b"vps1_native_site_shell.css?v=1",
-            b"vps1_native_site_shell.css?v=20261019-unified-v2",
+            b"vps1_native_site_shell.css?v=20261020-upload-studio-v1",
         )
     out={k:r.headers[k] for k in ("content-type","content-disposition","cache-control") if k in r.headers}
     return _VSResponse(content=content,status_code=r.status_code,headers=out)

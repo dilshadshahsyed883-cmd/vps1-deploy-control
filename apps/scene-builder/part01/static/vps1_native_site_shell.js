@@ -37,8 +37,8 @@
     const navigation = node("nav");
     navigation.setAttribute("aria-label", "Applications");
     addLink(navigation, "Dashboard", "/", false);
-    addLink(navigation, "Auto Uploader", "/local-upload-manager", app === "uploader");
-    addLink(navigation, "Auto Stream", "/auto-stream/", app === "stream");
+    // Independently routed uploader and streaming apps share one sidebar item.
+    addLink(navigation, "Upload Studio", "/local-upload-manager", app === "uploader" || app === "stream");
     addLink(navigation, "Video Studio", "/scene-builder/", app === "acs");
     const voiceLink = addLink(navigation, "Voice Studio", "/voice-studio/app#vps1-production", app === "voice");
     if (app === "voice") {
@@ -119,6 +119,15 @@
       addLink(tabs, "Short Maker", "/short-maker/", false);
       addLink(tabs, "Video Merger", "/video-merger/", false);
       toggle.after(tabs);
+    }
+    if (app === "uploader" || app === "stream") {
+      const tabs = node("nav", "vps1-native-upload-tabs");
+      tabs.setAttribute("aria-label", "Upload Studio");
+      addLink(tabs, "Auto Uploader", "/local-upload-manager/app?embedded=1&tab=dashboard", app === "uploader");
+      addLink(tabs, "Auto Stream", "/auto-stream/", app === "stream");
+      const streamHeader = app === "stream" && typeof document.querySelector === "function"
+        ? document.querySelector("body > header") : null;
+      (streamHeader || toggle).after(tabs);
     }
   }
   if (document.readyState === "loading")

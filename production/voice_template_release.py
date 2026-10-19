@@ -29,6 +29,10 @@ OLD_ASSETS = (
     b'<script src="/&#115;tatic/vps1_native_site_shell.js?v=1" data-workspace="voice" defer></script>'
 )
 NEW_ASSETS = (
+    b'<link rel="stylesheet" href="/&#115;tatic/vps1_native_site_shell.css?v=20261020-upload-studio-v1">\n'
+    b'<script src="/&#115;tatic/vps1_native_site_shell.js?v=20261020-upload-studio-v1" data-workspace="voice" defer></script>'
+)
+PREVIOUS_ASSETS = (
     b'<link rel="stylesheet" href="/&#115;tatic/vps1_native_site_shell.css?v=20261019-voice-nav-v2">\n'
     b'<script src="/&#115;tatic/vps1_native_site_shell.js?v=20261019-voice-nav-v2" data-workspace="voice" defer></script>'
 )
@@ -43,8 +47,20 @@ def require(ok: bool, why: str) -> None:
 def patch_template(payload: bytes) -> bytes:
     """Only relocate two trusted asset links; preserve all other Voice markup."""
     require(payload.count(TITLE) == 1, "existing Voice template title changed")
+    # The last approved Voice sidebar-only release already moved assets above
+    # the large inline stylesheet. Upgrade that exact version in place without
+    # touching engine controls, worker services or the rest of the HTML.
+    if payload.count(PREVIOUS_ASSETS) == 1 and payload.count(ASSET_NOTE) == 1:
+        require(payload.count(OLD_ASSETS) == 0 and payload.count(NEW_ASSETS) == 0,
+                "mixed Voice sidebar assets")
+        updated = payload.replace(PREVIOUS_ASSETS, NEW_ASSETS, 1)
+        require(updated.count(NEW_ASSETS) == 1 and
+                b'id="vsEngineOmni"' in updated and
+                b'id="vsEngineKokoro"' in updated,
+                "Voice sidebar upgrade failed")
+        return updated
     require(payload.count(OLD_ASSETS) == 1, "expected old native CSS/JS links not found")
-    require(payload.count(b'vps1_native_site_shell.js?v=20261019-voice-nav-v2') == 0,
+    require(payload.count(b'vps1_native_site_shell.js?v=20261020-upload-studio-v1') == 0,
             "Voice template already patched")
     updated = payload.replace(OLD_ASSETS, ASSET_NOTE, 1)
     updated = updated.replace(TITLE, TITLE + b"\n" + NEW_ASSETS, 1)
@@ -69,7 +85,7 @@ def verify_runtime() -> None:
     cookie = scene_cookie()
     code, kind, html = https_get("/voice-studio/app", cookie)
     require(code == 200 and "html" in kind.lower()
-            and b"vps1_native_site_shell.js?v=20261019-voice-nav-v2" in html,
+            and b"vps1_native_site_shell.js?v=20261020-upload-studio-v1" in html,
             "authenticated public Voice page not updated")
     anonymous, _, _ = https_get("/voice-studio/app")
     require(anonymous in {401, 403, 303}, "anonymous Voice page became accessible")
