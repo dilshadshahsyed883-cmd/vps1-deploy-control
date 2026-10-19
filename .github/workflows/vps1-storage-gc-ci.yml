@@ -1,0 +1,31 @@
+name: VPS1 guarded storage cleanup tests (no VPS)
+on:
+  pull_request:
+    paths:
+      - 'production/storage_gc.py'
+      - 'production/test_storage_gc.py'
+      - 'infrastructure/systemd/vps1-storage-deployment-gc.*'
+      - 'scripts/install_storage_gc.sh'
+      - '.github/workflows/vps1-storage-gc-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'production/storage_gc.py'
+      - 'production/test_storage_gc.py'
+      - 'infrastructure/systemd/vps1-storage-deployment-gc.*'
+      - 'scripts/install_storage_gc.sh'
+permissions:
+  contents: read
+jobs:
+  test-storage-gc:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Python, unit tests, installer and systemd units
+        run: |
+          set -Eeuo pipefail
+          python3 -m py_compile production/storage_gc.py production/test_storage_gc.py
+          python3 -m unittest production.test_storage_gc -v
+          bash -n scripts/install_storage_gc.sh
+          systemd-analyze verify infrastructure/systemd/vps1-storage-deployment-gc.service infrastructure/systemd/vps1-storage-deployment-gc.timer
