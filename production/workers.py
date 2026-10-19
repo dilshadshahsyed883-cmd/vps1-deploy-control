@@ -236,7 +236,12 @@ def install(app, revision):
     for name in unit_names(app):
         run(['systemctl', 'enable', name], quiet=True)
         run(['systemctl', 'restart', name], quiet=True)
-    wait_for_active_units(unit_names(app))
+    if app == 'local-upload-manager':
+        wait_for_active_units(unit_names(app))
+    else:
+        time.sleep(2)
+        for name in unit_names(app):
+            run(['systemctl', 'is-active', '--quiet', name], quiet=True)
     if app == "local-upload-manager":
         # An active unit is not enough: require the correct app/engine response
         # before treating the independent mode installation as successful.
