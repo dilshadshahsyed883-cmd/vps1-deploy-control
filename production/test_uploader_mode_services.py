@@ -77,6 +77,32 @@ class ModeServicesTests(unittest.TestCase):
                 workers.prepare_mode_roots()
             self.assertEqual((prior / "uploader.db").read_text(), "OWNED_PREVIOUSLY")
 
+    def test_systemd_eventual_readiness_is_accepted(self):
+        from subprocess import CompletedProcess
+        results = iter([
+            CompletedProcess([], 3, stdout="activating\n"),
+            CompletedProcess([], 0, stdout="active\n"),
+        ])
+        with patch("production.workers.subprocess.run", side_effect=lambda *a, **k: next(results)) as execute, \
+             patch("production.workers.time.sleep") as pause:
+            workers.wait_for_active_units(["vps1-production-lum-engine2-web.service"], attempts=3)
+        self.assertEqual(execute.call_count, 2)
+        pause.assert_called_once()
+
+    def test_systemd_failure_names_exact_unit(self):
+        from subprocess import CompletedProcess
+        def respond(cmd, **_kwargs):
+            if cmd[1] == "show":
+                return CompletedProcess([], 0, stdout="ActiveState=failed\nExecMainStatus=1\n")
+            return CompletedProcess([], 3, stdout="failed\n")
+        with patch("production.workers.subprocess.run", side_effect=respond), \
+             patch("production.workers.time.sleep"):
+            with self.assertRaisesRegex(RuntimeError, "lum-shorts-worker.service"):
+                workers.wait_for_active_units(
+                    ["vps1-production-lum-shorts-worker.service"],
+                    attempts=2, interval=0,
+                )
+
     def test_worker_unit_scope_does_not_write_parent_apps(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(workers, "DATA", Path(tmp)):
             text = workers.unit(
