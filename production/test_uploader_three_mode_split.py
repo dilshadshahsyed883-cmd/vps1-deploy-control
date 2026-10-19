@@ -22,7 +22,7 @@ class ThreeModeSplitTests(TestCase):
     def test_ui_has_two_primary_tabs_and_only_three_uploader_modes(self):
         ui = (ROOT / "templates/app.html").read_text()
         self.assertIn('aria-label="Auto Uploader main subtabs"', ui)
-        self.assertIn('href="{{ base_path }}/app?tab=auto_stream"', ui)
+        self.assertIn('href="/auto-stream/"', ui)
         self.assertIn("['engine1', 'engine2', 'shorts']", ui)
         self.assertNotIn("['engine1', 'engine2', 'shorts', 'short_stream']", ui)
         self.assertIn("No stream is started or changed by opening this tab", ui)
