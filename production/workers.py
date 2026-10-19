@@ -207,4 +207,25 @@ def install(app, revision):
     time.sleep(2)
     for name in unit_names(app):
         run(['systemctl', 'is-active', '--quiet', name], quiet=True)
+    if app == "local-upload-manager":
+        # An active unit is not enough: require the correct app/engine response
+        # before treating the independent mode installation as successful.
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        for mode, port in (("engine2", 8016), ("shorts", 8017)):
+            address = f"http://127.0.0.1:{port}/local-upload-manager/modes/{mode}/health"
+            last = None
+            for attempt in range(25):
+                try:
+                    with opener.open(address, timeout=3) as response:
+                        body = json.loads(response.read(2048))
+                    if response.status == 200 and body.get("ok") is True and body.get("engine_instance") == mode:
+                        last = None
+                        break
+                    last = "unexpected engine identity"
+                except (OSError, ValueError, TypeError) as exc:
+                    last = type(exc).__name__
+                time.sleep(1)
+            if last:
+                raise RuntimeError(f"Independent {mode} health failed: {last}")
+            event(app=app, isolated_engine=mode, health="PASS", port=port)
     event(app=app, queue_workers='ACTIVE', workers=unit_names(app))
