@@ -90,12 +90,13 @@ class SceneVideoStudioShell(unittest.TestCase):
         self.assertNotIn("{#video-studio-app-frame", wrapper)
         self.assertIn(" #video-studio-app-frame", wrapper)
 
-    def test_admin_only_independent_app_wrappers(self):
+    def test_authenticated_independent_app_wrappers_for_both_roles(self):
         app = (ROOT / "apps/scene-builder/part01/app.py").read_text()
         self.assertIn('@app.get("/video-studio/{studio_app}"', app)
         body = app.split("def video_studio_embedded_app(", 1)[1].split(
             '@app.get("/auto-caption/studio"', 1)[0]
-        self.assertIn("require_admin(request)", body)
+        self.assertIn("require_login(request)", body)
+        self.assertNotIn("require_admin(request)", body)
         self.assertIn('"short-maker": ("Short Maker", "/short-maker/")', body)
         self.assertIn('"video-merger": ("Video Merger", "/video-merger/")', body)
         self.assertIn("if studio_app not in allowed:", body)
