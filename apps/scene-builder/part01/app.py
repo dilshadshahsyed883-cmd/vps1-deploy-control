@@ -250,14 +250,8 @@ def init_db() -> None:
         for column, definition in user_additions.items():
             if column not in user_columns:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")
-        migration_now = datetime.now(timezone.utc)
-        migration_end = (migration_now + timedelta(days=30)).isoformat()
-        quota_row = conn.execute("SELECT value FROM settings WHERE key='quota_limit'").fetchone()
-        old_quota = int(quota_row[0]) if quota_row else 25
-        conn.execute("UPDATE users SET daily_render_limit=? WHERE is_admin=0 AND daily_render_limit=25", (max(0, old_quota),))
-        conn.execute("UPDATE users SET subscription_plan_days=30 WHERE is_admin=0 AND subscription_plan_days NOT IN (7,15,30)")
-        conn.execute("UPDATE users SET subscription_start_at=? WHERE is_admin=0 AND subscription_start_at=''", (migration_now.isoformat(),))
-        conn.execute("UPDATE users SET subscription_end_at=? WHERE is_admin=0 AND subscription_end_at=''", (migration_end,))
+        # Retain legacy columns/data for compatibility; roles no longer carry
+        # subscription, app-grant, or daily-quota restrictions.
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS audit_events (
@@ -599,9 +593,8 @@ def user_account(username: str) -> dict[str, Any] | None:
     if not row:
         return None
     data = dict(row)
-    end_at = parse_iso(data.get("subscription_end_at"))
-    data["subscription_expired"] = bool(not data.get("is_admin") and end_at and end_at <= datetime.now(timezone.utc))
-    data["subscription_status"] = "Disabled" if not data.get("is_active") else ("Expired" if data["subscription_expired"] else "Active")
+    data["subscription_expired"] = False
+    data["subscription_status"] = "Active" if data.get("is_active") else "Disabled"
     return data
 
 
@@ -620,10 +613,9 @@ def completed_today_count(username: str, jobs: list[dict[str, Any]] | None = Non
 
 def quota_snapshot_for_user(username: str, jobs: list[dict[str, Any]] | None = None) -> tuple[int, int, int]:
     account = user_account(username) or {}
-    limit = max(0, int(account.get("daily_render_limit") or 0))
+    # Per-user quotas are retired: all active users may render equally.
     used = completed_today_count(username, jobs)
-    remaining = max(0, limit - used) if limit else 0
-    return limit, used, remaining
+    return 0, used, 0
 
 
 def require_admin(request: Request) -> None:
@@ -632,20 +624,9 @@ def require_admin(request: Request) -> None:
 
 
 def app_access_allows(account: dict[str, Any] | None, app_name: str) -> bool:
-    """Interpret the existing app_access model with LUM added as the third app."""
-    if not account:
-        return False
-    if bool(account.get("is_admin")):
-        return True
-    access = str(account.get("app_access") or "scene_builder").strip().lower()
-    matrix = {
-        "scene_builder": {"scene_builder"},
-        "auto_caption": {"auto_caption"},
-        "lum": {"lum"},
-        "both": {"scene_builder", "auto_caption"},
-        "all": {"scene_builder", "auto_caption", "lum"},
-    }
-    return app_name in matrix.get(access, set())
+    """Both roles have equal application access; only Admin UI is gated."""
+    return bool(account and int(account.get("is_active") or 0) and
+                app_name in {"scene_builder", "auto_caption", "lum"})
 
 
 def require_auto_caption_access(request: Request) -> dict[str, Any]:
@@ -705,21 +686,12 @@ async def authentication(request: Request, call_next):
     if not logged_in(request):
         return RedirectResponse("/login", status_code=303)
     account = user_account(str(request.session.get("username") or ""))
-    if not account or not int(account.get("is_active") or 0) or account.get("subscription_expired"):
+    if not account or not int(account.get("is_active") or 0):
         request.session.clear()
-        reason = "Subscription expired" if account and account.get("subscription_expired") else "Account unavailable"
-        return RedirectResponse(f"/login?error={reason.replace(' ', '+')}", status_code=303)
+        return RedirectResponse("/login?error=Account+unavailable", status_code=303)
+    # Refresh role from SQLite on every request, including post-demotion sessions.
     request.session["is_admin"] = bool(account.get("is_admin"))
-    request.session["app_access"] = "both" if bool(account.get("is_admin")) else str(account.get("app_access") or "scene_builder")
-    if request.session["app_access"] == "auto_caption" and request.url.path not in {
-        "/", "/api/dashboard/v1", "/auto-caption/live", "/auto-caption/admin", "/auto-caption/studio", "/logout",
-        "/internal/auto-caption-auth", "/internal/local-upload-manager-auth"
-    }:
-        return RedirectResponse("/auto-caption/live", status_code=303)
-    if request.session["app_access"] == "lum" and request.url.path not in {
-        "/", "/api/dashboard/v1", "/local-upload-manager", "/logout", "/internal/auto-caption-auth", "/internal/local-upload-manager-auth"
-    }:
-        return RedirectResponse("/local-upload-manager", status_code=303)
+    request.session["app_access"] = "all"
     return await call_next(request)
 
 app.add_middleware(
@@ -751,18 +723,13 @@ def login(request: Request, username: str = Form(...), secret_key: str = Form(..
         ).fetchone()
     if not row or not int(row["is_active"]) or not verify_secret(secret_key.strip(), row["secret_hash"]):
         return RedirectResponse("/login?error=Invalid+username+or+secret+key", status_code=303)
-    end_at = parse_iso(row["subscription_end_at"])
-    if not bool(row["is_admin"]) and end_at and end_at <= datetime.now(timezone.utc):
-        return RedirectResponse("/login?error=Subscription+expired", status_code=303)
     with db() as conn:
         conn.execute("UPDATE users SET last_login_at=? WHERE username=? COLLATE NOCASE", (now_iso(), row["username"]))
     request.session.clear()
     request.session["authenticated"] = True
     request.session["username"] = row["username"]
     request.session["is_admin"] = bool(row["is_admin"])
-    request.session["app_access"] = "both" if bool(row["is_admin"]) else str(row["app_access"] or "scene_builder")
-    if request.session["app_access"] == "auto_caption":
-        return RedirectResponse("/auto-caption/live", status_code=303)
+    request.session["app_access"] = "all"
     return RedirectResponse("/", status_code=303)
 
 
@@ -1659,13 +1626,9 @@ def _storage_dashboard_counts() -> dict[str, int]:
 
 
 def _dashboard_allowed_app_names(request: Request) -> set[str]:
-    if bool(request.session.get("is_admin")):
-        return {"Scene Builder", "Auto Caption Studio", "Auto Uploader", "Storage Manager"}
-    access = str(request.session.get("app_access") or "scene_builder")
-    names: set[str] = set()
-    if access in {"scene_builder", "both", "all"}: names.add("Scene Builder")
-    if access in {"auto_caption", "both", "all"}: names.add("Auto Caption Studio")
-    if access in {"lum", "all"}: names.add("Auto Uploader")
+    names = {"Scene Builder", "Auto Caption Studio", "Auto Uploader"}
+    if request.session.get("is_admin"):
+        names.add("Storage Manager")
     return names
 
 def _scene_dashboard_detail(username: str) -> dict[str, Any]:
@@ -1957,11 +1920,6 @@ async def submit_project(
     account = user_account(submitter)
     if not account or not int(account.get("is_active") or 0):
         return submission_error(request, 403, "Account is disabled")
-    if account.get("subscription_expired"):
-        return submission_error(request, 403, "Subscription has expired")
-    quota_limit, quota_used, _ = quota_snapshot_for_user(submitter, jobs)
-    if quota_limit and quota_used >= quota_limit:
-        return submission_error(request, 409, "Daily successful-render quota has been reached")
 
     _, allowed_gb, used_bytes, allowed_bytes = storage_snapshot()
     if allowed_bytes and used_bytes >= allowed_bytes:
@@ -3368,26 +3326,26 @@ def save_admin_system_settings(
 @app.get("/user-management", response_class=HTMLResponse)
 def user_management_page(request: Request):
     require_admin(request)
-    jobs = all_jobs_with_owners(2000)
     owners = ownership_map()
     counts: dict[str, int] = {}
     for owner in owners.values():
         counts[owner.casefold()] = counts.get(owner.casefold(), 0) + 1
     with db() as conn:
         rows = [dict(row) for row in conn.execute(
-            """SELECT username,is_active,is_admin,created_at,daily_render_limit,
-                      subscription_plan_days,subscription_start_at,subscription_end_at,last_login_at,
-                      app_access
+            """SELECT username,is_active,is_admin,created_at,last_login_at
                FROM users ORDER BY is_admin DESC, username COLLATE NOCASE"""
         ).fetchall()]
     for user in rows:
-        user.update(user_account(str(user["username"])) or {})
-        user["today_used"] = completed_today_count(str(user["username"]), jobs_for_user(str(user["username"]), 2000))
         user["job_count"] = counts.get(str(user["username"]).casefold(), 0)
+    token = request.session.get("user_management_csrf")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        request.session["user_management_csrf"] = token
     return templates.TemplateResponse("user_management.html", {
         "request": request, "page": "user_management",
         "username": request.session.get("username", "team"),
-        "users": rows, "message": request.query_params.get("message", ""),
+        "users": rows, "csrf_token": token,
+        "message": request.query_params.get("message", ""),
         "error": request.query_params.get("error", ""),
     })
 
@@ -3395,17 +3353,17 @@ def user_management_page(request: Request):
 @app.post("/user-management")
 def user_management_action(
     request: Request, action: str = Form(...), username: str = Form(""),
-    secret_key: str = Form(""), daily_render_limit: int = Form(0),
-    plan_days: int = Form(30), app_access: str = Form("scene_builder"),
+    secret_key: str = Form(""), role: str = Form("non_admin"),
+    csrf_token: str = Form(""),
 ):
     require_admin(request)
+    expected = str(request.session.get("user_management_csrf") or "")
+    if not expected or not hmac.compare_digest(expected, csrf_token):
+        raise HTTPException(403, "Invalid user-management action token")
     clean = username.strip()
     actor = str(request.session.get("username") or "")
-    if app_access not in {"scene_builder", "auto_caption", "lum", "both", "all"}:
-        raise HTTPException(400, "Invalid app access")
-    if plan_days not in {7, 15, 30}:
-        raise HTTPException(400, "Plan must be 7, 15, or 30 days")
-    now = datetime.now(timezone.utc)
+    if action in {"create", "set_role"} and role not in {"admin", "non_admin"}:
+        raise HTTPException(400, "Role must be Admin or Non-admin")
     try:
         with db() as conn:
             if action == "create":
@@ -3413,52 +3371,75 @@ def user_management_action(
                     raise HTTPException(400, "Invalid username")
                 if len(secret_key) < 8:
                     raise HTTPException(400, "Secret key must be at least 8 characters")
-                end = now + timedelta(days=plan_days)
-                conn.execute("""INSERT INTO users(username,secret_hash,is_active,is_admin,created_at,daily_render_limit,
-                              subscription_plan_days,subscription_start_at,subscription_end_at,last_login_at,app_access)
-                              VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-                             (clean, hash_secret(secret_key), 1, 0, now_iso(), max(0,daily_render_limit),
-                              plan_days, now.isoformat(), end.isoformat(), "", app_access))
-                message=f"User {clean} created"
+                conn.execute(
+                    """INSERT INTO users(username,secret_hash,is_active,is_admin,created_at,
+                       daily_render_limit,subscription_start_at,subscription_end_at,app_access)
+                       VALUES(?,?,?,?,?,?,?,?,?)""",
+                    (clean, hash_secret(secret_key), 1, int(role == "admin"), now_iso(),
+                     0, "", "", "all"),
+                )
+                message = f"User {clean} created as {'Admin' if role == 'admin' else 'Non-admin'}"
             else:
-                row=conn.execute("SELECT * FROM users WHERE username=? COLLATE NOCASE",(clean,)).fetchone()
-                if not row: raise HTTPException(404,"User not found")
-                target_admin=bool(row["is_admin"])
-                if action=="save":
-                    effective_access = "both" if target_admin else app_access
-                    conn.execute("UPDATE users SET daily_render_limit=?,app_access=? WHERE username=? COLLATE NOCASE",(max(0,daily_render_limit),effective_access,clean))
-                    message=f"Quota and app access updated for {clean}"
-                elif action=="extend":
-                    current_end=parse_iso(row["subscription_end_at"])
-                    base=current_end if current_end and current_end>now else now
-                    end=base+timedelta(days=plan_days)
-                    start=row["subscription_start_at"] or now.isoformat()
-                    conn.execute("""UPDATE users SET subscription_plan_days=?,subscription_start_at=?,subscription_end_at=?,is_active=1
-                                    WHERE username=? COLLATE NOCASE""",(plan_days,start,end.isoformat(),clean))
-                    message=f"Subscription extended for {clean}"
-                elif action=="reset_password":
-                    if len(secret_key)<8: raise HTTPException(400,"Secret key must be at least 8 characters")
-                    conn.execute("UPDATE users SET secret_hash=? WHERE username=? COLLATE NOCASE",(hash_secret(secret_key),clean))
-                    message=f"Secret key reset for {clean}"
-                elif action=="enable":
-                    conn.execute("UPDATE users SET is_active=1 WHERE username=? COLLATE NOCASE",(clean,))
-                    message=f"User {clean} enabled"
-                elif action=="disable":
-                    if clean.casefold()==actor.casefold(): raise HTTPException(400,"You cannot disable your own account")
-                    conn.execute("UPDATE users SET is_active=0 WHERE username=? COLLATE NOCASE",(clean,))
-                    message=f"User {clean} disabled"
-                elif action=="delete":
-                    if clean.casefold()==actor.casefold() or target_admin: raise HTTPException(400,"Administrator accounts cannot be deleted")
-                    owned=conn.execute("SELECT COUNT(*) AS c FROM job_ownership WHERE owner_username=? COLLATE NOCASE",(clean,)).fetchone()["c"]
-                    if owned: raise HTTPException(409,"User has jobs; disable the account instead")
-                    conn.execute("DELETE FROM users WHERE username=? COLLATE NOCASE",(clean,))
-                    message=f"User {clean} deleted"
-                else: raise HTTPException(400,"Unknown action")
-        audit_event("user_management",message,{"actor":actor,"target":clean,"action":action})
-        return RedirectResponse(f"/user-management?message={requests.utils.quote(message)}",status_code=303)
+                row = conn.execute(
+                    "SELECT * FROM users WHERE username=? COLLATE NOCASE", (clean,)
+                ).fetchone()
+                if not row:
+                    raise HTTPException(404, "User not found")
+                target_admin = bool(row["is_admin"])
+                others = conn.execute(
+                    """SELECT COUNT(*) FROM users
+                       WHERE is_admin=1 AND is_active=1 AND username<>? COLLATE NOCASE""",
+                    (clean,),
+                ).fetchone()[0]
+                if action == "set_role":
+                    if target_admin and role == "non_admin" and bool(row["is_active"]) and not others:
+                        raise HTTPException(409, "Cannot demote the last active administrator")
+                    conn.execute(
+                        "UPDATE users SET is_admin=? WHERE username=? COLLATE NOCASE",
+                        (int(role == "admin"), clean),
+                    )
+                    message = f"Role updated for {clean}: {'Admin' if role == 'admin' else 'Non-admin'}"
+                elif action == "reset_password":
+                    if len(secret_key) < 8:
+                        raise HTTPException(400, "Secret key must be at least 8 characters")
+                    conn.execute(
+                        "UPDATE users SET secret_hash=? WHERE username=? COLLATE NOCASE",
+                        (hash_secret(secret_key), clean),
+                    )
+                    message = f"Secret key reset for {clean}"
+                elif action == "enable":
+                    conn.execute(
+                        "UPDATE users SET is_active=1 WHERE username=? COLLATE NOCASE", (clean,)
+                    )
+                    message = f"User {clean} enabled"
+                elif action == "disable":
+                    if clean.casefold() == actor.casefold():
+                        raise HTTPException(400, "You cannot disable your own account")
+                    if target_admin and bool(row["is_active"]) and not others:
+                        raise HTTPException(409, "Cannot disable the last active administrator")
+                    conn.execute(
+                        "UPDATE users SET is_active=0 WHERE username=? COLLATE NOCASE", (clean,)
+                    )
+                    message = f"User {clean} disabled"
+                elif action == "delete":
+                    if clean.casefold() == actor.casefold() or target_admin:
+                        raise HTTPException(400, "Demote an administrator before deleting")
+                    owned = conn.execute(
+                        "SELECT COUNT(*) FROM job_ownership WHERE owner_username=? COLLATE NOCASE",
+                        (clean,),
+                    ).fetchone()[0]
+                    if owned:
+                        raise HTTPException(409, "User has jobs; disable the account instead")
+                    conn.execute("DELETE FROM users WHERE username=? COLLATE NOCASE", (clean,))
+                    message = f"User {clean} deleted"
+                else:
+                    raise HTTPException(400, "Unknown action")
+        audit_event("user_management", message, {"actor": actor, "target": clean, "action": action})
+        return RedirectResponse(
+            f"/user-management?message={requests.utils.quote(message)}", status_code=303
+        )
     except sqlite3.IntegrityError:
-        return RedirectResponse("/user-management?error=Username+already+exists",status_code=303)
-
+        return RedirectResponse("/user-management?error=Username+already+exists", status_code=303)
 
 # SCRIPT_WORK_UI_PREVIEW_V1_ROUTE
 @app.get("/script-work", response_class=HTMLResponse)
@@ -3490,9 +3471,9 @@ def auto_caption_auth(request: Request):
     account = user_account(str(request.session.get("username") or ""))
     if not account or not int(account.get("is_active") or 0) or account.get("subscription_expired"):
         return Response(status_code=401)
-    access = str(account.get("app_access") or "scene_builder")
     if not app_access_allows(account, "auto_caption"):
         return Response(status_code=403)
+    access = "both" if account.get("is_admin") else "auto_caption"
     return Response(status_code=204, headers={
         "X-Auth-User": str(account.get("username") or ""),
         "X-App-Access": access,
@@ -3511,38 +3492,29 @@ SCENE_SSO_APP_IDS = frozenset({
 
 @app.get("/internal/workspace-auth")
 def workspace_session_auth(request: Request, app: str = ""):
-    """Validate one existing Scene session for one named independent app.
+    """All active Scene users may access each independent app.
 
-    Non-admin accounts retain the historical Caption/LUM grant boundaries;
-    applications without a defined non-admin role remain administrator-only.
+    Trusted Nginx auth_request conveys the actual role. Non-admin users never
+    receive admin-elevating X-App-Access values for Caption or Uploader.
     """
     if app not in SCENE_SSO_APP_IDS:
         return Response(status_code=403)
     if not logged_in(request):
         return Response(status_code=401)
     account = user_account(str(request.session.get("username") or ""))
-    if not account or not int(account.get("is_active") or 0) or account.get("subscription_expired"):
+    if not account or not int(account.get("is_active") or 0):
         return Response(status_code=401)
     admin = bool(account.get("is_admin"))
-    if not admin:
-        if app == "auto-caption-studio":
-            permitted = app_access_allows(account, "auto_caption")
-        elif app == "local-upload-manager":
-            permitted = app_access_allows(account, "lum")
-        else:
-            permitted = False
-        if not permitted:
-            return Response(status_code=403)
-    # The Caption backend interprets access="both" as administrator. Never
-    # pass a broad account grant to it for a non-admin Scene user.
-    access = "both" if admin else ("auto_caption" if app == "auto-caption-studio" else "lum")
+    access = "both" if admin else (
+        "auto_caption" if app == "auto-caption-studio" else
+        "lum" if app == "local-upload-manager" else "scene_builder"
+    )
     return Response(status_code=204, headers={
         "X-Auth-User": str(account.get("username") or ""),
         "X-App-Access": access,
         "X-Is-Admin": "1" if admin else "0",
         "Cache-Control": "no-store",
     })
-
 
 @app.get("/internal/local-upload-manager-auth")
 def local_upload_manager_auth(request: Request):
@@ -3554,7 +3526,7 @@ def local_upload_manager_auth(request: Request):
         return Response(status_code=401)
     if not app_access_allows(account, "lum"):
         return Response(status_code=403)
-    access = str(account.get("app_access") or "scene_builder")
+    access = "both" if account.get("is_admin") else "lum"
     return Response(status_code=204, headers={
         "X-Auth-User": str(account.get("username") or ""),
         "X-App-Access": access,
@@ -3756,7 +3728,6 @@ def video_studio_embedded_app(request: Request, studio_app: str):
     if studio_app not in allowed:
         raise HTTPException(404, "Unknown Video Studio app")
     require_login(request)
-    require_admin(request)
     title, url = allowed[studio_app]
     return templates.TemplateResponse(
         "video_studio_embed.html",
