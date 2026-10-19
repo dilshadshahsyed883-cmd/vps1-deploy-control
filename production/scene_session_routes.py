@@ -18,8 +18,8 @@ APP_IDS = frozenset(CATALOG) - {"scene-builder", "local-upload-manager"}
 AUTH_PREFIX = "/_vps1_sso_"
 
 
-def config(app):
-    """Copy the proven gateway rewrite contract, replacing Basic with Scene auth."""
+def config(app, *, voice_shell=True):
+    """Copy the trusted app proxy, keeping Voice's outer page in Scene Builder."""
     from production import nginx_route_only as old
     old.guard(app in APP_IDS, "unsupported Scene SSO app")
     source = gateway.nginx_config([app], Path("/srv/fresh-website/shell"), gateway.AUTH)
@@ -63,7 +63,26 @@ def config(app):
     old.guard('proxy_set_header Authorization "";' in fragment and
               "proxy_pass http://127.0.0.1:8888;" not in fragment,
               "Basic Auth still required by app proxy")
+    if app == "voice-studio" and voice_shell:
+        # The bare URL belongs to Scene Builder (sidebar + mobile menu).
+        # All /voice-studio/* service, API and app iframe paths remain isolated.
+        old_exact = "    location = /voice-studio { return 302 /voice-studio/; }"
+        shell_exact = """    location = /voice-studio {
+        proxy_pass http://127.0.0.1:18080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+    location = /voice-studio/ { return 308 /voice-studio; }"""
+        old.guard(fragment.count(old_exact) == 1, "Voice exact Nginx route drift")
+        fragment = fragment.replace(old_exact, shell_exact, 1)
     return check + fragment
+
+
+def legacy_voice_config():
+    """Previously published Voice SSO route, accepted for guarded upgrades."""
+    return config("voice-studio", voice_shell=False)
 
 
 def ready_cookie(app):
@@ -85,7 +104,9 @@ def ready_cookie(app):
 
 def verify(app, cookie):
     from production import nginx_route_only as old
-    urls = (old.public_path(app, "health"), old.public_path(app, "ui"))
+    # /voice-studio/ is now a redirect to the shell; the native UI stays /app.
+    ui = "/voice-studio/app" if app == "voice-studio" else old.public_path(app, "ui")
+    urls = (old.public_path(app, "health"), ui)
     for url in urls:
         old.require_https_status(url, expected=401, app=app)
         ct, body = old.require_https_status(url, expected=200, app=app, cookie=cookie)
@@ -98,12 +119,95 @@ def verify(app, cookie):
     old.guard(code == 404, "internal SSO subrequest publicly visible")
 
 
+def verify_voice_shell(cookie):
+    """Accept only the actual Scene HTML/sidebar, not the standalone Voice UI."""
+    from production import nginx_route_only as old
+    ct, body = old.require_https_status(
+        "/voice-studio", expected=200, app="voice-studio-shell", cookie=cookie)
+    old.guard("html" in ct.lower() and
+              b'id="app-sidebar"' in body and
+              b'id="mobile-nav-toggle"' in body and
+              b'id="voice-studio-frame"' in body,
+              "Voice Studio outer Scene shell/sidebar absent")
+    code, _, _ = old.tls_get("/voice-studio/")
+    old.guard(code == 308, "Voice Studio trailing slash must return to Scene shell")
+
+
+def ensure_voice_shell(revision):
+    """Upgrade only the Voice SSO snippet, transactionally, on protected main.
+
+    The existing Scene session record is updated after a verified Nginx reload
+    so its separate explicit rollback remains possible. No app is restarted.
+    """
+    from production import nginx_route_only as old
+    app = "voice-studio"
+    route = old.snippet_path(app)
+    old.guard(route.is_file() and not route.is_symlink(), "Voice SSO snippet absent")
+    before = route.read_bytes()
+    after = config(app).encode()
+    cookie = ready_cookie(app)
+    if before == after:
+        verify(app, cookie)
+        verify_voice_shell(cookie)
+        print("VOICE_STUDIO_SHELL=ALREADY_LIVE", flush=True)
+        return
+    old.guard(before == legacy_voice_config().encode(),
+              "unreviewed Voice SSO config: refusing to modify")
+    record_path = old.TRANSACTIONS / ("sso-" + app + ".json")
+    old.guard(record_path.is_file() and not record_path.is_symlink(),
+              "Voice SSO rollback record missing")
+    record = json.loads(record_path.read_text())
+    old.guard(record.get("app") == app and record.get("state") == "ACTIVE" and
+              record.get("mode") == "SCENE_SESSION_SSO" and
+              record.get("after_route_sha256") == old.digest(before),
+              "Voice SSO rollback record drift")
+    tx = old.TRANSACTIONS / (app + "-shell-" + str(time.time_ns()))
+    tx.mkdir(mode=0o700, parents=True, exist_ok=False)
+    old.atomic(tx / "before.route", before, 0o600)
+    wrote = False
+    try:
+        old.guard(route.read_bytes() == before, "concurrent Voice route edit")
+        old.atomic(route, after)
+        wrote = True
+        old.command(["nginx", "-t"])
+        old.command(["systemctl", "reload", "nginx"])
+        verify(app, cookie)
+        verify_voice_shell(cookie)
+        old.check_scene()
+        old.guard(route.read_bytes() == after, "Voice route changed after verify")
+        old.guard(record_path.is_file() and not record_path.is_symlink() and
+                  json.loads(record_path.read_text()) == record,
+                  "concurrent Voice SSO record edit")
+        updated = dict(record)
+        updated["after_route_sha256"] = old.digest(after)
+        updated["voice_shell_revision"] = revision
+        updated["voice_shell_backup"] = str(tx / "before.route")
+        old.atomic(record_path, (json.dumps(updated, sort_keys=True) + "\n").encode(), 0o600)
+        old.atomic(tx / "release.json", (json.dumps({
+            "revision": revision, "app": app, "status": "ACTIVE",
+            "before_sha256": old.digest(before), "after_sha256": old.digest(after),
+            "rollback_route": str(tx / "before.route"), "services_restarted": [],
+        }, sort_keys=True) + "\n").encode(), 0o600)
+        print("VOICE_STUDIO_SHELL=PASS SIDEBAR=VISIBLE TABS=PRESERVED", flush=True)
+    except BaseException:
+        if wrote:
+            old.guard(route.read_bytes() == after,
+                      "concurrent Voice route change blocks safe rollback")
+            old.atomic(route, before)
+            old.command(["nginx", "-t"])
+            old.command(["systemctl", "reload", "nginx"])
+        print("VOICE_STUDIO_SHELL=ROLLED_BACK", flush=True)
+        raise
+
+
 def active(app, site):
     from production import nginx_route_only as old
     if app not in APP_IDS:
         return False
     _, names = old.owned_routes(site)
-    return app in names and old.snippet_path(app).read_text() == config(app)
+    return (app in names and old.snippet_path(app).read_text() in
+            ((config(app), legacy_voice_config()) if app == "voice-studio"
+             else (config(app),)))
 
 
 def _legacy(app, site):
@@ -165,6 +269,8 @@ def migrate(revision, app):
         old.command(["nginx", "-t"])
         old.command(["systemctl", "reload", "nginx"])
         verify(app, cookie)
+        if app == "voice-studio":
+            verify_voice_shell(cookie)
         old.check_scene()
         record = dict(
             app=app, revision=revision, state="ACTIVE", mode="SCENE_SESSION_SSO",
