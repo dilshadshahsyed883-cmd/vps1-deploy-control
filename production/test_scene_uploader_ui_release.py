@@ -40,7 +40,7 @@ class SceneUploaderReleaseTests(unittest.TestCase):
                     '<a href="/video-studio/video-merger"></a>'
                     '<a href="/local-upload-manager"></a>')
                 (base / "templates/acs_studio_shell.html").write_text(
-                    '<iframe src="/auto-caption-studio/"></iframe>')
+                    '<iframe src="/auto-caption-studio/api/web-flow/studio?embed=1"></iframe>')
                 (base / "templates/video_studio_embed.html").write_text(
                     '<iframe id="video-studio-app-frame" src="{{ studio_url }}"></iframe>')
                 (base / "app.py").write_text(
