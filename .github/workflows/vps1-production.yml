@@ -26,6 +26,7 @@ jobs:
       github.actor == 'dilshadshahsyed883-cmd' &&
       (github.event_name == 'workflow_dispatch' ||
        contains(github.event.head_commit.message, '[vps1-production-release]') ||
+       contains(github.event.head_commit.message, '[vps1-production-release:scene-builder]') ||
        contains(github.event.head_commit.message, '[vps1-production-release:voice-studio]') ||
        contains(github.event.head_commit.message, '[vps1-production-release:local-upload-manager]'))
     environment: production
@@ -46,7 +47,7 @@ jobs:
         env:
           PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
           SOURCE_SHA: ${{ github.sha }}
-          APP_SELECTION: ${{ github.event_name == 'workflow_dispatch' && inputs.app || contains(github.event.head_commit.message, '[vps1-production-release:voice-studio]') && 'voice-studio' || contains(github.event.head_commit.message, '[vps1-production-release:local-upload-manager]') && 'local-upload-manager' || 'all' }}
+          APP_SELECTION: ${{ github.event_name == 'workflow_dispatch' && inputs.app || contains(github.event.head_commit.message, '[vps1-production-release:scene-builder]') && 'scene-builder' || contains(github.event.head_commit.message, '[vps1-production-release:voice-studio]') && 'voice-studio' || contains(github.event.head_commit.message, '[vps1-production-release:local-upload-manager]') && 'local-upload-manager' || 'all' }}
           OPERATION: ${{ inputs.operation || 'install' }}
         run: |
           set -Eeuo pipefail
