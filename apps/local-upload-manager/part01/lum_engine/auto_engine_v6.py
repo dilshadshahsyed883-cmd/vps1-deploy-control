@@ -2231,6 +2231,9 @@ def queue_preflight(pc_db: Any, store: V6Store) -> Dict[str,Any]:
     base=_CHANNEL_LEGACY_QUEUE_PREFLIGHT(pc_db,store)
     filtered=[]
     for issue in base.get("issues") or []:
+        # Shorts never require a thumbnail, including legacy V6 queue jobs.
+        if not thumbnail_required_for_mode() and clean(issue.get("code")) in {"THUMBNAIL_MISSING","THUMBNAIL_FILE_MISSING"}:
+            continue
         vid=int(issue.get("video_id") or 0)
         meta=store.channel_job_meta(vid)
         if meta and clean(issue.get("code")) in {"THUMBNAIL_MISSING","THUMBNAIL_FILE_MISSING"}:

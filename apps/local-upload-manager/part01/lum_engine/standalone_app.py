@@ -612,6 +612,8 @@ async def add_video(
             if suffix not in {".jpg", ".jpeg", ".png"}:
                 raise ValueError("Thumbnail must be JPG or PNG")
             payload = await thumbnail.read()
+            if not payload:
+                raise ValueError("Thumbnail must not be empty")
             if len(payload) > 2 * 1024 * 1024:
                 raise ValueError("Thumbnail must be 2 MB or smaller")
             temp = THUMBNAIL_ROOT / f"pending_{os.urandom(8).hex()}{suffix}"
