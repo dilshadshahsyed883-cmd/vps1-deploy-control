@@ -25,3 +25,23 @@ body.vps1-native-open #vps1-native-site-sidebar{transform:translateX(0)}
 .vps1-native-toggle{display:block!important;margin:8px 12px;padding:9px 13px;border:1px solid #d1d9ea;border-radius:8px;background:white;color:#101828;position:relative;z-index:9991}
 .vps1-native-video-tabs{margin:8px 10px;gap:5px}
 }
+/* Scene role is fetched live. Never flash an unverified administrator link. */
+#vps1-native-site-sidebar [hidden]{display:none!important}
+#vps1-native-site-sidebar .vps1-native-account{
+  margin-top:auto;margin-bottom:12px;padding:12px 10px;border:1px solid #303952;
+  border-radius:11px;background:#171e33;overflow-wrap:anywhere
+}
+#vps1-native-site-sidebar .vps1-native-account small{
+  font-size:10px;letter-spacing:.06em;color:#aab4d5
+}
+#vps1-native-site-sidebar .vps1-native-account strong{
+  margin-top:4px;font-size:12px;color:#fff
+}
+#vps1-native-site-sidebar .vps1-native-account form{margin:9px 0 0}
+#vps1-native-site-sidebar .vps1-native-account button{
+  width:100%;padding:8px;border:1px solid #38415c;border-radius:8px;
+  background:#232d49;color:#fff;font:700 12px/1.2 inherit;cursor:pointer
+}
+#vps1-native-site-sidebar .vps1-native-bottom{
+  margin-top:0;color:#aab4d5
+}
