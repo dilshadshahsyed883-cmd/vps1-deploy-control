@@ -97,6 +97,38 @@ class SceneVideoStudioShell(unittest.TestCase):
         self.assertNotIn("['voice','Algrow',", live)
         self.assertIn("['render','Renderer',", live)
 
+    def test_independent_nginx_prefix_rewrite_keeps_scene_assets(self):
+        import html as html_util
+        root = ROOT / "apps"
+        for file in (
+            root / "voice-studio/part01/templates/voice_studio.html",
+            root / "auto-caption-studio/part01/web_backend/acs_studio.html",
+        ):
+            with self.subTest(file=file):
+                source = file.read_text()
+                for ext in ("js", "css"):
+                    self.assertIn(
+                        "/&#115;tatic/vps1_native_site_shell." + ext, source)
+                    self.assertIn(
+                        "/static/vps1_native_site_shell." + ext,
+                        html_util.unescape(source))
+                self.assertNotIn('src="/static/vps1_native_site_shell.js"', source)
+
+    def test_guarded_scene_native_readback_gate(self):
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+        from production.scene_candidate_release import _verify_native_ui_release
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("production.scene_uploader_ui_release.verify_video_studio") as check:
+                _verify_native_ui_release(root)
+                check.assert_not_called()
+                file = root / "part01/static/vps1_native_site_shell.js"
+                file.parent.mkdir(parents=True)
+                file.write_text("/* native */")
+                _verify_native_ui_release(root)
+                check.assert_called_once_with()
+
     def test_admin_only_video_app_routing(self):
         app = (SCENE / "app.py").read_text()
         body = app.split("def video_studio_embedded_app(", 1)[1].split(
