@@ -4,7 +4,11 @@ on:
     paths:
       - 'apps/auto-caption-studio/part01/web_backend/**'
       - 'apps/scene-builder/part01/**'
+      - 'apps/short-maker/part01/app.py'
+      - 'apps/video-merger/part01/templates/index.html'
       - 'production/test_canonical_studio_navigation.py'
+      - 'production/test_video_studio_geometry.py'
+      - '.github/workflows/vps1-native-studio-release.yml'
       - '.github/workflows/vps1-canonical-studio-ci.yml'
   workflow_dispatch:
 permissions:
@@ -19,3 +23,5 @@ jobs:
         run: python3 -m py_compile apps/auto-caption-studio/part01/web_backend/app.py apps/auto-caption-studio/part01/web_backend/web_flow_api.py apps/scene-builder/part01/app.py
       - name: Canonical routes, tab memory, polling and no-frame contracts
         run: python3 -m unittest production.test_canonical_studio_navigation -v
+      - name: Four independently rendered Video Studio tabs align on one grid
+        run: python3 -m unittest production.test_video_studio_geometry -v
