@@ -1,0 +1,13 @@
+[Unit]
+Description=Run VPS1 deployment artifact cleanup every 12 hours
+
+[Timer]
+OnBootSec=12h
+OnUnitActiveSec=12h
+AccuracySec=5min
+RandomizedDelaySec=0
+Persistent=true
+Unit=vps1-storage-deployment-gc.service
+
+[Install]
+WantedBy=timers.target

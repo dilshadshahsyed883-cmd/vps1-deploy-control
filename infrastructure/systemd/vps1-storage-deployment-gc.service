@@ -1,0 +1,24 @@
+[Unit]
+Description=VPS1 guarded GitHub deployment-artifact cleanup (12h retention)
+After=local-fs.target
+ConditionPathExists=/srv/fresh-website/control/state
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStart=/usr/bin/python3 /usr/local/libexec/vps1-storage-gc.py --apply
+TimeoutStartSec=1800
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=yes
+ProtectSystem=full
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadWritePaths=/srv/fresh-website/releases /srv/fresh-website/venvs /var/lib/vps-storage-manager /run/lock
+StandardOutput=journal
+StandardError=journal
