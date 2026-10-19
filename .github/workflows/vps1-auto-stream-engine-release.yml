@@ -1,0 +1,76 @@
+name: VPS1 Auto Stream engine-only guarded release
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: vps1-auto-stream-engine-only
+  cancel-in-progress: false
+jobs:
+  guarded-short-stream:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'dilshadshahsyed883-cmd' &&
+      github.run_attempt == 1 &&
+      contains(github.event.head_commit.message, '[vps1-auto-stream-release]')
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Join existing production tailnet
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Guard active sessions, deploy engine-only source, verify and rollback
+        shell: bash
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/identity"
+          unset PRIVATE_IDENTITY
+          chmod 0600 "$scratch/identity"
+          ssh-keygen -y -P '' -f "$scratch/identity" > "$scratch/public"
+          test "$(ssh-keygen -lf "$scratch/public" -E sha256 | awk '{print $2}')" = \
+            'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
+          remote() {
+            timeout 2200s ssh -T -i "$scratch/identity" -p 22 \
+              -o UserKnownHostsFile="$scratch/known_hosts" \
+              -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+              -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o PreferredAuthentications=publickey -o PasswordAuthentication=no \
+              -o KbdInteractiveAuthentication=no -o ConnectTimeout=20 \
+              -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+              vps1deploy@100.87.55.92 "$1"
+          }
+          echo "PHASE=EXISTING_SHORT_STREAM_READ_ONLY_PRECHECK"
+          remote "python3 -c 'import json,urllib.request; d=json.loads(urllib.request.urlopen(\"http://127.0.0.1:8145/health\",timeout=8).read()); assert d.get(\"ok\") is True and d.get(\"app\")==\"short-stream\" and d.get(\"running\")==0, \"active/unknown Short Stream sessions: refuse deployment\"'"
+          echo "PHASE=SHORT_STREAM_SCOPED_INSTALL"
+          remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA short-stream"
+          echo "PHASE=INDEPENDENT_ENGINE_READBACK"
+          if ! remote "python3 -c 'import json,urllib.request; d=json.loads(urllib.request.urlopen(\"http://127.0.0.1:8145/engine/health\",timeout=8).read()); assert d.get(\"ok\") is True and d.get(\"engine\")==\"auto-stream\" and d.get(\"version\")==1 and d.get(\"publishing_enabled\") is False and d.get(\"scheduler_enabled\") is False and d.get(\"youtube_live_verified\") is False, \"engine health/flags mismatch\"'"; then
+            echo "ENGINE_READBACK_FAILED_ROLLBACK=REQUESTED"
+            remote "sudo -n /usr/local/sbin/vps1-production-deploy rollback $SOURCE_SHA short-stream" || true
+            exit 1
+          fi
+          echo "AUTO_STREAM_ENGINE_RUNTIME=PASS"
+          echo "AUTO_STREAM_PUBLISHING=OFF"
+          echo "AUTO_STREAM_SCHEDULER=OFF"
+          echo "LEGACY_UPLOADER_APPS_UNTOUCHED=YES"
+          echo "YOUTUBE_LIVE_TEST=NOT_PERFORMED"
+          echo "AUTO_SCRIPT=OFFLINE"
