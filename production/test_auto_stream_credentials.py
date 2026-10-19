@@ -77,7 +77,7 @@ class OAuthClientWebSetupTests(unittest.TestCase):
         self.assertEqual(m.OAuthClientStore(self.root).read_client(),
                          (ID,SECRET,m.REDIRECT))
         with patch.object(m,"store",return_value=self.store), \
-             patch.object(integrations,"ENGINE_ROOT",self.root,create=True):
+             patch("auto_stream_engine.ENGINE_ROOT",self.root):
             self.assertEqual(integrations._configuration(),
                              (ID,SECRET,m.REDIRECT))
 
