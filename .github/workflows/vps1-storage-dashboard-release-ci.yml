@@ -1,0 +1,22 @@
+name: VPS1 scoped storage dashboard release tests (NO VPS)
+on:
+  pull_request:
+    paths:
+      - 'apps/scene-builder/part01/templates/dashboard.html'
+      - 'production/scene_candidate_release.py'
+      - 'tests/test_scene_candidate_release.py'
+      - 'production/test_storage_dashboard_scoped_release.py'
+      - '.github/workflows/vps1-storage-dashboard-release.yml'
+      - '.github/workflows/vps1-storage-dashboard-release-ci.yml'
+permissions:
+  contents: read
+jobs:
+  scoped-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile Python and check scene-only release contract
+        run: |
+          python3 -m py_compile production/scene_candidate_release.py
+          python3 -m unittest tests.test_scene_candidate_release production.test_storage_dashboard_scoped_release -v
