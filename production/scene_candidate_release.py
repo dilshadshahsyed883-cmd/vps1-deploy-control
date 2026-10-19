@@ -224,6 +224,19 @@ def _verify_integrations(*, require_storage_backend: bool = False) -> dict:
             "storage_backend": storage_backend, **pages}
 
 
+def _verify_native_ui_release(target: Path) -> None:
+    """Fail the guarded Scene cutover if independently owned native UIs are missing.
+
+    Called only for this new UI revision, after all required apps have been installed.
+    Browser authentication, route health, tabs and real app documents are checked
+    over the existing trusted HTTPS gateway. A failure rolls Scene back.
+    """
+    if not (target / "part01/static/vps1_native_site_shell.js").is_file():
+        return  # older unrelated deployments retain their established behavior
+    from production.scene_uploader_ui_release import verify_video_studio
+    verify_video_studio()
+
+
 def install(revision: str) -> None:
     from production.browser_runtime import install as install_browser
     from production.runtime import atomic_json, atomic_link, backup_databases, event, run
@@ -239,6 +252,7 @@ def install(revision: str) -> None:
     target = _stage(revision)
     if previous == target:
         integrations = _verify_integrations()
+        _verify_native_ui_release(target)
         event(app="scene-builder", result="PASS_ALREADY_INSTALLED", revision=revision,
               port=18080, integrations=integrations)
         return
@@ -270,6 +284,7 @@ def install(revision: str) -> None:
         # Idempotent dedicated Chrome/noVNC setup used by the existing Script Work UI.
         install_browser()
         integrations = _verify_integrations(require_storage_backend=require_storage_backend)
+        _verify_native_ui_release(target)
         if shutil.disk_usage("/").free < 5_000_000_000:
             raise RuntimeError("operational disk reserve breached")
         atomic_json(RECORD, {"revision": revision, "status": "ACTIVE", "unit": UNIT,

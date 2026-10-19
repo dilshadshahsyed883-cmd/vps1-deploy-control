@@ -120,17 +120,19 @@ def verify(app, cookie):
 
 
 def verify_voice_shell(cookie):
-    """Accept only the actual Scene HTML/sidebar, not the standalone Voice UI."""
+    """The Scene exact route must redirect to one authenticated native page."""
     from production import nginx_route_only as old
+    code, _, _ = old.tls_get("/voice-studio", cookie=cookie)
+    old.guard(code == 303, "Voice Studio native route redirect missing")
     ct, body = old.require_https_status(
-        "/voice-studio", expected=200, app="voice-studio-shell", cookie=cookie)
+        "/voice-studio/app", expected=200, app="voice-studio-native", cookie=cookie)
     old.guard("html" in ct.lower() and
-              b'id="app-sidebar"' in body and
-              b'id="mobile-nav-toggle"' in body and
-              b'id="voice-studio-frame"' in body,
-              "Voice Studio outer Scene shell/sidebar absent")
+              b"vps1_native_site_shell.js" in body and
+              b"vsEngineOmni" in body and b"vsEngineKokoro" in body and
+              b'id="voice-studio-frame"' not in body,
+              "Voice Studio native workspace or shared navigation absent")
     code, _, _ = old.tls_get("/voice-studio/")
-    old.guard(code == 308, "Voice Studio trailing slash must return to Scene shell")
+    old.guard(code == 308, "Voice Studio slash redirect missing")
 
 
 def ensure_voice_shell(revision):

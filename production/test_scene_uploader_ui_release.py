@@ -40,11 +40,15 @@ class SceneUploaderReleaseTests(unittest.TestCase):
                     '<a href="/video-studio/video-merger"></a>'
                     '<a href="/local-upload-manager"></a>')
                 (base / "templates/acs_studio_shell.html").write_text(
-                    '<iframe src="/auto-caption-studio/api/web-flow/studio?embed=1"></iframe>')
+                    '<a href="/auto-caption-studio/api/web-flow/studio?embed=1">ACS</a>')
                 (base / "templates/video_studio_embed.html").write_text(
-                    '<iframe id="video-studio-app-frame" src="{{ studio_url }}"></iframe>')
+                    '<a href="{{ studio_url }}">Open application</a>')
                 (base / "app.py").write_text(
-                    '@app.get("/video-studio/{studio_app}")\nrequire_admin(request)')
+                    '@app.get("/video-studio/{studio_app}")\nrequire_admin(request)\n'
+                    'return RedirectResponse(url, status_code=303)\n'
+                    'RedirectResponse("/auto-caption-studio/api/web-flow/studio?embed=1"\n'
+                    'RedirectResponse("/local-upload-manager/app?embedded=1&tab=dashboard"\n'
+                    'RedirectResponse("/voice-studio/app"')
             else:
                 for relative in ("templates/base.html", "templates/acs_studio_shell.html", "app.py"):
                     (base / relative).write_text("old")
@@ -59,6 +63,8 @@ class SceneUploaderReleaseTests(unittest.TestCase):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(("old" if base == self.old / "part01" else
                                    "new") + ":" + relative)
+        (self.source / "static/vps1_native_site_shell.js").write_text(
+            "/* no iframe */ vps1-native-site-sidebar")
         self.current.parent.mkdir(parents=True)
         self.current.symlink_to(self.old, target_is_directory=True)
         self.patches = [

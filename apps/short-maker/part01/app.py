@@ -568,7 +568,7 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
   <a href="/local-upload-manager">Auto Uploader</a>
     <a class="active" href="/queue" aria-current="page">Video Studio</a>
 
-<a href="/auto-script">Auto Script</a>
+<!-- Auto Script stays OFFLINE -->
  </nav>
  <div class="server"><span></span> VPS Connected</div>
 </aside>

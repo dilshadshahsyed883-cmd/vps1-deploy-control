@@ -1,16 +1,4 @@
 {% extends "base.html" %}
 {% block title %}{{ studio_title }}{% endblock %}
 {% block subtitle %}Video Studio workspace{% endblock %}
-{% block content %}
-<!-- VIDEO_STUDIO_INDEPENDENT_APP_V1: retain Scene navigation and original sub-tabs. -->
-<section class="video-studio-embedded" aria-label="{{ studio_title }} application"
-  style="width:100%;max-width:1400px;margin:0 auto;min-width:0">
-  <iframe id="video-studio-app-frame" title="{{ studio_title }} workspace"
-    src="{{ studio_url }}" loading="eager" referrerpolicy="same-origin"
-    style="display:block;width:100%;height:calc(100dvh - 200px);min-height:650px;border:0;border-radius:10px;background:#f8fafc"></iframe>
-  <p>Having trouble viewing the embedded app? <a href="{{ studio_url }}">Open {{ studio_title }} directly</a>.</p>
-</section>
-<style>
-@media(max-width:760px) { #video-studio-app-frame{height:calc(100dvh - 190px)!important;min-height:620px!important}}
-</style>
-{% endblock %}
+{% block content %}<p><a href="{{ studio_url }}">Open {{ studio_title }}</a></p>{% endblock %}

@@ -3454,14 +3454,8 @@ def script_work_page(request: Request):
 @app.get("/local-upload-manager", response_class=HTMLResponse)
 def local_upload_manager_page(request: Request):
     require_local_upload_manager_access(request)
-    return templates.TemplateResponse(
-        "local_upload_manager.html",
-        {
-            "request": request,
-            "page": "local_upload_manager",
-            "username": request.session.get("username", "team"),
-        },
-    )
+    # Auth stays enforced by Scene, then render the independent native uploader.
+    return RedirectResponse("/local-upload-manager/app?embedded=1&tab=dashboard", status_code=303)
 
 
 @app.get("/internal/auto-caption-auth")
@@ -3728,23 +3722,15 @@ def video_studio_embedded_app(request: Request, studio_app: str):
     if studio_app not in allowed:
         raise HTTPException(404, "Unknown Video Studio app")
     require_login(request)
-    title, url = allowed[studio_app]
-    return templates.TemplateResponse(
-        "video_studio_embed.html",
-        {"request": request, "page": "video_studio_embedded",
-         "studio_app": studio_app, "studio_title": title,
-         "studio_url": url, "username": request.session.get("username", "team")},
-    )
+    # Preserve main's both-role user access, and avoid nested website wrappers.
+    _title, url = allowed[studio_app]
+    return RedirectResponse(url, status_code=303)
 
 
 @app.get("/auto-caption/studio", response_class=HTMLResponse)
 def auto_caption_studio(request: Request):
     account = require_auto_caption_access(request)
-    return templates.TemplateResponse(
-        "acs_studio_shell.html",
-        {"request": request, "page": "auto_caption_studio", "username": request.session.get("username", "team"),
-         "account": account, "show_all_users": bool(account.get("is_admin"))},
-    )
+    return RedirectResponse("/auto-caption-studio/api/web-flow/studio?embed=1", status_code=303)
 
 
 @app.get("/auto-caption/admin")
@@ -3817,11 +3803,8 @@ _VS_UPSTREAM="http://127.0.0.1:8130"
 
 @app.get("/voice-studio", response_class=HTMLResponse)
 async def vps1_voice_studio_host(request:_VSRequest):
-    return templates.TemplateResponse("voice_studio_host.html",{
-        "request":request,
-        "page":"voice_studio",
-        "username":str(request.session.get("username") or "team"),
-    })
+    require_login(request)
+    return RedirectResponse("/voice-studio/app", status_code=303)
 
 async def _vps1_voice_studio_proxy(request:_VSRequest,upstream_path:str):
     body=await request.body()
