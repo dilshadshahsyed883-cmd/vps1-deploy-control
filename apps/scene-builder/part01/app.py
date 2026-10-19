@@ -1660,13 +1660,12 @@ def _storage_dashboard_counts() -> dict[str, int]:
 
 def _dashboard_allowed_app_names(request: Request) -> set[str]:
     if bool(request.session.get("is_admin")):
-        return {"Scene Builder", "Auto Caption Studio", "Algrow Voice", "Auto Uploader", "Storage Manager"}
+        return {"Scene Builder", "Auto Caption Studio", "Auto Uploader", "Storage Manager"}
     access = str(request.session.get("app_access") or "scene_builder")
     names: set[str] = set()
     if access in {"scene_builder", "both", "all"}: names.add("Scene Builder")
     if access in {"auto_caption", "both", "all"}: names.add("Auto Caption Studio")
     if access in {"lum", "all"}: names.add("Auto Uploader")
-    if access == "all": names.add("Algrow Voice")
     return names
 
 def _scene_dashboard_detail(username: str) -> dict[str, Any]:
@@ -1713,8 +1712,6 @@ def _dashboard_apps(request: Request) -> list[dict[str, Any]]:
          **_scene_dashboard_counts(username), "detail": _scene_dashboard_detail(username)},
         {"name": "Auto Caption Studio", "available": _service_active("vps1-production-auto-caption-studio.service"),
          **_acs_dashboard_counts(username, is_admin), "detail": _acs_dashboard_detail(username, is_admin)},
-        {"name": "Algrow Voice", "available": _service_active("vps1-production-voice-studio.service"),
-         **_algrow_dashboard_counts(username, is_admin), "detail": _algrow_dashboard_detail(username, is_admin)},
         {"name": "Auto Uploader", "available": _service_active("vps1-production-local-upload-manager.service"),
          **_lum_dashboard_counts(), "detail": _lum_dashboard_detail()},
         {"name": "Storage Manager",
@@ -3632,6 +3629,17 @@ async def storage_pexels_keys_update(request: Request):
     health = get_health()
     managed = masked_managed_pexels_keys()
     return {"ok": True, "keys": managed, "managed_count": len(managed), "total_key_count": int(health.get("pexels_key_count") or len(managed)), "dynamic_reload": True}
+
+
+@app.get("/api/admin/storage/capabilities")
+def storage_capabilities(request: Request):
+    """Administrator-only, authenticated backend capability negotiation.
+
+    A missing/older manager fails closed in the UI; no mutation authorization
+    is implied by availability of the read-only VPS dashboard.
+    """
+    require_admin(request)
+    return storage_manager_request("GET", "/v1/capabilities", timeout=5)
 
 
 @app.get("/api/admin/storage/metrics")
