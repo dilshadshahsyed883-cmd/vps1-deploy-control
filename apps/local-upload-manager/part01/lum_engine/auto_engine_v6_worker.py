@@ -245,8 +245,10 @@ def reconcile_completed(db:Database, store:V6Store, video_id:int) -> None:
         if channel_meta:
             month=datetime.now(timezone.utc).strftime("%Y-%m")
             video_destination=drive_move_uploaded_month(clean(source["source_folder_id"]),clean(source["filename"]),clean(source["drive_file_id"]),month)
-            thumb_destination=drive_move_uploaded_month(clean(channel_meta["thumbnail_source_folder_id"]),clean(channel_meta["thumbnail_filename"]),clean(channel_meta["thumbnail_drive_file_id"]),month)
-            destination=f"video={video_destination}; thumbnail={thumb_destination}"
+            thumb_destination=""
+            if clean(channel_meta.get("thumbnail_drive_file_id")):
+                thumb_destination=drive_move_uploaded_month(clean(channel_meta["thumbnail_source_folder_id"]),clean(channel_meta["thumbnail_filename"]),clean(channel_meta["thumbnail_drive_file_id"]),month)
+            destination=f"video={video_destination}" + (f"; thumbnail={thumb_destination}" if thumb_destination else "")
             set_channel_job_post_state(store,video_id,"COMPLETE",video_dest=video_destination,thumb_dest=thumb_destination)
         elif action=="move_uploaded":
             destination=drive_move_uploaded(clean(source["source_folder_id"]),clean(source["filename"]),clean(source["drive_file_id"]))
@@ -371,7 +373,7 @@ def process_one(db:Database,store:V6Store,item:dict,worker_id:str) -> None:
     channel_meta=store.channel_job_meta(vid)
     try:
         download_for_claim(db,store,vid,worker_id)
-        if channel_meta:
+        if channel_meta and int(channel_meta.get("strict_thumbnail") or 0):
             try:
                 download_channel_thumbnail_for_job(store,vid)
             except Exception as exc:

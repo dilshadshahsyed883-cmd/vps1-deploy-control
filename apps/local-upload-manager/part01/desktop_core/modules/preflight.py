@@ -96,10 +96,15 @@ def validate_job(job: Dict[str, Any]) -> List[PreflightIssue]:
         issues.append(PreflightIssue(video_id, "ERROR", "CHANNEL_INACTIVE", f"Channel status is {channel_status}, not ACTIVE."))
 
     thumb_raw = str(job.get("thumbnail_path") or "").strip()
+    # Reject Engine 2 jobs without thumbnails even if bypassing HTML validation.
+    # Existing uploaded media is handled by UploadPipeline without re-upload.
+    import os
+    if os.environ.get("LUM_ENGINE_INSTANCE", "engine1").strip().lower() == "engine2" and not thumb_raw:
+        issues.append(PreflightIssue(video_id, "ERROR", "THUMBNAIL_MISSING", "Engine 2 requires a thumbnail before upload."))
     if thumb_raw:
         thumb = resolve_stored_path(thumb_raw)
-        if not thumb.exists() or not thumb.is_file():
-            issues.append(PreflightIssue(video_id, "ERROR", "THUMBNAIL_MISSING", f"Thumbnail file not found: {thumb}"))
+        if not thumb.exists() or not thumb.is_file() or thumb.stat().st_size <= 0:
+            issues.append(PreflightIssue(video_id, "ERROR", "THUMBNAIL_MISSING", f"Thumbnail file missing or empty: {thumb}"))
         elif thumb.suffix.lower() not in {".jpg", ".jpeg", ".png"}:
             issues.append(PreflightIssue(video_id, "WARNING", "THUMBNAIL_FORMAT", f"Thumbnail format may not be supported: {thumb.name}"))
         elif thumb.stat().st_size > 2 * 1024 * 1024:
