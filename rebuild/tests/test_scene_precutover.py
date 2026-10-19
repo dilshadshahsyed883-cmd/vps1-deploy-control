@@ -1,10 +1,11 @@
-"""Scene Builder production-prep smoke: HTTPS session and allowed preset writes.
+"""Scene candidate smoke: login, exact admin user creation and preset writes.
 
-GitHub CI only. Never touches VPS_1. Uses isolated temporary *CI* state
-beneath the guarded candidate root, tests all unsafe operations denied.
+GitHub CI only. Never touches VPS_1. Uses isolated temporary CI state
+beneath the guarded candidate root; unrelated writes remain denied.
 """
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import sys
@@ -32,13 +33,20 @@ class WritePolicy(unittest.TestCase):
         for method, path in allowed:
             self.assertFalse(mutation_allowed(method, path, False))
             self.assertTrue(mutation_allowed(method, path, True))
+        # Owner-authorized administrator account editing works in candidate
+        # mode even when the unrelated general preset-editing gate is OFF.
+        for editing in (False, True):
+            self.assertTrue(mutation_allowed("POST", "/user-management", editing))
         denied = [
             ("POST", "/queue/submit"),
             ("POST", "/queue/123/start"),
             ("POST", "/api/admin/storage/cleanup"),
             ("POST", "/api/admin/storage/services/foo/start"),
             ("POST", "/api/master-controller/chatgpt/projects"),
-            ("POST", "/user-management"),
+            ("POST", "/user-management/"),
+            ("PUT", "/user-management"),
+            ("DELETE", "/user-management"),
+            ("POST", "/user-management/reset"),
             ("POST", "/settings"),
             ("POST", "/api/scene-builder/channels/add"),
             ("POST", "/api/presets/evil/rename/another"),
@@ -48,6 +56,7 @@ class WritePolicy(unittest.TestCase):
         ]
         for method, path in denied:
             self.assertFalse(mutation_allowed(method, path, True), (method, path))
+            self.assertFalse(mutation_allowed(method, path, False), (method, path))
 
 
 @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "production pilot must run nonroot")
@@ -97,10 +106,35 @@ class RealProductionPreparationSmoke(unittest.TestCase):
                 preset = create.json()["preset_id"]
                 self.assertEqual(client.post("/api/presets/" + preset + "/rename",
                                 json={"name": "Pilot Preset"}).status_code, 200)
+                # A real administrator can create an account through the same
+                # route as the public form, with the session-bound CSRF value.
+                page = client.get("/user-management")
+                self.assertEqual(page.status_code, 200)
+                token = re.search(r'name="csrf_token" value="([^"]+)"', page.text)
+                self.assertIsNotNone(token, "user management CSRF missing")
+                denied_create = client.post("/user-management", data={
+                    "action": "create", "username": "candidate_probe",
+                    "secret_key": "candidate-secret-123", "role": "non_admin",
+                    "csrf_token": "bad-token",
+                })
+                self.assertEqual(denied_create.status_code, 403)
+                self.assertIn("Invalid user-management action token", denied_create.text)
+                created = client.post("/user-management", data={
+                    "action": "create", "username": "candidate_probe",
+                    "secret_key": "candidate-secret-123", "role": "non_admin",
+                    "csrf_token": token.group(1),
+                })
+                self.assertEqual(created.status_code, 303, created.text[:300])
+                with app.db() as database:
+                    row = database.execute(
+                        "SELECT is_admin,is_active FROM users WHERE username=?",
+                        ("candidate_probe",)).fetchone()
+                self.assertIsNotNone(row)
+                self.assertEqual((row["is_admin"], row["is_active"]), (0, 1))
                 for endpoint in (
                     "/queue/submit", "/api/admin/storage/cleanup",
                     "/api/admin/storage/services/storage/start", "/api/master-controller/projects",
-                    "/user-management", "/settings",
+                    "/user-management/", "/settings",
                 ):
                     res = client.post(endpoint, json={})
                     self.assertEqual(res.status_code, 403, (endpoint, res.status_code))
