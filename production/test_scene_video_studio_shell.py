@@ -31,8 +31,8 @@ class SceneVideoStudioShell(unittest.TestCase):
                 return 200, "text/html; charset=utf-8", destinations[path]
             return 303, "text/html", b""
         with patch("production.route_uploader_scene_https.scene_cookie",
-                   return_value="session=admin"), \\
-             patch("production.route_uploader_scene_https.https_get", side_effect=get), \\
+                   return_value="session=admin"), \
+             patch("production.route_uploader_scene_https.https_get", side_effect=get), \
              patch("production.scene_uploader_ui_release.time.sleep"):
             verify_video_studio()
         self.assertEqual(seen.count("/video-studio/short-maker"), 2)
@@ -40,7 +40,7 @@ class SceneVideoStudioShell(unittest.TestCase):
     def test_native_release_fails_closed_on_denial(self):
         from production.scene_uploader_ui_release import verify_video_studio
         with patch("production.route_uploader_scene_https.scene_cookie",
-                   return_value="session=admin"), \\
+                   return_value="session=admin"), \
              patch("production.route_uploader_scene_https.https_get",
                    return_value=(403, "text/plain", b"denied")):
             with self.assertRaisesRegex(RuntimeError, "status=403"):
