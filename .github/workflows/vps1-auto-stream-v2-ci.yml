@@ -29,3 +29,13 @@ jobs:
           python -m py_compile apps/short-stream/part01/auto_stream_integrations.py
           python -m py_compile apps/short-stream/part01/app.py
           python -m unittest -v production.test_auto_stream_engine production.test_auto_stream_integrations production.test_auto_stream_ui
+
+      - name: Parse native browser script with Node JS syntax checker
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re, subprocess
+          s=Path('apps/short-stream/part01/auto_stream_ui.py').read_text()
+          source=s.split('<script>',1)[1].split('</script>',1)[0]
+          subprocess.run(['node','--check'], input=source, text=True, check=True)
+          PY
