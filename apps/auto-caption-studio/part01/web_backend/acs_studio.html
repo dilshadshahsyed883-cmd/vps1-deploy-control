@@ -666,7 +666,14 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
 
 </div></div>
 <script>
-if(window.top===window && location.pathname!=="/auto-caption/studio" && !new URLSearchParams(location.search).has("embed")){location.replace("/auto-caption/studio"+location.hash);}
+// Full Studio is served at the canonical application root. Preserve legacy
+// document links without causing an HTTP or page-navigation redirect.
+const ACS_CANONICAL_PATH='/auto-caption-studio/';
+const acsIncomingHash=location.hash.slice(1);
+if(window.self===window.top && location.pathname.startsWith('/auto-caption-studio/') &&
+   (location.pathname!==ACS_CANONICAL_PATH || location.search || location.hash)){
+  history.replaceState(null,'',ACS_CANONICAL_PATH);
+}
 const API='/auto-caption/api/web-flow';
 const PEXELS_API='/auto-caption/api/pexels-library';
 const tabs=[...document.querySelectorAll('.tab[data-page]')], pages=[...document.querySelectorAll('.page')];
@@ -677,15 +684,30 @@ let instantLiveScript="",instantLiveRaf=0,instantLiveView="live";
 const globalState=document.getElementById('globalSaveState');
 const pageStates=[...document.querySelectorAll('.page-save-state')];
 
-function openPage(id,syncHash=true){
+function acsTabStateKey(){
+  const username=appState.bootstrap?.principal?.username;
+  return username ? 'vps1.acs.active-tab.v1:'+username : '';
+}
+function savedAcsTab(){
+  const key=acsTabStateKey();
+  try{return key ? sessionStorage.getItem(key) || 'queue' : 'queue';}
+  catch(_){return 'queue';}
+}
+function openPage(id){
+  if(id==='music'||id==='audio')id='voice';
   if(!pages.some(p=>p.id===id))id='queue';
-  tabs.forEach(t=>t.classList.toggle('active',t.dataset.page===id));
+  tabs.forEach(t=>{t.classList.toggle('active',t.dataset.page===id);t.setAttribute('aria-selected',String(t.dataset.page===id));});
   pages.forEach(p=>p.classList.toggle('active',p.id===id));
-  if(syncHash&&location.hash!==`#${id}`)history.replaceState(null,'',`#${id}`);
-  if(window.parent!==window){try{window.parent.history.replaceState(null,'',`/auto-caption/studio#${id}`);}catch(_){}}
+  const key=acsTabStateKey();
+  if(key){try{sessionStorage.setItem(key,id);}catch(_){}}
+  document.dispatchEvent(new CustomEvent('acs:tab-changed',{detail:{tab:id}}));
 }
 tabs.forEach(t=>t.onclick=()=>openPage(t.dataset.page));
-window.addEventListener('hashchange',()=>openPage(location.hash.slice(1)||'queue',false));
+window.addEventListener('hashchange',()=>{
+  const tab=location.hash.slice(1)||'queue';
+  history.replaceState(null,'',ACS_CANONICAL_PATH);
+  openPage(tab);
+});
 document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>openPage(b.dataset.go));
 
 function txt(v){return String(v??'');}
@@ -1027,7 +1049,7 @@ function initUploadActions(){fillUploadPreset();fillUploadCategories();document.
 
 /* ---------- global bootstrap ---------- */
 async function refreshBootstrap(first=false){const data=await api('/bootstrap');appState.bootstrap=data;appState.presets=data.presets||[];appState.fg=data.fg_libraries||[];appState.voices=data.voice_profiles||[];appState.fonts=data.fonts?.families||[];renderFontOptions();if(first){appState.selectedPresetId=data.user_state?.selected_preset_id&&appState.presets.some(p=>p.id===data.user_state.selected_preset_id)?data.user_state.selected_preset_id:appState.presets[0]?.id||'';}else if(!appState.presets.some(p=>p.id===appState.selectedPresetId)){appState.selectedPresetId=appState.presets[0]?.id||'';}renderPresetCards();renderFgLibraries();renderVoiceProfiles();renderPexelsInfo();fillUploadPreset();fillUploadCategories();applyBindings();showCaptionModeFromPreset();updateMainPreviewOverlay();await refreshPresetVisualPlan(true);updatePreflight();if(first){const admin=!!data.principal?.is_admin;const pexKey=fieldControl('pexels','Pexels API Key','Media Source'),saveKey=buttonByText(card('pexels','Media Source'),'Save Key'),musicPath=fieldControl('music','VPS Music Library','Background Music');if(pexKey)pexKey.disabled=!admin;if(saveKey)saveKey.disabled=!admin;if(musicPath)musicPath.readOnly=!admin;}}
-async function boot(){try{initBindings();initSpecialControls();initFontControls();initTextBackgroundControls();initCaptionMode();initTextRenderMode();initPresetVisualPlan();document.getElementById('captionMainPreviewBtn')?.addEventListener('click',openMainPreview);document.getElementById('scrollTextX')?.addEventListener('input',()=>{updateScrollTextXReadout();updateMainPreviewOverlay();});initPresetButtons();initFgActions();initPexelsActions();initVoiceActions();initAudioEngineControls();const queueWarmup=refreshQueue();await refreshBootstrap(true);initPreviewReferenceUpload();initPreviewRenderControls();refreshRealPresetPreview(false);initQueueActions();initUploadActions();await queueWarmup;await refreshQueue();const initialPage=['music','audio'].includes(location.hash.slice(1))?'voice':(location.hash.slice(1)||'queue');openPage(initialPage,false);markSaved();appState.queueTimer=setInterval(refreshQueue,3000);}catch(e){setSaveState('Connection error','#b83246','#ffd8df','#fff0f2');toast(e.message,true);console.error(e);}}
+async function boot(){try{initBindings();initSpecialControls();initFontControls();initTextBackgroundControls();initCaptionMode();initTextRenderMode();initPresetVisualPlan();document.getElementById('captionMainPreviewBtn')?.addEventListener('click',openMainPreview);document.getElementById('scrollTextX')?.addEventListener('input',()=>{updateScrollTextXReadout();updateMainPreviewOverlay();});initPresetButtons();initFgActions();initPexelsActions();initVoiceActions();initAudioEngineControls();const queueWarmup=refreshQueue();await refreshBootstrap(true);initPreviewReferenceUpload();initPreviewRenderControls();refreshRealPresetPreview(false);initQueueActions();initUploadActions();await queueWarmup;const initialPage=acsIncomingHash||savedAcsTab();openPage(initialPage);markSaved();appState.queueTimer=setInterval(()=>{if(!document.hidden && document.getElementById('queue')?.classList.contains('active'))refreshQueue();},3000);}catch(e){setSaveState('Connection error','#b83246','#ffd8df','#fff0f2');toast(e.message,true);console.error(e);}}
 boot();
 
 </script>
@@ -1404,7 +1426,9 @@ function renderWorkers(d){const definitions=[['render','Renderer',d.pipeline_cou
 async function setPipeline(name,action){if(controlBusy)return;controlBusy=name;try{const response=await fetch(`${root}/api/acs-control/pipelines/${encodeURIComponent(name)}/${action}`,{method:'POST',headers:{'Accept':'application/json'}});const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.detail||`HTTP ${response.status}`);await refresh()}catch(error){document.querySelector('#updated').textContent=`Control failed: ${error.message}`;document.querySelector('#updated').className='error'}finally{controlBusy=''}}
 function renderBatchRows(batches){const body=document.querySelector('#batchRows');if(!batches.length){body.innerHTML='<tr><td colspan="8" class="muted">No batches found.</td></tr>';return}body.innerHTML=batches.map((b,i)=>{const key=`b${i}`;const other=(b.cancelled||0)+(b.other||0);const projects=(b.projects||[]).map(p=>{const link=p.drive_web_url||p.drive_remote_path;return `<tr><td>${esc(p.project_name)}</td><td><span class="pill ${p.voice_ready?'yes':'no'}">${p.voice_ready?'YES':'NO'}</span></td><td>${esc(p.status)}</td><td>${esc(p.stage)}</td><td>${esc(p.drive_status||'')}</td><td>${link?`<a href="${esc(link)}" target="_blank" rel="noopener">Drive</a>`:''}</td><td>${esc(p.error||'')}</td></tr>`}).join('');const isOpen=openBatches.has(key);return `<tr class="batch-row" data-key="${key}"><td><b>${esc(b.batch_id)}</b></td><td>${b.total}</td><td class="${b.voice_ready===b.total?'good':''}">${b.voice_ready}</td><td class="good">${b.completed_uploaded}</td><td>${b.queued}</td><td>${b.running}</td><td class="${b.failed?'bad':''}">${b.failed}</td><td>${other}</td></tr><tr class="details ${isOpen?'open':''}" data-detail="${key}"><td colspan="8"><div class="table-wrap"><table class="project-table"><thead><tr><th>Project</th><th>Voice</th><th>Job</th><th>Stage</th><th>Drive</th><th>Link</th><th>Error</th></tr></thead><tbody>${projects||'<tr><td colspan="7" class="muted">No projects.</td></tr>'}</tbody></table></div></td></tr>`}).join('');body.querySelectorAll('.batch-row').forEach(row=>row.addEventListener('click',()=>{const key=row.dataset.key;const detail=body.querySelector(`[data-detail="${key}"]`);if(!detail)return;detail.classList.toggle('open');if(detail.classList.contains('open'))openBatches.add(key);else openBatches.delete(key)}))}
 async function refresh(){try{const [liveResp,auditResp]=await Promise.all([fetch(`${root}/api/live`,{cache:'no-store'}),fetch(`${root}/api/live-audit`,{cache:'no-store'})]);if(!liveResp.ok)throw new Error(`Live HTTP ${liveResp.status}`);if(!auditResp.ok)throw new Error(`Audit HTTP ${auditResp.status}`);const d=await liveResp.json();const a=await auditResp.json();const b=d.active_batch;document.querySelector('#batch').textContent=b?`Active batch ${b.id.slice(0,8)} · ${b.category}`:'No active batch';document.querySelector('#updated').textContent=new Date(a.updated_at||d.updated_at).toLocaleTimeString();const c=d.pipeline_counts;const cards=[['Received from Drive',c.received_from_drive],['Algrow queue',c.algrow_queue],['Renderer queue',c.renderer_queue],['Compression queue',c.compression_queue],['Upload queue',c.upload_queue],['Google Drive verified',c.drive_verified]];document.querySelector('#summary').innerHTML=cards.map(x=>`<div class="card"><div class="number">${Number(x[1])||0}</div><div class="label">${x[0]}</div></div>`).join('');renderWorkers(d);renderBatchRows(a.batches||[]);document.querySelector('#projects').innerHTML=(d.recent_projects||[]).map(j=>{const link=j.drive_web_url||j.drive_remote_path;return `<div class="row"><div class="row-main"><div class="one"><b>${esc(j.project_name)}</b> · ${esc(j.category||'Uncategorized')}</div><div class="one muted">${esc(j.current_stage||j.status)} · ${esc(j.message||'')}</div></div><div class="pct">${pct(j.progress)}%</div><div class="hide-mobile">${link?`<a href="${esc(link)}" target="_blank" rel="noopener">Drive</a>`:esc(j.status)}</div></div>`}).join('')||'<div class="row muted">No projects yet.</div>';document.querySelector('#updated').className='muted'}catch(e){document.querySelector('#updated').textContent=`Update failed: ${e.message}`;document.querySelector('#updated').className='error'}}
-refresh();setInterval(refresh,2000);
+refresh();
+document.addEventListener('acs:tab-changed',event=>{if(event.detail.tab==='queue')refresh();});
+setInterval(()=>{if(!document.hidden && document.getElementById('queue')?.classList.contains('active'))refresh();},3000);
 })();
 </script>
 </body>

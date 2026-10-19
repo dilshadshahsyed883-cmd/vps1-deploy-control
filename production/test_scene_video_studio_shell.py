@@ -15,7 +15,7 @@ class SceneVideoStudioShell(unittest.TestCase):
         destinations = {
             "/local-upload-manager/app?embedded=1&tab=dashboard":
                 b'lum-shell vps1_native_site_shell.js',
-            "/auto-caption-studio/api/web-flow/studio?embed=1":
+            "/auto-caption-studio/":
                 b'<html data-page="queue" data-page="upload" data-page="voice" '
                 b'id="acs-native-live" vps1_native_site_shell.js '
                 b"const API='/auto-caption-studio/api/web-flow'",
@@ -50,15 +50,15 @@ class SceneVideoStudioShell(unittest.TestCase):
         html = (T / "base.html").read_text()
         for label in ("Dashboard", "Auto Uploader", "Video Studio", "Voice Studio", "Admin"):
             self.assertIn(label, html)
-        for url in ("/queue", "/auto-caption/studio",
-                    "/video-studio/short-maker", "/video-studio/video-merger"):
+        for url in ("/scene-builder/", "/auto-caption-studio/",
+                    "/short-maker/", "/video-merger/"):
             self.assertIn('href="' + url + '"', html)
         self.assertNotIn('href="/auto-script"', html)
 
     def test_native_documents_and_no_outer_iframe_shells(self):
         app = (SCENE / "app.py").read_text()
         for target in ("/local-upload-manager/app?embedded=1&tab=dashboard",
-                       "/auto-caption-studio/api/web-flow/studio?embed=1",
+                       "/auto-caption-studio/",
                        "/voice-studio/app"):
             self.assertIn('RedirectResponse("' + target + '"', app)
         self.assertIn("return RedirectResponse(url, status_code=303)", app)

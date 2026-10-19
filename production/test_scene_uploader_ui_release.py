@@ -35,18 +35,18 @@ class SceneUploaderReleaseTests(unittest.TestCase):
             (base / ui.FILES[1]).write_text(js)
             if base == self.source:
                 (base / "templates/base.html").write_text(
-                    '<a href="/auto-caption/studio"></a>'
-                    '<a href="/video-studio/short-maker"></a>'
-                    '<a href="/video-studio/video-merger"></a>'
+                    '<a href="/auto-caption-studio/"></a>'
+                    '<a href="/short-maker/"></a>'
+                    '<a href="/video-merger/"></a>'
                     '<a href="/local-upload-manager"></a>')
                 (base / "templates/acs_studio_shell.html").write_text(
-                    '<a href="/auto-caption-studio/api/web-flow/studio?embed=1">ACS</a>')
+                    '<a href="/auto-caption-studio/">ACS</a>')
                 (base / "templates/video_studio_embed.html").write_text(
                     '<a href="{{ studio_url }}">Open application</a>')
                 (base / "app.py").write_text(
                     '@app.get("/video-studio/{studio_app}")\nrequire_admin(request)\n'
                     'return RedirectResponse(url, status_code=303)\n'
-                    'RedirectResponse("/auto-caption-studio/api/web-flow/studio?embed=1"\n'
+                    'RedirectResponse("/auto-caption-studio/"\n'
                     'RedirectResponse("/local-upload-manager/app?embedded=1&tab=dashboard"\n'
                     'RedirectResponse("/voice-studio/app"')
             else:

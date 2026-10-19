@@ -44,13 +44,11 @@ router = APIRouter(prefix="/api/web-flow", tags=["acs-new-web-flow"])
 STUDIO_TEMPLATE = Path(__file__).with_name("acs_studio.html")
 
 
-@router.get("/studio", response_class=HTMLResponse)
-def web_flow_studio(_principal: Principal = Depends(get_current_principal)) -> HTMLResponse:
-    """Serve the dedicated New Web Flow UI from the ACS service itself.
+def render_studio_html() -> HTMLResponse:
+    """Render the full authenticated Studio on the canonical app root.
 
-    Public access is intentionally through the existing authenticated nginx path:
-    /auto-caption/api/web-flow/studio -> 127.0.0.1:8100/api/web-flow/studio.
-    No Scene Builder web code or shared template is required.
+    Keep the historic /api/web-flow/studio document endpoint for old links;
+    browser-facing navigation uses /auto-caption-studio/ directly.
     """
     if not STUDIO_TEMPLATE.is_file():
         raise HTTPException(status_code=503, detail="ACS Studio UI is not installed")
@@ -65,6 +63,12 @@ def web_flow_studio(_principal: Principal = Depends(get_current_principal)) -> H
         'src="/auto-caption-studio/live?embed=1"',
     )
     return HTMLResponse(html, headers={"Cache-Control": "no-store, max-age=0"})
+
+
+@router.get("/studio", response_class=HTMLResponse)
+def web_flow_studio(_principal: Principal = Depends(get_current_principal)) -> HTMLResponse:
+    return render_studio_html()
+
 
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}

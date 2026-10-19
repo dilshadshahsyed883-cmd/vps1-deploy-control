@@ -1,0 +1,91 @@
+name: VPS1 canonical ACS direct root + Scene navigation release
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: vps1-production
+  cancel-in-progress: false
+jobs:
+  canonical-acs-release:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'dilshadshahsyed883-cmd' &&
+      github.run_attempt == 1 &&
+      contains(github.event.head_commit.message, '[vps1-canonical-studio-release]')
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Join existing production Tailscale identity
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Release ACS root first, then guarded Scene shell navigation
+        shell: bash
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/identity"
+          unset PRIVATE_IDENTITY
+          chmod 0600 "$scratch/identity"
+          ssh-keygen -y -P '' -f "$scratch/identity" > "$scratch/public"
+          test "$(ssh-keygen -lf "$scratch/public" -E sha256 | awk '{print $2}')" = 'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
+          remote() {
+            timeout 2400s ssh -T -p 22 -i "$scratch/identity" \
+              -o UserKnownHostsFile="$scratch/known_hosts" -o StrictHostKeyChecking=yes \
+              -o UpdateHostKeys=no -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o PreferredAuthentications=publickey -o PasswordAuthentication=no \
+              -o KbdInteractiveAuthentication=no -o ConnectTimeout=20 \
+              -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+              vps1deploy@100.87.55.92 "$@"
+          }
+          echo CANONICAL_ACS_ROOT_INSTALL=START
+          remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA auto-caption-studio"
+          remote 'python3 -' <<'PY'
+          import urllib.request
+          url='http://127.0.0.1:8144/'
+          req=urllib.request.Request(url,headers={'X-Auth-User':'vps1-readback','X-App-Access':'scene_builder'})
+          with urllib.request.urlopen(req,timeout=25) as response:
+              page=response.read().decode('utf-8')
+              assert response.status==200
+              assert 'text/html' in response.headers.get('Content-Type','')
+              assert 'data-page="queue"' in page and 'data-page="preset"' in page
+              assert 'id="acs-native-live"' in page
+              assert "const API='/auto-caption-studio/api/web-flow'" in page
+              assert 'sessionStorage.setItem(key,id)' in page
+              assert 'location.replace("/auto-caption/studio"' not in page
+          print('CANONICAL_ACS_ROOT_HTML=PASS',flush=True)
+          PY
+          echo CANONICAL_ACS_SCENE_SHELL_INSTALL=START
+          remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA scene-builder"
+          remote 'python3 -' <<'PY'
+          import urllib.request
+          # Explicit local readback avoids modifying user sessions or queues.
+          with urllib.request.urlopen('http://127.0.0.1:8144/health',timeout=15) as r:
+              assert r.status==200
+          # Root health and live docs are independent of legacy web-flow path.
+          req=urllib.request.Request('http://127.0.0.1:8144/',headers={'X-Auth-User':'vps1-readback'})
+          with urllib.request.urlopen(req,timeout=15) as r:
+              assert r.status==200 and b'data-page="queue"' in r.read()
+          print('CANONICAL_ACS_AFTER_SCENE=PASS',flush=True)
+          PY
+          echo CANONICAL_ACS_RELEASE=SUCCESS
+          echo AUTO_SCRIPT=OFFLINE
+          echo OWNER_UAT=PENDING

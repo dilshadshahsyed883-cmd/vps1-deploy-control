@@ -1781,6 +1781,7 @@ def dashboard_api(request: Request):
     return {"ok":True,"generated_at":datetime.now(timezone.utc).isoformat(),"generated_at_local":datetime.now().astimezone().strftime("%H:%M:%S"),"apps":_dashboard_apps(request),"vps":_vps_dashboard_metrics(),"services":_dashboard_services(),"activity":_dashboard_activity(request)}
 
 
+@app.get("/scene-builder/", response_class=HTMLResponse)
 @app.get("/queue", response_class=HTMLResponse)
 def queue_page(request: Request):
     jobs = jobs_for_user(str(request.session.get("username") or ""))
@@ -3341,6 +3342,7 @@ def save_admin_system_settings(
     return RedirectResponse("/admin?saved=1", status_code=303)
 
 
+@app.get("/admin/users", response_class=HTMLResponse)
 @app.get("/user-management", response_class=HTMLResponse)
 def user_management_page(request: Request):
     require_admin(request)
@@ -3748,7 +3750,7 @@ def video_studio_embedded_app(request: Request, studio_app: str):
 @app.get("/auto-caption/studio", response_class=HTMLResponse)
 def auto_caption_studio(request: Request):
     account = require_auto_caption_access(request)
-    return RedirectResponse("/auto-caption-studio/api/web-flow/studio?embed=1", status_code=303)
+    return RedirectResponse("/auto-caption-studio/", status_code=303)
 
 
 @app.get("/auto-caption/admin")
