@@ -20,6 +20,15 @@ class StorageDashboardRelease(unittest.TestCase):
         self.assertIn('dashboard_no_algrow', scene)
         self.assertIn("let managerFallback = true", js)
         self.assertIn("let managerCanModify = false", js)
+        self.assertIn("scanUnavailableMessage", js)
+        self.assertIn("service_details", js)
+
+    def test_storage_manager_reports_absent_units_without_enabling_actions(self):
+        backend = (ROOT / "apps/vps-storage-manager/part01/storage_manager.py").read_text()
+        js = (ROOT / "apps/scene-builder/part01/static/storage_manager.js").read_text()
+        self.assertIn('"service_details": {name: service_detail(name) for name in MONITORED_SERVICES}', backend)
+        self.assertIn('"present": present', backend)
+        self.assertIn('managerCanModify && present && startable.has(key)', js)
 
 if __name__ == "__main__":
     unittest.main()

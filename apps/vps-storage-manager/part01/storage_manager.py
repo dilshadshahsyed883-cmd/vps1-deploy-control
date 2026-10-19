@@ -602,6 +602,29 @@ def service_status(name: str) -> str:
     return result.stdout.strip().splitlines()[0] if result.stdout.strip() else "unknown"
 
 
+def service_detail(name: str) -> dict[str, Any]:
+    """Return read-only systemd metadata so absent units are not shown as unhealthy."""
+    result = run([
+        "systemctl", "show", name,
+        "--property=LoadState,ActiveState,SubState,UnitFileState",
+        "--no-pager",
+    ], timeout=10)
+    values: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        key, separator, value = line.partition("=")
+        if separator:
+            values[key] = value.strip()
+    load_state = values.get("LoadState", "")
+    present = bool(load_state) and load_state != "not-found"
+    return {
+        "present": present,
+        "load_state": load_state or "unknown",
+        "active_state": values.get("ActiveState", service_status(name)),
+        "sub_state": values.get("SubState", "unknown"),
+        "unit_file_state": values.get("UnitFileState", "unknown"),
+    }
+
+
 def service_failure_details(name: str) -> str:
     chunks: list[str] = []
     status = run(["systemctl", "status", name, "--no-pager", "--full"], timeout=20)
@@ -684,6 +707,7 @@ def metrics() -> dict[str, Any]:
         "disk": {"total": disk.total, "used": disk.used, "free": disk.free, "percent": round(disk.used / disk.total * 100, 1)},
         "uptime_seconds": int(uptime),
         "services": {name: service_status(name) for name in MONITORED_SERVICES},
+        "service_details": {name: service_detail(name) for name in MONITORED_SERVICES},
         "startable_services": sorted(STARTABLE_SERVICES),
         "processes": processes,
     }

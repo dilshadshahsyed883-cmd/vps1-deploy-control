@@ -121,20 +121,33 @@
     applyManagerControls();
   }
 
+  function scanUnavailableMessage(error) {
+    const raw = String(error?.message || error || 'Unknown scan error');
+    if (/permission denied|errno\\s*13|access denied/i.test(raw)) {
+      return 'Storage scan unavailable: protected database read permission is missing. Cleanup remains disabled.';
+    }
+    return `Storage scan unavailable: ${raw}`;
+  }
+
   function renderServiceHealth(data) {
     const grid = document.getElementById('service-grid');
     if (!grid) return;
     const startable = new Set(data.startable_services || []);
+    const details = data.service_details || {};
     grid.innerHTML = Object.entries(data.services || {}).map(([key, state]) => {
-      const stateClass = serviceStateClass(state);
+      const detail = details[key] || {};
+      const present = detail.present !== false;
+      const stateLabel = present ? String(state || 'unknown') : 'not installed';
+      const stateClass = present ? serviceStateClass(state) : 'inactive';
       const isActive = String(state).toLowerCase() === 'active';
       const isStarting = startingServices.has(key);
-      const canStart = managerCanModify && startable.has(key) && !isActive;
+      const canStart = managerCanModify && present && startable.has(key) && !isActive;
       const savedError = serviceErrors.get(key) || '';
+      const reason = present ? '' : 'Unit is not installed on the current VPS';
       const action = canStart ? `<button class="button secondary sm-service-activate" type="button" data-service="${escapeHtml(key)}" ${isStarting ? 'disabled' : ''}>${isStarting ? 'Starting...' : 'Activate'}</button>` : '';
       return `<article class="sm-service sm-service-${stateClass}" data-service-card="${escapeHtml(key)}">
-        <div class="sm-service-main"><span class="sm-service-indicator" aria-hidden="true"></span><div class="sm-service-copy"><span class="sm-service-group">${escapeHtml(serviceGroups[key] || 'System')}</span><strong>${escapeHtml(serviceLabels[key] || key)}</strong><small>${escapeHtml(key)}</small></div></div>
-        <div class="sm-service-controls"><b class="sm-service-state ${stateClass}">${escapeHtml(isStarting ? 'starting' : state)}</b>${action}</div>
+        <div class="sm-service-main"><span class="sm-service-indicator" aria-hidden="true"></span><div class="sm-service-copy"><span class="sm-service-group">${escapeHtml(serviceGroups[key] || 'System')}</span><strong>${escapeHtml(serviceLabels[key] || key)}</strong><small>${escapeHtml(key)}</small>${reason ? `<small class="sm-warning">${escapeHtml(reason)}</small>` : ''}</div></div>
+        <div class="sm-service-controls"><b class="sm-service-state ${stateClass}">${escapeHtml(isStarting ? 'starting' : stateLabel)}</b>${action}</div>
         <div class="sm-service-inline-error" data-service-error="${escapeHtml(key)}" ${savedError ? '' : 'hidden'}>${escapeHtml(savedError)}</div>
       </article>`;
     }).join('');
@@ -338,8 +351,14 @@
         : await api('/api/admin/storage/snapshot');
       renderSnapshot(data);
     } catch (error) {
-      if (refresh) toast(error.message, true);
-      document.getElementById('category-grid').innerHTML = `<div class="sm-empty">${escapeHtml(error.message)}</div>`;
+      const message = scanUnavailableMessage(error);
+      if (refresh) toast(message, true);
+      document.getElementById('reclaim-value').textContent = 'Unavailable';
+      document.getElementById('reclaim-detail').textContent = 'Cleanup remains disabled until the read-only scan is available';
+      document.getElementById('scan-time').textContent = 'Scan unavailable';
+      document.getElementById('category-grid').innerHTML = `<div class="sm-empty">${escapeHtml(message)}</div>`;
+      document.getElementById('project-candidates').innerHTML = '<div class="sm-empty">Verified project candidates are unavailable until the scan succeeds.</div>';
+      snapshot = null;
     } finally {
       busy = false; button.textContent = 'Scan reclaimable space'; applyManagerControls();
     }
