@@ -703,6 +703,24 @@ app.add_middleware(
 )
 
 
+@app.get("/api/session/identity")
+def scene_session_identity(request: Request):
+    """Current Scene database role for native independent-app navigation.
+
+    The UI may use this to display Admin navigation, but all admin routes
+    still enforce require_admin() server-side. Never trust a cached role.
+    """
+    require_login(request)
+    account = user_account(str(request.session.get("username") or ""))
+    if not account or not int(account.get("is_active") or 0):
+        raise HTTPException(401, "Active account required")
+    return JSONResponse({
+        "authenticated": True,
+        "username": str(account["username"]),
+        "is_admin": bool(account["is_admin"]),
+    }, headers={"Cache-Control": "private, no-store", "Vary": "Cookie"})
+
+
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, error: str = ""):
     if logged_in(request):
