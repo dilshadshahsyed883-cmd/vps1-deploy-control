@@ -100,6 +100,17 @@ class SceneVideoStudioShell(unittest.TestCase):
         self.assertIn('document.documentElement.classList.add("vps1-native-bootstrap")', native_js)
         self.assertIn("@media(max-width:760px)", native_css)
 
+    def test_voice_sidebar_navigation_never_forces_redundant_page_reload(self):
+        scene = (SCENE / "templates/base.html").read_text()
+        native = (SCENE / "static/vps1_native_site_shell.js").read_text()
+        app = (SCENE / "app.py").read_text()
+        self.assertIn('href="/voice-studio/app#vps1-production"', scene)
+        self.assertIn('"/voice-studio/app#vps1-production"', native)
+        self.assertIn('window.vps1VoiceStudioTab("production")', native)
+        self.assertIn('event.preventDefault()', native)
+        self.assertIn('typeof window.vps1VoiceStudioTab !== "function"', native)
+        self.assertIn('RedirectResponse("/voice-studio/app", status_code=303)', app)
+
     def test_native_studio_preserves_app_forms_tabs_and_api(self):
         root = ROOT / "apps"
         maker = (root / "short-maker/part01/app.py").read_text()
