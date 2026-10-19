@@ -33,7 +33,7 @@ NEW_ASSETS = (
     b'<script src="/&#115;tatic/vps1_native_site_shell.js?v=20261020-upload-studio-v1" data-workspace="voice" defer></script>'
 )
 PREVIOUS_ASSETS = (
-    b'<link rel="stylesheet" href="/&#115;tatic/vps1_native_site_shell.css?v=20261019-voice-nav-v2">\\n'
+    b'<link rel="stylesheet" href="/&#115;tatic/vps1_native_site_shell.css?v=20261019-voice-nav-v2">\n'
     b'<script src="/&#115;tatic/vps1_native_site_shell.js?v=20261019-voice-nav-v2" data-workspace="voice" defer></script>'
 )
 ASSET_NOTE = b"<!-- VPS1 Voice native sidebar assets loaded before large inline CSS. -->"
