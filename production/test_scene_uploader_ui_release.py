@@ -48,6 +48,17 @@ class SceneUploaderReleaseTests(unittest.TestCase):
             else:
                 for relative in ("templates/base.html", "templates/acs_studio_shell.html", "app.py"):
                     (base / relative).write_text("old")
+        # The guarded UI finalizer now also transports dashboard and Storage
+        # assets. Test every allowlisted path, not just the original four.
+        for base in (self.old / "part01", self.source):
+            for relative in ui.FILES[2:]:
+                target = base / relative
+                if target.is_file() or (base == self.old / "part01" and
+                                        relative in ui.NEW_FILES):
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(("old" if base == self.old / "part01" else
+                                   "new") + ":" + relative)
         self.current.parent.mkdir(parents=True)
         self.current.symlink_to(self.old, target_is_directory=True)
         self.patches = [
