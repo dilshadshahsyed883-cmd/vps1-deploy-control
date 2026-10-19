@@ -12,19 +12,17 @@
 
   <div class="lum-grid lum-two">
     <section class="lum-card">
-      <div class="lum-card-head"><div><h2>Create user</h2><p>Choose the access level. Administrators automatically receive both interface modes.</p></div></div>
+      <div class="lum-card-head"><div><h2>Create user</h2><p>Choose user or administrator access to the full uploader workspace.</p></div></div>
       <form method="post" action="{{ base_path }}/users/create">
         <input type="hidden" name="csrf_token" value="{{ csrf }}">
         <label class="lum-field"><span>Username</span><input name="username" required></label>
         <label class="lum-field"><span>Password</span><input name="password" type="password" minlength="8" required></label>
         <label class="lum-field"><span>Access level</span>
           <select name="access_level">
-            <option value="simple">Simple user · Upload Video + Authentication</option>
-            <option value="heavy">Heavy user · Full desktop-style workspace</option>
-            <option value="administrator">Administrator · Both Simple + Heavy</option>
+            <option value="heavy">User · Full uploader workspace</option>
+            <option value="administrator">Administrator · Full workspace + user management</option>
           </select>
         </label>
-        <div class="lum-note access-note"><strong>Administrator</strong> always has both modes and gets a Simple / Heavy toggle in the top bar.</div>
         <div class="form-footer"><button class="lum-button primary" type="submit">Create user</button></div>
       </form>
     </section>
@@ -32,9 +30,8 @@
     <section class="lum-card">
       <div class="lum-card-head"><div><h2>Access contract</h2><p>Access controls the interface only. Every mode uses the same protected uploader engine.</p></div></div>
       <dl class="lum-kv">
-        <div><dt>Simple user</dt><dd>2 tabs · fixed</dd></div>
-        <div><dt>Heavy user</dt><dd>8 tabs · fixed</dd></div>
-        <div><dt>Administrator</dt><dd>Both modes · toggle</dd></div>
+        <div><dt>User</dt><dd>Full uploader workspace</dd></div>
+        <div><dt>Administrator</dt><dd>Full workspace + account management</dd></div>
         <div><dt>Upload concurrency</dt><dd>1</dd></div>
         <div><dt>Remote verification</dt><dd>Required</dd></div>
         <div><dt>VPS cleanup</dt><dd>After verification</dd></div>
@@ -54,12 +51,11 @@
           <form class="user-inline" method="post" action="{{ base_path }}/users/{{ u.id }}/update">
             <input type="hidden" name="csrf_token" value="{{ csrf }}">
             <select name="access_level" aria-label="Access level for {{ u.username }}">
-              <option value="simple" {% if not u.is_admin and u.ui_mode=='simple' %}selected{% endif %}>Simple</option>
-              <option value="heavy" {% if not u.is_admin and u.ui_mode=='heavy' %}selected{% endif %}>Heavy</option>
-              <option value="administrator" {% if u.is_admin %}selected{% endif %}>Administrator · Both</option>
+              <option value="heavy" {% if not u.is_admin %}selected{% endif %}>User · Full workspace</option>
+              <option value="administrator" {% if u.is_admin %}selected{% endif %}>Administrator</option>
             </select>
             <label><input type="checkbox" name="is_active" value="1" {% if u.is_active %}checked{% endif %}> Active</label>
-            <span class="access-summary {{ 'admin' if u.is_admin else '' }}">{{ 'Simple + Heavy toggle' if u.is_admin else (u.ui_mode|capitalize + ' only') }}</span>
+            <span class="access-summary {{ 'admin' if u.is_admin else '' }}">{{ 'Administrator' if u.is_admin else 'Full workspace' }}</span>
             <small>{{ u.last_login_at or 'Never' }}</small>
             <button class="lum-button tiny" type="submit">Save</button>
           </form>
