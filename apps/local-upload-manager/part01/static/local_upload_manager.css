@@ -394,3 +394,10 @@ body.lum-embedded .app-main{padding:0!important}
 .lum-primary-workspaces a{display:inline-flex;align-items:center;justify-content:center;padding:11px 20px;text-decoration:none;border:1px solid var(--sb-border,#d1d5db);border-radius:10px;background:var(--sb-card,#fff);color:var(--sb-text,#0f172a);font-weight:750}
 .lum-primary-workspaces a.active{background:var(--sb-accent,#4f46e5);border-color:var(--sb-accent,#4f46e5);color:white}
 .lum-stream-shell{min-height:250px}
+
+/* Native Scene single-shell primary workspace tabs at the top; ISS-09 screenshot fix. */
+body.lum-embedded .lum-primary-workspaces{display:flex;align-items:center;gap:10px;margin:0 0 18px;padding:0 0 10px;border-bottom:1px solid #dce4ef;flex-wrap:wrap}
+body.lum-embedded .lum-primary-workspaces a{min-height:43px;padding:10px 22px;font-size:14px;font-weight:750;border-radius:10px}
+body.lum-embedded .lum-primary-workspaces a.active{background:#4f46e5;border-color:#4f46e5;color:#fff}
+body.lum-embedded .lum-primary-workspaces + .lum-tabs-shell{margin-top:0}
+@media(max-width:760px){body.lum-embedded .lum-primary-workspaces a{flex:1;justify-content:center;min-width:125px}}

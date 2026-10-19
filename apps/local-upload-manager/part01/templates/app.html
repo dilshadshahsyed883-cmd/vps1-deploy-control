@@ -6,13 +6,7 @@
   {% if message %}<div class="lum-alert success">{{ message }}</div>{% endif %}
   {% if error %}<div class="lum-alert error">{{ error }}</div>{% endif %}
 
-  <section class="lum-statusbar">
-    <div class="lum-status-primary">
-      <div class="lum-status-left"><strong>Auto Uploader</strong><span class="lum-badge good">{{ 'Main web connected' if suite_auth else 'Standalone online' }}</span>{% if suite_auth %}<span class="lum-badge brand">Shared login</span>{% else %}<span class="lum-badge brand">Standalone auth</span>{% endif %}</div>
 
-    </div>
-    <div class="lum-status-meta"><span>Serial uploader</span><strong>1 active</strong><span>Verified cleanup</span><strong>{{ 'ON' if health.verified_cleanup else 'OFF' }}</strong></div>
-  </section>
 
   {% if engine_instance == 'engine1' %}
   <nav class="lum-primary-workspaces" aria-label="Auto Uploader main subtabs">
@@ -20,7 +14,16 @@
     <a class="{{ 'active' if tab == 'auto_stream' else '' }}" href="{{ base_path }}/app?tab=auto_stream" aria-current="{{ 'page' if tab == 'auto_stream' else 'false' }}">Auto Stream</a>
   </nav>
   {% endif %}
-  {% if tab != 'auto_stream' %}
+  {% if not embedded_view %}
+  <section class="lum-statusbar">
+    <div class="lum-status-primary">
+      <div class="lum-status-left"><strong>Auto Uploader</strong><span class="lum-badge good">{{ 'Main web connected' if suite_auth else 'Standalone online' }}</span>{% if suite_auth %}<span class="lum-badge brand">Shared login</span>{% else %}<span class="lum-badge brand">Standalone auth</span>{% endif %}</div>
+
+    </div>
+    <div class="lum-status-meta"><span>Serial uploader</span><strong>1 active</strong><span>Verified cleanup</span><strong>{{ 'ON' if health.verified_cleanup else 'OFF' }}</strong></div>
+  </section>
+  {% endif %}
+  {% if tab != 'auto_stream' and (engine_instance == 'engine1' or not embedded_view) %}
   <div class="lum-tabs-shell" data-lum-sticky-tabs>
 <nav class="lum-tabs" aria-label="Auto Uploader workspace">
       <a class="{{ 'active' if tab=='dashboard' else '' }}" href="{{ base_path }}/app?tab=dashboard">Dashboard</a>
@@ -1043,7 +1046,7 @@
         <p class="lum-note"><strong>Engine status:</strong> {{ selected_mode.runtime.details }}. Worker: {{ selected_mode.runtime.worker | replace('_', ' ') }}.</p>
         {% if auto_mode in ['engine2', 'shorts'] and selected_mode.runtime.web == 'connected' %}
           <iframe title="{{ selected_mode.label }} Auto Uploader application"
-                  src="{{ base_path }}/modes/{{ auto_mode }}/app?tab=auto_engine"
+                  src="{{ base_path }}/modes/{{ auto_mode }}/app?embedded=1&tab=auto_engine"
                   loading="lazy" style="width:100%;min-height:860px;border:1px solid #565a65;border-radius:12px;"></iframe>
           <p class="lum-note">Independent app controls are connected. New engine automatic publishing starts OFF until configured.</p>
         {% endif %}
