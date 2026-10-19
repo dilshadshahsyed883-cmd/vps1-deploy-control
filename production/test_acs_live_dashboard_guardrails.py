@@ -17,6 +17,62 @@ class IntegrationRoutingTests(unittest.TestCase):
         self.assertIn("/api/live", html)
         self.assertIn("/api/live-audit", html)
 
+    def test_queue_native_live_is_visible_and_old_iframe_css_is_gone(self):
+        # Regression: CSS for the retired iframe hid *all* Queue children.
+        html = (ACS / "web_backend/acs_studio.html").read_text()
+        live = (ACS / "web_frontend/templates/live.html").read_text()
+        self.assertIn('<section class="page active acs-live-reference-v1" id="queue">', html)
+        self.assertIn('id="acs-native-live"', html)
+        self.assertIn('id="workers"', html)
+        self.assertIn('id="batchRows"', html)
+        self.assertIn(
+            '#queue.acs-live-reference-v1 > :not(#acs-native-live){display:none!important}',
+            html)
+        self.assertIn(
+            '#queue.acs-live-reference-v1 > #acs-native-live{display:block!important}',
+            html)
+        self.assertNotIn(
+            '#queue.acs-live-reference-v1 > :not(.acs-live-embed-v1)', html)
+        self.assertNotIn('<iframe class="acs-live-embed-v1"', html)
+        self.assertIn("['render','Renderer',", live)
+        self.assertNotIn("['voice','Algrow',", live)
+        self.assertIn('id="acs-native-live-script"', html)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js required for Queue DOM contract")
+    def test_queue_native_worker_cards_render_without_algrow(self):
+        # Simulate the actual same-document worker-card renderer with a DOM stub.
+        html = (ACS / "web_backend/acs_studio.html").read_text()
+        marker = 'function renderWorkers(d){'
+        source = marker + html.split(marker, 1)[1].split('async function setPipeline', 1)[0]
+        script = """
+        const vm=require('node:vm');
+        const source=process.argv[1];
+        const workers={innerHTML:''};
+        const context={
+          document:{querySelector:selector=>{
+            if(selector!=='#workers')throw new Error('Unexpected selector '+selector);
+            return workers;
+          },querySelectorAll:()=>[]},
+          currentLine:()=>'<div>Idle</div>',
+          esc:x=>String(x),controlBusy:''
+        };
+        const d={can_control:false,
+          pipeline_counts:{renderer_queue:2,compression_queue:1,upload_queue:3,algrow_queue:7},
+          workers:{render:{state:'idle'},compress:{state:'idle'},upload:{state:'idle'}}};
+        vm.runInNewContext(source+';renderWorkers(d)',{...context,d},{timeout:1000});
+        for(const name of ['Renderer','Compressor','Drive uploader']){
+          if(!workers.innerHTML.includes(name))throw new Error(name+' card missing');
+        }
+        if(workers.innerHTML.includes('Algrow'))throw new Error('Algrow card returned');
+        if((workers.innerHTML.match(/<article /g)||[]).length!==3)
+          throw new Error('Expected exactly three visible worker cards');
+        console.log('ACS_NATIVE_QUEUE_WORKER_CARDS=PASS');
+        """
+        result = subprocess.run(["node", "-e", script, source],
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("ACS_NATIVE_QUEUE_WORKER_CARDS=PASS", result.stdout)
+
     def test_audio_engine_never_loads_broken_acs_root(self):
         html = (ACS / "web_backend/acs_studio.html").read_text()
         self.assertNotIn('src="/acs-audio-engine/"', html)

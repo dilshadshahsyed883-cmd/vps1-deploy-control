@@ -92,10 +92,11 @@ table{max-width:100%}
 </style>
 
 
-<style id="ACS_QUEUE_LIVE_REFERENCE_FIX_V1">
-#queue.acs-live-reference-v1 > :not(.acs-live-embed-v1){display:none!important}
-#queue .acs-live-embed-v1{display:block!important;width:100%;height:1550px;min-height:900px;border:0;background:#fff;border-radius:0}
-@media(max-width:900px){#queue .acs-live-embed-v1{height:1750px}}
+<style id="ACS_QUEUE_NATIVE_LIVE_VISIBILITY_FIX_V2">
+/* Native Queue Live replaced the old iframe. Keep legacy queue panels hidden
+   without hiding the actual same-document live monitor. No worker/data changes. */
+#queue.acs-live-reference-v1 > :not(#acs-native-live){display:none!important}
+#queue.acs-live-reference-v1 > #acs-native-live{display:block!important}
 </style>
 
 <style id="acs-ui-overrides-v2">
