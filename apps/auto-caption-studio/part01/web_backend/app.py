@@ -9,7 +9,7 @@ import shutil
 import uuid
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -309,7 +309,7 @@ from .acs_control_api import router as acs_control_router
 from .drive_ingress_api import router as drive_ingress_router
 from .live_audit_api import router as live_audit_router
 from .pexels_library_api import router as pexels_library_router
-from .web_flow_api import router as web_flow_router
+from .web_flow_api import router as web_flow_router, render_studio_html
 
 app.include_router(batch_router)
 app.include_router(acs_control_router)
@@ -324,16 +324,13 @@ templates = Jinja2Templates(directory=str(WEB_ROOT / "templates"))
 app.mount("/static", StaticFiles(directory=str(WEB_ROOT / "static")), name="static")
 
 
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 def web_index(
     request: Request,
     _principal: Principal = Depends(get_current_principal),
 ):
-    return templates.TemplateResponse(
-        request=request,
-        name="index.html",
-        context={"app_name": "Auto Caption Studio", "job_id": ""},
-    )
+    """Canonical Studio URL; no redirect, iframe or /api path in navigation."""
+    return render_studio_html()
 
 
 @app.get("/jobs/{job_id}")

@@ -38,7 +38,7 @@
     navigation.setAttribute("aria-label", "Applications");
     addLink(navigation, "Dashboard", "/", false);
     addLink(navigation, "Auto Uploader", "/local-upload-manager", app === "uploader");
-    addLink(navigation, "Video Studio", "/queue", app === "acs");
+    addLink(navigation, "Video Studio", "/scene-builder/", app === "acs");
     const voiceLink = addLink(navigation, "Voice Studio", "/voice-studio/app#vps1-production", app === "voice");
     if (app === "voice") {
       // A click on the already-open Voice Studio must not reload its large
@@ -113,10 +113,10 @@
     if (app === "acs") {
       const tabs = node("nav", "vps1-native-video-tabs");
       tabs.setAttribute("aria-label", "Video Studio");
-      addLink(tabs, "Scene Builder", "/queue", false);
-      addLink(tabs, "Auto Caption Studio", "/auto-caption/studio", true);
-      addLink(tabs, "Short Maker", "/video-studio/short-maker", false);
-      addLink(tabs, "Video Merger", "/video-studio/video-merger", false);
+      addLink(tabs, "Scene Builder", "/scene-builder/", false);
+      addLink(tabs, "Auto Caption Studio", "/auto-caption-studio/", true);
+      addLink(tabs, "Short Maker", "/short-maker/", false);
+      addLink(tabs, "Video Merger", "/video-merger/", false);
       toggle.after(tabs);
     }
   }

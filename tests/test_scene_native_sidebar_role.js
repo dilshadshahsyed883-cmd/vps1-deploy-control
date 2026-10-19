@@ -115,7 +115,7 @@ for (const workspace of ["uploader", "voice", "acs"]) {
     assert(h.calls.every(x => x.url === "/api/session/identity"));
     assert.equal(h.calls[0].options.credentials, "same-origin");
     assert.equal(h.calls[0].options.cache, "no-store");
-    assert(h.links().some(e => e.href === "/queue"));
+    assert(h.links().some(e => e.href === "/scene-builder/"));
     assert(all(h.body).some(e => e.tag === "form" && e.action === "/logout"));
     // Promotion/demotion changes the existing DOM without stale admin navigation.
     await h.update({authenticated:true,is_admin:false,username:"editor"});

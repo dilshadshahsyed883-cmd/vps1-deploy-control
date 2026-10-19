@@ -85,17 +85,17 @@ def source_is_valid() -> None:
     acs = (SOURCE / "templates/acs_studio_shell.html").read_text()
     app = (SOURCE / "app.py").read_text()
     wrapper = (SOURCE / "templates/video_studio_embed.html").read_text()
-    require('href="/auto-caption/studio"' in base and
-            'href="/video-studio/short-maker"' in base and
-            'href="/video-studio/video-merger"' in base and
+    require('href="/auto-caption-studio/"' in base and
+            'href="/short-maker/"' in base and
+            'href="/video-merger/"' in base and
             'href="/local-upload-manager"' in base and
             'href="/auto-script"' not in base,
             "original Scene navigation or Video Studio subtabs regressed")
-    require('href="/auto-caption-studio/api/web-flow/studio?embed=1"' in acs
+    require('href="/auto-caption-studio/"' in acs
             and "<iframe" not in acs, "ACS fallback still embeds full document")
     require('href="{{ studio_url }}"' in wrapper and "<iframe" not in wrapper,
             "Video Studio fallback still embeds full document")
-    require('RedirectResponse("/auto-caption-studio/api/web-flow/studio?embed=1"' in app
+    require('RedirectResponse("/auto-caption-studio/"' in app
             and 'RedirectResponse("/local-upload-manager/app?embedded=1&tab=dashboard"' in app
             and 'RedirectResponse("/voice-studio/app"' in app
             and "return RedirectResponse(url, status_code=303)" in app
@@ -114,7 +114,7 @@ def verify_video_studio() -> None:
     cookie = scene_cookie()
     route_destinations = {
         "/local-upload-manager": "/local-upload-manager/app?embedded=1&tab=dashboard",
-        "/auto-caption/studio": "/auto-caption-studio/api/web-flow/studio?embed=1",
+        "/auto-caption/studio": "/auto-caption-studio/",
         "/video-studio/short-maker": "/short-maker/",
         "/video-studio/video-merger": "/video-merger/",
         "/voice-studio": "/voice-studio/app",
@@ -136,7 +136,7 @@ def verify_video_studio() -> None:
     markers = {
         "/local-upload-manager/app?embedded=1&tab=dashboard":
             (b'lum-shell', b'vps1_native_site_shell.js'),
-        "/auto-caption-studio/api/web-flow/studio?embed=1":
+        "/auto-caption-studio/":
             (b'data-page="queue"', b'data-page="upload"', b'data-page="voice"',
              b'id="acs-native-live"', b'vps1_native_site_shell.js',
              b"const API='/auto-caption-studio/api/web-flow'"),
