@@ -849,3 +849,7 @@ app.include_router(auto_stream_ui_router)
 # Explicit gated YouTube Live API controller, independent from legacy sessions.
 from auto_stream_broadcasts import router as auto_stream_broadcasts_router
 app.include_router(auto_stream_broadcasts_router)
+
+# Admin-only browser configuration of independent Google OAuth web client.
+from auto_stream_client_config import router as auto_stream_credentials_router
+app.include_router(auto_stream_credentials_router)

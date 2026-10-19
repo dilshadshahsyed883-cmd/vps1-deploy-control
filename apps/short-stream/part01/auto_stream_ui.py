@@ -32,6 +32,7 @@ small,.muted{color:#627087}p{line-height:1.5}
 <nav aria-label="Auto Stream workspace tabs">
 <button data-tab="dashboard" aria-selected="true">Dashboard</button>
 <button data-tab="channels" aria-selected="false">Channels</button>
+<button id="oauth-settings-tab" data-tab="oauth-settings" aria-selected="false" hidden>OAuth Setup</button>
 <button data-tab="sheets" aria-selected="false">Sheets Sync</button>
 <button data-tab="studio" aria-selected="false">Stream Studio</button>
 <button data-tab="live" aria-selected="false">YouTube Live</button>
@@ -48,6 +49,19 @@ small,.muted{color:#627087}p{line-height:1.5}
 <h2>Import channel metadata</h2>
 <div class="grid"><div><label for="cid">YouTube channel ID</label><input id="cid" placeholder="UC..."></div><div><label for="ctitle">Channel name</label><input id="ctitle" placeholder="My YouTube Channel"></div></div>
 <p><button id="import-channel">Import metadata only</button></p>
+</section>
+<section id="oauth-settings" class="panel" role="tabpanel" hidden>
+<h2>Google OAuth Setup — Admin Only</h2>
+<p>Connect a separate Google Cloud <strong>Web application OAuth client</strong> to Auto Stream. This does not use Auto Uploader credentials.</p>
+<p><a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">Google Cloud Console — Credentials</a></p>
+<p class="muted">Enable YouTube Data API v3 and Google Sheets API. Add this exact Authorized redirect URI in Google Cloud:</p>
+<div class="row"><code id="oauth-redirect">https://app.scenebuilder.online/short-stream/engine/oauth/callback</code><button id="copy-oauth-redirect" type="button">Copy</button></div>
+<p id="oauth-client-state" class="message">Checking Google OAuth client configuration...</p>
+<form id="oauth-client-form" autocomplete="off">
+<div class="grid"><div><label for="oauth-client-id">Client ID</label><input id="oauth-client-id" name="oauth_client_id" type="text" autocomplete="off" maxlength="255" required placeholder="123-abc.apps.googleusercontent.com"></div>
+<div><label for="oauth-client-secret">Client Secret</label><input id="oauth-client-secret" name="oauth_client_secret" type="password" autocomplete="new-password" maxlength="512" required placeholder="Google OAuth Client Secret"></div></div>
+<p><button type="submit" class="primary">Save OAuth Credentials</button> <button id="remove-oauth-client" type="button">Remove Saved Client</button></p></form>
+<small>Secret encrypted on VPS. After saving it is never shown again. Existing channel access and broadcasting controls are not enabled by this form.</small>
 </section>
 <section id="sheets" class="panel" role="tabpanel" hidden>
 <h2>Google Sheets Sync</h2><p class="muted">Read-only Sheets; synced rows create DRAFT jobs only. Dry-run preview is default.</p>
@@ -87,7 +101,7 @@ const $=id=>document.getElementById(id);
 function note(s){const m=$("msg");m.className="message";m.textContent=s;}
 async function call(path,method,body){
  const res=await fetch(root+path,{method:method||"GET",credentials:"same-origin",
-  headers:body?{"Content-Type":"application/json"}:{},
+  headers:Object.assign({},body?{"Content-Type":"application/json"}:{}, (path==="/oauth/client" && method!=="GET")?{"X-Auto-Stream-Config-Action":"1"}:{}),
   body:body?JSON.stringify(body):undefined});
  const payload=await res.json();
  if(!res.ok)throw Error(typeof payload.detail==="string"?payload.detail:"Request failed");
@@ -209,6 +223,53 @@ document.querySelectorAll("[data-tab]").forEach(button=>button.onclick=()=>{
  document.querySelectorAll("[data-tab]").forEach(b=>b.setAttribute("aria-selected",String(b===button)));
  document.querySelectorAll("[role=tabpanel]").forEach(s=>s.hidden=s.id!==button.dataset.tab);
 });
+async function refreshOAuthSettings(){
+ const tab=$("oauth-settings-tab");
+ try{
+   const s=await call("/oauth/client");
+   tab.hidden=false;
+   $("oauth-client-state").textContent=s.configured?
+     "Client configured ("+s.source+"): "+s.client_id+" | Client Secret stored securely.":
+     "Not configured. Add a Google OAuth Web Client ID and Client Secret below.";
+   $("oauth-client-id").value=s.client_id||"";
+   $("oauth-client-secret").value="";
+   $("remove-oauth-client").disabled=s.source!=="studio";
+ }catch(e){
+   tab.hidden=true;
+   if($("oauth-settings").hidden===false){
+     $("oauth-settings").hidden=true;
+     $("dashboard").hidden=false;
+   }
+ }
+}
+$("copy-oauth-redirect").onclick=async()=>{
+ try{await navigator.clipboard.writeText($("oauth-redirect").textContent);note("Redirect URI copied.");}
+ catch(e){note("Select the redirect URI above and copy it.")}
+};
+$("oauth-client-form").onsubmit=async e=>{
+ e.preventDefault();
+ const cid=$("oauth-client-id").value.trim(),secret=$("oauth-client-secret").value;
+ try{
+   if(!cid||!secret)throw Error("Client ID and Client Secret are required.");
+   await call("/oauth/client","POST",{client_id:cid,client_secret:secret});
+   $("oauth-client-secret").value="";
+   await refreshOAuthSettings();
+   await refreshHealth();
+   note("Google OAuth client saved securely. Next: Connect your YouTube channel using Google consent.");
+ }catch(e){
+   $("oauth-client-secret").value="";
+   note(e.message);
+ }
+};
+$("remove-oauth-client").onclick=async()=>{
+ if(!confirm("Remove Auto Stream's saved OAuth client? Connected channels must be disconnected first."))return;
+ try{
+   await call("/oauth/client","DELETE");
+   $("oauth-client-id").value="";$("oauth-client-secret").value="";
+   await refreshOAuthSettings();await refreshHealth();
+   note("Saved Auto Stream Google OAuth client removed.");
+ }catch(e){note(e.message)}
+};
 $("connect").onclick=async()=>{try{const x=await call("/oauth/start");window.location.assign(x.authorization_url);}catch(e){note(e.message)}};
 $("reload-channels").onclick=()=>refreshChannels().catch(e=>note(e.message));
 $("reload-jobs").onclick=()=>refreshYoutubeGates().catch(e=>note(e.message));
@@ -251,7 +312,7 @@ $("refresh-live").onclick=async()=>{
  });note("YouTube status read completed; no publishing action performed.");}
  catch(e){note(e.message)}
 };
-Promise.all([refreshHealth(),refreshChannels(),refreshSheets(),refreshYoutubeGates()]).catch(e=>note(e.message));
+Promise.all([refreshHealth(),refreshChannels(),refreshSheets(),refreshYoutubeGates(),refreshOAuthSettings()]).catch(e=>note(e.message));
 })();
 </script></body></html>
 """
