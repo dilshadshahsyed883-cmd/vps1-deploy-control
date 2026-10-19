@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+def thumbnail_required_for_mode() -> bool:
+    """Engine 2 needs thumbnails. Shorts deliberately omit thumbnails."""
+    return os.environ.get("LUM_ENGINE_INSTANCE", "engine1").strip().lower() != "shorts"
+
+
 import csv
 import hashlib
 import io
@@ -1098,7 +1103,7 @@ def planner(pc_db:Any, store:V6Store, profile:Dict[str,Any], *, max_jobs_overrid
         raise ValueError(f"Drive video source sync failed: {exc}") from exc
     thumb_mode=clean(source.get("thumbnail_source_mode") or "pc_drive")
     thumb_folder=clean(source.get("drive_thumbnail_folder_id"))
-    if thumb_mode in {"drive","pc_drive"} and thumb_folder:
+    if thumbnail_required_for_mode() and thumb_mode in {"drive","pc_drive"} and thumb_folder:
         try:
             store.sync_drive_thumbnails(pid,clean(profile.get("category_name")))
         except Exception as exc:
@@ -1112,7 +1117,7 @@ def planner(pc_db:Any, store:V6Store, profile:Dict[str,Any], *, max_jobs_overrid
     if not channels: raise ValueError("No eligible ACTIVE channel with verified UC ID and valid token.")
     thumbs=[t for t in store.thumbs(pid) if t["status"]=="ACTIVE"]
     blocked=[]
-    if not thumbs: blocked.append("No ACTIVE thumbnail is available.")
+    if thumbnail_required_for_mode() and not thumbs: blocked.append("No ACTIVE thumbnail is available.")
     meta,note=category_metadata(profile)
     daily=max(1,int(profile.get("daily_upload_count") or 1))
     scope=clean(profile.get("upload_scope") or "per_channel")
@@ -1147,7 +1152,7 @@ def planner(pc_db:Any, store:V6Store, profile:Dict[str,Any], *, max_jobs_overrid
         if dup:
             duplicate_count+=1; continue
         m=metadata_for_job(meta,v["filename"],vi,profile,ch,preview=preview_only)
-        thumb=(thumbs[(cursor+vi)%len(thumbs)] if bool(profile.get("thumbnail_rotation",1)) else thumbs[0]) if thumbs else None
+        thumb=(thumbs[(cursor+vi)%len(thumbs)] if bool(profile.get("thumbnail_rotation",1)) else thumbs[0]) if thumbs and thumbnail_required_for_mode() else None
         selected.append({
             "slot":slot,"channel_db_id":cid,"channel_id":channel_uc,"channel_name":clean(ch.get("channel_name")),
             "drive_video_id":int(v["id"]),"drive_file_id":fid,"filename":clean(v["filename"]),
@@ -1830,9 +1835,10 @@ def _channel_validate_rows(pc_db: Any, store: V6Store, profile: Dict[str, Any]) 
         raise ValueError(f"Channel profile is paused: {clean(binding.get('pause_reason')) or 'manual resume required'}")
 
     store.scan_drive_videos(pid)
-    store.scan_drive_thumbnails(pid)
+    if thumbnail_required_for_mode():
+        store.scan_drive_thumbnails(pid)
     videos=store.drive_videos(pid,True)
-    thumbs=store.drive_thumbnails(pid)
+    thumbs=store.drive_thumbnails(pid) if thumbnail_required_for_mode() else []
     rows=_channel_fetch_rows(profile)
     timezone_name=clean(binding.get("timezone_name")) or "Asia/Karachi"
     seen_keys=set()
@@ -1888,12 +1894,13 @@ def _channel_validate_rows(pc_db: Any, store: V6Store, profile: Dict[str, Any]) 
                             state="ERROR"; error=f"Multiple videos match Video ID ({len(vm)} found)."
                         else:
                             vname=clean(vm[0].get("filename"))
-                        if len(tm)==0:
-                            state="ERROR"; error=(error+" " if error else "")+"Matching thumbnail is missing."
-                        elif len(tm)>1:
-                            state="ERROR"; error=(error+" " if error else "")+f"Multiple thumbnails match Video ID ({len(tm)} found)."
-                        else:
-                            tname=clean(tm[0].get("filename"))
+                        if thumbnail_required_for_mode():
+                            if len(tm)==0:
+                                state="ERROR"; error=(error+" " if error else "")+"Matching thumbnail is missing."
+                            elif len(tm)>1:
+                                state="ERROR"; error=(error+" " if error else "")+f"Multiple thumbnails match Video ID ({len(tm)} found)."
+                            else:
+                                tname=clean(tm[0].get("filename"))
             con.execute("""
             INSERT INTO channel_metadata_rows(profile_id,row_number,video_key,title,description,tags,seo_keywords,source_done,
                 upload_date,upload_time,privacy_status,upload_enabled,source_status,source_youtube_url,
@@ -1969,12 +1976,12 @@ def _channel_queue_valid_rows(pc_db: Any, store: V6Store, profile: Dict[str,Any]
         if existing:
             continue
         v=_channel_find_asset(videos,key); t=_channel_find_asset(thumbs,key)
-        if not v or not t or not clean(row.get("title")):
+        if not v or (thumbnail_required_for_mode() and not t) or not clean(row.get("title")):
             blocked.append(key); continue
         staging_dir=STAGING_ROOT/f"profile_{pid:04d}"/f"drive_{safe_slug(clean(v.get('drive_file_id')),'file')}"
         staging_path=staging_dir/clean(v.get("filename"))
         thumb_dir=staging_dir/"thumbnail"
-        thumb_path=thumb_dir/clean(t.get("filename"))
+        thumb_path=thumb_dir/clean(t.get("filename")) if thumbnail_required_for_mode() else ""
         schedule_at=clean(row.get("schedule_at"))
         try:
             due=datetime.fromisoformat(schedule_at.replace("Z","+00:00"))
@@ -2015,7 +2022,7 @@ def _channel_queue_valid_rows(pc_db: Any, store: V6Store, profile: Dict[str,Any]
                     snapshot_title,snapshot_description,snapshot_tags,snapshot_privacy,snapshot_schedule_at,post_upload_state)
                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'QUEUED')
                 """,(vid,pid,key,int(row.get("row_number") or 0),clean(t.get("drive_file_id")),clean(t.get("source_folder_id")),
-                      clean(t.get("filename")),1,metadata_sheet_url,metadata_sheet_gid,clean(row.get("title")),clean(row.get("description")),tags,
+                      clean(t.get("filename")),int(thumbnail_required_for_mode()),metadata_sheet_url,metadata_sheet_gid,clean(row.get("title")),clean(row.get("description")),tags,
                       clean(row.get("privacy_status")) or "private",schedule_at))
                 con.execute("UPDATE channel_metadata_rows SET state=?,error_message='' WHERE profile_id=? AND row_number=?",(initial_status,pid,int(row.get("row_number") or 0)))
             emit_channel_sheet_writeback(store,vid,initial_status,error="")

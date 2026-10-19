@@ -361,7 +361,7 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         request.session["lum_embedded"] = "1"
     embedded_view = SUITE_AUTH_ENABLED and str(request.session.get("lum_embedded") or "") == "1"
     mode = "heavy"
-    allowed = {"dashboard", "channels", "sheets", "auto_engine", "add_video", "bulk_import", "queue", "logs"}
+    allowed = {"dashboard", "channels", "sheets", "auto_engine", "add_video", "bulk_import", "queue", "logs", "auto_stream"}
     default_tab = "dashboard"
     selected = tab if tab in allowed else default_tab
     channels = all_channels()
@@ -380,8 +380,13 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         raise HTTPException(status_code=400, detail="Unknown uploader mode")
     engine_instance = os.getenv("LUM_ENGINE_INSTANCE", "engine1")
     if engine_instance in {"engine2", "shorts"}:
-        # An independent process displays its own V6 controls.
+        # Independent uploaders cannot access Auto Stream.
+        if selected == "auto_stream":
+            raise HTTPException(404, "Auto Stream is not an uploader engine")
         selected_auto_mode = "engine1"
+    elif selected_auto_mode == "short_stream":
+        # Historical four-mode bookmarks lead to the separate Stream tab.
+        return RedirectResponse(route("/app") + "?tab=auto_stream", status_code=303)
     mode_registry = four_mode_registry() if selected == "auto_engine" else {}
     auto_v6 = v6_profile_context(db, v6_store, int(auto_profile_id or 0)) if selected == "auto_engine" and selected_auto_mode == "engine1" else {}
     if selected == "auto_engine" and auto_v6:
@@ -596,6 +601,12 @@ async def add_video(
     user = current_user(request); require_csrf(request, csrf_token)
     thumb_path = ""
     try:
+        upload_instance = os.getenv("LUM_ENGINE_INSTANCE", "engine1").strip().lower()
+        has_thumbnail = bool(thumbnail and thumbnail.filename)
+        if upload_instance == "engine2" and not has_thumbnail:
+            raise ValueError("Engine 2 requires a JPG/PNG thumbnail before queue admission.")
+        if upload_instance == "shorts" and has_thumbnail:
+            raise ValueError("Short Uploader does not use thumbnails.")
         if thumbnail and thumbnail.filename:
             suffix = Path(thumbnail.filename).suffix.lower()
             if suffix not in {".jpg", ".jpeg", ".png"}:

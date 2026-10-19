@@ -388,3 +388,9 @@ body.lum-embedded .app-main{padding:0!important}
     padding:6px 8px!important;
   }
 }
+
+/* Separate top-level upload and streaming navigation; no shared workers. */
+.lum-primary-workspaces{display:flex;gap:10px;margin:14px 0 12px;flex-wrap:wrap;border-bottom:1px solid var(--sb-border,#d1d5db);padding-bottom:12px}
+.lum-primary-workspaces a{display:inline-flex;align-items:center;justify-content:center;padding:11px 20px;text-decoration:none;border:1px solid var(--sb-border,#d1d5db);border-radius:10px;background:var(--sb-card,#fff);color:var(--sb-text,#0f172a);font-weight:750}
+.lum-primary-workspaces a.active{background:var(--sb-accent,#4f46e5);border-color:var(--sb-accent,#4f46e5);color:white}
+.lum-stream-shell{min-height:250px}
