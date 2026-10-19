@@ -180,8 +180,34 @@ def inventory(root: Path = BASE, now: float | None = None, unit_dir: Path | None
     return results
 
 
+def _runtime_in_use(paths: list[Path], proc_root: Path = Path("/proc")) -> bool:
+    """Block cleanup if any live process names, opens, or works inside a target."""
+    targets = [str(path.resolve(strict=True)) for path in paths]
+    try:
+        for pid in proc_root.iterdir():
+            if not pid.name.isdigit():
+                continue
+            try:
+                arguments = (pid / "cmdline").read_bytes().replace(b"\\x00", b" ")
+                if any(os.fsencode(target) in arguments for target in targets):
+                    return True
+                for name in ("cwd", "exe"):
+                    with contextlib.suppress(OSError):
+                        linked = (pid / name).resolve(strict=True)
+                        if any(linked == Path(target) or linked.is_relative_to(Path(target))
+                               for target in targets):
+                            return True
+            except FileNotFoundError:
+                continue  # Process exited while /proc was traversed.
+            except PermissionError:
+                return True  # Unknown owner/process state: protect the candidate.
+        return False
+    except OSError:
+        return True
+
+
 def apply_plan(root: Path, plan: dict[str, Any], *, now: float | None = None,
-               unit_dir: Path | None = None) -> dict[str, Any]:
+               unit_dir: Path | None = None, test_mode: bool = False) -> dict[str, Any]:
     """Under deployment lock, recalculate eligibility before each deletion."""
     if plan.get("blocked"):
         raise RuntimeError("dry-run inventory blocked")
@@ -197,6 +223,15 @@ def apply_plan(root: Path, plan: dict[str, Any], *, now: float | None = None,
         if key not in eligible or eligible[key]["paths"] != candidate["paths"]:
             skipped.append(candidate["app"] + "/" + candidate["revision"])
             continue
+        if not test_mode:
+            service = "vps1-production-" + candidate["app"] + ".service"
+            if subprocess.run(["systemctl", "is-active", "--quiet", service],
+                              check=False, timeout=10).returncode != 0:
+                skipped.append(candidate["app"] + "/" + candidate["revision"] + ":service-inactive")
+                continue
+            if _runtime_in_use([Path(p) for p in candidate["paths"]]):
+                skipped.append(candidate["app"] + "/" + candidate["revision"] + ":process-in-use")
+                continue
         for raw in eligible[key]["paths"]:
             path = Path(raw)
             parent = path.parent
@@ -248,7 +283,7 @@ def execute(root: Path = BASE, *, apply: bool = False, state: Path = STATE,
                 raise RuntimeError(plan["blocked"])
             if not test_mode and before < MIN_FREE_BYTES:
                 raise RuntimeError("low-space incident: manual recovery required")
-            result["outcome"] = apply_plan(root, plan, now=now, unit_dir=unit_dir)
+            result["outcome"] = apply_plan(root, plan, now=now, unit_dir=unit_dir, test_mode=test_mode)
             result["free_after_bytes"] = shutil.disk_usage(root).free
         if apply and not test_mode:
             _record_audit(state, {
