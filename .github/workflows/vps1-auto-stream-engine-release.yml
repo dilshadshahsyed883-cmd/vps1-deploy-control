@@ -74,6 +74,9 @@ jobs:
             remote "sudo -n /usr/local/sbin/vps1-production-deploy rollback $SOURCE_SHA short-stream" || true
             exit 1
           fi
+          echo "PHASE=V3_YOUTUBE_LIVE_API_GATED_READBACK"
+          remote "python3 -c 'import json,urllib.request; d=json.loads(urllib.request.urlopen(\"http://127.0.0.1:8145/engine/youtube/health\",timeout=8).read()); assert d.get(\"ok\") is True and d.get(\"youtube_mutations_enabled\") is False and d.get(\"transitions_enabled\") is False and d.get(\"go_live_enabled\") is False and d.get(\"publishing_enabled\") is False, \"V3 YouTube API safety flags invalid\"'"
+          echo "AUTO_STREAM_V3_YOUTUBE_CONTROL=PASS_MUTATIONS_OFF"
           echo "AUTO_STREAM_V2_CHANNELS_SHEETS_UI=PASS"
           echo "AUTO_STREAM_ENGINE_RUNTIME=PASS"
           echo "AUTO_STREAM_PUBLISHING=OFF"

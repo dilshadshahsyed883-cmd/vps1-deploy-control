@@ -845,3 +845,7 @@ app.include_router(auto_stream_integrations_router)
 # Auto Stream browser controls (independent of the legacy Short Stream screen).
 from auto_stream_ui import router as auto_stream_ui_router
 app.include_router(auto_stream_ui_router)
+
+# Explicit gated YouTube Live API controller, independent from legacy sessions.
+from auto_stream_broadcasts import router as auto_stream_broadcasts_router
+app.include_router(auto_stream_broadcasts_router)

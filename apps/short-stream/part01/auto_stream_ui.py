@@ -6,7 +6,7 @@ router = APIRouter(prefix="/engine", tags=["Auto Stream Studio"])
 
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Auto Stream — Channels & Sheets Sync</title>
+<title>Auto Stream — Live Studio</title>
 <style>
 :root{font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;color-scheme:light;color:#172136}
 *{box-sizing:border-box}body{margin:0;background:#f5f6fb}header{padding:16px 25px;background:#141a31;color:#fff;display:flex;align-items:center;justify-content:space-between}
@@ -28,11 +28,12 @@ small,.muted{color:#627087}p{line-height:1.5}
 </style></head>
 <body><header><div><h1>Auto Stream</h1><small style="color:#bac4e1">Independent YouTube Live application</small></div><a href="/">Scene Builder Dashboard</a></header>
 <main>
-<div class="panel"><strong>Engine V2</strong><p id="health">Loading engine status...</p><small>Google access is separate from Auto Uploader. No upload jobs or streams start from this screen.</small></div>
+<div class="panel"><strong>Auto Stream Studio V3</strong><p id="health">Loading engine status...</p><small>Google access is separate from Auto Uploader. No upload jobs or streams start from this screen.</small></div>
 <nav aria-label="Auto Stream workspace tabs">
 <button data-tab="dashboard" aria-selected="true">Dashboard</button>
 <button data-tab="channels" aria-selected="false">Channels</button>
 <button data-tab="sheets" aria-selected="false">Sheets Sync</button>
+<button data-tab="studio" aria-selected="false">Stream Studio</button>
 <button data-tab="live" aria-selected="false">YouTube Live</button>
 </nav>
 <section id="dashboard" class="panel" role="tabpanel">
@@ -56,6 +57,19 @@ small,.muted{color:#627087}p{line-height:1.5}
 <p><button id="add-sheet" class="primary">Link read-only Sheet</button></p>
 <div id="sheet-list"></div>
 <p class="muted">Required row columns: channel_id, media_path, title, scheduled_at, enabled. Optional: continuous. Times must include timezone offset.</p>
+</section>
+<section id="studio" class="panel" role="tabpanel" hidden>
+<h2>Streaming Jobs — Private YouTube Broadcast Preparation</h2>
+<p class="muted">Create and prepare draft jobs independently. YouTube broadcast creation, ingest and Live transitions are disabled unless explicitly enabled on the VPS. No stream starts when you open this tab.</p>
+<div class="grid">
+<div><label for="job-channel">Authorized channel</label><select id="job-channel"></select></div>
+<div><label for="job-media">Existing media file (relative path)</label><input id="job-media" placeholder="auto_stream_uploads/example.mp4"></div>
+<div><label for="job-title">Broadcast title</label><input id="job-title" maxlength="100" placeholder="Scheduled private livestream"></div>
+<div><label for="job-scheduled">Scheduled start time</label><input id="job-scheduled" type="datetime-local"></div>
+</div>
+<p><button id="create-job" class="primary">Create DRAFT Job</button> <button id="reload-jobs">Refresh Jobs</button></p>
+<p id="live-controls-status" class="message">Checking YouTube mutation/transition gates...</p>
+<div id="job-list"></div>
 </section>
 <section id="live" class="panel" role="tabpanel" hidden>
 <h2>YouTube Live Status</h2><p class="muted">Verified directly against the YouTube Live API; a healthy encoder alone does not count as LIVE.</p>
@@ -86,6 +100,7 @@ function renderItems(id,items,fn){
 }
 function txt(div,s,cls){const el=document.createElement("p");if(cls)el.className=cls;el.textContent=s;div.appendChild(el);return el;}
 let channels=[];
+let ytFlags={};
 async function refreshChannels(){
  channels=(await call("/channels")).channels;
  renderItems("channel-list",channels,(el,c)=>{
@@ -96,7 +111,7 @@ async function refreshChannels(){
        try{await call("/channels/"+encodeURIComponent(c.id)+"/disconnect","POST");await refreshChannels();note("Auto Stream authorization removed locally");}catch(e){note(e.message)}};
      el.appendChild(b);}
  });
- for(const name of ["sheet-channel","live-channel"]){
+ for(const name of ["sheet-channel","live-channel","job-channel"]){
   const s=$(name);s.replaceChildren();
   channels.filter(c=>c.authorized).forEach(c=>{
     const opt=document.createElement("option");opt.value=c.id;opt.textContent=c.title+" ("+c.id+")";s.appendChild(opt);
@@ -119,6 +134,65 @@ async function refreshSheets(){
  el.appendChild(preview);el.appendChild(apply);
  });
 }
+async function refreshJobs(){
+ const jobs=(await call("/jobs")).jobs;
+ renderItems("job-list",jobs,(el,job)=>{
+   txt(el,job.title+" — "+job.id);
+   txt(el,"Channel: "+job.channel_id+" | Local job: "+job.status+
+      " | Start: "+(job.scheduled_at||"manual"),"muted");
+   const bar=document.createElement("div");bar.className="row";
+   const action=(text,path,options={})=>{
+     const btn=document.createElement("button");
+     btn.textContent=text;
+     btn.disabled=!!options.disabled;
+     btn.onclick=async()=>{
+       if(options.confirm&&!confirm(options.confirm))return;
+       try{
+         const result=await call("/jobs/"+encodeURIComponent(job.id)+path,"POST",options.body);
+         note(text+" succeeded for "+job.id+"; verify status before further actions.");
+         if(result.youtube_verified_live===true)note("YouTube verified Live: "+job.id);
+         await refreshJobs();
+       }catch(e){note(e.message)}
+     };
+     bar.appendChild(btn);
+   };
+   action("Prepare Job","/prepare",{disabled:!["DRAFT","READY","SCHEDULED"].includes(job.status)});
+   action("Create PRIVATE YouTube Broadcast","/broadcast/provision",{
+     disabled:!ytFlags.youtube_mutations_enabled || !["READY","SCHEDULED"].includes(job.status),
+     confirm:"Create a real PRIVATE broadcast and stream on YouTube? This does not go Live."});
+   const verify=document.createElement("button");verify.textContent="Verify YouTube";
+   verify.onclick=async()=>{
+     try{const result=await call("/jobs/"+encodeURIComponent(job.id)+"/broadcast/verify");
+       note("YouTube: "+result.youtube_broadcast_status+
+         " | Ingest: "+result.youtube_ingest_status+
+         " | Verified LIVE: "+(result.youtube_verified_live?"YES":"NO"));}
+     catch(e){note(e.message)}
+   };
+   bar.appendChild(verify);
+   action("Start RTMPS Ingest","/broadcast/ingest",{
+     disabled:!ytFlags.youtube_mutations_enabled||!ytFlags.publishing_enabled,
+     confirm:"Start FFmpeg RTMPS transmission to the bound PRIVATE YouTube broadcast?"});
+   action("Test Broadcast","/broadcast/transition",{
+     disabled:!ytFlags.transitions_enabled,
+     body:{status:"testing"},confirm:"Transition YouTube broadcast to testing after ACTIVE ingest?"});
+   action("GO LIVE","/broadcast/transition",{
+     disabled:!ytFlags.go_live_enabled||!ytFlags.transitions_enabled,
+     body:{status:"live"},confirm:"GO LIVE on YouTube? This can publish to the configured audience."});
+   action("Complete Broadcast","/broadcast/transition",{
+     disabled:!ytFlags.transitions_enabled,
+     body:{status:"complete"},confirm:"Complete YouTube live broadcast permanently?"});
+   el.appendChild(bar);
+ });
+}
+async function refreshYoutubeGates(){
+ ytFlags=await call("/youtube/health");
+ $("live-controls-status").textContent="YouTube provisioning: "+
+  (ytFlags.youtube_mutations_enabled?"Enabled":"OFF")+
+  " | FFmpeg ingest: "+(ytFlags.publishing_enabled?"Enabled":"OFF")+
+  " | Transitions: "+(ytFlags.transitions_enabled?"Enabled":"OFF")+
+  " | Public GO LIVE: "+(ytFlags.go_live_enabled?"Enabled":"OFF");
+ await refreshJobs();
+}
 async function refreshHealth(){
  const a=await call("/health"),b=await call("/integrations/health");
  $("health").textContent="Backend: "+(a.ok?"Connected":"Unavailable")+
@@ -137,6 +211,26 @@ document.querySelectorAll("[data-tab]").forEach(button=>button.onclick=()=>{
 });
 $("connect").onclick=async()=>{try{const x=await call("/oauth/start");window.location.assign(x.authorization_url);}catch(e){note(e.message)}};
 $("reload-channels").onclick=()=>refreshChannels().catch(e=>note(e.message));
+$("reload-jobs").onclick=()=>refreshYoutubeGates().catch(e=>note(e.message));
+$("create-job").onclick=async()=>{
+ try{
+  const channel=$("job-channel").value;
+  if(!channel)throw Error("Connect an authorized YouTube channel first.");
+  const dt=$("job-scheduled").value;
+  if(!dt)throw Error("Choose a future scheduled date and time.");
+  const start=new Date(dt);
+  if(!Number.isFinite(start.getTime())||start.getTime()<=Date.now()+120000)
+    throw Error("Schedule at least two minutes in the future.");
+  const data={channel_id:channel,media_path:$("job-media").value.trim(),
+      title:$("job-title").value.trim(),
+      scheduled_at:start.toISOString(),
+      idempotency_key:"studio-"+(globalThis.crypto&&globalThis.crypto.randomUUID?
+        globalThis.crypto.randomUUID().replaceAll("-",""):String(Date.now()))};
+  const result=await call("/jobs","POST",data);
+  note("DRAFT created: "+result.id+". No YouTube action or stream started.");
+  await refreshJobs();
+ }catch(e){note(e.message)}
+};
 $("import-channel").onclick=async()=>{
  try{await call("/channels/import","POST",{channel_id:$("cid").value,title:$("ctitle").value});
  await refreshChannels();note("Channel metadata imported. OAuth is still required for Live API access.");}
@@ -157,7 +251,7 @@ $("refresh-live").onclick=async()=>{
  });note("YouTube status read completed; no publishing action performed.");}
  catch(e){note(e.message)}
 };
-Promise.all([refreshHealth(),refreshChannels(),refreshSheets()]).catch(e=>note(e.message));
+Promise.all([refreshHealth(),refreshChannels(),refreshSheets(),refreshYoutubeGates()]).catch(e=>note(e.message));
 })();
 </script></body></html>
 """

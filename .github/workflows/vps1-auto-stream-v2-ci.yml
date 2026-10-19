@@ -5,6 +5,7 @@ on:
       - 'apps/short-stream/part01/**'
       - 'production/test_auto_stream_integrations.py'
       - 'production/test_auto_stream_ui.py'
+      - 'production/test_auto_stream_broadcasts.py'
       - '.github/workflows/vps1-auto-stream-v2-ci.yml'
   push:
     branches: [main]
@@ -28,7 +29,7 @@ jobs:
         run: |
           python -m py_compile apps/short-stream/part01/auto_stream_integrations.py
           python -m py_compile apps/short-stream/part01/app.py
-          python -m unittest -v production.test_auto_stream_engine production.test_auto_stream_integrations production.test_auto_stream_ui
+          python -m unittest -v production.test_auto_stream_engine production.test_auto_stream_integrations production.test_auto_stream_ui production.test_auto_stream_broadcasts
 
       - name: Parse native browser script with Node JS syntax checker
         run: |

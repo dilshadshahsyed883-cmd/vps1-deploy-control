@@ -181,7 +181,7 @@ class StreamEngine:
             raise ValueError("Invalid stream key")
         return secret
 
-    def _command(self, row, key):
+    def _command(self, row, key, ingest_url=RTMPS):
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
             raise ValueError("FFmpeg is not installed")
@@ -198,10 +198,10 @@ class StreamEngine:
                      "-pix_fmt", "yuv420p", "-b:v", "2500k",
                      "-maxrate", "2500k", "-bufsize", "5000k",
                      "-g", "60", "-c:a", "aac", "-b:a", "128k",
-                     "-ar", "44100", "-f", "flv", RTMPS + key])
+                     "-ar", "44100", "-f", "flv", ingest_url.rstrip("/") + "/" + key])
         return args
 
-    def start(self, jid, *, scheduler=False):
+    def start(self, jid, *, scheduler=False, internal_ingest=None):
         if os.environ.get("AUTO_STREAM_PUBLISH_ENABLED") != "1":
             raise PermissionError("Auto Stream publishing is disabled")
         if scheduler and os.environ.get("AUTO_STREAM_SCHEDULER_ENABLED") != "1":
@@ -216,7 +216,7 @@ class StreamEngine:
             if scheduler and (not row["scheduled_at"] or row["scheduled_at"] > utc_now()):
                 raise ValueError("Scheduled start has not arrived")
             # Fail closed before reserving the channel.
-            command = self._command(row, self._stream_key(row["channel_id"]))
+            command = self._command(row, *(internal_ingest or (self._stream_key(row["channel_id"]), RTMPS)))
             active = con.execute("""SELECT id FROM jobs WHERE channel_id=?
                         AND status IN ('STARTING','INGESTING','STOPPING')""",
                                  (row["channel_id"],)).fetchone()
