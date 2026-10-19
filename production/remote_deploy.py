@@ -58,6 +58,10 @@ def main():
         return
     subprocess.run(['/usr/bin/python3', '-m', 'production.runtime', operation,
                     '--revision', revision, '--apps', *apps], cwd=checkout, check=True)
+    # Auto Uploader already has an independent Scene-owned HTTPS route.
+    # Changing its engines must not republish Nginx or other applications.
+    if selected == 'local-upload-manager' and operation == 'install':
+        return
     # Keep every still-active app in the gateway when updating one app.
     active = [app for app in APPS if subprocess.run(
         ['systemctl', 'is-active', '--quiet', f'vps1-production-{app}.service']).returncode == 0]

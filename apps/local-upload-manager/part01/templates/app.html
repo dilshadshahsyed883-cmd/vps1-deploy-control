@@ -692,6 +692,7 @@
         <div><h2>Unified Auto Uploader · Four Modes</h2>
           <p>Independent Auto Uploader engines and Short Stream. Switching tabs never starts an upload or changes saved data.</p></div>
       </div>
+      {% if engine_instance == "engine1" %}
       <nav class="lum-ae-tabs lum-ae-tabs-primary" aria-label="Auto Uploader modes">
         {% for key in ['engine1', 'engine2', 'shorts', 'short_stream'] %}
         <a class="lum-button {{ 'primary' if auto_mode == key else 'secondary' }}"
@@ -699,6 +700,9 @@
            aria-current="{{ 'page' if auto_mode == key else 'false' }}">{{ mode_registry.selected_modes[key].label }}</a>
         {% endfor %}
       </nav>
+      {% else %}
+      <div class="lum-note"><strong>{{ "Engine 2" if engine_instance == "engine2" else "Shorts Engine" }}</strong> — independent controls and new mode-only configuration. Existing user data is never shared.</div>
+      {% endif %}
       <p class="lum-note">Engine 1 controls apply only to Engine 1. Engine 2 and Shorts remain separate until their web services and upload workers are installed. Existing channels, records, schedules and settings are untouched.</p>
       {% if mode_registry.cross_mode_record_collisions %}
         <div class="lum-alert error">Cross-mode receipt collision(s) detected: {{ mode_registry.cross_mode_record_collisions }}. Do not activate additional upload workers before reconciling these identities.</div>
@@ -1035,6 +1039,12 @@
           <span class="lum-badge {{ 'good' if selected_mode.runtime.web == 'connected' else 'warn' }}">{{ 'WEB CONNECTED' if selected_mode.runtime.web == 'connected' else 'WEB NOT CONNECTED' }}</span>
         </div>
         <p class="lum-note"><strong>Engine status:</strong> {{ selected_mode.runtime.details }}. Worker: {{ selected_mode.runtime.worker | replace('_', ' ') }}.</p>
+        {% if auto_mode in ['engine2', 'shorts'] and selected_mode.runtime.web == 'connected' %}
+          <iframe title="{{ selected_mode.label }} Auto Uploader application"
+                  src="{{ base_path }}/modes/{{ auto_mode }}/app?tab=auto_engine"
+                  loading="lazy" style="width:100%;min-height:860px;border:1px solid #565a65;border-radius:12px;"></iframe>
+          <p class="lum-note">Independent app controls are connected. New engine automatic publishing starts OFF until configured.</p>
+        {% endif %}
         {% if auto_mode == 'short_stream' %}
           <p>Livestream sessions are managed by the independent Short Stream application, not by a YouTube video-upload queue.</p>
           <div class="lum-metrics"><div><span>Local session snapshots</span><strong>{{ selected_mode.sessions if selected_mode.sessions is not none else 'Not available' }}</strong></div></div>

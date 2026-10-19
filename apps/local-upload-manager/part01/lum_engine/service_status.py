@@ -11,7 +11,8 @@ import os
 
 def auto_engine_service_units() -> dict[str, str]:
     if os.environ.get("FRESH_WEBSITE_INSTALL") == "1":
-        prefix = "vps1-production-lum"
+        instance = os.environ.get("LUM_ENGINE_INSTANCE", "engine1")
+        prefix = ("vps1-production-lum-" + instance) if instance in {"engine2", "shorts"} else "vps1-production-lum"
     else:
         prefix = "lum-auto-engine-v6"
     return {

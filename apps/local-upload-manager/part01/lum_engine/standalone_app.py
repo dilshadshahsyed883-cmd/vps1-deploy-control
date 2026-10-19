@@ -20,6 +20,7 @@ from .config import (
 from .oauth_web import complete_oauth, list_clients, save_client_json, save_shared_client_json, start_oauth
 from .project_store import ProjectStore
 from .four_modes import registry as four_mode_registry, validate_mode as validate_auto_mode
+from .mode_gateway import forward as forward_engine_request, MODE_PORTS as ENGINE_PORTS
 from .reports import generate_health_report, list_reports, report_path
 from .worker import VPSUploadWorker
 from desktop_core.modules.auth_manager import AuthManager
@@ -272,7 +273,7 @@ async def standalone_auth(request: Request, call_next):
 app.add_middleware(
     SessionMiddleware,
     secret_key=SESSION_SECRET,
-    session_cookie="lum_session",
+    session_cookie="lum_session" if os.getenv("LUM_ENGINE_INSTANCE", "engine1") == "engine1" else "lum_session_" + os.getenv("LUM_ENGINE_INSTANCE", "engine1"),
     same_site="lax",
     https_only=COOKIE_SECURE,
     max_age=60 * 60 * 24 * 14,
@@ -299,6 +300,7 @@ def health() -> dict[str, Any]:
     return {
         "ok": True,
         "app": "Local Upload Manager",
+        "engine_instance": os.getenv("LUM_ENGINE_INSTANCE", "engine1"),
         "standalone": not SUITE_AUTH_ENABLED,
         "suite_auth": SUITE_AUTH_ENABLED,
         "build": BUILD,
@@ -401,6 +403,10 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         selected_auto_mode = validate_auto_mode(auto_mode)
     except ValueError:
         raise HTTPException(status_code=400, detail="Unknown uploader mode")
+    engine_instance = os.getenv("LUM_ENGINE_INSTANCE", "engine1")
+    if engine_instance in {"engine2", "shorts"}:
+        # An independent process displays its own V6 controls.
+        selected_auto_mode = "engine1"
     mode_registry = four_mode_registry() if selected == "auto_engine" else {}
     auto_v6 = v6_profile_context(db, v6_store, int(auto_profile_id or 0)) if selected == "auto_engine" and selected_auto_mode == "engine1" else {}
     if selected == "auto_engine" and auto_v6:
@@ -493,6 +499,7 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         "pc_sync_history": pc_sync_history,
         "auto_v6": auto_v6,
         "auto_mode": selected_auto_mode,
+        "engine_instance": engine_instance,
         "mode_registry": mode_registry,
         "reports": list_reports(),
         "csrf": csrf(request),
@@ -502,6 +509,18 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         "suite_auth": SUITE_AUTH_ENABLED,
         "embedded_view": embedded_view,
     })
+
+
+@app.api_route(route("/modes/{engine_mode}/{rest:path}"), methods=["GET", "HEAD", "POST"])
+async def independent_engine_web(engine_mode: str, rest: str, request: Request):
+    # Only the original primary app proxies independent engine interfaces.
+    if os.getenv("LUM_ENGINE_INSTANCE", "engine1") != "engine1":
+        raise HTTPException(404, "Engine proxy unavailable")
+    user = current_user(request)
+    require_heavy(user)
+    if engine_mode not in ENGINE_PORTS:
+        raise HTTPException(404, "Unknown independent engine")
+    return await forward_engine_request(engine_mode, request, user)
 
 
 @app.get(route("/api/auto-modes"))

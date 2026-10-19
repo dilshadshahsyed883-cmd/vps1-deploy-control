@@ -41,6 +41,8 @@ def probe(mode: str) -> dict:
                 raise ValueError("health check rejected")
             if payload.get("app") != expected_app:
                 raise ValueError("unexpected app response")
+            if mode in {"engine2", "shorts"} and payload.get("engine_instance") != mode:
+                raise ValueError("different engine instance responded")
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return {"web": "not_connected", "worker": "not_checked", "details": "Independent engine service is not responding"}
     return {

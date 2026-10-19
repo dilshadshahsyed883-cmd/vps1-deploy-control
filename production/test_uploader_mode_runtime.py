@@ -28,7 +28,7 @@ class EngineRuntimeTests(unittest.TestCase):
 
     def test_engine_two_service_ready_but_no_publish_claim(self):
         with patch("urllib.request.urlopen", return_value=FakeResponse({
-            "ok": True, "app": "Local Upload Manager", "worker_alive": False
+            "ok": True, "app": "Local Upload Manager", "engine_instance": "engine2", "worker_alive": False
         })) as request:
             result = probe("engine2")
             self.assertEqual(result["web"], "connected")
@@ -38,9 +38,16 @@ class EngineRuntimeTests(unittest.TestCase):
 
     def test_shorts_worker_ready_is_separate_from_website(self):
         with patch("urllib.request.urlopen", return_value=FakeResponse({
-            "ok": True, "app": "Local Upload Manager", "worker_alive": True
+            "ok": True, "app": "Local Upload Manager", "engine_instance": "shorts", "worker_alive": True
         })):
             self.assertEqual(probe("shorts")["worker"], "running")
+
+    def test_wrong_engine_instance_is_not_accepted(self):
+        with patch("urllib.request.urlopen", return_value=FakeResponse({
+            "ok": True, "app": "Local Upload Manager",
+            "engine_instance": "engine1", "worker_alive": True
+        })):
+            self.assertEqual(probe("engine2")["web"], "not_connected")
 
     def test_short_stream_is_distinct_service(self):
         with patch("urllib.request.urlopen", return_value=FakeResponse({

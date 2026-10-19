@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import json
 from pathlib import Path
 import subprocess
 import time
@@ -19,13 +20,72 @@ SPECS = {
    ('acs-upload', 'part01', '-m web_backend.stage_worker upload')],
  'local-upload-manager': [
    ('lum-worker', 'part01', '-m lum_engine.auto_engine_v6_worker'),
-   ('lum-scheduler', 'part01', '-m lum_engine.auto_engine_v6_scheduler')],
+   ('lum-scheduler', 'part01', '-m lum_engine.auto_engine_v6_scheduler'),
+   # Newly provisioned, independent web+worker+scheduler processes. Each
+   # instance has a different data root and starts with scheduling OFF.
+   ('lum-engine2-web', 'part01', '-m uvicorn lum_engine.standalone_app:app --host 127.0.0.1 --port 8016'),
+   ('lum-engine2-worker', 'part01', '-m lum_engine.auto_engine_v6_worker'),
+   ('lum-engine2-scheduler', 'part01', '-m lum_engine.auto_engine_v6_scheduler'),
+   ('lum-shorts-web', 'part01', '-m uvicorn lum_engine.standalone_app:app --host 127.0.0.1 --port 8017'),
+   ('lum-shorts-worker', 'part01', '-m lum_engine.auto_engine_v6_worker'),
+   ('lum-shorts-scheduler', 'part01', '-m lum_engine.auto_engine_v6_scheduler')],
  'voice-studio': [
    ('edge-worker', 'part03', 'edge_worker.py'),
    ('kokoro-worker', 'part02', 'kokoro_worker.py'),
    ('voice-dispatcher', 'part01', 'voice_clone_dispatcher.py'),
    ('voice-drive-spooler', 'part01', 'voice_clone_drive_spooler.py')],
 }
+
+
+# The new engines NEVER reuse Engine 1's database, OAuth directory or queue.
+MODE_ROOTS = {"engine2": "lum2", "shorts": "lum3"}
+MODE_MARKER = ".vps1-independent-engine"
+
+
+def prepare_mode_roots() -> None:
+    """Provision only empty/unowned isolated roots, never inspect or migrate history."""
+    base = DATA / "local-upload-manager"
+    for mode, leaf in MODE_ROOTS.items():
+        root = base / leaf
+        if root.is_symlink():
+            raise RuntimeError("Mode root symlink denied")
+        marker = root / MODE_MARKER
+        if root.exists():
+            if not root.is_dir():
+                raise RuntimeError("Mode root must be a real directory")
+            if marker.is_file():
+                if marker.read_text().strip() != mode:
+                    raise RuntimeError("Mode root ownership mismatch")
+            elif any(root.iterdir()):
+                raise RuntimeError("Existing unowned mode data must not be touched")
+        else:
+            root.mkdir(parents=True, mode=0o700)
+        if not marker.exists():
+            marker.write_text(mode + "\n")
+        os.chown(root, 1000, 1000)
+        os.chown(marker, 1000, 1000)
+        root.chmod(0o700)
+        marker.chmod(0o600)
+
+
+def mode_exec(key: str, python: Path, entry: str) -> str:
+    # /usr/bin/env wins over the parent EnvironmentFile values for this ExecStart.
+    mode = "engine2" if key.startswith("lum-engine2-") else (
+        "shorts" if key.startswith("lum-shorts-") else ""
+    )
+    if not mode:
+        return f"{python} {entry}"
+    root = DATA / "local-upload-manager" / MODE_ROOTS[mode]
+    params = [
+        f"LUM_DATA_DIR={root}",
+        f"YOUTUBE_UPLOAD_MANAGER_DATA_DIR={root / 'core'}",
+        f"LUM_AUTO_ENGINE_V6_ROOT={root / 'auto_engine_v6'}",
+        f"LUM_GOOGLE_OAUTH_ROOT={root / 'secure'}",
+        f"LUM_BASE_PATH=/local-upload-manager/modes/{mode}",
+        f"LUM_ENGINE_INSTANCE={mode}",
+        "LUM_SUITE_AUTH=1",
+    ]
+    return "/usr/bin/env " + " ".join(params) + f" {python} {entry}"
 
 
 def unit_names(app):
@@ -79,7 +139,7 @@ Environment=QT_QPA_PLATFORM=offscreen
 Environment=OMP_NUM_THREADS=2
 Environment=HF_HOME={DATA}/{app}/model-cache
 Environment=XDG_CACHE_HOME={DATA}/{app}/cache
-ExecStart={python} {entry}
+ExecStart={mode_exec(key, python, entry)}
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=40
@@ -131,6 +191,8 @@ def prepare_kokoro(revision):
 def install(app, revision):
     if app not in SPECS:
         return
+    if app == 'local-upload-manager':
+        prepare_mode_roots()
     if app == 'voice-studio':
         prepare_kokoro(revision)
     for key, part, entry in SPECS[app]:
@@ -145,4 +207,25 @@ def install(app, revision):
     time.sleep(2)
     for name in unit_names(app):
         run(['systemctl', 'is-active', '--quiet', name], quiet=True)
+    if app == "local-upload-manager":
+        # An active unit is not enough: require the correct app/engine response
+        # before treating the independent mode installation as successful.
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        for mode, port in (("engine2", 8016), ("shorts", 8017)):
+            address = f"http://127.0.0.1:{port}/local-upload-manager/modes/{mode}/health"
+            last = None
+            for attempt in range(25):
+                try:
+                    with opener.open(address, timeout=3) as response:
+                        body = json.loads(response.read(2048))
+                    if response.status == 200 and body.get("ok") is True and body.get("engine_instance") == mode:
+                        last = None
+                        break
+                    last = "unexpected engine identity"
+                except (OSError, ValueError, TypeError) as exc:
+                    last = type(exc).__name__
+                time.sleep(1)
+            if last:
+                raise RuntimeError(f"Independent {mode} health failed: {last}")
+            event(app=app, isolated_engine=mode, health="PASS", port=port)
     event(app=app, queue_workers='ACTIVE', workers=unit_names(app))
