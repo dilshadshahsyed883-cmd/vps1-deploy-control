@@ -21,7 +21,7 @@ class SceneVideoStudioShell(unittest.TestCase):
                 "/auto-caption-studio/api/web-flow/studio?embed=1": (
                     b'<html data-page="queue" data-page="upload" data-page="preset" '
                     b'data-page="captions" data-page="pexels" data-page="fg" '
-                    b'data-page="voice" data-page="music" data-page="output" '
+                    b'data-page="voice" data-page="drive-profiles" data-page="output" '
                     b"const API='/auto-caption-studio/api/web-flow' "
                     b'src="/auto-caption-studio/live?embed=1"'
                 ),
@@ -71,8 +71,8 @@ class SceneVideoStudioShell(unittest.TestCase):
         self.assertIn('@router.get("/studio"', source)
         self.assertIn('html.replace("/auto-caption/api/", "/auto-caption-studio/api/")', source)
         self.assertIn('src="/auto-caption/live?embed=1"', html)
-        for tab in ("queue", "upload", "preset", "captions", "pexels",
-                    "fg", "voice", "music", "output"):
+        for tab in ("queue", "upload", "drive-profiles", "preset", "captions",
+                    "pexels", "fg", "voice", "output"):
             self.assertIn('data-page="' + tab + '"', html)
         result = html.replace("/auto-caption/api/", "/auto-caption-studio/api/")
         result = result.replace('src="/auto-caption/live?embed=1"',
