@@ -4,11 +4,16 @@ Only disposable temporary directories are touched. No live uploads, OAuth,
 existing history, queues, scheduling data or host services are accessed.
 """
 from pathlib import Path
+import os
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
 from production import workers
+APP_SOURCE = Path(__file__).resolve().parents[1] / 'apps/local-upload-manager/part01'
+sys.path.insert(0, str(APP_SOURCE))
+from lum_engine.service_status import auto_engine_service_units
 
 
 class ModeServicesTests(unittest.TestCase):
@@ -18,6 +23,18 @@ class ModeServicesTests(unittest.TestCase):
         for mode in ("engine2", "shorts"):
             for task in ("web", "worker", "scheduler"):
                 self.assertIn(f"vps1-production-lum-{mode}-{task}.service", names)
+
+    def test_mode_has_own_worker_and_scheduler_status(self):
+        with patch.dict(os.environ, {"FRESH_WEBSITE_INSTALL": "1"}):
+            for mode, prefix in (
+                ("engine1", "vps1-production-lum"),
+                ("engine2", "vps1-production-lum-engine2"),
+                ("shorts", "vps1-production-lum-shorts"),
+            ):
+                with self.subTest(mode=mode), patch.dict(os.environ, {"LUM_ENGINE_INSTANCE": mode}):
+                    units = auto_engine_service_units()
+                    self.assertEqual(units["worker"], prefix + "-worker.service")
+                    self.assertEqual(units["scheduler"], prefix + "-scheduler.service")
 
     def test_mode_exec_never_uses_primary_store(self):
         with tempfile.TemporaryDirectory() as tmp:
