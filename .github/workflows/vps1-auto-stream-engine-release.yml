@@ -68,6 +68,13 @@ jobs:
             remote "sudo -n /usr/local/sbin/vps1-production-deploy rollback $SOURCE_SHA short-stream" || true
             exit 1
           fi
+          echo "PHASE=V2_NATIVE_CHANNELS_SHEETS_READBACK"
+          if ! remote "python3 -c 'import json,urllib.request; root=\"http://127.0.0.1:8145/engine\"; read=lambda path:json.loads(urllib.request.urlopen(root+path,timeout=8).read()); h=read(\"/integrations/health\"); c=read(\"/channels\"); s=read(\"/sheets\"); assert h.get(\"ok\") is True and h.get(\"sheets_readonly\") is True and h.get(\"youtube_mutations_enabled\") is False and h.get(\"publishing_enabled\") is False and isinstance(c.get(\"channels\"),list) and isinstance(s.get(\"sources\"),list), \"V2 integration contract invalid\"; page=urllib.request.urlopen(root+\"/studio\",timeout=8).read().decode(); assert \"Auto Stream\" in page and \"Sheets Sync\" in page and \"YouTube Channels\" in page, \"V2 studio missing\"'"; then
+            echo "V2_NATIVE_READBACK_FAILED_ROLLBACK=REQUESTED"
+            remote "sudo -n /usr/local/sbin/vps1-production-deploy rollback $SOURCE_SHA short-stream" || true
+            exit 1
+          fi
+          echo "AUTO_STREAM_V2_CHANNELS_SHEETS_UI=PASS"
           echo "AUTO_STREAM_ENGINE_RUNTIME=PASS"
           echo "AUTO_STREAM_PUBLISHING=OFF"
           echo "AUTO_STREAM_SCHEDULER=OFF"
