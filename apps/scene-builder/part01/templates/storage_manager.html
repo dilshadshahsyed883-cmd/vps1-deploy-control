@@ -4,7 +4,7 @@
 
 {% block content %}
 {% include "admin_workspace_nav.html" %}
-<link rel="stylesheet" href="/static/storage_manager.css?v=174">
+<link rel="stylesheet" href="/static/storage_manager.css?v=175">
 <div id="storage-app" data-csrf="{{ storage_csrf }}">
   <section class="sm-hero">
     <div>
@@ -37,20 +37,6 @@
     <article class="sm-metric sm-reclaim">
       <div><small>SAFE TO RECLAIM</small><strong id="reclaim-value">—</strong></div>
       <span id="reclaim-detail">Run a verified scan</span>
-    </article>
-  </section>
-
-  <section class="sm-grid sm-overview-grid">
-    <article class="sm-panel">
-      <div class="sm-panel-head sm-service-panel-head">
-        <div><h3>Service health</h3><p>Live systemd state. Inactive allowlisted workers can be started safely without SSH.</p></div>
-        <span class="sm-service-control-note">Allowlisted controls</span>
-      </div>
-      <div id="service-grid" class="sm-service-grid"><div class="sm-loading">Loading services…</div></div>
-    </article>
-    <article class="sm-panel">
-      <div class="sm-panel-head"><div><h3>Highest resource processes</h3><p>Live CPU and memory consumers.</p></div></div>
-      <div id="process-list" class="sm-process-list"><div class="sm-loading">Loading processes…</div></div>
     </article>
   </section>
 
@@ -114,4 +100,4 @@
 </div>
 {% endblock %}
 
-{% block scripts %}<script src="/static/storage_manager.js?v=20261019-capability-gate"></script>{% endblock %}
+{% block scripts %}<script src="/static/storage_manager.js?v=20261019-remove-service-process"></script>{% endblock %}

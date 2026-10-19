@@ -53,29 +53,6 @@ CACHE_CATEGORIES = {
 }
 ALL_CATEGORIES = PROJECT_CATEGORIES | CACHE_CATEGORIES
 
-# STORAGE_MANAGER_SERVICE_ACTIVATION_V6
-# Fixed allowlist only. The web/API cannot start arbitrary systemd units.
-STARTABLE_SERVICES: dict[str, str] = {
-    "scene-builder-web": "Scene Builder Web",
-    "auto-caption-web": "Auto Caption Web",
-    "auto-caption-worker": "Auto Caption Worker",
-    "auto-caption-renderer": "Auto Caption Renderer",
-    "auto-caption-compressor": "Auto Caption Compressor",
-    "auto-caption-drive-uploader": "Auto Caption Drive Uploader",
-    "algrow-vps-chrome": "Algrow Chrome",
-    "algrow-voice-sidecar": "Algrow Voice Sidecar",
-    "algrow-vps-viewer": "Algrow Viewer",
-    "algrow-vps-x11vnc": "Algrow VNC Backend",
-    "algrow-vps-xvfb": "Algrow Virtual Display",
-}
-
-MONITORED_SERVICES: tuple[str, ...] = (
-    "scene-builder-web", "auto-caption-web", "auto-caption-worker",
-    "auto-caption-renderer", "auto-caption-compressor", "auto-caption-drive-uploader",
-    "algrow-vps-chrome", "algrow-voice-sidecar", "algrow-vps-viewer",
-    "algrow-vps-x11vnc", "algrow-vps-xvfb", "vps-storage-manager",
-)
-
 DEFAULT_POLICY: dict[str, Any] = {
     "auto_enabled": False,
     "auto_mode": "low_space",
@@ -602,79 +579,6 @@ def service_status(name: str) -> str:
     return result.stdout.strip().splitlines()[0] if result.stdout.strip() else "unknown"
 
 
-def service_detail(name: str) -> dict[str, Any]:
-    """Return read-only systemd metadata so absent units are not shown as unhealthy."""
-    result = run([
-        "systemctl", "show", name,
-        "--property=LoadState,ActiveState,SubState,UnitFileState",
-        "--no-pager",
-    ], timeout=10)
-    values: dict[str, str] = {}
-    for line in result.stdout.splitlines():
-        key, separator, value = line.partition("=")
-        if separator:
-            values[key] = value.strip()
-    load_state = values.get("LoadState", "")
-    present = bool(load_state) and load_state != "not-found"
-    return {
-        "present": present,
-        "load_state": load_state or "unknown",
-        "active_state": values.get("ActiveState", service_status(name)),
-        "sub_state": values.get("SubState", "unknown"),
-        "unit_file_state": values.get("UnitFileState", "unknown"),
-    }
-
-
-def service_failure_details(name: str) -> str:
-    chunks: list[str] = []
-    status = run(["systemctl", "status", name, "--no-pager", "--full"], timeout=20)
-    if status.stdout.strip():
-        chunks.append(status.stdout.strip())
-    journal = run(["journalctl", "-u", name, "-n", "30", "--no-pager", "--output=short"], timeout=20)
-    if journal.stdout.strip():
-        chunks.append(journal.stdout.strip())
-    value = "\n\n".join(chunks).strip()
-    return value[-10000:] if value else "No systemd diagnostic output was returned."
-
-
-def start_allowlisted_service(payload: dict[str, Any]) -> dict[str, Any]:
-    name = str(payload.get("service") or "").strip()
-    if name not in STARTABLE_SERVICES:
-        raise ValueError("Service is not allowed for web activation")
-
-    reset_lock = globals().get("FULL_CLEAN_LOCK")
-    if isinstance(reset_lock, Path) and reset_lock.exists():
-        raise RuntimeError("Full production clean is currently running. Try again after it finishes.")
-
-    before = service_status(name)
-    if before == "active":
-        return {"ok": True, "service": name, "label": STARTABLE_SERVICES[name], "state": "active", "changed": False,
-                "message": f"{STARTABLE_SERVICES[name]} is already active."}
-
-    started = run(["systemctl", "start", name], timeout=90)
-    if started.returncode != 0:
-        raise RuntimeError(f"{STARTABLE_SERVICES[name]} could not be started.\n\n{service_failure_details(name)}")
-
-    consecutive_active = 0
-    last_state = "unknown"
-    for _ in range(24):
-        last_state = service_status(name)
-        if last_state == "active":
-            consecutive_active += 1
-            if consecutive_active >= 4:
-                return {"ok": True, "service": name, "label": STARTABLE_SERVICES[name], "state": "active", "changed": True,
-                        "message": f"{STARTABLE_SERVICES[name]} started successfully."}
-        else:
-            consecutive_active = 0
-            if last_state in {"failed", "masked"}:
-                break
-        time.sleep(0.5)
-
-    raise RuntimeError(
-        f"{STARTABLE_SERVICES[name]} did not remain active (final state: {last_state}).\n\n{service_failure_details(name)}"
-    )
-
-
 def metrics() -> dict[str, Any]:
     total1, idle1 = read_cpu()
     time.sleep(0.15)
@@ -691,12 +595,6 @@ def metrics() -> dict[str, Any]:
     swap_free = mem.get("SwapFree", 0)
     disk = shutil.disk_usage("/")
     uptime = float(Path("/proc/uptime").read_text().split()[0])
-    top = run(["ps", "-eo", "pid=,comm=,%cpu=,%mem=,rss=", "--sort=-%cpu"], timeout=15)
-    processes = []
-    for line in top.stdout.splitlines()[:8]:
-        parts = line.split(None, 4)
-        if len(parts) == 5:
-            processes.append({"pid": parts[0], "name": parts[1], "cpu": parts[2], "memory_percent": parts[3], "rss_kb": parts[4]})
     return {
         "ok": True,
         "version": VERSION,
@@ -706,10 +604,6 @@ def metrics() -> dict[str, Any]:
         "swap": {"total": swap_total, "used": max(0, swap_total - swap_free)},
         "disk": {"total": disk.total, "used": disk.used, "free": disk.free, "percent": round(disk.used / disk.total * 100, 1)},
         "uptime_seconds": int(uptime),
-        "services": {name: service_status(name) for name in MONITORED_SERVICES},
-        "service_details": {name: service_detail(name) for name in MONITORED_SERVICES},
-        "startable_services": sorted(STARTABLE_SERVICES),
-        "processes": processes,
     }
 
 
@@ -1214,8 +1108,6 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         try:
             payload = self.body()
-            if path == "/v1/services/start":
-                return self.respond(200, start_allowlisted_service(payload))
             if path == "/v1/scan":
                 return self.respond(200, perform_scan())
             if path == "/v1/cleanup":

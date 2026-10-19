@@ -10,8 +10,6 @@
   let managerFallback = true;
   let managerCanModify = false;
   let initialized = false;
-  const startingServices = new Set();
-  const serviceErrors = new Map();
 
   const labels = {
     acs_projects: 'Auto Caption projects',
@@ -71,29 +69,6 @@
     if (element) element.style.width = `${Math.max(0, Math.min(100, Number(value || 0)))}%`;
   }
 
-  // STORAGE_MANAGER_SERVICE_ACTIVATION_JS_V6
-  const serviceLabels = {
-    'scene-builder-web':'Scene Builder Web','auto-caption-web':'Auto Caption Web','auto-caption-worker':'Auto Caption Worker',
-    'auto-caption-renderer':'Auto Caption Renderer','auto-caption-compressor':'Auto Caption Compressor',
-    'auto-caption-drive-uploader':'Auto Caption Drive Uploader','algrow-vps-chrome':'Algrow Chrome',
-    'algrow-voice-sidecar':'Algrow Voice Sidecar','algrow-vps-viewer':'Algrow Viewer',
-    'algrow-vps-x11vnc':'Algrow VNC Backend','algrow-vps-xvfb':'Algrow Virtual Display','vps-storage-manager':'Storage Manager'
-  };
-  const serviceGroups = {
-    'scene-builder-web':'Scene Builder','auto-caption-web':'Auto Caption Studio','auto-caption-worker':'Auto Caption Studio',
-    'auto-caption-renderer':'Auto Caption Studio','auto-caption-compressor':'Auto Caption Studio',
-    'auto-caption-drive-uploader':'Auto Caption Studio','algrow-vps-chrome':'Algrow','algrow-voice-sidecar':'Algrow',
-    'algrow-vps-viewer':'Algrow','algrow-vps-x11vnc':'Algrow','algrow-vps-xvfb':'Algrow','vps-storage-manager':'Infrastructure'
-  };
-
-  function serviceStateClass(state) {
-    const value = String(state || 'unknown').toLowerCase();
-    if (value === 'active') return 'active';
-    if (value === 'activating') return 'starting';
-    if (value === 'failed') return 'failed';
-    return 'inactive';
-  }
-
   function applyManagerControls() {
     const writable = !managerFallback && managerCanModify;
     for (const id of ['run-scan', 'select-recommended']) {
@@ -129,58 +104,6 @@
     return `Storage scan unavailable: ${raw}`;
   }
 
-  function renderServiceHealth(data) {
-    const grid = document.getElementById('service-grid');
-    if (!grid) return;
-    const startable = new Set(data.startable_services || []);
-    const details = data.service_details || {};
-    grid.innerHTML = Object.entries(data.services || {}).map(([key, state]) => {
-      const detail = details[key] || {};
-      const present = detail.present !== false;
-      const stateLabel = present ? String(state || 'unknown') : 'not installed';
-      const stateClass = present ? serviceStateClass(state) : 'inactive';
-      const isActive = String(state).toLowerCase() === 'active';
-      const isStarting = startingServices.has(key);
-      const canStart = managerCanModify && present && startable.has(key) && !isActive;
-      const savedError = serviceErrors.get(key) || '';
-      const reason = present ? '' : 'Unit is not installed on the current VPS';
-      const action = canStart ? `<button class="button secondary sm-service-activate" type="button" data-service="${escapeHtml(key)}" ${isStarting ? 'disabled' : ''}>${isStarting ? 'Starting...' : 'Activate'}</button>` : '';
-      return `<article class="sm-service sm-service-${stateClass}" data-service-card="${escapeHtml(key)}">
-        <div class="sm-service-main"><span class="sm-service-indicator" aria-hidden="true"></span><div class="sm-service-copy"><span class="sm-service-group">${escapeHtml(serviceGroups[key] || 'System')}</span><strong>${escapeHtml(serviceLabels[key] || key)}</strong><small>${escapeHtml(key)}</small>${reason ? `<small class="sm-warning">${escapeHtml(reason)}</small>` : ''}</div></div>
-        <div class="sm-service-controls"><b class="sm-service-state ${stateClass}">${escapeHtml(isStarting ? 'starting' : stateLabel)}</b>${action}</div>
-        <div class="sm-service-inline-error" data-service-error="${escapeHtml(key)}" ${savedError ? '' : 'hidden'}>${escapeHtml(savedError)}</div>
-      </article>`;
-    }).join('');
-    grid.querySelectorAll('.sm-service-activate').forEach(button => button.addEventListener('click', () => activateService(button.dataset.service, button)));
-  }
-
-  function setServiceInlineError(service, message = '') {
-    const safeService = window.CSS && CSS.escape ? CSS.escape(service) : service.replace(/[^a-zA-Z0-9_-]/g, '');
-    const node = document.querySelector(`[data-service-error="${safeService}"]`);
-    if (!node) return;
-    node.hidden = !message;
-    node.textContent = message;
-  }
-
-  async function activateService(service, button) {
-    if (!managerCanModify || managerFallback || !service || startingServices.has(service)) return;
-    startingServices.add(service); serviceErrors.delete(service); setServiceInlineError(service, '');
-    if (button) { button.disabled = true; button.textContent = 'Starting...'; }
-    try {
-      const result = await api(`/api/admin/storage/services/${encodeURIComponent(service)}/start`, {method:'POST', body:'{}'});
-      serviceErrors.delete(service);
-      toast(result.message || `${serviceLabels[service] || service} is active.`);
-      await loadMetrics(false);
-    } catch (error) {
-      serviceErrors.set(service, error.message);
-      setServiceInlineError(service, error.message);
-      toast(error.message, true);
-      if (button) { button.disabled = false; button.textContent = 'Activate'; }
-    } finally {
-      startingServices.delete(service);
-    }
-  }
-
   function renderMetrics(data) {
     const manager = document.getElementById('manager-status');
     manager.className = 'sm-status online';
@@ -194,10 +117,7 @@
     document.getElementById('disk-value').textContent = `${data.disk.percent}%`;
     document.getElementById('disk-detail').textContent = `${bytes(data.disk.free)} free of ${bytes(data.disk.total)}`;
     setBar('disk-bar', data.disk.percent);
-    renderServiceHealth(data);
-    document.getElementById('process-list').innerHTML = data.processes.length ? data.processes.map(item => `
-      <div class="sm-process"><code>${escapeHtml(item.pid)}</code><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.cpu)}% CPU</span><span>${bytes(Number(item.rss_kb || 0) * 1024)}</span></div>
-    `).join('') : '<div class="sm-empty">No process data available.</div>';
+
   }
 
   async function readOnlyVpsMetrics() {
@@ -221,14 +141,6 @@
     document.getElementById('disk-value').textContent = (disk.percent ?? '—') + '%';
     document.getElementById('disk-detail').textContent = (disk.free_gb ?? '—') + ' GB free of ' + (disk.total_gb ?? '—') + ' GB';
     setBar('disk-bar', disk.percent);
-    const grid = document.getElementById('service-grid');
-    if (grid) grid.innerHTML = (data.services || []).map(item =>
-      '<article class="sm-service"><div class="sm-service-main"><strong>' +
-      escapeHtml(item.label) + '</strong></div><b class="sm-service-state ' +
-      (item.active ? 'active' : 'inactive') + '">' + (item.active ? 'active' : 'inactive') +
-      '</b></article>').join('');
-    document.getElementById('process-list').innerHTML =
-      '<div class="sm-empty">Process details require the dedicated Storage Manager service.</div>';
     // Missing backend never enables destructive actions.
     applyManagerControls();
   }
