@@ -66,6 +66,19 @@ class VoiceSidebarUIOnlyTests(unittest.TestCase):
         self.assertNotIn("DATA /", source)
         self.assertNotIn("production-voice-dispatcher", source)
 
+    def test_dedicated_release_is_scoped_and_only_retries_host_lock(self):
+        workflow = (ROOT / ".github/workflows/vps1-voice-ui-only-release.yml").read_text()
+        self.assertIn("group: vps1-voice-ui-only", workflow)
+        self.assertIn("'[vps1-voice-ui-only-release]'", workflow)
+        self.assertIn("'[vps1-voice-template-only]'", workflow)
+        self.assertIn("vps1deploy@100.87.55.92", workflow)
+        self.assertIn("install $SOURCE_SHA voice-studio", workflow)
+        self.assertIn("BlockingIOError: [Errno 11]", workflow)
+        self.assertIn("PASS_VOICE_TEMPLATE_ONLY", workflow)
+        self.assertNotIn("install $SOURCE_SHA all", workflow)
+        self.assertNotIn("nginx-route-only", workflow)
+        self.assertNotIn("voice-dispatcher", workflow)
+
     def test_protected_main_message_required_to_enter_ui_only_path(self):
         source = (ROOT / "production/runtime.py").read_text()
         self.assertIn("if app == 'voice-studio':", source)
