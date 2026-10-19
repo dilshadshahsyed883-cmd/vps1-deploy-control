@@ -1,27 +1,4 @@
 {% extends "base.html" %}
 {% block title %}Auto Caption Studio{% endblock %}
-{% block subtitle %}Caption, media, presets, and final-video production workspace{% endblock %}
-{% block content %}
-<!-- VIDEO_STUDIO_RICH_ACS_V3: Original full ACS tabbed UI, not the simplified project editor. -->
-<section class="video-studio-embedded" aria-label="Auto Caption Studio application">
-  <iframe id="acs-studio-frame" title="Auto Caption Studio workspace"
-    src="/auto-caption-studio/api/web-flow/studio?embed=1" loading="eager" referrerpolicy="same-origin"
-    style="display:block;width:100%;height:calc(100dvh - 200px);min-height:720px;border:0;border-radius:10px;background:#f8fafc"></iframe>
-  <p id="acs-embed-error" role="status" hidden>Auto Caption Studio could not be loaded. <a href="/auto-caption-studio/api/web-flow/studio?embed=1">Open its direct studio page</a>.</p>
-</section>
-<style>
-.video-studio-embedded {width:100%;max-width:1400px;margin:0 auto;min-width:0}
-@media (max-width:760px) {
-  .video-studio-embedded #acs-studio-frame {min-height:620px!important;height:calc(100dvh - 190px)!important}
-}
-</style>
-<script>
-(() => {
-  const frame = document.getElementById('acs-studio-frame');
-  const error = document.getElementById('acs-embed-error');
-  frame.addEventListener('error', () => { error.hidden = false; });
-  // Native HTML, CSS, scripts and API requests load in the app's own document.
-  // Do not inject fetched HTML into Scene's DOM: that left the old workspace stuck loading.
-})();
-</script>
-{% endblock %}
+{% block subtitle %}Caption, media, presets and video production{% endblock %}
+{% block content %}<p><a href="/auto-caption-studio/api/web-flow/studio?embed=1">Open Auto Caption Studio</a></p>{% endblock %}

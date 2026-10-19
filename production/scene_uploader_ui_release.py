@@ -34,10 +34,14 @@ FILES = (
     "templates/storage_manager.html",
     "static/dashboard_control_center.js",
     "static/storage_manager.js",
+    "static/vps1_native_site_shell.js",
+    "static/vps1_native_site_shell.css",
     "app.py",
 )
 # A new wrapper did not exist in older Scene releases; all other files did.
-NEW_FILES = frozenset({"templates/video_studio_embed.html"})
+NEW_FILES = frozenset({"templates/video_studio_embed.html",
+                       "static/vps1_native_site_shell.js",
+                       "static/vps1_native_site_shell.css"})
 
 
 def require(ok: bool, why: str) -> None:
@@ -87,59 +91,71 @@ def source_is_valid() -> None:
             'href="/local-upload-manager"' in base and
             'href="/auto-script"' not in base,
             "original Scene navigation or Video Studio subtabs regressed")
-    require('src="/auto-caption-studio/api/web-flow/studio?embed=1"' in acs and
-            'src="/auto-caption-studio/"' not in acs,
-            "original Auto Caption Studio embed missing")
-    require("studio_url" in wrapper and "video-studio-app-frame" in wrapper and
-            "/video-studio/{studio_app}" in app and
-            "require_admin(request)" in app, "independent embedded app route missing")
+    require('href="/auto-caption-studio/api/web-flow/studio?embed=1"' in acs
+            and "<iframe" not in acs, "ACS fallback still embeds full document")
+    require('href="{{ studio_url }}"' in wrapper and "<iframe" not in wrapper,
+            "Video Studio fallback still embeds full document")
+    require('RedirectResponse("/auto-caption-studio/api/web-flow/studio?embed=1"' in app
+            and 'RedirectResponse("/local-upload-manager/app?embedded=1&tab=dashboard"' in app
+            and 'RedirectResponse("/voice-studio/app"' in app
+            and "return RedirectResponse(url, status_code=303)" in app
+            and "/video-studio/{studio_app}" in app
+            and "require_admin(request)" in app,
+            "single-document routing or admin authorization missing")
+    native = (SOURCE / "static/vps1_native_site_shell.js").read_text()
+    require("vps1-native-site-sidebar" in native and "iframe" in native,
+            "native website shell source missing")
+
 
 
 def verify_video_studio() -> None:
-    """Verify the actual served Scene shell and embedded-app URLs post restart."""
+    """Read back native UI documents, not merely an outer embedded iframe."""
     from production.route_uploader_scene_https import scene_cookie, https_get
     cookie = scene_cookie()
-    expected = {
-        "/local-upload-manager": (b'id="app-sidebar"', b'/local-upload-manager/app?'),
-        "/auto-caption/studio": (b'id="app-sidebar"', b'src="/auto-caption-studio/api/web-flow/studio?embed=1"'),
-        "/video-studio/short-maker": (b'id="app-sidebar"', b'src="/short-maker/"'),
-        "/video-studio/video-merger": (b'id="app-sidebar"', b'src="/video-merger/"'),
+    route_destinations = {
+        "/local-upload-manager": "/local-upload-manager/app?embedded=1&tab=dashboard",
+        "/auto-caption/studio": "/auto-caption-studio/api/web-flow/studio?embed=1",
+        "/video-studio/short-maker": "/short-maker/",
+        "/video-studio/video-merger": "/video-merger/",
+        "/voice-studio": "/voice-studio/app",
     }
-    for path, markers in expected.items():
-        # Scene candidate restart and Nginx graceful reload can briefly serve
-        # a retired worker (404 or previous HTML). Never accept a stale page.
+    for route in route_destinations:
         for attempt in range(12):
-            status, kind, body = https_get(path, cookie)
-            missing = [marker for marker in markers if marker not in body]
-            if status == 200 and "html" in kind.lower() and not missing:
-                print("SCENE_SHELL_ROUTE_PASS=" + path, flush=True)
+            status, kind, _body = https_get(route, cookie)
+            if status == 303:
+                print("SCENE_NATIVE_ROUTE_PASS=" + route, flush=True)
                 break
-            transient = status in (200, 301, 302, 303, 307, 308, 404, 502, 503)
+            transient = status in (200, 301, 302, 307, 308, 404, 502, 503)
             if transient and attempt < 11:
                 time.sleep(0.6)
                 continue
-            require(False,
-                    "Scene shell route failed path=" + path +
-                    " status=" + str(status) +
-                    " html=" + str("html" in kind.lower()) +
-                    " missing_markers=" + str(len(missing)))
+            require(False, "Scene native redirect failed path=" + route +
+                    " status=" + str(status))
         else:
-            require(False, "Scene shell browser handover never settled: " + path)
-    # A successful outer iframe is not enough. Prove the independent app serves
-    # the actual original tabbed Studio and its API and Live URLs are rewritten.
-    status, kind, full_studio = https_get(
-        "/auto-caption-studio/api/web-flow/studio?embed=1", cookie)
-    require(status == 200 and "html" in kind.lower(),
-            "original Auto Caption Studio endpoint failed")
-    for marker in (b'data-page="queue"', b'data-page="upload"',
-                   b'data-page="drive-profiles"', b'data-page="preset"',
-                   b'data-page="captions"', b'data-page="pexels"',
-                   b'data-page="fg"', b'data-page="voice"',
-                   b'data-page="output"',
-                   b"const API='/auto-caption-studio/api/web-flow'",
-                   b'src="/auto-caption-studio/live?embed=1"'):
-        require(marker in full_studio, "original Auto Caption Studio content missing")
-    print("VPS1_VIDEO_STUDIO_SHELL=PASS SUBTABS=PASS SIDEBAR=PASS RICH_ACS=PASS", flush=True)
+            require(False, "Scene native route never settled: " + route)
+    markers = {
+        "/local-upload-manager/app?embedded=1&tab=dashboard":
+            (b'lum-shell', b'vps1_native_site_shell.js'),
+        "/auto-caption-studio/api/web-flow/studio?embed=1":
+            (b'data-page="queue"', b'data-page="upload"', b'data-page="voice"',
+             b'id="acs-native-live"', b'vps1_native_site_shell.js',
+             b"const API='/auto-caption-studio/api/web-flow'"),
+        "/short-maker/": (b'id="makerTabBtn"', b'data-video-studio-subnav'),
+        "/video-merger/": (b'id="tab-merge"', b'data-video-studio-subnav'),
+        "/voice-studio/app": (b'vsEngineOmni', b'vsEngineKokoro',
+                               b'vps1_native_site_shell.js'),
+    }
+    for url, required in markers.items():
+        code, content_type, html = https_get(url, cookie)
+        require(code == 200 and "html" in content_type.lower() and
+                all(marker in html for marker in required),
+                "native app document/controls absent: " + url +
+                " status=" + str(code))
+        require(b'id="video-studio-app-frame"' not in html and
+                b'id="acs-studio-frame"' not in html and
+                b'id="voice-studio-frame"' not in html,
+                "nested outer iframe returned: " + url)
+    print("VPS1_NATIVE_STUDIOS=PASS VIDEO_TABS=PASS SIDEBAR=PASS", flush=True)
 
 
 def activate(revision: str) -> None:

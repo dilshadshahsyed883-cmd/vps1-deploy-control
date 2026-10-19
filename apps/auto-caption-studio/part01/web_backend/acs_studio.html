@@ -153,6 +153,40 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
 }
 </style>
 
+<link rel="stylesheet" href="/&#115;tatic/vps1_native_site_shell.css?v=1">
+<script src="/&#115;tatic/vps1_native_site_shell.js?v=1" data-workspace="acs" defer></script>
+<style id="acs-native-live-style">
+#acs-native-live{margin:0 0 18px;padding:8px;max-width:100%;color:#0f172a}
+#acs-native-live .wrap{max-width:100%;padding:10px;margin:0}
+#acs-native-live .top{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-bottom:16px}
+#acs-native-live .top h1{font-size:22px;margin:0}
+#acs-native-live .muted{color:#64748b}
+#acs-native-live .summary{display:grid;grid-template-columns:repeat(6,minmax(110px,1fr));gap:11px;margin-bottom:15px}
+#acs-native-live .card{border:1px solid #dce3ee;background:white;border-radius:12px;padding:15px;margin-bottom:14px}
+#acs-native-live .number{font-size:25px;font-weight:800}
+#acs-native-live .label{font-size:12px;color:#64748b}
+#acs-native-live .workers{display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));gap:12px;margin-bottom:15px}
+#acs-native-live .worker{min-height:200px;display:flex;flex-direction:column}
+#acs-native-live .worker-head{display:flex;justify-content:space-between;gap:8px;align-items:center}
+#acs-native-live .worker h2{font-size:15px;margin:0}
+#acs-native-live .badge{font-size:11px;border-radius:30px;padding:4px 7px;background:#e2e8f0}
+#acs-native-live .badge.offline{background:#fee2e2;color:#991b1b}
+#acs-native-live .badge.idle{background:#dcfce7;color:#166534}
+#acs-native-live .queue-count,#acs-native-live .one{margin-top:10px;font-size:12px}
+#acs-native-live .one{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#acs-native-live .worker-actions{margin-top:auto;padding-top:12px}
+#acs-native-live .control{width:100%;border:1px solid #f59e0b;background:#fffbeb;color:#92400e;border-radius:8px;padding:9px}
+#acs-native-live .section-head{display:flex;justify-content:space-between;gap:10px}
+#acs-native-live .section-head h2{margin:0 0 10px;font-size:17px}
+#acs-native-live .table-wrap{overflow:auto}
+#acs-native-live table{width:100%;border-collapse:collapse}
+#acs-native-live th,#acs-native-live td{padding:9px;border-bottom:1px solid #e8edf5;text-align:left;font-size:12px}
+#acs-native-live .details{display:none}#acs-native-live .details.open{display:table-row}
+#acs-native-live .row{display:flex;gap:10px;justify-content:space-between;border-bottom:1px solid #e8edf5;padding:10px 0}
+#acs-native-live .project{font-weight:700}
+@media(max-width:1050px){#acs-native-live .summary{grid-template-columns:repeat(3,1fr)}#acs-native-live .workers{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:700px){#acs-native-live .summary{grid-template-columns:repeat(2,1fr)}#acs-native-live .workers{grid-template-columns:1fr}#acs-native-live .top{display:block}}
+</style>
 </head>
 <body>
 <span id="globalSaveState" class="save-state" hidden aria-hidden="true">✓ Saved</span>
@@ -172,7 +206,20 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
 </div>
 
   <section class="page active acs-live-reference-v1" id="queue">
-<iframe class="acs-live-embed-v1" title="ACS Live production monitor" src="/auto-caption/live?embed=1"></iframe>
+<!-- Native same-document Live renderer; preserves API polling and controls. -->
+<div id="acs-native-live"><main class="wrap">
+  <div class="top">
+    <div><h1>Auto Caption Studio Live</h1><div id="batch" class="muted">Loading…</div></div>
+    <div class="muted">Live queues · refreshes every 2 seconds · <span id="updated">Loading…</span></div>
+  </div>
+  <section class="summary" id="summary"></section>
+  <section class="workers" id="workers"></section>
+  <section class="card">
+    <div class="section-head"><h2>Live batch audit</h2><span class="muted">Click a batch for project details</span></div>
+    <div class="table-wrap"><table class="audit-table"><thead><tr><th>Batch</th><th>Total</th><th>Voice Ready</th><th>Drive Verified</th><th>Queued</th><th>Running</th><th>Failed</th><th>Other</th></tr></thead><tbody id="batchRows"><tr><td colspan="8" class="muted">Loading…</td></tr></tbody></table></div>
+  </section>
+  <section class="card recent"><div class="section-head"><h2>Recent projects</h2><span class="muted">Latest ACS activity</span></div><div id="projects"></div></section>
+</main></div>
 
     <div class="head"><div><h2>Production Queue</h2><p>New web-flow projects only. Existing legacy ACS remains separate.</p></div><div class="actions"><span class="save-state page-save-state">✓ Saved</span><button class="btn">Pause after current</button><button class="btn">Resume</button><button class="btn primary" data-go="upload">New Upload</button></div></div>
     <div class="grid g4"><div class="card metric"><b>—</b><span>Waiting</span></div><div class="card metric"><b>—</b><span>Processing</span></div><div class="card metric"><b>—</b><span>Delivered</span></div><div class="card metric"><b>—</b><span>Needs attention</span></div></div>
@@ -1345,6 +1392,20 @@ boot();
 })();
 </script>
 
+<script id="acs-native-live-script">
+(()=>{
+const root=(location.pathname.startsWith('/auto-caption-studio/')?'/auto-caption-studio':location.pathname.startsWith('/auto-caption/')?'/auto-caption':'');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pct=n=>Math.max(0,Math.min(100,Number(n)||0));
+const openBatches=new Set();let controlBusy='';
+function currentLine(worker){const j=worker?.current;if(!j)return `<div class="project muted">${worker?.online?'Idle':'Worker offline'}</div><div class="one muted">${esc(worker?.runtime?.message||'Waiting for work')}</div>`;const p=pct(j.progress);return `<div class="project one">${esc(j.project_name||j.project_id||j.id)}</div><div class="one muted">${esc(j.message||j.current_stage||j.status||'Working')}</div>${j.progress==null?'':`<div class="bar"><div class="fill" style="width:${p}%"></div></div><div class="pct">${p}%</div>`}`}
+function renderWorkers(d){const definitions=[['render','Renderer',d.pipeline_counts.renderer_queue],['compress','Compressor',d.pipeline_counts.compression_queue],['upload','Drive uploader',d.pipeline_counts.upload_queue]];document.querySelector('#workers').innerHTML=definitions.map(([key,title,queue])=>{const worker=d.workers[key]||{state:'offline',paused:false,online:false};const state=worker.paused?'paused':worker.state||'offline';const action=worker.paused?'resume':'pause';const button=d.can_control?`<div class="worker-actions"><button class="control ${action==='resume'?'resume':''}" data-worker="${key}" data-action="${action}" ${controlBusy===key?'disabled':''}>${action==='resume'?'Resume':'Pause after current'}</button></div>`:'';return `<article class="card worker"><div class="worker-head"><h2>${title}</h2><span class="badge ${esc(state)}">${esc(state.toUpperCase())}</span></div><div class="queue-count"><b>${Number(queue)||0}</b> waiting</div>${currentLine(worker)}${button}</article>`}).join('');document.querySelectorAll('.control').forEach(button=>button.addEventListener('click',()=>setPipeline(button.dataset.worker,button.dataset.action)))}
+async function setPipeline(name,action){if(controlBusy)return;controlBusy=name;try{const response=await fetch(`${root}/api/acs-control/pipelines/${encodeURIComponent(name)}/${action}`,{method:'POST',headers:{'Accept':'application/json'}});const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.detail||`HTTP ${response.status}`);await refresh()}catch(error){document.querySelector('#updated').textContent=`Control failed: ${error.message}`;document.querySelector('#updated').className='error'}finally{controlBusy=''}}
+function renderBatchRows(batches){const body=document.querySelector('#batchRows');if(!batches.length){body.innerHTML='<tr><td colspan="8" class="muted">No batches found.</td></tr>';return}body.innerHTML=batches.map((b,i)=>{const key=`b${i}`;const other=(b.cancelled||0)+(b.other||0);const projects=(b.projects||[]).map(p=>{const link=p.drive_web_url||p.drive_remote_path;return `<tr><td>${esc(p.project_name)}</td><td><span class="pill ${p.voice_ready?'yes':'no'}">${p.voice_ready?'YES':'NO'}</span></td><td>${esc(p.status)}</td><td>${esc(p.stage)}</td><td>${esc(p.drive_status||'')}</td><td>${link?`<a href="${esc(link)}" target="_blank" rel="noopener">Drive</a>`:''}</td><td>${esc(p.error||'')}</td></tr>`}).join('');const isOpen=openBatches.has(key);return `<tr class="batch-row" data-key="${key}"><td><b>${esc(b.batch_id)}</b></td><td>${b.total}</td><td class="${b.voice_ready===b.total?'good':''}">${b.voice_ready}</td><td class="good">${b.completed_uploaded}</td><td>${b.queued}</td><td>${b.running}</td><td class="${b.failed?'bad':''}">${b.failed}</td><td>${other}</td></tr><tr class="details ${isOpen?'open':''}" data-detail="${key}"><td colspan="8"><div class="table-wrap"><table class="project-table"><thead><tr><th>Project</th><th>Voice</th><th>Job</th><th>Stage</th><th>Drive</th><th>Link</th><th>Error</th></tr></thead><tbody>${projects||'<tr><td colspan="7" class="muted">No projects.</td></tr>'}</tbody></table></div></td></tr>`}).join('');body.querySelectorAll('.batch-row').forEach(row=>row.addEventListener('click',()=>{const key=row.dataset.key;const detail=body.querySelector(`[data-detail="${key}"]`);if(!detail)return;detail.classList.toggle('open');if(detail.classList.contains('open'))openBatches.add(key);else openBatches.delete(key)}))}
+async function refresh(){try{const [liveResp,auditResp]=await Promise.all([fetch(`${root}/api/live`,{cache:'no-store'}),fetch(`${root}/api/live-audit`,{cache:'no-store'})]);if(!liveResp.ok)throw new Error(`Live HTTP ${liveResp.status}`);if(!auditResp.ok)throw new Error(`Audit HTTP ${auditResp.status}`);const d=await liveResp.json();const a=await auditResp.json();const b=d.active_batch;document.querySelector('#batch').textContent=b?`Active batch ${b.id.slice(0,8)} · ${b.category}`:'No active batch';document.querySelector('#updated').textContent=new Date(a.updated_at||d.updated_at).toLocaleTimeString();const c=d.pipeline_counts;const cards=[['Received from Drive',c.received_from_drive],['Algrow queue',c.algrow_queue],['Renderer queue',c.renderer_queue],['Compression queue',c.compression_queue],['Upload queue',c.upload_queue],['Google Drive verified',c.drive_verified]];document.querySelector('#summary').innerHTML=cards.map(x=>`<div class="card"><div class="number">${Number(x[1])||0}</div><div class="label">${x[0]}</div></div>`).join('');renderWorkers(d);renderBatchRows(a.batches||[]);document.querySelector('#projects').innerHTML=(d.recent_projects||[]).map(j=>{const link=j.drive_web_url||j.drive_remote_path;return `<div class="row"><div class="row-main"><div class="one"><b>${esc(j.project_name)}</b> · ${esc(j.category||'Uncategorized')}</div><div class="one muted">${esc(j.current_stage||j.status)} · ${esc(j.message||'')}</div></div><div class="pct">${pct(j.progress)}%</div><div class="hide-mobile">${link?`<a href="${esc(link)}" target="_blank" rel="noopener">Drive</a>`:esc(j.status)}</div></div>`}).join('')||'<div class="row muted">No projects yet.</div>';document.querySelector('#updated').className='muted'}catch(e){document.querySelector('#updated').textContent=`Update failed: ${e.message}`;document.querySelector('#updated').className='error'}}
+refresh();setInterval(refresh,2000);
+})();
+</script>
 </body>
 </html>
 

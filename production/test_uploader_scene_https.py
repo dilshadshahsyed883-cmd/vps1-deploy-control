@@ -89,18 +89,18 @@ class UploaderSceneRouteTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "reviewed managed route"):
                 retire_legacy_managed_route(include)
 
-    def test_outer_shell_retries_retired_nginx_worker_then_requires_html(self):
+    def test_outer_shell_retries_then_requires_native_document(self):
         from unittest.mock import patch
         responses = [
             (308, "text/html", b""),
-            (200, "text/html; charset=utf-8",
-             b'<iframe src="/local-upload-manager/app?embedded=1"></iframe>'),
+            (303, "text/html", b""),
+            (200, "text/html; charset=utf-8", b'<div class="lum-shell"></div>'),
         ]
         with patch("production.route_uploader_scene_https.https_get",
                    side_effect=responses) as request, \
              patch("production.route_uploader_scene_https.time.sleep"):
             verify_outer_shell("session=valid", published=True)
-        self.assertEqual(request.call_count, 2)
+        self.assertEqual(request.call_count, 3)
 
     def test_outer_shell_persistent_old_route_fails_closed(self):
         from unittest.mock import patch
