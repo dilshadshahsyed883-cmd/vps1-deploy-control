@@ -86,6 +86,20 @@ class SceneVideoStudioShell(unittest.TestCase):
         self.assertIn('logout.action = "/logout"', native)
         self.assertIn('#vps1-native-site-sidebar [hidden]', css)
 
+    def test_unified_sidebar_source_geometry_and_cross_document_transition(self):
+        scene = (SCENE / "templates/base.html").read_text()
+        native_css = (SCENE / "static/vps1_native_site_shell.css").read_text()
+        native_js = (SCENE / "static/vps1_native_site_shell.js").read_text()
+        self.assertIn('href="/static/vps1_native_site_shell.css?v=20261019-unified-v2"', scene)
+        self.assertIn('id="app-sidebar" class="sidebar"', scene)
+        self.assertIn("--vps1-sidebar-width:214px", native_css)
+        self.assertIn("#app-sidebar.sidebar,#vps1-native-site-sidebar", native_css)
+        self.assertIn("@view-transition { navigation: auto; }", native_css)
+        self.assertIn("view-transition-name:vps1-global-sidebar", native_css)
+        self.assertIn('html:has(script[data-workspace="uploader"]) body', native_css)
+        self.assertIn('document.documentElement.classList.add("vps1-native-bootstrap")', native_js)
+        self.assertIn("@media(max-width:760px)", native_css)
+
     def test_native_studio_preserves_app_forms_tabs_and_api(self):
         root = ROOT / "apps"
         maker = (root / "short-maker/part01/app.py").read_text()
