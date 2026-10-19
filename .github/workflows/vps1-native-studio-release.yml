@@ -17,7 +17,8 @@ jobs:
       github.ref == 'refs/heads/main' &&
       github.actor == 'dilshadshahsyed883-cmd' &&
       github.run_attempt == 1 &&
-      contains(github.event.head_commit.message, '[vps1-native-studio-release]')
+      (contains(github.event.head_commit.message, '[vps1-native-studio-release]') ||
+       contains(github.event.head_commit.message, '[vps1-video-geometry-release]'))
     environment: production
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -36,6 +37,7 @@ jobs:
         env:
           PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
           SOURCE_SHA: ${{ github.sha }}
+          VIDEO_GEOMETRY_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-video-geometry-release]') }}
         run: |
           set -Eeuo pipefail
           set +x
@@ -61,6 +63,19 @@ jobs:
               -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
               vps1deploy@100.87.55.92 "$@"
           }
+          # UI-only four-app release: install shared Scene static CSS first;
+          # do not restart Voice or Uploader for this geometry-only change.
+          if [[ "$VIDEO_GEOMETRY_ONLY" == "true" ]]; then
+            for app in scene-builder short-maker video-merger auto-caption-studio; do
+              echo "VIDEO_STUDIO_GEOMETRY_STAGE=$app"
+              remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA $app"
+              echo "VIDEO_STUDIO_GEOMETRY_STAGE_PASS=$app"
+            done
+            echo "VIDEO_STUDIO_GEOMETRY_RELEASE=PASS"
+            echo "AUTO_SCRIPT=OFFLINE"
+            echo "OWNER_FUNCTIONAL_UAT=PENDING"
+            exit 0
+          fi
           for app in short-maker video-merger auto-caption-studio voice-studio local-upload-manager; do
             echo "NATIVE_STUDIO_STAGE=$app"
             remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA $app"
