@@ -322,6 +322,10 @@ def install_app(app, revision):
         fd = os.open(env_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, 'w') as stream:
             stream.write(''.join(k + '=' + v + '\n' for k, v in env.items()))
+    if app == 'short-stream':
+        from production.auto_stream_oauth_env import ensure_key
+        key_status = ensure_key(env_file, state)
+        event(app=app, oauth_vault_key=key_status, secrets_logged=False)
     venv = BASE / 'venvs' / app / revision
     venv.parent.mkdir(parents=True, exist_ok=True)
     if not (venv / 'bin/python').is_file():
