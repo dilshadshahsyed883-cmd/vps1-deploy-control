@@ -67,8 +67,9 @@ class IntegrationRoutingTests(unittest.TestCase):
             "async function loadMetrics(", 1)[0]
         self.assertIn("fetch('/api/dashboard/v1'", fallback)
         self.assertNotIn("'/api/admin/storage/cleanup'", fallback)
-        self.assertIn("scan.disabled = true", fallback)
-        self.assertIn("fullCleanButton.disabled = true", fallback)
+        self.assertIn("applyManagerControls();", fallback)
+        self.assertIn("const writable = !managerFallback && managerCanModify", js)
+        self.assertIn("if (fullClean && !writable) fullClean.disabled = true", js)
 
     def test_guarded_release_contains_both_updated_pages(self):
         from production.scene_uploader_ui_release import FILES
