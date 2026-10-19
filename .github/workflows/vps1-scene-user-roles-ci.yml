@@ -1,0 +1,34 @@
+name: VPS1 Scene user roles (offline)
+on:
+  pull_request:
+    paths:
+      - "apps/scene-builder/part01/app.py"
+      - "apps/scene-builder/part01/templates/**"
+      - "apps/scene-builder/part01/static/user_management_redesign.css"
+      - "tests/test_scene_user_roles.py"
+      - "tests/test_scene_session_sso.py"
+      - ".github/workflows/vps1-scene-user-roles-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/scene-builder/part01/app.py"
+      - "apps/scene-builder/part01/templates/**"
+      - "apps/scene-builder/part01/static/user_management_redesign.css"
+      - "tests/test_scene_user_roles.py"
+      - "tests/test_scene_session_sso.py"
+      - ".github/workflows/vps1-scene-user-roles-ci.yml"
+permissions:
+  contents: read
+jobs:
+  roles-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Python parse (no production changes)
+        run: python -m py_compile apps/scene-builder/part01/app.py tests/test_scene_user_roles.py tests/test_scene_session_sso.py
+      - name: Two-role user behavior regression
+        run: python -m unittest discover -s tests -p test_scene_user_roles.py -v
