@@ -32,6 +32,10 @@ label { display: block !important; margin-bottom: var(--sb-spacing-sm) !importan
 .btn-primary:hover, button.primary:hover { opacity: 0.9 !important; }
 .row, .form-group, .mb-3, .mt-3 { margin-bottom: var(--sb-spacing-md) !important; }
 </style>
+{% if embedded_view %}
+<link rel="stylesheet" href="/static/vps1_native_site_shell.css?v=1">
+<script src="/static/vps1_native_site_shell.js?v=1" data-workspace="uploader" defer></script>
+{% endif %}
 </head>
 <body class="{% if embedded_view %}lum-embedded{% endif %}">
   {% if not embedded_view %}<header class="app-topbar">
