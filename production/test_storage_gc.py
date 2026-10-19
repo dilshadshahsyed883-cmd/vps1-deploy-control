@@ -122,8 +122,8 @@ class StorageGCTests(unittest.TestCase):
 
     def test_running_process_prevents_deletion(self):
         from unittest.mock import patch
-        with patch.object(gc, "_runtime_in_use", return_value=True), \\
-             patch.object(gc.subprocess, "run") as run:
+        with (patch.object(gc, "_runtime_in_use", return_value=True),
+              patch.object(gc.subprocess, "run") as run):
             run.return_value.returncode = 0
             plan = self.inventory()
             result = gc.apply_plan(self.root, plan, now=self.now,
