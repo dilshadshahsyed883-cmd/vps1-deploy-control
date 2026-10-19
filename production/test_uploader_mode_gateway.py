@@ -7,7 +7,19 @@ from unittest.mock import patch
 
 APP = Path(__file__).resolve().parents[1] / "apps/local-upload-manager/part01"
 sys.path.insert(0, str(APP))
-from lum_engine.mode_gateway import MODE_PORTS, proxy_target, trusted_headers
+try:
+    from lum_engine.mode_gateway import MODE_PORTS, proxy_target, trusted_headers
+    GATEWAY_DEPS_READY = True
+except ModuleNotFoundError as exc:
+    # Shared production CI also tests lean non-uploader applications whose
+    # isolated venv intentionally has no FastAPI/httpx. The actual uploader
+    # lane installs and executes the full gateway contract.
+    if exc.name not in {"fastapi", "starlette", "httpx"}:
+        raise
+    GATEWAY_DEPS_READY = False
+    MODE_PORTS = {}
+    proxy_target = None
+    trusted_headers = None
 
 
 class RequestStub:
@@ -18,6 +30,7 @@ class RequestStub:
     }
 
 
+@unittest.skipUnless(GATEWAY_DEPS_READY, "Gateway requires uploader FastAPI/httpx dependencies")
 class LUMModeProxyTests(unittest.TestCase):
     def test_only_two_fixed_loopback_targets(self):
         self.assertEqual(MODE_PORTS, {"engine2": 8016, "shorts": 8017})
