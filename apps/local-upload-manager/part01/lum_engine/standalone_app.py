@@ -133,14 +133,13 @@ def require_admin(user: dict[str, Any]) -> None:
 
 
 def user_mode(user: dict[str, Any]) -> str:
-    mode = str(user.get("effective_ui_mode") or user.get("ui_mode") or "simple").lower().strip()
-    return mode if mode in {"simple", "heavy"} else "simple"
+    # Retain legacy persisted user modes without modifying accounts or user data.
+    return "heavy"
 
 
 def require_heavy(user: dict[str, Any]) -> None:
-    if user_mode(user) != "heavy":
-        raise HTTPException(403, "Switch to Heavy mode to use this control")
-
+    """Compatibility hook: only the full workspace remains."""
+    return None
 
 def all_channels() -> list[dict[str, Any]]:
     with db.connect() as conn:
@@ -210,29 +209,18 @@ async def standalone_auth(request: Request, call_next):
         if not is_admin and app_access not in {"lum", "all"}:
             raise HTTPException(403, "Local Upload Manager access required")
         mapped = users.get_by_username(username)
-        assigned = str((mapped or {}).get("ui_mode") or "simple").lower().strip()
-        if assigned not in {"simple", "heavy"}:
-            assigned = "simple"
         user = {
             "id": int((mapped or {}).get("id") or 0),
             "username": username,
             "is_active": 1,
             "is_admin": 1 if is_admin else 0,
-            "ui_mode": assigned,
+            "ui_mode": "heavy",
+            "effective_ui_mode": "heavy",
+            "mode_access": "heavy",
             "suite_authenticated": True,
             "app_access": app_access,
         }
-        if is_admin:
-            selected = str(request.session.get("lum_admin_mode") or "heavy").lower().strip()
-            if selected not in {"simple", "heavy"}:
-                selected = "heavy"
-            request.session["lum_admin_mode"] = selected
-            user["effective_ui_mode"] = selected
-            user["mode_access"] = "both"
-        else:
-            user["effective_ui_mode"] = assigned
-            user["mode_access"] = assigned
-            request.session.pop("lum_admin_mode", None)
+        request.session.pop("lum_admin_mode", None)
         request.state.lum_user = user
         return await call_next(request)
 
@@ -250,20 +238,9 @@ async def standalone_auth(request: Request, call_next):
         request.session.clear()
         return RedirectResponse(route("/login"), status_code=303)
     user = dict(user)
-    if int(user.get("is_admin") or 0):
-        selected = str(request.session.get("lum_admin_mode") or "heavy").lower().strip()
-        if selected not in {"simple", "heavy"}:
-            selected = "heavy"
-        request.session["lum_admin_mode"] = selected
-        user["effective_ui_mode"] = selected
-        user["mode_access"] = "both"
-    else:
-        assigned = user_mode(user).lower().strip()
-        if assigned not in {"simple", "heavy"}:
-            assigned = "simple"
-        user["effective_ui_mode"] = assigned
-        user["mode_access"] = assigned
-        request.session.pop("lum_admin_mode", None)
+    user["effective_ui_mode"] = "heavy"
+    user["mode_access"] = "heavy"
+    request.session.pop("lum_admin_mode", None)
     request.state.lum_user = user
     return await call_next(request)
 
@@ -338,8 +315,8 @@ def setup_action(request: Request, csrf_token: str = Form(...), username: str = 
     request.session.clear()
     request.session["user_id"] = user_id
     request.session["csrf"] = secrets.token_urlsafe(32)
-    request.session["lum_admin_mode"] = "heavy"
-    return redirect("/app", message="Administrator account created · Simple and Heavy modes available")
+    request.session.pop("lum_admin_mode", None)
+    return redirect("/app", message="Administrator account created · Full workspace ready")
 
 
 @app.get(route("/login"), response_class=HTMLResponse)
@@ -359,7 +336,7 @@ def login_action(request: Request, csrf_token: str = Form(...), username: str = 
     request.session["user_id"] = int(user["id"])
     request.session["csrf"] = secrets.token_urlsafe(32)
     if int(user.get("is_admin") or 0):
-        request.session["lum_admin_mode"] = "heavy"
+        request.session.pop("lum_admin_mode", None)
     return redirect("/app")
 
 
@@ -383,11 +360,9 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
     if SUITE_AUTH_ENABLED and embedded:
         request.session["lum_embedded"] = "1"
     embedded_view = SUITE_AUTH_ENABLED and str(request.session.get("lum_embedded") or "") == "1"
-    mode = user_mode(user)
-    simple_tabs = {"upload", "authentication"}
-    heavy_tabs = {"dashboard", "channels", "sheets", "auto_engine", "add_video", "bulk_import", "queue", "logs"}
-    allowed = simple_tabs if mode == "simple" else heavy_tabs
-    default_tab = "upload" if mode == "simple" else "dashboard"
+    mode = "heavy"
+    allowed = {"dashboard", "channels", "sheets", "auto_engine", "add_video", "bulk_import", "queue", "logs"}
+    default_tab = "dashboard"
     selected = tab if tab in allowed else default_tab
     channels = all_channels()
     projects = get_projects(user)
@@ -543,30 +518,30 @@ def users_page(request: Request, message: str = "", error: str = ""):
 
 
 @app.post(route("/users/create"))
-def users_create(request: Request, csrf_token: str = Form(...), username: str = Form(...), password: str = Form(...), access_level: str = Form("simple")):
+def users_create(request: Request, csrf_token: str = Form(...), username: str = Form(...), password: str = Form(...), access_level: str = Form("heavy")):
     user = current_user(request); require_admin(user); require_csrf(request, csrf_token)
     try:
-        access = str(access_level or "simple").lower().strip()
-        if access not in {"simple", "heavy", "administrator"}:
+        access = str(access_level or "heavy").lower().strip()
+        if access not in {"heavy", "administrator"}:
             raise ValueError("Invalid access level")
         is_admin = access == "administrator"
-        ui_mode = "heavy" if is_admin else access
+        ui_mode = "heavy"
         users.create(username, password, is_admin=is_admin, ui_mode=ui_mode)
-        label = "Administrator · Both modes" if is_admin else f"{ui_mode.capitalize()} mode"
+        label = "Administrator" if is_admin else "Full workspace"
         return redirect("/users", message=f"User {username} created · {label}")
     except Exception as exc:
         return redirect("/users", error=str(exc))
 
 
 @app.post(route("/users/{user_id}/update"))
-def users_update(user_id: int, request: Request, csrf_token: str = Form(...), access_level: str = Form("simple"), is_active: str = Form("")):
+def users_update(user_id: int, request: Request, csrf_token: str = Form(...), access_level: str = Form("heavy"), is_active: str = Form("")):
     user = current_user(request); require_admin(user); require_csrf(request, csrf_token)
     try:
-        access = str(access_level or "simple").lower().strip()
-        if access not in {"simple", "heavy", "administrator"}:
+        access = str(access_level or "heavy").lower().strip()
+        if access not in {"heavy", "administrator"}:
             raise ValueError("Invalid access level")
         is_admin = access == "administrator"
-        ui_mode = "heavy" if is_admin else access
+        ui_mode = "heavy"
         users.update(user_id, ui_mode=ui_mode, is_active=str(is_active).lower() in {"1", "true", "on", "yes"}, is_admin=is_admin)
         return redirect("/users", message="User access updated")
     except Exception as exc:
@@ -574,14 +549,11 @@ def users_update(user_id: int, request: Request, csrf_token: str = Form(...), ac
 
 
 @app.post(route("/mode"))
-def switch_mode(request: Request, csrf_token: str = Form(...), mode: str = Form(...)):
+def switch_mode(request: Request, csrf_token: str = Form(...), mode: str = Form("heavy")):
+    # Cached pre-upgrade forms redirect to the full workspace without switching modes.
     user = current_user(request); require_admin(user); require_csrf(request, csrf_token)
-    selected = str(mode or "").lower().strip()
-    if selected not in {"simple", "heavy"}:
-        raise HTTPException(400, "Invalid mode")
-    request.session["lum_admin_mode"] = selected
-    default_tab = "upload" if selected == "simple" else "dashboard"
-    return redirect(f"/app?tab={default_tab}", message=f"Switched to {selected.capitalize()} mode")
+    request.session.pop("lum_admin_mode", None)
+    return redirect("/app?tab=dashboard")
 
 
 @app.post(route("/users/{user_id}/password"))
