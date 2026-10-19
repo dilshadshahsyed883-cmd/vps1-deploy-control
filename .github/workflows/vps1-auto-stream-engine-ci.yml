@@ -1,0 +1,36 @@
+name: VPS1 Auto Stream V1 independent engine CI
+on:
+  pull_request:
+    paths:
+      - 'apps/short-stream/part01/**'
+      - 'production/test_auto_stream_engine.py'
+      - '.github/workflows/vps1-auto-stream-engine-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/short-stream/part01/**'
+      - 'production/test_auto_stream_engine.py'
+      - '.github/workflows/vps1-auto-stream-engine-ci.yml'
+permissions:
+  contents: read
+jobs:
+  auto-stream-engine-offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install only isolated app test dependencies
+        run: python -m pip install 'fastapi==0.115.12' 'python-multipart==0.0.20'
+      - name: Compile and execute isolated tests (NO LIVE PUBLISH)
+        run: |
+          python -m py_compile apps/short-stream/part01/auto_stream_engine.py
+          python -m py_compile apps/short-stream/part01/app.py
+          python -m unittest -v production.test_auto_stream_engine
+      - name: Assert no new publishing or OAuth data mutations
+        run: |
+          grep -q 'AUTO_STREAM_PUBLISH_ENABLED' apps/short-stream/part01/auto_stream_engine.py
+          grep -q 'youtube_live_verified.*False' apps/short-stream/part01/auto_stream_engine.py
+          test ! -f apps/short-stream/part01/*.sqlite3
