@@ -16,7 +16,7 @@ def resolve_relative_video(media_root: str | Path, filename: str) -> Path:
     path = root / filename
     if any(p.is_symlink() for p in [path, *path.parents]
            if p != base and base in p.parents):
-        raise ValueError("Media symlinks are not accepted")
+        raise ValueError("media symlinks are not accepted")
     target = path.resolve()
     if not target.is_relative_to(base) or not target.is_file():
         raise ValueError("Media file is absent or outside Auto Stream sources")
