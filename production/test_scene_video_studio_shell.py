@@ -71,6 +71,21 @@ class SceneVideoStudioShell(unittest.TestCase):
         self.assertNotIn(".innerHTML", native)
         self.assertIn("vps1-native-site-sidebar", native)
 
+    def test_native_sidebar_sources_admin_link_from_live_scene_role(self):
+        native = (SCENE / "static/vps1_native_site_shell.js").read_text()
+        css = (SCENE / "static/vps1_native_site_shell.css").read_text()
+        app = (SCENE / "app.py").read_text()
+        self.assertIn('@app.get("/api/session/identity")', app)
+        self.assertIn("user_account(str(request.session.get", app)
+        self.assertIn('headers={"Cache-Control": "private, no-store", "Vary": "Cookie"}', app)
+        self.assertIn('fetch("/api/session/identity"', native)
+        self.assertIn('credentials: "same-origin"', native)
+        self.assertIn('identity.is_admin === true', native)
+        self.assertIn('adminLink.href = "/admin"', native)
+        self.assertIn('adminLink.remove()', native)
+        self.assertIn('logout.action = "/logout"', native)
+        self.assertIn('#vps1-native-site-sidebar [hidden]', css)
+
     def test_native_studio_preserves_app_forms_tabs_and_api(self):
         root = ROOT / "apps"
         maker = (root / "short-maker/part01/app.py").read_text()
