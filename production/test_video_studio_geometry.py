@@ -68,5 +68,21 @@ class VideoStudioGeometryContracts(unittest.TestCase):
         self.assertIn('sidebar.classList.toggle("mobile-open",opened)', source)
 
 
+    def test_video_geometry_release_only_reinstalls_four_apps(self):
+        source = (ROOT / ".github/workflows/vps1-native-studio-release.yml").read_text()
+        self.assertIn("[vps1-video-geometry-release]", source)
+        self.assertIn('VIDEO_GEOMETRY_ONLY: ${{ contains(', source)
+        self.assertIn('if [[ "$VIDEO_GEOMETRY_ONLY" == "true" ]]; then', source)
+        self.assertIn(
+            "for app in scene-builder short-maker video-merger auto-caption-studio; do",
+            source)
+        self.assertIn("VIDEO_STUDIO_GEOMETRY_RELEASE=PASS", source)
+        self.assertIn("AUTO_SCRIPT=OFFLINE", source)
+        # Existing original broader release path remains available separately.
+        self.assertIn(
+            "for app in short-maker video-merger auto-caption-studio "
+            "voice-studio local-upload-manager; do", source)
+
+
 if __name__ == "__main__":
     unittest.main()
