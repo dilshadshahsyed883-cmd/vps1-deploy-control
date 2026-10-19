@@ -100,6 +100,30 @@ class SceneVideoStudioShell(unittest.TestCase):
         self.assertIn('document.documentElement.classList.add("vps1-native-bootstrap")', native_js)
         self.assertIn("@media(max-width:760px)", native_css)
 
+    def test_voice_sidebar_navigation_never_forces_redundant_page_reload(self):
+        scene = (SCENE / "templates/base.html").read_text()
+        native = (SCENE / "static/vps1_native_site_shell.js").read_text()
+        app = (SCENE / "app.py").read_text()
+        self.assertIn('href="/voice-studio/app#vps1-production"', scene)
+        self.assertIn('"/voice-studio/app#vps1-production"', native)
+        self.assertIn('window.vps1VoiceStudioTab("production")', native)
+        self.assertIn('event.preventDefault()', native)
+        self.assertIn('typeof window.vps1VoiceStudioTab !== "function"', native)
+        self.assertIn('RedirectResponse("/voice-studio/app", status_code=303)', app)
+        self.assertIn('b"vps1_native_site_shell.js?v=20261019-voice-nav-v2"', app)
+        self.assertIn('b"vps1_native_site_shell.css?v=20261019-unified-v2"', app)
+        self.assertIn('content=content.replace(b"/tts/",b"/voice-studio/service/tts/")', app)
+        voice=(ROOT / "apps/voice-studio/part01/templates/voice_studio.html").read_text()
+        first_style=voice.find("<style>")
+        canonical=voice.find('vps1_native_site_shell.css?v=20261019-voice-nav-v2')
+        script=voice.find('vps1_native_site_shell.js?v=20261019-voice-nav-v2')
+        self.assertGreater(first_style, canonical)
+        self.assertGreater(first_style, script)
+        self.assertEqual(voice.count('data-workspace="voice"'), 1)
+        native_css=(SCENE / "static/vps1_native_site_shell.css").read_text()
+        self.assertIn('html:has(script[data-workspace="voice"]) .vps3-main-sidebar',native_css)
+        self.assertIn('html:has(script[data-workspace="voice"]) .vps3-layout',native_css)
+
     def test_native_studio_preserves_app_forms_tabs_and_api(self):
         root = ROOT / "apps"
         maker = (root / "short-maker/part01/app.py").read_text()
