@@ -5,7 +5,10 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: vps1-production
+  # A unique pending slot avoids GitHub canceling this release while other
+  # nonmatching main workflows are queued. VPS root deployment locks still
+  # serialize every actual host change.
+  group: vps1-acs-original-studio
   cancel-in-progress: false
 
 jobs:
