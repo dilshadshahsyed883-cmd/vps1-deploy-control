@@ -96,7 +96,8 @@ small,.muted{color:#627087}p{line-height:1.5}
 <script>
 (function(){
 "use strict";
-const root=window.location.pathname.replace(/\\/engine\\/studio\\/?$/,"")+"/engine";
+// Public browser location is /auto-stream/; the independent engine keeps its own API namespace.
+const root="/short-stream/engine";
 const $=id=>document.getElementById(id);
 function note(s){const m=$("msg");m.className="message";m.textContent=s;}
 async function call(path,method,body){
@@ -219,10 +220,19 @@ async function refreshHealth(){
  " | Jobs: "+jobs.jobs.length+" | Encoder sessions: "+a.encoder_sessions+
  " | YouTube Live verification: read-only per channel";
 }
-document.querySelectorAll("[data-tab]").forEach(button=>button.onclick=()=>{
- document.querySelectorAll("[data-tab]").forEach(b=>b.setAttribute("aria-selected",String(b===button)));
- document.querySelectorAll("[role=tabpanel]").forEach(s=>s.hidden=s.id!==button.dataset.tab);
-});
+const streamTabs=[...document.querySelectorAll("[data-tab]")];
+const streamIdentity=document.querySelector('meta[name="vps1-username"]')?.content || '';
+const streamStateKey=streamIdentity ? 'vps1.stream.active-tab.v1:'+streamIdentity : '';
+function openStreamTab(id){
+ if(!streamTabs.some(b=>b.dataset.tab===id && !b.hidden))id='dashboard';
+ streamTabs.forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===id)));
+ document.querySelectorAll("[role=tabpanel]").forEach(s=>s.hidden=s.id!==id);
+ if(streamStateKey){try{sessionStorage.setItem(streamStateKey,id);}catch(_){}}
+}
+streamTabs.forEach(button=>button.onclick=()=>openStreamTab(button.dataset.tab));
+let streamRestoredTab='dashboard';
+if(streamStateKey){try{streamRestoredTab=sessionStorage.getItem(streamStateKey)||'dashboard';}catch(_){}}
+openStreamTab(streamRestoredTab);
 async function refreshOAuthSettings(){
  const tab=$("oauth-settings-tab");
  try{

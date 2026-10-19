@@ -3,7 +3,7 @@
   "use strict";
   const script = document.currentScript;
   const app = script && script.dataset ? script.dataset.workspace : "";
-  if (!["acs", "voice", "uploader"].includes(app)) return;
+  if (!["acs", "voice", "uploader", "stream"].includes(app)) return;
   // During staggered releases an old Scene shell may still embed this document.
   // Never render a second navigation in that legacy framing context.
   if (window.self !== window.top) return;
@@ -38,6 +38,7 @@
     navigation.setAttribute("aria-label", "Applications");
     addLink(navigation, "Dashboard", "/", false);
     addLink(navigation, "Auto Uploader", "/local-upload-manager", app === "uploader");
+    addLink(navigation, "Auto Stream", "/auto-stream/", app === "stream");
     addLink(navigation, "Video Studio", "/scene-builder/", app === "acs");
     const voiceLink = addLink(navigation, "Voice Studio", "/voice-studio/app#vps1-production", app === "voice");
     if (app === "voice") {

@@ -1,0 +1,108 @@
+name: VPS1 Auto Stream canonical native route production release
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: vps1-auto-stream-canonical-release
+  cancel-in-progress: false
+jobs:
+  auto-stream-canonical-release:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'dilshadshahsyed883-cmd' &&
+      github.run_attempt == 1 &&
+      contains(github.event.head_commit.message, '[vps1-auto-stream-canonical-release]')
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Join authorized VPS1 Tailscale identity
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Verify idle engines, install app UI, then Scene native entry
+        shell: bash
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/identity"
+          unset PRIVATE_IDENTITY
+          chmod 0600 "$scratch/identity"
+          ssh-keygen -y -P '' -f "$scratch/identity" > "$scratch/public"
+          test "$(ssh-keygen -lf "$scratch/public" -E sha256 | awk '{print $2}')" = 'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
+          remote() {
+            timeout 2400s ssh -T -p 22 -i "$scratch/identity" \
+              -o UserKnownHostsFile="$scratch/known_hosts" \
+              -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+              -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=20 \
+              -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+              vps1deploy@100.87.55.92 "$@"
+          }
+          remote 'python3 -' <<'PY'
+          import json,urllib.request
+          def get(path):
+              with urllib.request.urlopen('http://127.0.0.1:'+path,timeout=15) as r:
+                  return json.load(r)
+          stream=get('8145/health')
+          engine=get('8145/engine/health')
+          lum=get('8015/local-upload-manager/health')
+          assert stream.get('ok') is True and int(stream.get('running') or 0)==0, 'LEGACY_STREAM_ACTIVE'
+          assert engine.get('ok') is True and int(engine.get('encoder_sessions') or 0)==0, 'STREAM_ENGINE_ACTIVE'
+          assert lum.get('ok') is True and not lum.get('active_project_id'), 'UPLOADER_ACTIVE'
+          print('STREAM_AND_UPLOADER_IDLE_PREFLIGHT=PASS',flush=True)
+          PY
+          remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA short-stream"
+          remote 'python3 -' <<'PY'
+          import urllib.request
+          with urllib.request.urlopen('http://127.0.0.1:8145/engine/studio',timeout=15) as r:
+              t=r.read().decode('utf-8')
+              assert r.status==200 and 'const root="/short-stream/engine";' in t
+              assert 'openStreamTab(streamRestoredTab)' in t
+          print('AUTO_STREAM_NATIVE_UI=PASS',flush=True)
+          PY
+          remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA local-upload-manager"
+          remote 'python3 -' <<'PY'
+          import json,urllib.request
+          with urllib.request.urlopen('http://127.0.0.1:8015/local-upload-manager/health',timeout=12) as r:
+              assert json.load(r).get('ok') is True
+          request=urllib.request.Request('http://127.0.0.1:8015/local-upload-manager/app?embedded=1&tab=dashboard',
+              headers={'X-Auth-User':'vps1-readback','X-App-Access':'all','X-Is-Admin':'1'})
+          with urllib.request.urlopen(request,timeout=15) as r:
+              doc=r.read().decode('utf-8')
+              assert r.status==200 and 'href="/auto-stream/"' in doc
+          print('UPLOADER_STREAM_LINK=PASS',flush=True)
+          PY
+          remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA scene-builder"
+          remote 'python3 -' <<'PY'
+          import urllib.request,urllib.error
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self,*a,**kw):return None
+          op=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect())
+          try:
+              op.open('http://127.0.0.1:18080/auto-stream/',timeout=15)
+              raise AssertionError('AUTO_STREAM_ANONYMOUS_ACCESS_UNEXPECTED')
+          except urllib.error.HTTPError as e:
+              assert e.code==303 and '/login' in e.headers.get('Location',''), e.code
+          print('AUTO_STREAM_CANONICAL_SCENE_SESSION_GUARD=PASS',flush=True)
+          PY
+          echo AUTO_STREAM_CANONICAL_RELEASE=SUCCESS
+          echo AUTO_SCRIPT=OFFLINE
+          echo STREAM_PUBLISHING=UNCHANGED
+          echo OWNER_FUNCTIONAL_UAT=PENDING

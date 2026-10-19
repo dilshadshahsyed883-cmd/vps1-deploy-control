@@ -19,7 +19,7 @@ class NativeUploaderTopTabs(unittest.TestCase):
     def test_one_primary_tab_bar_above_eight_workspace_tabs(self):
         html=(LUM/"templates/app.html").read_text()
         self.assertEqual(html.count('aria-label="Auto Uploader main subtabs"'),1)
-        self.assertIn('href="{{ base_path }}/app?tab=auto_stream"',html)
+        self.assertIn('href="/auto-stream/"',html)
         self.assertLess(html.index('class="lum-primary-workspaces"'),html.index('class="lum-statusbar"'))
         self.assertLess(html.index('class="lum-primary-workspaces"'),html.index('class="lum-tabs-shell"'))
         self.assertIn("{% if not embedded_view %}\n  <section class=\"lum-statusbar\">",html)
