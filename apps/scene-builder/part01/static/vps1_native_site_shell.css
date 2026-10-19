@@ -164,3 +164,11 @@ body.vps1-native-open #vps1-native-site-sidebar{transform:translateX(0)}
 html:has(script[data-workspace="voice"]) .vps3-main-sidebar{display:none!important}
 html:has(script[data-workspace="voice"]) .vps3-layout{display:block!important;min-height:auto!important}
 html:has(script[data-workspace="voice"]) .vps3-main-column{width:100%!important;min-width:0!important}
+
+/* UPLOAD_STUDIO_UNIFIED_NATIVE_TABS_V1: two independent native application routes. */
+.vps1-native-upload-tabs{display:flex!important;align-items:center;flex-wrap:wrap;gap:8px;max-width:1400px;margin:16px auto 18px;padding:10px 12px;background:#f8faff;border:1px solid #dfe5ef;border-radius:11px;font-family:Inter,system-ui,Arial,sans-serif;box-sizing:border-box;width:calc(100% - 32px)}
+.vps1-native-upload-tabs a{display:inline-flex;align-items:center;justify-content:center;padding:10px 16px;border:1px solid #d6ddea;border-radius:8px;text-decoration:none!important;background:#fff;color:#34415b!important;font-size:13px;font-weight:750;min-height:40px}
+.vps1-native-upload-tabs a.active,.vps1-native-upload-tabs a[aria-current="page"]{background:#315edb;color:#fff!important;border-color:#315edb}
+.vps1-native-upload-tabs a:focus-visible{outline:3px solid #6d87e6;outline-offset:2px}
+html:has(script[data-workspace="uploader"]) .lum-primary-workspaces,body.vps1-native-uploader .lum-primary-workspaces{display:none!important}
+@media(max-width:760px){.vps1-native-upload-tabs{margin:10px auto 14px;gap:6px;padding:8px;width:calc(100% - 20px)}.vps1-native-upload-tabs a{flex:1 1 135px;font-size:12px;padding:9px 10px}}
