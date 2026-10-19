@@ -832,3 +832,7 @@ setInterval(()=>{refresh();if(current)loadLogs()},2000);refresh();
 @app.get("/", response_class=HTMLResponse)
 def home():
     return HTMLResponse(PAGE)
+
+# Independent Auto Stream V1 API. Legacy sessions/routes remain unmodified.
+from auto_stream_engine import router as auto_stream_engine_router
+app.include_router(auto_stream_engine_router)
