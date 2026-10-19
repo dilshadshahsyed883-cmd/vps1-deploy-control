@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"apps/short-stream/part01"))
-import auto_stream_credentials as m
+import auto_stream_client_config as m
 import auto_stream_integrations as integrations
 
 ID="1234-testing-web-app.apps.googleusercontent.com"
@@ -76,7 +76,8 @@ class OAuthClientWebSetupTests(unittest.TestCase):
         self.assertEqual(read.headers["cache-control"],"no-store")
         self.assertEqual(m.OAuthClientStore(self.root).read_client(),
                          (ID,SECRET,m.REDIRECT))
-        with patch.object(m,"store",return_value=self.store):
+        with patch.object(m,"store",return_value=self.store), \
+             patch.object(integrations,"ENGINE_ROOT",self.root,create=True):
             self.assertEqual(integrations._configuration(),
                              (ID,SECRET,m.REDIRECT))
 
