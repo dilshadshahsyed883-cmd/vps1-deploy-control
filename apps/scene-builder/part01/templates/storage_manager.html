@@ -16,8 +16,8 @@
     <div class="sm-hero-actions">
       <span id="manager-status" class="sm-status"><i></i> Connecting</span>
       <button id="refresh-metrics" class="button secondary" type="button">Refresh metrics</button>
-      <button id="run-scan" class="button" type="button">Scan reclaimable space</button>
-      <button id="full-production-clean" class="button danger-button" type="button">Full Production Clean</button>
+      <button id="run-scan" class="button" type="button" disabled>Scan reclaimable space</button>
+      <button id="full-production-clean" class="button danger-button" type="button" disabled>Full Production Clean</button>
     </div>
   </section>
 
@@ -59,7 +59,7 @@
       <div><h3>Safely reclaimable storage</h3><p>Select categories after reviewing the latest scan. Project eligibility is rechecked immediately before deletion.</p></div>
       <div class="sm-head-actions">
         <small id="scan-time">No scan loaded</small>
-        <button id="select-recommended" class="button secondary sm-small" type="button">Select recommended</button>
+        <button id="select-recommended" class="button secondary sm-small" type="button" disabled>Select recommended</button>
       </div>
     </div>
     <div id="category-grid" class="sm-category-grid"><div class="sm-loading">Loading storage scan…</div></div>
@@ -81,7 +81,7 @@
         <label><span><strong>Journal retention</strong><small>Newest system logs remain</small></span><div class="sm-unit"><input id="journal-max" type="number" min="100" max="4096"><b>MB</b></div></label>
         <label><span><strong>Temporary-file age</strong><small>Only older allowlisted files</small></span><div class="sm-unit"><input id="temp-days" type="number" min="1" max="90"><b>days</b></div></label>
         <fieldset><legend>Automatic categories</legend><div id="auto-categories" class="sm-auto-categories"></div></fieldset>
-        <button class="button" type="submit">Save automatic policy</button>
+        <button class="button" type="submit" disabled>Save automatic policy</button>
         <div id="policy-result" class="sm-result" hidden></div>
       </form>
     </article>
@@ -114,4 +114,4 @@
 </div>
 {% endblock %}
 
-{% block scripts %}<script src="/static/storage_manager.js?v=20261019"></script>{% endblock %}
+{% block scripts %}<script src="/static/storage_manager.js?v=20261019-capability-gate"></script>{% endblock %}

@@ -1163,6 +1163,11 @@ class Handler(BaseHTTPRequestHandler):
         if not self.authenticated():
             return self.respond(403, {"ok": False, "error": "forbidden"})
         try:
+            if path == "/v1/capabilities":
+                # Never infer permission to mutate from a reachable metrics API.
+                # Isolated candidate/smoke services are intentionally read-only.
+                read_only = os.getenv("FRESH_WEBSITE_SMOKE_TEST") == "1" or os.getenv("VPS1_RUNTIME_CANDIDATE") == "1"
+                return self.respond(200, {"ok": True, "read_only": read_only, "can_modify": not read_only})
             if path == "/v1/metrics":
                 return self.respond(200, metrics())
             if path == "/v1/snapshot":
