@@ -19,6 +19,7 @@
     a.href = href;
     if (active) a.setAttribute("aria-current", "page");
     nav.appendChild(a);
+    return a;
   };
   function install() {
     if (document.getElementById("vps1-native-site-sidebar")) return;
@@ -38,7 +39,19 @@
     addLink(navigation, "Dashboard", "/", false);
     addLink(navigation, "Auto Uploader", "/local-upload-manager", app === "uploader");
     addLink(navigation, "Video Studio", "/queue", app === "acs");
-    addLink(navigation, "Voice Studio", "/voice-studio", app === "voice");
+    const voiceLink = addLink(navigation, "Voice Studio", "/voice-studio/app#vps1-production", app === "voice");
+    if (app === "voice") {
+      // A click on the already-open Voice Studio must not reload its large
+      // document or restart voice engines, queues, and ongoing audio previews.
+      // Keyboard/modifier navigation and uninitialized UI fall back to href.
+      voiceLink.addEventListener("click", (event) => {
+        if (event.defaultPrevented || (event.button !== undefined && event.button !== 0) ||
+            event.ctrlKey || event.metaKey || event.shiftKey || event.altKey ||
+            typeof window.vps1VoiceStudioTab !== "function") return;
+        event.preventDefault();
+        window.vps1VoiceStudioTab("production");
+      });
+    }
 
     // All native app screens use the live Scene session role; no local-app
     // guessing or browser-stored role flags. Admin stays hidden until verified.
