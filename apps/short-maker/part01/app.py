@@ -559,21 +559,25 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
 @media(max-width:600px){main{margin-left:0!important;padding:14px!important}.sm-tabs{overflow-x:auto!important;white-space:nowrap!important}}
 
 </style>
+<link rel="stylesheet" href="/static/vps1_native_site_shell.css?v=20261019-unified-v2">
+<link rel="stylesheet" href="/static/vps1_video_studio_geometry.css?v=20261020-geometry-v1">
 </head>
 <body>
-<aside class="sidebar">
+<button type="button" class="vps1-video-mobile-menu" aria-controls="app-sidebar" aria-expanded="false">☰ Menu</button>
+<div class="vps1-video-mobile-overlay" hidden></div>
+<aside id="app-sidebar" class="sidebar">
  <div class="brand"><div class="logo">S</div><div><strong>Scene Builder</strong><small>Team Studio</small></div></div>
  <nav>
   <a href="/">Dashboard</a>
   <a href="/local-upload-manager">Auto Uploader</a>
-    <a class="active" href="/queue" aria-current="page">Video Studio</a>
+    <a class="active" href="/scene-builder/" aria-current="page">Video Studio</a>
 
 <!-- Auto Script stays OFFLINE -->
  </nav>
  <div class="server"><span></span> VPS Connected</div>
 </aside>
 <main>
-<nav data-video-studio-subnav="1" aria-label="Video Studio" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;margin:0 0 18px;background:#f8faff;border:1px solid #dfe5ef;border-radius:11px;box-shadow:0 2px 8px rgba(28,44,78,.03)"><a href="/queue" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;background:#fff;color:#34415b">Scene Builder</a><a href="/auto-caption/studio" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;background:#fff;color:#34415b">Auto Caption Studio</a><a href="/short-maker/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;background:#315edb;color:#fff;border-color:#315edb" aria-current="page">Short Maker</a><a href="/video-merger/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;background:#fff;color:#34415b">Video Merger</a></nav>
+<nav data-video-studio-subnav="1" aria-label="Video Studio" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;margin:0 0 18px;background:#f8faff;border:1px solid #dfe5ef;border-radius:11px;box-shadow:0 2px 8px rgba(28,44,78,.03)"><a href="/scene-builder/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;background:#fff;color:#34415b">Scene Builder</a><a href="/auto-caption-studio/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;background:#fff;color:#34415b">Auto Caption Studio</a><a href="/short-maker/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;background:#315edb;color:#fff;border-color:#315edb" aria-current="page">Short Maker</a><a href="/video-merger/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;background:#fff;color:#34415b">Video Merger</a></nav>
 
 <header><h1>Short Maker</h1><p>Every render becomes a queue job. Keep adding new jobs while one job renders.</p></header>
 <div class="sm-tabs"><button id="makerTabBtn" class="active" type="button">Maker</button><button id="queueTabBtn" type="button">Queue <span id="queueTotal"></span></button></div>
@@ -711,6 +715,25 @@ form.addEventListener('submit',async e=>{
   render.disabled=false;images.value='';audio.value='';imageCount.textContent='0 images selected';audioCount.textContent='No audio selected';statusEl.textContent=`Job ${data.job_id.slice(0,8)} queued. Ready for another job.`;bar.style.width='0%';outputs.innerHTML='';loadQueue();
  }catch(err){render.disabled=false;statusEl.textContent=`Failed: ${err.message}`;}
 });
+</script>
+<script>
+(() => {
+  const toggle=document.querySelector(".vps1-video-mobile-menu");
+  const sidebar=document.getElementById("app-sidebar");
+  const backdrop=document.querySelector(".vps1-video-mobile-overlay");
+  if(!toggle||!sidebar||!backdrop)return;
+  const close=()=>{sidebar.classList.remove("mobile-open");backdrop.hidden=true;toggle.setAttribute("aria-expanded","false");};
+  toggle.addEventListener("click",()=>{
+    const opened=!sidebar.classList.contains("mobile-open");
+    sidebar.classList.toggle("mobile-open",opened);
+    backdrop.hidden=!opened;
+    toggle.setAttribute("aria-expanded",String(opened));
+  });
+  backdrop.addEventListener("click",close);
+  sidebar.querySelectorAll("nav a").forEach(a=>a.addEventListener("click",close));
+  document.addEventListener("keydown",e=>{if(e.key==="Escape")close();});
+  window.addEventListener("pageshow",close);
+})();
 </script>
 </body></html>'''
 
