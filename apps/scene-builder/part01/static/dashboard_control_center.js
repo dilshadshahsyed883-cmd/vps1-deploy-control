@@ -4,7 +4,7 @@
   const $=id=>document.getElementById(id);
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   let timer=null;
-  const appLinks={'Scene Builder':'/queue','Auto Caption Studio':'/auto-caption/studio','Algrow Voice':'/algrow-voice','Local Upload Manager':'/local-upload-manager','Storage Manager':'/admin/storage'};
+  const appLinks={'Scene Builder':'/queue','Auto Caption Studio':'/auto-caption/studio','Algrow Voice':'/voice-studio','Voice Studio':'/voice-studio','Auto Uploader':'/local-upload-manager','Local Upload Manager':'/local-upload-manager','Storage Manager':'/admin/storage'};
   const fmtGB=v=>Number.isFinite(Number(v))?Number(v).toFixed(1)+' GB':'—';
   const stat=(label,value,cls='')=>`<div class="app-stat ${cls}"><span>${esc(label)}</span><strong>${Number(value||0)}</strong></div>`;
   function appCard(a,detailed=false){const failed=Number(a.failed||0),active=Number(a.active||0),d=a.detail||{},online=a.available!==false,status=!online?'Offline':failed?'Attention':(active?'Active':'Ready');return `<article class="app-card ${detailed?'app-detail-card':''}"><div class="app-card-head"><h2>${esc(a.name)}</h2><span class="status-pill ${!online||failed?'warn':''}">${status}</span></div><div class="app-stats">${stat('Queued',a.waiting)}${stat('Active',a.active,'active')}${stat('Uploading',a.uploading,'upload')}${stat('Failed',a.failed,'failed')}${detailed?stat('Completed',d.completed||0):''}</div>${detailed?`<div class="app-meta"><span>Completed: <b>${Number(d.completed||0)}</b></span><span>${esc(d.service_summary||'Live source')}</span></div>`:''}<a class="open-app" href="${appLinks[a.name]||'#'}">Open ${esc(a.name)} →</a></article>`;}
