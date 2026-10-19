@@ -2,38 +2,26 @@
 {% block title %}Auto Caption Studio{% endblock %}
 {% block subtitle %}Caption, media, presets, and final-video production workspace{% endblock %}
 {% block content %}
-<!-- Native Auto Caption Studio Integration Container -->
-<div id="acs-native-app-root" style="width:100%; min-height:85vh;">
-  <div style="padding: 60px; text-align: center; color: var(--sb-muted, #64748b);">
-    <h3>Loading Auto Caption Studio Workspace...</h3>
-  </div>
-</div>
-<script>
-// Fetch and mount the native ACS view directly into the page without any nested iframe or double sidebar!
-async function loadNativeACS() {
-    const hash = window.location.hash || '#queue';
-    const targetUrl = '/auto-caption/api/web-flow/studio?embed=1' + hash;
-    try {
-        const response = await fetch(targetUrl);
-        if (response.ok) {
-            const html = await response.text();
-            const root = document.getElementById('acs-native-app-root');
-            if (root) {
-                root.innerHTML = html;
-                // Execute any scripts embedded in the loaded HTML
-                Array.from(root.querySelectorAll('script')).forEach(oldScript => {
-                    const newScript = document.createElement('script');
-                    Array.from(oldScript.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value));
-                    newScript.appendChild(document.createTextNode(oldScript.innerHTML));
-                    oldScript.parentNode.replaceChild(newScript, oldScript);
-                });
-            }
-        }
-    } catch (e) {
-        console.error("Failed to load native ACS view:", e);
-    }
+<!-- VIDEO_STUDIO_NATIVE_ACS_V2: Native independent app in the existing Scene Video Studio tab. -->
+<section class="video-studio-embedded" aria-label="Auto Caption Studio application">
+  <iframe id="acs-studio-frame" title="Auto Caption Studio workspace"
+    src="/auto-caption-studio/" loading="eager" referrerpolicy="same-origin"
+    style="display:block;width:100%;height:calc(100dvh - 200px);min-height:650px;border:0;border-radius:10px;background:#f8fafc"></iframe>
+  <p id="acs-embed-error" role="status" hidden>Auto Caption Studio could not be loaded. <a href="/auto-caption-studio/">Open its direct studio page</a>.</p>
+</section>
+<style>
+.video-studio-embedded {width:100%;max-width:1400px;margin:0 auto;min-width:0}
+@media (max-width:760px) {
+  .video-studio-embedded #acs-studio-frame {min-height:620px!important;height:calc(100dvh - 190px)!important}
 }
-loadNativeACS();
-// ACS itself handles tab hash changes; never refetch and reexecute all scripts.
+</style>
+<script>
+(() => {
+  const frame = document.getElementById('acs-studio-frame');
+  const error = document.getElementById('acs-embed-error');
+  frame.addEventListener('error', () => { error.hidden = false; });
+  // Native HTML, CSS, scripts and API requests load in the app's own document.
+  // Do not inject fetched HTML into Scene's DOM: that left the old workspace stuck loading.
+})();
 </script>
 {% endblock %}

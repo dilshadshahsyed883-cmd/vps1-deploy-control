@@ -33,6 +33,21 @@ class SceneUploaderReleaseTests(unittest.TestCase):
                                (self.source, NEW_HTML, NEW_JS)):
             (base / ui.FILES[0]).write_text(html)
             (base / ui.FILES[1]).write_text(js)
+            if base == self.source:
+                (base / "templates/base.html").write_text(
+                    '<a href="/auto-caption/studio"></a>'
+                    '<a href="/video-studio/short-maker"></a>'
+                    '<a href="/video-studio/video-merger"></a>'
+                    '<a href="/local-upload-manager"></a>')
+                (base / "templates/acs_studio_shell.html").write_text(
+                    '<iframe src="/auto-caption-studio/"></iframe>')
+                (base / "templates/video_studio_embed.html").write_text(
+                    '<iframe id="video-studio-app-frame" src="{{ studio_url }}"></iframe>')
+                (base / "app.py").write_text(
+                    '@app.get("/video-studio/{studio_app}")\nrequire_admin(request)')
+            else:
+                for relative in ("templates/base.html", "templates/acs_studio_shell.html", "app.py"):
+                    (base / relative).write_text("old")
         self.current.parent.mkdir(parents=True)
         self.current.symlink_to(self.old, target_is_directory=True)
         self.patches = [
@@ -43,6 +58,7 @@ class SceneUploaderReleaseTests(unittest.TestCase):
             patch.object(ui, "active", return_value=True),
             patch.object(ui, "healthy", return_value=True),
             patch.object(ui, "restart", return_value=None),
+            patch.object(ui, "verify_video_studio", return_value=None),
             patch.object(ui.os, "geteuid", return_value=0),
             patch.object(ui.socket, "gethostname", return_value="vps-01a23801"),
             patch.object(ui.shutil, "disk_usage", return_value=type("Disk", (), {"free": 10_000_000_000})()),
@@ -51,7 +67,7 @@ class SceneUploaderReleaseTests(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
 
-    def test_patch_exact_two_source_files_and_preserve_old_release(self):
+    def test_patch_only_allowlisted_shell_files_and_preserve_old_release(self):
         with patch.object(ui, "publish_route") as publish:
             ui.activate(self.sha)
         publish.assert_called_once_with(self.sha)
@@ -59,6 +75,9 @@ class SceneUploaderReleaseTests(unittest.TestCase):
         self.assertNotEqual(new, self.old)
         self.assertEqual((new / "part01" / ui.FILES[0]).read_text(), NEW_HTML)
         self.assertEqual((new / "part01" / ui.FILES[1]).read_text(), NEW_JS)
+        for rel in ui.FILES[2:]:
+            self.assertEqual((new / "part01" / rel).read_bytes(),
+                             (self.source / rel).read_bytes())
         self.assertEqual((self.old / "part01" / ui.FILES[0]).read_text(), OLD_HTML)
         saved = json.loads((self.transactions / self.sha / "release.json").read_text())
         self.assertEqual(saved["status"], "ACTIVE")

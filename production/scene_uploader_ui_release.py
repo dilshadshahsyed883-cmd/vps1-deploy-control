@@ -27,7 +27,13 @@ TRANSACTIONS = BASE / "transactions/scene-uploader-ui"
 FILES = (
     "templates/local_upload_manager.html",
     "static/lum_host_state_v1.js",
+    "templates/base.html",
+    "templates/acs_studio_shell.html",
+    "templates/video_studio_embed.html",
+    "app.py",
 )
+# A new wrapper did not exist in older Scene releases; all other files did.
+NEW_FILES = frozenset({"templates/video_studio_embed.html"})
 
 
 def require(ok: bool, why: str) -> None:
@@ -67,6 +73,40 @@ def source_is_valid() -> None:
     require("/local-upload-manager/app" in html and "/local-upload-manager/app" in script,
             "target uploader path missing")
     require("auto_mode" in html and "auto_mode" in script, "four-mode routing incomplete")
+    base = (SOURCE / "templates/base.html").read_text()
+    acs = (SOURCE / "templates/acs_studio_shell.html").read_text()
+    app = (SOURCE / "app.py").read_text()
+    wrapper = (SOURCE / "templates/video_studio_embed.html").read_text()
+    require('href="/auto-caption/studio"' in base and
+            'href="/video-studio/short-maker"' in base and
+            'href="/video-studio/video-merger"' in base and
+            'href="/local-upload-manager"' in base and
+            'href="/auto-script"' not in base,
+            "original Scene navigation or Video Studio subtabs regressed")
+    require('src="/auto-caption-studio/"' in acs and
+            "/auto-caption/api/web-flow/studio?embed=1" not in acs,
+            "native Auto Caption Studio embed missing")
+    require("studio_url" in wrapper and "video-studio-app-frame" in wrapper and
+            "/video-studio/{studio_app}" in app and
+            "require_admin(request)" in app, "independent embedded app route missing")
+
+
+def verify_video_studio() -> None:
+    """Verify the actual served Scene shell and embedded-app URLs post restart."""
+    from production.route_uploader_scene_https import scene_cookie, https_get
+    cookie = scene_cookie()
+    expected = {
+        "/local-upload-manager": (b'id="app-sidebar"', b'/local-upload-manager/app?'),
+        "/auto-caption/studio": (b'id="app-sidebar"', b'src="/auto-caption-studio/"'),
+        "/video-studio/short-maker": (b'id="app-sidebar"', b'src="/short-maker/"'),
+        "/video-studio/video-merger": (b'id="app-sidebar"', b'src="/video-merger/"'),
+    }
+    for path, markers in expected.items():
+        status, kind, body = https_get(path, cookie)
+        require(status == 200 and "html" in kind.lower() and
+                all(marker in body for marker in markers),
+                "Scene shell/Video Studio browser route failed: " + path)
+    print("VPS1_VIDEO_STUDIO_SHELL=PASS SUBTABS=PASS SIDEBAR=PASS", flush=True)
 
 
 def activate(revision: str) -> None:
@@ -80,13 +120,15 @@ def activate(revision: str) -> None:
     require(active() and healthy(), "Scene candidate unavailable")
     source_is_valid()
     for relative in FILES:
-        require((old / "part01" / relative).is_file(), "old Scene source missing: " + relative)
+        if relative not in NEW_FILES:
+            require((old / "part01" / relative).is_file(), "old Scene source missing: " + relative)
     target = RELEASES / (revision + "-auto-uploader")
     journal = TRANSACTIONS / revision
     staged = False
     switched = False
     # If already on the new exact UI, still run the idempotent Nginx route check.
-    needs_ui = any((old / "part01" / rel).read_bytes() != (SOURCE / rel).read_bytes()
+    needs_ui = any(not (old / "part01" / rel).is_file() or
+                   (old / "part01" / rel).read_bytes() != (SOURCE / rel).read_bytes()
                    for rel in FILES)
     if needs_ui:
         require(not target.exists() and not target.is_symlink(), "release path exists")
@@ -112,6 +154,7 @@ def activate(revision: str) -> None:
             switched = True
             restart()
             publish_route(revision)
+            verify_video_studio()
             atomic_json(journal / "release.json", {
                 "source_revision": revision, "status": "ACTIVE",
                 "previous_pointer": str(old), "new_pointer": str(target),
@@ -131,4 +174,5 @@ def activate(revision: str) -> None:
             raise
     else:
         publish_route(revision)
+        verify_video_studio()
         print("SCENE_UI_RESULT=ALREADY_CURRENT ROUTE=VERIFIED", flush=True)
