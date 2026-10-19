@@ -38,8 +38,58 @@
     addLink(navigation, "Auto Uploader", "/local-upload-manager", app === "uploader");
     addLink(navigation, "Video Studio", "/queue", app === "acs");
     addLink(navigation, "Voice Studio", "/voice-studio", app === "voice");
+
+    // All native app screens use the live Scene session role; no local-app
+    // guessing or browser-stored role flags. Admin stays hidden until verified.
+    let adminLink = null;
+    const account = node("div", "vps1-native-account");
+    account.hidden = true;
+    account.appendChild(node("small", "", "SIGNED IN"));
+    const accountName = node("strong");
+    account.appendChild(accountName);
+    const logout = node("form");
+    logout.action = "/logout";
+    logout.method = "post";
+    const logoutButton = node("button", "", "Log out");
+    logoutButton.type = "submit";
+    logout.appendChild(logoutButton);
+    account.appendChild(logout);
+    const setIdentity = (identity) => {
+      const authorized = !!(identity && identity.authenticated === true);
+      const isAdmin = authorized && identity.is_admin === true;
+      if (isAdmin && !adminLink) {
+        adminLink = node("a", "", "Admin");
+        adminLink.href = "/admin";
+        navigation.appendChild(adminLink);
+      } else if (!isAdmin && adminLink) {
+        adminLink.remove();
+        adminLink = null;
+      }
+      account.hidden = !authorized;
+      accountName.textContent = authorized ? String(identity.username || "") : "";
+    };
+    const refreshIdentity = async () => {
+      try {
+        const response = await fetch("/api/session/identity", {
+          credentials: "same-origin", cache: "no-store",
+          headers: {"Accept": "application/json"}
+        });
+        if (!response.ok) throw new Error("Scene session unavailable");
+        setIdentity(await response.json());
+      } catch (_) {
+        setIdentity(null);
+      }
+    };
+
     aside.appendChild(navigation);
+    aside.appendChild(account);
     aside.appendChild(node("div", "vps1-native-bottom", "VPS Connected"));
+    refreshIdentity();
+    // Re-check when returning to a tab after admin demotion or re-login.
+    window.addEventListener("pageshow", refreshIdentity);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) refreshIdentity();
+    });
     document.body.prepend(aside);
     const toggle = node("button", "vps1-native-toggle", "☰ Menu");
     toggle.type = "button";
