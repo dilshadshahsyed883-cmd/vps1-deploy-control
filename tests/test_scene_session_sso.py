@@ -45,6 +45,91 @@ class SessionRouteContract(unittest.TestCase):
                 self.assertIn("proxy_set_header Upgrade $http_upgrade;", text)
                 self.assertIn("location ^~ /" + app + "/", text)
 
+    def test_voice_exact_url_is_scene_shell_not_standalone_app(self):
+        legacy_voice = session.legacy_voice_config()
+        voice = session.config("voice-studio")
+        self.assertIn("location = /voice-studio { return 302 /voice-studio/; }", legacy_voice)
+        self.assertNotIn("return 302 /voice-studio/;", voice)
+        self.assertIn("location = /voice-studio {", voice)
+        self.assertIn("proxy_pass http://127.0.0.1:18080;", voice)
+        self.assertIn("location = /voice-studio/ { return 308 /voice-studio; }", voice)
+        self.assertIn("location ^~ /voice-studio/ {", voice)
+        self.assertIn("proxy_pass http://127.0.0.1:8143/;", voice)
+        self.assertIn("auth_request /_vps1_sso_voice-studio;", voice)
+        templates = Path(__file__).resolve().parents[1] / "apps/scene-builder/part01/templates"
+        base = (templates / "base.html").read_text()
+        wrapper = (templates / "voice_studio_host.html").read_text()
+        self.assertIn('id="app-sidebar"', base)
+        self.assertIn('id="mobile-nav-toggle"', base)
+        self.assertIn('id="voice-studio-frame"', wrapper)
+        self.assertIn('src="/voice-studio/app"', wrapper)
+
+    def test_legacy_voice_sso_upgrades_atomically_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            snippets = root / "snippets"
+            snippets.mkdir()
+            site_file = root / "scene.conf"
+            transactions = root / "tx"
+            transactions.mkdir()
+            with mock.patch.object(legacy, "SNIPPET_DIR", snippets), \
+                 mock.patch.object(legacy, "SITE", site_file), \
+                 mock.patch.object(legacy, "TRANSACTIONS", transactions):
+                site, changed = legacy.add_route(nginx_https(), "voice-studio")
+                self.assertTrue(changed)
+                site_file.write_text(site)
+                route = legacy.snippet_path("voice-studio")
+                before = session.legacy_voice_config()
+                route.write_text(before)
+                record_path = transactions / "sso-voice-studio.json"
+                record = dict(app="voice-studio", state="ACTIVE", mode="SCENE_SESSION_SSO",
+                              after_route_sha256=legacy.digest(before))
+                record_path.write_text(json.dumps(record))
+                with mock.patch.object(session, "ready_cookie", return_value="session=test"), \
+                     mock.patch.object(session, "verify"), \
+                     mock.patch.object(session, "verify_voice_shell") as shell_probe, \
+                     mock.patch.object(legacy, "command") as cmd, \
+                     mock.patch.object(legacy, "check_scene"):
+                    session.ensure_voice_shell("f" * 40)
+                    self.assertEqual(route.read_text(), session.config("voice-studio"))
+                    self.assertEqual(json.loads(record_path.read_text())["after_route_sha256"],
+                                     legacy.digest(route.read_bytes()))
+                    self.assertEqual(cmd.call_count, 2)
+                    session.ensure_voice_shell("f" * 40)
+                    self.assertEqual(cmd.call_count, 2)
+                    self.assertEqual(shell_probe.call_count, 2)
+                self.assertEqual(site_file.read_text(), site)
+
+    def test_voice_sso_failed_shell_readback_restores_previous_route(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            snippets = root / "snippets"
+            snippets.mkdir()
+            site_file = root / "scene.conf"
+            transactions = root / "tx"
+            transactions.mkdir()
+            with mock.patch.object(legacy, "SNIPPET_DIR", snippets), \
+                 mock.patch.object(legacy, "SITE", site_file), \
+                 mock.patch.object(legacy, "TRANSACTIONS", transactions):
+                site, _ = legacy.add_route(nginx_https(), "voice-studio")
+                site_file.write_text(site)
+                route = legacy.snippet_path("voice-studio")
+                old_voice = session.legacy_voice_config()
+                route.write_text(old_voice)
+                record_path = transactions / "sso-voice-studio.json"
+                record = dict(app="voice-studio", state="ACTIVE", mode="SCENE_SESSION_SSO",
+                              after_route_sha256=legacy.digest(old_voice))
+                record_path.write_text(json.dumps(record))
+                with mock.patch.object(session, "ready_cookie", return_value="session=test"), \
+                     mock.patch.object(session, "verify"), \
+                     mock.patch.object(session, "verify_voice_shell", side_effect=RuntimeError("shell missing")), \
+                     mock.patch.object(legacy, "command") as cmd:
+                    with self.assertRaisesRegex(RuntimeError, "shell missing"):
+                        session.ensure_voice_shell("e" * 40)
+                    self.assertEqual(cmd.call_count, 4)
+                self.assertEqual(route.read_text(), old_voice)
+                self.assertEqual(json.loads(record_path.read_text()), record)
+
     @unittest.skipUnless(__import__("shutil").which("nginx") and
                          __import__("shutil").which("openssl"),
                          "real Nginx parser only on Ubuntu CI")
@@ -138,6 +223,7 @@ class AppScopedSessionMigration(unittest.TestCase):
         for obj, name, value in (
             (session, "ready_cookie", lambda app: "session=fake"),
             (session, "verify", lambda app, cookie: None),
+            (session, "verify_voice_shell", lambda cookie: None),
             (legacy, "check_scene", lambda: None),
             (legacy, "command", lambda argv: None),
         ):
