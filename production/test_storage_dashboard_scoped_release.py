@@ -17,6 +17,13 @@ class StorageDashboardRelease(unittest.TestCase):
         self.assertNotIn("install $SOURCE_SHA local-upload-manager", workflow)
         self.assertIn("STORAGE_BACKEND_PROVISIONING=SEPARATE", workflow)
 
+    def test_backend_retirement_has_an_isolated_guarded_release_lane(self):
+        workflow = (ROOT / ".github/workflows/vps1-storage-backend-retirement-release.yml").read_text()
+        self.assertIn("[vps1-storage-backend-retirement-release]", workflow)
+        self.assertIn("install $SOURCE_SHA vps-storage-manager", workflow)
+        self.assertIn("curl -fsS http://127.0.0.1:8149/health", workflow)
+        self.assertIn("CLEANUP_NOT_EXECUTED=YES", workflow)
+
     def test_asset_cache_busted_and_storage_fails_closed(self):
         dashboard = (SCENE / "templates/dashboard.html").read_text()
         scene = (ROOT / "production/scene_candidate_release.py").read_text()
