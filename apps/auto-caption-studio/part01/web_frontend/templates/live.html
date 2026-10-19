@@ -84,7 +84,7 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
   <section class="card recent"><div class="section-head"><h2>Recent projects</h2><span class="muted">Latest ACS activity</span></div><div id="projects"></div></section>
 </main>
 <script>
-const root=(location.pathname.startsWith('/auto-caption/')?'/auto-caption':'');
+const root=(location.pathname.startsWith('/auto-caption-studio/')?'/auto-caption-studio':location.pathname.startsWith('/auto-caption/')?'/auto-caption':'');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const pct=n=>Math.max(0,Math.min(100,Number(n)||0));
 const openBatches=new Set();let controlBusy='';

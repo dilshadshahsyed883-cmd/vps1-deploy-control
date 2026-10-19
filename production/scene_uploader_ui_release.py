@@ -30,6 +30,10 @@ FILES = (
     "templates/base.html",
     "templates/acs_studio_shell.html",
     "templates/video_studio_embed.html",
+    "templates/dashboard.html",
+    "templates/storage_manager.html",
+    "static/dashboard_control_center.js",
+    "static/storage_manager.js",
     "app.py",
 )
 # A new wrapper did not exist in older Scene releases; all other files did.

@@ -1503,16 +1503,32 @@ def _scene_dashboard_counts(username: str) -> dict[str, int]:
     return out
 
 
+def _acs_queue_snapshot(username: str, is_admin: bool) -> dict[str, Any]:
+    """Prefer the current isolated ACS port; keep the old worker port as fallback.
+
+    Local-only requests provide the same session identity as the Nginx bridge.
+    API reachability is service health, never a synthetic failed media job.
+    """
+    headers = {"X-Auth-User": username, "X-App-Access": "both" if is_admin else ""}
+    for port in (8144, 8100):
+        try:
+            response = requests.get(
+                f"http://127.0.0.1:{port}/api/web-flow/queue",
+                headers=headers, timeout=2,
+            )
+            if response.ok:
+                payload = response.json()
+                if isinstance(payload, dict):
+                    return payload
+        except (requests.RequestException, ValueError):
+            continue
+    raise RuntimeError("ACS queue API unavailable")
+
+
 def _acs_dashboard_counts(username: str, is_admin: bool) -> dict[str, int]:
     out = {"waiting": 0, "active": 0, "uploading": 0, "failed": 0}
     try:
-        response = requests.get(
-            "http://127.0.0.1:8100/api/web-flow/queue",
-            headers={"X-Auth-User": username, "X-App-Access": "both" if is_admin else ""},
-            timeout=4,
-        )
-        response.raise_for_status()
-        data = response.json()
+        data = _acs_queue_snapshot(username, is_admin)
         jobs = data.get("jobs") if isinstance(data, dict) else []
         if isinstance(jobs, list):
             for job in jobs:
@@ -1532,10 +1548,7 @@ def _acs_dashboard_counts(username: str, is_admin: bool) -> dict[str, int]:
             out["active"] = max(out["active"], int(counts.get("processing") or 0))
             out["failed"] = max(out["failed"], int(counts.get("attention") or 0))
     except Exception:
-        if _service_active("auto-caption-web.service"):
-            out["active"] = max(out["active"], 0)
-        else:
-            out["failed"] = 1
+        pass  # A disconnected API is not a failed media project.
     return out
 
 
@@ -1581,8 +1594,7 @@ def _algrow_dashboard_counts(username: str, is_admin: bool) -> dict[str, int]:
                     elif status in {"pending", "retry"}:
                         out["waiting"] += 1
     except Exception:
-        if not _service_active("algrow-voice-sidecar.service"):
-            out["failed"] = max(out["failed"], 1)
+        pass  # New installs do not have the retired Algrow SQLite directory.
     return out
 
 
@@ -1627,8 +1639,8 @@ def _lum_dashboard_counts() -> dict[str, int]:
         out["active"] = _find_count_values(data, {"active", "processing", "running", "generating"})
         out["uploading"] = _find_count_values(data, {"uploading", "upload_active", "youtube_uploading"})
         out["failed"] = _find_count_values(data, {"failed", "failures", "error_count", "errors"})
-    if not _service_active("local-upload-manager.service"):
-        out["failed"] = max(out["failed"], 1)
+    # A missing upload service is reported by the service-health panel,
+    # not manufactured as a failed YouTube upload.
     return out
 
 
@@ -1642,7 +1654,7 @@ def _storage_dashboard_counts() -> dict[str, int]:
         out["active"] = _find_count_values(metrics, {"active_operations", "running_operations", "processing"})
         out["failed"] = _find_count_values(metrics, {"failed", "failures", "error_count"})
     except Exception:
-        out["failed"] = 1
+        pass  # Backend unconfigured does not mean a cleanup operation failed.
     return out
 
 
@@ -1664,9 +1676,9 @@ def _scene_dashboard_detail(username: str) -> dict[str, Any]:
 def _acs_dashboard_detail(username: str, is_admin: bool) -> dict[str, Any]:
     completed = 0
     try:
-        response = requests.get("http://127.0.0.1:8100/api/web-flow/queue", headers={"X-Auth-User": username, "X-App-Access": "both" if is_admin else ""}, timeout=4)
-        if response.ok:
-            data = response.json(); counts = data.get("counts") if isinstance(data, dict) else {}
+        data = _acs_queue_snapshot(username, is_admin)
+        if isinstance(data, dict):
+            counts = data.get("counts") if isinstance(data, dict) else {}
             if isinstance(counts, dict): completed = int(counts.get("completed") or counts.get("done") or 0)
             if not completed and isinstance(data, dict) and isinstance(data.get("jobs"), list):
                 completed = sum(1 for j in data["jobs"] if isinstance(j, dict) and str(j.get("status") or "").lower() in {"completed", "done"})
@@ -1697,11 +1709,18 @@ def _lum_dashboard_detail() -> dict[str, Any]:
 def _dashboard_apps(request: Request) -> list[dict[str, Any]]:
     username = str(request.session.get("username") or ""); is_admin = bool(request.session.get("is_admin")); allowed = _dashboard_allowed_app_names(request)
     rows = [
-        {"name": "Scene Builder", **_scene_dashboard_counts(username), "detail": _scene_dashboard_detail(username)},
-        {"name": "Auto Caption Studio", **_acs_dashboard_counts(username, is_admin), "detail": _acs_dashboard_detail(username, is_admin)},
-        {"name": "Algrow Voice", **_algrow_dashboard_counts(username, is_admin), "detail": _algrow_dashboard_detail(username, is_admin)},
-        {"name": "Auto Uploader", **_lum_dashboard_counts(), "detail": _lum_dashboard_detail()},
-        {"name": "Storage Manager", **_storage_dashboard_counts(), "detail": {"completed": 0, "service_summary": "Storage metrics API"}},
+        {"name": "Scene Builder", "available": _service_active("vps1-scene-candidate.service"),
+         **_scene_dashboard_counts(username), "detail": _scene_dashboard_detail(username)},
+        {"name": "Auto Caption Studio", "available": _service_active("vps1-production-auto-caption-studio.service"),
+         **_acs_dashboard_counts(username, is_admin), "detail": _acs_dashboard_detail(username, is_admin)},
+        {"name": "Algrow Voice", "available": _service_active("vps1-production-voice-studio.service"),
+         **_algrow_dashboard_counts(username, is_admin), "detail": _algrow_dashboard_detail(username, is_admin)},
+        {"name": "Auto Uploader", "available": _service_active("vps1-production-local-upload-manager.service"),
+         **_lum_dashboard_counts(), "detail": _lum_dashboard_detail()},
+        {"name": "Storage Manager",
+         "available": bool(os.getenv("STORAGE_MANAGER_TOKEN", "").strip()) and
+                      (_service_active("vps1-storage-candidate.service") or _service_active("vps-storage-manager.service")),
+         **_storage_dashboard_counts(), "detail": {"completed": 0, "service_summary": "Storage metrics API"}},
     ]
     return [row for row in rows if row["name"] in allowed]
 
@@ -1737,7 +1756,18 @@ def _vps_dashboard_metrics() -> dict[str, Any]:
     return {"hostname":os.uname().nodename,"os":os_name,"cpu_cores":os.cpu_count() or 1,"cpu_percent":_read_cpu_percent(),"load_1m":round(load1,2),"load_5m":round(load5,2),"load_15m":round(load15,2),"uptime_seconds":int(uptime_seconds),"uptime_human":f"{days}d {hours}h {minutes}m","ram":{"total_gb":round(total/gb,1),"used_gb":round(used/gb,1),"available_gb":round(available/gb,1),"percent":round((used/total*100) if total else 0,1)},"disk":{"mount":"/","total_gb":round(disk.total/gb,1),"used_gb":round(disk.used/gb,1),"free_gb":round(disk.free/gb,1),"percent":round((disk.used/disk.total*100) if disk.total else 0,1)},"server_time":datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")}
 
 def _dashboard_services() -> list[dict[str, Any]]:
-    services=[("scene-builder-web.service","Scene Builder Web","Shared web / dashboard"),("algrow-dispatch-broker.service","Algrow Broker","Voice queue dispatch"),("algrow-delivery-worker.service","Algrow Delivery","Drive delivery"),("auto-caption-web.service","ACS Web","Caption API / queue"),("auto-caption-renderer.service","ACS Renderer","Caption rendering"),("auto-caption-compressor.service","ACS Compressor","Video compression"),("auto-caption-drive-uploader.service","ACS Drive Uploader","Drive upload"),("local-upload-manager.service","Auto Uploader","YouTube upload engine")]
+    # Fresh-VPS systemd units, not retired pre-reinstall legacy names.
+    services=[
+        ("vps1-scene-candidate.service","Scene Builder Web","Shared Scene login / dashboard"),
+        ("vps1-production-auto-caption-studio.service","ACS Web","Caption API / queue"),
+        ("vps1-production-acs-ingress.service","ACS Ingress","Drive intake pipeline"),
+        ("vps1-production-acs-render.service","ACS Renderer","Caption rendering"),
+        ("vps1-production-acs-compress.service","ACS Compressor","Video compression"),
+        ("vps1-production-acs-upload.service","ACS Uploader","Drive upload"),
+        ("vps1-production-voice-studio.service","Voice Studio","Voice API"),
+        ("vps1-production-local-upload-manager.service","Auto Uploader","YouTube upload engine"),
+        ("vps1-production-lum-worker.service","Uploader Worker","Upload queue processing"),
+    ]
     return [{"name":n,"label":l,"role":r,"active":_service_active(n)} for n,l,r in services]
 
 def _dashboard_activity(request: Request) -> list[dict[str, str]]:

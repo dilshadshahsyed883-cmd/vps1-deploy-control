@@ -44,6 +44,13 @@ button,input,select{font:inherit}.top{height:64px;padding:0 24px;display:flex;al
 
 /* ACS_SCENE_AUDIO_ENGINE_SHARED_UI_V1 */
 #voice > :not(#sceneAudioEngineFrame){display:none!important}
+/* If the independent Audio Engine route is unavailable, expose the real
+   ACS-owned preset/render controls rather than a broken 404 iframe. */
+#voice.audio-engine-fallback > :not(#internalAudioEngineCard){display:none!important}
+#voice.audio-engine-fallback > #internalAudioEngineCard{display:block!important}
+#voice.audio-engine-fallback #audioEngineFullFrame{display:none!important}
+#voice.audio-engine-fallback #internalAudioEngineCard > div:last-child{display:none!important}
+#voice.audio-engine-fallback #internalAudioEngineCard .notice{display:block!important}
 #sceneAudioEngineFrame{display:block!important;width:100%;height:780px;min-height:620px;border:0;background:#f7f8fc;border-radius:14px;overflow:hidden}
 @media(max-width:760px){#sceneAudioEngineFrame{height:720px;min-height:560px;border-radius:10px}}
 </style>
@@ -542,7 +549,7 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
 
   <!-- ACS_INTERNAL_AUDIO_ENGINE_UI_V1 -->
   <section class="page" id="voice">
-    <iframe id="sceneAudioEngineFrame" src="/acs-audio-engine/" scrolling="no" title="ACS Audio Engine" loading="eager"></iframe>
+    <iframe id="sceneAudioEngineFrame" src="about:blank" scrolling="no" title="ACS Audio Engine" loading="lazy"></iframe>
     <div class="head"><div><h2>Audio Engine</h2><p>ACS-owned narration engineering, voice sources, profiles, background music and final mixing in one internal workspace.</p></div><div class="actions"><span class="save-state page-save-state">✓ Saved</span><button class="btn">Refresh Profiles</button><button class="btn primary">New Voice Profile</button></div></div>
     
     <div class="card">
@@ -590,7 +597,7 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
     <div class="notice" style="margin-top:10px">ACS render order: source voice → copied Scene Builder Audio Engine → voice speed/volume → ACS music normalization/ducking/fades → renderer. Music/timeline remain owned by ACS to avoid double mixing.</div>
     <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px">
       <div class="row" style="justify-content:space-between;align-items:center"><b>Full Audio Engine Workspace</b><span class="small">Same workspace Scene Builder embeds</span></div>
-      <iframe id="audioEngineFullFrame" src="about:blank" title="ACS Audio Engine workspace" loading="eager" style="display:block;width:100%;height:900px;border:0;background:transparent;margin-top:8px;border-radius:12px"></iframe>
+      <iframe id="audioEngineFullFrame" src="/audio-engine/app" title="ACS Audio Engine workspace" loading="eager" style="display:block;width:100%;height:900px;border:0;background:transparent;margin-top:8px;border-radius:12px"></iframe>
     </div>
   </div>
 
@@ -919,7 +926,7 @@ function initVoiceActions(){const e=voiceEditorElements();for(const [k,el] of Ob
 /* ---------- ACS Internal Audio Engine ---------- */
 function applyAudioEngineControls(){const p=selectedPreset(),enabled=document.getElementById('audioEngineEnabled'),preset=document.getElementById('audioEnginePreset');if(!p||!enabled||!preset)return;const meta=p.settings?.metadata||{},cfg=(meta.acs_internal_audio_engine&&typeof meta.acs_internal_audio_engine==='object')?meta.acs_internal_audio_engine:{};enabled.checked=cfg.enabled!==false;preset.value=cfg.preset||'documentary';document.querySelectorAll('#internalAudioEngineCard [data-ae-key]').forEach(el=>{const k=el.dataset.aeKey;if(k==='mode'){el.value=cfg.mode||'auto';return;}if(k==='noise_enabled'){el.value=cfg[k]===true?'true':cfg[k]===false?'false':'';return;}el.value=(cfg[k]===undefined||cfg[k]===null)?'':String(cfg[k]);});}
 function saveAudioEngineControls(){const p=selectedPreset(),enabled=document.getElementById('audioEngineEnabled'),preset=document.getElementById('audioEnginePreset');if(!p||!enabled||!preset)return;const cfg={enabled:!!enabled.checked,preset:preset.value||'documentary',mode:document.getElementById('audioEngineMode')?.value||'auto',ownership:'acs',version:2};document.querySelectorAll('#internalAudioEngineCard [data-ae-key]').forEach(el=>{const k=el.dataset.aeKey;if(k==='mode')return;if(k==='noise_enabled'){if(el.value!=='')cfg[k]=el.value==='true';return;}if(el.value!==''){const n=Number(el.value);if(Number.isFinite(n))cfg[k]=n;}});p.settings=p.settings||{};p.settings.metadata={...(p.settings.metadata||{}),acs_internal_audio_engine:cfg};schedulePresetSave({metadata:p.settings.metadata});}
-async function refreshFullAudioEngineHealth(){const badge=document.getElementById('audioEngineFullStatus');if(!badge)return;try{const r=await fetch('/acs-audio-engine/health',{cache:'no-store'});const d=await r.json();if(!r.ok||!d.ok)throw new Error('unhealthy');badge.className='badge good';badge.textContent=`Full Engine ${d.version||''} Online`;}catch(_){badge.className='badge warn';badge.textContent='Full Engine Offline';}}
+async function refreshFullAudioEngineHealth(){const badge=document.getElementById('audioEngineFullStatus');if(!badge)return;try{const r=await fetch('/audio-engine/health',{cache:'no-store'});const d=await r.json();if(!r.ok||!d.ok)throw new Error('unhealthy');badge.className='badge good';badge.textContent=`Full Engine ${d.version||''} Online`;}catch(_){badge.className='badge warn';badge.textContent='Full Engine Offline';}}
 function initAudioEngineControls(){const enabled=document.getElementById('audioEngineEnabled'),preset=document.getElementById('audioEnginePreset');enabled?.addEventListener('change',saveAudioEngineControls);preset?.addEventListener('change',()=>{saveAudioEngineControls();applyAudioEngineControls();});document.querySelectorAll('#internalAudioEngineCard [data-ae-key]').forEach(el=>el.addEventListener('change',saveAudioEngineControls));document.getElementById('audioEngineResetOverrides')?.addEventListener('click',()=>{document.querySelectorAll('#internalAudioEngineCard [data-ae-key]').forEach(el=>{el.value=el.dataset.aeKey==='mode'?'auto':'';});saveAudioEngineControls();});applyAudioEngineControls();refreshFullAudioEngineHealth();setInterval(refreshFullAudioEngineHealth,30000);}
 
 /* ---------- Queue ---------- */
@@ -1341,6 +1348,29 @@ boot();
 </body>
 </html>
 
+<script id="acsAudioEngineRouteAdmission">
+(() => {
+  const panel = document.getElementById('voice');
+  const frame = document.getElementById('sceneAudioEngineFrame');
+  if (!panel || !frame) return;
+  const fallback = () => {
+    panel.classList.add('audio-engine-fallback');
+    frame.removeAttribute('src');
+    frame.setAttribute('aria-hidden', 'true');
+  };
+  // This route belongs to Scene's existing Audio Engine; a JSON 404 inside
+  // an iframe triggers a load event, not an iframe error. Verify HTML first.
+  fetch('/audio-engine/app', {credentials:'same-origin',cache:'no-store',
+    headers:{Accept:'text/html'}}).then(r => {
+    const pathname = new URL(r.url, location.origin).pathname;
+    if (!r.ok || pathname !== '/audio-engine/app' ||
+        !(r.headers.get('content-type') || '').includes('text/html')) {
+      throw new Error('Audio Engine application unavailable');
+    }
+    frame.src = '/audio-engine/app';
+  }).catch(fallback);
+})();
+</script>
 <script id="acsSceneAudioEngineHeightBridge">
 (()=>{
  const frame=document.getElementById('sceneAudioEngineFrame'); if(!frame)return;
