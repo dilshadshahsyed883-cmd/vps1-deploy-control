@@ -61,8 +61,11 @@ class SessionRouteContract(unittest.TestCase):
         wrapper = (templates / "voice_studio_host.html").read_text()
         self.assertIn('id="app-sidebar"', base)
         self.assertIn('id="mobile-nav-toggle"', base)
-        self.assertIn('id="voice-studio-frame"', wrapper)
-        self.assertIn('src="/voice-studio/app"', wrapper)
+        self.assertNotIn('<iframe', wrapper)
+        self.assertNotIn('Voice Studio unavailable', wrapper)
+        self.assertIn('href="/voice-studio/app"', wrapper)
+        native = (templates.parent / "static/vps1_native_site_shell.js").read_text()
+        self.assertIn("vps1-native-site-sidebar", native)
 
     def test_legacy_voice_sso_upgrades_atomically_and_is_idempotent(self):
         with tempfile.TemporaryDirectory() as d:
