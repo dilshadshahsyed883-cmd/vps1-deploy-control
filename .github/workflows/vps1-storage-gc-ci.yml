@@ -7,6 +7,8 @@ on:
       - 'infrastructure/systemd/vps1-storage-deployment-gc.*'
       - 'scripts/install_storage_gc.sh'
       - '.github/workflows/vps1-storage-gc-ci.yml'
+      - '.github/workflows/vps1-storage-gc-release.yml'
+      - 'production/remote_deploy.py'
   push:
     branches: [main]
     paths:
