@@ -33,7 +33,15 @@ RECORD = BASE / "control/state/scene-candidate.json"
 STORAGE_CANDIDATE_ENV = Path("/etc/fresh-website/vps-storage-manager.env")
 
 
-def _request(path: str, cookie: str = "", data: bytes | None = None) -> tuple[int, dict[str, str], bytes]:
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Preserve the original anonymous 303 instead of following to login HTML."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _request(path: str, cookie: str = "", data: bytes | None = None,
+             *, follow_redirects: bool = True) -> tuple[int, dict[str, str], bytes]:
     headers = {"Connection": "close"}
     if cookie:
         headers["Cookie"] = cookie
@@ -44,7 +52,10 @@ def _request(path: str, cookie: str = "", data: bytes | None = None) -> tuple[in
         headers=headers,
         data=data,
     )
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        *([] if follow_redirects else [_NoRedirect()]),
+    )
     try:
         with opener.open(request, timeout=12) as response:
             return response.status, dict(response.headers.items()), response.read(300000)
@@ -189,7 +200,7 @@ def _verify_integrations(*, require_storage_backend: bool = False) -> dict:
             or identity.get("username") != normalized.get("x-auth-user")
             or "no-store" not in identity_headers.get("cache-control", "")):
         raise RuntimeError("Scene administrator session identity is unavailable")
-    anonymous_identity, _, _ = _request("/api/session/identity")
+    anonymous_identity, _, _ = _request("/api/session/identity", follow_redirects=False)
     if anonymous_identity not in {303, 401}:
         raise RuntimeError("Scene session identity exposed to anonymous visitor")
     native_status, _, native_js = _request("/static/vps1_native_site_shell.js")
