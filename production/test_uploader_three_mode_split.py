@@ -12,6 +12,13 @@ ROOT = Path(__file__).resolve().parents[1] / "apps/local-upload-manager/part01"
 
 
 class ThreeModeSplitTests(TestCase):
+    def test_jinja_template_parses_in_real_uploader_runtime(self):
+        try:
+            from jinja2 import Environment
+        except ModuleNotFoundError:
+            self.skipTest("Uploader Jinja dependency is installed in the Local Upload Manager CI lane")
+        Environment().parse((ROOT / "templates/app.html").read_text())
+
     def test_ui_has_two_primary_tabs_and_only_three_uploader_modes(self):
         ui = (ROOT / "templates/app.html").read_text()
         self.assertIn('aria-label="Auto Uploader main subtabs"', ui)
