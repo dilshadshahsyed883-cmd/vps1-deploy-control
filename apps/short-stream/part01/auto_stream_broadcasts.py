@@ -121,6 +121,8 @@ class BroadcastController:
         _allowed("AUTO_STREAM_YOUTUBE_MUTATIONS_ENABLED")
         with self.lock:
             job = self.engine.get(job_id)
+            if self._row(job_id):
+                raise ValueError("YouTube provision already attempted: inspect/reconcile before retry")
             if job["status"] not in ("READY", "SCHEDULED"):
                 raise ValueError("Prepare a job before creating YouTube resources")
             start = job["scheduled_at"]
