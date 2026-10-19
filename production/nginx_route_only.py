@@ -88,6 +88,11 @@ def owned_routes(site):
         guard(path.is_file() and not path.is_symlink(), "managed route snippet absent: " + app)
         from production.scene_session_routes import config as session_route_config, APP_IDS
         accepted = (route_config(app), session_route_config(app)) if app in APP_IDS else (route_config(app),)
+        if app == "voice-studio":
+            # Allow the pre-upgrade SSO snippet until the dedicated guarded
+            # Voice shell handover updates it; all other snippets remain exact.
+            from production.scene_session_routes import legacy_voice_config
+            accepted += (legacy_voice_config(),)
         guard(path.read_text() in accepted, "managed route snippet drift: " + app)
         guard(not standalone(base, app), "duplicate managed and preexisting route: " + app)
     return base, names
@@ -296,7 +301,10 @@ def publish(revision, app):
     if app in sso.APP_IDS:
         base, managed = owned_routes(old)
         if sso.active(app, old):
-            sso.verify(app, sso.ready_cookie(app))
+            if app == "voice-studio":
+                sso.ensure_voice_shell(revision)
+            else:
+                sso.verify(app, sso.ready_cookie(app))
             print("SCENE_SESSION_SSO=ALREADY_LIVE APP=" + app, flush=True)
             return
         if app in managed or standalone(base, app):
