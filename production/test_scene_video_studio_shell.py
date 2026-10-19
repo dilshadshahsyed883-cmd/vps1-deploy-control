@@ -57,6 +57,15 @@ class SceneVideoStudioShell(unittest.TestCase):
         self.assertNotIn('/auto-caption/api/web-flow/studio?embed=1', html)
         self.assertNotIn('root.innerHTML = html', html)
 
+    def test_jinja_parses_actual_app_wrapper_not_css_comments(self):
+        from jinja2 import Environment
+        for name in ("video_studio_embed.html", "acs_studio_shell.html", "base.html"):
+            with self.subTest(template=name):
+                Environment().parse((T / name).read_text())
+        wrapper = (T / "video_studio_embed.html").read_text()
+        self.assertNotIn("{#video-studio-app-frame", wrapper)
+        self.assertIn(" #video-studio-app-frame", wrapper)
+
     def test_admin_only_independent_app_wrappers(self):
         app = (ROOT / "apps/scene-builder/part01/app.py").read_text()
         self.assertIn('@app.get("/video-studio/{studio_app}"', app)
