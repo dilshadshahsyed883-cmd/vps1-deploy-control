@@ -21,6 +21,9 @@ class SceneCandidateReleaseContract(unittest.TestCase):
         self.assertIn('(\"storage_manager\", \"/admin/storage\")', source)
         self.assertNotIn('auto-script', source.lower())
         self.assertIn('dashboard_no_algrow', source)
+        self.assertIn('("user_management", "/user-management")', source)
+        self.assertIn('"Invalid user-management action token"', source)
+        self.assertIn('user_management_post_csrf', source)
         self.assertIn('obsolete Algrow Voice dashboard card remains in the API', source)
         self.assertIn('"/api/dashboard/v1"', source)
 
