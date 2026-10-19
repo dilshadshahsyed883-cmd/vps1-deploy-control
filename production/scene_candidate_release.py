@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 
@@ -32,10 +33,16 @@ RECORD = BASE / "control/state/scene-candidate.json"
 STORAGE_CANDIDATE_ENV = Path("/etc/fresh-website/vps-storage-manager.env")
 
 
-def _request(path: str, cookie: str = "") -> tuple[int, dict[str, str], bytes]:
+def _request(path: str, cookie: str = "", data: bytes | None = None) -> tuple[int, dict[str, str], bytes]:
+    headers = {"Connection": "close"}
+    if cookie:
+        headers["Cookie"] = cookie
+    if data is not None:
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
     request = urllib.request.Request(
         "http://127.0.0.1:18080" + path,
-        headers={"Cookie": cookie, "Connection": "close"} if cookie else {"Connection": "close"},
+        headers=headers,
+        data=data,
     )
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
@@ -172,13 +179,28 @@ def _verify_integrations(*, require_storage_backend: bool = False) -> dict:
     if anonymous != 401:
         raise RuntimeError("Scene session bridge does not deny anonymous access")
     pages = {}
-    for name, path in (("script_work", "/script-work"), ("storage_manager", "/admin/storage")):
+    for name, path in (("script_work", "/script-work"), ("storage_manager", "/admin/storage"),
+                       ("user_management", "/user-management")):
         code, response_headers, body = _request(path, cookie)
-        if code not in {200, 302, 303, 307, 308}:
+        if name == "user_management":
+            if code != 200 or b'name="csrf_token"' not in body or b'name="role"' not in body:
+                raise RuntimeError("User Management account form unavailable")
+        elif code not in {200, 302, 303, 307, 308}:
             raise RuntimeError(name + " authenticated page unavailable")
-        if code == 200 and b"<" not in body:
+        elif code == 200 and b"<" not in body:
             raise RuntimeError(name + " response is not a browser document")
         pages[name] = code
+
+    # Deliberately INVALID username and session CSRF prove the live POST
+    # reaches the admin handler, but cannot create a production account.
+    post_data = urllib.parse.urlencode({
+        "action": "create", "username": "invalid username!",
+        "secret_key": "not-a-real-secret",
+        "role": "non_admin", "csrf_token": "intentionally-invalid-csrf",
+    }).encode("ascii")
+    post_status, _, post_body = _request("/user-management", cookie, data=post_data)
+    if post_status != 403 or b"Invalid user-management action token" not in post_body:
+        raise RuntimeError("User Management POST did not reach role and CSRF handler")
     # Release admission for the actual authenticated dashboard API. A template
     # existence check alone would miss a stale Algrow Voice card.
     dashboard_status, _, dashboard_body = _request("/api/dashboard/v1", cookie)
@@ -221,7 +243,20 @@ def _verify_integrations(*, require_storage_backend: bool = False) -> dict:
             raise RuntimeError("Storage Manager metrics payload is incomplete")
         storage_backend = "CANDIDATE_READ_ONLY_PASS"
     return {"session_bridge": "PASS", "dashboard_no_algrow": "PASS",
-            "storage_backend": storage_backend, **pages}
+            "user_management_post_csrf": "PASS", "storage_backend": storage_backend, **pages}
+
+
+def _verify_native_ui_release(target: Path) -> None:
+    """Fail the guarded Scene cutover if independently owned native UIs are missing.
+
+    Called only for this new UI revision, after all required apps have been installed.
+    Browser authentication, route health, tabs and real app documents are checked
+    over the existing trusted HTTPS gateway. A failure rolls Scene back.
+    """
+    if not (target / "part01/static/vps1_native_site_shell.js").is_file():
+        return  # older unrelated deployments retain their established behavior
+    from production.scene_uploader_ui_release import verify_video_studio
+    verify_video_studio()
 
 
 def install(revision: str) -> None:
@@ -239,6 +274,7 @@ def install(revision: str) -> None:
     target = _stage(revision)
     if previous == target:
         integrations = _verify_integrations()
+        _verify_native_ui_release(target)
         event(app="scene-builder", result="PASS_ALREADY_INSTALLED", revision=revision,
               port=18080, integrations=integrations)
         return
@@ -270,6 +306,7 @@ def install(revision: str) -> None:
         # Idempotent dedicated Chrome/noVNC setup used by the existing Script Work UI.
         install_browser()
         integrations = _verify_integrations(require_storage_backend=require_storage_backend)
+        _verify_native_ui_release(target)
         if shutil.disk_usage("/").free < 5_000_000_000:
             raise RuntimeError("operational disk reserve breached")
         atomic_json(RECORD, {"revision": revision, "status": "ACTIVE", "unit": UNIT,
