@@ -110,6 +110,9 @@ class SceneVideoStudioShell(unittest.TestCase):
         self.assertIn('event.preventDefault()', native)
         self.assertIn('typeof window.vps1VoiceStudioTab !== "function"', native)
         self.assertIn('RedirectResponse("/voice-studio/app", status_code=303)', app)
+        self.assertIn('b"vps1_native_site_shell.js?v=20261019-voice-nav-v2"', app)
+        self.assertIn('b"vps1_native_site_shell.css?v=20261019-unified-v2"', app)
+        self.assertIn('content=content.replace(b"/tts/",b"/voice-studio/service/tts/")', app)
 
     def test_native_studio_preserves_app_forms_tabs_and_api(self):
         root = ROOT / "apps"
