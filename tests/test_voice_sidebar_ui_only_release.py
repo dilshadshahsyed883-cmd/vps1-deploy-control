@@ -7,7 +7,7 @@ from pathlib import Path
 import unittest
 
 from production.voice_template_release import (
-    ASSET_NOTE, NEW_ASSETS, OLD_ASSETS, PAGE, TITLE,
+    ASSET_NOTE, NEW_ASSETS, OLD_ASSETS, PREVIOUS_ASSETS, PAGE, TITLE,
     patch_template,
 )
 
@@ -37,6 +37,16 @@ class VoiceSidebarUIOnlyTests(unittest.TestCase):
         self.assertEqual(new.replace(TITLE + b"\n" + NEW_ASSETS, TITLE)
                          .replace(ASSET_NOTE, OLD_ASSETS), self.previous)
         self.assertNotEqual(hashlib.sha256(new).digest(), hashlib.sha256(self.previous).digest())
+
+    def test_previous_production_voice_sidebar_version_upgrades_in_place(self):
+        # Previous UI-only deploy already contains the early asset block.
+        older = self.previous.replace(OLD_ASSETS, ASSET_NOTE)
+        older = older.replace(TITLE, TITLE + b"\\n" + PREVIOUS_ASSETS)
+        next_page = patch_template(older)
+        self.assertIn(NEW_ASSETS, next_page)
+        self.assertNotIn(PREVIOUS_ASSETS, next_page)
+        self.assertEqual(next_page.replace(NEW_ASSETS, PREVIOUS_ASSETS), older)
+        self.assertIn(b'id="vsEngineOmni"', next_page)
 
     def test_fail_closed_for_unrecognized_or_duplicate_production_html(self):
         for changed in (
