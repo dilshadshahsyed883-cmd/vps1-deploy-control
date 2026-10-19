@@ -289,6 +289,14 @@ def install_app(app, revision):
         from production.scene_candidate_release import install as install_scene_candidate
         install_scene_candidate(revision)
         return
+    # Explicit protected-main Voice template-only intent: never restart or
+    # provision independent synthesis workers just to change sidebar markup.
+    if app == 'voice-studio':
+        commit_message = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-voice-template-only]' in commit_message:
+            from production.voice_template_release import install as install_voice_template
+            install_voice_template(revision)
+            return
     unit_name = f'vps1-production-{app}.service'
     unit = Path('/etc/systemd/system') / unit_name
     current = BASE / 'current' / runtime_name(app)
