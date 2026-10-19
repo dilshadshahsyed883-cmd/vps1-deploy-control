@@ -1,0 +1,77 @@
+name: VPS1 restore original Auto Caption Studio
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: vps1-production
+  cancel-in-progress: false
+
+jobs:
+  restore-original-acs:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'dilshadshahsyed883-cmd' &&
+      github.run_attempt == 1 &&
+      contains(github.event.head_commit.message, '[vps1-acs-studio-restore]')
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Join approved Tailscale production identity
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+
+      - name: Install real ACS UI and publish existing Scene Video Studio tab
+        shell: bash
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/identity"
+          unset PRIVATE_IDENTITY
+          chmod 0600 "$scratch/identity"
+          ssh-keygen -y -P '' -f "$scratch/identity" > "$scratch/public"
+          test "$(ssh-keygen -lf "$scratch/public" -E sha256 | awk '{print $2}')" = \
+            'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
+
+          remote() {
+            timeout 2400s ssh -T -p 22 -i "$scratch/identity" \
+              -o UserKnownHostsFile="$scratch/known_hosts" \
+              -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+              -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o PreferredAuthentications=publickey -o PasswordAuthentication=no \
+              -o KbdInteractiveAuthentication=no -o ConnectTimeout=20 \
+              -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+              vps1deploy@100.87.55.92 \
+              "sudo -n /usr/local/sbin/vps1-production-deploy $1 $SOURCE_SHA $2"
+          }
+
+          # Install the existing independent app first. The guarded Scene
+          # publish step then authenticates and reads back the actual rich UI.
+          echo 'PHASE=ACS_ORIGINAL_STUDIO_BACKEND'
+          remote install auto-caption-studio
+          echo 'PHASE=SCENE_VIDEO_STUDIO_TAB'
+          remote install local-upload-manager
+          echo 'PHASE=ACS_SESSION_ROUTE_READBACK'
+          remote nginx-route-only auto-caption-studio
+          echo 'ACS_ORIGINAL_TABS=PASS'
+          echo 'SCENE_SIDEBAR=PASS'
+          echo 'AUTO_SCRIPT=OFFLINE'
+          echo 'OWNER_FUNCTIONAL_UAT=PENDING'
