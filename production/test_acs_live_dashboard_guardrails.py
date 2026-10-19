@@ -36,6 +36,30 @@ class IntegrationRoutingTests(unittest.TestCase):
         js = (SCENE / "static/dashboard_control_center.js").read_text()
         self.assertIn("status=!online?'Offline'", js)
 
+    def test_dashboard_omits_algrow_voice_card_without_touching_voice_studio(self):
+        app = (SCENE / "app.py").read_text()
+        js = (SCENE / "static/dashboard_control_center.js").read_text()
+        self.assertNotIn('{"name": "Algrow Voice", "available"', app)
+        self.assertNotIn('names.add("Algrow Voice")', app)
+        self.assertIn("a.name!=='Algrow Voice'", js)
+        self.assertIn('"Voice Studio","Voice API"', app)
+
+    def test_storage_manager_fail_closed_and_capability_negotiation(self):
+        manager = (ROOT / "apps/vps-storage-manager/part01/storage_manager.py").read_text()
+        scene = (SCENE / "app.py").read_text()
+        template = (SCENE / "templates/storage_manager.html").read_text()
+        js = (SCENE / "static/storage_manager.js").read_text()
+        self.assertIn('if path == "/v1/capabilities"', manager)
+        self.assertIn('os.getenv("VPS1_RUNTIME_CANDIDATE") == "1"', manager)
+        self.assertIn('can_modify": not read_only', manager)
+        self.assertIn('@app.get("/api/admin/storage/capabilities")', scene)
+        self.assertIn("managerCanModify = capabilities.can_modify === true", js)
+        self.assertIn("const writable = !managerFallback && managerCanModify", js)
+        self.assertIn("async function initializeStorage()", js)
+        self.assertIn("if (managerFallback || !managerCanModify || !snapshot) return;", js)
+        self.assertIn('id="full-production-clean" class="button danger-button" type="button" disabled', template)
+        self.assertIn('id="run-scan" class="button" type="button" disabled', template)
+
     def test_storage_fallback_is_metrics_only(self):
         js = (SCENE / "static/storage_manager.js").read_text()
         self.assertIn("async function readOnlyVpsMetrics()", js)
@@ -43,8 +67,9 @@ class IntegrationRoutingTests(unittest.TestCase):
             "async function loadMetrics(", 1)[0]
         self.assertIn("fetch('/api/dashboard/v1'", fallback)
         self.assertNotIn("'/api/admin/storage/cleanup'", fallback)
-        self.assertIn("scan.disabled = true", fallback)
-        self.assertIn("fullCleanButton.disabled = true", fallback)
+        self.assertIn("applyManagerControls();", fallback)
+        self.assertIn("const writable = !managerFallback && managerCanModify", js)
+        self.assertIn("if (fullClean && !writable) fullClean.disabled = true", js)
 
     def test_guarded_release_contains_both_updated_pages(self):
         from production.scene_uploader_ui_release import FILES

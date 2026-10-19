@@ -5,7 +5,11 @@
   let snapshot = null;
   let policy = null;
   let busy = false;
-  let managerFallback = false;
+  // Disable all write controls until the authenticated manager explicitly
+  // advertises non-candidate capabilities. A missing manager is read-only.
+  let managerFallback = true;
+  let managerCanModify = false;
+  let initialized = false;
   const startingServices = new Set();
   const serviceErrors = new Map();
 
@@ -90,6 +94,33 @@
     return 'inactive';
   }
 
+  function applyManagerControls() {
+    const writable = !managerFallback && managerCanModify;
+    for (const id of ['run-scan', 'select-recommended']) {
+      const control = document.getElementById(id);
+      if (control) control.disabled = !writable;
+    }
+    const form = document.getElementById('policy-form');
+    if (form) form.querySelectorAll('input, select, button').forEach(el => { el.disabled = !writable; });
+    document.querySelectorAll('.sm-category input').forEach(el => {
+      el.disabled = !writable || Number(el.dataset.bytes || 0) <= 0;
+    });
+    const fullClean = document.getElementById('full-production-clean');
+    if (fullClean && !writable) fullClean.disabled = true;
+    updateSelected();
+  }
+
+  function showDisconnectedStorageData() {
+    snapshot = null;
+    document.getElementById('reclaim-value').textContent = 'Unavailable';
+    document.getElementById('reclaim-detail').textContent = 'Dedicated Storage Manager is not connected';
+    document.getElementById('category-grid').innerHTML = '<div class="sm-empty">Cleanup scan unavailable. Live VPS metrics above remain read-only.</div>';
+    document.getElementById('project-candidates').innerHTML = '<div class="sm-empty">Verified project candidates require the dedicated manager.</div>';
+    document.getElementById('history-list').innerHTML = '<div class="sm-empty">Cleanup history requires the dedicated manager.</div>';
+    document.getElementById('scan-time').textContent = 'Manager disconnected';
+    applyManagerControls();
+  }
+
   function renderServiceHealth(data) {
     const grid = document.getElementById('service-grid');
     if (!grid) return;
@@ -98,7 +129,7 @@
       const stateClass = serviceStateClass(state);
       const isActive = String(state).toLowerCase() === 'active';
       const isStarting = startingServices.has(key);
-      const canStart = startable.has(key) && !isActive;
+      const canStart = managerCanModify && startable.has(key) && !isActive;
       const savedError = serviceErrors.get(key) || '';
       const action = canStart ? `<button class="button secondary sm-service-activate" type="button" data-service="${escapeHtml(key)}" ${isStarting ? 'disabled' : ''}>${isStarting ? 'Starting...' : 'Activate'}</button>` : '';
       return `<article class="sm-service sm-service-${stateClass}" data-service-card="${escapeHtml(key)}">
@@ -119,7 +150,7 @@
   }
 
   async function activateService(service, button) {
-    if (!service || startingServices.has(service)) return;
+    if (!managerCanModify || managerFallback || !service || startingServices.has(service)) return;
     startingServices.add(service); serviceErrors.delete(service); setServiceInlineError(service, '');
     if (button) { button.disabled = true; button.textContent = 'Starting...'; }
     try {
@@ -185,18 +216,35 @@
       '</b></article>').join('');
     document.getElementById('process-list').innerHTML =
       '<div class="sm-empty">Process details require the dedicated Storage Manager service.</div>';
-    // No stale cleanup action may be offered while the service is missing.
-    const scan = document.getElementById('run-scan');
-    if (scan) scan.disabled = true;
-    if (fullCleanButton) fullCleanButton.disabled = true;
+    // Missing backend never enables destructive actions.
+    applyManagerControls();
   }
 
   async function loadMetrics(showError = false) {
+    const wasFallback = managerFallback;
     try {
-      renderMetrics(await api('/api/admin/storage/metrics'));
+      const metrics = await api('/api/admin/storage/metrics');
       managerFallback = false;
+      // Old candidate managers expose metrics, but all POST operations are
+      // blocked. An absent capability endpoint also stays read-only.
+      try {
+        const capabilities = await api('/api/admin/storage/capabilities');
+        managerCanModify = capabilities.can_modify === true;
+      } catch (_) {
+        managerCanModify = false;
+      }
+      renderMetrics(metrics);
+      if (!managerCanModify) {
+        const manager = document.getElementById('manager-status');
+        manager.textContent = 'Manager connected · read-only controls';
+      }
+      applyManagerControls();
+      if (wasFallback && initialized) {
+        await Promise.all([loadSnapshot(false), loadHistory(), loadFullCleanStatus(false)]);
+      }
     } catch (error) {
       managerFallback = true;
+      managerCanModify = false;
       try {
         await readOnlyVpsMetrics();
       } catch (_) {
@@ -204,7 +252,9 @@
         manager.className = 'sm-status error';
         manager.textContent = 'Manager and dashboard metrics unavailable';
       }
-      if (showError) toast('Storage cleanup service not configured. Live read-only VPS metrics are displayed.', true);
+      if (!wasFallback || !initialized) showDisconnectedStorageData();
+      applyManagerControls();
+      if (showError) toast('Storage Manager disconnected. Cleanup is disabled; available VPS metrics are read-only.', true);
     }
   }
 
@@ -221,7 +271,7 @@
       if (input.checked) total += Number(input.dataset.bytes || 0);
     });
     document.getElementById('selected-total').textContent = `${bytes(total)} selected`;
-    document.getElementById('reclaim-button').disabled = busy || !selected.size || total <= 0;
+    document.getElementById('reclaim-button').disabled = managerFallback || !managerCanModify || busy || !snapshot || !selected.size || total <= 0;
   }
 
   function renderCandidates(categories) {
@@ -258,7 +308,7 @@
     document.querySelectorAll('.sm-category input').forEach(input => input.addEventListener('change', updateSelected));
     renderCandidates(categories);
     renderPolicy(policy || {});
-    updateSelected();
+    applyManagerControls();
   }
 
   function renderPolicy(value) {
@@ -278,6 +328,7 @@
   }
 
   async function loadSnapshot(refresh = false) {
+    if (managerFallback || (refresh && !managerCanModify)) return;
     busy = true; updateSelected();
     const button = document.getElementById('run-scan');
     button.disabled = true; button.textContent = refresh ? 'Scanning…' : 'Loading…';
@@ -290,7 +341,7 @@
       if (refresh) toast(error.message, true);
       document.getElementById('category-grid').innerHTML = `<div class="sm-empty">${escapeHtml(error.message)}</div>`;
     } finally {
-      busy = false; button.disabled = managerFallback; button.textContent = 'Scan reclaimable space'; updateSelected();
+      busy = false; button.textContent = 'Scan reclaimable space'; applyManagerControls();
     }
   }
 
@@ -308,6 +359,7 @@
   document.getElementById('refresh-metrics').addEventListener('click', () => loadMetrics(true));
   document.getElementById('run-scan').addEventListener('click', () => loadSnapshot(true));
   document.getElementById('select-recommended').addEventListener('click', () => {
+    if (managerFallback || !managerCanModify) return;
     document.querySelectorAll('.sm-category input:not(:disabled)').forEach(input => {
       input.checked = input.value !== 'algrow_browser_cache';
     });
@@ -319,6 +371,7 @@
   const confirmRun = document.getElementById('confirm-run');
   confirmText.addEventListener('input', () => { confirmRun.disabled = confirmText.value !== 'RECLAIM'; });
   document.getElementById('reclaim-button').addEventListener('click', () => {
+    if (managerFallback || !managerCanModify || !snapshot) return;
     const categories = selectedCategories();
     const total = categories.reduce((sum, key) => sum + Number(snapshot.categories.find(x => x.id === key)?.bytes || 0), 0);
     document.getElementById('confirm-summary').textContent = `${bytes(total)} across ${categories.length} selected categories`;
@@ -326,7 +379,7 @@
   });
   confirmRun.addEventListener('click', async event => {
     event.preventDefault();
-    if (confirmText.value !== 'RECLAIM') return;
+    if (confirmText.value !== 'RECLAIM' || managerFallback || !managerCanModify) return;
     const categories = selectedCategories();
     dialog.close(); busy = true; updateSelected();
     const button = document.getElementById('reclaim-button');
@@ -349,6 +402,7 @@
 
   document.getElementById('policy-form').addEventListener('submit', async event => {
     event.preventDefault();
+    if (managerFallback || !managerCanModify) return;
     const box = document.getElementById('policy-result');
     box.hidden = false; box.className = 'sm-result'; box.textContent = 'Saving policy…';
     const payload = {
@@ -383,7 +437,7 @@
     if (!fullCleanButton) return;
     const state = String((data && data.status) || 'never_run');
     const running = Boolean(data && data.running) || state === 'queued' || state === 'running' || state === 'verifying';
-    fullCleanButton.disabled = running;
+    fullCleanButton.disabled = managerFallback || !managerCanModify || running;
     fullCleanButton.textContent = running ? (state === 'verifying' ? 'Verifying clean…' : 'Production clean running…') : 'Full Production Clean';
     if (running) {
       fullCleanWasRunning = true;
@@ -416,6 +470,7 @@
 
   if (fullCleanButton) {
     fullCleanButton.addEventListener('click', async () => {
+      if (managerFallback || !managerCanModify) return;
       const confirmed = window.confirm(
         'This permanently deletes ALL local production jobs/history/runtime media for Scene Builder, Auto Caption Studio and Algrow, clears production caches, and removes old Scene Builder Docker generations. Current releases, configuration, models and login profiles are preserved. Continue?'
       );
@@ -433,13 +488,21 @@
         scheduleFullCleanPoll(700);
       } catch (error) {
         fullCleanWasRunning = false;
-        fullCleanButton.disabled = false;
+        fullCleanButton.disabled = managerFallback || !managerCanModify;
         fullCleanButton.textContent = 'Full Production Clean';
         toast(error.message, true);
       }
     });
   }
 
-  Promise.all([loadMetrics(false), loadSnapshot(false), loadHistory(), loadFullCleanStatus(false)]);
+  async function initializeStorage() {
+    await loadMetrics(false);
+    if (!managerFallback) {
+      await Promise.all([loadSnapshot(false), loadHistory(), loadFullCleanStatus(false)]);
+    }
+    initialized = true;
+  }
+  applyManagerControls();
+  initializeStorage();
   window.setInterval(() => loadMetrics(false), 10000);
 })();
