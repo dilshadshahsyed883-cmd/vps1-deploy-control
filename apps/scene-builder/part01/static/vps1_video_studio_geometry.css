@@ -1,0 +1,130 @@
+/* VPS1_VIDEO_STUDIO_GEOMETRY_V1
+ * The only owner of top-level Video Studio positioning across all four
+ * independent documents. App-local CSS continues to own its internal UI.
+ * Keep top-row geometry consistent across navigation and browser refresh.
+ */
+:root {
+  --vps1-studio-sidebar: 214px;
+  --vps1-studio-gutter: 34px;
+  --vps1-studio-top: 26px;
+  --vps1-studio-max: 1400px;
+}
+/* Scene Builder, Short Maker and Video Merger have a direct <main>. */
+body:has(> main > [data-video-studio-subnav="1"]) > main {
+  margin-left: var(--vps1-sidebar-width, var(--vps1-studio-sidebar)) !important;
+  padding: var(--vps1-studio-top) var(--vps1-studio-gutter) 42px !important;
+  width: auto !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+}
+/* All app subnavigation uses a single height, baseline and horizontal origin.
+   On a narrow screen, scroll the tab row; never wrap it onto a second line. */
+body:has(> main > [data-video-studio-subnav="1"]) > main > [data-video-studio-subnav="1"],
+body.vps1-native-acs > .vps1-native-video-tabs {
+  box-sizing: border-box !important;
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-height: 62px !important;
+  width: 100% !important;
+  max-width: var(--vps1-studio-max) !important;
+  margin: 0 auto 18px !important;
+  padding: 10px 12px !important;
+  border: 1px solid #dfe5ef !important;
+  border-radius: 11px !important;
+  background: #f8faff !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  white-space: nowrap !important;
+  scrollbar-width: thin;
+}
+body:has(> main > [data-video-studio-subnav="1"]) > main > [data-video-studio-subnav="1"] > a,
+body.vps1-native-acs > .vps1-native-video-tabs > a {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 auto !important;
+  box-sizing: border-box !important;
+  min-height: 36px !important;
+  margin: 0 !important;
+  padding: 9px 14px !important;
+  border-radius: 8px !important;
+  font: 750 13px/1.2 Inter,system-ui,Arial,sans-serif !important;
+  text-decoration: none !important;
+  white-space: nowrap !important;
+}
+/* Each app keeps its content components but shares the nav/content x-axis. */
+body:has(> main > [data-video-studio-subnav="1"]) > main > header,
+body:has(> main > [data-video-studio-subnav="1"]) > main > .scene-workspace-header,
+body:has(> main > [data-video-studio-subnav="1"]) > main > .sm-tabs,
+body:has(> main > [data-video-studio-subnav="1"]) > main > #makerPanel,
+body:has(> main > [data-video-studio-subnav="1"]) > main > #queuePanel,
+body:has(> main > [data-video-studio-subnav="1"]) > main > .vm-app {
+  width: 100% !important;
+  max-width: var(--vps1-studio-max) !important;
+  box-sizing: border-box !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+/* ACS is independently rendered: JS creates the same top tabs as a sibling
+   of its .shell, rather than a child of the site's <main>. */
+body.vps1-native-acs > .vps1-native-video-tabs {
+  width: calc(100% - 2 * var(--vps1-studio-gutter)) !important;
+  margin: var(--vps1-studio-top) auto 18px !important;
+}
+body.vps1-native-acs > .shell {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 var(--vps1-studio-gutter) 42px !important;
+  box-sizing: border-box !important;
+}
+body.vps1-native-acs > .shell > .workspace {
+  width: 100% !important;
+  max-width: var(--vps1-studio-max) !important;
+  margin: 0 auto !important;
+  box-sizing: border-box !important;
+}
+/* The app's mobile menu must not displace its first tab row. */
+body.vps1-native-acs > .vps1-native-toggle,
+.vps1-video-mobile-menu { display: none !important; }
+/* Former Short Maker narrow-screen dot-navigation should never reappear. */
+#app-sidebar.sidebar nav a::before { content: none !important; }
+
+@media(max-width:760px) {
+  :root { --vps1-studio-gutter: 14px; --vps1-studio-top: 72px; }
+  body:has(> main > [data-video-studio-subnav="1"]) > main {
+    margin-left: 0 !important;
+    padding: var(--vps1-studio-top) var(--vps1-studio-gutter) 30px !important;
+  }
+  body.vps1-native-acs > .vps1-native-video-tabs {
+    width: calc(100% - 2 * var(--vps1-studio-gutter)) !important;
+    margin: var(--vps1-studio-top) auto 18px !important;
+  }
+  body.vps1-native-acs > .shell {
+    padding: 0 var(--vps1-studio-gutter) 30px !important;
+  }
+  body.vps1-native-acs > .vps1-native-toggle,
+  .vps1-video-mobile-menu {
+    position: fixed !important;
+    display: block !important;
+    z-index: 9993 !important;
+    top: 12px !important;
+    left: 12px !important;
+    margin: 0 !important;
+    min-height: 39px !important;
+    padding: 8px 12px !important;
+    border: 1px solid #d1d9ea !important;
+    border-radius: 8px !important;
+    background: #fff !important;
+    color: #101828 !important;
+    font: 700 13px/1.3 Inter,system-ui,sans-serif !important;
+  }
+  .vps1-video-mobile-overlay:not([hidden]) {
+    position: fixed; inset: 0; z-index: 9989;
+    background: rgba(9,15,29,.52); display: block;
+  }
+  #app-sidebar.sidebar.mobile-open {transform: translateX(0) !important;}
+}
