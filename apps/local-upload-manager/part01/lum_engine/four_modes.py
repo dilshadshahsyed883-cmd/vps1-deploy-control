@@ -149,6 +149,9 @@ def registry() -> dict:
     duplicate_keys = sum(1 for modes in owners.values() if len(modes) > 1)
     from .mode_coordinator import status as coordinator_status
     coordinator = coordinator_status()
+    from .mode_runtime import probe as probe_mode_runtime
+    for mode in MODE_LABELS:
+        result[mode]["runtime"] = probe_mode_runtime(mode)
     return {"selected_modes": result, "cross_mode_record_collisions": duplicate_keys,
             "cross_mode_uploads_enabled": False,
             "coordinator": coordinator,

@@ -690,7 +690,7 @@
     <section class="lum-card">
       <div class="lum-card-head">
         <div><h2>Unified Auto Uploader · Four Modes</h2>
-          <p>Each mode keeps its own profiles, channels, queues, schedules and permanent upload history. Switching views never starts an upload.</p></div>
+          <p>Independent Auto Uploader engines and Short Stream. Switching tabs never starts an upload or changes saved data.</p></div>
       </div>
       <nav class="lum-ae-tabs lum-ae-tabs-primary" aria-label="Auto Uploader modes">
         {% for key in ['engine1', 'engine2', 'shorts', 'short_stream'] %}
@@ -699,7 +699,7 @@
            aria-current="{{ 'page' if auto_mode == key else 'false' }}">{{ mode_registry.selected_modes[key].label }}</a>
         {% endfor %}
       </nav>
-      <p class="lum-note">Mode histories remain isolated. Existing Engine 1 controls apply only to Engine 1. Separate engine uploads are not enabled without ownership, duplicate and OAuth verification.</p>
+      <p class="lum-note">Engine 1 controls apply only to Engine 1. Engine 2 and Shorts remain separate until their web services and upload workers are installed. Existing channels, records, schedules and settings are untouched.</p>
       {% if mode_registry.cross_mode_record_collisions %}
         <div class="lum-alert error">Cross-mode receipt collision(s) detected: {{ mode_registry.cross_mode_record_collisions }}. Do not activate additional upload workers before reconciling these identities.</div>
       {% endif %}
@@ -1032,8 +1032,9 @@
       <section class="lum-card">
         <div class="lum-card-head"><div><h2>{{ selected_mode.label }}</h2>
           <p>{{ selected_mode.message }}</p></div>
-          <span class="lum-badge warn">{{ selected_mode.status | replace('_',' ') | upper }}</span>
+          <span class="lum-badge {{ 'good' if selected_mode.runtime.web == 'connected' else 'warn' }}">{{ 'WEB CONNECTED' if selected_mode.runtime.web == 'connected' else 'WEB NOT CONNECTED' }}</span>
         </div>
+        <p class="lum-note"><strong>Engine status:</strong> {{ selected_mode.runtime.details }}. Worker: {{ selected_mode.runtime.worker | replace('_', ' ') }}.</p>
         {% if auto_mode == 'short_stream' %}
           <p>Livestream sessions are managed by the independent Short Stream application, not by a YouTube video-upload queue.</p>
           <div class="lum-metrics"><div><span>Local session snapshots</span><strong>{{ selected_mode.sessions if selected_mode.sessions is not none else 'Not available' }}</strong></div></div>
@@ -1048,7 +1049,7 @@
             <div><span>Permanent upload records</span><strong>{{ selected_mode.stats.upload_records }}</strong></div>
           </div>
           {% if selected_mode.status == 'not_provisioned' %}
-            <p class="lum-note">This mode's isolated database is not installed on the fresh VPS. Historical records and OAuth must be reconciled, not replaced or guessed.</p>
+            <p class="lum-note">The engine web service and operational controls are not yet provisioned. Existing user data will not be imported, migrated or modified as part of this app/engine work.</p>
           {% else %}
             <p class="lum-note">These counts are read directly from the mode's separate SQLite databases using read-only access. They are not proof that the scheduler, OAuth, or YouTube upload works.</p>
           {% endif %}
