@@ -83,9 +83,9 @@ def source_is_valid() -> None:
             'href="/local-upload-manager"' in base and
             'href="/auto-script"' not in base,
             "original Scene navigation or Video Studio subtabs regressed")
-    require('src="/auto-caption-studio/"' in acs and
-            "/auto-caption/api/web-flow/studio?embed=1" not in acs,
-            "native Auto Caption Studio embed missing")
+    require('src="/auto-caption-studio/api/web-flow/studio?embed=1"' in acs and
+            'src="/auto-caption-studio/"' not in acs,
+            "original Auto Caption Studio embed missing")
     require("studio_url" in wrapper and "video-studio-app-frame" in wrapper and
             "/video-studio/{studio_app}" in app and
             "require_admin(request)" in app, "independent embedded app route missing")
@@ -97,7 +97,7 @@ def verify_video_studio() -> None:
     cookie = scene_cookie()
     expected = {
         "/local-upload-manager": (b'id="app-sidebar"', b'/local-upload-manager/app?'),
-        "/auto-caption/studio": (b'id="app-sidebar"', b'src="/auto-caption-studio/"'),
+        "/auto-caption/studio": (b'id="app-sidebar"', b'src="/auto-caption-studio/api/web-flow/studio?embed=1"'),
         "/video-studio/short-maker": (b'id="app-sidebar"', b'src="/short-maker/"'),
         "/video-studio/video-merger": (b'id="app-sidebar"', b'src="/video-merger/"'),
     }
@@ -121,7 +121,21 @@ def verify_video_studio() -> None:
                     " missing_markers=" + str(len(missing)))
         else:
             require(False, "Scene shell browser handover never settled: " + path)
-    print("VPS1_VIDEO_STUDIO_SHELL=PASS SUBTABS=PASS SIDEBAR=PASS", flush=True)
+    # A successful outer iframe is not enough. Prove the independent app serves
+    # the actual original tabbed Studio and its API and Live URLs are rewritten.
+    status, kind, full_studio = https_get(
+        "/auto-caption-studio/api/web-flow/studio?embed=1", cookie)
+    require(status == 200 and "html" in kind.lower(),
+            "original Auto Caption Studio endpoint failed")
+    for marker in (b'data-page="queue"', b'data-page="upload"',
+                   b'data-page="preset"', b'data-page="captions"',
+                   b'data-page="pexels"', b'data-page="fg"',
+                   b'data-page="voice"', b'data-page="music"',
+                   b'data-page="output"',
+                   b"const API='/auto-caption-studio/api/web-flow'",
+                   b'src="/auto-caption-studio/live?embed=1"'):
+        require(marker in full_studio, "original Auto Caption Studio content missing")
+    print("VPS1_VIDEO_STUDIO_SHELL=PASS SUBTABS=PASS SIDEBAR=PASS RICH_ACS=PASS", flush=True)
 
 
 def activate(revision: str) -> None:
