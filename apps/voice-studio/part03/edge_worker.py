@@ -179,7 +179,7 @@ def verified_copy(local,remote):
 def deliver():
     if not RCLONE or not RCCONF.is_file():return
     with db() as c:
-        r=c.execute("select * from jobs where status='completed' and delivery_status not in ('delivered','blocked') and next_delivery_retry<=? order by created_at limit 1",(time.time(),)).fetchone()
+        r=c.execute("select * from jobs where status='completed' and delivery_status not in ('delivered','cleaned','blocked') and next_delivery_retry<=? order by created_at limit 1",(time.time(),)).fetchone()
     if r is None:return
     row=dict(r);jid=row['job_id']
     required=[('txt','input_file'),('mp3','mp3_file'),('wav','wav_file')]
@@ -201,6 +201,33 @@ def deliver():
         delay=min(3600,120*2**min(5,retries-1))
         update(jid,delivery_status='retry_pending',delivery_retries=retries,next_delivery_retry=time.time()+delay,delivery_error=type(e).__name__)
         print('EDGE_DRIVE_DELIVERY_RETRY='+jid,flush=True)
+
+def cleanup_delivered(limit=5):
+    """Only remove this finished Edge job's private media directory after Drive receipts."""
+    with db() as c:
+        rows=c.execute("""select * from jobs where status='completed'
+            and delivery_status='delivered' and drive_txt!='' and drive_mp3!=''
+            and drive_wav!='' order by created_at limit ?""",(limit,)).fetchall()
+    removed=0
+    for row in rows:
+        jid=str(row['job_id'])
+        if not re.fullmatch(r'EDJ-[A-F0-9]{16}',jid):continue
+        folder=DATA/'jobs'/jid
+        if folder.is_symlink():continue
+        root=(DATA/'jobs').resolve()
+        if folder.resolve().parent!=root:continue
+        files=[Path(str(row[key])) for key in ('input_file','mp3_file','wav_file')]
+        if row['srt_file']:
+            if not row['drive_srt']:continue
+            files.append(Path(str(row['srt_file'])))
+        if any(p.is_symlink() or p.parent.resolve()!=folder.resolve() for p in files):continue
+        try:
+            if folder.exists():shutil.rmtree(folder)
+            update(jid,delivery_status='cleaned')
+            removed+=1
+        except (OSError,ValueError) as exc:
+            print('EDGE_LOCAL_CLEANUP_RETAINED='+jid+'|'+type(exc).__name__,flush=True)
+    return removed
 
 def main():
     DATA.mkdir(parents=True,exist_ok=True)
@@ -224,7 +251,9 @@ def main():
             if ready:
                 row=pick()
                 if row:process(row)
-                else:deliver()
+                else:
+                    deliver()
+                    cleanup_delivered()
             time.sleep(4)
         except Exception as e:
             heartbeat(False,type(e).__name__)

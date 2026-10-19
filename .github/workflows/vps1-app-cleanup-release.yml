@@ -1,0 +1,103 @@
+name: VPS1 scoped Drive-verified cleanup rollout
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: vps1-cleanup-scoped-3app-rollout
+  cancel-in-progress: false
+jobs:
+  deploy-safe-apps:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'dilshadshahsyed883-cmd' &&
+      github.run_attempt == 1 &&
+      contains(github.event.head_commit.message, '[vps1-app-cleanup-release]')
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Read-only idle gate, app-scoped installs, health and rollback
+        shell: bash
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/id"
+          unset PRIVATE_IDENTITY
+          chmod 0600 "$scratch/id"
+          ssh-keygen -y -P '' -f "$scratch/id" > "$scratch/public"
+          test "$(ssh-keygen -lf "$scratch/public" -E sha256 | awk '{print $2}')" = \
+            'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
+          remote() {
+            timeout 2200s ssh -T -p 22 -i "$scratch/id" \
+              -o UserKnownHostsFile="$scratch/known_hosts" \
+              -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+              -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o PreferredAuthentications=publickey -o PasswordAuthentication=no \
+              -o KbdInteractiveAuthentication=no -o ConnectTimeout=20 \
+              -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+              vps1deploy@100.87.55.92 "$@"
+          }
+          echo 'PHASE=READ_ONLY_APP_IDLE_PREFLIGHT'
+          remote 'python3 -' <<'PY'
+          import json,urllib.request
+          def read(port,path):
+              with urllib.request.urlopen(f'http://127.0.0.1:{port}{path}',timeout=12) as response:
+                  if response.status!=200:raise RuntimeError('unhealthy')
+                  return json.load(response)
+          maker=read(8146,'/api/jobs')
+          if not isinstance(maker.get('jobs'),list):raise RuntimeError('Short Maker jobs not observable')
+          if any(str(j.get('status','')).lower() not in ('completed','failed','cancelled') for j in maker['jobs']):
+              raise RuntimeError('Short Maker has active/queued jobs; defer release')
+          library=read(8147,'/api/stats')
+          if int(library['processing'])!=0:raise RuntimeError('Self Media Library has active processing; defer release')
+          merger=read(8148,'/video-merger/api/state')
+          if not isinstance(merger.get('jobs'),list):raise RuntimeError('Video Merger jobs not observable')
+          if any(str(j.get('status','')).lower() not in ('complete','failed') for j in merger['jobs']):
+              raise RuntimeError('Video Merger has active/queued jobs; defer release')
+          print('CLEANUP_RELEASE_IDLE_PREFLIGHT=PASS',flush=True)
+          PY
+          for app in short-maker self-media-library video-merger; do
+            echo "SCOPED_APP_START=$app"
+            remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA $app"
+            if ! remote 'python3 -' "$app" <<'PY'
+          import json,sys,urllib.request
+          names={
+            'short-maker':(8146,'/health'),
+            'self-media-library':(8147,'/api/health'),
+            'video-merger':(8148,'/video-merger/health')}
+          app=sys.argv[1];port,path=names[app]
+          with urllib.request.urlopen(f'http://127.0.0.1:{port}{path}',timeout=15) as response:
+              assert response.status==200 and json.load(response)['ok'] is True
+          print('SCOPED_APP_HEALTH=PASS '+app,flush=True)
+          PY
+            then
+              echo "HEALTH_FAILED_ROLLBACK=$app"
+              remote "sudo -n /usr/local/sbin/vps1-production-deploy rollback $SOURCE_SHA $app" || true
+              exit 1
+            fi
+            echo "SCOPED_APP_PASS=$app"
+          done
+          echo 'THREE_APP_CLEANUP_ROLLOUT=HEALTH_VERIFIED'
+          echo 'AUTO_CAPTION=SKIPPED_UNTIL_IDLE_WORKER_PROOF'
+          echo 'VOICE_ENGINES=SKIPPED_ACTIVE_WORKER_PRESERVATION'
+          echo 'AUTO_SCRIPT=OFFLINE'
