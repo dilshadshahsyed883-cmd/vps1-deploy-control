@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable
 
 
-VERSION = "2026.08.18-storage-manager-v17.4-intro-music-sfx-autoclean"
+VERSION = "2026.10.19-storage-manager-v17.5-readonly-diagnostics"
 LISTEN_HOST = os.getenv("STORAGE_MANAGER_HOST", "127.0.0.1")
 LISTEN_PORT = int(os.getenv("STORAGE_MANAGER_PORT", "8799"))
 AUTH_TOKEN = os.getenv("STORAGE_MANAGER_TOKEN", "").strip()
