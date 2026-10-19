@@ -5,6 +5,7 @@
   let snapshot = null;
   let policy = null;
   let busy = false;
+  let managerFallback = false;
   const startingServices = new Set();
   const serviceErrors = new Map();
 
@@ -155,14 +156,55 @@
     `).join('') : '<div class="sm-empty">No process data available.</div>';
   }
 
+  async function readOnlyVpsMetrics() {
+    // Scene's own authenticated /proc metrics remain available even if the
+    // dedicated Storage Manager has not been provisioned. No cleanup calls.
+    const response = await fetch('/api/dashboard/v1', {
+      cache: 'no-store', credentials: 'same-origin', headers: {Accept: 'application/json'}
+    });
+    if (!response.ok) throw new Error('Dashboard HTTP ' + response.status);
+    const data = await response.json();
+    const vps = data.vps || {}, ram = vps.ram || {}, disk = vps.disk || {};
+    const manager = document.getElementById('manager-status');
+    manager.className = 'sm-status error';
+    manager.textContent = 'Manager setup pending · live VPS metrics (read-only)';
+    document.getElementById('cpu-value').textContent = (vps.cpu_percent ?? '—') + '%';
+    document.getElementById('cpu-detail').textContent = (vps.cpu_cores ?? '—') + ' cores';
+    setBar('cpu-bar', vps.cpu_percent);
+    document.getElementById('ram-value').textContent = (ram.percent ?? '—') + '%';
+    document.getElementById('ram-detail').textContent = (ram.used_gb ?? '—') + ' of ' + (ram.total_gb ?? '—') + ' GB';
+    setBar('ram-bar', ram.percent);
+    document.getElementById('disk-value').textContent = (disk.percent ?? '—') + '%';
+    document.getElementById('disk-detail').textContent = (disk.free_gb ?? '—') + ' GB free of ' + (disk.total_gb ?? '—') + ' GB';
+    setBar('disk-bar', disk.percent);
+    const grid = document.getElementById('service-grid');
+    if (grid) grid.innerHTML = (data.services || []).map(item =>
+      '<article class="sm-service"><div class="sm-service-main"><strong>' +
+      escapeHtml(item.label) + '</strong></div><b class="sm-service-state ' +
+      (item.active ? 'active' : 'inactive') + '">' + (item.active ? 'active' : 'inactive') +
+      '</b></article>').join('');
+    document.getElementById('process-list').innerHTML =
+      '<div class="sm-empty">Process details require the dedicated Storage Manager service.</div>';
+    // No stale cleanup action may be offered while the service is missing.
+    const scan = document.getElementById('run-scan');
+    if (scan) scan.disabled = true;
+    if (fullCleanButton) fullCleanButton.disabled = true;
+  }
+
   async function loadMetrics(showError = false) {
     try {
       renderMetrics(await api('/api/admin/storage/metrics'));
+      managerFallback = false;
     } catch (error) {
-      const manager = document.getElementById('manager-status');
-      manager.className = 'sm-status error';
-      manager.innerHTML = '<i></i> Manager unavailable';
-      if (showError) toast(error.message, true);
+      managerFallback = true;
+      try {
+        await readOnlyVpsMetrics();
+      } catch (_) {
+        const manager = document.getElementById('manager-status');
+        manager.className = 'sm-status error';
+        manager.textContent = 'Manager and dashboard metrics unavailable';
+      }
+      if (showError) toast('Storage cleanup service not configured. Live read-only VPS metrics are displayed.', true);
     }
   }
 
@@ -245,10 +287,10 @@
         : await api('/api/admin/storage/snapshot');
       renderSnapshot(data);
     } catch (error) {
-      toast(error.message, true);
+      if (refresh) toast(error.message, true);
       document.getElementById('category-grid').innerHTML = `<div class="sm-empty">${escapeHtml(error.message)}</div>`;
     } finally {
-      busy = false; button.disabled = false; button.textContent = 'Scan reclaimable space'; updateSelected();
+      busy = false; button.disabled = managerFallback; button.textContent = 'Scan reclaimable space'; updateSelected();
     }
   }
 
