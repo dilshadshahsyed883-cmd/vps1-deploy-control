@@ -69,6 +69,11 @@ class ModeCoordinatorTests(unittest.TestCase):
             c.reserve("engine2", "UC01", "movie.mp4")
         self.assertEqual(c.status()["claim_count"], 1)
 
+    def test_same_script_with_different_extension_still_blocked(self):
+        self.seal([("engine1", "UC01", "script-one.mp4")])
+        with self.assertRaises(c.AdmissionBlocked):
+            c.reserve("engine2", "UC01", "SCRIPT-ONE.mkv")
+
     def test_safe_retry_but_ambiguous_blocks(self):
         self.seal()
         one = c.reserve("engine1", "UC01", "a.mp4")

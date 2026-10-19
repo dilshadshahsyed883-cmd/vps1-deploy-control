@@ -8,6 +8,7 @@ Short Stream is an RTMP service, not an ordinary video upload worker.
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 import uuid
 from pathlib import Path
@@ -20,6 +21,7 @@ CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS claims (
   channel_id TEXT NOT NULL,
   filename TEXT NOT NULL,
+  script_key TEXT NOT NULL,
   mode TEXT NOT NULL,
   claim_id TEXT NOT NULL,
   state TEXT NOT NULL CHECK (state IN
@@ -27,6 +29,7 @@ CREATE TABLE IF NOT EXISTS claims (
   youtube_video_id TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (channel_id, filename),
+  UNIQUE (channel_id, script_key),
   UNIQUE (claim_id)
 );
 """
@@ -53,14 +56,16 @@ def _mode(value: str) -> str:
     return mode
 
 
-def _key(channel_id: str, filename: str) -> tuple[str, str]:
+def _key(channel_id: str, filename: str) -> tuple[str, str, str]:
     channel = str(channel_id or "").strip()
     name = str(filename or "").replace("\\", "/").rsplit("/", 1)[-1].strip().casefold()
     if not channel or not name or channel in {".", ".."} or name in {".", ".."}:
         raise ValueError("A real channel ID and video filename are required")
     if len(channel) > 256 or len(name) > 512 or "\x00" in channel or "\x00" in name:
         raise ValueError("Invalid upload identity")
-    return channel, name
+    stem = name.rsplit(".", 1)[0] if "." in name else name
+    script_key = re.sub(r"[^a-z0-9._-]+", "-", stem).strip("-._") or name
+    return channel, name, script_key
 
 
 def _connect(*, write: bool) -> sqlite3.Connection:
@@ -144,19 +149,19 @@ def reconcile_receipts(receipts: list[tuple[str, str, str]], *, verified_modes: 
             ).fetchone()
             if existing and existing[0] == "1":
                 raise AdmissionBlocked("Historical reconciliation is already sealed")
-            for mode, channel, filename in normalized:
+            for mode, channel, filename, script_key in normalized:
                 row = conn.execute(
-                    "SELECT state FROM claims WHERE channel_id=? AND filename=?",
-                    (channel, filename),
+                    "SELECT state FROM claims WHERE channel_id=? AND (filename=? OR script_key=?)",
+                    (channel, filename, script_key),
                 ).fetchone()
                 if row:
                     if row[0] != "COMPLETED":
                         raise AdmissionBlocked("A pending ledger claim needs resolution")
                     continue
                 conn.execute(
-                    "INSERT INTO claims(channel_id,filename,mode,claim_id,state) "
-                    "VALUES(?,?,?,?, 'COMPLETED')",
-                    (channel, filename, mode, uuid.uuid4().hex),
+                    "INSERT INTO claims(channel_id,filename,script_key,mode,claim_id,state) "
+                    "VALUES(?,?,?,?,?, 'COMPLETED')",
+                    (channel, filename, script_key, mode, uuid.uuid4().hex),
                 )
             conn.execute(
                 "INSERT INTO metadata(key,value) VALUES('history_reconciled','1') "
@@ -172,7 +177,7 @@ def reconcile_receipts(receipts: list[tuple[str, str, str]], *, verified_modes: 
 def reserve(mode: str, channel_id: str, filename: str) -> str:
     """Atomically claim the same channel+filename across all three upload modes."""
     mode = _mode(mode)
-    channel, name = _key(channel_id, filename)
+    channel, name, script_key = _key(channel_id, filename)
     with _writable() as conn:
         conn.execute("BEGIN IMMEDIATE")
         try:
@@ -182,24 +187,24 @@ def reserve(mode: str, channel_id: str, filename: str) -> str:
             if not sealed or sealed[0] != "1":
                 raise AdmissionBlocked("Historical receipts must be reconciled first")
             row = conn.execute(
-                "SELECT state FROM claims WHERE channel_id=? AND filename=?",
-                (channel, name),
+                "SELECT state FROM claims WHERE channel_id=? AND (filename=? OR script_key=?)",
+                (channel, name, script_key),
             ).fetchone()
             if row and row[0] in BLOCKING_STATES:
                 raise AdmissionBlocked("Channel/video is already owned or published")
             claim_id = uuid.uuid4().hex
             if row:
                 conn.execute(
-                    "UPDATE claims SET mode=?, claim_id=?, state='RESERVED', "
+                    "UPDATE claims SET mode=?, claim_id=?, filename=?, script_key=?, state='RESERVED', "
                     "youtube_video_id='', updated_at=CURRENT_TIMESTAMP "
-                    "WHERE channel_id=? AND filename=? AND state='FAILED_SAFE'",
-                    (mode, claim_id, channel, name),
+                    "WHERE channel_id=? AND (filename=? OR script_key=?) AND state='FAILED_SAFE'",
+                    (mode, claim_id, name, script_key, channel, name, script_key),
                 )
             else:
                 conn.execute(
-                    "INSERT INTO claims(channel_id,filename,mode,claim_id,state) "
-                    "VALUES(?,?,?,?, 'RESERVED')",
-                    (channel, name, mode, claim_id),
+                    "INSERT INTO claims(channel_id,filename,script_key,mode,claim_id,state) "
+                    "VALUES(?,?,?,?,?, 'RESERVED')",
+                    (channel, name, script_key, mode, claim_id),
                 )
             conn.commit()
             return claim_id
