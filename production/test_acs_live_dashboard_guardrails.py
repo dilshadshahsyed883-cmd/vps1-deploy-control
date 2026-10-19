@@ -69,6 +69,15 @@ class IntegrationRoutingTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("ACS_PROFILE_RENDER_PRESERVES_AUDIO_ENGINE=PASS", result.stdout)
 
+    def test_acs_audio_card_release_is_acs_only(self):
+        workflow = (ROOT / ".github/workflows/vps1-acs-audio-card-release.yml").read_text()
+        self.assertIn("[vps1-acs-audio-card-release]", workflow)
+        self.assertIn("install $SOURCE_SHA auto-caption-studio", workflow)
+        self.assertNotIn("install $SOURCE_SHA local-upload-manager", workflow)
+        self.assertNotIn("install $SOURCE_SHA scene-builder", workflow)
+        self.assertIn("ACS_AUDIO_ENGINE_CARD_SOURCE=PASS", workflow)
+        self.assertIn("AUDIO_SYNTHESIS_UAT=NOT_PROVEN", workflow)
+
     def test_dashboard_actual_service_names_and_no_fake_failures(self):
         path = SCENE / "app.py"
         code = path.read_text()
