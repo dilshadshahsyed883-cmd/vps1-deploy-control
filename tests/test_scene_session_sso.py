@@ -223,6 +223,7 @@ class AppScopedSessionMigration(unittest.TestCase):
         for obj, name, value in (
             (session, "ready_cookie", lambda app: "session=fake"),
             (session, "verify", lambda app, cookie: None),
+            (session, "verify_voice_shell", lambda cookie: None),
             (legacy, "check_scene", lambda: None),
             (legacy, "command", lambda argv: None),
         ):
