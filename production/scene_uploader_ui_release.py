@@ -128,9 +128,9 @@ def verify_video_studio() -> None:
     require(status == 200 and "html" in kind.lower(),
             "original Auto Caption Studio endpoint failed")
     for marker in (b'data-page="queue"', b'data-page="upload"',
-                   b'data-page="preset"', b'data-page="captions"',
-                   b'data-page="pexels"', b'data-page="fg"',
-                   b'data-page="voice"', b'data-page="music"',
+                   b'data-page="drive-profiles"', b'data-page="preset"',
+                   b'data-page="captions"', b'data-page="pexels"',
+                   b'data-page="fg"', b'data-page="voice"',
                    b'data-page="output"',
                    b"const API='/auto-caption-studio/api/web-flow'",
                    b'src="/auto-caption-studio/live?embed=1"'):
