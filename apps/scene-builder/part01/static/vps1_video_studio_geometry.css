@@ -47,13 +47,32 @@ body.vps1-native-acs > .vps1-native-video-tabs > a {
   justify-content: center !important;
   flex: 0 0 auto !important;
   box-sizing: border-box !important;
-  min-height: 36px !important;
+  min-height: 40px !important;
   margin: 0 !important;
   padding: 9px 14px !important;
   border-radius: 8px !important;
   font: 750 13px/1.2 Inter,system-ui,Arial,sans-serif !important;
   text-decoration: none !important;
   white-space: nowrap !important;
+}
+/* Shared native + server-rendered Video Studio tab component.
+   Static apps retain existing inline active colors until upgraded to classes;
+   defaults here are standardized and normal authored active state is preserved.
+   Native ACS uses .active / aria-current. */
+body:has(> main > [data-video-studio-subnav="1"]) > main > [data-video-studio-subnav="1"] > a,
+body.vps1-native-acs > .vps1-native-video-tabs > a {
+  border:1px solid #d6ddea;
+  background:#fff;
+  color:#34415b;
+  box-shadow:none;
+}
+body:has(> main > [data-video-studio-subnav="1"]) > main > [data-video-studio-subnav="1"] > a.active,
+body:has(> main > [data-video-studio-subnav="1"]) > main > [data-video-studio-subnav="1"] > a[aria-current="page"],
+body.vps1-native-acs > .vps1-native-video-tabs > a.active,
+body.vps1-native-acs > .vps1-native-video-tabs > a[aria-current="page"] {
+  background:#315edb !important;
+  color:#fff !important;
+  border-color:#315edb !important;
 }
 /* Each app keeps its content components but shares the nav/content x-axis. */
 body:has(> main > [data-video-studio-subnav="1"]) > main > header,

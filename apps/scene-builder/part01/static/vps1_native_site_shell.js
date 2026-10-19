@@ -113,6 +113,7 @@
     aside.after(toggle);
     if (app === "acs") {
       const tabs = node("nav", "vps1-native-video-tabs");
+      tabs.dataset.vps1Component = "studio-tabs";
       tabs.setAttribute("aria-label", "Video Studio");
       addLink(tabs, "Scene Builder", "/scene-builder/", false);
       addLink(tabs, "Auto Caption Studio", "/auto-caption-studio/", true);
@@ -122,12 +123,12 @@
     }
     if (app === "uploader" || app === "stream") {
       const tabs = node("nav", "vps1-native-upload-tabs");
+      tabs.dataset.vps1Component = "studio-tabs";
       tabs.setAttribute("aria-label", "Upload Studio");
       addLink(tabs, "Auto Uploader", "/local-upload-manager/app?embedded=1&tab=dashboard", app === "uploader");
       addLink(tabs, "Auto Stream", "/auto-stream/", app === "stream");
-      const streamHeader = app === "stream" && typeof document.querySelector === "function"
-        ? document.querySelector("body > header") : null;
-      (streamHeader || toggle).after(tabs);
+      // Native uploader and stream tabs mount before either app's own header.
+      toggle.after(tabs);
     }
   }
   if (document.readyState === "loading")

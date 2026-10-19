@@ -1,6 +1,6 @@
 /* VPS1_NATIVE_SITE_SHELL_V1: shared navigation, independent application document */
-body.vps1-native-site{padding-left:205px!important;background:#f8fafc!important;box-sizing:border-box!important}
-#vps1-native-site-sidebar{position:fixed;z-index:9990;inset:0 auto 0 0;width:205px;box-sizing:border-box;background:#101526;color:white;padding:20px 14px;display:flex;flex-direction:column;font-family:Inter,system-ui,Arial,sans-serif}
+body.vps1-native-site{padding-left:var(--vps1-sidebar-width,214px)!important;background:#f8fafc!important;box-sizing:border-box!important}
+#vps1-native-site-sidebar{position:fixed;z-index:9990;inset:0 auto 0 0;width:var(--vps1-sidebar-width,214px);box-sizing:border-box;background:#101526;color:white;padding:20px 14px;display:flex;flex-direction:column;font-family:Inter,system-ui,Arial,sans-serif}
 #vps1-native-site-sidebar .vps1-native-brand{display:flex;align-items:center;gap:10px;margin-bottom:28px}
 #vps1-native-site-sidebar .vps1-native-logo{background:#7152ea;border-radius:12px;width:36px;height:36px;display:grid;place-items:center;font-weight:800}
 #vps1-native-site-sidebar strong,#vps1-native-site-sidebar small{display:block}
@@ -18,7 +18,7 @@ body.vps1-native-voice .vps3-main-sidebar{display:none!important}
 body.vps1-native-voice .vps3-layout{display:block!important;min-height:auto!important}
 body.vps1-native-voice .vps3-main-column{width:100%!important;min-width:0!important}
 body.vps1-native-uploader .app-main{max-width:1600px;margin:0 auto}
-@media(max-width:800px){
+@media(max-width:760px){
 body.vps1-native-site{padding-left:0!important}
 #vps1-native-site-sidebar{transform:translateX(-100%);transition:transform .2s}
 body.vps1-native-open #vps1-native-site-sidebar{transform:translateX(0)}
@@ -172,3 +172,74 @@ html:has(script[data-workspace="voice"]) .vps3-main-column{width:100%!important;
 .vps1-native-upload-tabs a:focus-visible{outline:3px solid #6d87e6;outline-offset:2px}
 html:has(script[data-workspace="uploader"]) .lum-primary-workspaces,body.vps1-native-uploader .lum-primary-workspaces{display:none!important}
 @media(max-width:760px){.vps1-native-upload-tabs{margin:10px auto 14px;gap:6px;padding:8px;width:calc(100% - 20px)}.vps1-native-upload-tabs a{flex:1 1 135px;font-size:12px;padding:9px 10px}}
+
+/* VPS1_UNIFIED_UI_PHASE_B_V1: scoped shared Studio tabs; app content unchanged. */
+:root {
+  --vps1-ui-content-max:1400px;
+  --vps1-ui-content-gutter:34px;
+  --vps1-ui-content-top:26px;
+  --vps1-ui-tab-rail-height:62px;
+  --vps1-ui-touch-height:40px;
+  --vps1-ui-radius:11px;
+  --vps1-ui-panel:#f8faff;
+  --vps1-ui-border:#dfe5ef;
+  --vps1-ui-tab-border:#d6ddea;
+  --vps1-ui-primary:#315edb;
+  --vps1-ui-text:#34415b;
+  --vps1-ui-focus:#6d87e6;
+  --vps1-ui-gap:8px;
+}
+.vps1-native-upload-tabs {
+  display:flex!important;align-items:center!important;
+  flex-wrap:nowrap!important;gap:var(--vps1-ui-gap)!important;
+  width:calc(100% - 2 * var(--vps1-ui-content-gutter))!important;
+  max-width:var(--vps1-ui-content-max)!important;
+  min-height:var(--vps1-ui-tab-rail-height)!important;
+  margin:var(--vps1-ui-content-top) auto 18px!important;
+  padding:10px 12px!important;
+  box-sizing:border-box!important;
+  border:1px solid var(--vps1-ui-border)!important;
+  border-radius:var(--vps1-ui-radius)!important;
+  background:var(--vps1-ui-panel)!important;
+  overflow-x:auto!important;overflow-y:hidden!important;
+  white-space:nowrap!important;scrollbar-width:thin;
+}
+.vps1-native-upload-tabs > a {
+  flex:0 0 auto!important;
+  min-height:var(--vps1-ui-touch-height)!important;
+  border:1px solid var(--vps1-ui-tab-border)!important;
+  border-radius:8px!important;
+  font:750 13px/1.2 Inter,system-ui,Arial,sans-serif!important;
+  background:#fff!important;color:var(--vps1-ui-text)!important;
+  text-decoration:none!important;white-space:nowrap!important;
+}
+.vps1-native-upload-tabs > a.active,
+.vps1-native-upload-tabs > a[aria-current="page"] {
+  background:var(--vps1-ui-primary)!important;
+  color:#fff!important;border-color:var(--vps1-ui-primary)!important;
+}
+.vps1-native-upload-tabs > a:focus-visible,
+.vps1-native-video-tabs > a:focus-visible,
+[data-video-studio-subnav="1"] > a:focus-visible {
+  outline:3px solid var(--vps1-ui-focus)!important;
+  outline-offset:2px!important;
+}
+@media(max-width:760px) {
+  :root { --vps1-ui-content-gutter:14px;--vps1-ui-content-top:72px; }
+  body.vps1-native-uploader > .vps1-native-toggle,
+  body.vps1-native-stream > .vps1-native-toggle {
+    position:fixed!important;display:block!important;
+    top:12px!important;left:12px!important;z-index:9993!important;
+    min-height:39px!important;margin:0!important;
+  }
+  .vps1-native-upload-tabs {
+    width:calc(100% - 2 * var(--vps1-ui-content-gutter))!important;
+    margin:var(--vps1-ui-content-top) auto 18px!important;
+    padding:10px 12px!important;
+  }
+  .vps1-native-upload-tabs > a {flex:0 0 auto!important;min-height:40px!important;}
+}
+@media(prefers-reduced-motion:reduce) {
+  .vps1-native-upload-tabs *, .vps1-native-video-tabs *,
+  [data-video-studio-subnav="1"] * {transition:none!important;animation:none!important;}
+}

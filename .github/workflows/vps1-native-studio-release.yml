@@ -18,7 +18,8 @@ jobs:
       github.actor == 'dilshadshahsyed883-cmd' &&
       github.run_attempt == 1 &&
       (contains(github.event.head_commit.message, '[vps1-native-studio-release]') ||
-       contains(github.event.head_commit.message, '[vps1-video-geometry-release]'))
+       contains(github.event.head_commit.message, '[vps1-video-geometry-release]') ||
+       contains(github.event.head_commit.message, '[vps1-ui-shell-phase-b-release]'))
     environment: production
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -38,6 +39,7 @@ jobs:
           PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
           SOURCE_SHA: ${{ github.sha }}
           VIDEO_GEOMETRY_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-video-geometry-release]') }}
+          UI_SHELL_PHASE_B: ${{ contains(github.event.head_commit.message, '[vps1-ui-shell-phase-b-release]') }}
         run: |
           set -Eeuo pipefail
           set +x
@@ -63,6 +65,17 @@ jobs:
               -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
               vps1deploy@100.87.55.92 "$@"
           }
+          # Shared CSS/JS-only update: the Scene candidate owns /static assets.
+          # No restart or reinstallation of independent Voice/ACS/Uploader engines.
+          if [[ "$UI_SHELL_PHASE_B" == "true" ]]; then
+            echo "UI_SHELL_PHASE_B=BEGIN"
+            remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA scene-builder"
+            echo "UI_SHELL_PHASE_B=PASS SCENE_ONLY=YES"
+            echo "INDEPENDENT_APP_RESTARTS=NONE"
+            echo "AUTO_SCRIPT=OFFLINE"
+            echo "OWNER_FUNCTIONAL_UAT=PENDING"
+            exit 0
+          fi
           # UI-only four-app release: install shared Scene static CSS first;
           # do not restart Voice or Uploader for this geometry-only change.
           if [[ "$VIDEO_GEOMETRY_ONLY" == "true" ]]; then
