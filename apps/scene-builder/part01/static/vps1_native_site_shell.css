@@ -45,3 +45,115 @@ body.vps1-native-open #vps1-native-site-sidebar{transform:translateX(0)}
 #vps1-native-site-sidebar .vps1-native-bottom{
   margin-top:0;color:#aab4d5
 }
+
+/* VPS1_CANONICAL_SIDEBAR_V2 — only shared site chrome, never app content.
+   This stylesheet is loaded LAST on Scene pages and also on native app pages.
+   Identical width & geometry across all routes and breakpoints > 760px. */
+:root { --vps1-sidebar-width:214px; --vps1-sidebar-bg:#101526; }
+@view-transition { navigation: auto; }
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(root),::view-transition-new(root){animation-duration:120ms}
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),::view-transition-new(root){animation-duration:0.01ms}
+}
+@media(min-width:761px) {
+  body:has(#app-sidebar)>main {margin-left:var(--vps1-sidebar-width)!important}
+  body.vps1-native-site {padding-left:var(--vps1-sidebar-width)!important}
+  /* Reserve sidebar real estate before deferred native JS constructs its nodes. */
+  html:has(script[data-workspace="uploader"]) body,
+  html:has(script[data-workspace="voice"]) body,
+  html:has(script[data-workspace="acs"]) body {
+    padding-left:var(--vps1-sidebar-width)!important;
+    background:linear-gradient(to right,var(--vps1-sidebar-bg) 0 var(--vps1-sidebar-width),#f8fafc var(--vps1-sidebar-width))!important;
+  }
+}
+#app-sidebar.sidebar,#vps1-native-site-sidebar {
+  position:fixed!important;inset:0 auto 0 0!important;
+  width:var(--vps1-sidebar-width)!important;box-sizing:border-box!important;
+  min-height:100dvh!important;height:100dvh!important;
+  padding:20px 14px 12px!important;display:flex!important;flex-direction:column!important;
+  gap:0!important;background:var(--vps1-sidebar-bg)!important;color:#fff!important;
+  font-family:Inter,system-ui,-apple-system,"Segoe UI",Arial,sans-serif!important;
+  font-size:13px!important;line-height:1.4!important;
+  overflow-y:auto!important;overscroll-behavior:contain!important;
+  view-transition-name:vps1-global-sidebar;
+}
+#app-sidebar .brand,#vps1-native-site-sidebar .vps1-native-brand {
+  display:flex!important;align-items:center!important;gap:10px!important;
+  min-height:43px!important;margin:0 0 29px!important;padding:0!important;
+}
+#app-sidebar .logo,#vps1-native-site-sidebar .vps1-native-logo {
+  width:36px!important;height:36px!important;flex:0 0 36px!important;
+  border-radius:12px!important;background:#7152ea!important;
+  display:grid!important;place-items:center!important;
+  color:white!important;font-size:14px!important;font-weight:800!important;
+}
+#app-sidebar .brand strong,#vps1-native-site-sidebar .vps1-native-brand strong {
+  display:block!important;color:#fff!important;font-size:12px!important;
+  font-weight:800!important;line-height:1.25!important;
+}
+#app-sidebar .brand small,#vps1-native-site-sidebar .vps1-native-brand small {
+  display:block!important;color:#aab4d5!important;font-size:11px!important;
+  font-weight:400!important;line-height:1.5!important;
+}
+#app-sidebar>nav,#vps1-native-site-sidebar>nav[aria-label="Applications"]{
+  display:flex!important;flex-direction:column!important;gap:6px!important;
+  width:100%!important;margin:0!important;padding:0!important;
+}
+#app-sidebar>nav>a,#vps1-native-site-sidebar>nav[aria-label="Applications"]>a{
+  display:block!important;flex:none!important;box-sizing:border-box!important;
+  min-height:40px!important;width:100%!important;
+  margin:0!important;padding:11px 12px!important;border:0!important;border-radius:9px!important;
+  background:transparent!important;text-align:left!important;text-decoration:none!important;
+  color:#bec8e0!important;font-size:13px!important;font-weight:700!important;
+  line-height:18px!important;letter-spacing:0!important;
+}
+#app-sidebar>nav>a.active,#vps1-native-site-sidebar>nav[aria-label="Applications"]>a.active,
+#app-sidebar>nav>a:hover,#vps1-native-site-sidebar>nav[aria-label="Applications"]>a:hover {
+  background:#282f49!important;color:#fff!important;
+}
+#app-sidebar .sidebar-account,#vps1-native-site-sidebar .vps1-native-account{
+  box-sizing:border-box!important;display:grid!important;gap:8px!important;
+  width:100%!important;flex:none!important;margin:auto 0 0!important;
+  padding:12px 10px!important;border:1px solid #2b334b!important;
+  border-radius:12px!important;background:#171e31!important;box-shadow:none!important;
+  color:#fff!important;
+}
+#vps1-native-site-sidebar .vps1-native-account[hidden]{display:none!important}
+#app-sidebar .sidebar-account-name,#vps1-native-site-sidebar .vps1-native-account strong{
+  display:block!important;color:white!important;font-size:13px!important;
+  font-weight:800!important;line-height:1.25!important;overflow-wrap:anywhere!important;
+}
+#app-sidebar .sidebar-account form,#vps1-native-site-sidebar .vps1-native-account form{
+  width:100%!important;margin:0!important;
+}
+#app-sidebar .sidebar-account button,#vps1-native-site-sidebar .vps1-native-account button{
+  display:block!important;width:100%!important;min-height:38px!important;
+  border:1px solid #39425f!important;border-radius:9px!important;
+  padding:8px 11px!important;margin:0!important;
+  background:#202940!important;color:#f7f8ff!important;
+  font:800 12px/1.3 Inter,system-ui,sans-serif!important;text-align:center!important;cursor:pointer;
+}
+#app-sidebar .sidebar-account button:hover,#vps1-native-site-sidebar .vps1-native-account button:hover{
+  background:#2a3551!important;
+}
+#app-sidebar .server-dot,#vps1-native-site-sidebar .vps1-native-bottom {
+  display:block!important;flex:none!important;margin:8px 0 0!important;
+  padding:8px 10px 0!important;color:#aab4d5!important;
+  font-size:11px!important;line-height:1.4!important;
+}
+@media(max-width:760px) {
+  #app-sidebar.sidebar,#vps1-native-site-sidebar {
+    width:min(84vw,300px)!important;max-width:300px!important;
+    height:100dvh!important;min-height:0!important;
+    transform:translateX(-105%)!important;
+  }
+  #app-sidebar.sidebar.mobile-open {transform:translateX(0)!important}
+  body.vps1-native-open #vps1-native-site-sidebar {transform:translateX(0)!important}
+  body.vps1-native-site {padding-left:0!important}
+  body:has(#app-sidebar)>main {margin-left:0!important}
+}
+/* Keep the nav snapshot stable while the independent page document loads. */
+::view-transition-old(vps1-global-sidebar),
+::view-transition-new(vps1-global-sidebar) {animation-duration:0.01ms;mix-blend-mode:normal}

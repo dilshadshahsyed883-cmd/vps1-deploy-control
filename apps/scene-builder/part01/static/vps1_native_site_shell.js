@@ -7,6 +7,7 @@
   // During staggered releases an old Scene shell may still embed this document.
   // Never render a second navigation in that legacy framing context.
   if (window.self !== window.top) return;
+  document.documentElement.classList.add("vps1-native-bootstrap");
   const node = (tag, name, value) => {
     const e = document.createElement(tag);
     if (name) e.className = name;

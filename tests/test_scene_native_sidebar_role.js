@@ -55,6 +55,7 @@ function boot(workspace, role) {
   const listeners = {};
   const document = {
     body, hidden: false, readyState: "complete",
+    documentElement: {classList: {add() {}}},
     currentScript: {dataset: {workspace}},
     createElement: (tag) => new Element(tag),
     getElementById: (id) => all(body).find(e => e.id === id) || null,
@@ -85,6 +86,15 @@ function boot(workspace, role) {
     hideAndRestore: async () => {document.hidden=false;await listeners.visibilitychange();},
   };
 }
+
+test("native sidebar style and role source remain shared across apps", () => {
+  const stylesheet = fs.readFileSync(path.join(__dirname,
+    "../apps/scene-builder/part01/static/vps1_native_site_shell.css"), "utf8");
+  assert.match(stylesheet, /--vps1-sidebar-width:214px/);
+  assert.match(stylesheet, /@view-transition\s*\{\s*navigation:\s*auto/);
+  assert.match(stylesheet, /view-transition-name:vps1-global-sidebar/);
+  assert.match(stylesheet, /#app-sidebar.sidebar,#vps1-native-site-sidebar/);
+});
 
 for (const workspace of ["uploader", "voice", "acs"]) {
   test(`${workspace}: administrator gets Admin link and Scene login footer`, async () => {
