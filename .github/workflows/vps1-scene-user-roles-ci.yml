@@ -10,6 +10,10 @@ on:
       - "production/test_scene_video_studio_shell.py"
       - "production/scene_candidate_release.py"
       - "tests/test_scene_candidate_release.py"
+      - "production/runtime.py"
+      - "production/voice_template_release.py"
+      - "tests/test_voice_sidebar_ui_only_release.py"
+      - "apps/voice-studio/part01/templates/voice_studio.html"
       - "tests/test_scene_user_roles.py"
       - "tests/test_scene_session_sso.py"
       - ".github/workflows/vps1-scene-user-roles-ci.yml"
@@ -24,6 +28,10 @@ on:
       - "production/test_scene_video_studio_shell.py"
       - "production/scene_candidate_release.py"
       - "tests/test_scene_candidate_release.py"
+      - "production/runtime.py"
+      - "production/voice_template_release.py"
+      - "tests/test_voice_sidebar_ui_only_release.py"
+      - "apps/voice-studio/part01/templates/voice_studio.html"
       - "tests/test_scene_user_roles.py"
       - "tests/test_scene_session_sso.py"
       - ".github/workflows/vps1-scene-user-roles-ci.yml"
@@ -48,3 +56,7 @@ jobs:
           node --test tests/test_scene_native_sidebar_role.js
       - name: Candidate route and native sidebar release contracts
         run: python -m unittest tests.test_scene_candidate_release -v
+      - name: Voice template-only worker-preserving release contracts
+        run: |
+          python -m py_compile production/runtime.py production/voice_template_release.py
+          python -m unittest discover -s tests -p test_voice_sidebar_ui_only_release.py -v
