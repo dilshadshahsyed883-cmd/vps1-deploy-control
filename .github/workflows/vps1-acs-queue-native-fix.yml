@@ -4,8 +4,9 @@ on:
     branches: [main]
 permissions:
   contents: read
+# Isolate workflow scheduling; installed VPS release helper still serializes host writes.
 concurrency:
-  group: vps1-production
+  group: vps1-acs-queue-native-fix
   cancel-in-progress: false
 jobs:
   restore-acs-native-queue:
