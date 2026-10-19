@@ -147,6 +147,9 @@ def registry() -> dict:
         for key in keys:
             owners[key].add(mode)
     duplicate_keys = sum(1 for modes in owners.values() if len(modes) > 1)
+    from .mode_coordinator import status as coordinator_status
+    coordinator = coordinator_status()
     return {"selected_modes": result, "cross_mode_record_collisions": duplicate_keys,
             "cross_mode_uploads_enabled": False,
-            "note": "Unverified cross-mode histories are not proof of global deduplication. No cross-mode writer is enabled."}
+            "coordinator": coordinator,
+            "note": "Shared claim ledger is advisory until all legacy workers are explicitly wired and their histories reconciled. No cross-mode writer is enabled."}
