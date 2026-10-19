@@ -188,6 +188,38 @@ def prepare_kokoro(revision):
     event(kokoro_cpu_synthesis='PASS', model_bytes=sum(size for _, size in files), output_bytes=output.stat().st_size)
 
 
+def wait_for_active_units(names, *, attempts=18, interval=1.0) -> None:
+    """Check complete systemd readiness, identify the precise unit on failure.
+
+    Restart=on-failure can briefly expose 'activating' between Python startup
+    and service stabilization. This replaces the old one-shot 2-second check.
+    No user databases, history or tokens are inspected by this check.
+    """
+    for name in names:
+        last = "unknown"
+        for attempt in range(attempts):
+            status = subprocess.run(
+                ["systemctl", "is-active", name],
+                capture_output=True, text=True, check=False,
+            )
+            last = status.stdout.strip()[:24] or "unknown"
+            if status.returncode == 0 and last == "active":
+                break
+            if attempt < attempts - 1:
+                time.sleep(interval)
+        else:
+            detail = subprocess.run(
+                ["systemctl", "show", name,
+                 "--property=ActiveState,SubState,Result,ExecMainStatus"],
+                capture_output=True, text=True, check=False,
+            ).stdout.strip().replace("\n", " ")
+            raise RuntimeError(
+                f"Auto Uploader systemd unit {name} did not stabilize "
+                f"(state={last}; {detail[:240]})"
+            )
+
+
+
 def install(app, revision):
     if app not in SPECS:
         return
@@ -204,9 +236,7 @@ def install(app, revision):
     for name in unit_names(app):
         run(['systemctl', 'enable', name], quiet=True)
         run(['systemctl', 'restart', name], quiet=True)
-    time.sleep(2)
-    for name in unit_names(app):
-        run(['systemctl', 'is-active', '--quiet', name], quiet=True)
+    wait_for_active_units(unit_names(app))
     if app == "local-upload-manager":
         # An active unit is not enough: require the correct app/engine response
         # before treating the independent mode installation as successful.
