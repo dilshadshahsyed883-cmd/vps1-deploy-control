@@ -43,7 +43,7 @@ jobs:
       - name: Install template parser for existing Jinja regression test
         run: python3 -m pip install 'Jinja2==3.1.6'
       - name: Run focused integration regression tests
-        run: python3 -m unittest production.test_acs_live_dashboard_guardrails production.test_scene_video_studio_shell -v
+        run: python3 -m unittest production.test_acs_live_dashboard_guardrails production.test_scene_video_studio_shell production.test_scene_uploader_ui_release -v
       - name: Preserve offline Auto Script
         run: |
           python3 - <<'PY'
