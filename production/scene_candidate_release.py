@@ -33,7 +33,15 @@ RECORD = BASE / "control/state/scene-candidate.json"
 STORAGE_CANDIDATE_ENV = Path("/etc/fresh-website/vps-storage-manager.env")
 
 
-def _request(path: str, cookie: str = "", data: bytes | None = None) -> tuple[int, dict[str, str], bytes]:
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Preserve the original anonymous 303 instead of following to login HTML."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _request(path: str, cookie: str = "", data: bytes | None = None,
+             *, follow_redirects: bool = True) -> tuple[int, dict[str, str], bytes]:
     headers = {"Connection": "close"}
     if cookie:
         headers["Cookie"] = cookie
@@ -44,7 +52,10 @@ def _request(path: str, cookie: str = "", data: bytes | None = None) -> tuple[in
         headers=headers,
         data=data,
     )
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        *([] if follow_redirects else [_NoRedirect()]),
+    )
     try:
         with opener.open(request, timeout=12) as response:
             return response.status, dict(response.headers.items()), response.read(300000)
@@ -178,6 +189,25 @@ def _verify_integrations(*, require_storage_backend: bool = False) -> dict:
     anonymous, _, _ = _request("/internal/workspace-auth?app=short-maker")
     if anonymous != 401:
         raise RuntimeError("Scene session bridge does not deny anonymous access")
+    identity_status, identity_headers, identity_body = _request("/api/session/identity", cookie)
+    try:
+        identity = json.loads(identity_body)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("Scene session identity response is invalid") from exc
+    identity_headers = {key.lower(): value for key, value in identity_headers.items()}
+    if (identity_status != 200 or identity.get("authenticated") is not True
+            or identity.get("is_admin") is not True
+            or identity.get("username") != normalized.get("x-auth-user")
+            or "no-store" not in identity_headers.get("cache-control", "")):
+        raise RuntimeError("Scene administrator session identity is unavailable")
+    anonymous_identity, _, _ = _request("/api/session/identity", follow_redirects=False)
+    if anonymous_identity not in {303, 401}:
+        raise RuntimeError("Scene session identity exposed to anonymous visitor")
+    native_status, _, native_js = _request("/static/vps1_native_site_shell.js")
+    if (native_status != 200
+            or b'fetch("/api/session/identity"' not in native_js
+            or b'adminLink.href = "/admin"' not in native_js):
+        raise RuntimeError("Scene native role-aware sidebar JavaScript unavailable")
     pages = {}
     for name, path in (("script_work", "/script-work"), ("storage_manager", "/admin/storage"),
                        ("user_management", "/user-management")):
@@ -243,7 +273,8 @@ def _verify_integrations(*, require_storage_backend: bool = False) -> dict:
             raise RuntimeError("Storage Manager metrics payload is incomplete")
         storage_backend = "CANDIDATE_READ_ONLY_PASS"
     return {"session_bridge": "PASS", "dashboard_no_algrow": "PASS",
-            "user_management_post_csrf": "PASS", "storage_backend": storage_backend, **pages}
+            "native_sidebar_role": "PASS", "user_management_post_csrf": "PASS",
+            "storage_backend": storage_backend, **pages}
 
 
 def _verify_native_ui_release(target: Path) -> None:

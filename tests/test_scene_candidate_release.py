@@ -24,8 +24,22 @@ class SceneCandidateReleaseContract(unittest.TestCase):
         self.assertIn('("user_management", "/user-management")', source)
         self.assertIn('"Invalid user-management action token"', source)
         self.assertIn('user_management_post_csrf', source)
+        self.assertIn('"/api/session/identity"', source)
+        self.assertIn('Scene administrator session identity is unavailable', source)
+        self.assertIn('native_sidebar_role', source)
         self.assertIn('obsolete Algrow Voice dashboard card remains in the API', source)
         self.assertIn('"/api/dashboard/v1"', source)
+
+    def test_anonymous_identity_redirect_cannot_be_followed_to_login(self):
+        from urllib.request import Request
+        from production.scene_candidate_release import _NoRedirect
+        no_redirect = _NoRedirect()
+        req = Request("http://127.0.0.1:18080/api/session/identity")
+        self.assertIsNone(no_redirect.redirect_request(
+            req, None, 303, "See Other", {"Location": "/login"},
+            "http://127.0.0.1:18080/login"))
+        source = (ROOT / "production/scene_candidate_release.py").read_text()
+        self.assertIn('_request("/api/session/identity", follow_redirects=False)', source)
 
     def test_runtime_routes_existing_scene_candidate_to_adapter(self):
         source = (ROOT / "production/runtime.py").read_text()
