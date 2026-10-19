@@ -3747,6 +3747,34 @@ def video_studio_embedded_app(request: Request, studio_app: str):
     return RedirectResponse(url, status_code=303)
 
 
+@app.get("/auto-stream/", response_class=HTMLResponse)
+def canonical_auto_stream(request: Request):
+    """Authenticated public document for the independent Auto Stream service.
+
+    Direct HTML rendering keeps the browser at /auto-stream/ and preserves
+    all /short-stream/engine/* API and Google OAuth callback ownership.
+    Never starts streaming, jobs, uploaders or OAuth flows.
+    """
+    require_login(request)
+    account = user_account(str(request.session.get("username") or ""))
+    if not account or not int(account.get("is_active") or 0):
+        raise HTTPException(403, "Account unavailable")
+    try:
+        upstream = requests.get("http://127.0.0.1:8145/engine/studio", timeout=12)
+        upstream.raise_for_status()
+    except requests.RequestException as exc:
+        raise HTTPException(503, "Auto Stream Studio unavailable") from exc
+    if "text/html" not in upstream.headers.get("Content-Type", ""):
+        raise HTTPException(502, "Unexpected Auto Stream document")
+    import html as _html
+    username = _html.escape(str(account.get("username") or ""), quote=True)
+    assets = ('<meta name="vps1-username" content="' + username + '">'
+              '<link rel="stylesheet" href="/static/vps1_native_site_shell.css?v=20261019-unified-v2">'
+              '<script src="/static/vps1_native_site_shell.js?v=20261019-stream-v1" data-workspace="stream" defer></script>')
+    page = upstream.text.replace("</head>", assets + "</head>", 1)
+    return HTMLResponse(page, headers={"Cache-Control": "no-store, max-age=0"})
+
+
 @app.get("/auto-caption/studio", response_class=HTMLResponse)
 def auto_caption_studio(request: Request):
     account = require_auto_caption_access(request)

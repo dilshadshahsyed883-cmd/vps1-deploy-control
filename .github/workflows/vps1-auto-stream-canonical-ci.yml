@@ -1,0 +1,21 @@
+name: VPS1 Auto Stream canonical page CI
+on:
+  pull_request:
+    paths:
+      - 'apps/scene-builder/part01/**'
+      - 'apps/short-stream/part01/**'
+      - 'apps/local-upload-manager/part01/templates/app.html'
+      - 'production/test_auto_stream_canonical.py'
+      - '.github/workflows/vps1-auto-stream-canonical-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  canonical-stream:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check route and state contracts
+        run: |
+          python3 -m unittest production.test_auto_stream_canonical -v
+          python3 -m py_compile apps/scene-builder/part01/app.py apps/short-stream/part01/auto_stream_ui.py

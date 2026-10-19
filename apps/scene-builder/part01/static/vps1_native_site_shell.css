@@ -63,7 +63,8 @@ body.vps1-native-open #vps1-native-site-sidebar{transform:translateX(0)}
   /* Reserve sidebar real estate before deferred native JS constructs its nodes. */
   html:has(script[data-workspace="uploader"]) body,
   html:has(script[data-workspace="voice"]) body,
-  html:has(script[data-workspace="acs"]) body {
+  html:has(script[data-workspace="acs"]) body,
+  html:has(script[data-workspace="stream"]) body {
     padding-left:var(--vps1-sidebar-width)!important;
     background:linear-gradient(to right,var(--vps1-sidebar-bg) 0 var(--vps1-sidebar-width),#f8fafc var(--vps1-sidebar-width))!important;
   }

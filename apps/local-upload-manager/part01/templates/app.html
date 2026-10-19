@@ -11,7 +11,7 @@
   {% if engine_instance == 'engine1' %}
   <nav class="lum-primary-workspaces" aria-label="Auto Uploader main subtabs">
     <a class="{{ 'active' if tab != 'auto_stream' else '' }}" href="{{ base_path }}/app?tab=dashboard" aria-current="{{ 'page' if tab != 'auto_stream' else 'false' }}">Auto Uploader</a>
-    <a class="{{ 'active' if tab == 'auto_stream' else '' }}" href="{{ base_path }}/app?tab=auto_stream" aria-current="{{ 'page' if tab == 'auto_stream' else 'false' }}">Auto Stream</a>
+    <a class="{{ 'active' if tab == 'auto_stream' else '' }}" href="/auto-stream/" aria-current="{{ 'page' if tab == 'auto_stream' else 'false' }}">Auto Stream</a>
   </nav>
   {% endif %}
   {% if not embedded_view %}
