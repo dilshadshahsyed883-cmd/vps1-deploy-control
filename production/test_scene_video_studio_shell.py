@@ -48,7 +48,7 @@ class SceneVideoStudioShell(unittest.TestCase):
 
     def test_original_scene_navigation_and_video_tabs(self):
         html = (T / "base.html").read_text()
-        for label in ("Dashboard", "Auto Uploader", "Video Studio", "Voice Studio", "Admin"):
+        for label in ("Dashboard", "Upload Studio", "Video Studio", "Voice Studio", "Admin"):
             self.assertIn(label, html)
         for url in ("/scene-builder/", "/auto-caption-studio/",
                     "/short-maker/", "/video-merger/"):
@@ -90,7 +90,7 @@ class SceneVideoStudioShell(unittest.TestCase):
         scene = (SCENE / "templates/base.html").read_text()
         native_css = (SCENE / "static/vps1_native_site_shell.css").read_text()
         native_js = (SCENE / "static/vps1_native_site_shell.js").read_text()
-        self.assertIn('href="/static/vps1_native_site_shell.css?v=20261019-unified-v2"', scene)
+        self.assertIn('href="/static/vps1_native_site_shell.css?v=20261020-upload-studio-v1"', scene)
         self.assertIn('id="app-sidebar" class="sidebar"', scene)
         self.assertIn("--vps1-sidebar-width:214px", native_css)
         self.assertIn("#app-sidebar.sidebar,#vps1-native-site-sidebar", native_css)
@@ -110,13 +110,13 @@ class SceneVideoStudioShell(unittest.TestCase):
         self.assertIn('event.preventDefault()', native)
         self.assertIn('typeof window.vps1VoiceStudioTab !== "function"', native)
         self.assertIn('RedirectResponse("/voice-studio/app", status_code=303)', app)
-        self.assertIn('b"vps1_native_site_shell.js?v=20261019-voice-nav-v2"', app)
-        self.assertIn('b"vps1_native_site_shell.css?v=20261019-unified-v2"', app)
+        self.assertIn('b"vps1_native_site_shell.js?v=20261020-upload-studio-v1"', app)
+        self.assertIn('b"vps1_native_site_shell.css?v=20261020-upload-studio-v1"', app)
         self.assertIn('content=content.replace(b"/tts/",b"/voice-studio/service/tts/")', app)
         voice=(ROOT / "apps/voice-studio/part01/templates/voice_studio.html").read_text()
         first_style=voice.find("<style>")
-        canonical=voice.find('vps1_native_site_shell.css?v=20261019-voice-nav-v2')
-        script=voice.find('vps1_native_site_shell.js?v=20261019-voice-nav-v2')
+        canonical=voice.find('vps1_native_site_shell.css?v=20261020-upload-studio-v1')
+        script=voice.find('vps1_native_site_shell.js?v=20261020-upload-studio-v1')
         self.assertGreater(first_style, canonical)
         self.assertGreater(first_style, script)
         self.assertEqual(voice.count('data-workspace="voice"'), 1)
