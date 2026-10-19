@@ -836,3 +836,8 @@ def home():
 # Independent Auto Stream V1 API. Legacy sessions/routes remain unmodified.
 from auto_stream_engine import router as auto_stream_engine_router
 app.include_router(auto_stream_engine_router)
+
+
+# Auto Stream V2 - separate OAuth, Channels and Sheets Sync routes.
+from auto_stream_integrations import router as auto_stream_integrations_router
+app.include_router(auto_stream_integrations_router)
