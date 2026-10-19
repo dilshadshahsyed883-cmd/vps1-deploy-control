@@ -133,13 +133,20 @@ def smoke(app):
                         raise RuntimeError('four-mode registry incomplete')
                     if modes['cross_mode_uploads_enabled']:
                         raise RuntimeError('unverified cross-mode uploader was enabled')
-                    for mode in ('engine1', 'engine2', 'shorts', 'short_stream'):
+                    for mode in ('engine1', 'engine2', 'shorts'):
                         page = client.get(spec['ui'] + '?tab=auto_engine&auto_mode=' + mode)
                         if page.status_code != 200 or modes['selected_modes'][mode]['label'] not in page.text:
                             raise RuntimeError('isolated Auto Uploader mode view failed: ' + mode)
+                    stream_page = client.get(spec['ui'] + '?tab=auto_stream')
+                    if stream_page.status_code != 200 or 'Independent Auto Stream' not in stream_page.text:
+                        raise RuntimeError('independent Auto Stream subtab is not available')
+                    old_bookmark = client.get(spec['ui'] + '?tab=auto_engine&auto_mode=short_stream')
+                    if old_bookmark.status_code != 303 or not old_bookmark.headers.get('location', '').endswith('?tab=auto_stream'):
+                        raise RuntimeError('legacy stream bookmark did not redirect to independent Auto Stream')
                     if client.get(spec['ui'] + '?tab=auto_engine&auto_mode=../../').status_code != 400:
                         raise RuntimeError('unknown upload mode was accepted')
-                    result['four_mode_isolation_ui'] = 'PASS'
+                    result['three_mode_isolation_ui'] = 'PASS'
+                    result['auto_stream_independent_navigation'] = 'PASS'
                     result['auto_engine_read_only_ui'] = 'PASS'
                     result['web_queue_worker'] = 'PASS'
                 if app == 'voice-studio':

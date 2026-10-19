@@ -28,6 +28,12 @@ class ThreeModeSplitTests(TestCase):
         self.assertIn("No stream is started or changed by opening this tab", ui)
         self.assertIn('href="/short-stream/"', ui)
 
+    def test_real_http_smoke_checks_new_navigation(self):
+        smoke = (Path(__file__).resolve().parents[1] / "production/smoke.py").read_text()
+        self.assertIn("for mode in ('engine1', 'engine2', 'shorts'):", smoke)
+        self.assertIn("stream_page = client.get(spec['ui'] + '?tab=auto_stream')", smoke)
+        self.assertIn("legacy stream bookmark did not redirect", smoke)
+
     def test_independent_services_preserved_and_stream_not_a_fourth_upload_mode(self):
         source = (ROOT / "lum_engine/standalone_app.py").read_text()
         self.assertIn('"auto_stream"}', source)
