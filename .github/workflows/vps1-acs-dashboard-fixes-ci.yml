@@ -40,6 +40,8 @@ jobs:
               path.write_text(script)
               subprocess.run(['node','--check',str(path)],check=True)
           PY
+      - name: Install template parser for existing Jinja regression test
+        run: python3 -m pip install 'Jinja2==3.1.6'
       - name: Run focused integration regression tests
         run: python3 -m unittest production.test_acs_live_dashboard_guardrails production.test_scene_video_studio_shell -v
       - name: Preserve offline Auto Script
