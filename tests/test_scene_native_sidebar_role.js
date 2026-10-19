@@ -84,6 +84,16 @@ function boot(workspace, role) {
     account: () => all(body).find(e => e.className === "vps1-native-account"),
     update: async (next) => {identity = next;await winEvents.pageshow();},
     hideAndRestore: async () => {document.hidden=false;await listeners.visibilitychange();},
+    voiceNavigation: (options={}) => {
+      const link = all(body).find(e => e.tag === "a" && e.href === "/voice-studio/app#vps1-production");
+      assert.ok(link, "canonical Voice Studio link missing");
+      let prevented=false;
+      const event = {button:0,defaultPrevented:false,
+        preventDefault:()=>{prevented=true},...options};
+      link.listeners?.click?.(event);
+      return prevented;
+    },
+    enableVoiceTab: fn => {window.vps1VoiceStudioTab = fn},
   };
 }
 
@@ -127,3 +137,26 @@ for (const workspace of ["uploader", "voice", "acs"]) {
     assert.equal(h.account().hidden, true);
   });
 }
+
+test("voice native menu uses in-page tab activation instead of document reload", async () => {
+  const h=boot("voice",{authenticated:true,is_admin:true,username:"owner"});
+  await h.tick();
+  const chosen=[];
+  h.enableVoiceTab(tab=>{chosen.push(tab);return false});
+  assert.equal(h.voiceNavigation(),true);
+  assert.deepEqual(chosen,["production"]);
+  assert.equal(h.voiceNavigation({ctrlKey:true}),false);
+  assert.equal(h.voiceNavigation({button:1}),false);
+  assert.equal(h.voiceNavigation({metaKey:true}),false);
+  assert.equal(h.voiceNavigation({defaultPrevented:true}),false);
+  assert.deepEqual(chosen,["production"]);
+  h.enableVoiceTab(null);
+  assert.equal(h.voiceNavigation(),false);
+});
+test("other workspaces link directly to Voice Studio without interception", async () => {
+  for(const workspace of ["acs","uploader"]){
+    const h=boot(workspace,{authenticated:true,is_admin:false,username:"editor"});
+    await h.tick();
+    assert.equal(h.voiceNavigation(),false);
+  }
+});
