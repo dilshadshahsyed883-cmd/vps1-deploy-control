@@ -157,3 +157,9 @@ body.vps1-native-open #vps1-native-site-sidebar{transform:translateX(0)}
 /* Keep the nav snapshot stable while the independent page document loads. */
 ::view-transition-old(vps1-global-sidebar),
 ::view-transition-new(vps1-global-sidebar) {animation-duration:0.01ms;mix-blend-mode:normal}
+
+/* Voice HTML is large; hide the upstream's old sidebar before deferred JS
+   builds native navigation. Preserve the 214px shared left gutter. */
+html:has(script[data-workspace="voice"]) .vps3-main-sidebar{display:none!important}
+html:has(script[data-workspace="voice"]) .vps3-layout{display:block!important;min-height:auto!important}
+html:has(script[data-workspace="voice"]) .vps3-main-column{width:100%!important;min-width:0!important}
