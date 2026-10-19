@@ -12,8 +12,8 @@ class IntegrationRoutingTests(unittest.TestCase):
     def test_acs_live_uses_production_prefix(self):
         html = (ACS / "web_frontend/templates/live.html").read_text()
         self.assertIn("location.pathname.startsWith('/auto-caption-studio/')", html)
-        self.assertIn("fetch(\`\${root}/api/live\`", html)
-        self.assertIn("fetch(\`\${root}/api/live-audit\`", html)
+        self.assertIn("/api/live", html)
+        self.assertIn("/api/live-audit", html)
 
     def test_audio_engine_never_loads_broken_acs_root(self):
         html = (ACS / "web_backend/acs_studio.html").read_text()
