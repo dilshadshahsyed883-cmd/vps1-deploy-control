@@ -340,7 +340,18 @@ def _api_guard(action):
 
 @router.get("/integrations/health")
 def integrations_health():
-    return {"ok": True, "oauth_configured": _configured(),
+    try:
+        _cipher()
+        vault_ready = True
+    except ValueError:
+        vault_ready = False
+    try:
+        _configuration()
+        client_ready = True
+    except ValueError:
+        client_ready = False
+    return {"ok": True, "oauth_configured": client_ready and vault_ready,
+            "vault_ready": vault_ready, "google_client_ready": client_ready,
             "channels_connected": sum(c["authorized"] for c in accounts().channel_catalog()),
             "sheets_readonly": True, "youtube_mutations_enabled": False,
             "publishing_enabled": os.environ.get("AUTO_STREAM_PUBLISH_ENABLED") == "1"}
