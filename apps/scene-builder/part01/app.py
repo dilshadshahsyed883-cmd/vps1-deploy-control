@@ -3633,13 +3633,26 @@ async def storage_pexels_keys_update(request: Request):
 
 @app.get("/api/admin/storage/capabilities")
 def storage_capabilities(request: Request):
-    """Administrator-only, authenticated backend capability negotiation.
+    """Admin-only capability probe; absent old capability API stays read-only.
 
-    A missing/older manager fails closed in the UI; no mutation authorization
-    is implied by availability of the read-only VPS dashboard.
+    The installed isolated Storage candidate predates /v1/capabilities.
+    Its authenticated metrics endpoint may still be used, but never infer
+    permission for cleanup, policies, service start or scheduled writes.
+    Only an exact 404 on capability discovery admits legacy read-only mode.
     """
     require_admin(request)
-    return storage_manager_request("GET", "/v1/capabilities", timeout=5)
+    try:
+        return storage_manager_request("GET", "/v1/capabilities", timeout=5)
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        # A missing manager or bad credentials must remain a 503/403, not a
+        # fabricated healthy connection. Authenticate against real metrics.
+        legacy = storage_manager_request("GET", "/v1/metrics", timeout=5)
+        if not isinstance(legacy, dict) or not isinstance(legacy.get("disk"), dict):
+            raise HTTPException(502, "Legacy Storage Manager metrics unavailable")
+        return {"ok": True, "read_only": True, "can_modify": False,
+                "legacy_candidate": True}
 
 
 @app.get("/api/admin/storage/metrics")
