@@ -217,6 +217,36 @@ class RoleBehaviorTests(unittest.TestCase):
         self.assertIn('require_admin(request)\n    expected', app_source)
         self.assertIn("Invalid user-management action token", app_source)
 
+    def test_live_scene_identity_uses_db_role_not_stale_session(self):
+        class JsonResponse:
+            def __init__(self, data, headers=None):
+                self.data = data
+                self.headers = headers or {}
+        func = get_function("scene_session_identity", {
+            **self.bindings,
+            "require_login": lambda req: None if req.session.get("authenticated") else
+                (_ for _ in ()).throw(HTTPException(401, "Login required")),
+            "user_account": self.account,
+            "JSONResponse": JsonResponse,
+        })
+        req = self.request("editor", admin=True)
+        role = func(req)
+        self.assertTrue(role.data["authenticated"])
+        self.assertFalse(role.data["is_admin"])  # A stale session cannot escalate.
+        self.assertEqual(role.data["username"], "editor")
+        self.assertEqual(role.headers["Cache-Control"], "private, no-store")
+        self.assertEqual(role.headers["Vary"], "Cookie")
+        req.session["username"] = "owner"
+        self.assertTrue(func(req).data["is_admin"])
+        req.session["username"] = "missing-user"
+        with self.assertRaises(HTTPException) as missing:
+            func(req)
+        self.assertEqual(missing.exception.status_code, 401)
+        req.session["authenticated"] = False
+        with self.assertRaises(HTTPException) as anonymous:
+            func(req)
+        self.assertEqual(anonymous.exception.status_code, 401)
+
     def test_ui_only_two_roles_and_admin_sidebar_guard(self):
         self.assertIn('name="role"', TEMPLATE)
         self.assertIn('value="non_admin"', TEMPLATE)
