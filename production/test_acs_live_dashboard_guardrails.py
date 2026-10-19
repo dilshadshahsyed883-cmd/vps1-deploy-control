@@ -78,5 +78,66 @@ class IntegrationRoutingTests(unittest.TestCase):
             self.assertIn(rel, FILES)
 
 
+    def _isolated_storage_capabilities(self, backend):
+        """Execute the actual Scene endpoint code with inert offline dependencies."""
+        source = ast.parse((SCENE / "app.py").read_text())
+        node = next(x for x in source.body
+                    if isinstance(x, ast.FunctionDef) and x.name == "storage_capabilities")
+        node.decorator_list = []
+        isolated = ast.fix_missing_locations(ast.Module(body=[node], type_ignores=[]))
+        class ProbeError(Exception):
+            def __init__(self, status_code, detail="probe error"):
+                super().__init__(detail)
+                self.status_code = status_code
+        calls = []
+        def require_admin(_request):
+            calls.append("admin")
+        def request(method, path, timeout=5):
+            calls.append((method, path))
+            return backend(method, path, ProbeError)
+        scope = {"Request": object, "HTTPException": ProbeError,
+                 "require_admin": require_admin, "storage_manager_request": request}
+        exec(compile(isolated, "isolated-storage-capability", "exec"), scope)
+        return scope["storage_capabilities"], calls, ProbeError
+
+    def test_storage_legacy_capability_404_falls_back_only_to_authenticated_metrics(self):
+        def backend(_method, path, error):
+            if path == "/v1/capabilities":
+                raise error(404)
+            self.assertEqual(path, "/v1/metrics")
+            return {"disk": {"free": 4096}}
+        endpoint, calls, _ = self._isolated_storage_capabilities(backend)
+        self.assertEqual(endpoint(object()),
+                         {"ok": True, "read_only": True, "can_modify": False,
+                          "legacy_candidate": True})
+        self.assertEqual(calls, ["admin", ("GET", "/v1/capabilities"),
+                                 ("GET", "/v1/metrics")])
+
+    def test_storage_legacy_fallback_rejects_other_errors_and_invalid_metrics(self):
+        for status in (401, 403, 500, 503):
+            def backend(_method, _path, error):
+                raise error(status)
+            endpoint, calls, err = self._isolated_storage_capabilities(backend)
+            with self.assertRaises(err) as caught:
+                endpoint(object())
+            self.assertEqual(caught.exception.status_code, status)
+            self.assertEqual(calls, ["admin", ("GET", "/v1/capabilities")])
+        def invalid(_method, path, error):
+            return {"ok": True} if path == "/v1/metrics" else (_ for _ in ()).throw(error(404))
+        endpoint, calls, err = self._isolated_storage_capabilities(invalid)
+        with self.assertRaises(err) as caught:
+            endpoint(object())
+        self.assertEqual(caught.exception.status_code, 502)
+
+    def test_storage_modern_capabilities_unchanged(self):
+        def backend(_method, _path, _error):
+            return {"ok": True, "read_only": True, "can_modify": False}
+        endpoint, calls, _ = self._isolated_storage_capabilities(backend)
+        self.assertEqual(endpoint(object()), {"ok": True, "read_only": True,
+                                              "can_modify": False})
+        self.assertEqual(calls, ["admin", ("GET", "/v1/capabilities")])
+
+
+
 if __name__ == "__main__":
     unittest.main()
