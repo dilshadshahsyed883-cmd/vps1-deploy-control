@@ -12,6 +12,7 @@ on:
       - 'production/scene_uploader_ui_release.py'
       - 'production/test_acs_live_dashboard_guardrails.py'
       - 'production/test_scene_uploader_ui_release.py'
+      - '.github/workflows/vps1-acs-audio-card-release.yml'
       - '.github/workflows/vps1-acs-dashboard-fixes-ci.yml'
 permissions:
   contents: read

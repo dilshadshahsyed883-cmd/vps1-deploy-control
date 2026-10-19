@@ -1,6 +1,8 @@
 """Focused offline regressions for the October ACS/Storage/Dashboard repair."""
 from pathlib import Path
 import ast
+import shutil
+import subprocess
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +25,58 @@ class IntegrationRoutingTests(unittest.TestCase):
         self.assertIn("fetch('/audio-engine/app'", html)
         self.assertIn("frame.src = '/audio-engine/app'", html)
         self.assertIn('id="internalAudioEngineCard"', html)
+
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js required for browser DOM contract")
+    def test_voice_profiles_cannot_replace_the_audio_engine_card(self):
+        html = (ACS / "web_backend/acs_studio.html").read_text()
+        self.assertEqual(html.count('id="acsVoiceProfilesList"'), 1)
+        self.assertEqual(html.count('id="internalAudioEngineCard"'), 1)
+        self.assertLess(html.index('id="acsVoiceProfilesList"'),
+                        html.index('id="internalAudioEngineCard"'))
+        fn = "function renderVoiceProfiles(){" + html.split(
+            "function renderVoiceProfiles(){", 1)[1].split(
+                "function updateVoiceSelects(){", 1)[0]
+        self.assertIn("document.getElementById('acsVoiceProfilesList')", fn)
+        self.assertNotIn("querySelector('.grid.g2 + .card')", fn)
+        script = """
+        const vm = require('node:vm');
+        const source = process.argv[1];
+        const cards = {
+          acsVoiceProfilesList: {innerHTML:'BEFORE',querySelectorAll:()=>[]},
+          internalAudioEngineCard: {innerHTML:'ENGINE_CONTROLS_INTACT'}
+        };
+        const context = {
+          document:{getElementById:id=>{
+            if (!(id in cards)) throw new Error('unexpected target '+id);
+            return cards[id];
+          }},
+          appState:{voices:[{id:'voice',name:'Test Voice',language:'en',
+              model:'example',stability:50,similarity:50,enabled:true}]},
+          esc:x=>String(x),updateVoiceSelects:()=>{}
+        };
+        vm.runInNewContext(source+'; renderVoiceProfiles();',context,
+          {timeout:1000});
+        if (!cards.acsVoiceProfilesList.innerHTML.includes('Test Voice'))
+          throw new Error('Profile list did not render');
+        if (cards.internalAudioEngineCard.innerHTML!=='ENGINE_CONTROLS_INTACT')
+          throw new Error('Audio Engine controls were erased');
+        console.log('ACS_PROFILE_RENDER_PRESERVES_AUDIO_ENGINE=PASS');
+        """
+        result = subprocess.run(
+            ["node", "-e", script, fn], capture_output=True, text=True, timeout=8
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("ACS_PROFILE_RENDER_PRESERVES_AUDIO_ENGINE=PASS", result.stdout)
+
+    def test_acs_audio_card_release_is_acs_only(self):
+        workflow = (ROOT / ".github/workflows/vps1-acs-audio-card-release.yml").read_text()
+        self.assertIn("[vps1-acs-audio-card-release]", workflow)
+        self.assertIn("install $SOURCE_SHA auto-caption-studio", workflow)
+        self.assertNotIn("install $SOURCE_SHA local-upload-manager", workflow)
+        self.assertNotIn("install $SOURCE_SHA scene-builder", workflow)
+        self.assertIn("ACS_AUDIO_ENGINE_CARD_SOURCE=PASS", workflow)
+        self.assertIn("AUDIO_SYNTHESIS_UAT=NOT_PROVEN", workflow)
 
     def test_dashboard_actual_service_names_and_no_fake_failures(self):
         path = SCENE / "app.py"
