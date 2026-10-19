@@ -41,16 +41,7 @@ label { display: block !important; margin-bottom: var(--sb-spacing-sm) !importan
     </div>
     {% if user %}
     <div class="app-userbar">
-      {% if user.is_admin %}
-      <form class="admin-mode-toggle" method="post" action="{{ base_path }}/mode" aria-label="Administrator interface mode">
-        <input type="hidden" name="csrf_token" value="{{ csrf }}">
-        <button name="mode" value="simple" type="submit" class="{{ 'active' if user.effective_ui_mode == 'simple' else '' }}">Simple</button>
-        <button name="mode" value="heavy" type="submit" class="{{ 'active' if user.effective_ui_mode == 'heavy' else '' }}">Heavy</button>
-      </form>
-      <span class="access-pill">Administrator · Both modes</span>
-      {% else %}
-      <span class="mode-pill">{{ user.effective_ui_mode|capitalize }} mode</span>
-      {% endif %}
+      {% if user.is_admin %}<span class="access-pill">Administrator</span>{% endif %}
       <strong class="user-name">{{ user.username }}</strong>
       {% if user.is_admin and not suite_auth %}<a href="{{ base_path }}/users">Users</a>{% endif %}
       {% if suite_auth %}

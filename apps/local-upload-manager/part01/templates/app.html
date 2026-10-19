@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Auto Uploader{% endblock %}
-{% block subtitle %}Main web integrated · {{ mode|capitalize }} mode{% endblock %}
+{% block subtitle %}Main web integrated{% endblock %}
 {% block content %}
 <div class="lum-shell" data-mode="{{ mode }}" data-ui-patch="LUM_AUTOMATION_QUEUE_STICKY_UI_V1">
   {% if message %}<div class="lum-alert success">{{ message }}</div>{% endif %}
@@ -8,7 +8,7 @@
 
   <section class="lum-statusbar">
     <div class="lum-status-primary">
-      <div class="lum-status-left"><strong>Auto Uploader</strong><span class="lum-badge good">{{ 'Main web connected' if suite_auth else 'Standalone online' }}</span>{% if suite_auth %}<span class="lum-badge brand">Shared login</span>{% else %}<span class="lum-badge brand">Standalone auth</span>{% endif %}{% if not user.is_admin %}<span class="lum-badge">{{ mode|capitalize }} UI</span>{% endif %}</div>
+      <div class="lum-status-left"><strong>Auto Uploader</strong><span class="lum-badge good">{{ 'Main web connected' if suite_auth else 'Standalone online' }}</span>{% if suite_auth %}<span class="lum-badge brand">Shared login</span>{% else %}<span class="lum-badge brand">Standalone auth</span>{% endif %}</div>
 
     </div>
     <div class="lum-status-meta"><span>Serial uploader</span><strong>1 active</strong><span>Verified cleanup</span><strong>{{ 'ON' if health.verified_cleanup else 'OFF' }}</strong></div>
@@ -16,10 +16,6 @@
 
   <div class="lum-tabs-shell" data-lum-sticky-tabs>
 <nav class="lum-tabs" aria-label="Auto Uploader workspace">
-    {% if mode == 'simple' %}
-      <a class="{{ 'active' if tab=='upload' else '' }}" href="{{ base_path }}/app?tab=upload">Upload Video</a>
-      <a class="{{ 'active' if tab=='authentication' else '' }}" href="{{ base_path }}/app?tab=authentication">Authentication</a>
-    {% else %}
       <a class="{{ 'active' if tab=='dashboard' else '' }}" href="{{ base_path }}/app?tab=dashboard">Dashboard</a>
       <a class="{{ 'active' if tab=='channels' else '' }}" href="{{ base_path }}/app?tab=channels">Channels</a>
       <a class="{{ 'active' if tab=='sheets' else '' }}" href="{{ base_path }}/app?tab=sheets">Sheets Sync</a>
@@ -28,15 +24,7 @@
       <a class="{{ 'active' if tab=='bulk_import' else '' }}" href="{{ base_path }}/app?tab=bulk_import">Bulk Import</a>
       <a class="{{ 'active' if tab=='queue' else '' }}" href="{{ base_path }}/app?tab=queue">Queue</a>
       <a class="{{ 'active' if tab=='logs' else '' }}" href="{{ base_path }}/app?tab=logs">Logs</a>
-    {% endif %}
   </nav>
-  {% if user.is_admin %}
-  <form class="lum-mode-toggle" method="post" action="{{ base_path }}/mode" aria-label="Simple or Heavy interface mode">
-        <input type="hidden" name="csrf_token" value="{{ csrf }}">
-        <button name="mode" value="simple" type="submit" class="{{ 'active' if mode == 'simple' else '' }}">Simple</button>
-        <button name="mode" value="heavy" type="submit" class="{{ 'active' if mode == 'heavy' else '' }}">Heavy</button>
-      </form>
-  {% endif %}
 </div>
 
   {% macro upload_form(simple=False) %}
@@ -349,17 +337,11 @@
   </tbody></table></div>
   {% endmacro %}
 
-  {% if mode == 'simple' and tab == 'upload' %}
-    {{ upload_form(True) }}
-    <section class="lum-card lum-queue-preview"><div class="lum-card-head"><div><h2>Your VPS queue</h2><p>One project uploads; the rest wait safely on the VPS.</p></div><span class="lum-badge brand">{{ stats.counts.WAITING or 0 }} waiting</span></div>{{ queue_table(True) }}</section>
-    {{ reports_panel() }}
-  {% elif mode == 'simple' and tab == 'authentication' %}
-    {{ auth_panel(True) }}
-  {% elif mode == 'heavy' and tab == 'dashboard' %}
+  {% if tab == 'dashboard' %}
     <div class="lum-metrics"><div><span>Total projects</span><strong>{{ stats.counts.TOTAL or 0 }}</strong></div><div><span>Waiting</span><strong>{{ stats.counts.WAITING or 0 }}</strong></div><div><span>Active</span><strong>{{ stats.counts.ACTIVE or 0 }}</strong></div><div><span>Completed</span><strong>{{ stats.counts.COMPLETED or 0 }}</strong></div><div><span>Channels</span><strong>{{ stats.channels or 0 }}</strong></div></div>
     <div class="lum-grid lum-two"><section class="lum-card"><div class="lum-card-head"><div><h2>Serial engine</h2><p>Current production contract.</p></div><span class="lum-badge {{ 'good' if stats.engine_enabled else 'warn' }}">{{ 'Running' if stats.engine_enabled else 'Paused' }}</span></div><dl class="lum-kv"><div><dt>Concurrent uploads</dt><dd>1 · safety locked</dd></div><div><dt>Remote verification</dt><dd>Required</dd></div><div><dt>Drive source deletion</dt><dd>Protected / OFF</dd></div><div><dt>VPS cleanup</dt><dd>After verified upload</dd></div></dl></section><section class="lum-card"><div class="lum-card-head"><div><h2>Future modes</h2><p>Capabilities remain retained rather than removed.</p></div></div><form method="post" action="{{ base_path }}/actions/settings"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label class="lum-switch"><span><strong>Sheets Sync</strong><small>Desktop-compatible source inventory mode</small></span><input type="hidden" name="sheets_sync_enabled" value="0"><input type="checkbox" name="sheets_sync_enabled" value="1" {% if stats.settings.sheets_sync_enabled=='1' %}checked{% endif %}></label><label class="lum-switch"><span><strong>Auto Engine</strong><small>Preserved; OFF for current single-upload workflow</small></span><input type="hidden" name="auto_engine_enabled" value="0"><input type="checkbox" name="auto_engine_enabled" value="1" {% if stats.settings.auto_engine_enabled=='1' %}checked{% endif %}></label><label class="lum-switch"><span><strong>Bulk Import</strong><small>Preserved; OFF for current single-upload workflow</small></span><input type="hidden" name="bulk_import_enabled" value="0"><input type="checkbox" name="bulk_import_enabled" value="1" {% if stats.settings.bulk_import_enabled=='1' %}checked{% endif %}></label><input type="hidden" name="delete_staged_after_verified" value="1"><button class="lum-button" type="submit">Save modes</button></form></section></div>
     {{ reports_panel() }}
-  {% elif mode == 'heavy' and tab == 'channels' %}
+  {% elif tab == 'channels' %}
     <section class="lum-channel-subnav" aria-label="Channels workspace">
       <button type="button" class="active" data-lum-channel-panel-target="manager">Channel Manager</button>
       <button type="button" data-lum-channel-panel-target="accounts">Accounts & Tokens</button>
@@ -570,7 +552,7 @@
       </section>
     </div>
     {% endif %}
-{% elif mode == 'heavy' and tab == 'sheets' %}
+{% elif tab == 'sheets' %}
     <section class="lum-card">
       <div class="lum-card-head">
         <div>
@@ -686,7 +668,7 @@
         <div class="lum-empty">No Google Sheet source saved yet.</div>
       {% endif %}
     </section>
-{% elif mode == 'heavy' and tab == 'auto_engine' %}
+{% elif tab == 'auto_engine' %}
     <section class="lum-card">
       <div class="lum-card-head">
         <div><h2>Unified Auto Uploader · Four Modes</h2>
@@ -1068,13 +1050,13 @@
       </section>
     {% endif %}
 
-{% elif mode == 'heavy' and tab == 'add_video' %}
+{% elif tab == 'add_video' %}
     {{ upload_form(False) }}
-  {% elif mode == 'heavy' and tab == 'bulk_import' %}
+  {% elif tab == 'bulk_import' %}
     <section class="lum-card"><div class="lum-card-head"><div><h2>Bulk Import</h2><p>Desktop feature retained behind a mode toggle. Current production remains single-project submission.</p></div><span class="lum-badge {{ 'good' if stats.settings.bulk_import_enabled=='1' else 'warn' }}">{{ 'Enabled' if stats.settings.bulk_import_enabled=='1' else 'Mode OFF' }}</span></div><div class="lum-disabled-grid"><label class="lum-field"><span>Import source</span><input disabled placeholder="Future bulk source"></label><label class="lum-field"><span>Target group</span><select disabled><option>Select group</option></select></label><button class="lum-button" disabled>Preview Import</button><button class="lum-button primary" disabled>Add to Queue</button></div><div class="lum-note">Bulk items will be expanded into independent single-video VPS projects rather than creating a second upload engine.</div></section>
-  {% elif mode == 'heavy' and tab == 'queue' %}
+  {% elif tab == 'queue' %}
     <section class="lum-card"><div class="lum-card-head"><div><h2>Queue</h2><p>Crash-safe desktop upload states wrapped by Drive staging, remote verification and verified cleanup.</p></div><div class="lum-actions"><form method="post" action="{{ base_path }}/actions/pause-after-current"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button" type="submit">Pause After Current</button></form><form method="post" action="{{ base_path }}/actions/stop-current"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button danger" type="submit">Safe Stop Current</button></form><form method="post" action="{{ base_path }}/actions/resume"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button primary" type="submit">Resume</button></form></div></div>{{ queue_table(False) }}</section>
-  {% elif mode == 'heavy' and tab == 'logs' %}
+  {% elif tab == 'logs' %}
     <section class="lum-card"><div class="lum-card-head"><div><h2>Logs</h2><p>Auto Uploader events only.</p></div></div><div class="lum-log">{% for e in logs %}<div><time>{{ e.created_at }}</time><b class="l-{{ e.level|lower }}">{{ e.level }}</b><span>{% if e.project_id %}#{{ e.project_id }} · {% endif %}{{ e.message }}</span></div>{% else %}<div>No logs yet.</div>{% endfor %}</div></section>
   {% endif %}
 </div>
