@@ -243,6 +243,47 @@ def apply_plan(root: Path, plan: dict[str, Any], *, now: float | None = None,
     return {"deleted": deleted, "skipped": skipped, "estimated_removed_bytes": freed}
 
 
+def prune_disposable_caches(now: float | None = None) -> dict[str, Any]:
+    """Only unused aged Docker build cache and age-verified pip downloads."""
+    now = time.time() if now is None else now
+    results: dict[str, Any] = {"pip_removed_bytes": 0, "docker": "not-installed", "warnings": []}
+    pip = Path("/home/ubuntu/.cache/pip")
+    deadline = now - MIN_AGE_HOURS * 3600
+    if pip.is_dir() and not pip.is_symlink():
+        try:
+            dev = pip.stat().st_dev
+            for directory, dirs, files in os.walk(pip, followlinks=False):
+                dirs[:] = [x for x in dirs if not (Path(directory) / x).is_symlink()]
+                for name in files:
+                    item = Path(directory) / name
+                    try:
+                        stat = item.lstat()
+                        if (item.is_symlink() or not item.is_file() or
+                                stat.st_dev != dev or stat.st_nlink != 1 or
+                                stat.st_mtime > deadline or name.endswith(".lock")):
+                            continue
+                        results["pip_removed_bytes"] += stat.st_blocks * 512
+                        item.unlink()
+                    except OSError as exc:
+                        results["warnings"].append("pip: " + type(exc).__name__)
+        except OSError as exc:
+            results["warnings"].append("pip inventory: " + type(exc).__name__)
+    if shutil.which("docker"):
+        try:
+            done = subprocess.run(
+                ["docker", "builder", "prune", "--all", "--force",
+                 "--filter", "until=12h"], text=True, capture_output=True,
+                check=False, timeout=600,
+            )
+            results["docker"] = "done" if done.returncode == 0 else "failed"
+            if done.returncode:
+                results["warnings"].append("docker cache cleanup failed")
+        except (OSError, subprocess.TimeoutExpired):
+            results["docker"] = "failed"
+            results["warnings"].append("docker cache cleanup timeout/unavailable")
+    return results
+
+
 def _record_audit(state: Path, payload: dict[str, Any]) -> None:
     state.mkdir(parents=True, exist_ok=True, mode=0o750)
     target = state / "deployment-gc-history.jsonl"
@@ -284,6 +325,8 @@ def execute(root: Path = BASE, *, apply: bool = False, state: Path = STATE,
             if not test_mode and before < MIN_FREE_BYTES:
                 raise RuntimeError("low-space incident: manual recovery required")
             result["outcome"] = apply_plan(root, plan, now=now, unit_dir=unit_dir, test_mode=test_mode)
+            if not test_mode:
+                result["cache"] = prune_disposable_caches(now=now)
             result["free_after_bytes"] = shutil.disk_usage(root).free
         if apply and not test_mode:
             _record_audit(state, {
@@ -291,7 +334,7 @@ def execute(root: Path = BASE, *, apply: bool = False, state: Path = STATE,
                 "deleted": result["outcome"]["deleted"], "skipped": result["outcome"]["skipped"],
                 "free_before_bytes": before, "free_after_bytes": result["free_after_bytes"],
                 "estimated_removed_bytes": result["outcome"]["estimated_removed_bytes"],
-                "excluded": len(plan["excluded"]),
+                "excluded": len(plan["excluded"]), "cache": result.get("cache", {}),
             })
         return result
 
