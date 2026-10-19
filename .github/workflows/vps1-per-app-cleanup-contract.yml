@@ -1,0 +1,26 @@
+name: VPS1 per-app Drive-verified cleanup contract
+on:
+  pull_request:
+    paths:
+      - "apps/**"
+      - "docs/PER_APP_OUTPUT_LIFECYCLE_V1.md"
+      - "tests/test_verified_drive_cleanup_contract.py"
+      - ".github/workflows/vps1-per-app-cleanup-contract.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/**"
+      - "docs/PER_APP_OUTPUT_LIFECYCLE_V1.md"
+      - "tests/test_verified_drive_cleanup_contract.py"
+      - ".github/workflows/vps1-per-app-cleanup-contract.yml"
+jobs:
+  per-app-cleanup-contract:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m unittest discover -s tests -p test_verified_drive_cleanup_contract.py -v

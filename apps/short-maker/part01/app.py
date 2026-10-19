@@ -342,9 +342,16 @@ def deliver_outputs(job_id: str, created: list, cfg: dict, job_dir: Path):
         delivered.append(row)
     set_state(job_id,delivery_status="verified",drive_verified=True,drive_folder=remote_dir,message="Drive verified · preparing safe cleanup")
     if cfg.get("verified_clean",True):
-        shutil.rmtree(job_dir / "input",ignore_errors=True)
-        shutil.rmtree(job_dir / "outputs",ignore_errors=True)
-        shutil.rmtree(job_dir / "drive_input",ignore_errors=True)
+        # Only this job's known disposable folders; never touch shared models,
+        # application data, credentials or an unrelated user's project.
+        cleanup_targets = ("input", "outputs", "drive_input", "temp", "tmp",
+                           "cache", "work", "intermediate", "previews")
+        for folder in cleanup_targets:
+            target = job_dir / folder
+            if target.is_symlink():
+                raise RuntimeError("Unsafe symlink in job cleanup: " + folder)
+            if target.is_dir():
+                shutil.rmtree(target)
         for row in delivered:
             row["local_available"]=False
             row["url"]=""
@@ -636,7 +643,7 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
  <div class="drive-delivery">
   <label class="checkline"><input id="uploadToDrive" name="upload_to_drive" type="checkbox" checked> <b>Upload final output(s) to Google Drive</b></label>
   <div class="field"><label>Drive output folder</label><input id="driveOutputPath" name="drive_output_path" value="gdrive:Short_Maker/Outputs"></div>
-  <label class="checkline"><input id="verifiedClean" name="verified_clean" type="checkbox" checked> <b>Drive verified clean</b> — delete this job's local input/output only after every final MP4 matches Drive size + MD5.</label>
+  <label class="checkline"><input id="verifiedClean" name="verified_clean" type="checkbox" checked disabled> <b>Drive verified clean</b> — delete this job's local input/output only after every final MP4 matches Drive size + MD5.</label>
  </div>
  <button id="render" class="render" type="submit">Start Rendering</button>
  <div class="progress"><span id="bar"></span></div>
@@ -782,6 +789,8 @@ async def create_job(
             raise HTTPException(status_code=400,detail=str(exc))
     else:
         verified_clean=False
+    if upload_to_drive:
+        verified_clean=True  # Master rule: verified Drive output always cleans job-local data.
     if video_duration <= 0 or image_duration <= 0:
         raise HTTPException(status_code=400, detail="Durations must be greater than zero.")
     if output_count < 1 or output_count > 999:
