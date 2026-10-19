@@ -841,3 +841,7 @@ app.include_router(auto_stream_engine_router)
 # Auto Stream V2 - separate OAuth, Channels and Sheets Sync routes.
 from auto_stream_integrations import router as auto_stream_integrations_router
 app.include_router(auto_stream_integrations_router)
+
+# Auto Stream browser controls (independent of the legacy Short Stream screen).
+from auto_stream_ui import router as auto_stream_ui_router
+app.include_router(auto_stream_ui_router)
