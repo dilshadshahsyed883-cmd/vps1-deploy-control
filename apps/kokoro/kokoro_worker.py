@@ -124,7 +124,7 @@ def verified_copy(local:Path,remote:str):
 def deliver_once():
  if not RCLONE or not Path(RCFILE).is_file():return
  with db() as c:
-  row=c.execute("select * from jobs where status='completed' and delivery_status!='delivered' and next_delivery_retry<=? order by created_at limit 1",(time.time(),)).fetchone()
+  row=c.execute("select * from jobs where status='completed' and delivery_status not in ('delivered','cleaned') and next_delivery_retry<=? order by created_at limit 1",(time.time(),)).fetchone()
  if row is None:return
  jid=row['job_id'];txt=Path(row['input_file']);wav=Path(row['wav_file'] or '')
  if not txt.is_file() or not wav.is_file():
@@ -143,6 +143,28 @@ def deliver_once():
   failure=('verification_size_mismatch' if isinstance(exc,RuntimeError) and str(exc)=='Drive size verification failed' else (str(exc).split(':',1)[1] if isinstance(exc,RuntimeError) and str(exc).startswith('Drive operation unsuccessful:') else type(exc).__name__))
   update(jid,delivery_status='retry_pending',delivery_retries=retries,next_delivery_retry=time.time()+delay,delivery_error=failure)
   print('KOKORO_DRIVE_RETRY='+jid+'|CATEGORY='+failure+'|DELAY_SEC='+str(delay),flush=True)
+
+def cleanup_delivered(limit=5):
+ """Delete only finished Kokoro job payloads after verified Drive text+audio."""
+ with db() as c:
+  rows=c.execute("""select * from jobs where status='completed'
+    and delivery_status='delivered' and drive_txt!='' and drive_wav!=''
+    order by created_at limit ?""",(limit,)).fetchall()
+ removed=0
+ for row in rows:
+  jid=str(row['job_id'])
+  if not re.fullmatch(r'KOJ-[A-F0-9]{16}',jid):continue
+  folder=DATA/'jobs'/jid
+  if folder.is_symlink() or folder.resolve().parent!=(DATA/'jobs').resolve():continue
+  files=(Path(str(row['input_file'])),Path(str(row['wav_file'])))
+  if any(p.is_symlink() or p.parent.resolve()!=folder.resolve() for p in files):continue
+  try:
+   if folder.exists():shutil.rmtree(folder)
+   update(jid,delivery_status='cleaned')
+   removed+=1
+  except (OSError,ValueError) as exc:
+   print('KOKORO_LOCAL_CLEANUP_RETAINED='+jid+'|'+type(exc).__name__,flush=True)
+ return removed
 
 def main():
  if not MODEL.is_file() or not VOICES.is_file():raise SystemExit('Models missing')
@@ -164,6 +186,7 @@ def main():
    if job:process_job(engine,job)
    else:
     deliver_once()
+    cleanup_delivered()
     time.sleep(4)
   except Exception as exc:
    print('KOKORO_LOOP_ERROR='+type(exc).__name__,flush=True)

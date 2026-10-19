@@ -5,6 +5,7 @@ on:
       - "apps/**"
       - "docs/PER_APP_OUTPUT_LIFECYCLE_V1.md"
       - "tests/test_verified_drive_cleanup_contract.py"
+      - "tests/test_voice_drive_cleanup_contract.py"
       - ".github/workflows/vps1-per-app-cleanup-contract.yml"
   push:
     branches: [main]
@@ -24,3 +25,4 @@ jobs:
         with:
           python-version: "3.11"
       - run: python -m unittest discover -s tests -p test_verified_drive_cleanup_contract.py -v
+      - run: python -m unittest discover -s tests -p test_voice_drive_cleanup_contract.py -v
