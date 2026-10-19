@@ -3845,6 +3845,15 @@ async def _vps1_voice_studio_proxy(request:_VSRequest,upstream_path:str):
     rct=r.headers.get("content-type","")
     if upstream_path in {"","app"} and "text/html" in rct.lower():
         content=content.replace(b"/tts/",b"/voice-studio/service/tts/")
+        # Voice upstream still emits v=1 for the independent native shell.
+        # Bust that stale browser cache without deploying/restarting its engine.
+        content=content.replace(
+            b"vps1_native_site_shell.js?v=1",
+            b"vps1_native_site_shell.js?v=20261019-voice-nav-v2",
+        ).replace(
+            b"vps1_native_site_shell.css?v=1",
+            b"vps1_native_site_shell.css?v=20261019-unified-v2",
+        )
     out={k:r.headers[k] for k in ("content-type","content-disposition","cache-control") if k in r.headers}
     return _VSResponse(content=content,status_code=r.status_code,headers=out)
 
