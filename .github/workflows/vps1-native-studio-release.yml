@@ -5,7 +5,10 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: vps1-production
+  # Only this guarded native-site release shares the coordinator lane.
+  # Other push-triggered releases may cancel the generic vps1-production group
+  # before any job starts. VPS host-side production lock still serializes installs.
+  group: vps1-native-studio-production
   cancel-in-progress: false
 jobs:
   native-studio-release:
