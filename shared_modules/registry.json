@@ -1,0 +1,60 @@
+{
+  "registry_version": 1,
+  "policy": "Use compatible modules only. No implicit runtime adoption, credential sharing, cross-app mutable state or automatic production deployment.",
+  "modules": [
+    {
+      "id": "time.iso8601-utc",
+      "version": "0.1.0",
+      "path": "shared_modules/time_utils.py",
+      "origin": "apps/short-stream/part01/auto_stream_engine.py:utc_now,scheduled_utc",
+      "status": "EXTRACTED_COMPATIBILITY_CANDIDATE",
+      "runtime_consumers": [],
+      "dependencies": [
+        "Python standard library"
+      ],
+      "adoption": "Verify packaging and app regression before switching imports"
+    },
+    {
+      "id": "media.relative-video-path",
+      "version": "0.1.0",
+      "path": "shared_modules/media_files.py",
+      "origin": "apps/short-stream/part01/auto_stream_engine.py:StreamEngine._source",
+      "status": "EXTRACTED_COMPATIBILITY_CANDIDATE",
+      "runtime_consumers": [],
+      "dependencies": [
+        "pathlib"
+      ],
+      "adoption": "App ownership/auth and safe open-file guard are still app-specific"
+    },
+    {
+      "id": "youtube.channel-id-syntax",
+      "version": "0.1.0",
+      "path": "shared_modules/youtube_ids.py",
+      "origin": "apps/short-stream/part01/auto_stream_engine.py:CHANNEL_RE; apps/short-stream/part01/auto_stream_integrations.py:CHANNEL_RE",
+      "status": "EXTRACTED_COMPATIBILITY_CANDIDATE",
+      "runtime_consumers": [],
+      "dependencies": [
+        "re"
+      ],
+      "adoption": "Syntactic check never replaces actual Google OAuth/eligibility"
+    }
+  ],
+  "deferred_candidates": [
+    {
+      "origin": "apps/local-upload-manager/part01/desktop_core/modules/token_utils.py",
+      "reason": "Uploader-owned OAuth/token storage and locks are stateful"
+    },
+    {
+      "origin": "apps/local-upload-manager/part01/desktop_core/modules/path_utils.py",
+      "reason": "App-specific mutable data migration; not safe to extract wholesale"
+    },
+    {
+      "origin": "apps/short-stream/part01/auto_stream_broadcasts.py",
+      "reason": "Live YouTube mutations/RTMPS keys must remain isolated"
+    },
+    {
+      "origin": "apps/short-stream/part01/auto_stream_engine.py:FFmpeg",
+      "reason": "Worker ownership and process lifecycle need a separate contract"
+    }
+  ]
+}
