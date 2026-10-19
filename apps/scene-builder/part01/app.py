@@ -3637,7 +3637,7 @@ def storage_capabilities(request: Request):
 
     The installed isolated Storage candidate predates /v1/capabilities.
     Its authenticated metrics endpoint may still be used, but never infer
-    permission for cleanup, policies, service start or scheduled writes.
+    permission for cleanup, policies or scheduled writes.
     Only an exact 404 on capability discovery admits legacy read-only mode.
     """
     require_admin(request)
@@ -3659,22 +3659,6 @@ def storage_capabilities(request: Request):
 def storage_metrics(request: Request):
     require_admin(request)
     return storage_manager_request("GET", "/v1/metrics", timeout=30)
-
-
-# STORAGE_MANAGER_SERVICE_ACTIVATION_WEB_V6
-@app.post("/api/admin/storage/services/{service_name}/start")
-def storage_service_start_api(request: Request, service_name: str):
-    require_admin(request)
-    require_storage_csrf(request)
-    result = storage_manager_request(
-        "POST", "/v1/services/start", payload={"service": service_name}, timeout=120,
-    )
-    audit_event(
-        "storage_service_start",
-        f"Administrator requested service activation: {service_name}",
-        {"service": result.get("service", service_name), "state": result.get("state", ""), "changed": bool(result.get("changed"))},
-    )
-    return result
 
 
 @app.get("/api/admin/storage/snapshot")
