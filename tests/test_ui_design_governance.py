@@ -19,6 +19,14 @@ class UnifiedUiGovernanceTests(unittest.TestCase):
         issues = violations(modified)
         self.assertTrue(any("214px" in message for message in issues), issues)
 
+    def test_authenticated_production_audit_covers_all_owner_requested_routes(self):
+        source = (__import__("pathlib").Path(__file__).resolve().parents[1] / "production/ui_production_audit.py").read_text()
+        for route in ("main", "video-studio", "upload-studio", "voice-studio", "auto-caption-studio", "storage-manager"):
+            self.assertIn(f'"{route}"', source)
+        self.assertIn("layout-shift", source)
+        self.assertIn("performance.getEntriesByType('navigation')", source)
+        self.assertIn("SIDEBAR", source)
+
     def test_video_subtab_height_drift_is_blocked(self):
         modified = dict(self.sources)
         modified["geometry_css"] = modified["geometry_css"].replace(
