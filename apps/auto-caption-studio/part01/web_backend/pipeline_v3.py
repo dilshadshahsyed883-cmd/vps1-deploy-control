@@ -304,7 +304,7 @@ def publish_job(job: dict, worker_id: str, shutdown_requested=lambda: False) -> 
         # additional Google Drive calls.
         settings = dict(job.get("settings") or {})
         metadata = settings.get("metadata") if isinstance(settings.get("metadata"), dict) else {}
-        cleanup_requested = bool(metadata.get("web_cleanup_after_verify", False)) and not bool(metadata.get("web_preview_reference", False))
+        cleanup_requested = bool(metadata.get("web_cleanup_after_verify", True)) and not bool(metadata.get("web_preview_reference", False))
         with connect() as db:
             db.execute(
                 """UPDATE jobs
@@ -401,7 +401,7 @@ def _cleanup_verified_projects_once(*, preferred_job_id: str = "", limit: int = 
         except Exception:
             settings = {}
         metadata = settings.get("metadata") if isinstance(settings.get("metadata"), dict) else {}
-        if not bool(metadata.get("web_cleanup_after_verify", False)):
+        if not bool(metadata.get("web_cleanup_after_verify", True)):
             with connect() as db:
                 db.execute(
                     "UPDATE jobs SET local_cleanup_status='retained',cleanup_error='',updated_at=? WHERE id=?",
@@ -432,6 +432,36 @@ def _cleanup_verified_projects_once(*, preferred_job_id: str = "", limit: int = 
                 db.commit()
             continue
 
+        # A project can have more than one render/preview job. Never delete the
+        # shared input tree while another job is active, failed, unverified, or
+        # explicitly retaining its local assets.
+        if root.parent != projects_root().resolve() or root.name != str(row["project_id"]):
+            blocked += 1
+            continue
+        with connect() as db:
+            sibling_jobs = db.execute(
+                """SELECT status,drive_status,drive_verified,upload_verified,
+                          drive_remote_path,settings_json
+                   FROM jobs WHERE project_id=?""",
+                (str(row["project_id"]),),
+            ).fetchall()
+        def sibling_safe(sibling) -> bool:
+            if (str(sibling["status"]).lower() != "completed"
+                or str(sibling["drive_status"]).lower() != "completed"
+                or not bool(sibling["drive_verified"])
+                or not bool(sibling["upload_verified"])
+                or not str(sibling["drive_remote_path"] or "").strip()):
+                return False
+            try:
+                opts = json.loads(str(sibling["settings_json"] or "{}"))
+                meta = opts.get("metadata", {}) if isinstance(opts, dict) else {}
+                return (isinstance(meta, dict)
+                        and bool(meta.get("web_cleanup_after_verify", True))
+                        and not bool(meta.get("web_preview_reference", False)))
+            except (ValueError, TypeError):
+                return False
+        if not sibling_jobs or not all(sibling_safe(item) for item in sibling_jobs):
+            continue
         try:
             if root.exists():
                 shutil.rmtree(root)
@@ -441,10 +471,10 @@ def _cleanup_verified_projects_once(*, preferred_job_id: str = "", limit: int = 
                     """UPDATE jobs
                        SET local_cleanup_status='cleared',
                            cleanup_error='',
-                           message='Drive verified; local project auto-cleaned immediately',
+                           message='Drive verified; local project auto-cleaned',
                            updated_at=?
-                       WHERE id=? AND drive_verified=1 AND status='completed'""",
-                    (ts, job_id),
+                       WHERE project_id=? AND drive_verified=1 AND status='completed'""",
+                    (ts, str(row["project_id"])),
                 )
                 db.execute(
                     "UPDATE projects SET status='cleaned' WHERE id=?",

@@ -246,7 +246,7 @@ def upload_and_verify(local_file: Path, remote_file: str, verify: bool = True) -
         raise RuntimeError(f"Local file missing: {local_file.name}")
     run_rclone(["copyto", str(local_file), remote_file, "--retries", "3", "--low-level-retries", "6"], timeout=900)
     if not verify:
-        return {"verified": True, "size": local_file.stat().st_size}
+        raise RuntimeError("Drive verification cannot be bypassed for cleanup-eligible outputs")
     stat = remote_stat(remote_file)
     remote_size = int(stat.get("Size", -1))
     local_size = local_file.stat().st_size
@@ -330,7 +330,7 @@ def sync_clip_to_drive(clip_id: str, upload_media: bool = True, values: Optional
     values = values or get_settings_map()
     if not setting_true(values, "drive_enabled"):
         return False
-    verify = setting_true(values, "drive_verify", True)
+    verify = True  # Mandatory per-app remote readback before local source cleanup.
     with DRIVE_LOCK:
         with db() as c:
             row = c.execute("SELECT * FROM clips WHERE id=?", (clip_id,)).fetchone()

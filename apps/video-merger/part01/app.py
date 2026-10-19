@@ -674,7 +674,9 @@ def upload_drive(local, folder, filename):
     raw=rclone(['lsjson',f'{REMOTE}{remote_path}','--stat'],timeout=120)
     obj=json.loads(raw or '{}')
     size=int(obj.get('Size') or 0)
-    if size<=0: raise RuntimeError('Drive upload verification failed: remote size is zero/missing')
+    local_size=local.stat().st_size
+    if local_size<=0 or size!=local_size:
+        raise RuntimeError(f'Drive upload verification failed: remote bytes {size} != local bytes {local_size}')
     fid=str(obj.get('ID') or obj.get('Id') or obj.get('id') or '')
     if not fid: raise RuntimeError('Drive upload verified but Drive file ID was not returned')
     return fid, f'https://drive.google.com/file/d/{fid}/view'
