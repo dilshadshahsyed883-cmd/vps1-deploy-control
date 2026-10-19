@@ -186,17 +186,17 @@ OUTER_HANDOVER_HTTP = frozenset((301, 302, 303, 307, 308, 401, 404, 502, 503))
 
 
 def verify_outer_shell(cookie: str, *, published: bool) -> None:
-    """Verify Scene owns the exact uploader path after graceful reload.
-
-    Existing Nginx workers may briefly return the retired redirect/challenge.
-    Retry only that bounded post-publication set; never accept it as success.
-    """
+    """Verify the native uploader redirect and its real protected app document."""
     attempts = 12 if published else 1
     for attempt in range(attempts):
-        status, content_type, body = https_get("/local-upload-manager", cookie)
-        if status == 200 and "html" in content_type.lower():
-            guard(b"/local-upload-manager/app?" in body and b"/LUM/app" not in body,
-                  "Scene embedded UI still points to legacy uploader route")
+        status, _content_type, _body = https_get("/local-upload-manager", cookie)
+        if status == 303:
+            code, kind, body = https_get(
+                "/local-upload-manager/app?embedded=1&tab=dashboard", cookie)
+            guard(code == 200 and "html" in kind.lower() and b"lum-shell" in body,
+                  "native uploader document missing after redirect")
+            guard(b"id=\"lum-host-frame\"" not in body,
+                  "nested uploader iframe returned after native redirect")
             return
         guard(published and status in OUTER_HANDOVER_HTTP and attempt + 1 < attempts,
               "Scene Auto Uploader outer shell regressed")

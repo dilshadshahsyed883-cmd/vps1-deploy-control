@@ -1,0 +1,27 @@
+/* VPS1_NATIVE_SITE_SHELL_V1: shared navigation, independent application document */
+body.vps1-native-site{padding-left:205px!important;background:#f8fafc!important;box-sizing:border-box!important}
+#vps1-native-site-sidebar{position:fixed;z-index:9990;inset:0 auto 0 0;width:205px;box-sizing:border-box;background:#101526;color:white;padding:20px 14px;display:flex;flex-direction:column;font-family:Inter,system-ui,Arial,sans-serif}
+#vps1-native-site-sidebar .vps1-native-brand{display:flex;align-items:center;gap:10px;margin-bottom:28px}
+#vps1-native-site-sidebar .vps1-native-logo{background:#7152ea;border-radius:12px;width:36px;height:36px;display:grid;place-items:center;font-weight:800}
+#vps1-native-site-sidebar strong,#vps1-native-site-sidebar small{display:block}
+#vps1-native-site-sidebar strong{font-size:13px}
+#vps1-native-site-sidebar small{font-size:11px;color:#aab4d5}
+#vps1-native-site-sidebar nav{display:flex;flex-direction:column;gap:5px}
+#vps1-native-site-sidebar nav a{display:block;padding:11px 12px;border-radius:9px;color:#bec8e0!important;font-size:13px;font-weight:700;text-decoration:none!important}
+#vps1-native-site-sidebar nav a.active,#vps1-native-site-sidebar nav a:hover{background:#282f49;color:white!important}
+#vps1-native-site-sidebar .vps1-native-bottom{margin-top:auto;color:#aab4d5;font-size:11px}
+.vps1-native-toggle{display:none}
+.vps1-native-video-tabs{display:flex;flex-wrap:wrap;gap:8px;max-width:1400px;margin:20px auto 18px;padding:9px 12px;background:#f8faff;border:1px solid #dfe5ef;border-radius:11px}
+.vps1-native-video-tabs a{padding:9px 13px;border:1px solid #d6ddea;border-radius:8px;text-decoration:none!important;background:white;color:#34415b!important;font-size:12px;font-weight:750}
+.vps1-native-video-tabs a.active{background:#315edb;color:white!important;border-color:#315edb}
+body.vps1-native-voice .vps3-main-sidebar{display:none!important}
+body.vps1-native-voice .vps3-layout{display:block!important;min-height:auto!important}
+body.vps1-native-voice .vps3-main-column{width:100%!important;min-width:0!important}
+body.vps1-native-uploader .app-main{max-width:1600px;margin:0 auto}
+@media(max-width:800px){
+body.vps1-native-site{padding-left:0!important}
+#vps1-native-site-sidebar{transform:translateX(-100%);transition:transform .2s}
+body.vps1-native-open #vps1-native-site-sidebar{transform:translateX(0)}
+.vps1-native-toggle{display:block!important;margin:8px 12px;padding:9px 13px;border:1px solid #d1d9ea;border-radius:8px;background:white;color:#101828;position:relative;z-index:9991}
+.vps1-native-video-tabs{margin:8px 10px;gap:5px}
+}

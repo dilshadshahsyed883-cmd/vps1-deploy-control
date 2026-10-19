@@ -1,19 +1,4 @@
 {% extends "base.html" %}
 {% block title %}Voice Studio{% endblock %}
-{% block subtitle %}OmniVoice production, voice design, voice clone, GPU configuration and queue{% endblock %}
-{% block content %}
-<style>
-.vs-host-toolbar{display:flex;justify-content:flex-end;align-items:center;margin:-6px 0 12px;min-height:30px}
-.vs-host-status{display:inline-flex;align-items:center;padding:7px 10px;border:1px solid #cfe7dc;border-radius:999px;background:#eff9f4;color:#187a55;font-size:12px;font-weight:700}
-.vs-host-status.bad{border-color:#f0caca;background:#fff3f2;color:#b23a35}
-#voice-studio-frame{display:block;width:100%;height:1100px;border:0;background:transparent}
-@media(max-width:700px){ #voice-studio-frame{height:1350px} }
-</style>
-<div class="vs-host-toolbar"><span id="vs-host-status" class="vs-host-status">Checking OmniVoice…</span></div>
-<iframe id="voice-studio-frame" src="/voice-studio/app" title="Voice Studio" loading="eager"></iframe>
-{% endblock %}
-{% block scripts %}
-<script>
-(async()=>{const s=document.getElementById('vs-host-status');try{const r=await fetch('/voice-studio/service/healthz',{cache:'no-store'});const j=await r.json();if(!r.ok||!j.ok)throw new Error();s.textContent=j.worker_online?'OmniVoice GPU online':'OmniVoice ready · GPU offline';if(!j.worker_online)s.classList.add('bad')}catch(_){s.textContent='Voice Studio unavailable';s.classList.add('bad')}})();
-</script>
-{% endblock %}
+{% block subtitle %}OmniVoice, Kokoro TTS, Edge TTS and Audio Downloader{% endblock %}
+{% block content %}<p><a href="/voice-studio/app">Open Voice Studio</a></p>{% endblock %}

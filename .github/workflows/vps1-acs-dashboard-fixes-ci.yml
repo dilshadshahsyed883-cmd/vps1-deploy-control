@@ -5,6 +5,14 @@ on:
       - 'apps/auto-caption-studio/part01/web_backend/acs_studio.html'
       - 'apps/auto-caption-studio/part01/web_frontend/templates/live.html'
       - 'apps/scene-builder/part01/app.py'
+      - 'apps/scene-builder/part01/static/vps1_native_site_shell.js'
+      - 'apps/scene-builder/part01/static/vps1_native_site_shell.css'
+      - 'apps/voice-studio/part01/templates/voice_studio.html'
+      - 'apps/local-upload-manager/part01/templates/base.html'
+      - 'apps/short-maker/part01/app.py'
+      - 'apps/video-merger/part01/templates/index.html'
+      - 'production/test_scene_video_studio_shell.py'
+      - 'production/route_uploader_scene_https.py'
       - 'apps/scene-builder/part01/static/dashboard_control_center.js'
       - 'apps/scene-builder/part01/static/storage_manager.js'
       - 'apps/scene-builder/part01/templates/dashboard.html'
@@ -40,6 +48,21 @@ jobs:
               path = Path(tmp)/'acs.js'
               path.write_text(script)
               subprocess.run(['node','--check',str(path)],check=True)
+          PY
+      - name: Check native shell and inline ACS Live JavaScript
+        run: |
+          node --check apps/scene-builder/part01/static/vps1_native_site_shell.js
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess, tempfile
+          html=Path('apps/auto-caption-studio/part01/web_backend/acs_studio.html').read_text()
+          marker='<script id="acs-native-live-script">'
+          assert html.count(marker)==1 and 'id="acs-native-live"' in html
+          script=html.split(marker,1)[1].split('</script>',1)[0]
+          with tempfile.TemporaryDirectory() as tmp:
+              p=Path(tmp)/'acs-native-live.js'
+              p.write_text(script)
+              subprocess.run(['node','--check',str(p)],check=True)
           PY
       - name: Install template parser for existing Jinja regression test
         run: python3 -m pip install 'Jinja2==3.1.6'
