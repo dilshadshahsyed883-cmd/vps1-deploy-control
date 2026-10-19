@@ -7,6 +7,39 @@ T = ROOT / "apps/scene-builder/part01/templates"
 
 
 class SceneVideoStudioShell(unittest.TestCase):
+    def test_release_readback_retries_stale_scene_worker(self):
+        from unittest.mock import patch
+        from production.scene_uploader_ui_release import verify_video_studio
+        calls = []
+        def get(path, cookie):
+            calls.append(path)
+            if path == "/video-studio/short-maker" and calls.count(path) == 1:
+                return 404, "text/html", b"retired-worker"
+            expected = {
+                "/local-upload-manager": b'id="app-sidebar" /local-upload-manager/app?',
+                "/auto-caption/studio": b'id="app-sidebar" src="/auto-caption-studio/"',
+                "/video-studio/short-maker": b'id="app-sidebar" src="/short-maker/"',
+                "/video-studio/video-merger": b'id="app-sidebar" src="/video-merger/"',
+            }
+            return 200, "text/html; charset=utf-8", expected[path]
+        with patch("production.route_uploader_scene_https.scene_cookie",
+                   return_value="session=admin"), \
+             patch("production.route_uploader_scene_https.https_get",
+                   side_effect=get), \
+             patch("production.scene_uploader_ui_release.time.sleep"):
+            verify_video_studio()
+        self.assertEqual(calls.count("/video-studio/short-maker"), 2)
+
+    def test_release_readback_fails_closed_on_real_denial(self):
+        from unittest.mock import patch
+        from production.scene_uploader_ui_release import verify_video_studio
+        with patch("production.route_uploader_scene_https.scene_cookie",
+                   return_value="session=admin"), \
+             patch("production.route_uploader_scene_https.https_get",
+                   return_value=(403, "text/plain", b"denied")):
+            with self.assertRaisesRegex(RuntimeError, "status=403"):
+                verify_video_studio()
+
     def test_original_sidebar_and_video_studio_subtabs(self):
         html = (T / "base.html").read_text()
         for label in ("Dashboard", "Auto Uploader", "Video Studio", "Voice Studio", "Admin"):

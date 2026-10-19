@@ -102,10 +102,25 @@ def verify_video_studio() -> None:
         "/video-studio/video-merger": (b'id="app-sidebar"', b'src="/video-merger/"'),
     }
     for path, markers in expected.items():
-        status, kind, body = https_get(path, cookie)
-        require(status == 200 and "html" in kind.lower() and
-                all(marker in body for marker in markers),
-                "Scene shell/Video Studio browser route failed: " + path)
+        # Scene candidate restart and Nginx graceful reload can briefly serve
+        # a retired worker (404 or previous HTML). Never accept a stale page.
+        for attempt in range(12):
+            status, kind, body = https_get(path, cookie)
+            missing = [marker for marker in markers if marker not in body]
+            if status == 200 and "html" in kind.lower() and not missing:
+                print("SCENE_SHELL_ROUTE_PASS=" + path, flush=True)
+                break
+            transient = status in (200, 301, 302, 303, 307, 308, 404, 502, 503)
+            if transient and attempt < 11:
+                time.sleep(0.6)
+                continue
+            require(False,
+                    "Scene shell route failed path=" + path +
+                    " status=" + str(status) +
+                    " html=" + str("html" in kind.lower()) +
+                    " missing_markers=" + str(len(missing)))
+        else:
+            require(False, "Scene shell browser handover never settled: " + path)
     print("VPS1_VIDEO_STUDIO_SHELL=PASS SUBTABS=PASS SIDEBAR=PASS", flush=True)
 
 
