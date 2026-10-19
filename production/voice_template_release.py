@@ -115,6 +115,16 @@ def install(revision: str) -> None:
     })
     shutil.copytree(previous, target, symlinks=True)
     (target / PAGE).write_bytes(patched_html)
+    manifest_file = target / "_production_manifest.json"
+    require(manifest_file.is_file() and not manifest_file.is_symlink(),
+            "copied immutable release manifest missing")
+    manifest = json.loads(manifest_file.read_text())
+    require(manifest.get("app") == APP and str(PAGE) in manifest.get("files", {}),
+            "copied Voice release manifest invalid")
+    manifest["revision"] = revision
+    manifest["files"][str(PAGE)] = hashlib.sha256(patched_html).hexdigest()
+    manifest["ui_only_overlay"] = str(previous)
+    atomic_json(manifest_file, manifest, 0o644)
     switched = False
     try:
         atomic_link(CURRENT, target)
