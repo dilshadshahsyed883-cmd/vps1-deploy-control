@@ -16,6 +16,7 @@ REMOTE = 'https://github.com/dilshadshahsyed883-cmd/vps1-deploy-control.git'
 APPS = ('scene-builder', 'short-maker', 'short-stream', 'self-media-library', 'video-merger',
         'voice-studio', 'auto-caption-studio', 'local-upload-manager')
 BASE = Path('/srv/fresh-website/control/releases')
+STORAGE_GC_OPERATIONS = {'storage-gc-install', 'storage-gc-status', 'storage-gc-disable'}
 
 
 def command(args, *, cwd=None):
@@ -28,9 +29,13 @@ def main():
     if len(sys.argv) != 4:
         raise ValueError('expected operation, exact main revision and application')
     operation, revision, selected = sys.argv[1:]
-    if operation not in {'install', 'rollback', 'nginx-route-only', 'nginx-route-rollback'} or not re.fullmatch('[a-f0-9]{40}', revision):
+    if operation not in {'install', 'rollback', 'nginx-route-only', 'nginx-route-rollback'} | STORAGE_GC_OPERATIONS or not re.fullmatch('[a-f0-9]{40}', revision):
         raise ValueError('invalid production request')
-    if selected != 'all' and selected not in APPS:
+    storage_gc = operation in STORAGE_GC_OPERATIONS
+    if storage_gc:
+        if selected != 'vps-storage-manager':
+            raise ValueError('storage GC requires dedicated vps-storage-manager target')
+    elif selected != 'all' and selected not in APPS:
         raise ValueError('application not allowed')
     if operation.startswith('nginx-route-') and selected in {'all', 'scene-builder'}:
         raise ValueError('route-only operation requires one approved independent app')
@@ -50,6 +55,19 @@ def main():
         command(['git', 'checkout', '--detach', 'FETCH_HEAD'], cwd=checkout)
     if command(['git', 'rev-parse', 'HEAD'], cwd=checkout) != revision:
         raise RuntimeError('control checkout revision mismatch')
+    if storage_gc:
+        # Independent timer: never install/restart any other application.
+        service = 'vps1-storage-deployment-gc.timer'
+        if operation == 'storage-gc-install':
+            subprocess.run(['/usr/bin/bash', 'scripts/install_storage_gc.sh'],
+                           cwd=checkout, check=True)
+        elif operation == 'storage-gc-status':
+            subprocess.run(['/usr/bin/systemctl', 'is-active', '--quiet', service], check=True)
+            subprocess.run(['/usr/bin/python3', '/usr/local/libexec/vps1-storage-gc.py', '--json'],
+                           check=True)
+        else:
+            subprocess.run(['/usr/bin/systemctl', 'disable', '--now', service], check=True)
+        return
     if operation.startswith('nginx-route-'):
         # No application restart, gateway reconstruction, queue or database touch.
         subprocess.run(['/usr/bin/python3', '-m', 'production.nginx_route_only',
