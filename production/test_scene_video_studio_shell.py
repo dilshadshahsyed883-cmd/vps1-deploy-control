@@ -17,7 +17,14 @@ class SceneVideoStudioShell(unittest.TestCase):
                 return 404, "text/html", b"retired-worker"
             expected = {
                 "/local-upload-manager": b'id="app-sidebar" /local-upload-manager/app?',
-                "/auto-caption/studio": b'id="app-sidebar" src="/auto-caption-studio/"',
+                "/auto-caption/studio": b'id="app-sidebar" src="/auto-caption-studio/api/web-flow/studio?embed=1"',
+                "/auto-caption-studio/api/web-flow/studio?embed=1": (
+                    b'<html data-page="queue" data-page="upload" data-page="preset" '
+                    b'data-page="captions" data-page="pexels" data-page="fg" '
+                    b'data-page="voice" data-page="drive-profiles" data-page="output" '
+                    b"const API='/auto-caption-studio/api/web-flow' "
+                    b'src="/auto-caption-studio/live?embed=1"'
+                ),
                 "/video-studio/short-maker": b'id="app-sidebar" src="/short-maker/"',
                 "/video-studio/video-merger": b'id="app-sidebar" src="/video-merger/"',
             }
@@ -52,10 +59,27 @@ class SceneVideoStudioShell(unittest.TestCase):
 
     def test_native_acs_document_preserves_scripts_and_session(self):
         html = (T / "acs_studio_shell.html").read_text()
-        self.assertIn('src="/auto-caption-studio/"', html)
+        self.assertIn('src="/auto-caption-studio/api/web-flow/studio?embed=1"', html)
         self.assertIn('id="acs-studio-frame"', html)
-        self.assertNotIn('/auto-caption/api/web-flow/studio?embed=1', html)
+        self.assertNotIn('src="/auto-caption-studio/"', html)
         self.assertNotIn('root.innerHTML = html', html)
+
+    def test_original_rich_acs_routes_and_full_feature_tabs(self):
+        root = ROOT / "apps/auto-caption-studio/part01/web_backend"
+        html = (root / "acs_studio.html").read_text()
+        source = (root / "web_flow_api.py").read_text()
+        self.assertIn('@router.get("/studio"', source)
+        self.assertIn('html.replace("/auto-caption/api/", "/auto-caption-studio/api/")', source)
+        self.assertIn('src="/auto-caption/live?embed=1"', html)
+        for tab in ("queue", "upload", "drive-profiles", "preset", "captions",
+                    "pexels", "fg", "voice", "output"):
+            self.assertIn('data-page="' + tab + '"', html)
+        result = html.replace("/auto-caption/api/", "/auto-caption-studio/api/")
+        result = result.replace('src="/auto-caption/live?embed=1"',
+                                'src="/auto-caption-studio/live?embed=1"')
+        self.assertIn("const API='/auto-caption-studio/api/web-flow'", result)
+        self.assertIn('src="/auto-caption-studio/live?embed=1"', result)
+        self.assertNotIn("const API='/auto-caption/api/web-flow'", result)
 
     def test_jinja_parses_actual_app_wrapper_not_css_comments(self):
         from jinja2 import Environment

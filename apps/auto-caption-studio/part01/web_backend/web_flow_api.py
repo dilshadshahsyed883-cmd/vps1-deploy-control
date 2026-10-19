@@ -54,10 +54,17 @@ def web_flow_studio(_principal: Principal = Depends(get_current_principal)) -> H
     """
     if not STUDIO_TEMPLATE.is_file():
         raise HTTPException(status_code=503, detail="ACS Studio UI is not installed")
-    return HTMLResponse(
-        STUDIO_TEMPLATE.read_text(encoding="utf-8"),
-        headers={"Cache-Control": "no-store, max-age=0"},
+    # The original full Studio was authored for the retired /auto-caption/
+    # proxy. Its inline API calls and Live iframe must use the independent,
+    # Scene-session-authenticated app prefix; otherwise the screen renders but
+    # production controls silently call the wrong service.
+    html = STUDIO_TEMPLATE.read_text(encoding="utf-8")
+    html = html.replace("/auto-caption/api/", "/auto-caption-studio/api/")
+    html = html.replace(
+        'src="/auto-caption/live?embed=1"',
+        'src="/auto-caption-studio/live?embed=1"',
     )
+    return HTMLResponse(html, headers={"Cache-Control": "no-store, max-age=0"})
 
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
