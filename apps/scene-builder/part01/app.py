@@ -3452,13 +3452,15 @@ def script_work_page(request: Request):
 
 
 @app.get("/local-upload-manager", response_class=HTMLResponse)
-def local_upload_manager_page(request: Request):
+def local_upload_manager_page(request: Request, workspace: str = "upload"):
     require_local_upload_manager_access(request)
+    selected_workspace = "stream" if workspace == "stream" else "upload"
     return templates.TemplateResponse(
         "local_upload_manager.html",
         {
             "request": request,
             "page": "local_upload_manager",
+            "lum_workspace": selected_workspace,
             "username": request.session.get("username", "team"),
         },
     )

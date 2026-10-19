@@ -6,6 +6,7 @@
   {% if message %}<div class="lum-alert success">{{ message }}</div>{% endif %}
   {% if error %}<div class="lum-alert error">{{ error }}</div>{% endif %}
 
+  {% if not embedded_view %}
   <section class="lum-statusbar">
     <div class="lum-status-primary">
       <div class="lum-status-left"><strong>Auto Uploader</strong><span class="lum-badge good">{{ 'Main web connected' if suite_auth else 'Standalone online' }}</span>{% if suite_auth %}<span class="lum-badge brand">Shared login</span>{% else %}<span class="lum-badge brand">Standalone auth</span>{% endif %}</div>
@@ -13,8 +14,9 @@
     </div>
     <div class="lum-status-meta"><span>Serial uploader</span><strong>1 active</strong><span>Verified cleanup</span><strong>{{ 'ON' if health.verified_cleanup else 'OFF' }}</strong></div>
   </section>
+  {% endif %}
 
-  {% if engine_instance == 'engine1' %}
+  {% if engine_instance == 'engine1' and not embedded_view %}
   <nav class="lum-primary-workspaces" aria-label="Auto Uploader main subtabs">
     <a class="{{ 'active' if tab != 'auto_stream' else '' }}" href="{{ base_path }}/app?tab=dashboard" aria-current="{{ 'page' if tab != 'auto_stream' else 'false' }}">Auto Uploader</a>
     <a class="{{ 'active' if tab == 'auto_stream' else '' }}" href="{{ base_path }}/app?tab=auto_stream" aria-current="{{ 'page' if tab == 'auto_stream' else 'false' }}">Auto Stream</a>

@@ -19,28 +19,22 @@
   }
   .lum-shared-tabs button:hover{background:#f5f7fb;color:#344054}
   .lum-shared-tabs button.active{background:#fff;color:#2457d6;box-shadow:0 3px 10px rgba(31,45,74,.11)}
-  .lum-engine-selector{
-    display:flex;align-items:center;gap:8px;padding:0 0 10px;margin:0
-  }
-  .lum-engine-selector[hidden]{display:none!important}
-  .lum-engine-selector button{
-    appearance:none;border:1px solid #d7dbe3;background:#fff;color:#4a5160;
-    border-radius:9px;padding:8px 14px;font:600 13px/1.2 inherit;cursor:pointer;
-    box-shadow:0 1px 2px rgba(0,0,0,.04)
-  }
-  .lum-engine-selector button.active{background:#111827;color:#fff;border-color:#111827}
-  .lum-engine-selector .lum-engine-state{margin-left:auto;font-size:12px;color:#6b7280}
   @media(max-width:1050px){
     .lum-shared-tabs{grid-template-columns:repeat(4,minmax(0,1fr))}
   }
   @media(max-width:760px){
     .lum-shared-tabs{grid-template-columns:repeat(2,minmax(0,1fr));padding:5px}
     .lum-shared-tabs button{min-height:38px;padding:8px 7px}
-    .lum-engine-selector{padding:0 4px 8px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
-    .lum-engine-selector button{padding:9px 8px}
-    .lum-engine-selector .lum-engine-state{display:none}
   }
 </style>
+{% if lum_workspace == 'stream' %}
+<section class="lum-stream-placeholder" aria-label="Auto Stream separate workspace" style="padding:24px;border:1px solid #dce4ef;background:#fff;border-radius:14px;max-width:950px">
+  <h2>Auto Stream</h2>
+  <p>Auto Stream will have its own controls and streaming engine. Its detailed logic will be finalized separately.</p>
+  <p>Opening this workspace does not start, stop, configure, or change a live stream or upload job.</p>
+  <a href="/short-stream/" style="display:inline-block;padding:11px 16px;border:1px solid #d6ddea;border-radius:9px;text-decoration:none;color:#315edb;font-weight:700">Open existing independent streaming app</a>
+</section>
+{% else %}
 
 <nav class="lum-shared-tabs" aria-label="Auto Uploader workspace">
   <button type="button" data-lum-shared-tab="dashboard">Dashboard</button>
@@ -52,14 +46,6 @@
   <button type="button" data-lum-shared-tab="queue">Queue</button>
   <button type="button" data-lum-shared-tab="logs">Logs</button>
 </nav>
-
-<div class="lum-engine-selector" id="lum-engine-selector" role="tablist" aria-label="Auto Engine" hidden>
-  <button type="button" role="tab" data-lum-engine="1" data-engine-src="/local-upload-manager/app?embedded=1&tab=auto_engine&auto_mode=engine1" class="active" aria-selected="true">Engine 1</button>
-  <button type="button" role="tab" data-lum-engine="2" data-engine-src="/local-upload-manager/app?embedded=1&tab=auto_engine&auto_mode=engine2" aria-selected="false">Engine 2</button>
-  <button type="button" role="tab" data-lum-engine="3" data-engine-src="/local-upload-manager/app?embedded=1&tab=auto_engine&auto_mode=shorts" aria-selected="false">Shorts</button>
-  <button type="button" role="tab" data-lum-engine="4" data-engine-src="/local-upload-manager/app?embedded=1&tab=auto_engine&auto_mode=short_stream" aria-selected="false">Short Stream</button>
-  <span class="lum-engine-state" id="lum-engine-state">Engine 1</span>
-</div>
 
 <section class="lum-host-shell" style="margin:0;padding:0;min-height:calc(100vh - 120px);">
   <iframe id="lum-host-frame" class="lum-host-frame"
@@ -73,141 +59,60 @@
 </section>
 
 <script>
-/* AUTO_UPLOADER_UNIFIED_SHELL_CONTROLLER_V1 */
+/* LUM_SCENE_SINGLE_SHELL_NAV_V2 — 8 workspace tabs above one embedded three-mode selector. */
 (() => {
   const frame=document.getElementById('lum-host-frame');
-  const sharedButtons=[...document.querySelectorAll('[data-lum-shared-tab]')];
-  const selector=document.getElementById('lum-engine-selector');
-  const engineButtons=[...document.querySelectorAll('[data-lum-engine]')];
-  const state=document.getElementById('lum-engine-state');
-  if(!frame||!sharedButtons.length||!selector||!engineButtons.length)return;
-
-  const validTabs=['dashboard','channels','sheets','auto_engine','add_video','bulk_import','queue','logs'];
-  const validEngines=['1','2','3','4'];
-  const tabKey='vps1-auto-uploader-tab';
-  const engineKey='vps1-auto-uploader-engine';
-
-  let currentTab='dashboard';
-  let currentEngine='1';
-
+  const buttons=[...document.querySelectorAll('[data-lum-shared-tab]')];
+  if(!frame||!buttons.length)return;
+  const tabs=['dashboard','channels','sheets','auto_engine','add_video','bulk_import','queue','logs'];
+  const modes=['engine1','engine2','shorts'];
+  let currentTab='dashboard',currentMode='engine1';
   try{
-    const savedTab=localStorage.getItem(tabKey);
-    const savedEngine=localStorage.getItem(engineKey);
-    if(validTabs.includes(savedTab))currentTab=savedTab;
-    if(validEngines.includes(savedEngine))currentEngine=savedEngine;
+    const savedTab=localStorage.getItem('vps1-auto-uploader-tab');
+    const savedMode=localStorage.getItem('vps1-auto-uploader-mode');
+    const oldMode=({'1':'engine1','2':'engine2','3':'shorts'})[localStorage.getItem('vps1-auto-uploader-engine')];
+    if(tabs.includes(savedTab))currentTab=savedTab;
+    if(modes.includes(savedMode))currentMode=savedMode;
+    else if(oldMode)currentMode=oldMode;
   }catch(_){}
-
-  const canonicalTab=(raw)=>{
-    if(raw==='upload')return 'add_video';
-    if(raw==='authentication')return 'channels';
-    return validTabs.includes(raw)?raw:'dashboard';
+  const canonical=t=>t==='upload'?'add_video':t==='authentication'?'channels':tabs.includes(t)?t:'dashboard';
+  const sourceFor=t=>{
+    const u=new URL('/local-upload-manager/app',window.location.origin);
+    u.searchParams.set('embedded','1');
+    u.searchParams.set('tab',t);
+    if(t==='auto_engine')u.searchParams.set('auto_mode',currentMode);
+    return u.pathname+u.search;
   };
-
-  const sourceFor=(tab,engine)=>{
-    const app='/local-upload-manager/app?embedded=1';
-    if(tab!=='auto_engine')return `${app}&tab=${encodeURIComponent(tab)}`;
-    const mode={1:'engine1',2:'engine2',3:'shorts',4:'short_stream'}[engine]||'engine1';
-    return `${app}&tab=auto_engine&auto_mode=${mode}`;
-  };
-
-  const save=()=>{
-    try{
-      localStorage.setItem(tabKey,currentTab);
-      localStorage.setItem(engineKey,currentEngine);
-    }catch(_){}
-  };
-
-  const render=()=>{
-    sharedButtons.forEach(b=>{
-      const on=b.dataset.lumSharedTab===currentTab;
-      b.classList.toggle('active',on);
-      b.setAttribute('aria-current',on?'page':'false');
-    });
-    selector.hidden=currentTab!=='auto_engine';
-    engineButtons.forEach(b=>{
-      const on=b.dataset.lumEngine===currentEngine;
-      b.classList.toggle('active',on);
-      b.setAttribute('aria-selected',on?'true':'false');
-    });
-    if(state){
-      state.textContent=currentEngine==='2'?'Engine 2':
-        currentEngine==='3'?'Shorts':
-        currentEngine==='4'?'Short Stream':'Engine 1';
-    }
-  };
-
-  const load=(tab,engine)=>{
-    currentTab=canonicalTab(tab);
-    if(validEngines.includes(engine))currentEngine=engine;
-    save();
-    render();
-    const src=sourceFor(currentTab,currentEngine);
-    frame.dataset.defaultSrc=src;
-    if(frame.getAttribute('src')!==src)frame.setAttribute('src',src);
-  };
-
-  const hideChildPrimaryNav=()=>{
-    try{
-      const d=frame.contentDocument;
-      if(!d)return;
-      const exactTabs=new Set(['upload','authentication','dashboard','channels','sheets','auto_engine','add_video','bulk_import','queue','logs']);
-      const links=[...d.querySelectorAll('a[href]')].filter(a=>{
-        try{
-          const u=new URL(a.getAttribute('href'),frame.contentWindow.location.href);
-          const t=u.searchParams.get('tab');
-          const keys=[...u.searchParams.keys()];
-          return exactTabs.has(t)&&keys.every(k=>k==='tab');
-        }catch(_){return false;}
-      });
-      const counts=new Map();
-      for(const a of links){
-        const p=a.parentElement;
-        if(p)counts.set(p,(counts.get(p)||0)+1);
-      }
-      let best=null,bestCount=0;
-      for(const [p,n] of counts.entries()){
-        if(n>bestCount){best=p;bestCount=n;}
-      }
-      if(best&&bestCount>=5&&best!==d.body&&best!==d.documentElement){
-        best.style.setProperty('display','none','important');
-        best.setAttribute('data-parent-shell-hidden','1');
-      }else{
-        links.forEach(a=>a.style.setProperty('display','none','important'));
-      }
-    }catch(_){}
-  };
-
-  const syncFromChild=()=>{
-    let u;
-    try{u=new URL(frame.contentWindow.location.href);}catch(_){return;}
-    if(u.pathname!=='/local-upload-manager/app')return;
-    const tab=canonicalTab(u.searchParams.get('tab')||'dashboard');
-    const engines={engine1:'1',engine2:'2',shorts:'3',short_stream:'4'};
-    const selected=engines[u.searchParams.get('auto_mode')||'engine1']||'1';
-    currentTab=tab;
-    if(tab==='auto_engine')currentEngine=selected;
-    save();render();hideChildPrimaryNav();
-  };
-
-  sharedButtons.forEach(btn=>btn.addEventListener('click',()=>{
-    const tab=btn.dataset.lumSharedTab||'dashboard';
-    load(tab,currentEngine);
-  }));
-
-  engineButtons.forEach(btn=>btn.addEventListener('click',()=>{
-    load('auto_engine',btn.dataset.lumEngine||'1');
-  }));
-
-  frame.addEventListener('load',()=>{
-    window.setTimeout(syncFromChild,0);
-    window.setTimeout(hideChildPrimaryNav,60);
+  const save=()=>{try{localStorage.setItem('vps1-auto-uploader-tab',currentTab);localStorage.setItem('vps1-auto-uploader-mode',currentMode);}catch(_){}};
+  const render=()=>buttons.forEach(b=>{
+    const active=b.dataset.lumSharedTab===currentTab;
+    b.classList.toggle('active',active);
+    b.setAttribute('aria-current',active?'page':'false');
   });
-
+  const navigate=t=>{
+    currentTab=canonical(t);save();render();
+    const src=sourceFor(currentTab);
+    frame.dataset.defaultSrc=src;
+    if(frame.getAttribute('src')!==src)frame.src=src;
+  };
+  const syncFromChild=()=>{
+    try{
+      const u=new URL(frame.contentWindow.location.href);
+      if(u.origin!==window.location.origin||u.pathname!=='/local-upload-manager/app')return;
+      currentTab=canonical(u.searchParams.get('tab'));
+      const mode=u.searchParams.get('auto_mode');
+      if(currentTab==='auto_engine'&&modes.includes(mode))currentMode=mode;
+      save();render();
+    }catch(_){}
+  };
+  buttons.forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.lumSharedTab)));
+  frame.addEventListener('load',syncFromChild);
   render();
-  frame.dataset.defaultSrc=sourceFor(currentTab,currentEngine);
+  frame.dataset.defaultSrc=sourceFor(currentTab);
 })();
 </script>
-<script src="/static/lum_host_state_v1.js?v=20261018-auto-uploader"></script>
+<script src="/static/lum_host_state_v1.js?v=20261019-single-shell"></script>
+{% endif %}
 
 {% endblock %}
 
