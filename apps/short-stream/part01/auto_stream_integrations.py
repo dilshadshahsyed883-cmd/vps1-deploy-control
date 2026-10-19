@@ -44,6 +44,12 @@ def _configured():
 
 
 def _configuration():
+    # Browser-saved encrypted OAuth web client overrides legacy environment;
+    # no restart or VPS CLI is required after an authorized admin Save.
+    from auto_stream_credentials import store as _client_store
+    client = _client_store().read_client()
+    if client is not None:
+        return client
     if not _configured():
         raise ValueError("Auto Stream Google OAuth is not configured on the VPS")
     redirect = os.environ["AUTO_STREAM_GOOGLE_REDIRECT_URI"]
