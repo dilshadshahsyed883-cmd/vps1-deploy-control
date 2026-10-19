@@ -22,7 +22,7 @@ class AutoStreamStudioTests(unittest.TestCase):
                        'refresh_token', 'stream_key'):
             self.assertNotIn(phrase, PAGE)
 
-    def test_studio_route():
+    def test_studio_route(self):
         self.assertIn("/engine/studio", [r.path for r in router.routes])
         self.assertEqual(studio().status_code, 200)
 
