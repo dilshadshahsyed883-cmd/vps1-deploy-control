@@ -160,3 +160,21 @@ test("other workspaces link directly to Voice Studio without interception", asyn
     assert.equal(h.voiceNavigation(),false);
   }
 });
+
+for (const workspace of ["uploader","stream","voice","acs"]) {
+  test(`${workspace}: one Upload Studio sidebar entry and native app subtabs`, async () => {
+    const h=boot(workspace,{authenticated:true,is_admin:false,username:"editor"});
+    await h.tick();
+    const nav=all(h.body).find(e=>e.tag==="nav"&&e.attrs["aria-label"]==="Applications");
+    assert.ok(nav);
+    assert.equal(nav.children.filter(e=>e.href==="/local-upload-manager"&&e.textContent==="Upload Studio").length,1);
+    assert.equal(nav.children.filter(e=>e.textContent==="Auto Uploader"||e.textContent==="Auto Stream").length,0);
+    const tabs=all(h.body).find(e=>e.className==="vps1-native-upload-tabs");
+    assert.equal(!!tabs,workspace==="uploader"||workspace==="stream");
+    if(tabs){
+      assert.deepEqual(tabs.children.map(e=>e.textContent),["Auto Uploader","Auto Stream"]);
+      assert.deepEqual(tabs.children.map(e=>e.href),["/local-upload-manager/app?embedded=1&tab=dashboard","/auto-stream/"]);
+      assert.equal(tabs.children.filter(e=>e.attrs["aria-current"]==="page").length,1);
+    }
+  });
+}
