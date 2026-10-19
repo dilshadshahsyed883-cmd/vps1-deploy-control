@@ -55,6 +55,7 @@ function boot(workspace, role) {
   const listeners = {};
   const document = {
     body, hidden: false, readyState: "complete",
+    documentElement: {classList: {add() {}}},
     currentScript: {dataset: {workspace}},
     createElement: (tag) => new Element(tag),
     getElementById: (id) => all(body).find(e => e.id === id) || null,
