@@ -32,5 +32,47 @@ class SceneCandidateReleaseContract(unittest.TestCase):
         self.assertIn("install_scene_candidate(revision)", source)
 
 
+    def test_storage_bridge_adds_two_keys_and_is_idempotent(self):
+        from production.scene_candidate_release import _storage_candidate_env_patch
+        nl = chr(10)
+        token = "X" * 40
+        original = "UNCHANGED=preserve" + nl + "SIBLING=keep" + nl
+        expected = original + "STORAGE_MANAGER_URL=http://127.0.0.1:8149" + nl + "STORAGE_MANAGER_TOKEN=" + token + nl
+        self.assertEqual(_storage_candidate_env_patch(original, token), expected)
+        self.assertEqual(_storage_candidate_env_patch(expected, token), expected)
+
+    def test_storage_bridge_replaces_only_stale_candidate_token(self):
+        from production.scene_candidate_release import _storage_candidate_env_patch
+        nl = chr(10)
+        token = "X" * 40
+        original = nl.join(["STORAGE_MANAGER_URL=http://127.0.0.1:8149",
+                            "STORAGE_MANAGER_TOKEN=stale", "UNCHANGED=preserved", ""])
+        updated = _storage_candidate_env_patch(original, token)
+        self.assertIn("STORAGE_MANAGER_TOKEN=" + token + nl, updated)
+        self.assertIn("UNCHANGED=preserved" + nl, updated)
+        self.assertNotIn("TOKEN=stale", updated)
+
+    def test_storage_bridge_preserves_alternate_and_rejects_duplicates(self):
+        from production.scene_candidate_release import _storage_candidate_env_patch
+        nl = chr(10)
+        token = "X" * 40
+        alternate = nl.join(["STORAGE_MANAGER_URL=http://127.0.0.1:8799",
+                             "STORAGE_MANAGER_TOKEN=custom", ""])
+        self.assertEqual(_storage_candidate_env_patch(alternate, token), alternate)
+        duplicate = nl.join(["STORAGE_MANAGER_TOKEN=one", "STORAGE_MANAGER_TOKEN=two", ""])
+        with self.assertRaises(RuntimeError):
+            _storage_candidate_env_patch(duplicate, token)
+        with self.assertRaises(ValueError):
+            _storage_candidate_env_patch("", "short")
+
+    def test_candidate_checks_authenticated_read_only_backend_and_env_restore(self):
+        source = (ROOT / "production/scene_candidate_release.py").read_text()
+        for marker in ('"/api/admin/storage/capabilities"', '"/api/admin/storage/metrics"',
+                       'capabilities.get("can_modify") is not False', '_atomic_scene_env(original_env)'):
+            self.assertIn(marker, source)
+        self.assertNotIn("print(token)", source)
+
+
+
 if __name__ == "__main__":
     unittest.main()

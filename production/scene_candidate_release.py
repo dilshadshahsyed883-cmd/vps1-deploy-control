@@ -11,6 +11,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
+import stat
+import tempfile
 from pathlib import Path
 import shutil
 import subprocess
@@ -26,6 +29,7 @@ STATE = Path("/var/lib/fresh-website/scene-builder")
 ENV = Path("/etc/fresh-website/scene-builder.env")
 UNIT = "vps1-scene-candidate.service"
 RECORD = BASE / "control/state/scene-candidate.json"
+STORAGE_CANDIDATE_ENV = Path("/etc/fresh-website/vps-storage-manager.env")
 
 
 def _request(path: str, cookie: str = "") -> tuple[int, dict[str, str], bytes]:
@@ -88,7 +92,75 @@ def _stage(revision: str) -> Path:
     return target
 
 
-def _verify_integrations() -> dict:
+
+def _candidate_storage_token() -> str | None:
+    """Read only the existing root-owned candidate credential; never emit it."""
+    if not STORAGE_CANDIDATE_ENV.is_file() or STORAGE_CANDIDATE_ENV.is_symlink():
+        return None
+    if subprocess.run(
+        ["systemctl", "is-active", "--quiet", "vps1-storage-candidate.service"],
+        capture_output=True,
+    ).returncode:
+        return None
+    if STORAGE_CANDIDATE_ENV.stat().st_size > 16384:
+        raise RuntimeError("Storage candidate environment is unexpectedly large")
+    values = []
+    for line in STORAGE_CANDIDATE_ENV.read_text(encoding="utf-8").splitlines():
+        if line.startswith("STORAGE_MANAGER_TOKEN="):
+            values.append(line.split("=", 1)[1].strip().strip("\"'"))
+    if len(values) != 1 or not re.fullmatch(r"[A-Za-z0-9_-]{24,256}", values[0]):
+        return None
+    return values[0]
+
+
+def _storage_candidate_env_patch(current: str, token: str) -> str:
+    """Connect a Scene candidate to 8149 without overriding another backend."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{24,256}", token):
+        raise ValueError("Invalid candidate token format")
+    lines = current.splitlines()
+    positions: dict[str, list[int]] = {"STORAGE_MANAGER_URL": [], "STORAGE_MANAGER_TOKEN": []}
+    for i, line in enumerate(lines):
+        key = line.split("=", 1)[0].strip()
+        if key in positions and "=" in line:
+            positions[key].append(i)
+    if any(len(entries) > 1 for entries in positions.values()):
+        raise RuntimeError("Duplicate Scene storage environment keys")
+    urls = positions["STORAGE_MANAGER_URL"]
+    if urls and lines[urls[0]].split("=", 1)[1].strip().strip("\"'") != "http://127.0.0.1:8149":
+        return current  # Preserve an explicitly configured independent backend.
+    for key, value in (
+        ("STORAGE_MANAGER_URL", "http://127.0.0.1:8149"),
+        ("STORAGE_MANAGER_TOKEN", token),
+    ):
+        if positions[key]:
+            lines[positions[key][0]] = key + "=" + value
+        else:
+            lines.append(key + "=" + value)
+    updated = "\n".join(lines) + "\n"
+    return current if updated == current else updated
+
+
+def _atomic_scene_env(payload: bytes) -> None:
+    """Replace only Scene's existing environment with its original ownership/mode."""
+    metadata = ENV.lstat()
+    if not stat.S_ISREG(metadata.st_mode) or len(payload) > 65536:
+        raise RuntimeError("Scene environment ownership or size is invalid")
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(prefix=".scene-env-", dir=ENV.parent, delete=False) as target:
+            temporary = Path(target.name)
+            os.fchmod(target.fileno(), stat.S_IMODE(metadata.st_mode))
+            os.fchown(target.fileno(), metadata.st_uid, metadata.st_gid)
+            target.write(payload)
+            target.flush()
+            os.fsync(target.fileno())
+        os.replace(temporary, ENV)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def _verify_integrations(*, require_storage_backend: bool = False) -> dict:
     from production.route_uploader_scene_https import scene_cookie
 
     cookie = scene_cookie()
@@ -127,7 +199,29 @@ def _verify_integrations() -> dict:
     if dashboard_page == 200 and b"dashboard_control_center.js?" in dashboard_html:
         if b"hide-algrow-v3" not in dashboard_html:
             raise RuntimeError("stale dashboard asset version remains in served HTML")
-    return {"session_bridge": "PASS", "dashboard_no_algrow": "PASS", **pages}
+    storage_backend = "UNVERIFIED_READ_ONLY_FALLBACK"
+    if require_storage_backend:
+        code, _, body = _request("/api/admin/storage/capabilities", cookie)
+        if code != 200:
+            raise RuntimeError("Storage Manager authenticated capabilities probe failed")
+        try:
+            capabilities = json.loads(body)
+        except (ValueError, TypeError) as exc:
+            raise RuntimeError("Storage Manager capabilities returned invalid JSON") from exc
+        if capabilities.get("read_only") is not True or capabilities.get("can_modify") is not False:
+            raise RuntimeError("Storage candidate unexpectedly advertises writable capability")
+        code, _, body = _request("/api/admin/storage/metrics", cookie)
+        if code != 200:
+            raise RuntimeError("Storage Manager authenticated metrics probe failed")
+        try:
+            metrics = json.loads(body)
+        except (ValueError, TypeError) as exc:
+            raise RuntimeError("Storage Manager metrics returned invalid JSON") from exc
+        if not isinstance(metrics, dict) or not isinstance(metrics.get("disk"), dict):
+            raise RuntimeError("Storage Manager metrics payload is incomplete")
+        storage_backend = "CANDIDATE_READ_ONLY_PASS"
+    return {"session_bridge": "PASS", "dashboard_no_algrow": "PASS",
+            "storage_backend": storage_backend, **pages}
 
 
 def install(revision: str) -> None:
@@ -154,15 +248,28 @@ def install(revision: str) -> None:
     atomic_json(journal / "previous.json", {"current": str(previous), "unit": UNIT})
     backups = backup_databases(STATE, journal / "sqlite-backup")
     changed = False
+    original_env: bytes | None = None
+    require_storage_backend = False
     try:
+        token = _candidate_storage_token()
+        if token is not None:
+            original = ENV.read_bytes()
+            new_text = _storage_candidate_env_patch(original.decode("utf-8"), token)
+            require_storage_backend = (
+                "STORAGE_MANAGER_URL=http://127.0.0.1:8149" in new_text.splitlines()
+                and ("STORAGE_MANAGER_TOKEN=" + token) in new_text.splitlines()
+            )
+            if new_text.encode("utf-8") != original:
+                _atomic_scene_env(new_text.encode("utf-8"))
+                original_env = original
         atomic_link(CURRENT, target)
         changed = True
         run(["systemctl", "restart", UNIT], timeout=70, quiet=True)
         health = _health()
-        integrations = _verify_integrations()
+        integrations = _verify_integrations(require_storage_backend=require_storage_backend)
         # Idempotent dedicated Chrome/noVNC setup used by the existing Script Work UI.
         install_browser()
-        integrations = _verify_integrations()
+        integrations = _verify_integrations(require_storage_backend=require_storage_backend)
         if shutil.disk_usage("/").free < 5_000_000_000:
             raise RuntimeError("operational disk reserve breached")
         atomic_json(RECORD, {"revision": revision, "status": "ACTIVE", "unit": UNIT,
@@ -171,7 +278,9 @@ def install(revision: str) -> None:
               port=18080, health=health, integrations=integrations,
               sqlite_backups=len(backups), rollback=str(journal))
     except BaseException:
-        if changed:
+        if original_env is not None:
+            _atomic_scene_env(original_env)  # Restore credentials before service rollback.
+        if changed or original_env is not None:
             atomic_link(CURRENT, previous)
             subprocess.run(["systemctl", "restart", UNIT], capture_output=True, timeout=70)
             _health()
