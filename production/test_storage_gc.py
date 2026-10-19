@@ -120,6 +120,18 @@ class StorageGCTests(unittest.TestCase):
         self.execute()
         self.assertEqual((media / "original.mp4").read_bytes(), b"never delete")
 
+    def test_running_process_prevents_deletion(self):
+        from unittest.mock import patch
+        with patch.object(gc, "_runtime_in_use", return_value=True), \\
+             patch.object(gc.subprocess, "run") as run:
+            run.return_value.returncode = 0
+            plan = self.inventory()
+            result = gc.apply_plan(self.root, plan, now=self.now,
+                                   unit_dir=self.unit_dir, test_mode=False)
+        self.assertEqual(result["deleted"], [])
+        self.assertTrue(any("process-in-use" in value for value in result["skipped"]))
+        self.assertTrue((self.root / "releases" / self.app / self.revisions[3]).exists())
+
     def test_explicit_apply_refuses_nonproduction_path(self):
         with self.assertRaises(RuntimeError):
             gc.execute(root=self.root, apply=True, unit_dir=self.unit_dir)
