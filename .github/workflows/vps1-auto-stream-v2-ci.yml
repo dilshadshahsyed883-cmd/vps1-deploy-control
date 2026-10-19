@@ -4,6 +4,7 @@ on:
     paths:
       - 'apps/short-stream/part01/**'
       - 'production/test_auto_stream_integrations.py'
+      - 'production/test_auto_stream_credentials.py'
       - 'production/test_auto_stream_ui.py'
       - 'production/test_auto_stream_broadcasts.py'
       - 'production/test_auto_stream_oauth_env.py'
@@ -27,12 +28,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python -m pip install 'fastapi==0.115.12' 'cryptography==44.0.3' 'python-multipart==0.0.20'
+      - run: python -m pip install 'fastapi==0.115.12' 'cryptography==44.0.3' 'python-multipart==0.0.20' 'httpx==0.28.1'
       - name: Isolated offline tests, never connect YouTube
         run: |
+          python -m py_compile apps/short-stream/part01/auto_stream_client_config.py
           python -m py_compile apps/short-stream/part01/auto_stream_integrations.py
           python -m py_compile apps/short-stream/part01/app.py
-          python -m unittest -v production.test_auto_stream_engine production.test_auto_stream_integrations production.test_auto_stream_ui production.test_auto_stream_broadcasts production.test_auto_stream_oauth_env
+          python -m unittest -v production.test_auto_stream_engine production.test_auto_stream_integrations production.test_auto_stream_ui production.test_auto_stream_broadcasts production.test_auto_stream_oauth_env production.test_auto_stream_credentials
 
       - name: Parse native browser script with Node JS syntax checker
         run: |
