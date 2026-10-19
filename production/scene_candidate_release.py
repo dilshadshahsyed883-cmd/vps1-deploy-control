@@ -107,7 +107,27 @@ def _verify_integrations() -> dict:
         if code == 200 and b"<" not in body:
             raise RuntimeError(name + " response is not a browser document")
         pages[name] = code
-    return {"session_bridge": "PASS", **pages}
+    # Release admission for the actual authenticated dashboard API. A template
+    # existence check alone would miss a stale Algrow Voice card.
+    dashboard_status, _, dashboard_body = _request("/api/dashboard/v1", cookie)
+    if dashboard_status != 200:
+        raise RuntimeError("dashboard authenticated API failed")
+    try:
+        payload = json.loads(dashboard_body)
+        app_names = {str(item.get("name", "")) for item in payload.get("apps", []) if isinstance(item, dict)}
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise RuntimeError("dashboard API returned malformed JSON") from exc
+    if "Algrow Voice" in app_names:
+        raise RuntimeError("obsolete Algrow Voice dashboard card remains in the API")
+    if "Scene Builder" not in app_names or "Auto Caption Studio" not in app_names:
+        raise RuntimeError("dashboard essential apps not present")
+
+    # The dashboard's HTML must reference its new cache-busted JS artifact.
+    dashboard_page, _, dashboard_html = _request("/", cookie)
+    if dashboard_page == 200 and b"dashboard_control_center.js?" in dashboard_html:
+        if b"hide-algrow-v3" not in dashboard_html:
+            raise RuntimeError("stale dashboard asset version remains in served HTML")
+    return {"session_bridge": "PASS", "dashboard_no_algrow": "PASS", **pages}
 
 
 def install(revision: str) -> None:
