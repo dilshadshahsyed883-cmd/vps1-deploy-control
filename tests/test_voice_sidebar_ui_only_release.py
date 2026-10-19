@@ -41,7 +41,7 @@ class VoiceSidebarUIOnlyTests(unittest.TestCase):
     def test_previous_production_voice_sidebar_version_upgrades_in_place(self):
         # Previous UI-only deploy already contains the early asset block.
         older = self.previous.replace(OLD_ASSETS, ASSET_NOTE)
-        older = older.replace(TITLE, TITLE + b"\\n" + PREVIOUS_ASSETS)
+        older = older.replace(TITLE, TITLE + b"\n" + PREVIOUS_ASSETS)
         next_page = patch_template(older)
         self.assertIn(NEW_ASSETS, next_page)
         self.assertNotIn(PREVIOUS_ASSETS, next_page)
