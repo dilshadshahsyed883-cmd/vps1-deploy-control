@@ -167,7 +167,7 @@ body.vps1-native-open #vps1-native-site-sidebar{transform:translateX(0)}
 #app-sidebar .sidebar-account button:hover,#vps1-native-site-sidebar .vps1-native-account button:hover{
   background:#2a3551!important;
 }
-#app-sidebar .server-dot,#vps1-native-site-sidebar .vps1-native-bottom {
+#app-sidebar .server,#app-sidebar .server-dot,#vps1-native-site-sidebar .vps1-native-bottom {
   display:block!important;flex:none!important;margin:8px 0 0!important;
   padding:8px 10px 0!important;color:#aab4d5!important;
   font-size:11px!important;line-height:1.4!important;
