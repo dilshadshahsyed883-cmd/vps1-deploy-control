@@ -85,6 +85,88 @@ def changed_pixel_ratio(first: bytes, second: bytes) -> float:
     return sum(max(rgb) > 20 for rgb in pixels) / max(1, len(pixels))
 
 
+def verify_actual_short_maker_identity(browser, shell_js: str, shell_css: str,
+                                       geometry_css: str) -> list[str]:
+    """Serve the real Short Maker HTML offline with both session roles in Chromium.
+
+    The existing CSS geometry fixture alone cannot detect a missing Admin/account
+    footer, nor can it detect an actual-page JS bootstrap failure.
+    """
+    source = (ROOT / "apps/short-maker/part01/app.py").read_text(encoding="utf-8")
+    try:
+        html = source.split("HTML = r'''", 1)[1].split("'''", 1)[0]
+    except IndexError:
+        return ["short-maker: actual embedded HTML fixture unavailable"]
+    errors = []
+    origin = "https://app.scenebuilder.online"
+    for identity in (
+        {"authenticated": True, "is_admin": True, "username": "fixture-admin"},
+        {"authenticated": True, "is_admin": False, "username": "fixture-member"},
+        None,
+    ):
+        role = "admin" if identity and identity["is_admin"] else (
+            "member" if identity else "no-session")
+        context = browser.new_context(viewport={"width": 1440, "height": 900},
+                                      reduced_motion="reduce")
+        try:
+            def route_request(route):
+                url = route.request.url
+                if url.split("?", 1)[0] == origin + "/short-maker/":
+                    route.fulfill(status=200, content_type="text/html", body=html)
+                elif "/static/vps1_native_site_shell.js" in url:
+                    route.fulfill(status=200, content_type="application/javascript",
+                                  body=shell_js)
+                elif "/static/vps1_native_site_shell.css" in url:
+                    route.fulfill(status=200, content_type="text/css",
+                                  body=shell_css)
+                elif "/static/vps1_video_studio_geometry.css" in url:
+                    route.fulfill(status=200, content_type="text/css",
+                                  body=geometry_css)
+                elif "/api/session/identity" in url:
+                    route.fulfill(status=200 if identity else 401,
+                                  content_type="application/json",
+                                  body=__import__("json").dumps(identity or
+                                      {"detail": "Authentication required"}))
+                else:
+                    route.fulfill(status=200, content_type="application/json",
+                                  body='{"jobs":[],"counts":{}}')
+            context.route("**/*", route_request)
+            page = context.new_page()
+            failures = []
+            page.on("pageerror", lambda err: failures.append(str(err)))
+            page.goto(origin + "/short-maker/", wait_until="load", timeout=15000)
+            account = page.locator("#app-sidebar .sidebar-account")
+            account.wait_for(state="visible", timeout=10000)
+            page.wait_for_function(
+                """() => {
+                    const x=document.querySelector('#app-sidebar .sidebar-account');
+                    return x && ['verified','unavailable'].includes(
+                       x.dataset.vps1IdentityStatus);
+                }""", timeout=10000)
+            admin_count = page.locator('#app-sidebar nav a[href="/admin"]').count()
+            if admin_count != (1 if identity and identity["is_admin"] else 0):
+                errors.append(f"short-maker {role}: Admin visibility={admin_count}")
+            if identity:
+                if account.locator(".sidebar-account-name").inner_text() != identity["username"]:
+                    errors.append(f"short-maker {role}: user identity missing")
+                if account.locator('form[action="/logout"]').is_hidden():
+                    errors.append(f"short-maker {role}: logout missing")
+                if not account.locator(".vps1-session-login").is_hidden():
+                    errors.append(f"short-maker {role}: login shown while signed in")
+            else:
+                if account.locator(".vps1-session-login").is_hidden():
+                    errors.append("short-maker no-session: sign-in recovery missing")
+                if not account.locator('form[action="/logout"]').is_hidden():
+                    errors.append("short-maker no-session: logout exposed")
+            if failures:
+                errors.append(f"short-maker {role}: browser JS error {failures[:2]}")
+        except Exception as exc:
+            errors.append(f"short-maker {role}: {type(exc).__name__}: {exc}")
+        finally:
+            context.close()
+    return errors
+
+
 def run(screenshots: Path | None) -> int:
     try:
         from playwright.sync_api import sync_playwright
@@ -105,6 +187,8 @@ def run(screenshots: Path | None) -> int:
             kwargs["executable_path"] = os.environ["VPS1_CHROMIUM_EXECUTABLE"]
         browser = pw.chromium.launch(**kwargs)
         try:
+            errors.extend(verify_actual_short_maker_identity(
+                browser, native_js, shell_css, geometry_css))
             for width, height in VIEWPORTS:
                 ctx = browser.new_context(viewport={"width": width, "height": height},
                                           reduced_motion="reduce",

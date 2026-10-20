@@ -20,8 +20,8 @@ NATIVE_PAGES = (
     ROOT / "apps/voice-studio/part01/templates/voice_studio.html",
     ROOT / "apps/local-upload-manager/part01/templates/base.html",
 )
-SIDEBAR_VERSION = "vps1_native_site_shell.js?v=20261020-unified-sidebar-v1"
-CSS_VERSION = "vps1_native_site_shell.css?v=20261020-upload-studio-v1"
+SIDEBAR_VERSION = "vps1_native_site_shell.js?v=20261020-admin-session-v2"
+CSS_VERSION = "vps1_native_site_shell.css?v=20261020-admin-session-v2"
 
 
 class UniversalSidebarContracts(unittest.TestCase):
@@ -61,7 +61,9 @@ class UniversalSidebarContracts(unittest.TestCase):
             'fetch("/api/session/identity"',
             'credentials: "same-origin"',
             'identity.is_admin === true',
-            'account.hidden = !authenticated',
+            'account.dataset.vps1IdentityStatus = authenticated ? "verified" : "unavailable"',
+            'loginLink.hidden = authenticated',
+            'logout.hidden = !authenticated',
             'setIdentity(null)',
             'adminLink.remove()',
             'logout.action = "/logout"',
