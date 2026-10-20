@@ -1,0 +1,85 @@
+/* Scene Builder UI parity with approved Kokoro geometry.
+   Only Scene Queue / Settings / Audit Media pages opt in through base.html.
+   UI-only: no media, queue, worker, auth or API changes. */
+body.vps1-scene-parity {
+  --scene-ui-accent: #6255db;
+  --scene-ui-border: #e2e7ef;
+  --scene-ui-ink: #101828;
+  --scene-ui-muted: #667085;
+  scrollbar-gutter: stable;
+}
+body.vps1-scene-parity main {min-width: 0; overflow-wrap: anywhere;}
+body.vps1-scene-parity main > [data-video-studio-subnav="1"],
+body.vps1-scene-parity main > .scene-workspace-header {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1400px;
+  margin-inline: auto;
+}
+body.vps1-scene-parity .scene-workspace-header {
+  position: relative;
+  top: auto;
+  min-height: 62px;
+  padding: 6px;
+  margin-bottom: 16px;
+  border: 1px solid var(--scene-ui-border);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 4px 14px rgb(31 45 74 / 4%);
+}
+body.vps1-scene-parity .scene-workspace-tabs {
+  min-width: 0;
+  max-width: 100%;
+  gap: 6px;
+  scrollbar-width: thin;
+  scroll-behavior: smooth;
+}
+body.vps1-scene-parity .scene-workspace-tabs a {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 9px 14px;
+  border-radius: 9px;
+  font-size: 13px;
+  line-height: 1.4;
+  flex: 0 0 auto;
+}
+body.vps1-scene-parity .scene-workspace-tabs a.active,
+body.vps1-scene-parity .scene-workspace-tabs a[aria-current="page"] {
+  color: #fff;
+  background: var(--scene-ui-accent);
+}
+body.vps1-scene-parity .scene-workspace-tabs a:focus-visible,
+body.vps1-scene-parity main :is(button, a, input, select, textarea):focus-visible {
+  outline: 3px solid #8174eb;
+  outline-offset: 2px;
+}
+body.vps1-scene-parity main :is(input[type="text"],input[type="search"],input[type="number"],
+  input[type="url"],input[type="password"],select) {
+  box-sizing: border-box;
+  min-height: 44px;
+  max-width: 100%;
+}
+body.vps1-scene-parity main textarea {box-sizing: border-box; max-width: 100%;}
+body.vps1-scene-parity main :is(.queue-mode-buttons, .scene-channel-actions, .queue-log-head, .scene-compact-summary) {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+body.vps1-scene-parity main :is(.queue-mode-buttons, .scene-channel-actions) button {
+  min-height: 44px;
+}
+body.vps1-scene-parity main :is(.audit-project-row, .queue-job-group, .queue-mode-card) {
+  min-width: 0;
+}
+@media (max-width: 760px) {
+  body.vps1-scene-parity .scene-workspace-header {min-height: 54px; padding: 5px;}
+  body.vps1-scene-parity .scene-workspace-tabs {flex-wrap: nowrap; overflow-x: auto;}
+  body.vps1-scene-parity .scene-workspace-tabs a {padding: 9px 12px;}
+  body.vps1-scene-parity .queue-mode-buttons {width: 100%;}
+  body.vps1-scene-parity .queue-mode-buttons button {flex: 1 1 auto;}
+}
+@media (prefers-reduced-motion: reduce) {
+  body.vps1-scene-parity .scene-workspace-tabs {scroll-behavior: auto;}
+}
