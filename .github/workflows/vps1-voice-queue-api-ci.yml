@@ -1,0 +1,33 @@
+name: Voice Kokoro Edge queue API release regression
+on:
+  pull_request:
+    paths:
+      - production/voice_queue_release.py
+      - production/runtime.py
+      - apps/voice-studio/part01/kokoro_api.py
+      - apps/voice-studio/part01/edge_api.py
+      - tests/test_voice_queue_api_release.py
+      - .github/workflows/vps1-voice-queue-api-ci.yml
+      - .github/workflows/vps1-voice-queue-api-release.yml
+  push:
+    branches: [main]
+    paths:
+      - production/voice_queue_release.py
+      - production/runtime.py
+      - tests/test_voice_queue_api_release.py
+      - .github/workflows/vps1-voice-queue-api-ci.yml
+permissions:
+  contents: read
+jobs:
+  voice-queue-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Offline route, rollback and worker preservation tests
+        run: python -m unittest tests.test_voice_queue_api_release -v
+      - name: Validate guarded production Python entry
+        run: python -m py_compile production/voice_queue_release.py production/runtime.py

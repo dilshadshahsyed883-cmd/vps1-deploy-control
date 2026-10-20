@@ -362,6 +362,10 @@ def install_app(app, revision):
     # provision independent synthesis workers just to change sidebar markup.
     if app == 'voice-studio':
         commit_message = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-voice-queue-api-only]' in commit_message:
+            from production.voice_queue_release import install as install_voice_queue_api
+            install_voice_queue_api(revision)
+            return
         if '[vps1-voice-template-only]' in commit_message:
             from production.voice_template_release import install as install_voice_template
             install_voice_template(revision)
