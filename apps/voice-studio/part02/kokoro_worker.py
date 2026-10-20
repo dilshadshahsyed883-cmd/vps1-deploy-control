@@ -1,6 +1,6 @@
 """Single-worker isolated Kokoro ONNX CPU synthesis + verified Drive spool."""
 from __future__ import annotations
-import json, os, re, shutil, sqlite3, subprocess, sys, threading, time
+import json, os, re, shutil, sqlite3, subprocess, sys, threading, time, hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 import numpy as np
@@ -19,6 +19,22 @@ def db():
  c.row_factory=sqlite3.Row
  c.execute('pragma busy_timeout=20000')
  return c
+
+def ensure_output_metadata():
+ with db() as c:
+  columns={r[1] for r in c.execute('PRAGMA table_info(jobs)').fetchall()}
+  if not columns:raise RuntimeError('Voice jobs table missing')
+  for name,kind in {'naming_method':"TEXT NOT NULL DEFAULT 'legacy'",'drive_file_id':'TEXT','drive_url':'TEXT','drive_verified_at':'TEXT','drive_files_json':"TEXT NOT NULL DEFAULT '{}'"}.items():
+   if name not in columns:c.execute('ALTER TABLE jobs ADD COLUMN '+name+' '+kind)
+  c.execute("UPDATE jobs SET delivery_status='retry_pending',next_delivery_retry=0 WHERE status='completed' AND delivery_status='transferring'")
+
+def delivery_loop():
+ while True:
+  try:
+   deliver_once()
+   cleanup_delivered()
+  except Exception as exc:print('KOKORO_DRIVE_LOOP_RETRY='+type(exc).__name__,flush=True)
+  time.sleep(4)
 
 def heartbeat(ready:bool,reason:str=''):
  DATA.mkdir(parents=True,exist_ok=True)
@@ -117,9 +133,17 @@ def run_rclone(*args):
  return r.stdout
 
 def verified_copy(local:Path,remote:str):
- run_rclone('copyto',str(local),remote)
- data=json.loads(run_rclone('lsjson','--stat',remote))
+ """Verify Drive identity, name, size, and MD5 where available."""
+ if not local.is_file() or local.stat().st_size<1:raise RuntimeError('Local output missing')
+ run_rclone('copyto','--ignore-existing',str(local),remote)
+ data=json.loads(run_rclone('lsjson','--stat','--hash',remote))
  if int(data.get('Size',-1))!=local.stat().st_size:raise RuntimeError('Drive size verification failed')
+ if data.get('Name') and data['Name']!=remote.rsplit('/',1)[-1]:raise RuntimeError('Drive filename mismatch')
+ fid=str(data.get('ID') or '')
+ if not re.fullmatch(r'[A-Za-z0-9_-]{8,}',fid):raise RuntimeError('Drive ID missing')
+ md5=(data.get('Hashes') or {}).get('MD5')
+ if md5 and md5.lower()!=hashlib.md5(local.read_bytes()).hexdigest():raise RuntimeError('Drive MD5 mismatch')
+ return {'id':fid,'url':'https://drive.google.com/file/d/'+fid+'/view','size':local.stat().st_size,'name':remote.rsplit('/',1)[-1]}
 
 def deliver_once():
  if not RCLONE or not Path(RCFILE).is_file():return
@@ -130,12 +154,14 @@ def deliver_once():
  if not txt.is_file() or not wav.is_file():
   update(jid,delivery_status='blocked',delivery_error='Local pair missing',next_delivery_retry=time.time()+3600)
   return
- remote='gdrive:Omni Voice/Kokoro/'+row['language']+'/'+row['batch_id']+'/'+row['output_basename']
+ remote='gdrive:Omni Voice/Kokoro/'+row['language']+'/'+row['batch_id']+'/'+jid+'/'+row['output_basename']
  try:
   update(jid,delivery_status='transferring')
-  verified_copy(txt,remote+'.txt')
-  verified_copy(wav,remote+'.wav')
-  update(jid,delivery_status='delivered',delivery_error=None,drive_wav=remote+'.wav',drive_txt=remote+'.txt')
+  text_receipt=verified_copy(txt,remote+'.txt')
+  audio_receipt=verified_copy(wav,remote+'.wav')
+  update(jid,delivery_status='delivered',delivery_error=None,drive_wav=remote+'.wav',drive_txt=remote+'.txt',
+         drive_file_id=audio_receipt['id'],drive_url=audio_receipt['url'],drive_verified_at=now(),
+         drive_files_json=json.dumps({'txt':text_receipt,'wav':audio_receipt},ensure_ascii=False))
   print('KOKORO_DRIVE_PAIR_VERIFIED='+jid,flush=True)
  except Exception as exc:
   retries=int(row['delivery_retries'] or 0)+1
@@ -173,20 +199,20 @@ def main():
  verified=catalog(engine)
  if not verified:raise SystemExit('Voice catalog empty')
  DATA.mkdir(parents=True,exist_ok=True)
+ ensure_output_metadata()
  with db() as c:
   c.execute("update jobs set status='failed',error='Interrupted during worker restart' where status='processing'")
  if '--smoke' in sys.argv:
   print('KOKORO_SMOKE_READY|VOICE_COUNT='+str(len(verified)))
   return
  thread=threading.Thread(target=heartbeat_loop,daemon=True);thread.start()
+ threading.Thread(target=delivery_loop,daemon=True).start()
  heartbeat(True)
  while True:
   try:
    job=pick()
    if job:process_job(engine,job)
    else:
-    deliver_once()
-    cleanup_delivered()
     time.sleep(4)
   except Exception as exc:
    print('KOKORO_LOOP_ERROR='+type(exc).__name__,flush=True)
