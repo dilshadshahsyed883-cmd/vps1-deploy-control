@@ -2000,12 +2000,16 @@ setOmniSubtab('production');
 /* AUDIO_DOWNLOADER_TAB_V1 controller. Existing three voice-engine listeners remain intact. */
 (() => {'use strict';
 const $ = id => document.getElementById(id);
-const root = '/tts/api/audio-downloader';
+// AUDIO_DOWNLOADER_BROWSER_ROUTE_CONTRACT_V2: preserve the authenticated Voice Studio Nginx prefix.
+const root = (location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/audio-downloader';
 let selected='downloader', active=false, tick=null, lastStatus=null;
 const api = async (url,options={}) => {
-  const res=await fetch(url,{credentials:'same-origin',headers:{'accept':'application/json',...(options.body&&!(options.body instanceof FormData)?{'content-type':'application/json'}:{})},...options});
-  const data=await res.json().catch(()=>({detail:'Server did not return JSON'}));
-  if(!res.ok)throw new Error(typeof data.detail==='string'?data.detail:`HTTP ${res.status}`);
+  const res=await fetch(url,{credentials:'same-origin',cache:'no-store',headers:{'accept':'application/json',...(options.body&&!(options.body instanceof FormData)?{'content-type':'application/json'}:{})},...options});
+  const type=String(res.headers.get('content-type')||'').toLowerCase();
+  const data=type.includes('application/json')?await res.json().catch(()=>null):null;
+  const pathname=new URL(url,location.href).pathname;
+  if(!res.ok)throw new Error('HTTP '+res.status+' '+pathname+': '+(data&&typeof data.detail==='string'?data.detail:'API request failed'));
+  if(!data||typeof data!=='object')throw new Error('API returned a non-JSON response for '+pathname+'; check session and proxy routing');
   return data;
 };
 const msg=(text,type='')=>{const el=$('vsaMessage');el.textContent=text;el.className='vsa-message'+(type?' '+type:'');};
@@ -2025,7 +2029,7 @@ async function downloadViaSession(job, anchor, actions){
  anchor.textContent='Downloading…';
  anchor.style.pointerEvents='none';
  try{
-  const response=await fetch(endpoint,{method:'GET',credentials:'same-origin',cache:'no-store',redirect:'follow',headers:{'Accept':'audio/mpeg,audio/wav,application/octet-stream'}});
+  const response=await fetch(root+endpoint.slice(('/'+'tts/api/audio-downloader').length),{method:'GET',credentials:'same-origin',cache:'no-store',redirect:'follow',headers:{'Accept':'audio/mpeg,audio/wav,application/octet-stream'}});
   const type=String(response.headers.get('content-type')||'').split(';')[0].trim().toLowerCase();
   if(!response.ok||!['audio/mpeg','audio/mp3','audio/wav','audio/x-wav','application/octet-stream'].includes(type)){
    let detail='';
@@ -2063,7 +2067,7 @@ function jobTable(jobs,limit){const wrap=make('div',null,'vsa-tablewrap'),table=
   }else if(job.audio_url){const a=make('a','Download audio','vsa-link');a.href=job.audio_url;a.download='';a.addEventListener('click',async event=>{event.preventDefault();await downloadViaSession(job,a,actions);});actions.append(a,make('span',' '));}if(job.status==='queued')actions.append(button('Cancel',()=>api(root+'/jobs/'+encodeURIComponent(job.job_id)+'/cancel',{method:'POST'})));if(['failed','cancelled'].includes(job.status))actions.append(button('Retry',()=>api(root+'/jobs/'+encodeURIComponent(job.job_id)+'/retry',{method:'POST'})));row.append(actions);body.append(row);}
  if(!jobs.length){const empty=make('tr'),td=make('td','No audio jobs yet.');td.colSpan=6;empty.append(td);body.append(empty);}table.append(body);wrap.append(table);return wrap;}
 async function loadStatus(){try{const s=await api(root+'/status');lastStatus=s;$('vsaReady').textContent=s.ready?'Downloader ready':'Downloader unavailable';$('vsaReady').classList.toggle('ready',!!s.ready);$('vsaWorker').textContent=s.worker?'Online':'Offline';$('vsaDriveState').textContent=s.upload_ready?'Connected':'Unavailable';$('vsaDriveSummary').textContent=s.upload_ready?'Google Drive configured.':'Drive upload unavailable. Check the worker configuration.';$('vsaCount').textContent=Object.values(s.queue||{}).reduce((a,n)=>a+Number(n||0),0)+' jobs';$('vsaSubmit').disabled=!s.ready;}catch(e){$('vsaReady').textContent='Downloader offline';$('vsaReady').classList.remove('ready');$('vsaWorker').textContent='Offline';$('vsaSubmit').disabled=true;$('vsaDriveSummary').textContent=e.message;}}
-async function loadJobs(){try{const r=await api(root+'/jobs?limit=150');const jobs=r.jobs||[];for(const [id,num] of [['vsaRecent',5],['vsaQueueRows',200],['vsaHistoryRows',200]]){$(id).replaceChildren(jobTable(jobs,num));}}catch(e){$('vsaRecent').textContent='Queue unavailable: '+e.message;$('vsaQueueRows').textContent='Queue unavailable: '+e.message;$('vsaHistoryRows').textContent='History unavailable: '+e.message;}}
+async function loadJobs(){try{const r=await api(root+'/jobs?limit=200');if(!Array.isArray(r.jobs))throw new Error('Invalid queue API response: jobs list missing');const jobs=r.jobs;const terminal=new Set(['completed','delivered','failed','cancelled']);const historyJobs=jobs.filter(j=>terminal.has(j.status));$('vsaRecent').replaceChildren(jobTable(jobs,5));$('vsaQueueRows').replaceChildren(jobTable(jobs,200));$('vsaHistoryRows').replaceChildren(jobTable(historyJobs,200));}catch(e){$('vsaRecent').textContent='Queue unavailable: '+e.message;$('vsaQueueRows').textContent='Queue unavailable: '+e.message;$('vsaHistoryRows').textContent='History unavailable: '+e.message;}}
 async function submit(){const btn=$('vsaSubmit');try{const links=$('vsaLinks').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);if(!links.length||links.length>30)throw new Error('Provide 1–30 YouTube video links.');if(!$('vsaPermission').checked)throw new Error('Confirm you have permission to download these videos.');btn.disabled=true;msg('Submitting audio download jobs…');const data=await api(root+'/jobs',{method:'POST',body:JSON.stringify({links,project_name:$('vsaProject').value,drive_folder:$('vsaFolder').value,format:$('vsaFormat').value,quality:Number($('vsaQuality').value),auto_upload:$('vsaUpload').checked,keep_metadata:$('vsaMetadata').checked,permission_confirmed:$('vsaPermission').checked})});msg(data.created+' audio job(s) queued in batch '+data.batch_id,'ok');$('vsaLinks').value='';$('vsaPermission').checked=false;await loadJobs();tab('queue');}catch(e){msg(e.message,'error')}finally{btn.disabled=!(lastStatus&&lastStatus.ready);}}
 function boot(){if(!$('vsEngineAudio')||!$('vsAudioWorkspace'))return;
  $('vsEngineAudio').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();choose(true);},true);
@@ -2081,7 +2085,7 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
 
 <script id="audio-downloader-proxy-v1">
 (()=>{'use strict';
-const $=id=>document.getElementById(id),prefix='/tts/api/audio-downloader/proxy';
+const $=id=>document.getElementById(id),prefix=(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/audio-downloader/proxy';
 let editing='',cached=null;
 const request=async(path,opts={})=>{const response=await fetch(prefix+path,{credentials:'same-origin',headers:{'content-type':'application/json'},...opts});const body=await response.json().catch(()=>({}));if(!response.ok)throw Error(typeof body.detail==='string'?body.detail:'Request failed '+response.status);return body;};
 const notify=(s,ok=false)=>{const e=$('vsaProxyMessage');e.textContent=s;e.className='vsa-message '+(ok?'ok':'error');};
