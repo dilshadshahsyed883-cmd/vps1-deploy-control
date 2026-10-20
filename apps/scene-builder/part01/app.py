@@ -1783,6 +1783,13 @@ def experiment_studio_home(request: Request):
     return RedirectResponse("/experiment-studio/antidetect-browser/", status_code=303)
 
 
+@app.get("/experiment-studio/self-media-library/")
+def experiment_studio_media_library(request: Request):
+    """Open the existing independent media application from Experiment Studio."""
+    require_login(request)
+    return RedirectResponse("/self-media-library/", status_code=303)
+
+
 @app.get("/experiment-studio/antidetect-browser/", response_class=HTMLResponse)
 def antidetect_browser_workspace(request: Request):
     """UI-only workspace; no browser automation or profile launch side effects."""
