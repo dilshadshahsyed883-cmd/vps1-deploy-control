@@ -33,6 +33,10 @@ def main():
                     page.add_init_script("localStorage.setItem('sceneBuilderAudioEngineTabV2','studio')")
                     def route(handle):
                         request=handle.request;parts=urlsplit(request.url);path=parts.path+('?' + parts.query if parts.query else '')
+                        # Production font packs are provisioned outside Git. A system font is enough for this form/route fixture.
+                        if parts.path.startswith('/static/fonts/'):
+                            font=next(Path('/usr/share/fonts').rglob('*.ttf'))
+                            return handle.fulfill(content_type='font/ttf',body=font.read_bytes())
                         if request.method!='GET':writes.append((request.method,parts.path))
                         response=client.request(request.method,path,content=request.post_data_buffer,headers={k:v for k,v in request.headers.items() if k.lower() in ('content-type','x-settings-csrf')},follow_redirects=True)
                         if response.status_code>=400:failures.append((path,response.status_code,response.text[:160]))
