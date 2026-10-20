@@ -3,11 +3,12 @@
   "use strict";
   const script = document.currentScript;
   const app = script && script.dataset ? script.dataset.workspace : "";
-  if (!["acs", "voice", "uploader", "stream"].includes(app)) return;
+  const legacySidebar = !!(script && script.dataset && script.dataset.unifySidebar === "1");
+  if (!legacySidebar && !["acs", "voice", "uploader", "stream"].includes(app)) return;
   // During staggered releases an old Scene shell may still embed this document.
   // Never render a second navigation in that legacy framing context.
   if (window.self !== window.top) return;
-  document.documentElement.classList.add("vps1-native-bootstrap");
+  if (!legacySidebar) document.documentElement.classList.add("vps1-native-bootstrap");
   const node = (tag, name, value) => {
     const e = document.createElement(tag);
     if (name) e.className = name;
