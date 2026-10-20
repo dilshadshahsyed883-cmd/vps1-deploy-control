@@ -35,6 +35,8 @@ def worker_functions(path, names, namespace):
     return namespace
 
 
+@unittest.skipIf(importlib.util.find_spec('fastapi') is None,
+                 'FastAPI test fixture runs in dedicated Voice Studio CI')
 class VoiceOutputContract(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
