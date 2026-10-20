@@ -61,6 +61,7 @@ class VoiceLiveAcceptanceTests(unittest.TestCase):
                 self.assertEqual(result["anonymous_post"], "BLOCKED")
                 with sqlite3.connect(path) as db:
                     self.assertEqual(db.execute("SELECT count(*) FROM jobs").fetchone()[0], 0)
+                    self.assertEqual(db.execute("PRAGMA integrity_check").fetchone()[0], "ok")
 
     def test_failed_qa_request_keeps_owner_record_and_deletes_only_test_record(self):
         path = self.files["kokoro"]
