@@ -61,7 +61,7 @@ class SourceDedupIntegration(unittest.TestCase):
                 video = Path(root) / "blank.mp4"
                 subprocess.run(
                     ["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi",
-                     "-i", "color=c=black:s=128x72:r=24:d=1",
+                     "-i", "color=c=black:s=128x72:r=24:d=3",
                      "-c:v", "libx264", "-pix_fmt", "yuv420p", str(video)],
                     check=True, timeout=45,
                 )
@@ -77,6 +77,12 @@ class SourceDedupIntegration(unittest.TestCase):
                     self.assertEqual(a.json()["id"], b.json()["id"])
                     self.assertTrue(b.json()["duplicate"])
                     self.assertEqual(len(client.get("/api/sources").json()["items"]), 1)
+                    # Process synchronously to assert the quality toggle applies to created clips.
+                    app.process_source(a.json()["id"])
+                    clips = client.get("/api/clips").json()["items"]
+                    self.assertGreaterEqual(len(clips), 1)
+                    self.assertTrue(all(c["status"] == "rejected" for c in clips))
+                    self.assertTrue(all(c["quality"] == 5 for c in clips))
             finally:
                 sys.modules.pop("app", None)
                 if previous is None:
