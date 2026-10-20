@@ -148,5 +148,55 @@ class VoiceQueueURLOverlayTests(unittest.TestCase):
         self.assertTrue(hasattr(module, "queue_route_overlay"))
 
 
+
+class VoiceFullHTTPSReadRegression(unittest.TestCase):
+    def test_queue_script_tail_is_verified_beyond_legacy_180k_limit(self):
+        from unittest.mock import MagicMock, patch
+        from production.voice_template_release import read_full_authenticated_voice_html
+        late_scripts = (b'X' * 190_000
+            + b'<script id="voiceStudioDualEngineV1Script"></script>'
+            + b'<script id="voiceStudioEdgeEngineV1Script"></script>')
+        tls_context = MagicMock()
+        tls_context.__enter__.return_value = MagicMock()
+        tcp_context = MagicMock()
+        tcp_context.__enter__.return_value = MagicMock()
+        response = MagicMock(status=200)
+        response.getheader.return_value = 'text/html; charset=utf-8'
+        response.read.return_value = late_scripts
+        https_conn = MagicMock()
+        https_conn.getresponse.return_value = response
+        with patch('production.voice_template_release.socket.create_connection',
+                   return_value=tcp_context), \
+             patch('production.voice_template_release.ssl.create_default_context') as ssl_ctx, \
+             patch('production.voice_template_release.http.client.HTTPSConnection',
+                   return_value=https_conn):
+            ssl_ctx.return_value.wrap_socket.return_value = tls_context
+            self.assertEqual(read_full_authenticated_voice_html('session=only-test'),
+                             late_scripts)
+            response.read.assert_called_once_with(750_000)
+            self.assertEqual(https_conn.request.call_args.args[:2],
+                             ('GET', '/voice-studio/app'))
+            self.assertEqual(https_conn.request.call_args.kwargs['headers']['Cookie'],
+                             'session=only-test')
+
+    def test_full_probe_rejects_missing_late_inline_engine_script(self):
+        from unittest.mock import MagicMock, patch
+        from production.voice_template_release import read_full_authenticated_voice_html
+        conn = MagicMock()
+        conn.getresponse.return_value.status = 200
+        conn.getresponse.return_value.getheader.return_value = 'text/html'
+        conn.getresponse.return_value.read.return_value = b'X' * 180_000
+        tls = MagicMock()
+        raw = MagicMock()
+        with patch('production.voice_template_release.socket.create_connection',
+                   return_value=raw), \
+             patch('production.voice_template_release.ssl.create_default_context') as ctx, \
+             patch('production.voice_template_release.http.client.HTTPSConnection',
+                   return_value=conn):
+            ctx.return_value.wrap_socket.return_value = tls
+            with self.assertRaisesRegex(RuntimeError, 'late queue scripts'):
+                read_full_authenticated_voice_html('session=only-test')
+
+
 if __name__ == "__main__":
     unittest.main()
