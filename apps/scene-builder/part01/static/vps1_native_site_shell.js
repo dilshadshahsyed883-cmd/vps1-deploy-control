@@ -323,6 +323,7 @@
 (() => {
   'use strict';
   if(typeof document.querySelector !== 'function')return;
+  const initialEngineHash = location.hash;
   const $ = id => document.getElementById(id);
   const all = selector => Array.from(document.querySelectorAll(selector));
   const text = (el, value) => {if (el && el.textContent !== String(value)) el.textContent = String(value);};
@@ -384,11 +385,12 @@
       const items=Array.from(nav.children).filter(el=>el.matches('a,button'));
       if(!items.length)continue;
       const trueTabs=nav.getAttribute('role')==='tablist'&&items.every(el=>el.getAttribute('role')==='tab');
+      const selectable=items.some(el=>el.hasAttribute('aria-selected')||el.classList.contains('active')||el.classList.contains('is-active'));
       // Section buttons retain native button semantics and expose their pressed state.
       if(nav.getAttribute('role')==='tablist'&&!trueTabs)attr(nav,'role','navigation');
       for(const el of items){
         if(el.matches('a')&&el.classList.contains('active'))attr(el,'aria-current','page');
-        if(el.matches('button')&&el.getAttribute('role')!=='tab'){
+        if(selectable&&el.matches('button')&&el.getAttribute('role')!=='tab'){
           const selected=el.getAttribute('aria-selected');const pressed=selected!==null?selected==='true':el.classList.contains('active')||el.classList.contains('is-active');
           attr(el,'aria-pressed',pressed);
         }
@@ -406,7 +408,7 @@
       if(control.labels?.length||control.hasAttribute('aria-label')||control.hasAttribute('aria-labelledby'))continue;
       const parent=control.parentElement;
       const preceding=control.previousElementSibling;
-      const name=preceding?.matches('label')?preceding.textContent.trim():control.getAttribute('placeholder')||labels[control.id];
+      const name=preceding?.matches('label')?preceding.textContent.trim():control.getAttribute('placeholder')||labels[control.id]||(control.tagName==='SELECT'?control.options[0]?.textContent.trim():'')||(control.id?control.id.replace(/[-_]/g,' '):'');
       if(name)attr(control,'aria-label',name);
     }
   }
@@ -444,8 +446,16 @@
     if(!document.querySelector('#app-sidebar,#vps1-native-site-sidebar'))return;
     // Load the same canonical stylesheet last, after app inline styles, with a
     // release key. Old app documents receive this UI without worker restarts.
-    if(!$('vps1-kokoro-audit-css')){const link=make('link');link.id='vps1-kokoro-audit-css';link.rel='stylesheet';link.href='/static/vps1_native_site_shell.css?ui=kokoro-audit12-v1';document.head.append(link);}
+    if(!$('vps1-kokoro-audit-css')){const link=make('link');link.id='vps1-kokoro-audit-css';link.rel='stylesheet';link.href='/static/vps1_native_site_shell.css?ui=kokoro-audit12-v2';document.head.append(link);}
     polish();document.addEventListener('input',ranges);
+    // The old Omni initializer rewrites the hash before the other engines boot.
+    // Restore only explicit engine deep links after all initializers have run.
+    const restoreEngine = () => {
+      const id={'#vs-kokoro':'vsEngineKokoro','#vs-edge':'vsEngineEdge','#vs-audio':'vsEngineAudio'}[initialEngineHash];
+      const button=id&&$(id);if(button&&button.getAttribute('aria-selected')!=='true')button.click();
+    };
+    if(document.readyState==='complete')restoreEngine();
+    else document.addEventListener('DOMContentLoaded',restoreEngine,{once:true});
     let pending=false;
     new MutationObserver(()=>{if(pending)return;pending=true;requestAnimationFrame(()=>{pending=false;polish();});}).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['class','hidden','aria-selected']});
   }

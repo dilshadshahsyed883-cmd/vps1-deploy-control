@@ -32,7 +32,8 @@ def browser_acceptance():
         for width in [390,768,1363]:
             page=browser.new_page(viewport={'width':width,'height':936});errors=[]
             page.on('pageerror',lambda e:errors.append(str(e)));page.route('**/*',route)
-            page.goto('http://audit.test/voice-studio/app')
+            page.goto('http://audit.test/voice-studio/app#vs-kokoro')
+            expect(page.get_by_role('tab',name='Kokoro TTS',exact=True)).to_have_attribute('aria-selected','true')
             expect(page.locator('#vps1-kokoro-audit-css')).to_have_count(1)
             page.get_by_role('tab',name='Kokoro TTS',exact=True).click()
             expect(page.locator('#vskEngineState')).to_have_text('Kokoro ready')
@@ -59,10 +60,11 @@ def browser_acceptance():
             assert not errors,errors
             print('PASS actual Voice',width,'geometry, switching, values, status, catalog, no writes')
             page.close()
-        fixture='''<html><head><link rel="stylesheet" href="/static/vps1_native_site_shell.css"><script defer src="/static/vps1_native_site_shell.js" data-unify-sidebar="1"></script></head><body><aside id="app-sidebar"><nav></nav><div class="sidebar-account" data-vps1-server-identity="1"><div class="sidebar-account-name">fixture</div></div></aside><main><section class="sm-hero"><h2>Storage command center</h2><p>Live resources</p></section><div class="field"><label>Text Width</label><input type="range" value="71"><span class="small">85%</span></div><div class="field"><label>Preset Default FG Library</label><select id="presetFgSelect"></select></div><div class="field"><label>Preset Default FG Library</label><select id="presetFgLibrary"><option>None</option></select></div><div id="aiJobs">'''+''.join('<div class="sml-ai-job">Job '+str(i)+'</div>' for i in range(20))+'''</div><nav aria-label="Fixture sections"><button class="active">Production</button><button>Queue</button></nav></main></body></html>'''
+        fixture='''<html><head><link rel="stylesheet" href="/static/vps1_native_site_shell.css"><script defer src="/static/vps1_native_site_shell.js" data-unify-sidebar="1"></script></head><body class="vps1-native-site vps1-native-acs"><aside id="app-sidebar"><nav></nav><div class="sidebar-account" data-vps1-server-identity="1"><div class="sidebar-account-name">fixture</div></div></aside><style>.field{display:grid!important}</style><main><select id="activity-filter"><option>All activity states</option></select><section class="sm-hero"><h2>Storage command center</h2><p>Live resources</p></section><div class="field"><label>Text Width</label><input type="range" value="71"><span class="small">85%</span></div><div class="field"><label>Preset Default FG Library</label><select id="presetFgSelect"></select></div><div class="field"><label>Preset Default FG Library</label><select id="presetFgLibrary"><option>None</option></select></div><div id="aiJobs">'''+''.join('<div class="sml-ai-job">Job '+str(i)+'</div>' for i in range(20))+'''</div><nav aria-label="Fixture sections"><button class="active">Production</button><button>Queue</button></nav></main></body></html>'''
         page=browser.new_page(viewport={'width':1363,'height':936});page.route('**/*',route)
         page.route('http://audit.test/fixture',lambda req:req.fulfill(content_type='text/html',body=fixture));page.goto('http://audit.test/fixture')
         expect(page.locator('.field span.small')).to_have_text('71%')
+        expect(page.locator('#activity-filter')).to_have_accessible_name('All activity states')
         expect(page.locator('#presetFgSelect')).not_to_be_visible()
         expect(page.locator('#presetFgLibrary')).to_have_accessible_name('Preset Default FG Library')
         expect(page.locator('#aiJobs .sml-ai-job:visible')).to_have_count(8)
@@ -73,6 +75,18 @@ def browser_acceptance():
         expect(page.get_by_role('button',name='Production')).to_have_attribute('aria-pressed','true')
         page.get_by_role('button',name='Production').focus();page.keyboard.press('ArrowRight');expect(page.get_by_role('button',name='Queue')).to_be_focused()
         print('PASS Storage contrast, duplicate binding, range display, 3-page queue, labels, keyboard navigation')
+        lum_css='\n'.join((ROOT/'apps/local-upload-manager/part01/static'/name).read_text() for name in ['standalone.css','local_upload_manager.css','lum_desktop_theme_v4.css'])
+        uploader='<html><head><style>'+lum_css+'</style><link rel="stylesheet" href="/static/vps1_native_site_shell.css"><script defer src="/static/vps1_native_site_shell.js" data-workspace="uploader"></script></head><body class="lum-embedded"><main class="app-main"><div class="lum-shell"><nav class="lum-tabs" aria-label="Uploader workspace"><a class="active" href="#">Dashboard</a></nav><section class="lum-card"><h2>Uploader</h2><p>Readable workflow text</p><label class="lum-field"><span>Project</span><input></label><div class="lum-table-wrap"><table style="min-width:1500px"><tr><td>Wide records</td></tr></table></div></section></div></main></body></html>'
+        for width in [390,768,1363]:
+            u=browser.new_page(viewport={'width':width,'height':936});u.route('**/*',route)
+            u.route('http://audit.test/uploader',lambda req:req.fulfill(content_type='text/html',body=uploader));u.goto('http://audit.test/uploader')
+            expect(u.locator('.lum-card p')).to_have_css('font-size','13px')
+            expect(u.locator('.lum-tabs>a')).to_have_css('background-color','rgb(99, 85, 223)')
+            rail=u.locator('.vps1-native-upload-tabs').bounding_box();tabs=u.locator('.lum-tabs').bounding_box()
+            assert abs(rail['x']-tabs['x'])<1,(width,rail,tabs)
+            assert u.evaluate('document.documentElement.scrollWidth<=innerWidth'),(width,'uploader overflow')
+            print('PASS actual Uploader CSS',width,'shared inset, readable text, purple tabs, contained wide records')
+            u.close()
         browser.close()
 if __name__=='__main__':
     if '--browser' in sys.argv:browser_acceptance()
