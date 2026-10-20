@@ -42,7 +42,6 @@ class RealQueueRoutesTest(unittest.TestCase):
 
     def tearDown(self):
         self.client.close()
-        self.temp.cleanup()
 
     def get(self, engine):
         response = self.client.get(f"/tts/api/{engine}/jobs")
@@ -101,7 +100,7 @@ class RealQueueRoutesTest(unittest.TestCase):
         self.assertEqual(before.status_code,200)
         self.assertGreater(len(before.content),1000)
         self.assertEqual(self.control("kokoro",self.kid,"delete").status_code,200)
-        self.assertEqual(self.get("kokoro")["status"] if False else self.client.get("/tts/api/kokoro/jobs").json()["jobs"],[])
+        self.assertEqual(self.client.get("/tts/api/kokoro/jobs").json()["jobs"],[])
         self.assertTrue(output.exists())
         self.assertEqual(self.client.get(url).status_code,200)
         with self.ko.connection() as c:self.assertEqual(c.execute("select count(*) from jobs").fetchone()[0],1)
