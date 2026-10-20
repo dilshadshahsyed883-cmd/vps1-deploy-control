@@ -160,7 +160,7 @@ def load_policy() -> dict[str, Any]:
     policy["journal_max_mb"] = clamp_int(policy.get("journal_max_mb"), 100, 4096, 300)
     policy["temporary_retention_days"] = clamp_int(policy.get("temporary_retention_days"), 1, 90, 2)
     categories = policy.get("auto_categories") or []
-    policy["auto_categories"] = sorted({str(x) for x in categories} & ALL_CATEGORIES)
+    policy["auto_categories"] = sorted({str(x) for x in categories} & CACHE_CATEGORIES)
     return policy
 
 
@@ -181,7 +181,7 @@ def save_policy(payload: dict[str, Any]) -> dict[str, Any]:
     policy["journal_max_mb"] = clamp_int(policy.get("journal_max_mb"), 100, 4096, 300)
     policy["temporary_retention_days"] = clamp_int(policy.get("temporary_retention_days"), 1, 90, 2)
     policy["auto_categories"] = sorted(
-        {str(x) for x in (policy.get("auto_categories") or [])} & ALL_CATEGORIES
+        {str(x) for x in (policy.get("auto_categories") or [])} & CACHE_CATEGORIES
     )
     with sqlite3.connect(STATE_DB) as db:
         db.execute(
@@ -919,6 +919,8 @@ def cleanup(payload: dict[str, Any], *, automatic: bool = False) -> dict[str, An
     categories = sorted({str(x) for x in payload.get("categories", [])} & ALL_CATEGORIES)
     if not categories:
         raise ValueError("Select at least one cleanup category")
+    if PROJECT_CATEGORIES.intersection(categories):
+        raise RuntimeError("Verified-Drive project cleanup belongs to each application; central deletion is disabled")
     if not automatic and str(payload.get("confirmation") or "") != "RECLAIM":
         raise ValueError("Confirmation phrase RECLAIM is required")
     if not _operation_lock.acquire(blocking=False):
