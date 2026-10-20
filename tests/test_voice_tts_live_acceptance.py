@@ -109,6 +109,9 @@ class VoiceLiveAcceptanceTests(unittest.TestCase):
                 content=Path(args[-2]).read_bytes()
                 remote[args[-1]]=content
                 return SimpleNamespace(returncode=0,stdout="",stderr="")
+            if "lsjson" in args and args[-1] in ("gdrive:Omni Voice/Kokoro",
+                                                  "gdrive:Omni Voice/Edge TTS"):
+                return SimpleNamespace(returncode=0,stdout=json.dumps({"IsDir":True}),stderr="")
             if "lsjson" in args:
                 data=remote[args[-1]]
                 name=args[-1].rsplit("/",1)[-1]
@@ -152,6 +155,7 @@ class VoiceLiveAcceptanceTests(unittest.TestCase):
             result=acceptance.drive_upload_smoke_once()
         self.assertEqual(result["result"],"INCOMPLETE")
         self.assertFalse((journal/"drive-qa-one-time-receipt.json").exists())
+        self.assertEqual(result["google_reason"],"other")
 
     def test_rclone_errors_are_redacted_into_safe_categories(self):
         from production.voice_tts_live_acceptance import classify_remote_error
@@ -160,6 +164,33 @@ class VoiceLiveAcceptanceTests(unittest.TestCase):
         self.assertEqual(classify_remote_error("invalid_grant refresh token expired"),"authentication")
         self.assertEqual(classify_remote_error("429 user rate limit"),"quota")
         self.assertEqual(classify_remote_error("some unknown diagnostic"),"other_remote_error")
+
+    def test_safe_rclone_config_does_not_report_oauth_tokens(self):
+        from production.voice_tts_live_acceptance import safe_rclone_auth_facts
+        config=Path(self.temp.name)/"rclone.conf"
+        config.write_text("[gdrive]\ntype=drive\nscope=drive.readonly\n"
+                          'token={"access_token":"never-print-this"}\n')
+        data=safe_rclone_auth_facts(config)
+        self.assertEqual(data,{"remote_type":"drive","auth_mode":"oauth",
+                               "scope":"read_only"})
+        self.assertNotIn("never-print-this",repr(data))
+
+    def test_allowlisted_google_reasons_are_not_raw_error_text(self):
+        from production.voice_tts_live_acceptance import safe_google_error_reason
+        samples=[
+            ("googleapi: Error 403: x access_token=VERY_SECRET (reason: storageQuotaExceeded)",
+             "storageQuotaExceeded"),
+            ('{"error":{"errors":[{"reason":"insufficientFilePermissions"}]}}',
+             "insufficientFilePermissions"),
+            ("Request had insufficient authentication scopes",
+             "oauthInsufficientScope"),
+            ("Google API 403 token=VERY_SECRET", "unclassified403"),
+        ]
+        for original,expected in samples:
+            with self.subTest(expected=expected):
+                result=safe_google_error_reason(original)
+                self.assertEqual(result,expected)
+                self.assertNotIn("VERY_SECRET",result)
 
     def test_release_requires_live_proof_before_success(self):
         script=(ROOT/"production/voice_tts_controls_release.py").read_text()
