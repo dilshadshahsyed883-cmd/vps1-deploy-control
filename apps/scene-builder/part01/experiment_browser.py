@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import os
 import ipaddress
+import json
 import re
 import shutil
 import sqlite3
@@ -119,11 +120,38 @@ def validate_profile(payload: dict) -> dict:
         raise BrowserError("Set the proxy server before its credentials")
     if server.startswith("socks5://") and (username or password):
         raise BrowserError("Authenticated SOCKS5 proxies are not supported")
+    privacy = str(payload.get("privacy_mode") or "strict")
+    if privacy not in {"standard", "strict"}:
+        raise BrowserError("Invalid privacy mode")
+    dnt_value = str(payload.get("do_not_track", "on")).lower()
+    if dnt_value not in {"on", "off", "true", "false", "1", "0"}:
+        raise BrowserError("Invalid Do Not Track setting")
+    geo_mode = str(payload.get("geolocation_mode") or "deny")
+    if geo_mode not in {"deny", "fixed"}:
+        raise BrowserError("Invalid geolocation setting")
+    color_scheme = str(payload.get("color_scheme") or "no-preference")
+    reduced_motion = str(payload.get("reduced_motion") or "no-preference")
+    if color_scheme not in {"no-preference", "light", "dark"} or \
+       reduced_motion not in {"no-preference", "reduce"}:
+        raise BrowserError("Invalid device appearance preference")
+    try:
+        scale = float(payload.get("device_scale") or 1)
+        latitude = float(payload.get("geo_lat") or 0)
+        longitude = float(payload.get("geo_lon") or 0)
+    except (TypeError, ValueError, OverflowError):
+        raise BrowserError("Invalid device scale or location") from None
+    if scale not in {1.0, 1.25, 1.5, 2.0} or not (-90 <= latitude <= 90) or \
+       not (-180 <= longitude <= 180):
+        raise BrowserError("Device scale or geolocation out of range")
     return dict(name=name, start_url=validate_url(
         str(payload.get("start_url") or "about:blank"), allow_blank=True),
         proxy_server=server, proxy_username=username, proxy_password=password,
         locale=locale, timezone=timezone, user_agent=agent,
-        width=width, height=height)
+        width=width, height=height, privacy_mode=privacy,
+        do_not_track=int(dnt_value in {"on", "true", "1"}),
+        geolocation_mode=geo_mode, geo_lat=latitude, geo_lon=longitude,
+        color_scheme=color_scheme, reduced_motion=reduced_motion,
+        device_scale=scale)
 
 
 class BrowserProfileEngine:
@@ -151,6 +179,21 @@ class BrowserProfileEngine:
                 user_agent TEXT NOT NULL, width INTEGER NOT NULL,
                 height INTEGER NOT NULL, created_at TEXT NOT NULL
             )""")
+            # Additive columns only; existing cookies, browsing directories, and data survive.
+            columns = {row[1] for row in db.execute("PRAGMA table_info(profiles)")}
+            additions = {
+                "privacy_mode": "TEXT NOT NULL DEFAULT 'standard'",
+                "do_not_track": "INTEGER NOT NULL DEFAULT 0",
+                "geolocation_mode": "TEXT NOT NULL DEFAULT 'deny'",
+                "geo_lat": "REAL NOT NULL DEFAULT 0",
+                "geo_lon": "REAL NOT NULL DEFAULT 0",
+                "color_scheme": "TEXT NOT NULL DEFAULT 'no-preference'",
+                "reduced_motion": "TEXT NOT NULL DEFAULT 'no-preference'",
+                "device_scale": "REAL NOT NULL DEFAULT 1",
+            }
+            for column, declaration in additions.items():
+                if column not in columns:
+                    db.execute("ALTER TABLE profiles ADD COLUMN " + column + " " + declaration)
             db.execute("CREATE INDEX IF NOT EXISTS profiles_owner ON profiles(owner)")
             db.commit()
             dbpath.chmod(0o600)
@@ -174,7 +217,13 @@ class BrowserProfileEngine:
                     timezone=row["timezone"], start_url=row["start_url"],
                     proxy_server=row["proxy_server"], width=row["width"],
                     height=row["height"], user_agent=row["user_agent"],
-                    created_at=row["created_at"],
+                    created_at=row["created_at"], privacy_mode=row["privacy_mode"],
+                    do_not_track=bool(row["do_not_track"]),
+                    geolocation_mode=row["geolocation_mode"],
+                    geo_lat=row["geo_lat"] if row["geolocation_mode"] == "fixed" else None,
+                    geo_lon=row["geo_lon"] if row["geolocation_mode"] == "fixed" else None,
+                    color_scheme=row["color_scheme"], reduced_motion=row["reduced_motion"],
+                    device_scale=row["device_scale"],
                     state="running" if status else "stopped",
                     current_url=status["page"].url if status else "")
 
@@ -202,6 +251,19 @@ class BrowserProfileEngine:
                            ",".join("?" for _ in columns) + ")", values)
                 db.commit()
             return self._public(self._get(owner, identity))
+
+    async def clone(self, owner: str, profile_id: str) -> dict:
+        """Clone settings only; never copy cookies, browsing history or proxy secrets."""
+        row = self._get(owner, profile_id)
+        fields = ("start_url", "proxy_server", "locale", "timezone", "user_agent",
+                  "width", "height", "privacy_mode", "do_not_track",
+                  "geolocation_mode", "geo_lat", "geo_lon", "color_scheme",
+                  "reduced_motion", "device_scale")
+        settings = {field: row[field] for field in fields}
+        settings["name"] = ("Copy of " + row["name"])[:64]
+        settings["proxy_username"] = ""
+        settings["proxy_password"] = ""
+        return await self.create(owner, settings)
 
     async def delete(self, owner: str, profile_id: str) -> None:
         async with self.lock:
@@ -255,7 +317,19 @@ class BrowserProfileEngine:
                 args = dict(headless=True, executable_path=chrome,
                             viewport={"width": row["width"], "height": row["height"]},
                             locale=row["locale"], timezone_id=row["timezone"],
+                            device_scale_factor=row["device_scale"],
+                            color_scheme=row["color_scheme"],
+                            reduced_motion=row["reduced_motion"],
+                            service_workers="block" if row["privacy_mode"] == "strict" else "allow",
+                            accept_downloads=False,
+                            extra_http_headers={"DNT": "1"} if row["do_not_track"] else {},
                             args=["--disable-dev-shm-usage", "--no-first-run"])
+                if row["geolocation_mode"] == "fixed":
+                    args["geolocation"] = {"latitude": row["geo_lat"],
+                                           "longitude": row["geo_lon"]}
+                    args["permissions"] = ["geolocation"]
+                else:
+                    args["permissions"] = []
                 if row["user_agent"]:
                     args["user_agent"] = row["user_agent"]
                 if row["proxy_server"]:
@@ -264,6 +338,9 @@ class BrowserProfileEngine:
                         args["proxy"]["username"] = row["proxy_username"]
                     if row["proxy_password"]:
                         args["proxy"]["password"] = row["proxy_password"]
+
+                if row["privacy_mode"] == "strict" or row["proxy_server"]:
+                    # Chrome policy constrains UDP leakage, not a DNS/WebRTC anonymity proof.
                     args["args"].append("--force-webrtc-ip-handling-policy=disable_non_proxied_udp")
                 for folder in ("cache", "config"):
                     (self.root / folder).mkdir(exist_ok=True, mode=0o700)
@@ -356,6 +433,59 @@ class BrowserProfileEngine:
             except Exception:
                 raise BrowserError("Browser action failed", 502) from None
             return {"url": page.url}
+
+    async def privacy_report(self, owner: str, profile_id: str) -> dict:
+        """Report observable browser configuration; no spoofing or unverifiable claims."""
+        async with self.lock:
+            state = await self._session(owner, profile_id)
+            row = self._get(owner, profile_id)
+            try:
+                observed = await state["page"].evaluate("""() => ({
+                    user_agent: navigator.userAgent, language: navigator.language,
+                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                    width: innerWidth, height: innerHeight,
+                    device_pixel_ratio: devicePixelRatio,
+                    do_not_track: navigator.doNotTrack || null
+                })""")
+            except Exception:
+                raise BrowserError("Browser privacy inspection failed", 502) from None
+            return {"profile_id": profile_id, "privacy_mode": row["privacy_mode"],
+                    "proxy_configured": bool(row["proxy_server"]),
+                    "webrtc_udp_restricted": bool(
+                        row["privacy_mode"] == "strict" or row["proxy_server"]),
+                    "service_workers_blocked": row["privacy_mode"] == "strict",
+                    "geolocation_mode": row["geolocation_mode"],
+                    "dnt_header_enabled": bool(row["do_not_track"]),
+                    "observed": observed,
+                    "verified_dns_leak_free": False,
+                    "verified_webrtc_leak_free": False}
+
+    async def connection_check(self, owner: str, profile_id: str) -> dict:
+        """Explicit user-triggered IP lookup from the selected browser context."""
+        async with self.lock:
+            state = await self._session(owner, profile_id)
+            page = None
+            try:
+                page = await state["context"].new_page()
+                response = await page.goto("https://api.ipify.org?format=json",
+                                           wait_until="domcontentloaded", timeout=15000)
+                if response is None or response.status != 200:
+                    raise ValueError("IP endpoint unavailable")
+                data = json.loads(await response.text())
+                ip = ipaddress.ip_address(str(data["ip"]))
+                if not ip.is_global:
+                    raise ValueError("Non-public address")
+                return {"ip": str(ip), "source": "api.ipify.org",
+                        "proxy_configured": bool(self._get(owner, profile_id)["proxy_server"]),
+                        "dns_leak_tested": False, "webrtc_leak_tested": False}
+            except Exception:
+                raise BrowserError("Exit-IP check failed; proxy or external service unavailable", 502) from None
+            finally:
+                if page is not None:
+                    try:
+                        await page.close()
+                    except Exception:
+                        pass
 
     async def screenshot(self, owner: str, profile_id: str) -> bytes:
         async with self.lock:

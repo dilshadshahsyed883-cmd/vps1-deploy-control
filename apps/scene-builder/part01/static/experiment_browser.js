@@ -9,7 +9,7 @@
   const message = byId("browser-message");
   const preview = byId("browser-preview");
   const blank = byId("browser-no-preview");
-  const actions = ["start", "stop", "delete", "go", "reload", "back", "type",
+  const actions = ["start", "stop", "delete", "clone", "privacy", "connection-check", "go", "reload", "back", "type",
                    "enter", "scroll-up", "scroll-down", "refresh-preview"];
   let profiles = [];
   let selected = "";
@@ -48,6 +48,7 @@
       if (button) {
         button.disabled = busy || (name === "start" ? !have || running()
           : name === "delete" ? !have || running()
+          : name === "clone" ? !have
           : name === "stop" ? !running() : !running());
       }
     }
@@ -67,7 +68,8 @@
       const title = document.createElement("strong");
       title.textContent = profile.name;
       const details = document.createElement("small");
-      details.textContent = profile.state + " · " + profile.locale +
+      details.textContent = profile.state + " · " + profile.locale + " · " +
+        (profile.privacy_mode === "strict" ? "Strict privacy" : "Standard privacy") +
         (profile.proxy_server ? " · Proxy configured" : " · Direct");
       description.append(title, details);
       const button = document.createElement("button");
@@ -89,6 +91,12 @@
       hint.textContent = "No profiles yet. Create your first browser profile above.";
       list.appendChild(hint);
     }
+    const item = current();
+    byId("browser-privacy-summary").textContent = item ?
+      ("Privacy: " + item.privacy_mode + " · DNT: " + (item.do_not_track ? "on" : "off") +
+       " · Location: " + item.geolocation_mode +
+       " · Browsing storage isolated per profile. Proxy IP not checked.") :
+      "Create or select a profile to view its privacy configuration.";
     controls();
   }
 
@@ -109,14 +117,14 @@
     render();
   }
 
-  async function perform(operation, syncAfter = true) {
+  async function perform(operation, syncAfter = true, successMessage = "Ready") {
     if (busy) return;
     busy = true;
     controls();
     try {
       await operation();
       if (syncAfter) await sync();
-      notice("Ready");
+      if (successMessage !== null) notice(successMessage);
     } catch (error) {
       notice(error.message || String(error), true);
     } finally {
@@ -163,8 +171,30 @@
       byId("browser-profile-name").value = "";
       byId("browser-proxy-pass").value = "";
       notice("Profile saved. Press Start to launch its browser.");
-    }, false);
+    }, false, null);
   });
+
+  byId("browser-clone").addEventListener("click", () => perform(async () => {
+    const result = await api(requireSelection() + "/clone", "POST");
+    await sync(result.profile.id);
+    notice("Settings cloned into a fresh profile. Cookies and proxy credentials were not copied.");
+  }, false, null));
+  byId("browser-privacy").addEventListener("click", () => perform(async () => {
+    const result = await api(requireSelection() + "/privacy");
+    const o = result.observed;
+    notice("Observed browser: " + o.user_agent + "\nLanguage: " + o.language +
+      " · Timezone: " + o.timezone + " · Viewport: " + o.width + "×" + o.height +
+      " · Scale: " + o.device_pixel_ratio + "\nWebRTC non-proxied UDP restricted: " +
+      (result.webrtc_udp_restricted ? "yes" : "no") +
+      " · Service workers blocked: " + (result.service_workers_blocked ? "yes" : "no") +
+      "\nDNS and WebRTC leak tests have NOT been run.");
+  }, false, null));
+  byId("browser-connection-check").addEventListener("click", () => perform(async () => {
+    const result = await api(requireSelection() + "/connection-check", "POST");
+    notice("Browser exit IP: " + result.ip + " (via " + result.source + ")" +
+      (result.proxy_configured ? " · Proxy configured" : " · Direct connection") +
+      "\nThis checks the HTTP exit IP only; DNS and WebRTC leaks were NOT tested.");
+  }, false, null));
 
   byId("browser-start").addEventListener("click", () => perform(async () => {
     await api(requireSelection() + "/start", "POST");
