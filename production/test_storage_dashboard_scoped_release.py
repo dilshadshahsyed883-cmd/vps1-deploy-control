@@ -31,8 +31,8 @@ class StorageDashboardRelease(unittest.TestCase):
         js = (SCENE / "static/storage_manager.js").read_text()
         self.assertIn("dashboard_control_center.js?v=20261019-hide-algrow-v3", dashboard)
         self.assertIn("dashboard_no_algrow", scene)
-        self.assertIn("let managerFallback = true", js)
-        self.assertIn("let managerCanModify = false", js)
+        self.assertIn("method:\u0027GET\u0027", js)
+        self.assertNotIn("method:\u0027POST\u0027", js)
         self.assertIn("renderCleanupStatus", js)
         self.assertIn("storage_manager.js?v=20261020-active-gc-dashboard-v2", template)
 
