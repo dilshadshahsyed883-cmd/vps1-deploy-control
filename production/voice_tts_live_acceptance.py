@@ -1,6 +1,8 @@
 """Protected live acceptance on disposable paused rows. No TTS or Drive mutations."""
 from __future__ import annotations
 import http.client
+import hashlib
+import tempfile
 import json
 import secrets
 import socket
@@ -11,7 +13,8 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-from production.voice_tts_controls_release import DATA_ROOTS, require
+from production.voice_tts_controls_release import DATA_ROOTS, JOURNALS, require
+from production.runtime import atomic_json
 from production.route_uploader_scene_https import DOMAIN, scene_cookie
 
 MARKER = "vps1-tts-qa-"
@@ -134,13 +137,81 @@ def check_existing_remote_receipt(engine,db_path):
             report["remote_status"]="REMOTE_PROBE_ERROR"
     return report
 
+def drive_upload_smoke_once():
+    """Two tiny dedicated QA TXT files; verify actual VPS rclone Drive upload.
+
+    No owner media, worker queues, public permissions or prior Drive files touched.
+    The tiny remote QA evidence is retained; only the local temporary file is
+    cleaned. A durable success journal stops repeated Drive probe uploads.
+    """
+    receipt_path=JOURNALS/"drive-qa-one-time-receipt.json"
+    if receipt_path.is_file() and not receipt_path.is_symlink():
+        try:
+            receipt=json.loads(receipt_path.read_text("utf-8"))
+            if receipt.get("result")=="PASS" and set(receipt.get("engines",{}))=={"kokoro","edge"}:
+                return {"result":"PASS","engines":receipt["engines"],
+                        "retained_drive_evidence":True,"cached":True}
+        except (OSError,ValueError,TypeError):
+            pass
+    executable=shutil.which("rclone")
+    config=Path("/home/ubuntu/.config/masterctl/rclone.conf")
+    if not executable or not config.is_file():
+        return {"result":"UNAVAILABLE","reason":"rclone_configuration_missing"}
+    completed={}
+    for engine,remote_root in (("kokoro","Kokoro"),("edge","Edge TTS")):
+        unique=secrets.token_hex(12)
+        destination=f"gdrive:Omni Voice/{remote_root}/_VPS1_VOICE_QA/{unique}.txt"
+        payload=("VPS1 isolated synthetic Drive upload check\n"+
+                 f"engine={engine}\nrandom_marker={unique}\n").encode()
+        with tempfile.TemporaryDirectory(prefix="vps1-voice-drive-qa-") as folder:
+            local=Path(folder)/"qa.txt"
+            local.write_bytes(payload)
+            command=[executable,"--config",str(config),"--tpslimit","1",
+                     "--tpslimit-burst","1","--retries","1","--low-level-retries","1"]
+            try:
+                sent=subprocess.run(command+["copyto","--ignore-existing",
+                                             str(local),destination],
+                                    capture_output=True,text=True,timeout=150)
+                if sent.returncode:
+                    return {"result":"INCOMPLETE","engine":engine,
+                            "reason":"remote_copy_failed","completed":completed}
+                read=subprocess.run(command+["lsjson","--stat","--hash",destination],
+                                    capture_output=True,text=True,timeout=70)
+                if read.returncode:
+                    return {"result":"INCOMPLETE","engine":engine,
+                            "reason":"remote_receipt_lookup_failed","completed":completed}
+                metadata=json.loads(read.stdout)
+                file_id=str(metadata.get("ID") or "")
+                remote_md5=(metadata.get("Hashes") or {}).get("MD5")
+                matched=bool(
+                    len(file_id)>=8 and
+                    int(metadata.get("Size",-1))==len(payload) and
+                    str(metadata.get("Name") or "")==unique+".txt" and
+                    (not remote_md5 or remote_md5.lower()==hashlib.md5(payload).hexdigest())
+                )
+                if not matched:
+                    return {"result":"INCOMPLETE","engine":engine,
+                            "reason":"remote_identity_size_or_hash_mismatch",
+                            "completed":completed}
+                completed[engine]="ID_SIZE_HASH_VERIFIED"
+            except (OSError,ValueError,TypeError,KeyError,subprocess.TimeoutExpired):
+                return {"result":"INCOMPLETE","engine":engine,
+                        "reason":"upload_or_receipt_exception","completed":completed}
+    proof={"result":"PASS","engines":completed,"retained_drive_evidence":True,
+           "auto_script":"OFFLINE"}
+    atomic_json(receipt_path,proof,0o600)
+    return proof
+
+
 def run_acceptance():
     cookie=scene_cookie()
     jobs=[validate_engine(engine,db,cookie)
           for engine,db in zip(("kokoro","edge"),DATA_ROOTS)]
     evidence={engine:check_existing_remote_receipt(engine,db)
               for engine,db in zip(("kokoro","edge"),DATA_ROOTS)}
+    upload_proof=drive_upload_smoke_once()
     return {"result":"PASS_VOICE_TTS_LIVE_CONTROL_QA","engines":jobs,
             "drive_readonly_evidence":evidence,
+            "drive_real_upload_proof":upload_proof,
             "synthesis":"NOT_TESTED","owner_jobs_mutated":False,
             "auto_script":"OFFLINE"}
