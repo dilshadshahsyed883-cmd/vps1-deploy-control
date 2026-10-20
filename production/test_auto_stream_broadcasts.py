@@ -124,6 +124,21 @@ class LiveBroadcastV3Tests(unittest.TestCase):
             with self.assertRaisesRegex(PermissionError,"GO_LIVE"):
                 self.manager.transition(self.job["id"],"live")
 
+    def test_explicit_live_applies_selected_privacy_and_records_remote_truth(self):
+        with self.acct.connect() as con:
+            con.execute("INSERT INTO live_control(job_id,channel_id,broadcast_id,stream_id,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",(self.job['id'],CID,'broadcast123','stream456','ENCODER_STARTED',g.now(),g.now()))
+        with self.engine._connect() as con:con.execute("UPDATE jobs SET status='INGESTING',privacy='unlisted' WHERE id=?",(self.job['id'],))
+        def provider(url,**kwargs):
+            if '/liveStreams?' in url:return {'items':[{'id':'stream456','status':{'streamStatus':'active','healthStatus':{'status':'good'}}}]}
+            if kwargs.get('method')=='PUT':
+                self.assertEqual(kwargs['payload']['status']['privacyStatus'],'unlisted')
+                return {'status':{'privacyStatus':'unlisted'}}
+            return self.fake_google(url,**kwargs)
+        with patch.dict(os.environ,{'AUTO_STREAM_YOUTUBE_MUTATIONS_ENABLED':'1','AUTO_STREAM_LIVE_TRANSITIONS_ENABLED':'1','AUTO_STREAM_GO_LIVE_ENABLED':'1'}),patch.object(self.acct,'_access',return_value='fixture'),patch.object(g,'_http_json',side_effect=provider):
+            result=self.manager.transition(self.job['id'],'live')
+        self.assertTrue(result['youtube_verified_live'])
+        self.assertEqual(self.engine.get(self.job['id'])['display_state'],'LIVE')
+
     def test_reject_foreign_ingest_hosts(self):
         for url in ["rtmp://a.rtmp.youtube.com/live2",
                     "rtmps://example.org/live2",

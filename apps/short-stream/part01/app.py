@@ -853,3 +853,9 @@ app.include_router(auto_stream_broadcasts_router)
 # Admin-only browser configuration of independent Google OAuth web client.
 from auto_stream_client_config import router as auto_stream_credentials_router
 app.include_router(auto_stream_credentials_router)
+
+
+# Auto Stream owns its scheduler, render and encoder lifecycle separately.
+from auto_stream_operations import startup as auto_stream_startup, shutdown as auto_stream_shutdown
+app.add_event_handler('startup', auto_stream_startup)
+app.add_event_handler('shutdown', auto_stream_shutdown)

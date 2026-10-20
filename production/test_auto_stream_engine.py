@@ -116,7 +116,7 @@ class StreamEngineTests(unittest.TestCase):
         with patch.object(shutil, "which", return_value="/usr/bin/ffmpeg"):
             fixed = self.engine.create({**self.data, "idempotency_key":"loop-fixed-0001", "loop_count":3})
             fixed_args = self.engine._command({**fixed, "loop_count":3, "unlimited":False}, "key_abcdefghij")
-            unlimited = self.engine.create({**self.data, "idempotency_key":"loop-unlimited-01", "unlimited":True})
+            unlimited = self.engine.create({**self.data, "idempotency_key":"loopcase00000001", "unlimited":True})
             unlimited_args = self.engine._command({**unlimited, "loop_count":1, "unlimited":True}, "key_abcdefghij")
         self.assertIn("-stream_loop", fixed_args)
         self.assertIn("2", fixed_args)

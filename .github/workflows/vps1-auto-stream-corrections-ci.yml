@@ -1,0 +1,30 @@
+name: Auto Stream owner corrections acceptance
+on:
+  pull_request:
+    paths:
+      - 'apps/short-stream/part01/**'
+      - 'production/test_auto_stream_*.py'
+      - '.github/workflows/vps1-auto-stream-corrections-ci.yml'
+permissions:
+  contents: read
+jobs:
+  corrections:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      AUTO_STREAM_TEST_ARTIFACTS: test-results/auto-stream
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install 'fastapi==0.115.12' 'httpx<0.29' python-multipart cryptography playwright uvicorn
+      - run: python -m playwright install --with-deps chromium
+      - run: command -v ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y ffmpeg)
+      - run: python -m unittest -v production.test_auto_stream_compositor production.test_auto_stream_operations production.test_auto_stream_e2e production.test_auto_stream_corrections production.test_auto_stream_browser production.test_auto_stream_engine production.test_auto_stream_integrations production.test_auto_stream_credentials production.test_auto_stream_ui production.test_auto_stream_broadcasts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: auto-stream-browser-evidence
+          path: test-results/auto-stream
+          if-no-files-found: ignore

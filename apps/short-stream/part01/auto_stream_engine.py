@@ -59,6 +59,9 @@ class StreamEngine:
         self.db = self.root / "stream-jobs.sqlite3"
         self.lock = threading.RLock()
         self.processes: dict[str, subprocess.Popen] = {}
+        self.metrics = {}
+        self.stop_events = {}
+        self.commands = {}
         self._init_db()
 
     def _connect(self):
@@ -86,6 +89,12 @@ class StreamEngine:
             for column, ddl in (("loop_count", "INTEGER NOT NULL DEFAULT 1"), ("unlimited", "INTEGER NOT NULL DEFAULT 0"), ("description", "TEXT NOT NULL DEFAULT ''"), ("privacy", "TEXT NOT NULL DEFAULT 'private'")):
                 if column not in existing_columns:
                     con.execute(f"ALTER TABLE jobs ADD COLUMN {column} {ddl}")
+            for column, ddl in (("profile","TEXT NOT NULL DEFAULT '720p'"),("duration","REAL NOT NULL DEFAULT 0"),("retry_limit","INTEGER NOT NULL DEFAULT 2"),("remote_state","TEXT NOT NULL DEFAULT ''"),("remote_verified_at","TEXT NOT NULL DEFAULT ''")):
+                if column not in existing_columns:
+                    con.execute(f"ALTER TABLE jobs ADD COLUMN {column} {ddl}")
+            con.execute("""CREATE TABLE IF NOT EXISTS job_history(id INTEGER PRIMARY KEY,job_id TEXT NOT NULL,state TEXT NOT NULL,message TEXT NOT NULL,created_at TEXT NOT NULL)""")
+            con.execute("""CREATE TRIGGER IF NOT EXISTS stream_state_history AFTER UPDATE OF status ON jobs WHEN OLD.status!=NEW.status BEGIN INSERT INTO job_history(job_id,state,message,created_at) VALUES(NEW.id,NEW.status,NEW.failure,NEW.updated_at); END""")
+            con.execute("""CREATE TRIGGER IF NOT EXISTS stream_created_history AFTER INSERT ON jobs BEGIN INSERT INTO job_history(job_id,state,message,created_at) VALUES(NEW.id,NEW.status,'Job created',NEW.created_at); END""")
             con.execute("""CREATE UNIQUE INDEX IF NOT EXISTS single_active_channel
                 ON jobs(channel_id) WHERE status IN ('STARTING','INGESTING','STOPPING')""")
             # A server restart cannot prove YouTube is live, nor safely
@@ -94,6 +103,10 @@ class StreamEngine:
                 failure='Worker ownership lost; reconcile YouTube before retry',
                 updated_at=? WHERE status IN ('STARTING','INGESTING','STOPPING')""",
                 (utc_now(),))
+        import auto_stream_compositor
+        auto_stream_compositor.init(self)
+        import auto_stream_operations
+        auto_stream_operations.initialize(self)
         with contextlib.suppress(OSError):
             os.chmod(self.db, 0o600)
 
@@ -117,12 +130,20 @@ class StreamEngine:
         value = dict(row)
         value["continuous"] = bool(value["continuous"])
         value["unlimited"] = bool(value.get("unlimited", False))
+        verified=value.get("remote_verified_at","")
+        recent=bool(verified and verified >= datetime.fromtimestamp(time.time()-90,timezone.utc).isoformat(timespec="seconds"))
+        value["youtube_verified_live"]=recent and value.get("remote_state")=="live"
+        value["display_state"]="LIVE" if value["youtube_verified_live"] else {"INGESTING":"STARTING","STOPPING":"STOPPING","STOPPED":"COMPLETED","INTERRUPTED":"FAILED"}.get(value["status"],value["status"])
         return value
 
     def list_jobs(self):
         with self._connect() as con:
-            return [self._public(r) for r in con.execute(
-                "SELECT * FROM jobs ORDER BY created_at DESC, id DESC LIMIT 250")]
+            rows=[self._public(r) for r in con.execute("SELECT * FROM jobs ORDER BY created_at DESC,id DESC LIMIT 250")]
+        for row in rows:
+            with self.lock:metrics=dict(self.metrics.get(row['id'],{}))
+            row['encoder']=metrics
+            if row['status']=='INGESTING' and metrics.get('encoder_state')=='RECONNECTING':row['display_state']='RECONNECTING'
+        return rows
 
     def get(self, jid):
         with self._connect() as con:
@@ -156,6 +177,11 @@ class StreamEngine:
         privacy = str(payload.get("privacy") or "private").strip().lower()
         if privacy not in {"private", "unlisted", "public"}:
             raise ValueError("privacy must be private, unlisted or public")
+        from auto_stream_compositor import PROFILES, number
+        profile=payload.get('profile','720p')
+        if profile not in PROFILES:raise ValueError('Unsupported encoding profile')
+        duration=number(payload.get('duration',0),0,604800)
+        retry_limit=int(number(payload.get('retry_limit',2),0,5))
         jid, now = "stream_" + uuid.uuid4().hex, utc_now()
         with self.lock, self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
@@ -168,10 +194,10 @@ class StreamEngine:
                 return self._public(prior)
             con.execute("""INSERT INTO jobs
                 (id, idem, channel_id, media_path, title, scheduled_at,
-                 continuous, status, created_at, updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                 continuous, status, created_at, updated_at, loop_count, unlimited, description, privacy, profile, duration, retry_limit)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (jid, idem, channel, source, title, when, int(continuous),
-                 "DRAFT", now, now))
+                 "DRAFT", now, now, loop_count, int(unlimited), description, privacy, profile, duration, retry_limit))
         return self.get(jid)
 
     def prepare(self, jid):
@@ -231,6 +257,13 @@ class StreamEngine:
                      "-g", "60", "-c:a", "aac", "-b:a", "128k",
                      "-ar", "44100", "-f", "flv",
                      ingest_url.rstrip("/") + "/" + key])
+        from auto_stream_compositor import PROFILES
+        w,h,bitrate=PROFILES[dict(row).get('profile','720p')]
+        args[args.index('-vf')+1]=f'scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1'
+        for flag,value in (('-b:v',f'{bitrate}k'),('-maxrate',f'{bitrate}k'),('-bufsize',f'{bitrate*2}k')):
+            args[args.index(flag)+1]=value
+        args[-1:-1]=['-threads','2','-progress','pipe:1','-nostats']
+        if dict(row).get('duration',0):args[-1:-1]=['-t',str(row['duration'])]
         return args
 
     def start(self, jid, *, scheduler=False, internal_ingest=None):
@@ -247,6 +280,8 @@ class StreamEngine:
                 raise ValueError("Only prepared jobs may start")
             if scheduler and (not row["scheduled_at"] or row["scheduled_at"] > utc_now()):
                 raise ValueError("Scheduled start has not arrived")
+            if len(self.processes) >= int(os.environ.get('AUTO_STREAM_MAX_ENCODERS','2')):
+                raise ValueError('All encoder slots are busy; wait for a running stream to finish')
             # Fail closed before reserving the channel.
             if internal_ingest:
                 ingest_url, key = internal_ingest
@@ -261,12 +296,16 @@ class StreamEngine:
             con.execute("UPDATE jobs SET status='STARTING',updated_at=?,failure='' WHERE id=?",
                         (utc_now(), jid))
         try:
+            self.stop_events[jid]=threading.Event()
+            self.commands[jid]=command
+            self.metrics[jid]={'started_at':utc_now(),'heartbeat':utc_now(),'attempt':0,'encoder_state':'STARTING'}
             proc = subprocess.Popen(command, stdin=subprocess.DEVNULL,
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1,
                                     start_new_session=True, close_fds=True)
             with self.lock:
                 self.processes[jid] = proc
             self._set_if(jid, ("STARTING",), "INGESTING")
+            threading.Thread(target=self._watchdog,args=(jid,proc),daemon=True).start()
             threading.Thread(target=self._monitor, args=(jid, proc), daemon=True,
                              name="auto-stream-monitor").start()
         except Exception:
@@ -283,20 +322,63 @@ class StreamEngine:
                         (status, failure, utc_now(), jid, *from_states))
 
     def _monitor(self, jid, proc):
-        result = proc.wait()
-        old = self.get(jid)
-        self._set_if(jid, LIVE_STATES, "STOPPED" if old["status"] == "STOPPING"
-                     or result == 0 else "FAILED",
-                     "" if result == 0 or old["status"] == "STOPPING"
-                     else "Encoder exited unexpectedly")
-        with self.lock:
-            if self.processes.get(jid) is proc:
-                self.processes.pop(jid, None)
+        attempt=0
+        try:
+            while True:
+                for line in proc.stdout or []:
+                    key,sep,value=line.strip().partition('=')
+                    if sep and key in ('frame','fps','bitrate','out_time_us','drop_frames','dup_frames','speed','progress'):
+                        with self.lock:
+                            self.metrics[jid].update({key:value[:60],'heartbeat':utc_now(),'encoder_state':'DELIVERING'})
+                    if self.stop_events[jid].is_set():break
+                result=proc.wait()
+                if proc.stdout:proc.stdout.close()
+                old=self.get(jid)
+                if self.stop_events[jid].is_set() or old['status']=='STOPPING':
+                    self._set_if(jid,LIVE_STATES,'STOPPED');break
+                if result==0:
+                    self._set_if(jid,LIVE_STATES,'COMPLETED');break
+                if attempt>=old.get('retry_limit',2):
+                    self._set_if(jid,LIVE_STATES,'FAILED','Encoder connection failed after retry limit; verify ingest, source and network');break
+                attempt+=1
+                with self.lock:self.metrics[jid].update({'encoder_state':'RECONNECTING','attempt':attempt})
+                with self._connect() as con:con.execute("INSERT INTO job_history(job_id,state,message,created_at) VALUES(?,'RECONNECTING',?,?)",(jid,'Retry '+str(attempt),utc_now()))
+                if self.stop_events[jid].wait(min(15,2**attempt)):
+                    self._set_if(jid,LIVE_STATES,'STOPPED');break
+                proc=subprocess.Popen(self.commands[jid],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,text=True,bufsize=1,start_new_session=True,close_fds=True)
+                with self.lock:self.processes[jid]=proc
+                threading.Thread(target=self._watchdog,args=(jid,proc),daemon=True).start()
+        except Exception:
+            self._set_if(jid,LIVE_STATES,'FAILED','Encoder supervisor failed; inspect job and retry explicitly')
+            with contextlib.suppress(ProcessLookupError):os.killpg(proc.pid,signal.SIGKILL)
+        finally:
+            with self.lock:
+                self.processes.pop(jid,None);self.commands.pop(jid,None);self.stop_events.pop(jid,None)
+                if jid in self.metrics:self.metrics[jid]['encoder_state']='STOPPED'
+
+    def _watchdog(self,jid,proc):
+        while proc.poll() is None:
+            with self.lock:
+                if self.processes.get(jid) is not proc:return
+                event=self.stop_events.get(jid)
+                metrics=self.metrics.get(jid,{})
+                heartbeat=metrics.get('heartbeat',utc_now())
+            if event is None or event.wait(5):return
+            if time.time()-datetime.fromisoformat(heartbeat).timestamp()>45:
+                with contextlib.suppress(ProcessLookupError):os.killpg(proc.pid,signal.SIGTERM)
+                self._terminate(jid,proc);return
+
+    def _terminate(self,jid,proc):
+        try:proc.wait(timeout=8)
+        except subprocess.TimeoutExpired:
+            with contextlib.suppress(ProcessLookupError):os.killpg(proc.pid,signal.SIGKILL)
+            with contextlib.suppress(subprocess.TimeoutExpired):proc.wait(timeout=3)
 
     def stop(self, jid):
         with self.lock:
             row = self.get(jid)
-            if row["status"] in ("STOPPED", "FAILED", "INTERRUPTED", "CANCELLED"):
+            if row["status"] in ("STOPPED", "COMPLETED", "FAILED", "INTERRUPTED", "CANCELLED"):
                 return row
             if row["status"] in ("DRAFT", "READY", "SCHEDULED"):
                 self._set_if(jid, (row["status"],), "CANCELLED")
@@ -305,8 +387,10 @@ class StreamEngine:
             if proc is None:
                 raise ValueError("Worker is not owned by this process; reconcile first")
             self._set_if(jid, LIVE_STATES, "STOPPING")
+            if jid in self.stop_events:self.stop_events[jid].set()
             with contextlib.suppress(ProcessLookupError):
                 os.killpg(proc.pid, signal.SIGTERM)
+            threading.Thread(target=self._terminate,args=(jid,proc),daemon=True).start()
             return self.get(jid)
 
     def tick(self):
@@ -321,7 +405,11 @@ class StreamEngine:
         started = 0
         for jid in ids:
             try:
-                self.start(jid, scheduler=True)
+                from auto_stream_broadcasts import controller
+                ctl=controller()
+                record=ctl.get(jid)
+                if record and record['state']=='BOUND':ctl.start_ingest(jid)
+                else:self.start(jid, scheduler=True)
                 started += 1
             except (ValueError, PermissionError, RuntimeError, OSError):
                 # Leave failed/prevented jobs for explicit operator review.
@@ -330,12 +418,18 @@ class StreamEngine:
 
     def health(self):
         jobs = self.list_jobs()
+        with self._connect() as con:
+            rendering=con.execute("SELECT COUNT(*) FROM scene_renders WHERE state IN ('WAITING','PREPARING')").fetchone()[0]
         return {"ok": True, "engine": "auto-stream", "version": 1,
-                "jobs": len(jobs), "encoder_sessions": sum(
+                "jobs": len(jobs), "render_tasks":rendering, "encoder_sessions": sum(
                     j["status"] in LIVE_STATES for j in jobs),
                 "publishing_enabled": os.environ.get("AUTO_STREAM_PUBLISH_ENABLED") == "1",
                 "scheduler_enabled": os.environ.get("AUTO_STREAM_SCHEDULER_ENABLED") == "1",
-                "youtube_live_verified": False}
+                "youtube_live_verified": False,
+                "ffmpeg_installed":bool(shutil.which('ffmpeg')),
+                "encoder_metrics":{jid:{**metrics,'elapsed_seconds':max(0,int(time.time()-datetime.fromisoformat(metrics['started_at']).timestamp()))} for jid,metrics in list(self.metrics.items())[-20:]},
+                "resources":{'load_average':list(os.getloadavg()) if hasattr(os,'getloadavg') else None,
+                    'disk_free_bytes':shutil.disk_usage(self.root).free}}
 
 
 _service: StreamEngine | None = None
@@ -380,7 +474,8 @@ def engine_media():
 def _safe_upload_name(value: str, *, thumbnail: bool = False) -> str:
     name = Path(str(value or "upload.bin").replace("\\", "/")).name
     name = re.sub(r"[^A-Za-z0-9@._+-]+", "_", name)[:180]
-    allowed = {".mp4", ".mov", ".mkv", ".webm", ".m4v"} if not thumbnail else {".jpg", ".jpeg", ".png"}
+    from auto_stream_compositor import EXTENSIONS
+    allowed = EXTENSIONS if not thumbnail else {".jpg", ".jpeg", ".png"}
     if Path(name).suffix.lower() not in allowed:
         raise ValueError("Unsupported upload format")
     return name
@@ -388,9 +483,10 @@ def _safe_upload_name(value: str, *, thumbnail: bool = False) -> str:
 
 @router.post("/media/upload")
 async def engine_upload(file: UploadFile = File(...)):
+    target=None
     try:
         name = _safe_upload_name(file.filename or "")
-        target_dir = service().media / "uploads"
+        target_dir = service().media / "auto-stream" / "inbox"
         target_dir.mkdir(parents=True, exist_ok=True)
         target = target_dir / (Path(name).stem + "-" + uuid.uuid4().hex[:10] + Path(name).suffix.lower())
         digest = hashlib.sha256()
@@ -407,6 +503,7 @@ async def engine_upload(file: UploadFile = File(...)):
                 out.write(chunk)
         return {"ok": True, "media_path": str(target.relative_to(service().media)), "bytes": size, "sha256": digest.hexdigest()}
     except Exception as exc:
+        if target is not None:target.unlink(missing_ok=True)
         translate(exc)
 
 
@@ -487,3 +584,151 @@ def engine_stop(job_id: str):
         return service().stop(job_id)
     except Exception as exc:
         translate(exc)
+
+
+@router.get('/media/preview')
+def media_preview(media_path: str):
+    from fastapi.responses import FileResponse
+    try:
+        path = service()._source(media_path)
+        return FileResponse(path, headers={'Cache-Control': 'private, no-store'})
+    except Exception as exc:
+        translate(exc)
+
+
+@router.get('/studio/config')
+def studio_config():
+    with service()._connect() as con:
+        con.execute('CREATE TABLE IF NOT EXISTS studio_config(id INTEGER PRIMARY KEY, document TEXT NOT NULL)')
+        row = con.execute('SELECT document FROM studio_config WHERE id=1').fetchone()
+    return json.loads(row[0]) if row else {'name':'Live Studio','active_scene':0,'scenes':[{'name':'Scene 1','sources':[]}]}
+
+
+@router.put('/studio/config')
+def save_studio_config(payload: dict = Body(...)):
+    try:
+        from auto_stream_compositor import validate
+        clean = validate(service(), payload)
+        with service()._connect() as con:
+            con.execute('CREATE TABLE IF NOT EXISTS studio_config(id INTEGER PRIMARY KEY, document TEXT NOT NULL)')
+            con.execute('INSERT INTO studio_config VALUES(1,?) ON CONFLICT(id) DO UPDATE SET document=excluded.document',(json.dumps(clean),))
+        return clean
+    except Exception as exc:
+        translate(exc)
+
+
+@router.post('/jobs/{job_id}/cancel')
+def cancel_job(job_id: str):
+    try:
+        engine=service()
+        with engine.lock, engine._connect() as con:
+            row=con.execute('SELECT status FROM jobs WHERE id=?',(job_id,)).fetchone()
+            if not row:
+                raise KeyError('Stream job not found')
+            if row['status'] not in ('DRAFT','SCHEDULED','READY','FAILED','INTERRUPTED'):
+                raise ValueError('Stop or reconcile the active stream before cancelling')
+            con.execute("UPDATE jobs SET status='CANCELLED',updated_at=? WHERE id=?",(utc_now(),job_id))
+        return engine.get(job_id)
+    except Exception as exc:
+        translate(exc)
+
+
+@router.post('/jobs/{job_id}/duplicate', status_code=201)
+def duplicate_job(job_id: str):
+    try:
+        engine=service()
+        original=engine.get(job_id)
+        original['idempotency_key']='duplicate-'+uuid.uuid4().hex
+        return engine.create(original)
+    except Exception as exc:
+        translate(exc)
+
+
+@router.get('/dashboard')
+def dashboard_metrics():
+    engine = service()
+    from auto_stream_integrations import accounts
+    channels = accounts().channel_catalog()
+    with engine._connect() as con:
+        counts = {r[0]:r[1] for r in con.execute('SELECT status,COUNT(*) FROM jobs GROUP BY status')}
+        recent = [engine._public(r) for r in con.execute('SELECT * FROM jobs ORDER BY updated_at DESC LIMIT 10')]
+        cutoff=datetime.fromtimestamp(time.time()-90,timezone.utc).isoformat(timespec='seconds')
+        verified=con.execute('SELECT COUNT(*),SUM(remote_state=?) FROM jobs WHERE remote_verified_at>=?',('live',cutoff)).fetchone()
+        upcoming = [engine._public(r) for r in con.execute("SELECT * FROM jobs WHERE scheduled_at IS NOT NULL AND status IN ('DRAFT','SCHEDULED','READY') ORDER BY scheduled_at LIMIT 10")]
+    with engine.lock:
+        active_encoders = sum(proc.poll() is None for proc in engine.processes.values())
+    space = shutil.disk_usage(engine.root)
+    return {'authorized_channels':sum(c['authorized'] for c in channels),
+            'scheduled':counts.get('SCHEDULED',0),
+            'queued':sum(counts.get(s,0) for s in ('WAITING','PREPARING','READY','STARTING')),
+            'completed':counts.get('COMPLETED',0)+counts.get('STOPPED',0),
+            'failed':counts.get('FAILED',0)+counts.get('INTERRUPTED',0),
+            'active_encoders':active_encoders,'counts':counts,
+            'live_verified':int(verified[1] or 0) if verified[0] else None,
+            'live_verification':'Remote YouTube verification required; encoder delivery alone is not Live',
+            'recent':recent,'upcoming':upcoming,
+            'disk':{'total_bytes':space.total,'free_bytes':space.free,'used_bytes':space.used},
+            'engine':engine.health()}
+
+
+from auto_stream_compositor import router as compositor_router
+router.include_router(compositor_router)
+
+
+@router.get('/jobs/{job_id}/history')
+def job_history(job_id:str):
+    try:
+        engine=service();job=engine.get(job_id)
+        with engine._connect() as con:items=[dict(r) for r in con.execute('SELECT state,message,created_at FROM job_history WHERE job_id=? ORDER BY id DESC LIMIT 200',(job_id,))]
+        with engine.lock:metrics=dict(engine.metrics.get(job_id,{}))
+        return {'job':job,'history':items,'encoder':metrics}
+    except Exception as exc:translate(exc)
+
+
+@router.patch('/jobs/{job_id}')
+def edit_job(job_id:str,payload:dict=Body(...)):
+    try:
+        engine=service()
+        with engine.lock,engine._connect() as con:
+            con.execute('BEGIN IMMEDIATE');job=engine.get(job_id)
+            if job['status'] not in ('DRAFT','READY','SCHEDULED','FAILED','INTERRUPTED','CANCELLED'):
+                raise ValueError('Only inactive jobs can be edited')
+            # A prepared YouTube resource has its own remote lifecycle.
+            from auto_stream_broadcasts import controller
+            if controller().get(job_id):raise ValueError('This job has YouTube resources; duplicate it for changed metadata')
+            updates={}
+            for key in ('title','description','media_path','privacy','scheduled_at','loop_count','unlimited','duration','profile','retry_limit'):
+                if key in payload:updates[key]=payload[key]
+            candidate={**job,**updates,'idempotency_key':'validate-'+uuid.uuid4().hex}
+            # Reuse creation validation against an isolated transaction savepoint;
+            # validation below avoids any temporary job/history writes.
+            title=str(candidate['title']).strip()
+            if not title or len(title)>100:raise ValueError('Title must contain 1–100 characters')
+            engine._source(str(candidate['media_path']))
+            from auto_stream_compositor import PROFILES,number
+            if candidate['privacy'] not in ('private','unlisted','public'):raise ValueError('Unsupported privacy')
+            if candidate['profile'] not in PROFILES:raise ValueError('Unsupported encoding profile')
+            updates.update(title=title,description=str(candidate['description'])[:5000],scheduled_at=scheduled_utc(candidate.get('scheduled_at')),
+                loop_count=int(number(candidate['loop_count'],1,10000)),unlimited=int(bool(candidate['unlimited'])),
+                duration=number(candidate['duration'],0,604800),retry_limit=int(number(candidate['retry_limit'],0,5)),status='DRAFT',failure='',updated_at=utc_now())
+            con.execute('UPDATE jobs SET '+','.join(k+'=?' for k in updates)+' WHERE id=?',(*updates.values(),job_id))
+        return engine.get(job_id)
+    except Exception as exc:translate(exc)
+
+
+@router.delete('/jobs/{job_id}')
+def delete_job(job_id:str):
+    try:
+        engine=service()
+        with engine.lock,engine._connect() as con:
+            con.execute('BEGIN IMMEDIATE');row=con.execute('SELECT status FROM jobs WHERE id=?',(job_id,)).fetchone()
+            if not row:raise KeyError('Stream job not found')
+            if row[0] not in ('DRAFT','CANCELLED','COMPLETED','STOPPED','FAILED','INTERRUPTED'):raise ValueError('Cancel/stop the job before deleting')
+            from auto_stream_broadcasts import controller
+            if controller().get(job_id):raise ValueError('Keep jobs with YouTube resources for reconciliation/history')
+            con.execute('DELETE FROM jobs WHERE id=?',(job_id,));con.execute('DELETE FROM job_history WHERE job_id=?',(job_id,))
+        return {'deleted':job_id,'media_preserved':True}
+    except Exception as exc:translate(exc)
+
+from auto_stream_operations import router as operations_router
+router.include_router(operations_router)

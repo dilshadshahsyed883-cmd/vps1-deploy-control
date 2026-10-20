@@ -24,6 +24,21 @@ def reviewed_legacy_fixture(finding, mode, root):
     if mode != "git" or not isinstance(finding, dict):
         return False  # Current source must have zero findings.
     path = str(finding.get("File", "")).removeprefix("/repo/").removeprefix("./")
+    # Exact pre-existing FFmpeg loop idempotency fixture, not a credential.
+    # Current source uses a low-entropy test identifier; historical context
+    # must match the complete original line and its neighboring assertion.
+    if path == "production/test_auto_stream_engine.py" and finding.get("RuleID") == "generic-api-key":
+        commit = str(finding.get("Commit", ""))
+        if not re.fullmatch(r"[0-9a-f]{40}", commit) or finding.get("StartLine") != 119:
+            return False
+        try:
+            source = subprocess.check_output(
+                ["git", "-C", str(root), "show", f"{commit}:{path}"],
+                stderr=subprocess.DEVNULL, timeout=15).decode("utf-8").splitlines()
+            return (digest(source[118]) == "efe92c5a228d12cf9e96a8ae1735178096c5a21e6af7b25362e1d87b01bba94b"
+                    and source[119].strip().startswith("unlimited_args = self.engine._command("))
+        except (subprocess.SubprocessError, IndexError, UnicodeError, OSError):
+            return False
     if path != FIXTURE or finding.get("RuleID") != "generic-api-key":
         return False
     try:
@@ -81,7 +96,7 @@ def main():
             print(f"GITLEAKS_{mode.upper()}=BLOCKED")
         finally:
             report.unlink(missing_ok=True)
-    lines.append("- Only two explicitly hashed historical synthetic rejection-test lines may be reviewed.")
+    lines.append("- Only exact hashed historical synthetic test lines may be reviewed.")
     lines.append("- No secret values, matching source lines, paths or Git identifiers are published.")
     lines.append("- Other findings fail. Source tree must be clear. Scan covers fetched reachable refs.")
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as output:
