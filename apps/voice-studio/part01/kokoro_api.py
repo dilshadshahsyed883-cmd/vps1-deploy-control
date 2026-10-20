@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from queue_actions import migrate as migrate_queue, apply as apply_queue, job_view, QueueActionError
 
 ROOT=Path(os.environ.get('KOKORO_STUDIO_ROOT','/home/ubuntu/apps/kokoro_voice_studio'))
 DATA=ROOT/'data'
@@ -45,6 +46,8 @@ def init_storage():
             wav_file text, error text, delivery_error text, next_delivery_retry real default 0,
             delivery_retries integer default 0, drive_wav text, drive_txt text)''')
         c.execute('create index if not exists kokoro_jobs_queue on jobs(status,created_at)')
+    with connection() as c:
+        migrate_queue(c, 'kokoro')
 
 def catalog():
     p=ROOT/'voice_catalog.json'
@@ -153,15 +156,24 @@ def jobs(limit:int=100):
     init_storage()
     limit=max(1,min(limit,250))
     with connection() as c:
-        rows=c.execute('select * from jobs order by created_at desc,job_id desc limit ?',(limit,)).fetchall()
+        rows=c.execute('select * from jobs where hidden_at is null order by created_at desc,job_id desc limit ?',(limit,)).fetchall()
     result=[]
     for r in rows:
-        d=dict(r)
-        out={k:d.get(k) for k in ('job_id','batch_id','source_filename','output_basename','language','voice','speed','status','delivery_status','created_at','error','delivery_error')}
+        d=job_view(r, 'kokoro')
+        out={k:d.get(k) for k in ('job_id','batch_id','source_filename','output_basename','language','voice','speed','status','queue_status','delivery_status','created_at','started_at','finished_at','error','delivery_error','progress','attempt','max_attempts','allowed_actions','drive_wav','drive_txt')}
         out['filename']=d['output_basename']+'.txt'
         if d['wav_file'] and Path(d['wav_file']).is_file():out['audio_url']='/tts/api/kokoro/audio/'+d['job_id']
         result.append(out)
     return {'jobs':result}
+
+@router.post('/jobs/{job_id}/{action}')
+def control(job_id:str,action:str):
+    init_storage()
+    try:
+        with connection() as c:
+            return apply_queue(c, 'kokoro', job_id, action)
+    except QueueActionError as exc:
+        raise HTTPException(exc.code, exc.detail) from exc
 
 @router.get('/audio/{job_id}')
 def audio(job_id:str):

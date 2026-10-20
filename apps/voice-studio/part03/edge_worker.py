@@ -117,8 +117,12 @@ def make_outputs(row,chunks):
     if lines:srt.write_text('\n'.join(lines)+'\n',encoding='utf8')
     return mp3,wav,srt if lines else None
 
+def max_attempts():
+    try:return max(1,min(20,int(os.environ.get('EDGE_MAX_ATTEMPTS','3'))))
+    except (ValueError,TypeError):return 3
+
 def mark_waiting(jid,attempt,reason):
-    if attempt>=3:
+    if attempt>=max_attempts():
         update(jid,status='failed',error=reason[:140],delivery_status='not_applicable')
     else:
         delay=min(1800,60*(2**max(0,attempt-1)))
@@ -153,16 +157,41 @@ def process(row):
         if status(jid)=='cancel_requested':update(jid,status='cancelled',delivery_status='not_applicable');return
         if status(jid)=='pause_requested':update(jid,status='paused');return
         mp3,wav,srt=make_outputs(row,chunks)
-        update(jid,status='completed',progress=100,mp3_file=str(mp3),wav_file=str(wav),srt_file=str(srt) if srt else None,delivery_status='pending')
+        if status(jid) in ('cancel_requested','cancelled'):
+            update(jid,status='cancelled',delivery_status='not_applicable');return
+        if status(jid) in ('pause_requested','paused'):
+            update(jid,status='paused');return
+        # CAS closes the race with a cancel/pause requested after final ffmpeg.
+        with db() as c:
+            saved=c.execute("""UPDATE jobs SET status='completed',progress=100,
+                mp3_file=?,wav_file=?,srt_file=?,delivery_status='pending',
+                updated_at=?,error=NULL WHERE job_id=? AND status='processing'""",
+                (str(mp3),str(wav),str(srt) if srt else None,now(),jid))
+        if saved.rowcount != 1:
+            state=status(jid)
+            if state in ('cancel_requested','cancelled'):
+                update(jid,status='cancelled',delivery_status='not_applicable')
+            elif state in ('pause_requested','paused'):
+                update(jid,status='paused')
+            return
         print('EDGE_AUDIO_GENERATED='+jid,flush=True)
-    except Exception as e:mark_waiting(jid,attempt,type(e).__name__)
+    except Exception as e:
+        state=status(jid)
+        if state in ('cancel_requested','cancelled'):
+            update(jid,status='cancelled',delivery_status='not_applicable')
+        elif state in ('pause_requested','paused'):
+            update(jid,status='paused')
+        else:
+            detail=re.sub(r'(?i)(token|secret|key|authorization)[=:][^\s,;&]+',r'\1=[REDACTED]',str(e))
+            mark_waiting(jid,attempt,type(e).__name__+': '+detail[:100])
 
 def pick():
     with db() as c:
         c.execute("update jobs set status='queued' where status='retry_wait' and retry_at<=?",(time.time(),))
         r=c.execute("select * from jobs where status='queued' order by created_at,job_id limit 1").fetchone()
-        if r:c.execute("update jobs set status='processing',updated_at=? where job_id=? and status='queued'",(now(),r['job_id']))
-        return dict(r) if r else None
+        if not r:return None
+        claim=c.execute("update jobs set status='processing',updated_at=? where job_id=? and status='queued'",(now(),r['job_id']))
+        return dict(r) if claim.rowcount==1 else None
 
 def rclone_cmd(*args):
     if not RCLONE or not RCCONF.is_file():raise RuntimeError('Drive credentials unavailable')
@@ -240,7 +269,10 @@ def main():
             except Exception:pass
             time.sleep(8)
     threading.Thread(target=keepalive,daemon=True).start()
-    with db() as c:c.execute("update jobs set status='queued' where status in ('processing','pause_requested')")
+    with db() as c:
+        c.execute("update jobs set status='queued' where status='processing'")
+        c.execute("update jobs set status='paused' where status='pause_requested'")
+        c.execute("update jobs set status='cancelled',delivery_status='not_applicable' where status='cancel_requested'")
     last_attempt=0
     while True:
         try:

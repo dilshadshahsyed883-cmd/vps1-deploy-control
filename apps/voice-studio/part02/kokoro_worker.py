@@ -63,38 +63,70 @@ def update(job_id,**updates):
  fields=', '.join(k+'=?' for k in updates)
  with db() as c:c.execute(f'update jobs set {fields} where job_id=?',(*updates.values(),job_id))
 
+def job_status(jid):
+ with db() as c:
+  row=c.execute("select status from jobs where job_id=?",(jid,)).fetchone()
+ return row['status'] if row else 'cancelled'
+
 def process_job(engine,row):
  jid=row['job_id'];source=Path(row['input_file']);out=source.with_suffix('.wav')
+ # A staging WAV is never served or uploaded; os.replace is the publication point.
+ staging=out.with_name(out.name+'.part')
  try:
+  staging.unlink(missing_ok=True)
   if not source.is_file():raise RuntimeError('TXT input missing')
   text=source.read_text(encoding='utf-8')
   chunks=split_sentences(text)
   if not chunks:raise RuntimeError('No synthesizable text')
   catalog_items=json.loads((ROOT/'voice_catalog.json').read_text())
   if not any(v['id']==row['voice'] and v['language']==row['language'] for v in catalog_items):raise RuntimeError('Voice selection is not in verified catalog')
-  with sf.SoundFile(str(out),mode='w',samplerate=24000,channels=1,subtype='PCM_16',format='WAV') as wav:
+  with sf.SoundFile(str(staging),mode='w',samplerate=24000,channels=1,subtype='PCM_16',format='WAV') as wav:
    for i,chunk in enumerate(chunks):
+    if job_status(jid) in ('cancel_requested','cancelled'):
+     update(jid,status='cancelled',finished_at=now(),delivery_status='not_applicable')
+     return
     samples,sr=engine.create(chunk,voice=row['voice'],speed=float(row['speed']),lang=row['language'])
     if sr!=24000:raise RuntimeError('Unexpected sample rate')
     mono=np.asarray(samples,dtype='float32').reshape(-1)
     if mono.size==0:raise RuntimeError('Empty audio segment')
     wav.write(mono)
     if i+1<len(chunks):wav.write(np.zeros(24000//6,dtype='float32'))
-  meta=sf.info(str(out))
-  if out.stat().st_size<2000 or meta.duration<=0:raise RuntimeError('Invalid generated WAV')
-  update(jid,status='completed',finished_at=now(),wav_file=str(out),delivery_status='pending',error=None)
+    update(jid,progress=min(95,int(95*(i+1)/len(chunks))))
+  if job_status(jid) in ('cancel_requested','cancelled'):
+   update(jid,status='cancelled',finished_at=now(),delivery_status='not_applicable')
+   return
+  meta=sf.info(str(staging))
+  if staging.stat().st_size<2000 or meta.duration<=0:raise RuntimeError('Invalid generated WAV')
+  # Only publish a validated complete file; leave any older finalized artifact alone.
+  os.replace(staging,out)
+  with db() as c:
+   result=c.execute("""update jobs set status='completed',finished_at=?,wav_file=?,
+     progress=100,delivery_status='pending',error=null
+     where job_id=? and status='processing'""",(now(),str(out),jid))
+  if result.rowcount!=1:
+   # Cancellation can race only after synthesis; preserve the finished file,
+   # but never schedule the cancelled job for Drive delivery.
+   if job_status(jid) in ('cancel_requested','cancelled'):
+    update(jid,status='cancelled',finished_at=now(),delivery_status='not_applicable')
+   return
   print('KOKORO_GENERATED='+jid+'|DURATION='+str(round(meta.duration,2)),flush=True)
  except Exception as exc:
-  if out.exists():out.unlink()
-  update(jid,status='failed',finished_at=now(),delivery_status='not_applicable',error=type(exc).__name__+': '+str(exc)[:180])
+  if job_status(jid) in ('cancel_requested','cancelled'):
+   update(jid,status='cancelled',finished_at=now(),delivery_status='not_applicable')
+  else:
+   update(jid,status='failed',finished_at=now(),delivery_status='not_applicable',error=type(exc).__name__+': '+str(exc)[:180])
   print('KOKORO_JOB_FAILED='+jid+'|TYPE='+type(exc).__name__,flush=True)
+ finally:
+  staging.unlink(missing_ok=True)
 
 def pick():
  with db() as c:
-  row=c.execute("select * from jobs where status='queued' order by created_at,job_id limit 1").fetchone()
+  c.execute("update jobs set status='queued' where status='retry_wait' and retry_at<=?",(time.time(),))
+  row=c.execute("select * from jobs where status='queued' and hidden_at is null order by created_at,job_id limit 1").fetchone()
   if not row:return None
-  c.execute("update jobs set status='processing',started_at=? where job_id=? and status='queued'",(now(),row['job_id']))
-  return row
+  claim=c.execute("""update jobs set status='processing',started_at=?,
+   attempt=coalesce(attempt,0)+1,progress=0 where job_id=? and status='queued'""",(now(),row['job_id']))
+  return dict(row) if claim.rowcount==1 else None
 
 def run_rclone(*args):
  cmd=[RCLONE,'--config',RCFILE,'--tpslimit','1','--tpslimit-burst','1','--retries','1','--low-level-retries','1',*args]
@@ -174,7 +206,12 @@ def main():
  if not verified:raise SystemExit('Voice catalog empty')
  DATA.mkdir(parents=True,exist_ok=True)
  with db() as c:
-  c.execute("update jobs set status='failed',error='Interrupted during worker restart' where status='processing'")
+  existing={row[1] for row in c.execute("pragma table_info(jobs)")}
+  for key,kind in (('attempt','integer default 0'),('progress','integer default 0'),('retry_at','real default 0'),('hidden_at','text')):
+   if key not in existing:c.execute('alter table jobs add column '+key+' '+kind)
+  # Never rerun interrupted audio automatically; a validated owner retry is required.
+  c.execute("update jobs set status='failed',finished_at=?,error='Interrupted during worker restart' where status='processing'",(now(),))
+  c.execute("update jobs set status='cancelled',delivery_status='not_applicable' where status='cancel_requested'")
  if '--smoke' in sys.argv:
   print('KOKORO_SMOKE_READY|VOICE_COUNT='+str(len(verified)))
   return
