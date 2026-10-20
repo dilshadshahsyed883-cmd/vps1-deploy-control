@@ -104,6 +104,33 @@ def responsive_overlay(original: bytes, source: bytes) -> bytes:
     return original.replace(b"</head>", block + b"\n</head>", 1)
 
 
+
+# The public native document is under /voice-studio/app, while the isolated
+# web service itself is under /app. Nginx text substitution must not decide
+# where the queue API points. Update only four reviewed inline JS expressions.
+QUEUE_ROUTE_PAIRS = (
+    (b"const apiRoot='/tts/api/kokoro'",
+     b"const apiRoot=(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/kokoro'"),
+    (b"const $=id=>document.getElementById(id),root='/tts/api/edge'",
+     b"const $=id=>document.getElementById(id),root=(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/edge'"),
+    (b"link.href=((window.location.pathname.startsWith('/voice-studio') && typeof j.audio_url==='string' && j.audio_url.startsWith('/'+'tts/api/kokoro/audio/')) ? '/voice-studio/service'+j.audio_url : j.audio_url);",
+     b"link.href=apiRoot+'/audio/'+encodeURIComponent(j.job_id);"),
+    (b"a.href=j[ext+'_url'];",
+     b"a.href=root+'/files/'+encodeURIComponent(j.job_id)+'/'+ext;"),
+)
+
+
+def queue_route_overlay(original: bytes, source: bytes) -> bytes:
+    """Copy only reviewed engine URL expressions; reject unknown runtime drift."""
+    for old, corrected in QUEUE_ROUTE_PAIRS:
+        require(source.count(corrected) == 1 and old not in source,
+                "GitHub Voice source queue path contract changed")
+        require(original.count(old) + original.count(corrected) == 1,
+                "installed Voice queue JS differs from reviewed versions")
+        if old in original:
+            original = original.replace(old, corrected, 1)
+    return original
+
 def verify_runtime() -> None:
     """Read the actual web document locally, then verify authenticated HTTPS."""
     http_check(APP)
@@ -115,6 +142,8 @@ def verify_runtime() -> None:
         require(RESPONSIVE_ID in body and NEW_ASSETS in body and NEW_LIMITS in body and
                 OLD_LIMITS not in body and b'id="vsEngineOmni"' in body,
                 "Voice web UI template guard is not live")
+    require(all(new in body and old not in body for old, new in QUEUE_ROUTE_PAIRS),
+            "local Voice queue JavaScript is not updated")
     from production.route_uploader_scene_https import https_get, scene_cookie
     cookie = scene_cookie()
     code, kind, html = https_get("/voice-studio/app", cookie)
@@ -122,6 +151,8 @@ def verify_runtime() -> None:
             and b"vps1_native_site_shell.js?v=20261020-upload-studio-v1" in html
             and RESPONSIVE_ID in html and NEW_LIMITS in html and OLD_LIMITS not in html,
             "authenticated public Voice page template guard not updated")
+    require(all(new in html and old not in html for old, new in QUEUE_ROUTE_PAIRS),
+            "public Voice queue JavaScript is not updated")
     anonymous, _, _ = https_get("/voice-studio/app")
     require(anonymous in {401, 403, 303}, "anonymous Voice page became accessible")
 
@@ -164,6 +195,7 @@ def install(revision: str) -> None:
             "Voice template limit guard overlay failed")
 
     patched_html = responsive_overlay(patched_html, source_html)
+    patched_html = queue_route_overlay(patched_html, source_html)
 
     target = RELEASES / (revision + "-sidebar-only")
     if previous == target:
