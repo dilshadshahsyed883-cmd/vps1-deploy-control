@@ -31,10 +31,10 @@ class StorageDashboardRelease(unittest.TestCase):
         js = (SCENE / "static/storage_manager.js").read_text()
         self.assertIn("dashboard_control_center.js?v=20261019-hide-algrow-v3", dashboard)
         self.assertIn("dashboard_no_algrow", scene)
-        self.assertIn("let managerFallback = true", js)
-        self.assertIn("let managerCanModify = false", js)
-        self.assertIn("scanUnavailableMessage", js)
-        self.assertIn("storage_manager.js?v=20261020-autoclean-status-v1", template)
+        self.assertIn("method:\u0027GET\u0027", js)
+        self.assertNotIn("method:\u0027POST\u0027", js)
+        self.assertIn("renderCleanupStatus", js)
+        self.assertIn("storage_manager.js?v=20261020-active-gc-dashboard-v2", template)
 
     def test_service_health_and_process_cards_removed_entirely(self):
         template = (SCENE / "templates/storage_manager.html").read_text()
@@ -53,9 +53,13 @@ class StorageDashboardRelease(unittest.TestCase):
         for token in ("STARTABLE_SERVICES", "MONITORED_SERVICES", "service_detail(",
                       "start_allowlisted_service(", '"/v1/services/start"', '"processes":', '"service_details":'):
             self.assertNotIn(token, manager)
-        for token in ('id="cpu-value"', 'id="ram-value"', 'id="disk-value"', 'id="category-grid"',
-                      'id="policy-form"', 'id="history-list"'):
+        for token in ('id="cpu-value"', 'id="ram-value"', 'id="disk-value"',
+                      'id="deployment-gc-state"', 'id="gc-last-freed"',
+                      'id="gc-next-run"', 'id="refresh-cleanup-status"'):
             self.assertIn(token, template)
+        for token in ('id="policy-form"', 'id="full-production-clean"',
+                      'id="confirm-dialog"', 'id="category-grid"'):
+            self.assertNotIn(token, template)
         for token in ('if path == "/v1/metrics"', 'if path == "/v1/cleanup"',
                       'if path == "/v1/full-production-clean/status"', "def service_status("):
             self.assertIn(token, manager)

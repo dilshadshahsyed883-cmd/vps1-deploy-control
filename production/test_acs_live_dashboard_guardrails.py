@@ -154,7 +154,7 @@ class IntegrationRoutingTests(unittest.TestCase):
         self.assertIn("a.name!=='Algrow Voice'", js)
         self.assertIn('"Voice Studio","Voice API"', app)
 
-    def test_storage_manager_fail_closed_and_capability_negotiation(self):
+    def test_storage_manager_is_read_only_and_legacy_controls_are_absent(self):
         manager = (ROOT / "apps/vps-storage-manager/part01/storage_manager.py").read_text()
         scene = (SCENE / "app.py").read_text()
         template = (SCENE / "templates/storage_manager.html").read_text()
@@ -163,23 +163,22 @@ class IntegrationRoutingTests(unittest.TestCase):
         self.assertIn('os.getenv("VPS1_RUNTIME_CANDIDATE") == "1"', manager)
         self.assertIn('can_modify": not read_only', manager)
         self.assertIn('@app.get("/api/admin/storage/capabilities")', scene)
-        self.assertIn("managerCanModify = capabilities.can_modify === true", js)
-        self.assertIn("const writable = !managerFallback && managerCanModify", js)
-        self.assertIn("async function initializeStorage()", js)
-        self.assertIn("if (managerFallback || !managerCanModify || !snapshot) return;", js)
-        self.assertIn('id="full-production-clean" class="button danger-button" type="button" disabled', template)
-        self.assertIn('id="run-scan" class="button" type="button" disabled', template)
+        for required in ('id="refresh-cleanup-status"', 'id="gc-next-run"',
+                         'id="deployment-gc-state"', 'id="gc-last-freed"'):
+            self.assertIn(required, template)
+        for retired in ('id="full-production-clean"', 'id="run-scan"',
+                        'id="policy-form"', 'id="reclaim-button"'):
+            self.assertNotIn(retired, template)
+        self.assertIn("data.read_only !== true || data.partial !== true", js)
+        self.assertNotIn("method:'POST'", js)
 
     def test_storage_fallback_is_metrics_only(self):
         js = (SCENE / "static/storage_manager.js").read_text()
-        self.assertIn("async function readOnlyVpsMetrics()", js)
-        fallback = js.split("async function readOnlyVpsMetrics()", 1)[1].split(
-            "async function loadMetrics(", 1)[0]
-        self.assertIn("fetch('/api/dashboard/v1'", fallback)
-        self.assertNotIn("'/api/admin/storage/cleanup'", fallback)
-        self.assertIn("applyManagerControls();", fallback)
-        self.assertIn("const writable = !managerFallback && managerCanModify", js)
-        self.assertIn("if (fullClean && !writable) fullClean.disabled = true", js)
+        self.assertIn("fetch('/api/dashboard/v1'", js)
+        self.assertIn("method:'GET'", js)
+        for forbidden in ("/api/admin/storage/cleanup", "/api/admin/storage/full-clean",
+                          "/api/admin/storage/policy", "Full Production Clean"):
+            self.assertNotIn(forbidden, js)
 
     def test_guarded_release_contains_both_updated_pages(self):
         from production.scene_uploader_ui_release import FILES

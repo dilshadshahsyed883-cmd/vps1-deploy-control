@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable
 
 
-VERSION = "2026.10.20-storage-auto-clean-status-v1"
+VERSION = "2026.10.20-active-cleanup-dashboard-v2"
 LISTEN_HOST = os.getenv("STORAGE_MANAGER_HOST", "127.0.0.1")
 LISTEN_PORT = int(os.getenv("STORAGE_MANAGER_PORT", "8799"))
 AUTH_TOKEN = os.getenv("STORAGE_MANAGER_TOKEN", "").strip()
@@ -559,16 +559,60 @@ def perform_scan() -> dict[str, Any]:
 
 
 def deployment_cleanup_status() -> dict[str, Any]:
-    """Report the existing protected 12-hour GC timer without controlling it."""
+    """Observe the root-owned 12-hour GC timer and bounded audit. Never execute GC."""
     unit = "vps1-storage-deployment-gc.timer"
     states: dict[str, str] = {}
     for action in ("is-active", "is-enabled"):
         try:
             result = run(["systemctl", action, unit], timeout=8)
-            value = result.stdout.strip().splitlines()
-            states[action] = value[0].lower() if value else "unknown"
-        except (OSError, subprocess.TimeoutExpired):
+            lines = result.stdout.strip().splitlines()
+            states[action] = lines[0].lower() if lines else "unknown"
+        except (OSError, subprocess.TimeoutExpired, AttributeError):
             states[action] = "unknown"
+
+    next_run_at = None
+    try:
+        result = run(["systemctl", "show", unit,
+                      "--property=NextElapseUSecRealtime", "--no-pager"], timeout=8)
+        line = next((line for line in result.stdout.splitlines()
+                     if line.startswith("NextElapseUSecRealtime=")), "")
+        value = line.partition("=")[2].strip()
+        if value and value.lower() not in {"n/a", "never", "0"}:
+            next_run_at = value
+    except (OSError, subprocess.TimeoutExpired, AttributeError):
+        pass
+
+    last_cleanup = None
+    audit = STATE_ROOT / "deployment-gc-history.jsonl"
+    try:
+        if audit.is_file() and not audit.is_symlink() and audit.stat().st_size <= 2_000_000:
+            records = audit.read_text(encoding="utf-8").splitlines()
+            for line in reversed(records[-120:]):
+                if not line.strip():
+                    continue
+                item = json.loads(line)
+                if not isinstance(item, dict) or item.get("mode") != "apply":
+                    continue
+                when = item.get("timestamp")
+                before = item.get("free_before_bytes")
+                after = item.get("free_after_bytes")
+                if not isinstance(when, (int, float)) or isinstance(when, bool):
+                    continue
+                measured = (max(0, after - before)
+                            if type(before) is int and type(after) is int else None)
+                deleted = item.get("deleted")
+                skipped = item.get("skipped")
+                last_cleanup = {
+                    "timestamp": datetime.fromtimestamp(when, timezone.utc).isoformat(),
+                    "deleted_count": len(deleted) if isinstance(deleted, list) else None,
+                    "skipped_count": len(skipped) if isinstance(skipped, list) else None,
+                    "measured_freed_bytes": measured,
+                }
+                break
+    except (OSError, UnicodeError, ValueError, OverflowError, TypeError, KeyError):
+        # The isolated candidate may not read a root-owned audit. Unknown is not 0.
+        pass
+
     active = states["is-active"] == "active"
     enabled = states["is-enabled"] == "enabled"
     return {
@@ -580,6 +624,9 @@ def deployment_cleanup_status() -> dict[str, Any]:
         "enabled": enabled,
         "interval_hours": 12,
         "grace_hours": 12,
+        "next_run_at": next_run_at,
+        "last_cleanup": last_cleanup,
+        "eligible_bytes": None,
         "scope": "unreferenced GitHub releases and isolated virtual environments only",
         "media_cleanup": "owned independently by each application after verified Drive delivery",
     }

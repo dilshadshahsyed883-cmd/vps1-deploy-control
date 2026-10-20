@@ -1,23 +1,22 @@
 {% extends "base.html" %}
 {% block title %}VPS Storage Manager{% endblock %}
-{% block subtitle %}Live resources, verified project cleanup and automatic retention{% endblock %}
+{% block subtitle %}Live resources and independent verified cleanup monitoring{% endblock %}
 
 {% block content %}
 {% include "admin_workspace_nav.html" %}
-<link rel="stylesheet" href="/static/storage_manager.css?v=20261020-autoclean-status-v1">
+<link rel="stylesheet" href="/static/storage_manager.css?v=20261020-active-gc-dashboard-v2">
 <div id="storage-app" data-csrf="{{ storage_csrf }}">
   <section class="sm-hero">
     <div>
       <span class="sm-kicker">SYSTEM CONTROL</span>
       <h2>Storage and resource command center</h2>
-      <p>Only allowlisted caches and projects with verified Drive delivery can be reclaimed.</p>
+      <p>Track live disk resources and verified automatic cleanup without modifying app data.</p>
       <div class="sm-inline-indicators"><span class="sm-compact-indicator {% if drive_connected %}online{% endif %}"><i></i>Google Drive · {% if drive_connected %}Connected{% else %}Attention{% endif %}</span></div>
     </div>
     <div class="sm-hero-actions">
       <span id="manager-status" class="sm-status"><i></i> Connecting</span>
       <button id="refresh-metrics" class="button secondary" type="button">Refresh metrics</button>
-      <button id="run-scan" class="button" type="button" disabled>Check cleanup status</button>
-      <button id="full-production-clean" class="button danger-button" type="button" disabled>Full Production Clean</button>
+      <button id="refresh-cleanup-status" class="button" type="button">Refresh cleanup status</button>
     </div>
   </section>
 
@@ -35,77 +34,55 @@
       <span id="disk-detail">Loading</span><div class="sm-bar"><i id="disk-bar"></i></div>
     </article>
     <article class="sm-metric sm-reclaim">
-      <div><small>SAFE TO RECLAIM</small><strong id="reclaim-value">—</strong></div>
-      <span id="reclaim-detail">Run a verified scan</span>
+      <div><small>RECLAIMABLE (VERIFIED)</small><strong id="reclaim-value">—</strong></div>
+      <span id="reclaim-detail">No verified inventory</span>
     </article>
   </section>
 
-  <section class="sm-panel sm-auto-overview" aria-label="Automatic cleanup status">
-    <div class="sm-panel-head"><div><h3>Automatic cleanup status</h3><p>Independent 12-hour deployment cleanup and verified-Drive project retention are separate systems.</p></div></div>
-    <div class="sm-auto-status-grid">
-      <div class="sm-auto-status-card"><span>GitHub deployment cache cleanup</span><strong id="deployment-gc-state" role="status">Checking live timer…</strong><p id="deployment-gc-detail">Reading the protected VPS systemd timer.</p></div>
-      <div class="sm-auto-status-card"><span>Completed project output cleanup</span><strong>App-owned · Drive receipt required</strong><p>Each application retains its own projects, queues and credentials. Local job files are removed only after completion, verified remote delivery and dependency checks.</p></div>
-    </div>
-  </section>
-
-  <section class="sm-panel sm-cleanup-panel">
+  <section class="sm-panel sm-auto-overview" aria-label="Active storage cleanup dashboard">
     <div class="sm-panel-head">
-      <div><h3>Verified reclaim preview</h3><p>Read-only Storage Manager does not open protected application databases. An unavailable scan is not a zero-byte result; no unverified project deletion is permitted.</p></div>
-      <div class="sm-head-actions">
-        <small id="scan-time">No scan loaded</small>
-        <button id="select-recommended" class="button secondary sm-small" type="button" disabled>Select recommended</button>
+      <div><h3>Active Storage Cleanup Dashboard</h3>
+        <p>Live monitoring of the independent GitHub deployment cleaner. App-created project files remain owned by their applications.</p>
       </div>
+      <small id="gc-checked" class="sm-help">Checking status…</small>
     </div>
-    <div id="category-grid" class="sm-category-grid"><div class="sm-loading">Loading storage scan…</div></div>
-    <div class="sm-cleanup-footer">
-      <div><strong id="selected-total">0 B selected</strong><small>Permanent deletion; database history and Drive copies remain.</small></div>
-      <button id="reclaim-button" class="button danger-button" type="button" disabled>Reclaim selected storage</button>
+    <div class="sm-auto-status-grid sm-gc-dashboard">
+      <article class="sm-auto-status-card">
+        <span>12-hour deployment cleaner</span>
+        <strong id="deployment-gc-state" role="status" aria-live="polite">Checking live timer…</strong>
+        <p id="deployment-gc-detail">Reading systemd status.</p>
+      </article>
+      <article class="sm-auto-status-card">
+        <span>Next scheduled run</span>
+        <strong id="gc-next-run">Unavailable</strong>
+        <p>Shown only when reported by the live systemd timer.</p>
+      </article>
+      <article class="sm-auto-status-card">
+        <span>Last cleanup</span>
+        <strong id="gc-last-run">Unavailable</strong>
+        <p id="gc-last-result">Waiting for a verified cleanup audit record.</p>
+      </article>
+      <article class="sm-auto-status-card">
+        <span>Space freed in last recorded run</span>
+        <strong id="gc-last-freed">Unavailable</strong>
+        <p>Measured before/after free-space difference from the cleaner audit; not a prediction.</p>
+      </article>
+      <article class="sm-auto-status-card">
+        <span>Currently reclaimable</span>
+        <strong id="gc-eligible">Not measured</strong>
+        <p id="gc-eligible-detail">A safe, privileged inventory is required. Unavailable is not zero.</p>
+      </article>
+      <article class="sm-auto-status-card">
+        <span>Completed project files</span>
+        <strong>App-owned · Drive receipt required</strong>
+        <p>No centralized deletion: each app verifies delivery and job dependencies before cleaning its own files.</p>
+      </article>
     </div>
+    <p class="sm-gc-disclaimer">The legacy central cleanup policy and destructive Full Production Clean controls have been retired from this page. Live releases, rollback copies, databases, queues, credentials and user media remain protected. This dashboard only reads status; it does not start cleanup.</p>
   </section>
-
-  <section class="sm-grid sm-policy-grid">
-    <article class="sm-panel">
-      <div class="sm-panel-head"><div><h3>Legacy central cleanup policy</h3><p>Read-only and intentionally disabled. The active 12-hour deployment timer and app-owned Drive cleanup operate independently of this legacy form.</p></div></div>
-      <form id="policy-form" class="sm-policy-form">
-        <label class="sm-switch-row"><span><strong>Automatic cleanup</strong><small>Run without opening this page</small></span><span class="sm-switch"><input id="auto-enabled" type="checkbox"><i></i></span></label>
-        <label><span><strong>Trigger mode</strong><small>Low-space is the safest default</small></span><select id="auto-mode"><option value="low_space">Only below free-space target</option><option value="scheduled">Every scan interval</option></select></label>
-        <label><span><strong>Minimum free space</strong><small>Start cleanup below this level</small></span><div class="sm-unit"><input id="minimum-free" type="number" min="1" max="2000" step="0.5"><b>GB</b></div></label>
-        <label><span><strong>Project retention</strong><small>Wait after verified upload</small></span><div class="sm-unit"><input id="retention-hours" type="number" min="1" max="8760"><b>hours</b></div></label>
-        <label><span><strong>Scan interval</strong><small>Automatic policy check frequency</small></span><div class="sm-unit"><input id="scan-interval" type="number" min="5" max="1440"><b>minutes</b></div></label>
-        <label><span><strong>Journal retention</strong><small>Newest system logs remain</small></span><div class="sm-unit"><input id="journal-max" type="number" min="100" max="4096"><b>MB</b></div></label>
-        <label><span><strong>Temporary-file age</strong><small>Only older allowlisted files</small></span><div class="sm-unit"><input id="temp-days" type="number" min="1" max="90"><b>days</b></div></label>
-        <fieldset><legend>Automatic categories</legend><div id="auto-categories" class="sm-auto-categories"></div></fieldset>
-        <button class="button" type="submit" disabled>Save automatic policy</button>
-        <div id="policy-result" class="sm-result" hidden></div>
-      </form>
-    </article>
-
-    <article class="sm-panel">
-      <div class="sm-panel-head"><div><h3>Cleanup history</h3><p>Recorded results and reclaimed disk space.</p></div></div>
-      <div id="history-list" class="sm-history-list"><div class="sm-loading">Loading history…</div></div>
-    </article>
-  </section>
-
-  <section class="sm-panel">
-    <div class="sm-panel-head"><div><h3>Verified project candidates</h3><p>These local files already have successful Drive-delivery evidence.</p></div></div>
-    <div class="sm-table-wrap">
-      <div class="sm-table-head"><span>Application</span><span>Project</span><span>Local size</span><span>Verification</span></div>
-      <div id="project-candidates"><div class="sm-loading">No candidate details loaded.</div></div>
-    </div>
-  </section>
-
-  <dialog id="confirm-dialog" class="sm-dialog">
-    <form method="dialog">
-      <h3>Confirm permanent cleanup</h3>
-      <p>The selected local data will be permanently removed. Uploaded Drive files and database history will remain.</p>
-      <div id="confirm-summary" class="sm-confirm-summary"></div>
-      <label>Type <strong>RECLAIM</strong> to continue<input id="confirm-text" autocomplete="off" spellcheck="false"></label>
-      <div class="sm-dialog-actions"><button value="cancel" class="button secondary">Cancel</button><button id="confirm-run" value="default" class="button danger-button" disabled>Reclaim now</button></div>
-    </form>
-  </dialog>
 
   <div id="storage-toast" class="sm-toast" hidden></div>
 </div>
 {% endblock %}
 
-{% block scripts %}<script src="/static/storage_manager.js?v=20261020-autoclean-status-v1"></script>{% endblock %}
+{% block scripts %}<script src="/static/storage_manager.js?v=20261020-active-gc-dashboard-v2"></script>{% endblock %}
