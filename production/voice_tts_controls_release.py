@@ -177,32 +177,34 @@ def start_all():
 
 
 def install(revision):
+    require(re.fullmatch(r"[0-9a-f]{40}", revision) is not None, "revision not immutable SHA")
     require(CURRENT.is_symlink(), "Voice release pointer is not managed")
     previous = CURRENT.resolve(strict=True)
     require(previous.is_dir() and previous.is_relative_to(RELEASES), "Voice release escapes root")
     require(all(active(unit) for unit in UNITS), "Voice web/Kokoro/Edge units must be active")
     auxiliary_states = {unit: active(unit) for unit in AUX_WORKERS}
     http_check(APP)
-    # Fully stage and syntax-validate from reviewed Git before stopping anything.
-    target = stage(revision, previous)
     journal = JOURNALS / revision
     require(not journal.exists(), "immutable release already attempted")
-    journal.mkdir(parents=True, mode=0o700)
-    atomic_json(journal / "before.json", {
-        "revision": revision, "old_release": str(previous), "target": str(target),
-        "affected_units": list(UNITS),
-        "auxiliary_unit_states": auxiliary_states,
-    })
     fences = []
-    stopped = False
+    stopping = False
     switched = False
     try:
+        # Read-only preflight is performed BEFORE creating any candidate/journal,
+        # so busy queues cannot strand a release and block later safe attempts.
         fences = check_idle_and_lock(DATA_ROOTS)
         fences.append(check_omnivoice_idle(OMNI_DB))
+        target = stage(revision, previous)
+        journal.mkdir(parents=True, mode=0o700)
+        atomic_json(journal / "before.json", {
+            "revision": revision, "old_release": str(previous),
+            "target": str(target), "affected_units": list(UNITS),
+            "auxiliary_unit_states": auxiliary_states,
+        })
         try:
-            # Treat partial service stop as a rollback-worthy mutation.
-            stopped = True
-            # Block new job submissions before halting the two idle worker loops.
+            # BEGIN IMMEDIATE fences ensure workers cannot claim fresh queue jobs
+            # between idle admission and the targeted service stop sequence.
+            stopping = True
             for unit in UNITS:
                 run(["systemctl", "stop", unit], timeout=65, quiet=True)
         finally:
@@ -214,19 +216,18 @@ def install(revision):
         switched = True
         start_all()
         restore_aux_workers(auxiliary_states)
-        verify_queues()  # Real local + authenticated HTTPS GETs; no mutation.
-        event(app=APP, result="PASS_VOICE_TTS_CONTROLS", revision=revision,
-              idle_gate="PASS", db_backup="PASS", affected_units=list(UNITS),
-              other_workers="RESTORED_TO_PREVIOUS_STATE", auto_script="OFFLINE")
+        verify_queues()
         atomic_json(journal / "result.json", {
             "result": "PASS_VOICE_TTS_CONTROLS", "revision": revision,
             "backup": "PRESERVED", "workers": list(UNITS),
         })
+        event(app=APP, result="PASS_VOICE_TTS_CONTROLS", revision=revision,
+              idle_gate="PASS", db_backup="PASS", affected_units=list(UNITS),
+              other_workers="RESTORED_TO_PREVIOUS_STATE", auto_script="OFFLINE")
     except BaseException:
         if fences:
             unlock(fences)
-        if stopped or switched:
-            # Roll back source pointer only; additive schema + all queue records stay.
+        if stopping or switched:
             for unit in reversed(UNITS):
                 subprocess.run(["systemctl", "stop", unit], capture_output=True, check=False)
             if switched:
