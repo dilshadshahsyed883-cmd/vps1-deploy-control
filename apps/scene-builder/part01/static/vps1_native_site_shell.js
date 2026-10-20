@@ -1,7 +1,7 @@
 /* VPS1_NATIVE_SITE_SHELL_V1. No iframe, cross-origin fetch, or duplicated app logic. */
 (() => {
   "use strict";
-  const script = document.currentScript;
+  const script = document.currentScript || document.querySelector('script[data-unify-sidebar="1"]');
   const app = script && script.dataset ? script.dataset.workspace : "";
   const legacySidebar = !!(script && script.dataset && script.dataset.unifySidebar === "1");
   if (!legacySidebar && !["acs", "voice", "uploader", "stream"].includes(app)) return;
@@ -82,16 +82,20 @@
       const bottom = sidebar.querySelector(":scope > .server, :scope > .server-dot");
       sidebar.insertBefore(account, bottom);
     }
-    account.hidden = true;
+    account.hidden = false;
     account.replaceChildren();
-    const accountName = node("div", "sidebar-account-name");
+    const accountName = node("div", "sidebar-account-name", "Checking session…");
+    const loginLink = node("a", "vps1-session-login", "Sign in");
+    loginLink.href = "/login";
+    loginLink.hidden = true;
     const logout = node("form");
+    logout.hidden = true;
     logout.action = "/logout";
     logout.method = "post";
     const logoutButton = node("button", "", "Log out");
     logoutButton.type = "submit";
     logout.appendChild(logoutButton);
-    account.append(accountName, logout);
+    account.append(accountName, loginLink, logout);
     let adminLink = null;
     const setIdentity = (identity) => {
       const authenticated = !!(identity && identity.authenticated === true);
@@ -103,8 +107,15 @@
         adminLink.remove();
         adminLink = null;
       }
-      account.hidden = !authenticated;
-      accountName.textContent = authenticated ? String(identity.username || "") : "";
+      // Never silently remove the entire account area when a login expires,
+      // a proxy returns login HTML, or the identity request fails. Only the
+      // server-verified is_admin=true response may create the Admin link.
+      account.hidden = false;
+      account.dataset.vps1IdentityStatus = authenticated ? "verified" : "unavailable";
+      accountName.textContent = authenticated ?
+        String(identity.username || "Signed in") : "Account verification needed";
+      loginLink.hidden = authenticated;
+      logout.hidden = !authenticated;
     };
     const refreshIdentity = async () => {
       try {
