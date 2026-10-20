@@ -46,7 +46,7 @@ class ThreeAppUiParityTests(unittest.TestCase):
         self.assertIn("body.vps1-scene-parity .scene-workspace-header", self.scene_css)
         self.assertIn("body.vps1-scene-parity .scene-workspace-tabs", self.scene_css)
         self.assertIn("min-height: 44px", self.scene_css)
-        self.assertIn("scrollbar-gutter: stable", self.scene_css)
+        self.assertNotIn("scrollbar-gutter: stable", self.scene_css)
         self.assertIn("prefers-reduced-motion: reduce", self.scene_css)
         for page in ("queue", "settings", "audit_media"):
             self.assertIn(f'page==\'{page}\' %}} aria-current="page"', self.base)
