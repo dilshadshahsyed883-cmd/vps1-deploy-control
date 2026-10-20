@@ -9,6 +9,7 @@ on:
       - 'tests/test_scene_candidate_release.py'
       - 'production/test_storage_dashboard_scoped_release.py'
       - 'production/test_storage_auto_clean_view.py'
+      - 'production/storage_backend_release.py'
       - 'apps/vps-storage-manager/part01/storage_manager.py'
       - 'apps/scene-builder/part01/static/storage_manager.js'
       - 'apps/scene-builder/part01/static/storage_manager.css'
