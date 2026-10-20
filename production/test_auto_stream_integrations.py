@@ -43,12 +43,13 @@ class AutoStreamIntegrationTests(unittest.TestCase):
     def test_oauth_pkce_state_and_single_use(self):
         begin = self.app.begin_oauth()
         self.assertIn("code_challenge_method=S256", begin["authorization_url"])
-        self.assertNotIn(mod.SHEETS_SCOPE, begin["authorization_url"])
         self.assertIn("access_type=offline", begin["authorization_url"])
-        with_sheets = self.app.begin_oauth(include_sheets=True)
-        self.assertIn(mod.SHEETS_SCOPE, with_sheets["authorization_url"])
         from urllib.parse import parse_qs, urlparse
         params = parse_qs(urlparse(begin["authorization_url"]).query)
+        self.assertNotIn(mod.SHEETS_SCOPE, params["scope"][0].split())
+        with_sheets = self.app.begin_oauth(include_sheets=True)
+        sheets_params = parse_qs(urlparse(with_sheets["authorization_url"]).query)
+        self.assertIn(mod.SHEETS_SCOPE, sheets_params["scope"][0].split())
         state = params["state"][0]
         self.assertNotIn("fake-client-secret", begin["authorization_url"])
         sent = []
