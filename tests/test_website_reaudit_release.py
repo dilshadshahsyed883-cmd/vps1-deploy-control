@@ -1,6 +1,7 @@
 """Exercise the scoped web release and rollback against temporary immutable releases."""
 from contextlib import ExitStack
 import hashlib
+import io
 import json
 from pathlib import Path
 import tempfile
@@ -36,6 +37,12 @@ class WebOverlayRelease(unittest.TestCase):
                 self.assertEqual(commands.call_count,1)
             self.assertEqual((previous/page).read_text(),'old page')
             for call in commands.call_args_list:self.assertEqual(call.args[0],['systemctl','restart','vps1-production-video-merger.service'])
+
+    def test_active_stream_render_blocks_web_restart(self):
+        for data in ({'encoder_sessions':1,'render_tasks':0},{'encoder_sessions':0,'render_tasks':1},{'encoder_sessions':0}):
+            with patch.object(release,'urlopen',return_value=io.BytesIO(json.dumps(data).encode())):
+                with self.assertRaises(RuntimeError):release.idle('short-stream')
+        with patch.object(release,'urlopen',return_value=io.BytesIO(b'{"encoder_sessions":0,"render_tasks":0}')):release.idle('short-stream')
 
     def test_exact_web_overlay_preserves_workers_and_original(self):self.exercise()
     def test_failed_readback_restores_previous_pointer_and_web(self):self.exercise(fail=True)

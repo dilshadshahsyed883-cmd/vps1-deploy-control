@@ -41,7 +41,7 @@ def idle(app):
     elif app == 'short-stream':
         with urlopen('http://127.0.0.1:8145/engine/health', timeout=15) as response:
             value = json.load(response)
-        require(value.get('encoder_sessions') == 0, 'Auto Stream encoder active or unknown')
+        require(value.get('encoder_sessions') == 0 and value.get('render_tasks') == 0, 'Auto Stream encoder/render active or unknown')
     # ACS rendering executes in independent worker processes, which are untouched.
 
 
