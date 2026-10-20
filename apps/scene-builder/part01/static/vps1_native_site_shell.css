@@ -271,3 +271,6 @@ html:has(script[data-workspace="uploader"]) .lum-primary-workspaces,body.vps1-na
   .vps1-native-upload-tabs *, .vps1-native-video-tabs *,
   [data-video-studio-subnav="1"] * {transition:none!important;animation:none!important;}
 }
+
+/* Canonical sidebar identity is hidden until session API confirms it. */
+#app-sidebar.sidebar .sidebar-account[hidden]{display:none!important}
