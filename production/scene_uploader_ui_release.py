@@ -140,8 +140,10 @@ def verify_video_studio() -> None:
             (b'data-page="queue"', b'data-page="upload"', b'data-page="voice"',
              b'id="acs-native-live"', b'vps1_native_site_shell.js',
              b"const API='/auto-caption-studio/api/web-flow'"),
-        "/short-maker/": (b'id="makerTabBtn"', b'data-video-studio-subnav'),
-        "/video-merger/": (b'id="tab-merge"', b'data-video-studio-subnav'),
+        "/short-maker/": (b'id="makerTabBtn"', b'data-video-studio-subnav',
+                           b'data-vps1-server-identity="1"', b'class="vps1-server-admin"'),
+        "/video-merger/": (b'id="tab-merge"', b'data-video-studio-subnav',
+                           b'data-vps1-server-identity="1"', b'class="vps1-server-admin"'),
         "/voice-studio/app": (b'vsEngineOmni', b'vsEngineKokoro',
                                b'vps1_native_site_shell.js'),
     }
@@ -155,6 +157,23 @@ def verify_video_studio() -> None:
                 b'id="acs-studio-frame"' not in html and
                 b'id="voice-studio-frame"' not in html,
                 "nested outer iframe returned: " + url)
+    # A shell JS file returning 200 is insufficient: the authenticated page
+    # must actually request the same shared asset revision and have a usable
+    # server-rendered identity if browser JS/CSP/network fails.
+    short_status, _, short_html = https_get("/short-maker/", cookie)
+    merged_status, _, merged_html = https_get("/video-merger/", cookie)
+    js_status, js_type, shared_js = https_get(
+        "/static/vps1_native_site_shell.js?v=20261020-admin-session-v2", cookie)
+    require(short_status == 200 and merged_status == 200 and
+            js_status == 200 and
+            b"function installLegacySidebar()" in shared_js and
+            b"javascript" in js_type.lower().encode(),
+            "live shared sidebar JavaScript could not be loaded")
+    for label, document in (("Short Maker", short_html), ("Video Merger", merged_html)):
+        require(b'data-unify-sidebar="1"' in document and
+                b'vps1_native_site_shell.js?v=20261020-admin-session-v2' in document,
+                label + " live HTML is missing the shared sidebar bootstrap")
+    print("VPS1_SSO_SERVER_SIDEBARS=PASS ADMIN=VERIFIED SIGN_IN_FALLBACK=READY", flush=True)
     print("VPS1_NATIVE_STUDIOS=PASS VIDEO_TABS=PASS SIDEBAR=PASS", flush=True)
 
 

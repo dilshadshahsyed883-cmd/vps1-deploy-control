@@ -1,4 +1,5 @@
 import json
+import html
 import hashlib
 import os
 import random
@@ -14,7 +15,7 @@ from pathlib import Path
 from typing import List
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from PIL import Image, ImageOps, ImageFilter
 
@@ -752,9 +753,53 @@ def health():
     return {"ok": True, "app": "short-maker", "ffmpeg": FFMPEG, "data_root": str(DATA_ROOT)}
 
 
+def render_verified_sidebar(username: str, is_admin: bool) -> str:
+    """Server-side fallback when shared browser JS fails to hydrate the shell.
+
+    Only Scene SSO's reverse-proxy supplied identity may set this visible role.
+    Admin pages independently enforce their own server-side authorization.
+    """
+    name = (username or "").strip()[:120]
+    if name:
+        safe_name = html.escape(name, quote=True)
+        footer = (
+            '<div class="sidebar-account" data-vps1-server-identity="1">'
+            '<div class="sidebar-account-name">' + safe_name + '</div>'
+            '<form action="/logout" method="post">'
+            '<button type="submit">Log out</button></form></div>'
+        )
+    else:
+        footer = (
+            '<div class="sidebar-account" data-vps1-server-identity="0">'
+            '<div class="sidebar-account-name">Account verification needed</div>'
+            '<a class="vps1-session-login" href="/login">Sign in</a></div>'
+        )
+    marker = '<div class="server"><span></span> VPS Connected</div>'
+    if HTML.count(marker) != 1:
+        raise RuntimeError("Short Maker sidebar template anchor changed")
+    page = HTML.replace(marker, footer + "\n " + marker, 1)
+    if name and is_admin:
+        anchor = "<!-- Auto Script stays OFFLINE -->"
+        if page.count(anchor) != 1:
+            raise RuntimeError("Short Maker Admin placement anchor changed")
+        page = page.replace(
+            anchor,
+            '<a class="vps1-server-admin" href="/admin">Admin</a>\n' + anchor,
+            1,
+        )
+    return page
+
+
 @app.get("/", response_class=HTMLResponse)
-def home():
-    return HTML
+def home(request: Request):
+    # Scene SSO Nginx overwrites these headers after session authentication.
+    # Never infer administrator status from cookies, localStorage or JS flags.
+    username = request.headers.get("x-auth-user", "")
+    is_admin = bool(username.strip()) and request.headers.get("x-is-admin") == "1"
+    return HTMLResponse(
+        render_verified_sidebar(username, is_admin),
+        headers={"Cache-Control": "private, no-store", "Vary": "Cookie"},
+    )
 
 
 @app.post("/api/jobs")
