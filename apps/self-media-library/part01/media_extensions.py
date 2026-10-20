@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from fastapi import File, Header, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from media_integrity import sha256_file
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}
@@ -541,15 +542,34 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                     saved = persist_image(output.name if body.source == "youtube" else Path(body.value).name,output)
                     source_id = saved["id"]
                 else:
+                    # Deduplicate authorized Drive/YouTube video imports just as browser uploads.
+                    fingerprint = sha256_file(output)
                     source_id = "SRC-" + uuid.uuid4().hex[:10].upper()
                     stored = source_id + ext
-                    shutil.move(str(output),str(Path(source_dir) / stored))
-                    ts=now_iso()
+                    ts = now_iso()
                     with db() as conn:
-                        conn.execute("""INSERT INTO sources(id,filename,stored_name,size_bytes,status,stage,
-                                     progress,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)""",
-                                     (source_id, Path(body.value).name[:200] or stored, stored,
-                                      (Path(source_dir) / stored).stat().st_size,"queued","queued",0,ts,ts))
+                        conn.execute("BEGIN IMMEDIATE")
+                        prior = conn.execute(
+                            "SELECT id,stored_name FROM sources WHERE sha256=? ORDER BY created_at DESC LIMIT 1",
+                            (fingerprint,),
+                        ).fetchone()
+                        if prior and (Path(source_dir) / prior["stored_name"]).is_file():
+                            source_id = prior["id"]
+                        else:
+                            destination = Path(source_dir) / stored
+                            shutil.move(str(output), str(destination))
+                            try:
+                                conn.execute(
+                                    """INSERT INTO sources(id,filename,stored_name,size_bytes,status,stage,
+                                               progress,created_at,updated_at,sha256)
+                                       VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                                    (source_id, Path(body.value).name[:200] or stored,
+                                     stored, destination.stat().st_size,
+                                     "queued", "queued", 0, ts, ts, fingerprint),
+                                )
+                            except Exception:
+                                destination.unlink(missing_ok=True)
+                                raise
                 with db() as conn:
                     conn.execute("UPDATE media_imports SET status='completed',message='Imported; video sources require Process',source_id=?,updated_at=? WHERE id=?",
                                  (source_id,now_iso(),job_id))
