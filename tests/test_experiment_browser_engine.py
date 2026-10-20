@@ -43,6 +43,28 @@ class ValidationTests(unittest.TestCase):
         with self.assertRaises(BrowserError):
             validate_url("about:blank")
 
+    def test_privacy_controls_validation(self):
+        item = validate_profile({
+            "name": "Private research", "privacy_mode": "strict",
+            "do_not_track": "on", "geolocation_mode": "fixed",
+            "geo_lat": "31.5", "geo_lon": "74.3",
+            "color_scheme": "dark", "reduced_motion": "reduce",
+            "device_scale": "1.5",
+        })
+        self.assertEqual(item["privacy_mode"], "strict")
+        self.assertEqual(item["do_not_track"], 1)
+        self.assertEqual(item["device_scale"], 1.5)
+        self.assertEqual(item["geo_lat"], 31.5)
+        for field, value in (("privacy_mode", "undetectable"),
+                             ("do_not_track", "maybe"),
+                             ("geolocation_mode", "auto"),
+                             ("geo_lat", "100"), ("geo_lon", "181"),
+                             ("device_scale", "4"),
+                             ("color_scheme", "ultraviolet"),
+                             ("reduced_motion", "unknown")):
+            with self.subTest(field=field), self.assertRaises(BrowserError):
+                validate_profile({"name": "Test", field: value})
+
     def test_invalid_fingerprint_parameters_denied(self):
         for field, value in (("timezone", "Nowhere/Unreal"), ("locale", "abcd"),
                              ("width", "99"), ("user_agent", "bad\nheader"),
@@ -76,6 +98,37 @@ class ProfileTests(unittest.IsolatedAsyncioTestCase):
         await self.engine.delete("alice", a["id"])
         self.assertEqual(await self.engine.list("alice"), [])
         self.assertEqual(len(await self.engine.list("bob")), 1)
+
+    async def test_clone_isolated_without_cookies_or_proxy_credentials(self):
+        original = await self.engine.create("alice", {
+            "name": "Research", "proxy_server": "https://proxy.example.net:443",
+            "proxy_username": "secret-user", "proxy_password": "private-password",
+            "privacy_mode": "strict", "device_scale": "2"})
+        copied = await self.engine.clone("alice", original["id"])
+        self.assertNotEqual(original["id"], copied["id"])
+        self.assertEqual(copied["device_scale"], 2)
+        self.assertEqual(copied["privacy_mode"], "strict")
+        self.assertEqual(list((self.engine.root / "profiles" / copied["id"]).iterdir()), [])
+        source = self.engine._get("alice", original["id"])
+        cloned = self.engine._get("alice", copied["id"])
+        self.assertEqual(source["proxy_password"], "private-password")
+        self.assertEqual(cloned["proxy_password"], "")
+        self.assertEqual(cloned["proxy_username"], "")
+        self.assertNotIn("private-password", str(copied))
+        with self.assertRaises(BrowserError):
+            await self.engine.clone("bob", original["id"])
+
+    async def test_legacy_database_migrates_without_removing_profiles(self):
+        with self.engine._db() as db:
+            db.execute("INSERT INTO profiles (id,owner,name,start_url,proxy_server,"
+                       "proxy_username,proxy_password,locale,timezone,user_agent,"
+                       "width,height,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                       ("1" * 24, "alice", "Legacy", "about:blank", "", "", "",
+                        "en-US", "UTC", "", 1280, 800, "1"))
+            db.commit()
+        found = await self.engine.list("alice")
+        self.assertEqual(found[0]["privacy_mode"], "standard")
+        self.assertEqual(found[0]["state"], "stopped")
 
     async def test_rejects_start_when_chrome_missing_and_preserves_profile(self):
         item = await self.engine.create("alice", {"name": "Test"})

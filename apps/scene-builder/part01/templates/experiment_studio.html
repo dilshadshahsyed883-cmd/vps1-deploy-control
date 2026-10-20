@@ -11,7 +11,10 @@
   .experiment-browser-panel{min-width:0;padding:16px;border:1px solid #dfe5ef;border-radius:10px;background:#f9fbff}
   .experiment-browser-panel h3{margin:0 0 12px;font-size:16px}
   .experiment-browser-panel label{display:block;margin:10px 0 5px;font-size:12px;font-weight:700}
-  .experiment-browser-panel input{width:100%;min-width:0;padding:9px 11px;border:1px solid #cfd8e6;border-radius:7px;font:inherit;box-sizing:border-box}
+  .experiment-browser-panel input,.experiment-browser-panel select{width:100%;min-width:0;padding:9px 11px;border:1px solid #cfd8e6;border-radius:7px;background:#fff;font:inherit;box-sizing:border-box}
+  .experiment-browser-panel details{border:1px solid #dfe5ef;border-radius:8px;margin:14px 0;padding:10px;background:#fff}
+  .experiment-browser-panel summary{cursor:pointer;font-weight:700}
+  .experiment-browser-panel .privacy-note{color:#586984;font-size:12px;line-height:1.45}
   .experiment-browser-panel button{min-height:35px;padding:8px 11px;border:1px solid #ccd7e8;border-radius:7px;background:#fff;color:#34415b;cursor:pointer;font-weight:700}
   .experiment-browser-panel button.primary{background:#315edb;color:white;border-color:#315edb}
   .experiment-browser-panel button:disabled{opacity:.45;cursor:not-allowed}
@@ -49,9 +52,46 @@
         <input id="browser-profile-timezone" name="timezone" value="UTC" maxlength="80">
         <label for="browser-profile-agent">User agent (optional)</label>
         <input id="browser-profile-agent" name="user_agent" placeholder="Use installed Chrome default" maxlength="360">
+        <details>
+          <summary>Privacy and device settings</summary>
+          <p class="privacy-note">Strict mode restricts non-proxied WebRTC UDP and blocks service workers. This may limit some websites. It does not promise anonymous browsing or a leak-free connection.</p>
+          <label for="browser-privacy-mode">Privacy mode</label>
+          <select id="browser-privacy-mode" name="privacy_mode">
+            <option value="strict" selected>Strict — safer defaults</option>
+            <option value="standard">Standard — better site compatibility</option>
+          </select>
+          <label for="browser-dnt">Do Not Track signal</label>
+          <select id="browser-dnt" name="do_not_track">
+            <option value="on" selected>Send DNT: 1</option>
+            <option value="off">Do not send DNT</option>
+          </select>
+          <label for="browser-geo-mode">Geolocation permission</label>
+          <select id="browser-geo-mode" name="geolocation_mode">
+            <option value="deny" selected>Denied</option>
+            <option value="fixed">Use specified coordinates</option>
+          </select>
+          <label for="browser-geo-lat">Latitude (fixed location only)</label>
+          <input id="browser-geo-lat" type="number" name="geo_lat" min="-90" max="90" step="any" value="0">
+          <label for="browser-geo-lon">Longitude (fixed location only)</label>
+          <input id="browser-geo-lon" type="number" name="geo_lon" min="-180" max="180" step="any" value="0">
+          <label for="browser-device-scale">Device pixel ratio</label>
+          <select id="browser-device-scale" name="device_scale">
+            <option value="1" selected>1×</option><option value="1.25">1.25×</option>
+            <option value="1.5">1.5×</option><option value="2">2×</option>
+          </select>
+          <label for="browser-color-scheme">Color scheme</label>
+          <select id="browser-color-scheme" name="color_scheme">
+            <option value="no-preference" selected>System default</option><option value="light">Light</option><option value="dark">Dark</option>
+          </select>
+          <label for="browser-reduced-motion">Reduced motion</label>
+          <select id="browser-reduced-motion" name="reduced_motion">
+            <option value="no-preference" selected>Default</option><option value="reduce">Reduce animation</option>
+          </select>
+        </details>
         <div class="experiment-browser-actions"><button type="submit" class="primary">Create profile</button></div>
       </form>
       <div id="browser-profiles" aria-label="Saved browser profiles"></div>
+      <p id="browser-privacy-summary" class="privacy-note" role="status">Select a profile to view privacy settings.</p>
     </div>
     <div class="experiment-browser-panel">
       <h3>Browser session</h3>
@@ -59,6 +99,9 @@
         <button id="browser-start" type="button" class="primary" disabled>Start</button>
         <button id="browser-stop" type="button" disabled>Stop</button>
         <button id="browser-delete" type="button" disabled>Delete profile</button>
+        <button id="browser-clone" type="button" disabled>Clone settings</button>
+        <button id="browser-privacy" type="button" disabled>Inspect privacy</button>
+        <button id="browser-connection-check" type="button" disabled>Check exit IP</button>
         <button id="browser-reload" type="button" disabled>Reload</button>
         <button id="browser-back" type="button" disabled>Back</button>
       </div>
@@ -86,4 +129,4 @@
   </div>
 </section>
 {% endblock %}
-{% block scripts %}<script src="/static/experiment_browser.js?v=20261020-engine-v1" defer></script>{% endblock %}
+{% block scripts %}<script src="/static/experiment_browser.js?v=20261020-privacy-v2" defer></script>{% endblock %}

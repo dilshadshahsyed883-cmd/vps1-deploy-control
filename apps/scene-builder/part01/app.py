@@ -1875,6 +1875,35 @@ async def experiment_browser_delete(request: Request, profile_id: str):
         experiment_failure(exc)
 
 
+@app.post("/api/experiment-browser/profiles/{profile_id}/clone")
+async def experiment_browser_clone(request: Request, profile_id: str):
+    owner = experiment_owner(request)
+    await experiment_payload(request)
+    try:
+        return {"profile": await EXPERIMENT_BROWSER.clone(owner, profile_id)}
+    except BrowserError as exc:
+        experiment_failure(exc)
+
+
+@app.get("/api/experiment-browser/profiles/{profile_id}/privacy")
+async def experiment_browser_privacy_report(request: Request, profile_id: str):
+    owner = experiment_owner(request)
+    try:
+        return await EXPERIMENT_BROWSER.privacy_report(owner, profile_id)
+    except BrowserError as exc:
+        experiment_failure(exc)
+
+
+@app.post("/api/experiment-browser/profiles/{profile_id}/connection-check")
+async def experiment_browser_connection_check(request: Request, profile_id: str):
+    owner = experiment_owner(request)
+    await experiment_payload(request)
+    try:
+        return await EXPERIMENT_BROWSER.connection_check(owner, profile_id)
+    except BrowserError as exc:
+        experiment_failure(exc)
+
+
 @app.post("/api/experiment-browser/profiles/{profile_id}/start")
 async def experiment_browser_start(request: Request, profile_id: str):
     owner = experiment_owner(request)

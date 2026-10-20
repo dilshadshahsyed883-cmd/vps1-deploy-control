@@ -21,3 +21,13 @@ This is a usable browser isolation/profile manager, not equivalent to ixBrowser'
 - Existing guarded CI; guarded GitHub Actions > Tailscale > Scene candidate release, with rollback.
 - Report Chrome executable and Playwright startup status independently of route availability.
 - Owner's authenticated visual UAT remains a separate step.
+
+
+## CW-028 / EXP-PRIV-001 — Privacy V2 (scoped implementation)
+
+- Optional strict mode blocks service workers and constrains non-proxied WebRTC UDP; standard mode retains original compatibility. These controls are policies, **not** proof of DNS/WebRTC leak prevention.
+- Per-profile configurable Do Not Track HTTP header, explicitly granted fixed-location geolocation, device pixel ratio, color scheme and reduced-motion preferences; all applied at persistent Chrome launch. Existing profiles are migrated in-place with standard defaults, preserving cookies and session data.
+- Non-destructive profile-settings clone starts with a fresh empty Chrome directory. Proxy usernames and passwords and browsing state are intentionally not copied. CSRF and owner checks apply to all new mutation routes.
+- Authenticated on-demand inspection reports actual navigator settings; the user-triggered exit-IP check loads `https://api.ipify.org?format=json` inside the selected browser context (via configured proxy when present). This discloses an IP to that external provider; it does **not** test DNS, IPv6 or WebRTC leaks.
+- Safe limitations: no Canvas/WebGL/Audio fingerprint forgery, no cookies/extensions import-export, no mass profile jobs, no encrypted-at-rest migration for existing SQLite proxy credentials. Full ixBrowser parity remains **OPEN** and must not be advertised as complete. Never use these controls to circumvent third-party site policies.
+- Acceptance: `python3 -m unittest tests.test_experiment_browser_engine` and existing release smoke, protected PR CI, guarded Scene-only deployment; no unrelated services, users, OAuth, media, Auto Script or active jobs affected.
