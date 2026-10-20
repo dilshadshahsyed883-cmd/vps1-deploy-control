@@ -121,8 +121,8 @@ OMNI_PARITY_MARKUP = (
     (b'<label class="label">Sampling steps</label><input id="omniNumStep"',
      b'<label class="label" for="omniNumStep">Sampling steps</label><input id="omniNumStep"'),
     (b'<output id="omniSpeedOut">', b'<output id="omniSpeedOut" for="omniSpeed">'),
-    (b'<div class="notice" id="omniQueueStatus"',
-     b'<div class="notice" id="omniQueueStatus" role="status" aria-live="polite"'),
+    (b'<div class="notice" id="omniQueueStatus" style=',
+     b'<div class="notice" id="omniQueueStatus" role="status" aria-live="polite" style='),
 )
 
 
