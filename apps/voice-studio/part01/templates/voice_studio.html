@@ -228,6 +228,48 @@ body.vs-audio-active .enginebar,body.vs-audio-active section.page,body.vs-audio-
 @media(max-width:740px){.vsa-proxy-form{grid-template-columns:1fr}.vsa-proxy-form label:nth-child(5){grid-column:1}.vsa-proxy-card{flex-direction:column;align-items:flex-start}}
 </style>
 <!-- Canonical native shell assets were loaded at the start of head. -->
+<style id="voice-responsive-20261020">
+/* Independent engine panels use the shared shell's content and touch geometry. */
+.vs-engine-selector,#vsKokoroWorkspace,#vsEdgeWorkspace{width:calc(100% - 2 * var(--vps1-ui-content-gutter,28px));max-width:var(--vps1-ui-content-max,1400px);margin-left:auto;margin-right:auto;min-width:0}
+.vs-engine-selector{margin-top:26px;min-height:62px;align-items:center;overflow-x:auto;flex-wrap:nowrap}
+.vs-engine-selector button{flex:0 0 auto;min-height:44px;white-space:nowrap}
+#vsKokoroWorkspace,#vsEdgeWorkspace{padding-top:4px;font-size:14px;line-height:1.5}
+#vsKokoroWorkspace .vsk-card,#vsEdgeWorkspace .vse-card{padding:20px;border-radius:16px;min-width:0;overflow-wrap:anywhere}
+#vsKokoroWorkspace .vsk-heading,#vsEdgeWorkspace .vse-title{font-size:28px;line-height:1.2}
+#vsKokoroWorkspace h3,#vsEdgeWorkspace h3{font-size:18px;margin:0 0 12px}
+#vsKokoroWorkspace .vsk-note,#vsEdgeWorkspace .vse-note{font:inherit;font-size:13px;color:var(--muted,#667085)}
+#vsKokoroWorkspace label,#vsEdgeWorkspace label{font-family:inherit;font-size:13px;font-weight:700;line-height:1.5}
+#vsKokoroWorkspace input,#vsKokoroWorkspace select,#vsKokoroWorkspace textarea,#vsEdgeWorkspace input,#vsEdgeWorkspace select,#vsEdgeWorkspace textarea{min-width:0;max-width:100%;min-height:44px;font-size:14px}
+#vsKokoroWorkspace textarea,#vsEdgeWorkspace textarea{min-height:180px}
+#vsKokoroWorkspace button,#vsEdgeWorkspace button{min-height:44px;font-size:13px;margin-bottom:6px;max-width:100%;white-space:normal}
+#vsKokoroWorkspace .vsk-row>div,#vsEdgeWorkspace .vse-row>div{min-width:0}
+#vsKokoroWorkspace table,#vsEdgeWorkspace table{min-width:0;table-layout:fixed;width:100%}
+#vsKokoroWorkspace th,#vsKokoroWorkspace td,#vsEdgeWorkspace th,#vsEdgeWorkspace td{font-size:13px;overflow-wrap:anywhere;word-break:break-word}
+#vsKokoroWorkspace pre,#vsEdgeWorkspace pre{max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere}
+body.vs-kokoro-active .app,body.vs-edge-active .app{display:none}
+@media(max-width:760px){
+ .vs-engine-selector,#vsKokoroWorkspace,#vsEdgeWorkspace{width:calc(100% - 24px)}
+ .vs-engine-selector{margin-top:16px;gap:4px;padding:6px}
+ .vs-engine-selector button{flex:0 0 auto;padding:10px 12px;font-size:13px}
+ #vsKokoroWorkspace .vsk-card,#vsEdgeWorkspace .vse-card{padding:16px}
+ #vsKokoroWorkspace .vsk-subtabs,#vsEdgeWorkspace .vse-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}
+ #vsKokoroWorkspace .vsk-subtabs button,#vsEdgeWorkspace .vse-tabs button{padding:10px 4px;font-size:12px}
+ #vsKokoroWorkspace .vsk-heading,#vsEdgeWorkspace .vse-title{font-size:24px}
+ #vsKokoroWorkspace input,#vsKokoroWorkspace select,#vsKokoroWorkspace textarea,#vsEdgeWorkspace input,#vsEdgeWorkspace select,#vsEdgeWorkspace textarea{font-size:16px}
+ #vsKokoroWorkspace .vsk-row,#vsEdgeWorkspace .vse-row{grid-template-columns:minmax(0,1fr)}
+ #vsKokoroWorkspace table,#vsEdgeWorkspace table,#vsKokoroWorkspace tbody,#vsEdgeWorkspace tbody{display:block}
+ #vsKokoroWorkspace thead,#vsEdgeWorkspace thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+ #vsKokoroWorkspace tbody tr,#vsEdgeWorkspace tbody tr{display:grid;grid-template-columns:minmax(0,1fr);border:1px solid var(--line,#e4e7ec);border-radius:10px;margin:12px 0;padding:8px}
+ #vsKokoroWorkspace td,#vsEdgeWorkspace td{display:block;padding:8px;border:0}
+ #vsKokoroWorkspace td:not([colspan]):before,#vsEdgeWorkspace td:not([colspan]):before{display:block;font-size:12px;font-weight:700;color:var(--muted,#667085);margin-bottom:4px}
+ #vsKokoroWorkspace td:nth-child(1):not([colspan]):before,#vsEdgeWorkspace td:nth-child(1):not([colspan]):before{content:'File / job'}
+ #vsKokoroWorkspace td:nth-child(2):before,#vsEdgeWorkspace td:nth-child(2):before{content:'Status'}
+ #vsKokoroWorkspace td:nth-child(3):before{content:'Audio'}
+ #vsEdgeWorkspace td:nth-child(3):before{content:'Files'}
+ #vsEdgeWorkspace td:nth-child(4):before{content:'Controls'}
+ #vsKokoroWorkspace td a,#vsEdgeWorkspace td a{display:inline-flex;align-items:center;min-height:44px;margin-right:8px}
+}
+</style>
 </head>
 <body>
 <div class="vps3-layout"><aside class="vps3-main-sidebar" aria-label="VPS 1 navigation">
