@@ -8,6 +8,12 @@ on:
       - 'production/test_acs_live_dashboard_guardrails.py'
       - 'tests/test_scene_candidate_release.py'
       - 'production/test_storage_dashboard_scoped_release.py'
+      - 'production/test_storage_auto_clean_view.py'
+      - 'apps/vps-storage-manager/part01/storage_manager.py'
+      - 'apps/scene-builder/part01/static/storage_manager.js'
+      - 'apps/scene-builder/part01/static/storage_manager.css'
+      - 'apps/scene-builder/part01/templates/storage_manager.html'
+      - '.github/workflows/vps1-storage-backend-retirement-release.yml'
       - '.github/workflows/vps1-storage-dashboard-release.yml'
       - '.github/workflows/vps1-storage-dashboard-release-ci.yml'
 permissions:
@@ -21,4 +27,6 @@ jobs:
       - name: Compile Python and check scene-only release contract
         run: |
           python3 -m py_compile production/scene_candidate_release.py
-          python3 -m unittest tests.test_scene_candidate_release production.test_storage_dashboard_scoped_release production.test_acs_live_dashboard_guardrails -v
+          python3 -m unittest tests.test_scene_candidate_release production.test_storage_dashboard_scoped_release production.test_storage_auto_clean_view production.test_acs_live_dashboard_guardrails -v
+          node --check apps/scene-builder/part01/static/storage_manager.js
+          python3 -m py_compile apps/vps-storage-manager/part01/storage_manager.py
