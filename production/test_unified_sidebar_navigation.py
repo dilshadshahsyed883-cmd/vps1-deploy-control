@@ -29,9 +29,11 @@ class UniversalSidebarContracts(unittest.TestCase):
         for name, path in LEGACY_PAGES.items():
             html = path.read_text(encoding="utf-8")
             with self.subTest(name=name):
-                self.assertEqual(html.count(SIDEBAR_VERSION), 1)
+                script_version = SIDEBAR_VERSION if name == "scene-builder" else "vps1_native_site_shell.js?v=20261020-experiment-v1"
+                style_version = CSS_VERSION if name == "scene-builder" else "vps1_native_site_shell.css?v=20261020-experiment-v1"
+                self.assertEqual(html.count(script_version), 1)
                 self.assertEqual(html.count('data-unify-sidebar="1"'), 1)
-                self.assertEqual(html.count(CSS_VERSION), 1)
+                self.assertEqual(html.count(style_version), 1)
                 self.assertIn('id="app-sidebar" class="sidebar"', html)
 
     def test_existing_native_apps_use_the_same_shared_script(self):
