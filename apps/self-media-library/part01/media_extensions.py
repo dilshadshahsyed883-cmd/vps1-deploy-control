@@ -19,6 +19,7 @@ from fastapi import File, Header, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from media_integrity import sha256_file
+from media_catalog import probe_video, safe_origin, classify_orientation
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}
@@ -136,6 +137,13 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                     updated_at TEXT NOT NULL
                 );
             """)
+            for column, definition in {
+                "source_kind": "TEXT NOT NULL DEFAULT 'legacy'",
+                "source_locator": "TEXT NOT NULL DEFAULT ''",
+                "rights_confirmed": "INTEGER NOT NULL DEFAULT 0",
+            }.items():
+                if column not in {col["name"] for col in conn.execute("PRAGMA table_info(image_assets)")}:
+                    conn.execute(f"ALTER TABLE image_assets ADD COLUMN {column} {definition}")
             conn.execute("UPDATE media_imports SET status='failed',message='Interrupted by restart',updated_at=? WHERE status='processing'", (now_iso(),))
 
     def check_editor_token(value: str):
@@ -152,6 +160,7 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
         asset["source_id"] = row["id"]
         asset["source_filename"] = row["original_name"]
         asset["quality"] = 80
+        asset["orientation"] = classify_orientation(int(row["width"]), int(row["height"]))
         asset["content_url"] = f"/api/v1/images/{row['id']}/content"
         asset["thumb_url"] = f"/api/v1/images/{row['id']}/preview"
         asset.pop("keywords_json", None)
@@ -173,7 +182,7 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
             raise HTTPException(503, "Retrieved image failed integrity verification")
         return path
 
-    def persist_image(filename: str, file_path: Path):
+    def persist_image(filename: str, file_path: Path, *, source_kind="local", source_locator="", rights_confirmed=False):
         ext = Path(filename).suffix.lower()
         if ext not in IMAGE_EXT:
             raise ValueError("Unsupported image type")
@@ -215,10 +224,11 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
         with db() as conn:
             conn.execute("""INSERT INTO image_assets
                 (id,original_name,stored_name,thumb_name,size_bytes,sha256,width,height,
-                 keywords_json,created_at,updated_at)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                 keywords_json,created_at,updated_at,source_kind,source_locator,rights_confirmed)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (asset_id,Path(filename).name[:200],name,thumb_name,size,digest,width,height,
-                 json.dumps(keywords),ts,ts))
+                 json.dumps(keywords),ts,ts,source_kind,safe_origin(source_kind,source_locator),
+                 int(rights_confirmed)))
         # Failure to sync must preserve the only local copy, never erase it.
         sync_image(asset_id)
         return {"ok": True, "id": asset_id, "duplicate": False}
@@ -275,11 +285,15 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
             await file.close()
 
     @app.get("/api/v1/images")
-    def list_images(q: str = "", status: str = "all",
+    def list_images(q: str = "", status: str = "all", orientation: str = "all",
                     limit: int = Query(60, ge=1, le=200)):
         with db() as conn:
             rows = conn.execute("SELECT * FROM image_assets WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 500").fetchall()
         items = [image_dict(r) for r in rows]
+        if orientation not in {"all", "landscape", "portrait", "square", "unknown"}:
+            raise HTTPException(400, "Invalid orientation filter")
+        if orientation != "all":
+            items = [item for item in items if item["orientation"] == orientation]
         if status != "all":
             items = [x for x in items if x["status"] == status]
         terms = normalized_tags(q.split())
@@ -539,7 +553,11 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                 if output.stat().st_size > MAX_IMPORT_BYTES or output.stat().st_size == 0:
                     raise RuntimeError("Import size outside permitted 1B–2GB range")
                 if ext in IMAGE_EXT:
-                    saved = persist_image(output.name if body.source == "youtube" else Path(body.value).name,output)
+                    saved = persist_image(
+                        output.name if body.source == "youtube" else Path(body.value).name,
+                        output, source_kind=body.source, source_locator=body.value,
+                        rights_confirmed=body.rights_confirmed,
+                    )
                     source_id = saved["id"]
                 else:
                     # Deduplicate authorized Drive/YouTube video imports just as browser uploads.
@@ -547,6 +565,7 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                     source_id = "SRC-" + uuid.uuid4().hex[:10].upper()
                     stored = source_id + ext
                     ts = now_iso()
+                    technical = probe_video(output)
                     with db() as conn:
                         conn.execute("BEGIN IMMEDIATE")
                         prior = conn.execute(
@@ -561,11 +580,16 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                             try:
                                 conn.execute(
                                     """INSERT INTO sources(id,filename,stored_name,size_bytes,status,stage,
-                                               progress,created_at,updated_at,sha256)
-                                       VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                                               progress,created_at,updated_at,sha256,
+                                               codec,width,height,fps,orientation,has_audio,
+                                               source_kind,source_locator,rights_confirmed)
+                                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                                     (source_id, Path(body.value).name[:200] or stored,
                                      stored, destination.stat().st_size,
-                                     "queued", "queued", 0, ts, ts, fingerprint),
+                                     "queued", "queued", 0, ts, ts, fingerprint,
+                                     technical["codec"], technical["width"], technical["height"],
+                                     technical["fps"], technical["orientation"], int(technical["has_audio"]),
+                                     body.source, safe_origin(body.source, body.value), int(body.rights_confirmed)),
                                 )
                             except Exception:
                                 destination.unlink(missing_ok=True)
