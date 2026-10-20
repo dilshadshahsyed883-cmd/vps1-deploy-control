@@ -330,6 +330,13 @@ html:has(script[data-workspace="uploader"]) .lum-primary-workspaces,body.vps1-na
   .experiment-workspace{padding:18px;}
 }
 
+/* Pre-reserve the library's unified 214px sidebar before deferred JS runs.
+   Avoid a first-paint 230px inner-sidebar flash and any layout jump. */
+html:has(script[data-workspace="library"]) .app-shell { display:block!important; }
+html:has(script[data-workspace="library"]) .app-shell > main {
+  display:block!important;grid-column:auto!important;
+  margin:0 auto!important;width:100%!important;max-width:1468px!important;
+}
 /* EXPERIMENT_STUDIO_SELF_MEDIA_NAV_V2: Scoped to the independent library only.
    Two top-level Studio tabs, one unified site sidebar, app-owned internal five tabs.
    No iframe and no CSS changes to other applications. */
@@ -354,7 +361,7 @@ html:has(script[data-workspace="uploader"]) .lum-primary-workspaces,body.vps1-na
 }
 .vps1-native-experiment-tabs > a:focus-visible{outline:3px solid #6d87e6;outline-offset:2px}
 
-body.vps1-native-library .app-shell{display:block!important;min-height:100vh!important;}
+body.vps1-native-library .app-shell{display:block!important;min-height:100vh!important;background:#0b0d11!important;}
 body.vps1-native-library .app-shell > main{
   display:block!important;width:100%!important;max-width:1468px!important;
   min-width:0!important;grid-column:auto!important;
