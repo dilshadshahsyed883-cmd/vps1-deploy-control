@@ -1,0 +1,30 @@
+name: Voice engine responsive acceptance
+on:
+  pull_request:
+    paths:
+      - apps/voice-studio/part01/templates/voice_studio.html
+      - production/voice_template_release.py
+      - tests/test_voice_responsive.py
+      - .github/workflows/vps1-voice-responsive-ci.yml
+  push:
+    branches: [main]
+    paths:
+      - apps/voice-studio/part01/templates/voice_studio.html
+      - production/voice_template_release.py
+      - tests/test_voice_responsive.py
+      - .github/workflows/vps1-voice-responsive-ci.yml
+permissions:
+  contents: read
+jobs:
+  responsive-voice-engines:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install playwright==1.56.0 jinja2==3.1.6
+      - run: python -m playwright install --with-deps chromium
+      - run: python -m unittest tests.test_voice_responsive tests.test_voice_sidebar_ui_only_release -v
+      - run: python tests/test_voice_responsive.py --browser

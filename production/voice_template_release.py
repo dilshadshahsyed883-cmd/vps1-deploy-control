@@ -84,6 +84,26 @@ def patch_template(payload: bytes) -> bytes:
     return updated
 
 
+RESPONSIVE_ID = b'<style id="voice-responsive-20261020">'
+
+
+def responsive_overlay(original: bytes, source: bytes) -> bytes:
+    """Copy only the approved style block; retain runtime-specific HTML and JS."""
+    require(source.count(RESPONSIVE_ID) == 1, "responsive style missing or duplicated")
+    start = source.index(RESPONSIVE_ID)
+    end = source.index(b"</style>", start) + len(b"</style>")
+    block = source[start:end]
+    require(b"<script" not in block and b"url(" not in block,
+            "responsive overlay must contain local CSS only")
+    require(original.count(RESPONSIVE_ID) <= 1, "duplicate installed responsive style")
+    if RESPONSIVE_ID in original:
+        old_start = original.index(RESPONSIVE_ID)
+        old_end = original.index(b"</style>", old_start) + len(b"</style>")
+        return original[:old_start] + block + original[old_end:]
+    require(original.count(b"</head>") == 1, "Voice document head invalid")
+    return original.replace(b"</head>", block + b"\n</head>", 1)
+
+
 def verify_runtime() -> None:
     """Read the actual web document locally, then verify authenticated HTTPS."""
     http_check(APP)
@@ -92,7 +112,7 @@ def verify_runtime() -> None:
         body = response.read(500000)
         require(response.status == 200 and "html" in response.headers.get("Content-Type", "").lower(),
                 "Voice web UI HTTP response unavailable")
-        require(NEW_ASSETS in body and NEW_LIMITS in body and
+        require(RESPONSIVE_ID in body and NEW_ASSETS in body and NEW_LIMITS in body and
                 OLD_LIMITS not in body and b'id="vsEngineOmni"' in body,
                 "Voice web UI template guard is not live")
     from production.route_uploader_scene_https import https_get, scene_cookie
@@ -100,7 +120,7 @@ def verify_runtime() -> None:
     code, kind, html = https_get("/voice-studio/app", cookie)
     require(code == 200 and "html" in kind.lower()
             and b"vps1_native_site_shell.js?v=20261020-upload-studio-v1" in html
-            and NEW_LIMITS in html and OLD_LIMITS not in html,
+            and RESPONSIVE_ID in html and NEW_LIMITS in html and OLD_LIMITS not in html,
             "authenticated public Voice page template guard not updated")
     anonymous, _, _ = https_get("/voice-studio/app")
     require(anonymous in {401, 403, 303}, "anonymous Voice page became accessible")
@@ -142,6 +162,8 @@ def install(revision: str) -> None:
             OLD_LIMITS not in patched_html and
             OLD_TEMPLATE_LIMITS not in patched_html,
             "Voice template limit guard overlay failed")
+
+    patched_html = responsive_overlay(patched_html, source_html)
 
     target = RELEASES / (revision + "-sidebar-only")
     if previous == target:
