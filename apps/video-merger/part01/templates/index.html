@@ -132,7 +132,7 @@ newMerge();resetLibraryForm();resetProxyForm();refresh();setInterval(refresh,300
   toggle.addEventListener('click',()=>sidebar.classList.contains('mobile-open')?close():open());overlay.addEventListener('click',close);sidebar.querySelectorAll('nav a').forEach(a=>a.addEventListener('click',close));document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});window.addEventListener('resize',()=>{if(innerWidth>760)close()});window.addEventListener('pageshow',()=>{if(innerWidth>760)close()});
 })();
 
-function mergerEligibility(){const selected=document.getElementById('librarySelect');const button=document.getElementById('queueMergeButton');if(button)button.disabled=!selected?.value||!Array.from(document.querySelectorAll('#urlVideos .video-url')).some(n=>n.value.trim());}
+function mergerEligibility(){const selected=document.getElementById('librarySelect');const button=document.getElementById('queueMergeButton');if(button)button.disabled=!selected?.value||!Array.from(document.querySelectorAll('#urlVideos .video-url')).some(n=>n.value.trim());const save=document.getElementById('librarySaveBtn');if(save)save.disabled=!document.getElementById('libName')?.value.trim()||!document.getElementById('libUrl')?.value.trim();}
 document.addEventListener('input',mergerEligibility);document.addEventListener('change',mergerEligibility);mergerEligibility();
 </script>
 </body></html>

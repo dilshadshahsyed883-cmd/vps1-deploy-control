@@ -185,8 +185,8 @@ $('#submitImport').onclick=async()=>{
     const result=await api('/api/v1/media/imports',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
       source,value,rights_confirmed:$('#importRights').checked,use_proxy:$('#importProxy').checked
     })});
-    toast('Import queued: '+result.job_id);$('#importValue').value='';loadImports();
-  }catch(e){toast(e.message)}finally{button.disabled=false}
+    toast('Import queued: '+result.job_id);$('#importValue').value='';loadImports();updateInputEligibility();
+  }catch(e){toast(e.message)}finally{updateInputEligibility()}
 };
 async function loadEditorStatus(){
   try{
@@ -197,3 +197,13 @@ async function loadEditorStatus(){
   }catch(e){$('#editorApiInfo').textContent=e.message}
 }
 setInterval(()=>{if(state.page==='sources')loadImports()},6000);
+
+// Selection-dependent input actions remain unavailable until input is present.
+function updateInputEligibility(){
+ const files=document.getElementById('imageFiles'),upload=document.getElementById('uploadImages');if(upload)upload.disabled=!files?.files?.length;
+ const value=document.getElementById('importValue')?.value.trim()||'',source=document.getElementById('importSource')?.value;
+ const invalid=source==='drive'&&(value.includes(':')||value.includes('\\')||value.replace(/^\//,'').split('/').some(x=>!x||x==='..'));
+ const submit=document.getElementById('submitImport');if(submit){submit.disabled=!value||invalid||(source==='youtube'&&!document.getElementById('importRights')?.checked);submit.title=invalid?'Use a path relative to your configured Drive, such as Videos/clip.mp4. Share URLs are not supported.':submit.disabled?'Add a valid source and confirm YouTube usage rights.':'';}
+ const batch=document.getElementById('aiBatchImport');if(batch)batch.disabled=!document.getElementById('aiBatchUrls')?.value.trim()||!document.getElementById('aiBatchRights')?.checked;
+}
+document.addEventListener('input',updateInputEligibility);document.addEventListener('change',updateInputEligibility);updateInputEligibility();
