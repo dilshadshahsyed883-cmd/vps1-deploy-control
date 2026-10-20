@@ -30,9 +30,9 @@
     ["Voice Studio", "/voice-studio/app#vps1-production", "voice"]
   ]);
   const activeKeyForPath = (pathname) => {
-    if (/^\\/(local-upload-manager|auto-stream)(\\/|$)/.test(pathname)) return "upload";
-    if (/^\\/(scene-builder|video-studio|auto-caption-studio|short-maker|video-merger)(\\/|$)/.test(pathname)) return "video";
-    if (/^\\/voice-studio(\\/|$)/.test(pathname)) return "voice";
+    if (/^\/(local-upload-manager|auto-stream)(\/|$)/.test(pathname)) return "upload";
+    if (/^\/(scene-builder|video-studio|auto-caption-studio|short-maker|video-merger)(\/|$)/.test(pathname)) return "video";
+    if (/^\/voice-studio(\/|$)/.test(pathname)) return "voice";
     return "dashboard";
   };
   const addPrimaryLinks = (navigation, current) => {
@@ -77,7 +77,7 @@
       const isAdmin = authenticated && identity.is_admin === true;
       if (isAdmin && !adminLink) {
         adminLink = addLink(navigation, "Admin", "/admin",
-          /^\\/admin(\\/|$)/.test(window.location.pathname));
+          /^\/admin(\/|$)/.test(window.location.pathname));
       } else if (!isAdmin && adminLink) {
         adminLink.remove();
         adminLink = null;
