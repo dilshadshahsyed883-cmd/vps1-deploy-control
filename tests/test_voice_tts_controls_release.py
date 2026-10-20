@@ -28,13 +28,32 @@ class VoiceTTSReleaseTest(unittest.TestCase):
         with sqlite3.connect(self.paths[0]) as c:
             c.execute("update jobs set status='paused'")  # locks really released
 
-    def test_processing_and_queued_jobs_are_never_interrupted(self):
+    def test_active_synthesis_jobs_are_never_interrupted(self):
         for state in release.BUSY:
             with self.subTest(state=state):
                 self.mark(self.paths[0],state,"waiting_generation")
-                with self.assertRaisesRegex(RuntimeError,"active/queued synthesis"):
+                with self.assertRaisesRegex(RuntimeError,"active synthesis/transfer"):
                     release.check_idle_and_lock(self.paths)
                 self.mark(self.paths[0],"completed","cleaned")
+
+    def test_durable_waiting_jobs_admitted_without_mutation(self):
+        for state in ("queued","retry_wait","paused"):
+            with self.subTest(state=state):
+                self.mark(self.paths[0],state,"waiting_generation")
+                fences=release.check_idle_and_lock(self.paths)
+                release.unlock(fences)
+                with sqlite3.connect(self.paths[0]) as c:
+                    result=c.execute("select status from jobs").fetchone()[0]
+                self.assertEqual(result,state)
+                self.mark(self.paths[0],"completed","cleaned")
+        for delivery in ("pending","retry_pending"):
+            with self.subTest(delivery=delivery):
+                self.mark(self.paths[1],"completed",delivery)
+                fences=release.check_idle_and_lock(self.paths)
+                release.unlock(fences)
+                with sqlite3.connect(self.paths[1]) as c:
+                    self.assertEqual(c.execute("select delivery_status from jobs").fetchone()[0],delivery)
+                self.mark(self.paths[1],"completed","cleaned")
 
     def test_active_drive_delivery_blocks_worker_restart(self):
         for state in release.DELIVERY_BUSY:
@@ -62,6 +81,15 @@ class VoiceTTSReleaseTest(unittest.TestCase):
             c.execute("update jobs set delivery_status='uploading'")
         with self.assertRaisesRegex(RuntimeError,"OmniVoice generation"):
             release.check_omnivoice_idle(clone)
+        # Queued Drive upload is not in-flight; SQLite fence still prevents claim.
+        with sqlite3.connect(clone) as c:
+            c.execute("update jobs set delivery_status='pending'")
+        with self.assertRaisesRegex(RuntimeError,"OmniVoice generation"):
+            release.check_omnivoice_idle(clone)
+        with sqlite3.connect(clone) as c:
+            c.execute("update jobs set delivery_status='pending',status='completed'")
+        connection=release.check_omnivoice_idle(clone)
+        release.unlock([connection])
 
     def test_aux_units_were_included_in_release_guard(self):
         self.assertEqual(len(release.AUX_WORKERS),2)
