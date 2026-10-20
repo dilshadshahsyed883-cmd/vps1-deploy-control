@@ -1,0 +1,232 @@
+/* Self Media Library design-token adapter for the shared Scene Builder shell.
+   Imported app internals remain independent; only presentation changes.
+   Canonical left navigation and Experiment Studio tabs come from the Scene assets.
+   Loaded AFTER legacy SML CSS and shared shell CSS. */
+html:has(script[data-workspace="library"]) {
+  background:#f8fafc;
+  color-scheme:light;
+}
+body.vps1-native-library {
+  --bg:#f8fafc;
+  --surface:#ffffff;
+  --surface2:#f1f5f9;
+  --surface3:#e8eef7;
+  --border:#dfe5ef;
+  --text:#0f172a;
+  --muted:#64748b;
+  --accent:#315edb;
+  --accent2:#4f6eef;
+  --green:#15803d;
+  --red:#c63549;
+  --amber:#b7791f;
+  background:#f8fafc!important;
+  color:#0f172a!important;
+  color-scheme:light;
+  font:14px/1.5 Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+html:has(script[data-workspace="library"]) .app-shell,
+body.vps1-native-library .app-shell {
+  display:block!important;
+  background:#f8fafc!important;
+  min-height:100dvh!important;
+}
+html:has(script[data-workspace="library"]) .app-shell > main,
+body.vps1-native-library .app-shell > main {
+  display:block!important;grid-column:auto!important;
+  width:100%!important;min-width:0!important;
+  max-width:1468px!important;margin:0 auto!important;
+  padding:0 34px 40px!important;
+  background:transparent!important;
+  color:#0f172a;
+}
+/* The five SML workspace controls are an app-local horizontal subtab rail.
+   Keep all labels visible on mobile; scrolling is preferred over tiny icon-only buttons. */
+body.vps1-native-library .sml-control-rail {
+  background:#f8faff!important;
+  border:1px solid #dfe5ef!important;
+  border-radius:11px!important;
+  color:#34415b!important;
+  gap:10px!important;box-shadow:0 2px 8px rgba(28,44,78,.03);
+  max-width:1400px!important;
+}
+body.vps1-native-library .sml-control-rail > nav {
+  display:flex!important;flex-flow:row nowrap!important;
+  flex:1 1 auto!important;align-items:center!important;
+  min-width:0!important;max-width:100%!important;
+  gap:8px!important;overflow-x:auto!important;
+  white-space:nowrap!important;scrollbar-width:thin;
+  -webkit-overflow-scrolling:touch;
+}
+body.vps1-native-library .sml-control-rail #nav > .nav-item,
+body.vps1-native-library .sml-control-rail #nav > .nav-item.active,
+body.vps1-native-library .sml-control-rail #nav > .nav-item:not(.active) {
+  flex:0 0 auto!important;display:inline-flex!important;
+  width:auto!important;min-height:40px!important;
+  justify-content:center!important;align-items:center!important;
+  gap:7px!important;padding:10px 14px!important;
+  border:1px solid #d6ddea!important;border-radius:8px!important;
+  color:#34415b!important;background:#fff!important;
+  font:750 13px/1.2 Inter,system-ui,sans-serif!important;
+  white-space:nowrap!important;text-align:center!important;
+  transition:background .12s ease,color .12s ease;
+}
+body.vps1-native-library .sml-control-rail #nav > .nav-item.active {
+  color:#fff!important;background:#315edb!important;border-color:#315edb!important;
+}
+body.vps1-native-library .sml-control-rail #nav > .nav-item span,
+body.vps1-native-library .sml-control-rail #nav > .nav-item:not(.active) span {
+  font:inherit!important;display:inline!important;color:inherit!important;
+  width:auto!important;text-align:center!important;
+}
+body.vps1-native-library .sml-control-rail #nav > .nav-item:focus-visible,
+body.vps1-native-library .sml-control-rail #nav > .nav-item:hover {
+  outline-offset:2px;border-color:#315edb!important;
+}
+body.vps1-native-library .sml-control-rail .sml-engine-state {
+  color:#475467!important;font-weight:650;flex:0 0 auto;
+}
+body.vps1-native-library .topbar {
+  min-height:94px;height:auto!important;
+  border-bottom:1px solid #dfe5ef!important;
+  margin-bottom:22px!important;gap:14px!important;
+  color:#0f172a!important;
+}
+body.vps1-native-library .topbar h1 {font-size:23px!important;color:#0f172a!important}
+body.vps1-native-library .topbar p {display:block!important;color:#64748b!important}
+body.vps1-native-library :is(.panel,.stat-card,.clip-card,.image-card,.runtime-box,.modal-card,.image-editor) {
+  background:#fff!important;color:#0f172a!important;
+  border:1px solid #dfe5ef!important;box-shadow:0 2px 10px rgba(18,32,64,.035);
+  border-radius:12px!important;
+}
+body.vps1-native-library :is(.source-row,.processing-row,.drop-panel) {
+  background:#fff!important;border-color:#dfe5ef!important;color:#17253c!important;
+}
+body.vps1-native-library .drop-panel {
+  background:linear-gradient(180deg,#f8faff,#fff)!important;
+  border-style:dashed!important;
+}
+body.vps1-native-library .drop-icon {background:#edf2ff!important;color:#315edb!important}
+body.vps1-native-library :is(.panel-head h2,.drop-panel h2,.health-line b,.source-main b,.processing-stage,.clip-id,.clip-topline,.stat-card strong,.drawer-head h2) {
+  color:#17253c!important;
+}
+body.vps1-native-library :is(.panel-head p,.source-main span,.source-meta,.health-line span,.card-footer,.stat-card span,.stat-card small,.clip-quality,.drop-panel p,.drop-panel small,.empty,.setting-row span) {
+  color:#64748b!important;
+}
+body.vps1-native-library .primary {
+  background:#315edb!important;border:1px solid #315edb!important;color:#fff!important;
+  box-shadow:none!important;
+}
+body.vps1-native-library .primary:hover {background:#254bbc!important}
+body.vps1-native-library .ghost {
+  background:#f1f5f9!important;border-color:#d6ddea!important;color:#34415b!important;
+}
+body.vps1-native-library .link-btn {color:#315edb!important}
+body.vps1-native-library .danger-soft {
+  background:#fff1f2!important;border-color:#fecdd3!important;color:#be123c!important;
+}
+body.vps1-native-library :is(select,input,textarea,.searchbox) {
+  background:#fff!important;color:#17253c!important;border-color:#cbd5e1!important;
+}
+body.vps1-native-library input::placeholder,
+body.vps1-native-library textarea::placeholder {color:#64748b}
+body.vps1-native-library .searchbox input {
+  border:none!important;background:transparent!important;color:#17253c!important;
+}
+body.vps1-native-library .keyword-preview span,
+body.vps1-native-library .chips span {
+  color:#475569!important;background:#edf2ff!important;border-color:#dbe4fb!important;
+}
+body.vps1-native-library .clip-thumb {background:#eff2f8!important}
+body.vps1-native-library .clip-thumb .placeholder {color:#64748b!important}
+body.vps1-native-library .clip-check {
+  background:rgba(255,255,255,.92)!important;border-color:#94a3b8!important;
+}
+body.vps1-native-library .clip-card.selected {
+  border-color:#315edb!important;box-shadow:0 0 0 2px rgba(49,94,219,.2)!important;
+}
+body.vps1-native-library .bulkbar {
+  background:#edf2ff!important;border-color:#d6ddea!important;color:#34415b!important;
+}
+body.vps1-native-library .progress,
+body.vps1-native-library .health-bar {background:#e2e8f0!important}
+body.vps1-native-library .runtime-box code {
+  background:#f1f5f9!important;border-color:#d6ddea!important;color:#334155!important;
+}
+body.vps1-native-library .drawer {
+  background:#fff!important;color:#0f172a!important;
+  border-left-color:#dfe5ef!important;box-shadow:-10px 0 35px rgba(15,23,42,.08)!important;
+}
+body.vps1-native-library .drawer-video {background:#101828!important}
+body.vps1-native-library .drawer-section,
+body.vps1-native-library .drawer-head {border-color:#dfe5ef!important}
+body.vps1-native-library .drawer-section p,
+body.vps1-native-library .drawer-grid b {color:#334155!important}
+body.vps1-native-library .icon-btn {
+  background:#f1f5f9!important;color:#334155!important;border-color:#d6ddea!important;
+}
+body.vps1-native-library .toast {
+  background:#17253c!important;border-color:#334155!important;color:white!important;
+}
+/* Let responsive cards grow; avoid pathological off-screen widths. */
+body.vps1-native-library :is(.panel,.clip-card,.image-card,.source-row) {min-width:0!important}
+body.vps1-native-library .library-toolbar {
+  display:flex!important;flex-wrap:wrap!important;align-items:center!important;gap:10px!important;
+}
+body.vps1-native-library .library-toolbar .searchbox {flex:1 1 260px;min-width:0}
+body.vps1-native-library .library-toolbar select {flex:0 1 auto;max-width:100%}
+body.vps1-native-library .two-col {grid-template-columns:minmax(0,1.45fr) minmax(0,1fr)}
+@media(max-width:900px){
+  body.vps1-native-library .two-col{grid-template-columns:minmax(0,1fr)!important}
+  body.vps1-native-library .stats{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+}
+@media(max-width:760px){
+  html:has(script[data-workspace="library"]) .app-shell > main,
+  body.vps1-native-library .app-shell > main{
+    padding:0 14px 30px!important;max-width:100%!important;
+  }
+  body.vps1-native-library .vps1-native-experiment-tabs {
+    margin:72px auto 14px!important;width:calc(100% - 28px)!important;
+  }
+  body.vps1-native-library .sml-control-rail {
+    flex-wrap:wrap!important;gap:4px!important;padding:9px!important;
+    min-height:0!important;margin-bottom:14px!important;
+  }
+  body.vps1-native-library .sml-control-rail > nav{
+    flex:1 1 100%!important;min-width:0!important;
+    gap:6px!important;
+  }
+  body.vps1-native-library .sml-control-rail #nav > .nav-item,
+  body.vps1-native-library .sml-control-rail #nav > .nav-item:not(.active),
+  body.vps1-native-library .sml-control-rail #nav > .nav-item.active {
+    min-height:42px!important;font-size:12px!important;padding:9px 12px!important;
+  }
+  body.vps1-native-library .sml-control-rail .sml-engine-state {
+    margin:8px 2px 0!important;white-space:normal!important;font-size:11px!important;
+  }
+  body.vps1-native-library .topbar {
+    min-height:78px!important;flex-wrap:wrap!important;padding:6px 0 14px!important;
+    margin-bottom:15px!important;align-items:center!important;
+  }
+  body.vps1-native-library .topbar h1 {font-size:20px!important}
+  body.vps1-native-library .topbar p {font-size:11px!important}
+  body.vps1-native-library .topbar .primary{font-size:12px!important}
+  body.vps1-native-library .two-col {grid-template-columns:minmax(0,1fr)!important}
+  body.vps1-native-library :is(.clip-grid,.clip-grid.compact,.image-grid) {
+    grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  }
+  body.vps1-native-library .stats {grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  body.vps1-native-library .library-toolbar{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;}
+  body.vps1-native-library .library-toolbar .searchbox{grid-column:1/-1!important}
+  body.vps1-native-library .library-toolbar select {min-width:0!important;width:100%!important}
+  body.vps1-native-library .panel {padding:14px!important}
+  body.vps1-native-library .source-row {grid-template-columns:minmax(0,1fr) auto!important}
+}
+@media(max-width:380px){
+  body.vps1-native-library .topbar {gap:10px!important}
+  body.vps1-native-library .topbar .primary {padding:9px 10px!important}
+  body.vps1-native-library :is(.clip-grid,.clip-grid.compact,.image-grid){grid-template-columns:minmax(0,1fr)!important}
+}
+@media(prefers-reduced-motion:reduce){
+  body.vps1-native-library .sml-control-rail *,
+  body.vps1-native-library .clip-card{transition:none!important;animation:none!important}
+}
