@@ -120,5 +120,27 @@ class AudioDownloaderBrowserRouteContractTests(unittest.TestCase):
         self.assertIn("recover_interrupted_jobs()", source)
 
 
+class AudioDownloaderWorkerSafeReleaseTests(unittest.TestCase):
+    def test_existing_voice_release_overlays_only_reviewed_audio_expressions(self):
+        from production import voice_template_release as release
+        source = TEMPLATE.read_bytes()
+        previous = source
+        for old, corrected in release.AUDIO_BROWSER_ROUTE_PAIRS:
+            self.assertEqual(source.count(corrected), 1)
+            self.assertEqual(source.count(old), 0)
+            previous = previous.replace(corrected, old, 1)
+        # An unrelated installed header must survive byte-for-byte.
+        previous = b"<!-- retained independent Voice styling -->\n" + previous
+        patched = release.audio_browser_route_overlay(previous, source)
+        self.assertEqual(patched, b"<!-- retained independent Voice styling -->\n" + source)
+
+    def test_release_rejects_unknown_audio_runtime_drift(self):
+        from production import voice_template_release as release
+        source = TEMPLATE.read_bytes()
+        original = source.replace(b"const root = ", b"const root_drift = ", 1)
+        with self.assertRaisesRegex(RuntimeError, "installed Audio Downloader JavaScript"):
+            release.audio_browser_route_overlay(original, source)
+
+
 if __name__ == "__main__":
     unittest.main()
