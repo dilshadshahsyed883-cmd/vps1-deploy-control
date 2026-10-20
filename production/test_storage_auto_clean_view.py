@@ -79,6 +79,21 @@ class AutoCleanReadOnlyView(unittest.TestCase):
             handler.do_GET()
         self.assertEqual(seen, [(200, {"ok": True, "partial": True})])
 
+    def test_legacy_scheduler_can_only_choose_cache_categories(self):
+        module = self.manager
+        with patch.object(module.sqlite3, "connect", side_effect=OSError("fixture no state DB")):
+            policy = module.load_policy()
+        self.assertFalse(policy["auto_enabled"])
+        self.assertTrue(set(policy["auto_categories"]).issubset(module.CACHE_CATEGORIES))
+        self.assertTrue(set(module.PROJECT_CATEGORIES).isdisjoint(policy["auto_categories"]))
+
+    def test_central_project_deletion_is_rejected_before_any_scan(self):
+        module = self.manager
+        with patch.object(module, "perform_scan", side_effect=AssertionError("must reject before scan")), \
+             patch.object(module, "FULL_CLEAN_LOCK", Path("/tmp/nonexistent-storage-clean-lock-test")):
+            with self.assertRaisesRegex(RuntimeError, "belongs to each application"):
+                module.cleanup({"categories": ["acs_projects"]}, automatic=True)
+
     def test_candidate_post_and_legacy_auto_delete_are_still_blocked(self):
         source = MANAGER.read_text()
         self.assertIn('return self.respond(403, {"ok": False, "error": "candidate read-only"})', source)
