@@ -38,6 +38,7 @@ PREVIOUS_ASSETS = (
 )
 ASSET_NOTE = b"<!-- VPS1 Voice native sidebar assets loaded before large inline CSS. -->"
 OLD_LIMITS = b"const MAX_TEXT=,MAX_BATCH=;"
+OLD_TEMPLATE_LIMITS = b"const MAX_TEXT={{ max_text }},MAX_BATCH={{ max_batch }};"
 NEW_LIMITS = b"const MAX_TEXT=1000000,MAX_BATCH=500;"
 
 
@@ -131,11 +132,15 @@ def install(revision: str) -> None:
     # This keeps the release worker-safe: no synthesis service or data store is touched.
     if original_html.count(OLD_LIMITS) == 1:
         patched_html = patched_html.replace(OLD_LIMITS, NEW_LIMITS, 1)
+    elif original_html.count(OLD_TEMPLATE_LIMITS) == 1:
+        patched_html = patched_html.replace(OLD_TEMPLATE_LIMITS, NEW_LIMITS, 1)
     elif original_html.count(NEW_LIMITS) == 1:
         pass
     else:
         require(False, "unexpected Voice template limit guard state")
-    require(patched_html.count(NEW_LIMITS) == 1 and OLD_LIMITS not in patched_html,
+    require(patched_html.count(NEW_LIMITS) == 1 and
+            OLD_LIMITS not in patched_html and
+            OLD_TEMPLATE_LIMITS not in patched_html,
             "Voice template limit guard overlay failed")
 
     target = RELEASES / (revision + "-sidebar-only")
