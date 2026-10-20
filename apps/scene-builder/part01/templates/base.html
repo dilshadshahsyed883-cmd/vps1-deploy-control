@@ -129,8 +129,9 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
 <link rel="stylesheet" href="/static/vps1_native_site_shell.css?v=20261020-sidebar-stable-v4">
 <link rel="stylesheet" href="/static/vps1_video_studio_geometry.css?v=20261020-geometry-v1&layout=video-v2">
 <script defer src="/static/vps1_native_site_shell.js?v=20261020-sidebar-stable-v4" data-unify-sidebar="1"></script>
+{% if page in ['queue','settings','audit_media'] %}<link rel="stylesheet" href="/static/scene_builder_kokoro_parity_20261020.css?v=1">{% endif %}
 </head>
-<body class="{% if page=='dashboard' %}dashboard-page{% endif %}">
+<body class="{% if page=='dashboard' %}dashboard-page{% endif %}{% if page in ['queue','settings','audit_media'] %} vps1-scene-parity{% endif %}">
 <button id="mobile-nav-toggle" class="mobile-nav-toggle" type="button"
   aria-label="Open navigation menu" aria-controls="app-sidebar" aria-expanded="false">
   <span></span><span></span><span></span>
@@ -182,9 +183,9 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
 {% if page in ['queue','settings','audit_media'] %}
 <header class="scene-workspace-header">
   <nav class="scene-workspace-tabs" aria-label="Scene Builder">
-    <a class="{% if page=='queue' %}active{% endif %}" href="/queue">Queue</a>
-    <a class="{% if page=='settings' %}active{% endif %}" href="/settings">Settings</a>
-    <a class="{% if page=='audit_media' %}active{% endif %}" href="/audit-media">Audit Media{% if audit_waiting_count|default(0) %}<span class="scene-audit-count">{{ audit_waiting_count }}</span>{% endif %}</a>
+    <a class="{% if page=='queue' %}active{% endif %}"{% if page=='queue' %} aria-current="page"{% endif %} href="/queue">Queue</a>
+    <a class="{% if page=='settings' %}active{% endif %}"{% if page=='settings' %} aria-current="page"{% endif %} href="/settings">Settings</a>
+    <a class="{% if page=='audit_media' %}active{% endif %}"{% if page=='audit_media' %} aria-current="page"{% endif %} href="/audit-media">Audit Media{% if audit_waiting_count|default(0) %}<span class="scene-audit-count">{{ audit_waiting_count }}</span>{% endif %}</a>
   </nav>
   
 </header>
