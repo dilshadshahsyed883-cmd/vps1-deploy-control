@@ -26,14 +26,14 @@ class SharedShellMobile(unittest.TestCase):
         tags=Assets();tags.feed(s)
         scene_css="/static/vps1_native_site_shell.css?v=20261020-experiment-ui-v5"
         scene_js="/static/vps1_native_site_shell.js?v=20261020-experiment-ui-v5"
-        sml_css="/self-media-library/static/sml_shared_theme.css?v=20261020-shared-light-v2"
+        sml_css="/self-media-library/static/sml_shared_theme.css?v=20261020-ai-v3"
         assert (SCENE/"static/vps1_native_site_shell.css").is_file()
         assert (SCENE/"static/vps1_native_site_shell.js").is_file()
         assert (SML/"static/sml_shared_theme.css").is_file()
         self.assertIn(scene_css,tags.styles)
         self.assertIn(sml_css,tags.styles)
         self.assertIn(scene_js,[p for p,_ in tags.scripts])
-        self.assertIn("/self-media-library/static/app.js?v=20261020-mobile-shell-v3",
+        self.assertIn("/self-media-library/static/app.js?v=20261020-ai-worker-v4",
                       [p for p,_ in tags.scripts])
         self.assertEqual(len([a for _,a in tags.scripts if a.get("data-workspace")=="library"]),1)
         self.assertNotIn('src="/static/',s)

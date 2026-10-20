@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/self-media-library/static/styles.css?v=20261020-legacy-v2" />
   <!-- One canonical website shell, served by Scene Builder rather than the library's static mount. -->
   <link rel="stylesheet" href="/&#115;tatic/vps1_native_site_shell.css?v=20261020-experiment-ui-v5" />
-  <link rel="stylesheet" href="/self-media-library/static/sml_shared_theme.css?v=20261020-shared-light-v2" />
+  <link rel="stylesheet" href="/self-media-library/static/sml_shared_theme.css?v=20261020-ai-v3" />
   <script defer src="/&#115;tatic/vps1_native_site_shell.js?v=20261020-experiment-ui-v5" data-workspace="library"></script>
 </head>
 <body class="vps1-native-library">
@@ -36,6 +36,7 @@
 
     <section id="page-dashboard" class="page active">
       <div class="stats" id="stats"></div>
+      <article class="panel sml-ai-panel"><div class="panel-head"><div><h2>AI Content Master</h2><p>Visual analysis and semantic discovery for your reusable media.</p></div><button class="ghost" data-ai-action="refresh">Refresh AI status</button></div><div id="aiDashboard" class="sml-ai-metrics" role="status">Loading AI status…</div></article>
       <div class="two-col">
         <article class="panel">
           <div class="panel-head"><div><h2>Recent sources</h2><p>Latest videos entering the library.</p></div><button class="link-btn" data-goto="sources">View all</button></div>
@@ -84,6 +85,7 @@
       </article>
     </section>
     <section id="page-processing" class="page">
+      <article class="panel sml-ai-panel"><div class="panel-head"><div><h2>Visual analysis queue</h2><p id="aiQueueNote">Actual media analysis runs in the background.</p></div><button class="primary" data-ai-action="analyze">Analyze pending media</button></div><div id="aiJobs" aria-live="polite"></div></article>
       <article class="panel">
         <div class="panel-head"><div><h2>Processing queue</h2><p>Shot detection → clip creation → automatic metadata.</p></div><button class="ghost" id="refreshProcessing">Refresh</button></div>
         <div id="processingList" class="processing-list"></div>
@@ -91,6 +93,28 @@
     </section>
 
     <section id="page-library" class="page">
+      <article class="panel sml-ai-panel">
+        <div class="panel-head"><div><h2>AI Search</h2><p>Describe a scene or find similar media. Model suggestions always remain reviewable.</p></div><button class="ghost" id="aiViewToggle">List view</button></div>
+        <form id="aiSearchForm" class="sml-ai-search"><label class="sml-ai-wide">Scene description<input id="aiQuery" maxlength="500" placeholder="Peaceful mountain lake, cinematic city at night…"></label><button class="primary" type="submit">Search media</button></form>
+        <details><summary>Advanced filters</summary><div class="sml-ai-filters" id="aiFilters">
+          <label>Media<select name="media_type"><option value="all">Images and video</option><option value="image">Images</option><option value="video">Video clips</option></select></label>
+          <label>Review<select name="status"><option value="all">All review states</option><option>approved</option><option>candidate</option><option>rejected</option></select></label>
+          <label>Orientation<select name="orientation"><option value="all">All orientations</option><option>landscape</option><option>portrait</option><option>square</option></select></label>
+          <label>Minimum quality<input name="min_quality" type="number" min="0" max="100" value="0"></label>
+          <label>Min duration (sec)<input name="min_duration" type="number" min="0" value="0"></label>
+          <label>Max duration (sec)<input name="max_duration" type="number" min="0" value="36000"></label>
+          <label>Minimum width<input name="min_width" type="number" min="0" value="0"></label>
+          <label>Minimum FPS<input name="min_fps" type="number" min="0" value="0"></label>
+          <label>Codec<input name="codec" placeholder="h264"></label><label>Subject<input name="subject" placeholder="flower"></label><label>Action<input name="action" placeholder="running"></label><label>Environment<input name="environment" placeholder="forest"></label><label>Lighting<input name="lighting" placeholder="daylight"></label><label>Mood<input name="mood" placeholder="peaceful"></label><label>Source<input name="source" placeholder="local / drive / source ID"></label>
+          <label>Usage<select name="used"><option value="all">All usage</option><option value="unused">Unused</option><option value="used">Used</option></select></label>
+          <label>Duplicates<select name="duplicate"><option value="all">All media</option><option value="clear">Exclude exact duplicates</option><option value="exact">Exact duplicates</option></select></label>
+          <label>From date<input name="date_from" type="date"></label><label>To date<input name="date_to" type="date"></label>
+        </div></details>
+        <div class="sml-ai-actions"><label>Reference image<input type="file" id="aiReference" accept="image/jpeg,image/png,image/webp"></label><button class="ghost" id="aiSaveSearch">Save search</button><select id="aiCollections" aria-label="Saved searches"><option value="">Saved searches &amp; collections</option></select><button class="ghost" id="aiDuplicates">Review similar copies</button></div>
+        <div class="sml-ai-actions"><span id="aiSelectedCount">0 selected</span><button class="ghost" data-ai-bulk="approved">Approve selected</button><button class="ghost" data-ai-bulk="rejected">Reject selected</button><button class="ghost" id="aiBulkTags">Tag selected</button></div>
+        <p id="aiSearchStatus" role="status" aria-live="polite">Search all media, or enter a scene description for semantic ranking.</p>
+        <div id="aiResults" class="sml-ai-grid"></div><div id="aiDuplicateResults"></div>
+      </article>
       <div class="library-toolbar">
         <div class="searchbox"><span>⌕</span><input id="clipSearch" placeholder="Search keywords: mountain drone lake…" /></div>
         <select id="statusFilter"><option value="all">All states</option><option value="candidate">Candidate</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>
@@ -137,6 +161,10 @@
     </section>
 
     <section id="page-settings" class="page">
+      <article class="panel sml-ai-panel"><div class="panel-head"><div><h2>Visual AI &amp; Search</h2><p>Local CPU model, shared embeddings for text and visual search.</p></div><span id="aiModelState" class="ai-pill">Checking…</span></div><p id="aiModelInfo"></p>
+        <form id="aiConfigForm" class="sml-ai-filters"><label><span>Enable visual AI</span><input id="aiEnabled" type="checkbox"></label><label>Maximum queued batch<input id="aiBatchLimit" type="number" min="1" max="64" value="32"></label><label>Job timeout (seconds)<input id="aiTimeout" type="number" min="30" max="300" value="120"></label><button class="primary" type="submit">Save AI controls</button></form>
+        <div class="sml-ai-actions"><button class="ghost" data-ai-action="analyze">Queue model reindex</button><button class="ghost" data-ai-action="refresh">Refresh status</button></div><p id="aiCapabilities" class="api-note"></p>
+      </article>
       <article class="panel">
         <div class="panel-head"><div><h2>Editor API</h2><p>Versioned search, reserve, commit, release and authenticated media delivery for Scene Builder and future editors.</p></div><span class="ai-pill" id="editorApiPill">Checking…</span></div>
         <p class="api-note">Machine-to-machine requests require the server-side SML_EDITOR_API_TOKEN secret and X-SML-Editor-Token header. Never paste secrets into the website.</p>
@@ -193,6 +221,10 @@
 </div>
 
 <div id="toast" class="toast hidden"></div>
-<script src="/self-media-library/static/app.js?v=20261020-mobile-shell-v3"></script>
+<script src="/self-media-library/static/app.js?v=20261020-ai-worker-v4"></script>
+<aside id="aiInspector" class="sml-ai-inspector hidden" aria-label="AI metadata inspector"><div class="panel-head"><h2 id="aiInspectorTitle">Media inspector</h2><button id="aiInspectorClose" class="ghost" aria-label="Close AI inspector">Close</button></div><div id="aiInspectorMedia"></div><p id="aiInspectorState"></p>
+<form id="aiMetadataForm"><label>Description<textarea id="aiDescription" rows="3"></textarea></label><label>Keywords (comma separated)<input id="aiKeywords"></label><label>Review reason<input id="aiReviewReason" maxlength="500"></label><label><input id="aiRights" type="checkbox"> I have permission to reuse this asset</label><div id="aiManualCategories" class="sml-ai-filters"></div><button class="primary" type="submit">Save corrections</button></form>
+<div class="sml-ai-actions"><button class="ghost" id="aiReanalyze">Reanalyze media</button><button class="ghost" id="aiSimilar">Find similar</button><button class="ghost" id="aiHistory">Change &amp; usage history</button></div><div id="aiFieldDetails"></div><div id="aiHistoryDetails"></div></aside>
+<script defer src="/self-media-library/static/ai_workspace.js?v=20261020-ai-v1"></script>
 </body>
 </html>

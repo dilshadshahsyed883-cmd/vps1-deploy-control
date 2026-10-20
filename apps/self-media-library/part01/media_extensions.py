@@ -48,7 +48,7 @@ def rank_candidates(items, terms, last_source="", used_ids=()):
         return (
             int(item.get("source_id") != last_source),
             int(item["id"] not in used),
-            matching,
+            matching + 100 * float(item.get("score") or 0),
             int(item.get("quality") or 0),
             str(item["id"]),
         )
@@ -74,6 +74,8 @@ class ReservationRequest(BaseModel):
     scene_id: str = Field(min_length=1, max_length=100)
     query: str = Field(default="", max_length=200)
     media_type: str = "video"
+    semantic: bool = False
+    orientation: str = "all"
     count: int = Field(default=1, ge=1, le=20)
     exclude_ids: list[str] = Field(default_factory=list)
 
@@ -318,6 +320,11 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                           (body.description if body.description is not None else row["description"])[:1000],
                           (body.display_name if body.display_name is not None else row["original_name"])[:200],
                           now_iso(),asset_id))
+        from ai_workspace import manual_patch
+        fields={}
+        if body.keywords is not None:fields["keywords"]=tags
+        if body.description is not None:fields["description"]=body.description
+        if fields:manual_patch(root,"image",asset_id,fields)
         return {"ok": True}
 
     @app.delete("/api/v1/images/{asset_id}")
@@ -397,12 +404,14 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
         return results
 
     @app.get("/api/v1/media/search")
-    def media_search(query: str = "", media_type: str = "all",
+    def media_search(query: str = "", media_type: str = "all", semantic: bool = False, orientation: str = "all",
                      limit: int = Query(30, ge=1, le=100),
                      x_sml_editor_token: str = Header(default="")):
         check_editor_token(x_sml_editor_token)
         if media_type not in ("video","image","all"):
             raise HTTPException(400, "media_type must be video, image or all")
+        if semantic:
+            return app.state.ai_workspace.search(query=query,media_type=media_type,status="approved",orientation=orientation,rights_only=True,limit=limit)
         terms = normalized_tags(query.split())
         ranked = rank_candidates(lookup_candidates(media_type, terms), terms)
         return {"items": ranked[:limit], "total": len(ranked), "query": query}
@@ -413,13 +422,19 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
         if body.media_type not in ("video","image","all"):
             raise HTTPException(400, "Invalid media type")
         terms = normalized_tags(body.query.split())
-        candidates = lookup_candidates(body.media_type, terms)
+        if body.semantic:
+            candidates=app.state.ai_workspace.search(query=body.query,media_type=body.media_type,status="approved",orientation=body.orientation,rights_only=True,limit=100)["items"]
+        else:
+            candidates = lookup_candidates(body.media_type, terms)
         now = int(time.time())
         exclusions = set(body.exclude_ids)
         selected = []
         with db() as conn:
             conn.execute("BEGIN IMMEDIATE")
             conn.execute("UPDATE media_reservations SET state='expired' WHERE state='reserved' AND expires_at<=?", (now,))
+            existing=conn.execute("SELECT * FROM media_reservations WHERE project_id=? AND scene_id=? AND state IN ('reserved','committed') ORDER BY created_at LIMIT ?",(body.project_id,body.scene_id,body.count)).fetchall()
+            if existing:
+                return {"items":[{"id":r["media_id"],"type":r["media_type"],"reservation_id":r["id"],"expires_at":r["expires_at"]} for r in existing],"count":len(existing),"shortfall":max(0,body.count-len(existing)),"project_id":body.project_id,"idempotent":True}
             previous = conn.execute("""SELECT source_id FROM media_reservations WHERE project_id=? AND state='committed'
                 ORDER BY committed_at DESC, rowid DESC LIMIT 1""", (body.project_id,)).fetchone()
             last_source = previous["source_id"] if previous else ""
@@ -427,7 +442,7 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                 "SELECT media_id FROM media_reservations WHERE project_id=? AND state IN ('committed','reserved')", (body.project_id,))}
             in_use = {r["media_id"] for r in conn.execute(
                 "SELECT media_id FROM media_reservations WHERE project_id=? AND state='reserved'", (body.project_id,))}
-            ordered = rank_candidates([x for x in candidates if x["id"] not in in_use and x["id"] not in exclusions], terms, last_source, used)
+            ordered = rank_candidates([x for x in candidates if x["id"] not in used and x["id"] not in exclusions], terms, last_source, used)
             for item in ordered:
                 if len(selected) >= body.count:
                     break

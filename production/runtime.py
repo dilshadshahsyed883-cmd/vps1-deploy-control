@@ -41,7 +41,7 @@ CATALOG = {
     'short-maker': dict(port=8146, module='app:app', health='/health', ui='/', packages=CORE),
     'short-stream': dict(port=8145, module='app:app', health='/health', ui='/',
                          packages=CORE + ['cryptography==44.0.3']),
-    'self-media-library': dict(port=8147, module='app:app', health='/api/health', ui='/', packages=CORE),
+    'self-media-library': dict(port=8147, module='app:app', health='/api/health', ui='/', packages=CORE + ['numpy==2.2.6', 'onnxruntime==1.22.1', 'tokenizers==0.21.2', 'faster-whisper==1.1.1']),
     'video-merger': dict(port=8148, script='app.py', health='/video-merger/health',
                          ui='/video-merger/', packages=['yt-dlp']),
     'voice-studio': dict(port=8143, module='vps1_omnivoice_app:app', health='/healthz',
@@ -331,6 +331,17 @@ def require_lum_release_idle(state: Path) -> None:
           checked_modes=[mode for mode, *_ in modes])
 
 
+def require_sml_idle(state):
+    database = Path(state) / 'sml/library.db'
+    if not database.is_file():return
+    with sqlite3.connect(database.as_uri() + '?mode=ro',uri=True,timeout=5) as c:
+        c.execute('PRAGMA query_only=ON')
+        for table,where in (('sources',"status='processing'"),('media_imports',"status='processing'"),('ai_jobs',"state='running'")):
+            if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone():
+                if c.execute('SELECT 1 FROM '+table+' WHERE '+where+' LIMIT 1').fetchone():
+                    raise RuntimeError('SML_RELEASE_BLOCKED: active '+table+' work; retry after completion')
+
+
 def install_app(app, revision):
     if app not in CATALOG:
         raise ValueError('app is not owned by this installer')
@@ -407,6 +418,25 @@ def install_app(app, revision):
     # Exercise real startup/UI and a bounded local render before changing live pointers.
     run(['runuser', '-u', 'ubuntu', '--', venv / 'bin/python', '-m',
          'production.smoke', '--app', app], cwd=REPO, timeout=180, quiet=True)
+    if app == 'self-media-library':
+        intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-sml-ai-release]' in intent:
+            models = state / 'sml' / 'ai_models'
+            models.mkdir(parents=True, exist_ok=True)
+            os.chown(models.parent, 1000, 1000)
+            os.chown(models, 1000, 1000)
+            run(['runuser','-u','ubuntu','--',venv / 'bin/python',
+                 release / 'part01/ai_engine.py','--prepare',models],timeout=600,quiet=True)
+            if not shutil.which('tesseract'):
+                run(['apt-get','update','-qq'],timeout=300,quiet=True)
+                run(['apt-get','install','-y','--no-install-recommends','tesseract-ocr'],timeout=300,quiet=True)
+            speech_models = state / 'sml/speech_models'
+            speech_models.mkdir(exist_ok=True)
+            os.chown(speech_models,1000,1000)
+            run(['runuser','-u','ubuntu','--',venv / 'bin/python',
+                 release / 'part01/ai_text.py','--prepare',speech_models],timeout=600,quiet=True)
+            run(['runuser','-u','ubuntu','--',venv / 'bin/python','-m',
+                 'production.sml_ai_verify','--model-cache',models],cwd=REPO,timeout=240,quiet=True)
     if app == 'video-merger':
         media = state / 'video-merger'
         media.mkdir(exist_ok=True)
@@ -420,6 +450,8 @@ def install_app(app, revision):
     if app == 'local-upload-manager' and active:
         require_lum_release_idle(state)
     # Only the app being replaced is stopped. Other apps and all agents stay up.
+    if app == 'self-media-library' and active:
+        require_sml_idle(state)
     if active:
         run(['systemctl', 'stop', unit_name], quiet=True)
     workers.stop(app)
