@@ -137,7 +137,7 @@ class BroadcastController:
                 b = google._http_json(
                     _yt_url("liveBroadcasts", part="snippet,status,contentDetails"),
                     access_token=access, method="POST",
-                    payload={"snippet": {"title": job["title"], "scheduledStartTime": start},
+                    payload={"snippet": {"title": job["title"], "description": job.get("description",""), "scheduledStartTime": start},
                              "status": {"privacyStatus": "private"},
                              "contentDetails": {"enableAutoStart": False,
                                                 "enableAutoStop": False,
@@ -150,7 +150,7 @@ class BroadcastController:
                                       access_token=access, method="POST",
                                       payload={"snippet": {"title": job["title"][:100]},
                                                "cdn": {"frameRate": "30fps",
-                                                       "resolution": "720p",
+                                                       "resolution": job.get("profile","720p"),
                                                        "ingestionType": "rtmp"}})
                 sid = s.get("id")
                 ingest = (s.get("cdn") or {}).get("ingestionInfo") or {}
@@ -200,13 +200,16 @@ class BroadcastController:
                 "youtube_broadcast_status": status, "youtube_ingest_status": ingest_status,
                 "youtube_verified_live": status == "live",
                 "privacy": (broadcast.get("status") or {}).get("privacyStatus", "unknown"),
-                "local_state": row["state"]}
+                "local_state": row["state"],
+                "encoder_health":(streams[0].get("status") or {}).get("healthStatus",{}).get("status","unknown")}
 
     def inspect_remote(self, job_id):
         row = self._row(job_id)
         if not row:
             raise ValueError("No YouTube resources provisioned for this job")
-        return self._google_state(row, self._access_verified(row["channel_id"]))
+        result=self._google_state(row, self._access_verified(row["channel_id"]))
+        with self.engine._connect() as con:con.execute('UPDATE jobs SET remote_state=?,remote_verified_at=? WHERE id=?',(result['youtube_broadcast_status'],utc_now(),job_id))
+        return result
 
     def start_ingest(self, job_id):
         """Starts FFmpeg only, not the public YouTube broadcast."""
@@ -229,6 +232,23 @@ class BroadcastController:
             self._set(job_id, state="ENCODER_STARTED")
             return {"job": result, "youtube_verified_live": False,
                     "next": "Verify active YouTube ingestion before transition"}
+
+    def reconnect(self,job_id):
+        _allowed('AUTO_STREAM_PUBLISH_ENABLED');_allowed('AUTO_STREAM_YOUTUBE_MUTATIONS_ENABLED')
+        with self.lock:
+            row=self._row(job_id);job=self.engine.get(job_id)
+            if not row or row['state'] not in ('BOUND','ENCODER_STARTED','TESTING','LIVE') or not row['secret']:
+                raise ValueError('Reconcile the YouTube resource before reconnecting')
+            if job['status'] not in ('FAILED','INTERRUPTED','STOPPED','READY','SCHEDULED'):
+                raise ValueError('Stop or wait for the previous encoder before reconnecting')
+            remote=self._google_state(row,self._access_verified(row['channel_id']))
+            if remote['youtube_broadcast_status'] in ('complete','revoked'):
+                raise ValueError('Completed/revoked broadcasts cannot reconnect; create a new draft')
+            packed=json.loads(google._cipher().decrypt(row['secret']).decode())
+            with self.engine._connect() as con:con.execute("UPDATE jobs SET status='READY',failure='',updated_at=? WHERE id=?",(utc_now(),job_id))
+            result=self.engine.start(job_id,internal_ingest=(_rtmps(packed['url']),packed['key']))
+            self._set(job_id,state='ENCODER_STARTED')
+            return {'job':result,'remote_state':remote['youtube_broadcast_status'],'youtube_verified_live':False}
 
     def start_manual_ingest(self, job_id, ingest_url: str, stream_key: str):
         """Manual RTMPS mode: encoder-only control, no YouTube API claim."""
@@ -268,6 +288,12 @@ class BroadcastController:
                     raise ValueError("Broadcast cannot enter testing from current state")
                 if target == "live" and previous["youtube_broadcast_status"] not in ("ready", "testing", "liveStarting"):
                     raise ValueError("Broadcast cannot enter live from current state")
+            if target=='live':
+                job=self.engine.get(job_id)
+                updated=google._http_json(_yt_url('liveBroadcasts',part='status'),access_token=access,method='PUT',
+                    payload={'id':row['broadcast_id'],'status':{'privacyStatus':job.get('privacy','private'),'selfDeclaredMadeForKids':False}})
+                if (updated.get('status') or {}).get('privacyStatus')!=job.get('privacy','private'):
+                    raise ValueError('YouTube privacy update could not be confirmed; Go Live blocked')
             response = google._http_json(_yt_url("liveBroadcasts/transition",
                                     id=row["broadcast_id"], broadcastStatus=target,
                                     part="id,status,contentDetails"),
@@ -275,6 +301,8 @@ class BroadcastController:
             new_state = (response.get("status") or {}).get("lifeCycleStatus")
             self._set(job_id, state={"testing":"TESTING","live":"LIVE",
                                      "complete":"COMPLETED"}[target])
+            with self.engine._connect() as con:con.execute('UPDATE jobs SET remote_state=?,remote_verified_at=? WHERE id=?',(new_state or '',utc_now(),job_id))
+            if target=='complete':self.engine.stop(job_id)
             return {"requested_transition": target,
                     "youtube_reported_status": new_state,
                     "youtube_verified_live": new_state == "live",
@@ -348,3 +376,8 @@ def broadcast_manual_ingest(job_id: str, payload: dict = Body(...)):
 @router.post("/jobs/{job_id}/broadcast/transition")
 def broadcast_transition(job_id: str, payload: dict = Body(...)):
     return _guard(lambda: controller().transition(job_id, str(payload.get("status", ""))))
+
+
+@router.post('/jobs/{job_id}/broadcast/reconnect')
+def reconnect_broadcast(job_id:str):
+    return _guard(lambda:controller().reconnect(job_id))

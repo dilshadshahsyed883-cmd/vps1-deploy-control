@@ -97,7 +97,17 @@ def _http_json(url: str, *, access_token: str | None = None,
     except error.HTTPError as exc:
         # Don't allow potentially credential-bearing Google response bodies
         # to surface in frontend messages, traces, GitHub CI or VPS logs.
-        raise ValueError("Google API request refused (HTTP " + str(exc.code) + ")") from None
+        hints={'quotaExceeded':'Google API quota exhausted; retry after quota resets',
+               'dailyLimitExceeded':'Google API daily quota exhausted',
+               'liveStreamingNotEnabled':'Enable YouTube Live on the selected channel before retrying',
+               'livePermissionBlocked':'YouTube Live permissions are blocked for this channel',
+               'userRequestsExceedRateLimit':'Google API rate limit reached; wait before retrying',
+               'invalid_grant':'Google authorization expired or was revoked; reconnect this channel'}
+        try:
+            detail=json.loads(exc.read(16384));error_doc=detail.get('error',{})
+            reason=error_doc if isinstance(error_doc,str) else next((v.get('reason') for v in error_doc.get('errors',[]) if v.get('reason') in hints),'')
+        except (ValueError,AttributeError,TypeError):reason=''
+        raise ValueError(hints.get(reason,"Google API request refused (HTTP " + str(exc.code) + "); check API access, channel permissions and quota")) from None
     except (error.URLError, TimeoutError, json.JSONDecodeError):
         raise ValueError("Google API request unavailable or returned invalid data") from None
 
@@ -132,7 +142,17 @@ class AutoStreamAccounts:
             for table, column, definition in (
                 ("oauth_state", "expected_channel", "TEXT NOT NULL DEFAULT ''"),
                 ("sheet_sources", "name", "TEXT NOT NULL DEFAULT ''"),
-                ("sheet_sources", "sheet_url", "TEXT NOT NULL DEFAULT ''")):
+                ("sheet_sources", "sheet_url", "TEXT NOT NULL DEFAULT ''"),
+                ("sheet_sources", "header_map", "TEXT NOT NULL DEFAULT '{}'"),
+                ("sheet_sources", "sync_status", "TEXT NOT NULL DEFAULT 'Never synced'"),
+                ("sheet_sources", "last_sync", "TEXT NOT NULL DEFAULT ''"),
+                ("channels", "active", "INTEGER NOT NULL DEFAULT 1"),
+                ("channels", "group_name", "TEXT NOT NULL DEFAULT ''"),
+                ("channels", "account_label", "TEXT NOT NULL DEFAULT ''"),
+                ("channels", "brand_account", "TEXT NOT NULL DEFAULT 'unknown'"),
+                ("channels", "sheet_id", "TEXT NOT NULL DEFAULT ''"),
+                ("channels", "connection_state", "TEXT NOT NULL DEFAULT 'UNTESTED'"),
+                ("channels", "last_test", "TEXT NOT NULL DEFAULT ''")):
                 if column not in {r[1] for r in con.execute("PRAGMA table_info(" + table + ")")}:
                     con.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition)
         os.chmod(self.db, 0o600)
@@ -146,10 +166,11 @@ class AutoStreamAccounts:
 
     def channel_catalog(self):
         with self.connect() as con:
-            return [{"id": r["id"], "title": r["title"],
-                     "authorized": bool(r["authorized"]),
-                     "updated_at": r["updated_at"]} for r in con.execute(
-                         "SELECT id,title,authorized,updated_at FROM channels ORDER BY title")]
+            rows = [dict(r) for r in con.execute("SELECT id,title,authorized,updated_at,active,group_name,account_label,brand_account,sheet_id,connection_state,last_test FROM channels ORDER BY title")]
+            for row in rows:
+                row['authorized']=bool(row['authorized']);row['active']=bool(row['active'])
+                row['token_status']='STORED' if row['authorized'] else 'MISSING'
+            return rows
 
     def import_metadata(self, channel_id, title):
         if not CHANNEL_RE.fullmatch(channel_id):
@@ -252,7 +273,7 @@ class AutoStreamAccounts:
 
     def _access(self, channel_id, required_scope):
         with self.connect() as con:
-            row = con.execute("SELECT token,scopes FROM channels WHERE id=? AND authorized=1",
+            row = con.execute("SELECT token,scopes FROM channels WHERE id=? AND authorized=1 AND active=1",
                               (channel_id,)).fetchone()
         if not row or not row["token"] or required_scope not in row["scopes"].split():
             raise ValueError("Channel needs a separate Auto Stream OAuth connection")
@@ -265,6 +286,51 @@ class AutoStreamAccounts:
         if not value:
             raise ValueError("Channel authorization has expired; reconnect required")
         return value
+
+    def manage_channels(self, ids, action, values=None):
+        if not isinstance(ids,list) or not 1<=len(ids)<=100 or any(not CHANNEL_RE.fullmatch(str(i)) for i in ids):
+            raise ValueError('Select 1–100 valid channels')
+        values=values or {}
+        if action not in ('activate','deactivate','group','edit','remove'):
+            raise ValueError('Unsupported channel operation')
+        with self.connect() as con:
+            con.execute('BEGIN IMMEDIATE')
+            for cid in ids:
+                row=con.execute('SELECT * FROM channels WHERE id=?',(cid,)).fetchone()
+                if not row:raise KeyError('Channel not found')
+                jobs=self.root/'stream-jobs.sqlite3'
+                if action in ('deactivate','remove') and jobs.exists():
+                    with sqlite3.connect(f'file:{jobs}?mode=ro',uri=True) as jobcon:
+                        if jobcon.execute("SELECT 1 FROM jobs WHERE channel_id=? AND status IN ('STARTING','INGESTING','STOPPING','SCHEDULED','READY') LIMIT 1",(cid,)).fetchone():
+                            raise ValueError('Channel has active/prepared jobs; cancel or finish them first')
+                if action=='remove':
+                    if row['authorized']:raise ValueError('Remove the local token before removing this inventory row')
+                    if con.execute('SELECT 1 FROM sheet_sources WHERE channel_id=?',(cid,)).fetchone():raise ValueError('Disconnect associated sheet sources first')
+                    con.execute('DELETE FROM channels WHERE id=?',(cid,));continue
+                updates={}
+                if action in ('activate','deactivate'):updates['active']=int(action=='activate')
+                elif action=='group':updates['group_name']=str(values.get('group_name',''))[:100]
+                else:
+                    for key in ('title','group_name','account_label','brand_account'):
+                        if key in values:updates[key]=str(values[key]).strip()[:150]
+                    if not updates:raise ValueError('No editable channel fields provided')
+                    if 'title' in updates and not updates['title']:raise ValueError('Channel name is required')
+                    if updates.get('brand_account','unknown') not in ('yes','no','unknown'):raise ValueError('Brand Account must be yes, no or unknown')
+                updates['updated_at']=now()
+                con.execute('UPDATE channels SET '+','.join(k+'=?' for k in updates)+' WHERE id=?',(*updates.values(),cid))
+        return {'updated':len(ids),'action':action}
+
+    def test_channel(self,cid):
+        try:
+            access=self._access(cid,YOUTUBE_SCOPE)
+            result=_http_json(YT_BASE+'/channels?'+parse.urlencode({'part':'id,snippet','mine':'true','maxResults':'10'}),access_token=access)
+            items=result.get('items',[])
+            if len(items)!=1 or items[0].get('id')!=cid:raise ValueError('Connected Google/Brand Account does not match this UC Channel ID; reconnect')
+            with self.connect() as con:con.execute("UPDATE channels SET connection_state='HEALTHY',last_test=?,updated_at=? WHERE id=?",(now(),now(),cid))
+            return {'channel_id':cid,'ok':True,'connection_state':'HEALTHY','checked_at':now()}
+        except ValueError:
+            with self.connect() as con:con.execute("UPDATE channels SET connection_state='NEEDS_RECONNECT',last_test=? WHERE id=?",(now(),cid))
+            raise
 
     def list_sheet_sources(self):
         with self.connect() as con:
@@ -309,59 +375,80 @@ class AutoStreamAccounts:
         a1 = "'" + title.replace("'", "''") + "'!A1:AZ201"
         with self.connect() as con:
             prior = con.execute("SELECT id FROM sheet_sources WHERE channel_id=? AND spreadsheet_id=? AND a1_range=?", (cid, spreadsheet, a1)).fetchone()
-            sid = prior["id"] if prior else "sheet_" + secrets.token_hex(8)
+            supplied=payload.get('id')
+            if supplied and not con.execute('SELECT 1 FROM sheet_sources WHERE id=?',(str(supplied),)).fetchone():raise KeyError('Sheet source not found')
+            sid = str(supplied) if supplied else (prior["id"] if prior else "sheet_" + secrets.token_hex(8))
             con.execute("""INSERT INTO sheet_sources(id,channel_id,spreadsheet_id,a1_range,updated_at,name,sheet_url)
-                VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,sheet_url=excluded.sheet_url,updated_at=excluded.updated_at""",
+                VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,sheet_url=excluded.sheet_url,channel_id=excluded.channel_id,spreadsheet_id=excluded.spreadsheet_id,a1_range=excluded.a1_range,updated_at=excluded.updated_at""",
                 (sid,cid,spreadsheet,a1,now(),name,url))
         return {"id":sid,"name":name,"sheet_url":url,"worksheet":title}
 
     def sync_sheet(self, sheet_id, dry_run=True, engine: StreamEngine | None = None):
-        with self.connect() as con:
-            row = con.execute("SELECT * FROM sheet_sources WHERE id=?", (sheet_id,)).fetchone()
-        if not row:
-            raise KeyError("Sheet link not found")
-        access = self._access(row["channel_id"], SHEETS_SCOPE)
-        url = (SHEETS_BASE + "/" + parse.quote(row["spreadsheet_id"]) + "/values/"
-               + parse.quote(row["a1_range"], safe=""))
-        data = _http_json(url, access_token=access)
-        values = data.get("values") or []
-        if not values:
-            return {"dry_run": dry_run, "total": 0, "created": 0, "errors": []}
-        columns = [str(s).strip().lower() for s in values[0]]
-        required = {"channel_id", "media_path", "title", "scheduled_at", "enabled"}
-        if not required.issubset(set(columns)) or len(columns) != len(set(columns)):
-            raise ValueError("Sheet columns must include channel_id, media_path, title, scheduled_at, enabled")
-        engine = engine or service()
-        created, planned, errors = 0, 0, []
-        for index, fields in enumerate(values[1:201], start=2):
-            data = {key: str(fields[i]).strip() if i < len(fields) else ""
-                    for i, key in enumerate(columns)}
-            if data.get("enabled", "").lower() not in ("true", "yes", "1"):
-                continue
+        with self.connect() as con:row=con.execute('SELECT * FROM sheet_sources WHERE id=?',(sheet_id,)).fetchone()
+        if not row:raise KeyError('Sheet link not found')
+        access=self._access(row['channel_id'],SHEETS_SCOPE)
+        url=SHEETS_BASE+'/'+parse.quote(row['spreadsheet_id'])+'/values/'+parse.quote(row['a1_range'],safe='')
+        try:values=_http_json(url,access_token=access).get('values') or []
+        except ValueError:
+            with self.connect() as con:con.execute("UPDATE sheet_sources SET sync_status='FAILED: access or Google API error' WHERE id=?",(sheet_id,))
+            raise
+        if not values:return {'dry_run':dry_run,'total':0,'created':0,'errors':[],'preview':[],'headers':[]}
+        aliases={
+            'channelid':'channel_id','ucchannelid':'channel_id','youtubechannelid':'channel_id','ucid':'channel_id',
+            'channelname':'channel_name','name':'channel_name','channel':'channel_name','title':'title','streamtitle':'title','videotitle':'title',
+            'gmail':'account_label','googleaccount':'account_label','email':'account_label','group':'group_name','groupname':'group_name',
+            'mediapath':'media_path','media':'media_path','videopath':'media_path','videoreference':'media_path',
+            'scheduledat':'scheduled_at','scheduledstart':'scheduled_at','starttime':'scheduled_at','schedule':'scheduled_at',
+            'enabled':'enabled','active':'enabled','status':'status','description':'description','privacy':'privacy',
+            'duration':'duration','durationseconds':'duration','loops':'loop_count','loopcount':'loop_count','continuous':'continuous','unlimited':'continuous'}
+        custom=json.loads(row['header_map'] or '{}')
+        normalize=lambda text:re.sub(r'[^a-z0-9]','',str(text).lower())
+        headers=[str(v).strip() for v in values[0]]
+        columns=[custom.get(h,aliases.get(normalize(h),normalize(h))) for h in headers]
+        if len(columns)!=len(set(columns)):raise ValueError('Duplicate mapped columns; edit the header mapping')
+        if 'channel_id' not in columns:raise ValueError('Sheet requires Channel ID / YouTube Channel ID; set header mapping if needed')
+        schedule_mode='media_path' in columns
+        if schedule_mode and 'title' not in columns:raise ValueError('Stream scheduling sheet requires Title / Stream Title')
+        engine=engine or service();created=0;skipped=0;preview=[];errors=[];inventory=0
+        for index,fields in enumerate(values[1:1001],start=2):
+            data={k:str(fields[i]).strip() if i<len(fields) else '' for i,k in enumerate(columns)}
+            if not any(data.values()):continue
+            if data.get('enabled','true').lower() in ('false','no','0','inactive','disabled'):continue
             try:
-                if data["channel_id"] != row["channel_id"]:
-                    raise ValueError("Row channel differs from authorized Sheet link")
-                when = scheduled_utc(data.get("scheduled_at"))
-                if not when:
-                    raise ValueError("scheduled_at is required for Sheet jobs")
-                key = "sheet-" + hashlib.sha256((
-                    row["id"] + ":" + str(index) + ":" + data["channel_id"] +
-                    ":" + data["media_path"] + ":" + when).encode()).hexdigest()[:40]
-                payload = dict(channel_id=row["channel_id"],
-                               media_path=data["media_path"], title=data["title"],
-                               scheduled_at=when, idempotency_key=key,
-                               continuous=data.get("continuous", "").lower() in ("true", "yes", "1"))
-                engine._source(payload["media_path"])
-                if not payload["title"] or len(payload["title"]) > 100:
-                    raise ValueError("Invalid title")
-                planned += 1
+                cid=data.get('channel_id','')
+                if not CHANNEL_RE.fullmatch(cid):raise ValueError('Invalid UC Channel ID')
+                if not schedule_mode:
+                    entry={'row':index,'channel_id':cid,'channel_name':data.get('channel_name') or cid,'group_name':data.get('group_name','')}
+                    preview.append(entry)
+                    if not dry_run:
+                        self.import_metadata(cid,entry['channel_name'])
+                        with self.connect() as con:con.execute('UPDATE channels SET group_name=?,account_label=?,sheet_id=?,updated_at=? WHERE id=?',(entry['group_name'],data.get('account_label','')[:150],sheet_id,now(),cid))
+                        inventory+=1
+                    continue
+                if not any(c['id']==cid and c['authorized'] and c['active'] for c in self.channel_catalog()):
+                    raise ValueError('Row channel requires an active independent Auto Stream OAuth connection')
+                when=scheduled_utc(data.get('scheduled_at'))
+                engine._source(data.get('media_path',''))
+                title=data.get('title','')
+                if not title or len(title)>100:raise ValueError('Invalid title')
+                key='sheet-'+hashlib.sha256((sheet_id+':'+cid+':'+data['media_path']+':'+str(when)+':'+title).encode()).hexdigest()[:40]
+                payload={'channel_id':cid,'media_path':data['media_path'],'title':title,'scheduled_at':when,
+                         'idempotency_key':key,'description':data.get('description',''),'privacy':data.get('privacy') or 'private',
+                         'loop_count':int(data.get('loop_count') or 1),'duration':float(data.get('duration') or 0),
+                         'continuous':data.get('continuous','').lower() in ('true','yes','1')}
+                if payload['privacy'] not in ('private','unlisted','public'):raise ValueError('Invalid privacy')
+                if not 1<=payload['loop_count']<=10000 or not 0<=payload['duration']<=604800:raise ValueError('Invalid loop count or duration')
+                preview.append({'row':index,**{k:v for k,v in payload.items() if k!='idempotency_key'}})
                 if not dry_run:
-                    engine.create(payload)  # DRAFT only; NEVER prepare/start.
-                    created += 1
-            except ValueError as exc:
-                errors.append({"row": index, "reason": str(exc)[:160]})
-        return {"dry_run": dry_run, "total": planned, "created": created,
-                "errors": errors, "limited_to_rows": 200}
+                    with engine._connect() as con:exists=con.execute('SELECT 1 FROM jobs WHERE idem=?',(key,)).fetchone()
+                    if exists:skipped+=1
+                    else:engine.create(payload);created+=1
+            except (ValueError,TypeError) as exc:errors.append({'row':index,'reason':str(exc)[:160]})
+        if not dry_run:
+            with self.connect() as con:con.execute('UPDATE sheet_sources SET sync_status=?,last_sync=?,updated_at=? WHERE id=?',('Synced: '+str(created)+' drafts, '+str(inventory)+' channels, '+str(len(errors))+' errors',now(),now(),sheet_id))
+        return {'dry_run':dry_run,'mode':'schedule' if schedule_mode else 'channel_inventory','total':len(preview),
+                'created':created,'inventory_updated':inventory,'skipped_duplicates':skipped,'errors':errors,
+                'preview':preview[:50],'headers':headers,'mapping':dict(zip(headers,columns)),'limited_to_rows':1000}
 
     def channel_live_status(self, channel_id):
         access = self._access(channel_id, YOUTUBE_SCOPE)
@@ -448,7 +535,7 @@ def oauth_callback(state: str = Query(""), code: str = Query(""),
     return HTMLResponse("<!doctype html><html><body>"
                         "<h2>Auto Stream channel connected</h2><p>"
                         + escape(result["title"]) + "</p>"
-                        "<p>You can return to Auto Stream.</p></body></html>")
+                        '<p><a href="/auto-stream/">Return to Auto Stream</a></p></body></html>')
 
 
 @router.get("/sheets")
@@ -474,3 +561,41 @@ def sync_sheet(sheet_id: str, dry_run: bool = Query(True)):
 @router.get("/channels/{channel_id}/live")
 def channel_live_status(channel_id: str):
     return _api_guard(lambda: accounts().channel_live_status(channel_id))
+
+
+@router.post('/channels/manage')
+def manage_channels(payload:dict=Body(...)):
+    return _api_guard(lambda:accounts().manage_channels(payload.get('ids'),str(payload.get('action','')),payload.get('values')))
+
+
+@router.post('/channels/{channel_id}/test')
+def test_channel(channel_id:str):
+    return _api_guard(lambda:accounts().test_channel(channel_id))
+
+
+@router.patch('/sheets/{sheet_id}')
+def update_sheet(sheet_id:str,payload:dict=Body(...)):
+    def run():
+        acct=accounts()
+        with acct.connect() as con:
+            source=con.execute('SELECT * FROM sheet_sources WHERE id=?',(sheet_id,)).fetchone()
+            if not source:raise KeyError('Sheet source not found')
+            if 'header_map' in payload:
+                mapping=payload['header_map']
+                allowed={'channel_id','channel_name','account_label','group_name','media_path','title','scheduled_at','enabled','status','description','privacy','duration','loop_count','continuous'}
+                if not isinstance(mapping,dict) or len(mapping)>60 or any(not isinstance(k,str) or v not in allowed for k,v in mapping.items()):raise ValueError('Invalid header mapping')
+                con.execute('UPDATE sheet_sources SET header_map=?,updated_at=? WHERE id=?',(json.dumps(mapping),now(),sheet_id))
+                return {'updated':sheet_id}
+        return acct.link_named_sheet({**dict(source),**payload,'id':sheet_id})
+    return _api_guard(run)
+
+
+@router.delete('/sheets/{sheet_id}')
+def disconnect_sheet(sheet_id:str):
+    def run():
+        acct=accounts()
+        with acct.connect() as con:
+            con.execute('UPDATE channels SET sheet_id=? WHERE sheet_id=?',('',sheet_id))
+            con.execute('DELETE FROM sheet_sources WHERE id=?',(sheet_id,))
+        return {'disconnected':sheet_id,'jobs_and_tokens_preserved':True}
+    return _api_guard(run)
