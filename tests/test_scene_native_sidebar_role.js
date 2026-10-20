@@ -139,6 +139,21 @@ for (const workspace of ["uploader", "voice", "acs"]) {
   });
 }
 
+test("Self Media Library uses exactly one Experiment Studio parent and two subtabs", async () => {
+  const h=boot("library",{authenticated:true,is_admin:false,username:"editor"});
+  await h.tick();
+  const nav=all(h.body).find(e=>e.tag==="nav"&&e.attrs["aria-label"]==="Applications");
+  assert.ok(nav);
+  assert.equal(nav.children.filter(e=>e.textContent==="Experiment Studio"&&e.attrs["aria-current"]==="page").length,1);
+  assert.equal(nav.children.filter(e=>e.textContent==="Self Media Library").length,0);
+  const tabs=all(h.body).find(e=>e.className==="vps1-native-experiment-tabs");
+  assert.ok(tabs);
+  assert.deepEqual(tabs.children.map(e=>e.textContent),["Antidetect Browser","Self Media Library"]);
+  assert.deepEqual(tabs.children.map(e=>e.href),["/experiment-studio/antidetect-browser/","/self-media-library/"]);
+  assert.equal(tabs.children.filter(e=>e.attrs["aria-current"]==="page").length,1);
+  assert.equal(h.links().filter(e=>e.href==="/admin").length,0);
+});
+
 test("voice native menu uses in-page tab activation instead of document reload", async () => {
   const h=boot("voice",{authenticated:true,is_admin:true,username:"owner"});
   await h.tick();

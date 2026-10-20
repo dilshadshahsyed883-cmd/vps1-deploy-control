@@ -15,3 +15,14 @@ Offline checks:
 `node --test tests/test_scene_native_sidebar_role.js`
 
 Deployment must use the existing guarded GitHub → Tailscale release path; production verification separate.
+
+## Second subtab — Self Media Library (2026-10-20)
+
+- Experiment Studio sidebar remains the single parent destination `/experiment-studio/`.
+- Subtabs ordered **Antidetect Browser** then **Self Media Library**.
+- The second navigable entry `/experiment-studio/self-media-library/` is Scene-auth-guarded and redirects (303) to the existing independent app at `/self-media-library/`, without an iframe or new app backend.
+- The independent Self Media Library HTML loads the shared native Scene shell as workspace `library`. The canonical left sidebar highlights Experiment Studio, and its native Experiment Studio tab rail highlights Self Media Library. Returning to Antidetect Browser is a normal same-origin link.
+- Self Media Library's existing five inner controls (Dashboard, Input, Process, Library & Preview, API & Settings) remain in a horizontally scrollable app-local rail. Original metadata, Drive settings, worker, queues and app-specific API remain unchanged.
+- Shared sidebar Admin link remains visible only after positive Scene session identity. All unrelated native app layouts remain untouched by scoped CSS.
+- New standalone production workflow `vps1-experiment-library-nav-release.yml` stages Scene Builder then Self Media Library under existing authorized Tailscale identity, with idle preflight, local source/HTML readback, app-only rollback, and anonymous gateway controls. Only triggered by merge message marker `[vps1-experiment-library-nav-release]`.
+- Automated tests: `python3 -m unittest production.test_unified_sidebar_navigation tests.test_self_media_library_navigation -v`, `node --test tests/test_scene_native_sidebar_role.js`; browser owner acceptance remains separate.
