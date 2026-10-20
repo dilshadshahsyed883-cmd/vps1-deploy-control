@@ -262,5 +262,31 @@ def install(app, revision):
                 time.sleep(1)
             if last:
                 raise RuntimeError(f"Independent {mode} health failed: {last}")
-            event(app=app, isolated_engine=mode, health="PASS", port=port)
+            # The health endpoint can be green while the embedded uploader
+            # fails during app_page() rendering (historical false PASS).
+            page_url = (
+                f"http://127.0.0.1:{port}/local-upload-manager/modes/"
+                f"{mode}/app?embedded=1&tab=auto_engine"
+            )
+            page_request = urllib.request.Request(page_url, headers={
+                "X-Auth-User": "vps1-release-probe",
+                "X-App-Access": "lum",
+                "X-Is-Admin": "0",
+                "Accept": "text/html",
+            })
+            try:
+                with opener.open(page_request, timeout=7) as response:
+                    page = response.read(1_500_000)
+                    if (response.status != 200 or
+                            "text/html" not in response.headers.get("Content-Type", "") or
+                            b"Auto Engine" not in page or
+                            b"Internal Server Error" in page):
+                        raise RuntimeError("embedded uploader page not healthy")
+            except (OSError, ValueError, TypeError, RuntimeError) as exc:
+                raise RuntimeError(
+                    f"Independent {mode} embedded HTML failed: "
+                    f"{type(exc).__name__}"
+                ) from exc
+            event(app=app, isolated_engine=mode, health="PASS",
+                  embedded_html="PASS", port=port)
     event(app=app, queue_workers='ACTIVE', workers=unit_names(app))
