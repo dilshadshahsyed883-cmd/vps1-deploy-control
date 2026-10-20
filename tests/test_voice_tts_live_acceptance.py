@@ -5,6 +5,10 @@ import importlib.util
 import sqlite3
 import tempfile
 import unittest
+import json
+import hashlib
+from types import SimpleNamespace
+from unittest import mock
 from pathlib import Path
 
 from production.voice_tts_live_acceptance import (
@@ -92,6 +96,62 @@ class VoiceLiveAcceptanceTests(unittest.TestCase):
             r=check_existing_remote_receipt(engine,path)
             self.assertEqual(r["remote_status"],"NO_EXISTING_VERIFIED_SAMPLE")
             self.assertEqual(r["stored_receipts"],0)
+
+    def test_verified_drive_write_is_one_time_and_never_deletes_remote(self):
+        from production import voice_tts_live_acceptance as acceptance
+        journal=Path(self.temp.name)/"journal"
+        journal.mkdir()
+        remote={}
+        sent=[]
+        def fake_run(args,**kwargs):
+            sent.append(args)
+            if "copyto" in args:
+                content=Path(args[-2]).read_bytes()
+                remote[args[-1]]=content
+                return SimpleNamespace(returncode=0,stdout="",stderr="")
+            if "lsjson" in args:
+                data=remote[args[-1]]
+                name=args[-1].rsplit("/",1)[-1]
+                body={"ID":"testproof12345678","Size":len(data),"Name":name,
+                      "Hashes":{"MD5":hashlib.md5(data).hexdigest()}}
+                return SimpleNamespace(returncode=0,stdout=json.dumps(body),stderr="")
+            raise AssertionError("unexpected or destructive rclone operation")
+        check=Path("/home/ubuntu/.config/masterctl/rclone.conf")
+        original=Path.is_file
+        def is_file(p):
+            return p==check or original(p)
+        with mock.patch.object(acceptance,"JOURNALS",journal), \
+             mock.patch.object(acceptance.shutil,"which",return_value="/usr/bin/rclone"), \
+             mock.patch.object(Path,"is_file",is_file), \
+             mock.patch.object(acceptance.subprocess,"run",side_effect=fake_run):
+            a=acceptance.drive_upload_smoke_once()
+            self.assertEqual(a["result"],"PASS")
+            self.assertEqual(set(a["engines"]),{"kokoro","edge"})
+            self.assertEqual(len(remote),2)
+            self.assertTrue(all("/_VPS1_VOICE_QA/" in key for key in remote))
+            self.assertFalse(any("delete" in " ".join(cmd) for cmd in sent))
+            count=len(sent)
+            cached=acceptance.drive_upload_smoke_once()
+            self.assertTrue(cached["cached"])
+            self.assertEqual(len(sent),count)
+            self.assertEqual(len(list(Path(self.temp.name).glob("vps1-voice-drive-qa-*"))),0)
+
+    def test_failed_remote_copy_does_not_claim_drive_success(self):
+        from production import voice_tts_live_acceptance as acceptance
+        journal=Path(self.temp.name)/"journal-failed"
+        journal.mkdir()
+        check=Path("/home/ubuntu/.config/masterctl/rclone.conf")
+        original=Path.is_file
+        def is_file(p):
+            return p==check or original(p)
+        with mock.patch.object(acceptance,"JOURNALS",journal), \
+             mock.patch.object(acceptance.shutil,"which",return_value="/usr/bin/rclone"), \
+             mock.patch.object(Path,"is_file",is_file), \
+             mock.patch.object(acceptance.subprocess,"run",
+                               return_value=SimpleNamespace(returncode=1,stdout="",stderr="")):
+            result=acceptance.drive_upload_smoke_once()
+        self.assertEqual(result["result"],"INCOMPLETE")
+        self.assertFalse((journal/"drive-qa-one-time-receipt.json").exists())
 
     def test_release_requires_live_proof_before_success(self):
         script=(ROOT/"production/voice_tts_controls_release.py").read_text()
