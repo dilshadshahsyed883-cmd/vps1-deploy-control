@@ -40,6 +40,7 @@ jobs:
           PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
           SOURCE_SHA: ${{ github.sha }}
           VIDEO_GEOMETRY_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-video-geometry-release]') }}
+          VIDEO_TEMPLATE_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-video-template-only]') }}
           UI_SHELL_PHASE_B: ${{ contains(github.event.head_commit.message, '[vps1-ui-shell-phase-b-release]') }}
           UNIFIED_SIDEBAR_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-unified-sidebar-release]') }}
         run: |
@@ -87,6 +88,12 @@ jobs:
           if [[ "$UI_SHELL_PHASE_B" == "true" ]]; then
             echo "UI_SHELL_PHASE_B=BEGIN"
             remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA scene-builder"
+            if [[ "$VIDEO_TEMPLATE_ONLY" == "true" ]]; then
+              for app in short-maker video-merger auto-caption-studio; do
+                remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA $app"
+              done
+              echo "VIDEO_UI_OVERLAYS=PASS WORKERS=PRESERVED"
+            fi
             echo "UI_SHELL_PHASE_B=PASS SCENE_ONLY=YES"
             echo "INDEPENDENT_APP_RESTARTS=NONE"
             echo "AUTO_SCRIPT=OFFLINE"

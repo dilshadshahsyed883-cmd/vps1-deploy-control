@@ -147,3 +147,35 @@ body.vps1-native-acs > .vps1-native-toggle,
   }
   #app-sidebar.sidebar.mobile-open {transform: translateX(0) !important;}
 }
+
+/* VIDEO_STUDIO_RESPONSIVE_V2: content geometry and accessible controls. */
+html:has([data-video-studio-subnav]),html:has(script[data-workspace="acs"]){scrollbar-gutter:stable}
+body:has(>main>[data-video-studio-subnav]),body.vps1-native-acs{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;line-height:1.5}
+body:has(>main>[data-video-studio-subnav]) main :is(input,select,textarea):not([type=checkbox]):not([type=radio]):not([type=range]):not([type=hidden]),body.vps1-native-acs .shell :is(input,select,textarea):not([type=checkbox]):not([type=radio]):not([type=range]):not([type=hidden]){min-width:0;max-width:100%;min-height:44px;box-sizing:border-box;font-size:14px}
+body:has(>main>[data-video-studio-subnav]) main button,body.vps1-native-acs .shell button{min-height:44px;max-width:100%;font-family:inherit}
+body:has(>main>[data-video-studio-subnav]) main :is(.panel,.card),body.vps1-native-acs .shell .card{min-width:0;border-radius:16px;padding:20px;box-sizing:border-box}
+body:has(>main>[data-video-studio-subnav]) main :is(.grid,.grid2,.grid3,.two)>*,body.vps1-native-acs .shell :is(.grid,.g2,.g3,.g4)>*{min-width:0}
+body:has(>main>[data-video-studio-subnav]) .vm-container{max-width:var(--vps1-studio-max);margin-bottom:0}
+body:has(>main>[data-video-studio-subnav]) :is(.sm-tabs,.vm-app .tabs,.scene-workspace-tabs){min-height:54px;gap:6px;align-items:center;overflow-x:auto;flex-wrap:nowrap;white-space:nowrap}
+body:has(>main>[data-video-studio-subnav]) :is(.sm-tabs,.vm-app .tabs,.scene-workspace-tabs)>*{flex:0 0 auto;min-height:44px;box-sizing:border-box}
+body.vps1-native-acs #acs-native-live .summary{grid-template-columns:repeat(3,minmax(0,1fr))}
+body.vps1-native-acs #acs-native-live .workers{grid-template-columns:repeat(3,minmax(0,1fr))}
+body.vps1-native-acs #acs-native-live .top{position:static;height:auto;background:transparent;color:inherit;padding:0;border:0;min-height:44px}
+body.vps1-native-acs #acs-native-live .wrap{padding:0}
+body.vps1-native-acs .shell .tabs{min-height:54px;align-items:center}
+@media(max-width:1000px){body.vps1-native-acs #acs-native-live .workers{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:760px){
+ body:has(>main>[data-video-studio-subnav]) main :is(input,select,textarea):not([type=checkbox]):not([type=radio]):not([type=range]),body.vps1-native-acs .shell :is(input,select,textarea):not([type=checkbox]):not([type=radio]):not([type=range]){font-size:16px}
+ body:has(>main>[data-video-studio-subnav]) main :is(.panel,.card),body.vps1-native-acs .shell .card{padding:16px!important}
+ body:has(>main>[data-video-studio-subnav]) main :is(.grid,.grid2,.grid3,.two){grid-template-columns:minmax(0,1fr)!important}
+ body:has(>main>[data-video-studio-subnav]) .vm-page-head{flex-wrap:wrap}
+ body:has(>main>[data-video-studio-subnav]) .vm-app .video-row{grid-template-columns:32px minmax(0,1fr) 44px;gap:6px;padding:10px}
+ body:has(>main>[data-video-studio-subnav]) .vm-app .queue-metrics,body.vps1-native-acs #acs-native-live .summary{grid-template-columns:repeat(2,minmax(0,1fr))}
+ body.vps1-native-acs #acs-native-live{padding:0}
+ body.vps1-native-acs #acs-native-live .top{flex-wrap:wrap}
+ body.vps1-native-acs #acs-native-live .tablewrap{max-width:100%;overflow-x:auto}
+ body:has(>main>[data-video-studio-subnav]) main :is(.filebox,.field,.hint,.subtle){overflow-wrap:anywhere}
+}
+@media(prefers-reduced-motion:no-preference){
+ [data-video-studio-subnav] a,.vps1-native-video-tabs a{transition:background-color 120ms ease,color 120ms ease}
+}

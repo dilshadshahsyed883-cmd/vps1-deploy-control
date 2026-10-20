@@ -25,10 +25,12 @@ jobs:
           python-version: '3.12'
       - name: Install headless browser and pixel comparison dependencies
         run: |
-          python -m pip install --disable-pip-version-check 'playwright==1.56.0' 'Pillow==11.3.0'
+          python -m pip install --disable-pip-version-check 'playwright==1.56.0' 'Pillow==11.3.0' 'jinja2==3.1.6'
           python -m playwright install --with-deps chromium
       - name: Real Chromium six-Studio layout and screenshot comparisons
         run: |
+          python -m unittest production.test_video_responsive -v
+          python production/test_video_responsive.py --browser
           python -m py_compile production/ui_visual_ci.py
           python production/ui_visual_ci.py --screenshots "${{ runner.temp }}/ui-geometry"
       - name: Preserve sanitized non-production screenshots

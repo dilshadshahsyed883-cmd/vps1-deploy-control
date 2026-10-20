@@ -98,7 +98,7 @@ class SceneVideoStudioShell(unittest.TestCase):
         scene = (SCENE / "templates/base.html").read_text()
         native_css = (SCENE / "static/vps1_native_site_shell.css").read_text()
         native_js = (SCENE / "static/vps1_native_site_shell.js").read_text()
-        self.assertIn('href="/static/vps1_native_site_shell.css?v=20261020-admin-session-v2"', scene)
+        self.assertIn('href="/static/vps1_native_site_shell.css?v=20261020-admin-session-v2&layout=video-v2"', scene)
         self.assertIn('id="app-sidebar" class="sidebar"', scene)
         self.assertIn("--vps1-sidebar-width:214px", native_css)
         self.assertIn("#app-sidebar.sidebar,#vps1-native-site-sidebar", native_css)
