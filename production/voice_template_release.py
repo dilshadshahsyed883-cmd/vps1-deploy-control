@@ -47,6 +47,16 @@ def require(ok: bool, why: str) -> None:
 def patch_template(payload: bytes) -> bytes:
     """Only relocate two trusted asset links; preserve all other Voice markup."""
     require(payload.count(TITLE) == 1, "existing Voice template title changed")
+    # The current production release may already carry the latest asset pair.
+    # Treat that state as idempotent and preserve the template byte-for-byte.
+    if (payload.count(NEW_ASSETS) == 1 and
+            payload.count(OLD_ASSETS) == 0 and
+            payload.count(PREVIOUS_ASSETS) == 0):
+        require(payload.count(ASSET_NOTE) == 1 and
+                b'id="vsEngineOmni"' in payload and
+                b'id="vsEngineKokoro"' in payload,
+                "current Voice sidebar assets or engine controls invalid")
+        return payload
     # The last approved Voice sidebar-only release already moved assets above
     # the large inline stylesheet. Upgrade that exact version in place without
     # touching engine controls, worker services or the rest of the HTML.
