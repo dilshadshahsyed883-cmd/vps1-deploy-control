@@ -55,11 +55,12 @@
 
     <section id="page-sources" class="page">
       <article class="drop-panel" id="dropPanel">
-        <input type="file" id="sourceFile" accept="video/*" hidden />
+        <input type="file" id="sourceFile" accept=".mp4,.mov,.mkv,.webm,.m4v,.avi,video/*" multiple hidden />
         <div class="drop-icon">＋</div>
-        <h2>Add source video</h2>
-        <p>Upload a video. The engine will detect shots and create clips up to 4 seconds long.</p>
-        <button class="primary" id="chooseSource">Choose video</button>
+        <h2>Add source videos</h2>
+        <p>Drop or choose multiple videos. Each is queued independently for 2–4 second scene clipping.</p>
+        <button class="primary" id="chooseSource">Choose videos</button>
+        <span id="sourceUploadResult" role="status" aria-live="polite"></span>
         <small>MP4, MOV, MKV, WEBM, M4V, AVI</small>
       </article>
       <article class="panel">
@@ -94,6 +95,7 @@
       <div class="library-toolbar">
         <div class="searchbox"><span>⌕</span><input id="clipSearch" placeholder="Search keywords: mountain drone lake…" /></div>
         <select id="statusFilter"><option value="all">All states</option><option value="candidate">Candidate</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>
+        <select id="clipOrientation" aria-label="Video orientation"><option value="all">All orientations</option><option value="landscape">Landscape</option><option value="portrait">Portrait</option><option value="square">Square</option><option value="unknown">Unknown</option></select>
         <select id="sortFilter"><option value="newest">Newest</option><option value="oldest">Oldest</option><option value="quality">Best quality</option><option value="duration">Longest</option></select>
       </div>
       <div class="bulkbar hidden" id="bulkBar">
@@ -112,11 +114,12 @@
       <div class="pager"><button class="ghost" id="loadMore">Load more video clips</button></div>
       <article class="panel settings-spaced">
         <div class="panel-head"><div><h2>Images</h2><p>Preview, search, rename, tag, approve and archive your photos.</p></div></div>
-        <div class="library-toolbar"><input id="imageSearch" class="setting-text" placeholder="Search image keywords…" /><select id="imageStatus"><option value="all">All images</option><option value="candidate">Candidate</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select></div>
+        <div class="library-toolbar"><input id="imageSearch" class="setting-text" placeholder="Search image keywords…" /><select id="imageStatus"><option value="all">All images</option><option value="candidate">Candidate</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select><select id="imageOrientation" aria-label="Image orientation"><option value="all">All orientations</option><option value="landscape">Landscape</option><option value="portrait">Portrait</option><option value="square">Square</option><option value="unknown">Unknown</option></select></div>
         <div id="imagesGrid" class="image-grid"></div>
         <div id="imageEditor" class="image-editor hidden">
           <img id="imageEditorPreview" alt="Selected image preview"/>
           <div><h3 id="imageEditorHeading">Edit image</h3>
+            <p class="source-meta" id="imageTechnical"></p>
             <label for="imageDisplayName">Display name</label><input id="imageDisplayName" class="setting-text" />
             <label for="imageKeywords">Keywords (comma separated)</label><input id="imageKeywords" class="setting-text" />
             <label for="imageDescription">Description</label><textarea id="imageDescription" class="setting-text" rows="2"></textarea>
