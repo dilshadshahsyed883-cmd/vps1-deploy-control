@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from media_integrity import sha256_file, score_clip
+from media_catalog import probe_video
 
 ROOT = Path(__file__).resolve().parent
 DATA = Path(os.environ.get("SML_DATA_ROOT", str(ROOT / "data"))).expanduser()
@@ -131,6 +132,19 @@ def init_db() -> None:
         ensure_column("clips", "sha256", "TEXT")
         c.execute("CREATE INDEX IF NOT EXISTS idx_sources_sha256 ON sources(sha256)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_clips_sha256 ON clips(sha256)")
+        for col, definition in {
+            "codec": "TEXT NOT NULL DEFAULT ''",
+            "width": "INTEGER NOT NULL DEFAULT 0",
+            "height": "INTEGER NOT NULL DEFAULT 0",
+            "fps": "REAL NOT NULL DEFAULT 0",
+            "orientation": "TEXT NOT NULL DEFAULT 'unknown'",
+            "has_audio": "INTEGER NOT NULL DEFAULT 0",
+            "source_kind": "TEXT NOT NULL DEFAULT 'legacy'",
+            "source_locator": "TEXT NOT NULL DEFAULT ''",
+            "rights_confirmed": "INTEGER NOT NULL DEFAULT 0",
+        }.items():
+            ensure_column("sources", col, definition)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_sources_orientation ON sources(orientation)")
 
         defaults = {
             "clip_min_seconds": "2.0",
@@ -799,8 +813,14 @@ def clip_to_dict(c: sqlite3.Row, conn: sqlite3.Connection) -> dict:
     d["clip_url"] = f"/media/clips/{c['filename']}"
     d["thumb_url"] = f"/media/thumbs/{c['thumb_filename']}" if c["thumb_filename"] else None
     if c["source_id"]:
-        s = conn.execute("SELECT filename FROM sources WHERE id=?", (c["source_id"],)).fetchone()
+        s = conn.execute("SELECT filename,orientation,width,height,fps,codec,source_kind FROM sources WHERE id=?", (c["source_id"],)).fetchone()
         d["source_filename"] = s["filename"] if s else "Unknown source"
+        d["source_orientation"] = s["orientation"] if s else "unknown"
+        d["source_width"] = s["width"] if s else 0
+        d["source_height"] = s["height"] if s else 0
+        d["source_fps"] = s["fps"] if s else 0
+        d["source_codec"] = s["codec"] if s else ""
+        d["source_kind"] = s["source_kind"] if s else "legacy"
     else:
         d["source_filename"] = "Manual library item"
     return d
@@ -841,6 +861,7 @@ def clips(
     q: str = "",
     status: str = "all",
     source_id: str = "",
+    orientation: str = "all",
     trash: bool = False,
     sort: str = "newest",
     limit: int = Query(48, ge=1, le=200),
@@ -854,6 +875,11 @@ def clips(
     if source_id:
         clauses.append("c.source_id=?")
         params.append(source_id)
+    if orientation not in {"all", "landscape", "portrait", "square", "unknown"}:
+        raise HTTPException(400, "Invalid orientation filter")
+    if orientation != "all":
+        clauses.append("EXISTS (SELECT 1 FROM sources s WHERE s.id=c.source_id AND s.orientation=?)")
+        params.append(orientation)
     if q.strip():
         terms = [t.strip().lower() for t in q.split() if t.strip()]
         for term in terms:
@@ -1028,6 +1054,7 @@ async def upload_source(file: UploadFile = File(...)):
         if size == 0:
             raise HTTPException(400, "Empty video")
         ts = now_iso()
+        technical = probe_video(dest)
         with db() as c:
             c.execute("BEGIN IMMEDIATE")
             previous = c.execute(
@@ -1039,10 +1066,14 @@ async def upload_source(file: UploadFile = File(...)):
                 return {"ok": True, "id": previous["id"], "duplicate": True}
             c.execute(
                 """INSERT INTO sources(id,filename,stored_name,size_bytes,status,stage,
-                         progress,created_at,updated_at,sha256)
-                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                         progress,created_at,updated_at,sha256,codec,width,height,fps,
+                         orientation,has_audio,source_kind)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (sid, Path(file.filename or stored).name, stored, size,
-                 "queued", "queued", 0, ts, ts, digest.hexdigest()),
+                 "queued", "queued", 0, ts, ts, digest.hexdigest(),
+                 technical["codec"], technical["width"], technical["height"],
+                 technical["fps"], technical["orientation"], int(technical["has_audio"]),
+                 "local"),
             )
         return {"ok": True, "id": sid, "duplicate": False}
     except Exception:
