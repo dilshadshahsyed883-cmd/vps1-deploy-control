@@ -4,7 +4,7 @@ on:
     paths: ["apps/self-media-library/**", "tests/test_self_media_library_*.py", ".github/workflows/vps1-self-media-v2-ci.yml"]
   push:
     branches: [main]
-    paths: ["apps/self-media-library/**", "tests/test_self_media_library_v2.py", ".github/workflows/vps1-self-media-v2-ci.yml"]
+    paths: ["apps/self-media-library/**", "tests/test_self_media_library_*.py", ".github/workflows/vps1-self-media-v2-ci.yml"]
 permissions:
   contents: read
 jobs:
