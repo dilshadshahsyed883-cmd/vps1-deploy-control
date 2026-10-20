@@ -111,6 +111,27 @@ def _stage(revision: str) -> Path:
 
 
 
+def _ensure_experiment_browser_dependency() -> None:
+    """Add a pinned dependency to the existing candidate venv without reinstalling apps."""
+    from production.runtime import run
+    python = Path("/srv/fresh-website/venvs/scene-builder/bin/python")
+    if not python.is_file():
+        raise RuntimeError("Scene candidate Python environment missing")
+    probe = subprocess.run([str(python), "-c",
+                            "from playwright.async_api import async_playwright"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=12)
+    if probe.returncode:
+        run([str(python), "-m", "pip", "install", "--disable-pip-version-check",
+             "--no-cache-dir", "playwright==1.56.0"], timeout=360, quiet=True)
+        result = subprocess.run([str(python), "-c",
+                                 "from playwright.async_api import async_playwright"],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                timeout=12)
+        if result.returncode:
+            raise RuntimeError("Scene browser Playwright dependency unavailable")
+
+
 def _candidate_storage_token() -> str | None:
     """Read only the existing root-owned candidate credential; never emit it."""
     if not STORAGE_CANDIDATE_ENV.is_file() or STORAGE_CANDIDATE_ENV.is_symlink():
@@ -316,6 +337,8 @@ def install(revision: str) -> None:
         raise RuntimeError("existing Scene candidate service is inactive")
     _health()
     target = _stage(revision)
+    if (target / "part01/experiment_browser.py").is_file():
+        _ensure_experiment_browser_dependency()
     if previous == target:
         integrations = _verify_integrations()
         _verify_native_ui_release(target)
@@ -351,6 +374,9 @@ def install(revision: str) -> None:
         install_browser()
         integrations = _verify_integrations(require_storage_backend=require_storage_backend)
         _verify_native_ui_release(target)
+        if (target / "part01/experiment_browser.py").is_file():
+            from production.experiment_browser_smoke import verify as verify_experiment_browser
+            verify_experiment_browser()
         if shutil.disk_usage("/").free < 5_000_000_000:
             raise RuntimeError("operational disk reserve breached")
         atomic_json(RECORD, {"revision": revision, "status": "ACTIVE", "unit": UNIT,
