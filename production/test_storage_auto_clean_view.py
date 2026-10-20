@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import tempfile
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -100,18 +102,59 @@ class AutoCleanReadOnlyView(unittest.TestCase):
         self.assertIn('if os.getenv("FRESH_WEBSITE_SMOKE_TEST") == "1" or os.getenv("VPS1_RUNTIME_CANDIDATE") == "1":', source)
         self.assertIn('"auto_enabled": False', source)
 
-    def test_html_and_js_distinguish_timer_from_project_cleanup(self):
+    def test_dashboard_has_no_legacy_delete_or_policy_controls(self):
         ui = (ROOT / "apps/scene-builder/part01").resolve()
         template = (ui / "templates/storage_manager.html").read_text()
         script = (ui / "static/storage_manager.js").read_text()
-        self.assertIn('id="deployment-gc-state"', template)
-        self.assertIn('id="deployment-gc-detail"', template)
-        self.assertIn('App-owned · Drive receipt required', template)
-        self.assertIn('const partial = data.partial === true || data.read_only === true', script)
-        self.assertIn('renderAutomationStatus(data.deployment_cleanup)', script)
-        self.assertIn("refresh && managerCanModify", script)
-        self.assertIn("snapshot = partial ? null : data", script)
-        self.assertIn('managerFallback || !managerCanModify || busy || !snapshot', script)
+        for required in ('id="deployment-gc-state"', 'id="deployment-gc-detail"',
+                         'id="gc-next-run"', 'id="gc-last-run"', 'id="gc-last-freed"',
+                         'id="gc-eligible"', 'App-owned · Drive receipt required'):
+            self.assertIn(required, template)
+        for retired in ('id="policy-form"', 'id="confirm-dialog"',
+                        'id="reclaim-button"', 'id="full-production-clean"',
+                        'id="select-recommended"', 'id="category-grid"'):
+            self.assertNotIn(retired, template)
+        self.assertIn("renderCleanupStatus(data.deployment_cleanup)", script)
+        self.assertIn("data.read_only !== true || data.partial !== true", script)
+        self.assertIn("method:'GET'", script)
+        for blocked in ("method:'POST'", "method: 'POST'", "/api/admin/storage/cleanup",
+                        "/api/admin/storage/full-clean", "/api/admin/storage/policy",
+                        "/api/admin/storage/scan", "Full Production Clean"):
+            self.assertNotIn(blocked, script)
+
+    def test_audit_and_next_run_are_read_only_and_use_actual_records(self):
+        module = self.manager
+        with tempfile.TemporaryDirectory() as tmp:
+            entry = {
+                "mode": "apply", "timestamp": 1792456676,
+                "free_before_bytes": 50717003776, "free_after_bytes": 51126759424,
+                "deleted": ["short-stream/old"], "skipped": [],
+            }
+            (Path(tmp) / "deployment-gc-history.jsonl").write_text(
+                json.dumps(entry) + "\n", encoding="utf-8")
+            def command(args, timeout=8):
+                if args[1] == "show":
+                    return SimpleNamespace(stdout="NextElapseUSecRealtime=Tue 2026-10-20 12:00:00 UTC\n")
+                return SimpleNamespace(stdout="active\n" if args[1] == "is-active" else "enabled\n")
+            with patch.object(module, "STATE_ROOT", Path(tmp)), \
+                 patch.object(module, "run", side_effect=command):
+                info = module.deployment_cleanup_status()
+        self.assertEqual(info["status"], "active")
+        self.assertEqual(info["last_cleanup"]["deleted_count"], 1)
+        self.assertEqual(info["last_cleanup"]["measured_freed_bytes"], 409755648)
+        self.assertEqual(info["next_run_at"], "Tue 2026-10-20 12:00:00 UTC")
+        self.assertIsNone(info["eligible_bytes"])
+
+    def test_no_audit_does_not_claim_zero_reclaim(self):
+        module = self.manager
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(module, "STATE_ROOT", Path(tmp)), \
+                 patch.object(module, "run", side_effect=OSError("systemctl blocked")):
+                info = module.deployment_cleanup_status()
+        self.assertIsNone(info["last_cleanup"])
+        self.assertIsNone(info["eligible_bytes"])
+        self.assertIsNone(info["next_run_at"])
+        self.assertEqual(info["status"], "unknown")
 
     def test_release_remains_scoped_and_no_cleanup_triggered(self):
         wf = (ROOT / ".github/workflows/vps1-storage-backend-retirement-release.yml").read_text()
