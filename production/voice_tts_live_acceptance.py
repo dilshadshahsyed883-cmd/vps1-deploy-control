@@ -6,6 +6,7 @@ import configparser
 import re
 import time
 import tempfile
+import time
 import json
 import secrets
 import socket
@@ -22,7 +23,7 @@ from production.route_uploader_scene_https import DOMAIN, scene_cookie
 
 MARKER = "vps1-tts-qa-"
 
-def https_json(method, path, cookie=""):
+def https_json(method, path, cookie="", payload=None):
     require(method in ("GET", "POST") and path.startswith("/voice-studio/tts/api/")
             and ".." not in path, "invalid QA route")
     with socket.create_connection(("127.0.0.1", 443), timeout=10) as sock:
@@ -32,7 +33,13 @@ def https_json(method, path, cookie=""):
             headers = {"Host": DOMAIN, "Accept": "application/json", "Connection": "close"}
             if cookie:
                 headers["Cookie"] = cookie
-            con.request(method, path, body=b"" if method=="POST" else None, headers=headers)
+            if payload is not None:
+                require(method=="POST" and isinstance(payload,dict),
+                        "JSON payload is POST-only")
+                headers["Content-Type"]="application/json"
+            data=json.dumps(payload).encode("utf-8") if payload is not None else (
+                 b"" if method=="POST" else None)
+            con.request(method, path, body=data, headers=headers)
             response = con.getresponse()
             status = response.status
             body = response.read(1_000_000)
@@ -361,6 +368,116 @@ def drive_upload_smoke_once():
     return proof
 
 
+def audio_output_smoke_once(cookie, request=None, clock=None, sleep=None):
+    """One-time real tiny Kokoro+Edge synthetic audio, through authenticated UI APIs.
+
+    The journal prevents repeat submissions after restarts/redeployments.
+    Only QA jobs are created or hidden; owner jobs, other engines, ACL and
+    media are not modified. This is a bounded acceptance check, not a paid
+    bulk TTS workload and not an installer failure condition.
+    """
+    request=request or https_json
+    clock=clock or time.monotonic
+    sleep=sleep or time.sleep
+    journal=JOURNALS/"one-time-generated-audio-qa.json"
+    state={"engines":{}}
+    if journal.is_file() and not journal.is_symlink():
+        try:
+            loaded=json.loads(journal.read_text("utf-8"))
+            if isinstance(loaded,dict) and isinstance(loaded.get("engines"),dict):
+                state=loaded
+        except (OSError,ValueError,TypeError):
+            pass
+    results={}
+    for engine in ("kokoro","edge"):
+        entry=state["engines"].get(engine)
+        if not isinstance(entry,dict):
+            entry={}
+        if entry.get("verified") is True:
+            results[engine]="PASS_CACHED"
+            continue
+        base="/voice-studio/tts/api/"+engine
+        if not entry.get("job_id"):
+            status,catalog=request("GET",base+"/voices",cookie)
+            voice_list=catalog.get("voices")
+            if status!=200 or not isinstance(voice_list,list):
+                results[engine]="VOICE_CATALOG_UNAVAILABLE"
+                continue
+            choices=[v for v in voice_list if isinstance(v,dict)
+                     and isinstance(v.get("id"),str) and isinstance(v.get("locale" if engine=="edge" else "language"),str)]
+            preferred=("en-US" if engine=="edge" else "en-us")
+            selected=next((v for v in choices
+                           if v.get("locale" if engine=="edge" else "language")==preferred),None)
+            if selected is None:
+                results[engine]="PREFERRED_VOICE_UNAVAILABLE"
+                continue
+            output="VPS1_QA_"+engine+"_"+secrets.token_hex(4)
+            fields={"text":"This is a short test of the voice studio.",
+                    "voice":selected["id"],"output_name":output}
+            if engine=="kokoro":
+                fields.update(language=selected["language"],speed=1.0)
+            else:
+                fields.update(locale=selected["locale"],rate=0,pitch=0,volume=0)
+            code,response=request("POST",base+"/generate",cookie,payload=fields)
+            jid=response.get("job_id")
+            expected_prefix="KOJ-" if engine=="kokoro" else "EDJ-"
+            if code!=200 or not isinstance(jid,str) or not jid.startswith(expected_prefix):
+                results[engine]="GENERATE_API_UNAVAILABLE"
+                continue
+            entry={"job_id":jid,"output_name":output,"verified":False}
+            state["engines"][engine]=entry
+            atomic_json(journal,state,0o600)
+        jid=entry["job_id"]
+        expected=entry["output_name"]+(".wav" if engine=="kokoro" else ".mp3")
+        primary="wav" if engine=="kokoro" else "mp3"
+        required=("wav","txt") if engine=="kokoro" else ("mp3","wav","txt")
+        deadline=clock()+165
+        verdict="PENDING"
+        while clock()<deadline:
+            code,listing=request("GET",base+"/jobs?limit=250",cookie)
+            if code!=200 or not isinstance(listing.get("jobs"),list):
+                verdict="JOBS_API_UNAVAILABLE"
+                break
+            row=next((j for j in listing["jobs"] if j.get("job_id")==jid),None)
+            if row is None:
+                verdict="QA_JOB_NOT_LISTED"
+                break
+            if row.get("status") in ("failed","cancelled","skipped"):
+                verdict="SYNTHESIS_"+str(row["status"]).upper()
+                break
+            files=row.get("drive_files")
+            if (row.get("status")=="completed" and
+                row.get("delivery_status") in ("delivered","cleaned") and
+                row.get("output_filename")==expected and
+                row.get("naming_method")=="custom" and
+                row.get("drive_verified_at") and
+                isinstance(files,dict) and all(
+                    isinstance(files.get(ext),dict) and
+                    files[ext].get("id") and
+                    files[ext].get("name")==entry["output_name"]+"."+ext and
+                    str(files[ext].get("url","")).startswith("https://drive.google.com/file/d/")
+                    for ext in required) and
+                row.get("drive_url")==files[primary].get("url") and
+                row.get("drive_file_id")==files[primary].get("id")):
+                entry["verified"]=True
+                state["engines"][engine]=entry
+                atomic_json(journal,state,0o600)
+                verdict="PASS"
+                # Reversible history-hide of our synthetic QA job only.
+                # Media/Drive files remain retained and user jobs untouched.
+                try:
+                    request("POST",base+"/jobs/"+jid+"/delete",cookie)
+                except (OSError,ValueError,TypeError):
+                    pass
+                break
+            sleep(5)
+        results[engine]=verdict
+    return {"result":"PASS" if all(v in ("PASS","PASS_CACHED") for v in
+                                  (results.get("kokoro"),results.get("edge"))) else "INCOMPLETE",
+            "engines":results,"synthetic_jobs_only":True,
+            "owner_jobs_mutated":False}
+
+
 def run_acceptance():
     cookie=scene_cookie()
     jobs=[validate_engine(engine,db,cookie)
@@ -368,8 +485,11 @@ def run_acceptance():
     evidence={engine:check_existing_remote_receipt(engine,db)
               for engine,db in zip(("kokoro","edge"),DATA_ROOTS)}
     upload_proof=drive_upload_smoke_once()
+    audio_proof=(audio_output_smoke_once(cookie) if upload_proof.get("result")=="PASS" else
+                 {"result":"SKIPPED","reason":"Drive TXT probe not verified"})
     return {"result":"PASS_VOICE_TTS_LIVE_CONTROL_QA","engines":jobs,
             "drive_readonly_evidence":evidence,
             "drive_real_upload_proof":upload_proof,
-            "synthesis":"NOT_TESTED","owner_jobs_mutated":False,
+            "generated_audio_proof":audio_proof,
+            "synthesis":"TESTED" if audio_proof.get("result")=="PASS" else "UNVERIFIED","owner_jobs_mutated":False,
             "auto_script":"OFFLINE"}
