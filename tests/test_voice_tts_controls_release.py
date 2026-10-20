@@ -63,6 +63,7 @@ class VoiceTTSReleaseTest(unittest.TestCase):
         self.assertIn("part01/templates/voice_studio.html",files)
         self.assertIn("part02/kokoro_worker.py",files)
         self.assertIn("part03/edge_worker.py",files)
+        self.assertIn("delivered",release.DELIVERY_BUSY)
 
     def test_runtime_guard_and_no_default_auto_script_dispatch(self):
         root=Path(__file__).resolve().parents[1]
@@ -74,6 +75,13 @@ class VoiceTTSReleaseTest(unittest.TestCase):
         self.assertIn("backup_sqlite(source, journal",script)
         self.assertNotIn("workers.stop(APP)",script)
         self.assertNotIn("shutil.rmtree(",script)
+        workflow=(root/".github/workflows/vps1-voice-queue-api-release.yml").read_text()
+        self.assertIn("[vps1-voice-tts-controls-release]",workflow)
+        self.assertIn("[vps1-voice-tts-controls-only]",workflow)
+        self.assertIn("PASS_VOICE_TTS_CONTROLS",workflow)
+        self.assertIn("SOURCE_RELEASE_MODE=controls",workflow)
+        edge=(root/"apps/voice-studio/part03/edge_worker.py").read_text()
+        self.assertIn("WHERE job_id=? AND status='processing'",edge)
 
 
 if __name__=="__main__":
