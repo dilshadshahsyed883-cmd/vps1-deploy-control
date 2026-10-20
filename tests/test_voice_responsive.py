@@ -29,6 +29,12 @@ def browser_acceptance():
     from jinja2 import Template
     from playwright.sync_api import sync_playwright, expect
     html = Template((ROOT / 'apps/voice-studio/part01/templates/voice_studio.html').read_text()).render(max_text=1000000, max_batch=500)
+    # Model the live Voice proxy's sub_filter for browser-originated requests.
+    # A quoted `'/jobs` suffix is rewritten to `'/voice-studio/jobs`
+    # (wrong), whereas JS pieces `'/'+'jobs'` must remain intact.
+    for q in ("'", '"', "`"):
+        html = html.replace(q + '/jobs', q + '/voice-studio/jobs')
+
     static = ROOT / 'apps/scene-builder/part01/static'
     jobs = [{'id':'job-1','job_id':'job-1','source_filename':'long-recording-'+'x'*160+'.txt','filename':'long-recording-'+'x'*160+'.txt','status':'completed','delivery_status':'verified','audio_url':'/tts/api/kokoro/audio/job-1', 'files':{}, 'outputs':{},'mp3_url':'/test.mp3','wav_url':'/test.wav','txt_url':'/test.txt','srt_url':'/test.srt'},
             {'id':'job-2','job_id':'job-2','filename':'retry.txt','status':'processing','error':'controlled provider failure'}]
