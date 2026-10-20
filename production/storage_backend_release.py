@@ -40,7 +40,7 @@ def _token() -> str:
     values = []
     for line in ENV.read_text(encoding="utf-8").splitlines():
         if line.startswith("STORAGE_MANAGER_TOKEN="):
-            values.append(line.split("=", 1)[1].strip().strip(""'"))
+            values.append(line.split("=", 1)[1].strip().strip("'").strip('"'))
     if len(values) != 1 or not re.fullmatch(r"[A-Za-z0-9_-]{24,256}", values[0]):
         raise RuntimeError("Storage Manager candidate token is invalid")
     return values[0]
