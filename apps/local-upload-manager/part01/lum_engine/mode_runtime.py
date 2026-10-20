@@ -11,8 +11,8 @@ import urllib.error
 import urllib.request
 
 MODE_PORTS = {
-    "engine2": ("LUM_MODE_ENGINE2_PORT", 8016, "/local-upload-manager/health", "Local Upload Manager"),
-    "shorts": ("LUM_MODE_SHORTS_PORT", 8017, "/local-upload-manager/health", "Local Upload Manager"),
+    "engine2": ("LUM_MODE_ENGINE2_PORT", 8016, "/local-upload-manager/modes/engine2/health", "Local Upload Manager"),
+    "shorts": ("LUM_MODE_SHORTS_PORT", 8017, "/local-upload-manager/modes/shorts/health", "Local Upload Manager"),
     "short_stream": ("SHORT_STREAM_PORT", 8145, "/health", "short-stream"),
 }
 
@@ -30,10 +30,12 @@ def probe(mode: str) -> dict:
         return {"web": "not_configured", "worker": "not_checked", "details": "Invalid engine service port"}
     if not 1024 <= port <= 65535:
         return {"web": "not_configured", "worker": "not_checked", "details": "Invalid engine service port"}
+    # Match the isolated app LUM_BASE_PATH configured in production/workers.py.
+    # The primary /local-upload-manager/health responds only on Engine 1.
     url = f"http://127.0.0.1:{port}{route}"
     request = urllib.request.Request(url, headers={"Accept": "application/json"})
     try:
-        with urllib.request.urlopen(request, timeout=0.4) as response:
+        with urllib.request.urlopen(request, timeout=2.0) as response:
             if response.status != 200:
                 raise ValueError("health route is not ready")
             payload = json.loads(response.read(2048).decode("utf-8"))
