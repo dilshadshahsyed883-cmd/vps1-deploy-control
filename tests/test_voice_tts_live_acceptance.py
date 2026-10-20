@@ -288,6 +288,74 @@ class VoiceLiveAcceptanceTests(unittest.TestCase):
         runner.assert_called_once()
         sleeper.assert_not_called()
 
+    def test_authenticated_synthetic_audio_verifies_filenames_and_drive_links_once(self):
+        from production import voice_tts_live_acceptance as acceptance
+        journal=Path(self.temp.name)/"real-audio-journal"
+        journal.mkdir()
+        jobs={}
+        operations=[]
+        def request(method,path,cookie="",payload=None):
+            operations.append((method,path))
+            self.assertEqual(cookie,"session=qa-test")
+            engine="kokoro" if "/kokoro/" in path else "edge"
+            if path.endswith("/voices"):
+                field="language" if engine=="kokoro" else "locale"
+                return 200,{"voices":[{"id":"af_heart" if engine=="kokoro" else "en-US-Test",
+                                        field:"en-us" if engine=="kokoro" else "en-US"}]}
+            if path.endswith("/generate"):
+                self.assertEqual(method,"POST")
+                self.assertTrue(payload["output_name"].startswith("VPS1_QA_"+engine+"_"))
+                jid=("KOJ-" if engine=="kokoro" else "EDJ-")+("A"*16 if engine=="kokoro" else "B"*16)
+                jobs[jid]={"output":payload["output_name"],"engine":engine}
+                return 200,{"job_id":jid}
+            if path.endswith("/jobs?limit=250"):
+                rows=[]
+                for jid,j in jobs.items():
+                    if j["engine"]!=engine:
+                        continue
+                    name=j["output"]
+                    extensions=("wav","txt") if engine=="kokoro" else ("mp3","wav","txt")
+                    remote={ext:{"id":"testdrive-id-"+ext,"name":name+"."+ext,
+                                  "url":"https://drive.google.com/file/d/testdrive-id-"+ext+"/view"}
+                            for ext in extensions}
+                    primary="wav" if engine=="kokoro" else "mp3"
+                    rows.append({"job_id":jid,"status":"completed","delivery_status":"cleaned",
+                                 "naming_method":"custom",
+                                 "output_filename":name+"."+primary,
+                                 "drive_verified_at":"2026-10-20T18:00:00Z",
+                                 "drive_file_id":remote[primary]["id"],
+                                 "drive_url":remote[primary]["url"],
+                                 "drive_files":remote})
+                return 200,{"jobs":rows}
+            if path.endswith("/delete") and method=="POST":
+                return 200,{"status":"hidden"}
+            raise AssertionError("Unexpected audio QA route: "+path)
+        with mock.patch.object(acceptance,"JOURNALS",journal):
+            first=acceptance.audio_output_smoke_once("session=qa-test",request=request)
+            self.assertEqual(first["result"],"PASS")
+            self.assertEqual(first["engines"],{"kokoro":"PASS","edge":"PASS"})
+            self.assertEqual(len([o for o in operations if o[1].endswith("/generate")]),2)
+            old_count=len(operations)
+            second=acceptance.audio_output_smoke_once("session=qa-test",request=request)
+            self.assertEqual(second["result"],"PASS")
+            self.assertEqual(second["engines"],{"kokoro":"PASS_CACHED","edge":"PASS_CACHED"})
+            self.assertEqual(len(operations),old_count)
+            self.assertTrue((journal/"one-time-generated-audio-qa.json").exists())
+
+    def test_failed_voice_catalog_does_not_create_or_modify_a_job(self):
+        from production import voice_tts_live_acceptance as acceptance
+        journal=Path(self.temp.name)/"unavailable-voice-catalog"
+        journal.mkdir()
+        calls=[]
+        def unavailable(method,path,cookie="",payload=None):
+            calls.append((method,path))
+            return 503,{}
+        with mock.patch.object(acceptance,"JOURNALS",journal):
+            result=acceptance.audio_output_smoke_once("session=qa-test",request=unavailable)
+        self.assertEqual(result["result"],"INCOMPLETE")
+        self.assertTrue(all(x[0]=="GET" for x in calls))
+        self.assertTrue(result["owner_jobs_mutated"] is False)
+
     def test_release_requires_live_proof_before_success(self):
         script=(ROOT/"production/voice_tts_controls_release.py").read_text()
         self.assertLess(script.index("verify_queues()"),script.index("qa = run_acceptance()"))
