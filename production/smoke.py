@@ -40,6 +40,99 @@ def render_short(client):
     raise TimeoutError('render did not finish')
 
 
+
+def smoke_isolated_uploader_pages(state):
+    """Exercise real independent app HTML; health alone missed embedded HTTP 500.
+
+    All subprocesses and databases are disposable, never real OAuth/media/queues.
+    """
+    import httpx
+    source = REPO / "apps" / "local-upload-manager" / "part01"
+    checked = {}
+    for mode, leaf in (("engine2", "lum2"), ("shorts", "lum3")):
+        root = state / leaf
+        root.mkdir(parents=True, exist_ok=True)
+        env = {
+            **os.environ,
+            **environment("local-upload-manager", state),
+            "LUM_DATA_DIR": str(root),
+            "YOUTUBE_UPLOAD_MANAGER_DATA_DIR": str(root / "core"),
+            "LUM_AUTO_ENGINE_V6_ROOT": str(root / "auto_engine_v6"),
+            "LUM_GOOGLE_OAUTH_ROOT": str(root / "secure"),
+            "LUM_BASE_PATH": f"/local-upload-manager/modes/{mode}",
+            "LUM_ENGINE_INSTANCE": mode,
+            "LUM_SUITE_AUTH": "1",
+            "FRESH_WEBSITE_SMOKE_TEST": "1",
+            "RCLONE_CONFIG": str(state / "absent-rclone.conf"),
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+        command = [
+            sys.executable, "-m", "uvicorn", "lum_engine.standalone_app:app",
+            "--host", "127.0.0.1", "--port", str(port),
+        ]
+        logpath = state / (mode + "-embedded-runtime.log")
+        with logpath.open("w+") as log:
+            proc = subprocess.Popen(
+                command, cwd=source, env=env,
+                stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+            )
+            try:
+                with httpx.Client(
+                    base_url=f"http://127.0.0.1:{port}", timeout=7,
+                    trust_env=False, follow_redirects=False,
+                    headers={
+                        "X-Auth-User": "isolated-smoke",
+                        "X-App-Access": "lum",
+                        "X-Is-Admin": "0",
+                    },
+                ) as client:
+                    base = f"/local-upload-manager/modes/{mode}"
+                    deadline = time.monotonic() + 35
+                    while time.monotonic() < deadline:
+                        if proc.poll() is not None:
+                            log.seek(0)
+                            raise RuntimeError(
+                                f"{mode} startup failed: " + log.read()[-3000:]
+                            )
+                        try:
+                            health = client.get(base + "/health")
+                            if (health.status_code == 200 and
+                                    health.json().get("ok") is True and
+                                    health.json().get("engine_instance") == mode):
+                                break
+                        except (httpx.TransportError, ValueError):
+                            pass
+                        time.sleep(.2)
+                    else:
+                        log.seek(0)
+                        raise RuntimeError(
+                            f"{mode} health timeout: " + log.read()[-3000:]
+                        )
+                    page = client.get(base + "/app?embedded=1&tab=auto_engine")
+                    expected = "Engine 2" if mode == "engine2" else "Shorts Engine"
+                    if (page.status_code != 200 or
+                            "text/html" not in page.headers.get("content-type", "") or
+                            "Auto Engine" not in page.text or expected not in page.text or
+                            "Internal Server Error" in page.text):
+                        log.seek(0)
+                        raise RuntimeError(
+                            f"{mode} embedded UI HTTP {page.status_code}: " +
+                            log.read()[-4000:]
+                        )
+                    checked[mode] = "EMBEDDED_HTML_200"
+            finally:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=5)
+    return checked
+
+
 def smoke(app):
     import httpx
     spec = CATALOG[app]
@@ -145,6 +238,9 @@ def smoke(app):
                         raise RuntimeError('legacy stream bookmark did not redirect to independent Auto Stream')
                     if client.get(spec['ui'] + '?tab=auto_engine&auto_mode=../../').status_code != 400:
                         raise RuntimeError('unknown upload mode was accepted')
+                    # Launch both real isolated services against separate throwaway
+                    # stores. A parent-only health/UI smoke never exercises the iframe.
+                    result['isolated_embedded_pages'] = smoke_isolated_uploader_pages(state)
                     result['three_mode_isolation_ui'] = 'PASS'
                     result['auto_stream_independent_navigation'] = 'PASS'
                     result['auto_engine_read_only_ui'] = 'PASS'

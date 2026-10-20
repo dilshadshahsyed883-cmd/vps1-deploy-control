@@ -387,7 +387,16 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
     elif selected_auto_mode == "short_stream":
         # Historical four-mode bookmarks lead to the separate Stream tab.
         return RedirectResponse(route("/app") + "?tab=auto_stream", status_code=303)
-    mode_registry = four_mode_registry() if selected == "auto_engine" else {}
+    # Only Engine 1 owns the cross-mode registry. Its root defaults to lum1,
+    # while each isolated process points LUM_DATA_DIR at lum2/lum3. Calling
+    # four_mode_registry() from those processes aliases the Engine 1 root to
+    # their own root and raises "Uploader modes must have separate data roots".
+    # Isolated apps render solely from their own V6/PC database instead.
+    mode_registry = (
+        four_mode_registry()
+        if selected == "auto_engine" and engine_instance == "engine1"
+        else {}
+    )
     auto_v6 = v6_profile_context(db, v6_store, int(auto_profile_id or 0)) if selected == "auto_engine" and selected_auto_mode == "engine1" else {}
     if selected == "auto_engine" and auto_v6:
         # LUM_SCHEDULER_CONTROL_LIVE_V1: runtime-only presentation state.
