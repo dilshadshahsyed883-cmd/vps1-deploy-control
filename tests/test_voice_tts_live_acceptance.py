@@ -169,7 +169,7 @@ class VoiceLiveAcceptanceTests(unittest.TestCase):
         from production.voice_tts_live_acceptance import safe_rclone_auth_facts
         config=Path(self.temp.name)/"rclone.conf"
         config.write_text("[gdrive]\ntype=drive\nscope=drive.readonly\n"
-                          "token={\\"access_token\\":\\"never-print-this\\"}\n")
+                          'token={"access_token":"never-print-this"}\n')
         data=safe_rclone_auth_facts(config)
         self.assertEqual(data,{"remote_type":"drive","auth_mode":"oauth",
                                "scope":"read_only"})
