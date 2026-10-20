@@ -80,7 +80,7 @@ class UniversalSidebarContracts(unittest.TestCase):
         source = SHELL_JS.read_text(encoding="utf-8")
         self.assertIn('["acs", "voice", "uploader", "stream", "library"]', source)
         self.assertIn('app === "library" ? "experiment"', source)
-        self.assertIn('"self-media-library"', source)
+        self.assertIn('experiment-studio|self-media-library', source)
         self.assertIn('if (app === "library")', source)
         self.assertIn('addLink(tabs, "Antidetect Browser"', source)
         self.assertIn('addLink(tabs, "Self Media Library", "/self-media-library/", true)', source)
