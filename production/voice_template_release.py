@@ -37,6 +37,8 @@ PREVIOUS_ASSETS = (
     b'<script src="/&#115;tatic/vps1_native_site_shell.js?v=20261019-voice-nav-v2" data-workspace="voice" defer></script>'
 )
 ASSET_NOTE = b"<!-- VPS1 Voice native sidebar assets loaded before large inline CSS. -->"
+OLD_LIMITS = b"const MAX_TEXT=,MAX_BATCH=;"
+NEW_LIMITS = b"const MAX_TEXT=1000000,MAX_BATCH=500;"
 
 
 def require(ok: bool, why: str) -> None:
@@ -89,14 +91,16 @@ def verify_runtime() -> None:
         body = response.read(500000)
         require(response.status == 200 and "html" in response.headers.get("Content-Type", "").lower(),
                 "Voice web UI HTTP response unavailable")
-        require(NEW_ASSETS in body and b'id="vsEngineOmni"' in body,
-                "Voice web UI is still serving old native assets")
+        require(NEW_ASSETS in body and NEW_LIMITS in body and
+                OLD_LIMITS not in body and b'id="vsEngineOmni"' in body,
+                "Voice web UI template guard is not live")
     from production.route_uploader_scene_https import https_get, scene_cookie
     cookie = scene_cookie()
     code, kind, html = https_get("/voice-studio/app", cookie)
     require(code == 200 and "html" in kind.lower()
-            and b"vps1_native_site_shell.js?v=20261020-upload-studio-v1" in html,
-            "authenticated public Voice page not updated")
+            and b"vps1_native_site_shell.js?v=20261020-upload-studio-v1" in html
+            and NEW_LIMITS in html and OLD_LIMITS not in html,
+            "authenticated public Voice page template guard not updated")
     anonymous, _, _ = https_get("/voice-studio/app")
     require(anonymous in {401, 403, 303}, "anonymous Voice page became accessible")
 
@@ -119,9 +123,20 @@ def install(revision: str) -> None:
     require(source.is_file() and not source.is_symlink(),
             "trusted Voice template source missing")
     source_html = source.read_bytes()
-    require(NEW_ASSETS in source_html, "approved GitHub Voice template marker missing")
+    require(NEW_ASSETS in source_html and source_html.count(NEW_LIMITS) == 1,
+            "approved GitHub Voice template markers missing")
     original_html = (previous / PAGE).read_bytes()
     patched_html = patch_template(original_html)
+    # Apply the single approved browser boot guard from the source template.
+    # This keeps the release worker-safe: no synthesis service or data store is touched.
+    if original_html.count(OLD_LIMITS) == 1:
+        patched_html = patched_html.replace(OLD_LIMITS, NEW_LIMITS, 1)
+    elif original_html.count(NEW_LIMITS) == 1:
+        pass
+    else:
+        require(False, "unexpected Voice template limit guard state")
+    require(patched_html.count(NEW_LIMITS) == 1 and OLD_LIMITS not in patched_html,
+            "Voice template limit guard overlay failed")
 
     target = RELEASES / (revision + "-sidebar-only")
     if previous == target:
