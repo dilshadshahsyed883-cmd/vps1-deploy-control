@@ -8,8 +8,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = ROOT / "apps/voice-studio/part01/audio_downloader_api.py"
@@ -18,6 +16,11 @@ TEMPLATE = ROOT / "apps/voice-studio/part01/templates/voice_studio.html"
 
 class AudioDownloaderQueueHistoryTests(unittest.TestCase):
     def setUp(self):
+        try:
+            from fastapi import FastAPI
+            from fastapi.testclient import TestClient
+        except ImportError:
+            self.skipTest('FastAPI/httpx required for isolated runtime integration')
         self.tmp = tempfile.TemporaryDirectory(prefix="audio-downloader-test-")
         self.env = patch.dict(os.environ, {"AUDIO_DOWNLOADER_ROOT": self.tmp.name})
         self.env.start()
