@@ -20,6 +20,7 @@ from typing import Any
 
 BASE = Path("/srv/fresh-website")
 STATE = Path("/var/lib/vps-storage-manager")
+PUBLIC_STATUS = Path("/var/lib/vps1-storage-gc-public/status.json")
 DEPLOY_LOCK = Path("/run/lock/vps1-production.lock")
 MIN_AGE_HOURS = 12
 MIN_FREE_BYTES = 5_000_000_000
@@ -340,11 +341,106 @@ def execute(root: Path = BASE, *, apply: bool = False, state: Path = STATE,
         return result
 
 
+
+def publish_readonly_status(*, state: Path = STATE, destination: Path = PUBLIC_STATUS,
+                            root: Path = BASE, unit_dir: Path | None = None,
+                            test_mode: bool = False) -> dict[str, Any]:
+    """Export only redacted GC metrics: never expose audit paths, release IDs or user data.
+
+    The installed root-only GC owns this producer. Its publicly readable output is
+    a bounded metadata document, not a permission change to the private audit.
+    Inventory is acquired through the existing deployment flock; if that lock or
+    ownership check fails we publish no reclaimable-byte claim.
+    """
+    if not test_mode and os.geteuid() != 0:
+        raise PermissionError("root-only verified GC snapshot exporter")
+    last = None
+    audit = state / "deployment-gc-history.jsonl"
+    try:
+        if audit.is_file() and not audit.is_symlink() and audit.stat().st_size <= 2_000_000:
+            for line in reversed(audit.read_text(encoding="utf-8").splitlines()[-MAX_HISTORY:]):
+                if not line.strip():
+                    continue
+                record = json.loads(line)
+                if not isinstance(record, dict) or record.get("mode") != "apply":
+                    continue
+                when = record.get("timestamp")
+                before, after = record.get("free_before_bytes"), record.get("free_after_bytes")
+                if type(when) is not int or not 0 < when < 4_102_444_800:
+                    continue
+                deleted, skipped = record.get("deleted"), record.get("skipped")
+                last = {
+                    "timestamp": when,
+                    "deleted_count": len(deleted) if isinstance(deleted, list) else None,
+                    "skipped_count": len(skipped) if isinstance(skipped, list) else None,
+                    "measured_freed_bytes": max(0, after - before)
+                    if type(before) is int and type(after) is int and before >= 0 and after >= 0
+                    else None,
+                }
+                break
+    except (OSError, UnicodeError, ValueError, OverflowError, TypeError):
+        pass
+
+    eligible = None
+    measured_at = None
+    try:
+        result = execute(root=root, apply=False, state=state, unit_dir=unit_dir,
+                         test_mode=test_mode)
+        plan = result.get("inventory", {})
+        estimated = plan.get("estimated_bytes")
+        if not plan.get("blocked") and type(estimated) is int and estimated >= 0:
+            eligible = estimated
+            measured_at = int(time.time())
+    except (OSError, ValueError, RuntimeError, PermissionError, BlockingIOError):
+        pass
+
+    payload = {
+        "schema": 1, "generated_at": int(time.time()),
+        "last_cleanup": last, "eligible_bytes": eligible,
+        "eligible_measured_at": measured_at,
+    }
+    parent = destination.parent
+    if parent.is_symlink():
+        raise RuntimeError("unsafe public GC status directory")
+    if not test_mode:
+        if not parent.is_dir():
+            raise RuntimeError("public GC status directory not installed")
+        info = parent.stat()
+        if info.st_uid != 0 or info.st_mode & 0o022:
+            raise RuntimeError("public GC status directory is not root-controlled")
+    else:
+        parent.mkdir(parents=True, exist_ok=True)
+    if destination.is_symlink():
+        raise RuntimeError("unsafe public GC status symlink")
+    temp = parent / (".gc-status-" + str(os.getpid()) + ".tmp")
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(temp, flags, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, sort_keys=True, separators=(",", ":"))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temp, 0o644)
+        os.replace(temp, destination)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            temp.unlink()
+    return payload
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true", help="guarded removal; default is dry-run")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--publish-status", action="store_true", help="root-only sanitized read-only telemetry")
     args = parser.parse_args()
+    if args.publish_status:
+        if args.apply:
+            parser.error("--publish-status cannot delete or apply")
+        print(json.dumps(publish_readonly_status(), sort_keys=True))
+        return
     result = execute(apply=args.apply)
     print(json.dumps(result, indent=2, sort_keys=True))
 

@@ -558,6 +558,24 @@ def perform_scan() -> dict[str, Any]:
         return _perform_scan_unlocked()
 
 
+PUBLIC_GC_STATUS = Path("/var/lib/vps1-storage-gc-public/status.json")
+
+
+def _public_deployment_gc_status() -> dict[str, Any] | None:
+    """Root-exported, sanitized status only; do not open root-owned audit or app DB."""
+    try:
+        if PUBLIC_GC_STATUS.is_symlink() or not PUBLIC_GC_STATUS.is_file():
+            return None
+        if not 0 < PUBLIC_GC_STATUS.stat().st_size <= 4096:
+            return None
+        value = json.loads(PUBLIC_GC_STATUS.read_text(encoding="utf-8"))
+        if not isinstance(value, dict) or value.get("schema") != 1:
+            return None
+        return value
+    except (OSError, ValueError, UnicodeError, TypeError):
+        return None
+
+
 def deployment_cleanup_status() -> dict[str, Any]:
     """Observe the root-owned 12-hour GC timer and bounded audit. Never execute GC."""
     unit = "vps1-storage-deployment-gc.timer"
@@ -581,6 +599,23 @@ def deployment_cleanup_status() -> dict[str, Any]:
             next_run_at = value
     except (OSError, subprocess.TimeoutExpired, AttributeError):
         pass
+
+    # Most systemd timers use a *monotonic* next elapse rather than realtime.
+    # Preserve an explicit unknown if systemd does not publish a valid value.
+    if next_run_at is None:
+        try:
+            response = run(["systemctl", "show", unit,
+                            "--property=NextElapseUSecMonotonic", "--no-pager"], timeout=8)
+            value = next((s.partition("=")[2].strip() for s in response.stdout.splitlines()
+                          if s.startswith("NextElapseUSecMonotonic=")), "")
+            if value.isdecimal():
+                boot_clock = getattr(time, "CLOCK_BOOTTIME", time.CLOCK_MONOTONIC)
+                remaining = int(value) / 1_000_000 - time.clock_gettime(boot_clock)
+                if 0 <= remaining <= 14 * 86400:
+                    next_run_at = datetime.fromtimestamp(
+                        time.time() + remaining, timezone.utc).isoformat()
+        except (OSError, subprocess.TimeoutExpired, AttributeError, OverflowError, ValueError):
+            pass
 
     last_cleanup = None
     audit = STATE_ROOT / "deployment-gc-history.jsonl"
@@ -613,6 +648,32 @@ def deployment_cleanup_status() -> dict[str, Any]:
         # The isolated candidate may not read a root-owned audit. Unknown is not 0.
         pass
 
+    public = _public_deployment_gc_status()
+    eligible_bytes = None
+    eligible_measured_at = None
+    if public is not None:
+        raw_cleanup = public.get("last_cleanup")
+        if last_cleanup is None and isinstance(raw_cleanup, dict):
+            timestamp = raw_cleanup.get("timestamp")
+            freed = raw_cleanup.get("measured_freed_bytes")
+            deleted = raw_cleanup.get("deleted_count")
+            skipped = raw_cleanup.get("skipped_count")
+            if type(timestamp) is int and 0 < timestamp < 4_102_444_800:
+                last_cleanup = {
+                    "timestamp": datetime.fromtimestamp(timestamp, timezone.utc).isoformat(),
+                    "deleted_count": deleted if type(deleted) is int and deleted >= 0 else None,
+                    "skipped_count": skipped if type(skipped) is int and skipped >= 0 else None,
+                    "measured_freed_bytes": freed if type(freed) is int and freed >= 0 else None,
+                }
+        eligible = public.get("eligible_bytes")
+        measured = public.get("eligible_measured_at")
+        generated = public.get("generated_at")
+        if (type(eligible) is int and eligible >= 0 and type(measured) is int
+                and type(generated) is int and measured <= generated
+                and 0 <= time.time() - measured <= 30 * 86400):
+            eligible_bytes = eligible
+            eligible_measured_at = datetime.fromtimestamp(measured, timezone.utc).isoformat()
+
     active = states["is-active"] == "active"
     enabled = states["is-enabled"] == "enabled"
     return {
@@ -626,7 +687,8 @@ def deployment_cleanup_status() -> dict[str, Any]:
         "grace_hours": 12,
         "next_run_at": next_run_at,
         "last_cleanup": last_cleanup,
-        "eligible_bytes": None,
+        "eligible_bytes": eligible_bytes,
+        "eligible_measured_at": eligible_measured_at,
         "scope": "unreferenced GitHub releases and isolated virtual environments only",
         "media_cleanup": "owned independently by each application after verified Drive delivery",
     }

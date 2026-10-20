@@ -94,7 +94,7 @@
       ? bytes(audit.measured_freed_bytes) : 'Unavailable');
     text('gc-eligible', info && Number.isFinite(info.eligible_bytes) ? bytes(info.eligible_bytes) : 'Not measured');
     text('gc-eligible-detail', info && Number.isFinite(info.eligible_bytes)
-      ? 'Eligible obsolete deployment artifacts from a verified read-only scan.'
+      ? 'Last verified deployment-only scan: ' + presentTime(info.eligible_measured_at) + '. Amount may change after new releases.'
       : 'No privileged inventory available from this read-only web service; do not interpret as 0 B.');
   }
 
