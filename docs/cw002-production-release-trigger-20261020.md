@@ -1,0 +1,1 @@
+CW-002 production execution trigger. The existing vps1-storage-backend-retirement-release.yml lane is the only authorized deployment path for the Storage Manager backend. No application code, data, queues, credentials, media, or Auto Script changes are included in this marker.
