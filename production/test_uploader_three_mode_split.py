@@ -23,14 +23,18 @@ class ThreeModeSplitTests(TestCase):
         ui = (ROOT / "templates/app.html").read_text()
         self.assertIn('aria-label="Auto Uploader main subtabs"', ui)
         self.assertIn('href="/auto-stream/"', ui)
-        self.assertIn("['engine1', 'engine2', 'shorts']", ui)
+        self.assertIn("('engine1', 'Engine 1')", ui)
+        self.assertIn("('engine2', 'Engine 2')", ui)
+        self.assertIn("('shorts', 'Short Uploader')", ui)
+        self.assertNotIn("<iframe", ui)
         self.assertNotIn("['engine1', 'engine2', 'shorts', 'short_stream']", ui)
         self.assertIn("No stream is started or changed by opening this tab", ui)
         self.assertIn('href="/short-stream/"', ui)
 
     def test_real_http_smoke_checks_new_navigation(self):
         smoke = (Path(__file__).resolve().parents[1] / "production/smoke.py").read_text()
-        self.assertIn("for mode in ('engine1', 'engine2', 'shorts'):", smoke)
+        self.assertIn("for mode in ('engine2', 'shorts'):", smoke)
+        self.assertIn("mode switching must redirect to native page", smoke)
         self.assertIn("stream_page = client.get(spec['ui'] + '?tab=auto_stream')", smoke)
         self.assertIn("legacy stream bookmark did not redirect", smoke)
 
