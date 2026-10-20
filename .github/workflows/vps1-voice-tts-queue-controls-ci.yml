@@ -9,6 +9,9 @@ on:
       - 'apps/voice-studio/part03/edge_worker.py'
       - 'apps/voice-studio/part01/templates/voice_studio.html'
       - 'tests/test_voice_tts_queue_actions.py'
+      - 'tests/test_voice_tts_controls_release.py'
+      - 'production/voice_tts_controls_release.py'
+      - 'production/runtime.py'
       - '.github/workflows/vps1-voice-tts-queue-controls-ci.yml'
   push:
     branches: [main]
@@ -27,10 +30,11 @@ jobs:
         with:
           python-version: '3.12'
       - name: Verify isolated SQLite transitions and race control
-        run: python -m unittest tests.test_voice_tts_queue_actions -v
+        run: python -m unittest tests.test_voice_tts_queue_actions tests.test_voice_tts_controls_release -v
       - name: Validate independent Python source syntax
         run: |
-          python -m py_compile apps/voice-studio/part01/queue_actions.py \
+          python -m py_compile production/voice_tts_controls_release.py production/runtime.py \
+            apps/voice-studio/part01/queue_actions.py \
             apps/voice-studio/part01/kokoro_api.py \
             apps/voice-studio/part01/edge_api.py \
             apps/voice-studio/part02/kokoro_worker.py \
