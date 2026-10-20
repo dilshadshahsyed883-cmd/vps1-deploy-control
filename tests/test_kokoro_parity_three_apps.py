@@ -70,6 +70,27 @@ class ThreeAppUiParityTests(unittest.TestCase):
         self.assertIn('id="browser-profiles"', self.experiment)
         self.assertIn('id="browser-preview"', self.experiment)
 
+    def test_worker_preserving_voice_template_release_includes_new_parity(self):
+        from production.voice_template_release import (
+            OMNI_PARITY_ID, OMNI_PARITY_MARKUP, omnivoice_parity_overlay
+        )
+        source = OMNI.read_bytes()
+        # Source with already applied parity must remain idempotent.
+        self.assertEqual(omnivoice_parity_overlay(source, source), source)
+        start = source.index(OMNI_PARITY_ID)
+        end = source.index(b"</style>", start) + len(b"</style>")
+        original = source[:start] + source[end:]
+        for old, new in OMNI_PARITY_MARKUP:
+            self.assertEqual(original.count(new), 1)
+            original = original.replace(new, old, 1)
+        restored = omnivoice_parity_overlay(original, source)
+        self.assertEqual(restored.count(OMNI_PARITY_ID), 1)
+        for old, new in OMNI_PARITY_MARKUP:
+            self.assertEqual(restored.count(new), 1)
+            self.assertNotIn(old, restored)
+        self.assertIn(b"id=\"vsEngineAudio\"", restored)
+        self.assertIn(b"id=\"vsEngineKokoro\"", restored)
+
     def test_no_app_operations_or_shared_shell_files_are_replaced(self):
         # The style changes must not implement fake data or mutate any queue
         # or browser profile state.
