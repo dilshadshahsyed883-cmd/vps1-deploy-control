@@ -94,7 +94,7 @@ class AudioDownloaderQueueHistoryTests(unittest.TestCase):
         self.assertIsNone(jobs[failed]["error"])
 
     def test_proxy_and_status_routes_still_registered(self):
-        routes = {r.path for r in self.client.app.routes if hasattr(r, 'path')}
+        routes = {r.path for r in self.module.router.routes}
         self.assertTrue({"/tts/api/audio-downloader/status", "/tts/api/audio-downloader/proxy",
                          "/tts/api/audio-downloader/jobs",
                          "/tts/api/audio-downloader/jobs/{job_id}/audio"}.issubset(routes))
