@@ -20,10 +20,10 @@ class AutoStreamCanonicalTests(unittest.TestCase):
     def test_stream_api_and_refresh_stability(self):
         s=STREAM.read_text()
         self.assertIn('const root="/short-stream/engine";',s)
-        self.assertIn("sessionStorage.setItem(streamStateKey,id)",s)
-        self.assertIn('openStreamTab(streamRestoredTab);',s)
+        self.assertIn("sessionStorage.setItem(stateKey,id)",s)
+        self.assertIn('openTab(restore);',s)
         self.assertIn('oauth-client-secret',s)
-        self.assertIn('/short-stream/engine/oauth/callback',s)
+        self.assertIn('/oauth/start?with_sheets=0',s)
     def test_native_sidebar_and_navigation(self):
         base=(SCENE/"templates/base.html").read_text()
         native=(SCENE/"static/vps1_native_site_shell.js").read_text()

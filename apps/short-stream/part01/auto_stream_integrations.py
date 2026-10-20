@@ -165,6 +165,7 @@ class AutoStreamAccounts:
         state = secrets.token_urlsafe(36)
         verifier = secrets.token_urlsafe(56)
         digest = hashlib.sha256(state.encode()).hexdigest()
+        requested_scopes = YOUTUBE_SCOPE + ((" " + SHEETS_SCOPE) if include_sheets else "")
         challenge = base64.urlsafe_b64encode(
             hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
         expires = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
@@ -172,7 +173,6 @@ class AutoStreamAccounts:
             con.execute("DELETE FROM oauth_state WHERE expires<?", (now(),))
             con.execute("INSERT INTO oauth_state(digest,verifier,expires,requested_scopes) VALUES (?,?,?,?)",
                         (digest, verifier, expires, requested_scopes))
-        requested_scopes = YOUTUBE_SCOPE + ((" " + SHEETS_SCOPE) if include_sheets else "")
         params = {
             "response_type": "code", "client_id": client, "redirect_uri": redirect,
             "scope": requested_scopes,

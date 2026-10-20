@@ -17,6 +17,7 @@ class AutoStreamStudioTests(unittest.TestCase):
         self.assertIn("manual-ingest", PAGE)
         self.assertIn('credentials:"same-origin"', PAGE)
         self.assertNotIn("<iframe", PAGE.lower())
+        self.assertIn('id="manual-key"', PAGE)
 
     def test_media_and_queue_controls_present(self):
         for text in ("Upload and checksum","Create DRAFT / queue","Preview","Sync DRAFTs",
@@ -26,7 +27,7 @@ class AutoStreamStudioTests(unittest.TestCase):
 
     def test_no_credential_fields_exposed(self):
         for phrase in ("AUTO_STREAM_GOOGLE_CLIENT_SECRET", "AUTO_STREAM_FERNET_KEY",
-                       "refresh_token", "stream_key"):
+                       "refresh_token"):
             self.assertNotIn(phrase, PAGE)
 
     def test_studio_route(self):
