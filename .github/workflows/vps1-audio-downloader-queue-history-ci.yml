@@ -4,6 +4,7 @@ on:
     paths:
       - 'apps/voice-studio/part01/templates/voice_studio.html'
       - 'apps/voice-studio/part01/audio_downloader_api.py'
+      - 'production/voice_template_release.py'
       - 'tests/test_audio_downloader_queue_history.py'
       - '.github/workflows/vps1-audio-downloader-queue-history-ci.yml'
   workflow_dispatch:
