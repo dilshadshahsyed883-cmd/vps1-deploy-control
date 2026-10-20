@@ -14,6 +14,34 @@ body.vps1-native-site{padding-left:var(--vps1-sidebar-width,214px)!important;bac
 .vps1-native-video-tabs{display:flex;flex-wrap:wrap;gap:8px;max-width:1400px;margin:20px auto 18px;padding:9px 12px;background:#f8faff;border:1px solid #dfe5ef;border-radius:11px}
 .vps1-native-video-tabs a{padding:9px 13px;border:1px solid #d6ddea;border-radius:8px;text-decoration:none!important;background:white;color:#34415b!important;font-size:12px;font-weight:750}
 .vps1-native-video-tabs a.active{background:#315edb;color:white!important;border-color:#315edb}
+
+/* CW-003: keep the shared Video Studio application rail on the canonical 62px geometry. */
+.vps1-native-video-tabs{
+  display:flex!important;flex-wrap:nowrap!important;align-items:center!important;
+  gap:var(--vps1-ui-gap,8px)!important;
+  width:calc(100% - 2 * var(--vps1-ui-content-gutter,34px))!important;
+  max-width:var(--vps1-ui-content-max,1400px)!important;
+  min-height:var(--vps1-ui-tab-rail-height,62px)!important;
+  margin:var(--vps1-ui-content-top,26px) auto 18px!important;
+  padding:10px 12px!important;box-sizing:border-box!important;
+  border:1px solid var(--vps1-ui-border,#dfe5ef)!important;
+  border-radius:var(--vps1-ui-radius,11px)!important;
+  background:var(--vps1-ui-panel,#f8faff)!important;
+  overflow-x:auto!important;overflow-y:hidden!important;
+  white-space:nowrap!important;scrollbar-width:thin;
+}
+.vps1-native-video-tabs > a{
+  display:inline-flex!important;align-items:center!important;justify-content:center!important;
+  flex:0 0 auto!important;min-height:var(--vps1-ui-touch-height,40px)!important;
+  margin:0!important;padding:9px 14px!important;box-sizing:border-box!important;
+  border:1px solid var(--vps1-ui-tab-border,#d6ddea)!important;
+  border-radius:8px!important;font:750 13px/1.2 Inter,system-ui,Arial,sans-serif!important;
+  background:#fff!important;color:var(--vps1-ui-text,#34415b)!important;
+  text-decoration:none!important;white-space:nowrap!important;
+}
+@media(max-width:760px){
+  .vps1-native-video-tabs{width:calc(100% - 2 * var(--vps1-ui-content-gutter,14px))!important;margin:var(--vps1-ui-content-top,72px) auto 18px!important;}
+}
 body.vps1-native-voice .vps3-main-sidebar{display:none!important}
 body.vps1-native-voice .vps3-layout{display:block!important;min-height:auto!important}
 body.vps1-native-voice .vps3-main-column{width:100%!important;min-width:0!important}
