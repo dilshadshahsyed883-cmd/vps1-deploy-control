@@ -204,7 +204,7 @@ class VoiceQueueBrowserCacheAndTraceTests(unittest.TestCase):
         from production.voice_template_release import (
             QUEUE_FETCH_PAIRS, queue_route_overlay)
         source = (ROOT / "apps/voice-studio/part01/templates/voice_studio.html").read_bytes()
-        self.assertEqual(len(QUEUE_FETCH_PAIRS), 4)
+        self.assertEqual(len(QUEUE_FETCH_PAIRS), 5)
         original = source
         for old, new in QUEUE_FETCH_PAIRS:
             self.assertNotIn(old, source)
@@ -214,7 +214,20 @@ class VoiceQueueBrowserCacheAndTraceTests(unittest.TestCase):
         self.assertEqual(queue_route_overlay(source, source), source)
         self.assertIn(b"cache:'no-store'", source)
         self.assertIn(b"new URL(url,location.href).pathname", source)
-        self.assertIn(b"'/jobs?limit=150&v='+Date.now()", source)
+        self.assertIn(b"+'/'+'jobs?limit=150&v='+Date.now()", source)
+
+
+    def test_nginx_sub_filter_cannot_rewrite_kokoro_or_edge_jobs_paths(self):
+        raw = (ROOT / "apps/voice-studio/part01/templates/voice_studio.html").read_bytes()
+        for engine in (b'voiceStudioDualEngineV1Script', b'voiceStudioEdgeEngineV1Script'):
+            start = raw.index(b'<script id="' + engine + b'">')
+            end = raw.index(b'</script>', start)
+            js = raw[start:end]
+            self.assertNotIn(b"'/jobs", js, engine)
+            self.assertNotIn(b'"/jobs', js, engine)
+            self.assertIn(b"+'/'+'jobs", js, engine)
+            public_js = js.replace(b"'/jobs", b"'/voice-studio/jobs")
+            self.assertEqual(public_js, js, engine)
 
     def test_voice_html_document_is_uncached_with_stable_revision_stamp(self):
         from production.voice_template_release import (
