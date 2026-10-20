@@ -408,7 +408,7 @@
       if(control.labels?.length||control.hasAttribute('aria-label')||control.hasAttribute('aria-labelledby'))continue;
       const parent=control.parentElement;
       const preceding=control.previousElementSibling;
-      const name=preceding?.matches('label')?preceding.textContent.trim():control.getAttribute('placeholder')||labels[control.id];
+      const name=preceding?.matches('label')?preceding.textContent.trim():control.getAttribute('placeholder')||labels[control.id]||(control.tagName==='SELECT'?control.options[0]?.textContent.trim():'')||(control.id?control.id.replace(/[-_]/g,' '):'');
       if(name)attr(control,'aria-label',name);
     }
   }
