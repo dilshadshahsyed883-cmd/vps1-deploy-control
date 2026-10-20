@@ -193,8 +193,8 @@ def jobs(limit:int=100):
     for r in rows:
         d=dict(r)
         out={k:d.get(k) for k in ('job_id','batch_id','source_filename','output_basename','language','voice','speed','status','delivery_status','created_at','error','delivery_error','naming_method','drive_file_id','drive_url','drive_verified_at','delivery_retries')}
-        out['filename']=d['output_basename']+'.wav'
-        out['output_filename']=out['filename']
+        out['filename']=d['output_basename']+'.txt'  # Backward-compatible legacy queue label.
+        out['output_filename']=d['output_basename']+'.wav'
         out['drive_files']=drive_files(d)
         if d['wav_file'] and Path(d['wav_file']).is_file():out['audio_url']='/tts/api/kokoro/audio/'+d['job_id']
         result.append(out)
