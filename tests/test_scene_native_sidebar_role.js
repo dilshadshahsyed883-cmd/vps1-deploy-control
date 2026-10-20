@@ -19,7 +19,17 @@ class Element {
     this.dataset = {};
     this.className = "";
     this.textContent = "";
-    this.classList = {add() {}, toggle() {}};
+    const classes = new Set();
+    this.classList = {
+      add: (...names) => names.forEach(name => classes.add(name)),
+      remove: (...names) => names.forEach(name => classes.delete(name)),
+      contains: name => classes.has(name),
+      toggle: (name, force) => {
+        const enabled = force === undefined ? !classes.has(name) : Boolean(force);
+        if (enabled) classes.add(name); else classes.delete(name);
+        return enabled;
+      }
+    };
   }
   appendChild(element) {
     element.parent = this;
@@ -94,6 +104,14 @@ function boot(workspace, role) {
       return prevented;
     },
     enableVoiceTab: fn => {window.vps1VoiceStudioTab = fn},
+    toggleMenu: () => all(body).find(e => e.className === "vps1-native-toggle")?.listeners?.click?.(),
+    clickBackdrop: () => all(body).find(e => e.className === "vps1-native-nav-backdrop")?.listeners?.click?.(),
+    clickNavigation: () => all(body).find(e => e.tag === "nav" && e.attrs["aria-label"] === "Applications")?.listeners?.click?.(),
+    pressEscape: () => listeners.keydown?.({key:"Escape"}),
+    resizeTo: width => {window.innerWidth = width;winEvents.resize?.()},
+    isMenuOpen: () => body.classList.contains("vps1-native-open"),
+    nativeToggle: () => all(body).find(e => e.className === "vps1-native-toggle"),
+    nativeBackdrop: () => all(body).find(e => e.className === "vps1-native-nav-backdrop"),
   };
 }
 
@@ -194,3 +212,45 @@ for (const workspace of ["uploader","stream","voice","acs"]) {
     }
   });
 }
+
+test("native sidebar drawer geometry and accessibility stay stable across every independent app",async()=>{
+  const stylesheet=fs.readFileSync(path.join(__dirname,
+    "../apps/scene-builder/part01/static/vps1_native_site_shell.css"),"utf8");
+  for(const key of ["--vps1-sidebar-width:214px","--vps1-mobile-drawer-width:min(84vw,300px)",
+    "body.vps1-native-site > .vps1-native-toggle",
+    "body.vps1-native-open > .vps1-native-nav-backdrop",
+    "body.vps1-native-open {overflow:hidden",
+    "body.vps1-native-site > :is(.vps1-native-video-tabs,.vps1-native-upload-tabs,.vps1-native-experiment-tabs)"]){
+    assert.ok(stylesheet.includes(key),"Missing stable sidebar CSS "+key);
+  }
+  for(const app of ["library","acs","uploader","stream","voice"]){
+    const h=boot(app,{authenticated:true,is_admin:false,username:"editor"});
+    await h.tick();
+    const toggles=all(h.body).filter(e=>e.className==="vps1-native-toggle");
+    const backdrops=all(h.body).filter(e=>e.className==="vps1-native-nav-backdrop");
+    const sidebars=all(h.body).filter(e=>e.id==="vps1-native-site-sidebar");
+    assert.equal(toggles.length,1,app+" must have one toggle");
+    assert.equal(backdrops.length,1,app+" must have one backdrop");
+    assert.equal(sidebars.length,1,app+" must have one sidebar");
+    assert.equal(h.nativeToggle().attrs["aria-controls"],"vps1-native-site-sidebar");
+    assert.equal(h.nativeToggle().attrs["aria-expanded"],"false");
+    h.toggleMenu();
+    assert.equal(h.isMenuOpen(),true,app+" should open drawer");
+    assert.equal(h.nativeToggle().attrs["aria-expanded"],"true");
+    h.pressEscape();
+    assert.equal(h.isMenuOpen(),false,app+" Escape must close drawer");
+    h.toggleMenu();
+    h.clickBackdrop();
+    assert.equal(h.isMenuOpen(),false,app+" backdrop must close drawer");
+    h.toggleMenu();
+    h.clickNavigation();
+    assert.equal(h.isMenuOpen(),false,app+" app navigation must close drawer");
+    h.toggleMenu();
+    h.resizeTo(1024);
+    assert.equal(h.isMenuOpen(),false,app+" desktop resize must close drawer");
+    h.toggleMenu();
+    await h.update({authenticated:true,is_admin:false,username:"editor"});
+    assert.equal(h.isMenuOpen(),false,app+" history restore must close drawer");
+    assert.equal(h.nativeToggle().attrs["aria-expanded"],"false");
+  }
+});
