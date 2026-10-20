@@ -119,6 +119,20 @@ def run(screenshots: Path | None) -> int:
                             page.add_style_tag(content="body{margin:0}")
                             page.add_style_tag(content=shell_css)
                             page.add_style_tag(content=geometry_css)
+                            if app in ("scene-builder", "short-maker", "video-merger"):
+                                # Run the actual unifier, not only a mock legacy sidebar.
+                                page.evaluate(
+                                    """(source) => {
+                                      const s=document.createElement('script');
+                                      s.dataset.unifySidebar='1';
+                                      s.textContent=source;
+                                      document.body.append(s);
+                                    }""",
+                                    native_js)
+                                names = page.locator("#app-sidebar > nav > a").all_text_contents()
+                                if names != ["Dashboard", "Upload Studio", "Video Studio",
+                                             "Voice Studio"]:
+                                    errors.append(f"{width}px {app}: sidebar drift {names!r}")
                             if app in NATIVE:
                                 workspace = {"auto-caption-studio": "acs",
                                              "auto-uploader": "uploader",

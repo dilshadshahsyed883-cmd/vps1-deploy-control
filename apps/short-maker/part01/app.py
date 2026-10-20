@@ -566,8 +566,9 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
 @media(max-width:600px){main{margin-left:0!important;padding:14px!important}.sm-tabs{overflow-x:auto!important;white-space:nowrap!important}}
 
 </style>
-<link rel="stylesheet" href="/static/vps1_native_site_shell.css?v=20261019-unified-v2">
+<link rel="stylesheet" href="/static/vps1_native_site_shell.css?v=20261020-upload-studio-v1">
 <link rel="stylesheet" href="/static/vps1_video_studio_geometry.css?v=20261020-geometry-v1">
+<script defer src="/static/vps1_native_site_shell.js?v=20261020-unified-sidebar-v1" data-unify-sidebar="1"></script>
 </head>
 <body>
 <button type="button" class="vps1-video-mobile-menu" aria-controls="app-sidebar" aria-expanded="false">☰ Menu</button>
@@ -576,8 +577,9 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
  <div class="brand"><div class="logo">S</div><div><strong>Scene Builder</strong><small>Team Studio</small></div></div>
  <nav>
   <a href="/">Dashboard</a>
-  <a href="/local-upload-manager">Auto Uploader</a>
-    <a class="active" href="/scene-builder/" aria-current="page">Video Studio</a>
+  <a href="/local-upload-manager">Upload Studio</a>
+  <a class="active" href="/scene-builder/" aria-current="page">Video Studio</a>
+  <a href="/voice-studio/app#vps1-production">Voice Studio</a>
 
 <!-- Auto Script stays OFFLINE -->
  </nav>
