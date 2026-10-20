@@ -48,13 +48,27 @@ class VoiceSidebarUIOnlyTests(unittest.TestCase):
         self.assertEqual(next_page.replace(NEW_ASSETS, PREVIOUS_ASSETS), older)
         self.assertIn(b'id="vsEngineOmni"', next_page)
 
+    def test_canonical_assets_without_optional_note_are_safe_and_idempotent(self):
+        # Other approved independent Voice releases may keep the canonical
+        # CSS/JS pair while omitting the original legacy relocation comment.
+        current = self.previous.replace(OLD_ASSETS, NEW_ASSETS)
+        self.assertNotIn(ASSET_NOTE, current)
+        self.assertEqual(patch_template(current), current)
+        with self.assertRaises(RuntimeError):
+            patch_template(current.replace(b'id="vsEngineOmni"', b'id="missing"'))
+        with self.assertRaises(RuntimeError):
+            patch_template(current.replace(b'id="vsEngineKokoro"', b'id="missing"'))
+        with self.assertRaises(RuntimeError):
+            patch_template(current.replace(NEW_ASSETS, NEW_ASSETS + NEW_ASSETS))
+
     def test_fail_closed_for_unrecognized_or_duplicate_production_html(self):
         for changed in (
             self.previous.replace(OLD_ASSETS, b""),
             self.previous.replace(OLD_ASSETS, OLD_ASSETS + OLD_ASSETS),
             self.previous.replace(TITLE, b"Other Page"),
             self.previous.replace(b'id="vsEngineOmni"', b'id="missing"'),
-            self.previous.replace(OLD_ASSETS, NEW_ASSETS),
+            self.previous.replace(OLD_ASSETS, NEW_ASSETS).replace(
+                b'id="vsEngineOmni"', b'id="missing"'),
         ):
             with self.subTest(changed=len(changed)):
                 with self.assertRaises(RuntimeError):
