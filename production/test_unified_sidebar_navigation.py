@@ -70,7 +70,8 @@ class UniversalSidebarContracts(unittest.TestCase):
         page = (SCENE / "templates/experiment_studio.html").read_text(encoding="utf-8")
         self.assertIn('extends "base.html"', page)
         self.assertIn('Antidetect Browser', page)
-        self.assertIn('not yet installed', page.lower())
+        self.assertIn('Browser profiles', page)
+        self.assertIn('experiment_browser.js', page)
 
     def test_legacy_sidebar_role_is_verified_and_fails_closed(self):
         src = SHELL_JS.read_text(encoding="utf-8")

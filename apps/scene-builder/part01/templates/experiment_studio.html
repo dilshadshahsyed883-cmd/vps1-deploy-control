@@ -2,10 +2,87 @@
 {% block title %}Experiment Studio{% endblock %}
 {% block subtitle %}Independent experiments and browser tooling{% endblock %}
 {% block content %}
-<section class="experiment-workspace" aria-labelledby="antidetect-title">
-  <span class="experiment-pill">Workspace created · Browser engine not yet installed</span>
+<section class="experiment-workspace" id="experiment-browser" data-csrf="{{ experiment_csrf }}" aria-labelledby="antidetect-title">
+  <span class="experiment-pill" id="browser-engine-status">Checking browser runtime…</span>
   <h2 id="antidetect-title" style="margin:16px 0 8px">Antidetect Browser</h2>
-  <p>This subtab is reserved for the upcoming browser profile workspace. Browser engine integration, fingerprint settings, profile storage, proxies, and automation are not yet installed or active.</p>
-  <p>Existing studio applications, sessions, queues, and user data remain unchanged.</p>
+  <p>Persistent, isolated Chromium profiles with independent cookies, storage and optional proxies. Browser automation and profile privacy settings are available; no browser can guarantee undetectability.</p>
+  <style>
+  .experiment-browser-grid{display:grid;grid-template-columns:minmax(235px,330px) minmax(0,1fr);gap:18px;margin-top:18px}
+  .experiment-browser-panel{min-width:0;padding:16px;border:1px solid #dfe5ef;border-radius:10px;background:#f9fbff}
+  .experiment-browser-panel h3{margin:0 0 12px;font-size:16px}
+  .experiment-browser-panel label{display:block;margin:10px 0 5px;font-size:12px;font-weight:700}
+  .experiment-browser-panel input{width:100%;min-width:0;padding:9px 11px;border:1px solid #cfd8e6;border-radius:7px;font:inherit;box-sizing:border-box}
+  .experiment-browser-panel button{min-height:35px;padding:8px 11px;border:1px solid #ccd7e8;border-radius:7px;background:#fff;color:#34415b;cursor:pointer;font-weight:700}
+  .experiment-browser-panel button.primary{background:#315edb;color:white;border-color:#315edb}
+  .experiment-browser-panel button:disabled{opacity:.45;cursor:not-allowed}
+  .experiment-browser-actions{display:flex;flex-wrap:wrap;gap:7px;margin:11px 0}
+  #browser-profiles{display:grid;gap:9px;margin-top:15px}
+  .experiment-profile{display:flex;align-items:center;gap:8px;border:1px solid #dce4ef;background:#fff;border-radius:8px;padding:9px}
+  .experiment-profile > div{flex:1;min-width:0}
+  .experiment-profile strong,.experiment-profile small{display:block;overflow-wrap:anywhere}
+  .experiment-profile small{font-size:11px;color:#69768d}
+  .experiment-browser-screen{display:block;width:100%;max-width:100%;height:auto;min-height:180px;background:#f1f4f9;border:1px solid #dfe5ef;border-radius:8px;object-fit:contain;cursor:crosshair}
+  .experiment-browser-panel .hint{font-size:12px;line-height:1.45;color:#69768d}
+  .experiment-browser-row{display:flex;gap:7px;align-items:center}
+  .experiment-browser-row input{flex:1}
+  #browser-message{min-height:22px;white-space:pre-line;font-size:12px;overflow-wrap:anywhere}
+  @media(max-width:900px){.experiment-browser-grid{grid-template-columns:1fr}}
+  </style>
+  <div class="experiment-browser-grid">
+    <div class="experiment-browser-panel">
+      <h3>Browser profiles</h3>
+      <form id="browser-create-form">
+        <label for="browser-profile-name">Profile name</label>
+        <input id="browser-profile-name" name="name" maxlength="64" placeholder="e.g. Research profile" required>
+        <label for="browser-profile-start">Start URL (optional)</label>
+        <input id="browser-profile-start" name="start_url" placeholder="https://example.com" autocomplete="off">
+        <label for="browser-proxy-server">Proxy server (optional)</label>
+        <input id="browser-proxy-server" name="proxy_server" placeholder="http://proxy.example:8080" autocomplete="off">
+        <label for="browser-proxy-user">Proxy username</label>
+        <input id="browser-proxy-user" name="proxy_username" autocomplete="off">
+        <label for="browser-proxy-pass">Proxy password</label>
+        <input id="browser-proxy-pass" name="proxy_password" type="password" autocomplete="new-password">
+        <label for="browser-profile-locale">Locale</label>
+        <input id="browser-profile-locale" name="locale" value="en-US" maxlength="6">
+        <label for="browser-profile-timezone">Timezone</label>
+        <input id="browser-profile-timezone" name="timezone" value="UTC" maxlength="80">
+        <label for="browser-profile-agent">User agent (optional)</label>
+        <input id="browser-profile-agent" name="user_agent" placeholder="Use installed Chrome default" maxlength="360">
+        <div class="experiment-browser-actions"><button type="submit" class="primary">Create profile</button></div>
+      </form>
+      <div id="browser-profiles" aria-label="Saved browser profiles"></div>
+    </div>
+    <div class="experiment-browser-panel">
+      <h3>Browser session</h3>
+      <div class="experiment-browser-actions">
+        <button id="browser-start" type="button" class="primary" disabled>Start</button>
+        <button id="browser-stop" type="button" disabled>Stop</button>
+        <button id="browser-delete" type="button" disabled>Delete profile</button>
+        <button id="browser-reload" type="button" disabled>Reload</button>
+        <button id="browser-back" type="button" disabled>Back</button>
+      </div>
+      <label for="browser-address">Website address</label>
+      <div class="experiment-browser-row">
+        <input id="browser-address" type="url" placeholder="https://example.com" autocomplete="off">
+        <button id="browser-go" type="button" disabled>Go</button>
+      </div>
+      <p class="hint">Click the preview to interact with the browser. Enter text below to type into the focused element. Profiles stay on VPS_1 and stop automatically after inactivity.</p>
+      <img id="browser-preview" class="experiment-browser-screen" alt="Browser session preview" hidden>
+      <div id="browser-no-preview" class="experiment-browser-screen" style="display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;text-align:center;color:#69768d">Choose a profile and press Start</div>
+      <label for="browser-typed-text">Keyboard input</label>
+      <div class="experiment-browser-row">
+        <input id="browser-typed-text" maxlength="1500" placeholder="Type into focused website field" autocomplete="off">
+        <button id="browser-type" type="button" disabled>Type</button>
+        <button id="browser-enter" type="button" disabled>Enter</button>
+      </div>
+      <div class="experiment-browser-actions">
+        <button id="browser-scroll-up" type="button" disabled>Scroll up</button>
+        <button id="browser-scroll-down" type="button" disabled>Scroll down</button>
+        <button id="browser-refresh-preview" type="button" disabled>Refresh preview</button>
+      </div>
+      <div id="browser-message" role="status" aria-live="polite"></div>
+    </div>
+  </div>
 </section>
 {% endblock %}
+{% block scripts %}<script src="/static/experiment_browser.js?v=20261020-engine-v1" defer></script>{% endblock %}
