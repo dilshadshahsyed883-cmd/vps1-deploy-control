@@ -107,12 +107,20 @@ jobs:
           assert 'id="nav"' in index
           assert 'class="sml-control-rail"' in index
           assert index.count('data-page="') >= 5
-          assert 'vps1_native_site_shell.css?v=20261020-sidebar-stable-v4' in index
-          assert 'vps1_native_site_shell.js?v=20261020-sidebar-stable-v4' in index
+          assert '/&#115;tatic/vps1_native_site_shell.css?v=20261020-experiment-ui-v5' in index
+          assert '/&#115;tatic/vps1_native_site_shell.js?v=20261020-experiment-ui-v5' in index
           css=read('http://127.0.0.1:18080/static/vps1_native_site_shell.css')
           assert 'body.vps1-native-library .app-shell' in css
           assert '--vps1-mobile-drawer-width:min(84vw,300px)' in css
           assert 'body.vps1-native-open > .vps1-native-nav-backdrop' in css
+          # Check the public gateway, not only the separate loopback services.
+          for ext, kind, marker in (('js','javascript','VPS1_NATIVE_SITE_SHELL'),
+                                    ('css','text/css','--vps1-sidebar-width:214px')):
+              url='https://app.scenebuilder.online/static/vps1_native_site_shell.'+ext+'?v=20261020-experiment-ui-v5'
+              with urllib.request.urlopen(url,timeout=25) as response:
+                  assert response.status==200 and kind in response.headers.get('Content-Type','')
+                  assert marker in response.read().decode('utf-8')
+          print('PUBLIC_SHARED_SHELL_ASSET_URLS=PASS',flush=True)
           print('SIDEBAR_STABLE_DESKTOP_MOBILE=PASS',flush=True)
           with urllib.request.urlopen('http://127.0.0.1:8147/api/health',timeout=15) as response:
               assert json.load(response).get('ok') is True

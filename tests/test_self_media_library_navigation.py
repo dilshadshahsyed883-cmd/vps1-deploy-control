@@ -33,9 +33,9 @@ class ExperimentNavigation(unittest.TestCase):
         m.feed(page)
         scripts=[attrs for tag,attrs in m.tags if tag=="script" and attrs.get("data-workspace")=="library"]
         self.assertEqual(len(scripts),1)
-        self.assertEqual(scripts[0].get("src"),"/scene-builder/static/vps1_native_site_shell.js?v=20261020-sidebar-stable-v4")
+        self.assertEqual(scripts[0].get("src"),"/static/vps1_native_site_shell.js?v=20261020-experiment-ui-v5")
         styles=[attrs.get("href") for tag,attrs in m.tags if tag=="link"]
-        self.assertIn("/scene-builder/static/vps1_native_site_shell.css?v=20261020-sidebar-stable-v4",styles)
+        self.assertIn("/static/vps1_native_site_shell.css?v=20261020-experiment-ui-v5",styles)
         self.assertIn("/self-media-library/static/styles.css?v=20261020-legacy-v2",styles)
         self.assertIn("/self-media-library/static/sml_shared_theme.css?v=20261020-shared-light-v1",styles)
         scripts_all=[attrs.get("src") for tag,attrs in m.tags if tag=="script"]
@@ -63,3 +63,34 @@ class ExperimentNavigation(unittest.TestCase):
 
 if __name__=="__main__":
     unittest.main()
+
+class PublicGatewayAssets(unittest.TestCase):
+    def test_actual_gateway_rewrite_resolves_every_asset(self):
+        # Exercise the same quote-prefix substitutions as production.gateway,
+        # then parse like the browser. Checking loopback content misses this bug.
+        from urllib.parse import urlsplit
+        page=(LIBRARY/'static/index.html').read_text()
+        for root in ('api/','static/','media/','outputs/','jobs','live'):
+            for quote in ('"', "'", '`'):
+                page=page.replace(quote+'/'+root,quote+'/self-media-library/'+root)
+        parsed=Markup(); parsed.feed(page)
+        shell_assets=[]
+        for tag,attrs in parsed.tags:
+            url=attrs.get('src') if tag=='script' else attrs.get('href') if tag=='link' else None
+            if not url: continue
+            path=urlsplit(url).path
+            if path.startswith('/static/'):
+                resolved=SCENE/path.lstrip('/')
+                shell_assets.append(path)
+            else:
+                self.assertTrue(path.startswith('/self-media-library/static/'),path)
+                resolved=LIBRARY/path.removeprefix('/self-media-library/')
+            self.assertTrue(resolved.is_file(),f'Public asset {path} cannot be served')
+        self.assertEqual(len(shell_assets),2)
+
+    def test_inactive_browser_preview_remains_hidden(self):
+        template=(SCENE/'templates/experiment_studio.html').read_text()
+        self.assertIn('#experiment-browser [hidden]{display:none!important}',template)
+        tags=Markup();tags.feed(template)
+        preview=next(a for t,a in tags.tags if a.get('id')=='browser-preview')
+        self.assertIn('hidden',preview)
