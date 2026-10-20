@@ -46,6 +46,10 @@ class AutoStreamIntegrationTests(unittest.TestCase):
         self.assertIn("access_type=offline", begin["authorization_url"])
         from urllib.parse import parse_qs, urlparse
         params = parse_qs(urlparse(begin["authorization_url"]).query)
+        self.assertNotIn(mod.SHEETS_SCOPE, params["scope"][0].split())
+        with_sheets = self.app.begin_oauth(include_sheets=True)
+        sheets_params = parse_qs(urlparse(with_sheets["authorization_url"]).query)
+        self.assertIn(mod.SHEETS_SCOPE, sheets_params["scope"][0].split())
         state = params["state"][0]
         self.assertNotIn("fake-client-secret", begin["authorization_url"])
         sent = []

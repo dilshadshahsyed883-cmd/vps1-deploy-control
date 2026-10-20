@@ -230,6 +230,22 @@ class BroadcastController:
             return {"job": result, "youtube_verified_live": False,
                     "next": "Verify active YouTube ingestion before transition"}
 
+    def start_manual_ingest(self, job_id, ingest_url: str, stream_key: str):
+        """Manual RTMPS mode: encoder-only control, no YouTube API claim."""
+        _allowed("AUTO_STREAM_PUBLISH_ENABLED")
+        url = _rtmps(str(ingest_url or ""))
+        key = str(stream_key or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{8,200}", key):
+            raise ValueError("Manual stream key is invalid")
+        job = self.engine.get(job_id)
+        if job["status"] not in ("READY", "SCHEDULED"):
+            raise ValueError("Prepare a job before starting manual RTMPS ingest")
+        result = self.engine.start(job_id, internal_ingest=(url, key))
+        return {"job": result, "mode": "manual-key",
+                "youtube_verified_live": False,
+                "metadata_control": "YouTube Studio",
+                "note": "Manual-key mode does not create or transition a YouTube API broadcast."}
+
     def transition(self, job_id, target: str):
         _allowed("AUTO_STREAM_YOUTUBE_MUTATIONS_ENABLED")
         _allowed("AUTO_STREAM_LIVE_TRANSITIONS_ENABLED")
@@ -321,6 +337,12 @@ def broadcast_verify(job_id: str):
 @router.post("/jobs/{job_id}/broadcast/ingest")
 def broadcast_ingest(job_id: str):
     return _guard(lambda: controller().start_ingest(job_id))
+
+
+@router.post("/jobs/{job_id}/broadcast/manual-ingest")
+def broadcast_manual_ingest(job_id: str, payload: dict = Body(...)):
+    return _guard(lambda: controller().start_manual_ingest(
+        job_id, str(payload.get("ingest_url", "")), str(payload.get("stream_key", ""))))
 
 
 @router.post("/jobs/{job_id}/broadcast/transition")

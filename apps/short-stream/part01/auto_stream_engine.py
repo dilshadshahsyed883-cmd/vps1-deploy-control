@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import contextlib
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -21,7 +22,7 @@ import threading
 import time
 import uuid
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, File, HTTPException, UploadFile
 
 ROOT = Path(os.environ.get("SHORT_STREAM_DATA", "/var/lib/short-stream"))
 ENGINE_ROOT = Path(os.environ.get("AUTO_STREAM_ENGINE_DATA", str(ROOT / "auto-stream-engine")))
@@ -74,9 +75,17 @@ class StreamEngine:
                 channel_id TEXT NOT NULL, media_path TEXT NOT NULL,
                 title TEXT NOT NULL, scheduled_at TEXT,
                 continuous INTEGER NOT NULL DEFAULT 0,
+                loop_count INTEGER NOT NULL DEFAULT 1,
+                unlimited INTEGER NOT NULL DEFAULT 0,
+                description TEXT NOT NULL DEFAULT '',
+                privacy TEXT NOT NULL DEFAULT 'private',
                 status TEXT NOT NULL DEFAULT 'DRAFT',
                 created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
                 failure TEXT NOT NULL DEFAULT '')""")
+            existing_columns = {row[1] for row in con.execute("PRAGMA table_info(jobs)")}
+            for column, ddl in (("loop_count", "INTEGER NOT NULL DEFAULT 1"), ("unlimited", "INTEGER NOT NULL DEFAULT 0"), ("description", "TEXT NOT NULL DEFAULT ''"), ("privacy", "TEXT NOT NULL DEFAULT 'private'")):
+                if column not in existing_columns:
+                    con.execute(f"ALTER TABLE jobs ADD COLUMN {column} {ddl}")
             con.execute("""CREATE UNIQUE INDEX IF NOT EXISTS single_active_channel
                 ON jobs(channel_id) WHERE status IN ('STARTING','INGESTING','STOPPING')""")
             # A server restart cannot prove YouTube is live, nor safely
@@ -107,6 +116,7 @@ class StreamEngine:
     def _public(row):
         value = dict(row)
         value["continuous"] = bool(value["continuous"])
+        value["unlimited"] = bool(value.get("unlimited", False))
         return value
 
     def list_jobs(self):
@@ -137,6 +147,15 @@ class StreamEngine:
             raise ValueError("idempotency_key must contain 8–128 safe characters")
         when = scheduled_utc(payload.get("scheduled_at"))
         continuous = bool(payload.get("continuous", False))
+        unlimited = bool(payload.get("unlimited", continuous))
+        try:
+            loop_count = max(1, min(int(payload.get("loop_count", 1)), 10000))
+        except (TypeError, ValueError):
+            raise ValueError("loop_count must be a positive integer") from None
+        description = str(payload.get("description") or "").strip()[:5000]
+        privacy = str(payload.get("privacy") or "private").strip().lower()
+        if privacy not in {"private", "unlisted", "public"}:
+            raise ValueError("privacy must be private, unlisted or public")
         jid, now = "stream_" + uuid.uuid4().hex, utc_now()
         with self.lock, self._connect() as con:
             con.execute("BEGIN IMMEDIATE")
@@ -182,14 +201,26 @@ class StreamEngine:
         return secret
 
     def _command(self, row, key, ingest_url=RTMPS):
+        """Build one redacted-safe FFmpeg command with destination before key.
+
+        The YouTube RTMPS ingestion URL and stream key are deliberately separate
+        arguments so callers cannot accidentally reverse them.  This function
+        is regression-tested because the resulting final URL is security- and
+        delivery-critical.
+        """
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
             raise ValueError("FFmpeg is not installed")
         source = self._source(row["media_path"])
-        args = [ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error",
-                "-re"]
-        if row["continuous"]:
-            args.extend(["-stream_loop", "-1"])
+        if not isinstance(key, str) or not re.fullmatch(r"[A-Za-z0-9_-]{8,200}", key):
+            raise ValueError("Invalid stream key")
+        if not isinstance(ingest_url, str) or not re.fullmatch(
+                r"rtmps://(?:a|b)\.rtmps\.youtube\.com/live2", ingest_url.rstrip("/")):
+            raise ValueError("Unsupported YouTube RTMPS ingestion URL")
+        loops = -1 if bool(row["continuous"]) or bool(row["unlimited"]) else max(0, int(row["loop_count"]) - 1)
+        args = [ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error", "-re"]
+        if loops != 0:
+            args.extend(["-stream_loop", str(loops)])
         args.extend(["-i", str(source),
                      "-map", "0:v:0", "-map", "0:a:0?",
                      "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,"
@@ -198,7 +229,8 @@ class StreamEngine:
                      "-pix_fmt", "yuv420p", "-b:v", "2500k",
                      "-maxrate", "2500k", "-bufsize", "5000k",
                      "-g", "60", "-c:a", "aac", "-b:a", "128k",
-                     "-ar", "44100", "-f", "flv", ingest_url.rstrip("/") + "/" + key])
+                     "-ar", "44100", "-f", "flv",
+                     ingest_url.rstrip("/") + "/" + key])
         return args
 
     def start(self, jid, *, scheduler=False, internal_ingest=None):
@@ -216,7 +248,11 @@ class StreamEngine:
             if scheduler and (not row["scheduled_at"] or row["scheduled_at"] > utc_now()):
                 raise ValueError("Scheduled start has not arrived")
             # Fail closed before reserving the channel.
-            command = self._command(row, *(internal_ingest or (self._stream_key(row["channel_id"]), RTMPS)))
+            if internal_ingest:
+                ingest_url, key = internal_ingest
+            else:
+                key, ingest_url = self._stream_key(row["channel_id"]), RTMPS
+            command = self._command(row, key=key, ingest_url=ingest_url)
             active = con.execute("""SELECT id FROM jobs WHERE channel_id=?
                         AND status IN ('STARTING','INGESTING','STOPPING')""",
                                  (row["channel_id"],)).fetchone()
@@ -329,6 +365,83 @@ def translate(exc):
 @router.get("/health")
 def engine_health():
     return service().health()
+
+
+@router.get("/media")
+def engine_media():
+    root = service().media.resolve()
+    rows = []
+    for path in sorted(root.rglob("*")):
+        if path.is_file() and not path.is_symlink() and path.suffix.lower() in {".mp4", ".mov", ".mkv", ".webm", ".m4v"}:
+            rows.append({"media_path": str(path.relative_to(root)), "name": path.name, "bytes": path.stat().st_size})
+    return {"media": rows[:500]}
+
+
+def _safe_upload_name(value: str, *, thumbnail: bool = False) -> str:
+    name = Path(str(value or "upload.bin").replace("\\", "/")).name
+    name = re.sub(r"[^A-Za-z0-9@._+-]+", "_", name)[:180]
+    allowed = {".mp4", ".mov", ".mkv", ".webm", ".m4v"} if not thumbnail else {".jpg", ".jpeg", ".png"}
+    if Path(name).suffix.lower() not in allowed:
+        raise ValueError("Unsupported upload format")
+    return name
+
+
+@router.post("/media/upload")
+async def engine_upload(file: UploadFile = File(...)):
+    try:
+        name = _safe_upload_name(file.filename or "")
+        target_dir = service().media / "uploads"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / (Path(name).stem + "-" + uuid.uuid4().hex[:10] + Path(name).suffix.lower())
+        digest = hashlib.sha256()
+        size = 0
+        with target.open("wb") as out:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > 20 * 1024 * 1024 * 1024:
+                    raise ValueError("Upload exceeds the 20 GiB per-file limit")
+                digest.update(chunk)
+                out.write(chunk)
+        return {"ok": True, "media_path": str(target.relative_to(service().media)), "bytes": size, "sha256": digest.hexdigest()}
+    except Exception as exc:
+        translate(exc)
+
+
+@router.post("/media/prepare")
+def engine_prepare_media(payload: dict = Body(...)):
+    try:
+        relative = str(payload.get("media_path") or "")
+        source = service()._source(relative)
+        prepared_dir = service().media / "prepared"
+        prepared_dir.mkdir(parents=True, exist_ok=True)
+        output_name = hashlib.sha256(str(source).encode()).hexdigest() + ".mp4"
+        output = prepared_dir / output_name
+        if not output.exists():
+            ffprobe = shutil.which("ffprobe")
+            ffmpeg = shutil.which("ffmpeg")
+            if not ffprobe or not ffmpeg:
+                raise ValueError("FFprobe/FFmpeg are required for preprocessing")
+            probe = subprocess.run([ffprobe, "-v", "error", "-show_entries", "format=duration",
+                                    "-of", "default=noprint_wrappers=1:nokey=1", str(source)],
+                                   capture_output=True, text=True, timeout=30)
+            if probe.returncode != 0:
+                raise ValueError("FFprobe rejected this media file")
+            tmp = output.with_suffix(".tmp.mp4")
+            subprocess.run([ffmpeg, "-y", "-nostdin", "-i", str(source),
+                            "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,"
+                                   "pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1",
+                            "-r", "30", "-c:v", "libx264", "-preset", "veryfast",
+                            "-pix_fmt", "yuv420p", "-g", "60", "-c:a", "aac",
+                            "-ar", "44100", "-ac", "2", "-b:a", "128k", "-movflags", "+faststart",
+                            str(tmp)], check=True, timeout=3600)
+            os.replace(tmp, output)
+        return {"ok": True, "status": "READY", "media_path": str(output.relative_to(service().media)),
+                "bytes": output.stat().st_size}
+    except Exception as exc:
+        translate(exc)
 
 
 @router.get("/jobs")

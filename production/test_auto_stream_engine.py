@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+import shutil
 
 SOURCE = Path(__file__).resolve().parents[1] / "apps" / "short-stream" / "part01"
 sys.path.insert(0, str(SOURCE))
@@ -99,6 +100,27 @@ class StreamEngineTests(unittest.TestCase):
         j = self.engine.create(self.data)
         self.assertEqual(self.engine.stop(j["id"])["status"], "CANCELLED")
         self.assertEqual(self.engine.stop(j["id"])["status"], "CANCELLED")
+
+    def test_rtmps_command_places_ingest_url_before_key(self):
+        job = self.engine.create(self.data)
+        with patch.object(shutil, "which", return_value="/usr/bin/ffmpeg"):
+            args = self.engine._command(
+                {**job, "loop_count": 1, "unlimited": False},
+                key="key_abcdefghij",
+                ingest_url="rtmps://a.rtmps.youtube.com/live2",
+            )
+        self.assertEqual(args[-1], "rtmps://a.rtmps.youtube.com/live2/key_abcdefghij")
+        self.assertNotEqual(args[-1], "key_abcdefghij/rtmps://a.rtmps.youtube.com/live2")
+
+    def test_fixed_and_unlimited_loop_arguments_are_explicit(self):
+        with patch.object(shutil, "which", return_value="/usr/bin/ffmpeg"):
+            fixed = self.engine.create({**self.data, "idempotency_key":"loop-fixed-0001", "loop_count":3})
+            fixed_args = self.engine._command({**fixed, "loop_count":3, "unlimited":False}, "key_abcdefghij")
+            unlimited = self.engine.create({**self.data, "idempotency_key":"loop-unlimited-01", "unlimited":True})
+            unlimited_args = self.engine._command({**unlimited, "loop_count":1, "unlimited":True}, "key_abcdefghij")
+        self.assertIn("-stream_loop", fixed_args)
+        self.assertIn("2", fixed_args)
+        self.assertIn("-1", unlimited_args)
 
     def test_router_exists_without_mutating_legacy_sessions(self):
         paths = {r.path for r in router.routes}
