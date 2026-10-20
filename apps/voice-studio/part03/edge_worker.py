@@ -117,8 +117,12 @@ def make_outputs(row,chunks):
     if lines:srt.write_text('\n'.join(lines)+'\n',encoding='utf8')
     return mp3,wav,srt if lines else None
 
+def max_attempts():
+    try:return max(1,min(20,int(os.environ.get('EDGE_MAX_ATTEMPTS','3'))))
+    except (ValueError,TypeError):return 3
+
 def mark_waiting(jid,attempt,reason):
-    if attempt>=3:
+    if attempt>=max_attempts():
         update(jid,status='failed',error=reason[:140],delivery_status='not_applicable')
     else:
         delay=min(1800,60*(2**max(0,attempt-1)))
@@ -166,7 +170,8 @@ def process(row):
         elif state in ('pause_requested','paused'):
             update(jid,status='paused')
         else:
-            mark_waiting(jid,attempt,type(e).__name__)
+            detail=re.sub(r'(?i)(token|secret|key|authorization)[=:][^\\s,;&]+',r'\\1=[REDACTED]',str(e))
+            mark_waiting(jid,attempt,type(e).__name__+': '+detail[:100])
 
 def pick():
     with db() as c:
