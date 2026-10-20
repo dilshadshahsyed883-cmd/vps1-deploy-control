@@ -161,7 +161,19 @@ def process(row):
             update(jid,status='cancelled',delivery_status='not_applicable');return
         if status(jid) in ('pause_requested','paused'):
             update(jid,status='paused');return
-        update(jid,status='completed',progress=100,mp3_file=str(mp3),wav_file=str(wav),srt_file=str(srt) if srt else None,delivery_status='pending')
+        # CAS closes the race with a cancel/pause requested after final ffmpeg.
+        with db() as c:
+            saved=c.execute("""UPDATE jobs SET status='completed',progress=100,
+                mp3_file=?,wav_file=?,srt_file=?,delivery_status='pending',
+                updated_at=?,error=NULL WHERE job_id=? AND status='processing'""",
+                (str(mp3),str(wav),str(srt) if srt else None,now(),jid))
+        if saved.rowcount != 1:
+            state=status(jid)
+            if state in ('cancel_requested','cancelled'):
+                update(jid,status='cancelled',delivery_status='not_applicable')
+            elif state in ('pause_requested','paused'):
+                update(jid,status='paused')
+            return
         print('EDGE_AUDIO_GENERATED='+jid,flush=True)
     except Exception as e:
         state=status(jid)
