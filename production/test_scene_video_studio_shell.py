@@ -19,14 +19,22 @@ class SceneVideoStudioShell(unittest.TestCase):
                 b'<html data-page="queue" data-page="upload" data-page="voice" '
                 b'id="acs-native-live" vps1_native_site_shell.js '
                 b"const API='/auto-caption-studio/api/web-flow'",
-            "/short-maker/": b'id="makerTabBtn" data-video-studio-subnav',
-            "/video-merger/": b'id="tab-merge" data-video-studio-subnav',
+            "/short-maker/": (b'id="makerTabBtn" data-video-studio-subnav '
+                b'data-vps1-server-identity="1" class="vps1-server-admin" '
+                b'data-unify-sidebar="1" '
+                b'vps1_native_site_shell.js?v=20261020-admin-session-v2'),
+            "/video-merger/": (b'id="tab-merge" data-video-studio-subnav '
+                b'data-vps1-server-identity="1" class="vps1-server-admin" '
+                b'data-unify-sidebar="1" '
+                b'vps1_native_site_shell.js?v=20261020-admin-session-v2'),
             "/voice-studio/app": b'vsEngineOmni vsEngineKokoro vps1_native_site_shell.js',
         }
         def get(path, cookie):
             seen.append(path)
             if path == "/video-studio/short-maker" and seen.count(path) == 1:
                 return 404, "text/html", b"retired-worker"
+            if path == "/static/vps1_native_site_shell.js?v=20261020-admin-session-v2":
+                return 200, "application/javascript", b"function installLegacySidebar() {}"
             if path in destinations:
                 return 200, "text/html; charset=utf-8", destinations[path]
             return 303, "text/html", b""
