@@ -27,7 +27,12 @@ def _startup():
         ad.start_worker()
 @app.get("/",response_class=HTMLResponse)
 @app.get("/app",response_class=HTMLResponse)
-def studio(request:Request): return templates.TemplateResponse(request, "voice_studio.html", {})
+def studio(request:Request):
+    response = templates.TemplateResponse(request, "voice_studio.html", {})
+    response.headers["Cache-Control"] = "private, no-store, max-age=0, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["X-Voice-Queue-UI"] = "VSQ-20261020-01"
+    return response
 @app.get("/healthz")
 def health():
     vc.init_storage()

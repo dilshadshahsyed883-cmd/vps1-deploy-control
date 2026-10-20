@@ -123,9 +123,20 @@ QUEUE_ROUTE_PAIRS = (
 )
 
 
+QUEUE_FETCH_PAIRS = (
+    (b"async function request(url,opt){let resp=await fetch(url,{credentials:'same-origin',...(opt||{})});let ct=resp.headers.get('content-type')||'';let json=ct.includes('json')?await resp.json():{};if(!resp.ok)throw Error(json.detail||json.error||('HTTP '+resp.status));return json;}",
+     b"async function request(url,opt){let resp=await fetch(url,{credentials:'same-origin',cache:'no-store',...(opt||{})});let ct=resp.headers.get('content-type')||'';let json=ct.includes('json')?await resp.json():{};if(!resp.ok)throw Error('HTTP '+resp.status+' '+new URL(url,location.href).pathname+' : '+(json.detail||json.error||'API error'));return json;}"),
+    (b"async function req(url,opt){const r=await fetch(url,{credentials:'same-origin',...(opt||{})});let data={};try{data=await r.json();}catch(_){}if(!r.ok)throw Error(data.detail||data.error||('HTTP '+r.status));return data;}",
+     b"async function req(url,opt){const r=await fetch(url,{credentials:'same-origin',cache:'no-store',...(opt||{})});let data={};try{data=await r.json();}catch(_){}if(!r.ok)throw Error('HTTP '+r.status+' '+new URL(url,location.href).pathname+' : '+(data.detail||data.error||'API error'));return data;}"),
+    (b"const r=await request(apiRoot+'/jobs');",
+     b"const r=await request(apiRoot+'/jobs?limit=150&v='+Date.now());"),
+    (b"const r=await req(root+'/jobs');",
+     b"const r=await req(root+'/jobs?limit=150&v='+Date.now());"),
+)
+
 def queue_route_overlay(original: bytes, source: bytes) -> bytes:
     """Copy only reviewed engine URL expressions; reject unknown runtime drift."""
-    for old, corrected in QUEUE_ROUTE_PAIRS:
+    for old, corrected in QUEUE_ROUTE_PAIRS + QUEUE_FETCH_PAIRS:
         require(source.count(corrected) == 1 and old not in source,
                 "GitHub Voice source queue path contract changed")
         require(original.count(old) + original.count(corrected) == 1,
@@ -133,6 +144,20 @@ def queue_route_overlay(original: bytes, source: bytes) -> bytes:
         if old in original:
             original = original.replace(old, corrected, 1)
     return original
+
+
+VOICE_WEB = Path("part01/vps1_omnivoice_app.py")
+WEB_CACHE_OLD = b"def studio(request:Request): return templates.TemplateResponse(request, \"voice_studio.html\", {})"
+WEB_CACHE_NEW = b"def studio(request:Request):\n    response = templates.TemplateResponse(request, \"voice_studio.html\", {})\n    response.headers[\"Cache-Control\"] = \"private, no-store, max-age=0, must-revalidate\"\n    response.headers[\"Pragma\"] = \"no-cache\"\n    response.headers[\"X-Voice-Queue-UI\"] = \"VSQ-20261020-01\"\n    return response"
+
+
+def voice_web_cache_overlay(original: bytes, source: bytes) -> bytes:
+    """Patch only template response headers in the existing Voice web entry."""
+    require(source.count(WEB_CACHE_NEW) == 1 and WEB_CACHE_OLD not in source,
+            "new web no-cache contract absent from reviewed source")
+    require(original.count(WEB_CACHE_OLD) + original.count(WEB_CACHE_NEW) == 1,
+            "installed Voice web entrypoint differs from approved versions")
+    return original.replace(WEB_CACHE_OLD, WEB_CACHE_NEW, 1)
 
 
 def read_full_authenticated_voice_html(cookie: str) -> bytes:
@@ -155,6 +180,9 @@ def read_full_authenticated_voice_html(cookie: str) -> bytes:
             })
             response = conn.getresponse()
             data = response.read(750_000)
+            require("no-store" in response.getheader("Cache-Control", "").lower() and
+                    response.getheader("X-Voice-Queue-UI", "") == "VSQ-20261020-01",
+                    "public Voice document can be cached or is an outdated revision")
             require(response.status == 200 and
                     "html" in response.getheader("Content-Type", "").lower() and
                     b'id="voiceStudioEdgeEngineV1Script"' in data and
@@ -169,12 +197,15 @@ def verify_runtime() -> None:
     address = "http://127.0.0.1:8143/app"
     with urllib.request.urlopen(address, timeout=15) as response:
         body = response.read(500000)
+        require("no-store" in response.headers.get("Cache-Control", "").lower() and
+                response.headers.get("X-Voice-Queue-UI", "") == "VSQ-20261020-01",
+                "local Voice document cache/revision headers absent")
         require(response.status == 200 and "html" in response.headers.get("Content-Type", "").lower(),
                 "Voice web UI HTTP response unavailable")
         require(RESPONSIVE_ID in body and NEW_ASSETS in body and NEW_LIMITS in body and
                 OLD_LIMITS not in body and b'id="vsEngineOmni"' in body,
                 "Voice web UI template guard is not live")
-    require(all(new in body and old not in body for old, new in QUEUE_ROUTE_PAIRS),
+    require(all(new in body and old not in body for old, new in QUEUE_ROUTE_PAIRS + QUEUE_FETCH_PAIRS),
             "local Voice queue JavaScript is not updated")
     from production.route_uploader_scene_https import https_get, scene_cookie
     cookie = scene_cookie()
@@ -184,7 +215,7 @@ def verify_runtime() -> None:
             and RESPONSIVE_ID in html and NEW_LIMITS in html and OLD_LIMITS not in html,
             "authenticated public Voice page template guard not updated")
     full_html = read_full_authenticated_voice_html(cookie)
-    require(all(new in full_html and old not in full_html for old, new in QUEUE_ROUTE_PAIRS),
+    require(all(new in full_html and old not in full_html for old, new in QUEUE_ROUTE_PAIRS + QUEUE_FETCH_PAIRS),
             "public Voice queue JavaScript is not updated")
     anonymous, _, _ = https_get("/voice-studio/app")
     require(anonymous in {401, 403, 303}, "anonymous Voice page became accessible")
@@ -229,6 +260,14 @@ def install(revision: str) -> None:
 
     patched_html = responsive_overlay(patched_html, source_html)
     patched_html = queue_route_overlay(patched_html, source_html)
+    source_entry = REPO / "apps/voice-studio" / VOICE_WEB
+    active_entry = previous / VOICE_WEB
+    require(source_entry.is_file() and not source_entry.is_symlink()
+            and active_entry.is_file() and not active_entry.is_symlink(),
+            "Voice app web entrypoint must be a trusted regular file")
+    patched_entry = voice_web_cache_overlay(active_entry.read_bytes(),
+                                            source_entry.read_bytes())
+
 
     target = RELEASES / (revision + "-sidebar-only")
     if previous == target:
@@ -244,10 +283,12 @@ def install(revision: str) -> None:
         "old_release": str(previous),
         "old_template_sha256": hashlib.sha256(original_html).hexdigest(),
         "new_template_sha256": hashlib.sha256(patched_html).hexdigest(),
+        "new_web_cache_sha256": hashlib.sha256(patched_entry).hexdigest(),
         "app": APP, "revision": revision, "workers": "unchanged",
     })
     shutil.copytree(previous, target, symlinks=True)
     (target / PAGE).write_bytes(patched_html)
+    (target / VOICE_WEB).write_bytes(patched_entry)
     manifest_file = target / "_production_manifest.json"
     require(manifest_file.is_file() and not manifest_file.is_symlink(),
             "copied immutable release manifest missing")
@@ -256,6 +297,9 @@ def install(revision: str) -> None:
             "copied Voice release manifest invalid")
     manifest["revision"] = revision
     manifest["files"][str(PAGE)] = hashlib.sha256(patched_html).hexdigest()
+    require(str(VOICE_WEB) in manifest["files"],
+            "Voice web entrypoint absent from approved release manifest")
+    manifest["files"][str(VOICE_WEB)] = hashlib.sha256(patched_entry).hexdigest()
     manifest["ui_only_overlay"] = str(previous)
     atomic_json(manifest_file, manifest, 0o644)
     switched = False

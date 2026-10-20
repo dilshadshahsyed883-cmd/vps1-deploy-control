@@ -161,7 +161,7 @@ class VoiceFullHTTPSReadRegression(unittest.TestCase):
         tcp_context = MagicMock()
         tcp_context.__enter__.return_value = MagicMock()
         response = MagicMock(status=200)
-        response.getheader.return_value = 'text/html; charset=utf-8'
+        response.getheader.side_effect = lambda key, default='': {'Content-Type':'text/html; charset=utf-8', 'Cache-Control':'private, no-store', 'X-Voice-Queue-UI':'VSQ-20261020-01'}.get(key,default)
         response.read.return_value = late_scripts
         https_conn = MagicMock()
         https_conn.getresponse.return_value = response
@@ -184,7 +184,7 @@ class VoiceFullHTTPSReadRegression(unittest.TestCase):
         from production.voice_template_release import read_full_authenticated_voice_html
         conn = MagicMock()
         conn.getresponse.return_value.status = 200
-        conn.getresponse.return_value.getheader.return_value = 'text/html'
+        conn.getresponse.return_value.getheader.side_effect = lambda key, default='': {'Content-Type':'text/html', 'Cache-Control':'private, no-store', 'X-Voice-Queue-UI':'VSQ-20261020-01'}.get(key,default)
         conn.getresponse.return_value.read.return_value = b'X' * 180_000
         tls = MagicMock()
         raw = MagicMock()
@@ -197,6 +197,52 @@ class VoiceFullHTTPSReadRegression(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'late queue scripts'):
                 read_full_authenticated_voice_html('session=only-test')
 
+
+
+class VoiceQueueBrowserCacheAndTraceTests(unittest.TestCase):
+    def test_reviewed_queue_fetch_functions_are_installed_and_idempotent(self):
+        from production.voice_template_release import (
+            QUEUE_FETCH_PAIRS, queue_route_overlay)
+        source = (ROOT / "apps/voice-studio/part01/templates/voice_studio.html").read_bytes()
+        self.assertEqual(len(QUEUE_FETCH_PAIRS), 4)
+        original = source
+        for old, new in QUEUE_FETCH_PAIRS:
+            self.assertNotIn(old, source)
+            self.assertEqual(source.count(new), 1)
+            original = original.replace(new, old, 1)
+        self.assertEqual(queue_route_overlay(original, source), source)
+        self.assertEqual(queue_route_overlay(source, source), source)
+        self.assertIn(b"cache:'no-store'", source)
+        self.assertIn(b"new URL(url,location.href).pathname", source)
+        self.assertIn(b"'/jobs?limit=150&v='+Date.now()", source)
+
+    def test_voice_html_document_is_uncached_with_stable_revision_stamp(self):
+        from production.voice_template_release import (
+            voice_web_cache_overlay, WEB_CACHE_NEW, WEB_CACHE_OLD, VOICE_WEB)
+        source = (ROOT / "apps/voice-studio" / VOICE_WEB).read_bytes()
+        self.assertIn(WEB_CACHE_NEW, source)
+        self.assertNotIn(WEB_CACHE_OLD, source)
+        previous = source.replace(WEB_CACHE_NEW, WEB_CACHE_OLD)
+        self.assertEqual(voice_web_cache_overlay(previous, source), source)
+        self.assertEqual(voice_web_cache_overlay(source, source), source)
+        for corrupted in (source.replace(WEB_CACHE_NEW, b"unreviewed", 1),
+                          source.replace(WEB_CACHE_NEW, WEB_CACHE_NEW+WEB_CACHE_NEW, 1)):
+            with self.assertRaisesRegex(RuntimeError, "web entrypoint"):
+                voice_web_cache_overlay(corrupted, source)
+        self.assertIn(b'Cache-Control', WEB_CACHE_NEW)
+        self.assertIn(b'no-store', WEB_CACHE_NEW)
+        self.assertIn(b'X-Voice-Queue-UI', WEB_CACHE_NEW)
+
+    def test_release_does_not_touch_queue_or_worker_state(self):
+        source = (ROOT / "production/voice_template_release.py").read_text()
+        self.assertIn("(target / VOICE_WEB).write_bytes(patched_entry)", source)
+        self.assertIn("voice_web_cache_overlay", source)
+        self.assertIn("QUEUE_ROUTE_PAIRS + QUEUE_FETCH_PAIRS", source)
+        self.assertIn("local Voice document cache/revision headers absent", source)
+        self.assertIn("public Voice document can be cached", source)
+        self.assertNotIn("workers.stop(", source)
+        self.assertNotIn("workers.install(", source)
+        self.assertNotIn("DELETE FROM", source)
 
 if __name__ == "__main__":
     unittest.main()

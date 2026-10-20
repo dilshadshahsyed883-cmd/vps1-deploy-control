@@ -33,8 +33,14 @@ def browser_acceptance():
     jobs = [{'id':'job-1','job_id':'job-1','source_filename':'long-recording-'+'x'*160+'.txt','filename':'long-recording-'+'x'*160+'.txt','status':'completed','delivery_status':'verified','audio_url':'/tts/api/kokoro/audio/job-1', 'files':{}, 'outputs':{},'mp3_url':'/test.mp3','wav_url':'/test.wav','txt_url':'/test.txt','srt_url':'/test.srt'},
             {'id':'job-2','job_id':'job-2','filename':'retry.txt','status':'processing','error':'controlled provider failure'}]
     writes = []
+    browser_queue_urls = []
     def route(r):
         path = r.request.url.split('http://voice.test')[-1].split('?')[0]
+        if '/tts/api/' in path and '/jobs' in path:
+            browser_queue_urls.append(path)
+        if path.startswith(('/tts/api/edge/', '/tts/api/kokoro/')):
+            return r.fulfill(status=404, content_type='application/json',
+                             body='{"detail":"UNPREFIXED_BROWSER_API_URL"}')
         if r.request.method != 'GET':
             writes.append((path,r.request.method))
         if path == '/voice-studio/app':
@@ -61,6 +67,9 @@ def browser_acceptance():
                     if section=='Queue':
                         page.locator('#'+prefix+'QueueRows tr').first.wait_for()
                         expect(page.locator('#'+prefix+'QueueRows')).to_contain_text('long-recording')
+                        expected = '/voice-studio/tts/api/' + ('kokoro' if prefix=='vsk' else 'edge') + '/jobs'
+                        assert expected in browser_queue_urls, (engine, browser_queue_urls)
+                        assert not any(p.startswith(('/tts/api/edge/', '/tts/api/kokoro/')) for p in browser_queue_urls), browser_queue_urls
                     size=page.evaluate('({viewport:innerWidth,scroll:document.documentElement.scrollWidth})')
                     assert size['scroll']<=width, (width,engine,section,size)
                     bounds=workspace.bounding_box()
