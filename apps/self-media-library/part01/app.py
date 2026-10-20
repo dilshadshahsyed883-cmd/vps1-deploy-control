@@ -17,6 +17,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from media_integrity import sha256_file, score_clip
 
 ROOT = Path(__file__).resolve().parent
 DATA = Path(os.environ.get("SML_DATA_ROOT", str(ROOT / "data"))).expanduser()
@@ -125,6 +126,11 @@ def init_db() -> None:
             "drive_error": "TEXT",
         }.items():
             ensure_column("clips", column, definition)
+
+        ensure_column("sources", "sha256", "TEXT")
+        ensure_column("clips", "sha256", "TEXT")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_sources_sha256 ON sources(sha256)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_clips_sha256 ON clips(sha256)")
 
         defaults = {
             "clip_min_seconds": "2.0",
@@ -644,17 +650,6 @@ def analyze_clip(clip_path: Path, source_filename: str) -> tuple[str, list[tuple
     return description, kws, 0.35 if kws else 0.0
 
 
-def quality_score(path: Path) -> int:
-    # Lightweight deterministic V1 score based on file validity and size. A vision-quality model can replace this later.
-    try:
-        size = path.stat().st_size
-        if size <= 0:
-            return 0
-        return max(55, min(98, 65 + int(min(size / (1024 * 1024), 33))))
-    except Exception:
-        return 0
-
-
 def process_source(source_id: str) -> None:
     if not PROCESS_LOCK.acquire(blocking=False):
         return
@@ -695,7 +690,11 @@ def process_source(source_id: str) -> None:
             try:
                 run_ffmpeg_clip(path, clip_path, start_t, end_t - start_t)
                 run_ffmpeg_thumb(path, thumb_path, start_t + max(0.1, (end_t - start_t) / 2))
-                q = quality_score(clip_path)
+                duration_seconds = end_t - start_t
+                q, blank = (score_clip(clip_path, duration_seconds)
+                            if setting_true(settings, "quality_filter", True)
+                            else (75, False))
+                fingerprint = sha256_file(clip_path)
                 if setting_true(settings, "ai_auto", True):
                     description, kws, conf = analyze_clip(clip_path, src["filename"])
                     ai_state = "complete" if kws else "pending"
@@ -704,10 +703,21 @@ def process_source(source_id: str) -> None:
                     ai_state = "disabled"
                 ts = now_iso()
                 with db() as c:
+                    # Single-worker processing serializes clip fingerprint checks and inserts.
+                    match = (c.execute("SELECT id FROM clips WHERE sha256=? AND deleted_at IS NULL LIMIT 1",
+                                       (fingerprint,)).fetchone()
+                             if setting_true(settings, "duplicate_detection", True) else None)
+                    duplicate_state = "duplicate" if match else "clear"
+                    status = "rejected" if blank else "candidate"
+                    if blank:
+                        description = ("Auto review: repeated near-blank sample frames. "
+                                       + description)[:1000]
                     c.execute(
-                        """INSERT INTO clips(id,source_id,filename,thumb_filename,start_time,end_time,duration,status,description,quality,ai_state,ai_confidence,created_at,updated_at,drive_state)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (cid, source_id, clip_name, thumb_name, start_t, end_t, end_t-start_t, "candidate", description, q, ai_state, conf, ts, ts, "pending"),
+                        """INSERT INTO clips(id,source_id,filename,thumb_filename,start_time,end_time,duration,status,description,quality,ai_state,ai_confidence,created_at,updated_at,drive_state,sha256,duplicate_state)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (cid, source_id, clip_name, thumb_name, start_t, end_t,
+                         duration_seconds, status, description, q, ai_state, conf,
+                         ts, ts, "pending", fingerprint, duplicate_state),
                     )
                     for kw, kconf in kws:
                         if kw:
@@ -1006,17 +1016,40 @@ async def upload_source(file: UploadFile = File(...)):
     stored = f"{sid}{ext}"
     dest = SOURCES_DIR / stored
     size = 0
-    with dest.open("wb") as f:
-        while True:
-            chunk = await file.read(1024 * 1024)
-            if not chunk:
-                break
-            size += len(chunk)
-            f.write(chunk)
-    ts = now_iso()
-    with db() as c:
-        c.execute("INSERT INTO sources(id,filename,stored_name,size_bytes,status,stage,progress,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)", (sid, Path(file.filename or stored).name, stored, size, "queued", "queued", 0, ts, ts))
-    return {"ok": True, "id": sid}
+    digest = hashlib.sha256()
+    try:
+        with dest.open("wb") as output:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > 2 * 1024 * 1024 * 1024:
+                    raise HTTPException(413, "2 GB video import limit")
+                digest.update(chunk)
+                output.write(chunk)
+        if size == 0:
+            raise HTTPException(400, "Empty video")
+        ts = now_iso()
+        with db() as c:
+            c.execute("BEGIN IMMEDIATE")
+            previous = c.execute(
+                "SELECT id,stored_name FROM sources WHERE sha256=? ORDER BY created_at DESC LIMIT 1",
+                (digest.hexdigest(),),
+            ).fetchone()
+            if previous and (SOURCES_DIR / previous["stored_name"]).is_file():
+                dest.unlink(missing_ok=True)
+                return {"ok": True, "id": previous["id"], "duplicate": True}
+            c.execute(
+                """INSERT INTO sources(id,filename,stored_name,size_bytes,status,stage,
+                         progress,created_at,updated_at,sha256)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (sid, Path(file.filename or stored).name, stored, size,
+                 "queued", "queued", 0, ts, ts, digest.hexdigest()),
+            )
+        return {"ok": True, "id": sid, "duplicate": False}
+    except Exception:
+        dest.unlink(missing_ok=True)
+        raise
+    finally:
+        await file.close()
 
 
 @app.post("/api/sources/{source_id}/process")
