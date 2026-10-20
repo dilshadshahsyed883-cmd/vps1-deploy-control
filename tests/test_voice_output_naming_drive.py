@@ -186,6 +186,33 @@ class VoiceOutputContract(unittest.TestCase):
             self.assertEqual(row['delivery_status'], 'retry_pending')
             self.assertEqual(row['next_delivery_retry'], 0)
 
+    def test_missing_drive_credentials_leave_completed_audio_and_schedule_retry(self):
+        import time
+        for engine, path in (('ko', K_WORKER), ('ed', E_WORKER)):
+            mod=self.mods[engine]
+            if engine=='ko':
+                jid=mod.create_job('Hello', 'Chapter.txt', 'en-us', 'af_heart', 1, 'batch')
+                key='wav_file'; connection=mod.connection; name='deliver_once'
+            else:
+                jid=mod.create_job('Hello', 'Chapter.txt', 'en-US-A', 'en-US', 0, 0, 0, 'batch')
+                key='mp3_file'; connection=mod.db; name='deliver'
+            audio=mod.DATA/'jobs'/jid/('Chapter.wav' if engine=='ko' else 'Chapter.mp3')
+            audio.write_bytes(b'completed local audio')
+            with connection() as c:
+                c.execute("update jobs set status='completed',delivery_status='pending',"+key+"=? where job_id=?",(str(audio),jid))
+            ns=worker_functions(path, {name}, {
+                'RCLONE':'','RCFILE':str(self.tmp/'missing.conf'),'RCCONF':self.tmp/'missing.conf',
+                'Path':Path,'time':time,'db':connection
+            })
+            ns[name]()
+            with connection() as c:
+                row=c.execute("select status,delivery_status,delivery_error,next_delivery_retry from jobs where job_id=?",(jid,)).fetchone()
+            self.assertEqual(row['status'],'completed')
+            self.assertEqual(row['delivery_status'],'retry_pending')
+            self.assertEqual(row['delivery_error'],'drive_configuration_missing')
+            self.assertGreater(row['next_delivery_retry'],time.time())
+            self.assertTrue(audio.is_file())
+
     def test_worker_threads_and_ui_binding(self):
         html = UI.read_text(encoding='utf8')
         self.assertIn('id="vskOutputName"', html)
