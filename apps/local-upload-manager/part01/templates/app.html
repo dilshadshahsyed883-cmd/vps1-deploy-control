@@ -2,13 +2,13 @@
 {% block title %}Auto Uploader{% endblock %}
 {% block subtitle %}Main web integrated{% endblock %}
 {% block content %}
-<div class="lum-shell" data-mode="{{ mode }}" data-ui-patch="LUM_AUTOMATION_QUEUE_STICKY_UI_V1">
+<div class="lum-shell" data-mode="{{ mode }}" data-engine-instance="{{ engine_instance }}" data-ui-patch="LUM_AUTOMATION_QUEUE_STICKY_UI_V1">
   {% if message %}<div class="lum-alert success">{{ message }}</div>{% endif %}
   {% if error %}<div class="lum-alert error">{{ error }}</div>{% endif %}
 
 
 
-  {% if engine_instance == 'engine1' %}
+  {% if tab != 'auto_stream' or engine_instance == 'engine1' %}
   <nav class="lum-primary-workspaces" aria-label="Auto Uploader main subtabs">
     <a class="{{ 'active' if tab != 'auto_stream' else '' }}" href="{{ base_path }}/app?tab=dashboard" aria-current="{{ 'page' if tab != 'auto_stream' else 'false' }}">Auto Uploader</a>
     <a class="{{ 'active' if tab == 'auto_stream' else '' }}" href="/auto-stream/" aria-current="{{ 'page' if tab == 'auto_stream' else 'false' }}">Auto Stream</a>
@@ -23,7 +23,7 @@
     <div class="lum-status-meta"><span>Serial uploader</span><strong>1 active</strong><span>Verified cleanup</span><strong>{{ 'ON' if health.verified_cleanup else 'OFF' }}</strong></div>
   </section>
   {% endif %}
-  {% if tab != 'auto_stream' and (engine_instance == 'engine1' or not embedded_view) %}
+  {% if tab != 'auto_stream' %}
   <div class="lum-tabs-shell" data-lum-sticky-tabs>
 <nav class="lum-tabs" aria-label="Auto Uploader workspace">
       <a class="{{ 'active' if tab=='dashboard' else '' }}" href="{{ base_path }}/app?tab=dashboard">Dashboard</a>
@@ -695,16 +695,16 @@
         <div><h2>Auto Uploader · Three Modes</h2>
           <p>Three independent upload modes. Auto Stream is a separate main subtab. Switching modes never starts a job.</p></div>
       </div>
-      {% if engine_instance == "engine1" %}
       <nav class="lum-ae-tabs lum-ae-tabs-primary" aria-label="Auto Uploader modes">
-        {% for key in ['engine1', 'engine2', 'shorts'] %}
-        <a class="lum-button {{ 'primary' if auto_mode == key else 'secondary' }}"
-           href="{{ base_path }}/app?tab=auto_engine&auto_mode={{ key }}"
-           aria-current="{{ 'page' if auto_mode == key else 'false' }}">{{ mode_registry.selected_modes[key].label }}</a>
+        {% for key, label in [('engine1', 'Engine 1'), ('engine2', 'Engine 2'), ('shorts', 'Short Uploader')] %}
+        {% set active_engine = engine_instance == key %}
+        <a class="lum-button {{ 'primary' if active_engine else 'secondary' }}"
+           href="{% if key == 'engine1' %}/local-upload-manager/app?embedded=1&tab=auto_engine&auto_mode=engine1{% else %}/local-upload-manager/modes/{{ key }}/app?embedded=1&tab=auto_engine{% endif %}"
+           aria-current="{{ 'page' if active_engine else 'false' }}">{{ label }}</a>
         {% endfor %}
       </nav>
-      {% else %}
-      <div class="lum-note"><strong>{{ "Engine 2" if engine_instance == "engine2" else "Shorts Engine" }}</strong> — independent controls and new mode-only configuration. Existing user data is never shared.</div>
+      {% if engine_instance != 'engine1' %}
+      <p class="lum-note" role="status"><strong>{{ 'Engine 2' if engine_instance == 'engine2' else 'Short Uploader' }}</strong> — independent uploader workspace, data and queue. Automatic publishing remains disabled until configured.</p>
       {% endif %}
       <p class="lum-note">Engine 1 uses the original uploader. Engine 2 runs in parallel with a required thumbnail; Short Uploader uses the same upload workflow without a thumbnail. Existing channels, records, schedules and settings are untouched.</p>
       {% if mode_registry.cross_mode_record_collisions %}
@@ -1036,41 +1036,6 @@
     </div>
 
     </div>
-    {% else %}
-      {% set selected_mode = mode_registry.selected_modes[auto_mode] %}
-      <section class="lum-card">
-        <div class="lum-card-head"><div><h2>{{ selected_mode.label }}</h2>
-          <p>{{ selected_mode.message }}</p></div>
-          <span class="lum-badge {{ 'good' if selected_mode.runtime.web == 'connected' else 'warn' }}">{{ 'WEB CONNECTED' if selected_mode.runtime.web == 'connected' else 'WEB NOT CONNECTED' }}</span>
-        </div>
-        <p class="lum-note"><strong>Engine status:</strong> {{ selected_mode.runtime.details }}. Worker: {{ selected_mode.runtime.worker | replace('_', ' ') }}.</p>
-        {% if auto_mode in ['engine2', 'shorts'] and selected_mode.runtime.web == 'connected' %}
-          <iframe title="{{ selected_mode.label }} Auto Uploader application"
-                  src="{{ base_path }}/modes/{{ auto_mode }}/app?embedded=1&tab=auto_engine"
-                  loading="lazy" style="width:100%;min-height:860px;border:1px solid #565a65;border-radius:12px;"></iframe>
-          <p class="lum-note">Independent app controls are connected. New engine automatic publishing starts OFF until configured.</p>
-        {% endif %}
-        {% if auto_mode == 'short_stream' %}
-          <p>Livestream sessions are managed by the independent Short Stream application, not by a YouTube video-upload queue.</p>
-          <div class="lum-metrics"><div><span>Local session snapshots</span><strong>{{ selected_mode.sessions if selected_mode.sessions is not none else 'Not available' }}</strong></div></div>
-          <a class="lum-button secondary" href="/short-stream/">Open separate Short Stream app</a>
-          <p class="lum-note">Active streaming, stream destinations and stream keys are not exposed in this read-only view.</p>
-        {% else %}
-          <div class="lum-metrics">
-            <div><span>Profiles</span><strong>{{ selected_mode.stats.profiles }}</strong></div>
-            <div><span>Channels</span><strong>{{ selected_mode.stats.channels }}</strong></div>
-            <div><span>Queue rows</span><strong>{{ selected_mode.stats.queue }}</strong></div>
-            <div><span>Schedule runs</span><strong>{{ selected_mode.stats.schedules }}</strong></div>
-            <div><span>Permanent upload records</span><strong>{{ selected_mode.stats.upload_records }}</strong></div>
-          </div>
-          {% if selected_mode.status == 'not_provisioned' %}
-            <p class="lum-note">The engine web service and operational controls are not yet provisioned. Existing user data will not be imported, migrated or modified as part of this app/engine work.</p>
-          {% else %}
-            <p class="lum-note">These counts are read directly from the mode's separate SQLite databases using read-only access. They are not proof that the scheduler, OAuth, or YouTube upload works.</p>
-          {% endif %}
-        {% endif %}
-        <p><strong>Upload safety:</strong> no actions are available from this view. Existing Engine 1 records and live queue are not shared or modified.</p>
-      </section>
     {% endif %}
 
 {% elif tab == 'add_video' %}
