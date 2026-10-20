@@ -457,8 +457,8 @@
       const show=()=>{const match=rows.filter(r=>r.textContent.toLowerCase().includes(search.value.toLowerCase()));page=Math.max(0,Math.min(page,Math.ceil(match.length/10)-1));const visible=new Set(match.slice(page*10,page*10+10));rows.forEach(r=>r.hidden=!visible.has(r));previous.disabled=page===0;next.disabled=(page+1)*10>=match.length;count.textContent=match.length?`${page*10+1}–${Math.min((page+1)*10,match.length)} of ${match.length}`:'No matching reports';};
       search.addEventListener('input',()=>{page=0;show();});previous.addEventListener('click',()=>{page--;show();});next.addEventListener('click',()=>{page++;show();});show();
     }
-    for(const time of all('time,.report-row>span:last-of-type')){
-      if(time.dataset.vps1Time)continue;const raw=time.getAttribute('datetime')||time.textContent.trim();
+    for(const time of all('time,.report-row>span:last-of-type,main td,main small,main span,main p')){
+      if(time.dataset.vps1Time||time.children.length)continue;const raw=time.getAttribute('datetime')||time.textContent.trim();
       if(!/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(raw))continue;
       const value=new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw)?raw:raw.replace(' ','T')+'Z');if(!Number.isFinite(value.getTime()))continue;
       time.dataset.vps1Time=raw;time.title=raw;text(time,new Intl.DateTimeFormat('en-GB',{dateStyle:'medium',timeStyle:'short',timeZone:'Asia/Karachi'}).format(value)+' PKT');
