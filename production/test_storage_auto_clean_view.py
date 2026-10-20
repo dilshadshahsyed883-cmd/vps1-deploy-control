@@ -32,12 +32,12 @@ class AutoCleanReadOnlyView(unittest.TestCase):
             "status": "active", "active": True, "enabled": True,
             "interval_hours": 12, "grace_hours": 12,
         }
-        with patch.object(module, "acs_verified_projects", side_effect=AssertionError("ACS DB must not open")), \\
-             patch.object(module, "scan_algrow", side_effect=AssertionError("Algrow DB must not open")), \\
-             patch.object(module, "scan_scene", side_effect=AssertionError("Scene DB must not open")), \\
-             patch.object(module, "scan_caches", side_effect=AssertionError("privileged cache scan must not run")), \\
-             patch.object(module.shutil, "disk_usage", return_value=fake_disk), \\
-             patch.object(module, "load_policy", return_value={"auto_enabled": False}), \\
+        with patch.object(module, "acs_verified_projects", side_effect=AssertionError("ACS DB must not open")), \
+             patch.object(module, "scan_algrow", side_effect=AssertionError("Algrow DB must not open")), \
+             patch.object(module, "scan_scene", side_effect=AssertionError("Scene DB must not open")), \
+             patch.object(module, "scan_caches", side_effect=AssertionError("privileged cache scan must not run")), \
+             patch.object(module.shutil, "disk_usage", return_value=fake_disk), \
+             patch.object(module, "load_policy", return_value={"auto_enabled": False}), \
              patch.object(module, "deployment_cleanup_status", return_value=status):
             preview = module.readonly_snapshot()
         self.assertTrue(preview["ok"])
@@ -60,7 +60,7 @@ class AutoCleanReadOnlyView(unittest.TestCase):
         module = self.manager
 
         def command(args, timeout=8):
-            return SimpleNamespace(stdout="active\\n" if args[1] == "is-active" else "enabled\\n")
+            return SimpleNamespace(stdout="active\n" if args[1] == "is-active" else "enabled\n")
         with patch.object(module, "run", side_effect=command):
             value = module.deployment_cleanup_status()
         self.assertEqual(value["status"], "active")
@@ -73,8 +73,8 @@ class AutoCleanReadOnlyView(unittest.TestCase):
         handler.authenticated = lambda: True
         seen = []
         handler.respond = lambda status, data: seen.append((status, data))
-        with patch.dict(os.environ, {"VPS1_RUNTIME_CANDIDATE": "1"}), \\
-             patch.object(module, "readonly_snapshot", return_value={"ok": True, "partial": True}), \\
+        with patch.dict(os.environ, {"VPS1_RUNTIME_CANDIDATE": "1"}), \
+             patch.object(module, "readonly_snapshot", return_value={"ok": True, "partial": True}), \
              patch.object(module, "latest_snapshot", side_effect=AssertionError("protected source read")):
             handler.do_GET()
         self.assertEqual(seen, [(200, {"ok": True, "partial": True})])
