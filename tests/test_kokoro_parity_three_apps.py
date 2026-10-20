@@ -91,6 +91,20 @@ class ThreeAppUiParityTests(unittest.TestCase):
         self.assertIn(b"id=\"vsEngineAudio\"", restored)
         self.assertIn(b"id=\"vsEngineKokoro\"", restored)
 
+    def test_three_app_release_is_single_workflow_and_worker_preserving(self):
+        workflow = (ROOT / ".github/workflows/vps1-native-studio-release.yml").read_text()
+        standalone = (ROOT / ".github/workflows/vps1-voice-ui-only-release.yml").read_text()
+        runtime = (ROOT / "production/runtime.py").read_text()
+        self.assertIn("[vps1-three-app-ui-release]", workflow)
+        self.assertIn('if [[ "$THREE_APP_UI_ONLY" == "true" ]]; then', workflow)
+        scene_install = workflow.index('install $SOURCE_SHA scene-builder"', workflow.index('THREE_APP_UI_RELEASE=BEGIN'))
+        voice_install = workflow.index('install $SOURCE_SHA voice-studio"', workflow.index('THREE_APP_UI_RELEASE=BEGIN'))
+        self.assertLess(scene_install, voice_install)
+        self.assertIn("[vps1-voice-template-only]", runtime)
+        self.assertIn('from production.voice_template_release import install', runtime)
+        self.assertNotIn("[vps1-three-app-ui-release]", standalone)
+        self.assertNotIn("workers.install", workflow)
+
     def test_no_app_operations_or_shared_shell_files_are_replaced(self):
         # The style changes must not implement fake data or mutate any queue
         # or browser profile state.
