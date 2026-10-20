@@ -30,6 +30,66 @@ class RuntimeTests(unittest.TestCase):
                     self.assertEqual(backup.execute('SELECT status FROM jobs').fetchone(), ('waiting',))
                 self.assertEqual(conn.execute('SELECT COUNT(*) FROM jobs').fetchone()[0], 1)
 
+    def test_uploader_release_idle_preflight_validates_all_three_routes(self):
+        class Response:
+            status = 200
+            def __init__(self, mode):
+                self.mode = mode
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+            def read(self, _count):
+                return json.dumps({
+                    'ok': True, 'engine_instance': self.mode, 'active_project_id': None
+                }).encode()
+        class Opener:
+            calls = []
+            def open(self, url, timeout):
+                self.calls.append(url)
+                mode = ('engine2' if '/engine2/' in url else
+                        'shorts' if '/shorts/' in url else 'engine1')
+                return Response(mode)
+        opener = Opener()
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+            runtime.urllib.request, 'build_opener', return_value=opener
+        ):
+            runtime.require_lum_release_idle(Path(tmp))
+        self.assertEqual(opener.calls, [
+            'http://127.0.0.1:8015/local-upload-manager/health',
+            'http://127.0.0.1:8016/local-upload-manager/modes/engine2/health',
+            'http://127.0.0.1:8017/local-upload-manager/modes/shorts/health',
+        ])
+
+    def test_uploader_release_blocks_busy_sqlite_without_queue_mutation(self):
+        class Response:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+            def read(self, _count):
+                return b'{"ok":true,"engine_instance":"engine1","active_project_id":null}'
+        class Opener:
+            def open(self, url, timeout): return Response()
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / 'lum1/core/data/uploader.db'
+            database.parent.mkdir(parents=True)
+            with sqlite3.connect(database) as conn:
+                conn.execute('CREATE TABLE videos(id INTEGER PRIMARY KEY, status TEXT)')
+                conn.execute("INSERT INTO videos(status) VALUES ('UPLOADING')")
+            with patch.object(runtime.urllib.request, 'build_opener', return_value=Opener()):
+                with self.assertRaisesRegex(RuntimeError, 'LUM_RELEASE_BLOCKED'):
+                    runtime.require_lum_release_idle(Path(tmp))
+            with sqlite3.connect(database) as conn:
+                self.assertEqual(conn.execute('SELECT status FROM videos').fetchone(),
+                                 ('UPLOADING',))
+
+    def test_uploader_release_fails_closed_on_health_unavailable(self):
+        class Opener:
+            def open(self, url, timeout): raise OSError('host unavailable')
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+            runtime.urllib.request, 'build_opener', return_value=Opener()
+        ):
+            with self.assertRaisesRegex(RuntimeError, 'LUM_RELEASE_BLOCKED'):
+                runtime.require_lum_release_idle(Path(tmp))
+
     def test_source_drift_rejected_without_overwriting_release(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(runtime, 'BASE', Path(tmp)):
             with patch('rebuild.fresh_vps.sources', return_value=[('part01/app.py', b'original')]):
