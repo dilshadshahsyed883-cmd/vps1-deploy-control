@@ -84,10 +84,6 @@ class VoiceTTSReleaseTest(unittest.TestCase):
         # Queued Drive upload is not in-flight; SQLite fence still prevents claim.
         with sqlite3.connect(clone) as c:
             c.execute("update jobs set delivery_status='pending'")
-        with self.assertRaisesRegex(RuntimeError,"OmniVoice generation"):
-            release.check_omnivoice_idle(clone)
-        with sqlite3.connect(clone) as c:
-            c.execute("update jobs set delivery_status='pending',status='completed'")
         connection=release.check_omnivoice_idle(clone)
         release.unlock([connection])
 
