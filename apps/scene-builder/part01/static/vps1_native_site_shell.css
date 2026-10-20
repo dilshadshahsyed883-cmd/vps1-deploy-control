@@ -286,3 +286,45 @@ html:has(script[data-workspace="uploader"]) .lum-primary-workspaces,body.vps1-na
 }
 #app-sidebar.sidebar .sidebar-account .vps1-session-login[hidden],
 #app-sidebar.sidebar .sidebar-account form[hidden] { display:none!important; }
+
+/* Experiment Studio shares the canonical content width and tab-rail geometry. */
+.vps1-experiment-tabs {
+  display:flex;align-items:center;gap:var(--vps1-ui-gap,8px);
+  width:calc(100% - 2 * var(--vps1-ui-content-gutter,34px));
+  max-width:var(--vps1-ui-content-max,1400px);
+  min-height:var(--vps1-ui-tab-rail-height,62px);
+  margin:var(--vps1-ui-content-top,26px) auto 18px;
+  padding:10px 12px;box-sizing:border-box;
+  border:1px solid var(--vps1-ui-border,#dfe5ef);
+  border-radius:var(--vps1-ui-radius,11px);
+  background:var(--vps1-ui-panel,#f8faff);overflow-x:auto;
+}
+.vps1-experiment-tabs > a {
+  display:inline-flex;align-items:center;justify-content:center;
+  min-height:var(--vps1-ui-touch-height,40px);padding:9px 14px;
+  border:1px solid var(--vps1-ui-tab-border,#d6ddea);border-radius:8px;
+  font:750 13px/1.2 Inter,system-ui,Arial,sans-serif;
+  background:#fff;color:var(--vps1-ui-text,#34415b);
+  text-decoration:none;white-space:nowrap;
+}
+.vps1-experiment-tabs > a.active,.vps1-experiment-tabs > a[aria-current="page"] {
+  background:var(--vps1-ui-primary,#315edb);border-color:var(--vps1-ui-primary,#315edb);color:#fff;
+}
+.vps1-experiment-tabs > a:focus-visible{outline:3px solid var(--vps1-ui-focus,#82aaff);outline-offset:2px}
+.experiment-workspace {
+  width:calc(100% - 2 * var(--vps1-ui-content-gutter,34px));
+  max-width:var(--vps1-ui-content-max,1400px);margin:0 auto 36px;
+  padding:24px;box-sizing:border-box;background:#fff;
+  border:1px solid #dfe5ef;border-radius:12px;color:#34415b;
+}
+.experiment-workspace p{max-width:70ch;line-height:1.65;color:#667085}
+.experiment-workspace .experiment-pill{display:inline-block;padding:5px 10px;
+  border:1px solid #dfe5ef;border-radius:999px;background:#f8faff;
+  font-size:12px;font-weight:700;color:#475467}
+@media(max-width:760px){
+  .vps1-experiment-tabs,.experiment-workspace{
+    width:calc(100% - 2 * var(--vps1-ui-content-gutter,14px));
+  }
+  .vps1-experiment-tabs{margin:var(--vps1-ui-content-top,72px) auto 18px;}
+  .experiment-workspace{padding:18px;}
+}

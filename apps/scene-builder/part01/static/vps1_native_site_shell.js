@@ -28,12 +28,14 @@
     ["Dashboard", "/", "dashboard"],
     ["Upload Studio", "/local-upload-manager", "upload"],
     ["Video Studio", "/scene-builder/", "video"],
-    ["Voice Studio", "/voice-studio/app#vps1-production", "voice"]
+    ["Voice Studio", "/voice-studio/app#vps1-production", "voice"],
+    ["Experiment Studio", "/experiment-studio/", "experiment"]
   ]);
   const activeKeyForPath = (pathname) => {
     if (/^\/(local-upload-manager|auto-stream)(\/|$)/.test(pathname)) return "upload";
     if (/^\/(scene-builder|video-studio|auto-caption-studio|short-maker|video-merger)(\/|$)/.test(pathname)) return "video";
     if (/^\/voice-studio(\/|$)/.test(pathname)) return "voice";
+    if (/^\/experiment-studio(\/|$)/.test(pathname)) return "experiment";
     if (/^\/(admin|storage-manager|user-management)(\/|$)/.test(pathname)) return "admin";
     if (pathname === "/" || pathname === "/dashboard") return "dashboard";
     return "";
