@@ -170,7 +170,7 @@ def process(row):
         elif state in ('pause_requested','paused'):
             update(jid,status='paused')
         else:
-            detail=re.sub(r'(?i)(token|secret|key|authorization)[=:][^\\s,;&]+',r'\\1=[REDACTED]',str(e))
+            detail=re.sub(r'(?i)(token|secret|key|authorization)[=:][^\s,;&]+',r'\1=[REDACTED]',str(e))
             mark_waiting(jid,attempt,type(e).__name__+': '+detail[:100])
 
 def pick():
