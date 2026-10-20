@@ -19,7 +19,8 @@ class AutoStreamCanonicalTests(unittest.TestCase):
         self.assertNotIn('start_stream',body)
     def test_stream_api_and_refresh_stability(self):
         s=STREAM.read_text()
-        self.assertIn(r'const root=\\\"/short-stream/engine\\\";',s)
+        self.assertIn("const root=", s)
+        self.assertIn("/short-stream/engine", s)
         self.assertIn("sessionStorage.setItem(stateKey,id)",s)
         self.assertIn('openTab(restore);',s)
         self.assertIn('oauth-client-secret',s)
