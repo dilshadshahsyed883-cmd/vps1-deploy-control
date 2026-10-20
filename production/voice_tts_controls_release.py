@@ -242,6 +242,11 @@ def install(revision):
               drive_upload_engine=qa["drive_real_upload_proof"].get("engine","none"),
               drive_upload_reason=qa["drive_real_upload_proof"].get("reason","none"),
               drive_upload_category=qa["drive_real_upload_proof"].get("category","none"),
+              drive_google_reason=qa["drive_real_upload_proof"].get("google_reason","none"),
+              drive_auth_mode=qa["drive_real_upload_proof"].get("diagnostics",{}).get("auth",{}).get("auth_mode","unknown"),
+              drive_auth_scope=qa["drive_real_upload_proof"].get("diagnostics",{}).get("auth",{}).get("scope","unknown"),
+              drive_folder_visibility={key: val.get("status","unknown") for key,val in
+                                       qa["drive_real_upload_proof"].get("diagnostics",{}).get("folder_access",{}).items()},
               drive_receipts={engine: item.get("remote_status")
                               for engine, item in qa["drive_readonly_evidence"].items()},
               auto_script="OFFLINE")
