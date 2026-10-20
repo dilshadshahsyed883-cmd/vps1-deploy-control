@@ -48,7 +48,7 @@ def rank_candidates(items, terms, last_source="", used_ids=()):
         return (
             int(item.get("source_id") != last_source),
             int(item["id"] not in used),
-            matching,
+            matching + 100 * float(item.get("score") or 0),
             int(item.get("quality") or 0),
             str(item["id"]),
         )
@@ -74,6 +74,8 @@ class ReservationRequest(BaseModel):
     scene_id: str = Field(min_length=1, max_length=100)
     query: str = Field(default="", max_length=200)
     media_type: str = "video"
+    semantic: bool = False
+    orientation: str = "all"
     count: int = Field(default=1, ge=1, le=20)
     exclude_ids: list[str] = Field(default_factory=list)
 
@@ -88,8 +90,12 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
     for path in (images, previews, cache):
         path.mkdir(parents=True, exist_ok=True)
 
+    import_stop = threading.Event()
+    import_thread = None
+
     @app.on_event("startup")
     def init_media_v2():
+        nonlocal import_thread
         with db() as conn:
             conn.executescript("""
                 CREATE TABLE IF NOT EXISTS image_assets (
@@ -144,7 +150,17 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
             }.items():
                 if column not in {col["name"] for col in conn.execute("PRAGMA table_info(image_assets)")}:
                     conn.execute(f"ALTER TABLE image_assets ADD COLUMN {column} {definition}")
-            conn.execute("UPDATE media_imports SET status='failed',message='Interrupted by restart',updated_at=? WHERE status='processing'", (now_iso(),))
+            if 'request_json' not in {col['name'] for col in conn.execute('PRAGMA table_info(media_imports)')}:
+                conn.execute("ALTER TABLE media_imports ADD COLUMN request_json TEXT")
+            conn.execute("UPDATE media_imports SET status=CASE WHEN request_json IS NULL THEN 'failed' ELSE 'queued' END,message='Recovered after restart',updated_at=? WHERE status='processing'", (now_iso(),))
+        import_stop.clear()
+        import_thread=threading.Thread(target=dispatch_imports,daemon=True)
+        import_thread.start()
+
+    @app.on_event("shutdown")
+    def stop_imports():
+        import_stop.set()
+        if import_thread:import_thread.join(timeout=2)
 
     def check_editor_token(value: str):
         expected = os.environ.get("SML_EDITOR_API_TOKEN", "").strip()
@@ -173,13 +189,14 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
         remote = row["drive_file_path"]
         if row["drive_state"] != "verified" or not remote:
             raise HTTPException(404, "Image content is not available")
+        tmp=cache/('restore-'+uuid.uuid4().hex)
         try:
-            run_rclone(["copyto", remote, str(path)], timeout=180)
+            run_rclone(["copyto", remote, str(tmp)], timeout=180)
+            if sha256_file(tmp)!=row["sha256"]:raise RuntimeError("Remote integrity mismatch")
+            os.replace(tmp,path)
         except Exception:
-            raise HTTPException(503, "Verified remote image temporarily unavailable")
-        if hashlib.sha256(path.read_bytes()).hexdigest() != row["sha256"]:
-            path.unlink(missing_ok=True)
-            raise HTTPException(503, "Retrieved image failed integrity verification")
+            raise HTTPException(503, "Verified remote image temporarily unavailable or failed integrity")
+        finally:tmp.unlink(missing_ok=True)
         return path
 
     def persist_image(filename: str, file_path: Path, *, source_kind="local", source_locator="", rights_confirmed=False):
@@ -318,6 +335,11 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                           (body.description if body.description is not None else row["description"])[:1000],
                           (body.display_name if body.display_name is not None else row["original_name"])[:200],
                           now_iso(),asset_id))
+        from ai_workspace import manual_patch
+        fields={}
+        if body.keywords is not None:fields["keywords"]=tags
+        if body.description is not None:fields["description"]=body.description
+        if fields:manual_patch(root,"image",asset_id,fields)
         return {"ok": True}
 
     @app.delete("/api/v1/images/{asset_id}")
@@ -397,12 +419,14 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
         return results
 
     @app.get("/api/v1/media/search")
-    def media_search(query: str = "", media_type: str = "all",
+    def media_search(query: str = "", media_type: str = "all", semantic: bool = False, orientation: str = "all",
                      limit: int = Query(30, ge=1, le=100),
                      x_sml_editor_token: str = Header(default="")):
         check_editor_token(x_sml_editor_token)
         if media_type not in ("video","image","all"):
             raise HTTPException(400, "media_type must be video, image or all")
+        if semantic:
+            return app.state.ai_workspace.search(query=query,media_type=media_type,status="approved",orientation=orientation,rights_only=True,limit=limit)
         terms = normalized_tags(query.split())
         ranked = rank_candidates(lookup_candidates(media_type, terms), terms)
         return {"items": ranked[:limit], "total": len(ranked), "query": query}
@@ -413,13 +437,19 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
         if body.media_type not in ("video","image","all"):
             raise HTTPException(400, "Invalid media type")
         terms = normalized_tags(body.query.split())
-        candidates = lookup_candidates(body.media_type, terms)
+        if body.semantic:
+            candidates=app.state.ai_workspace.search(query=body.query,media_type=body.media_type,status="approved",orientation=body.orientation,rights_only=True,limit=100)["items"]
+        else:
+            candidates = lookup_candidates(body.media_type, terms)
         now = int(time.time())
         exclusions = set(body.exclude_ids)
         selected = []
         with db() as conn:
             conn.execute("BEGIN IMMEDIATE")
             conn.execute("UPDATE media_reservations SET state='expired' WHERE state='reserved' AND expires_at<=?", (now,))
+            existing=conn.execute("SELECT * FROM media_reservations WHERE project_id=? AND scene_id=? AND state IN ('reserved','committed') ORDER BY created_at LIMIT ?",(body.project_id,body.scene_id,body.count)).fetchall()
+            if existing:
+                return {"items":[{"id":r["media_id"],"type":r["media_type"],"reservation_id":r["id"],"expires_at":r["expires_at"]} for r in existing],"count":len(existing),"shortfall":max(0,body.count-len(existing)),"project_id":body.project_id,"idempotent":True}
             previous = conn.execute("""SELECT source_id FROM media_reservations WHERE project_id=? AND state='committed'
                 ORDER BY committed_at DESC, rowid DESC LIMIT 1""", (body.project_id,)).fetchone()
             last_source = previous["source_id"] if previous else ""
@@ -427,7 +457,7 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                 "SELECT media_id FROM media_reservations WHERE project_id=? AND state IN ('committed','reserved')", (body.project_id,))}
             in_use = {r["media_id"] for r in conn.execute(
                 "SELECT media_id FROM media_reservations WHERE project_id=? AND state='reserved'", (body.project_id,))}
-            ordered = rank_candidates([x for x in candidates if x["id"] not in in_use and x["id"] not in exclusions], terms, last_source, used)
+            ordered = rank_candidates([x for x in candidates if x["id"] not in used and x["id"] not in exclusions], terms, last_source, used)
             for item in ordered:
                 if len(selected) >= body.count:
                     break
@@ -483,7 +513,12 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
             if row["drive_state"] != "verified" or not row["drive_clip_path"]:
                 raise HTTPException(404, "Clip is not available")
             try:
-                run_rclone(["copyto", row["drive_clip_path"], str(path)], timeout=180)
+                tmp=cache/('restore-'+uuid.uuid4().hex)
+                try:
+                    run_rclone(["copyto", row["drive_clip_path"], str(tmp)], timeout=180)
+                    if row['sha256'] and sha256_file(tmp)!=row['sha256']:raise RuntimeError('Remote integrity mismatch')
+                    os.replace(tmp,path)
+                finally:tmp.unlink(missing_ok=True)
             except Exception:
                 raise HTTPException(503, "Remote clip temporarily unavailable")
         return FileResponse(path, media_type="video/mp4")
@@ -606,6 +641,32 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
         finally:
             shutil.rmtree(temp_dir,ignore_errors=True)
 
+    def dispatch_imports():
+        while not import_stop.wait(1):
+            try:
+                with db() as conn:
+                    conn.execute('BEGIN IMMEDIATE')
+                    job=conn.execute("SELECT * FROM media_imports WHERE status='queued' ORDER BY created_at LIMIT 1").fetchone()
+                    if job:conn.execute("UPDATE media_imports SET status='processing',updated_at=? WHERE id=?",(now_iso(),job['id']))
+                if job:background_import(job['id'],ImportRequest(**json.loads(job['request_json'])))
+            except Exception:
+                # Keep the dispatcher alive; original media remains protected.
+                if import_stop.wait(2):return
+
+    @app.post('/api/v1/media/imports/{job_id}/retry')
+    def retry_import(job_id:str):
+        with db() as conn:
+            row=conn.execute('SELECT * FROM media_imports WHERE id=?',(job_id,)).fetchone()
+            if not row:raise HTTPException(404,'Import not found')
+            if row['status']!='failed' or not row['request_json']:raise HTTPException(409,'Only a failed saved request can be retried')
+            conn.execute("UPDATE media_imports SET status='queued',message='Retry queued',updated_at=? WHERE id=?",(now_iso(),job_id))
+        return {'ok':True,'status':'queued'}
+
+    @app.post('/api/v1/media/imports/batch')
+    def batch_imports(items:list[ImportRequest]):
+        if not 1<=len(items)<=32:raise HTTPException(400,'Use 1 to 32 import requests per batch')
+        return {'items':[create_import(body) for body in items]}
+
     @app.post("/api/v1/media/imports")
     def create_import(body: ImportRequest):
         if body.source not in {"drive","youtube"}:
@@ -614,10 +675,9 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
             raise HTTPException(400, "A source path or URL is required")
         job_id = uuid.uuid4().hex[:14]
         with db() as conn:
-            conn.execute("INSERT INTO media_imports(id,source_type,name,status,created_at,updated_at) VALUES(?,?,?,?,?,?)",
-                         (job_id,body.source,body.value[:250],"processing",now_iso(),now_iso()))
-        threading.Thread(target=background_import,args=(job_id,body),daemon=True).start()
-        return {"ok": True, "job_id": job_id, "status": "processing"}
+            conn.execute("INSERT INTO media_imports(id,source_type,name,status,created_at,updated_at,request_json) VALUES(?,?,?,?,?,?,?)",
+                         (job_id,body.source,body.value[:250],"queued",now_iso(),now_iso(),body.model_dump_json()))
+        return {"ok": True, "job_id": job_id, "status": "queued"}
 
     @app.get("/api/v1/media/imports")
     def list_imports():

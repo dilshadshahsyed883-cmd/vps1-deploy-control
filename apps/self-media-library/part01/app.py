@@ -114,6 +114,8 @@ def init_db() -> None:
         for column, definition in {
             "drive_state": "TEXT NOT NULL DEFAULT 'pending'",
             "drive_verified_at": "TEXT",
+            "drive_source_path": "TEXT",
+            "drive_source_verified_at": "TEXT",
             "source_deleted_at": "TEXT",
             "source_cleanup_mode": "TEXT",
         }.items():
@@ -191,7 +193,7 @@ def drive_base(values: dict[str, str]) -> str:
 
 
 def drive_path(values: dict[str, str], kind: str, filename: str) -> str:
-    folders = {"clip": "clips", "thumb": "thumbnails", "meta": "metadata"}
+    folders = {"clip": "clips", "thumb": "thumbnails", "meta": "metadata", "sources": "sources"}
     folder = folders[kind]
     return f"{drive_base(values).rstrip('/')}/{folder}/{filename}"
 
@@ -276,7 +278,15 @@ def upload_and_verify(local_file: Path, remote_file: str, verify: bool = True) -
     remote_md5 = hashes.get("MD5") or hashes.get("md5")
     if remote_md5 and remote_md5.lower() != md5_file(local_file).lower():
         raise RuntimeError(f"Drive verification failed for {local_file.name}: MD5 mismatch")
-    return {"verified": True, "size": remote_size, "hashes": hashes}
+    # A distinct download proves the selected remote object can be retrieved.
+    readback = TEMP_DIR / ("drive-readback-" + uuid.uuid4().hex)
+    try:
+        run_rclone(["copyto", remote_file, str(readback)], timeout=900)
+        if not readback.is_file() or sha256_file(readback) != sha256_file(local_file):
+            raise RuntimeError("Drive readback integrity check failed")
+    finally:
+        readback.unlink(missing_ok=True)
+    return {"verified": True, "readback_verified": True, "size": remote_size, "hashes": hashes}
 
 
 def drive_preflight(values: Optional[dict[str, str]] = None) -> dict:
@@ -342,7 +352,13 @@ def clip_manifest(clip_id: str) -> dict:
 
 def write_clip_manifest(clip_id: str) -> Path:
     path = METADATA_DIR / f"{clip_id}.json"
-    path.write_text(json.dumps(clip_manifest(clip_id), indent=2, ensure_ascii=False), encoding="utf-8")
+    manifest = clip_manifest(clip_id)
+    try:
+        from ai_workspace import metadata
+        manifest["ai_content"] = metadata(DATA, "video", clip_id)
+    except (sqlite3.Error, HTTPException):
+        pass
+    path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
     return path
 
 
@@ -410,6 +426,17 @@ def schedule_metadata_sync(ids: list[str]) -> None:
 def source_drive_gate(source_id: str) -> dict:
     """Fresh database gate used before any automatic source deletion."""
     with db() as c:
+        original = c.execute("SELECT drive_source_path,drive_source_verified_at FROM sources WHERE id=?", (source_id,)).fetchone()
+        original_verified = bool(original and original["drive_source_path"] and original["drive_source_verified_at"])
+        active_dependents = 0
+        if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ai_jobs'").fetchone():
+            active_dependents += c.execute("SELECT COUNT(*) FROM ai_jobs WHERE state IN ('queued','running') AND (media_id=? OR media_id IN (SELECT id FROM clips WHERE source_id=?))",(source_id,source_id)).fetchone()[0]
+        if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='media_reservations'").fetchone():
+            active_dependents += c.execute("SELECT COUNT(*) FROM media_reservations WHERE source_id=? AND state='reserved' AND expires_at>?",(source_id,int(time.time()))).fetchone()[0]
+        if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ai_metadata'").fetchone():
+            stale_metadata = c.execute("SELECT COUNT(*) FROM ai_metadata a JOIN clips v ON a.media_id=v.id AND a.media_type='video' WHERE v.source_id=? AND (v.drive_verified_at IS NULL OR a.updated_at>v.drive_verified_at)",(source_id,)).fetchone()[0]
+        else:
+            stale_metadata = 0
         rows = c.execute(
             """SELECT id,thumb_filename,drive_state,drive_clip_path,drive_thumb_path,
                       drive_meta_path,drive_verified_at
@@ -443,15 +470,19 @@ def source_drive_gate(source_id: str) -> dict:
         "verified": verified,
         "failed": failed,
         "pending": pending,
-        "all_verified": total > 0 and verified == total,
+        "all_verified": total > 0 and verified == total and original_verified,
+        "cleanup_ready": total > 0 and verified == total and original_verified and active_dependents == 0 and stale_metadata == 0,
+        "stale_ai_metadata": stale_metadata,
+        "original_verified": original_verified,
+        "active_dependents": active_dependents,
         "unsafe_ids": unsafe[:100],
     }
 
 
 def cleanup_source_if_drive_safe(source_id: str, mode: str = "auto_drive_verified") -> dict:
     gate = source_drive_gate(source_id)
-    if not gate["all_verified"]:
-        return {"cleaned": False, "reason": "drive_gate_failed", **gate}
+    if not gate["all_verified"] or not gate["cleanup_ready"]:
+        return {"cleaned": False, "reason": "drive_gate_failed_or_active_dependency", **gate}
     with db() as c:
         src = c.execute("SELECT * FROM sources WHERE id=?", (source_id,)).fetchone()
         if not src:
@@ -495,6 +526,17 @@ def sync_source_drive(source_id: str, values: Optional[dict[str, str]] = None) -
     if not clips:
         return {"ok": False, "verified": 0, "total": 0, "detail": "No clips were generated; source retained"}
 
+    # Preserve the full original independently of derived clips before cleanup.
+    original_path = SOURCES_DIR / src["stored_name"]
+    if original_path.is_file():
+        try:
+            remote_original = drive_path(values, "sources", src["stored_name"])
+            run_rclone(["mkdir", drive_base(values) + "/sources"])
+            upload_and_verify(original_path, remote_original, verify=True)
+            with db() as c:
+                c.execute("UPDATE sources SET drive_source_path=?,drive_source_verified_at=?,updated_at=? WHERE id=?",(remote_original,now_iso(),now_iso(),source_id))
+        except Exception:
+            return {"ok": False,"verified":0,"total":len(clips),"detail":"Original Drive archive/readback failed; source retained"}
     retried = 0
     skipped_verified = 0
     for item in clips:
@@ -562,28 +604,31 @@ def ffprobe_duration(path: Path) -> float:
 
 
 def scene_boundaries(path: Path, threshold: float) -> list[float]:
-    # Read scene-change timestamps from ffmpeg showinfo. If detection fails, caller falls back to intervals.
-    cmd = [
-        "ffmpeg", "-hide_banner", "-i", str(path),
-        "-vf", f"select='gt(scene,{threshold})',showinfo",
-        "-an", "-f", "null", "-"
-    ]
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    times: list[float] = []
+    """Adaptive advisory cut candidates from actual low-resolution scene scores."""
+    import re
+    import statistics
+    try:
+        proc = subprocess.run([
+            "ffmpeg", "-hide_banner", "-threads", "2", "-i", str(path),
+            "-vf", "fps=5,scale=320:-2,select='gt(scene,0.05)',metadata=print",
+            "-an", "-f", "null", "-"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=600)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    samples=[];at=None
     for line in proc.stderr.splitlines():
-        marker = "pts_time:"
-        if marker in line:
-            try:
-                token = line.split(marker, 1)[1].split()[0]
-                t = float(token)
-                if t > 0:
-                    times.append(t)
-            except Exception:
-                pass
-    return sorted(set(times))
+        timestamp=re.search(r"pts_time:([0-9.]+)",line)
+        if timestamp:at=float(timestamp.group(1))
+        score=re.search(r"lavfi.scene_score=([0-9.]+)",line)
+        if score and at is not None and at>0:samples.append((at,float(score.group(1))))
+    if not samples:return []
+    adaptive=max(.05,min(float(threshold),statistics.median(v for _,v in samples)*1.2))
+    return sorted({round(at,3) for at,value in samples if value>=adaptive})
 
 
 def build_segments(duration: float, boundaries: list[float], min_s: float, max_s: float) -> list[tuple[float, float]]:
+    if not 0.5 <= min_s <= max_s <= 30:
+        raise ValueError("Clip duration profile must satisfy 0.5 <= min <= max <= 30")
     cuts = [0.0] + [x for x in boundaries if 0 < x < duration] + [duration]
     segments: list[tuple[float, float]] = []
     for a, b in zip(cuts, cuts[1:]):
@@ -636,32 +681,9 @@ def generic_ai_keywords(filename: str) -> list[str]:
 
 
 def analyze_clip(clip_path: Path, source_filename: str) -> tuple[str, list[tuple[str, float]], float]:
-    """Adapter point for a real vision AI service.
-
-    If AI_ANALYZER_URL is set, POST JSON with clip_path and expect:
-    {"description":"...", "keywords":[{"keyword":"mountain","confidence":0.95}], "confidence":0.9}
-    The current V1 intentionally keeps provider secrets server-side.
-    """
-    url = os.getenv("AI_ANALYZER_URL", "").strip()
-    if url:
-        try:
-            import urllib.request
-            payload = json.dumps({"clip_path": str(clip_path), "source_filename": source_filename}).encode()
-            req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
-            with urllib.request.urlopen(req, timeout=90) as r:
-                data = json.loads(r.read().decode())
-            kws = []
-            for item in data.get("keywords", []):
-                if isinstance(item, str):
-                    kws.append((item.strip().lower(), 0.8))
-                elif isinstance(item, dict) and item.get("keyword"):
-                    kws.append((str(item["keyword"]).strip().lower(), float(item.get("confidence", 0.8))))
-            return str(data.get("description", "")), kws[:20], float(data.get("confidence", 0.8))
-        except Exception:
-            pass
-    kws = [(x, 0.35) for x in generic_ai_keywords(source_filename)]
-    description = "Automatic vision analysis pending provider configuration." if not kws else "Initial automatic metadata generated from source context; vision AI can refine it."
-    return description, kws, 0.35 if kws else 0.0
+    # Actual inference belongs to the durable isolated AI worker. Filenames are
+    # source context, never evidence of visual recognition.
+    return "", [], 0.0
 
 
 def process_source(source_id: str) -> None:
@@ -711,7 +733,7 @@ def process_source(source_id: str) -> None:
                 fingerprint = sha256_file(clip_path)
                 if setting_true(settings, "ai_auto", True):
                     description, kws, conf = analyze_clip(clip_path, src["filename"])
-                    ai_state = "complete" if kws else "pending"
+                    ai_state = "pending"
                 else:
                     description, kws, conf = "", [], 0.0
                     ai_state = "disabled"
@@ -839,7 +861,7 @@ def index():
 @app.get("/api/health")
 def health():
     values = get_settings_map()
-    return {"ok": True, "version": APP_VERSION, "ffmpeg": shutil.which("ffmpeg") is not None, "rclone": shutil.which("rclone") is not None, "drive_enabled": setting_true(values, "drive_enabled"), "ai_configured": bool(os.getenv("AI_ANALYZER_URL"))}
+    return {"ok": True, "version": APP_VERSION, "ffmpeg": shutil.which("ffmpeg") is not None, "rclone": shutil.which("rclone") is not None, "drive_enabled": setting_true(values, "drive_enabled"), "ai_configured": model_ready(DATA / "ai_models")}
 
 
 @app.get("/api/stats")
@@ -916,6 +938,8 @@ def update_keywords(clip_id: str, body: KeywordUpdate):
         for k in cleaned[:60]:
             c.execute("INSERT INTO clip_keywords(clip_id,keyword,source,confidence,created_at) VALUES (?,?,?,?,?)", (clip_id, k, "manual", 1.0, ts))
         c.execute("UPDATE clips SET updated_at=? WHERE id=?", (ts, clip_id))
+    from ai_workspace import manual_patch
+    manual_patch(DATA, "video", clip_id, {"keywords": cleaned})
     schedule_metadata_sync([clip_id])
     return {"ok": True, "keywords": cleaned}
 
@@ -992,20 +1016,11 @@ def permanent_delete(clip_id: str):
 
 @app.post("/api/clips/{clip_id}/reanalyze")
 def reanalyze(clip_id: str):
-    with db() as c:
-        row = c.execute("SELECT c.*, s.filename source_filename FROM clips c LEFT JOIN sources s ON s.id=c.source_id WHERE c.id=?", (clip_id,)).fetchone()
-        if not row:
-            raise HTTPException(404, "Clip not found")
-        clip_path = CLIPS_DIR / row["filename"]
-        desc, kws, conf = analyze_clip(clip_path, row["source_filename"] or row["filename"])
-        ts = now_iso()
-        c.execute("UPDATE clips SET description=?,ai_state=?,ai_confidence=?,updated_at=? WHERE id=?", (desc, "complete" if kws else "pending", conf, ts, clip_id))
-        # Preserve manual tags; replace only AI tags.
-        c.execute("DELETE FROM clip_keywords WHERE clip_id=? AND source='ai'", (clip_id,))
-        for kw, kconf in kws:
-            c.execute("INSERT OR IGNORE INTO clip_keywords(clip_id,keyword,source,confidence,created_at) VALUES (?,?,?,?,?)", (clip_id, kw, "ai", kconf, ts))
-    schedule_metadata_sync([clip_id])
-    return {"ok": True}
+    from ai_workspace import enqueue, locate
+    locate(DATA, "video", clip_id)
+    app.state.ai_workspace.require_ready()
+    job = enqueue(DATA, "analyze", "video", clip_id)
+    return {"ok": True, "state": "queued", "job_id": job}
 
 
 @app.get("/api/sources")
@@ -1167,7 +1182,7 @@ def delete_source(source_id: str):
 def get_settings():
     with db() as c:
         values = {r["key"]: r["value"] for r in c.execute("SELECT * FROM settings")}
-    values["ai_configured"] = "true" if os.getenv("AI_ANALYZER_URL") else "false"
+    values["ai_configured"] = "true" if model_ready(DATA / "ai_models") else "false"
     runtime = drive_runtime_status(values)
     values["rclone_available"] = "true" if runtime["rclone_available"] else "false"
     values["rclone_config_path"] = runtime["config_path"]
@@ -1179,6 +1194,12 @@ def get_settings():
 
 @app.patch("/api/settings")
 def update_settings(body: SettingsUpdate):
+    values={**get_settings_map(),**body.values}
+    try:
+        minimum=float(values.get("clip_min_seconds",2));maximum=float(values.get("clip_max_seconds",4));threshold=float(values.get("scene_threshold",.32))
+        if not .5<=minimum<=maximum<=30 or not .05<=threshold<=.9:raise ValueError()
+    except (ValueError,TypeError):
+        raise HTTPException(400,"Use 0.5 <= minimum <= maximum <= 30 seconds and scene sensitivity 0.05–0.9")
     allowed = {"clip_min_seconds", "clip_max_seconds", "scene_threshold", "duplicate_detection", "quality_filter", "ai_auto", "source_cleanup", "drive_enabled", "drive_remote", "drive_root", "drive_verify", "drive_sync_metadata"}
     with db() as c:
         for k, v in body.values.items():
@@ -1254,3 +1275,28 @@ register_media_extensions(app, data_dir=DATA, db=db, now_iso=now_iso,
                           drive_base=drive_base, drive_preflight=drive_preflight,
                           run_rclone=run_rclone, upload_and_verify=upload_and_verify,
                           source_dir=SOURCES_DIR)
+
+# Advanced AI remains an additive, isolated service within the independent app.
+from ai_engine import model_ready
+from ai_workspace import register_ai_workspace
+AI_HOUSEKEEPING_LOCK = threading.Lock()
+def queue_ai_housekeeping():
+    if not AI_HOUSEKEEPING_LOCK.acquire(blocking=False):return
+    def finish():
+        try:
+            values=get_settings_map()
+            if not setting_true(values,"drive_enabled"):return
+            with db() as c:
+                dirty=[r["id"] for r in c.execute("SELECT v.id FROM clips v JOIN ai_metadata a ON a.media_id=v.id AND a.media_type='video' WHERE v.drive_clip_path IS NOT NULL AND (v.drive_verified_at IS NULL OR a.updated_at>v.drive_verified_at) LIMIT 5")]
+            sync_metadata_batch(dirty)
+            if values.get("source_cleanup")=="after_drive_verified":
+                with db() as c:
+                    ids=[r["id"] for r in c.execute("SELECT id FROM sources WHERE source_deleted_at IS NULL AND drive_source_verified_at IS NOT NULL AND status='completed' LIMIT 10")]
+                for ident in ids:cleanup_source_if_drive_safe(ident)
+        except Exception:
+            pass  # Drive failures preserve local inputs and retry on the next pass.
+        finally:AI_HOUSEKEEPING_LOCK.release()
+    threading.Thread(target=finish,daemon=True).start()
+register_ai_workspace(app, DATA, housekeeping_callback=queue_ai_housekeeping)
+(DATA / 'ai_previews').mkdir(exist_ok=True)
+app.mount('/media/ai-previews', StaticFiles(directory=DATA / 'ai_previews'), name='ai-previews')
