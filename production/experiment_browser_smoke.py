@@ -73,6 +73,15 @@ def verify():
         if status != 200 or "image/png" not in content_type or \
            not image.startswith(b"\x89PNG\r\n\x1a\n"):
             raise RuntimeError("EXPERIMENT_BROWSER_BLOCKED: real Chrome screenshot missing")
+        status, kind, body, _ = _request(base + "/privacy", cookie)
+        if status != 200 or "json" not in kind:
+            raise RuntimeError("EXPERIMENT_PRIVACY_BLOCKED: authenticated inspection unavailable")
+        settings = json.loads(body)
+        if settings.get("privacy_mode") != "strict" or \
+           settings.get("webrtc_udp_restricted") is not True or \
+           settings.get("service_workers_blocked") is not True or \
+           settings.get("verified_dns_leak_free") is not False:
+            raise RuntimeError("EXPERIMENT_PRIVACY_BLOCKED: privacy defaults or truthfulness failed")
     finally:
         if started:
             _request(base + "/stop", cookie, method="POST", csrf=csrf)
