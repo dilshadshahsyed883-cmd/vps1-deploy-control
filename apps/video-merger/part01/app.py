@@ -804,8 +804,27 @@ class Handler(BaseHTTPRequestHandler):
         p=self.route()
         try:
             if p in (PREFIX, PREFIX+'/'):
-                user=(self.headers.get('X-Auth-User') or 'team').strip()[:120] or 'team'
-                page=(Path(__file__).resolve().parent/'templates/index.html').read_text(encoding='utf-8').replace('{{AUTH_USER}}', html.escape(user))
+                # Scene SSO Nginx replaces trusted identity headers after login.
+                user=(self.headers.get('X-Auth-User') or '').strip()[:120]
+                is_admin=bool(user) and self.headers.get('X-Is-Admin')=='1'
+                page=(Path(__file__).resolve().parent/'templates/index.html').read_text(encoding='utf-8')
+                if user:
+                    account=('<div class="sidebar-account" data-vps1-server-identity="1">'
+                             '<div class="sidebar-account-name">'+html.escape(user,quote=True)+'</div>'
+                             '<form action="/logout" method="post">'
+                             '<button type="submit">Log out</button></form></div>')
+                else:
+                    account=('<div class="sidebar-account" data-vps1-server-identity="0">'
+                             '<div class="sidebar-account-name">Account verification needed</div>'
+                             '<a class="vps1-session-login" href="/login">Sign in</a></div>')
+                anchor='<!-- V1_SERVER_ACCOUNT_FALLBACK -->'
+                if page.count(anchor)!=1: raise RuntimeError('Video Merger sidebar anchor changed')
+                page=page.replace(anchor,account,1)
+                if is_admin:
+                    marker='<!-- Admin appears only after verified Scene session role -->'
+                    if page.count(marker)!=1: raise RuntimeError('Video Merger Admin anchor changed')
+                    page=page.replace(marker,
+                        '<a class="vps1-server-admin" href="/admin">Admin</a>\\n'+marker,1)
                 return self.send_bytes(200,page.encode('utf-8'),'text/html; charset=utf-8')
             if p==PREFIX+'/health': return self.send_json(200,{'ok':True,'app':APP_NAME,'release':RELEASE_ID,'paused':setting('paused','0')=='1'})
             if p==PREFIX+'/api/state':
