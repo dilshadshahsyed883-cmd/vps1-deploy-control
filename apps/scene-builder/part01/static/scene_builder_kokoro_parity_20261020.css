@@ -6,7 +6,7 @@ body.vps1-scene-parity {
   --scene-ui-border: #e2e7ef;
   --scene-ui-ink: #101828;
   --scene-ui-muted: #667085;
-  scrollbar-gutter: stable;
+  /* Global shell owns the stable scrollbar; never reserve a second gutter. */
 }
 body.vps1-scene-parity main {min-width: 0; overflow-wrap: anywhere;}
 body.vps1-scene-parity main > [data-video-studio-subnav="1"],
