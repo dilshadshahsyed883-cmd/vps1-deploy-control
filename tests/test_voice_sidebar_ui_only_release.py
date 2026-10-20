@@ -99,5 +99,54 @@ class VoiceSidebarUIOnlyTests(unittest.TestCase):
         self.assertIn(NEW_ASSETS, voice)
 
 
+
+class VoiceQueueURLOverlayTests(unittest.TestCase):
+    """VPS Scene SSO app-prefixed routes, with root-local compatibility."""
+
+    def test_four_reviewed_queue_and_media_urls_are_present_and_rewrite_safe(self):
+        from production.voice_template_release import QUEUE_ROUTE_PAIRS
+        source = (ROOT / "apps/voice-studio/part01/templates/voice_studio.html").read_bytes()
+        self.assertEqual(len(QUEUE_ROUTE_PAIRS), 4)
+        for old, new in QUEUE_ROUTE_PAIRS:
+            with self.subTest(old=old[:90]):
+                self.assertEqual(source.count(new), 1)
+                self.assertNotIn(old, source)
+                self.assertNotIn(b"'/tts/api/", new)
+        self.assertIn(b"location.pathname.startsWith('/voice-studio/')", source)
+        self.assertIn(b"'/voice-studio':'')+'/'+'tts/api/kokoro'", source)
+        self.assertIn(b"'/voice-studio':'')+'/'+'tts/api/edge'", source)
+        self.assertIn(b"apiRoot+'/audio/'+encodeURIComponent(j.job_id)", source)
+        self.assertIn(b"root+'/files/'+encodeURIComponent(j.job_id)+'/'+ext", source)
+
+    def test_existing_runtime_overlay_is_byte_scoped_and_idempotent(self):
+        from production.voice_template_release import queue_route_overlay, QUEUE_ROUTE_PAIRS
+        source = (ROOT / "apps/voice-studio/part01/templates/voice_studio.html").read_bytes()
+        original = source
+        for old, new in QUEUE_ROUTE_PAIRS:
+            original = original.replace(new, old, 1)
+        self.assertNotEqual(original, source)
+        self.assertEqual(queue_route_overlay(original, source), source)
+        self.assertEqual(queue_route_overlay(source, source), source)
+
+    def test_unknown_or_duplicate_runtime_blocks_release_without_worker_change(self):
+        from production.voice_template_release import queue_route_overlay, QUEUE_ROUTE_PAIRS
+        source = (ROOT / "apps/voice-studio/part01/templates/voice_studio.html").read_bytes()
+        old, new = QUEUE_ROUTE_PAIRS[0]
+        for damaged in (source.replace(new, b"UNKNOWN_QUEUE_ROOT", 1),
+                        source.replace(new, new + new, 1)):
+            with self.assertRaisesRegex(RuntimeError, "queue JS differs"):
+                queue_route_overlay(damaged, source)
+
+    def test_release_installs_only_voice_html_not_queue_worker(self):
+        from production import voice_template_release as module
+        code = (ROOT / "production/voice_template_release.py").read_text()
+        self.assertIn("patched_html = queue_route_overlay(patched_html, source_html)", code)
+        self.assertIn("public Voice queue JavaScript is not updated", code)
+        self.assertIn("local Voice queue JavaScript is not updated", code)
+        self.assertNotIn("workers.install(", code)
+        self.assertNotIn("workers.stop(", code)
+        self.assertTrue(hasattr(module, "queue_route_overlay"))
+
+
 if __name__ == "__main__":
     unittest.main()
