@@ -436,6 +436,10 @@
     }
   }
   function polish() {
+    // A late Omni startup response can rewrite the URL after engine selection.
+    // Keep refresh on the visible engine; Omni keeps its own workspace hashes.
+    const engineHash={kokoro:'#vs-kokoro',edge:'#vs-edge','audio-downloader':'#vs-audio'}[document.documentElement.dataset.vsEngine];
+    if(engineHash&&location.hash!==engineHash)history.replaceState(null,'',engineHash);
     const proxy=$('vsaProxy'),audio=$('vsAudioWorkspace');
     if(proxy&&audio&&!audio.contains(proxy))audio.append(proxy);
     runtimeCards('vskRuntimeDetails');runtimeCards('vseDetails');

@@ -35,6 +35,11 @@ def browser_acceptance():
             page.goto('http://audit.test/voice-studio/app#vs-kokoro')
             expect(page.get_by_role('tab',name='Kokoro TTS',exact=True)).to_have_attribute('aria-selected','true')
             expect(page.locator('#vps1-kokoro-audit-css')).to_have_count(1)
+            # Reproduce the legacy asynchronous startup overwriting the hash.
+            page.evaluate("history.replaceState(null,'','#omnivoice');document.querySelector('.page').classList.toggle('active')")
+            expect(page).to_have_url('http://audit.test/voice-studio/app#vs-kokoro')
+            page.reload()
+            expect(page.get_by_role('tab',name='Kokoro TTS',exact=True)).to_have_attribute('aria-selected','true')
             page.get_by_role('tab',name='Kokoro TTS',exact=True).click()
             expect(page.locator('#vskEngineState')).to_have_text('Kokoro ready')
             expect(page.locator('#vskMessage')).not_to_contain_text('not yet verified')
