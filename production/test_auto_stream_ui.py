@@ -15,7 +15,7 @@ class AutoStreamStudioTests(unittest.TestCase):
         for text in ("Dashboard","Channels","Sheets Sync","Live Studio","Live Queue"):
             self.assertIn(text, PAGE)
         self.assertIn("manual-ingest", PAGE)
-        self.assertIn("credentials:"same-origin"", PAGE)
+        self.assertIn('credentials:"same-origin"', PAGE)
         self.assertNotIn("<iframe", PAGE.lower())
 
     def test_media_and_queue_controls_present(self):
