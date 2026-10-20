@@ -100,13 +100,20 @@ jobs:
           shell=read('http://127.0.0.1:18080/static/vps1_native_site_shell.js')
           assert 'vps1-native-experiment-tabs' in shell
           assert 'Self Media Library", "/self-media-library/"' in shell
+          assert 'vps1-native-nav-backdrop' in shell
+          assert 'aria-expanded' in shell and 'setMenuOpen(false)' in shell
           index=read('http://127.0.0.1:8147/')
           assert 'data-workspace="library"' in index
           assert 'id="nav"' in index
           assert 'class="sml-control-rail"' in index
           assert index.count('data-page="') >= 5
+          assert 'vps1_native_site_shell.css?v=20261020-sidebar-stable-v4' in index
+          assert 'vps1_native_site_shell.js?v=20261020-sidebar-stable-v4' in index
           css=read('http://127.0.0.1:18080/static/vps1_native_site_shell.css')
           assert 'body.vps1-native-library .app-shell' in css
+          assert '--vps1-mobile-drawer-width:min(84vw,300px)' in css
+          assert 'body.vps1-native-open > .vps1-native-nav-backdrop' in css
+          print('SIDEBAR_STABLE_DESKTOP_MOBILE=PASS',flush=True)
           with urllib.request.urlopen('http://127.0.0.1:8147/api/health',timeout=15) as response:
               assert json.load(response).get('ok') is True
           print('EXPERIMENT_LIBRARY_NATIVE_TABS=PASS',flush=True)

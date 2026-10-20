@@ -407,3 +407,90 @@ body.vps1-native-library .sml-control-rail .sml-engine-state{
     animation:none!important;transition:none!important;
   }
 }
+
+/* CW-003 SIDEBAR STABILITY V4 — canonical geometry for Scene + native app shells.
+   Uniform fixed desktop sidebar, mobile drawer and menu toggle; no app-specific
+   margins or moving button while switching between independent documents. */
+:root {
+  --vps1-sidebar-width:214px;
+  --vps1-sidebar-bg:#101526;
+  --vps1-mobile-drawer-width:min(84vw,300px);
+  --vps1-nav-toggle-size:44px;
+}
+#app-sidebar.sidebar,#vps1-native-site-sidebar{
+  top:0!important;left:0!important;bottom:0!important;
+  width:var(--vps1-sidebar-width)!important;
+  max-width:var(--vps1-sidebar-width)!important;
+  height:100dvh!important;min-height:100dvh!important;
+  margin:0!important;z-index:9990!important;
+  scrollbar-gutter:stable;
+}
+@media(min-width:761px){
+  body.vps1-native-site {padding-left:var(--vps1-sidebar-width)!important;}
+  html:has(script[data-workspace]) body:not(:has(#app-sidebar)) {
+    padding-left:var(--vps1-sidebar-width)!important;
+  }
+  body:has(#app-sidebar)>main {margin-left:var(--vps1-sidebar-width)!important;}
+  body.vps1-native-site .vps1-native-nav-backdrop {display:none!important}
+}
+.vps1-native-nav-backdrop{display:none}
+@media(max-width:760px){
+  :root{--vps1-sidebar-width:214px}
+  #app-sidebar.sidebar,#vps1-native-site-sidebar{
+    width:var(--vps1-mobile-drawer-width)!important;
+    max-width:300px!important;min-height:0!important;
+    transform:translate3d(-105%,0,0)!important;
+    will-change:transform;
+    transition:transform .18s ease!important;
+  }
+  #app-sidebar.sidebar.mobile-open,
+  body.vps1-native-open #vps1-native-site-sidebar{
+    transform:translate3d(0,0,0)!important;
+  }
+  /* The fixed menu button never participates in content or rail height. */
+  body.vps1-native-site > .vps1-native-toggle {
+    display:flex!important;align-items:center!important;justify-content:center!important;
+    position:fixed!important;top:max(12px,env(safe-area-inset-top))!important;
+    left:12px!important;right:auto!important;
+    width:auto!important;min-width:var(--vps1-nav-toggle-size)!important;
+    min-height:var(--vps1-nav-toggle-size)!important;
+    margin:0!important;padding:8px 11px!important;
+    box-sizing:border-box!important;
+    background:#fff!important;color:#101526!important;border:1px solid #cbd5e1!important;
+    border-radius:9px!important;z-index:9993!important;
+    font:750 12px/1.2 Inter,system-ui,sans-serif!important;
+    box-shadow:0 2px 8px rgba(15,23,42,.12)!important;
+  }
+  body.vps1-native-open > .vps1-native-toggle{
+    left:min(calc(var(--vps1-mobile-drawer-width) + 6px),calc(100vw - 92px))!important;
+  }
+  body.vps1-native-site > .vps1-native-nav-backdrop{
+    display:block!important;position:fixed!important;inset:0!important;
+    background:rgba(8,15,28,.46)!important;opacity:0!important;
+    pointer-events:none!important;z-index:9989!important;
+    transition:opacity .18s ease!important;
+  }
+  body.vps1-native-open > .vps1-native-nav-backdrop{
+    opacity:1!important;pointer-events:auto!important;
+  }
+  body.vps1-native-open {overflow:hidden!important}
+  /* All Studio rails start below the same menu row. */
+  body.vps1-native-site > :is(.vps1-native-video-tabs,.vps1-native-upload-tabs,.vps1-native-experiment-tabs){
+    margin-top:72px!important;
+  }
+  #mobile-nav-toggle.mobile-nav-toggle {
+    position:fixed!important;
+    top:max(12px,env(safe-area-inset-top))!important;
+    left:12px!important;
+    margin:0!important;
+    min-height:var(--vps1-nav-toggle-size)!important;
+    min-width:var(--vps1-nav-toggle-size)!important;
+    box-sizing:border-box!important;
+  }
+}
+@media(prefers-reduced-motion:reduce){
+  #app-sidebar.sidebar,#vps1-native-site-sidebar,
+  body.vps1-native-site > .vps1-native-nav-backdrop{
+    transition:none!important;animation:none!important;
+  }
+}

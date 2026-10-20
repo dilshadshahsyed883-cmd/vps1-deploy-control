@@ -244,18 +244,40 @@
     aside.appendChild(navigation);
     aside.appendChild(account);
     aside.appendChild(node("div", "vps1-native-bottom", "VPS Connected"));
-    refreshIdentity();
-    // Re-check when returning to a tab after admin demotion or re-login.
-    window.addEventListener("pageshow", refreshIdentity);
-    document.addEventListener("visibilitychange", () => {
-      if (!document.hidden) refreshIdentity();
-    });
     document.body.prepend(aside);
     const toggle = node("button", "vps1-native-toggle", "☰ Menu");
     toggle.type = "button";
-    toggle.setAttribute("aria-label", "Toggle main navigation");
-    toggle.addEventListener("click", () => document.body.classList.toggle("vps1-native-open"));
+    toggle.setAttribute("aria-label", "Open navigation menu");
+    toggle.setAttribute("aria-controls", aside.id);
+    toggle.setAttribute("aria-expanded", "false");
     aside.after(toggle);
+    // Keep mobile navigation geometrically stable across all native apps.
+    // Backdrop never reflows content, and the same drawer closes on navigation,
+    // Escape, resize and history restoration.
+    const backdrop = node("div", "vps1-native-nav-backdrop");
+    backdrop.setAttribute("aria-hidden", "true");
+    toggle.after(backdrop);
+    let menuOpen = false;
+    const setMenuOpen = open => {
+      menuOpen = Boolean(open);
+      document.body.classList.toggle("vps1-native-open", menuOpen);
+      toggle.setAttribute("aria-expanded", menuOpen ? "true" : "false");
+      toggle.setAttribute("aria-label", menuOpen ? "Close navigation menu" : "Open navigation menu");
+    };
+    toggle.addEventListener("click", () => setMenuOpen(!menuOpen));
+    backdrop.addEventListener("click", () => setMenuOpen(false));
+    navigation.addEventListener("click", () => setMenuOpen(false));
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape") setMenuOpen(false);
+    });
+    window.addEventListener("resize", () => {
+      if (window.innerWidth > 760) setMenuOpen(false);
+    });
+    refreshIdentity();
+    window.addEventListener("pageshow", () => {setMenuOpen(false); return refreshIdentity();});
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) refreshIdentity();
+    });
     if (app === "acs") {
       const tabs = node("nav", "vps1-native-video-tabs");
       tabs.dataset.vps1Component = "studio-tabs";
