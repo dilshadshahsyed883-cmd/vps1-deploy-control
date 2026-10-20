@@ -146,7 +146,15 @@ def pick():
 
 def run_rclone(*args):
  cmd=[RCLONE,'--config',RCFILE,'--tpslimit','1','--tpslimit-burst','1','--retries','1','--low-level-retries','1',*args]
- r=subprocess.run(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=160,text=True)
+ for attempt in range(4):
+  r=subprocess.run(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=160,text=True)
+  if not r.returncode:break
+  detail=(r.stderr or '').lower()
+  # A 403 rateLimitExceeded is retriable; storageQuotaExceeded / missing ACL is not.
+  limited=('ratelimitexceeded' in detail or 'rate limit' in detail
+           or 'too many requests' in detail or '429' in detail)
+  if not limited or attempt==3:break
+  time.sleep((10,30,60)[attempt])
  if r.returncode:
   diagnostic=(r.stderr or '').lower()[-8192:]
   if any(w in diagnostic for w in ('429','rate limit','ratelimit','too many requests','quota exceeded','user rate limit')):

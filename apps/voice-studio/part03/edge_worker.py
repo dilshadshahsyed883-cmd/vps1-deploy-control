@@ -213,9 +213,22 @@ def pick():
 def rclone_cmd(*args):
     if not RCLONE or not RCCONF.is_file():raise RuntimeError('Drive credentials unavailable')
     cmd=[RCLONE,'--config',str(RCCONF),'--tpslimit','1','--tpslimit-burst','1','--retries','1','--low-level-retries','1',*args]
-    r=subprocess.run(cmd,capture_output=True,text=True,timeout=160)
-    if r.returncode:raise RuntimeError('Drive upload or stat failed')
-    return r.stdout
+    for attempt in range(4):
+        r=subprocess.run(cmd,capture_output=True,text=True,timeout=160)
+        if not r.returncode:
+            return r.stdout
+        diagnostic=(r.stderr or '').lower()
+        limited=('ratelimitexceeded' in diagnostic or 'rate limit' in diagnostic
+                 or 'too many requests' in diagnostic or '429' in diagnostic)
+        if not limited or attempt==3:
+            # Never surface Google stderr, bearer tokens or account information.
+            category=('rate_or_quota' if limited else
+                      'authentication' if any(x in diagnostic for x in
+                        ('invalid_grant','unauthorized','401')) else
+                      'permission' if any(x in diagnostic for x in
+                        ('insufficientfilepermissions','403','forbidden')) else 'other')
+            raise RuntimeError('Drive operation unsuccessful:'+category)
+        time.sleep((10,30,60)[attempt])
 
 def verified_copy(local,remote):
     """Write no permissions; require verified Drive ID and size."""
@@ -264,7 +277,7 @@ def deliver():
     except Exception as e:
         retries=int(row['delivery_retries'] or 0)+1
         delay=min(3600,120*2**min(5,retries-1))
-        update(jid,delivery_status='retry_pending',delivery_retries=retries,next_delivery_retry=time.time()+delay,delivery_error=type(e).__name__)
+        update(jid,delivery_status='retry_pending',delivery_retries=retries,next_delivery_retry=time.time()+delay,delivery_error=(str(e).split(':',1)[1] if isinstance(e,RuntimeError) and str(e).startswith('Drive operation unsuccessful:') else type(e).__name__))
         print('EDGE_DRIVE_DELIVERY_RETRY='+jid,flush=True)
 
 def cleanup_delivered(limit=5):
