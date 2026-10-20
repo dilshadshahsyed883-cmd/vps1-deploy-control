@@ -108,6 +108,52 @@ def responsive_overlay(original: bytes, source: bytes) -> bytes:
 
 
 
+# Allowlisted OmniVoice UI-only parity overlay. Existing workers, other
+# engine templates, static assets and on-disk voice data are preserved.
+OMNI_PARITY_ID = b'<style id="omni-kokoro-parity-ui">'
+OMNI_PARITY_MARKUP = (
+    (b'<label class="label">Target language</label><select id="omniLanguage">',
+     b'<label class="label" for="omniLanguage">Target language</label><select id="omniLanguage">'),
+    (b'<label class="label">Voice profile</label><select id="omniProfileSelect">',
+     b'<label class="label" for="omniProfileSelect">Voice profile</label><select id="omniProfileSelect">'),
+    (b'<label class="label">Speed</label><div class="range"><input id="omniSpeed"',
+     b'<label class="label" for="omniSpeed">Speed</label><div class="range"><input id="omniSpeed"'),
+    (b'<label class="label">Sampling steps</label><input id="omniNumStep"',
+     b'<label class="label" for="omniNumStep">Sampling steps</label><input id="omniNumStep"'),
+    (b'<output id="omniSpeedOut">', b'<output id="omniSpeedOut" for="omniSpeed">'),
+    (b'<div class="notice" id="omniQueueStatus" style=',
+     b'<div class="notice" id="omniQueueStatus" role="status" aria-live="polite" style='),
+)
+
+
+def omnivoice_parity_overlay(original: bytes, source: bytes) -> bytes:
+    """Transfer only the owner-reviewed Omni styles/labels into live HTML."""
+    require(source.count(OMNI_PARITY_ID) == 1, "Omni parity source CSS missing")
+    start = source.index(OMNI_PARITY_ID)
+    end = source.index(b"</style>", start) + len(b"</style>")
+    block = source[start:end]
+    require(b"<script" not in block and b"url(" not in block and
+            b"@import" not in block, "Omni parity CSS has external/script content")
+    require(original.count(OMNI_PARITY_ID) <= 1,
+            "Omni parity style duplicated in installed template")
+    if OMNI_PARITY_ID in original:
+        old_start = original.index(OMNI_PARITY_ID)
+        old_end = original.index(b"</style>", old_start) + len(b"</style>")
+        original = original[:old_start] + block + original[old_end:]
+    else:
+        require(original.count(b"</head>") == 1,
+                "Omni parity target document head missing")
+        original = original.replace(b"</head>", block + b"\n</head>", 1)
+    for old, new in OMNI_PARITY_MARKUP:
+        require(source.count(new) == 1 and old not in source,
+                "Omni parity source control contract differs")
+        require(original.count(old) + original.count(new) == 1,
+                "Omni parity installed control contract differs")
+        original = original.replace(old, new, 1)
+    return original
+
+
+
 # The public native document is under /voice-studio/app, while the isolated
 # web service itself is under /app. Nginx text substitution must not decide
 # where the queue API points. Update only four reviewed inline JS expressions.
@@ -385,6 +431,7 @@ def install(revision: str) -> None:
             "Voice template limit guard overlay failed")
 
     patched_html = responsive_overlay(patched_html, source_html)
+    patched_html = omnivoice_parity_overlay(patched_html, source_html)
     patched_html = queue_route_overlay(patched_html, source_html)
     patched_html = audio_browser_route_overlay(patched_html, source_html)
     source_entry = REPO / "apps/voice-studio" / VOICE_WEB
