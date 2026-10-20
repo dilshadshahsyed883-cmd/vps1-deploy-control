@@ -61,7 +61,7 @@ def _request(path: str, token: str | None = None) -> tuple[int, bytes]:
         return exc.code, exc.read(512 * 1024)
 
 
-def _verify() -> dict:
+def _verify(*, require_retirement: bool = True) -> dict:
     status, body = _request("/health")
     try:
         health = json.loads(body)
@@ -79,13 +79,13 @@ def _verify() -> dict:
     for field in ("cpu", "memory", "disk"):
         if not isinstance(metrics.get(field), dict):
             raise RuntimeError("Storage Manager required metric missing: " + field)
-    for field in ("services", "service_details", "startable_services", "processes"):
-        if field in metrics:
-            raise RuntimeError("obsolete service/process metric returned: " + field)
+    legacy_fields = [field for field in ("services", "service_details", "startable_services", "processes") if field in metrics]
+    if require_retirement and legacy_fields:
+        raise RuntimeError("obsolete service/process metric returned: " + legacy_fields[0])
     return {
         "health": health,
         "metrics": {"cpu": True, "memory": True, "disk": True},
-        "retired_metric_fields": "ABSENT",
+        "retired_metric_fields": "ABSENT" if not legacy_fields else "PRE_EXISTING_LEGACY_FIELDS",
         "service": UNIT,
     }
 
@@ -155,7 +155,7 @@ def _rollback(previous: Path) -> None:
     result = _run(["systemctl", "restart", UNIT], timeout=90)
     if result.returncode:
         raise RuntimeError("Storage Manager rollback restart failed")
-    _verify()
+    _verify(require_retirement=False)
 
 
 def install(revision: str) -> None:
@@ -166,7 +166,7 @@ def install(revision: str) -> None:
         raise RuntimeError("Storage Manager candidate ownership is incomplete")
     if _run(["systemctl", "is-active", "--quiet", UNIT], timeout=15).returncode:
         raise RuntimeError("Storage Manager candidate service is inactive")
-    before = _verify()
+    before = _verify(require_retirement=False)
     target = _stage(revision)
     if previous == target:
         event(app="vps-storage-manager", result="PASS_ALREADY_INSTALLED",
@@ -211,7 +211,7 @@ def rollback() -> None:
     result = _run(["systemctl", "restart", UNIT], timeout=90)
     if result.returncode:
         raise RuntimeError("Storage Manager rollback restart failed")
-    _verify()
+    _verify(require_retirement=False)
 
 
 def main() -> None:
