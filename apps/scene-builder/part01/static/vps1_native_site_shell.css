@@ -553,3 +553,8 @@ html:has(script[data-workspace=voice]):not([data-vs-engine]) :is(.enginebar,sect
 @media(max-width:760px){body.vps1-native-voice .vs-engine-selector{margin-top:72px!important;width:calc(100% - 28px)!important}}
 body:has(#app-sidebar) .scene-workspace-tabs>a[aria-current=page]{background:#6355df!important;color:white!important;border-color:#6355df!important}
 #app-sidebar>nav,#vps1-native-site-sidebar>nav[aria-label=Applications]{min-height:270px}
+/* Final public-page readback: app inline CSS must respect hidden fields. */
+body.vps1-native-acs .field[hidden]{display:none!important}
+body.vps1-native-uploader .app-main .lum-shell{padding:0 0 34px!important;margin:0!important;width:100%!important;max-width:none!important}
+body.vps1-native-uploader .lum-ae-schedule-control{flex-wrap:wrap!important;min-width:0!important;max-width:100%!important}
+body.vps1-native-uploader .lum-ae-schedule-control>button{flex:0 1 auto!important;max-width:100%!important;white-space:normal!important}
