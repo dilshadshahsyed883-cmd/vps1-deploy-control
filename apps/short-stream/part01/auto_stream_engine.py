@@ -168,10 +168,10 @@ class StreamEngine:
                 return self._public(prior)
             con.execute("""INSERT INTO jobs
                 (id, idem, channel_id, media_path, title, scheduled_at,
-                 continuous, status, created_at, updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                 continuous, status, created_at, updated_at, loop_count, unlimited, description, privacy)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (jid, idem, channel, source, title, when, int(continuous),
-                 "DRAFT", now, now))
+                 "DRAFT", now, now, loop_count, int(unlimited), description, privacy))
         return self.get(jid)
 
     def prepare(self, jid):
@@ -487,3 +487,110 @@ def engine_stop(job_id: str):
         return service().stop(job_id)
     except Exception as exc:
         translate(exc)
+
+
+@router.get('/media/preview')
+def media_preview(media_path: str):
+    from fastapi.responses import FileResponse
+    try:
+        path = service()._source(media_path)
+        return FileResponse(path, headers={'Cache-Control': 'private, no-store'})
+    except Exception as exc:
+        translate(exc)
+
+
+@router.get('/studio/config')
+def studio_config():
+    with service()._connect() as con:
+        con.execute('CREATE TABLE IF NOT EXISTS studio_config(id INTEGER PRIMARY KEY, document TEXT NOT NULL)')
+        row = con.execute('SELECT document FROM studio_config WHERE id=1').fetchone()
+    return json.loads(row[0]) if row else {'name':'Live Studio','active_scene':0,'scenes':[{'name':'Scene 1','sources':[]}]}
+
+
+@router.put('/studio/config')
+def save_studio_config(payload: dict = Body(...)):
+    try:
+        scenes = payload.get('scenes')
+        if not isinstance(scenes, list) or not 1 <= len(scenes) <= 30:
+            raise ValueError('Studio requires 1–30 scenes')
+        clean = {'name':str(payload.get('name','Live Studio'))[:100], 'scenes':[]}
+        active = payload.get('active_scene',0)
+        if not isinstance(active,int) or not 0 <= active < len(scenes):
+            raise ValueError('Select an existing active scene')
+        clean['active_scene'] = active
+        for scene in scenes:
+            if not isinstance(scene,dict) or not str(scene.get('name','')).strip():
+                raise ValueError('Each scene requires a name')
+            sources = scene.get('sources',[])
+            if not isinstance(sources,list) or len(sources)>20:
+                raise ValueError('Maximum 20 sources per scene')
+            normalized=[]
+            for source in sources:
+                if not isinstance(source,dict) or source.get('type') != 'video':
+                    raise ValueError('This renderer currently supports prerecorded video sources only')
+                media = str(source.get('media_path',''))
+                service()._source(media)
+                volume = float(source.get('volume',1))
+                if not 0 <= volume <= 2:
+                    raise ValueError('Volume must be between 0 and 2')
+                normalized.append({'type':'video','media_path':media,'visible':bool(source.get('visible',True)),
+                                   'muted':bool(source.get('muted',False)),'volume':volume})
+            clean['scenes'].append({'name':str(scene['name'])[:100],'sources':normalized})
+        with service()._connect() as con:
+            con.execute('CREATE TABLE IF NOT EXISTS studio_config(id INTEGER PRIMARY KEY, document TEXT NOT NULL)')
+            con.execute('INSERT INTO studio_config VALUES(1,?) ON CONFLICT(id) DO UPDATE SET document=excluded.document',(json.dumps(clean),))
+        return clean
+    except Exception as exc:
+        translate(exc)
+
+
+@router.post('/jobs/{job_id}/cancel')
+def cancel_job(job_id: str):
+    try:
+        engine=service()
+        with engine.lock, engine._connect() as con:
+            row=con.execute('SELECT status FROM jobs WHERE id=?',(job_id,)).fetchone()
+            if not row:
+                raise KeyError('Stream job not found')
+            if row['status'] not in ('DRAFT','SCHEDULED','READY','FAILED','INTERRUPTED'):
+                raise ValueError('Stop or reconcile the active stream before cancelling')
+            con.execute("UPDATE jobs SET status='CANCELLED',updated_at=? WHERE id=?",(utc_now(),job_id))
+        return engine.get(job_id)
+    except Exception as exc:
+        translate(exc)
+
+
+@router.post('/jobs/{job_id}/duplicate', status_code=201)
+def duplicate_job(job_id: str):
+    try:
+        engine=service()
+        original=engine.get(job_id)
+        original['idempotency_key']='duplicate-'+uuid.uuid4().hex
+        return engine.create(original)
+    except Exception as exc:
+        translate(exc)
+
+
+@router.get('/dashboard')
+def dashboard_metrics():
+    engine = service()
+    from auto_stream_integrations import accounts
+    channels = accounts().channel_catalog()
+    with engine._connect() as con:
+        counts = {r[0]:r[1] for r in con.execute('SELECT status,COUNT(*) FROM jobs GROUP BY status')}
+        recent = [engine._public(r) for r in con.execute('SELECT * FROM jobs ORDER BY updated_at DESC LIMIT 10')]
+        upcoming = [engine._public(r) for r in con.execute("SELECT * FROM jobs WHERE scheduled_at IS NOT NULL AND status IN ('DRAFT','SCHEDULED','READY') ORDER BY scheduled_at LIMIT 10")]
+    with engine.lock:
+        active_encoders = sum(proc.poll() is None for proc in engine.processes.values())
+    space = shutil.disk_usage(engine.root)
+    return {'authorized_channels':sum(c['authorized'] for c in channels),
+            'scheduled':counts.get('SCHEDULED',0),
+            'queued':sum(counts.get(s,0) for s in ('WAITING','PREPARING','READY','STARTING')),
+            'completed':counts.get('COMPLETED',0)+counts.get('STOPPED',0),
+            'failed':counts.get('FAILED',0)+counts.get('INTERRUPTED',0),
+            'active_encoders':active_encoders,'counts':counts,
+            'live_verified':None,
+            'live_verification':'Remote YouTube verification required; encoder delivery alone is not Live',
+            'recent':recent,'upcoming':upcoming,
+            'disk':{'total_bytes':space.total,'free_bytes':space.free,'used_bytes':space.used},
+            'engine':engine.health()}

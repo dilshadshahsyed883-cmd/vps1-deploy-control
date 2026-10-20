@@ -214,3 +214,23 @@ def client_remove(request: Request):
     require_admin(request, write=True)
     return JSONResponse(_safe_result(lambda: store().delete()),
                         headers={"Cache-Control":"no-store"})
+
+
+@router.post("/oauth/client/json")
+async def client_json_upload(request: Request):
+    require_admin(request, write=True)
+    raw = await request.body()
+    if len(raw) > 32768:
+        raise HTTPException(413, "OAuth JSON must be smaller than 32 KB")
+    try:
+        doc = json.loads(raw)
+    except (ValueError, UnicodeError):
+        raise HTTPException(400, "Malformed Google OAuth JSON") from None
+    if not isinstance(doc, dict) or not isinstance(doc.get("web"), dict):
+        raise HTTPException(422, "Upload Google OAuth Web application JSON; desktop and service-account credentials cannot use this HTTPS callback")
+    web = doc["web"]
+    if REDIRECT not in web.get("redirect_uris", []):
+        raise HTTPException(422, "Add the Auto Stream HTTPS callback to Authorized redirect URIs in Google Cloud, then download the JSON again")
+    return JSONResponse(_safe_result(lambda: store().save(
+        web.get("client_id", ""), web.get("client_secret", ""))),
+        headers={"Cache-Control": "no-store"})

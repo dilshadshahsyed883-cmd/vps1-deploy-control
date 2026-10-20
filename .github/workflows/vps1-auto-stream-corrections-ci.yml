@@ -1,0 +1,21 @@
+name: Auto Stream owner corrections acceptance
+on:
+  pull_request:
+    paths:
+      - 'apps/short-stream/part01/**'
+      - 'production/test_auto_stream_*.py'
+      - '.github/workflows/vps1-auto-stream-corrections-ci.yml'
+permissions:
+  contents: read
+jobs:
+  corrections:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install fastapi httpx python-multipart cryptography playwright
+      - run: python -m playwright install --with-deps chromium
+      - run: python -m unittest -v production.test_auto_stream_corrections production.test_auto_stream_browser production.test_auto_stream_engine production.test_auto_stream_integrations production.test_auto_stream_credentials production.test_auto_stream_ui production.test_auto_stream_broadcasts

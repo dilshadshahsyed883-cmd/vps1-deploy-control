@@ -129,6 +129,12 @@ class AutoStreamAccounts:
                 job_id TEXT PRIMARY KEY, channel_id TEXT NOT NULL,
                 broadcast_id TEXT, live_stream_id TEXT,
                 status TEXT NOT NULL, updated_at TEXT NOT NULL)""")
+            for table, column, definition in (
+                ("oauth_state", "expected_channel", "TEXT NOT NULL DEFAULT ''"),
+                ("sheet_sources", "name", "TEXT NOT NULL DEFAULT ''"),
+                ("sheet_sources", "sheet_url", "TEXT NOT NULL DEFAULT ''")):
+                if column not in {r[1] for r in con.execute("PRAGMA table_info(" + table + ")")}:
+                    con.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition)
         os.chmod(self.db, 0o600)
 
     def connect(self):
@@ -160,7 +166,9 @@ class AutoStreamAccounts:
                 not any(c["id"] == channel_id and c["authorized"] for c in
                         self.channel_catalog()) else True}
 
-    def begin_oauth(self, include_sheets: bool = False):
+    def begin_oauth(self, include_sheets: bool = False, expected_channel: str = ""):
+        if expected_channel and not CHANNEL_RE.fullmatch(expected_channel):
+            raise ValueError("Invalid expected YouTube channel ID")
         client, _, redirect = _configuration()
         state = secrets.token_urlsafe(36)
         verifier = secrets.token_urlsafe(56)
@@ -173,6 +181,7 @@ class AutoStreamAccounts:
             con.execute("DELETE FROM oauth_state WHERE expires<?", (now(),))
             con.execute("INSERT INTO oauth_state(digest,verifier,expires,requested_scopes) VALUES (?,?,?,?)",
                         (digest, verifier, expires, requested_scopes))
+            con.execute("UPDATE oauth_state SET expected_channel=? WHERE digest=?", (expected_channel, digest))
         params = {
             "response_type": "code", "client_id": client, "redirect_uri": redirect,
             "scope": requested_scopes,
@@ -188,7 +197,7 @@ class AutoStreamAccounts:
             raise ValueError("OAuth callback is incomplete")
         digest = hashlib.sha256(state.encode()).hexdigest()
         with self.connect() as con:
-            row = con.execute("SELECT verifier,expires,requested_scopes FROM oauth_state WHERE digest=?",
+            row = con.execute("SELECT verifier,expires,requested_scopes,expected_channel FROM oauth_state WHERE digest=?",
                               (digest,)).fetchone()
             con.execute("DELETE FROM oauth_state WHERE digest=?", (digest,))
         if not row or row["expires"] < now():
@@ -218,6 +227,8 @@ class AutoStreamAccounts:
         cid = channel.get("id", "")
         if not CHANNEL_RE.fullmatch(cid):
             raise ValueError("Unable to verify authorized YouTube channel")
+        if row["expected_channel"] and cid != row["expected_channel"]:
+            raise ValueError("Authorized YouTube channel does not match the selected channel; select the correct Brand Account")
         title = (channel.get("snippet") or {}).get("title") or cid
         protected = _cipher().encrypt(token["refresh_token"].encode())
         with self.connect() as con:
@@ -269,10 +280,40 @@ class AutoStreamAccounts:
                                (channel_id,)).fetchone():
                 raise ValueError("Authorize the channel in Auto Stream before linking a Sheet")
             sid = "sheet_" + secrets.token_hex(8)
-            con.execute("INSERT INTO sheet_sources VALUES(?,?,?,?,?)",
+            con.execute("INSERT INTO sheet_sources(id,channel_id,spreadsheet_id,a1_range,updated_at) VALUES(?,?,?,?,?)",
                         (sid, channel_id, spreadsheet_id, a1_range, now()))
         return {"id": sid, "channel_id": channel_id,
                 "spreadsheet_id": spreadsheet_id, "a1_range": a1_range}
+
+    def link_named_sheet(self, payload):
+        name = str(payload.get("name", "")).strip()
+        url = str(payload.get("sheet_url", "")).strip()
+        parsed = parse.urlparse(url)
+        match = re.fullmatch(r"/spreadsheets/d/([A-Za-z0-9_-]{15,128})(?:/.*)?", parsed.path)
+        if not name or len(name) > 150:
+            raise ValueError("Sheet Name is required (maximum 150 characters)")
+        if parsed.scheme != "https" or parsed.netloc != "docs.google.com" or not match:
+            raise ValueError("Paste a complete https://docs.google.com/spreadsheets/d/... link")
+        cid = str(payload.get("channel_id", ""))
+        access = self._access(cid, SHEETS_SCOPE)
+        spreadsheet = match.group(1)
+        metadata = _http_json(SHEETS_BASE + "/" + spreadsheet + "?fields=sheets(properties)", access_token=access)
+        tabs = [t["properties"] for t in metadata.get("sheets", [])]
+        gid = parse.parse_qs(parsed.fragment).get("gid", parse.parse_qs(parsed.query).get("gid", [None]))[0]
+        selected = next((t for t in tabs if str(t.get("sheetId")) == str(payload.get("worksheet_id", gid))), None)
+        if selected is None:
+            if len(tabs) != 1:
+                return {"requires_worksheet": True, "worksheets": tabs}
+            selected = tabs[0]
+        title = str(selected["title"])
+        a1 = "'" + title.replace("'", "''") + "'!A1:AZ201"
+        with self.connect() as con:
+            prior = con.execute("SELECT id FROM sheet_sources WHERE channel_id=? AND spreadsheet_id=? AND a1_range=?", (cid, spreadsheet, a1)).fetchone()
+            sid = prior["id"] if prior else "sheet_" + secrets.token_hex(8)
+            con.execute("""INSERT INTO sheet_sources(id,channel_id,spreadsheet_id,a1_range,updated_at,name,sheet_url)
+                VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,sheet_url=excluded.sheet_url,updated_at=excluded.updated_at""",
+                (sid,cid,spreadsheet,a1,now(),name,url))
+        return {"id":sid,"name":name,"sheet_url":url,"worksheet":title}
 
     def sync_sheet(self, sheet_id, dry_run=True, engine: StreamEngine | None = None):
         with self.connect() as con:
@@ -392,8 +433,8 @@ def disconnect_channel(channel_id: str):
 
 
 @router.get("/oauth/start")
-def oauth_start(with_sheets: bool = Query(False)):
-    return _api_guard(lambda: accounts().begin_oauth(include_sheets=with_sheets))
+def oauth_start(with_sheets: bool = Query(False), expected_channel: str = Query("")):
+    return _api_guard(lambda: accounts().begin_oauth(include_sheets=with_sheets, expected_channel=expected_channel))
 
 
 @router.get("/oauth/callback", response_class=HTMLResponse)
@@ -417,6 +458,8 @@ def sheets():
 
 @router.post("/sheets")
 def add_sheet(payload: dict = Body(...)):
+    if "sheet_url" in payload:
+        return _api_guard(lambda: accounts().link_named_sheet(payload))
     return _api_guard(lambda: accounts().add_sheet(
         str(payload.get("channel_id", "")),
         str(payload.get("spreadsheet_id", "")),

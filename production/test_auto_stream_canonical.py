@@ -24,7 +24,8 @@ class AutoStreamCanonicalTests(unittest.TestCase):
         self.assertIn("sessionStorage.setItem(stateKey,id)",s)
         self.assertIn('openTab(restore);',s)
         self.assertIn('oauth-client-secret',s)
-        self.assertIn('/oauth/start?with_sheets=0',s)
+        # Auto Stream Sheets requires an explicit read-only Sheets grant.
+        self.assertIn('/oauth/start?with_sheets=1',s)
     def test_native_sidebar_and_navigation(self):
         base=(SCENE/"templates/base.html").read_text()
         native=(SCENE/"static/vps1_native_site_shell.js").read_text()
