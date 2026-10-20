@@ -92,6 +92,13 @@ def violations(source: dict[str, str]) -> list[str]:
     for page in ("scene", "acs", "short_maker", "video_merger", "voice", "uploader"):
         require(page, "vps1_native_site_shell.css",
                 "shared site shell CSS not linked")
+    for page in ("scene", "short_maker", "video_merger"):
+        require(page, 'data-unify-sidebar="1"',
+                "classic app must activate the canonical navigation controller")
+        require(page, "vps1_native_site_shell.js?v=20261020-unified-sidebar-v1",
+                "classic page lacks its versioned shared navigation script")
+        require(page, "vps1_native_site_shell.css?v=20261020-upload-studio-v1",
+                "classic page loads stale shared CSS version")
     require("policy", "One Website Shell + Independent Application UIs",
             "owner-approved architecture principle missing")
     for marker in ("UI-01 to UI-10", "Phase C:", "No site CSS, live app code"):
