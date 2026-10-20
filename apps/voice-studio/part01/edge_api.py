@@ -9,6 +9,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from queue_actions import migrate as migrate_queue, apply as apply_queue, job_view, QueueActionError
 
 ROOT=Path(os.environ.get('EDGE_STUDIO_ROOT','/home/ubuntu/apps/edge_tts_voice_studio'))
 DATA=ROOT/'data'; DB=DATA/'edge_jobs.sqlite3'; VOICES=DATA/'voice_catalog.json'; HB=DATA/'heartbeat.json'
@@ -36,6 +37,8 @@ def init_storage():
           delivery_retries integer default 0,next_delivery_retry real default 0,
           drive_txt text,drive_mp3 text,drive_wav text,drive_srt text)''')
         c.execute('create index if not exists edge_job_queue on jobs(status,retry_at,created_at)')
+    with db() as c:
+        migrate_queue(c, 'edge')
 
 def safe_name(s,maxlen=70):
     s=re.sub(r'[^a-zA-Z0-9_\-]+','_',s or '').strip('_-')[:maxlen]
@@ -100,7 +103,7 @@ def create_job(text,filename,voice,locale,rate,pitch,volume,batch_name,stem=None
 def status():
     init_storage();ready,reason=readiness()
     with db() as c:rows=c.execute('select status,count(*) n from jobs group by status').fetchall()
-    return {'ready':ready,'reason':reason,'mode':'edge-tts-online','queue':{r['status']:r['n'] for r in rows},'output_formats':['mp3','wav','txt','srt'],'controls':['pause','resume','cancel']}
+    return {'ready':ready,'reason':reason,'mode':'edge-tts-online','queue':{r['status']:r['n'] for r in rows},'output_formats':['mp3','wav','txt','srt'],'controls':['pause','resume','cancel','skip','retry','delete']}
 
 @router.get('/voices')
 def voices():
@@ -152,11 +155,11 @@ async def batch(request:Request):
 @router.get('/jobs')
 def jobs(limit:int=100):
     init_storage();limit=min(250,max(1,limit))
-    with db() as c:rows=c.execute('select * from jobs order by created_at desc,job_id desc limit ?',(limit,)).fetchall()
+    with db() as c:rows=c.execute('select * from jobs where hidden_at is null order by created_at desc,job_id desc limit ?',(limit,)).fetchall()
     answer=[]
     for r in rows:
-        v=dict(r)
-        item={k:v.get(k) for k in ('job_id','batch_id','source_filename','output_basename','voice','locale','status','delivery_status','created_at','updated_at','error','delivery_error','progress','attempt','drive_mp3','drive_wav','drive_txt','drive_srt')}
+        v=job_view(r, 'edge')
+        item={k:v.get(k) for k in ('job_id','batch_id','source_filename','output_basename','voice','locale','status','queue_status','delivery_status','created_at','updated_at','error','delivery_error','progress','attempt','max_attempts','allowed_actions','drive_mp3','drive_wav','drive_txt','drive_srt')}
         for ext in ('mp3','wav','srt','txt'):
             path=v.get({'mp3':'mp3_file','wav':'wav_file','srt':'srt_file','txt':'input_file'}[ext])
             if path and Path(path).is_file():item[ext+'_url']='/tts/api/edge/files/'+v['job_id']+'/'+ext
@@ -166,20 +169,11 @@ def jobs(limit:int=100):
 @router.post('/jobs/{job_id}/{action}')
 def control(job_id:str,action:str):
     init_storage()
-    if not ID_RE.fullmatch(job_id):raise HTTPException(404,'Job not found')
-    if action not in ('pause','resume','cancel'):raise HTTPException(404,'Unsupported action')
-    with db() as c:
-        r=c.execute('select status from jobs where job_id=?',(job_id,)).fetchone()
-        if not r:raise HTTPException(404,'Job not found')
-        current=r['status'];target=None
-        if action=='pause' and current=='queued':target='paused'
-        elif action=='pause' and current=='processing':target='pause_requested'
-        elif action=='resume' and current=='paused':target='queued'
-        elif action=='cancel' and current in ('queued','paused','retry_wait'):target='cancelled'
-        elif action=='cancel' and current in ('processing','pause_requested'):target='cancel_requested'
-        else:raise HTTPException(409,f'Cannot {action} job in state {current}')
-        c.execute('update jobs set status=?,updated_at=? where job_id=?',(target,now(),job_id))
-    return {'job_id':job_id,'status':target}
+    try:
+        with db() as c:
+            return apply_queue(c, 'edge', job_id, action)
+    except QueueActionError as exc:
+        raise HTTPException(exc.code, exc.detail) from exc
 
 @router.get('/files/{job_id}/{ext}')
 def file(job_id:str,ext:str):
