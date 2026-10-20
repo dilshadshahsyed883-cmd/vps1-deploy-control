@@ -104,6 +104,10 @@ class AutoCleanReadOnlyView(unittest.TestCase):
         self.assertIn('install $SOURCE_SHA vps-storage-manager', wf)
         self.assertIn('install $SOURCE_SHA scene-builder', wf)
         self.assertIn("CLEANUP_NOT_EXECUTED=YES", wf)
+        adapter = (ROOT / "production/storage_backend_release.py").read_text()
+        self.assertIn("require_preview=True", adapter)
+        self.assertIn('"/v1/snapshot"', adapter)
+        self.assertIn('preview.get("read_only") is not True', adapter)
 
 
 if __name__ == "__main__":
