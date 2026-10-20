@@ -508,7 +508,7 @@ body:not(.vs-kokoro-active):not(.vs-edge-active):not(.vs-audio-active) > .vps3-l
       <div class="field"><label class="label">TXT scripts <span class="counter" id="cloneFileCount">0 files</span></label><div class="filebox"><input id="cloneFiles" type="file" accept=".txt,text/plain" multiple><div class="pair-list" id="cloneFileList"><div class="notice">Select multiple TXT files. Output audio keeps each TXT base name exactly.</div></div></div></div>
       <div class="notice batch-note"><b>Exact naming:</b> <code>story_001.txt → story_001.wav</code>. Duplicate base names in one batch are blocked. Existing different-content Drive files are never silently overwritten.</div>
       <div class="field" style="margin-top:14px"><label class="label">Narration text <span class="counter" id="cloneTextCount">0 / {{ max_text|default(1000000, true) }}</span></label><textarea id="cloneText" maxlength="{{ max_text|default(1000000, true) }}" placeholder="Optional single job. If TXT files are selected, the TXT batch is used instead."></textarea></div>
-      <div class="row"><button class="btn" id="queueClone">Queue to Drive</button><button class="btn secondary" id="clearCloneBatch">Clear</button><button class="btn secondary" type="button" onclick="setPage('clone')">Manage voice profiles</button></div>
+      <div class="row"><button class="btn" id="queueClone">Queue to Drive</button><button class="btn secondary" id="clearCloneBatch">Clear</button><button class="btn secondary" type="button" onclick="return window.vps1VoiceStudioTab('clone')">Manage voice profiles</button></div>
       <div class="notice" id="cloneQueueStatus" style="margin-top:12px">Ready. Jobs remain in waiting_worker while no GPU worker is connected.</div>
       <div class="footer-note">A GPU job is fully delivered only after both original TXT and generated audio are MD5-verified on Drive. Local temporary job files are then cleaned.</div>
     </div>
@@ -582,7 +582,7 @@ body:not(.vs-kokoro-active):not(.vs-edge-active):not(.vs-audio-active) > .vps3-l
         <div class="field"><label class="label">TXT scripts <span class="counter" id="omniFileCount">0 files</span></label><div class="filebox"><input id="omniFiles" type="file" accept=".txt,text/plain" multiple><div class="filelist" id="omniFileList"></div></div></div>
       </div>
       <div class="field"><label class="label">Narration text <span class="counter" id="omniTextCount">0 / {{ max_text|default(1000000, true) }}</span></label><textarea id="omniText" maxlength="{{ max_text|default(1000000, true) }}" placeholder="Optional single job. If TXT files are selected, the TXT batch is used instead."></textarea></div>
-      <div class="row"><button class="btn" id="queueOmni">Queue to Drive</button><button class="btn secondary" id="clearOmni">Clear</button><button class="btn secondary" type="button" onclick="setPage('clone')">Manage voice profiles</button></div>
+      <div class="row"><button class="btn" id="queueOmni">Queue to Drive</button><button class="btn secondary" id="clearOmni">Clear</button><button class="btn secondary" type="button" onclick="return window.vps1VoiceStudioTab('clone')">Manage voice profiles</button></div>
       <div class="notice" id="omniQueueStatus" role="status" aria-live="polite" style="margin-top:12px">Add narration and a compatible voice profile. Worker connection is shown separately.</div>
     </div>
     <div class="gpu-right-stack">
@@ -683,7 +683,7 @@ body:not(.vs-kokoro-active):not(.vs-edge-active):not(.vs-audio-active) > .vps3-l
     <div class="field"><label class="label">Exact reference transcript <span class="counter" id="cloneRefTextCount">0 / 3000</span></label><textarea id="cloneRefText" maxlength="3000" style="min-height:110px" placeholder="Type exactly what is spoken in the reference clip. Required for IndicF5/OmniVoice-compatible profiles."></textarea></div>
     <div class="field"><label class="label">Provenance note</label><input id="cloneNote" type="text" maxlength="240" placeholder="Owned recording / authorized source / project reference"></div>
     <label class="consent"><input id="cloneConsent" type="checkbox"><span>I confirm I have permission to use this voice reference for cloning.</span></label>
-    <div class="row" style="margin-top:14px"><button class="btn" id="createCloneProfile" type="button">Create profile</button><button class="btn secondary" type="button" onclick="setPage('omnivoice')">Open OmniVoice production</button><span class="notice hidden" id="cloneCreateStatus" role="status" aria-live="polite" style="flex:1;min-width:280px"></span></div>
+    <div class="row" style="margin-top:14px"><button class="btn" id="createCloneProfile" type="button">Create profile</button><button class="btn secondary" type="button" onclick="return window.vps1VoiceStudioTab('production')">Open OmniVoice production</button><span class="notice hidden" id="cloneCreateStatus" role="status" aria-live="polite" style="flex:1;min-width:280px"></span></div>
     <div class="divider"></div><div class="sectionbar"><div><div class="section-title">My voices</div><div class="section-note">Use opens the correct dedicated GPU engine page without duplicating reference data.</div></div></div><div class="cards" id="cloneProfiles"></div>
   </div>
 </section>
