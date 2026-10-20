@@ -95,9 +95,14 @@ def violations(source: dict[str, str]) -> list[str]:
     for page in ("scene", "short_maker", "video_merger"):
         require(page, 'data-unify-sidebar="1"',
                 "classic app must activate the canonical navigation controller")
-        require(page, "vps1_native_site_shell.js?v=20261020-experiment-v1",
+        # Scene's current V4 shell is released independently; legacy Video
+        # Studio applications keep their last immutable asset URL until their
+        # own guarded release. All versions resolve the same canonical files.
+        version = ("20261020-sidebar-stable-v4" if page == "scene"
+                   else "20261020-experiment-v1")
+        require(page, "vps1_native_site_shell.js?v=" + version,
                 "classic page lacks its versioned shared navigation script")
-        require(page, "vps1_native_site_shell.css?v=20261020-experiment-v1",
+        require(page, "vps1_native_site_shell.css?v=" + version,
                 "classic page loads stale shared CSS version")
     require("policy", "One Website Shell + Independent Application UIs",
             "owner-approved architecture principle missing")
