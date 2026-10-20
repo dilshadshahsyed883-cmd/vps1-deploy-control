@@ -139,6 +139,40 @@ class AudioDownloaderWorkerSafeReleaseTests(unittest.TestCase):
         patched = release.audio_browser_route_overlay(previous, source)
         self.assertEqual(patched, b"<!-- retained independent Voice styling -->\n" + source)
 
+    def test_nginx_sub_filter_cannot_duplicate_voice_prefix_in_any_audio_action(self):
+        from production import voice_template_release as release
+        template = TEMPLATE.read_bytes()
+        originals = template
+        for old, corrected in release.AUDIO_BROWSER_V3_PATH_PAIRS:
+            self.assertEqual(template.count(corrected), 1, corrected)
+            self.assertEqual(template.count(old), 0, old)
+            originals = originals.replace(corrected, old, 1)
+        self.assertEqual(release.audio_browser_route_overlay(originals, template), template)
+        self.assertEqual(release.audio_browser_route_overlay(template, template), template)
+        start = template.index(b'<script id="audio-downloader-v1-js">')
+        end = template.index(b'</script>', start)
+        second_start = template.index(b'<script id="audio-downloader-proxy-v1">')
+        second_end = template.index(b'</script>', second_start)
+        for js in (template[start:end], template[second_start:second_end]):
+            public = js
+            for needle, replacement in (
+                (b"'/jobs", b"'/voice-studio/jobs"),
+                (b"'/status", b"'/voice-studio/status"),
+                (b"'/profiles", b"'/voice-studio/profiles"),
+                (b"'/enable", b"'/voice-studio/enable"),
+            ):
+                public = public.replace(needle, replacement)
+            self.assertEqual(public, js, "Nginx changed browser request path")
+        vulnerable = b"api(root+'/jobs?limit=200')"
+        self.assertNotEqual(vulnerable.replace(b"'/jobs", b"'/voice-studio/jobs"),
+                            vulnerable, "regression test must detect the previous bug")
+
+    def test_release_verifies_real_post_nginx_browser_javascript(self):
+        release = (ROOT / "production/voice_template_release.py").read_text()
+        self.assertIn("public Audio Downloader browser fetch paths rewritten or stale", release)
+        self.assertIn("public Audio Downloader browser fetch paths duplicated Voice prefix", release)
+        self.assertIn("verify_audio_downloader_https(cookie)", release)
+
     def test_release_rejects_active_audio_download(self):
         from production import voice_template_release as release
         from unittest.mock import Mock
