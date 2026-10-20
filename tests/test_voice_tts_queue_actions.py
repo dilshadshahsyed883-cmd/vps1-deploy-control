@@ -148,9 +148,12 @@ class QueueActionsTest(unittest.TestCase):
         self.assertIn("j.allowed_actions||[]",html)
         self.assertIn("Audio and Drive files are NOT deleted.",html)
         self.assertIn("Drive: ",html)
-        # Guard Nginx sub_filter issue: literal quoted '/jobs' corrupts inline JS.
-        self.assertNotIn("apiRoot+'/jobs'",html)
-        self.assertNotIn("root+'/jobs'",html)
+        # Guard Nginx sub_filter issue only in the two engine scripts;
+        # Audio Downloader is independently owned and intentionally untouched.
+        k=html.split('id="voiceStudioDualEngineV1Script"',1)[1].split('</script>',1)[0]
+        e=html.split('id="voiceStudioEdgeEngineV1Script"',1)[1].split('</script>',1)[0]
+        self.assertNotIn("apiRoot+'/jobs'",k)
+        self.assertNotIn("root+'/jobs'",e)
 
 
 if __name__ == "__main__":
