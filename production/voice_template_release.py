@@ -148,6 +148,35 @@ def queue_route_overlay(original: bytes, source: bytes) -> bytes:
     return original
 
 
+# AUDIO_DOWNLOADER_BROWSER_ROUTE_CONTRACT_V2: only these six reviewed inline JS
+# substitutions are permitted. Keep the existing Voice runtime, style and workers.
+AUDIO_BROWSER_ROUTE_PAIRS = (
+    (b"const root = '/tts/api/audio-downloader';",
+     b"// AUDIO_DOWNLOADER_BROWSER_ROUTE_CONTRACT_V2: preserve the authenticated Voice Studio Nginx prefix.\nconst root = (location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/tts/api/audio-downloader';"),
+    (b"const res=await fetch(url,{credentials:'same-origin',headers:",
+     b"const res=await fetch(url,{credentials:'same-origin',cache:'no-store',headers:"),
+    (b"  const data=await res.json().catch(()=>({detail:'Server did not return JSON'}));\n  if(!res.ok)throw new Error(typeof data.detail==='string'?data.detail:`HTTP ${res.status}`);\n  return data;",
+     b"  const type=String(res.headers.get('content-type')||'').toLowerCase();\n  const data=type.includes('application/json')?await res.json().catch(()=>null):null;\n  const pathname=new URL(url,location.href).pathname;\n  if(!res.ok)throw new Error('HTTP '+res.status+' '+pathname+': '+(data&&typeof data.detail==='string'?data.detail:'API request failed'));\n  if(!data||typeof data!=='object')throw new Error('API returned a non-JSON response for '+pathname+'; check session and proxy routing');\n  return data;"),
+    (b"const response=await fetch(endpoint,{method:'GET',credentials:'same-origin'",
+     b"const response=await fetch(root+endpoint.slice('/tts/api/audio-downloader'.length),{method:'GET',credentials:'same-origin'"),
+    (b"async function loadJobs(){try{const r=await api(root+'/jobs?limit=150');const jobs=r.jobs||[];for(const [id,num] of [['vsaRecent',5],['vsaQueueRows',200],['vsaHistoryRows',200]]){$(id).replaceChildren(jobTable(jobs,num));}}catch(e){$('vsaRecent').textContent='Queue unavailable: '+e.message;$('vsaQueueRows').textContent='Queue unavailable: '+e.message;$('vsaHistoryRows').textContent='History unavailable: '+e.message;}}",
+     b"async function loadJobs(){try{const r=await api(root+'/jobs?limit=200');if(!Array.isArray(r.jobs))throw new Error('Invalid queue API response: jobs list missing');const jobs=r.jobs;const terminal=new Set(['completed','delivered','failed','cancelled']);const historyJobs=jobs.filter(j=>terminal.has(j.status));$('vsaRecent').replaceChildren(jobTable(jobs,5));$('vsaQueueRows').replaceChildren(jobTable(jobs,200));$('vsaHistoryRows').replaceChildren(jobTable(historyJobs,200));}catch(e){$('vsaRecent').textContent='Queue unavailable: '+e.message;$('vsaQueueRows').textContent='Queue unavailable: '+e.message;$('vsaHistoryRows').textContent='History unavailable: '+e.message;}}"),
+    (b"const $=id=>document.getElementById(id),prefix='/tts/api/audio-downloader/proxy';",
+     b"const $=id=>document.getElementById(id),prefix=(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/tts/api/audio-downloader/proxy';"),
+)
+
+
+def audio_browser_route_overlay(original: bytes, source: bytes) -> bytes:
+    for old, corrected in AUDIO_BROWSER_ROUTE_PAIRS:
+        require(source.count(corrected) == 1 and old not in source,
+                "GitHub Audio Downloader browser route contract changed")
+        require(original.count(old) + original.count(corrected) == 1,
+                "installed Audio Downloader JavaScript differs from reviewed versions")
+        if old in original:
+            original = original.replace(old, corrected, 1)
+    return original
+
+
 VOICE_WEB = Path("part01/vps1_omnivoice_app.py")
 WEB_CACHE_OLD = b"def studio(request:Request): return templates.TemplateResponse(request, \"voice_studio.html\", {})"
 WEB_CACHE_NEW = b"def studio(request:Request):\n    response = templates.TemplateResponse(request, \"voice_studio.html\", {})\n    response.headers[\"Cache-Control\"] = \"private, no-store, max-age=0, must-revalidate\"\n    response.headers[\"Pragma\"] = \"no-cache\"\n    response.headers[\"X-Voice-Queue-UI\"] = \"VSQ-20261020-01\"\n    return response"
@@ -193,6 +222,46 @@ def read_full_authenticated_voice_html(cookie: str) -> bytes:
             return data
 
 
+def require_idle_audio_downloader() -> None:
+    """Never interrupt an actively processing or waiting audio job for a UI-only release."""
+    request = urllib.request.Request("http://127.0.0.1:8143/tts/api/audio-downloader/status")
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            require(response.status == 200, "Audio Downloader status API unavailable")
+            status = json.loads(response.read(32768))
+    except (OSError, ValueError) as exc:
+        raise RuntimeError("Audio Downloader preflight unavailable; abort Voice reload") from exc
+    require(isinstance(status, dict) and isinstance(status.get("queue"), dict),
+            "Audio Downloader status missing actual queue counts")
+    busy_states = ("queued", "downloading", "downloaded", "processing", "converting", "uploading")
+    require(all(not int(status["queue"].get(name) or 0) for name in busy_states),
+            "Audio Downloader has active/pending jobs; postpone Voice UI reload")
+
+
+def verify_audio_downloader_https(cookie: str) -> None:
+    """Proof of genuine authenticated Queue, History datasource and preserved status/proxy APIs."""
+    from production.route_uploader_scene_https import https_get
+    paths = (
+        ("/voice-studio/tts/api/audio-downloader/jobs?limit=1", "jobs"),
+        ("/voice-studio/tts/api/audio-downloader/status", "queue"),
+        ("/voice-studio/tts/api/audio-downloader/proxy", "profiles"),
+    )
+    for path, key in paths:
+        status, kind, body = https_get(path, cookie)
+        require(status == 200 and "json" in kind.lower(),
+                "Audio Downloader authenticated HTTPS "+key+" endpoint failed")
+        try:
+            response = json.loads(body)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("Audio Downloader HTTPS "+key+" returned malformed JSON") from exc
+        require(isinstance(response, dict) and isinstance(response.get(key),
+                list if key != "queue" else dict),
+                "Audio Downloader HTTPS "+key+" did not return real API contract")
+        anonymous, _, _ = https_get(path)
+        require(anonymous in (401, 403, 303),
+                "Audio Downloader HTTPS "+key+" was accessible without session")
+
+
 def verify_runtime() -> None:
     """Read the actual web document locally, then verify authenticated HTTPS."""
     http_check(APP)
@@ -209,6 +278,8 @@ def verify_runtime() -> None:
                 "Voice web UI template guard is not live")
     require(all(new in body and old not in body for old, new in QUEUE_ROUTE_PAIRS + QUEUE_FETCH_PAIRS),
             "local Voice queue JavaScript is not updated")
+    require(all(new in body and old not in body for old, new in AUDIO_BROWSER_ROUTE_PAIRS),
+            "local Audio Downloader browser URLs not updated")
     from production.route_uploader_scene_https import https_get, scene_cookie
     cookie = scene_cookie()
     code, kind, html = https_get("/voice-studio/app", cookie)
@@ -219,6 +290,9 @@ def verify_runtime() -> None:
     full_html = read_full_authenticated_voice_html(cookie)
     require(all(new in full_html and old not in full_html for old, new in QUEUE_ROUTE_PAIRS + QUEUE_FETCH_PAIRS),
             "public Voice queue JavaScript is not updated")
+    require(all(new in full_html and old not in full_html for old, new in AUDIO_BROWSER_ROUTE_PAIRS),
+            "public Audio Downloader URL contract not updated")
+    verify_audio_downloader_https(cookie)
     anonymous, _, _ = https_get("/voice-studio/app")
     require(anonymous in {401, 403, 303}, "anonymous Voice page became accessible")
 
@@ -262,6 +336,7 @@ def install(revision: str) -> None:
 
     patched_html = responsive_overlay(patched_html, source_html)
     patched_html = queue_route_overlay(patched_html, source_html)
+    patched_html = audio_browser_route_overlay(patched_html, source_html)
     source_entry = REPO / "apps/voice-studio" / VOICE_WEB
     active_entry = previous / VOICE_WEB
     require(source_entry.is_file() and not source_entry.is_symlink()
@@ -308,6 +383,7 @@ def install(revision: str) -> None:
     try:
         atomic_link(CURRENT, target)
         switched = True
+        require_idle_audio_downloader()
         # Only the browser-facing Voice web process reloads Jinja templates.
         # Never stop/restart voice workers or touch job databases here.
         run(["systemctl", "restart", UNIT], timeout=60, quiet=True)
