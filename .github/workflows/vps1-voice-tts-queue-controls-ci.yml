@@ -10,6 +10,7 @@ on:
       - 'apps/voice-studio/part01/templates/voice_studio.html'
       - 'tests/test_voice_tts_queue_actions.py'
       - 'tests/test_voice_tts_controls_release.py'
+      - 'tests/test_voice_tts_queue_http.py'
       - 'production/voice_tts_controls_release.py'
       - 'production/runtime.py'
       - '.github/workflows/vps1-voice-tts-queue-controls-ci.yml'
@@ -29,8 +30,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Verify isolated SQLite transitions and race control
-        run: python -m unittest tests.test_voice_tts_queue_actions tests.test_voice_tts_controls_release -v
+      - name: Install isolated API test dependencies
+        run: python -m pip install 'fastapi>=0.115,<1' 'httpx>=0.27,<1' 'pydantic>=2,<3'
+      - name: Verify SQLite, workers, lifecycle and actual FastAPI routes
+        run: python -m unittest tests.test_voice_tts_queue_actions tests.test_voice_tts_controls_release tests.test_voice_tts_queue_http -v
       - name: Validate independent Python source syntax
         run: |
           python -m py_compile production/voice_tts_controls_release.py production/runtime.py \
