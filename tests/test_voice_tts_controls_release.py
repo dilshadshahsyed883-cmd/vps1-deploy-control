@@ -44,6 +44,32 @@ class VoiceTTSReleaseTest(unittest.TestCase):
                     release.check_idle_and_lock(self.paths)
                 self.mark(self.paths[1],"completed","cleaned")
 
+    def test_omnivoice_active_work_is_blocked_and_idle_is_fenced(self):
+        clone=Path(self.folder.name)/"clone.sqlite"
+        with sqlite3.connect(clone) as c:
+            c.execute("create table jobs(job_id text,status text,delivery_status text)")
+            c.execute("insert into jobs values('OMNI','processing','waiting_generation')")
+        with self.assertRaisesRegex(RuntimeError,"OmniVoice generation"):
+            release.check_omnivoice_idle(clone)
+        with sqlite3.connect(clone) as c:
+            c.execute("update jobs set status='completed',delivery_status='cleaned'")
+        fence=release.check_omnivoice_idle(clone)
+        self.assertTrue(fence.in_transaction)
+        release.unlock([fence])
+        with sqlite3.connect(clone) as c:
+            c.execute("update jobs set status='completed'")
+        with sqlite3.connect(clone) as c:
+            c.execute("update jobs set delivery_status='uploading'")
+        with self.assertRaisesRegex(RuntimeError,"OmniVoice generation"):
+            release.check_omnivoice_idle(clone)
+
+    def test_aux_units_were_included_in_release_guard(self):
+        self.assertEqual(len(release.AUX_WORKERS),2)
+        self.assertTrue(all("voice-" in unit for unit in release.AUX_WORKERS))
+        script=(Path(__file__).resolve().parents[1]/"production/voice_tts_controls_release.py").read_text()
+        self.assertIn("restore_aux_workers(auxiliary_states)",script)
+        self.assertIn("fences.append(check_omnivoice_idle(OMNI_DB))",script)
+
     def test_additive_db_snapshots_are_real_sqlite(self):
         output=Path(self.folder.name)/"backup"/"original.sqlite"
         release.backup_sqlite(self.paths[0],output)
