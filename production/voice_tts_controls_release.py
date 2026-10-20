@@ -15,7 +15,7 @@ import subprocess
 from pathlib import Path
 
 from production.runtime import BASE, DATA, REPO, atomic_json, atomic_link, event, http_check, run
-from production.voice_queue_release import verify_queues
+from production.voice_queue_release import verify_queues, local_endpoint
 
 APP = "voice-studio"
 CURRENT = BASE / "current/voice-studio"
@@ -170,6 +170,11 @@ def active(name):
 def start_all():
     run(["systemctl", "start", WEB], timeout=65, quiet=True)
     http_check(APP)
+    # Initialize additive schema through actual FastAPI before worker claims.
+    for engine in ("kokoro", "edge"):
+        code, listing = local_endpoint(engine, "jobs?limit=1")
+        require(code == 200 and isinstance(listing.get("jobs"), list),
+                "Queue API migration failed before worker start: " + engine)
     for unit in WORKERS:
         run(["systemctl", "start", unit], timeout=65, quiet=True)
     for unit in UNITS:
