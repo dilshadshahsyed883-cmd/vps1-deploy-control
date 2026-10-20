@@ -33,7 +33,7 @@ FILES = (
     Path("part03/edge_worker.py"),
 )
 BUSY = ("queued", "processing", "retry_wait", "pause_requested", "cancel_requested")
-DELIVERY_BUSY = ("pending", "retry_pending", "transferring")
+DELIVERY_BUSY = ("pending", "retry_pending", "transferring", "delivered")
 DATA_ROOTS = (
     DATA / "voice-studio/kokoro/data/kokoro_jobs.sqlite3",
     DATA / "voice-studio/edge/data/edge_jobs.sqlite3",
@@ -168,7 +168,6 @@ def install(revision):
             # Block new job submissions before halting the two idle worker loops.
             for unit in UNITS:
                 run(["systemctl", "stop", unit], timeout=65, quiet=True)
-            stopped = True
         finally:
             unlock(fences)
             fences = []
