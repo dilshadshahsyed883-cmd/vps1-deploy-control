@@ -3,7 +3,7 @@
 {% block subtitle %}Independent experiments and browser tooling{% endblock %}
 {% block content %}
 <section class="experiment-workspace" id="experiment-browser" data-csrf="{{ experiment_csrf }}" aria-labelledby="antidetect-title">
-  <span class="experiment-pill" id="browser-engine-status">Checking browser runtime…</span>
+  <span class="experiment-pill" id="browser-engine-status" role="status" aria-live="polite">Checking browser runtime…</span>
   <h2 id="antidetect-title" style="margin:16px 0 8px">Antidetect Browser</h2>
   <p>Persistent, isolated Chromium profiles with independent cookies, storage and optional proxies. Browser automation and profile privacy settings are available; no browser can guarantee undetectability.</p>
   <style>
@@ -32,6 +32,41 @@
   #browser-message{min-height:22px;white-space:pre-line;font-size:12px;overflow-wrap:anywhere}
   @media(max-width:900px){.experiment-browser-grid{grid-template-columns:1fr}}
   </style>
+  <style id="experiment-kokoro-parity-ui">
+/* Antidetect Browser: scoped Kokoro-reference geometry; profiles and APIs unchanged. */
+#experiment-browser {box-sizing:border-box;min-width:0;max-width:1400px;margin-inline:auto;scrollbar-gutter:stable;color:#101828}
+#experiment-browser > p {color:#667085;font-size:13px;line-height:1.6;max-width:880px}
+#experiment-browser .experiment-browser-grid {gap:14px;margin-top:18px;min-width:0}
+#experiment-browser .experiment-browser-panel {background:#fff;border:1px solid #e2e7ef;border-radius:16px;padding:20px;min-width:0;box-shadow:0 2px 10px rgb(16 24 40 / 3%)}
+#experiment-browser .experiment-browser-panel h3 {font-size:18px;line-height:1.4;color:#101828;margin:0 0 14px}
+#experiment-browser .experiment-browser-panel label {font-size:13px;line-height:1.45;color:#344054;margin:12px 0 6px}
+#experiment-browser .experiment-browser-panel input:not([type="checkbox"]),
+#experiment-browser .experiment-browser-panel select {min-height:44px;font-size:14px;border-radius:8px;padding:10px;box-sizing:border-box}
+#experiment-browser .experiment-browser-panel button {min-height:44px;padding:10px 14px;border-radius:8px;font-size:13px;line-height:1.35}
+#experiment-browser .experiment-browser-panel button.primary {background:#6255db;border-color:#6255db;color:#fff}
+#experiment-browser .experiment-browser-panel :is(button,input,select,summary):focus-visible {outline:3px solid #8174eb;outline-offset:2px}
+#experiment-browser .experiment-browser-panel details {border-color:#e2e7ef;border-radius:12px;padding:14px}
+#experiment-browser .experiment-browser-panel details summary {min-height:28px}
+#experiment-browser .experiment-browser-actions {gap:8px;align-items:center}
+#experiment-browser .experiment-browser-actions > button {flex:0 1 auto}
+#experiment-browser .experiment-browser-row {min-width:0;gap:8px}
+#experiment-browser .experiment-browser-row > input {min-width:0;flex:1}
+#experiment-browser .experiment-profile {min-width:0;border-radius:12px;padding:12px;gap:10px}
+#experiment-browser .experiment-profile button {flex-shrink:0}
+#experiment-browser #browser-message {font-size:13px;line-height:1.5}
+#experiment-browser .experiment-browser-screen {border-radius:12px;max-height:min(62vh,640px)}
+@media(max-width:600px){
+  #experiment-browser .experiment-browser-grid {grid-template-columns:minmax(0,1fr)}
+  #experiment-browser .experiment-browser-panel {padding:16px}
+  #experiment-browser .experiment-browser-row {flex-wrap:wrap}
+  #experiment-browser .experiment-browser-row > input {flex-basis:100%}
+  #experiment-browser .experiment-browser-row > button {flex:1 1 0}
+  #experiment-browser .experiment-browser-actions > button {flex:1 1 auto}
+}
+@media(prefers-reduced-motion:reduce){
+  #experiment-browser * {scroll-behavior:auto}
+}
+</style>
   <div class="experiment-browser-grid">
     <div class="experiment-browser-panel">
       <h3>Browser profiles</h3>
@@ -95,7 +130,7 @@
     </div>
     <div class="experiment-browser-panel">
       <h3>Browser session</h3>
-      <div class="experiment-browser-actions">
+      <div class="experiment-browser-actions" role="group" aria-label="Browser session actions">
         <button id="browser-start" type="button" class="primary" disabled>Start</button>
         <button id="browser-stop" type="button" disabled>Stop</button>
         <button id="browser-delete" type="button" disabled>Delete profile</button>
