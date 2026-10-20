@@ -45,6 +45,29 @@
     }
     return links;
   };
+  function alignVideoTabs() {
+    const rail = document.querySelector?.('nav[aria-label="Video Studio"]');
+    if (!rail || rail.dataset.videoAligned) return;
+    rail.dataset.videoAligned = "1";
+    const current = location.pathname.replace(/\/$/, "");
+    for (const link of rail.querySelectorAll("a")) {
+      const selected = (link.getAttribute("href") || "").split(/[?#]/)[0].replace(/\/$/, "") === current;
+      if (!selected) continue;
+      link.setAttribute("aria-current", "page");
+      link.addEventListener("click", event => {
+        if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && event.button === 0)
+          event.preventDefault(); // Keep the current form and scroll position.
+      });
+      requestAnimationFrame(() => {
+        const item = link.getBoundingClientRect(), bounds = rail.getBoundingClientRect();
+        if (item.right > bounds.right || item.left < bounds.left)
+          rail.scrollLeft += item.left - bounds.left - 12;
+      });
+    }
+  }
+  if (document.readyState === "loading")
+    document.addEventListener("DOMContentLoaded", alignVideoTabs, {once: true});
+  else alignVideoTabs();
   function installLegacySidebar() {
     const sidebar = document.getElementById("app-sidebar");
     if (!sidebar || sidebar.dataset.vps1UnifiedSidebar) return;
@@ -240,6 +263,7 @@
       addLink(tabs, "Short Maker", "/short-maker/", false);
       addLink(tabs, "Video Merger", "/video-merger/", false);
       toggle.after(tabs);
+      alignVideoTabs();
     }
     if (app === "uploader" || app === "stream") {
       const tabs = node("nav", "vps1-native-upload-tabs");
