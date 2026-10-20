@@ -120,6 +120,7 @@ def stage(revision, previous):
         require(destination.parent.is_dir() and not destination.parent.is_symlink(),
                 "unsafe module destination")
         destination.write_bytes(data)
+        destination.chmod(0o644)  # Runtime user must be able to import staged Python.
         manifest["files"][str(relative)] = hashlib.sha256(data).hexdigest()
     manifest["revision"] = revision
     manifest["voice_tts_controls_overlay"] = str(previous)
@@ -162,6 +163,8 @@ def install(revision):
     try:
         fences = check_idle_and_lock(DATA_ROOTS)
         try:
+            # Treat partial service stop as a rollback-worthy mutation.
+            stopped = True
             # Block new job submissions before halting the two idle worker loops.
             for unit in UNITS:
                 run(["systemctl", "stop", unit], timeout=65, quiet=True)
