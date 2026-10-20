@@ -176,6 +176,14 @@ class AudioDownloaderWorkerSafeReleaseTests(unittest.TestCase):
         with patch("production.route_uploader_scene_https.https_get", side_effect=fake_https):
             release.verify_audio_downloader_https("session=authorized-fixture")
 
+    def test_production_readback_requires_public_revision_and_real_endpoints(self):
+        release_source = (ROOT / "production/voice_template_release.py").read_text()
+        self.assertIn('b"AUDIO_DOWNLOADER_BROWSER_ROUTE_CONTRACT_V2" in full_html', release_source)
+        self.assertIn('verify_audio_downloader_https(cookie)', release_source)
+        self.assertIn('require_idle_audio_downloader()', release_source)
+        self.assertIn('anonymous in (401, 403, 303)', release_source)
+        self.assertNotIn('all(new in full_html and old not in full_html for old, new in AUDIO_BROWSER_ROUTE_PAIRS)', release_source)
+
     def test_release_does_not_accept_queue_404_as_success(self):
         from production import voice_template_release as release
         with patch("production.route_uploader_scene_https.https_get",

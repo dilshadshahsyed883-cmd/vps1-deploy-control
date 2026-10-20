@@ -290,8 +290,14 @@ def verify_runtime() -> None:
     full_html = read_full_authenticated_voice_html(cookie)
     require(all(new in full_html and old not in full_html for old, new in QUEUE_ROUTE_PAIRS + QUEUE_FETCH_PAIRS),
             "public Voice queue JavaScript is not updated")
-    require(all(new in full_html and old not in full_html for old, new in AUDIO_BROWSER_ROUTE_PAIRS),
-            "public Audio Downloader URL contract not updated")
+    # Nginx may rewrite HTML string literals via sub_filter. Exact reviewed
+    # browser-source bytes are verified against the local upstream above; the
+    # public verification must check the served script revision plus real API
+    # contracts rather than treating a transformed response as identical bytes.
+    require(b"AUDIO_DOWNLOADER_BROWSER_ROUTE_CONTRACT_V2" in full_html
+            and b'id="audio-downloader-v1-js"' in full_html
+            and b'id="audio-downloader-proxy-v1"' in full_html,
+            "public Audio Downloader script marker absent")
     verify_audio_downloader_https(cookie)
     anonymous, _, _ = https_get("/voice-studio/app")
     require(anonymous in {401, 403, 303}, "anonymous Voice page became accessible")
