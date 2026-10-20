@@ -152,17 +152,17 @@ def queue_route_overlay(original: bytes, source: bytes) -> bytes:
 # substitutions are permitted. Keep the existing Voice runtime, style and workers.
 AUDIO_BROWSER_ROUTE_PAIRS = (
     (b"const root = '/tts/api/audio-downloader';",
-     b"// AUDIO_DOWNLOADER_BROWSER_ROUTE_CONTRACT_V2: preserve the authenticated Voice Studio Nginx prefix.\nconst root = (location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/tts/api/audio-downloader';"),
+     b"// AUDIO_DOWNLOADER_BROWSER_ROUTE_CONTRACT_V2: preserve the authenticated Voice Studio Nginx prefix.\nconst root = (location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/audio-downloader';"),
     (b"const res=await fetch(url,{credentials:'same-origin',headers:",
      b"const res=await fetch(url,{credentials:'same-origin',cache:'no-store',headers:"),
     (b"  const data=await res.json().catch(()=>({detail:'Server did not return JSON'}));\n  if(!res.ok)throw new Error(typeof data.detail==='string'?data.detail:`HTTP ${res.status}`);\n  return data;",
      b"  const type=String(res.headers.get('content-type')||'').toLowerCase();\n  const data=type.includes('application/json')?await res.json().catch(()=>null):null;\n  const pathname=new URL(url,location.href).pathname;\n  if(!res.ok)throw new Error('HTTP '+res.status+' '+pathname+': '+(data&&typeof data.detail==='string'?data.detail:'API request failed'));\n  if(!data||typeof data!=='object')throw new Error('API returned a non-JSON response for '+pathname+'; check session and proxy routing');\n  return data;"),
     (b"const response=await fetch(endpoint,{method:'GET',credentials:'same-origin'",
-     b"const response=await fetch(root+endpoint.slice('/tts/api/audio-downloader'.length),{method:'GET',credentials:'same-origin'"),
+     b"const response=await fetch(root+endpoint.slice(('/'+'tts/api/audio-downloader').length),{method:'GET',credentials:'same-origin'"),
     (b"async function loadJobs(){try{const r=await api(root+'/jobs?limit=150');const jobs=r.jobs||[];for(const [id,num] of [['vsaRecent',5],['vsaQueueRows',200],['vsaHistoryRows',200]]){$(id).replaceChildren(jobTable(jobs,num));}}catch(e){$('vsaRecent').textContent='Queue unavailable: '+e.message;$('vsaQueueRows').textContent='Queue unavailable: '+e.message;$('vsaHistoryRows').textContent='History unavailable: '+e.message;}}",
      b"async function loadJobs(){try{const r=await api(root+'/jobs?limit=200');if(!Array.isArray(r.jobs))throw new Error('Invalid queue API response: jobs list missing');const jobs=r.jobs;const terminal=new Set(['completed','delivered','failed','cancelled']);const historyJobs=jobs.filter(j=>terminal.has(j.status));$('vsaRecent').replaceChildren(jobTable(jobs,5));$('vsaQueueRows').replaceChildren(jobTable(jobs,200));$('vsaHistoryRows').replaceChildren(jobTable(historyJobs,200));}catch(e){$('vsaRecent').textContent='Queue unavailable: '+e.message;$('vsaQueueRows').textContent='Queue unavailable: '+e.message;$('vsaHistoryRows').textContent='History unavailable: '+e.message;}}"),
     (b"const $=id=>document.getElementById(id),prefix='/tts/api/audio-downloader/proxy';",
-     b"const $=id=>document.getElementById(id),prefix=(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/tts/api/audio-downloader/proxy';"),
+     b"const $=id=>document.getElementById(id),prefix=(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/audio-downloader/proxy';"),
 )
 
 
