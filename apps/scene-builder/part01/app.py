@@ -1783,6 +1783,13 @@ def experiment_studio_home(request: Request):
     return RedirectResponse("/experiment-studio/antidetect-browser/", status_code=303)
 
 
+@app.get("/experiment-studio/self-media-library/")
+def experiment_studio_media_library(request: Request):
+    """Open the existing independent media application from Experiment Studio."""
+    require_login(request)
+    return RedirectResponse("/self-media-library/", status_code=303)
+
+
 # EXPERIMENT_STUDIO_BROWSER_ENGINE_V1: isolated browser service, same website shell.
 from experiment_browser import BrowserProfileEngine, BrowserError, browser_executable
 

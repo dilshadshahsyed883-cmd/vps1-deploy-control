@@ -1,0 +1,119 @@
+name: VPS1 Experiment Studio Self Media Library navigation release
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: vps1-experiment-studio-library-navigation
+  cancel-in-progress: false
+jobs:
+  experiment-library-nav:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'dilshadshahsyed883-cmd' &&
+      github.run_attempt == 1 &&
+      contains(github.event.head_commit.message, '[vps1-experiment-library-nav-release]')
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Connect authorized Tailscale deployment agent
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Scene and Self Media Library only; readback and rollback
+        shell: bash
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          test "$GITHUB_REF" = 'refs/heads/main'
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/id"
+          unset PRIVATE_IDENTITY
+          chmod 0600 "$scratch/id"
+          ssh-keygen -y -P '' -f "$scratch/id" > "$scratch/pub"
+          test "$(ssh-keygen -lf "$scratch/pub" -E sha256 | awk '{print $2}')" = \
+            'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
+          remote() {
+            timeout 1700s ssh -T -p 22 -i "$scratch/id" \
+              -o UserKnownHostsFile="$scratch/known_hosts" \
+              -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+              -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no \
+              -o ConnectTimeout=20 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+              vps1deploy@100.87.55.92 "$@"
+          }
+          scene_touched=0
+          library_touched=0
+          rollback_on_failure() {
+            code=$?
+            if (( code != 0 )); then
+              echo 'EXPERIMENT_LIBRARY_NAV=FAILED_ATTEMPT_ROLLBACK'
+              if (( library_touched )); then
+                remote "sudo -n /usr/local/sbin/vps1-production-deploy rollback $SOURCE_SHA self-media-library" || true
+              fi
+              if (( scene_touched )); then
+                remote "sudo -n /usr/local/sbin/vps1-production-deploy rollback $SOURCE_SHA scene-builder" || true
+              fi
+            fi
+            exit "$code"
+          }
+          trap rollback_on_failure ERR
+          echo 'READ_ONLY_SML_IDLE_PREFLIGHT'
+          remote 'python3 -' <<'PY'
+          import json,urllib.request
+          for path in ('/api/health','/api/stats'):
+              with urllib.request.urlopen('http://127.0.0.1:8147'+path,timeout=15) as resp:
+                  data=json.load(resp)
+                  assert resp.status==200
+                  if path=='/api/health': assert data.get('ok') is True
+                  else: assert int(data.get('processing',-1))==0
+          print('SML_IDLE_PREFLIGHT=PASS',flush=True)
+          PY
+          echo 'EXPERIMENT_SCENE_INSTALL'
+          scene_touched=1
+          remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA scene-builder"
+          echo 'EXPERIMENT_LIBRARY_INSTALL'
+          library_touched=1
+          remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA self-media-library"
+          echo 'EXPERIMENT_NAV_READBACK'
+          remote 'python3 -' <<'PY'
+          import urllib.request,json
+          def read(url):
+              with urllib.request.urlopen(url,timeout=20) as response:
+                  assert response.status == 200
+                  return response.read().decode('utf-8')
+          shell=read('http://127.0.0.1:18080/static/vps1_native_site_shell.js')
+          assert 'vps1-native-experiment-tabs' in shell
+          assert 'Self Media Library", "/self-media-library/"' in shell
+          index=read('http://127.0.0.1:8147/')
+          assert 'data-workspace="library"' in index
+          assert 'id="nav"' in index
+          assert 'class="sml-control-rail"' in index
+          assert index.count('data-page="') >= 5
+          css=read('http://127.0.0.1:18080/static/vps1_native_site_shell.css')
+          assert 'body.vps1-native-library .app-shell' in css
+          with urllib.request.urlopen('http://127.0.0.1:8147/api/health',timeout=15) as response:
+              assert json.load(response).get('ok') is True
+          print('EXPERIMENT_LIBRARY_NATIVE_TABS=PASS',flush=True)
+          print('SML_HEALTH=PASS',flush=True)
+          PY
+          trap - ERR
+          echo 'EXPERIMENT_LIBRARY_NAV_RELEASE=PASS'
+          echo 'INDEPENDENT_APPS_OTHER_THAN_SCENE_AND_SML=UNTOUCHED'
+          echo 'AUTO_SCRIPT=OFFLINE_UNCHANGED'
+          echo 'OWNER_BROWSER_UAT=PENDING'

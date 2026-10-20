@@ -4,7 +4,7 @@
   const script = document.currentScript || document.querySelector('script[data-unify-sidebar="1"]');
   const app = script && script.dataset ? script.dataset.workspace : "";
   const legacySidebar = !!(script && script.dataset && script.dataset.unifySidebar === "1");
-  if (!legacySidebar && !["acs", "voice", "uploader", "stream"].includes(app)) return;
+  if (!legacySidebar && !["acs", "voice", "uploader", "stream", "library"].includes(app)) return;
   // During staggered releases an old Scene shell may still embed this document.
   // Never render a second navigation in that legacy framing context.
   if (window.self !== window.top) return;
@@ -35,7 +35,7 @@
     if (/^\/(local-upload-manager|auto-stream)(\/|$)/.test(pathname)) return "upload";
     if (/^\/(scene-builder|video-studio|auto-caption-studio|short-maker|video-merger)(\/|$)/.test(pathname)) return "video";
     if (/^\/voice-studio(\/|$)/.test(pathname)) return "voice";
-    if (/^\/experiment-studio(\/|$)/.test(pathname)) return "experiment";
+    if (/^\/(experiment-studio|self-media-library)(\/|$)/.test(pathname)) return "experiment";
     if (/^\/(admin|storage-manager|user-management)(\/|$)/.test(pathname)) return "admin";
     if (pathname === "/" || pathname === "/dashboard") return "dashboard";
     return "";
@@ -184,7 +184,7 @@
     navigation.setAttribute("aria-label", "Applications");
     // Native pages and legacy Video Studio documents use the same menu.
     const current = app === "uploader" || app === "stream" ? "upload" :
-      app === "acs" ? "video" : "voice";
+      app === "acs" ? "video" : app === "library" ? "experiment" : "voice";
     const voiceLink = addPrimaryLinks(navigation, current).voice;
     if (app === "voice") {
       // A click on the already-open Voice Studio must not reload its large
@@ -266,6 +266,16 @@
       addLink(tabs, "Video Merger", "/video-merger/", false);
       toggle.after(tabs);
       alignVideoTabs();
+    }
+
+    if (app === "library") {
+      const tabs = node("nav", "vps1-native-experiment-tabs");
+      tabs.dataset.vps1Component = "studio-tabs";
+      tabs.setAttribute("aria-label", "Experiment Studio");
+      addLink(tabs, "Antidetect Browser", "/experiment-studio/antidetect-browser/", false);
+      addLink(tabs, "Self Media Library", "/self-media-library/", true);
+      // Use the canonical independent application URL, without an iframe.
+      toggle.after(tabs);
     }
     if (app === "uploader" || app === "stream") {
       const tabs = node("nav", "vps1-native-upload-tabs");
