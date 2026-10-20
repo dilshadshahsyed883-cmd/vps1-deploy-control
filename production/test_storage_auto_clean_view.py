@@ -168,5 +168,63 @@ class AutoCleanReadOnlyView(unittest.TestCase):
         self.assertIn('preview.get("read_only") is not True', adapter)
 
 
+    def test_monotonic_systemd_schedule_is_supported(self):
+        module = self.manager
+        def command(args, timeout=8):
+            if args[1] == "show":
+                return SimpleNamespace(stdout=(
+                    "NextElapseUSecMonotonic=" + str(100_000_000) + "\n"
+                    if "NextElapseUSecMonotonic" in args[3] else
+                    "NextElapseUSecRealtime=n/a\n"))
+            return SimpleNamespace(stdout="active\n" if args[1] == "is-active" else "enabled\n")
+        with patch.object(module, "run", side_effect=command), \
+             patch.object(module.time, "clock_gettime", return_value=90.0), \
+             patch.object(module, "_public_deployment_gc_status", return_value=None):
+            status = module.deployment_cleanup_status()
+        self.assertIsNotNone(status["next_run_at"])
+        self.assertEqual(status["status"], "active")
+
+    def test_root_published_audit_and_verified_inventory_are_read_only(self):
+        module = self.manager
+        from datetime import datetime, timezone
+        now = int(datetime.now(timezone.utc).timestamp())
+        info = {
+            "schema": 1, "generated_at": now, "eligible_measured_at": now,
+            "eligible_bytes": 76543,
+            "last_cleanup": {"timestamp": now - 300, "deleted_count": 7,
+                "skipped_count": 0, "measured_freed_bytes": 409755648},
+        }
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(module, "STATE_ROOT", Path(tmp)), \
+             patch.object(module, "_public_deployment_gc_status", return_value=info), \
+             patch.object(module, "run", side_effect=OSError("systemd missing")):
+            status = module.deployment_cleanup_status()
+        self.assertEqual(status["last_cleanup"]["deleted_count"], 7)
+        self.assertEqual(status["last_cleanup"]["measured_freed_bytes"], 409755648)
+        self.assertEqual(status["eligible_bytes"], 76543)
+        self.assertIsNotNone(status["eligible_measured_at"])
+
+    def test_gc_public_export_excludes_sensitive_audit_paths(self):
+        from production import storage_gc as gc
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "private"
+            state.mkdir()
+            public = Path(tmp) / "public" / "status.json"
+            event = {"mode": "apply", "timestamp": 1792456676,
+                     "deleted": ["/private/secret/release"], "skipped": [],
+                     "free_before_bytes": 100000, "free_after_bytes": 140000}
+            (state / "deployment-gc-history.jsonl").write_text(json.dumps(event) + "\n")
+            with patch.object(gc, "execute", return_value={"inventory": {
+                    "blocked": "", "estimated_bytes": 12345}}):
+                result = gc.publish_readonly_status(
+                    state=state, destination=public, test_mode=True)
+            self.assertEqual(result["eligible_bytes"], 12345)
+            self.assertEqual(result["last_cleanup"]["measured_freed_bytes"], 40000)
+            exported = public.read_text()
+            self.assertNotIn("/private/", exported)
+            self.assertNotIn("secret", exported)
+            self.assertEqual(public.stat().st_mode & 0o777, 0o644)
+
+
 if __name__ == "__main__":
     unittest.main()
