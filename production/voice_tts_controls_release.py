@@ -24,6 +24,11 @@ JOURNALS = BASE / "transactions/voice-tts-queue-controls"
 WEB = "vps1-production-voice-studio.service"
 WORKERS = ("vps1-production-kokoro-worker.service", "vps1-production-edge-worker.service")
 UNITS = (WEB,) + WORKERS
+AUX_WORKERS = (
+    "vps1-production-voice-dispatcher.service",
+    "vps1-production-voice-drive-spooler.service",
+)
+OMNI_DB = DATA / "voice-studio/omnivoice/clone.db"
 FILES = (
     Path("part01/queue_actions.py"),
     Path("part01/kokoro_api.py"),
@@ -74,6 +79,26 @@ def check_idle_and_lock(db_paths):
         raise
 
 
+def check_omnivoice_idle(path):
+    """Fail closed on active clone synthesis/Drive work before touching Voice web."""
+    if not path.is_file() or path.is_symlink():
+        raise RuntimeError("VOICE_CONTROLS_RELEASE_BLOCKED: OmniVoice queue DB unavailable")
+    with sqlite3.connect("file:" + str(path) + "?mode=ro", uri=True, timeout=10) as c:
+        cols = {column[1] for column in c.execute("PRAGMA table_info(jobs)")}
+        require({"status","delivery_status"} <= cols,"OmniVoice schema unrecognized")
+        busy = c.execute("""SELECT 1 FROM jobs WHERE status='processing'
+            OR delivery_status IN ('uploading','pending') LIMIT 1""").fetchone()
+        require(busy is None,"OmniVoice generation or Drive upload active")
+
+
+def restore_aux_workers(previous_states):
+    """Requires=web can implicitly stop dependent units; reconcile exact old states."""
+    for unit, was_active in previous_states.items():
+        if was_active and not active(unit):
+            run(["systemctl","start",unit],timeout=65,quiet=True)
+        require(active(unit) == was_active,"OmniVoice unit state drift: " + unit)
+
+
 def unlock(connections):
     for db in reversed(connections):
         db.rollback()  # Preflight uses no write, release locks without altering a job.
@@ -119,6 +144,7 @@ def stage(revision, previous):
         destination = target / relative
         require(destination.parent.is_dir() and not destination.parent.is_symlink(),
                 "unsafe module destination")
+        require(not destination.is_symlink(), "refuse symlink overwrite: " + str(relative))
         destination.write_bytes(data)
         destination.chmod(0o644)  # Runtime user must be able to import staged Python.
         manifest["files"][str(relative)] = hashlib.sha256(data).hexdigest()
@@ -147,6 +173,7 @@ def install(revision):
     previous = CURRENT.resolve(strict=True)
     require(previous.is_dir() and previous.is_relative_to(RELEASES), "Voice release escapes root")
     require(all(active(unit) for unit in UNITS), "Voice web/Kokoro/Edge units must be active")
+    auxiliary_states = {unit: active(unit) for unit in AUX_WORKERS}
     http_check(APP)
     # Fully stage and syntax-validate from reviewed Git before stopping anything.
     target = stage(revision, previous)
@@ -155,13 +182,15 @@ def install(revision):
     journal.mkdir(parents=True, mode=0o700)
     atomic_json(journal / "before.json", {
         "revision": revision, "old_release": str(previous), "target": str(target),
-        "affected_units": list(UNITS), "other_workers": "untouched",
+        "affected_units": list(UNITS),
+        "auxiliary_unit_states": auxiliary_states,
     })
     fences = []
     stopped = False
     switched = False
     try:
         fences = check_idle_and_lock(DATA_ROOTS)
+        check_omnivoice_idle(OMNI_DB)
         try:
             # Treat partial service stop as a rollback-worthy mutation.
             stopped = True
@@ -176,10 +205,11 @@ def install(revision):
         atomic_link(CURRENT, target)
         switched = True
         start_all()
+        restore_aux_workers(auxiliary_states)
         verify_queues()  # Real local + authenticated HTTPS GETs; no mutation.
         event(app=APP, result="PASS_VOICE_TTS_CONTROLS", revision=revision,
               idle_gate="PASS", db_backup="PASS", affected_units=list(UNITS),
-              other_workers="PRESERVED", auto_script="OFFLINE")
+              other_workers="RESTORED_TO_PREVIOUS_STATE", auto_script="OFFLINE")
         atomic_json(journal / "result.json", {
             "result": "PASS_VOICE_TTS_CONTROLS", "revision": revision,
             "backup": "PRESERVED", "workers": list(UNITS),
@@ -194,6 +224,7 @@ def install(revision):
             if switched:
                 atomic_link(CURRENT, previous)
             start_all()
+            restore_aux_workers(auxiliary_states)
             http_check(APP)
-            event(app=APP, rollback="PASS", queues="PRESERVED", other_workers="UNTOUCHED")
+            event(app=APP, rollback="PASS", queues="PRESERVED", other_workers="RESTORED")
         raise
