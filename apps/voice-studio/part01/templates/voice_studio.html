@@ -1985,7 +1985,7 @@ setOmniSubtab('production');
 (() => {'use strict';
 const $ = id => document.getElementById(id);
 // AUDIO_DOWNLOADER_BROWSER_ROUTE_CONTRACT_V2: preserve the authenticated Voice Studio Nginx prefix.
-const root = (location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/tts/api/audio-downloader';
+const root = (location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/audio-downloader';
 let selected='downloader', active=false, tick=null, lastStatus=null;
 const api = async (url,options={}) => {
   const res=await fetch(url,{credentials:'same-origin',cache:'no-store',headers:{'accept':'application/json',...(options.body&&!(options.body instanceof FormData)?{'content-type':'application/json'}:{})},...options});
@@ -2013,7 +2013,7 @@ async function downloadViaSession(job, anchor, actions){
  anchor.textContent='Downloading…';
  anchor.style.pointerEvents='none';
  try{
-  const response=await fetch(root+endpoint.slice('/tts/api/audio-downloader'.length),{method:'GET',credentials:'same-origin',cache:'no-store',redirect:'follow',headers:{'Accept':'audio/mpeg,audio/wav,application/octet-stream'}});
+  const response=await fetch(root+endpoint.slice(('/'+'tts/api/audio-downloader').length),{method:'GET',credentials:'same-origin',cache:'no-store',redirect:'follow',headers:{'Accept':'audio/mpeg,audio/wav,application/octet-stream'}});
   const type=String(response.headers.get('content-type')||'').split(';')[0].trim().toLowerCase();
   if(!response.ok||!['audio/mpeg','audio/mp3','audio/wav','audio/x-wav','application/octet-stream'].includes(type)){
    let detail='';
@@ -2069,7 +2069,7 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
 
 <script id="audio-downloader-proxy-v1">
 (()=>{'use strict';
-const $=id=>document.getElementById(id),prefix=(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/tts/api/audio-downloader/proxy';
+const $=id=>document.getElementById(id),prefix=(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/audio-downloader/proxy';
 let editing='',cached=null;
 const request=async(path,opts={})=>{const response=await fetch(prefix+path,{credentials:'same-origin',headers:{'content-type':'application/json'},...opts});const body=await response.json().catch(()=>({}));if(!response.ok)throw Error(typeof body.detail==='string'?body.detail:'Request failed '+response.status);return body;};
 const notify=(s,ok=false)=>{const e=$('vsaProxyMessage');e.textContent=s;e.className='vsa-message '+(ok?'ok':'error');};
