@@ -5,28 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Self Media Library</title>
   <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/vps1_native_site_shell.css?v=20261020-experiment-library-v2" />
+  <script defer src="/static/vps1_native_site_shell.js?v=20261020-experiment-library-v2" data-workspace="library"></script>
 </head>
 <body>
 <div class="app-shell">
-  <aside class="sidebar">
-    <div class="brand">
-      <div class="brand-mark">SM</div>
-      <div><strong>Self Media</strong><span>Library</span></div>
-    </div>
-    <nav id="nav">
-      <button data-page="dashboard" class="nav-item active"><span>⌂</span> Dashboard</button>
-      <button data-page="sources" class="nav-item"><span>＋</span> Input</button>
-      <button data-page="processing" class="nav-item"><span>◌</span> Process</button>
-      <button data-page="library" class="nav-item"><span>▦</span> Library &amp; Preview</button>
-      <button data-page="settings" class="nav-item"><span>⚙</span> API &amp; Settings</button>
-    </nav>
-    <div class="sidebar-foot">
-      <div class="health-dot" id="healthDot"></div>
-      <div><b id="healthText">Checking engine…</b><span>Library Engine v2.0</span></div>
-    </div>
-  </aside>
-
   <main>
+    <div class="sml-control-rail" aria-label="Self Media Library tools">
+      <nav id="nav" aria-label="Self Media Library">
+        <button data-page="dashboard" class="nav-item active"><span>⌂</span> Dashboard</button>
+        <button data-page="sources" class="nav-item"><span>＋</span> Input</button>
+        <button data-page="processing" class="nav-item"><span>◌</span> Process</button>
+        <button data-page="library" class="nav-item"><span>▦</span> Library &amp; Preview</button>
+        <button data-page="settings" class="nav-item"><span>⚙</span> API &amp; Settings</button>
+      </nav>
+      <div class="sml-engine-state">
+        <div class="health-dot" id="healthDot"></div>
+        <b id="healthText">Checking engine…</b>
+      </div>
+    </div>
     <header class="topbar">
       <div>
         <h1 id="pageTitle">Dashboard</h1>
