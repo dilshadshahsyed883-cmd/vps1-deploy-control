@@ -37,7 +37,19 @@ class WritePolicy(unittest.TestCase):
         # mode even when the unrelated general preset-editing gate is OFF.
         for editing in (False, True):
             self.assertTrue(mutation_allowed("POST", "/user-management", editing))
+        # Experiment Studio is an independently authorized, CSRF-protected app.
+        sample = "/api/experiment-browser/profiles/" + "a" * 24
+        for editing in (False, True):
+            self.assertTrue(mutation_allowed("POST", "/api/experiment-browser/profiles", editing))
+            self.assertTrue(mutation_allowed("DELETE", sample, editing))
+            for action in ("start", "stop", "navigate", "action"):
+                self.assertTrue(mutation_allowed("POST", sample + "/" + action, editing))
         denied = [
+            ("POST", "/api/experiment-browser/profiles/" + "a" * 23 + "/start"),
+            ("PUT", "/api/experiment-browser/profiles/" + "a" * 24 + "/start"),
+            ("DELETE", "/api/experiment-browser/profiles"),
+            ("POST", "/api/experiment-browser/profiles/" + "a" * 24 + "/delete"),
+            ("POST", "/api/experiment-browser/profiles/" + "a" * 24 + "/start/extra"),
             ("POST", "/queue/submit"),
             ("POST", "/queue/123/start"),
             ("POST", "/api/admin/storage/cleanup"),
