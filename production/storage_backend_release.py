@@ -143,7 +143,7 @@ def _restart_and_verify() -> dict:
         if result.returncode == 0:
             try:
                 return _verify()
-            except RuntimeError as exc:
+            except (OSError, urllib.error.URLError, RuntimeError, ValueError) as exc:
                 last = str(exc)
         time.sleep(.5)
     raise RuntimeError("Storage Manager did not recover: " + last)
