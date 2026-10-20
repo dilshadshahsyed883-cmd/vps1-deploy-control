@@ -112,17 +112,23 @@ def smoke_isolated_uploader_pages(state):
                             f"{mode} health timeout: " + log.read()[-3000:]
                         )
                     page = client.get(base + "/app?embedded=1&tab=auto_engine")
-                    expected = "Engine 2" if mode == "engine2" else "Shorts Engine"
+                    expected = "Engine 2" if mode == "engine2" else "Short Uploader"
                     if (page.status_code != 200 or
                             "text/html" not in page.headers.get("content-type", "") or
                             "Auto Engine" not in page.text or expected not in page.text or
+                            f'data-engine-instance="{mode}"' not in page.text or
+                            page.text.count('aria-label="Auto Uploader modes"') != 1 or
+                            page.text.count('aria-label="Auto Uploader workspace"') != 1 or
+                            "lum-primary-workspaces" not in page.text or
+                            "vps1_native_site_shell.js" not in page.text or
+                            "<iframe" in page.text.lower() or
                             "Internal Server Error" in page.text):
                         log.seek(0)
                         raise RuntimeError(
                             f"{mode} embedded UI HTTP {page.status_code}: " +
                             log.read()[-4000:]
                         )
-                    checked[mode] = "EMBEDDED_HTML_200"
+                    checked[mode] = "NATIVE_HTML_200_NO_IFRAME"
             finally:
                 proc.terminate()
                 try:
@@ -226,10 +232,24 @@ def smoke(app):
                         raise RuntimeError('four-mode registry incomplete')
                     if modes['cross_mode_uploads_enabled']:
                         raise RuntimeError('unverified cross-mode uploader was enabled')
-                    for mode in ('engine1', 'engine2', 'shorts'):
+                    native_engine1 = client.get(spec['ui'] + '?tab=auto_engine&auto_mode=engine1')
+                    if (native_engine1.status_code != 200 or
+                            'data-engine-instance="engine1"' not in native_engine1.text or
+                            '<iframe' in native_engine1.text.lower()):
+                        raise RuntimeError('Engine 1 native Auto Engine view failed')
+                    # Legacy parent URLs must redirect to the independent native
+                    # document; silently rendering an iframe is not acceptable.
+                    for mode in ('engine2', 'shorts'):
                         page = client.get(spec['ui'] + '?tab=auto_engine&auto_mode=' + mode)
-                        if page.status_code != 200 or modes['selected_modes'][mode]['label'] not in page.text:
-                            raise RuntimeError('isolated Auto Uploader mode view failed: ' + mode)
+                        expected_url = (
+                            f'/local-upload-manager/modes/{mode}/app'
+                            '?embedded=1&tab=auto_engine'
+                        )
+                        if (page.status_code != 303 or
+                                page.headers.get('location') != expected_url):
+                            raise RuntimeError(
+                                'mode switching must redirect to native page: ' + mode
+                            )
                     stream_page = client.get(spec['ui'] + '?tab=auto_stream')
                     if stream_page.status_code != 200 or 'Independent Auto Stream' not in stream_page.text:
                         raise RuntimeError('independent Auto Stream subtab is not available')

@@ -23,14 +23,30 @@ class NativeUploaderTopTabs(unittest.TestCase):
         self.assertLess(html.index('class="lum-primary-workspaces"'),html.index('class="lum-statusbar"'))
         self.assertLess(html.index('class="lum-primary-workspaces"'),html.index('class="lum-tabs-shell"'))
         self.assertIn("{% if not embedded_view %}\n  <section class=\"lum-statusbar\">",html)
-        self.assertIn("['engine1', 'engine2', 'shorts']",html)
+        self.assertIn("('engine1', 'Engine 1')",html)
+        self.assertIn("('engine2', 'Engine 2')",html)
+        self.assertIn("('shorts', 'Short Uploader')",html)
         self.assertNotIn("['engine1', 'engine2', 'shorts', 'short_stream']",html)
 
-    def test_iframed_isolated_engines_do_not_repeat_workspace_nav(self):
+    def test_every_mode_is_native_and_full_width_no_nested_document(self):
         html=(LUM/"templates/app.html").read_text()
-        self.assertIn("engine_instance == 'engine1' or not embedded_view",html)
-        self.assertIn('app?embedded=1&tab=auto_engine',html)
-        self.assertIn("engine_instance == 'engine1'",html)
+        self.assertNotIn("<iframe",html.lower())
+        self.assertIn("{% if tab != 'auto_stream' %}",html)
+        self.assertEqual(html.count('aria-label="Auto Uploader modes"'),1)
+        self.assertIn('data-engine-instance="{{ engine_instance }}"',html)
+        self.assertIn('/local-upload-manager/modes/{{ key }}/app?embedded=1&tab=auto_engine',html)
+        self.assertIn('/local-upload-manager/app?embedded=1&tab=auto_engine&auto_mode=engine1',html)
+        self.assertIn('engine_instance == key',html)
+
+    def test_engine_switch_preserves_separate_auth_and_css_context(self):
+        server=(LUM/"lum_engine/standalone_app.py").read_text()
+        self.assertIn('selected_auto_mode in {"engine2", "shorts"}',server)
+        self.assertIn('f"/local-upload-manager/modes/{selected_auto_mode}/app"',server)
+        self.assertIn('"?embedded=1&tab=auto_engine"',server)
+        self.assertIn('status_code=303',server)
+        script=(LUM/"static/local_upload_manager.js").read_text()
+        self.assertIn('url.pathname === window.location.pathname',script)
+        self.assertNotIn('url.pathname.endsWith(\'/app\')',script)
 
     def test_native_stream_is_dormant_and_separate(self):
         html=(LUM/"templates/app.html").read_text()

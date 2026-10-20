@@ -387,6 +387,15 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
     elif selected_auto_mode == "short_stream":
         # Historical four-mode bookmarks lead to the separate Stream tab.
         return RedirectResponse(route("/app") + "?tab=auto_stream", status_code=303)
+    elif selected == "auto_engine" and selected_auto_mode in {"engine2", "shorts"}:
+        # One native full-width document per engine. Engine 2 and Short Uploader
+        # remain independent services/data stores, reached via the authenticated
+        # same-origin LUM mode gateway. Never embed one document inside another.
+        return RedirectResponse(
+            f"/local-upload-manager/modes/{selected_auto_mode}/app"
+            "?embedded=1&tab=auto_engine",
+            status_code=303,
+        )
     # Only Engine 1 owns the cross-mode registry. Its root defaults to lum1,
     # while each isolated process points LUM_DATA_DIR at lum2/lum3. Calling
     # four_mode_registry() from those processes aliases the Engine 1 root to
