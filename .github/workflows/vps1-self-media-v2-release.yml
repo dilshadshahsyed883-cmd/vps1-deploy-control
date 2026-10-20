@@ -83,6 +83,28 @@ jobs:
           assert health.get('ok') is True and health.get('version')=='2.0.0'
           assert status.get('ok') is True and status.get('v2') is True
           assert isinstance(images.get('items'),list)
+          def asset(port,path):
+              with urllib.request.urlopen('http://127.0.0.1:'+str(port)+path,timeout=20) as r:
+                  assert r.status==200, path
+                  return r.read().decode('utf-8')
+          index=asset(8147,'/')
+          assert 'href="/scene-builder/static/vps1_native_site_shell.css' in index
+          assert 'src="/scene-builder/static/vps1_native_site_shell.js' in index
+          assert 'href="/self-media-library/static/sml_shared_theme.css' in index
+          assert 'src="/self-media-library/static/app.js' in index
+          assert index.count('data-page="') >= 5
+          scene_js=asset(18080,'/static/vps1_native_site_shell.js')
+          assert 'vps1-native-experiment-tabs' in scene_js
+          assert 'app === "library"' in scene_js
+          scene_css=asset(18080,'/static/vps1_native_site_shell.css')
+          assert '--vps1-sidebar-width:214px' in scene_css
+          theme=asset(8147,'/static/sml_shared_theme.css')
+          assert '#f8fafc' in theme and '#315edb' in theme and 'color-scheme:light' in theme
+          app_js=asset(8147,'/static/app.js')
+          assert 'const libraryPath = path =>' in app_js
+          assert 'fetch(libraryPath(url)' in app_js
+          print('SML_SHARED_SHELL_ASSETS=PASS',flush=True)
+          print('SML_UI_LIGHT_THEME_AND_SCOPED_API=PASS',flush=True)
           print('SML_V2_SERVICE_HEALTH=PASS',flush=True)
           print('EDITOR_TOKEN_CONFIGURED='+str(bool(status.get('editor_token_configured'))),flush=True)
           print('DRIVE_ENABLED='+str(bool(health.get('drive_enabled'))),flush=True)

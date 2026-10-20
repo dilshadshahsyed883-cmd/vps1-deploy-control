@@ -33,10 +33,13 @@ class ExperimentNavigation(unittest.TestCase):
         m.feed(page)
         scripts=[attrs for tag,attrs in m.tags if tag=="script" and attrs.get("data-workspace")=="library"]
         self.assertEqual(len(scripts),1)
-        self.assertEqual(scripts[0].get("src"),"/static/vps1_native_site_shell.js?v=20261020-experiment-library-v2")
+        self.assertEqual(scripts[0].get("src"),"/scene-builder/static/vps1_native_site_shell.js?v=20261020-experiment-library-v3")
         styles=[attrs.get("href") for tag,attrs in m.tags if tag=="link"]
-        self.assertIn("/static/vps1_native_site_shell.css?v=20261020-experiment-library-v2",styles)
-        self.assertIn("/static/styles.css",styles)
+        self.assertIn("/scene-builder/static/vps1_native_site_shell.css?v=20261020-experiment-library-v3",styles)
+        self.assertIn("/self-media-library/static/styles.css?v=20261020-legacy-v2",styles)
+        self.assertIn("/self-media-library/static/sml_shared_theme.css?v=20261020-shared-light-v1",styles)
+        scripts_all=[attrs.get("src") for tag,attrs in m.tags if tag=="script"]
+        self.assertIn("/self-media-library/static/app.js?v=20261020-mobile-shell-v3",scripts_all)
         self.assertNotIn('<aside class="sidebar">',page)
         self.assertEqual(page.count('id="nav"'),1)
         for item in ("dashboard","sources","processing","library","settings"):
