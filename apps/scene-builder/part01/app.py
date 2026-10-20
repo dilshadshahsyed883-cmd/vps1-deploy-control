@@ -1790,15 +1790,140 @@ def experiment_studio_media_library(request: Request):
     return RedirectResponse("/self-media-library/", status_code=303)
 
 
+# EXPERIMENT_STUDIO_BROWSER_ENGINE_V1: isolated browser service, same website shell.
+from experiment_browser import BrowserProfileEngine, BrowserError, browser_executable
+
+EXPERIMENT_BROWSER = BrowserProfileEngine(DATA_DIR / "experiment-browser")
+app.add_event_handler("shutdown", EXPERIMENT_BROWSER.close_all)
+
+
+def experiment_owner(request: Request) -> str:
+    require_login(request)
+    return str(request.session["username"])
+
+
+async def experiment_payload(request: Request) -> dict:
+    """Session-bound CSRF for every profile/browser mutation."""
+    session_token = str(request.session.get("experiment_browser_csrf") or "")
+    supplied = request.headers.get("X-Experiment-CSRF", "")
+    if not session_token or not secrets.compare_digest(supplied, session_token):
+        raise HTTPException(403, "Experiment Studio session token required")
+    if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
+        raise HTTPException(415, "JSON request required")
+    raw = await request.body()
+    if len(raw) > 8192:
+        raise HTTPException(413, "Browser request too large")
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Invalid JSON") from None
+    if not isinstance(data, dict):
+        raise HTTPException(400, "Expected a JSON object")
+    return data
+
+
+def experiment_failure(exc: BrowserError):
+    raise HTTPException(exc.status, str(exc))
+
+
 @app.get("/experiment-studio/antidetect-browser/", response_class=HTMLResponse)
 def antidetect_browser_workspace(request: Request):
-    """UI-only workspace; no browser automation or profile launch side effects."""
+    """Authenticated UI keeps existing Experiment Studio shell and geometry."""
     require_login(request)
+    if not request.session.get("experiment_browser_csrf"):
+        request.session["experiment_browser_csrf"] = secrets.token_urlsafe(24)
     return templates.TemplateResponse(
         "experiment_studio.html",
         {"request": request, "page": "experiment_studio",
-         "username": request.session.get("username", "team")},
+         "username": request.session.get("username", "team"),
+         "experiment_csrf": request.session["experiment_browser_csrf"]},
     )
+
+
+@app.get("/api/experiment-browser/health")
+async def experiment_browser_health(request: Request):
+    experiment_owner(request)
+    return {"ok": True, "chrome_installed": browser_executable() is not None,
+            "active_profiles": len(EXPERIMENT_BROWSER.running),
+            "engine": "Chromium persistent profiles via private Playwright pipe",
+            "stealth_guaranteed": False}
+
+
+@app.get("/api/experiment-browser/profiles")
+async def experiment_browser_profiles(request: Request):
+    return {"profiles": await EXPERIMENT_BROWSER.list(experiment_owner(request))}
+
+
+@app.post("/api/experiment-browser/profiles")
+async def experiment_browser_create(request: Request):
+    owner = experiment_owner(request)
+    payload = await experiment_payload(request)
+    try:
+        return {"profile": await EXPERIMENT_BROWSER.create(owner, payload)}
+    except BrowserError as exc:
+        experiment_failure(exc)
+
+
+@app.delete("/api/experiment-browser/profiles/{profile_id}")
+async def experiment_browser_delete(request: Request, profile_id: str):
+    owner = experiment_owner(request)
+    await experiment_payload(request)
+    try:
+        await EXPERIMENT_BROWSER.delete(owner, profile_id)
+        return {"ok": True}
+    except BrowserError as exc:
+        experiment_failure(exc)
+
+
+@app.post("/api/experiment-browser/profiles/{profile_id}/start")
+async def experiment_browser_start(request: Request, profile_id: str):
+    owner = experiment_owner(request)
+    await experiment_payload(request)
+    try:
+        return {"profile": await EXPERIMENT_BROWSER.start(owner, profile_id)}
+    except BrowserError as exc:
+        experiment_failure(exc)
+
+
+@app.post("/api/experiment-browser/profiles/{profile_id}/stop")
+async def experiment_browser_stop(request: Request, profile_id: str):
+    owner = experiment_owner(request)
+    await experiment_payload(request)
+    try:
+        return {"profile": await EXPERIMENT_BROWSER.stop(owner, profile_id)}
+    except BrowserError as exc:
+        experiment_failure(exc)
+
+
+@app.post("/api/experiment-browser/profiles/{profile_id}/navigate")
+async def experiment_browser_navigate(request: Request, profile_id: str):
+    owner = experiment_owner(request)
+    payload = await experiment_payload(request)
+    try:
+        return await EXPERIMENT_BROWSER.navigate(owner, profile_id, str(payload.get("url") or ""))
+    except BrowserError as exc:
+        experiment_failure(exc)
+
+
+@app.post("/api/experiment-browser/profiles/{profile_id}/action")
+async def experiment_browser_action(request: Request, profile_id: str):
+    owner = experiment_owner(request)
+    payload = await experiment_payload(request)
+    try:
+        return await EXPERIMENT_BROWSER.action(owner, profile_id, payload)
+    except BrowserError as exc:
+        experiment_failure(exc)
+
+
+@app.get("/api/experiment-browser/profiles/{profile_id}/screenshot")
+async def experiment_browser_screenshot(request: Request, profile_id: str):
+    owner = experiment_owner(request)
+    try:
+        png = await EXPERIMENT_BROWSER.screenshot(owner, profile_id)
+        return Response(content=png, media_type="image/png",
+                        headers={"Cache-Control": "no-store"})
+    except BrowserError as exc:
+        experiment_failure(exc)
 
 
 @app.get("/api/dashboard/v1")
