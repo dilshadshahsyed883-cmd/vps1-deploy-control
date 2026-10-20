@@ -4,7 +4,7 @@
 
 {% block content %}
 {% include "admin_workspace_nav.html" %}
-<link rel="stylesheet" href="/static/storage_manager.css?v=175">
+<link rel="stylesheet" href="/static/storage_manager.css?v=20261020-autoclean-status-v1">
 <div id="storage-app" data-csrf="{{ storage_csrf }}">
   <section class="sm-hero">
     <div>
@@ -16,7 +16,7 @@
     <div class="sm-hero-actions">
       <span id="manager-status" class="sm-status"><i></i> Connecting</span>
       <button id="refresh-metrics" class="button secondary" type="button">Refresh metrics</button>
-      <button id="run-scan" class="button" type="button" disabled>Scan reclaimable space</button>
+      <button id="run-scan" class="button" type="button" disabled>Check cleanup status</button>
       <button id="full-production-clean" class="button danger-button" type="button" disabled>Full Production Clean</button>
     </div>
   </section>
@@ -40,9 +40,17 @@
     </article>
   </section>
 
+  <section class="sm-panel sm-auto-overview" aria-label="Automatic cleanup status">
+    <div class="sm-panel-head"><div><h3>Automatic cleanup status</h3><p>Independent 12-hour deployment cleanup and verified-Drive project retention are separate systems.</p></div></div>
+    <div class="sm-auto-status-grid">
+      <div class="sm-auto-status-card"><span>GitHub deployment cache cleanup</span><strong id="deployment-gc-state" role="status">Checking live timer…</strong><p id="deployment-gc-detail">Reading the protected VPS systemd timer.</p></div>
+      <div class="sm-auto-status-card"><span>Completed project output cleanup</span><strong>App-owned · Drive receipt required</strong><p>Each application retains its own projects, queues and credentials. Local job files are removed only after completion, verified remote delivery and dependency checks.</p></div>
+    </div>
+  </section>
+
   <section class="sm-panel sm-cleanup-panel">
     <div class="sm-panel-head">
-      <div><h3>Safely reclaimable storage</h3><p>Select categories after reviewing the latest scan. Project eligibility is rechecked immediately before deletion.</p></div>
+      <div><h3>Verified reclaim preview</h3><p>Read-only Storage Manager does not open protected application databases. An unavailable scan is not a zero-byte result; no unverified project deletion is permitted.</p></div>
       <div class="sm-head-actions">
         <small id="scan-time">No scan loaded</small>
         <button id="select-recommended" class="button secondary sm-small" type="button" disabled>Select recommended</button>
@@ -57,7 +65,7 @@
 
   <section class="sm-grid sm-policy-grid">
     <article class="sm-panel">
-      <div class="sm-panel-head"><div><h3>Automatic cleanup policy</h3><p>Disabled by default. Every automatic run uses the same verification rules.</p></div></div>
+      <div class="sm-panel-head"><div><h3>Legacy central cleanup policy</h3><p>Read-only and intentionally disabled. The active 12-hour deployment timer and app-owned Drive cleanup operate independently of this legacy form.</p></div></div>
       <form id="policy-form" class="sm-policy-form">
         <label class="sm-switch-row"><span><strong>Automatic cleanup</strong><small>Run without opening this page</small></span><span class="sm-switch"><input id="auto-enabled" type="checkbox"><i></i></span></label>
         <label><span><strong>Trigger mode</strong><small>Low-space is the safest default</small></span><select id="auto-mode"><option value="low_space">Only below free-space target</option><option value="scheduled">Every scan interval</option></select></label>
@@ -100,4 +108,4 @@
 </div>
 {% endblock %}
 
-{% block scripts %}<script src="/static/storage_manager.js?v=20261019-remove-service-process"></script>{% endblock %}
+{% block scripts %}<script src="/static/storage_manager.js?v=20261020-autoclean-status-v1"></script>{% endblock %}

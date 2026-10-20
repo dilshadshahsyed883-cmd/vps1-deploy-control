@@ -71,10 +71,10 @@
 
   function applyManagerControls() {
     const writable = !managerFallback && managerCanModify;
-    for (const id of ['run-scan', 'select-recommended']) {
-      const control = document.getElementById(id);
-      if (control) control.disabled = !writable;
-    }
+    const scan = document.getElementById('run-scan');
+    if (scan) scan.disabled = managerFallback || busy;
+    const recommended = document.getElementById('select-recommended');
+    if (recommended) recommended.disabled = !writable || !snapshot;
     const form = document.getElementById('policy-form');
     if (form) form.querySelectorAll('input, select, button').forEach(el => { el.disabled = !writable; });
     document.querySelectorAll('.sm-category input').forEach(el => {
@@ -214,8 +214,41 @@
     document.getElementById('project-candidates').innerHTML = rows.length ? rows.join('') : '<div class="sm-empty">No uploaded project data currently meets the retention and verification rules.</div>';
   }
 
+  function renderAutomationStatus(info) {
+    const status = document.getElementById('deployment-gc-state');
+    const description = document.getElementById('deployment-gc-detail');
+    if (!status || !description) return;
+    if (!info) {
+      status.textContent = 'Status unavailable';
+      description.textContent = 'Protected 12-hour deployment cleaner: live timer status not readable.';
+      return;
+    }
+    const healthy = info.status === 'active' && info.active === true && info.enabled === true;
+    status.textContent = healthy ? 'ACTIVE · Every 12 hours' : (info.status === 'inactive' ? 'Not active' : 'Status unavailable');
+    status.className = healthy ? 'sm-auto-active' : 'sm-auto-attention';
+    description.textContent = healthy
+      ? 'Protected GitHub release/venv cleanup uses a 12-hour grace and keeps active and rollback copies.'
+      : 'Automatic deployment cleanup cannot be confirmed active. No automatic media deletion is implied.';
+  }
+
   function renderSnapshot(data) {
-    snapshot = data;
+    renderAutomationStatus(data.deployment_cleanup);
+    const partial = data.partial === true || data.read_only === true;
+    snapshot = partial ? null : data;
+    if (partial) {
+      policy = data.policy || policy;
+      document.getElementById('reclaim-value').textContent = 'Not measured';
+      document.getElementById('reclaim-detail').textContent = 'Protected app data cannot be scanned by this read-only service';
+      document.getElementById('scan-time').textContent = `Status checked ${ago(data.generated_at)}`;
+      document.getElementById('category-grid').innerHTML =
+        '<div class="sm-empty">Project byte totals unavailable: protected application databases are intentionally isolated. ' +
+        'Project outputs are cleaned by each application only after verified Drive delivery. ' +
+        'The deployment cache cleaner is independent.</div>';
+      renderCandidates([]);
+      renderPolicy(policy || {});
+      applyManagerControls();
+      return;
+    }
     policy = data.policy || policy;
     document.getElementById('reclaim-value').textContent = bytes(data.reclaimable_bytes);
     document.getElementById('reclaim-detail').textContent = `${bytes(data.reclaimable_project_bytes)} projects · ${bytes(data.reclaimable_cache_bytes)} caches`;
@@ -253,17 +286,18 @@
   }
 
   async function loadSnapshot(refresh = false) {
-    if (managerFallback || (refresh && !managerCanModify)) return;
+    if (managerFallback) return;
     busy = true; updateSelected();
     const button = document.getElementById('run-scan');
     button.disabled = true; button.textContent = refresh ? 'Scanning…' : 'Loading…';
     try {
-      const data = refresh
+      const data = refresh && managerCanModify
         ? await api('/api/admin/storage/scan', {method: 'POST', body: '{}'})
         : await api('/api/admin/storage/snapshot');
       renderSnapshot(data);
     } catch (error) {
       const message = scanUnavailableMessage(error);
+      renderAutomationStatus(null);
       if (refresh) toast(message, true);
       document.getElementById('reclaim-value').textContent = 'Unavailable';
       document.getElementById('reclaim-detail').textContent = 'Cleanup remains disabled until the read-only scan is available';
@@ -272,7 +306,7 @@
       document.getElementById('project-candidates').innerHTML = '<div class="sm-empty">Verified project candidates are unavailable until the scan succeeds.</div>';
       snapshot = null;
     } finally {
-      busy = false; button.textContent = 'Scan reclaimable space'; applyManagerControls();
+      busy = false; button.textContent = 'Check cleanup status'; applyManagerControls();
     }
   }
 

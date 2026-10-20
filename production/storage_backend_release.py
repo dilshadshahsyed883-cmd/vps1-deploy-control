@@ -61,7 +61,7 @@ def _request(path: str, token: str | None = None) -> tuple[int, bytes]:
         return exc.code, exc.read(512 * 1024)
 
 
-def _verify(*, require_retirement: bool = True) -> dict:
+def _verify(*, require_retirement: bool = True, require_preview: bool = False) -> dict:
     status, body = _request("/health")
     try:
         health = json.loads(body)
@@ -82,6 +82,20 @@ def _verify(*, require_retirement: bool = True) -> dict:
     legacy_fields = [field for field in ("services", "service_details", "startable_services", "processes") if field in metrics]
     if require_retirement and legacy_fields:
         raise RuntimeError("obsolete service/process metric returned: " + legacy_fields[0])
+    if require_preview:
+        status, body = _request("/v1/snapshot", _token())
+        if status != 200:
+            raise RuntimeError("Storage Manager safe preview endpoint unavailable")
+        try:
+            preview = json.loads(body)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("Storage Manager safe preview JSON invalid") from exc
+        if preview.get("ok") is not True or preview.get("partial") is not True or preview.get("read_only") is not True:
+            raise RuntimeError("Storage Manager preview did not fail closed")
+        if not isinstance(preview.get("deployment_cleanup"), dict):
+            raise RuntimeError("Storage Manager 12-hour cleaner status not returned")
+        if any(item.get("available") is not False for item in preview.get("categories", [])):
+            raise RuntimeError("Storage Manager unexpectedly exposed protected app candidates")
     return {
         "health": health,
         "metrics": {"cpu": True, "memory": True, "disk": True},
@@ -142,7 +156,7 @@ def _restart_and_verify() -> dict:
         result = _run(["systemctl", "is-active", "--quiet", UNIT], timeout=15)
         if result.returncode == 0:
             try:
-                return _verify()
+                return _verify(require_preview=True)
             except (OSError, urllib.error.URLError, RuntimeError, ValueError) as exc:
                 last = str(exc)
         time.sleep(.5)

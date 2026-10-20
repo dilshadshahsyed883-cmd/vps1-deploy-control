@@ -16,7 +16,8 @@ jobs:
     if: >-
       github.actor == 'dilshadshahsyed883-cmd' &&
       github.run_attempt == 1 &&
-      contains(github.event.head_commit.message, '[vps1-storage-backend-retirement-release]')
+      (contains(github.event.head_commit.message, '[vps1-storage-backend-retirement-release]') ||
+       contains(github.event.head_commit.message, '[vps1-storage-auto-clean-ui-release]'))
     environment: production
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -34,6 +35,7 @@ jobs:
         env:
           PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
           SOURCE_SHA: ${{ github.sha }}
+          STORAGE_AUTO_CLEAN_UI: ${{ contains(github.event.head_commit.message, '[vps1-storage-auto-clean-ui-release]') }}
         run: |
           set -Eeuo pipefail
           set +x
@@ -48,6 +50,10 @@ jobs:
           remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA vps-storage-manager"
           remote "curl -fsS http://127.0.0.1:8149/health | grep -q '\"ok\":true'"
           remote "curl -fsS -H 'X-Storage-Token: ' http://127.0.0.1:8149/v1/metrics >/dev/null || true"
+          if [[ "$STORAGE_AUTO_CLEAN_UI" == "true" ]]; then
+            remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA scene-builder"
+            echo 'STORAGE_AUTO_CLEAN_UI=PASS CANDIDATE_READ_ONLY=YES'
+          fi
           echo 'STORAGE_BACKEND=PASS'
           echo 'SERVICE_PROCESS_COLLECTORS=ABSENT_BY_SOURCE_CONTRACT'
           echo 'CLEANUP_NOT_EXECUTED=YES'

@@ -13,3 +13,36 @@
 
 /* V17.4 compact delivery indicator + dynamic Pexels key manager */
 .sm-inline-indicators{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.sm-compact-indicator{display:inline-flex;align-items:center;gap:7px;padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.07);font-size:12px;font-weight:700}.sm-compact-indicator i{width:8px;height:8px;border-radius:50%;background:#e99a22}.sm-compact-indicator.online i{background:#2bc77b}.sm-pexels-panel{margin-top:18px}.sm-pexels-add{display:flex;gap:10px;margin:14px 0}.sm-pexels-add input{flex:1;min-width:220px;border:1px solid #dfe3ec;border-radius:10px;padding:11px 12px;font:inherit}.sm-pexels-summary{font-weight:700;color:#667085;margin-bottom:10px}.sm-pexels-key-list{display:flex;flex-direction:column;gap:8px}.sm-pexels-key{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid #e7eaf1;border-radius:10px}.sm-pexels-key code{font-weight:700}.sm-pexels-key small,.sm-help{color:#738098}.sm-pexels-key button{border:0;background:#fff0f2;color:#dc4c64;padding:7px 9px;border-radius:8px;font-weight:700;cursor:pointer}@media(max-width:700px){.sm-pexels-add{flex-direction:column}.sm-pexels-add input{min-width:0;width:100%}}
+
+/* CW-011 | Explicit, accessible status for independently owned cleanup systems. */
+.sm-auto-overview{margin:0 0 16px}
+.sm-auto-status-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding-top:14px}
+.sm-auto-status-card{min-width:0;padding:16px;border:1px solid #e5e9f2;border-radius:14px;background:#f8faff}
+.sm-auto-status-card>span{display:block;font-size:12px;font-weight:700;color:#596780}
+.sm-auto-status-card strong{display:block;margin-top:8px;font-size:17px;line-height:1.4;color:#1d2841}
+.sm-auto-status-card strong.sm-auto-active{color:#116943}
+.sm-auto-status-card strong.sm-auto-attention{color:#925b18}
+.sm-auto-status-card p{margin:8px 0 0;max-width:60ch;font-size:12px;line-height:1.5;color:#526079}
+.sm-auto-overview .sm-panel-head{padding-bottom:12px}
+@media(max-width:780px){
+  #storage-app{min-width:0;max-width:100%;overflow-wrap:anywhere}
+  #storage-app :is(.sm-hero,.sm-panel,.sm-metric){min-width:0}
+  .sm-auto-status-grid{grid-template-columns:1fr}
+  .sm-policy-form>label{align-items:flex-start;flex-direction:column}
+  .sm-policy-form :is(input[type=number],select){width:100%;max-width:100%;min-height:44px}
+  .sm-policy-form .sm-unit{width:100%}
+  .sm-unit input{flex:1;min-width:0}
+  .sm-table-head{display:none}
+  .sm-table-row{display:grid;grid-template-columns:1fr 1fr;min-width:0;gap:10px}
+  .sm-table-row>span{min-width:0;overflow-wrap:anywhere}
+  #storage-app button:not(:disabled){min-height:44px}
+}
+@media(max-width:480px){
+  .sm-metrics,.sm-category-grid,.sm-policy-form,.sm-auto-categories{grid-template-columns:1fr}
+  .sm-hero{padding:18px}
+  .sm-panel{padding:14px}
+  .sm-metric strong{font-size:21px}
+  .sm-hero-actions{width:100%;justify-content:flex-start}
+  .sm-hero-actions button{flex:1}
+  .sm-table-row{grid-template-columns:1fr}
+}

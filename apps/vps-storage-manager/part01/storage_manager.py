@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable
 
 
-VERSION = "2026.10.19-storage-manager-v17.5-readonly-diagnostics"
+VERSION = "2026.10.20-storage-auto-clean-status-v1"
 LISTEN_HOST = os.getenv("STORAGE_MANAGER_HOST", "127.0.0.1")
 LISTEN_PORT = int(os.getenv("STORAGE_MANAGER_PORT", "8799"))
 AUTH_TOKEN = os.getenv("STORAGE_MANAGER_TOKEN", "").strip()
@@ -160,7 +160,7 @@ def load_policy() -> dict[str, Any]:
     policy["journal_max_mb"] = clamp_int(policy.get("journal_max_mb"), 100, 4096, 300)
     policy["temporary_retention_days"] = clamp_int(policy.get("temporary_retention_days"), 1, 90, 2)
     categories = policy.get("auto_categories") or []
-    policy["auto_categories"] = sorted({str(x) for x in categories} & ALL_CATEGORIES)
+    policy["auto_categories"] = sorted({str(x) for x in categories} & CACHE_CATEGORIES)
     return policy
 
 
@@ -181,7 +181,7 @@ def save_policy(payload: dict[str, Any]) -> dict[str, Any]:
     policy["journal_max_mb"] = clamp_int(policy.get("journal_max_mb"), 100, 4096, 300)
     policy["temporary_retention_days"] = clamp_int(policy.get("temporary_retention_days"), 1, 90, 2)
     policy["auto_categories"] = sorted(
-        {str(x) for x in (policy.get("auto_categories") or [])} & ALL_CATEGORIES
+        {str(x) for x in (policy.get("auto_categories") or [])} & CACHE_CATEGORIES
     )
     with sqlite3.connect(STATE_DB) as db:
         db.execute(
@@ -558,6 +558,70 @@ def perform_scan() -> dict[str, Any]:
         return _perform_scan_unlocked()
 
 
+def deployment_cleanup_status() -> dict[str, Any]:
+    """Report the existing protected 12-hour GC timer without controlling it."""
+    unit = "vps1-storage-deployment-gc.timer"
+    states: dict[str, str] = {}
+    for action in ("is-active", "is-enabled"):
+        try:
+            result = run(["systemctl", action, unit], timeout=8)
+            value = result.stdout.strip().splitlines()
+            states[action] = value[0].lower() if value else "unknown"
+        except (OSError, subprocess.TimeoutExpired):
+            states[action] = "unknown"
+    active = states["is-active"] == "active"
+    enabled = states["is-enabled"] == "enabled"
+    return {
+        "status": "active" if active and enabled else (
+            "inactive" if states["is-active"] in {"inactive", "failed"} or
+            states["is-enabled"] in {"disabled", "masked"} else "unknown"
+        ),
+        "active": active,
+        "enabled": enabled,
+        "interval_hours": 12,
+        "grace_hours": 12,
+        "scope": "unreferenced GitHub releases and isolated virtual environments only",
+        "media_cleanup": "owned independently by each application after verified Drive delivery",
+    }
+
+
+def readonly_snapshot() -> dict[str, Any]:
+    """Fail-closed preview for the isolated candidate; never open protected app DBs.
+
+    A zero here means no independently verified byte count, not zero disk waste.
+    The candidate must not be granted broad read access to application data.
+    """
+    disk = shutil.disk_usage("/")
+    unavailable = [
+        {"id": key, "label": label, "bytes": 0, "item_count": 0, "items": [],
+         "available": False, "safety": "App-owned / protected source; not scanned"}
+        for key, label in (
+            ("acs_projects", "Auto Caption projects"),
+            ("algrow_projects", "Algrow projects"),
+            ("scene_projects", "Scene Builder projects"),
+            ("docker_build_cache", "Docker build cache"),
+            ("apt_cache", "APT package cache"),
+            ("pip_cache", "Python package cache"),
+            ("journals", "System journals"),
+            ("snap_cache", "Snap cache"),
+            ("algrow_browser_cache", "Algrow browser cache"),
+            ("temporary_files", "Temporary files"),
+        )
+    ]
+    return {
+        "ok": True, "version": VERSION, "generated_at": utc_now(),
+        "read_only": True, "partial": True,
+        "scan_status": "protected app databases are intentionally unavailable to the isolated Storage Manager",
+        "policy": load_policy(),
+        "deployment_cleanup": deployment_cleanup_status(),
+        "disk": {"total": disk.total, "used": disk.used, "free": disk.free,
+                 "percent": round(disk.used / disk.total * 100, 1)},
+        "categories": unavailable,
+        "reclaimable_bytes": 0, "reclaimable_project_bytes": 0,
+        "reclaimable_cache_bytes": 0,
+    }
+
+
 def latest_snapshot() -> dict[str, Any]:
     with _snapshot_lock:
         if _latest_snapshot:
@@ -855,6 +919,8 @@ def cleanup(payload: dict[str, Any], *, automatic: bool = False) -> dict[str, An
     categories = sorted({str(x) for x in payload.get("categories", [])} & ALL_CATEGORIES)
     if not categories:
         raise ValueError("Select at least one cleanup category")
+    if PROJECT_CATEGORIES.intersection(categories):
+        raise RuntimeError("Verified-Drive project cleanup belongs to each application; central deletion is disabled")
     if not automatic and str(payload.get("confirmation") or "") != "RECLAIM":
         raise ValueError("Confirmation phrase RECLAIM is required")
     if not _operation_lock.acquire(blocking=False):
@@ -1089,7 +1155,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/v1/metrics":
                 return self.respond(200, metrics())
             if path == "/v1/snapshot":
-                return self.respond(200, latest_snapshot())
+                return self.respond(200, readonly_snapshot() if (os.getenv("VPS1_RUNTIME_CANDIDATE") == "1" or os.getenv("FRESH_WEBSITE_SMOKE_TEST") == "1") else latest_snapshot())
             if path == "/v1/policy":
                 return self.respond(200, {"ok": True, "policy": load_policy()})
             if path == "/v1/history":

@@ -34,7 +34,7 @@ class StorageDashboardRelease(unittest.TestCase):
         self.assertIn("let managerFallback = true", js)
         self.assertIn("let managerCanModify = false", js)
         self.assertIn("scanUnavailableMessage", js)
-        self.assertIn("storage_manager.js?v=20261019-remove-service-process", template)
+        self.assertIn("storage_manager.js?v=20261020-autoclean-status-v1", template)
 
     def test_service_health_and_process_cards_removed_entirely(self):
         template = (SCENE / "templates/storage_manager.html").read_text()
