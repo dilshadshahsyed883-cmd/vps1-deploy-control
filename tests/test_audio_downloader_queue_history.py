@@ -107,13 +107,15 @@ class AudioDownloaderBrowserRouteContractTests(unittest.TestCase):
     def test_voice_shell_prefix_for_all_audio_downloader_calls(self):
         html = TEMPLATE.read_text(encoding="utf-8")
         base = "(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')"
-        self.assertIn("const root = " + base + "+'/tts/api/audio-downloader';", html)
-        self.assertIn("prefix=" + base + "+'/tts/api/audio-downloader/proxy';", html)
-        self.assertIn("fetch(root+endpoint.slice('/tts/api/audio-downloader'.length)", html)
+        self.assertIn("const root = " + base + "+'/'+'tts/api/audio-downloader';", html)
+        self.assertIn("prefix=" + base + "+'/'+'tts/api/audio-downloader/proxy';", html)
+        self.assertIn("fetch(root+endpoint.slice(('/'+'tts/api/audio-downloader').length)", html)
         self.assertIn("if(!Array.isArray(r.jobs))", html)
         self.assertIn("const historyJobs=jobs.filter(j=>terminal.has(j.status))", html)
         self.assertIn("if(location.hash==='#vs-audio')choose(true)", html)
         self.assertIn("cache:'no-store'", html)
+        self.assertNotIn("+'/tts/api/audio-downloader'", html)
+        self.assertNotIn("endpoint.slice('/tts/api/audio-downloader'", html)
 
     def test_backend_has_durable_sqlite_and_main_routes(self):
         source = MODULE.read_text(encoding="utf-8")
