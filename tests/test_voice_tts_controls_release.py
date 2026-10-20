@@ -69,6 +69,8 @@ class VoiceTTSReleaseTest(unittest.TestCase):
         script=(Path(__file__).resolve().parents[1]/"production/voice_tts_controls_release.py").read_text()
         self.assertIn("restore_aux_workers(auxiliary_states)",script)
         self.assertIn("fences.append(check_omnivoice_idle(OMNI_DB))",script)
+        self.assertLess(script.index('local_endpoint(engine, "jobs?limit=1")'),
+                        script.index('for unit in WORKERS:', script.index("def start_all()")))
 
     def test_additive_db_snapshots_are_real_sqlite(self):
         output=Path(self.folder.name)/"backup"/"original.sqlite"
