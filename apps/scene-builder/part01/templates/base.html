@@ -126,9 +126,9 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
 }
 </style>
 
-<link rel="stylesheet" href="/static/vps1_native_site_shell.css?v=20261020-admin-session-v2&layout=video-v2">
+<link rel="stylesheet" href="/static/vps1_native_site_shell.css?v=20261020-experiment-v1&layout=video-v2">
 <link rel="stylesheet" href="/static/vps1_video_studio_geometry.css?v=20261020-geometry-v1&layout=video-v2">
-<script defer src="/static/vps1_native_site_shell.js?v=20261020-admin-session-v2&layout=video-v2" data-unify-sidebar="1"></script>
+<script defer src="/static/vps1_native_site_shell.js?v=20261020-experiment-v1&layout=video-v2" data-unify-sidebar="1"></script>
 </head>
 <body class="{% if page=='dashboard' %}dashboard-page{% endif %}">
 <button id="mobile-nav-toggle" class="mobile-nav-toggle" type="button"
@@ -145,6 +145,7 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
     <a class="{% if page in ['queue','settings','audit_media','auto_caption_studio','auto_caption_live','video_studio_embedded'] %}active{% endif %}" href="/scene-builder/">Video Studio</a>
 
 <a class="{% if page=='voice_studio' %}active{% endif %}" href="/voice-studio/app#vps1-production">Voice Studio</a>
+<a class="{% if page=='experiment_studio' %}active{% endif %}" href="/experiment-studio/">Experiment Studio</a>
 <!-- Auto Script stays OFFLINE; its service and routes are unchanged. -->
 
     <!-- YOUTUBE_NICHE_RESEARCH_V1_NAV -->
@@ -175,6 +176,7 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
   <div class="server-dot"><span></span> VPS Connected</div>
 </aside>
 <main class="{% if page in ['auto_caption_studio','auto_caption_live'] %}acs-main {% endif %}{% if page in ['script_work','algrow_voice','auto_caption_studio','auto_caption_live'] %}story-suite-main {% endif %}{% if page=='atomic_flow' %}atomic-flow-main{% endif %}{% if page=='youtube_niche_research' %} ynr-main{% endif %}">
+{% if page=='experiment_studio' %}<nav class="vps1-experiment-tabs" aria-label="Experiment Studio"><a class="active" aria-current="page" href="/experiment-studio/antidetect-browser/">Antidetect Browser</a></nav>{% endif %}
 {% if page in ['queue','settings','audit_media','auto_caption_studio','auto_caption_live','video_studio_embedded'] %}<nav data-video-studio-subnav="1" aria-label="Video Studio" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;margin:0 0 18px;background:#f8faff;border:1px solid #dfe5ef;border-radius:11px;box-shadow:0 2px 8px rgba(28,44,78,.03)"><a href="/scene-builder/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;{% if page in ['queue','settings','audit_media'] %}background:#315edb;color:#fff;border-color:#315edb{% else %}background:#fff;color:#34415b{% endif %}">Scene Builder</a><a href="/auto-caption-studio/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;{% if page in ['auto_caption_studio','auto_caption_live'] %}background:#315edb;color:#fff;border-color:#315edb{% else %}background:#fff;color:#34415b{% endif %}">Auto Caption Studio</a><a href="/short-maker/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;{% if studio_app == 'short-maker' %}background:#315edb;color:#fff;border-color:#315edb{% else %}background:#fff;color:#34415b{% endif %}">Short Maker</a><a href="/video-merger/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;{% if studio_app == 'video-merger' %}background:#315edb;color:#fff;border-color:#315edb{% else %}background:#fff;color:#34415b{% endif %}">Video Merger</a></nav>{% endif %}
 
 {% if page in ['queue','settings','audit_media'] %}

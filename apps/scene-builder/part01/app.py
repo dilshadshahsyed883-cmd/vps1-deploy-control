@@ -1776,6 +1776,24 @@ def _dashboard_activity(request: Request) -> list[dict[str, str]]:
 def dashboard(request: Request):
     return templates.TemplateResponse("dashboard.html", {"request":request,"page":"dashboard","username":request.session.get("username","team")})
 
+@app.get("/experiment-studio/")
+def experiment_studio_home(request: Request):
+    """The Experiment Studio main tab opens its first independent subtab."""
+    require_login(request)
+    return RedirectResponse("/experiment-studio/antidetect-browser/", status_code=303)
+
+
+@app.get("/experiment-studio/antidetect-browser/", response_class=HTMLResponse)
+def antidetect_browser_workspace(request: Request):
+    """UI-only workspace; no browser automation or profile launch side effects."""
+    require_login(request)
+    return templates.TemplateResponse(
+        "experiment_studio.html",
+        {"request": request, "page": "experiment_studio",
+         "username": request.session.get("username", "team")},
+    )
+
+
 @app.get("/api/dashboard/v1")
 def dashboard_api(request: Request):
     return {"ok":True,"generated_at":datetime.now(timezone.utc).isoformat(),"generated_at_local":datetime.now().astimezone().strftime("%H:%M:%S"),"apps":_dashboard_apps(request),"vps":_vps_dashboard_metrics(),"services":_dashboard_services(),"activity":_dashboard_activity(request)}

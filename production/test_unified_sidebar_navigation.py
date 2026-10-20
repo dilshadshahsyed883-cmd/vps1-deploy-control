@@ -20,8 +20,8 @@ NATIVE_PAGES = (
     ROOT / "apps/voice-studio/part01/templates/voice_studio.html",
     ROOT / "apps/local-upload-manager/part01/templates/base.html",
 )
-SIDEBAR_VERSION = "vps1_native_site_shell.js?v=20261020-admin-session-v2"
-CSS_VERSION = "vps1_native_site_shell.css?v=20261020-admin-session-v2"
+SIDEBAR_VERSION = "vps1_native_site_shell.js?v=20261020-experiment-v1"
+CSS_VERSION = "vps1_native_site_shell.css?v=20261020-experiment-v1"
 
 
 class UniversalSidebarContracts(unittest.TestCase):
@@ -54,6 +54,23 @@ class UniversalSidebarContracts(unittest.TestCase):
         self.assertIn("installLegacySidebar()", src)
         self.assertIn("const isCanonical =", src)
         self.assertNotIn('["Auto Script",', src)
+
+    def test_experiment_studio_menu_and_subtab_are_canonical(self):
+        js = SHELL_JS.read_text(encoding="utf-8")
+        self.assertIn('["Experiment Studio", "/experiment-studio/", "experiment"]', js)
+        self.assertIn('return "experiment";', js)
+        template = (SCENE / "templates/base.html").read_text(encoding="utf-8")
+        self.assertIn('href="/experiment-studio/"', template)
+        self.assertIn('aria-label="Experiment Studio"', template)
+        self.assertIn('href="/experiment-studio/antidetect-browser/"', template)
+        routes = (SCENE / "app.py").read_text(encoding="utf-8")
+        self.assertIn('@app.get("/experiment-studio/")', routes)
+        self.assertIn('@app.get("/experiment-studio/antidetect-browser/"', routes)
+        self.assertIn('require_login(request)', routes)
+        page = (SCENE / "templates/experiment_studio.html").read_text(encoding="utf-8")
+        self.assertIn('extends "base.html"', page)
+        self.assertIn('Antidetect Browser', page)
+        self.assertIn('not yet installed', page.lower())
 
     def test_legacy_sidebar_role_is_verified_and_fails_closed(self):
         src = SHELL_JS.read_text(encoding="utf-8")

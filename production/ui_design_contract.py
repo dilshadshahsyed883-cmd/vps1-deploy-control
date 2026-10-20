@@ -95,9 +95,9 @@ def violations(source: dict[str, str]) -> list[str]:
     for page in ("scene", "short_maker", "video_merger"):
         require(page, 'data-unify-sidebar="1"',
                 "classic app must activate the canonical navigation controller")
-        require(page, "vps1_native_site_shell.js?v=20261020-admin-session-v2",
+        require(page, "vps1_native_site_shell.js?v=20261020-experiment-v1",
                 "classic page lacks its versioned shared navigation script")
-        require(page, "vps1_native_site_shell.css?v=20261020-admin-session-v2",
+        require(page, "vps1_native_site_shell.css?v=20261020-experiment-v1",
                 "classic page loads stale shared CSS version")
     require("policy", "One Website Shell + Independent Application UIs",
             "owner-approved architecture principle missing")
