@@ -208,9 +208,9 @@
     // guessing or browser-stored role flags. Admin stays hidden until verified.
     let adminLink = null;
     const account = node("div", "vps1-native-account");
-    account.hidden = true;
-    account.appendChild(node("small", "", "SIGNED IN"));
-    const accountName = node("strong");
+    account.hidden = false;
+    account.appendChild(node("small", "", "ACCOUNT"));
+    const accountName = node("strong", "", "Checking session…");
     account.appendChild(accountName);
     const logout = node("form");
     logout.action = "/logout";
@@ -218,6 +218,7 @@
     const logoutButton = node("button", "", "Log out");
     logoutButton.type = "submit";
     logout.appendChild(logoutButton);
+    logout.hidden = true;
     account.appendChild(logout);
     const setIdentity = (identity) => {
       const authorized = !!(identity && identity.authenticated === true);
@@ -230,8 +231,9 @@
         adminLink.remove();
         adminLink = null;
       }
-      account.hidden = !authorized;
-      accountName.textContent = authorized ? String(identity.username || "") : "";
+      account.hidden = false;
+      logout.hidden = !authorized;
+      accountName.textContent = authorized ? String(identity.username || "Signed in") : "Session verification unavailable";
     };
     const refreshIdentity = async () => {
       try {
@@ -367,6 +369,10 @@
     for(const input of all('input[type=range]')){
       const output=input.dataset.output?$(input.dataset.output):null;
       if(output)text(output,input.value);
+      const label=input.closest('label');
+      if(label&&!input.dataset.vps1RangeName){const copy=label.cloneNode(true);copy.querySelectorAll('input,output,small,.sb-number').forEach(n=>n.remove());const name=copy.textContent.trim();if(name)input.dataset.vps1RangeName=name;}
+      if(input.dataset.vps1RangeName)attr(input,'aria-label',input.dataset.vps1RangeName);
+      attr(input,'aria-valuenow',input.value);
       if(!output){const field=input.closest('.field');const label=field?.querySelector('label');const note=field?.querySelector('span.small');if(label?.textContent.trim()==='Text Width' && note)text(note,input.value+'%');}
     }
     // The dynamic FG library select owns the persisted value and handler.
@@ -435,6 +441,29 @@
       if(el.textContent.trim()==='undefined · AUTO · -16 LUFS · duck 11 dB · limiter -1.5 dBTP')text(el,'Preset unavailable · AUTO · -16 LUFS · duck 11 dB · limiter -1.5 dBTP');
     }
   }
+  function reviewUsability(){
+    const names={images:'Choose images',audio:'Choose narration audio','aev2-files':'Choose Studio narration files','aev2-music':'Choose Studio music',imageFiles:'Choose images',clipMin:'Minimum clip length in seconds',clipMax:'Maximum clip length in seconds',sceneThreshold:'Scene detection sensitivity'};
+    for(const [id,label] of Object.entries(names)){const input=$(id);if(input)attr(input,'aria-label',label);}
+    for(const form of all('form[data-lum-upload-form]')){
+      if(form.dataset.vps1Validity)continue;form.dataset.vps1Validity='1';
+      const update=()=>{const ok=Array.from(form.querySelectorAll('[required]')).every(n=>n.checkValidity());for(const b of form.querySelectorAll('button[type=submit]')){b.disabled=!ok;b.title=ok?'':'Complete the required video, channel and thumbnail fields.';}};
+      form.addEventListener('input',update);form.addEventListener('change',update);update();
+    }
+    for(const list of all('.report-list')){
+      if(list.dataset.vps1Reports)continue;list.dataset.vps1Reports='1';
+      const rows=Array.from(list.querySelectorAll('.report-row'));if(!rows.length)continue;
+      let page=0;const bar=make('div',undefined,'vps1-report-controls'),search=make('input'),previous=make('button','Previous'),next=make('button','Next'),count=make('span');
+      search.type='search';search.placeholder='Search reports';search.setAttribute('aria-label','Search VPS reports');previous.type=next.type='button';bar.append(search,previous,count,next);list.before(bar);
+      const show=()=>{const match=rows.filter(r=>r.textContent.toLowerCase().includes(search.value.toLowerCase()));page=Math.max(0,Math.min(page,Math.ceil(match.length/10)-1));const visible=new Set(match.slice(page*10,page*10+10));rows.forEach(r=>r.hidden=!visible.has(r));previous.disabled=page===0;next.disabled=(page+1)*10>=match.length;count.textContent=match.length?`${page*10+1}–${Math.min((page+1)*10,match.length)} of ${match.length}`:'No matching reports';};
+      search.addEventListener('input',()=>{page=0;show();});previous.addEventListener('click',()=>{page--;show();});next.addEventListener('click',()=>{page++;show();});show();
+    }
+    for(const time of all('time,.report-row>span:last-of-type')){
+      if(time.dataset.vps1Time)continue;const raw=time.getAttribute('datetime')||time.textContent.trim();
+      if(!/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(raw))continue;
+      const value=new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw)?raw:raw.replace(' ','T')+'Z');if(!Number.isFinite(value.getTime()))continue;
+      time.dataset.vps1Time=raw;time.title=raw;text(time,new Intl.DateTimeFormat('en-GB',{dateStyle:'medium',timeStyle:'short',timeZone:'Asia/Karachi'}).format(value)+' PKT');
+    }
+  }
   function polish() {
     // A late Omni startup response can rewrite the URL after engine selection.
     // Keep refresh on the visible engine; Omni keeps its own workspace hashes.
@@ -444,7 +473,7 @@
     if(proxy&&audio&&!audio.contains(proxy))audio.append(proxy);
     runtimeCards('vskRuntimeDetails');runtimeCards('vseDetails');
     voiceList('vskVoiceCards',' · ');voiceList('vseVoiceRows','  |  ');
-    ranges();analysisPager();accessibleControls();statusPresentation();
+    ranges();analysisPager();accessibleControls();statusPresentation();reviewUsability();
   }
   function boot() {
     if(!document.querySelector('#app-sidebar,#vps1-native-site-sidebar'))return;

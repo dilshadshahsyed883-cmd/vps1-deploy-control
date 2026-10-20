@@ -608,9 +608,18 @@ def deployment_cleanup_status() -> dict[str, Any]:
                             "--property=NextElapseUSecMonotonic", "--no-pager"], timeout=8)
             value = next((s.partition("=")[2].strip() for s in response.stdout.splitlines()
                           if s.startswith("NextElapseUSecMonotonic=")), "")
+            seconds = None
             if value.isdecimal():
+                seconds = int(value) / 1_000_000
+            elif value and value.lower() not in {"n/a", "never", "0"}:
+                units = {"w": 604800, "d": 86400, "h": 3600, "min": 60, "s": 1, "ms": .001, "us": .000001, "µs": .000001}
+                parts = re.findall(r"([0-9]+(?:\.[0-9]+)?)\s*(min|ms|us|µs|w|d|h|s)", value)
+                remainder = re.sub(r"([0-9]+(?:\.[0-9]+)?)\s*(min|ms|us|µs|w|d|h|s)", "", value).strip()
+                if parts and not remainder:
+                    seconds = sum(float(n) * units[u] for n, u in parts)
+            if seconds is not None:
                 boot_clock = getattr(time, "CLOCK_BOOTTIME", time.CLOCK_MONOTONIC)
-                remaining = int(value) / 1_000_000 - time.clock_gettime(boot_clock)
+                remaining = seconds - time.clock_gettime(boot_clock)
                 if 0 <= remaining <= 14 * 86400:
                     next_run_at = datetime.fromtimestamp(
                         time.time() + remaining, timezone.utc).isoformat()

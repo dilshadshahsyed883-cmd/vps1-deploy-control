@@ -673,6 +673,10 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
             raise HTTPException(400, "Supported sources: drive or youtube")
         if not body.value.strip() or len(body.value) > 1000:
             raise HTTPException(400, "A source path or URL is required")
+        if body.source == "drive":
+            value = body.value.strip().lstrip("/")
+            if not value or ":" in value or "\\" in value or any(x in ("..", "") for x in value.split("/")):
+                raise HTTPException(400, "Enter the file path relative to your configured Drive, for example Videos/clip.mp4. Google Drive share URLs are not supported; copy the relative path from the Drive browser.")
         job_id = uuid.uuid4().hex[:14]
         with db() as conn:
             conn.execute("INSERT INTO media_imports(id,source_type,name,status,created_at,updated_at,request_json) VALUES(?,?,?,?,?,?,?)",

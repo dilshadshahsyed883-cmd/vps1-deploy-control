@@ -12,6 +12,7 @@
       <h2>Storage and resource command center</h2>
       <p>Track live disk resources and verified automatic cleanup without modifying app data.</p>
       <div class="sm-inline-indicators"><span class="sm-compact-indicator {% if drive_connected %}online{% endif %}"><i></i>Google Drive · {% if drive_connected %}Connected{% else %}Attention{% endif %}</span></div>
+      {% if not drive_connected %}<p class="sm-drive-detail">Scene Builder’s last worker health check could not confirm Drive upload readiness. Check Scene Builder Drive settings and worker connection, then refresh metrics. Other apps verify their own Drive delivery independently.</p>{% endif %}
     </div>
     <div class="sm-hero-actions">
       <span id="manager-status" class="sm-status"><i></i> Connecting</span>

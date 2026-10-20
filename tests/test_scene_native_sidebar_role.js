@@ -153,7 +153,8 @@ for (const workspace of ["uploader", "voice", "acs"]) {
     assert.equal(h.links().filter(e => e.href === "/admin").length, 0);
     await h.update(null);
     assert.equal(h.links().filter(e => e.href === "/admin").length, 0);
-    assert.equal(h.account().hidden, true);
+    assert.equal(h.account().hidden, false);
+    assert.equal(h.account().children.find(e=>e.tag==="form").hidden, true);
   });
 }
 

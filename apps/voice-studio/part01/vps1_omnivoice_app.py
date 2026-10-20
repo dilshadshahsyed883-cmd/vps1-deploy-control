@@ -1,7 +1,8 @@
 from __future__ import annotations
 from pathlib import Path
 import os
-from fastapi import FastAPI, Request
+import json
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 import voice_clone_api as vc
@@ -33,6 +34,17 @@ def studio(request:Request):
     response.headers["Pragma"] = "no-cache"
     response.headers["X-Voice-Queue-UI"] = "VSQ-20261020-01"
     return response
+@app.get("/tts/api/drive/folders")
+def drive_folders():
+    from voice_clone_drive_spooler import rclone, REMOTE, DRIVE_ROOT
+    try:
+        result = rclone(["lsjson", f"{REMOTE}:{DRIVE_ROOT}", "--dirs-only", "--max-depth", "1"], timeout=20)
+        rows = json.loads(result.stdout or "[]")
+        return {"ok": True, "root": DRIVE_ROOT, "folders": sorted(str(r["Name"]) for r in rows if r.get("IsDir") and r.get("Name"))}
+    except Exception as exc:
+        raise HTTPException(503, "Voice Drive folder listing unavailable. Check the Voice Studio Drive connection and retry.") from exc
+
+
 @app.get("/healthz")
 def health():
     vc.init_storage()

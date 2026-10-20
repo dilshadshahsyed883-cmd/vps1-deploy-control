@@ -2187,6 +2187,7 @@ async def submit_project(
             profile["voice_processing_preset"] = "off"
         else:
             profile["_internal_audio_engine"] = {
+                **scene_audio_settings_get(request)["settings"],
                 "enabled": bool(audio_engine_requested),
                 "preset": selected_audio_engine_preset,
                 "architecture": "scene_builder_worker_internal",
@@ -2756,9 +2757,34 @@ def scene_internal_audio_presets(request: Request):
     return payload
 
 
+@app.get("/api/internal-audio/settings")
+def scene_audio_settings_get(request: Request):
+    require_login(request)
+    try:
+        value = json.loads(setting("scene_audio_processing", "{}"))
+    except ValueError:
+        value = {}
+    return {"ok": True, "settings": value if isinstance(value, dict) else {}}
+
+
+@app.post("/api/internal-audio/settings")
+async def scene_audio_settings_save(request: Request):
+    require_login(request)
+    require_settings_csrf(request)
+    value = await request.json()
+    if not isinstance(value, dict) or len(json.dumps(value)) > 12000:
+        raise HTTPException(400, "Invalid audio settings")
+    # New submissions carry these values in the existing worker audio contract.
+    allowed = {"preset", "mode", "output_format", "noise_enabled", "duck_enabled", "narration_start", "music_start", "music_fade_in", "narration_fade_in", "music_fade_out", "noise_floor", "noise_reduction", "highpass", "bass_gain", "mud_gain", "presence_gain", "air_gain", "deesser", "comp_threshold", "comp_ratio", "comp_attack", "comp_release", "comp_makeup", "target_lufs", "lra", "true_peak", "output_gain_db", "duck_db", "duck_attack", "duck_release", "music_level_db", "music_base_lufs"}
+    value = {k: v for k, v in value.items() if k in allowed and isinstance(v, (str, int, float, bool))}
+    set_setting("scene_audio_processing", json.dumps(value))
+    return {"ok": True, "settings": value}
+
+
 @app.post("/api/internal-audio/studio/process")
 async def scene_internal_audio_studio_process(request: Request):
     require_login(request)
+    require_settings_csrf(request)
     form = await request.form()
     upload = form.get("file") or form.get("files")
     if upload is None or not hasattr(upload, "file"):
@@ -3048,7 +3074,7 @@ async def settings_pexels_keys_update(request: Request):
 def settings_page(request: Request):
     health = get_health()
     settings_csrf = ""
-    if bool(request.session.get("is_admin")):
+    if logged_in(request):
         settings_csrf = str(request.session.get("settings_csrf") or secrets.token_urlsafe(32))
         request.session["settings_csrf"] = settings_csrf
     managed_keys = masked_managed_pexels_keys() if bool(request.session.get("is_admin")) else []
@@ -3159,6 +3185,7 @@ def settings_page(request: Request):
 
 @app.post("/settings")
 def save_settings(
+    request: Request,
     quality: str = Form(...),
     default_scene_preset: str = Form("cinematic_documentary"),
     custom_aspect_ratio: str = Form("16:9"),
@@ -3254,6 +3281,8 @@ def save_settings(
     retention_free_gb: float = Form(20),
     announcement: str = Form(""),
 ):
+    require_login(request)
+    require_settings_csrf(request)
     if quality not in {"480p", "720p", "1080p"}:
         raise HTTPException(400, "Invalid quality")
     if caption_style not in CAPTION_STYLE_PRESETS:
@@ -3329,6 +3358,11 @@ def save_settings(
         playlist.append({"asset_id": asset_id, "order": index + 1, "role": role})
     allowed_categories = [re.sub(r"[^A-Za-z0-9 _-]+", "", str(x)).strip()[:80] for x in allowed_categories_raw if re.sub(r"[^A-Za-z0-9 _-]+", "", str(x)).strip()][:50]
 
+    requested_auto_clean = preset_auto_clean_project_after_drive == "on"
+    currently_auto_clean = bool(preset_media_config(default_scene_preset).get("auto_clean_project_after_drive", True))
+    if currently_auto_clean and not requested_auto_clean and preset_auto_clean_disable_confirmation.strip() != "CLEAN OFF":
+        raise HTTPException(400, "Type CLEAN OFF to disable Auto Clean After Drive")
+
     colors = {
         "caption_text_color": caption_text_color,
         "caption_outline_color": caption_outline_color,
@@ -3403,17 +3437,14 @@ def save_settings(
         "music_loop_crossfade_seconds": str(max(0.05, min(1.5, music_loop_crossfade_seconds))),
         "music_fade_in_seconds": str(max(0.0, min(10.0, music_fade_in_seconds))),
         "music_fade_out_seconds": str(max(0.0, min(10.0, music_fade_out_seconds))),
-        "quota_limit": str(max(0, quota_limit)),
-        "allowed_storage_gb": str(max(0.0, allowed_storage_gb)),
-        "retention_enabled": "1" if retention_enabled == "on" else "0",
-        "retention_free_gb": str(max(1.0, retention_free_gb)),
-        "announcement": announcement.strip()[:1000],
+        "quota_limit": setting("quota_limit", "0"),
+        "allowed_storage_gb": setting("allowed_storage_gb", "0"),
+        "retention_enabled": setting("retention_enabled", "0"),
+        "retention_free_gb": setting("retention_free_gb", "20"),
+        "announcement": setting("announcement", "")[:1000],
     }
     for key, value in values.items():
         set_setting(key, value)
-    requested_auto_clean = preset_auto_clean_project_after_drive == "on"
-    if not requested_auto_clean and preset_auto_clean_disable_confirmation.strip() != "CLEAN OFF":
-        raise HTTPException(400, "Type CLEAN OFF to disable Auto Clean After Drive")
     preset_config = {
         "intro_enabled": preset_intro_enabled == "on",
         "intro_duration_seconds": max(1, min(600, int(preset_intro_duration_seconds))),

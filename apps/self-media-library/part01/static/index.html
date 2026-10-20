@@ -70,7 +70,7 @@
       </article>
     <article class="panel import-panel">
         <div class="panel-head"><div><h2>Upload images</h2><p>JPG, PNG, WEBP • original quality preserved • AI/review-ready keywords</p></div></div>
-        <input id="imageFiles" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple />
+        <input id="imageFiles" aria-label="Choose images" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple />
         <div class="row-actions"><button class="primary" id="uploadImages">Add selected images</button><span id="imageUploadResult" role="status"></span></div>
       </article>
       <article class="panel import-panel">
@@ -118,7 +118,7 @@
       </article>
       <div class="library-toolbar">
         <div class="searchbox"><span>⌕</span><input id="clipSearch" placeholder="Search keywords: mountain drone lake…" /></div>
-        <select id="statusFilter"><option value="all">All states</option><option value="candidate">Candidate</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>
+        <select id="statusFilter" aria-label="Filter clips by review status"><option value="all">All states</option><option value="candidate">Candidate</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>
         <select id="clipOrientation" aria-label="Video orientation"><option value="all">All orientations</option><option value="landscape">Landscape</option><option value="portrait">Portrait</option><option value="square">Square</option><option value="unknown">Unknown</option></select>
         <select id="sortFilter"><option value="newest">Newest</option><option value="oldest">Oldest</option><option value="quality">Best quality</option><option value="duration">Longest</option></select>
       </div>
@@ -174,9 +174,9 @@
       </article>
       <article class="panel settings-panel">
         <div class="panel-head"><div><h2>Library processing</h2><p>Stable controls for how new library clips are created.</p></div><div class="ai-pill" id="aiPill">AI status</div></div>
-        <div class="setting-row"><div><b>Minimum clip length</b><span>Do not keep fragments shorter than this.</span></div><div class="number-field"><input id="clipMin" type="number" min="0.5" max="30" step="0.5"/><span>sec</span></div></div>
-        <div class="setting-row"><div><b>Maximum clip length</b><span>Hard cap for library clips.</span></div><div class="number-field"><input id="clipMax" type="number" min="0.5" max="30" step="0.5"/><span>sec</span></div></div>
-        <div class="setting-row"><div><b>Scene sensitivity</b><span>Higher values detect only stronger visual cuts.</span></div><input id="sceneThreshold" type="range" min="0.15" max="0.6" step="0.01"/></div>
+        <div class="setting-row"><div><b>Minimum clip length</b><span>Do not keep fragments shorter than this.</span></div><div class="number-field"><input id="clipMin" aria-label="Minimum clip length in seconds" type="number" min="0.5" max="30" step="0.5"/><span>sec</span></div></div>
+        <div class="setting-row"><div><b>Maximum clip length</b><span>Hard cap for library clips.</span></div><div class="number-field"><input id="clipMax" aria-label="Maximum clip length in seconds" type="number" min="0.5" max="30" step="0.5"/><span>sec</span></div></div>
+        <div class="setting-row"><div><b>Scene sensitivity</b><span>Higher values detect only stronger visual cuts.</span></div><input id="sceneThreshold" aria-label="Scene detection sensitivity" type="range" min="0.15" max="0.6" step="0.01"/></div>
         <div class="setting-row"><div><b>Automatic AI metadata</b><span>Run the configured vision analyzer after clipping.</span></div><label class="switch"><input id="aiAuto" type="checkbox"><span></span></label></div>
         <div class="setting-row"><div><b>Duplicate detection</b><span>Keep the control ready for perceptual duplicate checks.</span></div><label class="switch"><input id="dupToggle" type="checkbox"><span></span></label></div>
         <div class="setting-row"><div><b>Quality filter</b><span>Score clips before they become permanent library candidates.</span></div><label class="switch"><input id="qualityToggle" type="checkbox"><span></span></label></div>
@@ -203,7 +203,7 @@
 
 <div class="drawer-backdrop hidden" id="drawerBackdrop"></div>
 <aside class="drawer hidden" id="clipDrawer">
-  <div class="drawer-head"><div><span class="eyebrow">CLIP INSPECTOR</span><h2 id="drawerTitle">Clip</h2></div><button class="icon-btn" id="closeDrawer">×</button></div>
+  <div class="drawer-head"><div><span class="eyebrow">CLIP INSPECTOR</span><h2 id="drawerTitle">Clip</h2></div><button class="icon-btn" id="closeDrawer" aria-label="Close clip inspector">×</button></div>
   <div class="drawer-video"><video id="drawerVideo" controls muted playsinline></video></div>
   <div class="drawer-section"><label>AI description</label><p id="drawerDescription"></p></div>
   <div class="drawer-section"><label>Keywords</label><div class="chips" id="keywordChips"></div><div class="keyword-add"><input id="newKeyword" placeholder="Add keyword"/><button class="ghost" id="addKeyword">Add</button></div></div>
@@ -212,7 +212,7 @@
     <div><label>Timestamp</label><b id="drawerTime"></b></div>
     <div><label>Quality</label><b id="drawerQuality"></b></div>
     <div><label>Drive</label><b id="drawerDrive"></b></div>
-    <div><label>Status</label><select id="drawerStatus"><option value="candidate">Candidate</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select></div>
+    <div><label>Status</label><select id="drawerStatus" aria-label="Clip review status"><option value="candidate">Candidate</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select></div>
   </div>
   <div class="drawer-actions"><button class="ghost" id="reanalyzeClip">↻ Re-analyze</button><button class="ghost" id="syncClipDrive">☁ Sync Drive</button><button class="primary" id="saveClip">Save changes</button><button class="danger-soft" id="deleteClip">Move to trash</button></div>
 </aside>
