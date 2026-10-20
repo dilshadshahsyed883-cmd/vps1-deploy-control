@@ -270,6 +270,41 @@ body.vs-kokoro-active .app,body.vs-edge-active .app{display:none}
  #vsKokoroWorkspace td a,#vsEdgeWorkspace td a{display:inline-flex;align-items:center;min-height:44px;margin-right:8px}
 }
 </style>
+<style id="omni-kokoro-parity-ui">
+/* OmniVoice-only 12-point UI parity: keep other Voice engines and job logic untouched. */
+#page-omnivoice {box-sizing:border-box;max-width:1400px;min-width:0;margin-inline:auto;overflow-wrap:anywhere}
+#page-omnivoice .pagehead {min-width:0;gap:16px;margin-bottom:18px}
+#page-omnivoice .pagehead h1 {font-size:28px;line-height:1.25;color:#101828}
+#page-omnivoice .pagehead .subtitle {color:#667085;font-size:13px;line-height:1.6}
+#page-omnivoice .pagehead .statusbar {display:flex;flex-wrap:wrap;gap:8px}
+#page-omnivoice .engine-grid,
+#page-omnivoice .engine-grid > *,
+#page-omnivoice :is(.grid2,.grid3,.row,.field,.drivebox) {min-width:0}
+#page-omnivoice .card.pad {box-sizing:border-box;min-width:0;padding:20px;border:1px solid #e2e7ef;border-radius:16px;background:#fff;box-shadow:0 2px 10px rgb(16 24 40 / 3%)}
+#page-omnivoice .section-title {font-size:18px;line-height:1.45;color:#101828}
+#page-omnivoice .section-note,
+#page-omnivoice .notice {line-height:1.55;overflow-wrap:anywhere}
+#page-omnivoice .label,
+#page-omnivoice label {font-size:13px;line-height:1.5;color:#344054}
+#page-omnivoice :is(input[type="text"],input[type="number"],input[type="password"],
+  input[type="url"],select) {box-sizing:border-box;max-width:100%;min-height:44px;font-size:14px;border-radius:8px}
+#page-omnivoice textarea {box-sizing:border-box;min-width:0;max-width:100%;min-height:180px;font-size:14px;line-height:1.5;border-radius:8px}
+#page-omnivoice :is(button,.btn) {min-height:44px;border-radius:8px;font-size:13px}
+#page-omnivoice :is(button,a,input,textarea,select):focus-visible {outline:3px solid #8174eb;outline-offset:2px}
+#page-omnivoice .row {gap:8px;flex-wrap:wrap}
+#page-omnivoice :is(.connection-status,.route-list) {min-width:0}
+body:not(.vs-kokoro-active):not(.vs-edge-active):not(.vs-audio-active) > .vps3-layout .enginebar {box-sizing:border-box;max-width:1400px;min-height:62px;gap:6px;border-radius:12px;margin-inline:auto;overflow-x:auto;flex-wrap:nowrap}
+body:not(.vs-kokoro-active):not(.vs-edge-active):not(.vs-audio-active) > .vps3-layout .enginebar .engine-tab {min-height:44px;flex:0 0 auto}
+@media(max-width:760px) {
+  #page-omnivoice .pagehead {flex-wrap:wrap}
+  #page-omnivoice .pagehead h1 {font-size:24px}
+  #page-omnivoice .card.pad {padding:16px}
+  #page-omnivoice .grid2,#page-omnivoice .grid3 {grid-template-columns:minmax(0,1fr)}
+  #page-omnivoice :is(input[type="text"],input[type="number"],input[type="password"],input[type="url"],select,textarea) {font-size:16px}
+  body:not(.vs-kokoro-active):not(.vs-edge-active):not(.vs-audio-active) > .vps3-layout .enginebar {gap:4px;padding:6px}
+}
+@media(prefers-reduced-motion:reduce) {#page-omnivoice *,body > .vps3-layout .enginebar {scroll-behavior:auto}}
+</style>
 </head>
 <body>
 <div class="vps3-layout"><aside class="vps3-main-sidebar" aria-label="VPS 1 navigation">
@@ -527,12 +562,12 @@ body.vs-kokoro-active .app,body.vs-edge-active .app{display:none}
     <div class="card pad">
       <div class="sectionbar"><div><div class="section-title">Production setup</div><div class="section-note">Single-concurrency VPS1 queue with exact TXT → WAV filename pairing.</div></div></div>
       <div class="grid2">
-        <div class="field"><label class="label">Target language</label><select id="omniLanguage"><option value="hi">Hindi</option><option value="mr">Marathi</option><option value="gu">Gujarati</option><option value="bn">Bengali</option><option value="ar">Arabic</option></select></div>
-        <div class="field"><label class="label">Voice profile</label><select id="omniProfileSelect"><option value="">No compatible profiles yet</option></select></div>
+        <div class="field"><label class="label" for="omniLanguage">Target language</label><select id="omniLanguage"><option value="hi">Hindi</option><option value="mr">Marathi</option><option value="gu">Gujarati</option><option value="bn">Bengali</option><option value="ar">Arabic</option></select></div>
+        <div class="field"><label class="label" for="omniProfileSelect">Voice profile</label><select id="omniProfileSelect"><option value="">No compatible profiles yet</option></select></div>
       </div>
       <div class="grid2">
-        <div class="field"><label class="label">Speed</label><div class="range"><input id="omniSpeed" type="range" min="0.70" max="1.30" step="0.05" value="1"><output id="omniSpeedOut">1.00×</output></div></div>
-        <div class="field"><label class="label">Sampling steps</label><input id="omniNumStep" type="number" min="8" max="64" step="1" value="32"></div>
+        <div class="field"><label class="label" for="omniSpeed">Speed</label><div class="range"><input id="omniSpeed" type="range" min="0.70" max="1.30" step="0.05" value="1"><output id="omniSpeedOut" for="omniSpeed">1.00×</output></div></div>
+        <div class="field"><label class="label" for="omniNumStep">Sampling steps</label><input id="omniNumStep" type="number" min="8" max="64" step="1" value="32"></div>
       </div>
       <div class="notice engine-note">OmniVoice clone mode uses the selected saved reference WAV + exact reference transcript. Additional jobs wait in VPS1 Queue.</div>
       <div class="drivebox field">
@@ -546,7 +581,7 @@ body.vs-kokoro-active .app,body.vs-edge-active .app{display:none}
       </div>
       <div class="field"><label class="label">Narration text <span class="counter" id="omniTextCount">0 / {{ max_text }}</span></label><textarea id="omniText" maxlength="{{ max_text }}" placeholder="Optional single job. If TXT files are selected, the TXT batch is used instead."></textarea></div>
       <div class="row"><button class="btn" id="queueOmni">Queue to Drive</button><button class="btn secondary" id="clearOmni">Clear</button><button class="btn secondary" type="button" onclick="setPage('clone')">Manage voice profiles</button></div>
-      <div class="notice" id="omniQueueStatus" style="margin-top:12px">Ready.</div>
+      <div class="notice" id="omniQueueStatus" role="status" aria-live="polite" style="margin-top:12px">Ready.</div>
     </div>
     <div class="gpu-right-stack">
       <div class="card pad">
