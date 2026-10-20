@@ -8,7 +8,10 @@ worker services and systemd worker states remain unchanged.
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
+import socket
+import ssl
 from pathlib import Path
 import shutil
 import subprocess
@@ -131,6 +134,35 @@ def queue_route_overlay(original: bytes, source: bytes) -> bytes:
             original = original.replace(old, corrected, 1)
     return original
 
+
+def read_full_authenticated_voice_html(cookie: str) -> bytes:
+    """Nginx HTML may exceed the legacy 180 kB shared HTTPS probe cap.
+
+    Keep the existing shared getter unchanged for other apps and use a
+    bounded full read only for Voice's late inline Kokoro/Edge queue scripts.
+    TLS SNI/CA validation and Scene cookie remain mandatory.
+    """
+    from production.route_uploader_scene_https import DOMAIN
+    with socket.create_connection(("127.0.0.1", 443), timeout=8) as raw:
+        with ssl.create_default_context().wrap_socket(raw, server_hostname=DOMAIN) as tls:
+            conn = http.client.HTTPSConnection(DOMAIN, timeout=12)
+            conn.sock = tls
+            conn.request("GET", "/voice-studio/app", headers={
+                "Host": DOMAIN,
+                "Cookie": cookie,
+                "Accept-Encoding": "identity",
+                "Connection": "close",
+            })
+            response = conn.getresponse()
+            data = response.read(750_000)
+            require(response.status == 200 and
+                    "html" in response.getheader("Content-Type", "").lower() and
+                    b'id="voiceStudioEdgeEngineV1Script"' in data and
+                    b'id="voiceStudioDualEngineV1Script"' in data,
+                    "full authenticated Voice document missing late queue scripts")
+            return data
+
+
 def verify_runtime() -> None:
     """Read the actual web document locally, then verify authenticated HTTPS."""
     http_check(APP)
@@ -151,7 +183,8 @@ def verify_runtime() -> None:
             and b"vps1_native_site_shell.js?v=20261020-upload-studio-v1" in html
             and RESPONSIVE_ID in html and NEW_LIMITS in html and OLD_LIMITS not in html,
             "authenticated public Voice page template guard not updated")
-    require(all(new in html and old not in html for old, new in QUEUE_ROUTE_PAIRS),
+    full_html = read_full_authenticated_voice_html(cookie)
+    require(all(new in full_html and old not in full_html for old, new in QUEUE_ROUTE_PAIRS),
             "public Voice queue JavaScript is not updated")
     anonymous, _, _ = https_get("/voice-studio/app")
     require(anonymous in {401, 403, 303}, "anonymous Voice page became accessible")
