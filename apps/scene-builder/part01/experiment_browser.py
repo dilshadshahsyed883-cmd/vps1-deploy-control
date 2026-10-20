@@ -8,6 +8,7 @@ This provides isolated browser *profiles*, not a guarantee of invisibility.
 from __future__ import annotations
 
 import asyncio
+import os
 import ipaddress
 import re
 import shutil
@@ -56,7 +57,10 @@ def validate_url(value: str, *, allow_blank: bool = False) -> str:
         return url
     if len(url) > 2000 or any(ord(c) < 32 for c in url):
         raise BrowserError("Invalid browser URL")
-    parsed = urlsplit(url)
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        raise BrowserError("Invalid browser URL") from None
     if parsed.scheme not in {"http", "https"} or not parsed.hostname or \
        parsed.username is not None or parsed.password is not None:
         raise BrowserError("Only HTTP(S) website addresses are supported")
@@ -69,10 +73,14 @@ def validate_proxy(value: str) -> str:
         return ""
     if len(value) > 500 or any(ord(c) < 33 for c in value):
         raise BrowserError("Invalid proxy server")
-    parsed = urlsplit(value)
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        raise BrowserError("Invalid proxy port or host") from None
     if parsed.scheme not in {"http", "https", "socks5"} or not parsed.hostname \
        or parsed.username is not None or parsed.password is not None \
-       or not parsed.port or parsed.path not in ("", "/") \
+       or not port or parsed.path not in ("", "/") \
        or parsed.query or parsed.fragment:
         raise BrowserError("Proxy must be http(s)://host:port or socks5://host:port")
     _public_host(parsed.hostname)
@@ -129,6 +137,8 @@ class BrowserProfileEngine:
     def _db(self):
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.root.chmod(0o700)
+        (self.root / "profiles").mkdir(exist_ok=True, mode=0o700)
+        (self.root / "profiles").chmod(0o700)
         dbpath = self.root / "profiles.sqlite3"
         db = sqlite3.connect(dbpath, timeout=10)
         db.row_factory = sqlite3.Row
@@ -255,6 +265,12 @@ class BrowserProfileEngine:
                     if row["proxy_password"]:
                         args["proxy"]["password"] = row["proxy_password"]
                     args["args"].append("--force-webrtc-ip-handling-policy=disable_non_proxied_udp")
+                for folder in ("cache", "config"):
+                    (self.root / folder).mkdir(exist_ok=True, mode=0o700)
+                args["env"] = dict(os.environ,
+                                   HOME=str(self.root),
+                                   XDG_CACHE_HOME=str(self.root / "cache"),
+                                   XDG_CONFIG_HOME=str(self.root / "config"))
                 context = await self.playwright.chromium.launch_persistent_context(
                     str(self.root / "profiles" / profile_id), **args)
                 page = context.pages[0] if context.pages else await context.new_page()
@@ -314,7 +330,7 @@ class BrowserProfileEngine:
                     view = page.viewport_size or {"width": 1280, "height": 800}
                     if not (0 <= x < view["width"] and 0 <= y < view["height"]):
                         raise BrowserError("Click must be within the browser viewport")
-                    await page.mouse.click(x, y, timeout=12000)
+                    await page.mouse.click(x, y)
                 elif action == "type":
                     value = str(payload.get("text") or "")
                     if len(value) > 1500:
