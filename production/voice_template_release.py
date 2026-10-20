@@ -129,9 +129,11 @@ QUEUE_FETCH_PAIRS = (
     (b"async function req(url,opt){const r=await fetch(url,{credentials:'same-origin',...(opt||{})});let data={};try{data=await r.json();}catch(_){}if(!r.ok)throw Error(data.detail||data.error||('HTTP '+r.status));return data;}",
      b"async function req(url,opt){const r=await fetch(url,{credentials:'same-origin',cache:'no-store',...(opt||{})});let data={};try{data=await r.json();}catch(_){}if(!r.ok)throw Error('HTTP '+r.status+' '+new URL(url,location.href).pathname+' : '+(data.detail||data.error||'API error'));return data;}"),
     (b"const r=await request(apiRoot+'/jobs');",
-     b"const r=await request(apiRoot+'/jobs?limit=150&v='+Date.now());"),
+     b"const r=await request(apiRoot+'/'+'jobs?limit=150&v='+Date.now());"),
     (b"const r=await req(root+'/jobs');",
-     b"const r=await req(root+'/jobs?limit=150&v='+Date.now());"),
+     b"const r=await req(root+'/'+'jobs?limit=150&v='+Date.now());"),
+    (b"await req(root+'/jobs/'+jid+'/'+act,{method:'POST'});",
+     b"await req(root+'/'+'jobs/'+jid+'/'+act,{method:'POST'});"),
 )
 
 def queue_route_overlay(original: bytes, source: bytes) -> bytes:
