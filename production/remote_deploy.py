@@ -17,6 +17,8 @@ APPS = ('scene-builder', 'short-maker', 'short-stream', 'self-media-library', 'v
         'voice-studio', 'auto-caption-studio', 'local-upload-manager')
 BASE = Path('/srv/fresh-website/control/releases')
 STORAGE_GC_OPERATIONS = {'storage-gc-install', 'storage-gc-status', 'storage-gc-disable'}
+STORAGE_BACKEND_APP = 'vps-storage-manager'
+STORAGE_BACKEND_OPERATIONS = {'install', 'rollback'}
 
 
 def command(args, *, cwd=None):
@@ -33,8 +35,11 @@ def main():
         raise ValueError('invalid production request')
     storage_gc = operation in STORAGE_GC_OPERATIONS
     if storage_gc:
-        if selected != 'vps-storage-manager':
+        if selected != STORAGE_BACKEND_APP:
             raise ValueError('storage GC requires dedicated vps-storage-manager target')
+    elif selected == STORAGE_BACKEND_APP:
+        if operation not in STORAGE_BACKEND_OPERATIONS:
+            raise ValueError('Storage Manager requires dedicated backend operation')
     elif selected != 'all' and selected not in APPS:
         raise ValueError('application not allowed')
     if operation.startswith('nginx-route-') and selected in {'all', 'scene-builder'}:
@@ -67,6 +72,11 @@ def main():
                            check=True)
         else:
             subprocess.run(['/usr/bin/systemctl', 'disable', '--now', service], check=True)
+        return
+    if selected == STORAGE_BACKEND_APP:
+        # Dedicated lane: preserve the existing candidate unit, environment and state.
+        subprocess.run(['/usr/bin/python3', '-m', 'production.storage_backend_release',
+                        operation, '--revision', revision], cwd=checkout, check=True)
         return
     if operation.startswith('nginx-route-'):
         # No application restart, gateway reconstruction, queue or database touch.
