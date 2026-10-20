@@ -209,6 +209,45 @@ def http_check(app, timeout=45):
     raise RuntimeError('app health failed: ' + app)
 
 
+def require_voice_release_idle(state: Path) -> None:
+    """Fail closed on Voice synthesis and active uploads before any worker restart.
+
+    Completed, failed and cancelled historical rows are preserved. A pending
+    Drive upload may survive worker replacement; a transferring file may not.
+    """
+    engines = (
+        (state / 'kokoro/data/kokoro_jobs.sqlite3', 'Kokoro'),
+        (state / 'edge/data/edge_jobs.sqlite3', 'Edge'),
+    )
+    for database, label in engines:
+        if not database.is_file():
+            raise RuntimeError(label + ' DB unavailable for release preflight')
+        with sqlite3.connect('file:' + str(database) + '?mode=ro', uri=True, timeout=4) as db:
+            db.execute('PRAGMA query_only=ON')
+            columns = {row[1] for row in db.execute('PRAGMA table_info(jobs)')}
+            if not {'status', 'delivery_status'} <= columns:
+                raise RuntimeError(label + ' job schema invalid for release preflight')
+            count = db.execute("""SELECT count(*) FROM jobs
+                  WHERE status IN ('queued','processing','paused','pause_requested',
+                    'cancel_requested','retry_wait')
+                    OR delivery_status='transferring'""").fetchone()[0]
+            if count:
+                raise RuntimeError(label + ' has pending/in-flight synthesis or upload; release postponed')
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    url = 'http://127.0.0.1:8143/tts/api/audio-downloader/status'
+    try:
+        with opener.open(url, timeout=5) as response:
+            status = json.loads(response.read(32768))
+            if response.status != 200 or not isinstance(status, dict) or not isinstance(status.get('queue'), dict):
+                raise RuntimeError('Audio Downloader preflight malformed')
+            queue = status['queue']
+            if any(int(queue.get(x) or 0) for x in (
+                    'queued','downloading','downloaded','processing','converting','uploading','retry_pending')):
+                raise RuntimeError('Audio Downloader has active/pending jobs; release postponed')
+    except (OSError, ValueError) as exc:
+        raise RuntimeError('Audio Downloader preflight unreachable') from exc
+
+
 def backup_databases(state, destination):
     """SQLite backup includes committed WAL transactions; media stays in place."""
     outputs = []
@@ -457,6 +496,8 @@ def install_app(app, revision):
     # Never interrupt an upload in any of the three independently running engines.
     if app == 'local-upload-manager' and active:
         require_lum_release_idle(state)
+    if app == 'voice-studio' and active:
+        require_voice_release_idle(state)
     # Only the app being replaced is stopped. Other apps and all agents stay up.
     if app == 'self-media-library' and active:
         require_sml_idle(state)
