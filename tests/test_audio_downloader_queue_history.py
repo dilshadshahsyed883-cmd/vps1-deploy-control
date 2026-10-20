@@ -137,6 +137,50 @@ class AudioDownloaderWorkerSafeReleaseTests(unittest.TestCase):
         patched = release.audio_browser_route_overlay(previous, source)
         self.assertEqual(patched, b"<!-- retained independent Voice styling -->\n" + source)
 
+    def test_release_rejects_active_audio_download(self):
+        from production import voice_template_release as release
+        from unittest.mock import Mock
+        fake = Mock()
+        fake.status = 200
+        fake.read.return_value = b'{"queue":{"queued":0,"downloading":1,"uploading":0}}'
+        with patch.object(release.urllib.request, "urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value = fake
+            with self.assertRaisesRegex(RuntimeError, "active/pending jobs"):
+                release.require_idle_audio_downloader()
+
+    def test_release_allows_idle_download_queue(self):
+        from production import voice_template_release as release
+        from unittest.mock import Mock
+        fake = Mock()
+        fake.status = 200
+        fake.read.return_value = b'{"queue":{"queued":0,"downloading":0,"uploading":0}}'
+        with patch.object(release.urllib.request, "urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value = fake
+            release.require_idle_audio_downloader()
+
+    def test_release_probes_authenticated_queue_history_datasource_and_proxy(self):
+        from production import voice_template_release as release
+        import json
+        def fake_https(path, cookie=""):
+            if not cookie:
+                return 401, "text/html", b""
+            if path.endswith("/jobs?limit=1"):
+                return 200, "application/json", b'{"jobs":[]}'
+            if path.endswith("/status"):
+                return 200, "application/json", b'{"queue":{}}'
+            if path.endswith("/proxy"):
+                return 200, "application/json", b'{"profiles":[]}'
+            return 404, "application/json", b'{"detail":"Not Found"}'
+        with patch("production.route_uploader_scene_https.https_get", side_effect=fake_https):
+            release.verify_audio_downloader_https("session=authorized-fixture")
+
+    def test_release_does_not_accept_queue_404_as_success(self):
+        from production import voice_template_release as release
+        with patch("production.route_uploader_scene_https.https_get",
+                   return_value=(404, "application/json", b'{"detail":"Not Found"}')):
+            with self.assertRaisesRegex(RuntimeError, "authenticated HTTPS jobs endpoint failed"):
+                release.verify_audio_downloader_https("session=authorized-fixture")
+
     def test_release_rejects_unknown_audio_runtime_drift(self):
         from production import voice_template_release as release
         source = TEMPLATE.read_bytes()
