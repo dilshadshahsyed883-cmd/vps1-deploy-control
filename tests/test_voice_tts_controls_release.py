@@ -96,7 +96,7 @@ class VoiceTTSReleaseTest(unittest.TestCase):
         runtime=(root/"production/runtime.py").read_text()
         self.assertIn("[vps1-voice-tts-controls-only]",runtime)
         script=(root/"production/voice_tts_controls_release.py").read_text()
-        self.assertIn("if stopped or switched:",script)
+        self.assertIn("if stopping or switched:",script)
         self.assertIn("verify_queues()",script)
         self.assertIn("backup_sqlite(source, journal",script)
         self.assertNotIn("workers.stop(APP)",script)
