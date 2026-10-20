@@ -279,6 +279,58 @@ def restore(app, previous):
     event(app=app, rollback='PASS', data='PRESERVED')
 
 
+def require_lum_release_idle(state: Path) -> None:
+    """Fail closed before restarting any uploader web/worker process.
+
+    The three web instances expose in-flight project IDs. Check their exact
+    installed loopback routes, then read the separate SQLite video queues
+    without modifying them. Queued/scheduled work remains preserved on disk.
+    """
+    modes = (
+        ("engine1", 8015, "/local-upload-manager/health", "lum1"),
+        ("engine2", 8016, "/local-upload-manager/modes/engine2/health", "lum2"),
+        ("shorts", 8017, "/local-upload-manager/modes/shorts/health", "lum3"),
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    in_flight = ("CLAIMED", "UPLOADING", "THUMBNAIL_UPLOADING",
+                 "PROCESSING", "IN_PROGRESS", "WAITING_NETWORK")
+    for mode, port, route, leaf in modes:
+        try:
+            with opener.open(f"http://127.0.0.1:{port}{route}", timeout=3) as response:
+                if response.status != 200:
+                    raise RuntimeError("engine did not return HTTP 200")
+                health = json.loads(response.read(4096))
+            if (health.get("ok") is not True or
+                    health.get("engine_instance") != mode):
+                raise RuntimeError("engine identity/readiness mismatch")
+            if health.get("active_project_id") not in (None, "", 0):
+                raise RuntimeError("in-flight web upload")
+            database = state / leaf / "core" / "data" / "uploader.db"
+            if database.is_file():
+                with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True,
+                                     timeout=3) as conn:
+                    conn.execute("PRAGMA query_only=ON")
+                    has_videos = conn.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='videos'"
+                    ).fetchone()
+                    if has_videos:
+                        matches = conn.execute(
+                            "SELECT 1 FROM videos WHERE UPPER(status) IN (" +
+                            ",".join("?" for _ in in_flight) + ") LIMIT 1",
+                            in_flight,
+                        ).fetchone()
+                        if matches:
+                            raise RuntimeError("in-flight SQLite upload")
+        except (OSError, ValueError, TypeError, sqlite3.Error, RuntimeError) as exc:
+            raise RuntimeError(
+                "LUM_RELEASE_BLOCKED: uploader " + mode +
+                " is busy or its idle state cannot be proven (" +
+                type(exc).__name__ + ")"
+            ) from exc
+    event(app="local-upload-manager", uploader_idle_preflight="PASS",
+          checked_modes=[mode for mode, *_ in modes])
+
+
 def install_app(app, revision):
     if app not in CATALOG:
         raise ValueError('app is not owned by this installer')
@@ -364,6 +416,9 @@ def install_app(app, revision):
     journal = BASE / 'transactions' / app / (revision + '-' + str(time.time_ns()))
     journal.mkdir(parents=True)
     atomic_json(journal / 'previous.json', previous)
+    # Never interrupt an upload in any of the three independently running engines.
+    if app == 'local-upload-manager' and active:
+        require_lum_release_idle(state)
     # Only the app being replaced is stopped. Other apps and all agents stay up.
     if active:
         run(['systemctl', 'stop', unit_name], quiet=True)

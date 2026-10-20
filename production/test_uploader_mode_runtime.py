@@ -33,14 +33,36 @@ class EngineRuntimeTests(unittest.TestCase):
             result = probe("engine2")
             self.assertEqual(result["web"], "connected")
             self.assertEqual(result["worker"], "stopped")
-            self.assertIn("127.0.0.1:8016/local-upload-manager/health", request.call_args.args[0].full_url)
+            self.assertEqual(
+                request.call_args.args[0].full_url,
+                "http://127.0.0.1:8016/local-upload-manager/modes/engine2/health",
+            )
             self.assertNotIn("publishing", result.get("worker", ""))
 
     def test_shorts_worker_ready_is_separate_from_website(self):
         with patch("urllib.request.urlopen", return_value=FakeResponse({
             "ok": True, "app": "Local Upload Manager", "engine_instance": "shorts", "worker_alive": True
-        })):
+        })) as request:
             self.assertEqual(probe("shorts")["worker"], "running")
+            self.assertEqual(
+                request.call_args.args[0].full_url,
+                "http://127.0.0.1:8017/local-upload-manager/modes/shorts/health",
+            )
+
+    def test_engine_probe_uses_isolated_base_path_with_configured_port(self):
+        with patch.dict(os.environ, {"LUM_MODE_ENGINE2_PORT": "18116", "LUM_MODE_SHORTS_PORT": "18117"}):
+            for mode, port in (("engine2", 18116), ("shorts", 18117)):
+                with self.subTest(mode=mode), patch(
+                    "urllib.request.urlopen", return_value=FakeResponse({
+                        "ok": True, "app": "Local Upload Manager",
+                        "engine_instance": mode, "worker_alive": False,
+                    })
+                ) as request:
+                    self.assertEqual(probe(mode)["web"], "connected")
+                    self.assertEqual(
+                        request.call_args.args[0].full_url,
+                        f"http://127.0.0.1:{port}/local-upload-manager/modes/{mode}/health",
+                    )
 
     def test_wrong_engine_instance_is_not_accepted(self):
         with patch("urllib.request.urlopen", return_value=FakeResponse({
