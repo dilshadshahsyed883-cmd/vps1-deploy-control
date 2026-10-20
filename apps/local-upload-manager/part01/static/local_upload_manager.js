@@ -12,7 +12,9 @@
   const sameFrameUrl = href => {
     try {
       const url = new URL(href, window.location.href);
-      return url.origin === window.location.origin && url.pathname.endsWith('/app');
+      // Replacing DOM across independent engines keeps stale scripts, CSRF and
+      // CSS from the previous app; only soft-navigate inside this exact engine.
+      return url.origin === window.location.origin && url.pathname === window.location.pathname;
     } catch (_) { return false; }
   };
 
