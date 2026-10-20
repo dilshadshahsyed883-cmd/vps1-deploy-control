@@ -198,7 +198,10 @@ def verified_copy(local,remote):
     fid=str(metadata.get('ID') or '')
     if not re.fullmatch(r'[A-Za-z0-9_-]{8,}',fid):raise RuntimeError('Drive ID missing')
     md5=(metadata.get('Hashes') or {}).get('MD5')
-    if md5 and hashlib.md5(local.read_bytes()).hexdigest()!=md5.lower():raise RuntimeError('Drive hash mismatch')
+    if md5:
+        with local.open('rb') as payload:
+            actual=hashlib.file_digest(payload,'md5').hexdigest()
+        if actual!=md5.lower():raise RuntimeError('Drive hash mismatch')
     return {'id':fid,'url':'https://drive.google.com/file/d/'+fid+'/view','size':local.stat().st_size,'name':remote.rsplit('/',1)[-1]}
 
 def deliver():
