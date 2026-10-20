@@ -15,6 +15,7 @@ router=APIRouter(tags=['Auto Stream operations'])
 FLAGS=('AUTO_STREAM_PUBLISH_ENABLED','AUTO_STREAM_YOUTUBE_MUTATIONS_ENABLED','AUTO_STREAM_LIVE_TRANSITIONS_ENABLED','AUTO_STREAM_GO_LIVE_ENABLED','AUTO_STREAM_SCHEDULER_ENABLED')
 _stop=threading.Event()
 _thread=None
+_lease_fd=None
 RCLONE_CONFIG='/home/ubuntu/.config/masterctl/rclone.conf'
 
 
@@ -134,12 +135,21 @@ def worker():
 
 
 def startup():
-    global _thread
+    global _thread,_lease_fd
     if _thread and _thread.is_alive():return
+    import fcntl
+    from auto_stream_engine import ENGINE_ROOT
+    ENGINE_ROOT.mkdir(parents=True,exist_ok=True,mode=0o700)
+    _lease_fd=os.open(ENGINE_ROOT/'worker.lock',os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW,0o600)
+    try:fcntl.flock(_lease_fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    except OSError:
+        os.close(_lease_fd);_lease_fd=None
+        raise RuntimeError('Auto Stream requires one supervisor worker per data directory') from None
     _stop.clear();_thread=threading.Thread(target=worker,daemon=True,name='auto-stream-scheduler');_thread.start()
 
 
 def shutdown():
+    global _lease_fd
     from auto_stream_engine import service
     from auto_stream_compositor import _processes,_process_lock
     import signal
@@ -149,6 +159,13 @@ def shutdown():
     with _process_lock:
         for proc in _processes.values():
             with contextlib.suppress(ProcessLookupError):os.killpg(proc.pid,signal.SIGTERM)
+            try:proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                with contextlib.suppress(ProcessLookupError):os.killpg(proc.pid,signal.SIGKILL)
+    if _thread:_thread.join(timeout=6)
+    for jid,proc in list(engine.processes.items()):engine._terminate(jid,proc)
+    if _lease_fd is not None:
+        os.close(_lease_fd);_lease_fd=None
 
 
 @router.get('/settings')

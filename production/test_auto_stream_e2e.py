@@ -2,6 +2,7 @@
 from pathlib import Path
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -51,7 +52,7 @@ class BrowserWorkflowTests(unittest.TestCase):
             def studio():return PAGE
             with socket.socket() as sock:sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
             server=uvicorn.Server(uvicorn.Config(app,host='127.0.0.1',port=port,log_level='error'))
-            with patch.dict(os.environ,env),patch.object(e,'_service',engine),patch.object(g,'_instance',accounts),patch.object(credentials,'_instance',store),patch.object(live,'_controller',controller),patch.object(g,'_http_json',side_effect=google):
+            with patch.dict(os.environ,env),patch.object(e,'_service',engine),patch.object(e,'ENGINE_ROOT',engine.root),patch.object(g,'_instance',accounts),patch.object(credentials,'_instance',store),patch.object(live,'_controller',controller),patch.object(g,'_http_json',side_effect=google):
                 thread=threading.Thread(target=server.run,daemon=True);thread.start()
                 try:
                     deadline=time.monotonic()+10
@@ -69,7 +70,7 @@ class BrowserWorkflowTests(unittest.TestCase):
                         page.locator('#oauth-json').set_input_files(str(keyfile));page.locator('#upload-oauth-json').click()
                         page.locator('#oauth-state').filter(has_text='Encrypted client saved').wait_for()
                         page.locator('#import-channel-id').fill(CID);page.locator('#import-channel-title').fill('Selected Channel');page.locator('#import-channel').click()
-                        page.locator('#expected-channel option').wait_for()
+                        page.locator('#expected-channel option').wait_for(state='attached')
                         def consent(route):
                             state=parse_qs(urlparse(route.request.url).query)['state'][0]
                             route.fulfill(body='<a href="'+base+'/short-stream/engine/oauth/callback?state='+state+'&code=fixture-code">Approve test channel</a>',content_type='text/html')
@@ -77,7 +78,7 @@ class BrowserWorkflowTests(unittest.TestCase):
                         page.locator('#connect-selected').click();page.get_by_role('link',name='Approve test channel').click()
                         page.get_by_role('link',name='Return to Auto Stream').click()
                         page.get_by_role('button',name='Sheets Sync',exact=True).click()
-                        page.locator('#sheet-channel option').wait_for();page.locator('#sheet-name').fill('Fixture schedule');page.locator('#sheet-id').fill('https://docs.google.com/spreadsheets/d/'+'a'*24+'/edit#gid=17')
+                        page.locator('#sheet-channel option').wait_for(state='attached');page.locator('#sheet-name').fill('Fixture schedule');page.locator('#sheet-id').fill('https://docs.google.com/spreadsheets/d/'+'a'*24+'/edit#gid=17')
                         page.locator('#add-sheet').click();page.locator('#sheet-list').get_by_role('button',name='Preview',exact=True).click()
                         page.locator('#sheet-preview').filter(has_text='Sheet stream draft').wait_for()
                         page.locator('#sheet-list').get_by_role('button',name='Sync DRAFTs',exact=True).click()
@@ -88,8 +89,9 @@ class BrowserWorkflowTests(unittest.TestCase):
                         page.locator('#preview-scene').click();page.locator('#scene-preview-image').wait_for(state='visible',timeout=30000)
                         page.wait_for_function('document.getElementById("scene-preview-image").naturalWidth>0')
                         self.assertEqual(page.locator('#scene-preview-image').evaluate('(image)=>image.naturalWidth'),854)
-                        page.locator('#render-scene').click();page.locator('#render-state').filter(has_text='READY').wait_for(timeout=30000)
+                        page.locator('#render-scene').click();page.locator('#render-state').filter(has_text=re.compile(r'^READY$')).wait_for(timeout=30000)
                         self.assertTrue(page.locator('#job-media').input_value().startswith('auto-stream/renders/'))
+                        page.wait_for_function('document.getElementById("composition-preview").videoWidth>0',timeout=15000)
                         page.locator('#job-title').fill('Composed draft');page.locator('#create-job').click()
                         page.get_by_role('button',name='Live Queue',exact=True).click()
                         page.locator('#job-list').get_by_text('Composed draft',exact=False).wait_for()
@@ -103,7 +105,10 @@ class BrowserWorkflowTests(unittest.TestCase):
                             page.set_viewport_size({'width':width,'height':1000})
                             for tab in ('Dashboard','Channels','Sheets Sync','Live Studio','Live Queue'):
                                 page.get_by_role('button',name=tab,exact=True).click()
-                                self.assertFalse(page.evaluate('document.documentElement.scrollWidth>window.innerWidth'),f'{tab} overflow at {width}')
+                                overflow=page.evaluate('document.documentElement.scrollWidth>window.innerWidth')
+                                if overflow:
+                                    page.screenshot(path=str(artifacts/f'overflow-{tab.replace(" ","-")}-{width}.png'),full_page=True)
+                                self.assertFalse(overflow,f'{tab} overflow at {width}')
                             page.get_by_role('button',name='Live Studio',exact=True).click()
                             page.screenshot(path=str(artifacts/f'studio-{width}.png'),full_page=True)
                         browser.close()

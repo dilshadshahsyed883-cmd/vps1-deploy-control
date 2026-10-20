@@ -277,7 +277,8 @@ class AutoStreamAccounts:
                               (channel_id,)).fetchone()
         if not row or not row["token"] or required_scope not in row["scopes"].split():
             raise ValueError("Channel needs a separate Auto Stream OAuth connection")
-        refresh = _cipher().decrypt(row["token"]).decode()
+        try:refresh = _cipher().decrypt(row["token"]).decode()
+        except Exception:raise ValueError('Stored channel authorization cannot be read; reconnect using the current Auto Stream client') from None
         client, secret, _ = _configuration()
         token = _http_json(TOKEN_URL, form={
             "client_id": client, "client_secret": secret,

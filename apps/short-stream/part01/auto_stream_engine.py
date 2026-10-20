@@ -418,8 +418,10 @@ class StreamEngine:
 
     def health(self):
         jobs = self.list_jobs()
+        with self._connect() as con:
+            rendering=con.execute("SELECT COUNT(*) FROM scene_renders WHERE state IN ('WAITING','PREPARING')").fetchone()[0]
         return {"ok": True, "engine": "auto-stream", "version": 1,
-                "jobs": len(jobs), "encoder_sessions": sum(
+                "jobs": len(jobs), "render_tasks":rendering, "encoder_sessions": sum(
                     j["status"] in LIVE_STATES for j in jobs),
                 "publishing_enabled": os.environ.get("AUTO_STREAM_PUBLISH_ENABLED") == "1",
                 "scheduler_enabled": os.environ.get("AUTO_STREAM_SCHEDULER_ENABLED") == "1",
@@ -650,6 +652,8 @@ def dashboard_metrics():
     with engine._connect() as con:
         counts = {r[0]:r[1] for r in con.execute('SELECT status,COUNT(*) FROM jobs GROUP BY status')}
         recent = [engine._public(r) for r in con.execute('SELECT * FROM jobs ORDER BY updated_at DESC LIMIT 10')]
+        cutoff=datetime.fromtimestamp(time.time()-90,timezone.utc).isoformat(timespec='seconds')
+        verified=con.execute('SELECT COUNT(*),SUM(remote_state=?) FROM jobs WHERE remote_verified_at>=?',('live',cutoff)).fetchone()
         upcoming = [engine._public(r) for r in con.execute("SELECT * FROM jobs WHERE scheduled_at IS NOT NULL AND status IN ('DRAFT','SCHEDULED','READY') ORDER BY scheduled_at LIMIT 10")]
     with engine.lock:
         active_encoders = sum(proc.poll() is None for proc in engine.processes.values())
@@ -660,7 +664,7 @@ def dashboard_metrics():
             'completed':counts.get('COMPLETED',0)+counts.get('STOPPED',0),
             'failed':counts.get('FAILED',0)+counts.get('INTERRUPTED',0),
             'active_encoders':active_encoders,'counts':counts,
-            'live_verified':None,
+            'live_verified':int(verified[1] or 0) if verified[0] else None,
             'live_verification':'Remote YouTube verification required; encoder delivery alone is not Live',
             'recent':recent,'upcoming':upcoming,
             'disk':{'total_bytes':space.total,'free_bytes':space.free,'used_bytes':space.used},

@@ -263,5 +263,60 @@ def cancel_render(render_id:str):
             proc=_processes.get(render_id)
             if proc:
                 with contextlib.suppress(ProcessLookupError):os.killpg(proc.pid,signal.SIGTERM)
+                threading.Thread(target=engine._terminate,args=(render_id,proc),daemon=True).start()
         return read_render(engine,render_id)
+    return guard(run)
+
+
+@router.get('/studio/renders')
+def list_renders():
+    from auto_stream_engine import service
+    engine=service()
+    with engine._connect() as con:
+        rows=[dict(r) for r in con.execute('SELECT id,state,media_path,failure,created_at,updated_at FROM scene_renders ORDER BY created_at DESC LIMIT 30')]
+    for row in rows:row['available']=bool(row['media_path'] and (engine.media/row['media_path']).is_file())
+    return {'renders':rows}
+
+
+@router.get('/assets/frame')
+def media_frame(media_path:str):
+    from auto_stream_engine import service
+    engine=service()
+    def run():
+        source=asset(engine,media_path)
+        identity=str(source)+':'+str(source.stat().st_mtime_ns)+':'+str(source.stat().st_size)
+        folder=engine.root/'previews'/hashlib.sha256(identity.encode()).hexdigest();folder.mkdir(parents=True,exist_ok=True)
+        output=folder/'frame.png'
+        with _preview_lock:
+            if not output.exists():
+                try:
+                    result=subprocess.run([shutil.which('ffmpeg') or 'ffmpeg','-nostdin','-v','error','-y','-i',str(source),'-vf','scale=854:-2','-frames:v','1','-threads','1',str(output)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=20)
+                    if result.returncode:raise ValueError('Video frame preview unavailable for this source')
+                except subprocess.TimeoutExpired:raise ValueError('Video frame preview timed out') from None
+        return FileResponse(output,media_type='image/png',headers={'Cache-Control':'private, max-age=60'})
+    return guard(run)
+
+
+@router.get('/assets/playback')
+def browser_playback(media_path:str):
+    """Codec fallback for browsers without AVC; the streaming master stays H.264."""
+    from auto_stream_engine import service
+    engine=service()
+    def run():
+        source=asset(engine,media_path)
+        identity=str(source)+':'+str(source.stat().st_mtime_ns)+':'+str(source.stat().st_size)
+        folder=engine.root/'previews'/hashlib.sha256(identity.encode()).hexdigest();folder.mkdir(parents=True,exist_ok=True)
+        output=folder/'playback.webm'
+        with _preview_lock:
+            if not output.exists():
+                temporary=folder/'playback.tmp.webm'
+                try:
+                    result=subprocess.run([shutil.which('ffmpeg') or 'ffmpeg','-nostdin','-v','error','-y','-i',str(source),'-t','30','-vf','scale=854:-2',
+                        '-c:v','libvpx','-deadline','realtime','-cpu-used','5','-threads','2','-b:v','800k','-c:a','libopus','-b:a','64k',str(temporary)],
+                        stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=60)
+                    if result.returncode:raise ValueError('Browser playback preview is unavailable; composition frame remains available')
+                    os.replace(temporary,output)
+                except subprocess.TimeoutExpired:raise ValueError('Browser playback conversion timed out; composition frame remains available') from None
+                finally:temporary.unlink(missing_ok=True)
+        return FileResponse(output,media_type='video/webm',headers={'Cache-Control':'private, max-age=60'})
     return guard(run)

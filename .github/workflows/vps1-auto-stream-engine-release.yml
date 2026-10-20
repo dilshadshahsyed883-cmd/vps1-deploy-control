@@ -58,10 +58,21 @@ jobs:
               -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
               vps1deploy@100.87.55.92 "$1"
           }
+          installed=0
+          rollback_on_error() {
+            rc=$?
+            if [ "$installed" = 1 ]; then
+              remote "sudo -n /usr/local/sbin/vps1-production-deploy rollback $SOURCE_SHA short-stream" || true
+            fi
+            exit "$rc"
+          }
+          trap rollback_on_error ERR
           echo "PHASE=EXISTING_SHORT_STREAM_READ_ONLY_PRECHECK"
           remote "python3 -c 'import json,urllib.request; d=json.loads(urllib.request.urlopen(\"http://127.0.0.1:8145/health\",timeout=8).read()); assert d.get(\"ok\") is True and d.get(\"app\")==\"short-stream\" and d.get(\"running\")==0, \"active/unknown Short Stream sessions: refuse deployment\"'"
+          remote "python3 -c 'import json,urllib.request; d=json.load(urllib.request.urlopen(\"http://127.0.0.1:8145/engine/health\",timeout=8)); assert d.get(\"encoder_sessions\")==0 and d.get(\"render_tasks\",0)==0, \"Auto Stream encoder/render busy: refuse deployment\"'"
           echo "PHASE=SHORT_STREAM_SCOPED_INSTALL"
           remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA short-stream"
+          installed=1
           echo "PHASE=INDEPENDENT_ENGINE_READBACK"
           if ! remote "python3 -c 'import json,urllib.request; d=json.loads(urllib.request.urlopen(\"http://127.0.0.1:8145/engine/health\",timeout=8).read()); assert d.get(\"ok\") is True and d.get(\"engine\")==\"auto-stream\" and d.get(\"version\")==1 and d.get(\"publishing_enabled\") is False and d.get(\"scheduler_enabled\") is False and d.get(\"youtube_live_verified\") is False, \"engine health/flags mismatch\"'"; then
             echo "ENGINE_READBACK_FAILED_ROLLBACK=REQUESTED"
@@ -84,6 +95,27 @@ jobs:
           echo "PHASE=AUTO_STREAM_OAUTH_ADMIN_SETUP_GUARD"
           remote "python3 -c 'import urllib.request,urllib.error;u=\"http://127.0.0.1:8145/engine/oauth/client\"; e=None; exec(\"try:\\n urllib.request.urlopen(u,timeout=8)\\nexcept urllib.error.HTTPError as ex:\\n e=ex.code\\n\"); assert e==403,\"Admin API must reject unauthenticated requests\"'"
           echo "AUTO_STREAM_OAUTH_ADMIN_API=DENIES_UNAUTHENTICATED"
+          remote 'python3 -' <<'PYCODE'
+          import json, urllib.request
+          root='http://127.0.0.1:8145/engine'
+          def read(path):
+              with urllib.request.urlopen(root+path,timeout=15) as response:
+                  return json.load(response)
+          assert isinstance(read('/assets').get('media'),list)
+          dashboard=read('/dashboard')
+          assert dashboard['active_encoders']==0
+          assert read('/storage')['settings']['cleanup_owner']=='auto-stream'
+          page=urllib.request.urlopen(root+'/studio',timeout=15).read().decode()
+          for marker in ('id="preview-scene"','id="source-type"','id="bulk-channel-apply"','id="stream-flags"','Sheet Name','Google Sheet Link'):
+              assert marker in page, marker
+          assert 'id="sheet-range"' not in page
+          payload={'profile':'480p','duration':1,'active_scene':0,'scenes':[{'name':'Health probe','sources':[{'type':'text','text':'Auto Stream health check','font_size':24}]}]}
+          req=urllib.request.Request(root+'/studio/preview',data=json.dumps(payload).encode(),headers={'Content-Type':'application/json'},method='POST')
+          with urllib.request.urlopen(req,timeout=45) as response:
+              assert response.status==200 and response.read(8)==b'\x89PNG\r\n\x1a\n'
+          assert read('/health')['encoder_sessions']==0
+          print('AUTO_STREAM_COMPOSITION_AND_NAMED_SHEETS=PASS_NO_BROADCAST')
+          PYCODE
           echo "AUTO_STREAM_ENGINE_RUNTIME=PASS"
           echo "AUTO_STREAM_PUBLISHING=OFF"
           echo "AUTO_STREAM_SCHEDULER=OFF"
