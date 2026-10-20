@@ -33,7 +33,7 @@
   ]);
   const activeKeyForPath = (pathname) => {
     if (/^\/(local-upload-manager|auto-stream)(\/|$)/.test(pathname)) return "upload";
-    if (/^\/(scene-builder|video-studio|auto-caption-studio|short-maker|video-merger)(\/|$)/.test(pathname)) return "video";
+    if (/^\/(scene-builder|video-studio|auto-caption-studio|short-maker|video-merger|queue|settings|audit-media)(\/|$)/.test(pathname)) return "video";
     if (/^\/voice-studio(\/|$)/.test(pathname)) return "voice";
     if (/^\/(experiment-studio|self-media-library)(\/|$)/.test(pathname)) return "experiment";
     if (/^\/(admin|storage-manager|user-management)(\/|$)/.test(pathname)) return "admin";
@@ -53,7 +53,8 @@
     rail.dataset.videoAligned = "1";
     const current = location.pathname.replace(/\/$/, "");
     for (const link of rail.querySelectorAll("a")) {
-      const selected = (link.getAttribute("href") || "").split(/[?#]/)[0].replace(/\/$/, "") === current;
+      const destination = (link.getAttribute("href") || "").split(/[?#]/)[0].replace(/\/$/, "");
+      const selected = destination === current || (destination === "/scene-builder" && ["/queue", "/settings", "/audit-media"].includes(current));
       if (!selected) continue;
       link.setAttribute("aria-current", "page");
       link.addEventListener("click", event => {
@@ -90,7 +91,9 @@
     if (isCanonical) {
       // Keep the original nodes and their positions across routes: no
       // unnecessary sidebar repaint or jump while pages switch.
-      for (const extra of existing.slice(PRIMARY_NAV.length)) extra.remove();
+      for (const extra of existing.slice(PRIMARY_NAV.length)) {
+        if(extra.getAttribute("href")!=="/admin") extra.remove();
+      }
       existing.slice(0, PRIMARY_NAV.length).forEach((link, i) => {
         const selected = PRIMARY_NAV[i][2] === current;
         link.classList.toggle("active", selected);
@@ -107,21 +110,23 @@
       const bottom = sidebar.querySelector(":scope > .server, :scope > .server-dot");
       sidebar.insertBefore(account, bottom);
     }
+    const serverIdentity = account.dataset.vps1ServerIdentity === "1";
+    const serverName = serverIdentity ? account.querySelector(".sidebar-account-name")?.textContent : "";
     account.hidden = false;
     account.replaceChildren();
-    const accountName = node("div", "sidebar-account-name", "Checking session…");
+    const accountName = node("div", "sidebar-account-name", serverName || "Checking session…");
     const loginLink = node("a", "vps1-session-login", "Sign in");
     loginLink.href = "/login";
     loginLink.hidden = true;
     const logout = node("form");
-    logout.hidden = true;
+    logout.hidden = !serverIdentity;
     logout.action = "/logout";
     logout.method = "post";
     const logoutButton = node("button", "", "Log out");
     logoutButton.type = "submit";
     logout.appendChild(logoutButton);
     account.append(accountName, loginLink, logout);
-    let adminLink = null;
+    let adminLink = navigation.querySelector('a[href="/admin"]');
     const setIdentity = (identity) => {
       const authenticated = !!(identity && identity.authenticated === true);
       const isAdmin = authenticated && identity.is_admin === true;
@@ -312,4 +317,151 @@
   if (document.readyState === "loading")
     document.addEventListener("DOMContentLoaded", install, {once: true});
   else install();
+})();
+
+/* KOKORO_UI_AUDIT_12_V1: presentation only; no API writes or stored roles. */
+(() => {
+  'use strict';
+  if(typeof document.querySelector !== 'function')return;
+  const initialEngineHash = location.hash;
+  const $ = id => document.getElementById(id);
+  const all = selector => Array.from(document.querySelectorAll(selector));
+  const text = (el, value) => {if (el && el.textContent !== String(value)) el.textContent = String(value);};
+  const attr = (el, name, value) => {if (el.getAttribute(name) !== String(value)) el.setAttribute(name, String(value));};
+  const make = (tag, value, cls) => {const el=document.createElement(tag);if(value!==undefined)el.textContent=value;if(cls)el.className=cls;return el;};
+  function runtimeCards(id) {
+    const target=$(id); if(!target || !target.textContent.trim().startsWith('{')) return;
+    let data; try {data=JSON.parse(target.textContent);} catch (_) {return;}
+    const fields=[['Worker',data.ready===true?'Ready':data.ready===false?'Unavailable':'Not reported'],['Mode',data.mode||'Not reported']];
+    if(data.reason) fields.push(['Reason',data.reason]);
+    for(const [key,count] of Object.entries(data.queue||{}))fields.push(['Queue · '+key.replaceAll('_',' '),String(count)]);
+    if(Array.isArray(data.output_formats))fields.push(['Formats',data.output_formats.join(', ').toUpperCase()]);
+    const list=make('dl',undefined,'vps1-ui-runtime');
+    for(const [key,value]of fields){const row=make('div');row.append(make('dt',key),make('dd',value));list.append(row);}
+    target.replaceChildren(list);
+  }
+  function voiceList(id, separator) {
+    const target=$(id);if(!target || target.querySelector('.vps1-ui-voices'))return;
+    const raw=target.textContent.trim();if(!raw || !raw.includes(separator))return;
+    const names=raw.split(separator).map(s=>s.trim()).filter(Boolean);
+    const search=make('input');search.type='search';search.className='vps1-ui-search';search.placeholder='Search voice name or language';search.setAttribute('aria-label','Search '+(id==='vskVoiceCards'?'Kokoro':'Edge')+' voices');
+    const count=make('p',names.length+' voices','vps1-ui-voice-count');count.setAttribute('role','status');
+    const list=make('div',undefined,'vps1-ui-voices');list.setAttribute('role','list');
+    const rows=names.map(name=>{const row=make('div',name,'vps1-ui-voice');row.setAttribute('role','listitem');list.append(row);return row;});
+    search.addEventListener('input',()=>{let visible=0;rows.forEach(row=>{row.hidden=!row.textContent.toLowerCase().includes(search.value.trim().toLowerCase());if(!row.hidden)visible++;});text(count,visible+' of '+names.length+' voices');});
+    target.replaceChildren(search,count,list);
+  }
+  let pageNumber=0, previousFirst=null;
+  function analysisPager() {
+    const host=$('aiJobs');if(!host)return;
+    const rows=Array.from(host.children).filter(el=>el.classList.contains('sml-ai-job'));
+    if(!rows.length)return;
+    if(previousFirst!==rows[0]){previousFirst=rows[0];pageNumber=Math.min(pageNumber,Math.ceil(rows.length/8)-1);}
+    let pager=$('vps1-ai-pager');
+    if(!pager){pager=make('nav',undefined,'vps1-ui-pager');pager.id='vps1-ai-pager';pager.setAttribute('aria-label','Analysis queue pages');const prev=make('button','Previous'),label=make('span'),next=make('button','Next');prev.type=next.type='button';label.setAttribute('role','status');prev.onclick=()=>{pageNumber--;analysisPager();};next.onclick=()=>{pageNumber++;analysisPager();};pager.append(prev,label,next);host.after(pager);}
+    const pages=Math.ceil(rows.length/8);pageNumber=Math.max(0,Math.min(pageNumber,pages-1));
+    rows.forEach((row,i)=>{const hidden=Math.floor(i/8)!==pageNumber;if(row.hidden!==hidden)row.hidden=hidden;});
+    const [prev,label,next]=pager.children;prev.disabled=pageNumber===0;next.disabled=pageNumber===pages-1;text(label,`Page ${pageNumber+1} of ${pages} · ${rows.length} jobs`);
+  }
+  function ranges() {
+    for(const input of all('input[type=range]')){
+      const output=input.dataset.output?$(input.dataset.output):null;
+      if(output)text(output,input.value);
+      if(!output){const field=input.closest('.field');const label=field?.querySelector('label');const note=field?.querySelector('span.small');if(label?.textContent.trim()==='Text Width' && note)text(note,input.value+'%');}
+    }
+    // The dynamic FG library select owns the persisted value and handler.
+    const old=$('presetFgSelect'),live=$('presetFgLibrary');if(old&&live){const field=old.closest('.field');if(field&&!field.hidden)field.hidden=true;old.disabled=true;attr(old,'aria-hidden','true');}
+  }
+  let controlId=0;
+  function accessibleControls() {
+    for(const field of all('.field,.form-field,.vsa-field')){
+      const label=field.querySelector('label'),control=field.querySelector('input,select,textarea');
+      if(!label||!control||label.contains(control)||label.htmlFor)continue;
+      if(!control.id)control.id='vps1-ui-control-'+(++controlId);
+      label.htmlFor=control.id;
+    }
+    const navs=all('nav[aria-label],.vs-engine-selector,.sm-tabs,.vsa-tabs,.vsk-tabs,.vse-tabs,.lum-tabs,.lum-ae-tabs,.tabs');
+    for(const nav of navs){
+      const items=Array.from(nav.children).filter(el=>el.matches('a,button'));
+      if(!items.length)continue;
+      const trueTabs=nav.getAttribute('role')==='tablist'&&items.every(el=>el.getAttribute('role')==='tab');
+      const selectable=items.some(el=>el.hasAttribute('aria-selected')||el.classList.contains('active')||el.classList.contains('is-active'));
+      // Section buttons retain native button semantics and expose their pressed state.
+      if(nav.getAttribute('role')==='tablist'&&!trueTabs)attr(nav,'role','navigation');
+      for(const el of items){
+        if(el.matches('a')&&el.classList.contains('active'))attr(el,'aria-current','page');
+        if(selectable&&el.matches('button')&&el.getAttribute('role')!=='tab'){
+          const selected=el.getAttribute('aria-selected');const pressed=selected!==null?selected==='true':el.classList.contains('active')||el.classList.contains('is-active');
+          attr(el,'aria-pressed',pressed);
+        }
+        if(trueTabs)el.tabIndex=el.getAttribute('aria-selected')==='true'?0:-1;
+      }
+      if(!nav.dataset.vps1Keyboard){nav.dataset.vps1Keyboard='1';nav.addEventListener('keydown',event=>{
+        if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+        const buttons=Array.from(nav.children).filter(el=>el.matches('a,button')&&!el.disabled&&!el.hidden);const index=buttons.indexOf(document.activeElement);if(index<0)return;
+        event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?buttons.length-1:(index+(event.key==='ArrowRight'?1:-1)+buttons.length)%buttons.length;
+        buttons[next].focus(); // Enter/Space activates; arrow navigation never submits a job.
+      });}
+    }
+    const labels={'channel-search':'Search channels'};
+    for(const control of all('main select,main input:not([type=hidden]),main textarea')){
+      if(control.labels?.length||control.hasAttribute('aria-label')||control.hasAttribute('aria-labelledby'))continue;
+      const parent=control.parentElement;
+      const preceding=control.previousElementSibling;
+      const name=preceding?.matches('label')?preceding.textContent.trim():control.getAttribute('placeholder')||labels[control.id]||(control.tagName==='SELECT'?control.options[0]?.textContent.trim():'')||(control.id?control.id.replace(/[-_]/g,' '):'');
+      if(name)attr(control,'aria-label',name);
+    }
+  }
+  function statusPresentation() {
+    const state=$('vskEngineState'),message=$('vskMessage');
+    if(state?.textContent.trim()==='Kokoro ready'&&message?.textContent.trim()==='Kokoro inference service is not yet verified.')text(message,'Worker ready. Drive delivery is verified separately for each job.');
+    for(const label of all('.lum-card p,.card p,.mode-copy,.mode-description')){
+      if(label.textContent.trim()==='Desktop feature retained behind a mode toggle. Current production remains single-project submission.')text(label,'Bulk Import is not available yet. Use Add Video for single-project submission.');
+    }
+    for(const note of all('.lum-switch small')){
+      if(note.textContent.trim()==='Preserved; OFF for current single-upload workflow')text(note,'Workspace visibility; scheduling is controlled separately.');
+    }
+    for(const card of all('.lum-card')){
+      const title=card.querySelector('h2');
+      if(title?.textContent.trim()==='Bulk Import'){
+        const badge=card.querySelector('.lum-badge');if(badge)text(badge,'Not available');
+      }
+      if(title?.textContent.trim()==='Auto Uploader · Three Modes'&&!card.querySelector('.vps1-ui-details')){
+        const notes=Array.from(card.querySelectorAll('p'));if(notes.length){const detail=make('details',undefined,'vps1-ui-details');detail.append(make('summary','About the three independent upload modes'));for(const note of notes)detail.append(note);card.append(detail);}
+      }
+    }
+    for(const el of all('h3,h4,p,small,.generic,.badge,.aev2-summary')){
+      if(el.children.length)continue;
+      if(el.textContent.trim()==='undefined · AUTO · -16 LUFS · duck 11 dB · limiter -1.5 dBTP')text(el,'Preset unavailable · AUTO · -16 LUFS · duck 11 dB · limiter -1.5 dBTP');
+    }
+  }
+  function polish() {
+    // A late Omni startup response can rewrite the URL after engine selection.
+    // Keep refresh on the visible engine; Omni keeps its own workspace hashes.
+    const engineHash={kokoro:'#vs-kokoro',edge:'#vs-edge','audio-downloader':'#vs-audio'}[document.documentElement.dataset.vsEngine];
+    if(engineHash&&location.hash!==engineHash)history.replaceState(null,'',engineHash);
+    const proxy=$('vsaProxy'),audio=$('vsAudioWorkspace');
+    if(proxy&&audio&&!audio.contains(proxy))audio.append(proxy);
+    runtimeCards('vskRuntimeDetails');runtimeCards('vseDetails');
+    voiceList('vskVoiceCards',' · ');voiceList('vseVoiceRows','  |  ');
+    ranges();analysisPager();accessibleControls();statusPresentation();
+  }
+  function boot() {
+    if(!document.querySelector('#app-sidebar,#vps1-native-site-sidebar'))return;
+    // Load the same canonical stylesheet last, after app inline styles, with a
+    // release key. Old app documents receive this UI without worker restarts.
+    if(!$('vps1-kokoro-audit-css')){const link=make('link');link.id='vps1-kokoro-audit-css';link.rel='stylesheet';link.href='/static/vps1_native_site_shell.css?ui=kokoro-audit12-v2';document.head.append(link);}
+    polish();document.addEventListener('input',ranges);
+    // The old Omni initializer rewrites the hash before the other engines boot.
+    // Restore only explicit engine deep links after all initializers have run.
+    const restoreEngine = () => {
+      const id={'#vs-kokoro':'vsEngineKokoro','#vs-edge':'vsEngineEdge','#vs-audio':'vsEngineAudio'}[initialEngineHash];
+      const button=id&&$(id);if(button&&button.getAttribute('aria-selected')!=='true')button.click();
+    };
+    if(document.readyState==='complete')restoreEngine();
+    else document.addEventListener('DOMContentLoaded',restoreEngine,{once:true});
+    let pending=false;
+    new MutationObserver(()=>{if(pending)return;pending=true;requestAnimationFrame(()=>{pending=false;polish();});}).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['class','hidden','aria-selected']});
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
 })();

@@ -494,3 +494,67 @@ body.vps1-native-library .sml-control-rail .sml-engine-state{
     transition:none!important;animation:none!important;
   }
 }
+
+/* KOKORO_UI_AUDIT_12_V1 — measured reference, scoped to site chrome/forms. */
+:root{--vps1-ui-primary:#6355df;--vps1-ui-focus:#6355df;--vps1-ui-radius:12px;--vps1-ui-panel:#fff;--vps1-card-radius:16px}
+html{scrollbar-gutter:stable}
+body:has(#app-sidebar),body.vps1-native-site{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif!important;font-size:14px;line-height:1.5;background:#f6f7fb!important}
+body.vps1-native-uploader .app-main{width:calc(100% - 68px)!important;max-width:1400px!important;padding:0!important;margin:0 auto 34px!important;min-width:0}
+body.vps1-native-stream>main{padding:0!important;width:calc(100% - 68px)!important;max-width:1400px!important;margin:0 auto 34px!important;min-width:0}
+body.vps1-native-voice :is(#vsAudioWorkspace,.enginebar){width:calc(100% - 68px)!important;max-width:1400px!important;margin-left:auto!important;margin-right:auto!important;box-sizing:border-box!important}
+body.vps1-native-voice #vsAudioWorkspace{padding-top:4px!important}
+body.vps1-native-voice #vsaProxy{min-width:0}
+body:not(.vs-audio-active) #vsaProxy{display:none!important}
+#vsaProxy[hidden]{display:none!important}
+body:has(#app-sidebar) #experiment-browser{width:100%!important;padding:20px!important;margin:0 auto 34px!important;border-radius:16px!important}
+body:has(#app-sidebar) .vps1-experiment-tabs{width:100%!important;margin:0 auto 18px!important}
+:is(.vps1-native-upload-tabs,.vps1-native-video-tabs,.vps1-experiment-tabs,[data-video-studio-subnav])>a:is(.active,[aria-current=page]){background:#6355df!important;border-color:#6355df!important;color:#fff!important}
+:is(body.vps1-native-uploader .app-main,body.vps1-native-stream>main,body.vps1-native-voice #vsAudioWorkspace,body:has(#app-sidebar)>main,body.vps1-native-library .main) :is(.card,.panel,.vsa-card,.sm-panel){padding:20px!important;border-radius:16px!important;min-width:0;box-sizing:border-box}
+body.vps1-native-uploader .app-main :is(p,label,.field,.hint,.muted,.small,.empty,.stat-label){font-size:13px!important;line-height:1.5!important}
+body.vps1-native-uploader .app-main :is(h2,h3),#vsAudioWorkspace .vsa-card h2{font-size:18px!important;line-height:1.5!important}
+body.vps1-native-uploader .app-main table{font-size:13px!important}
+body.vps1-native-uploader .app-main th{font-size:12px!important}
+body.vps1-native-site :is(.app-main,main,.shell,#vsAudioWorkspace,.experiment-workspace) :is(input,select,textarea):not([type=range]):not([type=checkbox]):not([type=radio]):not([type=hidden]){min-height:44px!important;border-radius:8px!important;padding:10px!important;box-sizing:border-box!important;font:400 14px/1.5 Inter,system-ui,sans-serif!important;max-width:100%;min-width:0}
+#vsAudioWorkspace :is(label,.vsa-note,.vsa-hint,.vsa-card p){font-size:13px!important;line-height:1.5!important}
+#vsAudioWorkspace .vsa-heading{padding:20px!important;border:1px solid #e4e7ec;border-radius:16px;background:#fff}
+#vsAudioWorkspace .vsa-card{border-radius:16px!important;padding:20px!important}
+body:has(#app-sidebar) main :is(.sm-tabs,.scene-workspace-tabs,.vm-app .tabs),body.vps1-native-uploader :is(.workspace-tabs,.tabs,.auto-v6-tabs),body.vps1-native-stream nav[aria-label],#vsAudioWorkspace .vsa-tabs{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;overflow-x:auto;min-height:54px;border-radius:12px;box-sizing:border-box;scrollbar-width:thin}
+body.vps1-native-site :is(nav[aria-label="Auto Stream primary tabs"],nav[aria-label="Auto Engine workspace"],.vsa-tabs,.workspace-tabs,.auto-v6-tabs)>:is(a,button),body:has(#app-sidebar) :is(.sm-tabs,.scene-workspace-tabs,.vm-app .tabs)>:is(a,button){min-height:44px!important;padding:10px 14px!important;border-radius:8px!important;white-space:nowrap;flex:0 0 auto;font-size:13px!important}
+body.vps1-native-site :is(nav,.tabs)>:is(a,button)[aria-pressed=true],body:has(#app-sidebar) :is(.sm-tabs,.scene-workspace-tabs,.vm-app .tabs)>[aria-pressed=true]{background:#6355df!important;color:#fff!important;border-color:#6355df!important}
+body:has(#app-sidebar) .sm-hero{background:#fff!important;border:1px solid #e4e7ec!important;border-radius:16px!important;color:#101828!important;padding:20px!important;box-shadow:none!important}
+body:has(#app-sidebar) .sm-hero :is(h1,h2,h3){color:#101828!important}
+body:has(#app-sidebar) .sm-hero :is(p,.sm-kicker){color:#475467!important}
+body:has(#app-sidebar) .sm-hero :is(.sm-status,.sm-compact-indicator){background:#eef0f8!important;color:#344054!important}
+.vps1-ui-runtime{white-space:normal!important;display:grid!important;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:12px 0}
+.vps1-ui-runtime>div{background:#f8f9fc;border:1px solid #e4e7ec;border-radius:8px;padding:12px;overflow-wrap:anywhere}
+.vps1-ui-runtime dt{font-size:12px;color:#667085}.vps1-ui-runtime dd{margin:4px 0 0;font-size:14px;font-weight:650;color:#101828}
+.vps1-ui-voices{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:10px;max-height:420px;overflow-y:auto;margin-top:12px}
+.vps1-ui-voice{padding:12px;border:1px solid #e4e7ec;border-radius:8px;color:#344054;background:#f8f9fc;overflow-wrap:anywhere;font-size:14px}
+.vps1-ui-search{width:100%;min-height:44px;padding:10px;border:1px solid #d0d5dd;border-radius:8px;font:inherit}
+.vps1-ui-pager{display:flex;gap:12px;align-items:center;justify-content:flex-end;margin:12px 0}
+.vps1-ui-pager button{min-height:44px;padding:10px 14px;border:1px solid #d0d5dd;border-radius:8px;background:#fff;color:#344054;cursor:pointer}
+.vps1-ui-pager button:disabled{opacity:.5;cursor:default}
+:is(body:has(#app-sidebar),body.vps1-native-site) :is(a,button,input,select,textarea,summary):focus-visible{outline:3px solid #6355df!important;outline-offset:3px!important}
+body.vps1-native-uploader .table-wrap,body.vps1-native-stream .table-wrap{max-width:100%;overflow-x:auto}
+body.vps1-native-uploader details.vps1-ui-details{padding:12px 16px;margin:12px 0;background:#f8f9fc;border:1px solid #e4e7ec;border-radius:8px}
+body.vps1-native-uploader details.vps1-ui-details summary{cursor:pointer;font-size:13px;font-weight:650}
+@media(max-width:760px){
+body.vps1-native-uploader .app-main,body.vps1-native-stream>main,body.vps1-native-voice :is(#vsAudioWorkspace,.enginebar){width:calc(100% - 28px)!important}
+body.vps1-native-site :is(.app-main,main,.shell,#vsAudioWorkspace) :is(input,select,textarea):not([type=range]):not([type=checkbox]):not([type=radio]):not([type=hidden]){font-size:16px!important}
+#vsAudioWorkspace .vsa-grid{grid-template-columns:minmax(0,1fr)!important}
+body:has(#app-sidebar) #experiment-browser{padding:16px!important}
+.vps1-ui-voices{grid-template-columns:minmax(0,1fr)}
+}
+body.vps1-native-uploader :is(.lum-tabs,.lum-ae-tabs){gap:6px!important;min-height:54px!important;overflow-x:auto!important;flex-wrap:nowrap!important}
+body.vps1-native-uploader :is(.lum-tabs,.lum-ae-tabs)>:is(a,button){min-height:44px!important;padding:10px 14px!important;border-radius:8px!important;font-size:13px!important;white-space:nowrap}
+body.vps1-native-uploader .lum-tabs>a:is(.active,[aria-current=page]){background:#6355df!important;color:#fff!important}
+#aiJobs>[hidden],.vps1-ui-voices>[hidden]{display:none!important}
+html:has(script[data-workspace=voice]):not([data-vs-engine]) :is(.enginebar,section.page){visibility:hidden}
+@media(max-width:760px){body.vps1-native-voice .vs-engine-selector{margin-top:72px!important;width:calc(100% - 28px)!important}}
+body:has(#app-sidebar) .scene-workspace-tabs>a[aria-current=page]{background:#6355df!important;color:white!important;border-color:#6355df!important}
+#app-sidebar>nav,#vps1-native-site-sidebar>nav[aria-label=Applications]{min-height:270px}
+/* Final public-page readback: app inline CSS must respect hidden fields. */
+body.vps1-native-acs .field[hidden]{display:none!important}
+body.vps1-native-uploader .app-main .lum-shell{padding:0 0 34px!important;margin:0!important;width:100%!important;max-width:none!important}
+body.vps1-native-uploader .lum-ae-schedule-control{flex-wrap:wrap!important;min-width:0!important;max-width:100%!important}
+body.vps1-native-uploader .lum-ae-schedule-control>button{flex:0 1 auto!important;max-width:100%!important;white-space:normal!important}

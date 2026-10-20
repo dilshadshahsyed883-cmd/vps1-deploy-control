@@ -169,7 +169,7 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
     <a class="{% if page in ['admin','storage_manager','user_management'] %}active{% endif %}" href="/admin">Admin</a>
     {% endif %}
   </nav>
-  <div class="sidebar-account">
+  <div class="sidebar-account" data-vps1-server-identity="1">
     <div class="sidebar-account-name">{{ username or 'team' }}</div>
     <form action="/logout" method="post"><button type="submit">Log out</button></form>
   </div>
