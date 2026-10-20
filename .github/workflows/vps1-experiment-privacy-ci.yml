@@ -1,0 +1,46 @@
+name: VPS1 Experiment Studio privacy V2 (offline)
+on:
+  pull_request:
+    paths:
+      - 'apps/scene-builder/part01/experiment_browser.py'
+      - 'apps/scene-builder/part01/app.py'
+      - 'apps/scene-builder/part01/static/experiment_browser.js'
+      - 'apps/scene-builder/part01/templates/experiment_studio.html'
+      - 'tests/test_experiment_browser_engine.py'
+      - '.github/workflows/vps1-experiment-privacy-ci.yml'
+permissions:
+  contents: read
+jobs:
+  privacy-unit-and-source-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Syntax + isolated account and privacy regression tests
+        run: |
+          python -m py_compile apps/scene-builder/part01/experiment_browser.py apps/scene-builder/part01/app.py
+          python -m unittest discover -s tests -p 'test_experiment_browser_engine.py' -v
+      - name: Authenticated API / frontend boundaries remain explicit
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          app=Path('apps/scene-builder/part01/app.py').read_text()
+          js=Path('apps/scene-builder/part01/static/experiment_browser.js').read_text()
+          html=Path('apps/scene-builder/part01/templates/experiment_studio.html').read_text()
+          engine=Path('apps/scene-builder/part01/experiment_browser.py').read_text()
+          for suffix in ('/clone','/privacy','/connection-check'):
+              assert '"/api/experiment-browser/profiles/{profile_id}'+suffix+'"' in app
+          for marker in ('experiment_payload(request)', 'experiment_owner(request)'):
+              assert marker in app
+          for marker in ('browser-connection-check','browser-privacy','browser-clone'):
+              assert marker in js and marker in html
+          assert 'data-csrf="{{ experiment_csrf }}"' in html
+          assert 'ipify.org?format=json' in engine
+          assert '"verified_dns_leak_free": False' in engine
+          assert '"verified_webrtc_leak_free": False' in engine
+          assert 'stealth_guaranteed": False' in app
+          print('EXPERIMENT_PRIVACY_OFFLINE_CONTRACT=PASS')
+          PY
