@@ -37,8 +37,8 @@ FILES = (
     Path("part02/kokoro_worker.py"),
     Path("part03/edge_worker.py"),
 )
-BUSY = ("queued", "processing", "retry_wait", "pause_requested", "cancel_requested")
-DELIVERY_BUSY = ("pending", "retry_pending", "transferring", "delivered")
+BUSY = ("processing", "pause_requested", "cancel_requested")
+DELIVERY_BUSY = ("transferring",)
 DATA_ROOTS = (
     DATA / "voice-studio/kokoro/data/kokoro_jobs.sqlite3",
     DATA / "voice-studio/edge/data/edge_jobs.sqlite3",
@@ -90,7 +90,7 @@ def check_omnivoice_idle(path):
         cols = {column[1] for column in c.execute("PRAGMA table_info(jobs)")}
         require({"status","delivery_status"} <= cols,"OmniVoice schema unrecognized")
         busy = c.execute("""SELECT 1 FROM jobs WHERE status='processing'
-            OR delivery_status IN ('uploading','pending') LIMIT 1""").fetchone()
+            OR delivery_status IN ('uploading') LIMIT 1""").fetchone()
         require(busy is None,"OmniVoice generation or Drive upload active")
         return c
     except BaseException:
@@ -199,6 +199,9 @@ def install(revision):
         # so busy queues cannot strand a release and block later safe attempts.
         fences = check_idle_and_lock(DATA_ROOTS)
         fences.append(check_omnivoice_idle(OMNI_DB))
+        # Shared Voice web reload must also avoid interrupting independent downloader jobs.
+        from production.voice_template_release import require_idle_audio_downloader
+        require_idle_audio_downloader()
         target = stage(revision, previous)
         journal.mkdir(parents=True, mode=0o700)
         atomic_json(journal / "before.json", {

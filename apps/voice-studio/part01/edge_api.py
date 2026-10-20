@@ -1,6 +1,6 @@
 """Standalone Edge TTS API for Voice Studio. Separate SQLite state and worker; no OmniVoice/Kokoro coupling."""
 from __future__ import annotations
-import json, os, re, sqlite3, time, uuid
+import json, os, re, sqlite3, time, uuid, unicodedata
 from datetime import datetime, timezone
 from email import policy
 from email.parser import BytesParser
@@ -37,12 +37,46 @@ def init_storage():
           delivery_retries integer default 0,next_delivery_retry real default 0,
           drive_txt text,drive_mp3 text,drive_wav text,drive_srt text)''')
         c.execute('create index if not exists edge_job_queue on jobs(status,retry_at,created_at)')
+        migrate_output_metadata(c)
     with db() as c:
         migrate_queue(c, 'edge')
 
 def safe_name(s,maxlen=70):
-    s=re.sub(r'[^a-zA-Z0-9_\-]+','_',s or '').strip('_-')[:maxlen]
+    s=unicodedata.normalize('NFKC', s or '')
+    s=re.sub(r'[^\w-]+', '_', s, flags=re.UNICODE).strip('_-')[:maxlen].strip('_-')
     return s or 'narration'
+
+
+def choose_output_name(custom_name: str, source_filename: str, text: str, job_id: str, source_basename: str | None = None):
+    """Select a safe human-readable basename for one new job only."""
+    if custom_name and custom_name.strip():
+        return safe_name(custom_name), 'custom'
+    if source_filename and source_filename.lower().endswith('.txt'):
+        stem = source_basename or source_filename.replace('\\', '/').rsplit('/', 1)[-1][:-4]
+        if stem.strip():
+            return safe_name(stem), 'source_txt'
+    letters = [ch for ch in unicodedata.normalize('NFKC', text) if unicodedata.category(ch).startswith('L')]
+    prefix = safe_name(''.join(letters[:2]) or 'Au', 16)
+    return prefix + '_' + job_id, 'text_fallback'
+
+_METADATA_COLUMNS = {
+    'naming_method': "TEXT NOT NULL DEFAULT 'legacy'",
+    'drive_file_id': 'TEXT', 'drive_url': 'TEXT', 'drive_verified_at': 'TEXT',
+    'drive_files_json': "TEXT NOT NULL DEFAULT '{}'",
+}
+
+def migrate_output_metadata(con):
+    columns = {r[1] for r in con.execute('PRAGMA table_info(jobs)').fetchall()}
+    for name, data_type in _METADATA_COLUMNS.items():
+        if name not in columns:
+            con.execute('ALTER TABLE jobs ADD COLUMN ' + name + ' ' + data_type)
+
+def drive_files(row):
+    try:
+        raw = json.loads(row.get('drive_files_json') or '{}')
+        return raw if isinstance(raw, dict) else {}
+    except (TypeError, ValueError):
+        return {}
 
 def catalog():
     try:
@@ -84,19 +118,20 @@ class GenerateRequest(BaseModel):
     pitch:int=Field(default=0,ge=-50,le=50)
     volume:int=Field(default=0,ge=-50,le=100)
     batch_name:str=Field(default='',max_length=100)
+    output_name:str=Field(default='',max_length=120)
 
-def create_job(text,filename,voice,locale,rate,pitch,volume,batch_name,stem=None):
+def create_job(text,filename,voice,locale,rate,pitch,volume,batch_name,stem=None,custom_name=''):
     text=text.strip()
     if not text or len(text)>50000:raise HTTPException(422,'TXT must contain 1–50000 characters')
     jid='EDJ-'+uuid.uuid4().hex[:16].upper()
-    base=safe_name(stem or Path(filename).stem)
+    base,naming_method=choose_output_name(custom_name,filename,text,jid,stem)
     folder=DATA/'jobs'/jid
     folder.mkdir(mode=0o750,parents=True,exist_ok=False)
     src=folder/(base+'.txt')
     src.write_text(text+'\n',encoding='utf-8')
     with db() as c:
-        c.execute('''insert into jobs(job_id,batch_id,source_filename,output_basename,voice,locale,rate,pitch,volume,status,delivery_status,created_at,updated_at,input_file)
-             values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',(jid,batch_name,filename,base,voice,locale,rate,pitch,volume,'queued','waiting_generation',now(),now(),str(src)))
+        c.execute('''insert into jobs(job_id,batch_id,source_filename,output_basename,voice,locale,rate,pitch,volume,status,delivery_status,created_at,updated_at,input_file,naming_method)
+             values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',(jid,batch_name,filename,base,voice,locale,rate,pitch,volume,'queued','waiting_generation',now(),now(),str(src),naming_method))
     return jid
 
 @router.get('/status')
@@ -113,7 +148,7 @@ def voices():
 def generate(payload:GenerateRequest):
     init_storage();loc=settings(payload.voice,payload.locale,payload.rate,payload.pitch,payload.volume)
     batch=safe_name(payload.batch_name or 'single',40)+'-'+uuid.uuid4().hex[:8]
-    jid=create_job(payload.text,'narration.txt',payload.voice,loc,payload.rate,payload.pitch,payload.volume,batch,'narration')
+    jid=create_job(payload.text,'text-input',payload.voice,loc,payload.rate,payload.pitch,payload.volume,batch,custom_name=payload.output_name)
     return {'job_id':jid,'count':1}
 
 @router.post('/batch')
@@ -136,7 +171,7 @@ async def batch(request:Request):
             except UnicodeDecodeError:raise HTTPException(422,'TXT must use UTF-8')
             if not txt.strip() or len(txt.strip())>50000:raise HTTPException(422,'Invalid TXT length')
             items.append((Path(filename).name,txt))
-        elif key in ('voice','locale','rate','pitch','volume','batch_name'):
+        elif key in ('voice','locale','rate','pitch','volume','batch_name','output_name'):
             fields[key]=data.decode('utf-8',errors='replace')[:110]
     if not 1<=len(items)<=100:raise HTTPException(422,'Choose 1–100 TXT files')
     try:rate=int(fields.get('rate',0));pitch=int(fields.get('pitch',0));volume=int(fields.get('volume',0))
@@ -149,7 +184,7 @@ async def batch(request:Request):
         candidate=stem;i=2
         while candidate in used:candidate=f'{stem}_{i}';i+=1
         used.add(candidate)
-        jobs.append(create_job(txt,filename,voice,loc,rate,pitch,volume,batch_id,candidate))
+        jobs.append(create_job(txt,filename,voice,loc,rate,pitch,volume,batch_id,candidate,custom_name=(fields.get('output_name','')+(('_'+str(len(jobs)+1)) if jobs else ''))))
     return {'batch_id':batch_id,'count':len(jobs),'job_ids':jobs}
 
 @router.get('/jobs')
@@ -159,7 +194,9 @@ def jobs(limit:int=100):
     answer=[]
     for r in rows:
         v=job_view(r, 'edge')
-        item={k:v.get(k) for k in ('job_id','batch_id','source_filename','output_basename','voice','locale','status','queue_status','delivery_status','created_at','updated_at','error','delivery_error','progress','attempt','max_attempts','allowed_actions','drive_mp3','drive_wav','drive_txt','drive_srt')}
+        item={k:v.get(k) for k in ('job_id','batch_id','source_filename','output_basename','voice','locale','status','queue_status','delivery_status','created_at','updated_at','error','delivery_error','progress','attempt','max_attempts','allowed_actions','drive_mp3','drive_wav','drive_txt','drive_srt','naming_method','drive_file_id','drive_url','drive_verified_at','delivery_retries')}
+        item['output_filename']=v['output_basename']+'.mp3'
+        item['drive_files']=drive_files(v)
         for ext in ('mp3','wav','srt','txt'):
             path=v.get({'mp3':'mp3_file','wav':'wav_file','srt':'srt_file','txt':'input_file'}[ext])
             if path and Path(path).is_file():item[ext+'_url']='/tts/api/edge/files/'+v['job_id']+'/'+ext
@@ -174,6 +211,22 @@ def control(job_id:str,action:str):
             return apply_queue(c, 'edge', job_id, action)
     except QueueActionError as exc:
         raise HTTPException(exc.code, exc.detail) from exc
+
+@router.post('/jobs/{job_id}/delivery/retry')
+def retry_delivery(job_id: str):
+    init_storage()
+    if not ID_RE.fullmatch(job_id):
+        raise HTTPException(404, 'Job not found')
+    with db() as c:
+        row = c.execute('SELECT status,delivery_status,input_file,mp3_file FROM jobs WHERE job_id=?', (job_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, 'Job not found')
+        if row['status'] != 'completed' or row['delivery_status'] in ('delivered', 'cleaned'):
+            raise HTTPException(409, 'Only completed unverified outputs can retry Drive delivery')
+        if not row['input_file'] or not row['mp3_file'] or not Path(row['input_file']).is_file() or not Path(row['mp3_file']).is_file():
+            raise HTTPException(409, 'Local audio/source unavailable; generation is not restarted')
+        c.execute("UPDATE jobs SET delivery_status='retry_pending',delivery_error=NULL,next_delivery_retry=0 WHERE job_id=?", (job_id,))
+    return {'job_id': job_id, 'delivery_status': 'retry_pending'}
 
 @router.get('/files/{job_id}/{ext}')
 def file(job_id:str,ext:str):

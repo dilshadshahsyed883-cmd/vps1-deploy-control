@@ -28,7 +28,7 @@ class VoiceTTSReleaseTest(unittest.TestCase):
         with sqlite3.connect(self.paths[0]) as c:
             c.execute("update jobs set status='paused'")  # locks really released
 
-    def test_processing_and_queued_jobs_are_never_interrupted(self):
+    def test_inflight_synthesis_jobs_are_never_interrupted(self):
         for state in release.BUSY:
             with self.subTest(state=state):
                 self.mark(self.paths[0],state,"waiting_generation")
@@ -43,6 +43,20 @@ class VoiceTTSReleaseTest(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError,"active/queued synthesis"):
                     release.check_idle_and_lock(self.paths)
                 self.mark(self.paths[1],"completed","cleaned")
+
+    def test_safely_queued_and_retrying_jobs_survive_idle_fence(self):
+        # A DB writer fence prevents queued rows from being claimed during the
+        # release stop; existing source/audio files and metadata are untouched.
+        for state in ('queued','paused','retry_wait','completed'):
+            for delivery in ('waiting_generation','pending','retry_pending','delivered'):
+                with self.subTest(state=state,delivery=delivery):
+                    self.mark(self.paths[0],state,delivery)
+                    fences=release.check_idle_and_lock(self.paths)
+                    release.unlock(fences)
+                    with sqlite3.connect(self.paths[0]) as c:
+                        row=c.execute("select status,delivery_status from jobs").fetchone()
+                    self.assertEqual(row,(state,delivery))
+        self.mark(self.paths[0],'completed','cleaned')
 
     def test_omnivoice_active_work_is_blocked_and_idle_is_fenced(self):
         clone=Path(self.folder.name)/"clone.sqlite"
@@ -59,6 +73,9 @@ class VoiceTTSReleaseTest(unittest.TestCase):
         with sqlite3.connect(clone) as c:
             c.execute("update jobs set status='completed'")
         with sqlite3.connect(clone) as c:
+            c.execute("update jobs set delivery_status='pending'")
+        release.unlock([release.check_omnivoice_idle(clone)])  # persisted waiting uploads may resume after release
+        with sqlite3.connect(clone) as c:
             c.execute("update jobs set delivery_status='uploading'")
         with self.assertRaisesRegex(RuntimeError,"OmniVoice generation"):
             release.check_omnivoice_idle(clone)
@@ -69,6 +86,7 @@ class VoiceTTSReleaseTest(unittest.TestCase):
         script=(Path(__file__).resolve().parents[1]/"production/voice_tts_controls_release.py").read_text()
         self.assertIn("restore_aux_workers(auxiliary_states)",script)
         self.assertIn("fences.append(check_omnivoice_idle(OMNI_DB))",script)
+        self.assertIn('require_idle_audio_downloader()', script)
         self.assertLess(script.index('local_endpoint(engine, "jobs?limit=1")'),
                         script.index('for unit in WORKERS:', script.index("def start_all()")))
 
@@ -91,7 +109,7 @@ class VoiceTTSReleaseTest(unittest.TestCase):
         self.assertIn("part01/templates/voice_studio.html",files)
         self.assertIn("part02/kokoro_worker.py",files)
         self.assertIn("part03/edge_worker.py",files)
-        self.assertIn("delivered",release.DELIVERY_BUSY)
+        self.assertNotIn("delivered",release.DELIVERY_BUSY)
 
     def test_runtime_guard_and_no_default_auto_script_dispatch(self):
         root=Path(__file__).resolve().parents[1]
