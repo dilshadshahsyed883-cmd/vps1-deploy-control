@@ -164,7 +164,7 @@
     <section id="page-settings" class="page">
       <article class="panel sml-ai-panel"><div class="panel-head"><div><h2>Visual AI &amp; Search</h2><p>Local CPU model, shared embeddings for text and visual search.</p></div><span id="aiModelState" class="ai-pill">Checking…</span></div><p id="aiModelInfo"></p>
         <form id="aiConfigForm" class="sml-ai-filters"><label><span>Enable visual AI</span><input id="aiEnabled" type="checkbox"></label><label>Maximum queued batch<input id="aiBatchLimit" type="number" min="1" max="64" value="32"></label><label>Job timeout (seconds)<input id="aiTimeout" type="number" min="30" max="300" value="120"></label><button class="primary" type="submit">Save AI controls</button></form>
-        <div class="sml-ai-actions"><button class="ghost" data-ai-action="analyze">Queue model reindex</button><button class="ghost" data-ai-action="refresh">Refresh status</button></div><p id="aiCapabilities" class="api-note"></p>
+        <div class="sml-ai-actions"><button class="ghost" data-ai-action="reindex">Queue model reindex</button><button class="ghost" data-ai-action="refresh">Refresh status</button></div><p id="aiCapabilities" class="api-note"></p>
       </article>
       <article class="panel">
         <div class="panel-head"><div><h2>Editor API</h2><p>Versioned search, reserve, commit, release and authenticated media delivery for Scene Builder and future editors.</p></div><span class="ai-pill" id="editorApiPill">Checking…</span></div>

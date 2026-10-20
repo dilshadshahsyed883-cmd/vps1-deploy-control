@@ -268,12 +268,14 @@ class Workspace:
                 if self.housekeeping_callback and time.time()-last_housekeeping>15:
                     last_housekeeping=time.time();self.housekeeping_callback()
                 # Remove only generated search reference uploads after 12h; never model/media.
+                with connect(self.root) as c:
+                    retained={unpack(r['payload'],{}).get('filename') for r in c.execute("SELECT payload FROM ai_jobs WHERE kind='reference' AND state IN ('queued','running')")}
                 for p in (self.root/'ai_references').glob('*'):
-                    if p.is_file() and time.time()-p.stat().st_mtime>43200:p.unlink(missing_ok=True)
+                    if p.name not in retained and p.is_file() and time.time()-p.stat().st_mtime>43200:p.unlink(missing_ok=True)
             except (OSError,sqlite3.Error,ValueError):self.stop.wait(2)
     def enqueue_missing(self,limit):
         with connect(self.root) as c:
-            indexed={(r['media_type'],r['media_id']) for r in c.execute('SELECT media_type,media_id FROM ai_metadata')}
+            indexed={(r['media_type'],r['media_id']) for r in c.execute('SELECT media_type,media_id,state,model_version FROM ai_metadata') if r['state'] in ('failed','cancelled') or r['state']=='complete' and r['model_version']==VERSION}
             busy=c.execute("SELECT COUNT(*) FROM ai_jobs WHERE state IN ('queued','running')").fetchone()[0]
         n=0
         for asset in catalog(self.root):
@@ -286,7 +288,10 @@ class Workspace:
         with connect(self.root) as c:
             counts={r['state']:r['n'] for r in c.execute('SELECT state,COUNT(*) n FROM ai_metadata GROUP BY state')}
             jobs={r['state']:r['n'] for r in c.execute('SELECT state,COUNT(*) n FROM ai_jobs GROUP BY state')}
-        return {'model':MODEL,'model_version':VERSION,'ready':ready,'enabled':config.get('ai_engine_enabled')=='true',
+        assets=catalog(self.root)
+        with connect(self.root) as c:used={r['media_id'] for r in c.execute("SELECT DISTINCT media_id FROM media_reservations WHERE state='committed'")}
+        totals={'images':sum(a['type']=='image' for a in assets),'clips':sum(a['type']=='video' for a in assets),'approved_unused':sum(a['status']=='approved' and a['id'] not in used for a in assets),'exact_duplicate_review':sum(a.get('duplicate_state')=='duplicate' for a in assets)}
+        return {'totals':totals,'free_disk_bytes':__import__('shutil').disk_usage(self.root).free,'model':MODEL,'model_version':VERSION,'ready':ready,'enabled':config.get('ai_engine_enabled')=='true',
             'state':'AI Disabled' if config.get('ai_engine_enabled')!='true' else 'Ready' if ready else 'AI Disabled — local model not installed',
             'worker_running':bool(self.process and self.process.poll() is None),'counts':counts,'jobs':jobs,
             'threads':2,'max_worker_rss_mb':1536,'max_catalog':5000,'max_batch':int(config.get('ai_batch_limit','32')),
@@ -390,6 +395,9 @@ def register_ai_workspace(app,root,housekeeping_callback=None):
         if body.media_type not in ('all','video','image','source'):raise HTTPException(400,'Invalid media type')
         assets=catalog(root,body.media_type)
         if body.ids:assets=[x for x in assets if x['id'] in body.ids]
+        if body.reindex:
+            with connect(root) as c:
+                for a in assets:c.execute("UPDATE ai_metadata SET state='reindex_pending' WHERE media_type=? AND media_id=?",(a['type'],a['id']))
         cap=int(settings(root).get('ai_batch_limit','32'))
         return {'jobs':[enqueue(root,'analyze',a['type'],a['id']) for a in assets[:cap]],'remaining':max(0,len(assets)-cap)}
     @app.get('/api/v1/ai/jobs')

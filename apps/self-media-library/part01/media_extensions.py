@@ -189,13 +189,14 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
         remote = row["drive_file_path"]
         if row["drive_state"] != "verified" or not remote:
             raise HTTPException(404, "Image content is not available")
+        tmp=cache/('restore-'+uuid.uuid4().hex)
         try:
-            run_rclone(["copyto", remote, str(path)], timeout=180)
+            run_rclone(["copyto", remote, str(tmp)], timeout=180)
+            if sha256_file(tmp)!=row["sha256"]:raise RuntimeError("Remote integrity mismatch")
+            os.replace(tmp,path)
         except Exception:
-            raise HTTPException(503, "Verified remote image temporarily unavailable")
-        if hashlib.sha256(path.read_bytes()).hexdigest() != row["sha256"]:
-            path.unlink(missing_ok=True)
-            raise HTTPException(503, "Retrieved image failed integrity verification")
+            raise HTTPException(503, "Verified remote image temporarily unavailable or failed integrity")
+        finally:tmp.unlink(missing_ok=True)
         return path
 
     def persist_image(filename: str, file_path: Path, *, source_kind="local", source_locator="", rights_confirmed=False):
@@ -512,7 +513,12 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
             if row["drive_state"] != "verified" or not row["drive_clip_path"]:
                 raise HTTPException(404, "Clip is not available")
             try:
-                run_rclone(["copyto", row["drive_clip_path"], str(path)], timeout=180)
+                tmp=cache/('restore-'+uuid.uuid4().hex)
+                try:
+                    run_rclone(["copyto", row["drive_clip_path"], str(tmp)], timeout=180)
+                    if row['sha256'] and sha256_file(tmp)!=row['sha256']:raise RuntimeError('Remote integrity mismatch')
+                    os.replace(tmp,path)
+                finally:tmp.unlink(missing_ok=True)
             except Exception:
                 raise HTTPException(503, "Remote clip temporarily unavailable")
         return FileResponse(path, media_type="video/mp4")
