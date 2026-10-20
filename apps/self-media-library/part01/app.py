@@ -352,7 +352,13 @@ def clip_manifest(clip_id: str) -> dict:
 
 def write_clip_manifest(clip_id: str) -> Path:
     path = METADATA_DIR / f"{clip_id}.json"
-    path.write_text(json.dumps(clip_manifest(clip_id), indent=2, ensure_ascii=False), encoding="utf-8")
+    manifest = clip_manifest(clip_id)
+    try:
+        from ai_workspace import metadata
+        manifest["ai_content"] = metadata(DATA, "video", clip_id)
+    except (sqlite3.Error, HTTPException):
+        pass
+    path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
     return path
 
 
@@ -427,6 +433,10 @@ def source_drive_gate(source_id: str) -> dict:
             active_dependents += c.execute("SELECT COUNT(*) FROM ai_jobs WHERE state IN ('queued','running') AND (media_id=? OR media_id IN (SELECT id FROM clips WHERE source_id=?))",(source_id,source_id)).fetchone()[0]
         if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='media_reservations'").fetchone():
             active_dependents += c.execute("SELECT COUNT(*) FROM media_reservations WHERE source_id=? AND state='reserved' AND expires_at>?",(source_id,int(time.time()))).fetchone()[0]
+        if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ai_metadata'").fetchone():
+            stale_metadata = c.execute("SELECT COUNT(*) FROM ai_metadata a JOIN clips v ON a.media_id=v.id AND a.media_type='video' WHERE v.source_id=? AND (v.drive_verified_at IS NULL OR a.updated_at>v.drive_verified_at)",(source_id,)).fetchone()[0]
+        else:
+            stale_metadata = 0
         rows = c.execute(
             """SELECT id,thumb_filename,drive_state,drive_clip_path,drive_thumb_path,
                       drive_meta_path,drive_verified_at
@@ -460,8 +470,9 @@ def source_drive_gate(source_id: str) -> dict:
         "verified": verified,
         "failed": failed,
         "pending": pending,
-        "all_verified": total > 0 and verified == total and original_verified,
-        "cleanup_ready": total > 0 and verified == total and original_verified and active_dependents == 0,
+        "all_verified": total > 0 and verified == total and original_verified and stale_metadata == 0,
+        "cleanup_ready": total > 0 and verified == total and original_verified and active_dependents == 0 and stale_metadata == 0,
+        "stale_ai_metadata": stale_metadata,
         "original_verified": original_verified,
         "active_dependents": active_dependents,
         "unsafe_ids": unsafe[:100],
@@ -593,28 +604,31 @@ def ffprobe_duration(path: Path) -> float:
 
 
 def scene_boundaries(path: Path, threshold: float) -> list[float]:
-    # Read scene-change timestamps from ffmpeg showinfo. If detection fails, caller falls back to intervals.
-    cmd = [
-        "ffmpeg", "-hide_banner", "-i", str(path),
-        "-vf", f"select='gt(scene,{threshold})',showinfo",
-        "-an", "-f", "null", "-"
-    ]
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    times: list[float] = []
+    """Adaptive advisory cut candidates from actual low-resolution scene scores."""
+    import re
+    import statistics
+    try:
+        proc = subprocess.run([
+            "ffmpeg", "-hide_banner", "-threads", "2", "-i", str(path),
+            "-vf", "fps=5,scale=320:-2,select='gt(scene,0.05)',metadata=print",
+            "-an", "-f", "null", "-"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=600)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    samples=[];at=None
     for line in proc.stderr.splitlines():
-        marker = "pts_time:"
-        if marker in line:
-            try:
-                token = line.split(marker, 1)[1].split()[0]
-                t = float(token)
-                if t > 0:
-                    times.append(t)
-            except Exception:
-                pass
-    return sorted(set(times))
+        timestamp=re.search(r"pts_time:([0-9.]+)",line)
+        if timestamp:at=float(timestamp.group(1))
+        score=re.search(r"lavfi.scene_score=([0-9.]+)",line)
+        if score and at is not None and at>0:samples.append((at,float(score.group(1))))
+    if not samples:return []
+    adaptive=max(.05,min(float(threshold),statistics.median(v for _,v in samples)*1.2))
+    return sorted({round(at,3) for at,value in samples if value>=adaptive})
 
 
 def build_segments(duration: float, boundaries: list[float], min_s: float, max_s: float) -> list[tuple[float, float]]:
+    if not 0.5 <= min_s <= max_s <= 30:
+        raise ValueError("Clip duration profile must satisfy 0.5 <= min <= max <= 30")
     cuts = [0.0] + [x for x in boundaries if 0 < x < duration] + [duration]
     segments: list[tuple[float, float]] = []
     for a, b in zip(cuts, cuts[1:]):
@@ -1180,6 +1194,12 @@ def get_settings():
 
 @app.patch("/api/settings")
 def update_settings(body: SettingsUpdate):
+    values={**get_settings_map(),**body.values}
+    try:
+        minimum=float(values.get("clip_min_seconds",2));maximum=float(values.get("clip_max_seconds",4));threshold=float(values.get("scene_threshold",.32))
+        if not .5<=minimum<=maximum<=30 or not .05<=threshold<=.9:raise ValueError()
+    except (ValueError,TypeError):
+        raise HTTPException(400,"Use 0.5 <= minimum <= maximum <= 30 seconds and scene sensitivity 0.05–0.9")
     allowed = {"clip_min_seconds", "clip_max_seconds", "scene_threshold", "duplicate_detection", "quality_filter", "ai_auto", "source_cleanup", "drive_enabled", "drive_remote", "drive_root", "drive_verify", "drive_sync_metadata"}
     with db() as c:
         for k, v in body.values.items():
@@ -1259,6 +1279,24 @@ register_media_extensions(app, data_dir=DATA, db=db, now_iso=now_iso,
 # Advanced AI remains an additive, isolated service within the independent app.
 from ai_engine import model_ready
 from ai_workspace import register_ai_workspace
-register_ai_workspace(app, DATA)
+AI_HOUSEKEEPING_LOCK = threading.Lock()
+def queue_ai_housekeeping():
+    if not AI_HOUSEKEEPING_LOCK.acquire(blocking=False):return
+    def finish():
+        try:
+            values=get_settings_map()
+            if not setting_true(values,"drive_enabled"):return
+            with db() as c:
+                dirty=[r["id"] for r in c.execute("SELECT v.id FROM clips v JOIN ai_metadata a ON a.media_id=v.id AND a.media_type='video' WHERE v.drive_clip_path IS NOT NULL AND (v.drive_verified_at IS NULL OR a.updated_at>v.drive_verified_at) LIMIT 5")]
+            sync_metadata_batch(dirty)
+            if values.get("source_cleanup")=="after_drive_verified":
+                with db() as c:
+                    ids=[r["id"] for r in c.execute("SELECT id FROM sources WHERE source_deleted_at IS NULL AND drive_source_verified_at IS NOT NULL AND status='completed' LIMIT 10")]
+                for ident in ids:cleanup_source_if_drive_safe(ident)
+        except Exception:
+            pass  # Drive failures preserve local inputs and retry on the next pass.
+        finally:AI_HOUSEKEEPING_LOCK.release()
+    threading.Thread(target=finish,daemon=True).start()
+register_ai_workspace(app, DATA, housekeeping_callback=queue_ai_housekeeping)
 (DATA / 'ai_previews').mkdir(exist_ok=True)
 app.mount('/media/ai-previews', StaticFiles(directory=DATA / 'ai_previews'), name='ai-previews')

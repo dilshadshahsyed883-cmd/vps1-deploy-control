@@ -226,7 +226,8 @@ def run_worker(root):
 
 
 class Workspace:
-    def __init__(self,root):
+    def __init__(self,root,housekeeping_callback=None):
+        self.housekeeping_callback=housekeeping_callback
         self.root=Path(root);self.stop=threading.Event();self.thread=None;self.process=None
     def start(self):
         initialize(self.root)
@@ -240,7 +241,7 @@ class Workspace:
             with contextlib.suppress(subprocess.TimeoutExpired):self.process.wait(timeout=4)
             if self.process.poll() is None:self.process.kill();self.process.wait(timeout=3)
     def supervise(self):
-        last_scan=0
+        last_scan=0;last_housekeeping=0
         while not self.stop.wait(1):
             try:
                 ready=model_ready(self.root/'ai_models');config=settings(self.root)
@@ -262,6 +263,8 @@ class Workspace:
                                 c.execute("UPDATE ai_metadata SET state='failed',error='Worker timeout' WHERE media_type=? AND media_id=?",(row['media_type'],row['media_id']))
                     if config.get('ai_auto')=='true' and time.time()-last_scan>5:
                         last_scan=time.time();self.enqueue_missing(int(config.get('ai_batch_limit','32')))
+                if self.housekeeping_callback and time.time()-last_housekeeping>15:
+                    last_housekeeping=time.time();self.housekeeping_callback()
                 # Remove only generated search reference uploads after 12h; never model/media.
                 for p in (self.root/'ai_references').glob('*'):
                     if p.is_file() and time.time()-p.stat().st_mtime>43200:p.unlink(missing_ok=True)
@@ -336,11 +339,12 @@ class Workspace:
             emb=unpack(r.get('embedding_json'),[])
             if vector and (r.get('model_version')!=VERSION or not emb):continue
             similarity=cosine(vector,emb) if vector else 0
+            if vector and rights_only and similarity<.20:continue
             text_similarity=max(cosine(vector,unpack(r.get('manual_embedding_json'),[])),cosine(vector,unpack(r.get('text_embedding_json'),[]))) if vector and not visual_only else 0
             text=(str(effective.get('description') or '')+' '+tags+' '+json.dumps(effective.get('ocr',{}))+' '+json.dumps(effective.get('transcript',{}))).lower()
             terms=query.lower().split();lexical=sum(t in text for t in terms)/max(1,len(terms))
             score=.85*similarity+.10*(q/100)+.05*(.5*lexical+.5*max(0.,(text_similarity-.4)/.6)) if vector else q/100
-            items.append({**public_asset(a),'description':effective.get('description') or a.get('description'),
+            items.append({**public_asset(a),'description':effective.get('description',a.get('description')),
                 'ai_state':r.get('state','pending'),'model_version':r.get('model_version',''),'quality':q,
                 'rights_confirmed':bool(rights),'usage_count':count,'semantic_similarity':round(similarity,5),
                 'score':round(score,5),'metadata':effective,'manual_fields':list(manual),'revision':r.get('revision',0)})
@@ -367,8 +371,8 @@ class AIConfig(BaseModel):
     job_timeout:int=Field(default=120,ge=30,le=300)
 
 
-def register_ai_workspace(app,root):
-    workspace=Workspace(root);root=Path(root);app.state.ai_workspace=workspace
+def register_ai_workspace(app,root,housekeeping_callback=None):
+    workspace=Workspace(root,housekeeping_callback);root=Path(root);app.state.ai_workspace=workspace
     app.router.add_event_handler('startup',workspace.start);app.router.add_event_handler('shutdown',workspace.close)
     @app.get('/api/v1/ai/status')
     def ai_status():return workspace.status()
@@ -381,6 +385,7 @@ def register_ai_workspace(app,root):
     @app.post('/api/v1/ai/analyze')
     def analyze(body:AnalyzeRequest):
         workspace.require_ready()
+        if body.media_type not in ('all','video','image','source'):raise HTTPException(400,'Invalid media type')
         assets=catalog(root,body.media_type)
         if body.ids:assets=[x for x in assets if x['id'] in body.ids]
         cap=int(settings(root).get('ai_batch_limit','32'))

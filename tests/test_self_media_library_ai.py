@@ -88,6 +88,29 @@ class WorkspaceTests(unittest.TestCase):
         self.client.post('/api/v1/ai/jobs/'+job+'/cancel')
         self.assertTrue(m.source_drive_gate('source')['cleanup_ready'])
 
+    def test_real_adaptive_scene_cut_and_default_segments(self):
+        video=self.root/'cut.mp4'
+        subprocess.run(['ffmpeg','-v','error','-f','lavfi','-i','color=c=red:s=64x64:d=3[r];color=c=blue:s=64x64:d=3[b];[r][b]concat=n=2:v=1:a=0','-threads','1',str(video)],check=True,timeout=30)
+        cuts=self.module.scene_boundaries(video,.32)
+        self.assertTrue(any(abs(t-3)<.4 for t in cuts),cuts)
+        segments=self.module.build_segments(6,cuts,2,4)
+        self.assertTrue(all(2<=b-a<=4 for a,b in segments),segments)
+        with self.assertRaises(ValueError):self.module.build_segments(6,[],0,0)
+
+    def test_durable_imports_and_duration_validation(self):
+        c=self.client
+        response=c.post('/api/v1/media/imports/batch',json=[{'source':'youtube','value':'https://www.youtube.com/watch?v=fixture','rights_confirmed':False} for _ in range(2)])
+        self.assertEqual(response.status_code,200,response.text)
+        ids=[x['job_id'] for x in response.json()['items']]
+        from ai_workspace import connect
+        with connect(self.root) as db:
+            rows=db.execute('SELECT request_json FROM media_imports WHERE id IN (?,?)',ids).fetchall()
+            self.assertEqual(len(rows),2);self.assertTrue(all(r['request_json'] for r in rows))
+            db.execute("UPDATE media_imports SET status='failed' WHERE id=?",(ids[0],))
+        self.assertEqual(c.post('/api/v1/media/imports/'+ids[0]+'/retry').status_code,200)
+        self.assertEqual(c.patch('/api/settings',json={'values':{'clip_min_seconds':'0','clip_max_seconds':'4'}}).status_code,400)
+        self.assertEqual(c.patch('/api/settings',json={'values':{'clip_min_seconds':'2','clip_max_seconds':'4'}}).status_code,200)
+
     def test_collections_and_quality_are_non_destructive(self):
         i=self.image();c=self.client
         s=c.post('/api/v1/ai/collections',json={'name':'Approved wides','query':'','filters':{'status':'approved','orientation':'landscape'}})
@@ -137,6 +160,8 @@ class RealInferenceTests(unittest.TestCase):
             winners=np.argmax(np.asarray(qvectors)@np.asarray(vectors).T,axis=1).tolist()
             self.assertEqual(winners,[0,1,2],{'winners':winners})
             self.assertEqual(reports[0]['fields']['objects'][0]['value'],'tiger')
+            self.assertEqual(len(reports[0]['crop_recommendations']),3)
+            self.assertTrue(all(c['width']>0 and c['height']>0 and c['uncertain'] for c in reports[0]['crop_recommendations']))
             with Image.open(root/'opaque-0.jpg') as im:ref=engine.embed_image(im)
             self.assertEqual(int(np.argmax(np.asarray(vectors)@ref)),0)
             # Real short video uses independently sampled frames with timestamps.

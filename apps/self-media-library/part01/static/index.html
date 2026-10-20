@@ -54,6 +54,7 @@
     </section>
 
     <section id="page-sources" class="page">
+      <article class="panel sml-ai-panel"><div class="panel-head"><div><h2>Folder &amp; batch input</h2><p>Select a local folder recursively, or queue up to 32 authorized video URLs.</p></div></div><label>Local folder<input type="file" id="aiFolderInput" webkitdirectory multiple></label><label>Authorized YouTube URLs (one per line)<textarea id="aiBatchUrls" rows="3"></textarea></label><label><input id="aiBatchRights" type="checkbox"> I have permission to import and reuse these videos</label><button class="ghost" id="aiBatchImport">Queue URL batch</button><p id="aiInputStatus" role="status"></p></article>
       <article class="drop-panel" id="dropPanel">
         <input type="file" id="sourceFile" accept=".mp4,.mov,.mkv,.webm,.m4v,.avi,video/*" multiple hidden />
         <div class="drop-icon">＋</div>
@@ -110,7 +111,7 @@
           <label>Duplicates<select name="duplicate"><option value="all">All media</option><option value="clear">Exclude exact duplicates</option><option value="exact">Exact duplicates</option></select></label>
           <label>From date<input name="date_from" type="date"></label><label>To date<input name="date_to" type="date"></label>
         </div></details>
-        <div class="sml-ai-actions"><label>Reference image<input type="file" id="aiReference" accept="image/jpeg,image/png,image/webp"></label><button class="ghost" id="aiSaveSearch">Save search</button><select id="aiCollections" aria-label="Saved searches"><option value="">Saved searches &amp; collections</option></select><button class="ghost" id="aiDuplicates">Review similar copies</button></div>
+        <div class="sml-ai-actions"><label>Reference image<input type="file" id="aiReference" accept="image/jpeg,image/png,image/webp"></label><button class="ghost" id="aiSaveSearch">Save search</button><select id="aiCollections" aria-label="Saved searches"><option value="">Saved searches &amp; collections</option></select><button class="ghost" id="aiDuplicates">Review similar copies</button><button class="ghost" id="aiCompare">Compare two selected</button></div>
         <div class="sml-ai-actions"><span id="aiSelectedCount">0 selected</span><button class="ghost" data-ai-bulk="approved">Approve selected</button><button class="ghost" data-ai-bulk="rejected">Reject selected</button><button class="ghost" id="aiBulkTags">Tag selected</button></div>
         <p id="aiSearchStatus" role="status" aria-live="polite">Search all media, or enter a scene description for semantic ranking.</p>
         <div id="aiResults" class="sml-ai-grid"></div><div id="aiDuplicateResults"></div>
@@ -173,8 +174,8 @@
       </article>
       <article class="panel settings-panel">
         <div class="panel-head"><div><h2>Library processing</h2><p>Stable controls for how new library clips are created.</p></div><div class="ai-pill" id="aiPill">AI status</div></div>
-        <div class="setting-row"><div><b>Minimum clip length</b><span>Do not keep fragments shorter than this.</span></div><div class="number-field"><input id="clipMin" type="number" min="1" max="4" step="0.5"/><span>sec</span></div></div>
-        <div class="setting-row"><div><b>Maximum clip length</b><span>Hard cap for library clips.</span></div><div class="number-field"><input id="clipMax" type="number" min="2" max="8" step="0.5"/><span>sec</span></div></div>
+        <div class="setting-row"><div><b>Minimum clip length</b><span>Do not keep fragments shorter than this.</span></div><div class="number-field"><input id="clipMin" type="number" min="0.5" max="30" step="0.5"/><span>sec</span></div></div>
+        <div class="setting-row"><div><b>Maximum clip length</b><span>Hard cap for library clips.</span></div><div class="number-field"><input id="clipMax" type="number" min="0.5" max="30" step="0.5"/><span>sec</span></div></div>
         <div class="setting-row"><div><b>Scene sensitivity</b><span>Higher values detect only stronger visual cuts.</span></div><input id="sceneThreshold" type="range" min="0.15" max="0.6" step="0.01"/></div>
         <div class="setting-row"><div><b>Automatic AI metadata</b><span>Run the configured vision analyzer after clipping.</span></div><label class="switch"><input id="aiAuto" type="checkbox"><span></span></label></div>
         <div class="setting-row"><div><b>Duplicate detection</b><span>Keep the control ready for perceptual duplicate checks.</span></div><label class="switch"><input id="dupToggle" type="checkbox"><span></span></label></div>
@@ -223,7 +224,7 @@
 <div id="toast" class="toast hidden"></div>
 <script src="/self-media-library/static/app.js?v=20261020-ai-worker-v4"></script>
 <aside id="aiInspector" class="sml-ai-inspector hidden" aria-label="AI metadata inspector"><div class="panel-head"><h2 id="aiInspectorTitle">Media inspector</h2><button id="aiInspectorClose" class="ghost" aria-label="Close AI inspector">Close</button></div><div id="aiInspectorMedia"></div><p id="aiInspectorState"></p>
-<form id="aiMetadataForm"><label>Description<textarea id="aiDescription" rows="3"></textarea></label><label>Keywords (comma separated)<input id="aiKeywords"></label><label>Review reason<input id="aiReviewReason" maxlength="500"></label><label><input id="aiRights" type="checkbox"> I have permission to reuse this asset</label><div id="aiManualCategories" class="sml-ai-filters"></div><button class="primary" type="submit">Save corrections</button></form>
+<form id="aiMetadataForm"><label>Description<textarea id="aiDescription" rows="3"></textarea></label><label>Keywords (comma separated)<input id="aiKeywords"></label><label>Review reason<input id="aiReviewReason" maxlength="500"></label><label>Custom fields (JSON object)<textarea id="aiCustom" rows="2">{}</textarea></label><label>Tag aliases (JSON object)<textarea id="aiAliases" rows="2">{}</textarea></label><label><input id="aiRights" type="checkbox"> I have permission to reuse this asset</label><div id="aiManualCategories" class="sml-ai-filters"></div><button class="primary" type="submit">Save corrections</button></form>
 <div class="sml-ai-actions"><button class="ghost" id="aiReanalyze">Reanalyze media</button><button class="ghost" id="aiSimilar">Find similar</button><button class="ghost" id="aiHistory">Change &amp; usage history</button></div><div id="aiFieldDetails"></div><div id="aiHistoryDetails"></div></aside>
 <script defer src="/self-media-library/static/ai_workspace.js?v=20261020-ai-v1"></script>
 </body>

@@ -269,3 +269,7 @@ body.vps1-native-library .sml-ai-panel{margin-bottom:20px}
 @media(max-width:390px){.sml-ai-grid{grid-template-columns:1fr}}
 .sml-ai-panel p,.sml-ai-panel code,#aiModelInfo,#aiCapabilities{overflow-wrap:anywhere;word-break:break-word;min-width:0}
 .sml-ai-filters>*{min-width:0}
+
+.sml-ai-panel textarea{display:block;width:100%;box-sizing:border-box;min-width:0;max-width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font:inherit;margin:8px 0}
+
+#aiDuplicateResults img,#aiDuplicateResults video{width:100%;max-height:260px;object-fit:contain}

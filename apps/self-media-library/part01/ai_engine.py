@@ -30,6 +30,8 @@ CATEGORIES = {
  'shot': ['close-up shot','medium shot','wide landscape shot','aerial view','portrait photograph','macro photograph'],
  'lighting': ['daylight','night','indoor lighting','studio lighting','golden hour sunset','soft overcast light','high contrast light'],
  'mood': ['peaceful atmosphere','dramatic atmosphere','energetic atmosphere','mysterious atmosphere'],
+ 'relationships': ['person inside a car','person near a building','animal in a forest','boat on water','flowers in a garden','no clear relationship'],
+ 'branding': ['visible watermark or logo overlay','photograph without a visible logo overlay'],
 }
 
 
@@ -124,7 +126,7 @@ class ClipEngine:
 
     def analyze(self,path,media_type,duration=0,contact_path=None):
         from PIL import Image,ImageOps
-        np=self.np;started=time.monotonic();frames=[];vectors=[];contact_images=[];ocr_results=[]
+        np=self.np;started=time.monotonic();frames=[];vectors=[];contact_images=[];ocr_results=[];crops=[]
         with tempfile.TemporaryDirectory(prefix='sml-vision-') as tmp:
             times=[0.] if media_type=='image' else sorted(set(round(max(0,duration)*f,3) for f in (.15,.5,.85)))
             for i,at in enumerate(times):
@@ -148,6 +150,7 @@ class ClipEngine:
                         fields[group]=[{'value':labels[int(j)],'confidence':round(float(probability[j]),4),
                             'similarity':round(float(similarity[j]),4),'origin':'generated','provider':MODEL,
                             'model_version':VERSION,'timestamp':at,'uncertain':True} for j in best]
+                    if i==len(times)//2:crops=self.crop_recommendations(im,fields['objects'][0]['value'])
                     frames.append({'timestamp':at,'fields':fields,'quality':measures})
         if contact_path and contact_images:
             strip=Image.new('RGB',(240*len(contact_images),160))
@@ -158,6 +161,7 @@ class ClipEngine:
         fields=frames[len(frames)//2]['fields']
         description='Visual model suggestions: '+', '.join(fields[k][0]['value'] for k in ('objects','environment','shot','lighting'))+'. Review uncertain tags.'
         return {'model':MODEL,'model_version':VERSION,'description':description,'fields':fields,
+                'crop_recommendations':crops,'review_alerts':['Possible logo/watermark: review source rights'] if fields['branding'][0]['value']=='visible watermark or logo overlay' else [],
                 'frames':frames,'elapsed_seconds':round(time.monotonic()-started,3),
                 'confidence_note':'Relative scores within a fixed candidate set; not calibrated probabilities. Actions, lighting and mood are suggestions. Still frames cannot verify camera movement.',
                 'unsupported':['camera_movement','identity'],
@@ -165,6 +169,22 @@ class ClipEngine:
                 'transcript':self.speech.transcribe(path,duration) if media_type!='image' else {'state':'not_applicable','text':''},
                 'quality':frames[len(frames)//2]['quality'],
                 'embedding':vector.tolist()}
+
+
+    def crop_recommendations(self,image,subject):
+        w,h=image.size;target=self.labels['objects'][CATEGORIES['objects'].index(subject)];out=[]
+        for name,ratio in [('16:9',16/9),('9:16',9/16),('1:1',1.)]:
+            cw=min(w,int(h*ratio));ch=min(h,int(w/ratio));cw=max(1,cw);ch=max(1,ch)
+            candidates=[]
+            for fraction in (0.,.5,1.):
+                x=round((w-cw)*fraction);y=round((h-ch)*fraction)
+                score=float(self.embed_image(image.crop((x,y,x+cw,y+ch)))@target)
+                candidates.append((score,x,y))
+            score,x,y=max(candidates)
+            out.append({'aspect':name,'x':x,'y':y,'width':cw,'height':ch,'subject_suggestion':subject,
+                        'relevance':round(score,4),'uncertain':True,'method':'CLIP-ranked feasible crop windows',
+                        'note':'Review framing; this is not an object bounding box and does not alter the original.'})
+        return out
 
 
 def quality_metrics(image,np):

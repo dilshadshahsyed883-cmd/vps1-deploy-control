@@ -90,8 +90,12 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
     for path in (images, previews, cache):
         path.mkdir(parents=True, exist_ok=True)
 
+    import_stop = threading.Event()
+    import_thread = None
+
     @app.on_event("startup")
     def init_media_v2():
+        nonlocal import_thread
         with db() as conn:
             conn.executescript("""
                 CREATE TABLE IF NOT EXISTS image_assets (
@@ -146,7 +150,17 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
             }.items():
                 if column not in {col["name"] for col in conn.execute("PRAGMA table_info(image_assets)")}:
                     conn.execute(f"ALTER TABLE image_assets ADD COLUMN {column} {definition}")
-            conn.execute("UPDATE media_imports SET status='failed',message='Interrupted by restart',updated_at=? WHERE status='processing'", (now_iso(),))
+            if 'request_json' not in {col['name'] for col in conn.execute('PRAGMA table_info(media_imports)')}:
+                conn.execute("ALTER TABLE media_imports ADD COLUMN request_json TEXT")
+            conn.execute("UPDATE media_imports SET status=CASE WHEN request_json IS NULL THEN 'failed' ELSE 'queued' END,message='Recovered after restart',updated_at=? WHERE status='processing'", (now_iso(),))
+        import_stop.clear()
+        import_thread=threading.Thread(target=dispatch_imports,daemon=True)
+        import_thread.start()
+
+    @app.on_event("shutdown")
+    def stop_imports():
+        import_stop.set()
+        if import_thread:import_thread.join(timeout=2)
 
     def check_editor_token(value: str):
         expected = os.environ.get("SML_EDITOR_API_TOKEN", "").strip()
@@ -621,6 +635,32 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
         finally:
             shutil.rmtree(temp_dir,ignore_errors=True)
 
+    def dispatch_imports():
+        while not import_stop.wait(1):
+            try:
+                with db() as conn:
+                    conn.execute('BEGIN IMMEDIATE')
+                    job=conn.execute("SELECT * FROM media_imports WHERE status='queued' ORDER BY created_at LIMIT 1").fetchone()
+                    if job:conn.execute("UPDATE media_imports SET status='processing',updated_at=? WHERE id=?",(now_iso(),job['id']))
+                if job:background_import(job['id'],ImportRequest(**json.loads(job['request_json'])))
+            except Exception:
+                # Keep the dispatcher alive; original media remains protected.
+                if import_stop.wait(2):return
+
+    @app.post('/api/v1/media/imports/{job_id}/retry')
+    def retry_import(job_id:str):
+        with db() as conn:
+            row=conn.execute('SELECT * FROM media_imports WHERE id=?',(job_id,)).fetchone()
+            if not row:raise HTTPException(404,'Import not found')
+            if row['status']!='failed' or not row['request_json']:raise HTTPException(409,'Only a failed saved request can be retried')
+            conn.execute("UPDATE media_imports SET status='queued',message='Retry queued',updated_at=? WHERE id=?",(now_iso(),job_id))
+        return {'ok':True,'status':'queued'}
+
+    @app.post('/api/v1/media/imports/batch')
+    def batch_imports(items:list[ImportRequest]):
+        if not 1<=len(items)<=32:raise HTTPException(400,'Use 1 to 32 import requests per batch')
+        return {'items':[create_import(body) for body in items]}
+
     @app.post("/api/v1/media/imports")
     def create_import(body: ImportRequest):
         if body.source not in {"drive","youtube"}:
@@ -629,10 +669,9 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
             raise HTTPException(400, "A source path or URL is required")
         job_id = uuid.uuid4().hex[:14]
         with db() as conn:
-            conn.execute("INSERT INTO media_imports(id,source_type,name,status,created_at,updated_at) VALUES(?,?,?,?,?,?)",
-                         (job_id,body.source,body.value[:250],"processing",now_iso(),now_iso()))
-        threading.Thread(target=background_import,args=(job_id,body),daemon=True).start()
-        return {"ok": True, "job_id": job_id, "status": "processing"}
+            conn.execute("INSERT INTO media_imports(id,source_type,name,status,created_at,updated_at,request_json) VALUES(?,?,?,?,?,?,?)",
+                         (job_id,body.source,body.value[:250],"queued",now_iso(),now_iso(),body.model_dump_json()))
+        return {"ok": True, "job_id": job_id, "status": "queued"}
 
     @app.get("/api/v1/media/imports")
     def list_imports():

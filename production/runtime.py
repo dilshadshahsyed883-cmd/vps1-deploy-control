@@ -427,9 +427,9 @@ def install_app(app, revision):
             os.chown(models, 1000, 1000)
             run(['runuser','-u','ubuntu','--',venv / 'bin/python',
                  release / 'part01/ai_engine.py','--prepare',models],timeout=600,quiet=True)
-            if not shutil.which('tesseract'):
+            if not shutil.which('tesseract') or not Path('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf').is_file():
                 run(['apt-get','update','-qq'],timeout=300,quiet=True)
-                run(['apt-get','install','-y','--no-install-recommends','tesseract-ocr'],timeout=300,quiet=True)
+                run(['apt-get','install','-y','--no-install-recommends','tesseract-ocr','fonts-dejavu-core'],timeout=300,quiet=True)
             speech_models = state / 'sml/speech_models'
             speech_models.mkdir(exist_ok=True)
             os.chown(speech_models,1000,1000)
