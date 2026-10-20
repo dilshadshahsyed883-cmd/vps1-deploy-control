@@ -58,9 +58,13 @@ def patch_template(payload: bytes) -> bytes:
     if (payload.count(NEW_ASSETS) == 1 and
             payload.count(OLD_ASSETS) == 0 and
             payload.count(PREVIOUS_ASSETS) == 0):
-        require(payload.count(ASSET_NOTE) == 1 and
-                b'id="vsEngineOmni"' in payload and
-                b'id="vsEngineKokoro"' in payload,
+        # Runtime may have received the canonical assets through a different
+        # approved Voice feature overlay, which does not preserve ASSET_NOTE.
+        # The marker is a comment, not a security boundary; require exact
+        # canonical assets plus unique engine controls and reject duplicates.
+        require(payload.count(ASSET_NOTE) <= 1 and
+                payload.count(b'id="vsEngineOmni"') == 1 and
+                payload.count(b'id="vsEngineKokoro"') == 1,
                 "current Voice sidebar assets or engine controls invalid")
         return payload
     # The last approved Voice sidebar-only release already moved assets above
