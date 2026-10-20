@@ -238,6 +238,8 @@ def install(revision):
               idle_gate="PASS", db_backup="PASS", affected_units=list(UNITS),
               other_workers="RESTORED_TO_PREVIOUS_STATE",
               live_controls="PASS", owner_jobs_mutated=False,
+              real_audio_smoke=qa.get("generated_audio_proof",{}).get("result","NOT_RUN"),
+              audio_qa_by_engine=qa.get("generated_audio_proof",{}).get("engines",{}),
               drive_upload_smoke=qa["drive_real_upload_proof"]["result"],
               drive_upload_engine=qa["drive_real_upload_proof"].get("engine","none"),
               drive_upload_reason=qa["drive_real_upload_proof"].get("reason","none"),
