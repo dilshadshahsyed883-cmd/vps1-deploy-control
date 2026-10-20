@@ -5,6 +5,7 @@ import hashlib
 import configparser
 import re
 import tempfile
+import time
 import json
 import secrets
 import socket
@@ -229,6 +230,27 @@ def remote_folder_preflight(executable, config, root):
     except (OSError,ValueError,TypeError,subprocess.TimeoutExpired):
         return {"status":"PROBE_ERROR"}
 
+def run_rclone_with_quota_backoff(command, timeout):
+    """Retry ONLY temporary API throttling; no retries for ACL or storage denial.
+
+    A successful copyto is not repeated because receipt lsjson is retried
+    independently. Never log or return raw Google stderr.
+    """
+    for attempt in range(4):
+        response=subprocess.run(command,capture_output=True,text=True,timeout=timeout)
+        if response.returncode == 0:
+            return response
+        error=(response.stderr or "")
+        reason=safe_google_error_reason(error)
+        throttled=(reason in ("rateLimitExceeded","userRateLimitExceeded") or
+                   "429" in error or "too many requests" in error.lower() or
+                   "rate limit" in error.lower())
+        if not throttled or attempt==3:
+            return response
+        time.sleep((10,30,60)[attempt])
+    return response
+
+
 def drive_upload_smoke_once():
     """Two tiny dedicated QA TXT files; verify actual VPS rclone Drive upload.
 
@@ -265,17 +287,16 @@ def drive_upload_smoke_once():
             command=[executable,"--config",str(config),"--tpslimit","1",
                      "--tpslimit-burst","1","--retries","1","--low-level-retries","1"]
             try:
-                sent=subprocess.run(command+["copyto","--ignore-existing",
-                                             str(local),destination],
-                                    capture_output=True,text=True,timeout=150)
+                sent=run_rclone_with_quota_backoff(command+["copyto","--ignore-existing",
+                                             str(local),destination],timeout=150)
                 if sent.returncode:
                     return {"result":"INCOMPLETE","engine":engine,
                             "reason":"remote_copy_failed",
                             "category":classify_remote_error(sent.stderr),
                             "google_reason":safe_google_error_reason(sent.stderr),
                             "diagnostics":diagnostics,"completed":completed}
-                read=subprocess.run(command+["lsjson","--stat","--hash",destination],
-                                    capture_output=True,text=True,timeout=70)
+                read=run_rclone_with_quota_backoff(command+["lsjson","--stat","--hash",destination],
+                                                  timeout=70)
                 if read.returncode:
                     return {"result":"INCOMPLETE","engine":engine,
                             "reason":"remote_receipt_lookup_failed",

@@ -157,6 +157,52 @@ class VoiceLiveAcceptanceTests(unittest.TestCase):
         self.assertFalse((journal/"drive-qa-one-time-receipt.json").exists())
         self.assertEqual(result["google_reason"],"other")
 
+    def test_rate_limited_receipt_stat_retries_without_recopy(self):
+        from production import voice_tts_live_acceptance as acceptance
+        folder=Path(self.temp.name)/"quota-check"
+        folder.mkdir()
+        remote={}
+        attempts={"stat":0,"copy":0}
+        def run(args,**kwargs):
+            if "copyto" in args:
+                attempts["copy"]+=1
+                remote[args[-1]]=Path(args[-2]).read_bytes()
+                return SimpleNamespace(returncode=0,stdout="",stderr="")
+            if args[-1] in ("gdrive:Omni Voice/Kokoro","gdrive:Omni Voice/Edge TTS"):
+                return SimpleNamespace(returncode=0,stdout=json.dumps({"IsDir":True}),stderr="")
+            if "lsjson" in args:
+                attempts["stat"]+=1
+                if attempts["stat"]==1:
+                    return SimpleNamespace(returncode=1,stdout="",stderr="Google API Error 403: rateLimitExceeded secret=DO_NOT_LOG")
+                data=remote[args[-1]]
+                return SimpleNamespace(returncode=0,stderr="",stdout=json.dumps({
+                    "ID":"rate-limit-test-id", "Size":len(data),
+                    "Name":args[-1].rsplit("/",1)[-1],
+                    "Hashes":{"MD5":hashlib.md5(data).hexdigest()}}))
+            raise AssertionError("Unexpected command")
+        old=Path.is_file
+        config=Path("/home/ubuntu/.config/masterctl/rclone.conf")
+        with mock.patch.object(acceptance,"JOURNALS",folder), \
+             mock.patch.object(acceptance.shutil,"which",return_value="/usr/bin/rclone"), \
+             mock.patch.object(Path,"is_file",lambda p:p==config or old(p)), \
+             mock.patch.object(acceptance.subprocess,"run",side_effect=run), \
+             mock.patch.object(acceptance.time,"sleep",return_value=None) as sleep:
+            result=acceptance.drive_upload_smoke_once()
+        self.assertEqual(result["result"],"PASS")
+        self.assertEqual(attempts["copy"],2)
+        self.assertEqual(attempts["stat"],3)
+        sleep.assert_called_once_with(10)
+
+    def test_access_denial_does_not_trigger_quota_retry(self):
+        from production import voice_tts_live_acceptance as acceptance
+        denied=SimpleNamespace(returncode=1,stdout="",stderr="403 insufficientFilePermissions SECRET")
+        with mock.patch.object(acceptance.subprocess,"run",return_value=denied) as run, \
+             mock.patch.object(acceptance.time,"sleep") as sleep:
+            result=acceptance.run_rclone_with_quota_backoff(["rclone","lsjson","remote"],timeout=10)
+        self.assertEqual(result.returncode,1)
+        run.assert_called_once()
+        sleep.assert_not_called()
+
     def test_rclone_errors_are_redacted_into_safe_categories(self):
         from production.voice_tts_live_acceptance import classify_remote_error
         self.assertEqual(classify_remote_error("didn't find section in config file"),"remote_config")
