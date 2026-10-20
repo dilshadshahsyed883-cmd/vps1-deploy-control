@@ -103,6 +103,16 @@ class ModeServicesTests(unittest.TestCase):
                     attempts=2, interval=0,
                 )
 
+    def test_installer_must_verify_real_embedded_html_after_health(self):
+        # Guards against regressions where green loopback health masks HTTP 500
+        # in the independent app; a health-only installer may not pass release.
+        source = (Path(__file__).resolve().parents[1] / "production/workers.py").read_text()
+        self.assertIn('app?embedded=1&tab=auto_engine', source)
+        self.assertIn('embedded_html="PASS"', source)
+        self.assertIn('X-App-Access": "lum"', source)
+        self.assertIn('b"Auto Engine" not in page', source)
+        self.assertIn('Independent {mode} embedded HTML failed', source)
+
     def test_worker_unit_scope_does_not_write_parent_apps(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(workers, "DATA", Path(tmp)):
             text = workers.unit(
