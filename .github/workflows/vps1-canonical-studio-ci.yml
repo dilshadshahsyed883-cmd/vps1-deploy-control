@@ -8,6 +8,7 @@ on:
       - 'apps/video-merger/part01/templates/index.html'
       - 'production/test_canonical_studio_navigation.py'
       - 'production/test_video_studio_geometry.py'
+      - 'production/test_unified_sidebar_navigation.py'
       - '.github/workflows/vps1-native-studio-release.yml'
       - '.github/workflows/vps1-canonical-studio-ci.yml'
   workflow_dispatch:
@@ -25,3 +26,5 @@ jobs:
         run: python3 -m unittest production.test_canonical_studio_navigation -v
       - name: Four independently rendered Video Studio tabs align on one grid
         run: python3 -m unittest production.test_video_studio_geometry -v
+      - name: Universal sidebar, CSS versions, role-verified Admin and shared JS syntax
+        run: python3 -m unittest production.test_unified_sidebar_navigation -v
