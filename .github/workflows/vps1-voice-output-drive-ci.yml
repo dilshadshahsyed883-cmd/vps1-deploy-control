@@ -8,6 +8,8 @@ on:
       - 'apps/voice-studio/part02/kokoro_worker.py'
       - 'apps/voice-studio/part03/edge_worker.py'
       - 'tests/test_voice_output_naming_drive.py'
+      - 'tests/test_voice_drive_rate_limit_retry.py'
+      - 'production/voice_tts_live_acceptance.py'
       - '.github/workflows/vps1-voice-output-drive-ci.yml'
   workflow_dispatch:
 permissions:
@@ -23,10 +25,12 @@ jobs:
           python-version: '3.11'
       - name: Validate Python syntax without touching paid synthesis
         run: |
-          python -m py_compile apps/voice-studio/part01/kokoro_api.py apps/voice-studio/part01/edge_api.py apps/voice-studio/part02/kokoro_worker.py apps/voice-studio/part03/edge_worker.py tests/test_voice_output_naming_drive.py
+          python -m py_compile apps/voice-studio/part01/kokoro_api.py apps/voice-studio/part01/edge_api.py apps/voice-studio/part02/kokoro_worker.py apps/voice-studio/part03/edge_worker.py tests/test_voice_output_naming_drive.py tests/test_voice_drive_rate_limit_retry.py production/voice_tts_live_acceptance.py
       - name: Isolated FastAPI dependencies
         run: python -m pip install 'fastapi>=0.115,<1' 'pydantic>=2,<3'
       - name: Offline output naming and verified Drive contract
         run: python -m unittest discover -s tests -p test_voice_output_naming_drive.py -v
+      - name: Isolated worker rate-limit vs hard denial regression
+        run: python -m unittest discover -s tests -p test_voice_drive_rate_limit_retry.py -v
       - name: Existing app cleanup contract
         run: python -m unittest discover -s tests -p test_voice_drive_cleanup_contract.py -v
