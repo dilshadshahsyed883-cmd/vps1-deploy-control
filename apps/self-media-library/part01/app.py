@@ -193,7 +193,7 @@ def drive_base(values: dict[str, str]) -> str:
 
 
 def drive_path(values: dict[str, str], kind: str, filename: str) -> str:
-    folders = {"clip": "clips", "thumb": "thumbnails", "meta": "metadata"}
+    folders = {"clip": "clips", "thumb": "thumbnails", "meta": "metadata", "sources": "sources"}
     folder = folders[kind]
     return f"{drive_base(values).rstrip('/')}/{folder}/{filename}"
 

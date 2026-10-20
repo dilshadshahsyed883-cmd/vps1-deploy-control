@@ -124,7 +124,7 @@ class ClipEngine:
         idx=next((i for i,n in enumerate(names) if 'image_embeds' in n),0)
         return self.normalize(outputs[idx])[0]
 
-    def analyze(self,path,media_type,duration=0,contact_path=None):
+    def analyze(self,path,media_type,duration=0,contact_path=None,audio_path=None,audio_start=0):
         from PIL import Image,ImageOps
         np=self.np;started=time.monotonic();frames=[];vectors=[];contact_images=[];ocr_results=[];crops=[]
         with tempfile.TemporaryDirectory(prefix='sml-vision-') as tmp:
@@ -166,7 +166,7 @@ class ClipEngine:
                 'confidence_note':'Relative scores within a fixed candidate set; not calibrated probabilities. Actions, lighting and mood are suggestions. Still frames cannot verify camera movement.',
                 'unsupported':['camera_movement','identity'],
                 'ocr':{'state':'complete' if any(x['state']=='complete' for x in ocr_results) else 'not_configured','text':' '.join(dict.fromkeys(x['text'] for x in ocr_results if x['text'])),'frames':ocr_results},
-                'transcript':self.speech.transcribe(path,duration) if media_type!='image' else {'state':'not_applicable','text':''},
+                'transcript':self.speech.transcribe(audio_path or path,duration,audio_start) if media_type!='image' else {'state':'not_applicable','text':''},
                 'quality':frames[len(frames)//2]['quality'],
                 'embedding':vector.tolist()}
 

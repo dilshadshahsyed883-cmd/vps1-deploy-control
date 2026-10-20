@@ -75,6 +75,7 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(c.post('/api/v1/media/reservations',headers=h,json=body).json()['count'],0)
     def test_source_cleanup_requires_full_original_and_no_active_dependents(self):
         m=self.module;ts=m.now_iso()
+        self.assertEqual(m.drive_path({'drive_remote':'gdrive','drive_root':'library'},'sources','source.mp4'),'gdrive:library/sources/source.mp4')
         with m.db() as c:
             c.execute("INSERT INTO sources(id,filename,stored_name,created_at,updated_at) VALUES('source','original.mp4','source.mp4',?,?)",(ts,ts))
             c.execute("INSERT INTO clips(id,source_id,filename,created_at,updated_at,drive_state,drive_clip_path,drive_meta_path,drive_verified_at) VALUES('clip','source','clip.mp4',?,?,'verified','gdrive:clip','gdrive:meta',?)",(ts,ts,ts))

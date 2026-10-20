@@ -80,7 +80,7 @@ def catalog(root,media_type='all'):
     with connect(root) as c:
         if media_type in ('video','all'):
             for r in c.execute('''SELECT c.*,s.filename AS source_filename,s.width,s.height,s.orientation,s.codec,s.fps,
-                s.rights_confirmed,s.source_kind FROM clips c LEFT JOIN sources s ON c.source_id=s.id
+                s.rights_confirmed,s.source_kind,s.stored_name AS source_stored_name FROM clips c LEFT JOIN sources s ON c.source_id=s.id
                 WHERE c.deleted_at IS NULL ORDER BY c.created_at DESC LIMIT 5000'''):
                 x=dict(r);x.update(type='video',path=str(root/'clips'/r['filename']),
                     thumb_url='/media/thumbs/'+(r['thumb_filename'] or ''),content_url='/media/clips/'+r['filename'])
@@ -197,7 +197,9 @@ def run_worker(root):
                     asset=locate(root,job['media_type'],job['media_id'])
                     if not Path(asset['path']).is_file():raise RuntimeError('Local media unavailable; restore verified Drive copy before analysis')
                     contact=root/'ai_previews'/(job['media_id']+'-contact.jpg')
-                    result=engine.analyze(asset['path'],job['media_type'],asset.get('duration') or 0,contact)
+                    source_audio=root/'sources'/(asset.get('source_stored_name') or '')
+                    original_audio=source_audio if source_audio.is_file() else None
+                    result=engine.analyze(asset['path'],job['media_type'],asset.get('duration') or 0,contact,audio_path=original_audio,audio_start=float(asset.get('start_time') or 0) if original_audio else 0)
                     result['contact_sheet']='/media/ai-previews/'+contact.name
                     result['asset_id']=job['media_id'];result['analyzed_at']=now()
                     for group,entries in result['fields'].items():

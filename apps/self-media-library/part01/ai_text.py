@@ -62,16 +62,16 @@ def recognize_text(image,timestamp=0):
 
 class SpeechEngine:
     def __init__(self,folder):self.folder=Path(folder);self.model=None
-    def transcribe(self,path,duration=0):
-        try:return self._transcribe(path,duration)
+    def transcribe(self,path,duration=0,start=0):
+        try:return self._transcribe(path,duration,start)
         except Exception as exc:return {'state':'failed','text':'','segments':[],'error':type(exc).__name__}
-    def _transcribe(self,path,duration=0):
+    def _transcribe(self,path,duration=0,start=0):
         if not speech_ready(self.folder):return {'state':'not_configured','text':'','segments':[]}
         probe=subprocess.run(['ffprobe','-v','error','-select_streams','a','-show_entries','stream=index','-of','json',str(path)],capture_output=True,text=True,timeout=15)
         if not json.loads(probe.stdout or '{}').get('streams'):return {'state':'no_audio','text':'','segments':[]}
         with tempfile.TemporaryDirectory(prefix='sml-speech-') as temp:
             audio=Path(temp)/'audio.wav'
-            subprocess.run(['ffmpeg','-v','error','-i',str(path),'-t','30','-vn','-ac','1','-ar','16000','-threads','1',str(audio)],capture_output=True,check=True,timeout=35)
+            subprocess.run(['ffmpeg','-v','error','-ss',str(max(0,start)),'-i',str(path),'-t',str(min(float(duration or 30),30)),'-vn','-ac','1','-ar','16000','-threads','1',str(audio)],capture_output=True,check=True,timeout=35)
             if self.model is None:
                 from faster_whisper import WhisperModel
                 self.model=WhisperModel(str(self.folder),device='cpu',compute_type='int8',cpu_threads=2,num_workers=1,local_files_only=True)
@@ -81,7 +81,7 @@ class SpeechEngine:
                 samples=np.frombuffer(stream.readframes(stream.getnframes()),dtype=np.int16).astype(np.float32)/32768.
             segments,info=self.model.transcribe(samples,beam_size=1,vad_filter=False,condition_on_previous_text=False)
             result=[{'value':s.text.strip(),'start':s.start,'end':s.end,'confidence':round(math.exp(s.avg_logprob),4),
-                'provider':SPEECH_MODEL,'model_version':SPEECH_REVISION,'origin':'generated'} for s in segments if s.text.strip()]
+                'source_start':s.start+start,'source_end':s.end+start,'provider':SPEECH_MODEL,'model_version':SPEECH_REVISION,'origin':'generated'} for s in segments if s.text.strip()]
             return {'state':'complete','text':' '.join(x['value'] for x in result),'segments':result,
                 'language':info.language,'analyzed_seconds':min(float(duration or 30),30),'truncated':duration>30,
                 'note':'Tiny multilingual model, first 30 seconds per asset; uncertain transcript requires review.'}
