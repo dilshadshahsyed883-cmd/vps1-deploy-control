@@ -153,16 +153,28 @@ def process(row):
         if status(jid)=='cancel_requested':update(jid,status='cancelled',delivery_status='not_applicable');return
         if status(jid)=='pause_requested':update(jid,status='paused');return
         mp3,wav,srt=make_outputs(row,chunks)
+        if status(jid) in ('cancel_requested','cancelled'):
+            update(jid,status='cancelled',delivery_status='not_applicable');return
+        if status(jid) in ('pause_requested','paused'):
+            update(jid,status='paused');return
         update(jid,status='completed',progress=100,mp3_file=str(mp3),wav_file=str(wav),srt_file=str(srt) if srt else None,delivery_status='pending')
         print('EDGE_AUDIO_GENERATED='+jid,flush=True)
-    except Exception as e:mark_waiting(jid,attempt,type(e).__name__)
+    except Exception as e:
+        state=status(jid)
+        if state in ('cancel_requested','cancelled'):
+            update(jid,status='cancelled',delivery_status='not_applicable')
+        elif state in ('pause_requested','paused'):
+            update(jid,status='paused')
+        else:
+            mark_waiting(jid,attempt,type(e).__name__)
 
 def pick():
     with db() as c:
         c.execute("update jobs set status='queued' where status='retry_wait' and retry_at<=?",(time.time(),))
         r=c.execute("select * from jobs where status='queued' order by created_at,job_id limit 1").fetchone()
-        if r:c.execute("update jobs set status='processing',updated_at=? where job_id=? and status='queued'",(now(),r['job_id']))
-        return dict(r) if r else None
+        if not r:return None
+        claim=c.execute("update jobs set status='processing',updated_at=? where job_id=? and status='queued'",(now(),r['job_id']))
+        return dict(r) if claim.rowcount==1 else None
 
 def rclone_cmd(*args):
     if not RCLONE or not RCCONF.is_file():raise RuntimeError('Drive credentials unavailable')
@@ -240,7 +252,10 @@ def main():
             except Exception:pass
             time.sleep(8)
     threading.Thread(target=keepalive,daemon=True).start()
-    with db() as c:c.execute("update jobs set status='queued' where status in ('processing','pause_requested')")
+    with db() as c:
+        c.execute("update jobs set status='queued' where status='processing'")
+        c.execute("update jobs set status='paused' where status='pause_requested'")
+        c.execute("update jobs set status='cancelled',delivery_status='not_applicable' where status='cancel_requested'")
     last_attempt=0
     while True:
         try:
