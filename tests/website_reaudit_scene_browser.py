@@ -56,7 +56,7 @@ def main():
                     expect(page.locator('#preset-save-state')).to_have_text('✓ Saved',timeout=6000)
                     assert ('POST','/settings') in writes,writes
                     writes.clear();page.reload();page.wait_for_timeout(900)
-                    expect(field).to_have_value(value);assert not writes,writes
+                    assert float(field.input_value())==float(value);assert not writes,writes
                     assert not failures,failures
                     assert not errors,errors
                     print('PASS Scene actual Settings',width,'no idle writes, Studio restore, authenticated save and reload')
