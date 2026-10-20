@@ -225,13 +225,22 @@ def install(revision):
         start_all()
         restore_aux_workers(auxiliary_states)
         verify_queues()
+        from production.voice_tts_live_acceptance import run_acceptance
+        qa = run_acceptance()
+        require(qa.get("result") == "PASS_VOICE_TTS_LIVE_CONTROL_QA",
+                "real HTTPS queue action smoke failed")
         atomic_json(journal / "result.json", {
             "result": "PASS_VOICE_TTS_CONTROLS", "revision": revision,
             "backup": "PRESERVED", "workers": list(UNITS),
+            "live_controls": qa,
         })
         event(app=APP, result="PASS_VOICE_TTS_CONTROLS", revision=revision,
               idle_gate="PASS", db_backup="PASS", affected_units=list(UNITS),
-              other_workers="RESTORED_TO_PREVIOUS_STATE", auto_script="OFFLINE")
+              other_workers="RESTORED_TO_PREVIOUS_STATE",
+              live_controls="PASS", owner_jobs_mutated=False,
+              drive_receipts={engine: item.get("remote_status")
+                              for engine, item in qa["drive_readonly_evidence"].items()},
+              auto_script="OFFLINE")
     except BaseException:
         if fences:
             unlock(fences)
