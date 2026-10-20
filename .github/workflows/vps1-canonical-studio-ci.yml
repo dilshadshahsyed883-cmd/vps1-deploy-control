@@ -9,6 +9,8 @@ on:
       - 'production/test_canonical_studio_navigation.py'
       - 'production/test_video_studio_geometry.py'
       - 'production/test_unified_sidebar_navigation.py'
+      - 'production/test_server_sidebar_fallback.py'
+      - 'production/scene_uploader_ui_release.py'
       - '.github/workflows/vps1-native-studio-release.yml'
       - '.github/workflows/vps1-canonical-studio-ci.yml'
   workflow_dispatch:
@@ -21,10 +23,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Python source syntax
-        run: python3 -m py_compile apps/auto-caption-studio/part01/web_backend/app.py apps/auto-caption-studio/part01/web_backend/web_flow_api.py apps/scene-builder/part01/app.py
+        run: python3 -m py_compile apps/auto-caption-studio/part01/web_backend/app.py apps/auto-caption-studio/part01/web_backend/web_flow_api.py apps/scene-builder/part01/app.py apps/short-maker/part01/app.py apps/video-merger/part01/app.py
       - name: Canonical routes, tab memory, polling and no-frame contracts
         run: python3 -m unittest production.test_canonical_studio_navigation -v
       - name: Four independently rendered Video Studio tabs align on one grid
         run: python3 -m unittest production.test_video_studio_geometry -v
       - name: Universal sidebar, CSS versions, role-verified Admin and shared JS syntax
         run: python3 -m unittest production.test_unified_sidebar_navigation -v
+      - name: Short Maker and Video Merger trusted server-rendered sidebar without browser JS
+        run: python3 -m unittest production.test_server_sidebar_fallback production.test_scene_video_studio_shell -v
