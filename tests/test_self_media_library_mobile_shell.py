@@ -24,8 +24,8 @@ class SharedShellMobile(unittest.TestCase):
     def test_assets_use_only_existing_canonical_mounts(self):
         s=(SML/"static/index.html").read_text(encoding="utf-8")
         tags=Assets();tags.feed(s)
-        scene_css="/scene-builder/static/vps1_native_site_shell.css?v=20261020-sidebar-stable-v4"
-        scene_js="/scene-builder/static/vps1_native_site_shell.js?v=20261020-sidebar-stable-v4"
+        scene_css="/static/vps1_native_site_shell.css?v=20261020-experiment-ui-v5"
+        scene_js="/static/vps1_native_site_shell.js?v=20261020-experiment-ui-v5"
         sml_css="/self-media-library/static/sml_shared_theme.css?v=20261020-shared-light-v1"
         assert (SCENE/"static/vps1_native_site_shell.css").is_file()
         assert (SCENE/"static/vps1_native_site_shell.js").is_file()

@@ -88,8 +88,8 @@ jobs:
                   assert r.status==200, path
                   return r.read().decode('utf-8')
           index=asset(8147,'/')
-          assert 'href="/scene-builder/static/vps1_native_site_shell.css' in index
-          assert 'src="/scene-builder/static/vps1_native_site_shell.js' in index
+          assert 'href="/&#115;tatic/vps1_native_site_shell.css' in index
+          assert 'src="/&#115;tatic/vps1_native_site_shell.js' in index
           assert 'href="/self-media-library/static/sml_shared_theme.css' in index
           assert 'src="/self-media-library/static/app.js' in index
           assert index.count('data-page="') >= 5
