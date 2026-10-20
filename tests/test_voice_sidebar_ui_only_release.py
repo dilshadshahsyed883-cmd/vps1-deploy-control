@@ -161,7 +161,7 @@ class VoiceFullHTTPSReadRegression(unittest.TestCase):
         tcp_context = MagicMock()
         tcp_context.__enter__.return_value = MagicMock()
         response = MagicMock(status=200)
-        response.getheader.return_value = 'text/html; charset=utf-8'
+        response.getheader.side_effect = lambda key, default='': {'Content-Type':'text/html; charset=utf-8', 'Cache-Control':'private, no-store', 'X-Voice-Queue-UI':'VSQ-20261020-01'}.get(key,default)
         response.read.return_value = late_scripts
         https_conn = MagicMock()
         https_conn.getresponse.return_value = response
@@ -184,7 +184,7 @@ class VoiceFullHTTPSReadRegression(unittest.TestCase):
         from production.voice_template_release import read_full_authenticated_voice_html
         conn = MagicMock()
         conn.getresponse.return_value.status = 200
-        conn.getresponse.return_value.getheader.return_value = 'text/html'
+        conn.getresponse.return_value.getheader.side_effect = lambda key, default='': {'Content-Type':'text/html', 'Cache-Control':'private, no-store', 'X-Voice-Queue-UI':'VSQ-20261020-01'}.get(key,default)
         conn.getresponse.return_value.read.return_value = b'X' * 180_000
         tls = MagicMock()
         raw = MagicMock()
