@@ -4,6 +4,7 @@ import http.client
 import hashlib
 import configparser
 import re
+import time
 import tempfile
 import json
 import secrets
@@ -148,12 +149,12 @@ def classify_remote_error(detail):
     if any(x in detail for x in ("invalid_grant", "unauthorized", "oauth",
                                 "token expired", "401")):
         return "authentication"
+    if any(x in detail for x in ("rate limit", "ratelimit", "quota", "429",
+                                "too many requests")):
+        return "quota"
     if any(x in detail for x in ("permission denied", "insufficient permissions",
                                 "access denied", "403", "forbidden")):
         return "permission"
-    if any(x in detail for x in ("rate limit", "quota", "429",
-                                "too many requests")):
-        return "quota"
     if any(x in detail for x in ("directory not found", "object not found")):
         return "remote_path"
     return "other_remote_error"
@@ -229,12 +230,54 @@ def remote_folder_preflight(executable, config, root):
     except (OSError,ValueError,TypeError,subprocess.TimeoutExpired):
         return {"status":"PROBE_ERROR"}
 
-def drive_upload_smoke_once():
-    """Two tiny dedicated QA TXT files; verify actual VPS rclone Drive upload.
+DRIVE_RATE_LIMIT_REASONS = frozenset(("rateLimitExceeded", "userRateLimitExceeded",
+                                       "dailyLimitExceeded"))
+DRIVE_RETRY_WAITS = (6, 16, 38)
 
-    No owner media, worker queues, public permissions or prior Drive files touched.
-    The tiny remote QA evidence is retained; only the local temporary file is
-    cleaned. A durable success journal stops repeated Drive probe uploads.
+
+def qa_rclone_command(cmd):
+    """Retry ONLY transient Google quota/rate denials; never credential 403s."""
+    for attempt in range(len(DRIVE_RETRY_WAITS)+1):
+        proc=subprocess.run(cmd,capture_output=True,text=True,timeout=150)
+        if proc.returncode==0:
+            return proc
+        reason=safe_google_error_reason(proc.stderr)
+        if reason not in DRIVE_RATE_LIMIT_REASONS or attempt>=len(DRIVE_RETRY_WAITS):
+            return proc
+        time.sleep(DRIVE_RETRY_WAITS[attempt])
+    raise AssertionError("unreachable")
+
+
+def qa_progress_items(path):
+    if path.is_symlink():
+        return None
+    if path.is_file():
+        try:
+            obj=json.loads(path.read_text("utf-8"))
+            if not isinstance(obj,dict) or set(obj.get("items",{}))!={"kokoro","edge"}:
+                return None
+            items=obj["items"]
+            for engine in ("kokoro","edge"):
+                spec=items[engine]
+                if not isinstance(spec,dict) or not re.fullmatch(
+                        r"[0-9a-f]{24}",str(spec.get("nonce",""))):
+                    return None
+                if not isinstance(spec.get("copied"),bool) or not isinstance(spec.get("verified"),bool):
+                    return None
+            return items
+        except (ValueError,TypeError,OSError,KeyError):
+            return None
+    items={e:{"nonce":secrets.token_hex(12),"copied":False,"verified":False}
+           for e in ("kokoro","edge")}
+    atomic_json(path,{"items":items},0o600)
+    return items
+
+
+def drive_upload_smoke_once():
+    """Bounded, resumable proof. No user files, Drive deletes or OAuth mutations.
+
+    Durable private nonce journal ensures a read-after-write rate limit never
+    uploads a *new* test file when the next protected release retries the proof.
     """
     receipt_path=JOURNALS/"drive-qa-one-time-receipt.json"
     if receipt_path.is_file() and not receipt_path.is_symlink():
@@ -250,32 +293,42 @@ def drive_upload_smoke_once():
     if not executable or not config.is_file():
         return {"result":"UNAVAILABLE","reason":"rclone_configuration_missing"}
     facts=safe_rclone_auth_facts(config)
-    folder_status={name:remote_folder_preflight(executable,config,folder)
-                   for name,folder in (("kokoro","Kokoro"),("edge","Edge TTS"))}
-    diagnostics={"auth":facts,"folder_access":folder_status}
+    # Previous protected release established visibility of both folders.
+    # Avoid 2 surplus Drive API requests before the actual upload/receipt proof.
+    diagnostics={"auth":facts}
+    JOURNALS.mkdir(parents=True,exist_ok=True)
+    progress_path=JOURNALS/"drive-qa-progress.json"
+    items=qa_progress_items(progress_path)
+    if items is None:
+        return {"result":"INCOMPLETE","reason":"unsafe_qa_progress_file"}
     completed={}
+    base=[executable,"--config",str(config),"--tpslimit","1",
+          "--tpslimit-burst","1","--retries","1","--low-level-retries","1"]
     for engine,remote_root in (("kokoro","Kokoro"),("edge","Edge TTS")):
-        unique=secrets.token_hex(12)
+        record=items[engine]
+        if record["verified"]:
+            completed[engine]="ID_SIZE_HASH_VERIFIED"
+            continue
+        unique=record["nonce"]
         destination=f"gdrive:Omni Voice/{remote_root}/_VPS1_VOICE_QA/{unique}.txt"
         payload=("VPS1 isolated synthetic Drive upload check\n"+
                  f"engine={engine}\nrandom_marker={unique}\n").encode()
         with tempfile.TemporaryDirectory(prefix="vps1-voice-drive-qa-") as folder:
             local=Path(folder)/"qa.txt"
             local.write_bytes(payload)
-            command=[executable,"--config",str(config),"--tpslimit","1",
-                     "--tpslimit-burst","1","--retries","1","--low-level-retries","1"]
             try:
-                sent=subprocess.run(command+["copyto","--ignore-existing",
-                                             str(local),destination],
-                                    capture_output=True,text=True,timeout=150)
-                if sent.returncode:
-                    return {"result":"INCOMPLETE","engine":engine,
-                            "reason":"remote_copy_failed",
-                            "category":classify_remote_error(sent.stderr),
-                            "google_reason":safe_google_error_reason(sent.stderr),
-                            "diagnostics":diagnostics,"completed":completed}
-                read=subprocess.run(command+["lsjson","--stat","--hash",destination],
-                                    capture_output=True,text=True,timeout=70)
+                if not record["copied"]:
+                    sent=qa_rclone_command(base+["copyto","--ignore-existing",
+                                                str(local),destination])
+                    if sent.returncode:
+                        return {"result":"INCOMPLETE","engine":engine,
+                                "reason":"remote_copy_failed",
+                                "category":classify_remote_error(sent.stderr),
+                                "google_reason":safe_google_error_reason(sent.stderr),
+                                "diagnostics":diagnostics,"completed":completed}
+                    record["copied"]=True
+                    atomic_json(progress_path,{"items":items},0o600)
+                read=qa_rclone_command(base+["lsjson","--stat","--hash",destination])
                 if read.returncode:
                     return {"result":"INCOMPLETE","engine":engine,
                             "reason":"remote_receipt_lookup_failed",
@@ -295,6 +348,8 @@ def drive_upload_smoke_once():
                     return {"result":"INCOMPLETE","engine":engine,
                             "reason":"remote_identity_size_or_hash_mismatch",
                             "diagnostics":diagnostics,"completed":completed}
+                record["verified"]=True
+                atomic_json(progress_path,{"items":items},0o600)
                 completed[engine]="ID_SIZE_HASH_VERIFIED"
             except (OSError,ValueError,TypeError,KeyError,subprocess.TimeoutExpired):
                 return {"result":"INCOMPLETE","engine":engine,

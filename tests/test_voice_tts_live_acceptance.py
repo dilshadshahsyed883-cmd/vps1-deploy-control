@@ -192,6 +192,102 @@ class VoiceLiveAcceptanceTests(unittest.TestCase):
                 self.assertEqual(result,expected)
                 self.assertNotIn("VERY_SECRET",result)
 
+    def test_rate_limited_receipt_retries_with_bounded_waits(self):
+        from production import voice_tts_live_acceptance as acceptance
+        folder=Path(self.temp.name)/"retry-journal"
+        folder.mkdir()
+        remote={}
+        calls=[]
+        def fake_run(cmd,**kwargs):
+            calls.append(cmd)
+            if "copyto" in cmd:
+                remote[cmd[-1]]=Path(cmd[-2]).read_bytes()
+                return SimpleNamespace(returncode=0,stdout="",stderr="")
+            if "lsjson" in cmd:
+                data=remote[cmd[-1]]
+                if len([c for c in calls if "lsjson" in c])==1:
+                    return SimpleNamespace(returncode=1,stdout="",
+                        stderr="googleapi Error 403 rateLimitExceeded token=PRIVATE")
+                return SimpleNamespace(returncode=0,
+                    stdout=json.dumps({"ID":"qa-remote-123456789","Size":len(data),
+                        "Name":cmd[-1].rsplit("/",1)[-1],
+                        "Hashes":{"MD5":hashlib.md5(data).hexdigest()}}),
+                    stderr="")
+            raise AssertionError("unexpected rclone action")
+        config=Path("/home/ubuntu/.config/masterctl/rclone.conf")
+        real_is_file=Path.is_file
+        def is_file(p):
+            return p==config or real_is_file(p)
+        with mock.patch.object(acceptance,"JOURNALS",folder), \
+             mock.patch.object(acceptance.shutil,"which",return_value="/usr/bin/rclone"), \
+             mock.patch.object(Path,"is_file",is_file), \
+             mock.patch.object(acceptance.subprocess,"run",side_effect=fake_run), \
+             mock.patch.object(acceptance.time,"sleep") as sleeper:
+            result=acceptance.drive_upload_smoke_once()
+        self.assertEqual(result["result"],"PASS")
+        self.assertEqual(sleeper.call_args_list,[mock.call(6)])
+        self.assertEqual(len([c for c in calls if "copyto" in c]),2)
+        self.assertEqual(len(remote),2)
+
+    def test_receipt_failure_reuses_nonce_without_duplicate_copy(self):
+        from production import voice_tts_live_acceptance as acceptance
+        folder=Path(self.temp.name)/"resume-journal"
+        folder.mkdir()
+        remote={}
+        copied=[]
+        fail_reads=True
+        def fake_run(cmd,**kwargs):
+            if "copyto" in cmd:
+                copied.append(cmd[-1])
+                remote[cmd[-1]]=Path(cmd[-2]).read_bytes()
+                return SimpleNamespace(returncode=0,stdout="",stderr="")
+            if "lsjson" in cmd:
+                if fail_reads:
+                    return SimpleNamespace(returncode=1,stdout="",
+                        stderr="googleapi Error 403 rateLimitExceeded")
+                data=remote[cmd[-1]]
+                return SimpleNamespace(returncode=0,
+                    stdout=json.dumps({"ID":"qa-remote-123456789","Size":len(data),
+                        "Name":cmd[-1].rsplit("/",1)[-1],
+                        "Hashes":{"MD5":hashlib.md5(data).hexdigest()}}),
+                    stderr="")
+            raise AssertionError("unexpected Drive request")
+        config=Path("/home/ubuntu/.config/masterctl/rclone.conf")
+        real_is_file=Path.is_file
+        def is_file(p):
+            return p==config or real_is_file(p)
+        with mock.patch.object(acceptance,"JOURNALS",folder), \
+             mock.patch.object(acceptance.shutil,"which",return_value="/usr/bin/rclone"), \
+             mock.patch.object(Path,"is_file",is_file), \
+             mock.patch.object(acceptance.subprocess,"run",side_effect=fake_run), \
+             mock.patch.object(acceptance.time,"sleep"):
+            first=acceptance.drive_upload_smoke_once()
+            self.assertEqual(first["result"],"INCOMPLETE")
+            self.assertEqual(first["google_reason"],"rateLimitExceeded")
+            self.assertEqual(len(copied),1)
+            partial=json.loads((folder/"drive-qa-progress.json").read_text())
+            self.assertTrue(partial["items"]["kokoro"]["copied"])
+            self.assertFalse(partial["items"]["kokoro"]["verified"])
+            fail_reads=False
+            second=acceptance.drive_upload_smoke_once()
+            self.assertEqual(second["result"],"PASS")
+            self.assertEqual(len(copied),2)
+            self.assertEqual(copied[0],next(k for k in remote if "/Kokoro/" in k))
+            third=acceptance.drive_upload_smoke_once()
+            self.assertTrue(third["cached"])
+            self.assertEqual(len(copied),2)
+
+    def test_google_403_permission_does_not_retry(self):
+        from production import voice_tts_live_acceptance as acceptance
+        bad=SimpleNamespace(returncode=1,stdout="",
+             stderr="Google API 403: insufficientFilePermissions")
+        with mock.patch.object(acceptance.subprocess,"run",return_value=bad) as runner, \
+             mock.patch.object(acceptance.time,"sleep") as sleeper:
+            result=acceptance.qa_rclone_command(["rclone","lsjson","some-file"])
+        self.assertEqual(result.returncode,1)
+        runner.assert_called_once()
+        sleeper.assert_not_called()
+
     def test_release_requires_live_proof_before_success(self):
         script=(ROOT/"production/voice_tts_controls_release.py").read_text()
         self.assertLess(script.index("verify_queues()"),script.index("qa = run_acceptance()"))
