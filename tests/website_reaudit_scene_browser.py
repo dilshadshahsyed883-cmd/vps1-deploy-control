@@ -29,13 +29,16 @@ def main():
                 for width in (1363,390):
                     page=browser.new_page(viewport={'width':width,'height':936});errors=[];writes=[];failures=[]
                     page.on('pageerror',lambda e:errors.append(str(e)))
+                    page.on('requestfailed',lambda req:failures.append((req.url,req.failure)))
                     page.add_init_script("localStorage.setItem('sceneBuilderAudioEngineTabV2','studio')")
                     def route(handle):
                         request=handle.request;parts=urlsplit(request.url);path=parts.path+('?' + parts.query if parts.query else '')
                         if request.method!='GET':writes.append((request.method,parts.path))
-                        response=client.request(request.method,path,content=request.post_data_buffer,headers={k:v for k,v in request.headers.items() if k.lower() in ('content-type','x-settings-csrf')},follow_redirects=False)
+                        response=client.request(request.method,path,content=request.post_data_buffer,headers={k:v for k,v in request.headers.items() if k.lower() in ('content-type','x-settings-csrf')},follow_redirects=True)
                         if response.status_code>=400:failures.append((path,response.status_code,response.text[:160]))
                         headers={k:v for k,v in response.headers.items() if k.lower() not in ('content-length','content-encoding','transfer-encoding','set-cookie')}
+                        if 'location' in headers:
+                            target=urlsplit(headers['location']);headers['location']=target.path+('?' + target.query if target.query else '')
                         handle.fulfill(status=response.status_code,headers=headers,body=response.content)
                     page.route('**/*',route);page.goto('https://audit.test/settings');page.wait_for_timeout(1200)
                     assert not writes,('idle load wrote settings',writes)

@@ -13,6 +13,13 @@ from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[1]
 
+class HTTPException(Exception):
+    def __init__(self,status_code,detail):
+        self.status_code=status_code
+        self.detail=detail
+        super().__init__(detail)
+
+
 
 def function(path,name,bindings):
     tree=ast.parse((ROOT/path).read_text())
@@ -24,7 +31,6 @@ def function(path,name,bindings):
 
 class ReauditBehavior(unittest.TestCase):
     def test_drive_share_url_rejected_before_creating_background_job(self):
-        from fastapi import HTTPException
         fn=function('apps/self-media-library/part01/media_extensions.py','create_import',{'HTTPException':HTTPException})
         for value in ('https://drive.google.com/file/d/example/view','../clip.mp4','Videos//clip.mp4','gdrive:clip.mp4'):
             with self.assertRaises(HTTPException) as caught:fn(SimpleNamespace(source='drive',value=value))
@@ -32,7 +38,6 @@ class ReauditBehavior(unittest.TestCase):
             self.assertIn('relative',caught.exception.detail)
 
     def test_audio_settings_validate_token_before_persisting(self):
-        from fastapi import HTTPException
         check=function('apps/scene-builder/part01/app.py','require_settings_csrf',{'HTTPException':HTTPException,'secrets':secrets})
         saved={};request=SimpleNamespace(session={'settings_csrf':'valid'},headers={'x-settings-csrf':'wrong'})
         async def payload():return {'preset':'clean','highpass':85,'arbitrary_path':'/tmp/no','nested':{}}
