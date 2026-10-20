@@ -148,7 +148,8 @@ def inventory(root: Path = BASE, now: float | None = None, unit_dir: Path | None
             continue
         entries = sorted(
             (path for path in releases.iterdir() if path.is_dir() and not path.is_symlink()),
-            key=lambda p: p.stat().st_mtime, reverse=True,
+            # Newest mtime first; deterministic name order breaks equal-mtime ties.
+            key=lambda p: (-p.stat().st_mtime, p.name),
         )
         # Keep active, recorded prior release, and one additional recent fallback.
         protect = {active_rev} | ({previous.name} if previous else set()) | ref_names
