@@ -54,8 +54,26 @@
       sidebar.appendChild(navigation);
     }
     navigation.setAttribute("aria-label", "Applications");
-    navigation.replaceChildren();
-    addPrimaryLinks(navigation, activeKeyForPath(window.location.pathname));
+    const current = activeKeyForPath(window.location.pathname);
+    const existing = Array.from(navigation.querySelectorAll(":scope > a"));
+    const isCanonical = existing.length >= PRIMARY_NAV.length &&
+      PRIMARY_NAV.every(([label, href], i) =>
+        existing[i].textContent.trim() === label &&
+        existing[i].getAttribute("href") === href);
+    if (isCanonical) {
+      // Keep the original nodes and their positions across routes: no
+      // unnecessary sidebar repaint or jump while pages switch.
+      for (const extra of existing.slice(PRIMARY_NAV.length)) extra.remove();
+      existing.slice(0, PRIMARY_NAV.length).forEach((link, i) => {
+        const selected = PRIMARY_NAV[i][2] === current;
+        link.classList.toggle("active", selected);
+        if (selected) link.setAttribute("aria-current", "page");
+        else link.removeAttribute("aria-current");
+      });
+    } else {
+      navigation.replaceChildren();
+      addPrimaryLinks(navigation, current);
+    }
     let account = sidebar.querySelector(":scope > .sidebar-account");
     if (!account) {
       account = node("div", "sidebar-account");
