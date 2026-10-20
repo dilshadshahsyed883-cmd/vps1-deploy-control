@@ -159,15 +159,41 @@ AUDIO_BROWSER_ROUTE_PAIRS = (
      b"  const type=String(res.headers.get('content-type')||'').toLowerCase();\n  const data=type.includes('application/json')?await res.json().catch(()=>null):null;\n  const pathname=new URL(url,location.href).pathname;\n  if(!res.ok)throw new Error('HTTP '+res.status+' '+pathname+': '+(data&&typeof data.detail==='string'?data.detail:'API request failed'));\n  if(!data||typeof data!=='object')throw new Error('API returned a non-JSON response for '+pathname+'; check session and proxy routing');\n  return data;"),
     (b"const response=await fetch(endpoint,{method:'GET',credentials:'same-origin'",
      b"const response=await fetch(root+endpoint.slice(('/'+'tts/api/audio-downloader').length),{method:'GET',credentials:'same-origin'"),
-    (b"async function loadJobs(){try{const r=await api(root+'/jobs?limit=150');const jobs=r.jobs||[];for(const [id,num] of [['vsaRecent',5],['vsaQueueRows',200],['vsaHistoryRows',200]]){$(id).replaceChildren(jobTable(jobs,num));}}catch(e){$('vsaRecent').textContent='Queue unavailable: '+e.message;$('vsaQueueRows').textContent='Queue unavailable: '+e.message;$('vsaHistoryRows').textContent='History unavailable: '+e.message;}}",
-     b"async function loadJobs(){try{const r=await api(root+'/jobs?limit=200');if(!Array.isArray(r.jobs))throw new Error('Invalid queue API response: jobs list missing');const jobs=r.jobs;const terminal=new Set(['completed','delivered','failed','cancelled']);const historyJobs=jobs.filter(j=>terminal.has(j.status));$('vsaRecent').replaceChildren(jobTable(jobs,5));$('vsaQueueRows').replaceChildren(jobTable(jobs,200));$('vsaHistoryRows').replaceChildren(jobTable(historyJobs,200));}catch(e){$('vsaRecent').textContent='Queue unavailable: '+e.message;$('vsaQueueRows').textContent='Queue unavailable: '+e.message;$('vsaHistoryRows').textContent='History unavailable: '+e.message;}}"),
+    (b"async function loadJobs(){try{const r=await api(root+'/jobs?limit=200');if(!Array.isArray(r.jobs))throw new Error('Invalid queue API response: jobs list missing');const jobs=r.jobs;const terminal=new Set(['completed','delivered','failed','cancelled']);const historyJobs=jobs.filter(j=>terminal.has(j.status));$('vsaRecent').replaceChildren(jobTable(jobs,5));$('vsaQueueRows').replaceChildren(jobTable(jobs,200));$('vsaHistoryRows').replaceChildren(jobTable(historyJobs,200));}catch(e){$('vsaRecent').textContent='Queue unavailable: '+e.message;$('vsaQueueRows').textContent='Queue unavailable: '+e.message;$('vsaHistoryRows').textContent='History unavailable: '+e.message;}}",
+     b"async function loadJobs(){try{const r=await api(root+'/'+'jobs?limit=200');if(!Array.isArray(r.jobs))throw new Error('Invalid queue API response: jobs list missing');const jobs=r.jobs;const terminal=new Set(['completed','delivered','failed','cancelled']);const historyJobs=jobs.filter(j=>terminal.has(j.status));$('vsaRecent').replaceChildren(jobTable(jobs,5));$('vsaQueueRows').replaceChildren(jobTable(jobs,200));$('vsaHistoryRows').replaceChildren(jobTable(historyJobs,200));}catch(e){$('vsaRecent').textContent='Queue unavailable: '+e.message;$('vsaQueueRows').textContent='Queue unavailable: '+e.message;$('vsaHistoryRows').textContent='History unavailable: '+e.message;}}"),
+
     (b"const $=id=>document.getElementById(id),prefix='/tts/api/audio-downloader/proxy';",
      b"const $=id=>document.getElementById(id),prefix=(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/audio-downloader/proxy';"),
 )
 
 
+# AUDIO_DOWNLOADER_NGINX_SAFE_PATHS_V3: reject Nginx-sub_filter-vulnerable route fragments.
+AUDIO_BROWSER_V3_PATH_PAIRS = (
+    (b"api(root+'/jobs?limit=200')",
+     b"api(root+'/'+'jobs?limit=200')"),
+    (b"api(root+'/jobs',{method:'POST'",
+     b"api(root+'/'+'jobs',{method:'POST'"),
+    (b"api(root+'/jobs/'+encodeURIComponent(job.job_id)+'/cancel'",
+     b"api(root+'/'+'jobs/'+encodeURIComponent(job.job_id)+'/'+'cancel'"),
+    (b"api(root+'/jobs/'+encodeURIComponent(job.job_id)+'/retry'",
+     b"api(root+'/'+'jobs/'+encodeURIComponent(job.job_id)+'/'+'retry'"),
+    (b"api(root+'/status')",
+     b"api(root+'/'+'status')"),
+    (b"request('/profiles/'+encodeURIComponent(p.id)+'/test'",
+     b"request('/'+'profiles/'+encodeURIComponent(p.id)+'/'+'test'"),
+    (b"request('/profiles/'+encodeURIComponent(p.id)+'/activate'",
+     b"request('/'+'profiles/'+encodeURIComponent(p.id)+'/'+'activate'"),
+    (b"request('/profiles/'+encodeURIComponent(p.id),{method:'DELETE'",
+     b"request('/'+'profiles/'+encodeURIComponent(p.id),{method:'DELETE'"),
+    (b"request('/profiles',{method:'POST'",
+     b"request('/'+'profiles',{method:'POST'"),
+    (b"request('/enable',{method:'POST'",
+     b"request('/'+'enable',{method:'POST'"),
+)
+
+
 def audio_browser_route_overlay(original: bytes, source: bytes) -> bytes:
-    for old, corrected in AUDIO_BROWSER_ROUTE_PAIRS:
+    for old, corrected in AUDIO_BROWSER_ROUTE_PAIRS + AUDIO_BROWSER_V3_PATH_PAIRS:
         require(source.count(corrected) == 1 and old not in source,
                 "GitHub Audio Downloader browser route contract changed")
         require(original.count(old) + original.count(corrected) == 1,
@@ -298,6 +324,24 @@ def verify_runtime() -> None:
             and b'id="audio-downloader-v1-js"' in full_html
             and b'id="audio-downloader-proxy-v1"' in full_html,
             "public Audio Downloader script marker absent")
+    # Browser calls, not just the API endpoint, must survive Nginx HTML
+    # sub_filter. Existing gateway rewrites literal '/jobs to '/voice-studio/jobs.
+    # Check the actual authenticated publicly served HTML after filtering.
+    start = full_html.find(b'<script id="audio-downloader-v1-js">')
+    end = full_html.find(b'</script>', start)
+    proxy_start = full_html.find(b'<script id="audio-downloader-proxy-v1">')
+    proxy_end = full_html.find(b'</script>', proxy_start)
+    require(start >= 0 and end > start and proxy_start >= 0 and proxy_end > proxy_start,
+            "public Audio Downloader browser scripts missing")
+    downloader_js = full_html[start:end]
+    proxy_js = full_html[proxy_start:proxy_end]
+    require(all(corrected in downloader_js + proxy_js and old not in downloader_js + proxy_js
+                for old, corrected in AUDIO_BROWSER_V3_PATH_PAIRS),
+            "public Audio Downloader browser fetch paths rewritten or stale")
+    require(b"'/voice-studio/jobs" not in downloader_js and
+            b"'/voice-studio/status" not in downloader_js and
+            b"'/voice-studio/profiles" not in proxy_js,
+            "public Audio Downloader browser fetch paths duplicated Voice prefix")
     verify_audio_downloader_https(cookie)
     anonymous, _, _ = https_get("/voice-studio/app")
     require(anonymous in {401, 403, 303}, "anonymous Voice page became accessible")
