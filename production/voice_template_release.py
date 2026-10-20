@@ -222,6 +222,46 @@ def read_full_authenticated_voice_html(cookie: str) -> bytes:
             return data
 
 
+def require_idle_audio_downloader() -> None:
+    """Never interrupt an actively processing or waiting audio job for a UI-only release."""
+    request = urllib.request.Request("http://127.0.0.1:8143/tts/api/audio-downloader/status")
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            require(response.status == 200, "Audio Downloader status API unavailable")
+            status = json.loads(response.read(32768))
+    except (OSError, ValueError) as exc:
+        raise RuntimeError("Audio Downloader preflight unavailable; abort Voice reload") from exc
+    require(isinstance(status, dict) and isinstance(status.get("queue"), dict),
+            "Audio Downloader status missing actual queue counts")
+    busy_states = ("queued", "downloading", "downloaded", "processing", "converting", "uploading")
+    require(all(not int(status["queue"].get(name) or 0) for name in busy_states),
+            "Audio Downloader has active/pending jobs; postpone Voice UI reload")
+
+
+def verify_audio_downloader_https(cookie: str) -> None:
+    """Proof of genuine authenticated Queue, History datasource and preserved status/proxy APIs."""
+    from production.route_uploader_scene_https import https_get
+    paths = (
+        ("/voice-studio/tts/api/audio-downloader/jobs?limit=1", "jobs"),
+        ("/voice-studio/tts/api/audio-downloader/status", "queue"),
+        ("/voice-studio/tts/api/audio-downloader/proxy", "profiles"),
+    )
+    for path, key in paths:
+        status, kind, body = https_get(path, cookie)
+        require(status == 200 and "json" in kind.lower(),
+                "Audio Downloader authenticated HTTPS "+key+" endpoint failed")
+        try:
+            response = json.loads(body)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("Audio Downloader HTTPS "+key+" returned malformed JSON") from exc
+        require(isinstance(response, dict) and isinstance(response.get(key),
+                list if key != "queue" else dict),
+                "Audio Downloader HTTPS "+key+" did not return real API contract")
+        anonymous, _, _ = https_get(path)
+        require(anonymous in (401, 403, 303),
+                "Audio Downloader HTTPS "+key+" was accessible without session")
+
+
 def verify_runtime() -> None:
     """Read the actual web document locally, then verify authenticated HTTPS."""
     http_check(APP)
@@ -252,6 +292,7 @@ def verify_runtime() -> None:
             "public Voice queue JavaScript is not updated")
     require(all(new in full_html and old not in full_html for old, new in AUDIO_BROWSER_ROUTE_PAIRS),
             "public Audio Downloader URL contract not updated")
+    verify_audio_downloader_https(cookie)
     anonymous, _, _ = https_get("/voice-studio/app")
     require(anonymous in {401, 403, 303}, "anonymous Voice page became accessible")
 
@@ -342,6 +383,7 @@ def install(revision: str) -> None:
     try:
         atomic_link(CURRENT, target)
         switched = True
+        require_idle_audio_downloader()
         # Only the browser-facing Voice web process reloads Jinja templates.
         # Never stop/restart voice workers or touch job databases here.
         run(["systemctl", "restart", UNIT], timeout=60, quiet=True)
