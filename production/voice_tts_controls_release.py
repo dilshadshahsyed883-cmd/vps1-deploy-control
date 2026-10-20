@@ -37,8 +37,10 @@ FILES = (
     Path("part02/kokoro_worker.py"),
     Path("part03/edge_worker.py"),
 )
-BUSY = ("queued", "processing", "retry_wait", "pause_requested", "cancel_requested")
-DELIVERY_BUSY = ("pending", "retry_pending", "transferring", "delivered")
+# SQLite writer fences serialize any queued/retry claims until workers stop.
+# Block ONLY work already in progress, not durable waiting records.
+BUSY = ("processing", "pause_requested", "cancel_requested")
+DELIVERY_BUSY = ("transferring", "delivered")
 DATA_ROOTS = (
     DATA / "voice-studio/kokoro/data/kokoro_jobs.sqlite3",
     DATA / "voice-studio/edge/data/edge_jobs.sqlite3",
@@ -70,7 +72,7 @@ def check_idle_and_lock(db_paths):
                 ") OR (status='completed' AND delivery_status IN (" + delivery_placeholders + ")) LIMIT 1",
                 params,
             ).fetchone()
-            require(busy is None, "active/queued synthesis or Drive delivery: " + str(path))
+            require(busy is None, "active synthesis/transfer or pending cleanup: " + str(path))
         return connections
     except BaseException:
         for db in reversed(connections):
@@ -90,7 +92,7 @@ def check_omnivoice_idle(path):
         cols = {column[1] for column in c.execute("PRAGMA table_info(jobs)")}
         require({"status","delivery_status"} <= cols,"OmniVoice schema unrecognized")
         busy = c.execute("""SELECT 1 FROM jobs WHERE status='processing'
-            OR delivery_status IN ('uploading','pending') LIMIT 1""").fetchone()
+            OR delivery_status='uploading' LIMIT 1""").fetchone()
         require(busy is None,"OmniVoice generation or Drive upload active")
         return c
     except BaseException:
