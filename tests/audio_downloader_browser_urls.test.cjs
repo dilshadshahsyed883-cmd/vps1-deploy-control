@@ -80,7 +80,7 @@ async function check() {
   calls.length = 0;
   await audio.loadStatus();
   assert.deepEqual(calls.map(x=>x.url),[apiRoot+'/status'],'status route must resolve once');
-  nodes.get('vsaLinks').value = 'https://www.youtube.com/watch?v=ABCDEFGHIJK';
+  getElementById('vsaLinks').value = 'https://www.youtube.com/watch?v=ABCDEFGHIJK';
   getElementById('vsaPermission').checked = true;
   getElementById('vsaQuality').value = '192';
   getElementById('vsaFormat').value = 'mp3';
