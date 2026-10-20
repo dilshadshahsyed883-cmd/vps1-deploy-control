@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 import re
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[1]
@@ -23,6 +24,28 @@ class VideoOverlayTests(unittest.TestCase):
         with patch('production.video_template_release.read_json',return_value={'jobs':[],'library':[{'status':'importing'}]}):
             with self.assertRaises(RuntimeError):idle('video-merger')
         with patch('production.video_template_release.read_json',return_value={'jobs':[],'library':[]}):idle('video-merger')
+
+    def test_failed_overlay_restores_previous_pointer_and_preserves_backend(self):
+        import production.video_template_release as release
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp); base=root/'host'; repo=root/'repo'; sha='a'*40
+            previous=base/'releases/short-maker/previous'
+            previous.mkdir(parents=True)
+            page=Path(release.PAGES['short-maker'])
+            original=b'backend=42\n'+b''.join(b'<link href="/static/'+a.encode()+b'?v=old">' for a in release.ASSETS)
+            (previous/page).parent.mkdir(parents=True)
+            (previous/page).write_bytes(original)
+            (previous/'_production_manifest.json').write_text(json.dumps({'app':'short-maker','files':{str(page):'old'}}))
+            current=base/'current/short-maker';current.parent.mkdir(parents=True);current.symlink_to(previous)
+            source=repo/'apps/short-maker'/page;source.parent.mkdir(parents=True);source.write_bytes(patch_assets(original))
+            with patch.object(release,'BASE',base),patch.object(release,'REPO',repo),patch.object(release,'run') as commands,patch.object(release,'idle'),patch.object(release,'http_check'),patch.object(release,'event'),patch.object(release,'verify',side_effect=RuntimeError('controlled HTTPS failure')):
+                with self.assertRaisesRegex(RuntimeError,'controlled HTTPS failure'):
+                    release.install('short-maker',sha)
+            self.assertEqual(current.resolve(),previous)
+            self.assertEqual((previous/page).read_bytes(),original)
+            self.assertEqual([c.args[0] for c in commands.call_args_list if 'restart' in c.args[0]],
+                [['systemctl','restart','vps1-production-short-maker.service']]*2)
+
 
 
 def browser_test():
