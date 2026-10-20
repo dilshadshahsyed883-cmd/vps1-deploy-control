@@ -20,7 +20,8 @@ jobs:
       (contains(github.event.head_commit.message, '[vps1-native-studio-release]') ||
        contains(github.event.head_commit.message, '[vps1-video-geometry-release]') ||
        contains(github.event.head_commit.message, '[vps1-ui-shell-phase-b-release]') ||
-       contains(github.event.head_commit.message, '[vps1-unified-sidebar-release]'))
+       contains(github.event.head_commit.message, '[vps1-unified-sidebar-release]') ||
+       contains(github.event.head_commit.message, '[vps1-three-app-ui-release]'))
     environment: production
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -43,6 +44,7 @@ jobs:
           VIDEO_TEMPLATE_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-video-template-only]') }}
           UI_SHELL_PHASE_B: ${{ contains(github.event.head_commit.message, '[vps1-ui-shell-phase-b-release]') }}
           UNIFIED_SIDEBAR_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-unified-sidebar-release]') }}
+          THREE_APP_UI_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-three-app-ui-release]') }}
         run: |
           set -Eeuo pipefail
           set +x
@@ -68,6 +70,23 @@ jobs:
               -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
               vps1deploy@100.87.55.92 "$@"
           }
+          # Single-host serialized release for the Kokoro-reference UI parity
+          # of Scene Queue/Settings/Audit, Antidetect and OmniVoice. The Scene
+          # candidate owns experiment/static/UI source. Voice MUST use the
+          # allowlisted template-only overlay; its dedicated engine workers do
+          # not restart and all other applications are untouched.
+          if [[ "$THREE_APP_UI_ONLY" == "true" ]]; then
+            echo "THREE_APP_UI_RELEASE=BEGIN"
+            remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA scene-builder"
+            echo "THREE_APP_SCENE=PASS"
+            remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA voice-studio"
+            echo "THREE_APP_OMNIVOICE_UI=PASS"
+            echo "THREE_APP_UI_RELEASE=PASS"
+            echo "OTHER_APP_WORKERS=UNCHANGED"
+            echo "AUTO_SCRIPT=OFFLINE"
+            echo "OWNER_FUNCTIONAL_UAT=PENDING"
+            exit 0
+          fi
           # Scoped sidebar release installs classic app HTML first, then
           # Scene last, so guarded Scene HTTPS readback verifies both new
           # server-rendered authenticated sidebars before commit.
