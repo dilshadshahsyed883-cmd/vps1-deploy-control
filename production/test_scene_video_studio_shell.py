@@ -22,18 +22,18 @@ class SceneVideoStudioShell(unittest.TestCase):
             "/short-maker/": (b'id="makerTabBtn" data-video-studio-subnav '
                 b'data-vps1-server-identity="1" class="vps1-server-admin" '
                 b'data-unify-sidebar="1" '
-                b'vps1_native_site_shell.js?v=20261020-admin-session-v2'),
+                b'vps1_native_site_shell.js?v=20261020-experiment-v1'),
             "/video-merger/": (b'id="tab-merge" data-video-studio-subnav '
                 b'data-vps1-server-identity="1" class="vps1-server-admin" '
                 b'data-unify-sidebar="1" '
-                b'vps1_native_site_shell.js?v=20261020-admin-session-v2'),
+                b'vps1_native_site_shell.js?v=20261020-experiment-v1'),
             "/voice-studio/app": b'vsEngineOmni vsEngineKokoro vps1_native_site_shell.js',
         }
         def get(path, cookie):
             seen.append(path)
             if path == "/video-studio/short-maker" and seen.count(path) == 1:
                 return 404, "text/html", b"retired-worker"
-            if path == "/static/vps1_native_site_shell.js?v=20261020-admin-session-v2":
+            if path == "/static/vps1_native_site_shell.js?v=20261020-experiment-v1":
                 return 200, "application/javascript", b"function installLegacySidebar() {}"
             if path in destinations:
                 return 200, "text/html; charset=utf-8", destinations[path]
@@ -98,7 +98,7 @@ class SceneVideoStudioShell(unittest.TestCase):
         scene = (SCENE / "templates/base.html").read_text()
         native_css = (SCENE / "static/vps1_native_site_shell.css").read_text()
         native_js = (SCENE / "static/vps1_native_site_shell.js").read_text()
-        self.assertIn('href="/static/vps1_native_site_shell.css?v=20261020-admin-session-v2&layout=video-v2"', scene)
+        self.assertIn('href="/static/vps1_native_site_shell.css?v=20261020-experiment-v1&layout=video-v2"', scene)
         self.assertIn('id="app-sidebar" class="sidebar"', scene)
         self.assertIn("--vps1-sidebar-width:214px", native_css)
         self.assertIn("#app-sidebar.sidebar,#vps1-native-site-sidebar", native_css)
