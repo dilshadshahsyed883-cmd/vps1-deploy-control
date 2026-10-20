@@ -108,6 +108,31 @@ class VoiceOutputContract(unittest.TestCase):
             self.assertEqual(row['status'], 'completed')
             self.assertTrue(Path(row['input_file']).exists())
 
+    def test_download_routes_return_named_existing_audio_without_resynthesis(self):
+        for engine, mod in self.mods.items():
+            if engine == 'ko':
+                jid=mod.create_job('Hello!', 'Chapter_05.txt', 'en-us', 'af_heart', 1, 'batch')
+                key='wav_file'; suffix='.wav'; endpoint=lambda: mod.audio(jid); connection=mod.connection
+            else:
+                jid=mod.create_job('Hello!', 'Chapter_05.txt', 'en-US-A', 'en-US', 0, 0, 0, 'batch')
+                key='mp3_file'; suffix='.mp3'; endpoint=lambda: mod.file(jid, 'mp3'); connection=mod.db
+            output=mod.DATA / 'jobs' / jid / ('Chapter_05'+suffix)
+            output.write_bytes(b'pretend generated media for response test')
+            with connection() as db:
+                db.execute('UPDATE jobs SET status=?, '+key+'=? WHERE job_id=?',
+                           ('completed', str(output), jid))
+            response=endpoint()
+            self.assertEqual(response.filename, 'Chapter_05'+suffix)
+            self.assertEqual(Path(response.path).read_bytes(), b'pretend generated media for response test')
+            with connection() as db:
+                stored=db.execute('SELECT output_basename FROM jobs WHERE job_id=?',(jid,)).fetchone()[0]
+            self.assertEqual(stored, 'Chapter_05')
+
+    def test_kokoro_legacy_queue_label_is_not_replaced(self):
+        source=K_API.read_text(encoding='utf8')
+        self.assertIn("out['filename']=d['output_basename']+'.txt'", source)
+        self.assertIn("out['output_filename']=d['output_basename']+'.wav'", source)
+
     def test_verified_remote_receipts_and_negative_evidence(self):
         import re
         for engine, path in (('ko', K_WORKER), ('ed', E_WORKER)):
