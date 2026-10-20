@@ -21,6 +21,95 @@
     nav.appendChild(a);
     return a;
   };
+  // Canonical navigation shared by independently served native and legacy pages.
+  // Never expose Admin from static markup or a client-stored role.
+  const PRIMARY_NAV = Object.freeze([
+    ["Dashboard", "/", "dashboard"],
+    ["Upload Studio", "/local-upload-manager", "upload"],
+    ["Video Studio", "/scene-builder/", "video"],
+    ["Voice Studio", "/voice-studio/app#vps1-production", "voice"]
+  ]);
+  const activeKeyForPath = (pathname) => {
+    if (/^\\/(local-upload-manager|auto-stream)(\\/|$)/.test(pathname)) return "upload";
+    if (/^\\/(scene-builder|video-studio|auto-caption-studio|short-maker|video-merger)(\\/|$)/.test(pathname)) return "video";
+    if (/^\\/voice-studio(\\/|$)/.test(pathname)) return "voice";
+    return "dashboard";
+  };
+  const addPrimaryLinks = (navigation, current) => {
+    const links = {};
+    for (const [label, href, key] of PRIMARY_NAV) {
+      links[key] = addLink(navigation, label, href, current === key);
+    }
+    return links;
+  };
+  function installLegacySidebar() {
+    const sidebar = document.getElementById("app-sidebar");
+    if (!sidebar || sidebar.dataset.vps1UnifiedSidebar) return;
+    sidebar.dataset.vps1UnifiedSidebar = "1";
+    sidebar.setAttribute("aria-label", "Scene Builder navigation");
+    let navigation = sidebar.querySelector(":scope > nav");
+    if (!navigation) {
+      navigation = node("nav");
+      sidebar.appendChild(navigation);
+    }
+    navigation.setAttribute("aria-label", "Applications");
+    navigation.replaceChildren();
+    addPrimaryLinks(navigation, activeKeyForPath(window.location.pathname));
+    let account = sidebar.querySelector(":scope > .sidebar-account");
+    if (!account) {
+      account = node("div", "sidebar-account");
+      const bottom = sidebar.querySelector(":scope > .server, :scope > .server-dot");
+      sidebar.insertBefore(account, bottom);
+    }
+    account.hidden = true;
+    account.replaceChildren();
+    const accountName = node("div", "sidebar-account-name");
+    const logout = node("form");
+    logout.action = "/logout";
+    logout.method = "post";
+    const logoutButton = node("button", "", "Log out");
+    logoutButton.type = "submit";
+    logout.appendChild(logoutButton);
+    account.append(accountName, logout);
+    let adminLink = null;
+    const setIdentity = (identity) => {
+      const authenticated = !!(identity && identity.authenticated === true);
+      const isAdmin = authenticated && identity.is_admin === true;
+      if (isAdmin && !adminLink) {
+        adminLink = addLink(navigation, "Admin", "/admin",
+          /^\\/admin(\\/|$)/.test(window.location.pathname));
+      } else if (!isAdmin && adminLink) {
+        adminLink.remove();
+        adminLink = null;
+      }
+      account.hidden = !authenticated;
+      accountName.textContent = authenticated ? String(identity.username || "") : "";
+    };
+    const refreshIdentity = async () => {
+      try {
+        const response = await fetch("/api/session/identity", {
+          credentials: "same-origin", cache: "no-store",
+          headers: {"Accept": "application/json"}
+        });
+        if (!response.ok) throw new Error("Scene session unavailable");
+        setIdentity(await response.json());
+      } catch (_) {
+        setIdentity(null);
+      }
+    };
+    refreshIdentity();
+    window.addEventListener("pageshow", refreshIdentity);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) refreshIdentity();
+    });
+  }
+  if (script && script.dataset && script.dataset.unifySidebar === "1") {
+    if (window.self !== window.top) return;
+    if (document.readyState === "loading")
+      document.addEventListener("DOMContentLoaded", installLegacySidebar, {once: true});
+    else installLegacySidebar();
+    return;
+  }
   function install() {
     if (document.getElementById("vps1-native-site-sidebar")) return;
     document.body.classList.add("vps1-native-site", "vps1-native-" + app);
@@ -36,11 +125,10 @@
     aside.appendChild(brand);
     const navigation = node("nav");
     navigation.setAttribute("aria-label", "Applications");
-    addLink(navigation, "Dashboard", "/", false);
-    // Independently routed uploader and streaming apps share one sidebar item.
-    addLink(navigation, "Upload Studio", "/local-upload-manager", app === "uploader" || app === "stream");
-    addLink(navigation, "Video Studio", "/scene-builder/", app === "acs");
-    const voiceLink = addLink(navigation, "Voice Studio", "/voice-studio/app#vps1-production", app === "voice");
+    // Native pages and legacy Video Studio documents use the same menu.
+    const current = app === "uploader" || app === "stream" ? "upload" :
+      app === "acs" ? "video" : "voice";
+    const voiceLink = addPrimaryLinks(navigation, current).voice;
     if (app === "voice") {
       // A click on the already-open Voice Studio must not reload its large
       // document or restart voice engines, queues, and ongoing audio previews.
