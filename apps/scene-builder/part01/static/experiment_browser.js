@@ -243,8 +243,8 @@
   preview.addEventListener("click", event => {
     if (!running()) return;
     const rect = preview.getBoundingClientRect();
-    const x = Math.floor((event.clientX - rect.left) * preview.naturalWidth / rect.width);
-    const y = Math.floor((event.clientY - rect.top) * preview.naturalHeight / rect.height);
+    const x = Math.floor((event.clientX - rect.left) * current().width / rect.width);
+    const y = Math.floor((event.clientY - rect.top) * current().height / rect.height);
     doAction("click", {x, y});
   });
   const refreshTimer = window.setInterval(() => {
