@@ -6,6 +6,7 @@ on:
       - 'apps/voice-studio/part01/audio_downloader_api.py'
       - 'production/voice_template_release.py'
       - 'tests/test_audio_downloader_queue_history.py'
+      - 'tests/audio_downloader_browser_urls.test.cjs'
       - '.github/workflows/vps1-audio-downloader-queue-history-ci.yml'
   workflow_dispatch:
 
@@ -38,3 +39,5 @@ jobs:
             new vm.Script(m[1],{filename:id+'.js'});
           }
           JS
+      - name: Execute actual Queue and History JavaScript after Nginx rewriting simulation
+        run: node tests/audio_downloader_browser_urls.test.cjs

@@ -14,8 +14,12 @@ jobs:
       github.actor == 'dilshadshahsyed883-cmd' &&
       github.event_name == 'push' &&
       github.run_attempt == 1 &&
-      contains(github.event.head_commit.message, '[vps1-voice-queue-release]') &&
-      contains(github.event.head_commit.message, '[vps1-voice-queue-api-only]')
+      (
+        (contains(github.event.head_commit.message, '[vps1-voice-queue-release]') &&
+         contains(github.event.head_commit.message, '[vps1-voice-queue-api-only]')) ||
+        (contains(github.event.head_commit.message, '[vps1-voice-tts-controls-release]') &&
+         contains(github.event.head_commit.message, '[vps1-voice-tts-controls-only]'))
+      )
     environment: production
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -34,12 +38,15 @@ jobs:
         env:
           PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
           SOURCE_SHA: ${{ github.sha }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           set -Eeuo pipefail
           set +x
           umask 077
           test "$GITHUB_REF" = refs/heads/main
           [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          SOURCE_RELEASE_MODE=api
+          if [[ "$COMMIT_MESSAGE" == *'[vps1-voice-tts-controls-only]'* ]]; then SOURCE_RELEASE_MODE=controls; fi
           scratch="$(mktemp -d)"
           trap 'rm -rf "$scratch"' EXIT
           printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/identity"
@@ -62,9 +69,18 @@ jobs:
               "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA voice-studio" \
               > "$scratch/installer.log" 2>&1; then
               cat "$scratch/installer.log"
-              grep -Fq '"result": "PASS_VOICE_QUEUE_API"' "$scratch/installer.log"
+              if [[ "$SOURCE_RELEASE_MODE" == controls ]]; then
+                grep -Fq '"result": "PASS_VOICE_TTS_CONTROLS"' "$scratch/installer.log"
+              else
+                grep -Fq '"result": "PASS_VOICE_QUEUE_API"' "$scratch/installer.log"
+              fi
               echo 'VOICE_KOKORO_EDGE_QUEUE_API=VERIFIED'
-              echo 'VOICE_WORKERS=UNCHANGED'
+              if [[ "$SOURCE_RELEASE_MODE" == controls ]]; then
+                echo 'VOICE_TTS_CONTROLS=VERIFIED'
+                echo 'VOICE_WORKERS=IDLE_GATED_THREE_UNIT_RELEASE'
+              else
+                echo 'VOICE_WORKERS=UNCHANGED'
+              fi
               echo 'AUTO_SCRIPT=OFFLINE'
               exit 0
             fi

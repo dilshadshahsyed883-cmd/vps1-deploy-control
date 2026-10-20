@@ -1,6 +1,6 @@
 """Isolated Kokoro ONNX job API for Voice Studio. No OmniVoice database coupling."""
 from __future__ import annotations
-import json, os, re, sqlite3, uuid
+import json, os, re, sqlite3, uuid, unicodedata
 from datetime import datetime, timezone
 from email import policy
 from email.parser import BytesParser
@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from queue_actions import migrate as migrate_queue, apply as apply_queue, job_view, QueueActionError
 
 ROOT=Path(os.environ.get('KOKORO_STUDIO_ROOT','/home/ubuntu/apps/kokoro_voice_studio'))
 DATA=ROOT/'data'
@@ -21,10 +22,12 @@ class GenerateRequest(BaseModel):
     voice: str=Field(min_length=3,max_length=40)
     speed: float=Field(ge=0.5,le=2.0)
     batch_name: str=Field(default='',max_length=120)
+    output_name: str=Field(default='',max_length=120)
 
 def utc():return datetime.now(timezone.utc).isoformat(timespec='seconds')
 def safe_name(value:str,maxlen:int=85)->str:
-    val=re.sub(r'[^A-Za-z0-9_-]+','_',value or '').strip('_-')[:maxlen]
+    val=unicodedata.normalize('NFKC', value or '')
+    val=re.sub(r'[^\w-]+', '_', val, flags=re.UNICODE).strip('_-')[:maxlen].strip('_-')
     return val or 'untitled'
 
 def connection():
@@ -45,6 +48,41 @@ def init_storage():
             wav_file text, error text, delivery_error text, next_delivery_retry real default 0,
             delivery_retries integer default 0, drive_wav text, drive_txt text)''')
         c.execute('create index if not exists kokoro_jobs_queue on jobs(status,created_at)')
+        migrate_output_metadata(c)
+    with connection() as c:
+        migrate_queue(c, 'kokoro')
+
+
+def choose_output_name(custom_name: str, source_filename: str, text: str, job_id: str, source_basename: str | None = None):
+    """Metadata-only naming; never derive a filesystem path from caller input."""
+    if custom_name and custom_name.strip():
+        return safe_name(custom_name), 'custom'
+    if source_filename and source_filename.lower().endswith('.txt'):
+        stem = source_basename or source_filename.replace('\\', '/').rsplit('/', 1)[-1][:-4]
+        if stem.strip():
+            return safe_name(stem), 'source_txt'
+    letters = [ch for ch in unicodedata.normalize('NFKC', text) if unicodedata.category(ch).startswith('L')]
+    prefix = safe_name(''.join(letters[:2]) or 'Au', 16)
+    return prefix + '_' + job_id, 'text_fallback'
+
+_METADATA_COLUMNS = {
+    'naming_method': "TEXT NOT NULL DEFAULT 'legacy'",
+    'drive_file_id': 'TEXT', 'drive_url': 'TEXT', 'drive_verified_at': 'TEXT',
+    'drive_files_json': "TEXT NOT NULL DEFAULT '{}'",
+}
+
+def migrate_output_metadata(con):
+    columns = {r[1] for r in con.execute('PRAGMA table_info(jobs)').fetchall()}
+    for name, data_type in _METADATA_COLUMNS.items():
+        if name not in columns:
+            con.execute('ALTER TABLE jobs ADD COLUMN ' + name + ' ' + data_type)
+
+def drive_files(row):
+    try:
+        raw = json.loads(row.get('drive_files_json') or '{}')
+        return raw if isinstance(raw, dict) else {}
+    except (TypeError, ValueError):
+        return {}
 
 def catalog():
     p=ROOT/'voice_catalog.json'
@@ -73,18 +111,18 @@ def validate(language:str,voice:str,speed:float):
     ready,reason=worker_status()
     if not ready:raise HTTPException(503,'Kokoro worker not ready: '+reason)
 
-def create_job(text:str,filename:str,language:str,voice:str,speed:float,batch:str,basename:str|None=None):
+def create_job(text:str,filename:str,language:str,voice:str,speed:float,batch:str,basename:str|None=None,custom_name:str=''):
     text=text.strip()
     if not text or len(text)>50000:raise HTTPException(422,'TXT must contain 1–50000 characters')
     job_id='KOJ-'+uuid.uuid4().hex[:16].upper()
-    output=safe_name(basename or Path(filename).stem)
+    output,naming_method=choose_output_name(custom_name,filename,text,job_id,basename)
     where=DATA/'jobs'/job_id
     where.mkdir(mode=0o750,parents=True,exist_ok=False)
     txt=where/(output+'.txt')
     txt.write_text(text+'\n',encoding='utf-8')
     with connection() as c:
-        c.execute('''insert into jobs(job_id,batch_id,source_filename,output_basename,language,voice,speed,status,delivery_status,created_at,input_file) values(?,?,?,?,?,?,?,?,?,?,?)''',
-            (job_id,batch,filename,output,language,voice,speed,'queued','waiting_generation',utc(),str(txt)))
+        c.execute('''insert into jobs(job_id,batch_id,source_filename,output_basename,language,voice,speed,status,delivery_status,created_at,input_file,naming_method) values(?,?,?,?,?,?,?,?,?,?,?,?)''',
+            (job_id,batch,filename,output,language,voice,speed,'queued','waiting_generation',utc(),str(txt),naming_method))
     return job_id
 
 @router.get('/status')
@@ -103,7 +141,7 @@ def generate(payload:GenerateRequest):
     init_storage()
     validate(payload.language,payload.voice,payload.speed)
     batch='single-'+uuid.uuid4().hex[:8]
-    id_=create_job(payload.text,'narration.txt',payload.language,payload.voice,payload.speed,batch,basename='narration')
+    id_=create_job(payload.text,'text-input',payload.language,payload.voice,payload.speed,batch,custom_name=payload.output_name)
     return {'job_id':id_,'count':1}
 
 @router.post('/batch')
@@ -127,7 +165,7 @@ async def batch(request:Request):
             try: text=data.decode('utf-8-sig')
             except UnicodeDecodeError:raise HTTPException(422,'TXT must use UTF-8 encoding')
             txts.append((Path(filename).name,text))
-        elif name in {'language','voice','speed','batch_name'}:
+        elif name in {'language','voice','speed','batch_name','output_name'}:
             fields[name]=data.decode('utf-8',errors='ignore')[:120]
     if not 1<=len(txts)<=100:raise HTTPException(422,'Provide 1–100 TXT files')
     try: speed=float(fields.get('speed','1'))
@@ -145,7 +183,7 @@ async def batch(request:Request):
         while stem in seen:
             stem=original+'_'+str(ix);ix+=1
         seen.add(stem);normalized.append((filename,text,stem))
-    ids=[create_job(text,filename,language,voice,speed,batch_id,basename=stem) for filename,text,stem in normalized]
+    ids=[create_job(text,filename,language,voice,speed,batch_id,basename=stem,custom_name=(fields.get('output_name','')+(('_'+str(i+1)) if i else ''))) for i,(filename,text,stem) in enumerate(normalized)]
     return {'batch_id':batch_id,'count':len(ids),'job_ids':ids}
 
 @router.get('/jobs')
@@ -153,15 +191,42 @@ def jobs(limit:int=100):
     init_storage()
     limit=max(1,min(limit,250))
     with connection() as c:
-        rows=c.execute('select * from jobs order by created_at desc,job_id desc limit ?',(limit,)).fetchall()
+        rows=c.execute('select * from jobs where hidden_at is null order by created_at desc,job_id desc limit ?',(limit,)).fetchall()
     result=[]
     for r in rows:
-        d=dict(r)
-        out={k:d.get(k) for k in ('job_id','batch_id','source_filename','output_basename','language','voice','speed','status','delivery_status','created_at','error','delivery_error')}
-        out['filename']=d['output_basename']+'.txt'
+        d=job_view(r, 'kokoro')
+        out={k:d.get(k) for k in ('job_id','batch_id','source_filename','output_basename','language','voice','speed','status','queue_status','delivery_status','created_at','started_at','finished_at','error','delivery_error','progress','attempt','max_attempts','allowed_actions','naming_method','drive_file_id','drive_url','drive_verified_at','delivery_retries')}
+        out['filename']=d['output_basename']+'.txt'  # Backward-compatible legacy queue label.
+        out['output_filename']=d['output_basename']+'.wav'
+        out['drive_files']=drive_files(d)
         if d['wav_file'] and Path(d['wav_file']).is_file():out['audio_url']='/tts/api/kokoro/audio/'+d['job_id']
         result.append(out)
     return {'jobs':result}
+
+@router.post('/jobs/{job_id}/{action}')
+def control(job_id:str,action:str):
+    init_storage()
+    try:
+        with connection() as c:
+            return apply_queue(c, 'kokoro', job_id, action)
+    except QueueActionError as exc:
+        raise HTTPException(exc.code, exc.detail) from exc
+
+@router.post('/jobs/{job_id}/delivery/retry')
+def retry_delivery(job_id: str):
+    init_storage()
+    if not re.fullmatch(r'KOJ-[A-F0-9]{16}', job_id):
+        raise HTTPException(404, 'Job not found')
+    with connection() as c:
+        row = c.execute('SELECT status,delivery_status,input_file,wav_file FROM jobs WHERE job_id=?', (job_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, 'Job not found')
+        if row['status'] != 'completed' or row['delivery_status'] in ('delivered', 'cleaned'):
+            raise HTTPException(409, 'Only completed unverified outputs can retry Drive delivery')
+        if not row['input_file'] or not row['wav_file'] or not Path(row['input_file']).is_file() or not Path(row['wav_file']).is_file():
+            raise HTTPException(409, 'Local audio/source unavailable; generation is not restarted')
+        c.execute("UPDATE jobs SET delivery_status='retry_pending',delivery_error=NULL,next_delivery_retry=0 WHERE job_id=?", (job_id,))
+    return {'job_id': job_id, 'delivery_status': 'retry_pending'}
 
 @router.get('/audio/{job_id}')
 def audio(job_id:str):

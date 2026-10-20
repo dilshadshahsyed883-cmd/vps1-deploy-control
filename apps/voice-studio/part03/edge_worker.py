@@ -1,6 +1,6 @@
 """Single Edge TTS online worker, isolated SQLite queue, pair-verified Drive spool."""
 from __future__ import annotations
-import asyncio, json, os, re, shutil, sqlite3, subprocess, threading, time
+import asyncio, json, os, re, shutil, sqlite3, subprocess, threading, time, hashlib
 from datetime import datetime,timezone
 from pathlib import Path
 import edge_tts
@@ -21,6 +21,23 @@ def update(jid,**fields):
     fields['updated_at']=now()
     with db() as c:
         c.execute('update jobs set '+','.join(k+'=?' for k in fields)+' where job_id=?',(*fields.values(),jid))
+
+def ensure_output_metadata():
+    with db() as c:
+        cols={r[1] for r in c.execute('PRAGMA table_info(jobs)').fetchall()}
+        if not cols:raise RuntimeError('Voice jobs table missing')
+        for name,kind in {'naming_method':"TEXT NOT NULL DEFAULT 'legacy'",'drive_file_id':'TEXT','drive_url':'TEXT','drive_verified_at':'TEXT','drive_files_json':"TEXT NOT NULL DEFAULT '{}'"}.items():
+            if name not in cols:c.execute('ALTER TABLE jobs ADD COLUMN '+name+' '+kind)
+        c.execute("UPDATE jobs SET delivery_status='retry_pending',next_delivery_retry=0 WHERE status='completed' AND delivery_status='transferring'")
+
+def delivery_loop():
+    while True:
+        try:
+            deliver()
+            cleanup_delivered()
+        except Exception as exc:
+            print('EDGE_DRIVE_LOOP_RETRY='+type(exc).__name__,flush=True)
+        time.sleep(4)
 
 def heartbeat(ready=False,reason=''):
     DATA.mkdir(parents=True,exist_ok=True)
@@ -117,8 +134,12 @@ def make_outputs(row,chunks):
     if lines:srt.write_text('\n'.join(lines)+'\n',encoding='utf8')
     return mp3,wav,srt if lines else None
 
+def max_attempts():
+    try:return max(1,min(20,int(os.environ.get('EDGE_MAX_ATTEMPTS','3'))))
+    except (ValueError,TypeError):return 3
+
 def mark_waiting(jid,attempt,reason):
-    if attempt>=3:
+    if attempt>=max_attempts():
         update(jid,status='failed',error=reason[:140],delivery_status='not_applicable')
     else:
         delay=min(1800,60*(2**max(0,attempt-1)))
@@ -153,16 +174,41 @@ def process(row):
         if status(jid)=='cancel_requested':update(jid,status='cancelled',delivery_status='not_applicable');return
         if status(jid)=='pause_requested':update(jid,status='paused');return
         mp3,wav,srt=make_outputs(row,chunks)
-        update(jid,status='completed',progress=100,mp3_file=str(mp3),wav_file=str(wav),srt_file=str(srt) if srt else None,delivery_status='pending')
+        if status(jid) in ('cancel_requested','cancelled'):
+            update(jid,status='cancelled',delivery_status='not_applicable');return
+        if status(jid) in ('pause_requested','paused'):
+            update(jid,status='paused');return
+        # CAS closes the race with a cancel/pause requested after final ffmpeg.
+        with db() as c:
+            saved=c.execute("""UPDATE jobs SET status='completed',progress=100,
+                mp3_file=?,wav_file=?,srt_file=?,delivery_status='pending',
+                updated_at=?,error=NULL WHERE job_id=? AND status='processing'""",
+                (str(mp3),str(wav),str(srt) if srt else None,now(),jid))
+        if saved.rowcount != 1:
+            state=status(jid)
+            if state in ('cancel_requested','cancelled'):
+                update(jid,status='cancelled',delivery_status='not_applicable')
+            elif state in ('pause_requested','paused'):
+                update(jid,status='paused')
+            return
         print('EDGE_AUDIO_GENERATED='+jid,flush=True)
-    except Exception as e:mark_waiting(jid,attempt,type(e).__name__)
+    except Exception as e:
+        state=status(jid)
+        if state in ('cancel_requested','cancelled'):
+            update(jid,status='cancelled',delivery_status='not_applicable')
+        elif state in ('pause_requested','paused'):
+            update(jid,status='paused')
+        else:
+            detail=re.sub(r'(?i)(token|secret|key|authorization)[=:][^\s,;&]+',r'\1=[REDACTED]',str(e))
+            mark_waiting(jid,attempt,type(e).__name__+': '+detail[:100])
 
 def pick():
     with db() as c:
         c.execute("update jobs set status='queued' where status='retry_wait' and retry_at<=?",(time.time(),))
         r=c.execute("select * from jobs where status='queued' order by created_at,job_id limit 1").fetchone()
-        if r:c.execute("update jobs set status='processing',updated_at=? where job_id=? and status='queued'",(now(),r['job_id']))
-        return dict(r) if r else None
+        if not r:return None
+        claim=c.execute("update jobs set status='processing',updated_at=? where job_id=? and status='queued'",(now(),r['job_id']))
+        return dict(r) if claim.rowcount==1 else None
 
 def rclone_cmd(*args):
     if not RCLONE or not RCCONF.is_file():raise RuntimeError('Drive credentials unavailable')
@@ -172,12 +218,27 @@ def rclone_cmd(*args):
     return r.stdout
 
 def verified_copy(local,remote):
-    rclone_cmd('copyto',str(local),remote)
-    metadata=json.loads(rclone_cmd('lsjson','--stat',remote))
+    """Write no permissions; require verified Drive ID and size."""
+    if not local.is_file() or local.stat().st_size<1:raise RuntimeError('Local output missing')
+    rclone_cmd('copyto','--ignore-existing',str(local),remote)
+    metadata=json.loads(rclone_cmd('lsjson','--stat','--hash',remote))
     if int(metadata.get('Size',-1))!=local.stat().st_size:raise RuntimeError('Drive remote size mismatch')
+    if metadata.get('Name') and metadata['Name']!=remote.rsplit('/',1)[-1]:raise RuntimeError('Drive filename mismatch')
+    fid=str(metadata.get('ID') or '')
+    if not re.fullmatch(r'[A-Za-z0-9_-]{8,}',fid):raise RuntimeError('Drive ID missing')
+    md5=(metadata.get('Hashes') or {}).get('MD5')
+    if md5:
+        with local.open('rb') as payload:
+            actual=hashlib.file_digest(payload,'md5').hexdigest()
+        if actual!=md5.lower():raise RuntimeError('Drive hash mismatch')
+    return {'id':fid,'url':'https://drive.google.com/file/d/'+fid+'/view','size':local.stat().st_size,'name':remote.rsplit('/',1)[-1]}
 
 def deliver():
-    if not RCLONE or not RCCONF.is_file():return
+    if not RCLONE or not RCCONF.is_file():
+        with db() as c:
+            missing=c.execute("select job_id from jobs where status='completed' and delivery_status in ('pending','retry_pending','blocked') and next_delivery_retry<=? order by created_at limit 1",(time.time(),)).fetchone()
+            if missing:c.execute("update jobs set delivery_status='retry_pending',delivery_error='drive_configuration_missing',delivery_retries=delivery_retries+1,next_delivery_retry=? where job_id=?",(time.time()+900,missing['job_id']))
+        return
     with db() as c:
         r=c.execute("select * from jobs where status='completed' and delivery_status not in ('delivered','cleaned','blocked') and next_delivery_retry<=? order by created_at limit 1",(time.time(),)).fetchone()
     if r is None:return
@@ -190,11 +251,15 @@ def deliver():
     remote='gdrive:Omni Voice/Edge TTS/'+row['locale']+'/'+row['batch_id']+'/'+jid+'/'+row['output_basename']
     try:
         update(jid,delivery_status='transferring')
-        result={}
+        result={};receipts={}
         for ext,key in required+optional:
             if row.get(key) and Path(row[key]).is_file():
-                target=remote+'.'+ext;verified_copy(Path(row[key]),target);result['drive_'+ext]=target
-        update(jid,delivery_status='delivered',delivery_error=None,**result)
+                target=remote+'.'+ext
+                receipts[ext]=verified_copy(Path(row[key]),target)
+                result['drive_'+ext]=target
+        update(jid,delivery_status='delivered',delivery_error=None,
+               drive_file_id=receipts['mp3']['id'],drive_url=receipts['mp3']['url'],drive_verified_at=now(),
+               drive_files_json=json.dumps(receipts,ensure_ascii=False),**result)
         print('EDGE_DRIVE_FILES_VERIFIED='+jid,flush=True)
     except Exception as e:
         retries=int(row['delivery_retries'] or 0)+1
@@ -240,7 +305,12 @@ def main():
             except Exception:pass
             time.sleep(8)
     threading.Thread(target=keepalive,daemon=True).start()
-    with db() as c:c.execute("update jobs set status='queued' where status in ('processing','pause_requested')")
+    ensure_output_metadata()
+    with db() as c:
+        c.execute("update jobs set status='queued' where status='processing'")
+        c.execute("update jobs set status='paused' where status='pause_requested'")
+        c.execute("update jobs set status='cancelled',delivery_status='not_applicable' where status='cancel_requested'")
+    threading.Thread(target=delivery_loop,daemon=True).start()
     last_attempt=0
     while True:
         try:
@@ -251,9 +321,6 @@ def main():
             if ready:
                 row=pick()
                 if row:process(row)
-                else:
-                    deliver()
-                    cleanup_delivered()
             time.sleep(4)
         except Exception as e:
             heartbeat(False,type(e).__name__)
