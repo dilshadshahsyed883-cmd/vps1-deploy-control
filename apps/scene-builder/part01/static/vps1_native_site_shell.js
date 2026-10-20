@@ -274,7 +274,7 @@
       if (window.innerWidth > 760) setMenuOpen(false);
     });
     refreshIdentity();
-    window.addEventListener("pageshow", () => {setMenuOpen(false); refreshIdentity();});
+    window.addEventListener("pageshow", () => {setMenuOpen(false); return refreshIdentity();});
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) refreshIdentity();
     });
