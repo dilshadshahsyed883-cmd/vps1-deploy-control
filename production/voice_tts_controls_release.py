@@ -238,6 +238,7 @@ def install(revision):
               idle_gate="PASS", db_backup="PASS", affected_units=list(UNITS),
               other_workers="RESTORED_TO_PREVIOUS_STATE",
               live_controls="PASS", owner_jobs_mutated=False,
+              drive_upload_smoke=qa["drive_real_upload_proof"]["result"],
               drive_receipts={engine: item.get("remote_status")
                               for engine, item in qa["drive_readonly_evidence"].items()},
               auto_script="OFFLINE")
