@@ -137,6 +137,26 @@ def check_existing_remote_receipt(engine,db_path):
             report["remote_status"]="REMOTE_PROBE_ERROR"
     return report
 
+def classify_remote_error(detail):
+    """Log only a stable category, never secret-bearing raw rclone stderr."""
+    detail=str(detail or "").lower()
+    if any(x in detail for x in ("didn't find section", "remote not found",
+                                "config file not found", "failed to load config")):
+        return "remote_config"
+    if any(x in detail for x in ("invalid_grant", "unauthorized", "oauth",
+                                "token expired", "401")):
+        return "authentication"
+    if any(x in detail for x in ("permission denied", "insufficient permissions",
+                                "access denied", "403", "forbidden")):
+        return "permission"
+    if any(x in detail for x in ("rate limit", "quota", "429",
+                                "too many requests")):
+        return "quota"
+    if any(x in detail for x in ("directory not found", "object not found")):
+        return "remote_path"
+    return "other_remote_error"
+
+
 def drive_upload_smoke_once():
     """Two tiny dedicated QA TXT files; verify actual VPS rclone Drive upload.
 
@@ -174,12 +194,16 @@ def drive_upload_smoke_once():
                                     capture_output=True,text=True,timeout=150)
                 if sent.returncode:
                     return {"result":"INCOMPLETE","engine":engine,
-                            "reason":"remote_copy_failed","completed":completed}
+                            "reason":"remote_copy_failed",
+                            "category":classify_remote_error(sent.stderr),
+                            "completed":completed}
                 read=subprocess.run(command+["lsjson","--stat","--hash",destination],
                                     capture_output=True,text=True,timeout=70)
                 if read.returncode:
                     return {"result":"INCOMPLETE","engine":engine,
-                            "reason":"remote_receipt_lookup_failed","completed":completed}
+                            "reason":"remote_receipt_lookup_failed",
+                            "category":classify_remote_error(read.stderr),
+                            "completed":completed}
                 metadata=json.loads(read.stdout)
                 file_id=str(metadata.get("ID") or "")
                 remote_md5=(metadata.get("Hashes") or {}).get("MD5")

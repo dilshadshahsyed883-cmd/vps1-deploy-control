@@ -239,6 +239,9 @@ def install(revision):
               other_workers="RESTORED_TO_PREVIOUS_STATE",
               live_controls="PASS", owner_jobs_mutated=False,
               drive_upload_smoke=qa["drive_real_upload_proof"]["result"],
+              drive_upload_engine=qa["drive_real_upload_proof"].get("engine","none"),
+              drive_upload_reason=qa["drive_real_upload_proof"].get("reason","none"),
+              drive_upload_category=qa["drive_real_upload_proof"].get("category","none"),
               drive_receipts={engine: item.get("remote_status")
                               for engine, item in qa["drive_readonly_evidence"].items()},
               auto_script="OFFLINE")

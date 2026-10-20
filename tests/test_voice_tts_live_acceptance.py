@@ -153,6 +153,14 @@ class VoiceLiveAcceptanceTests(unittest.TestCase):
         self.assertEqual(result["result"],"INCOMPLETE")
         self.assertFalse((journal/"drive-qa-one-time-receipt.json").exists())
 
+    def test_rclone_errors_are_redacted_into_safe_categories(self):
+        from production.voice_tts_live_acceptance import classify_remote_error
+        self.assertEqual(classify_remote_error("didn't find section in config file"),"remote_config")
+        self.assertEqual(classify_remote_error("403 forbidden user secret:abc"),"permission")
+        self.assertEqual(classify_remote_error("invalid_grant refresh token expired"),"authentication")
+        self.assertEqual(classify_remote_error("429 user rate limit"),"quota")
+        self.assertEqual(classify_remote_error("some unknown diagnostic"),"other_remote_error")
+
     def test_release_requires_live_proof_before_success(self):
         script=(ROOT/"production/voice_tts_controls_release.py").read_text()
         self.assertLess(script.index("verify_queues()"),script.index("qa = run_acceptance()"))
