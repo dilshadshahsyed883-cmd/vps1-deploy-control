@@ -297,6 +297,14 @@ def install_app(app, revision):
             from production.voice_template_release import install as install_voice_template
             install_voice_template(revision)
             return
+    # Explicit protected-main ACS template-only intent: update only the
+    # browser-facing HTML asset cache key; preserve rendering workers and data.
+    if app == 'auto-caption-studio':
+        commit_message = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-acs-template-only]' in commit_message:
+            from production.acs_template_release import install as install_acs_template
+            install_acs_template(revision)
+            return
     unit_name = f'vps1-production-{app}.service'
     unit = Path('/etc/systemd/system') / unit_name
     current = BASE / 'current' / runtime_name(app)
