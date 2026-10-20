@@ -149,7 +149,11 @@ def verified_copy(local:Path,remote:str):
  return {'id':fid,'url':'https://drive.google.com/file/d/'+fid+'/view','size':local.stat().st_size,'name':remote.rsplit('/',1)[-1]}
 
 def deliver_once():
- if not RCLONE or not Path(RCFILE).is_file():return
+ if not RCLONE or not Path(RCFILE).is_file():
+  with db() as c:
+   missing=c.execute("select job_id from jobs where status='completed' and delivery_status in ('pending','retry_pending','blocked') and next_delivery_retry<=? order by created_at limit 1",(time.time(),)).fetchone()
+   if missing:c.execute("update jobs set delivery_status='retry_pending',delivery_error='drive_configuration_missing',delivery_retries=delivery_retries+1,next_delivery_retry=? where job_id=?",(time.time()+900,missing['job_id']))
+  return
  with db() as c:
   row=c.execute("select * from jobs where status='completed' and delivery_status not in ('delivered','cleaned') and next_delivery_retry<=? order by created_at limit 1",(time.time(),)).fetchone()
  if row is None:return
