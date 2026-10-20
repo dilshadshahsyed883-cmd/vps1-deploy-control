@@ -29,7 +29,7 @@ DB_PATH = DATA / "library.db"
 for p in (DATA, SOURCES_DIR, CLIPS_DIR, THUMBS_DIR, METADATA_DIR, TEMP_DIR):
     p.mkdir(parents=True, exist_ok=True)
 
-APP_VERSION = "1.2.0"
+APP_VERSION = "2.0.0"
 app = FastAPI(title="Self Media Library", version=APP_VERSION)
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 app.mount("/media/clips", StaticFiles(directory=CLIPS_DIR), name="clips")
@@ -1181,3 +1181,12 @@ def retry_source_drive_sync(source_id: str):
         raise HTTPException(502, result.get("detail") or f"Drive verified {result.get('verified', 0)}/{result.get('total', 0)} clips")
     return result
 
+
+
+# Additive V2 media, image ingestion, and editor API. V1 records/routes remain intact.
+from media_extensions import register_media_extensions
+register_media_extensions(app, data_dir=DATA, db=db, now_iso=now_iso,
+                          get_settings_map=get_settings_map, setting_true=setting_true,
+                          drive_base=drive_base, drive_preflight=drive_preflight,
+                          run_rclone=run_rclone, upload_and_verify=upload_and_verify,
+                          source_dir=SOURCES_DIR)

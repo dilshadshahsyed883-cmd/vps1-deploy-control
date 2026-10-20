@@ -80,3 +80,14 @@ Default port: `8090`.
 ## V1.1 → V1.2 upgrade
 
 Database migrations are additive. Existing clips, source history, keywords and Drive paths are preserved when deployment uses the existing shared data directory.
+
+
+## V2 extension — 20 Oct 2026 (REQ-20261020-0003)
+
+V1 routes and SQLite clip history are retained. Additive migration on startup creates independent photo assets, import history, and editor leases. Inputs include browser-uploaded JPG/PNG/WEBP; a queued single-file rclone Drive import (path relative to configured app remote); and optional rights-authorized yt-dlp import. Imported videos enter the established sources queue and must be processed using the existing Process control. yt-dlp and its optional proxy must be installed/configured server-side, not requested as browser credentials. YouTube access and source rights are not guaranteed.
+
+V2 local photo upload generates a preview; manual keywords and approval; Drive-mode upload+verification when enabled. Failed remote upload retains the local file. Photos never undergo video clip cutting. The gallery can rename, tag, preview, approve/reject and soft-trash photos.
+
+Editor API (requires a configured SML_EDITOR_API_TOKEN passed as X-SML-Editor-Token): GET /api/v1/media/search, POST /api/v1/media/reservations, POST /api/v1/media/reservations/{id}/commit or /release, GET /api/v1/media/video/{id}/content. Approved and playable assets only. Image list and preview remain protected by website shell auth. Empty searches return zero matches instead of unrelated media. Project leases expire after an hour; candidates prefer distinct source and non-reused media.
+
+Safety: do not delete approved library photos, video clips or local originals until durable verified remote storage, post-cleanup retrieval and downstream jobs pass. Existing source cleanup policy still applies to previous clip pipeline. Existing app isolated Drive settings are not replaced with deployment Bridge credentials. SML_EDITOR_API_TOKEN, SML_YTDLP_PROXY_URL are optional environment variables; do not put their values into GitHub, Google Docs or web forms.
