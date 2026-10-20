@@ -470,7 +470,7 @@ def source_drive_gate(source_id: str) -> dict:
         "verified": verified,
         "failed": failed,
         "pending": pending,
-        "all_verified": total > 0 and verified == total and original_verified and stale_metadata == 0,
+        "all_verified": total > 0 and verified == total and original_verified,
         "cleanup_ready": total > 0 and verified == total and original_verified and active_dependents == 0 and stale_metadata == 0,
         "stale_ai_metadata": stale_metadata,
         "original_verified": original_verified,
