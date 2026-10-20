@@ -59,7 +59,7 @@ class VoiceTTSReleaseTest(unittest.TestCase):
         for state in release.DELIVERY_BUSY:
             with self.subTest(state=state):
                 self.mark(self.paths[1],"completed",state)
-                with self.assertRaisesRegex(RuntimeError,"active/queued synthesis"):
+                with self.assertRaisesRegex(RuntimeError,"active synthesis/transfer"):
                     release.check_idle_and_lock(self.paths)
                 self.mark(self.paths[1],"completed","cleaned")
 
