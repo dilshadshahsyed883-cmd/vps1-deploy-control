@@ -2,6 +2,8 @@
 from __future__ import annotations
 import http.client
 import hashlib
+import configparser
+import re
 import tempfile
 import json
 import secrets
@@ -157,6 +159,76 @@ def classify_remote_error(detail):
     return "other_remote_error"
 
 
+
+# Error fingerprints are fixed names, never the user's rclone diagnostics.
+GOOGLE_REASONS = (
+    "storageQuotaExceeded", "insufficientFilePermissions",
+    "insufficientPermissions", "appNotAuthorizedToFile",
+    "userRateLimitExceeded", "dailyLimitExceeded",
+    "rateLimitExceeded", "teamDriveFileLimitExceeded",
+    "cannotModifyOwnerContent", "fileNotFound",
+    "notFound", "accessNotConfigured",
+)
+
+
+def safe_google_error_reason(detail):
+    """Convert stderr to one public, allow-listed API reason (no raw data)."""
+    source=str(detail or "")
+    for reason in GOOGLE_REASONS:
+        if re.search(r"(?i)(?:['\"]reason['\"]\s*:\s*['\"])?"
+                     + re.escape(reason) + r"(?:['\"])?", source):
+            return reason
+    lower=source.lower()
+    if "insufficient authentication scopes" in lower or "insufficient oauth scope" in lower:
+        return "oauthInsufficientScope"
+    if "cannot create file in a shared drive" in lower:
+        return "sharedDriveCreateRestricted"
+    if "service account" in lower and "quota" in lower:
+        return "serviceAccountStorageQuota"
+    if "403" in lower:
+        return "unclassified403"
+    return "other"
+
+
+def safe_rclone_auth_facts(config):
+    """Inspect only nonsecret remote type, scope and credential mode."""
+    out={"remote_type":"unknown", "auth_mode":"unknown", "scope":"unknown"}
+    try:
+        settings=configparser.ConfigParser(interpolation=None)
+        if not settings.read(str(config)) or not settings.has_section("gdrive"):
+            return out
+        entry=settings["gdrive"]
+        kind=entry.get("type","").strip().lower()
+        out["remote_type"]="drive" if kind=="drive" else "other"
+        out["auth_mode"]=("service_account" if (entry.get("service_account_file","")
+                          or entry.get("service_account_credentials",""))
+                          else "oauth" if entry.get("token","") else "other")
+        raw_scope=entry.get("scope","").strip().lower()
+        raw_scope=raw_scope.rsplit("/",1)[-1]
+        scopes={"drive":"full_drive", "drive.file":"drive_file",
+                "drive.readonly":"read_only", "drive.metadata.readonly":"metadata_only",
+                "drive.appfolder":"app_folder"}
+        out["scope"]=scopes.get(raw_scope,"unspecified" if not raw_scope else "other")
+    except (OSError,ValueError,configparser.Error):
+        pass
+    return out
+
+
+def remote_folder_preflight(executable, config, root):
+    """A read-only probe of the selected folder; no listing of user files."""
+    cmd=[executable,"--config",str(config),"--retries","1",
+         "--low-level-retries","1","lsjson","--stat","gdrive:Omni Voice/"+root]
+    try:
+        r=subprocess.run(cmd,capture_output=True,text=True,timeout=45)
+        if r.returncode:
+            return {"status":"UNAVAILABLE",
+                    "reason":safe_google_error_reason(r.stderr)}
+        item=json.loads(r.stdout)
+        return {"status":"VISIBLE" if isinstance(item,dict) and item.get("IsDir")
+                else "UNVERIFIED"}
+    except (OSError,ValueError,TypeError,subprocess.TimeoutExpired):
+        return {"status":"PROBE_ERROR"}
+
 def drive_upload_smoke_once():
     """Two tiny dedicated QA TXT files; verify actual VPS rclone Drive upload.
 
@@ -177,6 +249,10 @@ def drive_upload_smoke_once():
     config=Path("/home/ubuntu/.config/masterctl/rclone.conf")
     if not executable or not config.is_file():
         return {"result":"UNAVAILABLE","reason":"rclone_configuration_missing"}
+    facts=safe_rclone_auth_facts(config)
+    folder_status={name:remote_folder_preflight(executable,config,folder)
+                   for name,folder in (("kokoro","Kokoro"),("edge","Edge TTS"))}
+    diagnostics={"auth":facts,"folder_access":folder_status}
     completed={}
     for engine,remote_root in (("kokoro","Kokoro"),("edge","Edge TTS")):
         unique=secrets.token_hex(12)
@@ -196,14 +272,16 @@ def drive_upload_smoke_once():
                     return {"result":"INCOMPLETE","engine":engine,
                             "reason":"remote_copy_failed",
                             "category":classify_remote_error(sent.stderr),
-                            "completed":completed}
+                            "google_reason":safe_google_error_reason(sent.stderr),
+                            "diagnostics":diagnostics,"completed":completed}
                 read=subprocess.run(command+["lsjson","--stat","--hash",destination],
                                     capture_output=True,text=True,timeout=70)
                 if read.returncode:
                     return {"result":"INCOMPLETE","engine":engine,
                             "reason":"remote_receipt_lookup_failed",
                             "category":classify_remote_error(read.stderr),
-                            "completed":completed}
+                            "google_reason":safe_google_error_reason(read.stderr),
+                            "diagnostics":diagnostics,"completed":completed}
                 metadata=json.loads(read.stdout)
                 file_id=str(metadata.get("ID") or "")
                 remote_md5=(metadata.get("Hashes") or {}).get("MD5")
@@ -216,13 +294,14 @@ def drive_upload_smoke_once():
                 if not matched:
                     return {"result":"INCOMPLETE","engine":engine,
                             "reason":"remote_identity_size_or_hash_mismatch",
-                            "completed":completed}
+                            "diagnostics":diagnostics,"completed":completed}
                 completed[engine]="ID_SIZE_HASH_VERIFIED"
             except (OSError,ValueError,TypeError,KeyError,subprocess.TimeoutExpired):
                 return {"result":"INCOMPLETE","engine":engine,
-                        "reason":"upload_or_receipt_exception","completed":completed}
+                        "reason":"upload_or_receipt_exception",
+                        "diagnostics":diagnostics,"completed":completed}
     proof={"result":"PASS","engines":completed,"retained_drive_evidence":True,
-           "auto_script":"OFFLINE"}
+           "auto_script":"OFFLINE","diagnostics":diagnostics}
     atomic_json(receipt_path,proof,0o600)
     return proof
 
