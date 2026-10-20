@@ -80,15 +80,23 @@ def check_idle_and_lock(db_paths):
 
 
 def check_omnivoice_idle(path):
-    """Fail closed on active clone synthesis/Drive work before touching Voice web."""
+    """Hold a transactional fence across dependent worker shutdown."""
     if not path.is_file() or path.is_symlink():
         raise RuntimeError("VOICE_CONTROLS_RELEASE_BLOCKED: OmniVoice queue DB unavailable")
-    with sqlite3.connect("file:" + str(path) + "?mode=ro", uri=True, timeout=10) as c:
+    c=sqlite3.connect("file:" + str(path) + "?mode=rw", uri=True, timeout=10)
+    try:
+        c.execute("PRAGMA busy_timeout=10000")
+        c.execute("BEGIN IMMEDIATE")
         cols = {column[1] for column in c.execute("PRAGMA table_info(jobs)")}
         require({"status","delivery_status"} <= cols,"OmniVoice schema unrecognized")
         busy = c.execute("""SELECT 1 FROM jobs WHERE status='processing'
             OR delivery_status IN ('uploading','pending') LIMIT 1""").fetchone()
         require(busy is None,"OmniVoice generation or Drive upload active")
+        return c
+    except BaseException:
+        c.rollback()
+        c.close()
+        raise
 
 
 def restore_aux_workers(previous_states):
@@ -190,7 +198,7 @@ def install(revision):
     switched = False
     try:
         fences = check_idle_and_lock(DATA_ROOTS)
-        check_omnivoice_idle(OMNI_DB)
+        fences.append(check_omnivoice_idle(OMNI_DB))
         try:
             # Treat partial service stop as a rollback-worthy mutation.
             stopped = True
