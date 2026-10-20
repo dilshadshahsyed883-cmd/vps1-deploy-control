@@ -26,7 +26,7 @@ class SharedShellMobile(unittest.TestCase):
         tags=Assets();tags.feed(s)
         scene_css="/static/vps1_native_site_shell.css?v=20261020-experiment-ui-v5"
         scene_js="/static/vps1_native_site_shell.js?v=20261020-experiment-ui-v5"
-        sml_css="/self-media-library/static/sml_shared_theme.css?v=20261020-shared-light-v1"
+        sml_css="/self-media-library/static/sml_shared_theme.css?v=20261020-shared-light-v2"
         assert (SCENE/"static/vps1_native_site_shell.css").is_file()
         assert (SCENE/"static/vps1_native_site_shell.js").is_file()
         assert (SML/"static/sml_shared_theme.css").is_file()
@@ -40,6 +40,7 @@ class SharedShellMobile(unittest.TestCase):
         self.assertNotIn('href="/static/',s)
         self.assertLess(tags.styles.index(scene_css),tags.styles.index(sml_css))
         self.assertNotIn("<iframe",s.lower())
+        self.assertIn('class="vps1-native-library"',s)
 
     def test_shared_light_design_and_mobile_alignment_override_old_dock(self):
         css=(SML/"static/sml_shared_theme.css").read_text(encoding="utf-8")

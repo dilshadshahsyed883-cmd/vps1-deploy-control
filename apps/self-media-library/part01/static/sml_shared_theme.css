@@ -230,3 +230,15 @@ body.vps1-native-library .two-col {grid-template-columns:minmax(0,1.45fr) minmax
   body.vps1-native-library .sml-control-rail *,
   body.vps1-native-library .clip-card{transition:none!important;animation:none!important}
 }
+
+/* Apply readable light-theme empty states and settings controls. */
+body.vps1-native-library .empty b {color:#334155!important}
+body.vps1-native-library .ai-pill {
+  background:#eef2ff!important;color:#334155!important;font-size:11px;
+}
+body.vps1-native-library .ai-pill.ready {
+  background:#dcfce7!important;color:#166534!important;
+}
+body.vps1-native-library .switch input:checked+span {background:#315edb!important}
+body.vps1-native-library .switch input:not(:checked)+span {background:#cbd5e1!important}
+body.vps1-native-library .switch input:not(:checked)+span:after {background:#475569!important}
