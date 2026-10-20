@@ -8,8 +8,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+try:
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+except ModuleNotFoundError:
+    # The global offline-pilot validates stdlib-only contracts and does not
+    # install optional API test dependencies. Dedicated Voice CI installs them.
+    FastAPI = None
+    TestClient = None
 
 APP_ROOT = Path(__file__).resolve().parents[1] / "apps/voice-studio/part01"
 
@@ -21,6 +27,7 @@ def load(name):
     return module
 
 
+@unittest.skipIf(FastAPI is None, "FastAPI HTTP fixture requires dedicated Voice CI dependencies")
 class RealQueueRoutesTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
