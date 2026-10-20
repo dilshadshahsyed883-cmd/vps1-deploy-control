@@ -43,7 +43,10 @@ class AutoStreamIntegrationTests(unittest.TestCase):
     def test_oauth_pkce_state_and_single_use(self):
         begin = self.app.begin_oauth()
         self.assertIn("code_challenge_method=S256", begin["authorization_url"])
+        self.assertNotIn(mod.SHEETS_SCOPE, begin["authorization_url"])
         self.assertIn("access_type=offline", begin["authorization_url"])
+        with_sheets = self.app.begin_oauth(include_sheets=True)
+        self.assertIn(mod.SHEETS_SCOPE, with_sheets["authorization_url"])
         from urllib.parse import parse_qs, urlparse
         params = parse_qs(urlparse(begin["authorization_url"]).query)
         state = params["state"][0]

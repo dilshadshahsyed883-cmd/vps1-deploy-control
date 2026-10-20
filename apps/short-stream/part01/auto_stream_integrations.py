@@ -110,7 +110,11 @@ class AutoStreamAccounts:
         with self.connect() as con:
             con.execute("""CREATE TABLE IF NOT EXISTS oauth_state (
                 digest TEXT PRIMARY KEY, verifier TEXT NOT NULL,
-                expires TEXT NOT NULL)""")
+                expires TEXT NOT NULL, requested_scopes TEXT NOT NULL DEFAULT '')""")
+            try:
+                con.execute("ALTER TABLE oauth_state ADD COLUMN requested_scopes TEXT NOT NULL DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass
             con.execute("""CREATE TABLE IF NOT EXISTS channels (
                 id TEXT PRIMARY KEY, title TEXT NOT NULL,
                 authorized INTEGER NOT NULL DEFAULT 0,
@@ -156,7 +160,7 @@ class AutoStreamAccounts:
                 not any(c["id"] == channel_id and c["authorized"] for c in
                         self.channel_catalog()) else True}
 
-    def begin_oauth(self):
+    def begin_oauth(self, include_sheets: bool = False):
         client, _, redirect = _configuration()
         state = secrets.token_urlsafe(36)
         verifier = secrets.token_urlsafe(56)
@@ -166,11 +170,12 @@ class AutoStreamAccounts:
         expires = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
         with self.connect() as con:
             con.execute("DELETE FROM oauth_state WHERE expires<?", (now(),))
-            con.execute("INSERT INTO oauth_state VALUES (?,?,?)",
-                        (digest, verifier, expires))
+            con.execute("INSERT INTO oauth_state(digest,verifier,expires,requested_scopes) VALUES (?,?,?,?)",
+                        (digest, verifier, expires, requested_scopes))
+        requested_scopes = YOUTUBE_SCOPE + ((" " + SHEETS_SCOPE) if include_sheets else "")
         params = {
             "response_type": "code", "client_id": client, "redirect_uri": redirect,
-            "scope": YOUTUBE_SCOPE + " " + SHEETS_SCOPE,
+            "scope": requested_scopes,
             "access_type": "offline", "prompt": "consent select_account",
             "state": state, "code_challenge": challenge, "code_challenge_method": "S256",
             "include_granted_scopes": "true",
@@ -183,7 +188,7 @@ class AutoStreamAccounts:
             raise ValueError("OAuth callback is incomplete")
         digest = hashlib.sha256(state.encode()).hexdigest()
         with self.connect() as con:
-            row = con.execute("SELECT verifier,expires FROM oauth_state WHERE digest=?",
+            row = con.execute("SELECT verifier,expires,requested_scopes FROM oauth_state WHERE digest=?",
                               (digest,)).fetchone()
             con.execute("DELETE FROM oauth_state WHERE digest=?", (digest,))
         if not row or row["expires"] < now():
@@ -194,8 +199,11 @@ class AutoStreamAccounts:
             "redirect_uri": redirect, "grant_type": "authorization_code",
             "code_verifier": row["verifier"]}, method="POST")
         grant = set(str(token.get("scope", "")).split())
-        if YOUTUBE_SCOPE not in grant or SHEETS_SCOPE not in grant:
-            raise ValueError("Both YouTube and Sheets read-only access must be granted")
+        requested = set(str(row["requested_scopes"] or YOUTUBE_SCOPE).split())
+        if YOUTUBE_SCOPE not in grant:
+            raise ValueError("YouTube Live access must be granted")
+        if SHEETS_SCOPE in requested and SHEETS_SCOPE not in grant:
+            raise ValueError("Sheets read-only access was requested but not granted")
         if not token.get("refresh_token"):
             raise ValueError("Google did not supply offline authorization")
         access = token.get("access_token")
@@ -384,8 +392,8 @@ def disconnect_channel(channel_id: str):
 
 
 @router.get("/oauth/start")
-def oauth_start():
-    return _api_guard(lambda: accounts().begin_oauth())
+def oauth_start(with_sheets: bool = Query(False)):
+    return _api_guard(lambda: accounts().begin_oauth(include_sheets=with_sheets))
 
 
 @router.get("/oauth/callback", response_class=HTMLResponse)
