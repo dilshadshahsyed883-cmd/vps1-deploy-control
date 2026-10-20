@@ -73,13 +73,13 @@ def violations(source: dict[str, str]) -> list[str]:
             "mobile top baseline missing")
     require("shell_js", 'if (window.self !== window.top) return;',
             "do not inject duplicate nav into a nested document")
-    require("shell_js", 'addLink(navigation, "Upload Studio"',
+    require("shell_js", '["Upload Studio", "/local-upload-manager", "upload"]',
             "one combined Upload Studio sidebar entry missing")
     require("shell_js", 'addLink(tabs, "Auto Uploader"',
             "Auto Uploader primary tab missing")
     require("shell_js", 'addLink(tabs, "Auto Stream"',
             "Auto Stream independent primary tab missing")
-    require("shell_js", 'addLink(navigation, "Video Studio"',
+    require("shell_js", '["Video Studio", "/scene-builder/", "video"]',
             "Video Studio sidebar grouping missing")
     require("shell_js", 'refreshIdentity()',
             "native sidebar identity must come from live backend")
