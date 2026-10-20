@@ -1,0 +1,96 @@
+name: VPS1 Self Media Library V2 guarded production release
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: vps1-sml-v2-app-release
+  cancel-in-progress: false
+jobs:
+  install-app:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'dilshadshahsyed883-cmd' &&
+      github.run_attempt == 1 &&
+      contains(github.event.head_commit.message, '[vps1-self-media-v2-release]')
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Idle preflight, SML-only immutable install, health readback and rollback
+        shell: bash
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/id"
+          unset PRIVATE_IDENTITY
+          chmod 600 "$scratch/id"
+          ssh-keygen -y -P '' -f "$scratch/id" > "$scratch/public"
+          test "$(ssh-keygen -lf "$scratch/public" -E sha256 | awk '{print $2}')" = \
+            'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
+          remote() {
+            timeout 1500s ssh -T -p 22 -i "$scratch/id" \
+              -o UserKnownHostsFile="$scratch/known_hosts" \
+              -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+              -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o PreferredAuthentications=publickey -o PasswordAuthentication=no \
+              -o KbdInteractiveAuthentication=no -o ConnectTimeout=20 \
+              -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+              vps1deploy@100.87.55.92 "$@"
+          }
+          echo "READ_ONLY_IDLE_PREFLIGHT"
+          remote 'python3 -' <<'PY'
+          import json,urllib.request
+          def read(p):
+              with urllib.request.urlopen('http://127.0.0.1:8147'+p,timeout=15) as r:
+                  if r.status!=200:raise RuntimeError('HTTP health failed')
+                  return json.load(r)
+          health=read('/api/health')
+          stats=read('/api/stats')
+          if not health.get('ok') or int(stats.get('processing',-1)) != 0:
+              raise RuntimeError('SML has active processing or is unhealthy')
+          print('SML_IDLE_PREFLIGHT=PASS',flush=True)
+          PY
+          echo "SML_IMMUTABLE_APP_ONLY_INSTALL"
+          remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA self-media-library"
+          if ! remote 'python3 -' <<'PY'
+          import json,urllib.request
+          def read(p):
+              with urllib.request.urlopen('http://127.0.0.1:8147'+p,timeout=25) as r:
+                  if r.status!=200: raise RuntimeError('HTTP readback failure')
+                  return json.load(r)
+          health=read('/api/health')
+          status=read('/api/v1/media/status')
+          images=read('/api/v1/images?limit=1')
+          assert health.get('ok') is True and health.get('version')=='2.0.0'
+          assert status.get('ok') is True and status.get('v2') is True
+          assert isinstance(images.get('items'),list)
+          print('SML_V2_SERVICE_HEALTH=PASS',flush=True)
+          print('EDITOR_TOKEN_CONFIGURED='+str(bool(status.get('editor_token_configured'))),flush=True)
+          print('DRIVE_ENABLED='+str(bool(health.get('drive_enabled'))),flush=True)
+          PY
+          then
+            echo "SML_V2_FAILED=ROLLBACK"
+            remote "sudo -n /usr/local/sbin/vps1-production-deploy rollback $SOURCE_SHA self-media-library" || true
+            exit 1
+          fi
+          echo "SML_V2_APP_RELEASE=HEALTH_VERIFIED"
+          echo "AUTO_SCRIPT=OFFLINE_UNCHANGED"

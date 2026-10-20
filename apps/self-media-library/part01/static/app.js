@@ -6,8 +6,8 @@ const fmtTime = s => { s=Number(s||0); const m=Math.floor(s/60), sec=(s%60).toFi
 const fmtSize = n => n>1073741824?`${(n/1073741824).toFixed(1)} GB`:n>1048576?`${(n/1048576).toFixed(1)} MB`:`${Math.round(n/1024)} KB`;
 const toast = msg => { const el=$('#toast'); el.textContent=msg; el.classList.remove('hidden'); clearTimeout(window._toast); window._toast=setTimeout(()=>el.classList.add('hidden'),2200); };
 
-const pageMeta={dashboard:['Dashboard','Build and control your reusable clip library.'],sources:['Sources','Add videos that will become reusable short clips.'],processing:['Processing','Follow shot detection, clipping and automatic metadata.'],library:['Media Library','Search, review and manually control every clip.'],trash:['Trash','Restore clips or permanently delete them.'],settings:['Settings','Control stable library-building behavior.']};
-function gotoPage(page){ state.page=page; $$('.page').forEach(x=>x.classList.remove('active')); $(`#page-${page}`).classList.add('active'); $$('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.page===page)); $('#pageTitle').textContent=pageMeta[page][0]; $('#pageSubtitle').textContent=pageMeta[page][1]; if(page==='library') loadClips(true); if(page==='sources'||page==='processing') loadSources(); if(page==='trash') loadTrash(); if(page==='settings') loadSettings(); if(page==='dashboard') loadDashboard(); }
+const pageMeta={dashboard:['Dashboard','Build and control your reusable clip library.'],sources:['Input','Add videos, images, Drive files and authorized YouTube media.'],processing:['Process','Inspect import queues, scene detection and metadata generation.'],library:['Library & Preview','Search, review and control approved videos and images.'],trash:['Trash','Restore clips or permanently delete them.'],settings:['API & Settings','Editor API and safe library storage settings.']};
+function gotoPage(page){ state.page=page; $$('.page').forEach(x=>x.classList.remove('active')); $(`#page-${page}`).classList.add('active'); $$('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.page===page)); $('#pageTitle').textContent=pageMeta[page][0]; $('#pageSubtitle').textContent=pageMeta[page][1]; if(page==='library'){loadClips(true);loadImages();} if(page==='sources'||page==='processing') loadSources(); if(page==='sources')loadImports(); if(page==='trash') loadTrash(); if(page==='settings'){loadSettings();loadEditorStatus();} if(page==='dashboard') loadDashboard(); }
 $$('.nav-item').forEach(b=>b.onclick=()=>gotoPage(b.dataset.page)); $$('[data-goto]').forEach(b=>b.onclick=()=>gotoPage(b.dataset.goto));
 
 async function checkHealth(){ try{ const h=await api('/api/health'); $('#healthDot').classList.toggle('ok',h.ffmpeg); let msg=h.ffmpeg?'Engine online':'Engine online · FFmpeg missing'; if(h.drive_enabled) msg+=h.rclone?' · Drive ready':' · rclone missing'; $('#healthText').textContent=msg; }catch{ $('#healthText').textContent='Engine unavailable'; } }
@@ -54,3 +54,91 @@ $('#refreshSources').onclick=loadSources; $('#refreshProcessing').onclick=loadSo
 setInterval(()=>{if(state.page==='processing')loadSources();},3000);
 
 checkHealth(); loadDashboard();
+
+
+// Self Media Library V2: additive image intake, in-page review and durable import queue.
+let imageRows=[], selectedImage=null;
+async function loadImages() {
+  const q=encodeURIComponent($('#imageSearch').value.trim());
+  const status=encodeURIComponent($('#imageStatus').value);
+  try {
+    const data=await api('/api/v1/images?q='+q+'&status='+status+'&limit=200');
+    imageRows=data.items;
+    $('#imagesGrid').innerHTML=imageRows.length?imageRows.map(i=>'<button class="image-card" type="button" data-image="'+esc(i.id)+'"><img loading="lazy" src="'+esc(i.thumb_url)+'" alt="'+esc(i.original_name)+'"><b>'+esc(i.original_name)+'</b><small>'+esc(i.status)+' · '+esc(i.drive_state)+' · '+esc(i.width)+'×'+esc(i.height)+'</small></button>').join(''):'<p class="empty">No images yet. Upload one in Input.</p>';
+    $$('#imagesGrid [data-image]').forEach(el=>el.onclick=()=>openImageEditor(el.dataset.image));
+  } catch(e) { $('#imagesGrid').textContent=e.message; }
+}
+$('#imageSearch').oninput=()=>{clearTimeout(window.imageDelay);window.imageDelay=setTimeout(loadImages,300)};
+$('#imageStatus').onchange=loadImages;
+function openImageEditor(id){
+  selectedImage=imageRows.find(i=>i.id===id);
+  if(!selectedImage)return;
+  $('#imageEditorPreview').src=selectedImage.content_url;
+  $('#imageEditorHeading').textContent=selectedImage.original_name;
+  $('#imageDisplayName').value=selectedImage.original_name;
+  $('#imageKeywords').value=selectedImage.keywords.join(', ');
+  $('#imageDescription').value=selectedImage.description||'';
+  $('#imageReviewStatus').value=selectedImage.status;
+  $('#imageEditor').classList.remove('hidden');
+}
+$('#imageClose').onclick=()=>{$('#imageEditor').classList.add('hidden');selectedImage=null};
+$('#imageSave').onclick=async()=>{
+  if(!selectedImage)return;
+  try {
+    await api('/api/v1/images/'+encodeURIComponent(selectedImage.id),{
+      method:'PATCH',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({display_name:$('#imageDisplayName').value,keywords:$('#imageKeywords').value.split(',').map(x=>x.trim()).filter(Boolean),description:$('#imageDescription').value,status:$('#imageReviewStatus').value})
+    });
+    toast('Image updated');$('#imageClose').click();await loadImages();
+  }catch(e){toast(e.message)}
+};
+$('#imageDriveRetry').onclick=async()=>{
+  if(!selectedImage)return;
+  try{const result=await api('/api/v1/images/'+encodeURIComponent(selectedImage.id)+'/drive-sync',{method:'POST'});toast(result.ok?'Image verified on Drive':result.detail||result.state);await loadImages()}
+  catch(e){toast(e.message)}
+};
+$('#imageTrash').onclick=async()=>{
+  if(!selectedImage||!confirm('Move image to trash?'))return;
+  try{await api('/api/v1/images/'+encodeURIComponent(selectedImage.id),{method:'DELETE'});toast('Image moved to trash');$('#imageClose').click();await loadImages()}
+  catch(e){toast(e.message)}
+};
+$('#uploadImages').onclick=async()=>{
+  const files=Array.from($('#imageFiles').files||[]);
+  if(!files.length){toast('Choose one or more image files');return}
+  $('#uploadImages').disabled=true;
+  let ok=0,fail=0;
+  for(const file of files){
+    const fd=new FormData();fd.append('file',file);
+    try{await api('/api/v1/images/upload',{method:'POST',body:fd});ok++}
+    catch(e){fail++;$('#imageUploadResult').textContent='Upload error: '+e.message}
+  }
+  $('#uploadImages').disabled=false;$('#imageFiles').value='';
+  toast(ok+' imported'+(fail?', '+fail+' failed':''));
+  if(ok)gotoPage('library');
+};
+async function loadImports(){
+  try{
+    const result=await api('/api/v1/media/imports');
+    $('#importHistory').innerHTML=result.items.length?result.items.map(item=>'<div class="source-row"><div class="source-main"><b>'+esc(item.source_type)+' · '+esc(item.name)+'</b><span>'+esc(item.message||item.status)+'</span></div><span class="state">'+esc(item.status)+'</span></div>').join(''):'<p class="empty">No queued imports</p>';
+  }catch(e){$('#importHistory').textContent=e.message}
+}
+$('#submitImport').onclick=async()=>{
+  const source=$('#importSource').value,value=$('#importValue').value.trim();
+  if(!value){toast('Enter a source path or video URL');return}
+  const button=$('#submitImport');button.disabled=true;
+  try{
+    const result=await api('/api/v1/media/imports',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      source,value,rights_confirmed:$('#importRights').checked,use_proxy:$('#importProxy').checked
+    })});
+    toast('Import queued: '+result.job_id);$('#importValue').value='';loadImports();
+  }catch(e){toast(e.message)}finally{button.disabled=false}
+};
+async function loadEditorStatus(){
+  try{
+    const s=await api('/api/v1/media/status');
+    $('#editorApiPill').textContent=s.editor_token_configured?'Editor API enabled':'Editor API key required';
+    $('#editorApiPill').classList.toggle('ready',s.editor_token_configured);
+    $('#editorApiInfo').textContent=s.images+' stored images · '+s.imports_processing+' imports running';
+  }catch(e){$('#editorApiInfo').textContent=e.message}
+}
+setInterval(()=>{if(state.page==='sources')loadImports()},6000);

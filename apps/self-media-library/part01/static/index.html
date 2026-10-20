@@ -15,15 +15,14 @@
     </div>
     <nav id="nav">
       <button data-page="dashboard" class="nav-item active"><span>⌂</span> Dashboard</button>
-      <button data-page="sources" class="nav-item"><span>＋</span> Sources</button>
-      <button data-page="processing" class="nav-item"><span>◌</span> Processing</button>
-      <button data-page="library" class="nav-item"><span>▦</span> Library</button>
-      <button data-page="trash" class="nav-item"><span>♲</span> Trash</button>
-      <button data-page="settings" class="nav-item"><span>⚙</span> Settings</button>
+      <button data-page="sources" class="nav-item"><span>＋</span> Input</button>
+      <button data-page="processing" class="nav-item"><span>◌</span> Process</button>
+      <button data-page="library" class="nav-item"><span>▦</span> Library &amp; Preview</button>
+      <button data-page="settings" class="nav-item"><span>⚙</span> API &amp; Settings</button>
     </nav>
     <div class="sidebar-foot">
       <div class="health-dot" id="healthDot"></div>
-      <div><b id="healthText">Checking engine…</b><span>Library Engine v1.0</span></div>
+      <div><b id="healthText">Checking engine…</b><span>Library Engine v2.0</span></div>
     </div>
   </aside>
 
@@ -33,7 +32,7 @@
         <h1 id="pageTitle">Dashboard</h1>
         <p id="pageSubtitle">Build and control your reusable clip library.</p>
       </div>
-      <button class="primary" id="topAddSource">＋ Add source video</button>
+      <button class="primary" id="topAddSource">＋ Add media</button>
     </header>
 
     <section id="page-dashboard" class="page active">
@@ -67,8 +66,23 @@
         <div class="panel-head"><div><h2>Source videos</h2><p>Original videos and their processing history.</p></div><button class="ghost" id="refreshSources">Refresh</button></div>
         <div id="sourcesList" class="source-list"></div>
       </article>
+    <article class="panel import-panel">
+        <div class="panel-head"><div><h2>Upload images</h2><p>JPG, PNG, WEBP • original quality preserved • AI/review-ready keywords</p></div></div>
+        <input id="imageFiles" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple />
+        <div class="row-actions"><button class="primary" id="uploadImages">Add selected images</button><span id="imageUploadResult" role="status"></span></div>
+      </article>
+      <article class="panel import-panel">
+        <div class="panel-head"><div><h2>Drive &amp; YouTube imports</h2><p>Use the configured app Drive remote or a rights-authorized YouTube video. Imports are queued independently.</p></div></div>
+        <label for="importSource">Source</label>
+        <select id="importSource"><option value="drive">Google Drive relative path</option><option value="youtube">YouTube video (authorized)</option></select>
+        <label for="importValue">Drive file path / video URL</label>
+        <input id="importValue" class="setting-text import-text" type="text" placeholder="My Footage/source.mp4" />
+        <label class="import-choice"><input id="importRights" type="checkbox" /> I have permission to import and reuse this media.</label>
+        <label class="import-choice"><input id="importProxy" type="checkbox" /> Use existing server proxy profile (if configured)</label>
+        <button class="primary" id="submitImport">Queue media import</button>
+        <div id="importHistory" class="source-list" role="status"></div>
+      </article>
     </section>
-
     <section id="page-processing" class="page">
       <article class="panel">
         <div class="panel-head"><div><h2>Processing queue</h2><p>Shot detection → clip creation → automatic metadata.</p></div><button class="ghost" id="refreshProcessing">Refresh</button></div>
@@ -92,9 +106,25 @@
           <button class="link-btn" id="clearSelection">Clear</button>
         </div>
       </div>
-      <div class="library-meta"><span id="resultCount">0 clips</span><button class="link-btn" id="selectVisible">Select visible</button></div>
+      <div class="library-meta"><span id="resultCount">0 clips</span><span><button class="link-btn" id="selectVisible">Select visible</button><button class="link-btn" data-goto="trash">Trash / Restore</button></span></div>
       <div id="libraryGrid" class="clip-grid"></div>
-      <div class="pager"><button class="ghost" id="loadMore">Load more</button></div>
+
+      <div class="pager"><button class="ghost" id="loadMore">Load more video clips</button></div>
+      <article class="panel settings-spaced">
+        <div class="panel-head"><div><h2>Images</h2><p>Preview, search, rename, tag, approve and archive your photos.</p></div></div>
+        <div class="library-toolbar"><input id="imageSearch" class="setting-text" placeholder="Search image keywords…" /><select id="imageStatus"><option value="all">All images</option><option value="candidate">Candidate</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select></div>
+        <div id="imagesGrid" class="image-grid"></div>
+        <div id="imageEditor" class="image-editor hidden">
+          <img id="imageEditorPreview" alt="Selected image preview"/>
+          <div><h3 id="imageEditorHeading">Edit image</h3>
+            <label for="imageDisplayName">Display name</label><input id="imageDisplayName" class="setting-text" />
+            <label for="imageKeywords">Keywords (comma separated)</label><input id="imageKeywords" class="setting-text" />
+            <label for="imageDescription">Description</label><textarea id="imageDescription" class="setting-text" rows="2"></textarea>
+            <label for="imageReviewStatus">Review state</label><select id="imageReviewStatus"><option value="candidate">Candidate</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>
+            <div class="row-actions"><button id="imageSave" class="primary">Save changes</button><button id="imageDriveRetry" class="ghost">Retry Drive</button><button id="imageTrash" class="danger-soft">Move to trash</button><button id="imageClose" class="ghost">Close</button></div>
+          </div>
+        </div>
+      </article>
     </section>
 
     <section id="page-trash" class="page">
@@ -105,6 +135,12 @@
     </section>
 
     <section id="page-settings" class="page">
+      <article class="panel">
+        <div class="panel-head"><div><h2>Editor API</h2><p>Versioned search, reserve, commit, release and authenticated media delivery for Scene Builder and future editors.</p></div><span class="ai-pill" id="editorApiPill">Checking…</span></div>
+        <p class="api-note">Machine-to-machine requests require the server-side SML_EDITOR_API_TOKEN secret and X-SML-Editor-Token header. Never paste secrets into the website.</p>
+        <code>GET /api/v1/media/search?query=mountain&amp;media_type=video</code>
+        <p id="editorApiInfo" class="api-note"></p>
+      </article>
       <article class="panel settings-panel">
         <div class="panel-head"><div><h2>Library processing</h2><p>Stable controls for how new library clips are created.</p></div><div class="ai-pill" id="aiPill">AI status</div></div>
         <div class="setting-row"><div><b>Minimum clip length</b><span>Do not keep fragments shorter than this.</span></div><div class="number-field"><input id="clipMin" type="number" min="1" max="4" step="0.5"/><span>sec</span></div></div>
@@ -155,6 +191,6 @@
 </div>
 
 <div id="toast" class="toast hidden"></div>
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=2"></script>
 </body>
 </html>

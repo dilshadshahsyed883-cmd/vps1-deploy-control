@@ -16,3 +16,24 @@ button,input,select{font:inherit} button{cursor:pointer}.hidden{display:none!imp
 .runtime-box b{font-size:11px}.runtime-box span,.runtime-box small{font-size:10px;color:var(--muted)}
 .runtime-box code{display:block;overflow-wrap:anywhere;color:#b8c0cc;background:#0a0c10;border:1px solid #222832;border-radius:7px;padding:8px;font-size:10px}
 @media(max-width:620px){.runtime-box>div{align-items:flex-start;flex-direction:column;gap:4px}}
+
+/* V2 media additions: shared geometry with existing shell, no new nested sidebar. */
+.import-panel { margin-top: 18px; display: grid; gap: 12px; }
+.import-panel input[type=file] { max-width: 100%; }
+.import-panel label { font-size: .875rem; }
+.import-panel .import-text { width: 100%; box-sizing: border-box; }
+.import-choice { display: flex; align-items: center; gap: 9px; }
+.import-choice input { width: auto; }
+.image-grid { display:grid; grid-template-columns: repeat(auto-fill,minmax(170px,1fr)); gap:14px; margin-top:14px; }
+.image-card { display:flex; flex-direction:column; text-align:left; border:1px solid var(--border,#dce1ec); border-radius:12px; background:var(--panel,#fff); padding:10px; gap:7px; overflow:hidden; cursor:pointer; color:inherit; min-width:0; }
+.image-card img { width:100%; height:130px; object-fit:cover; border-radius:8px; background:#eef1f6; }
+.image-card b,.image-card small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
+.image-card small,.api-note { opacity:.72; font-size:.85rem; }
+.image-editor { display:grid; grid-template-columns:minmax(140px,1fr) minmax(200px,2fr); gap:20px; margin-top:16px; padding:14px; border:1px solid var(--border,#dce1ec); border-radius:12px; }
+.image-editor.hidden { display:none; }
+.image-editor img { width:100%; max-height:400px; object-fit:contain; }
+.image-editor > div { display:grid; gap:8px; }
+.image-editor .setting-text { width:100%; box-sizing:border-box; }
+.row-actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+#page-sources .source-list,#importHistory { margin-top:10px; }
+@media (max-width:700px){ .image-editor { grid-template-columns:1fr; } .image-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .image-card img { height:112px; } }
