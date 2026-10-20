@@ -20,8 +20,8 @@ NATIVE_PAGES = (
     ROOT / "apps/voice-studio/part01/templates/voice_studio.html",
     ROOT / "apps/local-upload-manager/part01/templates/base.html",
 )
-SIDEBAR_VERSION = "vps1_native_site_shell.js?v=20261020-experiment-v1"
-CSS_VERSION = "vps1_native_site_shell.css?v=20261020-experiment-v1"
+SIDEBAR_VERSION = "vps1_native_site_shell.js?v=20261020-sidebar-stable-v4"
+CSS_VERSION = "vps1_native_site_shell.css?v=20261020-sidebar-stable-v4"
 
 
 class UniversalSidebarContracts(unittest.TestCase):
