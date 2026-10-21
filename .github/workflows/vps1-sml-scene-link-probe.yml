@@ -1,0 +1,82 @@
+name: VPS1 SML Scene consumer read-only activation proof
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: vps1-sml-scene-activation-readback
+  cancel-in-progress: false
+jobs:
+  inspect:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'dilshadshahsyed883-cmd' &&
+      github.run_attempt == 1 &&
+      contains(github.event.head_commit.message, '[vps1-sml-scene-probe]')
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Restricted Tailscale runner
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Read-only token presence, service status and worker runtime ownership
+        shell: bash
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          directory="$(mktemp -d)"
+          trap 'rm -rf "$directory"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$directory/id"
+          unset PRIVATE_IDENTITY
+          chmod 0600 "$directory/id"
+          ssh-keygen -y -P '' -f "$directory/id" > "$directory/pub"
+          actual="$(ssh-keygen -lf "$directory/pub" -E sha256 | awk '{print $2}')"
+          test "$actual" = 'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$directory/known_hosts"
+          timeout 140s ssh -T -i "$directory/id" -p 22 \
+            -o UserKnownHostsFile="$directory/known_hosts" \
+            -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o PasswordAuthentication=no \
+            -o ConnectTimeout=20 vps1deploy@100.87.55.92 'python3 -' <<'REMOTE'
+          import json, os, pathlib, re, subprocess, urllib.request
+          assert os.geteuid() != 0, "Readback may not run as root"
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          def get(port, route):
+              try:
+                  with opener.open(f"http://127.0.0.1:{port}{route}", timeout=6) as r:
+                      return r.status, json.load(r)
+              except Exception:
+                  return 0, {}
+          sml_http,sml=get(8147,"/api/v1/media/status")
+          health_http,health=get(8147,"/api/health")
+          scene_http,scene=get(18080,"/health")
+          worker_http,worker=get(8000,"/health")
+          print("SML_V2_HTTP="+str(sml_http))
+          print("SML_EDITOR_TOKEN_CONFIGURED="+str(bool(sml.get("editor_token_configured"))))
+          print("SML_HEALTH="+str(bool(health.get("ok"))))
+          print("SCENE_PUBLIC_CANDIDATE_HTTP="+str(scene_http))
+          print("SCENE_WORKER_LOCAL_HTTP="+str(worker_http))
+          print("SCENE_WORKER_API_VERSION="+str(worker.get("version") or worker.get("api_version") or "unknown")[:40])
+          print("SCENE_CANDIDATE_ENV_FILE_PRESENT="+str(pathlib.Path("/etc/fresh-website/scene-builder.env").is_file()))
+          print("SML_PRODUCTION_ENV_FILE_PRESENT="+str(pathlib.Path("/etc/fresh-website/production-self-media-library.env").is_file()))
+          units=subprocess.run(["systemctl","list-units","--type=service","--all","--no-legend","--no-pager"],capture_output=True,text=True,timeout=10)
+          allowed=[]
+          for line in units.stdout.splitlines():
+              name=line.strip().split(" ",1)[0]
+              if re.fullmatch(r"[a-zA-Z0-9_.@-]+\.service",name) and any(word in name.lower() for word in ("scene","sml","media")):
+                  allowed.append(name)
+          print("MATCHING_SERVICE_NAMES="+",".join(sorted(set(allowed))[:25]))
+          print("PRODUCTION_MUTATIONS=NONE")
+          REMOTE
