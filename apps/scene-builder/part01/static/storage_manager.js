@@ -19,7 +19,7 @@
     if (value === null || value === undefined || value === '' || value === 'n/a') return 'Unavailable';
     const parsed = new Date(value);
     return Number.isFinite(parsed.getTime())
-      ? parsed.toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'short'})
+      ? parsed.toLocaleString('en-GB', {dateStyle: 'medium', timeStyle: 'short', timeZone:'Asia/Karachi'})+' PKT'
       : String(value);
   };
   const text = (id, value) => { const node = get(id); if (node) node.textContent = String(value); };
@@ -78,11 +78,11 @@
 
   function renderCleanupStatus(info) {
     const active = info && info.status === 'active' && info.active === true && info.enabled === true;
-    text('deployment-gc-state', active ? 'Active · every 12 hours'
+    text('deployment-gc-state', active ? (info.next_run_at?'Active · every 12 hours':'Timer active · next run unknown')
       : info?.status === 'inactive' ? 'Not active' : 'Status unavailable');
     get('deployment-gc-state').className = active ? 'sm-auto-active' : 'sm-auto-attention';
     text('deployment-gc-detail', active
-      ? 'Uses a 12-hour inactive-release grace; preserves the live release and rollback copies.'
+      ? (info.next_run_at?'Uses a 12-hour inactive-release grace; preserves the live release and rollback copies.':'The timer is active, but systemd has not published its next run. Refresh cleanup status to check again.')
       : 'Cannot confirm an active timer from the live host. No app data will be deleted from this page.');
     text('gc-next-run', presentTime(info?.next_run_at));
     const audit = info?.last_cleanup || null;

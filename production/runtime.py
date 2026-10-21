@@ -413,6 +413,13 @@ def install_app(app, revision):
             from production.voice_template_release import install as install_voice_template
             install_voice_template(revision)
             return
+    # Owner-approved website re-audit touches exact web files only. Workers stay live.
+    if app in {'auto-caption-studio','voice-studio','self-media-library','short-stream','video-merger'}:
+        commit_message = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-website-reaudit-release]' in commit_message:
+            from production.website_reaudit_release import install as install_website_reaudit
+            install_website_reaudit(app, revision)
+            return
     unit_name = f'vps1-production-{app}.service'
     unit = Path('/etc/systemd/system') / unit_name
     current = BASE / 'current' / runtime_name(app)

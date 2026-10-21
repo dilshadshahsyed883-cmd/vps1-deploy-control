@@ -26,6 +26,9 @@ class WritePolicy(unittest.TestCase):
         allowed = [
             ("POST", "/login"),
             ("POST", "/logout"),
+            ("POST", "/settings"),
+            ("POST", "/api/internal-audio/settings"),
+            ("POST", "/api/internal-audio/studio/process"),
             ("POST", "/api/presets"),
             ("POST", "/api/presets/x/duplicate"),
             ("POST", "/api/presets/x/rename"),
@@ -59,7 +62,8 @@ class WritePolicy(unittest.TestCase):
             ("PUT", "/user-management"),
             ("DELETE", "/user-management"),
             ("POST", "/user-management/reset"),
-            ("POST", "/settings"),
+            ("PUT", "/settings"),
+            ("POST", "/api/internal-audio/settings/extra"),
             ("POST", "/api/scene-builder/channels/add"),
             ("POST", "/api/presets/evil/rename/another"),
             ("DELETE", "/api/presets/owner"),
@@ -146,7 +150,7 @@ class RealProductionPreparationSmoke(unittest.TestCase):
                 for endpoint in (
                     "/queue/submit", "/api/admin/storage/cleanup",
                     "/api/admin/storage/services/storage/start", "/api/master-controller/projects",
-                    "/user-management/", "/settings",
+                    "/user-management/",
                 ):
                     res = client.post(endpoint, json={})
                     self.assertEqual(res.status_code, 403, (endpoint, res.status_code))

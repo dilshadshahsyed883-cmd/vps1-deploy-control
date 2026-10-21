@@ -319,11 +319,11 @@ body:not(.vs-kokoro-active):not(.vs-edge-active):not(.vs-audio-active) > .vps3-l
   <!-- VOICE_STUDIO_DUAL_ENGINE_TAB_V1 -->
 <div class="vs-engine-selector" role="tablist" aria-label="Voice engines"><button type="button" id="vsEngineOmni" role="tab" aria-selected="true">OmniVoice</button><button type="button" id="vsEngineKokoro" role="tab" aria-selected="false">Kokoro TTS</button><button type="button" id="vsEngineEdge" role="tab" aria-selected="false">Edge TTS</button><button type="button" id="vsEngineAudio" role="tab" aria-selected="false">Audio Downloader</button></div>
 <nav class="enginebar" aria-label="Voice Studio">
-  <button class="engine-tab active" type="button" data-vps1-tab="production" onclick="return window.vps1VoiceStudioTab(\'production\')">Production</button>
-  <button class="engine-tab" type="button" data-vps1-tab="design" onclick="return window.vps1VoiceStudioTab(\'design\')">Voice Design</button>
-  <button class="engine-tab" type="button" data-vps1-tab="clone" onclick="return window.vps1VoiceStudioTab(\'clone\')">Voice Clone</button>
-  <button class="engine-tab" type="button" data-vps1-tab="gpu" onclick="return window.vps1VoiceStudioTab(\'gpu\')">GPU Configuration</button>
-  <button class="engine-tab" type="button" data-vps1-tab="queue" onclick="return window.vps1VoiceStudioTab(\'queue\')">Queue</button>
+  <button class="engine-tab active" type="button" data-vps1-tab="production" onclick="return window.vps1VoiceStudioTab('production')">Production</button>
+  <button class="engine-tab" type="button" data-vps1-tab="design" onclick="return window.vps1VoiceStudioTab('design')">Voice Design</button>
+  <button class="engine-tab" type="button" data-vps1-tab="clone" onclick="return window.vps1VoiceStudioTab('clone')">Voice Clone</button>
+  <button class="engine-tab" type="button" data-vps1-tab="gpu" onclick="return window.vps1VoiceStudioTab('gpu')">GPU Configuration</button>
+  <button class="engine-tab" type="button" data-vps1-tab="queue" onclick="return window.vps1VoiceStudioTab('queue')">Queue</button>
 </nav>
 <!-- AUDIO_DOWNLOADER_TAB_V1 -->
 <section id="vsAudioWorkspace" hidden aria-label="Audio Downloader">
@@ -466,7 +466,7 @@ body:not(.vs-kokoro-active):not(.vs-edge-active):not(.vs-audio-active) > .vps3-l
         <div class="field"><label class="label">Project / batch name</label><input id="{{ p }}Title" type="text" maxlength="180" placeholder="Example: Documentary-September-01"></div>
         <div class="field"><label class="label">TXT scripts <span class="counter" id="{{ p }}FileCount">0 files</span></label><div class="filebox"><input id="{{ p }}Files" type="file" accept=".txt,text/plain" multiple><div class="filelist" id="{{ p }}FileList"></div></div></div>
       </div>
-      <div class="field"><label class="label">Narration text <span class="counter" id="{{ p }}Counter">0 / {{ max_text }}</span></label><textarea id="{{ p }}Text" maxlength="{{ max_text }}" placeholder="Paste narration for a single job, or select TXT files above for a batch…"></textarea></div>
+      <div class="field"><label class="label">Narration text <span class="counter" id="{{ p }}Counter">0 / {{ max_text|default(1000000, true) }}</span></label><textarea id="{{ p }}Text" maxlength="{{ max_text|default(1000000, true) }}" placeholder="Paste narration for a single job, or select TXT files above for a batch…"></textarea></div>
       <div class="row"><button class="btn" id="{{ p }}Queue">Queue to Drive</button><button class="btn secondary" id="{{ p }}Clear">Clear</button><span class="subtitle" id="{{ p }}QueueStatus"></span></div>
       <div class="footer-note">Original TXT + generated audio are delivered through the existing verified Drive spooler; local job files are cleaned only after verification.</div>
     </div>
@@ -507,8 +507,8 @@ body:not(.vs-kokoro-active):not(.vs-edge-active):not(.vs-audio-active) > .vps3-l
 
       <div class="field"><label class="label">TXT scripts <span class="counter" id="cloneFileCount">0 files</span></label><div class="filebox"><input id="cloneFiles" type="file" accept=".txt,text/plain" multiple><div class="pair-list" id="cloneFileList"><div class="notice">Select multiple TXT files. Output audio keeps each TXT base name exactly.</div></div></div></div>
       <div class="notice batch-note"><b>Exact naming:</b> <code>story_001.txt → story_001.wav</code>. Duplicate base names in one batch are blocked. Existing different-content Drive files are never silently overwritten.</div>
-      <div class="field" style="margin-top:14px"><label class="label">Narration text <span class="counter" id="cloneTextCount">0 / {{ max_text }}</span></label><textarea id="cloneText" maxlength="{{ max_text }}" placeholder="Optional single job. If TXT files are selected, the TXT batch is used instead."></textarea></div>
-      <div class="row"><button class="btn" id="queueClone">Queue to Drive</button><button class="btn secondary" id="clearCloneBatch">Clear</button><button class="btn secondary" type="button" onclick="setPage('clone')">Manage voice profiles</button></div>
+      <div class="field" style="margin-top:14px"><label class="label">Narration text <span class="counter" id="cloneTextCount">0 / {{ max_text|default(1000000, true) }}</span></label><textarea id="cloneText" maxlength="{{ max_text|default(1000000, true) }}" placeholder="Optional single job. If TXT files are selected, the TXT batch is used instead."></textarea></div>
+      <div class="row"><button class="btn" id="queueClone">Queue to Drive</button><button class="btn secondary" id="clearCloneBatch">Clear</button><button class="btn secondary" type="button" onclick="return window.vps1VoiceStudioTab('clone')">Manage voice profiles</button></div>
       <div class="notice" id="cloneQueueStatus" style="margin-top:12px">Ready. Jobs remain in waiting_worker while no GPU worker is connected.</div>
       <div class="footer-note">A GPU job is fully delivered only after both original TXT and generated audio are MD5-verified on Drive. Local temporary job files are then cleaned.</div>
     </div>
@@ -581,9 +581,9 @@ body:not(.vs-kokoro-active):not(.vs-edge-active):not(.vs-audio-active) > .vps3-l
         <div class="field"><label class="label">Project / batch name</label><input id="omniBatchName" type="text" maxlength="180" placeholder="Example: Hindi-Stories-September"></div>
         <div class="field"><label class="label">TXT scripts <span class="counter" id="omniFileCount">0 files</span></label><div class="filebox"><input id="omniFiles" type="file" accept=".txt,text/plain" multiple><div class="filelist" id="omniFileList"></div></div></div>
       </div>
-      <div class="field"><label class="label">Narration text <span class="counter" id="omniTextCount">0 / {{ max_text }}</span></label><textarea id="omniText" maxlength="{{ max_text }}" placeholder="Optional single job. If TXT files are selected, the TXT batch is used instead."></textarea></div>
-      <div class="row"><button class="btn" id="queueOmni">Queue to Drive</button><button class="btn secondary" id="clearOmni">Clear</button><button class="btn secondary" type="button" onclick="setPage('clone')">Manage voice profiles</button></div>
-      <div class="notice" id="omniQueueStatus" role="status" aria-live="polite" style="margin-top:12px">Ready.</div>
+      <div class="field"><label class="label">Narration text <span class="counter" id="omniTextCount">0 / {{ max_text|default(1000000, true) }}</span></label><textarea id="omniText" maxlength="{{ max_text|default(1000000, true) }}" placeholder="Optional single job. If TXT files are selected, the TXT batch is used instead."></textarea></div>
+      <div class="row"><button class="btn" id="queueOmni">Queue to Drive</button><button class="btn secondary" id="clearOmni">Clear</button><button class="btn secondary" type="button" onclick="return window.vps1VoiceStudioTab('clone')">Manage voice profiles</button></div>
+      <div class="notice" id="omniQueueStatus" role="status" aria-live="polite" style="margin-top:12px">Add narration and a compatible voice profile. Worker connection is shown separately.</div>
     </div>
     <div class="gpu-right-stack">
       <div class="card pad">
@@ -683,7 +683,7 @@ body:not(.vs-kokoro-active):not(.vs-edge-active):not(.vs-audio-active) > .vps3-l
     <div class="field"><label class="label">Exact reference transcript <span class="counter" id="cloneRefTextCount">0 / 3000</span></label><textarea id="cloneRefText" maxlength="3000" style="min-height:110px" placeholder="Type exactly what is spoken in the reference clip. Required for IndicF5/OmniVoice-compatible profiles."></textarea></div>
     <div class="field"><label class="label">Provenance note</label><input id="cloneNote" type="text" maxlength="240" placeholder="Owned recording / authorized source / project reference"></div>
     <label class="consent"><input id="cloneConsent" type="checkbox"><span>I confirm I have permission to use this voice reference for cloning.</span></label>
-    <div class="row" style="margin-top:14px"><button class="btn" id="createCloneProfile" type="button">Create profile</button><button class="btn secondary" type="button" onclick="setPage('gpu')">Open IndicF5 GPU</button><span class="notice hidden" id="cloneCreateStatus" role="status" aria-live="polite" style="flex:1;min-width:280px"></span></div>
+    <div class="row" style="margin-top:14px"><button class="btn" id="createCloneProfile" type="button">Create profile</button><button class="btn secondary" type="button" onclick="return window.vps1VoiceStudioTab('production')">Open OmniVoice production</button><span class="notice hidden" id="cloneCreateStatus" role="status" aria-live="polite" style="flex:1;min-width:280px"></span></div>
     <div class="divider"></div><div class="sectionbar"><div><div class="section-title">My voices</div><div class="section-note">Use opens the correct dedicated GPU engine page without duplicating reference data.</div></div></div><div class="cards" id="cloneProfiles"></div>
   </div>
 </section>
@@ -768,7 +768,7 @@ setGpuSubtab('production');
 function saladPayload(){return{endpoint_url:$('saladEndpoint').value.trim(),auth_mode:$('saladAuthMode').value,token:$('saladToken').value,health_path:$('saladHealthPath').value.trim()||'/healthz',generation_path:$('saladGenerationPath').value.trim()||'/v1/clone/generate',request_timeout:Number($('saladTimeout').value||300),enabled:$('saladEnabled').checked}}
 function saladMessage(text,kind=''){const m=$('saladConnectionMessage');m.className='notice'+(kind?' '+kind:'');m.textContent=text}
 function saladHttpLabel(d){if(d.http_status)return `HTTP ${d.http_status}${d.http_status===200?' OK':d.http_status===403?' Forbidden':''}`;return d.error||'No HTTP response'}
-function updateSaladProbe(d){$('saladStatusHttp').textContent=saladHttpLabel(d);$('saladStatusLastCheck').textContent=new Date().toLocaleTimeString();if(d.ok){$('gpuConnectionState').textContent='Online';$('gpuConnectionState').className='badge';$('saladStatusWorker').textContent='Online'}else{$('gpuConnectionState').textContent=d.reachable?'Access denied / unavailable':'Offline';$('gpuConnectionState').className='badge amber';$('saladStatusWorker').textContent=d.error||'Offline'}}
+function updateSaladProbe(d){$('saladStatusHttp').textContent=saladHttpLabel(d);$('saladStatusLastCheck').textContent=new Date().toLocaleTimeString('en-GB',{timeZone:'Asia/Karachi'})+' PKT';if(d.ok){$('gpuConnectionState').textContent='Online';$('gpuConnectionState').className='badge';$('saladStatusWorker').textContent='Online'}else{$('gpuConnectionState').textContent=d.reachable?'Access denied / unavailable':'Offline';$('gpuConnectionState').className='badge amber';$('saladStatusWorker').textContent=d.error||'Offline'}}
 function saladAuthLabel(mode,saved=false){if(mode==='salad_api_key')return saved?'Salad API Key · saved':'Salad API Key';if(mode==='bearer')return saved?'Bearer · saved':'Bearer';return'Public endpoint'}
 function syncSaladAuth(){const mode=$('saladAuthMode').value,needsKey=mode!=='none';$('saladTokenField').classList.toggle('hidden',!needsKey);$('saladStatusAuth').textContent=saladAuthLabel(mode,$('saladTokenState').textContent==='Saved');$('saladToken').placeholder=mode==='salad_api_key'?'Enter Salad API key':(mode==='bearer'?'Enter bearer token':'No token required')}
 async function loadWorkerConfig(){try{const d=await api('/tts/api/clone/worker/config');$('saladEndpoint').value=d.endpoint_url||'';$('saladHealthPath').value=d.health_path||'/healthz';$('saladGenerationPath').value=d.generation_path||'/v1/clone/generate';$('saladTimeout').value=d.request_timeout||300;const mode=['none','bearer','salad_api_key'].includes(d.auth_mode)?d.auth_mode:'none';$('saladAuthMode').value=mode;$('saladEnabled').checked=!!d.enabled;$('saladToken').value='';$('saladTokenState').textContent=d.token_configured?'Saved':'Not saved';$('saladToken').placeholder=d.token_configured?'Leave blank to keep saved key/token':(mode==='salad_api_key'?'Enter Salad API key':(mode==='bearer'?'Enter bearer token':'No token required'));$('saladStatusEndpoint').textContent=d.endpoint_url||'—';$('saladStatusAuth').textContent=saladAuthLabel(mode,!!d.token_configured)+(mode!=='none'&&!d.token_configured?' · key/token missing':'');$('saladStatusWorker').textContent=d.worker_online?'Online':(d.enabled?`Offline${d.worker_error?' · '+d.worker_error:''}`:'Disconnected');$('gpuConnectionState').textContent=d.worker_online?'Online':(d.enabled?'Offline':'Disconnected');$('gpuConnectionState').className='badge '+(d.worker_online?'':'amber');syncSaladAuth();await loadCloneStatus()}catch(e){saladMessage(e.message,'err')}}
@@ -1820,7 +1820,7 @@ setOmniSubtab('production');
     renderChips();
     const range=document.getElementById('vqaRange');if(range)range.textContent=groups.length?`${start+1}–${end} of ${groups.length} batches · ${jobs.length} jobs loaded`:'0 batches';
     const prev=document.getElementById('vqaPrev'),next=document.getElementById('vqaNext');if(prev)prev.disabled=page<=1;if(next)next.disabled=page>=pages;
-    const t=document.getElementById('vqaTime');if(t)t.textContent=new Date().toLocaleTimeString();
+    const t=document.getElementById('vqaTime');if(t)t.textContent=new Date().toLocaleTimeString('en-GB',{timeZone:'Asia/Karachi'})+' PKT';
     bindRows();
   }
 
@@ -1991,12 +1991,12 @@ setOmniSubtab('production');
   return btn;
  }
  async function loadJobs(){try{const r=await request(apiRoot+'/'+'jobs?limit=150&v='+Date.now());const jobs=Array.isArray(r.jobs)?r.jobs:[];const rows=$('vskQueueRows');rows.replaceChildren();for(const j of jobs){const tr=document.createElement('tr'),a=document.createElement('td'),b=document.createElement('td'),c=document.createElement('td');a.textContent=j.filename||j.job_id||j.id||'';
-  b.textContent=(j.queue_status||j.status||'')+' · '+(j.progress||0)+'%'+(j.attempt?' · Attempt '+j.attempt+'/'+j.max_attempts:'')+(j.delivery_status?' · Drive: '+j.delivery_status:'');
+  b.textContent=(j.queue_status||j.status||'')+' · '+(j.status==='completed'?100:(j.progress||0))+'%'+(j.attempt?' · Attempt '+j.attempt+'/'+j.max_attempts:'')+(j.delivery_status?' · Drive: '+String(j.delivery_status).replaceAll('_',' '):'');
   if(j.error){const detail=document.createElement('small');detail.textContent=' · '+j.error;b.append(detail);}
-  if(j.delivery_error){const detail=document.createElement('small');detail.textContent=' · Drive error: '+j.delivery_error;b.append(detail);}
+  if(j.delivery_error){const detail=document.createElement('small');detail.textContent=' · Drive: '+({'rate_or_quota':'Google Drive rate limit or quota · automatic retry scheduled',permission:'Drive permission denied · check Voice Drive settings',network:'Drive connection interrupted · automatic retry scheduled'}[j.delivery_error]||j.delivery_error);b.append(detail);}
   if(j.audio_url){const link=document.createElement('a');link.href=apiRoot+'/audio/'+encodeURIComponent(j.job_id);link.textContent='Download WAV';link.rel='noopener';c.append(link);}
 const verified=['delivered','cleaned'].includes(j.delivery_status)&&!!j.drive_verified_at&&!!j.drive_file_id&&typeof j.drive_url==='string'&&j.drive_url==='https://drive.google.com/file/d/'+j.drive_file_id+'/view';
-if(verified){if(!j.audio_url){const fallback=document.createElement('a');fallback.href=j.drive_url;fallback.textContent='Download WAV (Drive)';fallback.target='_blank';fallback.rel='noopener noreferrer';c.append(fallback);}
+if(verified){if(!j.audio_url){const fallback=document.createElement('a');fallback.href='https://drive.google.com/uc?export=download&id='+encodeURIComponent(j.drive_file_id);fallback.textContent='Download WAV (Drive)';fallback.target='_blank';fallback.rel='noopener noreferrer';c.append(fallback);}
 const line=document.createElement('div'),link=document.createElement('a');link.href=j.drive_url;link.target='_blank';link.rel='noopener noreferrer';link.textContent='Google Drive: Open uploaded file';line.append(link);c.append(line);}
 else if(j.status==='completed'){const state=document.createElement('div');state.textContent='Drive: '+(j.delivery_status||'pending');c.append(state);if(['retry_pending','blocked'].includes(j.delivery_status)){const retry=document.createElement('button');retry.type='button';retry.textContent='Retry Drive upload';retry.addEventListener('click',async()=>{retry.disabled=true;try{await request(apiRoot+'/'+'jobs/'+encodeURIComponent(j.job_id)+'/delivery/retry',{method:'POST'});await loadJobs();}catch(e){msg(e.message);retry.disabled=false;}});c.append(retry);}}
   for(const act of j.allowed_actions||[]){const button=queueAction(act[0].toUpperCase()+act.slice(1),act,j.job_id);c.append(' ',button);}
@@ -2023,14 +2023,14 @@ else if(j.status==='completed'){const state=document.createElement('div');state.
  async function single(){if(!ready)return;const text=$('vseText').value.trim();if(!text){msg('Enter narration text.');return;}try{const r=await req(root+'/generate',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...settings(),text})});msg('Edge job queued: '+r.job_id);section('queue');}catch(e){msg(e.message);}}
  async function batch(){if(!ready)return;const files=Array.from($('vseFiles').files||[]);if(!files.length){msg('Select TXT files.');return;}const form=new FormData();for(const f of files){if(!f.name.toLowerCase().endsWith('.txt')){msg('Only TXT files supported.');return;}form.append('files',f,f.name);}for(const [key,value] of Object.entries(settings()))form.append(key,String(value));try{const r=await req(root+'/batch',{method:'POST',body:form});msg(r.count+' Edge TXT jobs queued');section('queue');}catch(e){msg(e.message);}}
  function b(label,act,jid){const el=document.createElement('button');el.type='button';el.className='vse-btn alt';el.textContent=label;el.addEventListener('click',async()=>{if(act==='delete'&&!confirm('Hide this finished job from history? Audio and Drive files are NOT deleted.'))return;el.disabled=true;try{await req(root+'/'+'jobs/'+jid+'/'+act,{method:'POST'});await loadJobs();}catch(e){msg(e.message);el.disabled=false;}});return el;}
- async function loadJobs(){const rows=$('vseQueueRows');try{const r=await req(root+'/'+'jobs?limit=150&v='+Date.now());rows.replaceChildren();for(const j of r.jobs||[]){const tr=document.createElement('tr'),name=document.createElement('td'),state=document.createElement('td'),files=document.createElement('td'),ctrl=document.createElement('td');name.textContent=j.source_filename||j.job_id;state.textContent=(j.queue_status||j.status||'')+' · '+(j.progress||0)+'%'+(j.attempt?' · Attempt '+j.attempt+'/'+j.max_attempts:'')+' · Drive: '+(j.delivery_status||'unknown');
-   if(j.error){const err=document.createElement('small');err.textContent='Error: '+j.error;state.append(err);}if(j.delivery_error){const err=document.createElement('small');err.textContent='Drive: '+j.delivery_error;state.append(err);}
+ async function loadJobs(){const rows=$('vseQueueRows');try{const r=await req(root+'/'+'jobs?limit=150&v='+Date.now());rows.replaceChildren();for(const j of r.jobs||[]){const tr=document.createElement('tr'),name=document.createElement('td'),state=document.createElement('td'),files=document.createElement('td'),ctrl=document.createElement('td');name.textContent=j.source_filename||j.job_id;state.textContent=(j.queue_status||j.status||'')+' · '+(j.status==='completed'?100:(j.progress||0))+'%'+(j.attempt?' · Attempt '+j.attempt+'/'+j.max_attempts:'')+' · Drive: '+String(j.delivery_status||'unknown').replaceAll('_',' ');
+   if(j.error){const err=document.createElement('small');err.textContent='Error: '+(j.error==='WSServerHandshakeError'?'Speech service connection failed (WSServerHandshakeError). Historical attempt exhausted.':j.error);state.append(err);}if(j.delivery_error){const err=document.createElement('small');err.textContent=' · Drive: '+({'rate_or_quota':'Google Drive rate limit or quota · automatic retry scheduled',permission:'Drive permission denied · check Voice Drive settings',network:'Drive connection interrupted · automatic retry scheduled'}[j.delivery_error]||j.delivery_error);state.append(err);}
    const receipts=j.drive_files||{},verified=['delivered','cleaned'].includes(j.delivery_status)&&!!j.drive_verified_at&&!!j.drive_file_id;
 for(const ext of ['mp3','wav','txt','srt']){
  const group=document.createElement('div'),receipt=receipts[ext];
  const remoteOK=verified&&receipt&&receipt.id&&receipt.url==='https://drive.google.com/file/d/'+receipt.id+'/view';
  if(j[ext+'_url']){const a=document.createElement('a');a.href=root+'/files/'+encodeURIComponent(j.job_id)+'/'+ext;a.textContent='Download '+ext.toUpperCase();a.rel='noopener';group.append(a);}
- else if(remoteOK){const a=document.createElement('a');a.href=receipt.url;a.target='_blank';a.rel='noopener noreferrer';a.textContent='Download '+ext.toUpperCase()+' (Drive)';group.append(a);}
+ else if(remoteOK){const a=document.createElement('a');a.href='https://drive.google.com/uc?export=download&id='+encodeURIComponent(receipt.id);a.target='_blank';a.rel='noopener noreferrer';a.textContent='Download '+ext.toUpperCase()+' (Drive)';group.append(a);}
  if(remoteOK){const line=document.createElement('div'),link=document.createElement('a');link.href=receipt.url;link.target='_blank';link.rel='noopener noreferrer';link.textContent='Google Drive: Open '+ext.toUpperCase()+' file';line.append(link);group.append(line);}
  if(group.hasChildNodes())files.append(group);
 }
@@ -2110,7 +2110,7 @@ function jobTable(jobs,limit){const wrap=make('div',null,'vsa-tablewrap'),table=
  const state=make('td');state.append(make('span',job.status||'unknown','vsa-pill '+job.status));if(job.error){const err=make('div',String(job.error).slice(0,150));err.style.color='#b42318';state.append(err);}row.append(state);
  row.append(make('td',(job.format||'').toUpperCase()));
  const drive=make('td');drive.append(make('div',job.drive_path?'Uploaded · size verified':job.auto_upload?'Pending upload':'Local only'));if(job.drive_path){const path=make('small',job.drive_path);path.title=job.drive_path;drive.append(path);}row.append(drive);
- row.append(make('td',new Date(job.created_at).toLocaleString()));
+ row.append(make('td',new Date(job.created_at).toLocaleString('en-GB',{timeZone:'Asia/Karachi'})+' PKT'));
  const actions=make('td');if(job.status==='delivered' && /^https:\/\/drive\.google\.com\/file\/d\/[A-Za-z0-9_-]+\/view\?usp=sharing$/.test(String(job.drive_url||''))){
    const a=make('a','Download audio','vsa-link');a.href=job.drive_url;a.target='_blank';a.rel='noopener noreferrer';a.title='Download from Google Drive (anyone with link)';actions.append(a,make('span',' Google Drive '));
   }else if(job.status==='delivered'){

@@ -5,6 +5,13 @@ on:
       - 'apps/scene-builder/part01/static/vps1_native_site_shell.*'
       - 'apps/scene-builder/part01/templates/base.html'
       - 'tests/test_ui_audit12.py'
+      - 'tests/test_website_reaudit.py'
+      - 'tests/website_reaudit_scene_browser.py'
+      - 'apps/scene-builder/part01/**'
+      - 'apps/auto-caption-studio/part01/**'
+      - 'apps/short-stream/part01/auto_stream_ui.py'
+      - 'apps/self-media-library/part01/**'
+      - 'production/website_reaudit_release.py'
       - '.github/workflows/vps1-kokoro-ui-audit-ci.yml'
 permissions:
   contents: read
@@ -17,9 +24,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install playwright==1.56.0 jinja2==3.1.6
+      - run: python -m pip install playwright==1.56.0 jinja2==3.1.6 fastapi==0.115.12 httpx==0.28.1 python-multipart==0.0.20 requests==2.32.3 itsdangerous==2.2.0 psutil==7.0.0
       - run: python -m playwright install --with-deps chromium
       - run: node --check apps/scene-builder/part01/static/vps1_native_site_shell.js
       - run: node --test tests/test_scene_native_sidebar_role.js
       - run: python -m unittest tests.test_ui_audit12 production.test_scene_video_studio_shell -v
       - run: python tests/test_ui_audit12.py --browser
+      - run: python -m unittest tests.test_website_reaudit tests.test_website_reaudit_release -v
+      - run: python tests/website_reaudit_scene_browser.py

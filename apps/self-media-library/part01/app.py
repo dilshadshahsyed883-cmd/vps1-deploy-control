@@ -439,7 +439,7 @@ def source_drive_gate(source_id: str) -> dict:
             stale_metadata = 0
         rows = c.execute(
             """SELECT id,thumb_filename,drive_state,drive_clip_path,drive_thumb_path,
-                      drive_meta_path,drive_verified_at
+                      drive_meta_path,drive_verified_at,drive_error
                FROM clips WHERE source_id=? ORDER BY created_at""",
             (source_id,),
         ).fetchall()
@@ -448,6 +448,7 @@ def source_drive_gate(source_id: str) -> dict:
     failed = 0
     pending = 0
     unsafe: list[str] = []
+    failures: list[dict] = []
     for row in rows:
         thumb_ok = (not row["thumb_filename"]) or bool(row["drive_thumb_path"])
         ok = (
@@ -461,6 +462,7 @@ def source_drive_gate(source_id: str) -> dict:
             verified += 1
         else:
             unsafe.append(row["id"])
+            failures.append({"clip_id": row["id"], "state": row["drive_state"], "error": row["drive_error"] or "Drive verification pending"})
             if row["drive_state"] == "sync_failed":
                 failed += 1
             else:
@@ -476,6 +478,7 @@ def source_drive_gate(source_id: str) -> dict:
         "original_verified": original_verified,
         "active_dependents": active_dependents,
         "unsafe_ids": unsafe[:100],
+        "failures": failures[:100],
     }
 
 
@@ -557,7 +560,7 @@ def sync_source_drive(source_id: str, values: Optional[dict[str, str]] = None) -
                 ts if gate["all_verified"] else None,
                 "completed" if gate["all_verified"] else "failed",
                 "drive_verified" if gate["all_verified"] else "drive_sync_failed",
-                None if gate["all_verified"] else f"Drive verified {gate['verified']}/{gate['total']} clips. Source retained for safety.",
+                None if gate["all_verified"] else f"Drive verified {gate['verified']}/{gate['total']} clips. Retry failed files; verified clips are preserved.",
                 ts,
                 source_id,
             ),
@@ -797,7 +800,7 @@ def process_source(source_id: str) -> None:
                     c.execute(
                         """UPDATE sources SET status='failed',stage='drive_sync_failed',progress=100,clip_count=?,
                            drive_state='sync_failed',error=?,updated_at=? WHERE id=?""",
-                        (len(created_ids), f"Drive verified {gate['verified']}/{gate['total']} clips. Source retained for safety.", now_iso(), source_id),
+                        (len(created_ids), f"Drive verified {gate['verified']}/{gate['total']} clips. Retry failed files; verified clips are preserved.", now_iso(), source_id),
                     )
         else:
             with db() as c:
@@ -1043,6 +1046,7 @@ def get_sources():
             item["drive_clip_verified"] = verified
             item["drive_clip_failed"] = failed
             item["drive_clip_pending"] = max(0, total - verified - failed)
+            item["drive_failures"] = [dict(r) for r in c.execute("SELECT id AS clip_id,drive_error AS error FROM clips WHERE source_id=? AND drive_state='sync_failed' LIMIT 100", (raw["id"],))]
             rows.append(item)
     return {"items": rows}
 

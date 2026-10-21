@@ -78,8 +78,9 @@ class IntegrationRoutingTests(unittest.TestCase):
         self.assertNotIn('src="/acs-audio-engine/"', html)
         self.assertNotIn("fetch('/acs-audio-engine/health'", html)
         self.assertIn("audio-engine-fallback", html)
-        self.assertIn("fetch('/audio-engine/app'", html)
-        self.assertIn("frame.src = '/audio-engine/app'", html)
+        self.assertNotIn("fetch('/audio-engine/app'", html)
+        self.assertIn("fetch('/auto-caption-studio/api/internal-audio/health'", html)
+        self.assertIn("fallback();", html)
         self.assertIn('id="internalAudioEngineCard"', html)
 
 

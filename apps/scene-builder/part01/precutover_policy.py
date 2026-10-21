@@ -11,6 +11,9 @@ import re
 _ALLOWED_EXACT = frozenset((
     ("POST", "/login"),
     ("POST", "/logout"),
+    ("POST", "/settings"),
+    ("POST", "/api/internal-audio/settings"),
+    ("POST", "/api/internal-audio/studio/process"),
     ("POST", "/api/presets"),
 ))
 _PRESET_MUTATION = re.compile(r"\A/api/presets/[^/]+/(?:duplicate|rename)\Z")

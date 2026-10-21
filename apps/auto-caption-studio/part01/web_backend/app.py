@@ -108,6 +108,13 @@ def health() -> dict:
     }
 
 
+@app.get("/api/internal-audio/health")
+def internal_audio_health(principal: Principal = Depends(get_current_principal)) -> dict:
+    from smart_scroll.internal_audio_engine import VERSION, PRESETS
+    ready = bool(shutil.which("ffmpeg") and PRESETS)
+    return {"ok": ready, "version": VERSION, "engine": "acs_internal", "ffmpeg_available": bool(shutil.which("ffmpeg"))}
+
+
 @app.post("/api/projects", response_model=ProjectView)
 def create_project(
     payload: ProjectCreate,

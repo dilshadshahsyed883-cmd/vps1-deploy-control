@@ -21,7 +21,8 @@ jobs:
        contains(github.event.head_commit.message, '[vps1-video-geometry-release]') ||
        contains(github.event.head_commit.message, '[vps1-ui-shell-phase-b-release]') ||
        contains(github.event.head_commit.message, '[vps1-unified-sidebar-release]') ||
-       contains(github.event.head_commit.message, '[vps1-three-app-ui-release]'))
+       contains(github.event.head_commit.message, '[vps1-three-app-ui-release]') ||
+       contains(github.event.head_commit.message, '[vps1-website-reaudit-release]'))
     environment: production
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -44,6 +45,7 @@ jobs:
           VIDEO_TEMPLATE_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-video-template-only]') }}
           UI_SHELL_PHASE_B: ${{ contains(github.event.head_commit.message, '[vps1-ui-shell-phase-b-release]') }}
           UNIFIED_SIDEBAR_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-unified-sidebar-release]') }}
+          WEBSITE_REAUDIT: ${{ contains(github.event.head_commit.message, '[vps1-website-reaudit-release]') }}
           THREE_APP_UI_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-three-app-ui-release]') }}
         run: |
           set -Eeuo pipefail
@@ -70,6 +72,16 @@ jobs:
               -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
               vps1deploy@100.87.55.92 "$@"
           }
+          if [[ "$WEBSITE_REAUDIT" == "true" ]]; then
+            for app in auto-caption-studio voice-studio self-media-library short-stream video-merger vps-storage-manager scene-builder; do
+              echo "WEBSITE_REAUDIT_STAGE=$app"
+              remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA $app"
+              echo "WEBSITE_REAUDIT_STAGE_PASS=$app"
+            done
+            echo "WEBSITE_REAUDIT_RELEASE=PASS"
+            echo "INDEPENDENT_WORKERS=PRESERVED AUTO_SCRIPT=OFFLINE"
+            exit 0
+          fi
           # Single-host serialized release for the Kokoro-reference UI parity
           # of Scene Queue/Settings/Audit, Antidetect and OmniVoice. The Scene
           # candidate owns experiment/static/UI source. Voice MUST use the
