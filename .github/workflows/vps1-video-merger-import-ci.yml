@@ -1,0 +1,21 @@
+name: Video Merger import repair tests
+on:
+  pull_request:
+    paths:
+      - 'apps/video-merger/**'
+      - 'production/video_merger_import*'
+      - 'production/runtime.py'
+      - 'tests/test_video_merger_import*'
+      - '.github/workflows/vps1-video-merger-import*'
+permissions:
+  contents: read
+jobs:
+  video-merger-imports:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest tests.test_video_merger_imports tests.test_video_merger_import_release -v
+      - run: python -m py_compile apps/video-merger/part01/app.py production/video_merger_import_release.py production/video_merger_import_smoke.py
