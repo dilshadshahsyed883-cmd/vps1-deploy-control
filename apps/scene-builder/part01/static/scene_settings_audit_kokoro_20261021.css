@@ -1,0 +1,182 @@
+/* Scene Builder only: Kokoro-inspired geometry for Settings and Visual Audit.
+   No shell, Queue, APIs, workers, persistence or cross-app changes.
+   The main descendant scope excludes detached ACS Audio Engine embeds. */
+body.vps1-scene-parity main > :is(.scene-settings-workspace,.scene-audit-workspace) {
+  box-sizing:border-box;width:100%;max-width:1400px;min-width:0;
+  margin:0 auto 24px;color:#17213a;
+  --scene-ui-line:#e2e7ef;--scene-ui-accent:#6255db;--scene-ui-muted:#667085;
+}
+body.vps1-scene-parity main .scene-ui-eyebrow {
+  display:block;color:#6255db;font-size:11px;font-weight:800;
+  line-height:1.4;letter-spacing:.09em;text-transform:uppercase;margin-bottom:6px;
+}
+/* Settings / seven real sub-tabs */
+body.vps1-scene-parity main > .scene-settings-workspace {gap:18px;}
+body.vps1-scene-parity main .scene-settings-heading,
+body.vps1-scene-parity main .scene-settings-workspace .sb-preset-context,
+body.vps1-scene-parity main .scene-settings-workspace .sb-subtabs,
+body.vps1-scene-parity main .scene-settings-workspace .sb-tab-panel {
+  border:1px solid var(--scene-ui-line)!important;border-radius:16px!important;
+  background:#fff!important;box-shadow:0 4px 16px rgba(31,45,74,.05)!important;
+}
+body.vps1-scene-parity main .scene-settings-heading {
+  display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:18px 22px;
+}
+body.vps1-scene-parity main .scene-settings-heading h2,
+body.vps1-scene-parity main .scene-audit-overview h2 {font-size:21px;line-height:1.3;margin:0 0 5px!important;}
+body.vps1-scene-parity main .scene-settings-heading p,
+body.vps1-scene-parity main .scene-audit-overview p {font-size:13px;line-height:1.5;margin:0;color:var(--scene-ui-muted);}
+body.vps1-scene-parity main .scene-settings-workspace .sb-preset-context {
+  box-sizing:border-box;min-width:0;padding:16px 20px!important;margin:0!important;
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+}
+body.vps1-scene-parity main .scene-settings-workspace .sb-preset-context strong {font-size:16px;}
+body.vps1-scene-parity main .scene-settings-workspace .sb-subtabs {
+  display:flex;gap:8px;padding:8px!important;overflow-x:auto;scrollbar-width:thin;
+}
+body.vps1-scene-parity main .scene-settings-workspace .sb-subtabs button {
+  min-height:44px;padding:9px 16px!important;border-radius:10px!important;
+  color:#475467;font-size:13px;font-weight:750;white-space:nowrap;flex:0 0 auto;
+}
+body.vps1-scene-parity main .scene-settings-workspace .sb-subtabs button.active {background:#6255db!important;color:#fff!important;}
+body.vps1-scene-parity main .scene-settings-workspace .sb-tab-panel {
+  box-sizing:border-box;min-width:0;padding:22px!important;
+}
+body.vps1-scene-parity main .scene-settings-workspace .sb-tab-panel:not(.active) {display:none!important;}
+body.vps1-scene-parity main .scene-settings-workspace .sb-section-head {
+  padding-bottom:16px;margin-bottom:18px;border-bottom:1px solid #edf0f5;
+}
+body.vps1-scene-parity main .scene-settings-workspace .sb-section-head h3 {font-size:18px;line-height:1.4;margin:0!important;}
+body.vps1-scene-parity main .scene-settings-workspace .sb-section-head p {display:block!important;margin:4px 0 0!important;font-size:12px;color:#667085;}
+body.vps1-scene-parity main .scene-settings-workspace .sb-control-grid {
+  grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;
+}
+body.vps1-scene-parity main .scene-settings-workspace .sb-control-grid.one-column {grid-template-columns:minmax(0,1fr);}
+body.vps1-scene-parity main .scene-settings-workspace .sb-control-grid > label {
+  display:flex!important;flex-direction:column!important;align-items:stretch!important;
+  gap:10px;min-width:0;min-height:108px;padding:16px!important;margin:0!important;
+  border:1px solid #e2e7ef!important;border-radius:12px!important;background:#fafbfe!important;
+}
+body.vps1-scene-parity main .scene-settings-workspace .sb-control-grid > label > span:first-child {min-width:0;}
+body.vps1-scene-parity main .scene-settings-workspace .sb-control-grid label strong {font-size:13px;line-height:1.45;color:#344054;}
+body.vps1-scene-parity main .scene-settings-workspace .sb-control-grid label small {
+  display:block!important;margin-top:4px;font-size:11px;line-height:1.45;color:#667085;
+}
+body.vps1-scene-parity main .scene-settings-workspace .sb-control-grid :is(select,input:not([type="checkbox"]):not([type="range"])) {
+  box-sizing:border-box;width:100%!important;max-width:none!important;min-width:0;
+  min-height:44px!important;padding:10px 12px!important;border:1px solid #d7deea!important;
+  border-radius:10px!important;background:#fff;color:#101828;margin:0!important;
+}
+body.vps1-scene-parity main .scene-settings-workspace .sb-control-grid .sb-number {width:100%;min-width:0;align-items:center;}
+body.vps1-scene-parity main .scene-settings-workspace .sb-control-grid .sb-number input {min-width:0;flex:1;}
+body.vps1-scene-parity main .scene-settings-workspace .sb-control-grid input[type="range"] {width:100%;max-width:none;}
+body.vps1-scene-parity main .scene-settings-workspace .sb-control-grid .pro-switch {align-self:flex-start;}
+body.vps1-scene-parity main .scene-settings-workspace .sb-control-grid :is(input,select):focus-visible,
+body.vps1-scene-parity main .scene-audit-workspace :is(input,button,a):focus-visible {
+  outline:3px solid #8174eb;outline-offset:2px;
+}
+body.vps1-scene-parity main .scene-settings-workspace :is(.sb-preset-card,.sb-timing-group,.sb-key-manager,.sb-library-card,.sb-preview) {
+  border:1px solid #e2e7ef!important;border-radius:12px!important;background:#fafbfe;
+}
+body.vps1-scene-parity main .scene-settings-workspace .sb-preset-grid {gap:14px;}
+body.vps1-scene-parity main .scene-settings-workspace .sb-preset-card {padding:16px!important;}
+body.vps1-scene-parity main .scene-settings-workspace .sb-timing-groups {gap:14px;margin-top:16px;}
+body.vps1-scene-parity main .scene-settings-workspace .sb-save-bar {padding:12px 16px;border-radius:12px;}
+body.vps1-scene-parity main .scene-settings-workspace :is(.button,.sb-save-bar button) {
+  min-height:44px;border-radius:10px!important;font-weight:700;
+}
+/* Audit waiting state + selected job preview and approval state */
+body.vps1-scene-parity main .scene-audit-workspace {display:grid;gap:16px;align-content:start;}
+body.vps1-scene-parity main .scene-audit-overview,
+body.vps1-scene-parity main .scene-audit-panel,
+body.vps1-scene-parity main .scene-audit-workspace .audit-toolbar,
+body.vps1-scene-parity main .scene-audit-workspace .audit-card {
+  box-sizing:border-box;border:1px solid #e2e7ef!important;border-radius:16px!important;
+  background:#fff!important;box-shadow:0 4px 16px rgba(31,45,74,.05)!important;
+}
+body.vps1-scene-parity main .scene-audit-overview {padding:18px 22px;}
+body.vps1-scene-parity main .scene-audit-workspace .scene-compact-summary {display:flex;gap:10px;margin:0;flex-wrap:wrap;}
+body.vps1-scene-parity main .scene-audit-workspace .summary-chip {
+  display:inline-flex;align-items:center;gap:6px;min-height:40px;
+  border:1px solid #e2e7ef;border-radius:10px;padding:9px 12px;background:#fff;
+  color:#475467;font-size:12px;font-weight:600;
+}
+body.vps1-scene-parity main .scene-audit-workspace .summary-chip.attention {border-color:#f4d5ad;background:#fff8ec;color:#925400;}
+body.vps1-scene-parity main .scene-audit-workspace .scene-audit-panel {padding:22px!important;margin:0!important;min-width:0;}
+body.vps1-scene-parity main .scene-audit-workspace .scene-audit-panel .panel-head {
+  padding:0 0 16px;margin:0 0 14px;border-bottom:1px solid #edf0f5;
+}
+body.vps1-scene-parity main .scene-audit-workspace .scene-audit-panel h2 {font-size:18px;line-height:1.4;margin:0!important;}
+body.vps1-scene-parity main .scene-audit-workspace .scene-audit-panel .panel-head p {
+  margin:5px 0 0!important;font-size:12px;line-height:1.5;color:#667085;
+}
+body.vps1-scene-parity main .scene-audit-workspace .audit-project-list {display:grid;gap:12px;}
+body.vps1-scene-parity main .scene-audit-workspace .audit-project-row {
+  grid-template-columns:minmax(200px,1fr) auto auto auto;gap:14px;min-width:0;
+  padding:16px;border:1px solid #e2e7ef;border-radius:12px;background:#fafbfe;
+}
+body.vps1-scene-parity main .scene-audit-workspace .audit-project-row .button {
+  display:inline-flex;align-items:center;justify-content:center;min-height:44px;
+  padding:9px 16px;border-radius:10px;font-weight:700;
+}
+body.vps1-scene-parity main .scene-audit-empty {
+  display:flex;align-items:center;flex-direction:column;justify-content:center;
+  gap:8px;min-height:220px;padding:30px 16px;border:1px dashed #e2e7ef;
+  border-radius:12px;background:#fafbff;color:#344054;text-align:center;
+}
+body.vps1-scene-parity main .scene-audit-empty-icon {
+  display:grid;place-items:center;width:44px;height:44px;border-radius:14px;
+  background:#efedff;color:#5546bd;font-size:21px;font-weight:800;
+}
+body.vps1-scene-parity main .scene-audit-empty strong {font-size:16px;font-weight:800;color:#101828;}
+body.vps1-scene-parity main .scene-audit-empty p {margin:0 0 8px;color:#667085;}
+body.vps1-scene-parity main .scene-audit-empty a {min-height:44px;display:inline-flex;align-items:center;border-radius:10px;padding:9px 16px;}
+body.vps1-scene-parity main .scene-audit-workspace .audit-toolbar {
+  position:relative;top:auto;z-index:2;gap:14px;padding:16px 18px!important;
+  margin:0!important;flex-wrap:wrap;
+}
+body.vps1-scene-parity main .scene-audit-workspace .audit-toolbar-left,
+body.vps1-scene-parity main .scene-audit-workspace .audit-toolbar-right {gap:10px;flex-wrap:wrap;}
+body.vps1-scene-parity main .scene-audit-workspace .audit-filter {
+  min-height:44px;padding:9px 14px;border:1px solid #e2e7ef;border-radius:10px;font-weight:700;
+}
+body.vps1-scene-parity main .scene-audit-workspace .audit-filter.active {background:#6255db!important;color:#fff!important;border-color:#6255db!important;}
+body.vps1-scene-parity main .scene-audit-workspace .audit-grid {gap:16px;padding-bottom:110px;}
+body.vps1-scene-parity main .scene-audit-workspace .audit-card {overflow:hidden;min-width:0;}
+body.vps1-scene-parity main .scene-audit-workspace .audit-card-body {padding:16px;}
+body.vps1-scene-parity main .scene-audit-workspace .audit-actions {display:flex;flex-wrap:wrap;gap:8px;}
+body.vps1-scene-parity main .scene-audit-workspace .audit-actions :is(button,label) {
+  min-height:40px;border-radius:9px;padding:9px 12px;font-weight:700;
+}
+body.vps1-scene-parity main .scene-audit-workspace .audit-modal-card {
+  border-radius:16px;border:1px solid #e2e7ef;box-shadow:0 20px 50px rgba(16,24,40,.17);
+}
+body.vps1-scene-parity .scene-audit-workspace .audit-sticky-approve {
+  border:1px solid #e2e7ef;border-radius:14px;padding:14px 18px;background:#fffffff5;
+}
+body.vps1-scene-parity .scene-audit-workspace .audit-sticky-approve :is(button,.button) {
+  min-height:44px;border-radius:10px;font-weight:700;
+}
+@media(max-width:1000px) {
+  body.vps1-scene-parity main .scene-audit-workspace .audit-project-row {grid-template-columns:minmax(0,1fr) auto;gap:10px;}
+  body.vps1-scene-parity main .scene-settings-workspace .sb-control-grid {grid-template-columns:minmax(0,1fr);}
+}
+@media(max-width:760px) {
+  body.vps1-scene-parity main .scene-settings-heading,
+  body.vps1-scene-parity main .scene-settings-workspace .sb-tab-panel,
+  body.vps1-scene-parity main .scene-audit-overview,
+  body.vps1-scene-parity main .scene-audit-workspace .scene-audit-panel {padding:16px!important;}
+  body.vps1-scene-parity main .scene-settings-workspace .sb-subtabs {overflow-x:auto;flex-wrap:nowrap;}
+  body.vps1-scene-parity main .scene-settings-workspace .sb-control-grid {grid-template-columns:minmax(0,1fr);}
+  body.vps1-scene-parity main .scene-settings-workspace .sb-timing-groups {grid-template-columns:minmax(0,1fr);}
+  body.vps1-scene-parity main .scene-audit-workspace .audit-project-row {grid-template-columns:minmax(0,1fr);}
+  body.vps1-scene-parity main .scene-audit-workspace .audit-grid {grid-template-columns:minmax(0,1fr);}
+  body.vps1-scene-parity .scene-audit-workspace .audit-sticky-approve {flex-direction:column;align-items:stretch;gap:10px;}
+  body.vps1-scene-parity .scene-audit-workspace .audit-sticky-approve > div:last-child {display:flex;flex-wrap:wrap;}
+  body.vps1-scene-parity .scene-audit-workspace .audit-sticky-approve > div:last-child button {flex:1 1 160px;}
+}
+@media(prefers-reduced-motion:reduce) {
+  body.vps1-scene-parity main .scene-settings-workspace *,
+  body.vps1-scene-parity main .scene-audit-workspace * {scroll-behavior:auto!important;transition:none!important;}
+}
