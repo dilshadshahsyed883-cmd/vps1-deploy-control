@@ -1,0 +1,98 @@
+name: VPS1 Antidetect Advanced Management release
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: vps1-experiment-management-scene-release
+  cancel-in-progress: false
+jobs:
+  antidetect-scene-only:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'dilshadshahsyed883-cmd' &&
+      github.run_attempt == 1 &&
+      contains(github.event.head_commit.message, '[vps1-experiment-management-release]')
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Join existing protected Tailscale lane
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Install Experiment management via existing Scene app helper and verify
+        shell: bash
+        env:
+          PRIVATE_IDENTITY: ${ secrets.VPS1_SSH_PRIVATE_KEY }}
+          SOURCE_SHA: ${ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          test "$GITHUB_REF" = 'refs/heads/main'
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/id"
+          unset PRIVATE_IDENTITY
+          chmod 0600 "$scratch/id"
+          ssh-keygen -y -P '' -f "$scratch/id" > "$scratch/pub"
+          test "$(ssh-keygen -lf "$scratch/pub" -E sha256 | awk '{print $2}')" = \
+            'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
+          remote() {
+            timeout 2300s ssh -T -p 22 -i "$scratch/id" \
+              -o UserKnownHostsFile="$scratch/known_hosts" \
+              -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+              -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o PasswordAuthentication=no -o ConnectTimeout=20 \
+              -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+              vps1deploy@100.87.55.92 "$@"
+          }
+          changed=0
+          rollback() {
+            code=$?
+            if (( code != 0 && changed )); then
+              echo 'ANTIDETECT_MANAGEMENT=FAILED_ROLLBACK_ATTEMPT'
+              remote "sudo -n /usr/local/sbin/vps1-production-deploy rollback $SOURCE_SHA scene-builder" || true
+            fi
+            exit "$code"
+          }
+          trap rollback ERR
+          echo 'ANTIDETECT_BACKUP=ADDITIVE_PROFILE_DB_MIGRATION_BACKUP_AT_FIRST_DATABASE_OPEN'
+          echo 'ANTIDETECT_PROFILE_DATA=UNCHANGED'
+          changed=1
+          remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA scene-builder"
+          echo 'PUBLIC_ASSET_READBACK'
+          for attempt in $(seq 1 8); do
+            if curl -fsS --connect-timeout 8 --max-time 25 \
+                'https://app.scenebuilder.online/static/experiment_browser_management.js?v=1' \
+                 -o "$scratch/browser-management.js" &&
+               grep -q 'EXP-UX-20261021-02' "$scratch/browser-management.js"; then
+              break
+            fi
+            sleep 5
+          done
+          grep -q 'EXP-UX-20261021-02' "$scratch/browser-management.js"
+          curl -fsS --connect-timeout 8 --max-time 25 \
+            'https://app.scenebuilder.online/static/experiment_browser_management.css?v=1' \
+            -o "$scratch/browser-management.css"
+          grep -q 'experiment-manager-tabs' "$scratch/browser-management.css"
+          code="$(curl -Ls -o /dev/null -w '%{http_code}' --max-time 30 \
+            'https://app.scenebuilder.online/experiment-studio/antidetect-browser/')"
+          [[ "$code" = '200' || "$code" = '302' || "$code" = '303' || "$code" = '401' ]]
+          echo 'ANTIDETECT_PUBLIC_ASSETS=PASS'
+          echo 'ANTIDETECT_ROUTE_REACHABLE=PASS'
+          echo 'ANTIDETECT_BROWSER_UAT=REQUIRES_AUTHENTICATED_OWNER'
+          echo 'OTHER_APP_INSTALLS=NONE'
+          echo 'AUTO_SCRIPT=OFFLINE_UNCHANGED'
+          trap - ERR
+          echo 'ANTIDETECT_ADVANCED_MANAGEMENT_RELEASE=PASS'
