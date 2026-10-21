@@ -40,6 +40,10 @@ app.mount("/media/thumbs", StaticFiles(directory=THUMBS_DIR), name="thumbs")
 DB_LOCK = threading.Lock()
 PROCESS_LOCK = threading.Lock()
 DRIVE_LOCK = threading.Lock()
+RCLONE_IO_LOCK = threading.Lock()  # Serialize per-app remote CLI calls, including preflights.
+RCLONE_THROTTLE_UNTIL = 0.0  # A quota fault pauses new Drive API requests, not local media.
+RCLONE_QUOTA_MESSAGE = ("Google Drive API rate limit (403) reached; wait about 2 minutes, "
+                        "then use Retry failed Drive. Local source and generated clips are retained.")
 
 
 def now_iso() -> str:
@@ -205,18 +209,37 @@ def runtime_rclone_config() -> Path:
     return Path.home() / ".config" / "self-media-library" / "rclone.conf"
 
 
+def is_drive_rate_limit_error(message: str) -> bool:
+    """Distinguish temporary API query throttling from real 403 permissions failures."""
+    message = message.lower()
+    return any(token in message for token in (
+        "ratelimitexceeded", "rate_limit_exceeded", "userratelimitexceeded",
+        "quota exceeded for quota metric", "requests per minute",
+        "too many requests", "resource_exhausted",
+    ))
+
+
 def run_rclone(args: list[str], timeout: int = 180) -> subprocess.CompletedProcess[str]:
+    global RCLONE_THROTTLE_UNTIL
     if not shutil.which("rclone"):
         raise RuntimeError("rclone is not installed")
-    cmd = ["rclone"]
+    # Limit intra-command API requests; each copyto / lsjson / mkdir is independently
+    # throttled by rclone, while the app-level lock guards concurrent commands.
+    cmd = ["rclone", "--tpslimit", "2", "--tpslimit-burst", "1"]
     config = runtime_rclone_config()
     if os.getenv("RCLONE_CONFIG", "").strip():
         cmd += ["--config", str(config)]
-    proc = subprocess.run([*cmd, *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout)
-    if proc.returncode != 0:
-        msg = (proc.stderr or proc.stdout or "rclone command failed").strip()
-        raise RuntimeError(msg[-1200:])
-    return proc
+    with RCLONE_IO_LOCK:
+        if time.monotonic() < RCLONE_THROTTLE_UNTIL:
+            raise RuntimeError(RCLONE_QUOTA_MESSAGE)
+        proc = subprocess.run([*cmd, *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout)
+        if proc.returncode != 0:
+            msg = (proc.stderr or proc.stdout or "rclone command failed").strip()
+            if is_drive_rate_limit_error(msg):
+                RCLONE_THROTTLE_UNTIL = time.monotonic() + 120.0
+                raise RuntimeError(RCLONE_QUOTA_MESSAGE)
+            raise RuntimeError(msg[-1200:])
+        return proc
 
 
 def drive_runtime_status(values: Optional[dict[str, str]] = None) -> dict:
@@ -1153,6 +1176,9 @@ def manual_cleanup_source(source_id: str):
             raise HTTPException(409, "Manual cleanup is available only for failed jobs")
         if src["source_deleted_at"]:
             return {"ok": True, "already_cleaned": True, "bytes_removed": 0}
+        # A Drive quota failure is NOT permission to destroy the only local original.
+        if not src["drive_source_path"] or not src["drive_source_verified_at"]:
+            raise HTTPException(409, "Original source has not been verified on Drive; local original must be retained")
         source_file = SOURCES_DIR / src["stored_name"]
         bytes_removed = source_file.stat().st_size if source_file.exists() else 0
         source_file.unlink(missing_ok=True)
