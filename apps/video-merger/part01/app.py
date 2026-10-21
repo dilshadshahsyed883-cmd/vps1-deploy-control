@@ -25,7 +25,9 @@ def downloader_command(module):
     if importlib.util.find_spec(module) is None:
         raise RuntimeError(f'Video Merger dependency {module} is missing from its service Python; redeploy Video Merger dependencies')
     return [sys.executable, '-m', module]
-DENO = BASE / 'bin/deno'
+DENO = Path(sys.executable).parent / 'deno'
+if not DENO.is_file(): DENO = BASE / 'bin/deno'
+os.environ.setdefault('DENO_DIR', str(BASE / 'deno_cache'))
 PREFIX = '/video-merger'
 MAX_VIDEOS = 50
 MAX_URL_LEN = 4096
@@ -192,7 +194,7 @@ def set_proxy_enabled(enabled):
 
 def yt_common_args(profile=None, force_profile=False):
     args=['-4','--no-playlist','--no-progress','--socket-timeout','30','--retries','2','--extractor-retries','2']
-    if DENO.exists(): args += ['--js-runtimes',f'deno:{DENO}','--remote-components','ejs:npm']
+    if DENO.exists(): args += ['--js-runtimes',f'deno:{DENO}']
     elif shutil.which('node'): args += ['--js-runtimes','node:'+shutil.which('node')]
     if profile is None and not force_profile: profile=active_proxy_profile()
     args += ['--proxy',proxy_url(profile) if profile else '']

@@ -8,23 +8,24 @@ import sqlite3
 import tempfile
 
 
-def smoke(source, state):
+def smoke(source, state, proxy_config=None):
     with tempfile.TemporaryDirectory(prefix='vm-import-smoke-') as directory:
         root = Path(directory)
         os.environ['VIDEO_MERGER_ROOT'] = str(root)
         os.environ['VIDEO_MERGER_PROXY_CONFIG_DIR'] = str(root/'config')
+        os.environ['DENO_DIR'] = str(root/'deno_cache')
         spec = importlib.util.spec_from_file_location('vm_smoke', source)
         app = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(app)
         # Read existing proxy settings only, without changing permissions/config.
-        app.PROXY_CONFIG_PATH = Path(state)/'config/proxy_profiles.json'
-        app.DENO = Path(state)/'bin/deno'
+        app.PROXY_CONFIG_PATH = proxy_config or Path(state)/'config/proxy_profiles.json'
         original_run=app.run
         def bounded_run(args, timeout=None, **kwargs):
             return original_run(args, timeout=min(timeout or 180,180), **kwargs)
         app.run=bounded_run
         app.init_db()
-        results = {}
+        config=app.load_proxy_config()
+        results = {'proxy_enabled':bool(config.get('enabled')), 'saved_proxy_profiles':len(config.get('profiles',[])), 'js_runtime':str(app.DENO) if app.DENO.is_file() else 'MISSING'}
         try:
             profile = app.active_proxy_profile()
             if profile:
@@ -78,5 +79,6 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser()
     parser.add_argument('--source',type=Path,required=True)
     parser.add_argument('--state',type=Path,required=True)
+    parser.add_argument('--proxy-config',type=Path)
     args=parser.parse_args()
-    smoke(args.source,args.state)
+    smoke(args.source,args.state,args.proxy_config)

@@ -1,4 +1,7 @@
 import json
+import hashlib
+import io
+import zipfile
 from pathlib import Path
 import tempfile
 import unittest
@@ -27,6 +30,7 @@ class Release(unittest.TestCase):
             checks=[None,RuntimeError('health failure'),None] if failure=='health' else [None,None]
             with patch.object(release,'BASE',base),patch.object(release,'DATA',root/'data'),patch.object(release,'REPO',repo), \
                  patch.object(release,'SYSTEMD',units),patch.object(release,'idle'),patch.object(release,'event'), \
+                 patch.object(release,'install_js'),patch.object(release,'live_paths',return_value=(root/'data/video-merger/video-merger',root/'config/proxy_profiles.json')), \
                  patch.object(release,'run',side_effect=command) as commands,patch.object(release,'http_check',side_effect=checks), \
                  patch('production.route_uploader_scene_https.scene_cookie',return_value='cookie'), \
                  patch('production.route_uploader_scene_https.https_get',return_value=(200,'text/html',b'page')):
@@ -40,6 +44,19 @@ class Release(unittest.TestCase):
                     self.assertEqual((pointer/'part01/templates/index.html').read_text(),'active parallel UI')
                     self.assertEqual((pointer/'part01/app.py').read_text(),'new = True')
                     self.assertIn('a'*40+'-imports/bin/python',unit.read_text())
+    def test_isolated_js_runtime_checksum_and_executable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            venv=Path(directory);(venv/'bin').mkdir()
+            payload=io.BytesIO()
+            with zipfile.ZipFile(payload,'w') as z:z.writestr('deno',b'official-runtime-fixture')
+            data=payload.getvalue()
+            with patch.object(release.urllib.request,'urlopen',return_value=io.BytesIO(data)), \
+                 patch.object(release,'DENO_SHA256',hashlib.sha256(data).hexdigest()),patch.object(release,'run'):
+                release.install_js(venv)
+            self.assertEqual((venv/'bin/deno').read_bytes(),b'official-runtime-fixture')
+            self.assertTrue((venv/'bin/deno').stat().st_mode & 0o111)
+            with patch.object(release.urllib.request,'urlopen',return_value=io.BytesIO(b'invalid')):
+                with self.assertRaisesRegex(RuntimeError,'digest mismatch'):release.install_js(venv)
     def test_workflow_intent_and_smoke_syntax(self):
         root=Path(__file__).resolve().parents[1]
         workflow=(root/'.github/workflows/vps1-video-merger-import-release.yml').read_text()
