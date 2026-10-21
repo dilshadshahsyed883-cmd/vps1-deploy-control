@@ -75,6 +75,9 @@ def browser_acceptance():
     fragment = fragment.replace(
         '<link rel="stylesheet" href="/static/experiment_antidetect_kokoro_20261021.css?v=2">',
         "<style>" + CSS.read_text(encoding="utf-8") + "</style>")
+    fragment = fragment.replace(
+        '<link rel="stylesheet" href="/static/experiment_browser_management.css?v=1">',
+        "<style>" + (PART / "static/experiment_browser_management.css").read_text(encoding="utf-8") + "</style>")
     # Deliberately add conflicting shell-like !important styles, without altering the shell.
     shell_fixture = '<style>label{margin-bottom:8px!important}input[type="text"],input[type="password"]{margin-bottom:16px!important;padding:10px 14px!important}</style>'
     fixture = '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">' + shell_fixture + '</head><body>' + fragment + '</body></html>'
@@ -101,12 +104,17 @@ def browser_acceptance():
                     return req.fulfill(content_type="text/html",body=fixture)
                 if url.endswith("/api/experiment-browser/health"):
                     return req.fulfill(content_type="application/json",body=json.dumps({"chrome_installed":True}))
+                if url.endswith("/api/experiment-browser/groups"):
+                    return req.fulfill(content_type="application/json",body=json.dumps({"groups":[]}))
+                if url.endswith("/api/experiment-browser/templates"):
+                    return req.fulfill(content_type="application/json",body=json.dumps({"templates":[]}))
                 if url.endswith("/api/experiment-browser/profiles"):
                     return req.fulfill(content_type="application/json",body=json.dumps(data))
                 return req.fulfill(status=404)
             page.route("**/*", route)
             page.goto("http://ui.test/experiment")
             page.add_script_tag(content=JS.read_text(encoding="utf-8"))
+            page.add_script_tag(content=(PART / "static/experiment_browser_management.js").read_text(encoding="utf-8"))
             expect(page.locator(".experiment-profile")).to_have_count(2)
             expect(page.locator(".experiment-browser-panel")).to_have_count(2)
             expect(page.locator("#browser-engine-status")).to_contain_text("Browser engine available")
@@ -133,6 +141,13 @@ def browser_acceptance():
             expect(page.locator("#browser-address")).to_have_value("https://example.com")
             page.locator("#browser-proxy-server").fill("http://local.example:8080")
             expect(page.locator("#browser-proxy-server")).to_have_value("http://local.example:8080")
+            for tab, expected in (("batch","#exp-batch-count"),("groups","#exp-group-form"),
+                                  ("sessions","#browser-preview"),("profiles","#browser-profiles")):
+                page.locator('[data-exp-tab="'+tab+'"]').click()
+                expect(page.locator(expected)).to_be_attached()
+                assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), (width, tab, "overflow")
+            expect(page.locator("#exp-batch-pane")).to_be_hidden()
+            expect(page.locator("#exp-groups-pane")).to_be_hidden()
             assert not writes, (width, writes)
             assert not errors, (width, errors)
             print(f"EXPERIMENT_KOKORO_UI=PASS WIDTH={width} PROFILE_SELECTION=PASS HTTP_WRITES=0")
