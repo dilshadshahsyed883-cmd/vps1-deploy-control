@@ -396,11 +396,11 @@ def test_proxy_profile(pid):
         # Use a short public sample, verify its media stream, and discard all bytes.
         with tempfile.TemporaryDirectory(prefix='vm-proxy-test-',dir=WORK) as workdir:
             out_pattern=str(Path(workdir)/'sample.%(ext)s')
-            # The Audio Downloader real MP3+Drive canary on this VPS used
-            # BaW_jenozKc without cookies. Test its actual video stream too.
+            # The verified Audio Downloader real MP3+Drive canary used
+            # jNQXAC9IVRw without cookies. Test its actual video stream too.
             run_youtube_download(['--format','bv*+ba/best/bv*',
                 '--max-filesize','100M','-o',out_pattern,
-                'https://youtu.be/BaW_jenozKc'],timeout=240,profile=p,force_profile=True)
+                'https://youtu.be/jNQXAC9IVRw'],timeout=240,profile=p,force_profile=True)
             candidates=[f for f in Path(workdir).glob('sample.*')
                         if f.is_file() and f.suffix.lower() not in ('.part','.ytdl','.json')]
             if not candidates: raise RuntimeError('YouTube real download returned no media')
