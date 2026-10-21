@@ -67,26 +67,55 @@
   #experiment-browser * {scroll-behavior:auto}
 }
 </style>
+  <link rel="stylesheet" href="/static/experiment_antidetect_kokoro_20261021.css?v=1">
   <div class="experiment-browser-grid">
-    <div class="experiment-browser-panel">
-      <h3>Browser profiles</h3>
+    <section class="experiment-browser-panel experiment-browser-profiles-panel" aria-labelledby="experiment-browser-profiles-title">
+      <div class="experiment-browser-panel-heading">
+        <h3 id="experiment-browser-profiles-title">Browser profiles</h3>
+        <p>Set up a dedicated browser identity, optional proxy and device preferences.</p>
+      </div>
       <form id="browser-create-form">
-        <label for="browser-profile-name">Profile name</label>
-        <input id="browser-profile-name" name="name" maxlength="64" placeholder="e.g. Research profile" required>
-        <label for="browser-profile-start">Start URL (optional)</label>
-        <input id="browser-profile-start" name="start_url" placeholder="https://example.com" autocomplete="off">
-        <label for="browser-proxy-server">Proxy server (optional)</label>
-        <input id="browser-proxy-server" name="proxy_server" placeholder="http://proxy.example:8080" autocomplete="off">
-        <label for="browser-proxy-user">Proxy username</label>
-        <input id="browser-proxy-user" name="proxy_username" autocomplete="off">
-        <label for="browser-proxy-pass">Proxy password</label>
-        <input id="browser-proxy-pass" name="proxy_password" type="password" autocomplete="new-password">
-        <label for="browser-profile-locale">Locale</label>
-        <input id="browser-profile-locale" name="locale" value="en-US" maxlength="6">
-        <label for="browser-profile-timezone">Timezone</label>
-        <input id="browser-profile-timezone" name="timezone" value="UTC" maxlength="80">
-        <label for="browser-profile-agent">User agent (optional)</label>
-        <input id="browser-profile-agent" name="user_agent" placeholder="Use installed Chrome default" maxlength="360">
+        <div class="experiment-browser-fields experiment-browser-identity">
+          <div class="experiment-browser-field">
+            <label for="browser-profile-name">Profile name</label>
+            <input id="browser-profile-name" name="name" maxlength="64" placeholder="e.g. Research profile" required>
+          </div>
+          <div class="experiment-browser-field">
+            <label for="browser-profile-start">Start URL (optional)</label>
+            <input id="browser-profile-start" name="start_url" placeholder="https://example.com" autocomplete="off">
+          </div>
+        </div>
+        <fieldset class="experiment-browser-proxy-group">
+          <legend>Proxy configuration <span>Optional</span></legend>
+          <div class="experiment-browser-fields">
+          <div class="experiment-browser-field experiment-browser-field--full">
+            <label for="browser-proxy-server">Proxy server (optional)</label>
+            <input id="browser-proxy-server" name="proxy_server" placeholder="http://proxy.example:8080" autocomplete="off">
+          </div>
+          <div class="experiment-browser-field">
+            <label for="browser-proxy-user">Proxy username</label>
+            <input id="browser-proxy-user" name="proxy_username" autocomplete="off">
+          </div>
+          <div class="experiment-browser-field">
+            <label for="browser-proxy-pass">Proxy password</label>
+            <input id="browser-proxy-pass" name="proxy_password" type="password" autocomplete="new-password">
+          </div>
+          </div>
+        </fieldset>
+        <div class="experiment-browser-fields experiment-browser-device">
+          <div class="experiment-browser-field">
+            <label for="browser-profile-locale">Locale</label>
+            <input id="browser-profile-locale" name="locale" value="en-US" maxlength="6">
+          </div>
+          <div class="experiment-browser-field">
+            <label for="browser-profile-timezone">Timezone</label>
+            <input id="browser-profile-timezone" name="timezone" value="UTC" maxlength="80">
+          </div>
+          <div class="experiment-browser-field experiment-browser-field--full">
+            <label for="browser-profile-agent">User agent (optional)</label>
+            <input id="browser-profile-agent" name="user_agent" placeholder="Use installed Chrome default" maxlength="360">
+          </div>
+        </div>
         <details>
           <summary>Privacy and device settings</summary>
           <p class="privacy-note">Strict mode restricts non-proxied WebRTC UDP and blocks service workers. This may limit some websites. It does not promise anonymous browsing or a leak-free connection.</p>
@@ -123,22 +152,32 @@
             <option value="no-preference" selected>Default</option><option value="reduce">Reduce animation</option>
           </select>
         </details>
-        <div class="experiment-browser-actions"><button type="submit" class="primary">Create profile</button></div>
+        <div class="experiment-browser-actions experiment-browser-create-actions"><button type="submit" class="primary">Create profile</button></div>
       </form>
+      <div class="experiment-browser-saved-heading"><h4>Saved profiles</h4><span>Choose a profile to control its session</span></div>
       <div id="browser-profiles" aria-label="Saved browser profiles"></div>
       <p id="browser-privacy-summary" class="privacy-note" role="status">Select a profile to view privacy settings.</p>
-    </div>
-    <div class="experiment-browser-panel">
-      <h3>Browser session</h3>
-      <div class="experiment-browser-actions" role="group" aria-label="Browser session actions">
-        <button id="browser-start" type="button" class="primary" disabled>Start</button>
-        <button id="browser-stop" type="button" disabled>Stop</button>
-        <button id="browser-delete" type="button" disabled>Delete profile</button>
-        <button id="browser-clone" type="button" disabled>Clone settings</button>
-        <button id="browser-privacy" type="button" disabled>Inspect privacy</button>
-        <button id="browser-connection-check" type="button" disabled>Check exit IP</button>
-        <button id="browser-reload" type="button" disabled>Reload</button>
-        <button id="browser-back" type="button" disabled>Back</button>
+    </section>
+    <section class="experiment-browser-panel experiment-browser-session-panel" aria-labelledby="experiment-browser-session-title">
+      <div class="experiment-browser-panel-heading">
+        <h3 id="experiment-browser-session-title">Browser session</h3>
+        <p>Navigate, preview and control only the selected profile.</p>
+      </div>
+      <div class="experiment-browser-session-toolbar">
+        <div class="experiment-browser-actions" role="group" aria-label="Browser session actions">
+          <button id="browser-start" type="button" class="primary" disabled>Start</button>
+          <button id="browser-stop" type="button" disabled>Stop</button>
+        </div>
+        <div class="experiment-browser-actions" role="group" aria-label="Profile tools">
+          <button id="browser-clone" type="button" disabled>Clone settings</button>
+          <button id="browser-privacy" type="button" disabled>Inspect privacy</button>
+          <button id="browser-connection-check" type="button" disabled>Check exit IP</button>
+          <button id="browser-delete" type="button" disabled>Delete profile</button>
+        </div>
+        <div class="experiment-browser-actions" role="group" aria-label="Navigation controls">
+          <button id="browser-back" type="button" disabled>Back</button>
+          <button id="browser-reload" type="button" disabled>Reload</button>
+        </div>
       </div>
       <label for="browser-address">Website address</label>
       <div class="experiment-browser-row">
@@ -160,7 +199,7 @@
         <button id="browser-refresh-preview" type="button" disabled>Refresh preview</button>
       </div>
       <div id="browser-message" role="status" aria-live="polite"></div>
-    </div>
+    </section>
   </div>
 </section>
 {% endblock %}
