@@ -1,0 +1,28 @@
+name: VPS1 Voice Live UI Parity Proof CI
+on:
+  pull_request:
+    paths:
+      - 'production/voice_template_release.py'
+      - 'tests/test_voice_ui_live_parity_release.py'
+      - '.github/workflows/vps1-voice-ui-live-proof-ci.yml'
+  push:
+    paths:
+      - 'production/voice_template_release.py'
+      - 'tests/test_voice_ui_live_parity_release.py'
+      - '.github/workflows/vps1-voice-ui-live-proof-ci.yml'
+permissions:
+  contents: read
+jobs:
+  voice-live-parity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Prove old live UI becomes the expected source without touching jobs or workers
+        run: |
+          python -m unittest discover -s tests -p 'test_voice_ui_live_parity_release.py' -v
+          python -m unittest discover -s tests -p 'test_voice_ui_parity_20261021.py' -v
+          python -m unittest discover -s tests -p 'test_voice_sidebar_ui_only_release.py' -v
