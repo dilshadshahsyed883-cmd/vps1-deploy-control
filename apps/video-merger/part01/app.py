@@ -227,7 +227,7 @@ def _private_youtube_cookie_bytes(path):
     for line in value.splitlines():
         if not line or (line.startswith('#') and not line.startswith('#HttpOnly_')):
             continue
-        fields=line.removeprefix('#HttpOnly_').split('\\t')
+        fields=line.removeprefix('#HttpOnly_').split('\t')
         if len(fields)!=7: raise ValueError('invalid cookie entry')
         domain=fields[0].lstrip('.').lower()
         if domain in ('youtube.com','google.com') or domain.endswith(('.youtube.com','.google.com')):
@@ -273,7 +273,7 @@ def youtube_execution(profile=None, force_profile=False):
                 value=str(session)
             settings.append(flag+' '+shlex.quote(value))
             i+=2
-        config.write_text('\\n'.join(settings)+'\\n',encoding='utf-8')
+        config.write_text('\n'.join(settings)+'\n',encoding='utf-8')
         config.chmod(0o600)
         yield ['--ignore-config','--config-locations',str(config)],env
 
