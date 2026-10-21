@@ -29,7 +29,7 @@ from starlette.background import BackgroundTask
 from smart_scroll.ai_scene_txt import extract_intro_queries, parse_outer_ai_scene_txt
 from storage_manager_client import storage_manager_request
 from sml_scene_bridge import (SMLUnavailable, approved_clips, download_verified,
-                              rank_clips, reserve_for_scene, transition_reservation)
+                              rank_clips, reserve_for_scene, transition_reservation, library_status)
 
 RUNTIME_CANDIDATE = os.getenv("VPS1_RUNTIME_CANDIDATE") == "1"
 SCENE_PRECUTOVER_EDITING = os.getenv("VPS1_SCENE_PRECUTOVER_EDITING", "0") == "1"
@@ -275,6 +275,7 @@ def init_db() -> None:
                 FOREIGN KEY(owner_username) REFERENCES users(username)
             )
         """)
+        conn.execute("CREATE TABLE IF NOT EXISTS job_sml_settings (job_id TEXT PRIMARY KEY, settings_json TEXT NOT NULL)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_job_ownership_owner ON job_ownership(owner_username)")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS user_scene_presets (
@@ -805,7 +806,7 @@ def primary_admin_username() -> str:
     return str(row["username"]) if row else WEB_USERNAME
 
 
-def record_job_owner(job_id: str, username: str, project_name: str = "") -> None:
+def record_job_owner(job_id: str, username: str, project_name: str = "", sml_settings: dict | None = None) -> None:
     if not job_id or not username:
         return
     with db() as conn:
@@ -816,6 +817,28 @@ def record_job_owner(job_id: str, username: str, project_name: str = "") -> None
                  project_name=CASE WHEN excluded.project_name<>'' THEN excluded.project_name ELSE job_ownership.project_name END""",
             (job_id, username, project_name, now_iso()),
         )
+
+        if sml_settings is not None:
+            conn.execute("INSERT OR IGNORE INTO job_sml_settings(job_id,settings_json) VALUES(?,?)",
+                         (job_id, json.dumps(sml_settings)))
+
+
+def scene_sml_settings() -> dict[str, Any]:
+    return {"sml_enabled": setting("sml_enabled", "1") == "1",
+            "media_source_mode": setting("media_source_mode", "sml_first"),
+            "sml_auto_scene_matching": setting("sml_auto_scene_matching", "1") == "1",
+            "sml_manual_audit_selection": setting("sml_manual_audit_selection", "1") == "1",
+            "sml_clip_preview": setting("sml_clip_preview", "1") == "1"}
+
+
+def job_sml_settings(job_id: str) -> dict[str, Any]:
+    with db() as conn:
+        row = conn.execute("SELECT settings_json FROM job_sml_settings WHERE job_id=?", (job_id,)).fetchone()
+    # Existing jobs retain the previously deployed, always-on SML behavior.
+    return json.loads(row["settings_json"]) if row else {
+        "sml_enabled": True, "media_source_mode": "sml_first",
+        "sml_auto_scene_matching": True, "sml_manual_audit_selection": True,
+        "sml_clip_preview": True}
 
 
 def reconcile_job_ownership(jobs: list[dict[str, Any]]) -> None:
@@ -1292,15 +1315,16 @@ def build_project_package(
     scene_plan = parse_authoritative_scene_plan(script_text)
     intro_queries = extract_intro_queries(script_text)
     combined_script = " ".join(str(scene.get("text", "")).strip() for scene in scene_plan).strip()
+    sml_config = scene_sml_settings()
     metadata = {
         "project_text_file": "project.txt",
         "text_field_is_relative_file": False,
         "vps_generate_whisper": True,
         "remote_package_mode": "text_audio_settings_only",
         "remote_worker_fetches_stock_media": True,
-        "media_source_mode": "sml_first",
-        "sml_auto_scene_matching": True,
-        "sml_manual_audit_selection": True,
+        **sml_config,
+        "media_source_mode": sml_config["media_source_mode"] if sml_config["sml_enabled"] else "pexels_only",
+        "sml_auto_scene_matching": sml_config["sml_enabled"] and sml_config["sml_auto_scene_matching"],
         "web_scene_review_mode": "first2_visual_audit" if first2_audit_enabled else "vps_stock_media",
         "web_manual_scene_review_requested": manual_scene_review_requested,
         "web_submission_version": "7.7.11-professional-editor-v17.5d-r6-internal-audio-studio-v1",
@@ -2386,7 +2410,10 @@ async def submit_project(
     )
     if not job_id:
         return submission_error(request, 502, "Worker accepted the upload but returned no job ID")
-    record_job_owner(job_id, submitter, project_name)
+    record_job_owner(job_id, submitter, project_name, {
+        key: packaged_project["metadata"][key] for key in (
+            "sml_enabled", "media_source_mode", "sml_auto_scene_matching",
+            "sml_manual_audit_selection", "sml_clip_preview")})
     audit_event("project_submitted", "Website project submission accepted", {
         "job_id": job_id,
         "project_name": project_name,
@@ -2589,6 +2616,7 @@ def _web_audit_payload(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         else:
             row["preview_url"] = ""
         items.append(row)
+    data["sml_settings"] = job_sml_settings(job_id)
     data["items"] = items
     return data
 
@@ -2645,6 +2673,16 @@ def _sml_safe_items(clips: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "thumb_url": "/self-media-library" + thumb if thumb else "",
         })
     return items
+
+
+@app.get("/api/settings/sml-status")
+def scene_sml_status(request: Request):
+    if not logged_in(request):
+        raise HTTPException(401, "Login required")
+    try:
+        return library_status()
+    except SMLUnavailable:
+        return {"connected": False, "clips": None, "images": None}
 
 
 @app.get("/api/sml/clips/{clip_id}/preview")
@@ -2732,6 +2770,9 @@ def _sml_reserved_transfer(job_id: str, item: dict[str, Any],
 @app.post("/api/audit-media/{job_id}/{item_id}/sml-select")
 async def scene_sml_manual_select(request: Request, job_id: str, item_id: str):
     require_job_access(request, job_id)
+    config = job_sml_settings(job_id)
+    if not config["sml_enabled"] or not config["sml_manual_audit_selection"]:
+        raise HTTPException(409, "Manual SML selection is disabled for this job")
     try:
         payload = await request.json()
     except (ValueError, TypeError) as exc:
@@ -2773,6 +2814,9 @@ def scene_sml_auto_match(request: Request, job_id: str):
     require_job_access(request, job_id)
     with _SML_AUDIT_LOCK:
         current = worker_request("GET", f"/jobs/{job_id}/audit/media").json()
+        config = job_sml_settings(job_id)
+        if not (config["sml_enabled"] and config["sml_auto_scene_matching"] and config["media_source_mode"] == "sml_first"):
+            return {"ok": True, "matched": 0, "audit": _web_audit_payload(job_id, current)}
         try:
             catalog = approved_clips()
         except SMLUnavailable as exc:
@@ -3044,6 +3088,7 @@ def delete_job(request: Request, job_id: str):
     worker_request("DELETE", f"/jobs/{job_id}")
     with db() as conn:
         conn.execute("DELETE FROM job_ownership WHERE job_id=?", (job_id,))
+        conn.execute("DELETE FROM job_sml_settings WHERE job_id=?", (job_id,))
     return RedirectResponse("/queue", status_code=303)
 
 
@@ -3522,6 +3567,7 @@ def settings_page(request: Request):
             "music_library": list_assets("music"),
             "sfx_library": list_assets("sfx"),
             "settings_csrf": settings_csrf,
+            **scene_sml_settings(),
             "pexels_managed_keys": managed_keys,
             "pexels_total_key_count": total_pexels_keys,
             "pexels_environment_key_count": max(0, total_pexels_keys - len(managed_keys)),
@@ -3551,6 +3597,12 @@ def save_settings(
     general_media_max_seconds: float = Form(4.0),
     narration_start_mode: str = Form("auto"),
     narration_start_manual_seconds: float = Form(0.0),
+    sml_controls_present: str | None = Form(None),
+    sml_enabled: str | None = Form(None),
+    media_source_mode: str = Form("sml_first"),
+    sml_auto_scene_matching: str | None = Form(None),
+    sml_manual_audit_selection: str | None = Form(None),
+    sml_clip_preview: str | None = Form(None),
     pexels_enabled: str | None = Form(None),
     pexels_selection_mode: str = Form("best_match_variety"),
     pexels_search_pool: int = Form(10),
@@ -3660,6 +3712,8 @@ def save_settings(
             raise HTTPException(400, f"{label}: maximum duration must be equal to or greater than minimum duration")
         if minimum > 10 or maximum > 15:
             raise HTTPException(400, f"{label}: duration is outside the supported range")
+    if media_source_mode not in {"sml_first", "pexels_only"}:
+        raise HTTPException(400, "Invalid media selection priority")
     if pexels_selection_mode not in {"first_result", "best_match", "top_n_random", "popularity", "best_match_variety"}:
         raise HTTPException(400, "Invalid Pexels selection mode")
     if not 1 <= int(pexels_search_pool) <= 40:
@@ -3794,6 +3848,12 @@ def save_settings(
         "retention_free_gb": setting("retention_free_gb", "20"),
         "announcement": setting("announcement", "")[:1000],
     }
+    if sml_controls_present == "1":
+        values.update({"sml_enabled": "1" if sml_enabled == "on" else "0",
+                       "media_source_mode": media_source_mode,
+                       "sml_auto_scene_matching": "1" if sml_auto_scene_matching == "on" else "0",
+                       "sml_manual_audit_selection": "1" if sml_manual_audit_selection == "on" else "0",
+                       "sml_clip_preview": "1" if sml_clip_preview == "on" else "0"})
     for key, value in values.items():
         set_setting(key, value)
     preset_config = {
@@ -4473,4 +4533,5 @@ async def vps1_voice_studio_app_proxy(request:_VSRequest):
 @app.api_route("/voice-studio/service/{upstream_path:path}",methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS"])
 async def vps1_voice_studio_service_proxy(request:_VSRequest,upstream_path:str):
     return await _vps1_voice_studio_proxy(request,upstream_path)
+
 
