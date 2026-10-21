@@ -36,7 +36,7 @@ class Release(unittest.TestCase):
                     path=Path(args[3]);(path/'bin').mkdir(parents=True);(path/'bin/python').touch()
                 if failure=='smoke' and 'production.video_merger_import_smoke' in args:raise RuntimeError('source failure')
                 return ''
-            checks=[None,RuntimeError('health failure'),None] if failure=='health' else [None,None]
+            checks=[None,RuntimeError('health failure'),None,None] if failure=='health' else [None,None,None]
             with patch.object(release,'BASE',base),patch.object(release,'DATA',root/'data'),patch.object(release,'REPO',repo), \
                  patch.object(release,'SYSTEMD',units),patch.object(release,'idle_database'),patch.object(release,'event'), \
                  patch.object(release,'install_js'),patch.object(release,'live_paths',return_value=(root/'data/video-merger/video-merger',root/'config/proxy_profiles.json')), \
