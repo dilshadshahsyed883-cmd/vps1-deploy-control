@@ -193,6 +193,34 @@ def set_proxy_enabled(enabled):
         raise ValueError('Add and select a proxy profile first')
     cfg['enabled']=bool(enabled); save_proxy_config(cfg)
 
+# The already-running Audio Downloader owns the verified YouTube egress.
+# Video only borrows its selected route read-only, never copies or edits settings.
+AUDIO_PROXY_PATH=Path('/var/lib/fresh-website/voice-studio/audio-downloader/data/proxy_settings.json')
+
+def working_audio_proxy_profile():
+    path=AUDIO_PROXY_PATH
+    try:
+        if path.is_symlink() or not path.is_file(): return None
+        st=path.stat(follow_symlinks=False)
+        if (not stat.S_ISREG(st.st_mode) or st.st_uid!=os.geteuid()
+                or st.st_mode & 0o077 or st.st_size>65536): return None
+        cfg=json.loads(path.read_text(encoding='utf-8'))
+        if not isinstance(cfg,dict) or cfg.get('enabled') is not True: return None
+        profiles=cfg.get('profiles')
+        if not isinstance(profiles,list): return None
+        p=next((x for x in profiles if isinstance(x,dict)
+                and x.get('id')==cfg.get('active_id')),None)
+        if p is None: return None
+        host=str(p.get('host') or '')
+        port=int(p.get('port') or 0)
+        if (not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9.-]*',host)
+                or not 1<=port<=65535 or not p.get('username')
+                or not p.get('password')): return None
+        return dict(p)
+    except (OSError,UnicodeError,ValueError,TypeError):
+        return None
+
+
 def youtube_cookie_args():
     # Optional owner-provided, app-specific Netscape cookie file; never log contents.
     value=os.environ.get('VIDEO_MERGER_YOUTUBE_COOKIES_FILE','').strip()
@@ -297,33 +325,41 @@ def youtube_failure(error):
 
 
 def run_youtube_download(options, timeout, profile=None, force_profile=False):
-    """Try the proven default yt-dlp client, then one documented alternate on auth challenge.
+    """Use Video's selected route, then Audio's verified route on provider challenge.
 
-    No retry for HTTP 429, 403, proxy errors or invalid source. Keep the same
-    selected proxy and optional session throughout; never switch networks.
+    Both routes are resolved inside the same VPS. The Audio proxy settings are
+    read only; no credential or job data crosses any remote API or gets logged.
     """
+    routes=[(profile,force_profile)]
+    if profile is None and not force_profile:
+        audio=working_audio_proxy_profile()
+        video=active_proxy_profile()
+        if audio and (not video or any(
+                str(audio.get(k))!=str(video.get(k)) for k in
+                ('host','port','username','password'))):
+            routes.append((audio,True))
     last_error=None
-    for client in ('default','tv,web_safari'):
-        with youtube_execution(profile,force_profile) as (config,environment):
-            # Playback-client selection is supported by official yt-dlp. It is
-            # used only when YouTube explicitly challenges the default client.
-            extra=[] if client=='default' else ['--extractor-args','youtube:player_client='+client]
-            try:
-                return run(downloader_command('yt_dlp')+config+extra+options,
-                           timeout=timeout,env=environment)
-            except Exception as exc:
-                last_error=exc
-                low=scrub_proxy_error(exc).lower().replace('’',"'")
-                # Public clips sometimes return 'video unavailable' from one
-                # YouTube client even when Audio succeeds on the same VPS.
-                # Try one documented alternate; never repeat 429/403/proxy errors.
-                challenge=('not a bot' in low or 'sign in to confirm' in low
-                           or 'this video is unavailable' in low or 'video unavailable' in low)
-                if client=='default' and challenge and not any(
-                    term in low for term in ('429','too many requests','403','proxy authentication','http error 407')
-                ):
-                    continue
-                raise youtube_failure(exc) from None
+    for route,forced in routes:
+        for client in ('default','tv,web_safari'):
+            with youtube_execution(route,forced) as (config,environment):
+                extra=[] if client=='default' else [
+                    '--extractor-args','youtube:player_client='+client]
+                try:
+                    return run(downloader_command('yt_dlp')+config+extra+options,
+                               timeout=timeout,env=environment)
+                except Exception as exc:
+                    last_error=exc
+                    low=scrub_proxy_error(exc).lower().replace('’',"'")
+                    retryable=any(v in low for v in (
+                        'not a bot','sign in to confirm','this video is unavailable',
+                        'video unavailable'))
+                    fatal=any(v in low for v in (
+                        'http error 429','too many requests','http error 403',
+                        'http error 407','proxy authentication'))
+                    if fatal or not retryable:
+                        raise youtube_failure(exc) from None
+                    # A maximum of two standard playback clients per selected route.
+                    # Only the second route is permitted after both fail.
     raise youtube_failure(last_error) from None
 
 
@@ -336,6 +372,15 @@ def scrub_proxy_error(text):
         for secret in (str(p.get('password') or ''),str(p.get('username') or '')):
             if len(secret)>=4: text=text.replace(secret,'***')
     text=re.sub(r'https?://[^\s@]+@','http://***:***@',text)
+    # The Audio-selected route is read only. Redact its auth fields too.
+    fallback=working_audio_proxy_profile()
+    if fallback:
+        text=text.replace(proxy_url(fallback),'[private audio proxy URL]')
+        for field in ('password','username'):
+            value=str(fallback.get(field) or '')
+            if len(value)>=3:
+                text=text.replace(value,'***')
+                text=text.replace(urllib.parse.quote(value,safe=''),'***')
     cookie_path=os.environ.get('VIDEO_MERGER_YOUTUBE_COOKIES_FILE','').strip()
     if cookie_path: text=text.replace(cookie_path,'[private cookie file]')
     return text[-1800:]
@@ -351,11 +396,11 @@ def test_proxy_profile(pid):
         # Use a short public sample, verify its media stream, and discard all bytes.
         with tempfile.TemporaryDirectory(prefix='vm-proxy-test-',dir=WORK) as workdir:
             out_pattern=str(Path(workdir)/'sample.%(ext)s')
-            # The Audio Downloader real MP3+Drive canary on this VPS used
-            # BaW_jenozKc without cookies. Test its actual video stream too.
+            # The verified Audio Downloader real MP3+Drive canary used
+            # jNQXAC9IVRw without cookies. Test its actual video stream too.
             run_youtube_download(['--format','bv*+ba/best/bv*',
                 '--max-filesize','100M','-o',out_pattern,
-                'https://youtu.be/BaW_jenozKc'],timeout=240,profile=p,force_profile=True)
+                'https://youtu.be/jNQXAC9IVRw'],timeout=240,profile=p,force_profile=True)
             candidates=[f for f in Path(workdir).glob('sample.*')
                         if f.is_file() and f.suffix.lower() not in ('.part','.ytdl','.json')]
             if not candidates: raise RuntimeError('YouTube real download returned no media')

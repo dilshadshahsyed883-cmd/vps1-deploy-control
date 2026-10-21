@@ -148,10 +148,10 @@ class Imports(unittest.TestCase):
         self.assertNotIn('-4',self.app.yt_common_args())
         with patch.object(self.app,'run',return_value='media'), \
              patch.object(self.app,'downloader_command',return_value=['python','-m','yt_dlp']) as dc:
-            self.assertEqual(self.app.run_youtube_download(['--simulate','https://youtu.be/BaW_jenozKc'],30),'media')
+            self.assertEqual(self.app.run_youtube_download(['--simulate','https://youtu.be/jNQXAC9IVRw'],30),'media')
             dc.assert_called_once_with('yt_dlp')
         text=SOURCE.read_text(encoding='utf-8')
-        self.assertIn('https://youtu.be/BaW_jenozKc',text)
+        self.assertIn('https://youtu.be/jNQXAC9IVRw',text)
 
     def test_one_bounded_playback_client_fallback_on_auth_only(self):
         calls=[]
@@ -162,7 +162,7 @@ class Imports(unittest.TestCase):
             return 'verified video bytes'
         with patch.object(self.app,'run',side_effect=stub), \
              patch.object(self.app,'downloader_command',return_value=['python','-m','yt_dlp']):
-            output=self.app.run_youtube_download(['--format','bv*+ba/best/bv*','https://youtu.be/BaW_jenozKc'],30)
+            output=self.app.run_youtube_download(['--format','bv*+ba/best/bv*','https://youtu.be/jNQXAC9IVRw'],30)
             self.assertEqual(output,'verified video bytes')
         self.assertEqual(len(calls),2)
         self.assertNotIn('--extractor-args',calls[0][0])
@@ -182,7 +182,7 @@ class Imports(unittest.TestCase):
         with patch.object(self.app,'run',side_effect=trial), \
              patch.object(self.app,'downloader_command',return_value=['python','-m','yt_dlp']):
             self.assertEqual(self.app.run_youtube_download(
-                ['--format','bv*+ba/best/bv*','https://youtu.be/BaW_jenozKc'],30),
+                ['--format','bv*+ba/best/bv*','https://youtu.be/jNQXAC9IVRw'],30),
                 'real video bytes')
         self.assertEqual(len(attempts),2)
         self.assertIn('youtube:player_client=tv,web_safari',attempts[1])
@@ -197,8 +197,60 @@ class Imports(unittest.TestCase):
                 with patch.object(self.app,'run',side_effect=failure), \
                      patch.object(self.app,'downloader_command',return_value=['python','-m','yt_dlp']):
                     with self.assertRaises(RuntimeError):
-                        self.app.run_youtube_download(['--simulate','https://youtu.be/BaW_jenozKc'],30)
+                        self.app.run_youtube_download(['--simulate','https://youtu.be/jNQXAC9IVRw'],30)
                 self.assertEqual(len(calls),1)
+
+    def test_read_only_audio_proxy_fallback_uses_verified_network(self):
+        saved=self.root/'audio-proxy.json'
+        audio={'id':'known-good','name':'Audio working route','host':'audio.example',
+               'port':8080,'username':'audio-owner','password':'private-value'}
+        saved.write_text(json.dumps({'enabled':True,'active_id':'known-good',
+                                     'profiles':[audio]}))
+        saved.chmod(0o600)
+        self.app.AUDIO_PROXY_PATH=saved
+        video={'id':'video','name':'Video route','host':'video.example','port':8080,
+               'username':'video-owner','password':'different-value'}
+        self.app.save_proxy_config({'enabled':True,'active_id':'video',
+                                    'profiles':[video]})
+        attempts=[]
+        def execute(args,**kwargs):
+            attempts.append({'args':args,'env':kwargs.get('env',{})})
+            if len(attempts)<3:
+                raise RuntimeError('Sign in to confirm you are not a bot')
+            return 'video bytes downloaded'
+        with patch.object(self.app,'run',side_effect=execute), \
+             patch.object(self.app,'downloader_command',return_value=['python','-m','yt_dlp']):
+            got=self.app.run_youtube_download(['--format','bv*+ba/best/bv*',
+                    'https://youtu.be/jNQXAC9IVRw'],30)
+        self.assertEqual(got,'video bytes downloaded')
+        self.assertEqual(len(attempts),3)
+        self.assertIn('video.example',attempts[0]['env']['HTTPS_PROXY'])
+        self.assertIn('audio.example',attempts[2]['env']['HTTPS_PROXY'])
+        self.assertNotIn('private-value',str(attempts[2]['args']))
+        self.assertNotIn('private-value',self.app.scrub_proxy_error('private-value'))
+        self.assertEqual(json.loads(saved.read_text())['profiles'][0]['id'],'known-good')
+        saved.chmod(0o644)
+        self.assertIsNone(self.app.working_audio_proxy_profile())
+
+    def test_audio_route_not_used_for_proxy_auth_failure(self):
+        saved=self.root/'audio-proxy.json'
+        saved.write_text(json.dumps({'enabled':True,'active_id':'audio',
+            'profiles':[{'id':'audio','host':'audio.example','port':8080,
+                         'username':'u','password':'p'}]}))
+        saved.chmod(0o600)
+        self.app.AUDIO_PROXY_PATH=saved
+        self.app.save_proxy_config({'enabled':True,'active_id':'video',
+           'profiles':[{'id':'video','host':'video.example','port':8080,
+                        'username':'u','password':'v'}]})
+        attempts=[]
+        def failure(*args,**kwargs):
+            attempts.append(args)
+            raise RuntimeError('HTTP Error 407 Proxy Authentication Required')
+        with patch.object(self.app,'run',side_effect=failure), \
+             patch.object(self.app,'downloader_command',return_value=['python','-m','yt_dlp']):
+            with self.assertRaisesRegex(RuntimeError,'PROXY_AUTH_FAILED'):
+                self.app.run_youtube_download(['https://youtu.be/jNQXAC9IVRw'],30)
+        self.assertEqual(len(attempts),1)
 
     def test_missing_dependency_actionable(self):
         with patch.object(self.app.importlib.util,'find_spec',return_value=None):
