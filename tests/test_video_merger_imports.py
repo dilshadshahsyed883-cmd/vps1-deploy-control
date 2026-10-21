@@ -71,6 +71,79 @@ class Imports(unittest.TestCase):
             self.assertTrue(result['download_verified'])
             verify.assert_called_once()
         self.assertEqual(list(self.app.WORK.glob('vm-proxy-test-*')),[])
+    def test_private_proxy_execution_uses_isolated_config_not_process_argv(self):
+        profile={'id':'saved','name':'old Decodo','host':'proxy.example','port':8080,
+                 'username':'owner','password':'my-private-pass'}
+        self.app.save_proxy_config({'enabled':True,'active_id':'saved','profiles':[profile]})
+        with patch.dict(os.environ,{'NO_PROXY':'*','HTTPS_PROXY':'http://unrelated.proxy:7890'}):
+            with self.app.youtube_execution() as (options,environment):
+                self.assertEqual(options[:2],['--ignore-config','--config-locations'])
+                self.assertNotIn('my-private-pass',' '.join(options))
+                self.assertNotIn('NO_PROXY',environment)
+                self.assertNotIn('unrelated.proxy',str(environment.get('HTTPS_PROXY','')))
+                config=Path(options[-1])
+                self.assertEqual(config.stat().st_mode & 0o077,0)
+                saved=config.read_text()
+                self.assertIn('--proxy',saved)
+                self.assertIn('my-private-pass',saved)
+                self.assertIn('--extractor-retries 0',saved)
+                self.assertIn('--retries 1',saved)
+            self.assertFalse(config.exists())
+        self.app.set_proxy_enabled(False)
+        with patch.dict(os.environ,{'HTTPS_PROXY':'http://unrelated.proxy:7890','NO_PROXY':'*'}):
+            with self.app.youtube_execution() as (options,environment):
+                self.assertNotIn('HTTPS_PROXY',environment)
+                self.assertIn("--proxy ''",Path(options[-1]).read_text())
+
+    def test_private_cookie_snapshot_and_owner_permissions(self):
+        import time
+        private=self.root/'owner-session.txt'
+        data='# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t'+str(int(time.time())+7200)+'\tSID\tprivate-owner-cookie\n'
+        private.write_text(data)
+        private.chmod(0o600)
+        with patch.dict(os.environ,{'VIDEO_MERGER_YOUTUBE_COOKIES_FILE':str(private)}):
+            with self.app.youtube_execution() as (options,environment):
+                cfg=Path(options[-1]).read_text()
+                self.assertNotIn(str(private),cfg)
+                self.assertNotIn('private-owner-cookie',' '.join(options))
+                files=list(Path(options[-1]).parent.glob('session.txt'))
+                self.assertEqual(len(files),1)
+                self.assertEqual(files[0].read_text(),data)
+                self.assertEqual(files[0].stat().st_mode & 0o077,0)
+            self.assertEqual(private.read_text(),data)
+            private.chmod(0o644)
+            with self.assertRaisesRegex(RuntimeError,'YOUTUBE_SESSION_CONFIGURATION'):
+                with self.app.youtube_execution(): pass
+        self.assertNotIn('private-owner-cookie',str(self.app.youtube_failure('Sign in to confirm you are not a bot')))
+
+    def test_failed_library_retry_reuses_saved_source_without_duplicate(self):
+        now=self.app.utcnow()
+        original='https://www.youtube.com/watch?v=IC70PnuRFno'
+        with self.app.db() as db:
+            db.execute('''INSERT INTO library_items(id,name,filename,status,source_url,trim_json,created_at,updated_at)
+                          VALUES(?,?,?,?,?,?,?,?)''',
+                       ('saved','drive','saved.mp4','failed',original,'{"url":"'+original+'","trim_enabled":false}',now,now))
+        with patch.object(self.app.threading,'Thread') as thread:
+            self.assertEqual(self.app.retry_library_item('saved'),'saved')
+            self.assertEqual(self.app.get_library_item('saved')['status'],'importing')
+            args=thread.call_args.kwargs['args']
+            self.assertEqual(args[0],'saved')
+            self.assertEqual(args[1],original)
+            self.assertFalse(args[3])
+            with self.assertRaisesRegex(ValueError,'Only failed'):
+                self.app.retry_library_item('saved')
+        with self.app.db() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM library_items').fetchone()[0],1)
+
+    def test_provider_auth_error_is_actionable_and_no_automatic_bypass(self):
+        e=self.app.youtube_failure('ERROR: Sign in to confirm you are not a bot')
+        self.assertIn('YOUTUBE_AUTH_REQUIRED',str(e))
+        self.assertIn('authorized session',str(e))
+        e=self.app.youtube_failure('HTTP Error 429: Too Many Requests')
+        self.assertIn('YOUTUBE_RATE_LIMIT',str(e))
+        self.assertNotIn('--cookies-from-browser',SOURCE.read_text())
+        self.assertNotIn('--remote-components',SOURCE.read_text())
+
     def test_missing_dependency_actionable(self):
         with patch.object(self.app.importlib.util,'find_spec',return_value=None):
             with self.assertRaisesRegex(RuntimeError,'service Python'):self.app.downloader_command('gdown')

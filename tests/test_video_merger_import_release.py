@@ -15,14 +15,20 @@ class Release(unittest.TestCase):
             root=Path(directory);base=root/'host';repo=root/'repo';units=root/'units';units.mkdir()
             old=base/'releases/video-merger/old';(old/'part01/templates').mkdir(parents=True)
             (old/'part01/app.py').write_text('old = True')
-            (old/'part01/templates/index.html').write_text('active parallel UI')
+            old_html=('''<button class="btn secondary mini" onclick="renameLibrary('${x.id}')"'''
+                      + '\\nfunction renderProxy(){' + '\\n<!-- active parallel UI -->')
+            (old/'part01/templates/index.html').write_text(old_html)
+            canonical=(Path(__file__).resolve().parents[1]/'apps/video-merger/part01/templates/index.html').read_text()
+            canonical_path=repo/'apps/video-merger/part01/templates/index.html'
+            canonical_path.parent.mkdir(parents=True)
+            canonical_path.write_text(canonical)
             (old/'_production_manifest.json').write_text(json.dumps({'app':'video-merger','files':{'part01/app.py':'old'}}))
             pointer=base/'current/video-merger';pointer.parent.mkdir();pointer.symlink_to(old)
             python=base/'venvs/video-merger/old/bin/python';python.parent.mkdir(parents=True);python.touch()
             unit=units/'vps1-production-video-merger.service'
             original=f'ExecStart={python} app.py\nEnvironment=PATH={python.parent}:/usr/bin\n'
             unit.write_text(original)
-            src=repo/'apps/video-merger/part01/app.py';src.parent.mkdir(parents=True);src.write_text('new = True')
+            src=repo/'apps/video-merger/part01/app.py';src.parent.mkdir(parents=True,exist_ok=True);src.write_text('new = True')
             # Independent baseline fixture: an already-enabled production proxy
             # remains unchanged; disabled saved profile is covered separately.
             cfg=root/'config/proxy_profiles.json'
@@ -50,9 +56,22 @@ class Release(unittest.TestCase):
                         self.assertFalse(any(call.args[0][0]=='systemctl' for call in commands.call_args_list))
                 else:
                     release.install('a'*40)
-                    self.assertEqual((pointer/'part01/templates/index.html').read_text(),'active parallel UI')
+                    patched_html=(pointer/'part01/templates/index.html').read_text()
+                    self.assertIn('active parallel UI',patched_html)
+                    self.assertIn('retryLibrary(',patched_html)
+                    self.assertIn('onclick="renameLibrary(',patched_html)
                     self.assertEqual((pointer/'part01/app.py').read_text(),'new = True')
                     self.assertIn('a'*40+'-imports/bin/python',unit.read_text())
+
+    def test_retry_ui_guard_preserves_unrelated_active_markup(self):
+        canonical=(Path(__file__).resolve().parents[1]/'apps/video-merger/part01/templates/index.html').read_text()
+        old='''<button class="btn secondary mini" onclick="renameLibrary('${x.id}')"''' + '\\nfunction renderProxy(){' + '\\n<style>/* keep parallel UI */</style>'
+        patched=release.overlay_failed_import_retry_ui(old,canonical)
+        self.assertIn('keep parallel UI',patched)
+        self.assertIn('onclick="retryLibrary(',patched)
+        self.assertEqual(release.overlay_failed_import_retry_ui(patched,canonical),patched)
+        with self.assertRaisesRegex(RuntimeError,'active Library action UI changed'):
+            release.overlay_failed_import_retry_ui('function renderProxy(){',canonical)
 
     def test_read_only_idle_database_rejects_active_jobs_and_library_items(self):
         with tempfile.TemporaryDirectory() as directory:

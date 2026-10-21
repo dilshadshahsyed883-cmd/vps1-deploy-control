@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-import sys, importlib.util, json, os, re, shutil, socket, sqlite3, subprocess, threading, time, uuid, urllib.parse, ipaddress, html, tempfile
+import sys, importlib.util, json, os, re, shutil, socket, sqlite3, subprocess, threading, time, uuid, urllib.parse, ipaddress, html, tempfile, shlex, stat
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
@@ -202,13 +203,97 @@ def youtube_cookie_args():
     return ['--cookies',str(path)]
 
 def yt_common_args(profile=None, force_profile=False):
-    args=['-4','--no-playlist','--no-progress','--socket-timeout','30','--retries','2','--extractor-retries','2']
+    args=['-4','--no-playlist','--no-progress','--socket-timeout','30','--retries','1','--fragment-retries','1','--extractor-retries','0']
     if DENO.exists(): args += ['--js-runtimes',f'deno:{DENO}']
     elif shutil.which('node'): args += ['--js-runtimes','node:'+shutil.which('node')]
     args += youtube_cookie_args()
     if profile is None and not force_profile: profile=active_proxy_profile()
     args += ['--proxy',proxy_url(profile) if profile else '']
     return args
+
+def _private_youtube_cookie_bytes(path):
+    """Audio Downloader's read-only private Netscape session contract."""
+    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+    with os.fdopen(fd,'rb') as stream:
+        info=os.fstat(stream.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid!=os.geteuid()
+                or info.st_mode & 0o077 or info.st_size>1024*1024):
+            raise ValueError('private owner-readable cookie export required')
+        raw=stream.read(1024*1024+1)
+    value=raw.decode('utf-8')
+    if not value.startswith(('# Netscape HTTP Cookie File','# HTTP Cookie File')):
+        raise ValueError('Netscape cookie header required')
+    valid=False
+    for line in value.splitlines():
+        if not line or (line.startswith('#') and not line.startswith('#HttpOnly_')):
+            continue
+        fields=line.removeprefix('#HttpOnly_').split('\t')
+        if len(fields)!=7: raise ValueError('invalid cookie entry')
+        domain=fields[0].lstrip('.').lower()
+        if domain in ('youtube.com','google.com') or domain.endswith(('.youtube.com','.google.com')):
+            expiry=int(fields[4])
+            valid |= expiry==0 or expiry>time.time()
+    if not valid: raise ValueError('No unexpired YouTube session cookie entries')
+    return raw
+
+
+@contextmanager
+def youtube_execution(profile=None, force_profile=False):
+    """Snapshot proxy and private session for one yt-dlp attempt; no secrets in argv."""
+    opts=yt_common_args(profile,force_profile)
+    proxy=opts[opts.index('--proxy')+1]
+    env=os.environ.copy()
+    for key in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','http_proxy','https_proxy','all_proxy','NO_PROXY','no_proxy'):
+        env.pop(key,None)
+    if proxy:
+        for key in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','http_proxy','https_proxy','all_proxy'):
+            env[key]=proxy
+    with tempfile.TemporaryDirectory(prefix='vm-youtube-',dir=WORK) as work:
+        tmp=Path(work)
+        config=tmp/'yt-dlp.conf'
+        settings=[]
+        params={'--socket-timeout','--retries','--fragment-retries','--extractor-retries',
+                '--js-runtimes','--proxy','--cookies'}
+        i=0
+        while i<len(opts):
+            flag=opts[i]
+            if flag not in params:
+                settings.append(flag)
+                i+=1
+                continue
+            value=opts[i+1]
+            if flag=='--cookies':
+                try:
+                    raw=_private_youtube_cookie_bytes(value)
+                except (OSError,UnicodeError,ValueError) as exc:
+                    raise RuntimeError('YOUTUBE_SESSION_CONFIGURATION: Valid private Netscape YouTube cookies are required') from None
+                session=tmp/'session.txt'
+                session.write_bytes(raw)
+                session.chmod(0o600)
+                value=str(session)
+            settings.append(flag+' '+shlex.quote(value))
+            i+=2
+        config.write_text('\n'.join(settings)+'\n',encoding='utf-8')
+        config.chmod(0o600)
+        yield ['--ignore-config','--config-locations',str(config)],env
+
+
+def youtube_failure(error):
+    """Report source-specific provider blocks without exposing raw command output."""
+    message=scrub_proxy_error(error)
+    value=message.lower().replace('’',"'")
+    if any(token in value for token in ('not a bot','sign in','confirm your age','cookies are no longer valid')):
+        return RuntimeError('YOUTUBE_AUTH_REQUIRED: YouTube requested an authorized session for this video. The selected proxy may pass public tests but cannot guarantee access; configure private owner YouTube cookies and retry this saved item.')
+    if 'po token' in value or 'proof of origin' in value:
+        return RuntimeError('YOUTUBE_PROVIDER_CHALLENGE: This video requires additional YouTube verification; a proxy alone cannot guarantee access.')
+    if '407' in value or 'proxy authentication' in value:
+        return RuntimeError('PROXY_AUTH_FAILED: Selected YouTube proxy rejected authentication.')
+    if '429' in value or 'too many requests' in value:
+        return RuntimeError('YOUTUBE_RATE_LIMIT: YouTube rate-limited this session or IP. Retry later.')
+    if '403' in value:
+        return RuntimeError('YOUTUBE_ACCESS_DENIED: YouTube denied access to this video; check source permissions and authorized session.')
+    return RuntimeError(message)
+
 
 def scrub_proxy_error(text):
     text=str(text or '')
@@ -234,9 +319,10 @@ def test_proxy_profile(pid):
         # Use a short public sample, verify its media stream, and discard all bytes.
         with tempfile.TemporaryDirectory(prefix='vm-proxy-test-',dir=WORK) as workdir:
             out_pattern=str(Path(workdir)/'sample.%(ext)s')
-            run(downloader_command('yt_dlp')+yt_common_args(p,True)+[
-                '--format','bv*+ba/best/bv*','--max-filesize','100M',
-                '-o',out_pattern,'https://youtu.be/jNQXAC9IVRw'],timeout=240)
+            with youtube_execution(p,True) as (options,environment):
+                run(downloader_command('yt_dlp')+options+[
+                    '--format','bv*+ba/best/bv*','--max-filesize','100M',
+                    '-o',out_pattern,'https://youtu.be/jNQXAC9IVRw'],timeout=240,env=environment)
             candidates=[f for f in Path(workdir).glob('sample.*')
                         if f.is_file() and f.suffix.lower() not in ('.part','.ytdl','.json')]
             if not candidates: raise RuntimeError('YouTube real download returned no media')
@@ -299,8 +385,8 @@ def reject_private_host(u):
         if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
             raise ValueError('Private/local network URLs are not allowed')
 
-def run(args, timeout=None, cwd=None, check=True):
-    p=subprocess.run(args, cwd=cwd, timeout=timeout, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+def run(args, timeout=None, cwd=None, check=True, env=None):
+    p=subprocess.run(args, cwd=cwd, timeout=timeout, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
     if check and p.returncode!=0: raise RuntimeError(f'Command failed ({p.returncode}): {" ".join(args[:3])}\n{p.stdout[-3000:]}')
     return p.stdout
 
@@ -387,9 +473,11 @@ def source_to_file(url, dst, job_id, idx, status_cb=None):
     if looks_youtube(url):
         note(max(3,min(38,4+idx*5)),f'Downloading video {idx}')
         tmpl=str(dst.with_suffix(''))+'.%(ext)s'
-        cmd=downloader_command('yt_dlp')+yt_common_args()+['--merge-output-format','mp4','-f','bv*+ba/best/bv*','-o',tmpl,url]
-        try: run(cmd,timeout=7200)
-        except Exception as e: raise RuntimeError(scrub_proxy_error(e))
+        try:
+            with youtube_execution() as (options,environment):
+                cmd=downloader_command('yt_dlp')+options+['--merge-output-format','mp4','-f','bv*+ba/best/bv*','-o',tmpl,url]
+                run(cmd,timeout=7200,env=environment)
+        except Exception as e: raise youtube_failure(e) from None
         candidates=sorted(dst.parent.glob(dst.stem+'.*'),key=lambda p:p.stat().st_mtime,reverse=True)
         candidates=[p for p in candidates if p.is_file() and p.suffix.lower() not in ('.part','.ytdl','.json','.jpg','.webp')]
         if not candidates: raise RuntimeError(f'Video {idx}: YouTube download produced no file')
@@ -613,6 +701,26 @@ def create_library_item(payload, replace_id=''):
                   (item_id,name,f'{item_id}.mp4',remote,'importing',1,'Queued for import',source,json.dumps(trim),now,now))
     threading.Thread(target=process_library_import,args=(item_id,source,trim,False),daemon=True).start(); return item_id
 
+def retry_library_item(item_id):
+    """User-triggered retry of exactly the saved failed Library source, never a new entry."""
+    with LIBRARY_LOCK:
+        item=get_library_item(item_id)
+        if not item: raise KeyError('Library video not found')
+        if item['status']!='failed': raise ValueError('Only failed Library videos can be retried')
+        if library_in_use(item_id): raise ValueError('Library video is used by an unfinished merge')
+        source=validate_url(item['source_url'])
+        try: trim=json.loads(item.get('trim_json') or '{}')
+        except (ValueError,TypeError): raise ValueError('Saved trim settings are invalid') from None
+        trim=normalize_url_spec({'url':source,**trim},1)
+        with DB_LOCK, db() as c:
+            changed=c.execute(
+                "UPDATE library_items SET status='importing',progress=1,message='Retrying saved source',error='',updated_at=? WHERE id=? AND status='failed'",
+                (utcnow(),item_id)).rowcount
+        if changed!=1: raise ValueError('Library item was already updated')
+        threading.Thread(target=process_library_import,args=(item_id,source,trim,False),daemon=True).start()
+        return item_id
+
+
 def rename_library_item(item_id, name):
     item=get_library_item(item_id)
     if not item: raise KeyError('Library video not found')
@@ -643,9 +751,10 @@ def library_to_file(item_id,dst,idx):
 
 def youtube_title(url):
     try:
-        out=run(downloader_command('yt_dlp')+yt_common_args()+['--simulate','--quiet','--no-warnings','--print','%(title)s',url],timeout=90)
+        with youtube_execution() as (options,environment):
+            out=run(downloader_command('yt_dlp')+options+['--simulate','--quiet','--no-warnings','--print','%(title)s',url],timeout=90,env=environment)
     except Exception as e:
-        raise RuntimeError(scrub_proxy_error(e))
+        raise youtube_failure(e) from None
     lines=[x.strip() for x in out.splitlines() if x.strip()]
     if not lines: raise RuntimeError('Could not determine the YouTube video title')
     return lines[-1]
@@ -880,6 +989,8 @@ class Handler(BaseHTTPRequestHandler):
             if p==PREFIX+'/api/source-name':
                 spec=normalize_url_spec({'url':payload.get('url','')},2); return self.send_json(200,{'ok':True,'filename':source_display_filename(spec)})
             if p==PREFIX+'/api/library': return self.send_json(202,{'ok':True,'id':create_library_item(payload)})
+            m=re.fullmatch(re.escape(PREFIX)+r'/api/library/([A-Za-z0-9]+)/retry',p)
+            if m: return self.send_json(202,{'ok':True,'id':retry_library_item(m.group(1))})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/library/([A-Za-z0-9]+)/rename',p)
             if m: return self.send_json(200,{'ok':True,'name':rename_library_item(m.group(1),payload.get('name',''))})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/library/([A-Za-z0-9]+)/replace',p)
