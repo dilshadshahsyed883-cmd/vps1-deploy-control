@@ -1264,7 +1264,18 @@ def build_project_package(
     caption_font = CAPTION_FONTS[caption_font_key]
     caption_font_source = FONT_DIR / caption_font["filename"]
     if not caption_font_source.is_file():
-        raise ValueError(f"Caption font file is missing: {caption_font['filename']}")
+        # Git source releases intentionally exclude binary font assets. Use the
+        # installed system font only when the selected bundled font is absent.
+        for fallback in ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                         "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf"):
+            if Path(fallback).is_file():
+                caption_font_source = Path(fallback)
+                caption_font = {"filename": caption_font_source.name,
+                                "label": "System Sans Bold",
+                                "family": "DejaVu Sans" if "DejaVu" in fallback else "Liberation Sans"}
+                break
+        else:
+            raise ValueError(f"Caption font file is missing: {caption_font['filename']}")
     caption_font_relative = f"assets/fonts/{caption_font['filename']}"
     caption_style = str(profile["caption_style"])
     caption_controls = caption_render_settings(caption_style, profile)
@@ -2177,6 +2188,10 @@ async def submit_project(
         # Web owns validation/packaging only. Narration DSP executes inside the
         # Scene Builder worker before Whisper/timing. No localhost Audio Engine job
         # is created for new Scene Builder submissions.
+        # New submissions run DSP inside the Scene worker; there is no separate
+        # Audio Engine job. Keep the legacy response fields without referencing
+        # the removed web-side processing result after worker admission.
+        audio_engine_meta: dict[str, Any] = {}
         audio_engine_was_used = str(audio_engine_processed or "").strip().lower() in {"1", "true", "yes", "on"}
         audio_engine_requested = str(audio_engine_enabled or "1").strip().lower() not in {"0", "false", "no", "off"}
         selected_audio_engine_preset = str(audio_engine_preset or "documentary").strip() or "documentary"
