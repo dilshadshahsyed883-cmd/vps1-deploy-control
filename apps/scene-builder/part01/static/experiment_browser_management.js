@@ -67,7 +67,10 @@ function filter(){
  if(profiles.length!==rows.length)return;
  const query=el("exp-search").value.trim().toLowerCase(),group=el("exp-filter-group").value;
  const status=el("exp-filter-status").value,sort=el("exp-sort").value;
- const items=profiles.map((profile,i)=>({profile,row:rows[i]}));
+ const items=rows.map((row,i)=>{
+  if(!row.dataset.expProfileId)row.dataset.expProfileId=profiles[i].id;
+  return {profile:profiles.find(p=>p.id===row.dataset.expProfileId),row};
+ });
  for(const {profile,row} of items){
   if(!row.querySelector(".exp-row-check")){
    const check=document.createElement("input");check.type="checkbox";check.className="exp-row-check";
