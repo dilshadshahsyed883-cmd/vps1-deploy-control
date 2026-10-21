@@ -50,7 +50,7 @@ def install(revision):
     state=DATA/app/'video-merger'
     # Both real-source downloads happen in a temporary directory. Existing Drive
     # files and SQLite records are only read. Fail before any live mutation.
-    run(['runuser','-u','ubuntu','--',python,'-m','production.video_merger_import_smoke',
+    run(['/usr/sbin/runuser','-u','ubuntu','--',python,'-m','production.video_merger_import_smoke',
          '--source',target/name,'--state',state],cwd=REPO,timeout=1800,quiet=False)
     journal=BASE/'transactions/video-merger-imports'/revision
     journal.mkdir(parents=True,exist_ok=False)
