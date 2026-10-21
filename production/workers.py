@@ -123,10 +123,11 @@ def restore(saved):
 
 def unit(app, revision, key, part, entry):
     python = BASE / 'venvs' / app / revision / 'bin/python'
+    dependency = 'Wants' if app == 'voice-studio' and key == 'edge-worker' else 'Requires'
     return f'''[Unit]
 Description=VPS1 {key}
 After=vps1-production-{app}.service
-Requires=vps1-production-{app}.service
+{dependency}=vps1-production-{app}.service
 StartLimitIntervalSec=120
 StartLimitBurst=5
 [Service]
