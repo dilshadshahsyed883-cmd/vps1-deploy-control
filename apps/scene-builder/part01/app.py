@@ -2512,7 +2512,7 @@ def _sml_safe_items(clips: list[dict[str, Any]]) -> list[dict[str, Any]]:
     items = []
     for clip in clips:
         thumb = str(clip.get("thumb_url") or "")
-        if not re.fullmatch(r"/media/thumbs/[A-Za-z0-9._-]+\\.jpg", thumb):
+        if not re.fullmatch(r"/media/thumbs/[A-Za-z0-9._-]+\.jpg", thumb):
             thumb = ""
         items.append({
             "id": str(clip["id"]), "description": str(clip.get("description") or ""),
@@ -2573,7 +2573,11 @@ async def scene_sml_manual_select(request: Request, job_id: str, item_id: str):
                      if str(x.get("item_id")) == item_id), None)
         if item is None:
             raise HTTPException(404, "Media audit item not found")
-        if int(payload.get("revision", -1)) != int(item.get("revision") or 0):
+        try:
+            supplied_revision = int(payload.get("revision", -1))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(400, "Invalid media revision") from exc
+        if supplied_revision != int(item.get("revision") or 0):
             raise HTTPException(409, "Media changed; refresh and select again")
         try:
             clip = next((x for x in approved_clips() if x["id"] == clip_id), None)
