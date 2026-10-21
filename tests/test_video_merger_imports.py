@@ -98,7 +98,7 @@ class Imports(unittest.TestCase):
     def test_private_cookie_snapshot_and_owner_permissions(self):
         import time
         private=self.root/'owner-session.txt'
-        data='# Netscape HTTP Cookie File\\n.youtube.com\\tTRUE\\t/\\tTRUE\\t'+str(int(time.time())+7200)+'\\tSID\\tprivate-owner-cookie\\n'
+        data='# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t'+str(int(time.time())+7200)+'\tSID\tprivate-owner-cookie\n'
         private.write_text(data)
         private.chmod(0o600)
         with patch.dict(os.environ,{'VIDEO_MERGER_YOUTUBE_COOKIES_FILE':str(private)}):
