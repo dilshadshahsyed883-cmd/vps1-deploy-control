@@ -2,6 +2,7 @@
 from pathlib import Path
 import json
 import subprocess
+import sqlite3
 import urllib.request
 from production.runtime import REPO
 
@@ -12,7 +13,15 @@ def verify(venv):
                     '-W','ignore','-m','unittest','discover','-s','tests',
                     '-p','test_self_media_library_local.py','-v'],cwd=REPO,check=True,timeout=180)
     from production.sml_scene_activation import _entries, _ensure_private, SML_ENV, SCENE_CURRENT
-    token=_entries(_ensure_private(SML_ENV)).get('SML_EDITOR_API_TOKEN','')
+    config=_entries(_ensure_private(SML_ENV))
+    token=config.get('SML_EDITOR_API_TOKEN','')
+    # Refuse a local-only cutover if any retained catalog media would become unavailable.
+    root=Path(config['SML_DATA_ROOT'])
+    with sqlite3.connect((root/'library.db').as_uri()+'?mode=ro',uri=True) as conn:
+        for table,folder,column in [('clips','clips','filename'),('image_assets','images','stored_name')]:
+            for (name,) in conn.execute(f'SELECT {column} FROM {table} WHERE deleted_at IS NULL'):
+                if not name or Path(name).name!=name or not (root/folder/name).is_file():
+                    raise RuntimeError('Retained catalog media is not local; preserve old release and restore media before cutover')
     if not token:raise RuntimeError('Existing SML Editor token is required')
     opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
     for route in ('/api/health','/api/local/storage','/api/v1/media/status'):
