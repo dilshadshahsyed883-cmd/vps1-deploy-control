@@ -28,6 +28,22 @@ jobs:
           python -m py_compile apps/scene-builder/part01/experiment_browser.py apps/scene-builder/part01/experiment_browser_management.py apps/scene-builder/part01/app.py
           node --check apps/scene-builder/part01/static/experiment_browser.js
           node --check apps/scene-builder/part01/static/experiment_browser_management.js
+      - name: Guard production OAuth interpolation and SHA binding
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text=Path('.github/workflows/vps1-experiment-management-release.yml').read_text()
+          required=(
+              'oauth-client-id: GH{{ secrets.TS_OAUTH_CLIENT_ID }}',
+              'audience: GH{{ secrets.TS_AUDIENCE }}',
+              'PRIVATE_IDENTITY: GH{{ secrets.VPS1_SSH_PRIVATE_KEY }}',
+              'SOURCE_SHA: GH{{ github.sha }}',
+          )
+          for marker in required:
+              assert marker.replace('GH', chr(36)) in text, marker
+          assert chr(36)+'{ secrets.' not in text
+          print('ANTIDETECT_TAILSCALE_OIDC_INTERPOLATION=PASS')
+          PY
       - name: Per-user API, storage, migration, batch and existing engine tests
         run: |
           python -m unittest tests.test_experiment_browser_management tests.test_experiment_browser_engine -v
