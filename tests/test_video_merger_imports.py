@@ -45,7 +45,8 @@ class Imports(unittest.TestCase):
             calls.append(args)
             if args[0]=='/usr/bin/curl': return '203.0.113.1'
             return 'jNQXAC9IVRw'
-        with patch.object(self.app,'run',side_effect=fake_run):
+        with patch.object(self.app,'run',side_effect=fake_run), \
+             patch.object(self.app,'downloader_command',return_value=['python','-m','yt_dlp']):
             with self.assertRaisesRegex(RuntimeError,'no media'):
                 self.app.test_proxy_profile('p')
         self.assertFalse(any('--simulate' in x for x in calls))
@@ -55,6 +56,7 @@ class Imports(unittest.TestCase):
             Path(outfile.replace('%(ext)s','mp4')).write_bytes(b'video')
             return ''
         with patch.object(self.app,'run',side_effect=media_run), \
+             patch.object(self.app,'downloader_command',return_value=['python','-m','yt_dlp']), \
              patch.object(self.app,'validate_downloaded_file'), \
              patch.object(self.app,'verify_library_media',return_value=1) as verify:
             result=self.app.test_proxy_profile('p')
