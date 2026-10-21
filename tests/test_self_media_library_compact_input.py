@@ -38,11 +38,11 @@ class CompactInput(unittest.TestCase):
         self.assertIn("${processing?((failed||canProcess)?actions:",js)
         if not shutil.which("node"): return
         # Evaluate just the pure row renderer, avoiding network/browser side effects.
-        row_fn="function sourceRow("+js.split("function sourceRow(",1)[1].split("\\nfunction bindSourceActions(",1)[0]
+        row_fn="function sourceRow("+js.split("function sourceRow(",1)[1].split("\nfunction bindSourceActions(",1)[0]
         harness=(
-            "const esc=v=>String(v??'');const fmtTime=v=>String(v);const fmtSize=v=>String(v);\\n"
+            "const esc=v=>String(v??'');const fmtTime=v=>String(v);const fmtSize=v=>String(v);\n"
             +row_fn+
-            "\\nconst row={id:'SRC-Q',filename:'Alexandra Eala.mp4',size_bytes:1024,status:'queued',stage:'queued',clip_count:0,progress:0};"
+            "\nconst row={id:'SRC-Q',filename:'Alexandra Eala.mp4',size_bytes:1024,status:'queued',stage:'queued',clip_count:0,progress:0};"
             "const queued=sourceRow(row,true);"
             "if(!queued.includes('Awaiting start')||!queued.includes('data-process=\\\"SRC-Q\\\"'))process.exit(2);"
             "const running=sourceRow({...row,status:'processing',stage:'detecting_shots'},true);"
