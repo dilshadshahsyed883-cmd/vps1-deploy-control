@@ -14,6 +14,15 @@ import tempfile
 import uuid
 
 
+def owns_qa_drive_file(remote, nonce, drive_remote, drive_base, safe_folder):
+    """Confirm exactly the disposable QA output; reject any owner file."""
+    if not isinstance(remote, str) or not isinstance(nonce, str):
+        return False
+    prefix = (f'{drive_remote}:{drive_base}/'
+              f'{safe_folder("__Audio_Proxy_QA__")}/{safe_folder(nonce)}/')
+    return remote.startswith(prefix) and remote.endswith(f'_ADJ-{nonce}.mp3')
+
+
 def proxy_disabled_report(report):
     """No proxy configured: never treat a direct-only YouTube failure as release failure."""
     if report.get('proxy', {}).get('enabled'):
@@ -25,7 +34,7 @@ def proxy_disabled_report(report):
 
 def main(source):
     live_root = Path(os.environ['AUDIO_DOWNLOADER_ROOT'])
-    # yt-dlp's own short test video, rather than an owner's media or queue item.
+    # The short public canary also used by the verified Video Merger extractor.
     nonce = uuid.uuid4().hex[:16].upper()
     with tempfile.TemporaryDirectory(prefix='audio-proxy-qa-') as tmp:
         os.environ['AUDIO_DOWNLOADER_ROOT'] = tmp
@@ -49,7 +58,7 @@ def main(source):
             print(json.dumps(report, sort_keys=True))
             return 0
         jid = 'ADJ-' + nonce
-        job = {'job_id': jid, 'video_id': 'BaW_jenozKc', 'url': 'https://www.youtube.com/watch?v=BaW_jenozKc',
+        job = {'job_id': jid, 'video_id': 'jNQXAC9IVRw', 'url': 'https://www.youtube.com/watch?v=jNQXAC9IVRw',
                'format': 'mp3', 'quality': 128, 'keep_metadata': False,
                'auto_upload': state['upload_ready'], 'folder': '__Audio_Proxy_QA__', 'project': nonce}
         # Capture only this synthetic job's state; the real queue is never opened.
@@ -70,7 +79,7 @@ def main(source):
             report['reason'] = m._safe_proxy_error(str(exc)) if isinstance(exc, m.DownloadFailure) else 'Worker failed after stage ' + result.get('status', 'download')
         finally:
             remote = result.get('drive_path')
-            if remote and result.get('status') == 'delivered' and ('/__Audio_Proxy_QA__/' + nonce + '/') in remote:
+            if result.get('status') == 'delivered' and owns_qa_drive_file(remote, nonce, m.DRIVE_REMOTE, m.DRIVE_BASE, m.safe_folder):
                 clean = subprocess.run([state['rclone'], '--config', m.RCLONE_CONFIG, 'deletefile', remote],
                                        capture_output=True, timeout=60)
                 report['qa_remote_cleanup'] = 'PASS' if clean.returncode == 0 else 'PENDING'

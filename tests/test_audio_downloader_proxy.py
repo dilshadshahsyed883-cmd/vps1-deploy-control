@@ -1,6 +1,7 @@
 """VS-ISS-20261021-AD-01: real worker, yt-dlp parser and isolated HTTP contracts."""
 import importlib.util
 import json
+import urllib.parse
 import os
 from pathlib import Path
 import sqlite3
@@ -182,6 +183,44 @@ class AudioProxyTests(unittest.TestCase):
             self.assertEqual(opts['retries'], 1)
 
 
+    def test_audio_youtube_uses_local_deno_js_when_available(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            deno_bin = Path(tmp)
+            deno = deno_bin / 'deno'
+            deno.write_text('stub')
+            deno.chmod(0o755)
+            with patch.object(self.m.sys, 'executable', str(deno_bin / 'python')):
+                with self.m.youtube_execution() as (opts, _):
+                    text = Path(opts[-1]).read_text()
+                    self.assertIn('--js-runtimes deno:' + str(deno), text)
+                    self.assertIn('--proxy http://', text)
+                    self.assertNotIn('private-secret', text)
+
+    def test_js_ejs_diagnostics_are_specific_and_sanitized(self):
+        for error, code in (
+            ('WARNING No supported JavaScript runtime could be found', 'JS_RUNTIME_MISSING'),
+            ('yt-dlp-ejs is not installed', 'EJS_COMPONENT_MISSING'),
+        ):
+            actual = self.m.download_failure(error)
+            self.assertEqual(actual.code, code)
+
+
+
+    def test_disposable_drive_cleanup_targets_only_own_normalized_qa_file(self):
+        import production.audio_downloader_smoke as qa
+        nonce = 'C96CA984DDF24F5D'
+        prefix = 'gdrive:Audio Downloader/Audio_Proxy_QA/' + nonce
+        good = prefix + '/Me_at_the_zoo _jNQXAC9IVRw_ADJ-' + nonce + '.mp3'
+        safe = self.m.safe_folder
+        self.assertTrue(qa.owns_qa_drive_file(good, nonce, 'gdrive', 'Audio Downloader', safe))
+        self.assertFalse(qa.owns_qa_drive_file(
+            good.replace(nonce + '/', 'Other/'), nonce, 'gdrive', 'Audio Downloader', safe))
+        self.assertFalse(qa.owns_qa_drive_file(
+            prefix + '/owner.mp3', nonce, 'gdrive', 'Audio Downloader', safe))
+        self.assertFalse(qa.owns_qa_drive_file(None, nonce, 'gdrive', 'Audio Downloader', safe))
+
+
+
 class AudioReleaseFenceTests(unittest.TestCase):
     def test_failed_health_restores_previous_release(self):
         import production.audio_downloader_release as m
@@ -200,7 +239,7 @@ class AudioReleaseFenceTests(unittest.TestCase):
             with sqlite3.connect(root / 'data/jobs.sqlite3') as db:
                 db.execute('CREATE TABLE jobs (job_id TEXT, status TEXT)')
                 db.execute("INSERT INTO jobs VALUES('owner-job','failed')")
-            with patch.multiple(m, CURRENT=current, RELEASES=releases, BASE=base), patch.object(m, 'live_environment', return_value={'AUDIO_DOWNLOADER_ROOT': str(root)}), patch.object(m, 'run'), patch.object(m, 'http_check'), patch.object(m, 'verify', side_effect=RuntimeError('injected health failure')), patch.object(m, 'event'):
+            with patch.multiple(m, CURRENT=current, RELEASES=releases, BASE=base), patch.object(m, 'live_environment', return_value={'AUDIO_DOWNLOADER_ROOT': str(root)}), patch.object(m, 'run'), patch.object(m, 'http_check'), patch.object(m, 'verify', side_effect=RuntimeError('injected health failure')), patch.object(m, 'plan_proxy_restore', return_value=None), patch.object(m, 'ensure_audio_js', return_value=False), patch.object(m, 'event'):
                 with self.assertRaisesRegex(RuntimeError, 'injected health'):
                     m.install('a'*40)
             self.assertEqual(current.resolve(), old)
@@ -273,6 +312,93 @@ class AudioReleaseFenceTests(unittest.TestCase):
         self.assertNotIn('result', active)
         source = Path(qa.__file__).read_text()
         self.assertLess(source.index('if proxy_disabled_report(report):'), source.index("jid = 'ADJ-'"))
+
+
+class LegacyProxyRestoreTests(unittest.TestCase):
+    def _saved(self, root):
+        folder = root / 'data'
+        folder.mkdir()
+        path = folder / 'proxy_settings.json'
+        value = {'enabled': False, 'active_id': 'legacy-selected',
+                 'origin': 'copied-once-from-video-merger',
+                 'profiles': [{'id': 'legacy-selected', 'name': 'Legacy',
+                               'host': 'proxy.example.com', 'port': 8080,
+                               'username': 'myuser', 'password': 'private-secret'}]}
+        path.write_text(json.dumps(value))
+        path.chmod(0o600)
+        return path
+
+    def test_canary_is_read_only_and_enables_only_selected_proxy(self):
+        import production.audio_proxy_restore as helper
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = self._saved(root)
+            before = path.read_bytes()
+            class Response:
+                status = 200
+                def __enter__(self): return self
+                def __exit__(self, *args): return False
+                def read(self, n): return b'ok'
+            class Opener:
+                def open(self, *args, **kwargs): return Response()
+            with patch.object(helper.urllib.request, 'build_opener', return_value=Opener()) as factory:
+                change = helper.plan(root)
+            self.assertEqual(path.read_bytes(), before)
+            proxy = factory.call_args.args[0].proxies['https']
+            self.assertIn('myuser:private-secret', urllib.parse.unquote(proxy))
+            self.assertEqual(json.loads(change['after'])['profiles'], json.loads(before)['profiles'])
+            helper.replace_private(change, change['after'])
+            self.assertTrue(json.loads(path.read_text())['enabled'])
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(path.stat().st_uid, change['uid'])
+            helper.replace_private(change, change['before'])
+            self.assertEqual(path.read_bytes(), before)
+
+    def test_failed_proxy_canary_fails_closed_without_secret_or_mutation(self):
+        import production.audio_proxy_restore as helper
+        import urllib.error
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = self._saved(root)
+            before = path.read_bytes()
+            class Blocked:
+                def open(self, *args, **kwargs):
+                    raise urllib.error.URLError('private-secret authentication failure')
+            with patch.object(helper.urllib.request, 'build_opener', return_value=Blocked()):
+                with self.assertRaises(helper.ProxyRestoreBlocked) as error:
+                    helper.plan(root)
+            self.assertIn('PROXY_CONNECTION_FAILED', str(error.exception))
+            self.assertNotIn('private-secret', str(error.exception))
+            self.assertEqual(path.read_bytes(), before)
+
+    def test_missing_profile_and_symlink_are_rejected(self):
+        import production.audio_proxy_restore as helper
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = self._saved(root)
+            conf = json.loads(path.read_text())
+            conf['active_id'] = 'missing'
+            path.write_text(json.dumps(conf))
+            with self.assertRaisesRegex(helper.ProxyRestoreBlocked, 'NO_SELECTED_PROXY_PROFILE'):
+                helper.plan(root)
+            path.unlink()
+            path.symlink_to('/etc/passwd')
+            with self.assertRaisesRegex(helper.ProxyRestoreBlocked, 'NO_SAVED_PROXY_CONFIG'):
+                helper.plan(root)
+
+    def test_already_enabled_never_modifies_or_probes(self):
+        import production.audio_proxy_restore as helper
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = self._saved(root)
+            cfg = json.loads(path.read_text())
+            cfg['enabled'] = True
+            path.write_text(json.dumps(cfg))
+            before = path.read_bytes()
+            with patch.object(helper.urllib.request, 'build_opener') as network:
+                self.assertIsNone(helper.plan(root))
+            network.assert_not_called()
+            self.assertEqual(path.read_bytes(), before)
 
 if __name__ == '__main__':
     unittest.main()

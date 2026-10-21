@@ -113,7 +113,8 @@ def browser_test():
             # Actual link navigation, refresh and history through independent documents.
             page.locator('nav[aria-label="Video Studio"] a[href="/short-maker/"]').click()
             page.reload()
-            assert page.locator('title').text_content()=='Short Maker'
+            actual_title=page.locator('title').text_content()
+            assert actual_title=='Short Maker',(width,page.url,actual_title)
             page.go_back()
             assert not errors,errors
             page.close()

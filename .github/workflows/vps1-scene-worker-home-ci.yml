@@ -1,0 +1,25 @@
+name: Scene production worker writable HOME regression
+on:
+  pull_request:
+    paths:
+      - 'production/scene_production_worker.py'
+      - 'production/scene_worker_home.py'
+      - 'production/scene_candidate_release.py'
+      - 'tests/test_scene_worker_home.py'
+      - 'tests/test_scene_production_worker.py'
+      - '.github/workflows/vps1-scene-worker-home-ci.yml'
+permissions:
+  contents: read
+jobs:
+  scene-worker-home:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify HOME, cache isolation, no active job restarts and rollback
+        run: python -m unittest tests.test_scene_worker_home tests.test_scene_production_worker tests.test_scene_candidate_release -v
