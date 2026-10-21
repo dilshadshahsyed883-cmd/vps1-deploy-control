@@ -92,7 +92,7 @@ const smlImageDrop=document.getElementById('smlImageDrop');
 ['dragenter','dragover'].forEach(type=>smlImageDrop.addEventListener(type,event=>{event.preventDefault();smlImageDrop.classList.add('drag');}));
 ['dragleave','drop'].forEach(type=>smlImageDrop.addEventListener(type,event=>{event.preventDefault();smlImageDrop.classList.remove('drag');}));
 smlImageDrop.addEventListener('drop',event=>{
-  const files=Array.from(event.dataTransfer?.files||[]).filter(file=>/\\.(jpe?g|png|webp)$/i.test(file.name));
+  const files=Array.from(event.dataTransfer?.files||[]).filter(file=>/\.(jpe?g|png|webp)$/i.test(file.name));
   if(!files.length){document.getElementById('imageUploadResult').textContent='Choose JPG, PNG, or WEBP images.';return;}
   const transfer=new DataTransfer();files.forEach(file=>transfer.items.add(file));
   const input=document.getElementById('imageFiles');input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));
