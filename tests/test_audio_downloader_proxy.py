@@ -248,10 +248,10 @@ class AudioReleaseFenceTests(unittest.TestCase):
                 returncode = 0
                 pid = 12345
                 def communicate(self, timeout):
-                    return (report + '\\n', '')
-            with patch.object(release.subprocess, 'Popen', return_value=FakeProcess()) as start, \\
-                    patch.object(release, 'event'):
-                output = release.smoke(ROOT, {'PATH': tmp})
+                    return (report + '\n', '')
+            with patch.object(release.subprocess, 'Popen', return_value=FakeProcess()) as start:
+                with patch.object(release, 'event'):
+                    output = release.smoke(ROOT, {'PATH': tmp})
             command = start.call_args.args[0]
             self.assertTrue(Path(command[0]).is_absolute())
             self.assertEqual(Path(command[0]).name, 'runuser')
