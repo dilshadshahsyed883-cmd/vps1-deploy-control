@@ -27,6 +27,40 @@ class Imports(unittest.TestCase):
         args=self.app.yt_common_args()
         self.assertIn('deno:'+str(binary),args)
         self.assertNotIn('--remote-components',args)
+    def test_private_cookie_file_opt_in_and_secret_redaction(self):
+        cookies=self.root/'private-cookies.txt';cookies.write_text('# Netscape HTTP Cookie File')
+        with patch.dict(os.environ,{'VIDEO_MERGER_YOUTUBE_COOKIES_FILE':str(cookies)}):
+            args=self.app.yt_common_args()
+            self.assertEqual(args[args.index('--cookies')+1],str(cookies))
+            self.assertNotIn(str(cookies),self.app.scrub_proxy_error('private path '+str(cookies)))
+        cookies.unlink()
+        with patch.dict(os.environ,{'VIDEO_MERGER_YOUTUBE_COOKIES_FILE':str(cookies)}):
+            with self.assertRaisesRegex(RuntimeError,'cookies file is unavailable'):
+                self.app.yt_common_args()
+    def test_proxy_test_requires_actual_media_bytes(self):
+        profile={'id':'p','name':'p','host':'proxy.example','port':8080,'username':'a','password':'b'}
+        self.app.save_proxy_config({'enabled':False,'active_id':'p','profiles':[profile]})
+        calls=[]
+        def fake_run(args,**kwargs):
+            calls.append(args)
+            if args[0]=='/usr/bin/curl': return '203.0.113.1'
+            return 'jNQXAC9IVRw'
+        with patch.object(self.app,'run',side_effect=fake_run):
+            with self.assertRaisesRegex(RuntimeError,'no media'):
+                self.app.test_proxy_profile('p')
+        self.assertFalse(any('--simulate' in x for x in calls))
+        def media_run(args,**kwargs):
+            if args[0]=='/usr/bin/curl': return '203.0.113.1'
+            outfile=next(x for x in args if x.endswith('sample.%(ext)s'))
+            Path(outfile.replace('%(ext)s','mp4')).write_bytes(b'video')
+            return ''
+        with patch.object(self.app,'run',side_effect=media_run), \
+             patch.object(self.app,'validate_downloaded_file'), \
+             patch.object(self.app,'verify_library_media',return_value=1) as verify:
+            result=self.app.test_proxy_profile('p')
+            self.assertTrue(result['download_verified'])
+            verify.assert_called_once()
+        self.assertEqual(list(self.app.WORK.glob('vm-proxy-test-*')),[])
     def test_missing_dependency_actionable(self):
         with patch.object(self.app.importlib.util,'find_spec',return_value=None):
             with self.assertRaisesRegex(RuntimeError,'service Python'):self.app.downloader_command('gdown')
