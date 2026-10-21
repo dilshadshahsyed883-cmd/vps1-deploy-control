@@ -78,13 +78,16 @@ class VoiceUI20261021Regression(unittest.TestCase):
     def test_edge_kokoro_parity_and_edge_specific_controls(self):
         table = QueueTableParser("vseQueue")
         table.feed(HTML)
-        self.assertEqual(table.headers, ["File", "Job status", "Files", "Controls"])
+        self.assertEqual(table.headers, ["File", "Job status", "Audio", "Controls"])
         self.assertEqual(table.bodies, ["vseQueueRows"])
         self.assertEqual(table.wrappers, 1)
         self.assertEqual(table.refreshes, 1)
         self.assertIn("ctrl.className='vsq-controls'", HTML)
         self.assertIn("for(const act of j.allowed_actions||[])ctrl.append(b(", HTML)
-        self.assertIn("['mp3','wav','txt','srt']", HTML)
+        edge_js = HTML.split('<script id="voiceStudioEdgeEngineV1Script">', 1)[1].split('</script>', 1)[0]
+        self.assertIn("const audioFormats=['mp3','wav'];", edge_js)
+        self.assertIn("Google Drive: Open uploaded file", edge_js)
+        self.assertNotIn("['mp3','wav','txt','srt']", edge_js)
         self.assertIn("tts/api/edge", HTML)
 
     def test_omni_voice_clone_and_queue_isolated_css(self):

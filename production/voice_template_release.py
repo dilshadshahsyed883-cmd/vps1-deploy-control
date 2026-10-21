@@ -160,7 +160,7 @@ def omnivoice_parity_overlay(original: bytes, source: bytes) -> bytes:
 
 # The public native document is under /voice-studio/app, while the isolated
 # web service itself is under /app. Nginx text substitution must not decide
-# where the queue API points. Update only four reviewed inline JS expressions.
+# where the queue API points. Update only three currently used inline JS expressions.
 QUEUE_ROUTE_PAIRS = (
     (b"const apiRoot='/tts/api/kokoro'",
      b"const apiRoot=(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/kokoro'"),
@@ -168,8 +168,6 @@ QUEUE_ROUTE_PAIRS = (
      b"const $=id=>document.getElementById(id),root=(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/edge'"),
     (b"link.href=((window.location.pathname.startsWith('/voice-studio') && typeof j.audio_url==='string' && j.audio_url.startsWith('/'+'tts/api/kokoro/audio/')) ? '/voice-studio/service'+j.audio_url : j.audio_url);",
      b"link.href=apiRoot+'/audio/'+encodeURIComponent(j.job_id);"),
-    (b"a.href=j[ext+'_url'];",
-     b"a.href=root+'/files/'+encodeURIComponent(j.job_id)+'/'+ext;"),
 )
 
 
@@ -205,9 +203,15 @@ def queue_route_overlay(original: bytes, source: bytes) -> bytes:
 VOICE_UI_PARITY_ID = b'<style id="voiceStudioUiParity20261021">'
 VOICE_UI_MARKUP_PAIRS = (
     (b" <div id=\"vseQueue\" class=\"vse-card\" hidden><h3>Edge TTS independent queue</h3><button type=\"button\" id=\"vseRefresh\" class=\"vse-btn alt\">Refresh</button><p class=\"vse-note\">Queued, processing, paused, retry and delivered status. Pause/resume/cancel applies to each Edge job only.</p><table><thead><tr><th>File</th><th>Job status</th><th>Files</th><th>Controls</th></tr></thead><tbody id=\"vseQueueRows\"><tr><td colspan=\"4\">No Edge jobs yet.</td></tr></tbody></table></div>",
-     b" <div id=\"vseQueue\" class=\"vse-card\" hidden><div class=\"vsq-heading\"><div><h3>Edge TTS independent queue</h3><p class=\"vse-note\">Queued, processing, paused, retry and delivered status. Pause/resume/cancel applies to each Edge job only.</p></div><button type=\"button\" id=\"vseRefresh\" class=\"vse-btn alt\">Refresh</button></div><div class=\"vsq-tablewrap\"><table><thead><tr><th scope=\"col\">File</th><th scope=\"col\">Job status</th><th scope=\"col\">Files</th><th scope=\"col\">Controls</th></tr></thead><tbody id=\"vseQueueRows\"><tr><td colspan=\"4\">No Edge jobs yet.</td></tr></tbody></table></div></div>"),  # Edge
+     b" <div id=\"vseQueue\" class=\"vse-card\" hidden><div class=\"vsq-heading\"><div><h3>Edge TTS independent queue</h3><p class=\"vse-note\">Queued, processing, paused, retry and delivered status. Pause/resume/cancel applies to each Edge job only.</p></div><button type=\"button\" id=\"vseRefresh\" class=\"vse-btn alt\">Refresh</button></div><div class=\"vsq-tablewrap\"><table><thead><tr><th scope=\"col\">File</th><th scope=\"col\">Job status</th><th scope=\"col\">Audio</th><th scope=\"col\">Controls</th></tr></thead><tbody id=\"vseQueueRows\"><tr><td colspan=\"4\">No Edge jobs yet.</td></tr></tbody></table></div></div>"),  # Edge
     (b" <div id=\"vskQueue\" class=\"vsk-card\" hidden><h3>Kokoro queue</h3><button id=\"vskRefreshQueue\" type=\"button\" class=\"vsk-action\">Refresh</button><p class=\"vsk-note\">Jobs shown here are independent of OmniVoice.</p><table><thead><tr><th>File / job</th><th>Status</th><th>Audio</th></tr></thead><tbody id=\"vskQueueRows\"><tr><td colspan=\"3\">No Kokoro jobs yet</td></tr></tbody></table></div>",
      b" <div id=\"vskQueue\" class=\"vsk-card\" hidden><div class=\"vsq-heading\"><div><h3>Kokoro queue</h3><p class=\"vsk-note\">Jobs shown here are independent of OmniVoice.</p></div><button id=\"vskRefreshQueue\" type=\"button\" class=\"vsk-action\">Refresh</button></div><div class=\"vsq-tablewrap\"><table><thead><tr><th scope=\"col\">File / job</th><th scope=\"col\">Status</th><th scope=\"col\">Audio</th><th scope=\"col\">Controls</th></tr></thead><tbody id=\"vskQueueRows\"><tr><td colspan=\"4\">No Kokoro jobs yet</td></tr></tbody></table></div></div>"),  # Kokoro
+)
+
+# An earlier successful Voice release installed this reviewed four-column Edge
+# table with a Files header; accept it as an exact migration predecessor only.
+EDGE_QUEUE_PREVIOUS = VOICE_UI_MARKUP_PAIRS[0][1].replace(
+    b'<th scope="col">Audio</th>', b'<th scope="col">Files</th>', 1
 )
 
 VOICE_UI_JS_PAIRS = (
@@ -265,9 +269,10 @@ def voice_ui_parity_overlay(original: bytes, source: bytes) -> bytes:
         require(_voice_ui_queue_line(source, name) == reviewed,
                 "reviewed Voice queue source markup drifted")
         active = _voice_ui_queue_line(original, name)
-        require(active in (legacy, reviewed), "unrecognized live Voice queue markup")
-        if active == legacy:
-            original = original.replace(legacy, reviewed, 1)
+        allowed = (legacy, reviewed, EDGE_QUEUE_PREVIOUS) if name == b"vseQueue" else (legacy, reviewed)
+        require(active in allowed, "unrecognized live Voice queue markup")
+        if active != reviewed:
+            original = original.replace(active, reviewed, 1)
 
     for legacy, reviewed in VOICE_UI_JS_PAIRS:
         require(source.count(reviewed) == 1 and legacy not in source,
@@ -278,6 +283,46 @@ def voice_ui_parity_overlay(original: bytes, source: bytes) -> bytes:
     require(all(legacy not in original and reviewed in original
                 for legacy, reviewed in VOICE_UI_MARKUP_PAIRS + VOICE_UI_JS_PAIRS),
             "Voice UI overlay incomplete")
+    return original
+
+
+
+# Edge queue presents only one audio download and the verified Google Drive
+# link; original TXT/SRT files, worker delivery and queue DB are untouched.
+EDGE_AUDIO_RENDER_OLD = b"for(const ext of ['mp3','wav','txt','srt']){\n const group=document.createElement('div'),receipt=receipts[ext];\n const remoteOK=verified&&receipt&&receipt.id&&receipt.url==='https://drive.google.com/file/d/'+receipt.id+'/view';\n if(j[ext+'_url']){const a=document.createElement('a');a.href=root+'/files/'+encodeURIComponent(j.job_id)+'/'+ext;a.textContent='Download '+ext.toUpperCase();a.rel='noopener';group.append(a);}\n else if(remoteOK){const a=document.createElement('a');a.href='https://drive.google.com/uc?export=download&id='+encodeURIComponent(receipt.id);a.target='_blank';a.rel='noopener noreferrer';a.textContent='Download '+ext.toUpperCase()+' (Drive)';group.append(a);}\n if(remoteOK){const line=document.createElement('div'),link=document.createElement('a');link.href=receipt.url;link.target='_blank';link.rel='noopener noreferrer';link.textContent='Google Drive: Open '+ext.toUpperCase()+' file';line.append(link);group.append(line);}\n if(group.hasChildNodes())files.append(group);\n}\n"
+EDGE_AUDIO_RENDER_NEW = b"// Edge Queue: one audio download + one verified Drive link, Kokoro-style.\n// TXT/SRT receipts stay intact in the backend and are not shown in this queue.\nconst audioFormats=['mp3','wav'];\nconst localAudio=audioFormats.find(ext=>!!j[ext+'_url']);\nconst remoteAudio=audioFormats.find(ext=>{const item=receipts[ext];return verified&&item&&item.id&&item.url==='https://drive.google.com/file/d/'+item.id+'/view';});\nif(localAudio||remoteAudio){\n const line=document.createElement('div'),link=document.createElement('a');\n if(localAudio){link.href=root+'/files/'+encodeURIComponent(j.job_id)+'/'+localAudio;link.textContent='Download '+localAudio.toUpperCase();link.rel='noopener';}\n else{const item=receipts[remoteAudio];link.href='https://drive.google.com/uc?export=download&id='+encodeURIComponent(item.id);link.target='_blank';link.rel='noopener noreferrer';link.textContent='Download '+remoteAudio.toUpperCase()+' (Drive)';}\n line.append(link);files.append(line);\n}\nif(remoteAudio){const line=document.createElement('div'),link=document.createElement('a');link.href=receipts[remoteAudio].url;link.target='_blank';link.rel='noopener noreferrer';link.textContent='Google Drive: Open uploaded file';line.append(link);files.append(line);}\n"
+EDGE_AUDIO_SCRIPT = b'<script id="voiceStudioEdgeEngineV1Script">'
+
+
+def verify_edge_audio_markup(page: bytes) -> None:
+    """Fail the guarded release unless actual served Edge UI is audio-only."""
+    require(page.count(EDGE_AUDIO_SCRIPT) == 1 and
+            _voice_ui_queue_line(page, b"vseQueue") == VOICE_UI_MARKUP_PAIRS[0][1],
+            "LIVE_EDGE_AUDIO_UI_MISSING: Edge queue table unchanged")
+    start = page.index(EDGE_AUDIO_SCRIPT)
+    finish = page.find(b"</script>", start)
+    require(finish > start, "LIVE_EDGE_AUDIO_UI_MISSING: Edge script absent")
+    edge_script = page[start:finish]
+    require(EDGE_AUDIO_RENDER_NEW in edge_script and
+            EDGE_AUDIO_RENDER_OLD not in edge_script and
+            b"const audioFormats=['mp3','wav'];" in edge_script and
+            b"link.textContent='Google Drive: Open uploaded file'" in edge_script and
+            b"['mp3','wav','txt','srt']" not in edge_script and
+            b"j.allowed_actions||[]" in edge_script and
+            b"/delivery/retry" in edge_script,
+            "LIVE_EDGE_AUDIO_UI_MISSING: audio/Drive renderer still old")
+
+
+def voice_edge_audio_overlay(original: bytes, source: bytes) -> bytes:
+    """Transfer only reviewed Edge output-link UI, keep all APIs intact."""
+    require(source.count(EDGE_AUDIO_RENDER_NEW) == 1 and
+            EDGE_AUDIO_RENDER_OLD not in source,
+            "reviewed Edge Audio-only GitHub source differs")
+    require(original.count(EDGE_AUDIO_RENDER_OLD) +
+            original.count(EDGE_AUDIO_RENDER_NEW) == 1,
+            "unrecognized or duplicated live Edge audio renderer")
+    original = original.replace(EDGE_AUDIO_RENDER_OLD, EDGE_AUDIO_RENDER_NEW, 1)
+    verify_edge_audio_markup(original)
     return original
 
 
@@ -435,6 +480,7 @@ def verify_runtime() -> None:
         require(RESPONSIVE_ID in body and NEW_ASSETS in body and NEW_LIMITS in body and
                 OLD_LIMITS not in body and b'id="vsEngineOmni"' in body,
                 "Voice web UI template guard is not live")
+    verify_edge_audio_markup(body)
     require(VOICE_UI_PARITY_ID in body and
             body.count(b'<th scope="col">Controls</th>') == 2 and
             b"tr.append(a,b,c,d);rows.append(tr);" in body and
@@ -454,6 +500,7 @@ def verify_runtime() -> None:
             and RESPONSIVE_ID in html and NEW_LIMITS in html and OLD_LIMITS not in html,
             "authenticated public Voice page template guard not updated")
     full_html = read_full_authenticated_voice_html(cookie)
+    verify_edge_audio_markup(full_html)
     require(VOICE_UI_PARITY_ID in full_html and
             full_html.count(b'<th scope="col">Controls</th>') == 2 and
             b"tr.append(a,b,c,d);rows.append(tr);" in full_html and
@@ -533,6 +580,7 @@ def install(revision: str) -> None:
     patched_html = responsive_overlay(patched_html, source_html)
     patched_html = omnivoice_parity_overlay(patched_html, source_html)
     patched_html = voice_ui_parity_overlay(patched_html, source_html)
+    patched_html = voice_edge_audio_overlay(patched_html, source_html)
     patched_html = queue_route_overlay(patched_html, source_html)
     patched_html = audio_browser_route_overlay(patched_html, source_html)
     source_entry = REPO / "apps/voice-studio" / VOICE_WEB

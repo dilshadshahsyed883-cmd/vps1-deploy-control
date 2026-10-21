@@ -3,7 +3,9 @@
 Only exact owner-authorized user-management and Experiment Studio browser
 mutations work while general precutover editing is disabled. Each route still
 requires an active web session; browser mutations additionally enforce a
-session-bound CSRF header. Queue, media, settings and workers remain denied.
+session-bound CSRF header. With the existing editing gate on, the two exact
+Scene backend repair routes reach their authenticated handlers. Other queue,
+media, storage and worker operations remain denied.
 """
 from __future__ import annotations
 import re
@@ -15,6 +17,8 @@ _ALLOWED_EXACT = frozenset((
     ("POST", "/api/internal-audio/settings"),
     ("POST", "/api/internal-audio/studio/process"),
     ("POST", "/api/presets"),
+    ("POST", "/api/settings/pexels-keys"),
+    ("POST", "/queue/submit"),
 ))
 _PRESET_MUTATION = re.compile(r"\A/api/presets/[^/]+/(?:duplicate|rename)\Z")
 _ADMIN_USER_MANAGEMENT = ("POST", "/user-management")
