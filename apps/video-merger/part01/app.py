@@ -319,6 +319,9 @@ def youtube_failure(error):
         return RuntimeError('PROXY_AUTH_FAILED: Selected YouTube proxy rejected authentication.')
     if '429' in value or 'too many requests' in value:
         return RuntimeError('YOUTUBE_RATE_LIMIT: YouTube rate-limited this session or IP. Retry later.')
+    if any(term in value for term in ('tunnel connection failed: 503',
+                                     'unable to connect to proxy','proxyerror')):
+        return RuntimeError('PROXY_CONNECTION_FAILED: Selected proxy tunnel was unavailable. Video will use the separately enabled Audio route when available.')
     if '403' in value:
         return RuntimeError('YOUTUBE_ACCESS_DENIED: YouTube denied access to this video; check source permissions and authorized session.')
     return RuntimeError(message)
@@ -339,7 +342,7 @@ def run_youtube_download(options, timeout, profile=None, force_profile=False):
                 ('host','port','username','password'))):
             routes.append((audio,True))
     last_error=None
-    for route,forced in routes:
+    for route_index,(route,forced) in enumerate(routes):
         for client in ('default','tv,web_safari'):
             with youtube_execution(route,forced) as (config,environment):
                 extra=[] if client=='default' else [
@@ -356,6 +359,16 @@ def run_youtube_download(options, timeout, profile=None, force_profile=False):
                     fatal=any(v in low for v in (
                         'http error 429','too many requests','http error 403',
                         'http error 407','proxy authentication'))
+                    proxy_transport_down=any(v in low for v in (
+                        'tunnel connection failed: 503','unable to connect to proxy',
+                        'proxyerror'))
+                    # Proven VPS case: old Video proxy returns HTTP 503 tunnel
+                    # errors although its independently selected Audio proxy
+                    # downloads real media. Skip a broken tunnel immediately and
+                    # try the read-only Audio route once, without repeating a
+                    # request against the broken proxy.
+                    if proxy_transport_down and route_index+1<len(routes):
+                        break
                     if fatal or not retryable:
                         raise youtube_failure(exc) from None
                     # A maximum of two standard playback clients per selected route.
