@@ -92,7 +92,7 @@ class KokoroHeartbeatRecoveryTests(unittest.TestCase):
 
     def test_future_dispatch_is_kokoro_only(self):
         import inspect
-        code = inspect.getsource(runtime.install)
+        code = inspect.getsource(runtime.install_app)
         self.assertIn("[vps1-voice-kokoro-recovery-only]", code)
         self.assertIn("repair_kokoro_worker(revision)", code)
         self.assertIn("repair_edge_worker(revision)", code)
