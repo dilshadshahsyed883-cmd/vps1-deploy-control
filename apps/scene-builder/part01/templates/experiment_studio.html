@@ -68,7 +68,15 @@
 }
 </style>
   <link rel="stylesheet" href="/static/experiment_antidetect_kokoro_20261021.css?v=2">
-  <div class="experiment-browser-grid">
+  <link rel="stylesheet" href="/static/experiment_browser_management.css?v=1">
+  <nav class="experiment-manager-tabs" aria-label="Antidetect management" role="tablist">
+    <button type="button" role="tab" aria-selected="true" data-exp-tab="profiles">Browser Profiles</button>
+    <button type="button" role="tab" aria-selected="false" data-exp-tab="batch">Batch Creation &amp; Templates</button>
+    <button type="button" role="tab" aria-selected="false" data-exp-tab="groups">Groups &amp; Proxies</button>
+    <button type="button" role="tab" aria-selected="false" data-exp-tab="sessions">Browser Sessions &amp; Privacy</button>
+  </nav>
+  <p class="privacy-note" id="exp-manager-alert" role="status" aria-live="polite"></p>
+  <div class="experiment-browser-grid" id="exp-original-panels">
     <section class="experiment-browser-panel experiment-browser-profiles-panel" aria-labelledby="experiment-browser-profiles-title">
       <div class="experiment-browser-panel-heading">
         <h3 id="experiment-browser-profiles-title">Browser profiles</h3>
@@ -152,10 +160,49 @@
             <option value="no-preference" selected>Default</option><option value="reduce">Reduce animation</option>
           </select>
         </details>
+        <div class="experiment-browser-fields">
+          <div><label for="exp-create-group">Group (optional)</label><select name="group_id" id="exp-create-group"><option value="">Ungrouped</option></select></div>
+          <div><label for="exp-create-tags">Tags (comma separated)</label><input name="tags" id="exp-create-tags" maxlength="380" placeholder="e.g. research, team"></div>
+        </div>
         <div class="experiment-browser-actions experiment-browser-create-actions"><button type="submit" class="primary">Create profile</button></div>
       </form>
       <div class="experiment-browser-saved-heading"><h4>Saved profiles</h4><span>Choose a profile to control its session</span></div>
+      <div class="experiment-browser-fields experiment-profile-filters">
+        <div><label for="exp-search">Search profiles</label><input id="exp-search" type="search" placeholder="Name, tag, proxy"></div>
+        <div><label for="exp-filter-group">Group</label><select id="exp-filter-group"><option value="">All groups</option></select></div>
+        <div><label for="exp-filter-status">Status</label><select id="exp-filter-status"><option value="">All</option><option value="running">Running</option><option value="stopped">Stopped</option></select></div>
+        <div><label for="exp-sort">Sort</label><select id="exp-sort"><option value="newest">Newest</option><option value="name">Name A–Z</option><option value="recent">Last used</option></select></div>
+      </div>
+      <div class="experiment-browser-actions">
+        <button type="button" id="exp-select-page">Select visible</button>
+        <button type="button" id="exp-clear-selection">Clear selection</button>
+        <span id="exp-selected-count" role="status">0 selected</span>
+      </div>
       <div id="browser-profiles" aria-label="Saved browser profiles"></div>
+      <div class="experiment-browser-actions experiment-pagination">
+        <button type="button" id="exp-prev">Previous</button><span id="exp-page-label">Page 1</span><button type="button" id="exp-next">Next</button>
+      </div>
+      <div class="experiment-browser-actions">
+        <select id="exp-bulk-group" aria-label="Move selected to group"><option value="">Ungrouped</option></select>
+        <button type="button" id="exp-bulk-move">Move selected</button>
+        <button type="button" id="exp-bulk-delete">Delete selected stopped profiles</button>
+      </div>
+      <details class="exp-edit-box"><summary>Edit selected profile</summary>
+        <form id="exp-edit-form">
+          <div class="experiment-browser-fields">
+            <div><label for="exp-edit-name">Name</label><input id="exp-edit-name" name="name" maxlength="64" required></div>
+            <div><label for="exp-edit-url">Start URL</label><input id="exp-edit-url" name="start_url"></div>
+            <div><label for="exp-edit-locale">Locale</label><input id="exp-edit-locale" name="locale"></div>
+            <div><label for="exp-edit-timezone">Timezone</label><input id="exp-edit-timezone" name="timezone"></div>
+            <div><label for="exp-edit-proxy">Proxy server</label><input id="exp-edit-proxy" name="proxy_server"></div>
+            <div><label for="exp-edit-privacy">Privacy</label><select id="exp-edit-privacy" name="privacy_mode"><option value="strict">Strict</option><option value="standard">Standard</option></select></div>
+            <div><label for="exp-edit-group">Group</label><select id="exp-edit-group" name="group_id"><option value="">Ungrouped</option></select></div>
+            <div><label for="exp-edit-tags">Tags</label><input id="exp-edit-tags" name="tags"></div>
+          </div>
+          <p class="hint">Stop a running browser to edit. Proxy credentials and browser storage are preserved.</p>
+          <div class="experiment-browser-actions"><button type="button" id="exp-load-edit">Load selected</button><button class="primary" type="submit">Save changes</button></div>
+        </form>
+      </details>
       <p id="browser-privacy-summary" class="privacy-note" role="status">Select a profile to view privacy settings.</p>
     </section>
     <section class="experiment-browser-panel experiment-browser-session-panel" aria-labelledby="experiment-browser-session-title">
@@ -198,9 +245,53 @@
         <button id="browser-scroll-down" type="button" disabled>Scroll down</button>
         <button id="browser-refresh-preview" type="button" disabled>Refresh preview</button>
       </div>
+      <div class="privacy-note" id="exp-privacy-caution">WebRTC policy and the observed HTTP exit IP can be inspected above. These checks do not establish DNS or WebRTC leak-free operation.</div>
       <div id="browser-message" role="status" aria-live="polite"></div>
     </section>
   </div>
+  <section class="experiment-management-panel" id="exp-batch-pane" hidden aria-label="Batch Creation and Templates">
+    <h3>Batch Creation &amp; Templates</h3>
+    <p>Create 1–100 distinct saved browser profiles. Every profile gets a separate, persistent Chromium directory. Invalid rows are reported without stopping valid rows.</p>
+    <form id="exp-batch-form">
+      <div class="experiment-browser-fields">
+        <div><label for="exp-batch-prefix">Name prefix</label><input id="exp-batch-prefix" value="Profile" maxlength="55" required></div>
+        <div><label for="exp-batch-count">Profiles (1–100)</label><input type="number" id="exp-batch-count" value="5" min="1" max="100" required></div>
+        <div><label for="exp-batch-start">Start number</label><input type="number" id="exp-batch-start" value="1" min="1" max="999999"></div>
+        <div><label for="exp-batch-template">Template</label><select id="exp-batch-template"><option value="">Standard defaults</option></select></div>
+        <div><label for="exp-batch-group">Group</label><select id="exp-batch-group"><option value="">Ungrouped</option></select></div>
+        <div><label for="exp-batch-proxy">Proxy override (optional)</label><input id="exp-batch-proxy" placeholder="http://proxy.example:8080"></div>
+      </div>
+      <label for="exp-csv-file">CSV import (name,proxy_server,locale,timezone,start_url,tags)</label>
+      <input id="exp-csv-file" type="file" accept=".csv,text/csv">
+      <p id="exp-csv-status" class="hint">CSV is parsed locally before creating profiles. Importing alone does not write data.</p>
+      <div class="experiment-browser-actions"><button class="primary" id="exp-batch-submit" type="submit">Create batch</button><button type="button" id="exp-export-csv">Export profiles CSV</button><button type="button" id="exp-clear-csv">Clear CSV</button></div>
+    </form>
+    <div id="exp-batch-results" role="status" aria-live="polite"></div>
+    <h4>Reusable profile templates</h4>
+    <form id="exp-template-form">
+      <div class="experiment-browser-fields">
+        <div><label for="exp-template-name">Template name</label><input id="exp-template-name" maxlength="64" required></div>
+        <div><label for="exp-template-pick">Edit saved template</label><select id="exp-template-pick"><option value="">New template</option></select></div>
+      </div>
+      <p class="hint">Template settings are taken from the Create Profile form. Proxy credentials and browser cookies are never stored in templates.</p>
+      <div class="experiment-browser-actions"><button type="button" id="exp-template-load">Load template settings</button><button type="submit" class="primary">Save template</button><button type="button" id="exp-template-delete">Delete template</button></div>
+    </form>
+    <div id="exp-template-list" class="exp-management-list" aria-live="polite"></div>
+  </section>
+  <section class="experiment-management-panel" id="exp-groups-pane" hidden aria-label="Groups and Proxies">
+    <h3>Groups &amp; Proxies</h3>
+    <p>Organize profiles in folders and tags. A group's default proxy applies to newly created profiles only; existing connections and secrets stay unchanged.</p>
+    <form id="exp-group-form">
+      <div class="experiment-browser-fields">
+        <div><label for="exp-group-name">Group / folder name</label><input id="exp-group-name" maxlength="64" required></div>
+        <div><label for="exp-group-pick">Edit existing group</label><select id="exp-group-pick"><option value="">Create new group</option></select></div>
+        <div class="experiment-browser-field--full"><label for="exp-group-proxy">Default proxy server (optional)</label><input id="exp-group-proxy" placeholder="http://proxy.example:8080"></div>
+      </div>
+      <div class="experiment-browser-actions"><button type="button" id="exp-group-load">Load group</button><button class="primary" type="submit">Save group</button><button type="button" id="exp-group-delete">Delete group (keep profiles)</button></div>
+    </form>
+    <div id="exp-groups-list" class="exp-management-list"></div>
+    <p class="privacy-note">Group deletion only ungroups profiles. Change an individual profile's proxy using Edit selected profile on the first tab. Proxy credentials are not displayed by these APIs.</p>
+  </section>
 </section>
 {% endblock %}
-{% block scripts %}<script src="/static/experiment_browser.js?v=20261020-privacy-v2" defer></script>{% endblock %}
+{% block scripts %}<script src="/static/experiment_browser.js?v=20261021-management" defer></script><script src="/static/experiment_browser_management.js?v=1" defer></script>{% endblock %}
