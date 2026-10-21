@@ -43,7 +43,7 @@ CATALOG = {
                          packages=CORE + ['cryptography==44.0.3']),
     'self-media-library': dict(port=8147, module='app:app', health='/api/health', ui='/', packages=CORE + ['numpy==2.2.6', 'onnxruntime==1.22.1', 'tokenizers==0.21.2', 'faster-whisper==1.1.1']),
     'video-merger': dict(port=8148, script='app.py', health='/video-merger/health',
-                         ui='/video-merger/', packages=['yt-dlp']),
+                         ui='/video-merger/', packages=['yt-dlp', 'gdown==5.2.0', 'requests==2.32.3']),
     'voice-studio': dict(port=8143, module='vps1_omnivoice_app:app', health='/healthz',
                          ui='/', packages=CORE + ['edge-tts==7.3.1', 'kokoro-onnx==0.6.0', 'soundfile', 'numpy', 'yt-dlp']),
     'auto-caption-studio': dict(port=8144, module='web_backend.app:app', health='/health',
@@ -384,6 +384,12 @@ def require_sml_idle(state):
 def install_app(app, revision):
     if app not in CATALOG:
         raise ValueError('app is not owned by this installer')
+    if app == 'video-merger':
+        intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-video-merger-import-release]' in intent:
+            from production.video_merger_import_release import install
+            install(revision)
+            return
     # The public Scene service is the original isolated candidate on port 18080,
     # not the later generic port-8080 service.  Keep its unit/env/data ownership
     # and update only its immutable source pointer through the same root helper.
