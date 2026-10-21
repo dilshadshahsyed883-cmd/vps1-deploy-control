@@ -148,6 +148,8 @@ def provision_builtins(candidate_source: Path) -> dict[str, object]:
                 actual.get(key) == str(STATE / "worker-home").encode(),
                 "live worker environment mismatch")
     selected = {
+        "PATH": "/usr/bin:/bin",
+        "LANG": "C.UTF-8",
         "HOME": str(STATE / "worker-home"),
         "SCENE_WORKER_DATA": str(STATE),
         "TMPDIR": str(STATE / "tmp"),
@@ -157,8 +159,9 @@ def provision_builtins(candidate_source: Path) -> dict[str, object]:
         selected["XDG_DATA_HOME"] = actual[b"XDG_DATA_HOME"].decode()
     elif config.get("XDG_DATA_HOME"):
         raise RuntimeError("worker XDG data path did not reach actual process")
+    # No inherited deploy/root environment or unexpected XDG roots.
     command = ["/usr/sbin/runuser", "-u", "vps1scene", "--", "/usr/bin/env",
-               *[k + "=" + v for k, v in selected.items()],
+               "-i", *[k + "=" + v for k, v in selected.items()],
                str(VENV / "bin/python"), "-c", LUT_PROBE]
     result = subprocess.run(command, capture_output=True, text=True, timeout=300)
     require(result.returncode == 0,
