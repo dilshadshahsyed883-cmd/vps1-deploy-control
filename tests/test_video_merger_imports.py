@@ -170,6 +170,8 @@ class Imports(unittest.TestCase):
         self.assertIn('--config-locations',calls[0][0])
         self.assertNotIn('HTTP_PROXY',calls[0][1]['env'])
 
+    # Regression reproduced from real VPS run #39602833292: Audio succeeded
+    # without cookies, Video's visionos client returned 'video unavailable'.
     def test_false_unavailable_public_client_can_use_one_alternate(self):
         attempts=[]
         def trial(args,**kwargs):
