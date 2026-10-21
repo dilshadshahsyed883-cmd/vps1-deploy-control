@@ -47,6 +47,23 @@ class ManagedBrowserProfileEngine(BrowserProfileEngine):
         db = super()._db()
         if not self._management_initialized:
             try:
+                # Online SQLite backup before the first additive management migration.
+                # Browsing directories are never altered by schema upgrades.
+                existing = {r[1] for r in db.execute("PRAGMA table_info(profiles)")}
+                if "group_id" not in existing and db.execute(
+                        "SELECT COUNT(*) FROM profiles").fetchone()[0]:
+                    backup_dir = self.root / "profile-backups"
+                    backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+                    backup_dir.chmod(0o700)
+                    backup_path = backup_dir / ("profiles-pre-management-" +
+                                                str(time.time_ns()) + ".sqlite3")
+                    try:
+                        with sqlite3.connect(backup_path) as safe:
+                            db.backup(safe)
+                        backup_path.chmod(0o600)
+                    except Exception:
+                        backup_path.unlink(missing_ok=True)
+                        raise
                 db.execute("""CREATE TABLE IF NOT EXISTS profile_groups (
                     id TEXT PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL,
                     proxy_server TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL,
