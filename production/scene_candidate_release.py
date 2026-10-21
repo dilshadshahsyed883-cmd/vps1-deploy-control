@@ -348,6 +348,7 @@ def install(revision: str) -> None:
     original_env: bytes | None = None
     require_storage_backend = False
     production_worker = None
+    whisper_compat = None
     try:
         token = _candidate_storage_token()
         if token is not None:
@@ -373,6 +374,13 @@ def install(revision: str) -> None:
             worker_previous_env = production_worker.ensure()
             if worker_previous_env is not None and original_env is None:
                 original_env = worker_previous_env
+        new_dependencies = target / "part02/requirements.txt"
+        old_dependencies = previous / "part02/requirements.txt"
+        if (new_dependencies.is_file() and "av==16.1.0" in new_dependencies.read_text()
+                and (not old_dependencies.is_file() or "av==16.1.0" not in old_dependencies.read_text())):
+            from production.scene_whisper_compat import WhisperCompatibility
+            whisper_compat = WhisperCompatibility(journal)
+            whisper_result = whisper_compat.repair()
         atomic_link(CURRENT, target)
         changed = True
         run(["systemctl", "restart", UNIT], timeout=70, quiet=True)
@@ -398,6 +406,8 @@ def install(revision: str) -> None:
             verify_experiment_browser()
         if shutil.disk_usage("/").free < 5_000_000_000:
             raise RuntimeError("operational disk reserve breached")
+        if whisper_compat is not None:
+            integrations["whisper_decode_repair"] = whisper_result
         if production_worker is not None:
             production_worker.commit()
         atomic_json(RECORD, {"revision": revision, "status": "ACTIVE", "unit": UNIT,
@@ -415,5 +425,7 @@ def install(revision: str) -> None:
             event(app="scene-builder", rollback="PASS", data="PRESERVED")
         if production_worker is not None:
             production_worker.rollback()
+        if whisper_compat is not None:
+            whisper_compat.rollback()
         raise
 
