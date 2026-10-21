@@ -12,6 +12,7 @@ import subprocess
 import shutil
 import sqlite3
 import tempfile
+import threading
 import zipfile
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -26,6 +27,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from smart_scroll.ai_scene_txt import extract_intro_queries, parse_outer_ai_scene_txt
 from storage_manager_client import storage_manager_request
+from sml_scene_bridge import SMLUnavailable, approved_clips, download_verified, rank_clips
 
 RUNTIME_CANDIDATE = os.getenv("VPS1_RUNTIME_CANDIDATE") == "1"
 SCENE_PRECUTOVER_EDITING = os.getenv("VPS1_SCENE_PRECUTOVER_EDITING", "0") == "1"
@@ -1283,6 +1285,9 @@ def build_project_package(
         "vps_generate_whisper": True,
         "remote_package_mode": "text_audio_settings_only",
         "remote_worker_fetches_stock_media": True,
+        "media_source_mode": "sml_first",
+        "sml_auto_scene_matching": True,
+        "sml_manual_audit_selection": True,
         "web_scene_review_mode": "first2_visual_audit" if first2_audit_enabled else "vps_stock_media",
         "web_manual_scene_review_requested": manual_scene_review_requested,
         "web_submission_version": "7.7.11-professional-editor-v17.5d-r6-internal-audio-studio-v1",
@@ -2495,6 +2500,130 @@ def audit_media_page(request: Request):
             "account": user_account(username) or {},
         },
     )
+
+
+
+# SCENE_SML_FIRST_V1 — app-isolated, server-to-server media selection.
+# SML stays the catalog/Drive owner; Scene's worker owns only job-scoped copies.
+_SML_AUDIT_LOCK = threading.RLock()
+
+
+def _sml_safe_items(clips: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    items = []
+    for clip in clips:
+        thumb = str(clip.get("thumb_url") or "")
+        if not re.fullmatch(r"/media/thumbs/[A-Za-z0-9._-]+\\.jpg", thumb):
+            thumb = ""
+        items.append({
+            "id": str(clip["id"]), "description": str(clip.get("description") or ""),
+            "keywords": [str(x.get("keyword") or "") if isinstance(x, dict) else str(x)
+                         for x in (clip.get("keywords") or [])][:40],
+            "quality": clip.get("quality"), "duration": clip.get("duration"),
+            "orientation": clip.get("source_orientation") or "unknown",
+            "thumb_url": "/self-media-library" + thumb if thumb else "",
+        })
+    return items
+
+
+@app.get("/api/sml/clips")
+def scene_sml_clips(request: Request, q: str = ""):
+    require_login(request)
+    try:
+        catalog = approved_clips()
+    except SMLUnavailable as exc:
+        raise HTTPException(503, str(exc)) from exc
+    needle = q.strip().casefold()
+    if needle:
+        catalog = [x for x in catalog
+                   if needle in str(x.get("description") or "").casefold()
+                   or any(needle in str(k.get("keyword") if isinstance(k, dict) else k).casefold()
+                          for k in (x.get("keywords") or []))]
+    return {"items": _sml_safe_items(catalog), "mode": "sml_first",
+            "total": len(catalog), "fallback": "pexels"}
+
+
+def _sml_audit_transfer(job_id: str, item: dict[str, Any],
+                        clip: dict[str, Any]) -> dict[str, Any]:
+    # Worker revision fencing prevents stale edits from replacing newer user choices.
+    with tempfile.TemporaryDirectory(prefix="scene_sml_job_") as temp:
+        safe_path = Path(temp) / (str(clip["id"]) + ".mp4")
+        download_verified(clip, safe_path)
+        with safe_path.open("rb") as stream:
+            response = worker_request(
+                "POST", f"/jobs/{job_id}/audit/media/{item['item_id']}/upload",
+                params={"revision": int(item.get("revision") or 0)},
+                files={"file": (safe_path.name, stream, "video/mp4")}, timeout=3600,
+            )
+        return _web_audit_payload(job_id, response.json())
+
+
+@app.post("/api/audit-media/{job_id}/{item_id}/sml-select")
+async def scene_sml_manual_select(request: Request, job_id: str, item_id: str):
+    require_job_access(request, job_id)
+    try:
+        payload = await request.json()
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(400, "Select an approved SML clip") from exc
+    clip_id = str(payload.get("clip_id") or "")
+    if not re.fullmatch(r"CLP-[A-Za-z0-9_-]+", clip_id):
+        raise HTTPException(400, "Invalid SML clip ID")
+    with _SML_AUDIT_LOCK:
+        current = worker_request("GET", f"/jobs/{job_id}/audit/media").json()
+        item = next((x for x in (current.get("items") or [])
+                     if str(x.get("item_id")) == item_id), None)
+        if item is None:
+            raise HTTPException(404, "Media audit item not found")
+        if int(payload.get("revision", -1)) != int(item.get("revision") or 0):
+            raise HTTPException(409, "Media changed; refresh and select again")
+        try:
+            clip = next((x for x in approved_clips() if x["id"] == clip_id), None)
+            if clip is None:
+                raise HTTPException(404, "SML clip is no longer approved")
+            return _sml_audit_transfer(job_id, item, clip)
+        except SMLUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+
+@app.post("/api/audit-media/{job_id}/sml-auto-match")
+def scene_sml_auto_match(request: Request, job_id: str):
+    """SML-first only for eligible waiting-audit visuals; never overwrite user edits.
+
+    A missing match is not a failure: existing Pexels visuals remain unchanged.
+    Designed to be called once as the Media Audit opens, while Scene's worker
+    continues to own rendering, revisions, and approval.
+    """
+    require_job_access(request, job_id)
+    with _SML_AUDIT_LOCK:
+        current = worker_request("GET", f"/jobs/{job_id}/audit/media").json()
+        try:
+            catalog = approved_clips()
+        except SMLUnavailable as exc:
+            # An offline SML must not interrupt an otherwise working Scene job.
+            return {"ok": True, "matched": 0, "fallback": "pexels",
+                    "notice": str(exc), "audit": _web_audit_payload(job_id, current)}
+        used: set[str] = set()
+        matched = 0
+        errors: list[str] = []
+        for item in (current.get("items") or [])[:40]:
+            if not isinstance(item, dict) or not item.get("item_id"):
+                continue
+            if item.get("approved") or item.get("changed") or \
+               str(item.get("source_type") or "").lower() in {"uploaded", "sml"}:
+                continue
+            candidates = rank_clips(item, catalog, used)
+            for clip in candidates[:3]:
+                try:
+                    current = _sml_audit_transfer(job_id, item, clip)
+                except SMLUnavailable:
+                    continue  # Locally cleaned/Drive-only clip: try the next match.
+                except HTTPException as exc:
+                    errors.append(f"{item['item_id']}: worker status {exc.status_code}")
+                    break
+                used.add(str(clip["id"]))
+                matched += 1
+                break
+        return {"ok": True, "matched": matched, "fallback": "pexels",
+                "errors": errors[:8], "audit": current}
 
 
 @app.get("/api/audit-media/{job_id}")
