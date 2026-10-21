@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/self-media-library/static/styles.css?v=20261020-legacy-v2" />
   <!-- One canonical website shell, served by Scene Builder rather than the library's static mount. -->
   <link rel="stylesheet" href="/&#115;tatic/vps1_native_site_shell.css?v=20261020-experiment-ui-v5" />
-  <link rel="stylesheet" href="/self-media-library/static/sml_shared_theme.css?v=20261020-ai-v3" />
+  <link rel="stylesheet" href="/self-media-library/static/sml_shared_theme.css?v=20261021-input-compact-v1" />
   <script defer src="/&#115;tatic/vps1_native_site_shell.js?v=20261020-experiment-ui-v5" data-workspace="library"></script>
 </head>
 <body class="vps1-native-library">
@@ -268,7 +268,7 @@
 </div>
 
 <div id="toast" class="toast hidden"></div>
-<script src="/self-media-library/static/app.js?v=20261020-ai-worker-v4"></script>
+<script src="/self-media-library/static/app.js?v=20261021-input-compact-v1"></script>
 <aside id="aiInspector" class="sml-ai-inspector hidden" aria-label="AI metadata inspector"><div class="panel-head"><h2 id="aiInspectorTitle">Media inspector</h2><button id="aiInspectorClose" class="ghost" aria-label="Close AI inspector">Close</button></div><div id="aiInspectorMedia"></div><p id="aiInspectorState"></p>
 <form id="aiMetadataForm"><label>Description<textarea id="aiDescription" rows="3"></textarea></label><label>Keywords (comma separated)<input id="aiKeywords"></label><label>Review reason<input id="aiReviewReason" maxlength="500"></label><label>Custom fields (JSON object)<textarea id="aiCustom" rows="2">{}</textarea></label><label>Tag aliases (JSON object)<textarea id="aiAliases" rows="2">{}</textarea></label><label><input id="aiRights" type="checkbox"> I have permission to reuse this asset</label><div id="aiManualCategories" class="sml-ai-filters"></div><button class="primary" type="submit">Save corrections</button></form>
 <div class="sml-ai-actions"><button class="ghost" id="aiReanalyze">Reanalyze media</button><button class="ghost" id="aiSimilar">Find similar</button><button class="ghost" id="aiHistory">Change &amp; usage history</button></div><div id="aiFieldDetails"></div><div id="aiHistoryDetails"></div></aside>
