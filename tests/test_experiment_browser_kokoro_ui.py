@@ -35,7 +35,7 @@ class AntidetectKokoroUiTests(unittest.TestCase):
         self.assertIn('data-csrf="{{ experiment_csrf }}"', self.html)
 
     def test_css_isolated_from_shell_and_other_apps(self):
-        self.assertIn('experiment_antidetect_kokoro_20261021.css?v=1', self.html)
+        self.assertIn('experiment_antidetect_kokoro_20261021.css?v=2', self.html)
         self.assertIn('.experiment-browser-session-toolbar', self.css)
         self.assertIn('.experiment-browser-fields', self.css)
         self.assertIn('.experiment-profile.is-selected', self.css)
@@ -45,7 +45,7 @@ class AntidetectKokoroUiTests(unittest.TestCase):
             self.assertIn(token, self.css)
         for selector in re.findall(r'(?m)^([^@/\n][^\n]*?)\s*\{', self.css):
             if selector.strip().startswith("--"): continue
-            self.assertTrue(selector.strip().startswith("#experiment-browser"),
+            self.assertTrue((selector.strip().startswith("#experiment-browser") or selector.strip().startswith("body:has(#experiment-browser) > main")),
                             "Non-app-scoped selector: " + selector)
         for unsafe in ("fetch(", "localStorage", "sessionStorage", "XMLHttpRequest",
                        "vps1_native_site_shell", "document.body", "#app-sidebar"):
@@ -73,7 +73,7 @@ def browser_acceptance():
     fragment = template.split("{% block content %}", 1)[1].split("{% endblock %}", 1)[0]
     fragment = fragment.replace('{{ experiment_csrf }}', "ui-test-csrf")
     fragment = fragment.replace(
-        '<link rel="stylesheet" href="/static/experiment_antidetect_kokoro_20261021.css?v=1">',
+        '<link rel="stylesheet" href="/static/experiment_antidetect_kokoro_20261021.css?v=2">',
         "<style>" + CSS.read_text(encoding="utf-8") + "</style>")
     # Deliberately add conflicting shell-like !important styles, without altering the shell.
     shell_fixture = '<style>label{margin-bottom:8px!important}input[type="text"],input[type="password"]{margin-bottom:16px!important;padding:10px 14px!important}</style>'

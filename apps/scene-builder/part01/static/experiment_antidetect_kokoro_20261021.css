@@ -297,3 +297,16 @@
 @media(prefers-reduced-motion: reduce) {
   #experiment-browser * {scroll-behavior: auto;}
 }
+/* EXP-UI-20261021-02 — center the Experiment route like Kokoro (1400px).
+   Scene's legacy main max-width:1500px otherwise truncates the available
+   workspace, shifting its 1400px panels left. Scoped to Antidetect only. */
+body:has(#experiment-browser) > main {
+  max-width: none !important;
+}
+body:has(#experiment-browser) > main > header {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--vps1-ui-content-max, 1400px);
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
