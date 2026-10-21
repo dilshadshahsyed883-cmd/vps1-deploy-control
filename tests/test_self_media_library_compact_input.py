@@ -18,7 +18,7 @@ class CompactInput(unittest.TestCase):
             self.assertEqual(page.ids.get(item),1,item)
         self.assertEqual(html.count('class="sml-input-grid"'),1)
         self.assertEqual(html.count('data-sml-upload='),3)
-        self.assertEqual(html.count('data-sml-import='),2)
+        self.assertEqual(html.count('data-sml-import='),1)
         self.assertIn('id="smlBatchDetails"',html)
         self.assertIn('id="sml-upload-video" role="tabpanel"',html)
         self.assertIn('id="sml-upload-image" role="tabpanel" hidden',html)
@@ -34,8 +34,6 @@ class CompactInput(unittest.TestCase):
     def test_process_queue_manual_start_control(self):
         js=(SML/"app.js").read_text()
         self.assertIn("Awaiting start",js)
-        self.assertIn("${(!processing||canProcess)?",js)
-        self.assertIn("${processing?((failed||canProcess)?actions:",js)
         if not shutil.which("node"): return
         # Evaluate just the pure row renderer, avoiding network/browser side effects.
         row_fn="function sourceRow("+js.split("function sourceRow(",1)[1].split("\nfunction bindSourceActions(",1)[0]

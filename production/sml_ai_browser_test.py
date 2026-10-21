@@ -51,7 +51,7 @@ def browser_test():
                     urllib.request.urlopen(url+'/self-media-library/api/health',timeout=1);break
                 except OSError:time.sleep(.1)
             with sync_playwright() as p:
-                browser=p.chromium.launch()
+                browser=p.chromium.launch(executable_path=os.getenv('PLAYWRIGHT_CHROMIUM_EXECUTABLE') or None)
                 for width in (360,768,1366):
                     page=browser.new_page(viewport={'width':width,'height':960})
                     errors=[];page.on('pageerror',lambda error:errors.append(str(error)))
@@ -72,8 +72,7 @@ def browser_test():
                     page.locator('[data-sml-import="youtube"]').click()
                     assert page.locator('#importSource').input_value()=='youtube'
                     assert 'YouTube' in page.locator('#smlImportLabel').inner_text()
-                    page.locator('[data-sml-import="drive"]').click()
-                    assert page.locator('#importSource').input_value()=='drive'
+                    assert page.locator('[data-sml-import="drive"]').count()==0
                     page.locator('#smlBatchDetails summary').click()
                     assert page.locator('#aiBatchUrls').is_visible()
                     page.locator('#smlBatchDetails summary').click()
@@ -100,6 +99,25 @@ def browser_test():
                     with page.expect_response(lambda response: '/api/v1/ai/search?' in response.url) as search_response:
                         page.get_by_role('button',name='Search media',exact=True).click()
                     assert search_response.value.status==503,search_response.value.status
+                    if width==1366:
+                        video=root/'comparison.mp4'
+                        subprocess.run(['ffmpeg','-y','-v','error','-f','lavfi','-i','testsrc2=size=96x64:rate=10:duration=10','-c:v','libx264','-threads','1',str(video)],check=True)
+                        page.request.patch(url+'/self-media-library/api/settings',data={'values':{'quality_filter':'false','ai_auto':'false'}})
+                        response=page.request.post(url+'/self-media-library/api/sources/upload',multipart={'file':{'name':'comparison.mp4','mimeType':'video/mp4','buffer':video.read_bytes()}})
+                        source=response.json()['id']
+                        page.request.post(url+'/self-media-library/api/sources/'+source+'/process')
+                        page.locator('#nav button').filter(has_text='Process').click()
+                        page.locator('[data-review="'+source+'"]').wait_for(timeout=60000)
+                        page.locator('[data-review="'+source+'"]').click()
+                        page.locator('.local-pair video').first.wait_for()
+                        assert page.locator('.local-pair video').count()==3
+                        page.locator('[data-pair-index="0"]').first.click()
+                        page.get_by_role('button',name='Discard last clip',exact=True).wait_for()
+                        page.get_by_role('button',name='Discard last clip',exact=True).click()
+                        page.get_by_text('No pending pair reviews.',exact=True).wait_for()
+                        page.locator('#nav button').filter(has_text='API & Settings').click()
+                        page.locator('#localStorage').filter(has_text='Available').wait_for()
+                        assert page.locator('#testDrive').count()==0
                     assert not errors,errors
                     output=ROOT.parent/'qa';output.mkdir(exist_ok=True)
                     page.screenshot(path=str(output/f'sml-ai-{width}.png'))

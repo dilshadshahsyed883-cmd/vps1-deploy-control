@@ -14,7 +14,7 @@ jobs:
       github.ref == 'refs/heads/main' &&
       github.actor == 'dilshadshahsyed883-cmd' &&
       github.run_attempt == 1 &&
-      contains(github.event.head_commit.message, '[vps1-self-media-v2-release]')
+      (contains(github.event.head_commit.message, '[vps1-self-media-v2-release]') || contains(github.event.head_commit.message, '[vps1-sml-local-release]'))
     environment: production
     runs-on: ubuntu-24.04
     timeout-minutes: 55
@@ -105,6 +105,10 @@ jobs:
           health=read('/api/health')
           status=read('/api/v1/media/status')
           images=read('/api/v1/images?limit=1')
+          storage=read('/api/local/storage')
+          assert storage['storage_mode']=='vps_only' and storage['free_bytes']>0
+          assert health['drive_enabled'] is False
+          assert 'local_library.js' in urllib.request.urlopen('http://127.0.0.1:8147/',timeout=15).read().decode()
           assert health.get('ok') is True and health.get('version')=='2.0.0'
           assert status.get('ok') is True and status.get('v2') is True
           assert isinstance(images.get('items'),list)

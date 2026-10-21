@@ -82,8 +82,7 @@ class ReservationRequest(BaseModel):
 
 
 def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
-                              setting_true, drive_base, drive_preflight,
-                              run_rclone, upload_and_verify, source_dir):
+                              setting_true, source_dir):
     root = Path(data_dir)
     images = root / "images"
     previews = root / "image_previews"
@@ -187,18 +186,7 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
         path = images / row["stored_name"]
         if path.is_file():
             return path
-        remote = row["drive_file_path"]
-        if row["drive_state"] != "verified" or not remote:
-            raise HTTPException(404, "Image content is not available")
-        tmp=cache/('restore-'+uuid.uuid4().hex)
-        try:
-            run_rclone(["copyto", remote, str(tmp)], timeout=180)
-            if sha256_file(tmp)!=row["sha256"]:raise RuntimeError("Remote integrity mismatch")
-            os.replace(tmp,path)
-        except Exception:
-            raise HTTPException(503, "Verified remote image temporarily unavailable or failed integrity")
-        finally:tmp.unlink(missing_ok=True)
-        return path
+        raise HTTPException(404, "Local image content is not available; metadata preserved")
 
     def persist_image(filename: str, file_path: Path, *, source_kind="local", source_locator="", rights_confirmed=False):
         ext = Path(filename).suffix.lower()
@@ -207,7 +195,8 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
         size = file_path.stat().st_size
         if not 0 < size <= MAX_IMAGE_BYTES:
             raise ValueError("Image must be between 1 byte and 30 MB")
-        magic = file_path.open("rb").read(16)
+        with file_path.open("rb") as content:
+            magic = content.read(16)
         if not (magic.startswith(b"\xff\xd8\xff") and ext in {".jpeg",".jpg"}
                 or magic.startswith(b"\x89PNG\r\n\x1a\n") and ext == ".png"
                 or magic[:4] == b"RIFF" and magic[8:12] == b"WEBP" and ext == ".webp"):
@@ -248,37 +237,8 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                  json.dumps(keywords),ts,ts,source_kind,safe_origin(source_kind,source_locator),
                  int(rights_confirmed)))
         # Failure to sync must preserve the only local copy, never erase it.
-        sync_image(asset_id)
+        # Images remain durable on the VPS.
         return {"ok": True, "id": asset_id, "duplicate": False}
-
-    def sync_image(asset_id):
-        settings = get_settings_map()
-        if not setting_true(settings, "drive_enabled"):
-            return {"ok": True, "state": "local_only"}
-        with db() as conn:
-            row = conn.execute("SELECT * FROM image_assets WHERE id=? AND deleted_at IS NULL", (asset_id,)).fetchone()
-        if row is None:
-            raise HTTPException(404, "Image not found")
-        try:
-            check = drive_preflight(settings)
-            if not check.get("ok"):
-                raise RuntimeError("Drive preflight did not pass")
-            base = drive_base(settings)
-            run_rclone(["mkdir", base + "/images"])
-            run_rclone(["mkdir", base + "/image_previews"])
-            remote = base + "/images/" + row["stored_name"]
-            remote_thumb = base + "/image_previews/" + row["thumb_name"]
-            upload_and_verify(images / row["stored_name"], remote, verify=True)
-            upload_and_verify(previews / row["thumb_name"], remote_thumb, verify=True)
-            with db() as conn:
-                conn.execute("UPDATE image_assets SET drive_state='verified',drive_file_path=?,drive_thumb_path=?,drive_error=NULL,updated_at=? WHERE id=?",
-                             (remote,remote_thumb,now_iso(),asset_id))
-            return {"ok": True, "state": "verified"}
-        except Exception as exc:
-            with db() as conn:
-                conn.execute("UPDATE image_assets SET drive_state='sync_failed',drive_error=?,updated_at=? WHERE id=?",
-                             (str(exc)[:250],now_iso(),asset_id))
-            return {"ok": False, "state": "sync_failed", "detail": str(exc)[:250]}
 
     @app.post("/api/v1/images/upload")
     async def upload_image(file: UploadFile = File(...)):
@@ -303,11 +263,11 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
             await file.close()
 
     @app.get("/api/v1/images")
-    def list_images(q: str = "", status: str = "all", orientation: str = "all",
+    def list_images(q: str = "", status: str = "all", orientation: str = "all", date_from: str = "", date_to: str = "",
                     limit: int = Query(60, ge=1, le=200)):
         with db() as conn:
             rows = conn.execute("SELECT * FROM image_assets WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 500").fetchall()
-        items = [image_dict(r) for r in rows]
+        items = [image_dict(r) for r in rows if (not date_from or r["created_at"][:10]>=date_from) and (not date_to or r["created_at"][:10]<=date_to)]
         if orientation not in {"all", "landscape", "portrait", "square", "unknown"}:
             raise HTTPException(400, "Invalid orientation filter")
         if orientation != "all":
@@ -324,6 +284,10 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
     @app.patch("/api/v1/images/{asset_id}")
     def edit_image(asset_id: str, body: ImageEdit):
         with db() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            if body.status is not None:
+                from local_library import protect
+                protect(conn,'image',[asset_id])
             row = conn.execute("SELECT * FROM image_assets WHERE id=? AND deleted_at IS NULL", (asset_id,)).fetchone()
             if not row:
                 raise HTTPException(404, "Image not found")
@@ -346,6 +310,9 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
     @app.delete("/api/v1/images/{asset_id}")
     def trash_image(asset_id: str):
         with db() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            from local_library import busy, protect
+            busy(conn); protect(conn,'image',[asset_id])
             cur = conn.execute("UPDATE image_assets SET deleted_at=?,updated_at=? WHERE id=? AND deleted_at IS NULL",
                                (now_iso(),now_iso(),asset_id))
             if cur.rowcount == 0:
@@ -360,10 +327,6 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
             if cur.rowcount == 0:
                 raise HTTPException(404, "Image not found")
         return {"ok": True}
-
-    @app.post("/api/v1/images/{asset_id}/drive-sync")
-    def retry_image_drive(asset_id: str):
-        return sync_image(asset_id)
 
     @app.get("/api/v1/images/{asset_id}/content")
     def image_content(asset_id: str):
@@ -396,7 +359,7 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                     r = dict(row)
                     r["keywords"] = [x["keyword"] for x in conn.execute("SELECT keyword FROM clip_keywords WHERE clip_id=?", (row["id"],))]
                     path = root / "clips" / row["filename"]
-                    if not path.is_file() and not (row["drive_state"] == "verified" and row["drive_clip_path"]):
+                    if not path.is_file():
                         continue
                     results.append({"type":"video","id":row["id"],"source_id":row["source_id"] or row["id"],
                                     "source_filename":row["original_name"] or "", "keywords":r["keywords"],
@@ -406,8 +369,7 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                                     "sha256":row["sha256"]})
             if media_type in ("image","all"):
                 for row in conn.execute("SELECT * FROM image_assets WHERE status='approved' AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 500"):
-                    if not (images / row["stored_name"]).is_file() and not (
-                            row["drive_state"] == "verified" and row["drive_file_path"]):
+                    if not (images / row["stored_name"]).is_file():
                         continue
                     r = image_dict(row)
                     results.append({"type":"image","id":r["id"],"source_id":r["id"],
@@ -467,6 +429,10 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                 "SELECT media_id FROM media_reservations WHERE project_id=? AND state='reserved'", (body.project_id,))}
             ordered = rank_candidates([x for x in candidates if x["id"] not in used and x["id"] not in exclusions], terms, last_source, used)
             for item in ordered:
+                table='clips' if item['type']=='video' else 'image_assets'
+                current=conn.execute(f"SELECT * FROM {table} WHERE id=? AND status='approved' AND deleted_at IS NULL",(item['id'],)).fetchone()
+                if not current:continue
+                if item['type']=='video' and current['local_selection']=='pending':continue
                 if len(selected) >= body.count:
                     break
                 if item["source_id"] == last_source and any(
@@ -518,17 +484,7 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
             raise HTTPException(404, "Approved clip not found")
         path = root / "clips" / row["filename"]
         if not path.is_file():
-            if row["drive_state"] != "verified" or not row["drive_clip_path"]:
-                raise HTTPException(404, "Clip is not available")
-            try:
-                tmp=cache/('restore-'+uuid.uuid4().hex)
-                try:
-                    run_rclone(["copyto", row["drive_clip_path"], str(tmp)], timeout=180)
-                    if row['sha256'] and sha256_file(tmp)!=row['sha256']:raise RuntimeError('Remote integrity mismatch')
-                    os.replace(tmp,path)
-                finally:tmp.unlink(missing_ok=True)
-            except Exception:
-                raise HTTPException(503, "Remote clip temporarily unavailable")
+            raise HTTPException(404, "Local clip is not available; metadata preserved")
         return FileResponse(path, media_type="video/mp4")
 
     @app.get("/api/v1/media/status")
@@ -549,21 +505,8 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                 raise RuntimeError("Another import is processing; retry shortly")
             try:
                 output = temp_dir / "download"
-                if body.source == "drive":
-                    settings = get_settings_map()
-                    if not setting_true(settings,"drive_enabled") or not drive_preflight(settings).get("ok"):
-                        raise RuntimeError("Enable and test Self Media Library Drive first")
-                    remote = settings.get("drive_remote","gdrive").rstrip(":")
-                    value = body.value.strip().lstrip("/")
-                    if not value or any(x in ("..","") for x in value.split("/")) or ":" in value or "\\" in value:
-                        raise RuntimeError("Invalid Drive relative file path")
-                    ext = Path(value).suffix.lower()
-                    remote_path = remote + ":" + value
-                    remote_info = json.loads(run_rclone(["lsjson", remote_path, "--stat"], timeout=60).stdout or "{}")
-                    remote_size = int(remote_info.get("Size", -1))
-                    if not 0 < remote_size <= MAX_IMPORT_BYTES:
-                        raise RuntimeError("Drive file must be 1B to 2GB and report its size")
-                    run_rclone(["copyto",remote_path,str(output)],timeout=900)
+                if body.source != 'youtube':
+                    raise RuntimeError('Drive ingestion retired; use local upload')
                 else:
                     parsed = urlsplit(body.value)
                     if parsed.scheme != "https" or (parsed.hostname or "").lower() not in {
@@ -677,14 +620,10 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
 
     @app.post("/api/v1/media/imports")
     def create_import(body: ImportRequest):
-        if body.source not in {"drive","youtube"}:
-            raise HTTPException(400, "Supported sources: drive or youtube")
+        if body.source != "youtube":
+            raise HTTPException(400, "Use local uploads or authorized YouTube sources")
         if not body.value.strip() or len(body.value) > 1000:
             raise HTTPException(400, "A source path or URL is required")
-        if body.source == "drive":
-            value = body.value.strip().lstrip("/")
-            if not value or ":" in value or "\\" in value or any(x in ("..", "") for x in value.split("/")):
-                raise HTTPException(400, "Enter the file path relative to your configured Drive, for example Videos/clip.mp4. Google Drive share URLs are not supported; copy the relative path from the Drive browser.")
         job_id = uuid.uuid4().hex[:14]
         with db() as conn:
             conn.execute("INSERT INTO media_imports(id,source_type,name,status,created_at,updated_at,request_json) VALUES(?,?,?,?,?,?,?)",

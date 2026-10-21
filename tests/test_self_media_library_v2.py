@@ -17,7 +17,7 @@ class Contract(unittest.TestCase):
         py=(APP/"app.py").read_text()
         ast.parse(ext);ast.parse(py)
         self.assertIn("register_media_extensions(app,",py)
-        for needle in ("image_assets","media_reservations","SML_EDITOR_API_TOKEN","BEGIN IMMEDIATE","drive_preflight","upload_and_verify"):
+        for needle in ("image_assets","media_reservations","SML_EDITOR_API_TOKEN","BEGIN IMMEDIATE"):
             self.assertIn(needle,ext)
         html=(APP/"static/index.html").read_text()
         for needle in ('id="imagesGrid"','id="imageFiles"','id="importHistory"','id="editorApiPill"'):
@@ -75,8 +75,8 @@ class API(unittest.TestCase):
                 self.assertEqual(c.post(url,headers=h).json()["state"],"committed")
                 self.assertTrue(c.post(url,headers=h).json()["idempotent"])
                 self.assertEqual(c.get("/api/v1/images/"+id+"/preview").status_code,200)
-                self.assertEqual(c.delete("/api/v1/images/"+id).status_code,200)
-                self.assertEqual(c.get("/api/v1/media/search?query=mountain",headers=h).json()["total"],0)
+                self.assertEqual(c.delete("/api/v1/images/"+id).status_code,409)
+                self.assertEqual(c.get("/api/v1/media/search?query=mountain",headers=h).json()["total"],1)
         finally:
             sys.modules.pop("app",None)
             sys.path.remove(str(APP))

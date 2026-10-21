@@ -545,6 +545,11 @@ def install_app(app, revision):
         run(['systemctl', 'restart', unit_name], timeout=60, quiet=True)
         health = http_check(app)
         workers.install(app, revision)
+        if app == 'self-media-library':
+            intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+            if '[vps1-sml-local-release]' in intent:
+                from production.sml_local_verify import verify as verify_local_sml
+                verify_local_sml(venv)
         if app == 'scene-builder':
             from production.browser_runtime import install as install_browser
             install_browser()
