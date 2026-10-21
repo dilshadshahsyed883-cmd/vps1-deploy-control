@@ -79,5 +79,16 @@ class DriveQuota(unittest.TestCase):
         self.assertIn("!!s.drive_source_verified_at", js)
         self.assertIn("Google Drive API rate-limited (403)", js)
 
+    def test_release_waits_for_active_processing_without_stopping_jobs(self):
+        wf=(ROOT / ".github/workflows/vps1-self-media-v2-release.yml").read_text()
+        self.assertIn("SML_ACTIVE_PROCESSING=", wf)
+        self.assertIn("SML_IDLE_PREFLIGHT=BUSY_TIMEOUT", wf)
+        self.assertIn("SML_MEDIA_ACTIVE_WAIT", wf)
+        self.assertIn("sleep 30", wf)
+        self.assertIn("raise SystemExit(20)", wf)
+        self.assertIn("if [[ \"$idle_status\" -ne 20 ]]", wf)
+        self.assertLess(wf.index("READ_ONLY_IDLE_PREFLIGHT"),wf.index("SML_IMMUTABLE_APP_ONLY_INSTALL"))
+        self.assertLess(wf.index("SML_IDLE_PREFLIGHT=BUSY_TIMEOUT"),wf.index("SML_IMMUTABLE_APP_ONLY_INSTALL"))
+
 if __name__ == "__main__":
     unittest.main()
