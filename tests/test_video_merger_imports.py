@@ -130,4 +130,61 @@ class Imports(unittest.TestCase):
             self.app.process_library_import('new','https://example.com/file',{'url':'https://example.com/video.mp4','trim_enabled':False})
         self.assertEqual(self.app.get_library_item('new')['status'],'failed')
 
+
+class VideoMergerSavedProxyActivationTests(unittest.TestCase):
+    def _config(self, directory, *, enabled=False, active='saved'):
+        path=Path(directory)/'proxy_profiles.json'
+        data={'enabled':enabled,'active_id':active,
+              'profiles':[{'id':'saved','name':'Previously working',
+                           'host':'proxy.example.com','port':2222,
+                           'username':'owner','password':'private-pass'}]}
+        path.write_text(json.dumps(data),encoding='utf-8')
+        path.chmod(0o600)
+        return path
+
+    def test_existing_saved_proxy_enables_only_after_canary_and_can_rollback(self):
+        from production.video_merger_import_release import planned_proxy_activation,swap_proxy
+        with tempfile.TemporaryDirectory() as directory:
+            path=self._config(directory)
+            original=path.read_bytes()
+            activation=planned_proxy_activation(path)
+            self.assertEqual(original,path.read_bytes(),'planning must not change live config')
+            self.assertEqual(json.loads(activation['after'])['profiles'],
+                             json.loads(original)['profiles'])
+            swap_proxy(activation,activation['after'])
+            self.assertTrue(json.loads(path.read_text())['enabled'])
+            self.assertEqual(path.stat().st_mode & 0o777,0o600)
+            self.assertEqual(path.stat().st_uid,activation['uid'])
+            swap_proxy(activation,activation['before'])
+            self.assertEqual(path.read_bytes(),original)
+
+    def test_saved_proxy_selection_and_private_file_guards(self):
+        from production.video_merger_import_release import planned_proxy_activation
+        with tempfile.TemporaryDirectory() as directory:
+            path=self._config(directory,active='missing')
+            with self.assertRaisesRegex(RuntimeError,'no active saved'):
+                planned_proxy_activation(path)
+            path.unlink()
+            path.symlink_to('/etc/passwd')
+            with self.assertRaisesRegex(RuntimeError,'untrusted saved'):
+                planned_proxy_activation(path)
+
+    def test_already_enabled_proxy_preserves_current_preference(self):
+        from production.video_merger_import_release import planned_proxy_activation
+        with tempfile.TemporaryDirectory() as directory:
+            path=self._config(directory,enabled=True)
+            original=path.read_bytes()
+            self.assertIsNone(planned_proxy_activation(path))
+            self.assertEqual(path.read_bytes(),original)
+
+    def test_smoke_uses_disposable_config_and_guards_media_drive_and_library(self):
+        import production.video_merger_import_smoke as smoke
+        code=Path(smoke.__file__).read_text()
+        self.assertIn("trial['enabled'] = True",code)
+        self.assertIn('app.PROXY_CONFIG_PATH = trial_path',code)
+        self.assertIn("results['youtube'] = 'PASS'",code)
+        self.assertIn("results['drive'] = 'PASS'",code)
+        self.assertIn("results['library_persistence']",code)
+        self.assertIn("results.get('proxy_test')!='REAL_DOWNLOAD_PASS'",code)
+
 if __name__=='__main__':unittest.main()
