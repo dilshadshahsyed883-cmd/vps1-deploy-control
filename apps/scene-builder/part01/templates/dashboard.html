@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Dashboard{% endblock %}
 {% block subtitle %}Automation Control Center{% endblock %}
-{% block content %}
+{% macro dashboard_content() %}
 <div class="control-dashboard" id="control-dashboard">
   <div class="dashboard-toolbar dashboard-toolbar-single">
     <div></div>
@@ -41,5 +41,7 @@
 
   <div class="dashboard-footer"><span id="dashboard-updated">Waiting for first refresh…</span><span>Read-only dashboard · Controls remain inside each app</span></div>
 </div>
-<script src="/static/dashboard_control_center.js?v=20261019-hide-algrow-v3"></script>
+{% endmacro %}
+{% block content %}{{ dashboard_content() }}
+<script type="module" src="/static/dashboard_control_center.js?v=20261019-hide-algrow-v3"></script>
 {% endblock %}

@@ -1,96 +1,117 @@
-/* Persistent extension of the canonical native shell. No backend job writes. */
-import {mount as mountStorage} from './storage_manager.js';
+/* Persistent extension of the canonical shell; app backends stay independent. */
+import * as storage from './storage_manager.js';
+import * as dashboard from './dashboard_control_center.js';
 const registry = __SHELL_REGISTRY__;
-const storageStyles = '__STORAGE_CSS__';
+const styles = __APP_STYLES__;
+const adapters = {storage, dashboard};
 export const CONTRACT = 2;
 let view = null, generation = 0, disposed = false;
 const outlet = document.getElementById('vps1-shell-outlet');
-const seed = document.getElementById('vps1-storage-seed');
 const lifetime = new AbortController();
-const own = new Set(['/workspace/', ...registry.apps.filter(x => x.mode === 'adapter').map(x => x.path)]);
+const routes = new Map();
+for (const app of registry.apps.filter(app => app.mode === 'adapter')) {
+  for (const path of [app.path, ...(app.aliases || [])]) {
+    if (routes.has(path)) throw new Error('Duplicate mounted route');
+    routes.set(path, app);
+  }
+}
+const own = path => path === '/workspace/' || routes.has(path);
 const e = (tag, text) => {const node = document.createElement(tag); if (text) node.textContent = text; return node;};
 function cleanup() {
   try {view?.unmount();} finally {try {view?.dispose();} finally {view = null;}}
 }
-function activeNavigation(path) {
+function activeNavigation(url, app) {
   document.querySelectorAll('nav[aria-label="Persistent workspace"] a').forEach(link => {
-    if (new URL(link.href).pathname === path) link.setAttribute('aria-current', 'page');
+    if (new URL(link.href).pathname === (app?.path || url.pathname)) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
   });
+  document.querySelectorAll('#app-sidebar > nav > a').forEach(link => {
+    const selected = app?.id === 'dashboard' ? new URL(link.href).pathname === '/' :
+      app?.group === 'admin' && new URL(link.href).pathname === '/admin';
+    link.classList.toggle('active', Boolean(selected));
+    if (selected) link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');
+  });
 }
-function overview() {
-  const section = e('section');
-  section.append(e('h2', 'Workspace'));
+function overview(identity) {
+  const section = e('section'); section.append(e('h2', 'Applications'));
   for (const app of registry.apps) {
-    const link = e('a', app.id.replaceAll('-', ' '));
-    link.href = app.path;
+    if ((app.role === 'admin' || app.group === 'admin') && !identity.is_admin) continue;
+    const link = e('a', app.id.replaceAll('-', ' ')); link.href = app.path;
     const row = e('p'); row.append(link); section.append(row);
   }
   return section;
 }
+function mountApplication(app, identity) {
+  const adapter = adapters[app.adapter];
+  if (!adapter || adapter.CONTRACT !== CONTRACT) throw new Error('Incompatible application adapter');
+  const seed = document.getElementById(`vps1-${app.adapter}-seed`);
+  if (!seed) throw new Error('Application content unavailable');
+  const container = e('div'); container.dataset.appRoot = app.id;
+  const shadow = container.attachShadow({mode:'open'});
+  const content = seed.content.cloneNode(true);
+  if (content.querySelector('script, iframe, #app-sidebar, #vps1-native-site-sidebar')) throw new Error('Incompatible app content');
+  content.querySelectorAll('link[rel="stylesheet"]').forEach(link => {link.href = styles[app.adapter];});
+  const css = e('link'); css.rel='stylesheet'; css.href=styles[app.adapter];
+  const style = e('style');
+  style.textContent = ':host{display:block;min-width:0;--line:#e2e8f0;--muted:#64748b;--good:#116943;--bad:#b73146;font:14px system-ui;color:#0f172a}*{box-sizing:border-box}button,a{min-height:40px}button{cursor:pointer;padding:10px;border:1px solid var(--line);border-radius:8px;background:white;color:#18213b}a{color:#2457d6}button:focus-visible,a:focus-visible,select:focus-visible{outline:3px solid #2457d6;outline-offset:3px}';
+  if (app.adapter === 'dashboard') style.textContent += ':host{background:#07111f;border-radius:12px;padding-top:16px}.dashboard-refresh{flex-wrap:wrap}';
+  if (app.adapter === 'storage') {
+    const detail = content.querySelector('.sm-drive-detail');
+    if (detail) detail.textContent = 'Each application verifies its own Drive delivery. This view only reads storage status.';
+    const badge = content.querySelector('.sm-compact-indicator');
+    if (badge) badge.textContent = 'Google Drive · app-owned verification';
+  }
+  shadow.append(style, css, content); outlet.append(container);
+  view = adapter.mount(shadow, {identity, contract:CONTRACT});
+  if (typeof view?.unmount !== 'function' || typeof view?.dispose !== 'function') throw new Error('Incomplete app lifecycle');
+}
 async function navigate(url, push = false) {
-  const turn = ++generation;
+  const turn = ++generation, app = routes.get(url.pathname);
   outlet.setAttribute('aria-busy', 'true');
-  // Check identity before mounting any admin content. Backends also enforce roles.
   try {
-    const res = await fetch('/api/session/identity', {credentials:'same-origin', cache:'no-store', signal:lifetime.signal});
+    const res = await fetch('/api/session/identity', {credentials:'same-origin',cache:'no-store',signal:lifetime.signal});
     if (!res.ok || !(res.headers.get('content-type') || '').includes('application/json')) throw new Error('Sign in to continue');
     const identity = await res.json();
-    if (identity.authenticated !== true || identity.is_admin !== true) throw new Error('Administrator access required');
+    window.dispatchEvent(new Event('vps1:session-refresh')); // Existing shell owns identity display.
+    if (identity.authenticated !== true) throw new Error('Sign in to continue');
+    if (app?.role === 'admin' && identity.is_admin !== true) throw new Error('Administrator access required');
     if (disposed || turn !== generation) return;
-    cleanup();
-    outlet.replaceChildren();
-    if (url.pathname === '/workspace/') {
-      outlet.append(overview());
-    } else {
-      const container = e('div'); container.dataset.appRoot = 'storage-pilot';
-      const shadow = container.attachShadow({mode:'open'});
-      const content = seed.content.cloneNode(true);
-      if (content.querySelector('script, iframe, #app-sidebar, #vps1-native-site-sidebar')) throw new Error('Incompatible app content');
-      content.querySelectorAll('link[rel="stylesheet"]').forEach(link => {link.href = storageStyles;});
-      content.querySelectorAll('[href="/admin/storage"]').forEach(link => {link.href='/workspace/storage/';});
-      const detail = content.querySelector('.sm-drive-detail');
-      if (detail) detail.textContent = 'Each application verifies its own Drive delivery. This view only reads storage status.';
-      const badge = content.querySelector('.sm-compact-indicator');
-      if (badge) badge.textContent = 'Google Drive · app-owned verification';
-      const style = e('style');
-      style.textContent = ':host{display:block;min-width:0;--line:#e2e8f0;--muted:#64748b;--good:#116943;--bad:#b73146;font:14px system-ui;color:#0f172a}*{box-sizing:border-box}button,a{min-height:40px}button{cursor:pointer;padding:10px;border:1px solid var(--line);border-radius:8px;background:white;color:#18213b}a{color:#2457d6}button:focus-visible,a:focus-visible{outline:3px solid #2457d6;outline-offset:3px}';
-      shadow.append(style, content); outlet.append(container);
-      view = mountStorage(shadow, {identity, contract:CONTRACT});
-    }
+    cleanup(); outlet.replaceChildren();
+    if (app) mountApplication(app, identity);else outlet.append(overview(identity));
     if (push) history.pushState({shell:CONTRACT}, '', url);
-    activeNavigation(url.pathname);
-    document.title = url.pathname === '/workspace/' ? 'Workspace' : 'Storage Manager';
+    activeNavigation(url, app);
+    const title = app ? (app.id === 'dashboard' ? 'Dashboard' : 'Storage Manager') : 'Applications';
+    document.title = title;
+    const heading = document.querySelector('main > header h1'); if (heading) heading.textContent=title;
     outlet.focus({preventScroll:true});
   } catch (err) {
     if (disposed || turn !== generation) return;
     cleanup();
     const error = e('section'); error.setAttribute('role','alert');
-    error.append(e('h2','Application unavailable'), e('p',err.message));
+    error.append(e('h2','Application unavailable'),e('p',err.message));
     const retry = e('button','Retry'); retry.type='button';
-    retry.addEventListener('click', () => navigate(url, push), {once:true, signal:lifetime.signal});
-    const legacy = e('a','Open supported Storage Manager page'); legacy.href='/admin/storage';
-    error.append(retry, legacy); outlet.replaceChildren(error);
-  } finally {
-    if (turn === generation) outlet.removeAttribute('aria-busy');
-  }
+    retry.addEventListener('click',()=>navigate(url,push),{once:true,signal:lifetime.signal});
+    const legacy = e('a','Open supported application page'); legacy.href=app?.legacy || '/?native=1';
+    error.append(retry,legacy);outlet.replaceChildren(error);
+  } finally {if (turn === generation) outlet.removeAttribute('aria-busy');}
 }
-if (outlet && seed) {
-  document.addEventListener('click', event => {
-    const link = event.composedPath().find(node => node instanceof HTMLAnchorElement);
-    if (!link || event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || link.download || (link.target && link.target !== '_self')) return;
-    const url = new URL(link.href);
-    if (url.origin !== location.origin || !own.has(url.pathname)) return;
-    event.preventDefault();
-    if (url.href !== location.href) void navigate(url, true);
-  }, {signal:lifetime.signal});
-  window.addEventListener('popstate', () => {
-    if (own.has(location.pathname)) void navigate(new URL(location.href));
-    else location.reload();
-  }, {signal:lifetime.signal});
-  window.addEventListener('pagehide', event => {
-    if (event.persisted) return; // bfcache resumes the same host and view.
-    disposed = true; generation++; lifetime.abort(); cleanup();
-  }, {once:true});
+if (outlet) {
+  document.addEventListener('click',event=>{
+    const link=event.composedPath().find(node=>node instanceof HTMLAnchorElement);
+    if (!link || event.defaultPrevented || event.button!==0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || link.download || (link.target && link.target!=='_self')) return;
+    const url=new URL(link.href);
+    if (url.origin!==location.origin || !own(url.pathname) || url.searchParams.get('native')==='1') return;
+    event.preventDefault();if(url.href!==location.href)void navigate(url,true);
+  },{signal:lifetime.signal});
+  window.addEventListener('popstate',()=>{
+    if(own(location.pathname))void navigate(new URL(location.href));else location.reload();
+  },{signal:lifetime.signal});
+  document.addEventListener('visibilitychange',()=>{
+    if(!document.hidden)void navigate(new URL(location.href));
+  },{signal:lifetime.signal});
+  window.addEventListener('pageshow',event=>{if(event.persisted)void navigate(new URL(location.href));},{signal:lifetime.signal});
+  window.addEventListener('pagehide',event=>{
+    if(event.persisted)return;disposed=true;generation++;lifetime.abort();cleanup();
+  },{once:true});
   void navigate(new URL(location.href));
 }

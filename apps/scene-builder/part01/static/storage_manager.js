@@ -1,3 +1,4 @@
+export const CONTRACT = 2;
 /* CW-025: Storage Manager read-only active cleanup dashboard.
  * Independent deployment GC and app-owned Drive cleanup never share a delete control.
  * All network operations in this view are GETs.
