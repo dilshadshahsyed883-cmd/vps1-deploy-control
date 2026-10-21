@@ -25,18 +25,39 @@ def smoke(source, state, proxy_config=None):
         app.run=bounded_run
         app.init_db()
         config=app.load_proxy_config()
-        results = {'proxy_enabled':bool(config.get('enabled')), 'saved_proxy_profiles':len(config.get('profiles',[])), 'js_runtime':str(app.DENO) if app.DENO.is_file() else 'MISSING'}
+        # The old VPS already stored a selected proxy, but fresh VPS has the
+        # app's toggle off. Exercise it in a disposable config, never the live JSON.
+        candidate = None
+        if not config.get('enabled') and config.get('profiles'):
+            candidate = next((p for p in config['profiles']
+                              if p.get('id') == config.get('active_id')), None)
+            if candidate is None:
+                raise RuntimeError('Saved proxy exists but has no valid active selection')
+            trial = dict(config)
+            trial['enabled'] = True
+            trial_path = root / 'config' / 'proxy_profiles.json'
+            trial_path.parent.mkdir(parents=True, exist_ok=True)
+            trial_path.write_text(json.dumps(trial), encoding='utf-8')
+            trial_path.chmod(0o600)
+            app.PROXY_CONFIG_PATH = trial_path
+        results = {'proxy_enabled':bool(config.get('enabled')),
+                   'saved_proxy_profiles':len(config.get('profiles',[])),
+                   'candidate_saved_proxy':bool(candidate),
+                   'js_runtime':str(app.DENO) if app.DENO.is_file() else 'MISSING'}
         try:
             profile = app.active_proxy_profile()
             if profile:
-                app.test_proxy_profile(profile['id'])
-                results['proxy_test'] = 'PASS'
+                tested = app.test_proxy_profile(profile['id'])
+                results['proxy_test'] = 'REAL_DOWNLOAD_PASS' if tested.get('download_verified') else 'NOT_VERIFIED'
             else:
                 results['proxy_test'] = 'DIRECT_MODE'
             app.source_to_file('https://youtu.be/jNQXAC9IVRw', root/'youtube.bin', None, 1)
             results['youtube'] = 'PASS'
         except Exception as exc:
             results['youtube'] = 'FAIL: '+app.scrub_proxy_error(exc)
+        if candidate:
+            results['candidate_proxy_test'] = results.get('proxy_test', 'NOT_VERIFIED')
+            results['candidate_youtube'] = results.get('youtube', 'NOT_VERIFIED')
         try:
             database = Path(state)/'data/video_merger.db'
             with sqlite3.connect(database.as_uri()+'?mode=ro', uri=True) as conn:
@@ -73,6 +94,8 @@ def smoke(source, state, proxy_config=None):
         print(json.dumps(results,sort_keys=True),flush=True)
         if results.get('youtube')!='PASS' or results.get('drive')!='PASS' or results.get('library_persistence')!='PASS':
             raise RuntimeError('Real-source smoke failed; candidate not promoted')
+        if candidate and results.get('proxy_test')!='REAL_DOWNLOAD_PASS':
+            raise RuntimeError('Saved proxy real media canary failed; live setting left disabled')
 
 
 if __name__=='__main__':

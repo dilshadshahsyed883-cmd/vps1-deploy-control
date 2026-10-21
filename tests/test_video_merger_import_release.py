@@ -22,6 +22,14 @@ class Release(unittest.TestCase):
             original=f'ExecStart={python} app.py\nEnvironment=PATH={python.parent}:/usr/bin\n'
             unit.write_text(original)
             src=repo/'apps/video-merger/part01/app.py';src.parent.mkdir(parents=True);src.write_text('new = True')
+            # Independent baseline fixture: an already-enabled production proxy
+            # remains unchanged; disabled saved profile is covered separately.
+            cfg=root/'config/proxy_profiles.json'
+            cfg.parent.mkdir(parents=True)
+            cfg.write_text(json.dumps({'enabled':True,'active_id':'p1',
+                'profiles':[{'id':'p1','host':'proxy.example.com','port':2222,
+                             'username':'owner','password':'secret'}]}))
+            cfg.chmod(0o600)
             def command(args,**kw):
                 if args[:3]==['python3','-m','venv']:
                     path=Path(args[3]);(path/'bin').mkdir(parents=True);(path/'bin/python').touch()
