@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-import json, os, re, shutil, socket, sqlite3, subprocess, threading, time, uuid, urllib.parse, ipaddress, html
+import sys, importlib.util, json, os, re, shutil, socket, sqlite3, subprocess, threading, time, uuid, urllib.parse, ipaddress, html
 from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
 APP_NAME = 'Video Merger'
-RELEASE_ID = 'V1J_LIBRARY_PROXY_FILENAME'
+RELEASE_ID = 'VM_IMPORT_REPAIR_20261021'
 BASE = Path(os.environ.get('VIDEO_MERGER_ROOT', '/opt/video-merger')).expanduser()
 DATA = BASE / 'data'
 WORK = BASE / 'work'
@@ -20,7 +20,11 @@ LIBRARY_ROOT = 'Video Merger Library'
 LIBRARY_CACHE = BASE / 'library_cache'
 PROXY_CONFIG_DIR = Path(os.environ.get('VIDEO_MERGER_PROXY_CONFIG_DIR', '/home/ubuntu/.config/video-merger'))
 PROXY_CONFIG_PATH = PROXY_CONFIG_DIR / 'proxy_profiles.json'
-YTDLP = BASE / 'venv/bin/yt-dlp'
+# Always use the interpreter running this release, never a data-directory venv.
+def downloader_command(module):
+    if importlib.util.find_spec(module) is None:
+        raise RuntimeError(f'Video Merger dependency {module} is missing from its service Python; redeploy Video Merger dependencies')
+    return [sys.executable, '-m', module]
 DENO = BASE / 'bin/deno'
 PREFIX = '/video-merger'
 MAX_VIDEOS = 50
@@ -127,7 +131,9 @@ def active_proxy_profile():
     cfg=load_proxy_config()
     if not cfg.get('enabled'): return None
     aid=cfg.get('active_id') or ''
-    return next((x for x in cfg.get('profiles',[]) if x.get('id')==aid),None)
+    profile=next((x for x in cfg.get('profiles',[]) if x.get('id')==aid),None)
+    if not profile: raise RuntimeError('Enabled proxy profile is missing; select a valid profile or disable proxy')
+    return profile
 
 def public_proxy_state():
     cfg=load_proxy_config(); aid=cfg.get('active_id') or ''
@@ -187,8 +193,9 @@ def set_proxy_enabled(enabled):
 def yt_common_args(profile=None, force_profile=False):
     args=['-4','--no-playlist','--no-progress','--socket-timeout','30','--retries','2','--extractor-retries','2']
     if DENO.exists(): args += ['--js-runtimes',f'deno:{DENO}','--remote-components','ejs:npm']
+    elif shutil.which('node'): args += ['--js-runtimes','node:'+shutil.which('node')]
     if profile is None and not force_profile: profile=active_proxy_profile()
-    if profile: args += ['--proxy',proxy_url(profile)]
+    args += ['--proxy',proxy_url(profile) if profile else '']
     return args
 
 def scrub_proxy_error(text):
@@ -206,7 +213,7 @@ def test_proxy_profile(pid):
     try:
         ip=run(['/usr/bin/curl','-fsS','--max-time','30','--proxy',url,'https://api.ipify.org'],timeout=40).strip()
         if not ip: raise RuntimeError('No egress IP returned')
-        out=run([str(YTDLP)]+yt_common_args(p,True)+['--simulate','--quiet','--no-warnings','--print','%(id)s','https://youtu.be/jNQXAC9IVRw'],timeout=90)
+        out=run(downloader_command('yt_dlp')+yt_common_args(p,True)+['--simulate','--quiet','--no-warnings','--print','%(id)s','https://youtu.be/jNQXAC9IVRw'],timeout=90)
         ok='jNQXAC9IVRw' in out
         if not ok: raise RuntimeError('YouTube extraction test did not return the expected video ID')
         return {'egress_ip':ip,'youtube_ok':True}
@@ -354,27 +361,34 @@ def source_to_file(url, dst, job_id, idx, status_cb=None):
     if looks_youtube(url):
         note(max(3,min(38,4+idx*5)),f'Downloading video {idx}')
         tmpl=str(dst.with_suffix(''))+'.%(ext)s'
-        cmd=[str(YTDLP)]+yt_common_args()+['--merge-output-format','mp4','-f','bv*+ba/b','-o',tmpl,url]
+        cmd=downloader_command('yt_dlp')+yt_common_args()+['--merge-output-format','mp4','-f','bv*+ba/b','-o',tmpl,url]
         try: run(cmd,timeout=7200)
         except Exception as e: raise RuntimeError(scrub_proxy_error(e))
         candidates=sorted(dst.parent.glob(dst.stem+'.*'),key=lambda p:p.stat().st_mtime,reverse=True)
+        candidates=[p for p in candidates if p.is_file() and p.suffix.lower() not in ('.part','.ytdl','.json','.jpg','.webp')]
         if not candidates: raise RuntimeError(f'Video {idx}: YouTube download produced no file')
-        shutil.move(str(candidates[0]),dst); validate_downloaded_file(dst,idx); return
+        shutil.move(str(candidates[0]),dst); validate_downloaded_file(dst,idx); verify_library_media(dst); return
     if looks_drive(url):
         note(max(3,min(38,4+idx*5)),f'Downloading Drive video {idx}')
-        p=subprocess.run([str(BASE/'venv/bin/gdown'),'--fuzzy',url,'-O',str(dst)],text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=7200)
-        if p.returncode==0 and dst.exists() and dst.stat().st_size>0:
-            validate_downloaded_file(dst,idx); return
+        # Private files use the connected Drive account when public download fails.
+        public_error=''
+        try:
+            run(downloader_command('gdown')+['--fuzzy',url,'-O',str(dst)],timeout=7200)
+            validate_downloaded_file(dst,idx)
+            verify_library_media(dst)
+            return
+        except Exception as exc:
+            public_error=scrub_proxy_error(exc)
         if dst.exists(): dst.unlink(missing_ok=True)
         fid=drive_id_from_url(url)
         if not fid: raise RuntimeError(f'Video {idx}: Drive download failed and file ID could not be parsed')
         match=find_drive_item(fid)
-        if not match: raise RuntimeError(f'Video {idx}: Drive file is not accessible through the connected Drive account')
+        if not match: raise RuntimeError(f'Video {idx}: Drive file is not accessible through the connected Drive account. Public download: {public_error}')
         path=match.get('Path')
         if not path: raise RuntimeError(f'Video {idx}: Drive file path could not be resolved')
         rclone(['copyto',f'{REMOTE}{path}',str(dst)],timeout=7200)
         if not dst.exists() or dst.stat().st_size<=0: raise RuntimeError(f'Video {idx}: Drive copy failed')
-        validate_downloaded_file(dst,idx); return
+        validate_downloaded_file(dst,idx); verify_library_media(dst); return
     reject_private_host(url); note(max(3,min(38,4+idx*5)),f'Downloading video {idx}'); download_direct_http(url,dst,idx)
 
 def parse_nonneg_int(v, label, allow_blank=False):
@@ -544,7 +558,7 @@ def process_library_import(item_id, source_url, trim_spec, replacing=False):
         rclone(['copyto',str(final),f'{REMOTE}{remote}'],timeout=14400)
         rawstat=rclone(['lsjson',f'{REMOTE}{remote}','--stat'],timeout=120); obj=json.loads(rawstat or '{}')
         size=int(obj.get('Size') or 0); fid=str(obj.get('ID') or obj.get('Id') or obj.get('id') or '')
-        if size<=0 or not fid: raise RuntimeError('Library Drive upload verification failed')
+        if size!=final.stat().st_size or size<=0 or not fid: raise RuntimeError('Library Drive upload verification failed')
         cache=library_cache_path(item_id); tmp=cache.with_suffix('.tmp.mp4'); shutil.copy2(final,tmp); os.replace(tmp,cache)
         update_library_item(item_id,status='ready',progress=100,message='Ready',error='',duration=float(final_duration),size_bytes=size,remote_path=remote,drive_id=fid,drive_url=f'https://drive.google.com/file/d/{fid}/view',source_url=source_url,trim_json=json.dumps(trim_spec))
     except Exception as e:
@@ -603,7 +617,7 @@ def library_to_file(item_id,dst,idx):
 
 def youtube_title(url):
     try:
-        out=run([str(YTDLP)]+yt_common_args()+['--simulate','--quiet','--no-warnings','--print','%(title)s',url],timeout=90)
+        out=run(downloader_command('yt_dlp')+yt_common_args()+['--simulate','--quiet','--no-warnings','--print','%(title)s',url],timeout=90)
     except Exception as e:
         raise RuntimeError(scrub_proxy_error(e))
     lines=[x.strip() for x in out.splitlines() if x.strip()]
