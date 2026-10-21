@@ -28,7 +28,7 @@ VENV = BASE/'venvs/scene-production-worker'
 PORT = 18081
 URL = 'http://127.0.0.1:'+str(PORT)
 DEPENDENCIES = ('fastapi==0.115.12','uvicorn==0.34.2','python-multipart==0.0.20',
-                'requests==2.32.3','pillow==11.1.0','faster-whisper==1.2.0')
+                'requests==2.32.3','pillow==11.1.0','faster-whisper==1.2.0','av==16.1.0')
 
 
 def require(ok, message):

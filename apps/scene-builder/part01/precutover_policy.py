@@ -21,6 +21,7 @@ _ALLOWED_EXACT = frozenset((
     ("POST", "/queue/submit"),
 ))
 _PRESET_MUTATION = re.compile(r"\A/api/presets/[^/]+/(?:duplicate|rename)\Z")
+_PROJECT_RECOVERY = re.compile(r"\A/queue/[0-9a-f]{32}/(?:restart-stage|restart)\Z")
 _ADMIN_USER_MANAGEMENT = ("POST", "/user-management")
 
 
@@ -40,4 +41,5 @@ def mutation_allowed(method: str, path: str, editing_enabled: bool) -> bool:
         return False
     if (method, path) in _ALLOWED_EXACT:
         return True
-    return method == "POST" and _PRESET_MUTATION.fullmatch(path) is not None
+    return method == "POST" and (_PRESET_MUTATION.fullmatch(path) is not None
+                                 or _PROJECT_RECOVERY.fullmatch(path) is not None)
