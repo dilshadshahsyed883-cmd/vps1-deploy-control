@@ -6,6 +6,8 @@ on:
       - 'apps/scene-builder/part01/precutover_policy.py'
       - 'tests/test_scene_backend_repair.py'
       - 'production/scene_backend_smoke.py'
+      - 'production/scene_production_worker.py'
+      - 'tests/test_scene_production_worker.py'
       - 'production/scene_candidate_release.py'
       - '.github/workflows/vps1-scene-backend-repair-ci.yml'
 permissions:
@@ -27,4 +29,4 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core
       - name: Real isolated key save/reload and TXT WAV queue persistence
-        run: python -m unittest tests.test_scene_backend_repair rebuild.tests.test_scene_precutover.WritePolicy tests.test_scene_candidate_release tests.test_scene_user_roles -v
+        run: python -m unittest tests.test_scene_production_worker tests.test_scene_backend_repair rebuild.tests.test_scene_precutover.WritePolicy tests.test_scene_candidate_release tests.test_scene_user_roles -v
