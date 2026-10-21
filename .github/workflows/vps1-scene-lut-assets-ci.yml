@@ -1,0 +1,28 @@
+name: Scene real built-in LUT source and FFmpeg
+on:
+  pull_request:
+    paths:
+      - 'production/scene_lut_assets.py'
+      - 'production/scene_candidate_release.py'
+      - 'apps/scene-builder/part02/smart_scroll/lut_engine.py'
+      - 'tests/test_scene_lut_assets.py'
+      - '.github/workflows/vps1-scene-lut-assets-ci.yml'
+permissions:
+  contents: read
+jobs:
+  scene-lut-real-ffmpeg:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Require actual installed FFmpeg
+        run: |
+          test -x /usr/bin/ffmpeg
+          /usr/bin/ffmpeg -hide_banner -filters | grep -q 'lut3d'
+      - name: Generate all 23 real cubes, test Scene 001 render filter and preservation
+        run: python -m unittest tests.test_scene_lut_assets tests.test_scene_candidate_release tests.test_scene_production_worker -v
