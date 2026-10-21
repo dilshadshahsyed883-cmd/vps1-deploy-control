@@ -476,7 +476,7 @@ body:not(.vs-kokoro-active):not(.vs-edge-active):not(.vs-audio-active) > .vps3-l
   <p id="vseMessage" role="status" class="vse-note"></p>
  </div>
  <div id="vseVoices" class="vse-card" hidden><h3>Online voice library</h3><p id="vseVoicesSummary" class="vse-note">Waiting for catalog.</p><div id="vseVoiceRows" class="vse-note"></div></div>
- <div id="vseQueue" class="vse-card" hidden><div class="vsq-heading"><div><h3>Edge TTS independent queue</h3><p class="vse-note">Queued, processing, paused, retry and delivered status. Pause/resume/cancel applies to each Edge job only.</p></div><button type="button" id="vseRefresh" class="vse-btn alt">Refresh</button></div><div class="vsq-tablewrap"><table><thead><tr><th scope="col">File</th><th scope="col">Job status</th><th scope="col">Files</th><th scope="col">Controls</th></tr></thead><tbody id="vseQueueRows"><tr><td colspan="4">No Edge jobs yet.</td></tr></tbody></table></div></div>
+ <div id="vseQueue" class="vse-card" hidden><div class="vsq-heading"><div><h3>Edge TTS independent queue</h3><p class="vse-note">Queued, processing, paused, retry and delivered status. Pause/resume/cancel applies to each Edge job only.</p></div><button type="button" id="vseRefresh" class="vse-btn alt">Refresh</button></div><div class="vsq-tablewrap"><table><thead><tr><th scope="col">File</th><th scope="col">Job status</th><th scope="col">Audio</th><th scope="col">Controls</th></tr></thead><tbody id="vseQueueRows"><tr><td colspan="4">No Edge jobs yet.</td></tr></tbody></table></div></div>
  <div id="vseSystem" class="vse-card" hidden><h3>Edge TTS engine</h3><pre id="vseDetails" style="white-space:pre-wrap;overflow-wrap:anywhere">Worker not checked yet.</pre><p class="vse-note">Standalone worker and queue. External connection required; online service availability and licensing are separate from local deployment.</p></div>
 </section>
 
@@ -2088,14 +2088,18 @@ else if(j.status==='completed'){const state=document.createElement('div');state.
  async function loadJobs(){const rows=$('vseQueueRows');try{const r=await req(root+'/'+'jobs?limit=150&v='+Date.now());rows.replaceChildren();for(const j of r.jobs||[]){const tr=document.createElement('tr'),name=document.createElement('td'),state=document.createElement('td'),files=document.createElement('td'),ctrl=document.createElement('td');ctrl.className='vsq-controls';name.textContent=j.source_filename||j.job_id;state.textContent=(j.queue_status||j.status||'')+' · '+(j.status==='completed'?100:(j.progress||0))+'%'+(j.attempt?' · Attempt '+j.attempt+'/'+j.max_attempts:'')+' · Drive: '+String(j.delivery_status||'unknown').replaceAll('_',' ');
    if(j.error){const err=document.createElement('small');err.textContent='Error: '+(j.error==='WSServerHandshakeError'?'Speech service connection failed (WSServerHandshakeError). Historical attempt exhausted.':j.error);state.append(err);}if(j.delivery_error){const err=document.createElement('small');err.textContent=' · Drive: '+({'rate_or_quota':'Google Drive rate limit or quota · automatic retry scheduled',permission:'Drive permission denied · check Voice Drive settings',network:'Drive connection interrupted · automatic retry scheduled'}[j.delivery_error]||j.delivery_error);state.append(err);}
    const receipts=j.drive_files||{},verified=['delivered','cleaned'].includes(j.delivery_status)&&!!j.drive_verified_at&&!!j.drive_file_id;
-for(const ext of ['mp3','wav','txt','srt']){
- const group=document.createElement('div'),receipt=receipts[ext];
- const remoteOK=verified&&receipt&&receipt.id&&receipt.url==='https://drive.google.com/file/d/'+receipt.id+'/view';
- if(j[ext+'_url']){const a=document.createElement('a');a.href=root+'/files/'+encodeURIComponent(j.job_id)+'/'+ext;a.textContent='Download '+ext.toUpperCase();a.rel='noopener';group.append(a);}
- else if(remoteOK){const a=document.createElement('a');a.href='https://drive.google.com/uc?export=download&id='+encodeURIComponent(receipt.id);a.target='_blank';a.rel='noopener noreferrer';a.textContent='Download '+ext.toUpperCase()+' (Drive)';group.append(a);}
- if(remoteOK){const line=document.createElement('div'),link=document.createElement('a');link.href=receipt.url;link.target='_blank';link.rel='noopener noreferrer';link.textContent='Google Drive: Open '+ext.toUpperCase()+' file';line.append(link);group.append(line);}
- if(group.hasChildNodes())files.append(group);
+// Edge Queue: one audio download + one verified Drive link, Kokoro-style.
+// TXT/SRT receipts stay intact in the backend and are not shown in this queue.
+const audioFormats=['mp3','wav'];
+const localAudio=audioFormats.find(ext=>!!j[ext+'_url']);
+const remoteAudio=audioFormats.find(ext=>{const item=receipts[ext];return verified&&item&&item.id&&item.url==='https://drive.google.com/file/d/'+item.id+'/view';});
+if(localAudio||remoteAudio){
+ const line=document.createElement('div'),link=document.createElement('a');
+ if(localAudio){link.href=root+'/files/'+encodeURIComponent(j.job_id)+'/'+localAudio;link.textContent='Download '+localAudio.toUpperCase();link.rel='noopener';}
+ else{const item=receipts[remoteAudio];link.href='https://drive.google.com/uc?export=download&id='+encodeURIComponent(item.id);link.target='_blank';link.rel='noopener noreferrer';link.textContent='Download '+remoteAudio.toUpperCase()+' (Drive)';}
+ line.append(link);files.append(line);
 }
+if(remoteAudio){const line=document.createElement('div'),link=document.createElement('a');link.href=receipts[remoteAudio].url;link.target='_blank';link.rel='noopener noreferrer';link.textContent='Google Drive: Open uploaded file';line.append(link);files.append(line);}
 if(j.status==='completed'&&!verified){const line=document.createElement('div');line.textContent='Drive: '+(j.delivery_status||'pending');files.append(line);if(['retry_pending','blocked'].includes(j.delivery_status)){const retry=document.createElement('button');retry.type='button';retry.textContent='Retry Drive upload';retry.addEventListener('click',async()=>{retry.disabled=true;try{await req(root+'/'+'jobs/'+encodeURIComponent(j.job_id)+'/delivery/retry',{method:'POST'});await loadJobs();}catch(e){msg(e.message);retry.disabled=false;}});files.append(retry);}}
    
    for(const act of j.allowed_actions||[])ctrl.append(b(act[0].toUpperCase()+act.slice(1),act,j.job_id));tr.append(name,state,files,ctrl);rows.append(tr);}
