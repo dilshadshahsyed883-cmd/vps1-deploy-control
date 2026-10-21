@@ -12,6 +12,20 @@ from production import route_uploader_scene_https as https
 
 
 class WebOverlayRelease(unittest.TestCase):
+    def test_video_idle_timeout_retries_without_bypass(self):
+        with patch('production.video_template_release.idle', side_effect=[TimeoutError(), None]) as probe, patch.object(release.time, 'sleep') as pause:
+            release.idle('video-merger')
+            self.assertEqual(probe.call_count, 2)
+            pause.assert_called_once_with(2)
+        with patch('production.video_template_release.idle', side_effect=TimeoutError()) as probe, patch.object(release.time, 'sleep'):
+            with self.assertRaises(TimeoutError):
+                release.idle('video-merger')
+            self.assertEqual(probe.call_count, 3)
+        with patch('production.video_template_release.idle', side_effect=RuntimeError('unfinished jobs')) as probe:
+            with self.assertRaisesRegex(RuntimeError, 'unfinished jobs'):
+                release.idle('video-merger')
+            self.assertEqual(probe.call_count, 1)
+
     def exercise(self, fail=False):
         with tempfile.TemporaryDirectory() as tmp,ExitStack() as stack:
             root=Path(tmp);base=root/'host';repo=root/'repo';app='video-merger';revision='a'*40
