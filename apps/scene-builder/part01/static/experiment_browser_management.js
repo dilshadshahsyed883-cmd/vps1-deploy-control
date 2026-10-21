@@ -176,3 +176,79 @@ el("exp-template-delete").addEventListener("click",()=>job(async()=>{
  await bridge.api("/templates/"+id,"DELETE");await refreshData();
  message("Template deleted.");
 }));
+
+function readCSV(source){
+ const records=[];let fields=[],value="",quoted=false;
+ for(let i=0;i<source.length;i++){
+  const char=source[i];
+  if(char==='"'){
+   if(quoted&&source[i+1]==='"'){value+='"';i++;}
+   else quoted=!quoted;
+  }else if(char===","&&!quoted){fields.push(value);value="";}
+  else if((char==="\n"||char==="\r")&&!quoted){
+   if(char==="\r"&&source[i+1]==="\n")i++;
+   fields.push(value);value="";
+   if(fields.some(x=>x.trim()))records.push(fields);
+   fields=[];
+  }else value+=char;
+ }
+ if(quoted)throw Error("Unclosed CSV quote.");
+ fields.push(value);if(fields.some(x=>x.trim()))records.push(fields);
+ if(records.length<2||records.length>101)throw Error("CSV supports 1–100 data rows.");
+ const header=records.shift().map(x=>x.trim().toLowerCase());
+ const valid=new Set(["name","proxy_server","locale","timezone","start_url","tags","privacy_mode","user_agent"]);
+ if(!header.includes("name")||new Set(header).size!==header.length||header.some(x=>!valid.has(x)))
+  throw Error("CSV header must contain name and supported profile columns.");
+ return records.map((values,index)=>{
+  if(values.length!==header.length)throw Error("Wrong number of cells on row "+(index+1));
+  return Object.fromEntries(header.map((key,j)=>[key,values[j].trim()]));
+ });
+}
+el("exp-csv-file").addEventListener("change",event=>job(async()=>{
+ const file=event.currentTarget.files[0];if(!file)return;
+ if(file.size>128000)throw Error("CSV is too large (128 KB maximum).");
+ csvRows=readCSV(await file.text());
+ el("exp-batch-count").value=String(csvRows.length);
+ el("exp-csv-status").textContent=csvRows.length+" CSV rows ready (no profiles created yet).";
+}));
+el("exp-clear-csv").addEventListener("click",()=>{
+ csvRows=[];el("exp-csv-file").value="";
+ el("exp-csv-status").textContent="CSV cleared; generated names will be used.";
+});
+el("exp-batch-form").addEventListener("submit",event=>{
+ event.preventDefault();job(async()=>{
+  const count=Number(el("exp-batch-count").value);
+  if(csvRows.length&&csvRows.length!==count)throw Error("CSV row count must match batch count.");
+  const button=el("exp-batch-submit");button.disabled=true;
+  el("exp-batch-results").textContent="Creating "+count+" independent profiles...";
+  try{
+   const result=await bridge.api("/batches","POST",{
+    count,prefix:el("exp-batch-prefix").value,start_index:Number(el("exp-batch-start").value),
+    template_id:el("exp-batch-template").value,group_id:el("exp-batch-group").value,
+    proxy_server:el("exp-batch-proxy").value,csv_rows:csvRows
+   });
+   await bridge.sync();
+   el("exp-batch-results").textContent="Created "+result.created_count+" of "+result.requested+
+    "; failures: "+result.failed_count+"\n"+
+    result.errors.map(x=>"Row "+x.row+": "+x.error).join("\n");
+   message(result.failed_count?"Batch completed with validation errors; review results.":"Batch created.",
+    result.failed_count>0);
+  }finally{button.disabled=false;}
+ });
+});
+function csvValue(value){
+ let text=String(value||"");
+ if(/^[=+\-@]/.test(text))text="'"+text;
+ return '"'+text.replace(/"/g,'""')+'"';
+}
+el("exp-export-csv").addEventListener("click",()=>{
+ const cols=["name","proxy_server","locale","timezone","start_url","tags","privacy_mode","user_agent"];
+ const lines=[cols.join(",")];
+ for(const profile of bridge.profiles())lines.push(cols.map(key=>csvValue(profile[key])).join(","));
+ const blob=new Blob(["\ufeff"+lines.join("\r\n")],{type:"text/csv;charset=utf-8"});
+ const url=URL.createObjectURL(blob),a=document.createElement("a");
+ a.href=url;a.download="browser-profiles.csv";a.click();
+ setTimeout(()=>URL.revokeObjectURL(url),1500);
+});
+refreshData().catch(error=>message(error.message,true));
+})();
