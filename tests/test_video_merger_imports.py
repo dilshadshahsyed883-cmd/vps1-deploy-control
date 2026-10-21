@@ -1,0 +1,97 @@
+import importlib.util
+import json
+import os
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+SOURCE=Path(__file__).resolve().parents[1]/'apps/video-merger/part01/app.py'
+
+class Imports(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory()
+        self.root=Path(self.temp.name)
+        with patch.dict(os.environ,VIDEO_MERGER_ROOT=str(self.root),VIDEO_MERGER_PROXY_CONFIG_DIR=str(self.root/'config')):
+            spec=importlib.util.spec_from_file_location('vm_test',SOURCE)
+            self.app=importlib.util.module_from_spec(spec);spec.loader.exec_module(self.app)
+        self.app.init_db()
+        self.dst=self.root/'test.bin'
+    def tearDown(self):self.temp.cleanup()
+    def test_module_launcher_uses_service_python(self):
+        with patch.object(self.app.importlib.util,'find_spec',return_value=object()):
+            self.assertEqual(self.app.downloader_command('yt_dlp'),[self.app.sys.executable,'-m','yt_dlp'])
+            self.assertEqual(self.app.downloader_command('gdown'),[self.app.sys.executable,'-m','gdown'])
+    def test_js_runtime_is_explicit_and_no_remote_solver_required(self):
+        binary=self.root/'deno';binary.touch();self.app.DENO=binary
+        args=self.app.yt_common_args()
+        self.assertIn('deno:'+str(binary),args)
+        self.assertNotIn('--remote-components',args)
+    def test_missing_dependency_actionable(self):
+        with patch.object(self.app.importlib.util,'find_spec',return_value=None):
+            with self.assertRaisesRegex(RuntimeError,'service Python'):self.app.downloader_command('gdown')
+    def test_proxy_selection_encoding_and_direct_mode(self):
+        profile={'id':'p','name':'p','host':'proxy.example','port':8080,'username':'a@b','password':'s:e/c'}
+        self.app.save_proxy_config({'enabled':True,'active_id':'p','profiles':[profile]})
+        args=self.app.yt_common_args()
+        self.assertIn('http://a%40b:s%3Ae%2Fc@proxy.example:8080',args)
+        self.assertNotIn('s:e/c',self.app.scrub_proxy_error('failed s:e/c'))
+        self.app.set_proxy_enabled(False)
+        args=self.app.yt_common_args();self.assertEqual(args[args.index('--proxy')+1],'')
+    def test_invalid_enabled_proxy_fails_closed(self):
+        self.app.save_proxy_config({'enabled':True,'active_id':'missing','profiles':[]})
+        with self.assertRaisesRegex(RuntimeError,'profile is missing'):self.app.yt_common_args()
+    def test_drive_launch_failure_still_uses_connected_account(self):
+        with patch.object(self.app,'downloader_command',side_effect=RuntimeError('missing gdown')), \
+             patch.object(self.app,'find_drive_item',return_value={'Path':'original.mp4'}), \
+             patch.object(self.app,'rclone',side_effect=lambda *a,**k:self.dst.write_bytes(b'video')), \
+             patch.object(self.app,'validate_downloaded_file'),patch.object(self.app,'verify_library_media') as valid:
+            self.app.source_to_file('https://drive.google.com/file/d/abcdefghijk/view',self.dst,None,1)
+            valid.assert_called_once_with(self.dst)
+    def test_drive_public_html_rejected_and_fallback_validated(self):
+        def run(*a,**k):self.dst.write_text('<html>permission required</html>')
+        with patch.object(self.app,'downloader_command',return_value=['python','-m','gdown']), \
+             patch.object(self.app,'run',side_effect=run),patch.object(self.app,'validate_downloaded_file'), \
+             patch.object(self.app,'verify_library_media',side_effect=[RuntimeError('not media'),1]), \
+             patch.object(self.app,'find_drive_item',return_value={'Path':'file.mp4'}), \
+             patch.object(self.app,'rclone',side_effect=lambda *a,**k:self.dst.write_bytes(b'video')):
+            self.app.source_to_file('https://drive.google.com/file/d/abcdefghijk/view',self.dst,None,1)
+            self.assertEqual(self.dst.read_bytes(),b'video')
+    def test_youtube_download_uses_proxy_and_media_validation(self):
+        def run(args,**kw):
+            self.assertEqual(args[:3],['python','-m','yt_dlp'])
+            self.dst.with_suffix('.mp4').write_bytes(b'video')
+            self.dst.with_suffix('.part').write_bytes(b'partial')
+        with patch.object(self.app,'downloader_command',return_value=['python','-m','yt_dlp']), \
+             patch.object(self.app,'run',side_effect=run),patch.object(self.app,'validate_downloaded_file'), \
+             patch.object(self.app,'verify_library_media') as valid:
+            self.app.source_to_file('https://youtu.be/jNQXAC9IVRw',self.dst,None,1)
+            self.assertEqual(self.dst.read_bytes(),b'video');valid.assert_called_once()
+    def test_library_persistence_and_existing_entry_preserved(self):
+        now=self.app.utcnow()
+        with self.app.db() as c:
+            for identity in ['existing','new']:
+                c.execute('INSERT INTO library_items(id,name,filename,created_at,updated_at) VALUES(?,?,?,?,?)',(identity,identity,identity+'.mp4',now,now))
+        def source(url,dst,*a,**kw):dst.write_bytes(b'raw')
+        def transcode(src,dst,*a):dst.write_bytes(b'final-video')
+        def remote(args,**kw):
+            return json.dumps({'ID':'new-drive-id','Size':11}) if args[0]=='lsjson' else ''
+        before=self.app.get_library_item('existing')
+        with patch.object(self.app,'source_to_file',side_effect=source),patch.object(self.app,'probe',return_value={}), \
+             patch.object(self.app,'media_duration',return_value=2),patch.object(self.app,'transcode_library',side_effect=transcode), \
+             patch.object(self.app,'verify_library_media',return_value=2),patch.object(self.app,'rclone',side_effect=remote):
+            self.app.process_library_import('new','https://drive.google.com/file/d/abcdefghijk/view',{'url':'https://example.com/video.mp4','trim_enabled':False})
+        item=self.app.get_library_item('new')
+        self.assertEqual(item['status'],'ready');self.assertEqual(item['size_bytes'],11)
+        self.assertEqual(self.app.get_library_item('existing'),before)
+        self.assertEqual(list(self.app.WORK.iterdir()),[])
+    def test_upload_mismatched_size_not_marked_ready(self):
+        now=self.app.utcnow()
+        with self.app.db() as c:c.execute('INSERT INTO library_items(id,name,filename,created_at,updated_at) VALUES(?,?,?,?,?)',('new','new','new.mp4',now,now))
+        with patch.object(self.app,'source_to_file'),patch.object(self.app,'probe',return_value={}), \
+             patch.object(self.app,'media_duration',return_value=2),patch.object(self.app,'transcode_library',side_effect=lambda s,d,*a:d.write_bytes(b'abc')), \
+             patch.object(self.app,'verify_library_media',return_value=2),patch.object(self.app,'rclone',return_value=json.dumps({'ID':'x','Size':99})):
+            self.app.process_library_import('new','https://example.com/file',{'url':'https://example.com/video.mp4','trim_enabled':False})
+        self.assertEqual(self.app.get_library_item('new')['status'],'failed')
+
+if __name__=='__main__':unittest.main()

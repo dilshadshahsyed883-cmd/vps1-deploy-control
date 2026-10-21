@@ -237,5 +237,42 @@ class AudioReleaseFenceTests(unittest.TestCase):
         self.assertNotIn('edge-worker.service', source)
 
 
+    def test_smoke_uses_absolute_runuser_even_with_service_restricted_path(self):
+        """Reproduce protected release: live service PATH excludes /usr/sbin."""
+        import production.audio_downloader_release as release
+        with tempfile.TemporaryDirectory() as tmp:
+            exe = Path(tmp) / 'python'
+            exe.write_text('#! test executable placeholder')
+            report = '{"result":"YOUTUBE_PROVIDER_CHALLENGE","audio":"NOT_VERIFIED","drive":"NOT_VERIFIED"}'
+            class FakeProcess:
+                returncode = 0
+                pid = 12345
+                def communicate(self, timeout):
+                    return (report + '\n', '')
+            with patch.object(release.subprocess, 'Popen', return_value=FakeProcess()) as start:
+                with patch.object(release, 'event'):
+                    output = release.smoke(ROOT, {'PATH': tmp})
+            command = start.call_args.args[0]
+            self.assertTrue(Path(command[0]).is_absolute())
+            self.assertEqual(Path(command[0]).name, 'runuser')
+            self.assertEqual(command[1:4], ['-u', 'ubuntu', '--'])
+            self.assertEqual(command[4], str(exe))
+            self.assertEqual(start.call_args.kwargs['env']['PATH'], tmp)
+            self.assertEqual(output['result'], 'YOUTUBE_PROVIDER_CHALLENGE')
+    def test_disabled_live_proxy_smoke_reports_not_verified_without_external_download(self):
+        """Missing active proxy may not fail the installation or pretend YouTube works."""
+        import production.audio_downloader_smoke as qa
+        report = {'proxy': {'enabled': False, 'selected_id': 'saved-profile'},
+                  'audio': 'NOT_VERIFIED', 'drive': 'NOT_VERIFIED'}
+        self.assertTrue(qa.proxy_disabled_report(report))
+        self.assertEqual(report['result'], 'PROXY_DISABLED_ON_VPS')
+        self.assertEqual(report['audio'], 'NOT_VERIFIED')
+        self.assertEqual(report['drive'], 'NOT_VERIFIED')
+        active = {'proxy': {'enabled': True}, 'audio': 'NOT_VERIFIED', 'drive': 'NOT_VERIFIED'}
+        self.assertFalse(qa.proxy_disabled_report(active))
+        self.assertNotIn('result', active)
+        source = Path(qa.__file__).read_text()
+        self.assertLess(source.index('if proxy_disabled_report(report):'), source.index("jid = 'ADJ-'"))
+
 if __name__ == '__main__':
     unittest.main()
