@@ -68,6 +68,21 @@ def browser_test():
                         page.keyboard.press('Escape');assert page.locator('.vps1-native-toggle').get_attribute('aria-expanded')=='false'
                     else:assert round(page.locator('#vps1-native-site-sidebar').bounding_box()['width'])==214
                     page.locator('#nav button').filter(has_text='Input').click()
+                    # Exercise the actual approved Input controls before uploading.
+                    page.locator('[data-sml-import="youtube"]').click()
+                    assert page.locator('#importSource').input_value()=='youtube'
+                    assert 'YouTube' in page.locator('#smlImportLabel').inner_text()
+                    page.locator('[data-sml-import="drive"]').click()
+                    assert page.locator('#importSource').input_value()=='drive'
+                    page.locator('#smlBatchDetails summary').click()
+                    assert page.locator('#aiBatchUrls').is_visible()
+                    page.locator('#smlBatchDetails summary').click()
+                    page.locator('[data-sml-upload="folder"]').click()
+                    assert page.locator('#sml-upload-folder').is_visible()
+                    page.locator('[data-sml-upload="video"]').click()
+                    assert page.locator('#dropPanel').is_visible()
+                    page.locator('[data-sml-upload="image"]').click()
+                    assert page.locator('#sml-upload-image').is_visible()
                     page.locator('#imageFiles').set_input_files(sample)
                     page.locator('#imageUpload').click() if page.locator('#imageUpload').count() else page.get_by_role('button',name='Add selected images',exact=True).click()
                     page.get_by_text('imported',exact=False).first.wait_for()
@@ -81,8 +96,10 @@ def browser_test():
                     page.locator('#aiDescription').filter(visible=True).wait_for()
                     page.get_by_role('button',name='Close AI inspector',exact=True).click()
                     page.locator('#aiQuery').fill('a mountain landscape')
-                    page.get_by_role('button',name='Search media',exact=True).click()
-                    page.locator('#aiSearchStatus').filter(has_text='AI Disabled').wait_for()
+                    # Query text requires the local semantic model; fixture deliberately disables it.
+                    with page.expect_response(lambda response: '/api/v1/ai/search?' in response.url) as search_response:
+                        page.get_by_role('button',name='Search media',exact=True).click()
+                    assert search_response.value.status==503,search_response.value.status
                     assert not errors,errors
                     output=ROOT.parent/'qa';output.mkdir(exist_ok=True)
                     page.screenshot(path=str(output/f'sml-ai-{width}.png'))

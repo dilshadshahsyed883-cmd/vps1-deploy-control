@@ -273,3 +273,64 @@ body.vps1-native-library .sml-ai-panel{margin-bottom:20px}
 .sml-ai-panel textarea{display:block;width:100%;box-sizing:border-box;min-width:0;max-width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font:inherit;margin:8px 0}
 
 #aiDuplicateResults img,#aiDuplicateResults video{width:100%;max-height:260px;object-fit:contain}
+
+/* SML-INPUT-UI-001: owner-approved compact input workspace. Scoped to Input only. */
+body.vps1-native-library #page-sources{--sml-in-line:#dfe6f0;--sml-in-muted:#708198}
+body.vps1-native-library #page-sources [hidden]{display:none!important}
+body.vps1-native-library .sml-input-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:0 0 13px;min-width:0}
+body.vps1-native-library .sml-input-heading h2{font-size:18px;letter-spacing:-.3px;color:#17253c;margin:0}
+body.vps1-native-library .sml-input-heading p{font-size:12px;color:#64748b;margin:3px 0 0}
+body.vps1-native-library .sml-input-hint{font-size:10px;font-weight:750;letter-spacing:.12em;color:#8293a9;white-space:nowrap}
+body.vps1-native-library .sml-input-grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(330px,1fr);align-items:start;gap:16px;margin:0 0 17px}
+body.vps1-native-library :is(.sml-upload-card,.sml-remote-card,.sml-batch-card,.sml-input-history){min-width:0;margin:0;padding:18px!important}
+body.vps1-native-library .sml-input-right{display:grid;gap:16px;min-width:0}
+body.vps1-native-library .sml-input-grid .panel-head{margin-bottom:14px;align-items:flex-start}
+body.vps1-native-library .sml-input-tag{display:inline-flex;flex:0 0 auto;font-size:10px;font-weight:750;color:#6580a4;background:#f2f6fc;border-radius:6px;padding:5px 9px}
+body.vps1-native-library :is(.sml-upload-tabs,.sml-import-tabs){display:flex;gap:5px;min-width:0}
+body.vps1-native-library .sml-upload-tabs{margin-bottom:12px}
+body.vps1-native-library .sml-upload-tabs button{flex:1;min-width:0;border:1px solid #e1e7f1;background:#f5f7fc;border-radius:7px;padding:10px 7px;color:#65758d;font-size:12px;font-weight:750;cursor:pointer}
+body.vps1-native-library .sml-upload-tabs button.active{border-color:#c7d5fc;background:#eaf0ff;color:#315edb}
+body.vps1-native-library .sml-upload-pane{min-width:0}
+body.vps1-native-library :is(.sml-upload-card .drop-panel,.sml-media-drop){min-height:174px;border:1.5px dashed #b9cae9;border-radius:10px;padding:16px 12px!important;margin:0;background:#f9fbff!important;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;box-sizing:border-box}
+body.vps1-native-library .sml-upload-card .drop-panel.drag,body.vps1-native-library .sml-media-drop.drag{border-color:#315edb;background:#eaf0ff!important}
+body.vps1-native-library :is(.sml-upload-card .drop-panel,.sml-media-drop) .drop-icon{margin:0 auto 8px;width:36px;height:36px;font-size:19px;background:#eaf0ff!important;color:#315edb!important}
+body.vps1-native-library :is(.sml-upload-card .drop-panel,.sml-media-drop) h3{font-size:13px;line-height:1.3;margin:0;color:#23364e}
+body.vps1-native-library :is(.sml-upload-card .drop-panel,.sml-media-drop) p{font-size:11px;color:#71829a;margin:5px 0 12px}
+body.vps1-native-library .sml-media-drop button+button{margin-top:7px}
+body.vps1-native-library .sml-pane-footnote{font-size:10px;color:#8493a6;margin:10px 0 0}
+body.vps1-native-library .sml-input-status{font-size:11px;color:#315edb;overflow-wrap:anywhere;margin:9px 0 0;min-height:0}
+body.vps1-native-library .sml-import-tabs{background:#f3f6fb;border:1px solid #e6ebf4;border-radius:8px;padding:3px;margin-bottom:13px}
+body.vps1-native-library .sml-import-tabs button{flex:1;background:transparent;border:0;color:#65788f;border-radius:6px;font-size:12px;font-weight:700;padding:9px 6px}
+body.vps1-native-library .sml-import-tabs button.active{background:#fff;color:#315edb;box-shadow:0 1px 5px #1a2f5016}
+body.vps1-native-library .sml-select-hidden{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;overflow:hidden!important;clip-path:inset(50%)!important;white-space:nowrap!important;border:0!important}
+body.vps1-native-library .sml-remote-card>label:not(.sml-select-hidden),body.vps1-native-library .sml-batch-card label:not(.import-choice){display:block;font-size:11px;font-weight:700;color:#41536e;margin:10px 0 5px}
+body.vps1-native-library #page-sources :is(#importValue,#aiBatchUrls){box-sizing:border-box;width:100%;max-width:100%;min-width:0;background:#fff!important;border:1px solid #cbd5e1!important;border-radius:7px;font-size:12px;padding:9px 10px;color:#25344b!important}
+body.vps1-native-library #page-sources #aiBatchUrls{resize:vertical}
+body.vps1-native-library .sml-input-help{font-size:10px;color:#8493a6;margin:6px 0 10px;overflow-wrap:anywhere}
+body.vps1-native-library .sml-import-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:11px}
+body.vps1-native-library #page-sources .import-choice{display:flex;align-items:flex-start;gap:7px;font-size:11px;line-height:1.4;font-weight:500;color:#586c85;min-width:0;flex:1 1 210px}
+body.vps1-native-library #page-sources .import-choice input{width:auto;flex:0 0 auto;accent-color:#315edb;margin:2px 0 0}
+body.vps1-native-library #page-sources button{min-height:36px}
+body.vps1-native-library #page-sources button:disabled{opacity:.5;cursor:not-allowed}
+body.vps1-native-library #page-sources :is(button,input,summary,textarea):focus-visible{outline:3px solid #9db5ff;outline-offset:2px}
+body.vps1-native-library .sml-input-disclosure{border-top:1px solid #edf1f7;margin-top:13px;padding-top:10px}
+body.vps1-native-library .sml-input-disclosure summary{font-size:11px;font-weight:700;color:#597395;cursor:pointer;list-style:revert}
+body.vps1-native-library .sml-input-disclosure .import-choice{margin-top:10px}
+body.vps1-native-library .sml-input-disclosure #importHistory{margin:12px 0 0;max-height:260px;overflow-y:auto}
+body.vps1-native-library .sml-batch-card{padding:15px 18px!important}
+body.vps1-native-library .sml-batch-card summary{display:flex;align-items:center;gap:10px;cursor:pointer;list-style:none}
+body.vps1-native-library .sml-batch-card summary::-webkit-details-marker{display:none}
+body.vps1-native-library .sml-batch-icon{width:34px;height:34px;display:grid;place-items:center;flex:0 0 34px;background:#edf4fe;color:#4867aa;border-radius:8px;font-size:20px}
+body.vps1-native-library .sml-batch-card summary>span:nth-child(2){flex:1;min-width:0}
+body.vps1-native-library .sml-batch-card summary b{display:block;font-size:13px;color:#25364e}
+body.vps1-native-library .sml-batch-card summary small{display:block;font-size:10px;color:#708198;margin-top:4px}
+body.vps1-native-library .sml-batch-expand{font-size:11px;font-weight:700;color:#315edb;border:1px solid #dce5f2;padding:6px 9px;border-radius:6px}
+body.vps1-native-library .sml-batch-card details[open] .sml-batch-expand{font-size:0}
+body.vps1-native-library .sml-batch-card details[open] .sml-batch-expand:after{content:'Collapse';font-size:11px}
+body.vps1-native-library .sml-batch-content{padding-top:14px;border-top:1px solid #edf1f7;margin-top:14px}
+body.vps1-native-library .sml-batch-content .import-choice{margin:10px 0}
+body.vps1-native-library .sml-input-history .panel-head{margin-bottom:12px}
+body.vps1-native-library .sml-input-history .source-list{min-width:0}
+body.vps1-native-library .sml-input-history .source-row{min-width:0}
+@media(max-width:950px){body.vps1-native-library .sml-input-grid{grid-template-columns:minmax(0,1fr)}body.vps1-native-library .sml-input-right{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:760px){body.vps1-native-library :is(.sml-upload-card,.sml-remote-card,.sml-batch-card,.sml-input-history){padding:14px!important}body.vps1-native-library .sml-input-heading{flex-wrap:wrap}body.vps1-native-library .sml-input-hint{display:none}body.vps1-native-library .sml-input-grid{gap:12px}body.vps1-native-library .sml-input-right{gap:12px}body.vps1-native-library .sml-import-actions>button{width:100%}body.vps1-native-library .sml-input-history .source-row{grid-template-columns:minmax(0,1fr) auto!important}}
