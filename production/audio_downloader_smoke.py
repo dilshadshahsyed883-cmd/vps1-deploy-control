@@ -14,6 +14,15 @@ import tempfile
 import uuid
 
 
+def owns_qa_drive_file(remote, nonce, drive_remote, drive_base, safe_folder):
+    """Confirm exactly the disposable QA output; reject any owner file."""
+    if not isinstance(remote, str) or not isinstance(nonce, str):
+        return False
+    prefix = (f'{drive_remote}:{drive_base}/'
+              f'{safe_folder("__Audio_Proxy_QA__")}/{safe_folder(nonce)}/')
+    return remote.startswith(prefix) and remote.endswith(f'_ADJ-{nonce}.mp3')
+
+
 def proxy_disabled_report(report):
     """No proxy configured: never treat a direct-only YouTube failure as release failure."""
     if report.get('proxy', {}).get('enabled'):
@@ -70,7 +79,7 @@ def main(source):
             report['reason'] = m._safe_proxy_error(str(exc)) if isinstance(exc, m.DownloadFailure) else 'Worker failed after stage ' + result.get('status', 'download')
         finally:
             remote = result.get('drive_path')
-            if remote and result.get('status') == 'delivered' and ('/__Audio_Proxy_QA__/' + nonce + '/') in remote:
+            if result.get('status') == 'delivered' and owns_qa_drive_file(remote, nonce, m.DRIVE_REMOTE, m.DRIVE_BASE, m.safe_folder):
                 clean = subprocess.run([state['rclone'], '--config', m.RCLONE_CONFIG, 'deletefile', remote],
                                        capture_output=True, timeout=60)
                 report['qa_remote_cleanup'] = 'PASS' if clean.returncode == 0 else 'PENDING'
