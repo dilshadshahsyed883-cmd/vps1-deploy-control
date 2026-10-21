@@ -3649,6 +3649,11 @@ def _prepare_first2_visual_audit(
     items: list[dict[str, Any]] = []
     used_asset_keys: set[str] = set()
     used_hashes: set[str] = set()
+    audit_sml_client = SMLWorkerClient()
+    used_sml_ids: set[str] = set()
+    audit_sml_sources = job_dir / "audit_sml_sources"
+    if audit_sml_client.enabled:
+        audit_sml_sources.mkdir(parents=True, exist_ok=True)
     for index, row in enumerate(rows):
         if cancelled(job_id):
             raise RuntimeError("Remote render cancelled.")
@@ -3670,7 +3675,14 @@ def _prepare_first2_visual_audit(
             # fallbacks, but stops at the first usable asset. The UI exposes the
             # actual keyword used so a generic fallback is immediately visible.
             keywords = _scene_keywords(scene) or [_audit_safe_query(scene)]
-            for keyword in keywords:
+            if bool(scene.get("_sml_first")) and audit_sml_client.enabled:
+                result = _try_sml_first_scene(
+                    client=audit_sml_client, job_id=job_id, scene=scene,
+                    scene_code=item_id, keywords=keywords,
+                    assignment_root=assignment_root, source_root=audit_sml_sources,
+                    used_sml_ids=used_sml_ids, used_hashes=used_hashes,
+                )
+            for keyword in ([] if result is not None else keywords):
                 result, error = _resolve_audit_candidate(
                     job_id=job_id, job_dir=job_dir, item_id=item_id, scene=scene, keyword=keyword, revision=1,
                     rejected_asset_keys=set(), used_asset_keys=used_asset_keys, used_hashes=used_hashes,
@@ -3792,7 +3804,8 @@ def _delete_audit_owned_if_unused(job_dir: Path, payload: dict[str, Any], path_v
     path = Path(str(path_value or ""))
     if not path.is_file():
         return
-    allowed_roots = [(job_dir / "audit_media").resolve(), (job_dir / "pexels_provider_cache").resolve()]
+    allowed_roots = [(job_dir / "audit_media").resolve(), (job_dir / "pexels_provider_cache").resolve(),
+                     (job_dir / "audit_sml_sources").resolve()]
     try:
         resolved = path.resolve()
         if not any(resolved.is_relative_to(root) for root in allowed_roots):
@@ -4178,6 +4191,16 @@ def process_job(job_id: str) -> None:
                 _save_edit_checkpoint(job_dir, edit_signature, cleaned_scenes, transition_summary)
 
             metadata = dict(settings.metadata or {})
+            sml_for_intro = (
+                str(metadata.get("media_source_mode") or "") == "sml_first"
+                and bool(metadata.get("sml_auto_scene_matching", False))
+            )
+            metadata["intro_scenes"] = [
+                {**dict(row), "_sml_first": sml_for_intro,
+                 "pexels_allow_video": bool(getattr(settings, "use_video_backgrounds", True)),
+                 "pexels_prefer_landscape": bool(getattr(settings, "pexels_prefer_landscape", True))}
+                for row in metadata.get("intro_scenes", []) if isinstance(row, dict)
+            ]
             metadata["scene_sync_plan"] = [dict(scene) for scene in cleaned_scenes]
             metadata["transition_direction"] = transition_summary
             metadata["transition_direction_authoritative"] = True
