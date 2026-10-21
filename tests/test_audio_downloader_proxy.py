@@ -206,6 +206,21 @@ class AudioProxyTests(unittest.TestCase):
 
 
 
+    def test_disposable_drive_cleanup_targets_only_own_normalized_qa_file(self):
+        import production.audio_downloader_smoke as qa
+        nonce = 'C96CA984DDF24F5D'
+        prefix = 'gdrive:Audio Downloader/Audio_Proxy_QA/' + nonce
+        good = prefix + '/Me_at_the_zoo _jNQXAC9IVRw_ADJ-' + nonce + '.mp3'
+        safe = self.m.safe_folder
+        self.assertTrue(qa.owns_qa_drive_file(good, nonce, 'gdrive', 'Audio Downloader', safe))
+        self.assertFalse(qa.owns_qa_drive_file(
+            good.replace(nonce + '/', 'Other/'), nonce, 'gdrive', 'Audio Downloader', safe))
+        self.assertFalse(qa.owns_qa_drive_file(
+            prefix + '/owner.mp3', nonce, 'gdrive', 'Audio Downloader', safe))
+        self.assertFalse(qa.owns_qa_drive_file(None, nonce, 'gdrive', 'Audio Downloader', safe))
+
+
+
 class AudioReleaseFenceTests(unittest.TestCase):
     def test_failed_health_restores_previous_release(self):
         import production.audio_downloader_release as m
