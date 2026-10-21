@@ -131,7 +131,7 @@
           <button type="button" data-action="preview" ${missing?'disabled':''}>Preview</button>
           <button type="button" data-action="replace" class="primary">Get New</button>
           <button type="button" data-action="keyword">Change Keyword</button>
-          ${smlConfig.sml_enabled&&smlConfig.sml_manual_audit_selection?'<button type="button" data-action="sml" class="primary">Search SML</button>':''}
+          ${smlConfig.sml_enabled&&smlConfig.sml_manual_audit_selection?'<button type="button" data-action="sml" class="primary">Browse SML</button>':''}
           <label>Upload<input type="file" data-action="upload" accept="video/*,.mp4,.mov,.mkv,.webm,.avi,.m4v" hidden></label>
         </div>
         <div class="audit-status-line"><span>${i.changed?'Modified':'Original selection'}</span><span>${i.approved?'✓ Reviewed':'Needs review'} · r${Number(i.revision||0)}</span></div>
