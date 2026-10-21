@@ -5,6 +5,7 @@ import json
 import re
 import shutil
 import sqlite3
+import time
 from pathlib import Path
 from urllib.request import urlopen
 from production.runtime import BASE, DATA, REPO, CATALOG, runtime_name, atomic_json, atomic_link, event, http_check, run, require_sml_idle
@@ -37,7 +38,16 @@ def idle(app):
         require_idle_audio_downloader()
     elif app == 'video-merger':
         from production.video_template_release import idle as video_idle
-        video_idle(app)
+        # A transient stalled status read must never bypass the idle guard.
+        # Retry boundedly; repeated timeout or any unfinished job remains blocked.
+        for attempt in range(3):
+            try:
+                video_idle(app)
+                break
+            except TimeoutError:
+                if attempt == 2:
+                    raise
+                time.sleep(2)
     elif app == 'short-stream':
         with urlopen('http://127.0.0.1:8145/engine/health', timeout=15) as response:
             value = json.load(response)
