@@ -124,7 +124,7 @@ def install(revision):
     run(['python3','-m','venv',venv],quiet=True)
     python=venv/'bin/python'
     run([python,'-m','pip','install','--disable-pip-version-check','--no-cache-dir',
-         'yt-dlp[default]','gdown==5.2.0','requests==2.32.3'],timeout=900,quiet=True)
+         'yt-dlp[default]==2026.8.19','gdown==5.2.0','requests==2.32.3'],timeout=900,quiet=True)
     run([python,'-m','yt_dlp','--version'],quiet=True)
     run([python,'-m','gdown','--version'],quiet=True)
     install_js(venv)
