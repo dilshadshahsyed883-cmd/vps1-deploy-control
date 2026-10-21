@@ -213,8 +213,11 @@ def yt_common_args(profile=None, force_profile=False):
 def scrub_proxy_error(text):
     text=str(text or '')
     for p in load_proxy_config().get('profiles',[]):
+        # Scrub complete credential-bearing URLs first. Replacing one-character
+        # usernames/passwords globally would corrupt error diagnostics.
+        text=text.replace(proxy_url(p),'[private proxy URL]')
         for secret in (str(p.get('password') or ''),str(p.get('username') or '')):
-            if secret: text=text.replace(secret,'***')
+            if len(secret)>=4: text=text.replace(secret,'***')
     text=re.sub(r'https?://[^\s@]+@','http://***:***@',text)
     cookie_path=os.environ.get('VIDEO_MERGER_YOUTUBE_COOKIES_FILE','').strip()
     if cookie_path: text=text.replace(cookie_path,'[private cookie file]')
