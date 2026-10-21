@@ -233,9 +233,6 @@
         <h2>VPS local storage</h2><p id="localStorage">Loading storage…</p>
         <p>Originals and both candidates remain until every pair has a decision and kept clips pass verification. Active jobs and editor references are protected.</p>
         <button class="primary" id="saveSettings">Save settings</button>
-        <h2>Clear &amp; Replace Library</h2><p>Begin replacement, upload and approve new media, then commit. Your current library stays available until the replacement is verified. Referenced media blocks clearing.</p>
-        <div id="replacementState"></div><button id="beginReplacement" class="danger-soft">Begin replacement</button>
-        <button id="commitReplacement" class="danger-soft" hidden>Verify new library &amp; clear old</button><button id="cancelReplacement" class="ghost" hidden>Cancel replacement</button>
       </article>
     </section>
   </main>
@@ -262,11 +259,11 @@
 </div>
 
 <div id="toast" class="toast hidden"></div>
-<script src="/self-media-library/static/app.js?v=20261022-local-v1"></script>
+<script src="/self-media-library/static/app.js?v=20261022-local-v2"></script>
 <aside id="aiInspector" class="sml-ai-inspector hidden" aria-label="AI metadata inspector"><div class="panel-head"><h2 id="aiInspectorTitle">Media inspector</h2><button id="aiInspectorClose" class="ghost" aria-label="Close AI inspector">Close</button></div><div id="aiInspectorMedia"></div><p id="aiInspectorState"></p>
 <form id="aiMetadataForm"><label>Description<textarea id="aiDescription" rows="3"></textarea></label><label>Keywords (comma separated)<input id="aiKeywords"></label><label>Review reason<input id="aiReviewReason" maxlength="500"></label><label>Custom fields (JSON object)<textarea id="aiCustom" rows="2">{}</textarea></label><label>Tag aliases (JSON object)<textarea id="aiAliases" rows="2">{}</textarea></label><label><input id="aiRights" type="checkbox"> I have permission to reuse this asset</label><div id="aiManualCategories" class="sml-ai-filters"></div><button class="primary" type="submit">Save corrections</button></form>
 <div class="sml-ai-actions"><button class="ghost" id="aiReanalyze">Reanalyze media</button><button class="ghost" id="aiSimilar">Find similar</button><button class="ghost" id="aiHistory">Change &amp; usage history</button></div><div id="aiFieldDetails"></div><div id="aiHistoryDetails"></div></aside>
-<script defer src="/self-media-library/static/local_library.js?v=20261022-local-v1"></script>
+<script defer src="/self-media-library/static/local_library.js?v=20261022-local-v2"></script>
 <script defer src="/self-media-library/static/ai_workspace.js?v=20261020-ai-v1"></script>
 </body>
 </html>
