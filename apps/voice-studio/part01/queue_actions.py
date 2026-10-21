@@ -75,11 +75,12 @@ def allowed(job, engine):
         actions = ["cancel"]
     if state in ("failed", "cancelled") and int(job.get("attempt") or 0) < attempt_limit(engine):
         actions.append("retry")
+    # History hide is independent of delivery. Completed audio is still a
+    # terminal synthesis job even if its Google Drive upload fails or retries.
+    # The delete action only sets hidden_at: neither audio/Drive files nor
+    # the delivery worker's pending uploads are removed or cancelled.
     if state in ("completed", "failed", "cancelled", "skipped"):
-        delivery = job.get("delivery_status")
-        # Completed jobs remain visible while uploading or pending upload.
-        if state != "completed" or delivery in ("delivered", "cleaned"):
-            actions.append("delete")
+        actions.append("delete")
     return actions
 
 
