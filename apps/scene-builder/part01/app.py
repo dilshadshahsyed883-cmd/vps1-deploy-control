@@ -2532,12 +2532,8 @@ def scene_sml_clips(request: Request, q: str = ""):
         catalog = approved_clips()
     except SMLUnavailable as exc:
         raise HTTPException(503, str(exc)) from exc
-    needle = q.strip().casefold()
-    if needle:
-        catalog = [x for x in catalog
-                   if needle in str(x.get("description") or "").casefold()
-                   or any(needle in str(k.get("keyword") if isinstance(k, dict) else k).casefold()
-                          for k in (x.get("keywords") or []))]
+    if q.strip():
+        catalog = rank_clips({"keyword_used": q.strip()}, catalog)
     return {"items": _sml_safe_items(catalog), "mode": "sml_first",
             "total": len(catalog), "fallback": "pexels"}
 
