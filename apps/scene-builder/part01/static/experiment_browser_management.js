@@ -106,3 +106,73 @@ async function bulk(action){
  await bridge.api("/profiles/bulk","POST",{action,profile_ids:ids,group_id:el("exp-bulk-group").value});
  picked.clear();await bridge.sync();message("Bulk "+action+" completed.");
 }
+
+function loadEdit(){
+ const item=bridge.profiles().find(x=>x.id===bridge.selected());
+ if(!item)throw Error("Select a profile.");
+ for(const [id,key] of Object.entries({"exp-edit-name":"name","exp-edit-url":"start_url",
+  "exp-edit-locale":"locale","exp-edit-timezone":"timezone","exp-edit-proxy":"proxy_server",
+  "exp-edit-privacy":"privacy_mode","exp-edit-group":"group_id","exp-edit-tags":"tags"}))
+  el(id).value=item[key]||"";
+}
+el("exp-load-edit").addEventListener("click",()=>job(async()=>{loadEdit();message("Profile loaded for editing.");}));
+el("exp-edit-form").addEventListener("submit",event=>{
+ event.preventDefault();job(async()=>{
+  const id=bridge.selected();if(!id)throw Error("Select a profile.");
+  await bridge.api("/profiles/"+id,"PATCH",Object.fromEntries(new FormData(event.currentTarget).entries()));
+  await bridge.sync(id);message("Profile updated; existing cookies and proxy credentials preserved.");
+ });
+});
+function loadGroup(){
+ const group=groups.find(x=>x.id===el("exp-group-pick").value);
+ el("exp-group-name").value=group?.name||"";
+ el("exp-group-proxy").value=group?.proxy_server||"";
+}
+el("exp-group-load").addEventListener("click",loadGroup);
+el("exp-group-form").addEventListener("submit",event=>{
+ event.preventDefault();job(async()=>{
+  const id=el("exp-group-pick").value;
+  await bridge.api("/groups"+(id?"/"+id:""),id?"PATCH":"POST",
+   {name:el("exp-group-name").value,proxy_server:el("exp-group-proxy").value});
+  await refreshData();await bridge.sync();
+  el("exp-group-pick").value="";loadGroup();message("Group saved.");
+ });
+});
+el("exp-group-delete").addEventListener("click",()=>job(async()=>{
+ const id=el("exp-group-pick").value;if(!id)throw Error("Select a group.");
+ if(!confirm("Remove group? Its profiles and storage will be preserved."))return;
+ await bridge.api("/groups/"+id,"DELETE");
+ el("exp-group-pick").value="";loadGroup();await refreshData();await bridge.sync();
+ message("Group deleted. Profiles are ungrouped, not deleted.");
+}));
+function settingsFromForm(){
+ const data=Object.fromEntries(new FormData(el("browser-create-form")).entries());
+ for(const key of ["name","proxy_username","proxy_password","tags","group_id"])delete data[key];
+ return data;
+}
+function loadTemplate(){
+ const tpl=templates.find(x=>x.id===el("exp-template-pick").value);
+ el("exp-template-name").value=tpl?.name||"";
+ if(!tpl)return;
+ const form=el("browser-create-form");
+ for(const [name,value] of Object.entries(tpl.settings)){
+  const field=Array.from(form.elements).find(x=>x.name===name);
+  if(field)field.value=String(value);
+ }
+ message("Template settings loaded into the Create Profile form on the first tab.");
+}
+el("exp-template-load").addEventListener("click",loadTemplate);
+el("exp-template-form").addEventListener("submit",event=>{
+ event.preventDefault();job(async()=>{
+  const id=el("exp-template-pick").value;
+  await bridge.api("/templates"+(id?"/"+id:""),id?"PATCH":"POST",
+   {name:el("exp-template-name").value,settings:settingsFromForm()});
+  await refreshData();message("Template saved without proxy credentials.");
+ });
+});
+el("exp-template-delete").addEventListener("click",()=>job(async()=>{
+ const id=el("exp-template-pick").value;if(!id)throw Error("Select a template.");
+ if(!confirm("Delete template? Existing profiles will not change."))return;
+ await bridge.api("/templates/"+id,"DELETE");await refreshData();
+ message("Template deleted.");
+}));
