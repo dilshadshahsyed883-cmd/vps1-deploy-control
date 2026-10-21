@@ -4,11 +4,38 @@ import json
 from pathlib import Path
 import re
 import shutil
+import urllib.request
+import zipfile
 from production.runtime import BASE, DATA, REPO, atomic_json, atomic_link, event, http_check, run
 from production.video_template_release import idle, require
 
 
 SYSTEMD=Path('/etc/systemd/system')
+DENO_URL='https://github.com/denoland/deno/releases/download/v2.9.7/deno-x86_64-unknown-linux-gnu.zip'
+DENO_SHA256='c6527f24f4b16031d3ae4fa9f658d5f11534c8d84ce7dc8502420280919c3490'
+
+def install_js(venv):
+    archive=venv/'deno.zip'
+    with urllib.request.urlopen(DENO_URL,timeout=120) as response:
+        payload=response.read(100_000_001)
+    require(len(payload)<=100_000_000 and hashlib.sha256(payload).hexdigest()==DENO_SHA256,'Deno artifact digest mismatch')
+    archive.write_bytes(payload)
+    with zipfile.ZipFile(archive) as bundle:
+        binary=venv/'bin/deno'
+        binary.write_bytes(bundle.read('deno'))
+        binary.chmod(0o755)
+    archive.unlink()
+    run([binary,'--version'],quiet=True)
+
+def live_paths(default_state):
+    pid=run(['systemctl','show','vps1-production-video-merger.service','-p','MainPID','--value'],quiet=True).strip()
+    require(pid.isdigit() and int(pid)>1,'Video Merger process missing')
+    values={entry.split(b'=',1)[0].decode():entry.split(b'=',1)[1].decode()
+            for entry in (Path('/proc')/pid/'environ').read_bytes().split(b'\0') if b'=' in entry}
+    state=Path(values.get('VIDEO_MERGER_ROOT',str(default_state)))
+    require(state.is_relative_to(DATA/'video-merger'),'unowned data path')
+    config=Path(values.get('VIDEO_MERGER_PROXY_CONFIG_DIR','/home/ubuntu/.config/video-merger'))/'proxy_profiles.json'
+    return state,config
 
 def install(revision):
     require(re.fullmatch('[a-f0-9]{40}',revision),'invalid revision')
@@ -35,6 +62,7 @@ def install(revision):
          'yt-dlp[default]','gdown==5.2.0','requests==2.32.3'],timeout=900,quiet=True)
     run([python,'-m','yt_dlp','--version'],quiet=True)
     run([python,'-m','gdown','--version'],quiet=True)
+    install_js(venv)
     # Source is overlaid on the actual active release, retaining parallel UI work.
     shutil.copytree(previous,target,symlinks=True)
     name='part01/app.py'
@@ -47,11 +75,11 @@ def install(revision):
     manifest.update(revision=revision,import_overlay=str(previous))
     manifest['files'][name]=hashlib.sha256(source).hexdigest()
     atomic_json(target/'_production_manifest.json',manifest,0o644)
-    state=DATA/app/'video-merger'
+    state,proxy_config=live_paths(DATA/app/'video-merger')
     # Both real-source downloads happen in a temporary directory. Existing Drive
     # files and SQLite records are only read. Fail before any live mutation.
     run(['/usr/sbin/runuser','-u','ubuntu','--',python,'-m','production.video_merger_import_smoke',
-         '--source',target/name,'--state',state],cwd=REPO,timeout=1800,quiet=False)
+         '--source',target/name,'--state',state,'--proxy-config',proxy_config],cwd=REPO,timeout=1800,quiet=False)
     journal=BASE/'transactions/video-merger-imports'/revision
     journal.mkdir(parents=True,exist_ok=False)
     atomic_json(journal/'previous.json',{'current':str(previous),'unit':previous_unit})

@@ -22,6 +22,11 @@ class Imports(unittest.TestCase):
         with patch.object(self.app.importlib.util,'find_spec',return_value=object()):
             self.assertEqual(self.app.downloader_command('yt_dlp'),[self.app.sys.executable,'-m','yt_dlp'])
             self.assertEqual(self.app.downloader_command('gdown'),[self.app.sys.executable,'-m','gdown'])
+    def test_js_runtime_is_explicit_and_no_remote_solver_required(self):
+        binary=self.root/'deno';binary.touch();self.app.DENO=binary
+        args=self.app.yt_common_args()
+        self.assertIn('deno:'+str(binary),args)
+        self.assertNotIn('--remote-components',args)
     def test_missing_dependency_actionable(self):
         with patch.object(self.app.importlib.util,'find_spec',return_value=None):
             with self.assertRaisesRegex(RuntimeError,'service Python'):self.app.downloader_command('gdown')
