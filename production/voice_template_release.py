@@ -238,6 +238,8 @@ def omni_kokoro_header_overlay(original: bytes, source: bytes) -> bytes:
             "duplicate installed Omni header styles")
     if OMNI_HEADER_STYLE_ID in original:
         start = original.index(OMNI_HEADER_STYLE_ID)
+        require(original.find(b'</style>', start) >= 0,
+                "incomplete installed Omni header CSS")
         finish = original.index(b'</style>', start) + len(b'</style>')
         original = original[:start] + css + original[finish:]
     else:
