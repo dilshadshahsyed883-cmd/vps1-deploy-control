@@ -37,6 +37,7 @@ from smart_scroll.transition_engine import assign_auto_transitions
 from smart_scroll.v2_renderer import render_mixed_media
 from smart_scroll.v3_engine import download_result, search_multi_provider, optimize_video_candidate, find_cached_provider_media
 from vps_engine.worker_registry import WorkerRegistry, env_capacity
+from vps_engine.sml_worker_bridge import SMLWorkerClient, SMLMediaUnavailable
 
 WORKER_API_VERSION = 26
 WORKER_BUILD = "2026.09.06-professional-editor-v17.5d-r6-internal-audio-studio-v1"
@@ -1154,6 +1155,103 @@ def _download_scene_candidate(
     return None, f"{keyword}: " + ("; ".join(errors[-3:]) or "no usable result")
 
 
+
+def _try_sml_first_scene(
+    *,
+    client: SMLWorkerClient,
+    job_id: str,
+    scene: dict[str, Any],
+    scene_code: str,
+    keywords: list[str],
+    assignment_root: Path,
+    source_root: Path,
+    used_sml_ids: set[str],
+    used_hashes: set[str],
+) -> dict[str, Any] | None:
+    """Resolve SML *before* any Pexels lookup, preserving independent lifecycles.
+
+    Only previously-approved SML video clips may be reserved. Failed integrity,
+    short-duration, missing Drive restore or unusable dimensions fall through
+    to the existing Pexels acquisition. Reviewed/locked scenes bypass this.
+    """
+    if (not bool(scene.get("_sml_first")) or not client.enabled or
+            not bool(scene.get("pexels_allow_video", True))):
+        return None
+    scene_duration = _scene_duration(scene)
+    for query in keywords[:4]:
+        try:
+            candidates = client.ranked(query, used_ids=used_sml_ids)
+        except SMLMediaUnavailable:
+            return None  # SML offline: keep Pexels operating.
+        for candidate in candidates[:5]:
+            clip_id = str(candidate["id"])
+            reservation = None
+            source = source_root / f"{scene_code}_{uuid.uuid4().hex}.mp4"
+            temporary = assignment_root / f".{scene_code}_{uuid.uuid4().hex}.mp4"
+            destination = assignment_root / f"{scene_code}.mp4"
+            finalized = False
+            try:
+                reservation = client.reserve(job_id, scene_code, clip_id, used_sml_ids)
+                if not reservation:
+                    continue
+                client.download(candidate, source)
+                source_hash = sha256_file(source)
+                if source_hash in used_hashes:
+                    raise SMLMediaUnavailable("SML duplicate media checksum")
+                validation = validate_media(
+                    source, "video", scene_duration,
+                    require_landscape=bool(scene.get("pexels_prefer_landscape", True)),
+                )
+                if validation.get("handling") == "reject_short":
+                    raise SMLMediaUnavailable("SML clip too short")
+                clip_info = build_working_video_clip(
+                    source, temporary, scene_duration,
+                    source_duration=float(validation.get("duration") or candidate.get("duration") or 0),
+                    require_landscape=bool(scene.get("pexels_prefer_landscape", True)),
+                )
+                if not temporary.is_file():
+                    raise SMLMediaUnavailable("SML working clip was not generated")
+                temporary.replace(destination)
+                finalized = True
+                # Commit only after the job-scoped working media has been created.
+                client.transition(reservation, "commit")
+                digest = sha256_file(destination)
+                used_sml_ids.add(clip_id)
+                used_hashes.add(source_hash)
+                resolved = dict(scene)
+                resolved.update(
+                    media_path=str(destination), media_source_path=str(source),
+                    media_hash=digest, image_hash="", selected_keyword=query,
+                    keyword_used=query, provider="sml", asset_id=clip_id,
+                    media_provider="sml", provider_asset_id=clip_id,
+                    source_type="SML", assigned_media_type="video",
+                    automation_status="ready_sml", status="matched_stock",
+                    media_locked=False, last_media_error="",
+                    validation_handling=str(validation.get("handling") or ""),
+                    provider_duration=float(candidate.get("duration") or 0),
+                    source_media_duration=float(clip_info.get("source_duration") or 0),
+                    media_duration=float(clip_info.get("working_duration") or 0),
+                    media_trimmed=bool(clip_info.get("trimmed")),
+                    working_clip_target=float(working_clip_target_duration(scene_duration)),
+                    visual_action="sml_library", previously_used=False,
+                    acquisition_variant="sml_v2_editor_reserved",
+                    sml_reservation_id=reservation,
+                )
+                return resolved
+            except (SMLMediaUnavailable, ValueError, OSError, RuntimeError):
+                if finalized:
+                    destination.unlink(missing_ok=True)
+                source.unlink(missing_ok=True)
+            finally:
+                temporary.unlink(missing_ok=True)
+                if reservation and clip_id not in used_sml_ids:
+                    try:
+                        client.transition(reservation, "release")
+                    except SMLMediaUnavailable:
+                        pass  # TTL expires on the SML side; do not block Pexels.
+    return None
+
+
 def _resolve_scene_stock_media(
     job_id: str,
     scenes: list[dict[str, Any]],
@@ -1171,9 +1269,11 @@ def _resolve_scene_stock_media(
         )
         for scene in scenes
     )
-    if needs_stock_search and not any(bool(scene.get("pexels_enabled", True)) for scene in scenes):
-        raise RuntimeError("Pexels is disabled for this preset, but the project still has unresolved visual scenes.")
-    if needs_stock_search and not _current_pexels_keys():
+    sml_client = SMLWorkerClient()
+    has_sml_first = any(bool(scene.get("_sml_first")) for scene in scenes) and sml_client.enabled
+    if needs_stock_search and not has_sml_first and not any(bool(scene.get("pexels_enabled", True)) for scene in scenes):
+        raise RuntimeError("No SML media integration or Pexels source is enabled for unresolved scenes.")
+    if needs_stock_search and not has_sml_first and not _current_pexels_keys():
         raise RuntimeError(
             "The VPS has no Pexels API key for unresolved scenes. Set PEXELS_API_KEY or PEXELS_API_KEYS in the VPS environment and restart the worker."
         )
@@ -1188,6 +1288,10 @@ def _resolve_scene_stock_media(
     used_asset_ids: set[str] = set()
     used_hashes: set[str] = set()
     used_authors: set[str] = set()
+    used_sml_ids: set[str] = set()
+    sml_source_root = job_dir / "sml_sources"
+    if has_sml_first:
+        sml_source_root.mkdir(parents=True, exist_ok=True)
 
     for index, original_scene in enumerate(scenes):
         if cancelled(job_id):
@@ -1268,13 +1372,30 @@ def _resolve_scene_stock_media(
                 )
                 continue
 
-        if not bool(scene.get("pexels_enabled", True)):
-            errors[scene_code] = "Pexels disabled for unresolved scene"
-            continue
         requested_types = _scene_media_type_order(scene)
         keywords = _scene_keywords(scene)
         if not keywords:
             keywords = ["documentary background"]
+
+        if has_sml_first:
+            update_job(job_id, status="downloading_media", stage="SML Media",
+                       progress=15 + int(index / max(1, len(scenes)) * 20),
+                       message=f"{scene_code}: searching approved SML clips before Pexels")
+            matched = _try_sml_first_scene(
+                client=sml_client, job_id=job_id, scene=scene,
+                scene_code=scene_code, keywords=keywords,
+                assignment_root=assignment_root, source_root=sml_source_root,
+                used_sml_ids=used_sml_ids, used_hashes=used_hashes,
+            )
+            if matched is not None:
+                used_asset_ids.add(f"sml:{matched['asset_id']}")
+                results[index] = matched
+                continue
+
+        if not bool(scene.get("pexels_enabled", True)):
+            errors[scene_code] = "SML clip not found; Pexels disabled for unresolved scene"
+            results[index] = {**scene, "status": "stock_failed", "last_media_error": errors[scene_code]}
+            continue
 
         update_job(
             job_id,
@@ -3901,6 +4022,10 @@ def process_job(job_id: str) -> None:
             scene.setdefault("pexels_allow_video", bool(getattr(settings, "use_video_backgrounds", True)))
             scene.setdefault("pexels_allow_image", bool(getattr(settings, "use_image_backgrounds", True)))
             scene.setdefault("pexels_enabled", bool(getattr(settings, "pexels_enabled", True)))
+            scene["_sml_first"] = (
+                str((settings.metadata or {}).get("media_source_mode") or "") == "sml_first"
+                and bool((settings.metadata or {}).get("sml_auto_scene_matching", False))
+            )
 
         # Unreviewed local PC paths are never trusted on the VPS. Approved + locked
         # review media may be bundled by the desktop remote package and is preserved
@@ -4130,6 +4255,14 @@ def process_job(job_id: str) -> None:
             planned_intro = [dict(x) for x in metadata.get("intro_scenes", []) if isinstance(x, dict)]
             resolved_intro_scenes: list[dict[str, Any]] = []
             if planned_intro:
+                sml_intro_enabled = (
+                    str(metadata.get("media_source_mode") or "") == "sml_first"
+                    and bool(metadata.get("sml_auto_scene_matching", False))
+                )
+                for intro_scene in planned_intro:
+                    intro_scene["_sml_first"] = sml_intro_enabled
+                    intro_scene.setdefault("pexels_allow_video", bool(getattr(settings, "use_video_backgrounds", True)))
+                    intro_scene.setdefault("pexels_prefer_landscape", bool(getattr(settings, "pexels_prefer_landscape", True)))
                 resolved_intro_scenes = _load_saved_intro_media(job_dir, planned_intro) if reuse_checkpoints else None
                 if resolved_intro_scenes is None:
                     _ensure_disk_space("intro media acquisition")
