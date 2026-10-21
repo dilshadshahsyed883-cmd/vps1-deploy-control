@@ -11,7 +11,8 @@
 
 .sb-preset-context{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:0 0 14px;padding:14px 16px;border:1px solid #dfe4ee;border-radius:14px;background:linear-gradient(135deg,#fff,#f7f8ff)}.sb-preset-context strong{font-size:17px}.sb-preset-context .sb-muted{font-size:11px;letter-spacing:.08em}.sb-preset-audio{margin-top:14px}.sb-universal-label{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:22px 0 10px;padding-top:18px;border-top:1px solid #e6e9f0}.sb-universal-label h4{margin:0}.sb-preset-grid+.sb-note{margin-top:12px}.sb-settings .sb-preset-context small{display:none!important}
 </style>
-<form id="settings-form" class="sb-settings" method="post">
+<link rel="stylesheet" href="/static/scene_settings_audit_kokoro_20261021.css?v=1">
+<form id="settings-form" class="sb-settings scene-settings-workspace" method="post">
   <input type="hidden" name="quota_limit" value="{{ quota_limit }}">
   <input type="hidden" name="allowed_storage_gb" value="{{ allowed_storage_gb }}">
   <input type="hidden" name="retention_free_gb" value="{{ retention_free_gb }}">
@@ -20,6 +21,7 @@
 
   {% if request.query_params.get('saved') %}<div class="sb-saved">Settings saved. New submissions will use the updated controls.</div>{% endif %}
 
+  <div class="scene-settings-heading"><div><span class="scene-ui-eyebrow">Scene Builder · Preset controls</span><h2>Project Settings</h2><p>Configure your default project behaviour across all settings tabs.</p></div></div>
   <div class="sb-preset-context">
     <div><span class="sb-muted">SELECTED PRESET</span><br><strong id="selected-preset-name">{{ default_scene_profile.label }}</strong></div>
     <span id="preset-save-state" class="sb-selected-preset-status">✓ Saved</span>
