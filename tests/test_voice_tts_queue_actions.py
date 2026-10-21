@@ -88,18 +88,54 @@ class QueueActionsTest(unittest.TestCase):
             self.action("kokoro","retry")
         self.assertEqual(ctx.exception.code,409)
 
-    def test_history_only_delete_requires_delivered_completion(self):
-        self.change("kokoro",state="completed",delivery="retry_pending")
-        with self.assertRaises(queue.QueueActionError):
-            self.action("kokoro","delete")
-        self.change("kokoro",delivery="delivered")
-        result=self.action("kokoro","delete")
-        self.assertTrue(result["hidden"])
-        with self.connect("kokoro") as db:
-            self.assertIsNotNone(db.execute("select hidden_at from jobs").fetchone()["hidden_at"])
-            self.assertEqual(db.execute("select count(*) from jobs").fetchone()[0],1)
-        with self.assertRaises(queue.QueueActionError) as ctx:self.action("kokoro","delete")
-        self.assertEqual(ctx.exception.code,404)
+    def test_history_hide_independent_of_drive_delivery(self):
+        # One terminal synthesis result should always be hideable from Queue,
+        # including failed/blocked/rate-limited/unverified Drive delivery.
+        # No audio, Drive receipt or pending retry state can be destroyed here.
+        from pathlib import Path
+        for engine in ("kokoro", "edge"):
+            with self.subTest(engine=engine):
+                root = Path(self.temp.name)
+                audio = root / (engine + ".wav")
+                audio.write_bytes(b"local audio remains")
+                media = "wav_file" if engine == "kokoro" else "mp3_file"
+                with self.connect(engine) as db:
+                    db.execute("update jobs set " + media + "=?", (str(audio),))
+                for delivery in ("pending", "retry_pending", "blocked",
+                                 "transferring", "delivered", "cleaned"):
+                    with self.subTest(engine=engine, delivery=delivery):
+                        with self.connect(engine) as db:
+                            db.execute("update jobs set hidden_at=null,last_action=null,"
+                                       "status='completed',delivery_status=?", (delivery,))
+                            view = queue.job_view(db.execute("select * from jobs").fetchone(), engine)
+                        self.assertIn("delete", view["allowed_actions"])
+                        self.assertNotIn("retry", view["allowed_actions"])
+                        result = self.action(engine, "delete")
+                        self.assertTrue(result["hidden"])
+                        with self.connect(engine) as db:
+                            row = db.execute("select hidden_at,status,delivery_status,"
+                                             "last_action from jobs").fetchone()
+                            self.assertIsNotNone(row["hidden_at"])
+                            self.assertEqual(row["status"], "completed")
+                            self.assertEqual(row["delivery_status"], delivery)
+                            self.assertEqual(row["last_action"], "delete")
+                            self.assertEqual(db.execute("select count(*) from jobs").fetchone()[0], 1)
+                        self.assertTrue(audio.is_file())
+                        with self.assertRaises(queue.QueueActionError) as ctx:
+                            self.action(engine, "delete")
+                        self.assertEqual(ctx.exception.code, 404)
+
+    def test_processing_and_queued_jobs_still_cannot_be_hidden(self):
+        for engine in ("kokoro", "edge"):
+            for status in ("queued", "processing", "retry_wait", "paused"):
+                with self.subTest(engine=engine, status=status):
+                    self.change(engine, state=status, delivery="retry_pending")
+                    with self.connect(engine) as db:
+                        view = queue.job_view(db.execute("select * from jobs").fetchone(), engine)
+                    self.assertNotIn("delete", view["allowed_actions"])
+                    with self.assertRaises(queue.QueueActionError) as ctx:
+                        self.action(engine, "delete")
+                    self.assertEqual(ctx.exception.code, 409)
 
     def test_delivery_retry_is_not_synthesis_retry(self):
         self.change("edge",state="completed",delivery="retry_pending")
