@@ -219,6 +219,8 @@
           <button id="browser-clone" type="button" disabled>Clone settings</button>
           <button id="browser-privacy" type="button" disabled>Inspect privacy</button>
           <button id="browser-connection-check" type="button" disabled>Check exit IP</button>
+          <button id="exp-dns-check" type="button">DNS leak test</button>
+          <button id="exp-webrtc-check" type="button">WebRTC leak test</button>
           <button id="browser-delete" type="button" disabled>Delete profile</button>
         </div>
         <div class="experiment-browser-actions" role="group" aria-label="Navigation controls">
@@ -245,7 +247,7 @@
         <button id="browser-scroll-down" type="button" disabled>Scroll down</button>
         <button id="browser-refresh-preview" type="button" disabled>Refresh preview</button>
       </div>
-      <div class="privacy-note" id="exp-privacy-caution">WebRTC policy and the observed HTTP exit IP can be inspected above. These checks do not establish DNS or WebRTC leak-free operation.</div>
+      <div class="privacy-note" id="exp-privacy-caution">WebRTC policy and the observed HTTP exit IP can be inspected above. DNS and WebRTC buttons navigate the selected running VPS browser to a third-party BrowserLeaks test website. Testing shares that browser session’s network characteristics with the diagnostic service.</div>
       <div id="browser-message" role="status" aria-live="polite"></div>
     </section>
   </div>
