@@ -25,14 +25,14 @@ jobs:
       - name: Join existing protected Tailscale lane
         uses: tailscale/github-action@v4
         with:
-          oauth-client-id: ${ secrets.TS_OAUTH_CLIENT_ID }}
-          audience: ${ secrets.TS_AUDIENCE }}
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
           tags: tag:ci
       - name: Install Experiment management via existing Scene app helper and verify
         shell: bash
         env:
-          PRIVATE_IDENTITY: ${ secrets.VPS1_SSH_PRIVATE_KEY }}
-          SOURCE_SHA: ${ github.sha }}
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+          SOURCE_SHA: ${{ github.sha }}
         run: |
           set -Eeuo pipefail
           set +x
