@@ -407,6 +407,10 @@ def install_app(app, revision):
     # provision independent synthesis workers just to change sidebar markup.
     if app == 'voice-studio':
         commit_message = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-audio-proxy-only]' in commit_message:
+            from production.audio_downloader_release import install as install_audio_proxy
+            install_audio_proxy(revision)
+            return
         if '[vps1-voice-tts-controls-only]' in commit_message:
             from production.voice_tts_controls_release import install as install_voice_tts_controls
             install_voice_tts_controls(revision)
