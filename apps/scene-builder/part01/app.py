@@ -3022,25 +3022,56 @@ def delete_job(request: Request, job_id: str):
     return RedirectResponse("/queue", status_code=303)
 
 
-@app.get("/queue/{job_id}/download")
-def download_job(request: Request, job_id: str):
+def _stream_completed_job_video(request: Request, job_id: str, *, inline: bool) -> StreamingResponse:
+    """Authenticated Range-capable MP4 proxy, never revealing the worker token."""
     require_job_access(request, job_id)
+    range_value = request.headers.get("range", "").strip()
+    if range_value and not re.fullmatch(r"bytes=(?:\d+-\d*|-\d+)", range_value):
+        raise HTTPException(416, "Invalid video byte range")
     try:
         upstream = requests.get(
             WORKER_URL + f"/jobs/{job_id}/download",
             params=worker_params(),
+            headers={"Range": range_value} if range_value else {},
             stream=True,
             timeout=24 * 60 * 60,
         )
     except requests.RequestException as exc:
-        raise HTTPException(502, f"Download failed: {exc}") from exc
+        raise HTTPException(502, f"Video stream unavailable: {exc}") from exc
     if upstream.status_code >= 400:
-        raise HTTPException(upstream.status_code, upstream.text[-1000:])
-    headers = {}
-    if upstream.headers.get("content-disposition"):
-        headers["Content-Disposition"] = upstream.headers["content-disposition"]
-    return StreamingResponse(upstream.iter_content(1024 * 1024), media_type="video/mp4", headers=headers)
+        try:
+            reason = upstream.text[-1000:]
+        finally:
+            upstream.close()
+        raise HTTPException(upstream.status_code, reason)
+    headers = {
+        "Content-Disposition": "inline" if inline else upstream.headers.get(
+            "Content-Disposition", "attachment"),
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+    }
+    for key in ("Accept-Ranges", "Content-Range", "Content-Length", "ETag", "Last-Modified"):
+        if upstream.headers.get(key):
+            headers[key] = upstream.headers[key]
+    def chunks():
+        try:
+            yield from upstream.iter_content(1024 * 1024)
+        finally:
+            upstream.close()
+    return StreamingResponse(
+        chunks(), status_code=upstream.status_code,
+        media_type="video/mp4", headers=headers,
+    )
 
+
+@app.get("/queue/{job_id}/view")
+def view_job(request: Request, job_id: str):
+    return _stream_completed_job_video(request, job_id, inline=True)
+
+
+@app.get("/queue/{job_id}/download")
+def download_job(request: Request, job_id: str):
+    return _stream_completed_job_video(request, job_id, inline=False)
 
 # SCENE_INTERNAL_AUDIO_STUDIO_WEB_API_V1
 @app.get("/api/internal-audio/presets")
