@@ -64,6 +64,8 @@
     for (const profile of profiles) {
       const row = document.createElement("div");
       row.className = "experiment-profile";
+      row.classList.toggle("is-selected", profile.id === selected);
+      row.classList.toggle("is-running", profile.state === "running");
       const description = document.createElement("div");
       const title = document.createElement("strong");
       title.textContent = profile.name;
@@ -71,11 +73,15 @@
       details.textContent = profile.state + " · " + profile.locale + " · " +
         (profile.privacy_mode === "strict" ? "Strict privacy" : "Standard privacy") +
         (profile.proxy_server ? " · Proxy configured" : " · Direct");
-      description.append(title, details);
+      const state = document.createElement("span");
+      state.className = "experiment-profile-status";
+      state.textContent = profile.state === "running" ? "Running" : "Stopped";
+      description.append(title, state, details);
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = profile.id === selected ? "Selected" : "Select";
       button.disabled = busy || profile.id === selected;
+      button.setAttribute("aria-pressed", String(profile.id === selected));
       button.addEventListener("click", () => {
         selected = profile.id;
         clearPreview();

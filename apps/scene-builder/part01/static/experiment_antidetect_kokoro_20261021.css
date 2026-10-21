@@ -1,0 +1,299 @@
+/* EXP-UI-20261021-01: Antidetect Browser UI only. Shared shell and APIs unchanged. */
+#experiment-browser {
+  --exp-ui-ink: #101828;
+  --exp-ui-muted: #667085;
+  --exp-ui-line: #e2e7ef;
+  --exp-ui-purple: #6255db;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+#experiment-browser .experiment-browser-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, .9fr) minmax(0, 1.45fr);
+  gap: 20px;
+  align-items: start;
+  width: 100%;
+  min-width: 0;
+}
+#experiment-browser .experiment-browser-panel {
+  min-width: 0;
+  padding: 24px;
+  border: 1px solid var(--exp-ui-line);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 4px 16px rgb(16 24 40 / 5%);
+}
+#experiment-browser .experiment-browser-panel-heading {
+  border-bottom: 1px solid var(--exp-ui-line);
+  padding-bottom: 16px;
+  margin-bottom: 18px;
+}
+#experiment-browser .experiment-browser-panel-heading h3 {
+  margin: 0 0 6px !important;
+  color: var(--exp-ui-ink);
+  font-size: 18px;
+  line-height: 1.35;
+}
+#experiment-browser .experiment-browser-panel-heading p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--exp-ui-muted);
+}
+#experiment-browser .experiment-browser-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 12px;
+  min-width: 0;
+}
+#experiment-browser .experiment-browser-field {
+  min-width: 0;
+}
+#experiment-browser .experiment-browser-field--full {
+  grid-column: 1 / -1;
+}
+#experiment-browser .experiment-browser-field label,
+#experiment-browser .experiment-browser-panel > label {
+  display: block;
+  margin: 0 0 6px !important;
+  color: #344054 !important;
+  font-size: 13px !important;
+  font-weight: 650 !important;
+  line-height: 1.5;
+}
+#experiment-browser .experiment-browser-panel input:not([type="checkbox"]),
+#experiment-browser .experiment-browser-panel select {
+  box-sizing: border-box !important;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 12px !important;
+  margin: 0 !important;
+  font-size: 14px !important;
+  line-height: 1.4;
+  color: var(--exp-ui-ink) !important;
+  background: #fff !important;
+  border: 1px solid #cfd8e6 !important;
+  border-radius: 8px !important;
+}
+#experiment-browser .experiment-browser-panel input:focus,
+#experiment-browser .experiment-browser-panel select:focus {
+  border-color: var(--exp-ui-purple) !important;
+}
+#experiment-browser .experiment-browser-proxy-group {
+  min-width: 0;
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid var(--exp-ui-line);
+  border-radius: 12px;
+  background: #fafbff;
+}
+#experiment-browser .experiment-browser-proxy-group legend {
+  padding: 0 5px;
+  font-size: 13px;
+  font-weight: 750;
+  color: #344054;
+}
+#experiment-browser .experiment-browser-proxy-group legend span {
+  font-weight: 500;
+  color: var(--exp-ui-muted);
+}
+#experiment-browser .experiment-browser-device {
+  margin-top: 16px;
+}
+#experiment-browser .experiment-browser-panel details {
+  min-width: 0;
+  margin: 18px 0 0;
+  padding: 16px;
+  border: 1px solid var(--exp-ui-line);
+  border-radius: 12px;
+  background: #fff;
+}
+#experiment-browser .experiment-browser-panel details summary {
+  min-height: 28px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #344054;
+}
+#experiment-browser .experiment-browser-panel details :is(input,select) {
+  margin-bottom: 12px !important;
+}
+#experiment-browser .experiment-browser-panel button {
+  box-sizing: border-box;
+  min-height: 44px;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0 !important;
+  padding: 10px 14px !important;
+  border: 1px solid #d0d5dd !important;
+  border-radius: 8px !important;
+  background: #fff !important;
+  color: #344054 !important;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+#experiment-browser .experiment-browser-panel button.primary {
+  border-color: var(--exp-ui-purple) !important;
+  background: var(--exp-ui-purple) !important;
+  color: #fff !important;
+}
+#experiment-browser .experiment-browser-panel button:hover:not(:disabled) {
+  border-color: #988fea !important;
+  background: #f5f3ff !important;
+}
+#experiment-browser .experiment-browser-panel button.primary:hover:not(:disabled) {
+  background: #5042c5 !important;
+  color: #fff !important;
+}
+#experiment-browser .experiment-browser-panel button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+#experiment-browser .experiment-browser-panel :is(button,input,select,summary):focus-visible {
+  outline: 3px solid #8174eb;
+  outline-offset: 2px;
+}
+#experiment-browser .experiment-browser-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+#experiment-browser .experiment-browser-create-actions {
+  margin: 18px 0;
+}
+#experiment-browser .experiment-browser-create-actions button {
+  width: 100%;
+}
+#experiment-browser .experiment-browser-saved-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 10px;
+  margin: 18px 0 10px;
+}
+#experiment-browser .experiment-browser-saved-heading h4 {
+  margin: 0 !important;
+  font-size: 14px;
+  color: var(--exp-ui-ink);
+}
+#experiment-browser .experiment-browser-saved-heading span {
+  font-size: 12px;
+  color: var(--exp-ui-muted);
+}
+#experiment-browser #browser-profiles {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin-top: 0;
+}
+#experiment-browser .experiment-profile {
+  min-width: 0;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--exp-ui-line);
+  background: #fff;
+  gap: 10px;
+}
+#experiment-browser .experiment-profile.is-selected {
+  border-color: #a49cf0;
+  background: #faf9ff;
+  box-shadow: inset 3px 0 0 var(--exp-ui-purple);
+}
+#experiment-browser .experiment-profile strong {
+  font-size: 13px;
+  font-weight: 750;
+}
+#experiment-browser .experiment-profile small {
+  margin-top: 5px;
+  color: var(--exp-ui-muted);
+  line-height: 1.5;
+  font-size: 12px;
+}
+#experiment-browser .experiment-profile-status {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 5px;
+  padding: 3px 8px;
+  border-radius: 99px;
+  background: #f2f4f7;
+  color: #475467;
+  font-size: 11px;
+  font-weight: 700;
+}
+#experiment-browser .experiment-profile.is-running .experiment-profile-status {
+  background: #ecfdf3;
+  color: #027a48;
+}
+#experiment-browser .experiment-browser-session-toolbar {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+#experiment-browser .experiment-browser-session-toolbar .experiment-browser-actions {
+  padding-bottom: 10px;
+  border-bottom: 1px solid #eef1f7;
+}
+#experiment-browser .experiment-browser-session-toolbar .experiment-browser-actions:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+#experiment-browser .experiment-browser-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 12px;
+}
+#experiment-browser .experiment-browser-row > input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+#experiment-browser .experiment-browser-row > button {
+  flex: 0 0 auto;
+}
+#experiment-browser .experiment-browser-screen {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-height: 250px;
+  max-height: min(62vh, 640px);
+  margin: 14px 0 18px;
+  border: 1px solid var(--exp-ui-line);
+  border-radius: 12px;
+}
+#experiment-browser .experiment-browser-panel .hint,
+#experiment-browser .experiment-browser-panel .privacy-note,
+#experiment-browser #browser-message {
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+  font-size: 12px;
+  color: var(--exp-ui-muted);
+}
+#experiment-browser #browser-message {
+  min-height: 28px;
+  margin-top: 14px;
+  font-size: 13px;
+}
+@media(max-width: 1000px) {
+  #experiment-browser .experiment-browser-grid {grid-template-columns: minmax(0, 1fr);gap: 16px;}
+  #experiment-browser .experiment-browser-panel {padding: 20px;}
+}
+@media(max-width: 600px) {
+  #experiment-browser .experiment-browser-panel {padding: 16px;}
+  #experiment-browser .experiment-browser-fields {grid-template-columns: minmax(0, 1fr);}
+  #experiment-browser .experiment-browser-proxy-group {padding: 12px;}
+  #experiment-browser .experiment-browser-actions > button {flex: 1 1 auto;}
+  #experiment-browser .experiment-browser-row {flex-wrap: wrap;}
+  #experiment-browser .experiment-browser-row > input {flex-basis: 100%;}
+  #experiment-browser .experiment-browser-row > button {flex: 1 1 0;}
+}
+@media(prefers-reduced-motion: reduce) {
+  #experiment-browser * {scroll-behavior: auto;}
+}
