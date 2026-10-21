@@ -92,10 +92,31 @@ def verify():
         require(status == 200 and json.loads(payload)['managed_count'] == len(keys), 'Pexels reload did not retain keys')
         pexels_result = 'pass'
     else:
-        status, _ = web('POST','/api/settings/pexels-keys',b'{"action":"add","key":"bad"}',
-                        {'Content-Type':'application/json','X-Settings-CSRF':csrf})
-        require(status == 400, 'authorized Pexels save did not reach validation')
-        pexels_result = 'unverified'
+        # With no configured key, exercise only an idle worker so the temporary
+        # fixture cannot replace a provider credential used by existing jobs.
+        terminal = {'completed','failed','cancelled','cleaned'}
+        require(not any(int(count) for state,count in health.get('queue_counts',{}).items()
+                        if state not in terminal), 'Pexels fixture requires an idle queue when no managed key exists')
+        fixture = uuid.uuid4().hex
+        fixture_id = hashlib.sha256(fixture.encode()).hexdigest()[:16]
+        try:
+            status, payload = web('POST','/api/settings/pexels-keys',json.dumps({'action':'add','key':fixture}).encode(),
+                                  {'Content-Type':'application/json','X-Settings-CSRF':csrf})
+            require(status == 200, 'disposable Pexels Add Key failed')
+            state = json.loads(payload)
+            require(any(row['key_id'] == fixture_id for row in state['keys']), 'added key absent from response')
+            require(fixture in re.split(r'[,;\s]+',key_file.read_text()), 'added key was not saved on disk')
+            status, payload = web('GET','/api/settings/pexels-keys')
+            require(status == 200 and any(row['key_id'] == fixture_id for row in json.loads(payload)['keys']), 'added key absent after API reload')
+            status, page = web('GET','/settings')
+            require(status == 200 and fixture_id.encode() in page, 'added key absent after settings reload')
+        finally:
+            # Remove only this generated fixture; never restore a stale snapshot
+            # over keys added concurrently by an administrator.
+            status, _ = web('POST','/api/settings/pexels-keys',json.dumps({'action':'remove','key_id':fixture_id}).encode(),
+                            {'Content-Type':'application/json','X-Settings-CSRF':csrf})
+            require(status in (200,404) and fixture not in key_file.read_text(), 'disposable Pexels key cleanup failed')
+        pexels_result = 'pass'
     status, page = web('GET','/settings')
     require(status == 200 and b'id="sb-pexels-total"' in page, 'active-key count missing on reload')
 
@@ -127,6 +148,13 @@ def verify():
         require(row and row[0] == env.get('WEB_USERNAME','team'), 'disposable project ownership not persisted')
         print('SCENE_BACKEND_PROJECT=PASS_HTTPS_TXT_WAV_QUEUE_OWNERSHIP job_id='+job_id,flush=True)
     finally:
+        if not job_id:
+            # Worker acceptance can precede a failed web response. Recover only
+            # our unique test name, so this failure path also cleans its job.
+            code, listing = worker('GET','/jobs?limit=1000')
+            owned = [row for row in listing.get('jobs',[]) if row.get('project_name') == name] if code == 200 else []
+            require(len(owned) <= 1, 'ambiguous disposable project ownership')
+            if owned: job_id = str(owned[0].get('id') or '')
         if job_id:
             # DELETE refuses active jobs. Never cancel a running job: cancellation
             # may modify the next user's queue slot. Wait only for this test job.
