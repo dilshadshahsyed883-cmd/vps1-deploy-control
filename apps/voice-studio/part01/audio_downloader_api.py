@@ -1,11 +1,15 @@
 """Isolated YouTube audio extraction queue for the existing Voice Studio service.
 
 All job state and audio belong to AUDIO_DOWNLOADER_ROOT; other voice engines are untouched.
-Only explicitly authorized YouTube video URLs are accepted. No cookies or account bypass.
+Only explicitly authorized YouTube URLs are accepted. Optional owner-provided private cookies; no challenge bypass.
 """
 from __future__ import annotations
 
 import json
+import importlib.util
+import shlex
+import stat
+import sys
 import os
 import re
 import shutil
@@ -140,10 +144,13 @@ def sanitized_row(row: sqlite3.Row) -> dict:
 
 def deps() -> dict:
     ytdlp = YTDLP if Path(YTDLP).is_file() and os.access(YTDLP, os.X_OK) else shutil.which('yt-dlp')
+    # The production Voice venv already owns yt_dlp; do not require a second app venv.
+    module_ready = importlib.util.find_spec('yt_dlp') is not None
+    command = [ytdlp] if ytdlp else ([sys.executable, '-m', 'yt_dlp'] if module_ready else [])
     ffmpeg = shutil.which('ffmpeg')
     rclone = shutil.which('rclone')
     drive_cfg = Path(RCLONE_CONFIG).is_file()
-    return {'ytdlp': ytdlp, 'ffmpeg': ffmpeg, 'rclone': rclone, 'drive_configured': drive_cfg, 'ready': bool(ytdlp and ffmpeg), 'upload_ready': bool(rclone and drive_cfg)}
+    return {'ytdlp': ytdlp, 'ytdlp_command': command, 'ffmpeg': ffmpeg, 'rclone': rclone, 'drive_configured': drive_cfg, 'ready': bool(command and ffmpeg), 'upload_ready': bool(rclone and drive_cfg)}
 
 
 @router.get('/status')
@@ -155,6 +162,9 @@ def status():
     return {'ready': d['ready'], 'reason': '' if d['ready'] else 'yt-dlp or FFmpeg unavailable',
             'upload_ready': d['upload_ready'], 'drive_root': f'{DRIVE_REMOTE}:{DRIVE_BASE}',
             'formats': ['mp3', 'wav'], 'quality': [128, 192, 256],
+            'download_contract': 'explicit-proxy-private-session-v2',
+            'proxy': proxy_runtime_status(), 'youtube_session': cookie_status(),
+            'retry_policy': 'manual after terminal failure; bounded transport retries only',
             'queue': {v['status']: v['n'] for v in q}, 'worker': bool(_worker and _worker.is_alive())}
 
 
@@ -346,22 +356,28 @@ def run_job(job: dict):
     folder = JOBS / jid
     folder.mkdir(mode=0o750, parents=True, exist_ok=True)
     state = deps()
-    tool = state['ytdlp']
-    if not tool or not state['ffmpeg']:
+    command = state.get('ytdlp_command') or ([state['ytdlp']] if state.get('ytdlp') else [])
+    if not command or not state['ffmpeg']:
         raise RuntimeError('yt-dlp/FFmpeg unavailable')
     audio_format = job['format']
     out_template = str(folder / '%(title).70s [%(id)s].%(ext)s')
-    args = [tool, '--no-playlist', '--no-warnings', '--no-progress', '--no-cache-dir',
+    args = command + ['--no-playlist', '--no-warnings', '--no-progress', '--no-cache-dir',
             '--no-overwrites', '--restrict-filenames', '--max-filesize', '120M',
+            '--format', 'bestaudio/best', '--ffmpeg-location', state['ffmpeg'],
             '--extract-audio', '--audio-format', audio_format, '--audio-quality', str(job['quality']) + 'K',
             '--print', 'after_move:filepath', '-o', out_template]
     if job['keep_metadata']:
         args.append('--embed-metadata')
     args.append(job['url'])
-    p = subprocess.run(args, capture_output=True, text=True, timeout=1800, cwd=str(folder), check=False, env=_youtube_proxy_env())
-    if p.returncode:
-        # No sensitive environment values or full command line in errors.
-        raise RuntimeError('yt-dlp failed: ' + _safe_proxy_error((p.stderr or p.stdout or 'unknown error')[-350:]))
+    # One immutable selection/session snapshot per attempt. Credentials never enter argv.
+    with youtube_execution() as (options, environment):
+        try:
+            p = subprocess.run(command + options + args[len(command):], capture_output=True,
+                               text=True, timeout=1800, cwd=str(folder), check=False, env=environment)
+        except subprocess.TimeoutExpired:
+            raise DownloadFailure('DOWNLOAD_TIMEOUT', 'YouTube download timed out; retry manually after checking the provider.') from None
+        if p.returncode:
+            raise download_failure(p.stderr or p.stdout or '')
     paths = [Path(x.strip()) for x in (p.stdout or '').splitlines() if x.strip()]
     paths = [x for x in paths if x.is_file() and x.suffix.lower() == '.' + audio_format and folder.resolve() in x.resolve().parents]
     if not paths:
@@ -421,7 +437,7 @@ def worker_loop():
                 try:
                     run_job(item)
                 except Exception as exc:
-                    _update(item['job_id'], 'failed', error=str(exc)[:420])
+                    _update(item['job_id'], 'failed', error=_safe_proxy_error(str(exc))[:420])
             else:
                 time.sleep(3)
         except Exception:
@@ -592,7 +608,7 @@ def _read_proxy_config():
         try:
             return json.loads(_PROXY_PATH.read_text(encoding='utf-8'))
         except (OSError, ValueError):
-            return _proxy_blank()
+            raise DownloadFailure('PROXY_CONFIGURATION', 'Saved proxy configuration is unreadable; refusing download until repaired.') from None
 
 
 def _public_proxy_config(cfg):
@@ -609,28 +625,141 @@ def _selected_proxy(cfg=None):
     return next((p for p in cfg.get('profiles', []) if p.get('id') == cfg.get('active_id')), None)
 
 
-def _youtube_proxy_env():
-    env = os.environ.copy()
-    profile = _selected_proxy()
-    if not profile:
-        return env
+def _proxy_url(profile):
     try:
+        if not _safe_proxy_host(profile['host']) or not 1 <= int(profile['port']) <= 65535:
+            raise ValueError('invalid proxy')
         credentials = ''
         if profile.get('username'):
             credentials = urllib.parse.quote(profile['username'], safe='') + ':' + urllib.parse.quote(profile.get('password') or '', safe='') + '@'
-        url = 'http://' + credentials + profile['host'] + ':' + str(int(profile['port']))
-    except (KeyError, ValueError):
-        raise RuntimeError('Invalid Audio Downloader proxy settings')
-    for key in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','http_proxy','https_proxy','all_proxy'):
-        env[key] = url
-    env.pop('NO_PROXY', None)
-    env.pop('no_proxy', None)
+        return 'http://' + credentials + profile['host'] + ':' + str(int(profile['port']))
+    except (KeyError, ValueError, TypeError):
+        raise DownloadFailure('PROXY_CONFIGURATION', 'Enabled proxy is invalid; select a valid profile.') from None
+
+
+def proxy_runtime_status():
+    cfg = _read_proxy_config()
+    selected = _selected_proxy(cfg)
+    return {'enabled': bool(cfg.get('enabled')), 'selected_id': cfg.get('active_id') or '',
+            'worker_profile_id': selected.get('id') if selected else None,
+            'valid_selection': not cfg.get('enabled') or selected is not None,
+            'connectivity_proves_download': False}
+
+
+def _youtube_proxy_env(profile=None):
+    # Never inherit a system proxy or NO_PROXY that contradicts the app toggle.
+    env = os.environ.copy()
+    for key in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','http_proxy','https_proxy','all_proxy','NO_PROXY','no_proxy'):
+        env.pop(key, None)
+    if profile:
+        url = _proxy_url(profile)
+        for key in ('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','http_proxy','https_proxy','all_proxy'):
+            env[key] = url
     return env
+
+
+class DownloadFailure(RuntimeError):
+    def __init__(self, code, message):
+        self.code = code
+        super().__init__(code + ': ' + message)
+
+
+def download_failure(error):
+    value = str(error).lower().replace('’', "'")
+    if any(x in value for x in ("not a bot", 'confirm your age', 'login required', 'sign in', 'cookies are no longer valid')):
+        return DownloadFailure('YOUTUBE_AUTH_REQUIRED', 'YouTube requires an authorized session or challenge verification. Proxy connectivity does not prove download access. Configure fresh private YouTube cookies; no automatic retry or bypass guarantee.')
+    if 'po token' in value or 'proof of origin' in value:
+        return DownloadFailure('YOUTUBE_PROVIDER_CHALLENGE', 'YouTube requires additional provider verification. Cookies/proxy alone may not suffice; no automatic retry.')
+    if '407' in value or 'proxy authentication' in value:
+        return DownloadFailure('PROXY_AUTH_FAILED', 'Proxy rejected its credentials; update the selected profile before manual retry.')
+    if any(x in value for x in ('proxyerror', 'unable to connect to proxy', 'tunnel connection failed')):
+        return DownloadFailure('PROXY_CONNECTION_FAILED', 'Selected proxy connection failed; check the provider before manual retry.')
+    if '429' in value or 'too many requests' in value:
+        return DownloadFailure('YOUTUBE_RATE_LIMIT', 'YouTube rate limited this session/IP; wait before manual retry.')
+    if '403' in value:
+        return DownloadFailure('YOUTUBE_ACCESS_DENIED', 'YouTube denied media access (403); provider/session verification is required before retry.')
+    if any(x in value for x in ('private video', 'video unavailable', 'not available', 'has been removed')):
+        return DownloadFailure('YOUTUBE_UNAVAILABLE', 'This video is private, removed, restricted or unavailable.')
+    return DownloadFailure('DOWNLOAD_FAILED', 'YouTube extraction failed; check the source and runtime support before manual retry.')
+
+
+def _cookie_source():
+    return Path(os.environ.get('AUDIO_DOWNLOADER_COOKIES_FILE', str(DATA / 'youtube-cookies.txt')))
+
+
+def _cookie_bytes():
+    path = _cookie_source()
+    if not path.exists() and not path.is_symlink():
+        if os.environ.get('AUDIO_DOWNLOADER_COOKIES_FILE'):
+            raise DownloadFailure('SESSION_CONFIGURATION', 'Configured private YouTube cookie file is unavailable.')
+        return None
+    try:
+        # Refuse shared/readable/symlink session files. Do not expose their path or contents.
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, 'rb') as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077 or info.st_size > 1024*1024:
+                raise ValueError('private owner file required')
+            data = stream.read(1024*1024+1)
+        text = data.decode('utf-8')
+        if not text.startswith(('# Netscape HTTP Cookie File', '# HTTP Cookie File')):
+            raise ValueError('Netscape cookies required')
+        # A header alone is not a session. Expired/malformed exports fail before network use.
+        valid = False
+        for line in text.splitlines():
+            if not line or (line.startswith('#') and not line.startswith('#HttpOnly_')):
+                continue
+            fields = line.removeprefix('#HttpOnly_').split('\t')
+            if len(fields) != 7:
+                raise ValueError('malformed cookies')
+            domain = fields[0].lstrip('.')
+            if domain in ('youtube.com', 'google.com') or domain.endswith('.youtube.com') or domain.endswith('.google.com'):
+                expiry = int(fields[4])
+                valid |= expiry == 0 or expiry > time.time()
+        if not valid:
+            raise ValueError('no unexpired YouTube session cookies')
+        return data
+    except (OSError, ValueError, UnicodeError):
+        raise DownloadFailure('SESSION_CONFIGURATION', 'YouTube cookie file must be a private owner-readable Netscape export with unexpired YouTube cookies.') from None
+
+
+def cookie_status():
+    try:
+        configured = _cookie_bytes() is not None
+        return {'configured': configured, 'state': 'configured_not_verified' if configured else 'not_configured'}
+    except DownloadFailure:
+        return {'configured': False, 'state': 'invalid_private_cookie_file'}
+
+
+@contextmanager
+def youtube_execution():
+    cfg = _read_proxy_config()
+    profile = _selected_proxy(cfg)
+    if cfg.get('enabled') and profile is None:
+        raise DownloadFailure('PROXY_CONFIGURATION', 'Proxy is enabled but selected profile is missing; refusing direct download.')
+    proxy = _proxy_url(profile) if profile else ''
+    cookies = _cookie_bytes()
+    # Private snapshot prevents yt-dlp from rotating/rewriting the owner's cookie export.
+    with tempfile.TemporaryDirectory(prefix='audio-youtube-') as tmp:
+        config = Path(tmp) / 'yt-dlp.conf'
+        settings = ['--proxy ' + shlex.quote(proxy), '--retries 1', '--fragment-retries 1',
+                    '--extractor-retries 0', '--file-access-retries 0', '--socket-timeout 20']
+        if cookies is not None:
+            session = Path(tmp) / 'session.txt'
+            session.write_bytes(cookies)
+            session.chmod(0o600)
+            settings.append('--cookies ' + shlex.quote(str(session)))
+        config.write_text('\n'.join(settings) + '\n', encoding='utf-8')
+        config.chmod(0o600)
+        yield ['--ignore-config', '--config-locations', str(config)], _youtube_proxy_env(profile)
 
 
 def _safe_proxy_error(error):
     error = re.sub(r'https?://[^\s]+@[^\s]+', '[proxy-credentials-redacted]', str(error), flags=re.I)
-    cfg = _read_proxy_config()
+    try:
+        cfg = _read_proxy_config()
+    except DownloadFailure:
+        cfg = _proxy_blank()
     for profile in cfg.get('profiles', []):
         for key in ('password','username'):
             value = profile.get(key)
@@ -727,10 +856,12 @@ def verify_proxy(profile_id: str):
         usr = urllib.parse.quote(p.get('username') or '', safe='')
         pw = urllib.parse.quote(p.get('password') or '', safe='')
         creds = (usr+':'+pw+'@') if usr else ''
-        url = f'http://{creds}{p["host"]}:{int(p["port"])}'
+        url = _proxy_url(p)
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({'http':url, 'https':url}))
         with opener.open(urllib.request.Request('https://www.youtube.com/robots.txt',headers={'User-Agent':'Mozilla/5.0'}),timeout=15) as response:
             ok = response.status in (200, 206)
-        return {'ok': ok, 'message': 'Proxy connected to YouTube' if ok else 'Proxy connection unsuccessful'}
+        return {'ok': ok, 'connectivity_ok': ok, 'download_verified': False, 'test_kind': 'connectivity_only',
+                'profile_id': profile_id, 'used_by_worker': bool(cfg.get('enabled') and cfg.get('active_id') == profile_id),
+                'message': 'Proxy connectivity OK. Audio download and YouTube authentication are NOT verified.' if ok else 'Proxy connection unsuccessful'}
     except Exception:
-        return {'ok': False, 'message': 'Proxy connection failed. Check profile credentials or provider status.'}
+        return {'ok': False, 'connectivity_ok': False, 'download_verified': False, 'test_kind': 'connectivity_only', 'message': 'Proxy connection failed. Check profile credentials or provider status.'}
