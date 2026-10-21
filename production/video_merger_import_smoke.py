@@ -29,14 +29,23 @@ def smoke(source, state, proxy_config=None):
         try:
             profile = app.active_proxy_profile()
             if profile:
-                app.test_proxy_profile(profile['id'])
-                results['proxy_test'] = 'PASS'
+                tested = app.test_proxy_profile(profile['id'])
+                results['proxy_test'] = 'REAL_DOWNLOAD_PASS' if tested.get('download_verified') else 'NOT_VERIFIED'
             else:
                 results['proxy_test'] = 'DIRECT_MODE'
             app.source_to_file('https://youtu.be/jNQXAC9IVRw', root/'youtube.bin', None, 1)
             results['youtube'] = 'PASS'
         except Exception as exc:
             results['youtube'] = 'FAIL: '+app.scrub_proxy_error(exc)
+        # Read-only test of a saved but disabled proxy; do not silently change the
+        # owner's enabled/selected setting or report this as a live import PASS.
+        if not config.get('enabled') and config.get('profiles'):
+            selected=next((p for p in config['profiles'] if p.get('id')==config.get('active_id')),config['profiles'][0])
+            try:
+                tested=app.test_proxy_profile(selected['id'])
+                results['saved_proxy_test']='REAL_DOWNLOAD_PASS_BUT_DISABLED' if tested.get('download_verified') else 'NOT_VERIFIED'
+            except Exception as exc:
+                results['saved_proxy_test']='FAIL: '+app.scrub_proxy_error(exc)
         try:
             database = Path(state)/'data/video_merger.db'
             with sqlite3.connect(database.as_uri()+'?mode=ro', uri=True) as conn:
