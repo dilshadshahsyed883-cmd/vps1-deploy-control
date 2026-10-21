@@ -22,6 +22,14 @@ class Imports(unittest.TestCase):
         with patch.object(self.app.importlib.util,'find_spec',return_value=object()):
             self.assertEqual(self.app.downloader_command('yt_dlp'),[self.app.sys.executable,'-m','yt_dlp'])
             self.assertEqual(self.app.downloader_command('gdown'),[self.app.sys.executable,'-m','gdown'])
+    def test_youtube_format_fallback_and_video_validation_are_required(self):
+        source=SOURCE.read_text(encoding='utf-8')
+        self.assertIn("'bv*+ba/best/bv*'",source)
+        self.assertIn("verify_library_media(candidates[0])",source)
+        self.assertIn("validate_downloaded_file(dst,idx); verify_library_media(dst)",source)
+        from production import video_merger_import_release as release
+        self.assertIn("'yt-dlp[default]==2026.8.19'",Path(release.__file__).read_text())
+
     def test_js_runtime_is_explicit_and_no_remote_solver_required(self):
         binary=self.root/'deno';binary.touch();self.app.DENO=binary
         args=self.app.yt_common_args()
