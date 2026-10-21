@@ -68,6 +68,11 @@ jobs:
           assert api(8147,'/api/health').get('ok') is True
           stats=api(8147,'/api/stats')
           assert int(stats.get('processing',-1))==0,'SML busy or state unknown'
+          renderer=api(18081,'/health')
+          assert renderer.get('ok') is True and renderer.get('admission_only') is False
+          terminal={'completed','failed','cancelled','cleaned'}
+          assert isinstance(renderer.get('queue_counts'),dict)
+          assert not any(int(n) for state,n in renderer['queue_counts'].items() if state not in terminal),'Scene renderer busy'
           worker=api(8000,'/health')
           assert worker.get('admission_only') is True,'Worker ownership changed: abort'
           for service in ('vps1-scene-candidate.service',
@@ -96,6 +101,8 @@ jobs:
           assert status(18080,'/health').get('ok') is True
           assert status(8000,'/health').get('admission_only') is True
           print('EDITOR_TOKEN_PAIRING_AND_SCENE_WEB_HEALTH=PASS')
+          assert status(18081,'/health').get('admission_only') is False
+          print('SCENE_RENDERER_SML_TOKEN_AND_THREE_SCENE_MP4=VERIFIED_BY_INSTALLER')
           print('SCENE_RENDERER_ADMISSION_ONLY=UNCHANGED')
           print('SML_SCENE_CREDENTIALS_LOGGED=FALSE')
           print('AUTO_SCRIPT=OFFLINE_UNCHANGED')

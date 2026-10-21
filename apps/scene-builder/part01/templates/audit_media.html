@@ -177,7 +177,7 @@
   function renderSml(){
     smlStatus.textContent=`${smlCatalog.length} approved clips available`;
     smlResults.innerHTML=smlCatalog.length?smlCatalog.map(c=>`<article class="sml-result">
-      ${c.thumb_url?`<img loading="lazy" src="${esc(c.thumb_url)}" alt="SML clip thumbnail">`:'<div class="no-media">Preview unavailable</div>'}
+      <video controls preload="none" playsinline style="width:100%;aspect-ratio:16/9" src="${esc(c.preview_url)}" ${c.thumb_url?`poster="${esc(c.thumb_url)}"`:""}></video>
       <strong>${esc(c.id)}</strong>
       <span class="muted">${esc(c.description||c.keywords.join(', ')||'No description')}</span>
       <span class="muted">${Number(c.duration||0).toFixed(1)}s · Quality ${esc(c.quality||0)} · ${esc(c.orientation)}</span>

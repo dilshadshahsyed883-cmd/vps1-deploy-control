@@ -39,6 +39,11 @@ def mutation_allowed(method: str, path: str, editing_enabled: bool) -> bool:
         return True
     if not editing_enabled:
         return False
+    # Existing Media Audit handlers still enforce project ownership and revisions.
+    if method == "POST" and re.fullmatch(
+            r"/api/audit-media/[0-9a-f]{32}/(?:sml-auto-match|approve-all|continue|"
+            r"[A-Za-z0-9_-]+/(?:sml-select|replace|keyword|upload))", path):
+        return True
     if (method, path) in _ALLOWED_EXACT:
         return True
     return method == "POST" and (_PRESET_MUTATION.fullmatch(path) is not None

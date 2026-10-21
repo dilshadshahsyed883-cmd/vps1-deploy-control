@@ -2,7 +2,7 @@
 
 Runs only inside the existing root-owned protected-main SML installer.
 The token is minted on the VPS, never in git, CI logs or job arguments.
-It never touches the admission-only Scene worker or queue.
+It pairs only an idle owned production renderer; admission and user queues are preserved.
 """
 from __future__ import annotations
 
@@ -116,7 +116,7 @@ def _get_json(port: int, path: str, *, token: str = "") -> dict:
     return result
 
 
-def activate() -> dict[str, bool]:
+def activate() -> dict:
     if os.geteuid() != 0:
         raise RuntimeError("Existing approved root deploy lane required")
     # Fail closed rather than enabling the token for stale/unknown source.
@@ -145,12 +145,9 @@ def activate() -> dict[str, bool]:
     new_scene = _patched(original_scene, {
         "SCENE_SML_EDITOR_TOKEN": token, "SCENE_SML_URL": ORIGIN,
     })
-    if new_sml == original_sml and new_scene == original_scene:
-        status = _get_json(8147, "/api/v1/media/status")
-        if status.get("editor_token_configured") is not True:
-            raise RuntimeError("Credentials exist but SML runtime is not configured")
-        return {"ok": True, "already_active": True}
     changed_sml = changed_scene = False
+    from production.scene_sml_worker import SceneSMLWorker
+    worker = SceneSMLWorker(SCENE_CURRENT.resolve(), token)
     try:
         if new_sml != original_sml:
             _atomic_replace(SML_ENV, new_sml)
@@ -159,8 +156,11 @@ def activate() -> dict[str, bool]:
             _atomic_replace(SCENE_ENV, new_scene)
             changed_scene = True
         # SML and Scene web only: never restart vps1-scene-worker-admission.
-        _restart(SML_SERVICE)
-        _restart(SCENE_SERVICE)
+        if changed_sml:
+            _restart(SML_SERVICE)
+        if changed_scene:
+            _restart(SCENE_SERVICE)
+        renderer = worker.install()
         sml_health = _get_json(8147, "/api/health")
         scene_health = _get_json(18080, "/health")
         editor = _get_json(8147, "/api/v1/media/status")
@@ -171,16 +171,25 @@ def activate() -> dict[str, bool]:
                 or editor.get("editor_token_configured") is not True
                 or not isinstance(approved.get("items"), list)):
             raise RuntimeError("SML-Scene Editor activation verification failed")
-        return {"ok": True, "already_active": False}
+        proof = worker.render_proof()
+        return {"ok": True, "already_active": not (changed_sml or changed_scene),
+                **renderer, "three_scene_render": proof}
     except BaseException:
-        if changed_sml:
-            _atomic_replace(SML_ENV, original_sml)
-        if changed_scene:
-            _atomic_replace(SCENE_ENV, original_scene)
-        # Best-effort service restoration without echoing env values.
-        for service in (SML_SERVICE, SCENE_SERVICE):
-            try:
-                _restart(service)
-            except Exception:
-                pass
+        # If a new user job prevents worker rollback, retain its paired
+        # credentials too. Never strand an active renderer against an old token.
+        worker.rollback()
+        _restore_pair(changed_sml, original_sml, changed_scene, original_scene)
         raise
+
+
+def _restore_pair(changed_sml, original_sml, changed_scene, original_scene):
+    if changed_sml:
+        _atomic_replace(SML_ENV, original_sml)
+    if changed_scene:
+        _atomic_replace(SCENE_ENV, original_scene)
+    # Best-effort service restoration without echoing env values.
+    for service in (SML_SERVICE, SCENE_SERVICE):
+        try:
+            _restart(service)
+        except Exception:
+            pass
