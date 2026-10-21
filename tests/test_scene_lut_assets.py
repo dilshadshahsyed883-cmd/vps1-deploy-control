@@ -47,7 +47,9 @@ class SceneLUTAssetsTests(unittest.TestCase):
             self.assertEqual(first['builtins'], 23)
             self.assertEqual(first['new_files'], 23)
             self.assertEqual(first['scene_001_subtle_contrast'], 'PASS')
-            self.assertEqual(first['real_ffmpeg_lut_filter'], 'PASS')
+            self.assertEqual(first['real_ffmpeg_lut_filter'],
+                             'PASS' if Path('/usr/bin/ffmpeg').is_file()
+                             else 'NOT_INSTALLED_ON_OFFLINE_RUNNER')
             folder = root / 'worker-home/.local/share/Stock Media Scene Builder/assets/luts'
             cube = folder / 'neutral_correction/subtle_contrast.cube'
             headers, values = _parse_cube(cube)
