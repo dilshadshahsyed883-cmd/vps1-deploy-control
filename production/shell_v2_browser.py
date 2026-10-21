@@ -18,7 +18,8 @@ def fixture_html(admin=True, user_management=False):
 
 def sidebar_click(page, label):
     link=page.locator('#app-sidebar').get_by_role('link',name=label,exact=True)
-    if not link.is_visible():page.locator('#mobile-nav-toggle').click()
+    if page.viewport_size['width'] <= 760 and page.locator('#mobile-nav-toggle').get_attribute('aria-expanded') != 'true':
+        page.locator('#mobile-nav-toggle').click()
     link.click()
 
 def run(production=False):
