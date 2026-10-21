@@ -237,5 +237,28 @@ class AudioReleaseFenceTests(unittest.TestCase):
         self.assertNotIn('edge-worker.service', source)
 
 
+    def test_smoke_uses_absolute_runuser_even_with_service_restricted_path(self):
+        """Reproduce protected release: live service PATH excludes /usr/sbin."""
+        import production.audio_downloader_release as release
+        with tempfile.TemporaryDirectory() as tmp:
+            exe = Path(tmp) / 'python'
+            exe.write_text('#! test executable placeholder')
+            report = '{"result":"YOUTUBE_PROVIDER_CHALLENGE","audio":"NOT_VERIFIED","drive":"NOT_VERIFIED"}'
+            class FakeProcess:
+                returncode = 0
+                pid = 12345
+                def communicate(self, timeout):
+                    return (report + '\\n', '')
+            with patch.object(release.subprocess, 'Popen', return_value=FakeProcess()) as start, \\
+                    patch.object(release, 'event'):
+                output = release.smoke(ROOT, {'PATH': tmp})
+            command = start.call_args.args[0]
+            self.assertTrue(Path(command[0]).is_absolute())
+            self.assertEqual(Path(command[0]).name, 'runuser')
+            self.assertEqual(command[1:4], ['-u', 'ubuntu', '--'])
+            self.assertEqual(command[4], str(exe))
+            self.assertEqual(start.call_args.kwargs['env']['PATH'], tmp)
+            self.assertEqual(output['result'], 'YOUTUBE_PROVIDER_CHALLENGE')
+
 if __name__ == '__main__':
     unittest.main()
