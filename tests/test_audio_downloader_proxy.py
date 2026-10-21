@@ -259,6 +259,20 @@ class AudioReleaseFenceTests(unittest.TestCase):
             self.assertEqual(command[4], str(exe))
             self.assertEqual(start.call_args.kwargs['env']['PATH'], tmp)
             self.assertEqual(output['result'], 'YOUTUBE_PROVIDER_CHALLENGE')
+    def test_disabled_live_proxy_smoke_reports_not_verified_without_external_download(self):
+        """Missing active proxy may not fail the installation or pretend YouTube works."""
+        import production.audio_downloader_smoke as qa
+        report = {'proxy': {'enabled': False, 'selected_id': 'saved-profile'},
+                  'audio': 'NOT_VERIFIED', 'drive': 'NOT_VERIFIED'}
+        self.assertTrue(qa.proxy_disabled_report(report))
+        self.assertEqual(report['result'], 'PROXY_DISABLED_ON_VPS')
+        self.assertEqual(report['audio'], 'NOT_VERIFIED')
+        self.assertEqual(report['drive'], 'NOT_VERIFIED')
+        active = {'proxy': {'enabled': True}, 'audio': 'NOT_VERIFIED', 'drive': 'NOT_VERIFIED'}
+        self.assertFalse(qa.proxy_disabled_report(active))
+        self.assertNotIn('result', active)
+        source = Path(qa.__file__).read_text()
+        self.assertLess(source.index('if proxy_disabled_report(report):'), source.index("jid = 'ADJ-'"))
 
 if __name__ == '__main__':
     unittest.main()
