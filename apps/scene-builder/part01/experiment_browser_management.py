@@ -333,7 +333,7 @@ class ManagedBrowserProfileEngine(BrowserProfileEngine):
                             raise BrowserError("Duplicate profile name")
                         if len(pending) >= capacity:
                             raise BrowserError("Profile limit reached")
-                        values = dict(config, **row, name=name)
+                        values = {**config, **row, "name": name}
                         if idx < len(proxies):
                             values["proxy_server"] = proxies[idx]
                         elif payload.get("proxy_server"):
