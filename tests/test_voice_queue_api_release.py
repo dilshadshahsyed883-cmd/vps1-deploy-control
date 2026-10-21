@@ -61,7 +61,7 @@ class VoiceQueueRepairTests(TestCase):
         from unittest.mock import Mock
         def local(engine, action):
             if action == "status":
-                return 200, {"ready": False, "reason": "offline"}
+                return 200, {"ready": True, "reason": ""}
             return 200, {"jobs": []}
         with patch.object(release, "local_endpoint", side_effect=local), \
              patch("production.route_uploader_scene_https.scene_cookie", return_value="token"), \
