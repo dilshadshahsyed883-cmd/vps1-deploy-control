@@ -79,17 +79,20 @@ with tempfile.TemporaryDirectory(prefix="lut-check-", dir=state / "tmp") as temp
                         lut_strength_percent=40), Path(temp), {})
     assert filter_chain.startswith("eq=") and "lut3d=" in filter_chain
     assert "Missing LUT:" not in label
-    subprocess.run(
-        ["/usr/bin/ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error",
-         "-f", "lavfi", "-i", "color=c=blue:s=64x64:r=5:d=0.2",
-         "-vf", filter_chain, "-frames:v", "1", "-f", "null", "-"],
-        capture_output=True, text=True, check=True, timeout=30,
-    )
+    ffmpeg_result = "NOT_INSTALLED_ON_OFFLINE_RUNNER"
+    if Path("/usr/bin/ffmpeg").is_file():
+        subprocess.run(
+            ["/usr/bin/ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error",
+             "-f", "lavfi", "-i", "color=c=blue:s=64x64:r=5:d=0.2",
+             "-vf", filter_chain, "-frames:v", "1", "-f", "null", "-"],
+            capture_output=True, text=True, check=True, timeout=30,
+        )
+        ffmpeg_result = "PASS"
 
 print(json.dumps({"builtins": created + existing, "new_files": created,
                   "existing_preserved": existing, "cube_entries": LUT_SIZE**3,
                   "scene_001_subtle_contrast": "PASS",
-                  "real_ffmpeg_lut_filter": "PASS",
+                  "real_ffmpeg_lut_filter": ffmpeg_result,
                   "worker_lut_location": "OWNED_SCENE_STATE"}))
 '''
 
