@@ -83,6 +83,7 @@ const vm = require('vm');
 function element(tag) {
  const obj = {tagName:tag, children:[], _text:'', href:'', target:'', rel:'', disabled:false,
   append(...kids){this.children.push(...kids);},
+  addEventListener(){},
   replaceChildren(...kids){this.children=[...kids];},
   hasChildNodes(){return this.children.length>0;},
   set textContent(value){this._text=String(value);this.children=[];},
