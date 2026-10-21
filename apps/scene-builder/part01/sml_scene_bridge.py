@@ -126,19 +126,20 @@ def rank_clips(scene: dict[str, Any], clips: list[dict[str, Any]],
 
 
 def reserve_for_scene(project_id: str, scene_id: str, query: str,
-                      exclude_ids: set[str] | None = None) -> dict[str, Any] | None:
-    if not query.strip():
-        return None
+                      preferred_id: str, exclude_ids: set[str] | None = None) -> dict[str, Any] | None:
+    if not CLIP_ID.fullmatch(preferred_id):
+        raise SMLUnavailable("Invalid preferred SML clip ID")
     result = _request("/api/v1/media/reservations", method="POST", body={
         "project_id": project_id[:100], "scene_id": scene_id[:100],
         "query": query[:200], "media_type": "video",
         "count": 1, "exclude_ids": sorted(exclude_ids or set())[:500],
+        "preferred_ids": [preferred_id],
     })
     selected = result.get("items") or []
     if not selected:
         return None
     item = selected[0]
-    if not (isinstance(item, dict) and CLIP_ID.fullmatch(str(item.get("id") or ""))
+    if not (isinstance(item, dict) and str(item.get("id") or "") == preferred_id
             and RES_ID.fullmatch(str(item.get("reservation_id") or ""))):
         raise SMLUnavailable("SML returned an invalid media reservation")
     return item
