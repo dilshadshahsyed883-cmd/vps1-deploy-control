@@ -183,6 +183,29 @@ class AudioProxyTests(unittest.TestCase):
             self.assertEqual(opts['retries'], 1)
 
 
+    def test_audio_youtube_uses_local_deno_js_when_available(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            deno_bin = Path(tmp)
+            deno = deno_bin / 'deno'
+            deno.write_text('stub')
+            deno.chmod(0o755)
+            with patch.object(self.m.sys, 'executable', str(deno_bin / 'python')):
+                with self.m.youtube_execution() as (opts, _):
+                    text = Path(opts[-1]).read_text()
+                    self.assertIn('--js-runtimes deno:' + str(deno), text)
+                    self.assertIn('--proxy http://', text)
+                    self.assertNotIn('private-secret', text)
+
+    def test_js_ejs_diagnostics_are_specific_and_sanitized(self):
+        for error, code in (
+            ('WARNING No supported JavaScript runtime could be found', 'JS_RUNTIME_MISSING'),
+            ('yt-dlp-ejs is not installed', 'EJS_COMPONENT_MISSING'),
+        ):
+            actual = self.m.download_failure(error)
+            self.assertEqual(actual.code, code)
+
+
+
 class AudioReleaseFenceTests(unittest.TestCase):
     def test_failed_health_restores_previous_release(self):
         import production.audio_downloader_release as m
@@ -201,7 +224,7 @@ class AudioReleaseFenceTests(unittest.TestCase):
             with sqlite3.connect(root / 'data/jobs.sqlite3') as db:
                 db.execute('CREATE TABLE jobs (job_id TEXT, status TEXT)')
                 db.execute("INSERT INTO jobs VALUES('owner-job','failed')")
-            with patch.multiple(m, CURRENT=current, RELEASES=releases, BASE=base), patch.object(m, 'live_environment', return_value={'AUDIO_DOWNLOADER_ROOT': str(root)}), patch.object(m, 'run'), patch.object(m, 'http_check'), patch.object(m, 'verify', side_effect=RuntimeError('injected health failure')), patch.object(m, 'plan_proxy_restore', return_value=None), patch.object(m, 'event'):
+            with patch.multiple(m, CURRENT=current, RELEASES=releases, BASE=base), patch.object(m, 'live_environment', return_value={'AUDIO_DOWNLOADER_ROOT': str(root)}), patch.object(m, 'run'), patch.object(m, 'http_check'), patch.object(m, 'verify', side_effect=RuntimeError('injected health failure')), patch.object(m, 'plan_proxy_restore', return_value=None), patch.object(m, 'ensure_audio_js', return_value=False), patch.object(m, 'event'):
                 with self.assertRaisesRegex(RuntimeError, 'injected health'):
                     m.install('a'*40)
             self.assertEqual(current.resolve(), old)
