@@ -101,6 +101,23 @@ def idle_database(state):
     event(app='video-merger',idle='SQLITE_READ_ONLY_PASS',owner_media_mutated=False)
 
 
+def overlay_failed_import_retry_ui(live, source):
+    """Surgically add Retry support without replacing independent active UI changes."""
+    action='''<button class="btn secondary mini" onclick="renameLibrary('${x.id}')"'''
+    added='''${x.status==='failed'?`<button class="btn secondary mini" onclick="retryLibrary('${x.id}')" ${x.in_use?'disabled':''}>Retry</button>`:''}'''
+    function="function renderProxy(){"
+    new_handler='''async function retryLibrary(id){let x=state.library.find(v=>v.id===id);if(!x||x.status!=='failed')return;if(!confirm(`Retry failed Library import “${x.name}” from the saved original URL?`))return;try{await api(`/api/library/${id}/retry`,{method:'POST',body:'{}'});toast('Retry started using saved source');await refresh()}catch(e){toast(e.message)}}\\n'''
+    require(source.count(added+action)==1 and source.count(new_handler+function)==1,
+            'retry source UI contract changed')
+    if added+action not in live:
+        require(live.count(action)==1,'active Library action UI changed; refuse overwrite')
+        live=live.replace(action,added+action,1)
+    if new_handler+function not in live:
+        require(live.count(function)==1,'active Library script changed; refuse overwrite')
+        live=live.replace(function,new_handler+function,1)
+    return live
+
+
 def install(revision):
     require(re.fullmatch('[a-f0-9]{40}',revision),'invalid revision')
     app='video-merger'
@@ -135,10 +152,17 @@ def install(revision):
     source=(REPO/'apps'/app/name).read_bytes()
     compile(source,name,'exec')
     (target/name).write_bytes(source)
+    # Patch only the two canonical retry anchors; preserve current active HTML/CSS/shell.
+    template='part01/templates/index.html'
+    live_template=target/template
+    source_html=(REPO/'apps'/app/template).read_text(encoding='utf-8')
+    patched=overlay_failed_import_retry_ui(live_template.read_text(encoding='utf-8'),source_html)
+    live_template.write_text(patched,encoding='utf-8')
     manifest=json.loads((target/'_production_manifest.json').read_text())
     require(manifest.get('app')==app,'wrong manifest owner')
     manifest.update(revision=revision,import_overlay=str(previous))
     manifest['files'][name]=hashlib.sha256(source).hexdigest()
+    manifest['files'][template]=hashlib.sha256(patched.encode('utf-8')).hexdigest()
     atomic_json(target/'_production_manifest.json',manifest,0o644)
     activation=planned_proxy_activation(proxy_config)
     # Both real-source downloads happen in a temporary directory. Existing Drive
