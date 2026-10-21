@@ -50,6 +50,24 @@
     <div class="audit-modal-actions"><button id="keyword-cancel" class="button secondary" type="button">Cancel</button><button id="keyword-save" class="button" type="button">Search New Media</button></div>
   </div>
 </div>
+<div id="sml-modal" class="audit-modal" hidden>
+  <div class="audit-modal-card sml-browser" role="dialog" aria-modal="true" aria-labelledby="sml-browser-title">
+    <div class="sml-browser-head"><h3 id="sml-browser-title">Select from Self Media Library</h3><button class="button secondary" type="button" id="sml-close">Close</button></div>
+    <p>Approved SML clips only. Selection copies the clip to this Scene job; library originals stay untouched.</p>
+    <div class="sml-search-row"><input id="sml-query" type="search" placeholder="Search clips and keywords" aria-label="Search SML clips"><button id="sml-search" class="button" type="button">Search</button></div>
+    <div id="sml-status" class="muted" role="status"></div>
+    <div id="sml-results" class="sml-results"></div>
+  </div>
+</div>
+<style>
+.sml-browser{width:min(1040px,94vw);max-width:1040px;max-height:88vh;overflow-y:auto}
+.sml-browser-head,.sml-search-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.sml-browser-head h3{margin:0}.sml-search-row input{flex:1;min-width:0}
+.sml-results{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:14px}
+.sml-result{border:1px solid var(--border,#cbd5e1);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.sml-result img{width:100%;aspect-ratio:16/9;object-fit:cover;background:#1e293b;border-radius:6px}
+.sml-result .muted{font-size:12px;overflow-wrap:anywhere}.sml-result button{margin-top:auto}
+</style>
 {% endif %}
 {% endblock %}
 {% block scripts %}
@@ -60,6 +78,13 @@
   let audit={{ (audit or {})|tojson }};
   let filter='all';
   let keywordItem=null;
+  let smlItem=null;
+  let smlCatalog=[];
+  let smlAutoStarted=false;
+  const smlModal=document.getElementById('sml-modal');
+  const smlResults=document.getElementById('sml-results');
+  const smlStatus=document.getElementById('sml-status');
+  const smlQuery=document.getElementById('sml-query');
   const grid=document.getElementById('audit-grid');
   const empty=document.getElementById('audit-empty');
   const summary=document.getElementById('audit-summary');
@@ -94,6 +119,7 @@
           <button type="button" data-action="preview" ${missing?'disabled':''}>Preview</button>
           <button type="button" data-action="replace" class="primary">Get New</button>
           <button type="button" data-action="keyword">Change Keyword</button>
+          <button type="button" data-action="sml" class="primary">Browse SML</button>
           <label>Upload<input type="file" data-action="upload" accept="video/*,.mp4,.mov,.mkv,.webm,.avi,.m4v" hidden></label>
         </div>
         <div class="audit-status-line"><span>${i.changed?'Modified':'Original selection'}</span><span>${i.approved?'✓ Reviewed':'Needs review'} · r${Number(i.revision||0)}</span></div>
@@ -124,6 +150,7 @@
     const cardEl=btn.closest('.audit-card');if(!cardEl)return;const id=cardEl.dataset.item;const action=btn.dataset.action;
     if(action==='preview'){const v=cardEl.querySelector('video');if(v){stopOthers(v);v.paused?v.play():v.pause()}else cardEl.querySelector('img')?.scrollIntoView({behavior:'smooth',block:'center'});}
     if(action==='replace')mutate(id,'replace');
+    if(action==='sml')openSml(id);
     if(action==='keyword'){const i=itemById(id);keywordItem=id;keywordInput.value=i?.query_override||i?.keyword_used||i?.original_query||'';modal.hidden=false;setTimeout(()=>keywordInput.focus(),0)}
   });
   grid.addEventListener('change',async e=>{
@@ -135,9 +162,62 @@
   document.getElementById('keyword-cancel').onclick=()=>{modal.hidden=true;keywordItem=null};
   modal.addEventListener('click',e=>{if(e.target===modal){modal.hidden=true;keywordItem=null}});
   document.getElementById('keyword-save').onclick=async()=>{const id=keywordItem,keyword=keywordInput.value.trim();if(!id||!keyword)return;modal.hidden=true;keywordItem=null;await mutate(id,'keyword',{keyword})};
+
+  function renderSml(){
+    smlStatus.textContent=`${smlCatalog.length} approved clips available`;
+    smlResults.innerHTML=smlCatalog.length?smlCatalog.map(c=>`<article class="sml-result">
+      ${c.thumb_url?`<img loading="lazy" src="${esc(c.thumb_url)}" alt="SML clip thumbnail">`:'<div class="no-media">Preview unavailable</div>'}
+      <strong>${esc(c.id)}</strong>
+      <span class="muted">${esc(c.description||c.keywords.join(', ')||'No description')}</span>
+      <span class="muted">${Number(c.duration||0).toFixed(1)}s · Quality ${esc(c.quality||0)} · ${esc(c.orientation)}</span>
+      <button type="button" class="button" data-sml-select="${esc(c.id)}">Use this clip</button>
+    </article>`).join(''):'<p>No approved matching SML clips. Current Pexels media will remain.</p>';
+  }
+  async function searchSml(){
+    smlStatus.textContent='Searching approved library clips…';
+    try{const d=await api('/api/sml/clips?q='+encodeURIComponent(smlQuery.value.trim()));
+      smlCatalog=d.items||[];renderSml();
+    }catch(e){smlResults.innerHTML='';smlStatus.textContent='SML unavailable · Pexels fallback stays available. '+e.message}
+  }
+  function openSml(id){
+    smlItem=id;
+    const i=itemById(id);
+    smlQuery.value=i?.query_override||i?.keyword_used||i?.original_query||'';
+    smlModal.hidden=false;
+    searchSml();
+    smlQuery.focus();
+  }
+  document.getElementById('sml-close').onclick=()=>{smlModal.hidden=true;smlItem=null};
+  smlModal.addEventListener('click',e=>{if(e.target===smlModal){smlModal.hidden=true;smlItem=null}});
+  document.getElementById('sml-search').onclick=searchSml;
+  smlQuery.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();searchSml()}});
+  smlResults.addEventListener('click',async e=>{
+    const button=e.target.closest('button[data-sml-select]');
+    if(!button||!smlItem)return;
+    const item=itemById(smlItem);
+    if(!item)return;
+    button.disabled=true;smlStatus.textContent='Copying and verifying selected SML clip…';
+    try{
+      audit=await api(`/api/audit-media/${encodeURIComponent(jobId)}/${encodeURIComponent(smlItem)}/sml-select`,{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({clip_id:button.dataset.smlSelect,revision:item.revision||0})
+      });
+      smlModal.hidden=true;smlItem=null;render();show('SML clip selected · review the updated preview ✓');
+    }catch(err){smlStatus.textContent=err.message;button.disabled=false}
+  });
+  async function autoMatchSml(){
+    if(smlAutoStarted||!Array.isArray(audit.items)||!audit.items.length)return;
+    smlAutoStarted=true;
+    try{
+      const result=await api(`/api/audit-media/${encodeURIComponent(jobId)}/sml-auto-match`,{method:'POST'});
+      audit=result.audit||audit;render();
+      if(result.matched)show(`${result.matched} scenes matched from SML · other scenes retain Pexels`);
+      if(result.errors?.length)show('Some SML selections could not be applied; existing media preserved','error');
+    }catch(err){show('SML matching unavailable; existing media preserved','error')}
+  }
   approveAll.onclick=async()=>{try{audit=await api(`/api/audit-media/${encodeURIComponent(jobId)}/approve-all`,{method:'POST'});render();show('All available scenes reviewed ✓')}catch(e){show(e.message,'error')}};
   continueBtn.onclick=async()=>{if(!confirm('Approve the first 2-minute visuals and continue automatic production?'))return;try{continueBtn.disabled=true;await api(`/api/audit-media/${encodeURIComponent(jobId)}/continue`,{method:'POST'});location.href='/queue'}catch(e){show(e.message,'error');render()}};
-  if(!audit||!Array.isArray(audit.items)){api(`/api/audit-media/${encodeURIComponent(jobId)}`).then(d=>{audit=d;render()}).catch(e=>show(e.message,'error'))}else render();
+  if(!audit||!Array.isArray(audit.items)){api(`/api/audit-media/${encodeURIComponent(jobId)}`).then(d=>{audit=d;render();autoMatchSml()}).catch(e=>show(e.message,'error'))}else{render();autoMatchSml()}
 })();
 </script>
 {% endif %}
