@@ -19,6 +19,10 @@ def smoke(source, state):
         # Read existing proxy settings only, without changing permissions/config.
         app.PROXY_CONFIG_PATH = Path(state)/'config/proxy_profiles.json'
         app.DENO = Path(state)/'bin/deno'
+        original_run=app.run
+        def bounded_run(args, timeout=None, **kwargs):
+            return original_run(args, timeout=min(timeout or 180,180), **kwargs)
+        app.run=bounded_run
         app.init_db()
         results = {}
         try:
@@ -36,7 +40,7 @@ def smoke(source, state):
             database = Path(state)/'data/video_merger.db'
             with sqlite3.connect(database.as_uri()+'?mode=ro', uri=True) as conn:
                 conn.execute('PRAGMA query_only=ON')
-                rows = conn.execute('SELECT drive_url,source_url FROM library_items ORDER BY CASE WHEN status='ready' THEN 0 ELSE 1 END, created_at DESC').fetchall()
+                rows = conn.execute("SELECT drive_url,source_url FROM library_items ORDER BY CASE WHEN status='ready' THEN 0 ELSE 1 END, created_at DESC").fetchall()
             urls = [u for row in rows for u in row if u and app.looks_drive(u)]
             if not urls:
                 raise RuntimeError('No existing Drive video source available for read-only smoke')
