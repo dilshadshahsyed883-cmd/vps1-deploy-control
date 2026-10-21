@@ -21,7 +21,6 @@
 
   {% if request.query_params.get('saved') %}<div class="sb-saved">Settings saved. New submissions will use the updated controls.</div>{% endif %}
 
-  <div class="scene-settings-heading"><div><span class="scene-ui-eyebrow">Scene Builder · Preset controls</span><h2>Project Settings</h2><p>Configure your default project behaviour across all settings tabs.</p></div></div>
   <div class="sb-preset-context">
     <div><span class="sb-muted">SELECTED PRESET</span><br><strong id="selected-preset-name">{{ default_scene_profile.label }}</strong></div>
     <span id="preset-save-state" class="sb-selected-preset-status">✓ Saved</span>
