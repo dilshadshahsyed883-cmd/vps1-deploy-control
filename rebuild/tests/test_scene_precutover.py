@@ -30,6 +30,8 @@ class WritePolicy(unittest.TestCase):
             ("POST", "/api/internal-audio/settings"),
             ("POST", "/api/internal-audio/studio/process"),
             ("POST", "/api/presets"),
+            ("POST", "/api/settings/pexels-keys"),
+            ("POST", "/queue/submit"),
             ("POST", "/api/presets/x/duplicate"),
             ("POST", "/api/presets/x/rename"),
         ]
@@ -53,7 +55,10 @@ class WritePolicy(unittest.TestCase):
             ("DELETE", "/api/experiment-browser/profiles"),
             ("POST", "/api/experiment-browser/profiles/" + "a" * 24 + "/delete"),
             ("POST", "/api/experiment-browser/profiles/" + "a" * 24 + "/start/extra"),
-            ("POST", "/queue/submit"),
+            ("PUT", "/queue/submit"),
+            ("POST", "/queue/submit/extra"),
+            ("PUT", "/api/settings/pexels-keys"),
+            ("POST", "/api/settings/pexels-keys/extra"),
             ("POST", "/queue/123/start"),
             ("POST", "/api/admin/storage/cleanup"),
             ("POST", "/api/admin/storage/services/foo/start"),
@@ -148,7 +153,7 @@ class RealProductionPreparationSmoke(unittest.TestCase):
                 self.assertIsNotNone(row)
                 self.assertEqual((row["is_admin"], row["is_active"]), (0, 1))
                 for endpoint in (
-                    "/queue/submit", "/api/admin/storage/cleanup",
+                    "/queue/123/start", "/api/admin/storage/cleanup",
                     "/api/admin/storage/services/storage/start", "/api/master-controller/projects",
                     "/user-management/",
                 ):

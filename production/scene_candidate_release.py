@@ -364,9 +364,20 @@ def install(revision: str) -> None:
         run(["systemctl", "restart", UNIT], timeout=70, quiet=True)
         health = _health()
         integrations = _verify_integrations(require_storage_backend=require_storage_backend)
+        # Run the backend repair's disposable HTTPS admission proof within this
+        # transaction, so a failed submission restores the previous source.
+        backend_result = None
+        policy = target / "part01/precutover_policy.py"
+        old_policy = previous / "part01/precutover_policy.py"
+        if (policy.is_file() and '"/queue/submit"' in policy.read_text()
+                and (not old_policy.is_file() or '"/queue/submit"' not in old_policy.read_text())):
+            from production.scene_backend_smoke import verify as verify_backend
+            backend_result = verify_backend()
         # Idempotent dedicated Chrome/noVNC setup used by the existing Script Work UI.
         install_browser()
         integrations = _verify_integrations(require_storage_backend=require_storage_backend)
+        if backend_result is not None:
+            integrations["scene_backend_repair"] = backend_result
         _verify_native_ui_release(target)
         if (target / "part01/experiment_browser.py").is_file():
             from production.experiment_browser_smoke import verify as verify_experiment_browser
