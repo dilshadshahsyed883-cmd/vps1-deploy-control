@@ -4,6 +4,7 @@ import http.server
 import importlib.util
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -84,6 +85,10 @@ class FunctionalTests(unittest.TestCase):
             self.assertEqual(unit.read_text(), 'old-unit')
             self.assertEqual(record.read_bytes(), b'old-record')
 
+    @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe')
+                         and importlib.util.find_spec('fastapi')
+                         and importlib.util.find_spec('multipart'),
+                         'Real media test runs in dedicated SML CI with FFmpeg and API dependencies')
     def test_real_http_acquisition_and_three_scene_renderer(self):
         # Only the upstream SML fixture is synthetic. Actual HTTP authentication,
         # checksum, reserve/commit, clip validation, trim and V2 rendering run.
