@@ -96,9 +96,10 @@ def browser_test():
                     page.locator('#aiDescription').filter(visible=True).wait_for()
                     page.get_by_role('button',name='Close AI inspector',exact=True).click()
                     page.locator('#aiQuery').fill('a mountain landscape')
-                    page.get_by_role('button',name='Search media',exact=True).click()
-                    # Model-disabled fixture still supports catalog-only keyword search.
-                    page.locator('#aiSearchStatus').filter(has_text='Catalog filters').wait_for()
+                    # Query text requires the local semantic model; fixture deliberately disables it.
+                    with page.expect_response(lambda response: '/api/v1/ai/search?' in response.url) as search_response:
+                        page.get_by_role('button',name='Search media',exact=True).click()
+                    assert search_response.value.status==503,search_response.value.status
                     assert not errors,errors
                     output=ROOT.parent/'qa';output.mkdir(exist_ok=True)
                     page.screenshot(path=str(output/f'sml-ai-{width}.png'))
