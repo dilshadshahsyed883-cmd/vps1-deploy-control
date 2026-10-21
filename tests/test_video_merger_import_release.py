@@ -1,4 +1,5 @@
 import json
+import sqlite3
 import hashlib
 import io
 import zipfile
@@ -37,7 +38,7 @@ class Release(unittest.TestCase):
                 return ''
             checks=[None,RuntimeError('health failure'),None] if failure=='health' else [None,None]
             with patch.object(release,'BASE',base),patch.object(release,'DATA',root/'data'),patch.object(release,'REPO',repo), \
-                 patch.object(release,'SYSTEMD',units),patch.object(release,'idle'),patch.object(release,'event'), \
+                 patch.object(release,'SYSTEMD',units),patch.object(release,'idle_database'),patch.object(release,'event'), \
                  patch.object(release,'install_js'),patch.object(release,'live_paths',return_value=(root/'data/video-merger/video-merger',root/'config/proxy_profiles.json')), \
                  patch.object(release,'run',side_effect=command) as commands,patch.object(release,'http_check',side_effect=checks), \
                  patch('production.route_uploader_scene_https.scene_cookie',return_value='cookie'), \
@@ -52,6 +53,38 @@ class Release(unittest.TestCase):
                     self.assertEqual((pointer/'part01/templates/index.html').read_text(),'active parallel UI')
                     self.assertEqual((pointer/'part01/app.py').read_text(),'new = True')
                     self.assertIn('a'*40+'-imports/bin/python',unit.read_text())
+
+    def test_read_only_idle_database_rejects_active_jobs_and_library_items(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);dbpath=root/'data/video_merger.db';dbpath.parent.mkdir()
+            with sqlite3.connect(dbpath) as db:
+                db.execute('CREATE TABLE jobs(status TEXT)')
+                db.execute('CREATE TABLE library_items(status TEXT)')
+                db.execute("INSERT INTO jobs VALUES('complete')")
+                db.execute("INSERT INTO library_items VALUES('ready')")
+            with patch.object(release,'event'):
+                release.idle_database(root)
+            with sqlite3.connect(dbpath) as db:
+                db.execute("INSERT INTO library_items VALUES('importing')")
+            with self.assertRaisesRegex(RuntimeError,'unfinished'):
+                release.idle_database(root)
+            with sqlite3.connect(dbpath) as db:
+                db.execute("DELETE FROM library_items WHERE status='importing'")
+                db.execute("INSERT INTO jobs VALUES('waiting')")
+            with self.assertRaisesRegex(RuntimeError,'unfinished'):
+                release.idle_database(root)
+
+    def test_idle_gate_missing_or_incomplete_schema_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            with self.assertRaisesRegex(RuntimeError,'DB missing'):
+                release.idle_database(root)
+            dbpath=root/'data/video_merger.db';dbpath.parent.mkdir()
+            with sqlite3.connect(dbpath) as db:
+                db.execute('CREATE TABLE jobs(status TEXT)')
+            with self.assertRaisesRegex(RuntimeError,'schema invalid'):
+                release.idle_database(root)
+
     def test_isolated_js_runtime_checksum_and_executable(self):
         with tempfile.TemporaryDirectory() as directory:
             venv=Path(directory);(venv/'bin').mkdir()
