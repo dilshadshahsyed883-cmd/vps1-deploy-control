@@ -14,6 +14,7 @@ import subprocess
 from production.runtime import BASE, REPO, atomic_json, atomic_link, event, http_check, run
 from production.voice_queue_release import local_json
 from production.audio_proxy_restore import plan as plan_proxy_restore, replace_private
+from production.video_merger_import_release import install_js as install_verified_deno
 
 CURRENT = BASE / 'current/voice-studio'
 RELEASES = BASE / 'releases/voice-studio'
@@ -25,6 +26,26 @@ BUSY = ('queued', 'downloading', 'downloaded', 'processing', 'converting', 'uplo
 def require(value, message):
     if not value:
         raise RuntimeError('AUDIO_PROXY_RELEASE_BLOCKED: ' + message)
+
+
+def ensure_audio_js(environment):
+    """Bring proven Video Merger Deno+EJS prerequisites into Voice's own venv."""
+    bin_path = Path(environment['PATH'].split(':')[0])
+    python = bin_path / 'python'
+    require(python.is_file() and bin_path.name == 'bin', 'Voice service Python missing')
+    # Use the same yt-dlp release already running in Voice; add EJS scripts and
+    # default extras, never upgrade its core downloader to an unreviewed version.
+    run([python, '-m', 'pip', 'install', '--disable-pip-version-check', '--no-cache-dir',
+         'yt-dlp[default]==2026.8.19'], quiet=True, timeout=540)
+    run([python, '-c', 'import yt_dlp; import yt_dlp_ejs'], quiet=True)
+    deno = bin_path / 'deno'
+    newly_installed = not deno.exists()
+    if newly_installed:
+        install_verified_deno(bin_path.parent)
+    require(deno.is_file() and os.access(deno, os.X_OK), 'app-isolated Deno unavailable')
+    run([deno, '--version'], quiet=True)
+    event(app='audio-downloader', js_runtime='DENO_EJS_READY', credentials_logged=False)
+    return newly_installed
 
 
 def live_environment():
@@ -115,6 +136,7 @@ def install(revision):
     switched = False
     stopped = False
     proxy_changed = False
+    deno_new = False
     try:
         journal.mkdir(mode=0o700, parents=True)
         atomic_json(journal / 'before.json', {'previous': str(previous), 'revision': revision,
@@ -136,6 +158,7 @@ def install(revision):
             replace_private(proxy_plan, proxy_plan['after'])
             proxy_changed = True
             event(app='audio-downloader', proxy_restore='CANARY_PASS_ENABLED', credentials_logged=False)
+        deno_new = ensure_audio_js(environment)
         shutil.copytree(previous, target, symlinks=True)
         (target / MODULE).write_bytes(payload)
         manifest_file = target / '_production_manifest.json'
@@ -158,6 +181,9 @@ def install(revision):
         if proxy_changed:
             replace_private(proxy_plan, proxy_plan['before'])
             event(app='audio-downloader', proxy_restore='ROLLED_BACK', credentials_logged=False)
+        if deno_new:
+            (Path(environment['PATH'].split(':')[0]) / 'deno').unlink(missing_ok=True)
+            event(app='audio-downloader', js_runtime='NEW_BINARY_REMOVED_ON_ROLLBACK')
         if fence is not None:
             fence.close()
             fence = None

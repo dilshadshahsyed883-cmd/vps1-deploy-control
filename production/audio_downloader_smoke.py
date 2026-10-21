@@ -25,7 +25,7 @@ def proxy_disabled_report(report):
 
 def main(source):
     live_root = Path(os.environ['AUDIO_DOWNLOADER_ROOT'])
-    # yt-dlp's own short test video, rather than an owner's media or queue item.
+    # The short public canary also used by the verified Video Merger extractor.
     nonce = uuid.uuid4().hex[:16].upper()
     with tempfile.TemporaryDirectory(prefix='audio-proxy-qa-') as tmp:
         os.environ['AUDIO_DOWNLOADER_ROOT'] = tmp
@@ -49,7 +49,7 @@ def main(source):
             print(json.dumps(report, sort_keys=True))
             return 0
         jid = 'ADJ-' + nonce
-        job = {'job_id': jid, 'video_id': 'BaW_jenozKc', 'url': 'https://www.youtube.com/watch?v=BaW_jenozKc',
+        job = {'job_id': jid, 'video_id': 'jNQXAC9IVRw', 'url': 'https://www.youtube.com/watch?v=jNQXAC9IVRw',
                'format': 'mp3', 'quality': 128, 'keep_metadata': False,
                'auto_upload': state['upload_ready'], 'folder': '__Audio_Proxy_QA__', 'project': nonce}
         # Capture only this synthetic job's state; the real queue is never opened.

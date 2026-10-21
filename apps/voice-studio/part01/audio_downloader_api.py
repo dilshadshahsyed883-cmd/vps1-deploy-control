@@ -666,6 +666,10 @@ class DownloadFailure(RuntimeError):
 
 def download_failure(error):
     value = str(error).lower().replace('’', "'")
+    if 'no supported javascript runtime' in value or 'javascript runtime was not found' in value:
+        return DownloadFailure('JS_RUNTIME_MISSING', 'The Audio Downloader YouTube JavaScript runtime is missing; install the app-isolated Deno runtime.')
+    if 'yt-dlp-ejs' in value and any(k in value for k in ('missing', 'not installed', 'not available', 'failed')):
+        return DownloadFailure('EJS_COMPONENT_MISSING', 'YouTube EJS challenge solver components are unavailable in the Audio Downloader Python environment.')
     if any(x in value for x in ("not a bot", 'confirm your age', 'login required', 'sign in', 'cookies are no longer valid')):
         return DownloadFailure('YOUTUBE_AUTH_REQUIRED', 'YouTube requires an authorized session or challenge verification. Proxy connectivity does not prove download access. Configure fresh private YouTube cookies; no automatic retry or bypass guarantee.')
     if 'po token' in value or 'proof of origin' in value:
@@ -744,6 +748,12 @@ def youtube_execution():
         config = Path(tmp) / 'yt-dlp.conf'
         settings = ['--proxy ' + shlex.quote(proxy), '--retries 1', '--fragment-retries 1',
                     '--extractor-retries 0', '--file-access-retries 0', '--socket-timeout 20']
+        # Mirror the formerly working Video Merger JS runtime contract.
+        # The app-scoped guarded release provisions the pinned Deno binary and EJS scripts.
+        deno = Path(sys.executable).parent / 'deno'
+        if deno.is_file() and os.access(deno, os.X_OK):
+            settings.append('--js-runtimes ' + shlex.quote('deno:' + str(deno)))
+        # Unlike YouTube credentials, these are non-secret CLI options.
         if cookies is not None:
             session = Path(tmp) / 'session.txt'
             session.write_bytes(cookies)
