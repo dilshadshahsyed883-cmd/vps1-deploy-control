@@ -73,6 +73,9 @@ WorkingDirectory={runner}
 EnvironmentFile={ENV}
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONPATH={runner}:{runner}/vps_engine
+Environment=HOME={STATE}/worker-home
+Environment=XDG_CONFIG_HOME={STATE}/worker-home/.config
+Environment=TMPDIR={STATE}/tmp
 ExecStart={VENV}/bin/uvicorn entry:app --host 127.0.0.1 --port {PORT} --workers 1
 Restart=on-failure
 RestartSec=4
@@ -161,6 +164,8 @@ class ProductionWorker:
             fd = os.open(ENV,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
             with os.fdopen(fd,'w') as out:
                 out.write(''.join(k+'='+v+'\n' for k,v in values.items()))
+            from production.scene_worker_home import prepare_home_dirs
+            prepare_home_dirs()
             UNIT_FILE.write_text(unit_text(runner)); UNIT_FILE.chmod(0o644)
             atomic_json(RECORD,{'owner':'scene-production-worker-v1','unit':UNIT,'state':str(STATE),
                                 'source':str(self.source),'endpoint':URL},0o600)
