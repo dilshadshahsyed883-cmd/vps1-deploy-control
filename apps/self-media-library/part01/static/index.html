@@ -54,35 +54,81 @@
     </section>
 
     <section id="page-sources" class="page">
-      <article class="panel sml-ai-panel"><div class="panel-head"><div><h2>Folder &amp; batch input</h2><p>Select a local folder recursively, or queue up to 32 authorized video URLs.</p></div></div><label>Local folder<input type="file" id="aiFolderInput" webkitdirectory multiple></label><label>Authorized YouTube URLs (one per line)<textarea id="aiBatchUrls" rows="3"></textarea></label><label><input id="aiBatchRights" type="checkbox"> I have permission to import and reuse these videos</label><button class="ghost" id="aiBatchImport">Queue URL batch</button><p id="aiInputStatus" role="status"></p></article>
-      <article class="drop-panel" id="dropPanel">
-        <input type="file" id="sourceFile" accept=".mp4,.mov,.mkv,.webm,.m4v,.avi,video/*" multiple hidden />
-        <div class="drop-icon">＋</div>
-        <h2>Add source videos</h2>
-        <p>Drop or choose multiple videos. Each is queued independently for 2–4 second scene clipping.</p>
-        <button class="primary" id="chooseSource">Choose videos</button>
-        <span id="sourceUploadResult" role="status" aria-live="polite"></span>
-        <small>MP4, MOV, MKV, WEBM, M4V, AVI</small>
-      </article>
-      <article class="panel">
-        <div class="panel-head"><div><h2>Source videos</h2><p>Original videos and their processing history.</p></div><button class="ghost" id="refreshSources">Refresh</button></div>
+      <div class="sml-input-heading"><div><h2>Add media</h2><p>Bring videos and images into your library. Sources queue independently.</p></div><span class="sml-input-hint">INPUT WORKSPACE</span></div>
+      <div class="sml-input-grid">
+        <article class="panel sml-upload-card">
+          <div class="panel-head"><div><h2>Upload from your device</h2><p>Choose a source type; keep the same simple upload flow.</p></div><span class="sml-input-tag">Local files</span></div>
+          <div class="sml-upload-tabs" role="tablist" aria-label="Upload media type">
+            <button class="sml-upload-tab active" type="button" role="tab" aria-selected="true" aria-controls="sml-upload-video" data-sml-upload="video">▣ Videos</button>
+            <button class="sml-upload-tab" type="button" role="tab" aria-selected="false" aria-controls="sml-upload-image" data-sml-upload="image">▧ Images</button>
+            <button class="sml-upload-tab" type="button" role="tab" aria-selected="false" aria-controls="sml-upload-folder" data-sml-upload="folder">▤ Folder</button>
+          </div>
+          <div class="sml-upload-pane" id="sml-upload-video" role="tabpanel">
+            <div class="drop-panel" id="dropPanel">
+              <input type="file" id="sourceFile" accept=".mp4,.mov,.mkv,.webm,.m4v,.avi,video/*" multiple hidden />
+              <div class="drop-icon" aria-hidden="true">↑</div>
+              <h3>Drop videos here or browse files</h3>
+              <p>Multiple videos · MP4, MOV, MKV, WEBM, M4V, AVI</p>
+              <button class="primary" type="button" id="chooseSource">Choose videos</button>
+            </div>
+            <p class="sml-pane-footnote">Clips: 2–4 seconds by default, editable in Settings · Original quality preserved</p>
+            <p id="sourceUploadResult" role="status" aria-live="polite" class="sml-input-status"></p>
+          </div>
+          <div class="sml-upload-pane" id="sml-upload-image" role="tabpanel" hidden>
+            <div class="sml-media-drop" id="smlImageDrop">
+              <div class="drop-icon" aria-hidden="true">▧</div>
+              <h3>Choose images to upload</h3>
+              <p>Multiple files · JPG, PNG, WEBP · Original quality preserved</p>
+              <input id="imageFiles" aria-label="Choose images" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple hidden />
+              <button class="ghost" type="button" id="smlChooseImages">Choose images</button>
+              <button class="primary" type="button" id="uploadImages" disabled>Add selected images</button>
+            </div>
+            <p id="imageUploadResult" role="status" class="sml-input-status"></p>
+          </div>
+          <div class="sml-upload-pane" id="sml-upload-folder" role="tabpanel" hidden>
+            <div class="sml-media-drop">
+              <div class="drop-icon" aria-hidden="true">▤</div>
+              <h3>Select a local media folder</h3>
+              <p>Import supported images and videos, including nested folders.</p>
+              <input type="file" id="aiFolderInput" webkitdirectory multiple hidden aria-label="Choose media folder" />
+              <button class="primary" type="button" id="smlChooseFolder">Choose folder</button>
+            </div>
+            <p class="sml-pane-footnote">Folder selection begins the existing recursive upload. Originals remain unchanged.</p>
+            <p id="aiInputStatus" role="status" aria-live="polite" class="sml-input-status"></p>
+          </div>
+        </article>
+        <div class="sml-input-right">
+          <article class="panel sml-remote-card import-panel">
+            <div class="panel-head"><div><h2>Import from online sources</h2><p>Configured Drive or rights-authorized YouTube media.</p></div><span class="sml-input-tag">Remote</span></div>
+            <label class="sml-select-hidden" for="importSource">Remote source</label>
+            <select id="importSource" class="sml-select-hidden" aria-label="Remote source"><option value="drive">Google Drive relative path</option><option value="youtube">YouTube video (authorized)</option></select>
+            <div class="sml-import-tabs" role="tablist" aria-label="Remote import source">
+              <button type="button" role="tab" class="active" aria-selected="true" data-sml-import="drive">▱ Google Drive</button>
+              <button type="button" role="tab" aria-selected="false" data-sml-import="youtube">▶ YouTube</button>
+            </div>
+            <label for="importValue" id="smlImportLabel">Drive file path</label>
+            <input id="importValue" class="setting-text import-text" type="text" placeholder="My Footage/source.mp4" />
+            <p class="sml-input-help" id="smlImportHelp">Relative to your configured SML Drive remote. Share URLs are not supported.</p>
+            <div class="sml-import-actions"><label class="import-choice"><input id="importRights" type="checkbox" /> I have permission to import and reuse this media.</label><button class="primary" type="button" id="submitImport">Queue import</button></div>
+            <details class="sml-input-disclosure"><summary>Advanced import options</summary><label class="import-choice"><input id="importProxy" type="checkbox" /> Use existing server proxy profile (if configured)</label></details>
+            <details class="sml-input-disclosure"><summary>Recent remote imports</summary><div id="importHistory" class="source-list" role="status"></div></details>
+          </article>
+          <article class="panel sml-batch-card">
+            <details id="smlBatchDetails">
+              <summary><span class="sml-batch-icon" aria-hidden="true">≡</span><span><b>Batch YouTube URLs</b><small>Queue up to 32 authorized video links at once.</small></span><span class="sml-batch-expand">Expand</span></summary>
+              <div class="sml-batch-content">
+                <label for="aiBatchUrls">Authorized YouTube URLs (one per line)</label>
+                <textarea id="aiBatchUrls" rows="4" placeholder="https://www.youtube.com/watch?v=..."></textarea>
+                <label class="import-choice"><input id="aiBatchRights" type="checkbox"> I have permission to import and reuse these videos</label>
+                <button class="primary" type="button" id="aiBatchImport" disabled>Queue URL batch</button>
+              </div>
+            </details>
+          </article>
+        </div>
+      </div>
+      <article class="panel sml-input-history">
+        <div class="panel-head"><div><h2>Source history</h2><p>Original videos and their processing history. Image assets remain available in Library &amp; Preview.</p></div><button class="ghost" id="refreshSources" type="button">↻ Refresh</button></div>
         <div id="sourcesList" class="source-list"></div>
-      </article>
-    <article class="panel import-panel">
-        <div class="panel-head"><div><h2>Upload images</h2><p>JPG, PNG, WEBP • original quality preserved • AI/review-ready keywords</p></div></div>
-        <input id="imageFiles" aria-label="Choose images" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple />
-        <div class="row-actions"><button class="primary" id="uploadImages">Add selected images</button><span id="imageUploadResult" role="status"></span></div>
-      </article>
-      <article class="panel import-panel">
-        <div class="panel-head"><div><h2>Drive &amp; YouTube imports</h2><p>Use the configured app Drive remote or a rights-authorized YouTube video. Imports are queued independently.</p></div></div>
-        <label for="importSource">Source</label>
-        <select id="importSource"><option value="drive">Google Drive relative path</option><option value="youtube">YouTube video (authorized)</option></select>
-        <label for="importValue">Drive file path / video URL</label>
-        <input id="importValue" class="setting-text import-text" type="text" placeholder="My Footage/source.mp4" />
-        <label class="import-choice"><input id="importRights" type="checkbox" /> I have permission to import and reuse this media.</label>
-        <label class="import-choice"><input id="importProxy" type="checkbox" /> Use existing server proxy profile (if configured)</label>
-        <button class="primary" id="submitImport">Queue media import</button>
-        <div id="importHistory" class="source-list" role="status"></div>
       </article>
     </section>
     <section id="page-processing" class="page">
