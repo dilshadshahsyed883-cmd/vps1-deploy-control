@@ -1,0 +1,32 @@
+name: Scene backend key persistence and project admission
+on:
+  pull_request:
+    paths:
+      - 'apps/scene-builder/part01/app.py'
+      - 'apps/scene-builder/part01/precutover_policy.py'
+      - 'tests/test_scene_backend_repair.py'
+      - 'production/scene_backend_smoke.py'
+      - 'production/scene_production_worker.py'
+      - 'tests/test_scene_production_worker.py'
+      - 'production/scene_candidate_release.py'
+      - '.github/workflows/vps1-scene-backend-repair-ci.yml'
+permissions:
+  contents: read
+jobs:
+  backend-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Scene HTTP and worker test dependencies
+        run: |
+          python -m pip install 'fastapi==0.115.12' 'httpx==0.28.1' 'python-multipart==0.0.20' 'requests==2.32.3' 'jinja2==3.1.6' 'itsdangerous==2.2.0' 'pillow==11.1.0'
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core
+      - name: Real isolated key save/reload and TXT WAV queue persistence
+        run: python -m unittest tests.test_scene_production_worker tests.test_scene_backend_repair rebuild.tests.test_scene_precutover.WritePolicy tests.test_scene_candidate_release tests.test_scene_user_roles -v

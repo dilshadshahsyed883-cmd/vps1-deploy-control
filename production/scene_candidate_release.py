@@ -347,6 +347,7 @@ def install(revision: str) -> None:
     changed = False
     original_env: bytes | None = None
     require_storage_backend = False
+    production_worker = None
     try:
         token = _candidate_storage_token()
         if token is not None:
@@ -359,20 +360,46 @@ def install(revision: str) -> None:
             if new_text.encode("utf-8") != original:
                 _atomic_scene_env(new_text.encode("utf-8"))
                 original_env = original
+        # The live web binding still points at a disabled candidate endpoint.
+        # Provision a separate authenticated production service. The port-8000
+        # admission worker and its read-only policy/data remain untouched.
+        policy = target / "part01/precutover_policy.py"
+        old_policy = previous / "part01/precutover_policy.py"
+        backend_cutover = (policy.is_file() and '"/queue/submit"' in policy.read_text()
+                           and (not old_policy.is_file() or '"/queue/submit"' not in old_policy.read_text()))
+        if backend_cutover:
+            from production.scene_production_worker import ProductionWorker
+            production_worker = ProductionWorker(target, journal)
+            worker_previous_env = production_worker.ensure()
+            if worker_previous_env is not None and original_env is None:
+                original_env = worker_previous_env
         atomic_link(CURRENT, target)
         changed = True
         run(["systemctl", "restart", UNIT], timeout=70, quiet=True)
         health = _health()
         integrations = _verify_integrations(require_storage_backend=require_storage_backend)
+        # Run the backend repair's disposable HTTPS admission proof within this
+        # transaction, so a failed submission restores the previous source.
+        backend_result = None
+        policy = target / "part01/precutover_policy.py"
+        old_policy = previous / "part01/precutover_policy.py"
+        if (policy.is_file() and '"/queue/submit"' in policy.read_text()
+                and (not old_policy.is_file() or '"/queue/submit"' not in old_policy.read_text())):
+            from production.scene_backend_smoke import verify as verify_backend
+            backend_result = verify_backend()
         # Idempotent dedicated Chrome/noVNC setup used by the existing Script Work UI.
         install_browser()
         integrations = _verify_integrations(require_storage_backend=require_storage_backend)
+        if backend_result is not None:
+            integrations["scene_backend_repair"] = backend_result
         _verify_native_ui_release(target)
         if (target / "part01/experiment_browser.py").is_file():
             from production.experiment_browser_smoke import verify as verify_experiment_browser
             verify_experiment_browser()
         if shutil.disk_usage("/").free < 5_000_000_000:
             raise RuntimeError("operational disk reserve breached")
+        if production_worker is not None:
+            production_worker.commit()
         atomic_json(RECORD, {"revision": revision, "status": "ACTIVE", "unit": UNIT,
                             "previous": str(previous), "transaction": str(journal)})
         event(app="scene-builder", result="PASS_CANDIDATE_SOURCE_AND_SSO", revision=revision,
@@ -386,5 +413,7 @@ def install(revision: str) -> None:
             subprocess.run(["systemctl", "restart", UNIT], capture_output=True, timeout=70)
             _health()
             event(app="scene-builder", rollback="PASS", data="PRESERVED")
+        if production_worker is not None:
+            production_worker.rollback()
         raise
 
