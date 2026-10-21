@@ -1,8 +1,7 @@
-"""Read-only SML catalog bridge used by Scene Builder's media audit.
+"""Scene Builder adapter for Self Media Library's *authenticated V2 Editor API*.
 
-SML remains the source-of-truth for its own clips, database, Drive verification
-and lifecycle. Scene Builder imports a *job-scoped copy* through the existing
-worker upload API; it must never mutate SML records or delete library media.
+SML owns approval, Drive restore, catalog, reservations and clip data.
+Scene Builder owns only its job-scoped replacement copy. No V1/static bypass.
 """
 from __future__ import annotations
 
@@ -10,70 +9,83 @@ import hashlib
 import json
 import os
 import re
-import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
 
-DEFAULT_URL = "http://127.0.0.1:8147"
+DEFAULT_URL = "http://127.0.0.1:8147"  # override after live service discovery
 MAX_CLIP_BYTES = 256 * 1024 * 1024
 TOKEN = re.compile(r"[^\W_]+", flags=re.UNICODE)
-CLIP_PATH = re.compile(r"^/media/clips/[A-Za-z0-9._-]+\.mp4$")
-STOPWORDS = frozenset({
-    "a", "an", "and", "are", "as", "at", "by", "for", "from", "in", "is",
-    "it", "of", "on", "or", "the", "to", "with", "video", "clip", "scene",
-})
+CLIP_ID = re.compile(r"^CLP-[A-Za-z0-9_-]+$")
+RES_ID = re.compile(r"^RES-[0-9a-f]{32}$")
+STOPWORDS = frozenset({"a", "an", "and", "are", "as", "at", "by", "for", "from", "in",
+                       "is", "it", "of", "on", "or", "the", "to", "with", "video", "clip", "scene"})
 
 
 class SMLUnavailable(RuntimeError):
-    """SML is unreachable or does not have a safe, usable clip."""
+    """An unavailable V2 Editor API must leave existing Scene media untouched."""
 
 
 def library_url() -> str:
-    # Internal server-to-server address; never accept arbitrary URLs from a
-    # browser request. A deployment may override this via a service environment.
     value = os.getenv("SCENE_SML_URL", DEFAULT_URL).strip().rstrip("/")
     parsed = urllib.parse.urlsplit(value)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
-        raise SMLUnavailable("SCENE_SML_URL must be a service origin")
+    if (parsed.scheme not in {"http", "https"} or not parsed.hostname or
+            parsed.username or parsed.password or parsed.path not in {"", "/"} or
+            parsed.query or parsed.fragment):
+        raise SMLUnavailable("SCENE_SML_URL must be an internal service origin")
     return value
 
 
-def _get(path: str, params: dict[str, object] | None = None) -> bytes:
+def editor_token() -> str:
+    # The SAME value must be provisioned separately to SML_EDITOR_API_TOKEN
+    # on the SML service and SCENE_SML_EDITOR_TOKEN on the Scene service.
+    value = os.getenv("SCENE_SML_EDITOR_TOKEN", "").strip()
+    if not value:
+        raise SMLUnavailable("SML V2 Editor API credential is not configured")
+    return value
+
+
+def _request(path: str, *, method: str = "GET", params: dict[str, object] | None = None,
+             body: dict[str, object] | None = None) -> dict[str, Any]:
     url = library_url() + path
     if params:
         url += "?" + urllib.parse.urlencode(params)
+    headers = {"Accept": "application/json", "X-SML-Editor-Token": editor_token()}
+    data = None
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(body).encode("utf-8")
     try:
-        with urllib.request.urlopen(urllib.request.Request(url, headers={"Accept": "application/json"}), timeout=8) as response:
-            return response.read(3 * 1024 * 1024 + 1)
-    except (OSError, TimeoutError, urllib.error.URLError) as exc:
-        raise SMLUnavailable("SML service is currently unavailable") from exc
+        request = urllib.request.Request(url, data=data, headers=headers, method=method)
+        with urllib.request.urlopen(request, timeout=12) as response:
+            raw = response.read(3 * 1024 * 1024 + 1)
+        result = json.loads(raw)
+        if not isinstance(result, dict):
+            raise ValueError("Expected object")
+        return result
+    except (OSError, ValueError, TimeoutError, urllib.error.URLError) as exc:
+        # Do not log the bearer credential or leak the remote response body.
+        raise SMLUnavailable("SML V2 editor service unavailable or access denied") from exc
 
 
-def approved_clips(limit: int = 200) -> list[dict[str, Any]]:
-    """Fetch up to 200 approved clips; rejected/trashed clips are never offered."""
-    limit = max(1, min(200, int(limit)))
-    try:
-        payload = json.loads(_get("/api/clips", {
-            "status": "approved", "trash": "false", "sort": "quality", "limit": limit,
-        }))
-    except (ValueError, TypeError) as exc:
-        raise SMLUnavailable("SML returned an invalid media catalog") from exc
-    if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
-        raise SMLUnavailable("SML catalog format is unsupported")
-    return [r for r in payload["items"] if isinstance(r, dict) and eligible(r)]
+def approved_clips(limit: int = 100, query: str = "") -> list[dict[str, Any]]:
+    limit = max(1, min(100, int(limit)))
+    result = _request("/api/v1/media/search", params={
+        "media_type": "video", "query": query[:200], "limit": limit,
+    })
+    if not isinstance(result.get("items"), list):
+        raise SMLUnavailable("SML V2 catalog format is unsupported")
+    return [x for x in result["items"] if isinstance(x, dict) and eligible(x)]
 
 
 def eligible(clip: dict[str, Any]) -> bool:
-    if clip.get("status") != "approved" or clip.get("deleted_at"):
-        return False
-    if str(clip.get("duplicate_state") or "clear").lower() == "duplicate":
-        return False
-    if not CLIP_PATH.fullmatch(str(clip.get("clip_url") or "")):
-        return False
-    return bool(re.fullmatch(r"CLP-[A-Za-z0-9_-]+", str(clip.get("id") or "")))
+    clip_id = str(clip.get("id") or "")
+    return (bool(CLIP_ID.fullmatch(clip_id))
+            and str(clip.get("type") or "") == "video"
+            and str(clip.get("content_url") or "") ==
+            f"/api/v1/media/video/{clip_id}/content")
 
 
 def terms(value: object) -> set[str]:
@@ -83,15 +95,11 @@ def terms(value: object) -> set[str]:
 
 def rank_clips(scene: dict[str, Any], clips: list[dict[str, Any]],
                used: set[str] | None = None) -> list[dict[str, Any]]:
-    """Deterministic match from requested scene keyword to approved SML metadata.
-
-    If no keyword matches, return [] so the established Pexels selection stays.
-    """
     used = used or set()
     needle = terms(scene.get("query_override") or scene.get("keyword_used") or
                    scene.get("original_query") or scene.get("narration"))
     if not needle:
-        return []
+        return []  # No arbitrary clip: the existing Pexels result stays.
     desired = max(0.0, float(scene.get("final_end") or 0) -
                   float(scene.get("final_start") or 0))
     scored = []
@@ -110,46 +118,67 @@ def rank_clips(scene: dict[str, Any], clips: list[dict[str, Any]],
             duration = max(0.0, float(clip.get("duration") or 0))
         except (TypeError, ValueError):
             continue
-        orientation = str(clip.get("source_orientation") or "")
         fitness = max(0.0, 8.0 - abs(desired - duration) * 3) if desired else 0
         score = 100.0 * overlap / len(needle) + 6.0 * overlap + quality * .15 + fitness
-        if orientation == "landscape":
-            score += 3
         scored.append((score, str(clip.get("id")), clip))
     scored.sort(key=lambda row: (-row[0], row[1]))
-    return [entry[2] for entry in scored]
+    return [row[2] for row in scored]
+
+
+def reserve_for_scene(project_id: str, scene_id: str, query: str,
+                      exclude_ids: set[str] | None = None) -> dict[str, Any] | None:
+    if not query.strip():
+        return None
+    result = _request("/api/v1/media/reservations", method="POST", body={
+        "project_id": project_id[:100], "scene_id": scene_id[:100],
+        "query": query[:200], "media_type": "video",
+        "count": 1, "exclude_ids": sorted(exclude_ids or set())[:500],
+    })
+    selected = result.get("items") or []
+    if not selected:
+        return None
+    item = selected[0]
+    if not (isinstance(item, dict) and CLIP_ID.fullmatch(str(item.get("id") or ""))
+            and RES_ID.fullmatch(str(item.get("reservation_id") or ""))):
+        raise SMLUnavailable("SML returned an invalid media reservation")
+    return item
+
+
+def transition_reservation(reservation_id: str, action: str) -> None:
+    if not RES_ID.fullmatch(reservation_id) or action not in {"commit", "release"}:
+        raise SMLUnavailable("Invalid SML reservation operation")
+    _request(f"/api/v1/media/reservations/{reservation_id}/{action}", method="POST")
 
 
 def download_verified(clip: dict[str, Any], destination: Path) -> Path:
-    """Download only an approved SML MP4, bounded and hash-checked."""
+    """Bounded authenticated V2 fetch; SML itself verifies restored Drive clips."""
     if not eligible(clip):
-        raise SMLUnavailable("Clip is not an approved SML media asset")
-    path = str(clip["clip_url"])
-    if not CLIP_PATH.fullmatch(path):
-        raise SMLUnavailable("Unsafe clip path")
-    expected_sha = str(clip.get("sha256") or "").lower()
-    if expected_sha and not re.fullmatch(r"[0-9a-f]{64}", expected_sha):
-        raise SMLUnavailable("Invalid SML clip checksum")
+        raise SMLUnavailable("Not an approved V2 SML clip")
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_name(destination.name + ".partial")
     digest = hashlib.sha256()
     size = 0
     try:
-        with urllib.request.urlopen(library_url() + path, timeout=45) as response, temporary.open("wb") as sink:
+        request = urllib.request.Request(
+            library_url() + str(clip["content_url"]),
+            headers={"X-SML-Editor-Token": editor_token()}, method="GET",
+        )
+        with urllib.request.urlopen(request, timeout=45) as response, temporary.open("wb") as sink:
             while True:
                 chunk = response.read(1024 * 1024)
                 if not chunk:
                     break
                 size += len(chunk)
                 if size > MAX_CLIP_BYTES:
-                    raise SMLUnavailable("SML clip exceeds safe transfer size")
+                    raise SMLUnavailable("SML clip exceeds maximum media transfer size")
                 digest.update(chunk)
                 sink.write(chunk)
+        expected_sha = str(clip.get("sha256") or "").lower()
         if size == 0 or (expected_sha and digest.hexdigest() != expected_sha):
-            raise SMLUnavailable("SML clip is empty or failed integrity verification")
+            raise SMLUnavailable("SML media integrity verification failed")
         temporary.replace(destination)
         return destination
     except (OSError, TimeoutError, urllib.error.URLError) as exc:
-        raise SMLUnavailable("SML clip could not be downloaded") from exc
+        raise SMLUnavailable("SML media is temporarily unavailable") from exc
     finally:
         temporary.unlink(missing_ok=True)
