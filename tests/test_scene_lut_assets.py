@@ -24,8 +24,8 @@ from types import SimpleNamespace
 
 class SceneLUTAssetsTests(unittest.TestCase):
     def _worker(self, root: Path):
-        (root / 'worker-home').mkdir(parents=True)
-        (root / 'tmp').mkdir()
+        (root / 'worker-home').mkdir(parents=True, exist_ok=True)
+        (root / 'tmp').mkdir(exist_ok=True)
         environment = dict(os.environ)
         environment.update({
             'SCENE_WORKER_DATA': str(root),
