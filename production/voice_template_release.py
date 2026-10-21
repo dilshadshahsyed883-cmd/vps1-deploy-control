@@ -160,7 +160,7 @@ def omnivoice_parity_overlay(original: bytes, source: bytes) -> bytes:
 
 # The public native document is under /voice-studio/app, while the isolated
 # web service itself is under /app. Nginx text substitution must not decide
-# where the queue API points. Update only four reviewed inline JS expressions.
+# where the queue API points. Update only three currently used inline JS expressions.
 QUEUE_ROUTE_PAIRS = (
     (b"const apiRoot='/tts/api/kokoro'",
      b"const apiRoot=(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/kokoro'"),
@@ -168,8 +168,6 @@ QUEUE_ROUTE_PAIRS = (
      b"const $=id=>document.getElementById(id),root=(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/edge'"),
     (b"link.href=((window.location.pathname.startsWith('/voice-studio') && typeof j.audio_url==='string' && j.audio_url.startsWith('/'+'tts/api/kokoro/audio/')) ? '/voice-studio/service'+j.audio_url : j.audio_url);",
      b"link.href=apiRoot+'/audio/'+encodeURIComponent(j.job_id);"),
-    (b"a.href=j[ext+'_url'];",
-     b"a.href=root+'/files/'+encodeURIComponent(j.job_id)+'/'+ext;"),
 )
 
 
