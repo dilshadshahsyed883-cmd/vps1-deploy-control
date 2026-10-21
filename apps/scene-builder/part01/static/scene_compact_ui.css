@@ -136,3 +136,7 @@ body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(button,a,input,sele
 body.vps1-scene-parity[data-scene-ui="sml-compact"] main .sb-number {display:flex;gap:8px;align-items:center;}
 body.vps1-scene-parity[data-scene-ui="sml-compact"] main .sb-number input {flex:1 1 0;min-width:0;}
 body.vps1-scene-parity[data-scene-ui="sml-compact"] main .sb-number em {flex:0 0 auto;white-space:nowrap;}
+/* Match the existing shell's ID-qualified active-tab rule within Scene only. */
+body:has(#app-sidebar)[data-scene-ui="sml-compact"] .scene-workspace-tabs > a[aria-current="page"] {
+  background:#315edb!important;border-color:#315edb!important;color:#fff!important;
+}
