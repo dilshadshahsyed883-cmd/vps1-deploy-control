@@ -112,6 +112,45 @@ class RealQueueRoutesTest(unittest.TestCase):
         self.assertEqual(self.client.get(url).status_code,200)
         with self.ko.connection() as c:self.assertEqual(c.execute("select count(*) from jobs").fetchone()[0],1)
 
+    def test_delete_available_after_failed_drive_upload_without_deleting_audio(self):
+        # This is the original reported Edge screen: synthesis completed,
+        # Drive rate/quota caused retry_pending, but Delete was missing.
+        edge_mp3 = Path(self.temp.name) / "preserve.mp3"
+        edge_mp3.write_bytes(b"ID3" + b"sample audio payload" * 100)
+        with self.ed.db() as c:
+            c.execute("update jobs set status='completed',delivery_status='retry_pending',"
+                      "mp3_file=?,delivery_error='rate_or_quota' where job_id=?",
+                      (str(edge_mp3), self.eid))
+        visible = self.get("edge")
+        self.assertIn("delete", visible["allowed_actions"])
+        self.assertEqual(visible["delivery_status"], "retry_pending")
+        self.assertIn("mp3_url", visible)
+        response = self.control("edge", self.eid, "delete")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(response.json()["hidden"])
+        self.assertEqual(self.client.get("/tts/api/edge/jobs").json()["jobs"], [])
+        self.assertTrue(edge_mp3.is_file())
+        self.assertEqual(self.client.get("/tts/api/edge/files/" + self.eid + "/mp3").status_code, 200)
+        with self.ed.db() as c:
+            row = c.execute("select status,delivery_status,delivery_error,hidden_at "
+                            "from jobs where job_id=?", (self.eid,)).fetchone()
+        self.assertEqual(row["status"], "completed")
+        self.assertEqual(row["delivery_status"], "retry_pending")
+        self.assertEqual(row["delivery_error"], "rate_or_quota")
+        self.assertIsNotNone(row["hidden_at"])
+
+    def test_kokoro_delete_independent_of_drive_blocked(self):
+        with self.ko.connection() as c:
+            c.execute("update jobs set status='completed',delivery_status='blocked' "
+                      "where job_id=?", (self.kid,))
+        self.assertIn("delete", self.get("kokoro")["allowed_actions"])
+        self.assertEqual(self.control("kokoro", self.kid, "delete").status_code, 200)
+        self.assertEqual(self.client.get("/tts/api/kokoro/jobs").json()["jobs"], [])
+        with self.ko.connection() as c:
+            state = c.execute("select status,delivery_status from jobs "
+                              "where job_id=?", (self.kid,)).fetchone()
+        self.assertEqual(tuple(state), ("completed", "blocked"))
+
     def test_invalid_engine_ids_are_rejected(self):
         self.assertEqual(self.control("edge",self.kid,"cancel").status_code,404)
         self.assertEqual(self.control("kokoro",self.kid,"drive_delete").status_code,404)
