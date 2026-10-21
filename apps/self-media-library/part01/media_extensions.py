@@ -78,6 +78,7 @@ class ReservationRequest(BaseModel):
     orientation: str = "all"
     count: int = Field(default=1, ge=1, le=20)
     exclude_ids: list[str] = Field(default_factory=list)
+    preferred_ids: list[str] = Field(default_factory=list)  # optional exact manual/auto consumer selection
 
 
 def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
@@ -400,7 +401,9 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                     results.append({"type":"video","id":row["id"],"source_id":row["source_id"] or row["id"],
                                     "source_filename":row["original_name"] or "", "keywords":r["keywords"],
                                     "description":row["description"],"quality":row["quality"],
-                                    "duration":row["duration"], "content_url":f"/api/v1/media/video/{row['id']}/content"})
+                                    "duration":row["duration"], "content_url":f"/api/v1/media/video/{row['id']}/content",
+                                    "thumb_url":f"/media/thumbs/{row['thumb_filename']}" if row["thumb_filename"] else "",
+                                    "sha256":row["sha256"]})
             if media_type in ("image","all"):
                 for row in conn.execute("SELECT * FROM image_assets WHERE status='approved' AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 500"):
                     if not (images / row["stored_name"]).is_file() and not (
@@ -441,6 +444,11 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
             candidates=app.state.ai_workspace.search(query=body.query,media_type=body.media_type,status="approved",orientation=body.orientation,rights_only=True,limit=100)["items"]
         else:
             candidates = lookup_candidates(body.media_type, terms)
+        if body.preferred_ids:
+            # Exact ID selection is permitted only for approved and available
+            # candidates returned by the same server-side lookup policy.
+            preferred = set(body.preferred_ids[:20])
+            candidates = [x for x in lookup_candidates(body.media_type, []) if x["id"] in preferred]
         now = int(time.time())
         exclusions = set(body.exclude_ids)
         selected = []
