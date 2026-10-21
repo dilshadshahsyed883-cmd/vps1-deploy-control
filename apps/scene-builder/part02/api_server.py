@@ -1592,7 +1592,9 @@ def _resolve_intro_stock_media(
     """
     if not intro_scenes:
         return []
-    if not _current_pexels_keys():
+    sml_client = SMLWorkerClient()
+    sml_intro_first = sml_client.enabled and any(bool(x.get("_sml_first")) for x in intro_scenes)
+    if not _current_pexels_keys() and not sml_intro_first:
         raise RuntimeError("Opening Intro needs Pexels media, but no Pexels API key is configured.")
     queries = [dict(x) for x in intro_queries if isinstance(x, dict) and str(x.get("query") or "").strip()]
     if not queries:
@@ -1608,6 +1610,10 @@ def _resolve_intro_stock_media(
     resolved_rows: list[dict[str, Any]] = []
     errors: dict[str, list[str]] = {}
     next_query_index = 0
+    used_sml_ids: set[str] = set()
+    sml_source_root = job_dir / "sml_intro_sources"
+    if sml_intro_first:
+        sml_source_root.mkdir(parents=True, exist_ok=True)
 
     for scene_index, source_scene in enumerate(intro_scenes):
         if cancelled(job_id):
@@ -1663,7 +1669,14 @@ def _resolve_intro_stock_media(
             )
             keywords = _scene_keywords(candidate_scene) or [primary]
             last_error = "no usable result"
-            for keyword in keywords:
+            if sml_intro_first:
+                chosen = _try_sml_first_scene(
+                    client=sml_client, job_id=job_id, scene=candidate_scene,
+                    scene_code=scene_code, keywords=keywords,
+                    assignment_root=assignment_root, source_root=sml_source_root,
+                    used_sml_ids=used_sml_ids, used_hashes=used_hashes,
+                )
+            for keyword in ([] if chosen is not None else keywords):
                 chosen, last_error = _download_scene_candidate(
                     scene=candidate_scene,
                     scene_code=scene_code,
