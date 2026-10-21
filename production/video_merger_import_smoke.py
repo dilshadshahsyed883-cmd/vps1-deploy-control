@@ -44,14 +44,19 @@ def smoke(source, state, proxy_config=None):
                    'saved_proxy_profiles':len(config.get('profiles',[])),
                    'candidate_saved_proxy':bool(candidate),
                    'js_runtime':str(app.DENO) if app.DENO.is_file() else 'MISSING'}
+        profile = app.active_proxy_profile()
         try:
-            profile = app.active_proxy_profile()
             if profile:
                 tested = app.test_proxy_profile(profile['id'])
                 results['proxy_test'] = 'REAL_DOWNLOAD_PASS' if tested.get('download_verified') else 'NOT_VERIFIED'
             else:
                 results['proxy_test'] = 'DIRECT_MODE'
-            app.source_to_file('https://youtu.be/jNQXAC9IVRw', root/'youtube.bin', None, 1)
+        except Exception as exc:
+            results['proxy_test'] = 'FAIL: '+app.scrub_proxy_error(exc)
+        try:
+            # The short no-login Audio Downloader production canary succeeded on
+            # this VPS; require VIDEO bytes and FFprobe, not audio-only metadata.
+            app.source_to_file('https://youtu.be/BaW_jenozKc', root/'youtube.bin', None, 1)
             results['youtube'] = 'PASS'
         except Exception as exc:
             results['youtube'] = 'FAIL: '+app.scrub_proxy_error(exc)

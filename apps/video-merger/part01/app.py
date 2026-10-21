@@ -203,7 +203,8 @@ def youtube_cookie_args():
     return ['--cookies',str(path)]
 
 def yt_common_args(profile=None, force_profile=False):
-    args=['-4','--no-playlist','--no-progress','--socket-timeout','30','--retries','1','--fragment-retries','1','--extractor-retries','0']
+    # Audio Downloader has verified real media on this VPS without forcing IPv4.
+    args=['--no-playlist','--no-progress','--no-cache-dir','--socket-timeout','30','--retries','1','--fragment-retries','1','--extractor-retries','0']
     if DENO.exists(): args += ['--js-runtimes',f'deno:{DENO}']
     elif shutil.which('node'): args += ['--js-runtimes','node:'+shutil.which('node')]
     args += youtube_cookie_args()
@@ -283,7 +284,7 @@ def youtube_failure(error):
     message=scrub_proxy_error(error)
     value=message.lower().replace('’',"'")
     if any(token in value for token in ('not a bot','sign in','confirm your age','cookies are no longer valid')):
-        return RuntimeError('YOUTUBE_AUTH_REQUIRED: YouTube requested an authorized session for this video. The selected proxy may pass public tests but cannot guarantee access; configure private owner YouTube cookies and retry this saved item.')
+        return RuntimeError('YOUTUBE_AUTH_REQUIRED: This URL was challenged by YouTube on both supported playback paths. The selected proxy is not proof of access; try a later manual Retry or an authorized session if this source requires one.')
     if 'po token' in value or 'proof of origin' in value:
         return RuntimeError('YOUTUBE_PROVIDER_CHALLENGE: This video requires additional YouTube verification; a proxy alone cannot guarantee access.')
     if '407' in value or 'proxy authentication' in value:
@@ -293,6 +294,33 @@ def youtube_failure(error):
     if '403' in value:
         return RuntimeError('YOUTUBE_ACCESS_DENIED: YouTube denied access to this video; check source permissions and authorized session.')
     return RuntimeError(message)
+
+
+def run_youtube_download(options, timeout, profile=None, force_profile=False):
+    """Try the proven default yt-dlp client, then one documented alternate on auth challenge.
+
+    No retry for HTTP 429, 403, proxy errors or invalid source. Keep the same
+    selected proxy and optional session throughout; never switch networks.
+    """
+    last_error=None
+    for client in ('default','tv,web_safari'):
+        with youtube_execution(profile,force_profile) as (config,environment):
+            # Playback-client selection is supported by official yt-dlp. It is
+            # used only when YouTube explicitly challenges the default client.
+            extra=[] if client=='default' else ['--extractor-args','youtube:player_client='+client]
+            try:
+                return run(downloader_command('yt_dlp')+config+extra+options,
+                           timeout=timeout,env=environment)
+            except Exception as exc:
+                last_error=exc
+                low=scrub_proxy_error(exc).lower().replace('’',"'")
+                challenge=('not a bot' in low or 'sign in to confirm' in low)
+                if client=='default' and challenge and not any(
+                    term in low for term in ('429','too many requests','403','proxy authentication','http error 407')
+                ):
+                    continue
+                raise youtube_failure(exc) from None
+    raise youtube_failure(last_error) from None
 
 
 def scrub_proxy_error(text):
@@ -319,10 +347,11 @@ def test_proxy_profile(pid):
         # Use a short public sample, verify its media stream, and discard all bytes.
         with tempfile.TemporaryDirectory(prefix='vm-proxy-test-',dir=WORK) as workdir:
             out_pattern=str(Path(workdir)/'sample.%(ext)s')
-            with youtube_execution(p,True) as (options,environment):
-                run(downloader_command('yt_dlp')+options+[
-                    '--format','bv*+ba/best/bv*','--max-filesize','100M',
-                    '-o',out_pattern,'https://youtu.be/jNQXAC9IVRw'],timeout=240,env=environment)
+            # The Audio Downloader real MP3+Drive canary on this VPS used
+            # BaW_jenozKc without cookies. Test its actual video stream too.
+            run_youtube_download(['--format','bv*+ba/best/bv*',
+                '--max-filesize','100M','-o',out_pattern,
+                'https://youtu.be/BaW_jenozKc'],timeout=240,profile=p,force_profile=True)
             candidates=[f for f in Path(workdir).glob('sample.*')
                         if f.is_file() and f.suffix.lower() not in ('.part','.ytdl','.json')]
             if not candidates: raise RuntimeError('YouTube real download returned no media')
@@ -473,11 +502,8 @@ def source_to_file(url, dst, job_id, idx, status_cb=None):
     if looks_youtube(url):
         note(max(3,min(38,4+idx*5)),f'Downloading video {idx}')
         tmpl=str(dst.with_suffix(''))+'.%(ext)s'
-        try:
-            with youtube_execution() as (options,environment):
-                cmd=downloader_command('yt_dlp')+options+['--merge-output-format','mp4','-f','bv*+ba/best/bv*','-o',tmpl,url]
-                run(cmd,timeout=7200,env=environment)
-        except Exception as e: raise youtube_failure(e) from None
+        run_youtube_download(['--merge-output-format','mp4','-f',
+            'bv*+ba/best/bv*','-o',tmpl,url],timeout=7200)
         candidates=sorted(dst.parent.glob(dst.stem+'.*'),key=lambda p:p.stat().st_mtime,reverse=True)
         candidates=[p for p in candidates if p.is_file() and p.suffix.lower() not in ('.part','.ytdl','.json','.jpg','.webp')]
         if not candidates: raise RuntimeError(f'Video {idx}: YouTube download produced no file')
@@ -751,8 +777,8 @@ def library_to_file(item_id,dst,idx):
 
 def youtube_title(url):
     try:
-        with youtube_execution() as (options,environment):
-            out=run(downloader_command('yt_dlp')+options+['--simulate','--quiet','--no-warnings','--print','%(title)s',url],timeout=90,env=environment)
+        out=run_youtube_download(['--simulate','--quiet','--no-warnings',
+            '--print','%(title)s',url],timeout=90)
     except Exception as e:
         raise youtube_failure(e) from None
     lines=[x.strip() for x in out.splitlines() if x.strip()]

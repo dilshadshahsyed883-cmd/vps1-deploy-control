@@ -144,6 +144,45 @@ class Imports(unittest.TestCase):
         self.assertNotIn('--cookies-from-browser',SOURCE.read_text())
         self.assertNotIn('--remote-components',SOURCE.read_text())
 
+    def test_video_cookies_not_required_and_audio_no_login_sample_used(self):
+        self.assertNotIn('-4',self.app.yt_common_args())
+        with patch.object(self.app,'run',return_value='media'), \
+             patch.object(self.app,'downloader_command',return_value=['python','-m','yt_dlp']) as dc:
+            self.assertEqual(self.app.run_youtube_download(['--simulate','https://youtu.be/BaW_jenozKc'],30),'media')
+            dc.assert_called_once_with('yt_dlp')
+        text=SOURCE.read_text(encoding='utf-8')
+        self.assertIn('https://youtu.be/BaW_jenozKc',text)
+
+    def test_one_bounded_playback_client_fallback_on_auth_only(self):
+        calls=[]
+        def stub(args, **kw):
+            calls.append((args,kw))
+            if len(calls)==1:
+                raise RuntimeError('ERROR: Sign in to confirm you are not a bot')
+            return 'verified video bytes'
+        with patch.object(self.app,'run',side_effect=stub), \
+             patch.object(self.app,'downloader_command',return_value=['python','-m','yt_dlp']):
+            output=self.app.run_youtube_download(['--format','bv*+ba/best/bv*','https://youtu.be/BaW_jenozKc'],30)
+            self.assertEqual(output,'verified video bytes')
+        self.assertEqual(len(calls),2)
+        self.assertNotIn('--extractor-args',calls[0][0])
+        self.assertIn('youtube:player_client=tv,web_safari',calls[1][0])
+        self.assertIn('--config-locations',calls[0][0])
+        self.assertNotIn('HTTP_PROXY',calls[0][1]['env'])
+
+    def test_rate_limit_and_proxy_auth_do_not_trigger_extra_requests(self):
+        for message in ['HTTP Error 429: Too Many Requests','Proxy Authentication Required 407']:
+            with self.subTest(message=message):
+                calls=[]
+                def failure(*args,**kwargs):
+                    calls.append(args)
+                    raise RuntimeError(message)
+                with patch.object(self.app,'run',side_effect=failure), \
+                     patch.object(self.app,'downloader_command',return_value=['python','-m','yt_dlp']):
+                    with self.assertRaises(RuntimeError):
+                        self.app.run_youtube_download(['--simulate','https://youtu.be/BaW_jenozKc'],30)
+                self.assertEqual(len(calls),1)
+
     def test_missing_dependency_actionable(self):
         with patch.object(self.app.importlib.util,'find_spec',return_value=None):
             with self.assertRaisesRegex(RuntimeError,'service Python'):self.app.downloader_command('gdown')
