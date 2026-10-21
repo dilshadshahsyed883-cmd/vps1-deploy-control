@@ -387,6 +387,12 @@ def install(revision: str) -> None:
         from production.scene_worker_home import SceneWorkerHome
         worker_home = SceneWorkerHome(journal)
         home_result = worker_home.install()
+        # The immutable source tree omits generated .cube assets. Add missing
+        # official presets to the active worker's owned writable data folder,
+        # verify the original SCENE_001 LUT through real FFmpeg, and never touch
+        # the job queue or replace custom/user LUT files.
+        from production.scene_lut_assets import provision_builtins
+        lut_result = provision_builtins(target)
         atomic_link(CURRENT, target)
         changed = True
         run(["systemctl", "restart", UNIT], timeout=70, quiet=True)
@@ -416,6 +422,7 @@ def install(revision: str) -> None:
             integrations["whisper_decode_repair"] = whisper_result
         if worker_home is not None:
             integrations["worker_home_repair"] = home_result
+        integrations["built_in_lut_assets"] = lut_result
         if production_worker is not None:
             production_worker.commit()
         atomic_json(RECORD, {"revision": revision, "status": "ACTIVE", "unit": UNIT,
