@@ -350,8 +350,16 @@ def voice_ui_parity_overlay(original: bytes, source: bytes) -> bytes:
         old_end = original.index(b"</style>", old_start) + len(b"</style>")
         original = original[:old_start] + css + original[old_end:]
     else:
-        require(original.count(b"</head>") == 1, "missing Voice HTML head")
-        original = original.replace(b"</head>", css + b"\n</head>", 1)
+        # A new approved Omni header style may already be present when
+        # backfilling legacy Voice parity. Retain GitHub source CSS order.
+        if OMNI_HEADER_STYLE_ID in original:
+            require(original.count(OMNI_HEADER_STYLE_ID) == 1,
+                    "duplicate Omni header CSS in existing Voice HTML")
+            original = original.replace(OMNI_HEADER_STYLE_ID,
+                                        css + b"\n" + OMNI_HEADER_STYLE_ID, 1)
+        else:
+            require(original.count(b"</head>") == 1, "missing Voice HTML head")
+            original = original.replace(b"</head>", css + b"\n</head>", 1)
 
     for name, (legacy, reviewed) in zip((b"vseQueue", b"vskQueue"),
                                          VOICE_UI_MARKUP_PAIRS):
