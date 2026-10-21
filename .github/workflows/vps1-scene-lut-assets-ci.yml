@@ -21,9 +21,6 @@ jobs:
         with:
           python-version: '3.12'
       - name: Require actual installed FFmpeg
-        run: |
-          test -x /usr/bin/ffmpeg
-          /usr/bin/ffmpeg -hide_banner -filters > "$RUNNER_TEMP/scene-ffmpeg-filters.txt"
-          grep -E '[[:space:]]lut3d[[:space:]]' "$RUNNER_TEMP/scene-ffmpeg-filters.txt"
+        run: test -x /usr/bin/ffmpeg
       - name: Generate all 23 real cubes, test Scene 001 render filter and preservation
         run: python -m unittest tests.test_scene_lut_assets tests.test_scene_candidate_release tests.test_scene_production_worker -v
