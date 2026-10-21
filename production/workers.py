@@ -123,7 +123,7 @@ def restore(saved):
 
 def unit(app, revision, key, part, entry):
     python = BASE / 'venvs' / app / revision / 'bin/python'
-    dependency = 'Wants' if app == 'voice-studio' and key == 'edge-worker' else 'Requires'
+    dependency = 'Wants' if app == 'voice-studio' and key in ('edge-worker', 'kokoro-worker') else 'Requires'
     return f'''[Unit]
 Description=VPS1 {key}
 After=vps1-production-{app}.service
