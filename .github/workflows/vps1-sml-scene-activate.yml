@@ -1,0 +1,102 @@
+name: VPS1 SML Scene guarded Editor activation
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: vps1-production
+  cancel-in-progress: false
+jobs:
+  activate:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'dilshadshahsyed883-cmd' &&
+      github.run_attempt == 1 &&
+      contains(github.event.head_commit.message, '[vps1-sml-scene-activate]')
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Join pinned Tailscale production network
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Scene web then SML independent release and private token activation
+        shell: bash
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/id"
+          unset PRIVATE_IDENTITY
+          chmod 0600 "$scratch/id"
+          ssh-keygen -y -P '' -f "$scratch/id" > "$scratch/pub"
+          actual="$(ssh-keygen -lf "$scratch/pub" -E sha256 | awk '{print $2}')"
+          test "$actual" = 'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
+          remote() {
+            timeout 3000s ssh -T -i "$scratch/id" -p 22 \
+              -o UserKnownHostsFile="$scratch/known_hosts" \
+              -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+              -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o PreferredAuthentications=publickey -o PasswordAuthentication=no \
+              -o ConnectTimeout=20 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+              vps1deploy@100.87.55.92 "$@"
+          }
+          echo 'SML_SCENE_READ_ONLY_PREFLIGHT'
+          remote 'python3 -' <<'PY'
+          import json,subprocess,urllib.request
+          def api(port,route):
+              opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+              with opener.open(f"http://127.0.0.1:{port}{route}",timeout=12) as response:
+                  assert response.status==200
+                  return json.load(response)
+          assert api(18080,'/health').get('ok') is True
+          assert api(8147,'/api/health').get('ok') is True
+          stats=api(8147,'/api/stats')
+          assert int(stats.get('processing',-1))==0,'SML busy or state unknown'
+          worker=api(8000,'/health')
+          assert worker.get('admission_only') is True,'Worker ownership changed: abort'
+          for service in ('vps1-scene-candidate.service',
+                          'vps1-production-self-media-library.service'):
+              assert subprocess.run(['systemctl','is-active','--quiet',service]).returncode==0
+          print('SML_SCENE_IDLE_AND_WORKER_OWNERSHIP=PASS')
+          PY
+          echo 'SCENE_WEB_GUARDED_SOURCE_RELEASE'
+          remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA scene-builder"
+          echo 'SML_SOURCE_RELEASE_AND_ATOMIC_PRIVATE_EDITOR_ACTIVATION'
+          if ! remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA self-media-library"; then
+            echo 'SML_ACTIVATION_FAILED: attempting bounded Scene source rollback'
+            remote "sudo -n /usr/local/sbin/vps1-production-deploy rollback $SOURCE_SHA scene-builder" || true
+            exit 1
+          fi
+          echo 'SML_SCENE_POST_RELEASE_READBACK'
+          remote 'python3 -' <<'PY'
+          import json,urllib.request
+          opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          def status(port,path):
+              with opener.open(f"http://127.0.0.1:{port}{path}",timeout=12) as response:
+                  assert response.status==200
+                  return json.load(response)
+          assert status(8147,'/api/health').get('ok') is True
+          assert status(8147,'/api/v1/media/status').get('editor_token_configured') is True
+          assert status(18080,'/health').get('ok') is True
+          assert status(8000,'/health').get('admission_only') is True
+          print('EDITOR_TOKEN_PAIRING_AND_SCENE_WEB_HEALTH=PASS')
+          print('SCENE_RENDERER_ADMISSION_ONLY=UNCHANGED')
+          print('SML_SCENE_CREDENTIALS_LOGGED=FALSE')
+          print('AUTO_SCRIPT=OFFLINE_UNCHANGED')
+          PY

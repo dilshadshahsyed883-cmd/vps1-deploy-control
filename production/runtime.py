@@ -556,7 +556,31 @@ def main():
     with deployment_lock():
         for app in args.apps:
             if args.action == 'install':
-                install_app(app, args.revision)
+                intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+                activate_sml_scene = (
+                    app == 'self-media-library'
+                    and '[vps1-sml-scene-activate]' in intent
+                )
+                if not activate_sml_scene:
+                    install_app(app, args.revision)
+                else:
+                    # One narrow intent: install SML source, then link only
+                    # SML + Scene web Editor credentials using a VPS-minted
+                    # token. Roll back SML source if activation fails.
+                    install_app(app, args.revision)
+                    try:
+                        from production.sml_scene_activation import activate
+                        activated = activate()
+                        event(sml_scene_link="EDITOR_API_READY",
+                              runtime_render_worker="NOT_VERIFIED",
+                              secrets_logged=False, **activated)
+                    except BaseException:
+                        record_path = BASE / 'control/state' / (app + '.json')
+                        if record_path.is_file():
+                            record = json.loads(record_path.read_text())
+                            if record.get('revision') == args.revision:
+                                restore(app, record['previous'])
+                        raise
             elif args.action == 'status':
                 event(app=app, health=http_check(app))
             else:
