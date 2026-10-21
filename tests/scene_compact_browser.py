@@ -70,6 +70,7 @@ def main():
                             legacy_height=row.bounding_box()['height']
                             page.locator('link[href*="scene_compact_ui.css"]').evaluate('(e)=>e.disabled=false')
                             assert compact_height<legacy_height,(width,compact_height,legacy_height)
+                            page.wait_for_timeout(150)
                             if os.environ.get('SCENE_COMPACT_SCREENSHOTS'):
                                 folder=Path(os.environ['SCENE_COMPACT_SCREENSHOTS']);folder.mkdir(parents=True,exist_ok=True)
                                 page.screenshot(path=str(folder/f'timing-{width}.png'),full_page=True)

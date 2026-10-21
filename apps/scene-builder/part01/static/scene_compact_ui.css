@@ -132,3 +132,7 @@ body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(button,a,input,sele
 @media(prefers-reduced-motion:reduce) {
   body.vps1-scene-parity[data-scene-ui="sml-compact"] main * {scroll-behavior:auto!important;transition:none!important;}
 }
+/* Keep unit suffixes intact even when labels stack on narrow screens. */
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .sb-number {display:flex;gap:8px;align-items:center;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .sb-number input {flex:1 1 0;min-width:0;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .sb-number em {flex:0 0 auto;white-space:nowrap;}
