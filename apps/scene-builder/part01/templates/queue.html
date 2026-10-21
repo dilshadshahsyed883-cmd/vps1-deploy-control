@@ -124,7 +124,34 @@ window.addEventListener('beforeunload',e=>{if((dirty&&!submitting)||folderQueue.
 
 const jobsBox=document.getElementById('jobs'),projectSearch=document.getElementById('project-filter-search'),projectStatus=document.getElementById('project-filter-status'),projectClear=document.getElementById('project-filter-clear'),projectSummary=document.getElementById('project-result-summary');let liveProjects=[];
 function esc(s){return escapeHtml(s);}function statusText(s){return s==='waiting_for_audit'?'Needs Audit':String(s||'').replaceAll('_',' ');}
-function actionsFor(j){const s=String(j.status||'').toLowerCase();let out=`<a class="button secondary" href="/queue/${encodeURIComponent(j.id)}/log.txt">Download Logs TXT</a>`;if(['completed','cleaned'].includes(s)){if(j.drive_view_url)out+=`<a class="button" href="${esc(j.drive_view_url)}" target="_blank" rel="noopener noreferrer">View</a>`;if(s==='completed'&&String(j.drive_status||'')==='completed'&&!j.files_cleaned_at)out+=`<form action="/queue/${encodeURIComponent(j.id)}/clean-now" method="post" onsubmit="return confirm('Clean all local files for this Drive-verified project now?')"><button type="submit" class="secondary">Clean Now</button></form>`;}else if(s==='waiting_for_audit')out+=`<a class="button" href="/audit-media?job=${encodeURIComponent(j.id)}">Open Audit</a><form action="/queue/${encodeURIComponent(j.id)}/cancel" method="post"><button type="submit" class="secondary">Cancel</button></form>`;else if(['failed','cancelled'].includes(s)){if(j.resume_available)out+=`<form action="/queue/${encodeURIComponent(j.id)}/resume" method="post"><button type="submit">Resume</button></form>`;out+=`<form action="/queue/${encodeURIComponent(j.id)}/restart-stage" method="post"><button type="submit" class="secondary">Restart Stage</button></form><form action="/queue/${encodeURIComponent(j.id)}/restart" method="post"><button type="submit" class="secondary">Restart Job</button></form>`;if(queueMode==='verified_serial'&&serialActiveJobId===j.id)out+=`<form action="/queue/${encodeURIComponent(j.id)}/serial-skip" method="post" onsubmit="return confirm('Skip this failed/cancelled project and continue the Verified Serial queue?')"><button type="submit" class="secondary">Skip & Continue</button></form>`;}else if(s==='ready_to_render'&&Number(j.manual_start_required||0)===1)out+=`<form action="/queue/${encodeURIComponent(j.id)}/start" method="post"><button type="submit">Start</button></form>`;else out+=`<form action="/queue/${encodeURIComponent(j.id)}/cancel" method="post"><button type="submit" class="secondary">Cancel</button></form>`;return out;}
+function actionsFor(j){
+  const s=String(j.status||'').toLowerCase();
+  const base=`/queue/${encodeURIComponent(j.id)}`;
+  let out=`<a class="button secondary" href="${base}/log.txt">Download Logs TXT</a>`;
+  if(['completed','cleaned'].includes(s)){
+    // A local render exists independently of optional Google Drive delivery.
+    const localVideo=s==='completed' && Boolean(j.output_file) && Number(j.size_bytes||0)>1024;
+    if(localVideo){
+      out+=`<a class="button" href="${base}/view" target="_blank" rel="noopener noreferrer">View Video</a>`;
+      out+=`<a class="button secondary" href="${base}/download">Download MP4</a>`;
+    }
+    if(j.drive_view_url)out+=`<a class="button" href="${esc(j.drive_view_url)}" target="_blank" rel="noopener noreferrer">View on Drive</a>`;
+    if(s==='completed'&&String(j.drive_status||'')==='completed'&&!j.files_cleaned_at)
+      out+=`<form action="${base}/clean-now" method="post" onsubmit="return confirm('Clean all local files for this Drive-verified project now?')"><button type="submit" class="secondary">Clean Now</button></form>`;
+  }else if(s==='waiting_for_audit'){
+    out+=`<a class="button" href="/audit-media?job=${encodeURIComponent(j.id)}">Open Audit</a><form action="${base}/cancel" method="post"><button type="submit" class="secondary">Cancel</button></form>`;
+  }else if(['failed','cancelled'].includes(s)){
+    if(j.resume_available)out+=`<form action="${base}/resume" method="post"><button type="submit">Resume</button></form>`;
+    out+=`<form action="${base}/restart-stage" method="post"><button type="submit" class="secondary">Restart Stage</button></form><form action="${base}/restart" method="post"><button type="submit" class="secondary">Restart Job</button></form>`;
+    if(queueMode==='verified_serial'&&serialActiveJobId===j.id)
+      out+=`<form action="${base}/serial-skip" method="post" onsubmit="return confirm('Skip this failed/cancelled project and continue the Verified Serial queue?')"><button type="submit" class="secondary">Skip & Continue</button></form>`;
+  }else if(s==='ready_to_render'&&Number(j.manual_start_required||0)===1){
+    out+=`<form action="${base}/start" method="post"><button type="submit">Start</button></form>`;
+  }else{
+    out+=`<form action="${base}/cancel" method="post"><button type="submit" class="secondary">Cancel</button></form>`;
+  }
+  return out;
+}
 function projectRow(j){return `<div class="job-row detailed"><div class="job-primary"><strong>${esc(j.project_name||'Untitled')}</strong><small>${esc(j.message||j.stage||'')}</small></div><div class="status ${esc(j.status)}">${esc(statusText(j.status))}</div><div class="progress-mini"><span style="width:${j.progress||0}%"></span></div><b>${j.progress||0}%</b><div class="actions">${actionsFor(j)}</div></div>`;}
 function projectGroup(status){const s=String(status||'').toLowerCase();if(['queued'].includes(s))return 'WAITING';if(['completed','cleaned'].includes(s))return 'COMPLETED';if(['failed','cancelled'].includes(s))return 'FAILED';return 'ACTIVE';}
 function renderProjects(){const q=(projectSearch.value||'').toLowerCase().trim(),sf=(projectStatus.value||'').toLowerCase();const rows=liveProjects.filter(j=>(!q||String(j.project_name||'').toLowerCase().includes(q))&&(!sf||String(j.status||'').toLowerCase()===sf)).slice(0,100);const order=['ACTIVE','WAITING','COMPLETED','FAILED'];const grouped=Object.fromEntries(order.map(x=>[x,[]]));rows.forEach(j=>grouped[projectGroup(j.status)].push(j));jobsBox.innerHTML=order.map(label=>grouped[label].length?`<section class="queue-job-group"><h3>${label}</h3>${grouped[label].map(projectRow).join('')}</section>`:'').join('')||'<div class="empty">No projects match.</div>';projectSummary.textContent=`${rows.length} project${rows.length===1?'':'s'}`;}
