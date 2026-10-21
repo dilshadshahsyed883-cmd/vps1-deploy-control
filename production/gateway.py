@@ -95,12 +95,29 @@ def shell_files(apps, target):
         (target / relative).write_text(text)
     manifest = {'schema_version': 1, 'apps': [
         {'id': app, 'title': app.replace('-', ' ').title(), 'path': '/' + app + '/',
-         'route_configured': True, 'runtime_verified': True} for app in apps]}
+         'route_configured': True, 'runtime_verified': False} for app in apps]}
     if 'scene-builder' in apps:
         manifest['apps'] += [{'id': app, 'title': title, 'path': '/' + app + '/',
-                             'route_configured': True, 'runtime_verified': True}
+                             'route_configured': True, 'runtime_verified': False}
                             for app, title in [('script-work', 'Script Work'), ('vps-storage-manager', 'VPS Storage Manager')]]
     atomic_json(target / 'assets/apps.json', manifest, 0o644)
+
+
+def mark_shell_verified(shell, apps):
+    """Publish verified status only after primary routes pass authenticated probes."""
+    path = shell / 'assets/apps.json'
+    manifest = json.loads(path.read_text())
+    if manifest.get('schema_version') != 1 or not isinstance(manifest.get('apps'), list):
+        raise RuntimeError('invalid gateway shell registry')
+    expected, found = set(apps), set()
+    for item in manifest['apps']:
+        if item.get('id') in expected:
+            item['runtime_verified'] = True
+            found.add(item['id'])
+    if found != expected:
+        raise RuntimeError('gateway verification missing registered apps')
+    # Scene aliases are not independently health-probed and remain unverified.
+    atomic_json(path, manifest, 0o644)
 
 
 def auth_credentials():
@@ -216,7 +233,9 @@ def public_apps_for_revision(candidates, revision, *, previous=None, is_active=N
 def install(apps):
     for app in apps:
         http_check(app)
-    shell = BASE / 'production-shell'
+    # Immutable per-attempt assets: restoring prior Nginx config must restore
+    # prior shell content as well, never the last failed cutover's assets.
+    shell = BASE / 'production-shell-releases' / str(time.time_ns())
     credentials = auth_credentials()
     shell_files(apps, shell)
     journal = BASE / 'transactions/gateway' / str(time.time_ns())
@@ -240,6 +259,7 @@ def install(apps):
         run(['systemctl', 'enable', '--now', 'nginx'], quiet=True)
         run(['systemctl', 'reload', 'nginx'], quiet=True)
         verify_gateway(apps, credentials)
+        mark_shell_verified(shell, apps)
         atomic_json(BASE / 'production-status.json', {'apps': apps, 'gateway': 'ACTIVE',
                     'authentication': 'ENFORCED', 'auto_script': 'OFFLINE'}, 0o644)
         event(gateway='PASS', applications=len(apps), login_record=str(LOGIN), credentials_logged=False)
@@ -285,7 +305,7 @@ def main():
         selected = public_apps_for_revision(args.apps, args.revision)
         install(selected)
         # Only an actual uploader release at this exact SHA may update the
-        # independent Scene candidate iframe + Scene HTTPS uploader route.
+        # independent Scene candidate route + Scene HTTPS uploader route.
         if 'local-upload-manager' in args.apps and 'local-upload-manager' in selected:
             record = BASE / 'control/state/local-upload-manager.json'
             state = json.loads(record.read_text()) if record.is_file() else {}

@@ -72,8 +72,22 @@ class WebsiteShellTests(unittest.TestCase):
             payload = json.loads((shell / "assets/apps.json").read_text())
             self.assertEqual(payload["apps"][1]["id"], "new-app")
             self.assertNotIn("auto-script", (shell / "assets/apps.json").read_text())
-            self.assertIn("appFrame", (shell / "index.html").read_text())
+            self.assertNotIn("<iframe", (shell / "index.html").read_text())
             self.assertIn("themeToggle", (shell / "index.html").read_text())
+
+    def test_direct_navigation_geometry_and_no_second_shell(self):
+        shell = Path(website_shell.__file__).parent / "shell"
+        html = (shell / "index.html").read_text()
+        js = (shell / "assets/shell.js").read_text()
+        css = (shell / "assets/shell.css").read_text()
+        self.assertNotIn("<iframe", html)
+        self.assertNotIn("appFrame", js)
+        self.assertIn("link.href = item.path", js)
+        self.assertIn('link.setAttribute("aria-disabled", "true")', js)
+        self.assertIn('typeof item.runtime_verified !== "boolean"', js)
+        self.assertIn("--vps1-sidebar-width: 214px", css)
+        self.assertIn("@media (max-width: 760px)", css)
+        self.assertNotIn("grid-template-columns: 240px", css)
 
     def test_cannot_write_to_host(self):
         with self.assertRaises(ValueError):

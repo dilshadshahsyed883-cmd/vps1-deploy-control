@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import shutil
 import subprocess
 import tempfile
@@ -7,6 +8,34 @@ import unittest
 from production.gateway import (legacy_voice_publication_required, nginx_config,
                                 public_apps_for_release, public_apps_for_revision)
 from production.runtime import CATALOG
+
+
+class GatewayShellContractTests(unittest.TestCase):
+    def test_gateway_manifest_is_fail_closed_then_verified(self):
+        from production.gateway import shell_files, mark_shell_verified
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "immutable-shell"
+            shell_files(["scene-builder", "voice-studio"], target)
+            self.assertNotIn("<iframe", (target / "index.html").read_text())
+            path = target / "assets/apps.json"
+            before = json.loads(path.read_text())["apps"]
+            self.assertTrue(all(not entry["runtime_verified"] for entry in before))
+            mark_shell_verified(target, ["scene-builder", "voice-studio"])
+            after = {entry["id"]: entry for entry in json.loads(path.read_text())["apps"]}
+            self.assertTrue(after["scene-builder"]["runtime_verified"])
+            self.assertTrue(after["voice-studio"]["runtime_verified"])
+            self.assertFalse(after["script-work"]["runtime_verified"])
+            self.assertFalse(after["vps-storage-manager"]["runtime_verified"])
+
+    def test_missing_route_proof_does_not_publish_verification(self):
+        from production.gateway import shell_files, mark_shell_verified
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "immutable-shell"
+            shell_files(["voice-studio"], target)
+            with self.assertRaisesRegex(RuntimeError, "missing registered apps"):
+                mark_shell_verified(target, ["voice-studio", "scene-builder"])
+            self.assertFalse(json.loads((target / "assets/apps.json").read_text())
+                             ["apps"][0]["runtime_verified"])
 
 
 class GatewaySelectionTest(unittest.TestCase):
