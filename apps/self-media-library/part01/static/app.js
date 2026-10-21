@@ -84,7 +84,7 @@ function setSmlImportSource(source){
   select.dispatchEvent(new Event('change',{bubbles:true}));
 }
 smlImportButtons.forEach(button=>button.addEventListener('click',()=>setSmlImportSource(button.dataset.smlImport)));
-document.getElementById('importSource').addEventListener('change',event=>setSmlImportSource(event.target.value));
+// Import source buttons update the existing select; native change updates eligibility.
 document.getElementById('smlChooseImages').addEventListener('click',()=>document.getElementById('imageFiles').click());
 document.getElementById('smlChooseFolder').addEventListener('click',()=>document.getElementById('aiFolderInput').click());
 document.getElementById('imageFiles').addEventListener('change',event=>{const n=event.target.files.length;document.getElementById('imageUploadResult').textContent=n?n+' image(s) selected. Choose Add selected images to upload.':'';});
