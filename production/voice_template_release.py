@@ -198,6 +198,89 @@ def queue_route_overlay(original: bytes, source: bytes) -> bytes:
     return original
 
 
+
+# VS-UI-20261021-LIVE: the previous Voice template installer copied an old
+# immutable HTML template without these source UI changes. Apply only this
+# allowlisted browser presentation delta; preserve queues and worker code.
+VOICE_UI_PARITY_ID = b'<style id="voiceStudioUiParity20261021">'
+VOICE_UI_MARKUP_PAIRS = (
+    (b" <div id=\"vseQueue\" class=\"vse-card\" hidden><h3>Edge TTS independent queue</h3><button type=\"button\" id=\"vseRefresh\" class=\"vse-btn alt\">Refresh</button><p class=\"vse-note\">Queued, processing, paused, retry and delivered status. Pause/resume/cancel applies to each Edge job only.</p><table><thead><tr><th>File</th><th>Job status</th><th>Files</th><th>Controls</th></tr></thead><tbody id=\"vseQueueRows\"><tr><td colspan=\"4\">No Edge jobs yet.</td></tr></tbody></table></div>",
+     b" <div id=\"vseQueue\" class=\"vse-card\" hidden><div class=\"vsq-heading\"><div><h3>Edge TTS independent queue</h3><p class=\"vse-note\">Queued, processing, paused, retry and delivered status. Pause/resume/cancel applies to each Edge job only.</p></div><button type=\"button\" id=\"vseRefresh\" class=\"vse-btn alt\">Refresh</button></div><div class=\"vsq-tablewrap\"><table><thead><tr><th scope=\"col\">File</th><th scope=\"col\">Job status</th><th scope=\"col\">Files</th><th scope=\"col\">Controls</th></tr></thead><tbody id=\"vseQueueRows\"><tr><td colspan=\"4\">No Edge jobs yet.</td></tr></tbody></table></div></div>"),  # Edge
+    (b" <div id=\"vskQueue\" class=\"vsk-card\" hidden><h3>Kokoro queue</h3><button id=\"vskRefreshQueue\" type=\"button\" class=\"vsk-action\">Refresh</button><p class=\"vsk-note\">Jobs shown here are independent of OmniVoice.</p><table><thead><tr><th>File / job</th><th>Status</th><th>Audio</th></tr></thead><tbody id=\"vskQueueRows\"><tr><td colspan=\"3\">No Kokoro jobs yet</td></tr></tbody></table></div>",
+     b" <div id=\"vskQueue\" class=\"vsk-card\" hidden><div class=\"vsq-heading\"><div><h3>Kokoro queue</h3><p class=\"vsk-note\">Jobs shown here are independent of OmniVoice.</p></div><button id=\"vskRefreshQueue\" type=\"button\" class=\"vsk-action\">Refresh</button></div><div class=\"vsq-tablewrap\"><table><thead><tr><th scope=\"col\">File / job</th><th scope=\"col\">Status</th><th scope=\"col\">Audio</th><th scope=\"col\">Controls</th></tr></thead><tbody id=\"vskQueueRows\"><tr><td colspan=\"4\">No Kokoro jobs yet</td></tr></tbody></table></div></div>"),  # Kokoro
+)
+
+VOICE_UI_JS_PAIRS = (
+    (b"btn.type='button';btn.textContent=label;",
+     b"btn.type='button';btn.className='vsq-action'+(['cancel','delete'].includes(action)?' vsq-danger':'');btn.textContent=label;"),  # Kokoro button
+    (b"c=document.createElement('td');a.textContent=j.filename||j.job_id||j.id||'';",
+     b"c=document.createElement('td'),d=document.createElement('td');d.className='vsq-controls';a.textContent=j.filename||j.job_id||j.id||'';"),  # Kokoro controls cell
+    (b"c.append(' ',button);",
+     b"d.append(button);"),  # Kokoro button destination
+    (b"tr.append(a,b,c);rows.append(tr);",
+     b"tr.append(a,b,c,d);rows.append(tr);"),  # Kokoro append cell
+    (b"if(!jobs.length){const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=3;td.textContent='No jobs';",
+     b"if(!jobs.length){const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=4;td.textContent='No jobs';"),  # Kokoro empty row
+    (b"el.className='vse-btn alt';el.textContent=label;",
+     b"el.className='vse-btn alt vsq-action'+(['cancel','delete'].includes(act)?' vsq-danger':'');el.textContent=label;"),  # Edge button
+    (b"ctrl=document.createElement('td');name.textContent=j.source_filename||j.job_id;",
+     b"ctrl=document.createElement('td');ctrl.className='vsq-controls';name.textContent=j.source_filename||j.job_id;"),  # Edge cell
+)
+
+
+def _voice_ui_queue_line(payload: bytes, name: bytes) -> bytes:
+    prefix = b'<div id="' + name + b'" '
+    lines = [item for item in payload.splitlines() if prefix in item]
+    require(len(lines) == 1 and lines[0].count(prefix) == 1 and len(lines[0]) < 4096,
+            "Voice UI queue shell changed: " + name.decode("ascii"))
+    return lines[0]
+
+
+def voice_ui_parity_overlay(original: bytes, source: bytes) -> bytes:
+    """Copy reviewed HTML, scoped CSS and renderer-only JS; fail closed on drift."""
+    require(source.count(VOICE_UI_PARITY_ID) == 1, "Voice parity CSS absent")
+    start = source.index(VOICE_UI_PARITY_ID)
+    end = source.index(b"</style>", start) + len(b"</style>")
+    css = source[start:end]
+    require(len(css) < 14000 and b"<script" not in css and b"url(" not in css
+            and b"@import" not in css and b"{#" not in css
+            and b"#vskQueue .vsq-controls" in css
+            and b"#vseQueue .vsq-controls" in css
+            and b"#page-clone .card.pad" in css
+            and b"#page-queue .tablewrap" in css,
+            "Voice UI styles extend outside approved scope")
+    require(original.count(VOICE_UI_PARITY_ID) <= 1, "duplicate Voice parity CSS")
+    if VOICE_UI_PARITY_ID in original:
+        old_start = original.index(VOICE_UI_PARITY_ID)
+        require(original.find(b"</style>", old_start) >= 0,
+                "incomplete installed Voice parity CSS")
+        old_end = original.index(b"</style>", old_start) + len(b"</style>")
+        original = original[:old_start] + css + original[old_end:]
+    else:
+        require(original.count(b"</head>") == 1, "missing Voice HTML head")
+        original = original.replace(b"</head>", css + b"\n</head>", 1)
+
+    for name, (legacy, reviewed) in zip((b"vseQueue", b"vskQueue"),
+                                         VOICE_UI_MARKUP_PAIRS):
+        require(_voice_ui_queue_line(source, name) == reviewed,
+                "reviewed Voice queue source markup drifted")
+        active = _voice_ui_queue_line(original, name)
+        require(active in (legacy, reviewed), "unrecognized live Voice queue markup")
+        if active == legacy:
+            original = original.replace(legacy, reviewed, 1)
+
+    for legacy, reviewed in VOICE_UI_JS_PAIRS:
+        require(source.count(reviewed) == 1 and legacy not in source,
+                "reviewed source Voice UI renderer drifted")
+        require(original.count(legacy) + original.count(reviewed) == 1,
+                "live Voice renderer is not an approved version")
+        original = original.replace(legacy, reviewed, 1)
+    require(all(legacy not in original and reviewed in original
+                for legacy, reviewed in VOICE_UI_MARKUP_PAIRS + VOICE_UI_JS_PAIRS),
+            "Voice UI overlay incomplete")
+    return original
+
+
 # AUDIO_DOWNLOADER_BROWSER_ROUTE_CONTRACT_V2: only these six reviewed inline JS
 # substitutions are permitted. Keep the existing Voice runtime, style and workers.
 AUDIO_BROWSER_ROUTE_PAIRS = (
@@ -352,6 +435,13 @@ def verify_runtime() -> None:
         require(RESPONSIVE_ID in body and NEW_ASSETS in body and NEW_LIMITS in body and
                 OLD_LIMITS not in body and b'id="vsEngineOmni"' in body,
                 "Voice web UI template guard is not live")
+    require(VOICE_UI_PARITY_ID in body and
+            body.count(b'<th scope="col">Controls</th>') == 2 and
+            b"tr.append(a,b,c,d);rows.append(tr);" in body and
+            b"d.append(button);" in body and
+            b"ctrl.className='vsq-controls'" in body and
+            b"c.append(' ',button);" not in body,
+            "LIVE_VOICE_UI_PARITY_MISSING: upstream Voice UI stayed old")
     require(all(new in body and old not in body for old, new in QUEUE_ROUTE_PAIRS + QUEUE_FETCH_PAIRS),
             "local Voice queue JavaScript is not updated")
     require(all(new in body and old not in body for old, new in AUDIO_BROWSER_ROUTE_PAIRS),
@@ -364,6 +454,12 @@ def verify_runtime() -> None:
             and RESPONSIVE_ID in html and NEW_LIMITS in html and OLD_LIMITS not in html,
             "authenticated public Voice page template guard not updated")
     full_html = read_full_authenticated_voice_html(cookie)
+    require(VOICE_UI_PARITY_ID in full_html and
+            full_html.count(b'<th scope="col">Controls</th>') == 2 and
+            b"tr.append(a,b,c,d);rows.append(tr);" in full_html and
+            b"d.append(button);" in full_html and
+            b"ctrl.className='vsq-controls'" in full_html,
+            "LIVE_VOICE_UI_PARITY_MISSING: authenticated public page stayed old")
     require(all(new in full_html and old not in full_html for old, new in QUEUE_ROUTE_PAIRS + QUEUE_FETCH_PAIRS),
             "public Voice queue JavaScript is not updated")
     # Nginx may rewrite HTML string literals via sub_filter. Exact reviewed
@@ -436,6 +532,7 @@ def install(revision: str) -> None:
 
     patched_html = responsive_overlay(patched_html, source_html)
     patched_html = omnivoice_parity_overlay(patched_html, source_html)
+    patched_html = voice_ui_parity_overlay(patched_html, source_html)
     patched_html = queue_route_overlay(patched_html, source_html)
     patched_html = audio_browser_route_overlay(patched_html, source_html)
     source_entry = REPO / "apps/voice-studio" / VOICE_WEB
