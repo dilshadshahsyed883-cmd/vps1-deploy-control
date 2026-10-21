@@ -28,7 +28,7 @@ class Release(unittest.TestCase):
             unit=units/'vps1-production-video-merger.service'
             original=f'ExecStart={python} app.py\nEnvironment=PATH={python.parent}:/usr/bin\n'
             unit.write_text(original)
-            src=repo/'apps/video-merger/part01/app.py';src.parent.mkdir(parents=True);src.write_text('new = True')
+            src=repo/'apps/video-merger/part01/app.py';src.parent.mkdir(parents=True,exist_ok=True);src.write_text('new = True')
             # Independent baseline fixture: an already-enabled production proxy
             # remains unchanged; disabled saved profile is covered separately.
             cfg=root/'config/proxy_profiles.json'
