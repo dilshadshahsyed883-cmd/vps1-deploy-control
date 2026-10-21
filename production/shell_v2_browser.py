@@ -107,6 +107,7 @@ window.clearInterval=id=>{window.__shellTimers.delete(id);return stop(id);};''')
                         role['admin']=False
                         page.locator('nav[aria-label="Persistent workspace"] a[href="/"]').click()
                         page.locator('#control-dashboard').wait_for()
+                        page.wait_for_function("!document.querySelector('#app-sidebar nav a[href=\"/admin\"]')")
                         page.locator('nav[aria-label="Persistent workspace"] a[href="/admin/storage"]').click()
                         page.locator('#vps1-shell-outlet [role="alert"]').wait_for()
                         assert page.locator('[data-app-root]').count()==0,'revoked admin view retained'

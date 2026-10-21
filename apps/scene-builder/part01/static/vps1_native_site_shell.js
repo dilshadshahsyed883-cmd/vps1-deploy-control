@@ -161,6 +161,7 @@
     };
     refreshIdentity();
     window.addEventListener("pageshow", refreshIdentity);
+    window.addEventListener("vps1:session-refresh", refreshIdentity);
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) refreshIdentity();
     });
@@ -282,6 +283,7 @@
     });
     refreshIdentity();
     window.addEventListener("pageshow", () => {setMenuOpen(false); return refreshIdentity();});
+    window.addEventListener("vps1:session-refresh", refreshIdentity);
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) refreshIdentity();
     });

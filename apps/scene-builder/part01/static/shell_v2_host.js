@@ -72,6 +72,7 @@ async function navigate(url, push = false) {
     const res = await fetch('/api/session/identity', {credentials:'same-origin',cache:'no-store',signal:lifetime.signal});
     if (!res.ok || !(res.headers.get('content-type') || '').includes('application/json')) throw new Error('Sign in to continue');
     const identity = await res.json();
+    window.dispatchEvent(new Event('vps1:session-refresh')); // Existing shell owns identity display.
     if (identity.authenticated !== true) throw new Error('Sign in to continue');
     if (app?.role === 'admin' && identity.is_admin !== true) throw new Error('Administrator access required');
     if (disposed || turn !== generation) return;
