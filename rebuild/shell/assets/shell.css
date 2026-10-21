@@ -1,4 +1,5 @@
 :root {
+  --vps1-sidebar-width: 214px;
   color-scheme: light;
   --suite-bg: #f5f7fb;
   --suite-surface: #ffffff;
@@ -19,7 +20,7 @@ body { margin: 0; background: var(--suite-bg); color: var(--suite-text); }
 .brand-mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; background: var(--suite-primary); color: white; }
 .header-hint { color: var(--suite-muted); font-size: 12px; margin-left: auto; }
 .menu-toggle { display: none; border: 1px solid var(--suite-border); border-radius: 8px; padding: 8px 11px; background: white; font: inherit; }
-.suite-layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); min-height: calc(100vh - 62px); }
+.suite-layout { display: grid; grid-template-columns: var(--vps1-sidebar-width) minmax(0, 1fr); min-height: calc(100vh - 62px); }
 .suite-sidebar { border-right: 1px solid var(--suite-border); background: white; padding: 22px 13px; }
 .section-label { margin: 0 12px 12px; font-size: 11px; font-weight: 800; letter-spacing: .11em; color: var(--suite-muted); }
 .app-list { display: flex; flex-direction: column; gap: 3px; }
@@ -38,9 +39,8 @@ body { margin: 0; background: var(--suite-bg); color: var(--suite-text); }
 .welcome-card h2 { margin: 0 0 10px; font-size: 20px; }
 .welcome-card p { font-size: 14px; line-height: 1.7; color: var(--suite-muted); }
 .welcome-card .disclaimer { font-size: 12px; margin-top: 28px; }
-#appFrame { width: 100%; height: calc(100vh - 175px); min-height: 580px; background: white; border: 1px solid var(--suite-border); border-radius: var(--suite-radius); }
 .load-hint { color: var(--suite-muted); margin: 12px 2px; font-size: 11px; }
-@media (max-width: 820px) {
+@media (max-width: 760px) {
   .menu-toggle { display: block; }
   .header-hint { display: none; }
   .suite-layout { display: block; }
@@ -48,7 +48,6 @@ body { margin: 0; background: var(--suite-bg); color: var(--suite-text); }
   .suite-sidebar.open { display: block; }
   .workspace { padding: 16px; }
   .workspace-title h1 { font-size: 19px; }
-  #appFrame { height: calc(100dvh - 159px); min-height: 450px; }
   .welcome-card { padding: 22px; }
 }
 
@@ -58,4 +57,6 @@ body { margin: 0; background: var(--suite-bg); color: var(--suite-text); }
 :root[data-theme="dark"] .suite-sidebar, :root[data-theme="dark"] .menu-toggle { background: var(--suite-surface); color: var(--suite-text); }
 :root[data-theme="dark"] .app-link { color: var(--suite-text); }
 :root[data-theme="dark"] .app-link:hover, :root[data-theme="dark"] .app-link:focus-visible { background: var(--suite-primary-soft); }
-:root[data-theme="dark"] #appFrame { background: var(--suite-surface); }
+
+.app-link.pending{opacity:.72;cursor:not-allowed}
+.app-link.pending .dot{background:#a0a7b5}

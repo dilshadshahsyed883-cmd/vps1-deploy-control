@@ -3765,6 +3765,22 @@ def require_storage_csrf(request: Request) -> None:
         raise HTTPException(403, "Invalid storage action token")
 
 
+@app.get("/workspace/", response_class=HTMLResponse)
+@app.get("/workspace/storage/", response_class=HTMLResponse)
+def persistent_workspace(request: Request):
+    # Pilot is read-only and admin-gated, just like the existing Storage page.
+    # Existing application URLs remain supported native-document boundaries.
+    require_admin(request)
+    import json as shell_json
+    shell_manifest = shell_json.loads((Path(__file__).parent / "static/shell-v2/manifest.json").read_text())
+    return templates.TemplateResponse("persistent_workspace.html", {
+        "request": request, "page": "shell_workspace",
+        "username": request.session.get("username", "team"),
+        "storage_csrf": "", "drive_connected": False,
+        "shell_entry": shell_manifest["entry"],
+    }, headers={"Cache-Control": "no-store"})
+
+
 @app.get("/admin/storage", response_class=HTMLResponse)
 def storage_manager_page(request: Request):
     require_admin(request)

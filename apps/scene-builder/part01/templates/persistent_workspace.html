@@ -1,0 +1,9 @@
+{% extends "storage_manager.html" %}
+{% block title %}Workspace{% endblock %}
+{% block subtitle %}Independent applications{% endblock %}
+{% block content %}
+<nav aria-label="Persistent workspace"><a href="/workspace/">Workspace</a> · <a href="/workspace/storage/">Storage Manager</a></nav>
+<div id="vps1-shell-outlet" tabindex="-1" aria-live="polite"></div>
+<template id="vps1-storage-seed">{{ super() }}</template>
+{% endblock %}
+{% block scripts %}<script type="module" src="{{ shell_entry }}"></script>{% endblock %}
