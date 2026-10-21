@@ -146,8 +146,10 @@ class WhisperCompatibility:
             # decoder is retained rather than interrupting a new user's job.
             if not self.stopped:
                 idle_worker(health(URL,self.token))
+                self._run(['systemctl','stop',UNIT],timeout=45)
                 self.stopped=True
-            self._run(['systemctl','stop',UNIT],timeout=45)
+            # A failed install can leave this worker stopped already; never
+            # issue a second redundant stop before restoring cached wheels.
             py=str(VENV/'bin/python')
             self._run([py,'-m','pip','install','--disable-pip-version-check','--no-index',
                        '--find-links',str(self.journal/'wheels'),'--no-deps','--force-reinstall',
