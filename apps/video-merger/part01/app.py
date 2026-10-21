@@ -235,7 +235,7 @@ def test_proxy_profile(pid):
         with tempfile.TemporaryDirectory(prefix='vm-proxy-test-',dir=WORK) as workdir:
             out_pattern=str(Path(workdir)/'sample.%(ext)s')
             run(downloader_command('yt_dlp')+yt_common_args(p,True)+[
-                '--format','worst[ext=mp4]/worst','--max-filesize','100M',
+                '--format','bv*+ba/best/bv*','--max-filesize','100M',
                 '-o',out_pattern,'https://youtu.be/jNQXAC9IVRw'],timeout=240)
             candidates=[f for f in Path(workdir).glob('sample.*')
                         if f.is_file() and f.suffix.lower() not in ('.part','.ytdl','.json')]
@@ -387,7 +387,7 @@ def source_to_file(url, dst, job_id, idx, status_cb=None):
     if looks_youtube(url):
         note(max(3,min(38,4+idx*5)),f'Downloading video {idx}')
         tmpl=str(dst.with_suffix(''))+'.%(ext)s'
-        cmd=downloader_command('yt_dlp')+yt_common_args()+['--merge-output-format','mp4','-f','bv*+ba/b','-o',tmpl,url]
+        cmd=downloader_command('yt_dlp')+yt_common_args()+['--merge-output-format','mp4','-f','bv*+ba/best/bv*','-o',tmpl,url]
         try: run(cmd,timeout=7200)
         except Exception as e: raise RuntimeError(scrub_proxy_error(e))
         candidates=sorted(dst.parent.glob(dst.stem+'.*'),key=lambda p:p.stat().st_mtime,reverse=True)
