@@ -82,6 +82,19 @@
   </section>
 
   <section class="sb-tab-panel" data-panel="media">
+    <div id="sb-sml-settings" class="sb-sml-settings">
+      <div class="sb-section-head"><h3>Self Media Library (SML)</h3><span id="sb-sml-connection" role="status" aria-live="polite">Checking connection…</span></div>
+      <input type="hidden" name="sml_controls_present" value="1">
+      <div class="sb-control-grid">
+        <label><span><strong>Enable SML</strong></span><span class="pro-switch"><input type="checkbox" name="sml_enabled" {% if sml_enabled %}checked{% endif %}><i></i></span></label>
+        <label><span><strong>Media selection priority</strong></span><select name="media_source_mode"><option value="sml_first" {% if media_source_mode=='sml_first' %}selected{% endif %}>SML First → Pexels Fallback</option><option value="pexels_only" {% if media_source_mode=='pexels_only' %}selected{% endif %}>Pexels Automatic · Manual SML</option></select></label>
+        <label><span><strong>Automatic Scene Matching</strong></span><span class="pro-switch"><input type="checkbox" name="sml_auto_scene_matching" {% if sml_auto_scene_matching %}checked{% endif %}><i></i></span></label>
+        <label><span><strong>Manual Media Selection</strong></span><span class="pro-switch"><input type="checkbox" name="sml_manual_audit_selection" {% if sml_manual_audit_selection %}checked{% endif %}><i></i></span></label>
+        <label><span><strong>Clip Preview</strong></span><span class="pro-switch"><input type="checkbox" name="sml_clip_preview" {% if sml_clip_preview %}checked{% endif %}><i></i></span></label>
+      </div>
+      <div class="sb-section-head"><span id="sb-sml-counts" role="status" aria-live="polite">Library status: loading…</span><button type="button" id="sb-sml-refresh" class="button secondary">Refresh</button></div>
+      <p>Library counts show searchable approved media. Saved settings apply to next jobs.</p>
+    </div>
     <div class="sb-section-head"><div><h3>Stock-media strategy</h3><p>Control visual type, variety and fallback behavior.</p></div></div>
     <div class="sb-control-grid">
       <label><span><strong>Pexels</strong></span><span class="pro-switch"><input type="checkbox" name="pexels_enabled" {% if pexels_enabled %}checked{% endif %}><i></i></span></label>
@@ -253,6 +266,20 @@
 <script>
 (() => {
   const form=document.getElementById('settings-form');
+  const smlRefresh=document.getElementById('sb-sml-refresh');
+  async function refreshSmlStatus(){
+    const status=document.getElementById('sb-sml-connection'),counts=document.getElementById('sb-sml-counts');
+    smlRefresh.disabled=true;status.textContent='Checking connection…';counts.textContent='Library status: loading…';
+    try{
+      const response=await fetch('/api/settings/sml-status');
+      if(!response.ok)throw new Error('Status unavailable');
+      const data=await response.json();
+      status.textContent=data.connected?'Connected':'Unavailable';
+      counts.textContent=data.connected?`Library status: ${data.clips} clips / ${data.images} images`:'Library status: unavailable';
+    }catch{status.textContent='Unavailable';counts.textContent='Library status: unavailable';}
+    finally{smlRefresh.disabled=false;}
+  }
+  smlRefresh.addEventListener('click',refreshSmlStatus);refreshSmlStatus();
   const tabs=[...document.querySelectorAll('.sb-subtabs button')];
   const panels=[...document.querySelectorAll('.sb-tab-panel')];
   function openTab(name){tabs.forEach(x=>x.classList.toggle('active',x.dataset.tab===name));panels.forEach(x=>x.classList.toggle('active',x.dataset.panel===name));sessionStorage.setItem('sbSettingsTab',name);}
@@ -1122,3 +1149,4 @@ html.acs-audio-component #settings-form{max-width:none!important;width:100%!impo
 })();
 </script>
 {% endblock %}
+

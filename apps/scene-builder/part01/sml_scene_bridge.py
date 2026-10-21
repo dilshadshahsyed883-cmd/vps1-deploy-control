@@ -70,6 +70,17 @@ def _request(path: str, *, method: str = "GET", params: dict[str, object] | None
         raise SMLUnavailable("SML V2 editor service unavailable or access denied") from exc
 
 
+def library_status() -> dict[str, Any]:
+    # Reuse the existing authenticated search contract; total is not the page length.
+    counts = {}
+    for kind, label in (("video", "clips"), ("image", "images")):
+        result = _request("/api/v1/media/search", params={"media_type": kind, "limit": 1})
+        if not isinstance(result.get("items"), list) or not isinstance(result.get("total"), int):
+            raise SMLUnavailable("SML catalog status is unavailable")
+        counts[label] = max(0, result["total"])
+    return {"connected": True, **counts}
+
+
 def approved_clips(limit: int = 100, query: str = "") -> list[dict[str, Any]]:
     limit = max(1, min(100, int(limit)))
     result = _request("/api/v1/media/search", params={
@@ -183,3 +194,4 @@ def download_verified(clip: dict[str, Any], destination: Path) -> Path:
         raise SMLUnavailable("SML media is temporarily unavailable") from exc
     finally:
         temporary.unlink(missing_ok=True)
+

@@ -87,6 +87,7 @@
 (() => {
   const jobId={{ selected_job.id|tojson }};
   let audit={{ (audit or {})|tojson }};
+  const smlConfig=audit.sml_settings||{sml_enabled:true,sml_manual_audit_selection:true,sml_clip_preview:true};
   let filter='all';
   let keywordItem=null;
   let smlItem=null;
@@ -130,7 +131,7 @@
           <button type="button" data-action="preview" ${missing?'disabled':''}>Preview</button>
           <button type="button" data-action="replace" class="primary">Get New</button>
           <button type="button" data-action="keyword">Change Keyword</button>
-          <button type="button" data-action="sml" class="primary">Browse SML</button>
+          ${smlConfig.sml_enabled&&smlConfig.sml_manual_audit_selection?'<button type="button" data-action="sml" class="primary">Browse SML</button>':''}
           <label>Upload<input type="file" data-action="upload" accept="video/*,.mp4,.mov,.mkv,.webm,.avi,.m4v" hidden></label>
         </div>
         <div class="audit-status-line"><span>${i.changed?'Modified':'Original selection'}</span><span>${i.approved?'✓ Reviewed':'Needs review'} · r${Number(i.revision||0)}</span></div>
@@ -177,7 +178,7 @@
   function renderSml(){
     smlStatus.textContent=`${smlCatalog.length} approved clips available`;
     smlResults.innerHTML=smlCatalog.length?smlCatalog.map(c=>`<article class="sml-result">
-      <video controls preload="none" playsinline style="width:100%;aspect-ratio:16/9" src="${esc(c.preview_url)}" ${c.thumb_url?`poster="${esc(c.thumb_url)}"`:""}></video>
+      ${smlConfig.sml_clip_preview?`<video controls preload="none" playsinline style="width:100%;aspect-ratio:16/9" src="${esc(c.preview_url)}" ${c.thumb_url?`poster="${esc(c.thumb_url)}"`:""}></video>`:''}
       <strong>${esc(c.id)}</strong>
       <span class="muted">${esc(c.description||c.keywords.join(', ')||'No description')}</span>
       <span class="muted">${Number(c.duration||0).toFixed(1)}s · Quality ${esc(c.quality||0)} · ${esc(c.orientation)}</span>
@@ -217,6 +218,7 @@
     }catch(err){smlStatus.textContent=err.message;button.disabled=false}
   });
   async function autoMatchSml(){
+    if(!smlConfig.sml_enabled||!smlConfig.sml_auto_scene_matching||smlConfig.media_source_mode!=='sml_first')return;
     if(smlAutoStarted||!Array.isArray(audit.items)||!audit.items.length)return;
     smlAutoStarted=true;
     try{
@@ -233,3 +235,4 @@
 </script>
 {% endif %}
 {% endblock %}
+
