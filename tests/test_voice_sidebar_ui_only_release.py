@@ -117,10 +117,10 @@ class VoiceSidebarUIOnlyTests(unittest.TestCase):
 class VoiceQueueURLOverlayTests(unittest.TestCase):
     """VPS Scene SSO app-prefixed routes, with root-local compatibility."""
 
-    def test_four_reviewed_queue_and_media_urls_are_present_and_rewrite_safe(self):
+    def test_three_active_engine_routes_and_edge_audio_route_are_rewrite_safe(self):
         from production.voice_template_release import QUEUE_ROUTE_PAIRS
         source = (ROOT / "apps/voice-studio/part01/templates/voice_studio.html").read_bytes()
-        self.assertEqual(len(QUEUE_ROUTE_PAIRS), 4)
+        self.assertEqual(len(QUEUE_ROUTE_PAIRS), 3)
         for old, new in QUEUE_ROUTE_PAIRS:
             with self.subTest(old=old[:90]):
                 self.assertEqual(source.count(new), 1)
@@ -130,7 +130,7 @@ class VoiceQueueURLOverlayTests(unittest.TestCase):
         self.assertIn(b"'/voice-studio':'')+'/'+'tts/api/kokoro'", source)
         self.assertIn(b"'/voice-studio':'')+'/'+'tts/api/edge'", source)
         self.assertIn(b"apiRoot+'/audio/'+encodeURIComponent(j.job_id)", source)
-        self.assertIn(b"root+'/files/'+encodeURIComponent(j.job_id)+'/'+ext", source)
+        self.assertIn(b"root+'/files/'+encodeURIComponent(j.job_id)+'/'+localAudio", source)
 
     def test_existing_runtime_overlay_is_byte_scoped_and_idempotent(self):
         from production.voice_template_release import queue_route_overlay, QUEUE_ROUTE_PAIRS
