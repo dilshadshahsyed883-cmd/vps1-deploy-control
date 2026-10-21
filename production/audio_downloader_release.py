@@ -13,6 +13,7 @@ import subprocess
 
 from production.runtime import BASE, REPO, atomic_json, atomic_link, event, http_check, run
 from production.voice_queue_release import local_json
+from production.audio_proxy_restore import plan as plan_proxy_restore, replace_private
 
 CURRENT = BASE / 'current/voice-studio'
 RELEASES = BASE / 'releases/voice-studio'
@@ -99,6 +100,7 @@ def install(revision):
     environment = live_environment()
     root = Path(environment['AUDIO_DOWNLOADER_ROOT'])
     require(root.is_absolute(), 'unknown Audio data root')
+    proxy_plan = plan_proxy_restore(root)
     old = previous / MODULE
     source = REPO / 'apps/voice-studio' / MODULE
     require(old.is_file() and not old.is_symlink() and not source.is_symlink(), 'untrusted Audio module')
@@ -112,6 +114,7 @@ def install(revision):
     fence = lock_idle(root / 'data/jobs.sqlite3')
     switched = False
     stopped = False
+    proxy_changed = False
     try:
         journal.mkdir(mode=0o700, parents=True)
         atomic_json(journal / 'before.json', {'previous': str(previous), 'revision': revision,
@@ -124,6 +127,15 @@ def install(revision):
             with sqlite3.connect(str(journal / 'jobs.sqlite3')) as backup:
                 live.backup(backup)
                 require(backup.execute('PRAGMA integrity_check').fetchone()[0] == 'ok', 'Audio backup corrupt')
+        # Proxy changes occur only after idle fence, service stop and backup.
+        if proxy_plan is not None:
+            require(proxy_plan['path'].read_bytes() == proxy_plan['before'],
+                    'saved proxy changed since canary')
+            (journal / 'proxy-before.json').write_bytes(proxy_plan['before'])
+            (journal / 'proxy-before.json').chmod(0o600)
+            replace_private(proxy_plan, proxy_plan['after'])
+            proxy_changed = True
+            event(app='audio-downloader', proxy_restore='CANARY_PASS_ENABLED', credentials_logged=False)
         shutil.copytree(previous, target, symlinks=True)
         (target / MODULE).write_bytes(payload)
         manifest_file = target / '_production_manifest.json'
@@ -141,8 +153,11 @@ def install(revision):
         result = smoke(target, environment)
         atomic_json(journal / 'result.json', {'state': 'ACTIVE', 'revision': revision, 'smoke': result})
         event(app='voice-studio', result='PASS_AUDIO_PROXY_ONLY', workers='PRESERVED', data='PRESERVED',
-              https='PASS', sqlite_backup='PASS', smoke=result, rollback=str(journal))
+              https='PASS', sqlite_backup='PASS', proxy_restore='ENABLED' if proxy_changed else 'UNCHANGED', smoke=result, rollback=str(journal))
     except BaseException:
+        if proxy_changed:
+            replace_private(proxy_plan, proxy_plan['before'])
+            event(app='audio-downloader', proxy_restore='ROLLED_BACK', credentials_logged=False)
         if fence is not None:
             fence.close()
             fence = None
