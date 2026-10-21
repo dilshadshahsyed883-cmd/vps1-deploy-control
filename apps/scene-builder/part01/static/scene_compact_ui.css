@@ -1,0 +1,142 @@
+/* Scene Builder app-only component adapter, based on SML Input's light panels,
+   blue actions, natural typography and compact spacing. Loaded after local
+   styles. Targeted !important declarations bridge historical inline/important
+   rules; keep them here until those legacy adapters can be retired together.
+   The shared sidebar/studio geometry and rendered caption preview are untouched. */
+body.vps1-scene-parity[data-scene-ui="sml-compact"] {
+  --scene-ui-accent:#315edb;
+  --scene-ui-line:#dfe5ef;
+  --scene-ui-border:#dfe5ef;
+  --scene-ui-ink:#17253c;
+  --scene-ui-muted:#64748b;
+  --scene-compact-gap:12px;
+  --scene-compact-radius:12px;
+}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main > :is(.scene-settings-workspace,.scene-audit-workspace) {
+  --scene-ui-accent:#315edb;--scene-ui-line:#dfe5ef;--scene-ui-muted:#64748b;
+}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main {
+  font:14px/1.5 Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(.panel,.sb-tab-panel,.sb-preset-context,.scene-audit-overview,.audit-toolbar,.audit-card,.aev2-card,.sbm-card,.aefx-modal-card) {
+  border-color:var(--scene-ui-line)!important;
+  border-radius:var(--scene-compact-radius)!important;
+  box-shadow:0 2px 10px rgb(18 32 64 / 3.5%)!important;
+}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(.panel,.sb-tab-panel,.sb-preset-context,.scene-audit-overview,.audit-toolbar,.aev2-card) {
+  padding:14px 16px!important;
+  margin-bottom:12px!important;
+}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(h2,h3,h4) {
+  font-size:15px!important;line-height:1.4;letter-spacing:normal!important;
+  text-transform:none;margin:0 0 8px!important;
+}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(.scene-project-eyebrow,.scene-ui-eyebrow,.sb-muted,.sb-preset-lock,.queue-job-group h3) {
+  letter-spacing:normal!important;text-transform:none;font-size:12px;
+}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(.scene-project-heading p,.scene-audit-overview p,.sb-section-head p,.aev2-sub) {
+  font-size:12px;line-height:1.5;margin:3px 0 0!important;color:var(--scene-ui-muted);
+}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(.button,button,.audit-filter) {
+  box-sizing:border-box;min-height:40px;border-radius:8px!important;
+  font:650 13px/1.4 Inter,system-ui,sans-serif;
+  padding:8px 12px!important;letter-spacing:normal;
+}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .button:not(.secondary):not(.danger),
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(.scene-workspace-tabs a.active,.sb-subtabs button.active,.aev2-tabs button.active,.audit-filter.active) {
+  background:var(--scene-ui-accent)!important;border-color:var(--scene-ui-accent)!important;color:#fff!important;
+}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(.button.secondary,.sb-subtabs button:not(.active)) {
+  background:#fff!important;border:1px solid #d6ddea!important;color:#34415b!important;
+}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .queue-mode-buttons button.active {
+  background:var(--scene-ui-accent)!important;border-color:var(--scene-ui-accent)!important;color:#fff!important;
+}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="hidden"]),select,textarea) {
+  box-sizing:border-box;min-width:0;min-height:40px!important;
+  border-radius:8px!important;padding:8px 10px!important;margin-bottom:0!important;
+  border-color:#cbd5e1!important;font:inherit;font-size:14px!important;
+}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(label,.sb-control-grid label strong) {
+  color:#34415b!important;letter-spacing:normal;font-size:13px!important;
+}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(.scene-workspace-tabs,.sb-subtabs,.aev2-tabs,.aev2-inner-tabs) {
+  display:flex;gap:8px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin;
+}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(.scene-workspace-tabs a,.sb-subtabs button,.aev2-tabs button) {
+  flex:0 0 auto;white-space:nowrap;
+}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .sb-subtabs {
+  padding:6px!important;border-color:var(--scene-ui-line)!important;border-radius:10px!important;
+}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(.scene-settings-workspace,.scene-audit-workspace,.sb-control-grid,.sb-preset-grid,.sb-timing-groups,.aev2-grid,.audit-grid) {
+  gap:var(--scene-compact-gap);
+}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(.queue-section-gap,.queue-new-project-wrap,.queue-job-group,.sb-timing-groups,.sb-preset-audio) {
+  margin-top:12px;
+}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .queue-mode-card {gap:12px;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main #project-form {gap:12px 16px;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main #project-form .queue-preset-channel-row {gap:12px 16px;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main #project-form input[type="file"] {min-height:44px!important;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(.scene-project-heading,.panel-head,.sb-section-head) {
+  gap:12px;padding-bottom:10px;margin-bottom:10px;
+}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .scene-project-heading {padding-bottom:10px;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .scene-project-step {font-size:11px;padding:5px 9px;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(.sb-preset-context strong,.sb-preset-card strong,.scene-audit-empty strong) {font-size:14px;}
+/* Settings rows mirror SML's label/control layout rather than tall stacked cards. */
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .sb-control-grid > label {
+  display:flex!important;flex-direction:row!important;align-items:center!important;
+  justify-content:space-between;gap:12px;min-height:60px;
+  padding:10px 12px!important;margin:0!important;border-radius:9px!important;
+  background:#fff!important;
+}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .sb-control-grid > label > span:first-child {flex:1;min-width:0;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .sb-control-grid > label :is(select,input:not([type="checkbox"]):not([type="radio"]),.sb-number) {
+  flex:0 1 48%;width:48%!important;max-width:230px!important;min-width:0;
+}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .sb-control-grid > label .sb-number input {width:100%!important;max-width:100%!important;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .sb-control-grid label small {margin-top:2px;font-size:11px;line-height:1.4;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .sb-control-grid label .pro-switch {align-self:center;flex:0 0 auto;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .sb-preset-card {padding:12px!important;min-height:104px;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .sb-preset-item {gap:6px;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .sb-timing-group {padding:12px;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(.sb-key-manager,.sb-library-card,.sb-sml-manager,.aev2-drop,.aev2-compat) {padding:12px;min-width:0;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(.aev2-card,.aev2-status,.aev2-summary,.sbm-field,.aefx-studio-toolbar) {min-width:0;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .aev2-section-title {margin:12px 0 8px;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .aev2-actions {margin-top:10px;gap:8px;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .project-toolbar {padding:10px;gap:10px;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .audit-project-row {padding:12px;gap:12px;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .audit-card-body {padding:12px;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .scene-audit-empty {min-height:160px;padding:20px 14px;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(.audit-toolbar-left,.audit-toolbar-right,.audit-actions) {gap:8px;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .summary-chip {min-height:36px;padding:6px 10px;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .audit-sticky-approve {padding:10px 12px;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(button,a,input,select,textarea):focus-visible {
+  outline:3px solid #315edb;outline-offset:2px;
+}
+@media(max-width:1000px) {
+  body.vps1-scene-parity[data-scene-ui="sml-compact"] main .sb-caption-layout {grid-template-columns:minmax(0,1fr);}
+  body.vps1-scene-parity[data-scene-ui="sml-compact"] main .aev2-grid:is(.five,.four) {grid-template-columns:repeat(2,minmax(0,1fr));}
+}
+@media(max-width:760px) {
+  body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(.panel,.sb-tab-panel,.sb-preset-context,.scene-audit-overview,.audit-toolbar,.aev2-card) {padding:12px!important;}
+  body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(.button,button,.audit-filter,input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),select) {min-height:44px!important;}
+  body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(.sb-control-grid,.sb-preset-grid,.aev2-grid,.aev2-studio-grid,.aev2-audio-pair,.sb-library-columns,.aev2-output-row) {grid-template-columns:minmax(0,1fr);}
+  body.vps1-scene-parity[data-scene-ui="sml-compact"] main .sb-control-grid > label {flex-direction:column!important;align-items:stretch!important;gap:6px;}
+  body.vps1-scene-parity[data-scene-ui="sml-compact"] main .sb-control-grid > label :is(select,input:not([type="checkbox"]):not([type="radio"]),.sb-number) {width:100%!important;max-width:none!important;flex:auto;}
+  body.vps1-scene-parity[data-scene-ui="sml-compact"] main .sb-control-grid > label .pro-switch {align-self:flex-start;}
+  body.vps1-scene-parity[data-scene-ui="sml-compact"] main :is(.sml-search-row,.sml-browser-head,.aev2-status,.aev2-section-title) {flex-wrap:wrap;}
+}
+@media(prefers-reduced-motion:reduce) {
+  body.vps1-scene-parity[data-scene-ui="sml-compact"] main * {scroll-behavior:auto!important;transition:none!important;}
+}
+/* Keep unit suffixes intact even when labels stack on narrow screens. */
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .sb-number {display:flex;gap:8px;align-items:center;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .sb-number input {flex:1 1 0;min-width:0;}
+body.vps1-scene-parity[data-scene-ui="sml-compact"] main .sb-number em {flex:0 0 auto;white-space:nowrap;}
+/* Match the existing shell's ID-qualified active-tab rule within Scene only. */
+body:has(#app-sidebar)[data-scene-ui="sml-compact"] .scene-workspace-tabs > a[aria-current="page"] {
+  background:#315edb!important;border-color:#315edb!important;color:#fff!important;
+}
