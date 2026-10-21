@@ -1,0 +1,47 @@
+/* Scene Builder Queue-only Kokoro UI parity: SC-UI-20261021-01.
+   Scoped: no shared shell / other app, no data or queue side effects. */
+body.vps1-scene-parity main :is(.queue-mode-card,.queue-new-project-wrap,.folder-queue-panel,.all-projects-panel){box-sizing:border-box;max-width:1400px;min-width:0;margin-inline:auto}
+body.vps1-scene-parity main :is(.queue-mode-card,.queue-new-project-card,.folder-queue-panel,.all-projects-panel){padding:20px 22px!important;border:1px solid #e2e7ef!important;border-radius:16px!important;background:#fff!important;box-shadow:0 4px 16px #1f2d4a0d!important}
+body.vps1-scene-parity .queue-mode-card{gap:18px;margin-bottom:18px!important}
+body.vps1-scene-parity .queue-mode-left{gap:12px;flex-wrap:wrap}
+body.vps1-scene-parity .queue-mode-left h2{font-size:16px;margin:0!important}
+body.vps1-scene-parity .queue-mode-state{max-width:640px;line-height:1.5;white-space:normal}
+body.vps1-scene-parity main :is(.queue-mode-buttons button,.folder-controls button,.folder-picker,.scene-channel-actions .button,.project-clear-filter){display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:9px 15px!important;border-radius:10px!important;font-size:13px;font-weight:700;line-height:1.4}
+body.vps1-scene-parity .queue-mode-buttons,body.vps1-scene-parity .folder-controls{gap:10px;flex-wrap:wrap}
+body.vps1-scene-parity .queue-new-project-wrap{margin-top:18px;margin-bottom:18px}
+body.vps1-scene-parity #project-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 20px;align-items:start;width:100%}
+body.vps1-scene-parity #project-form > :is(.scene-project-heading,.queue-preset-channel-row,.submission-message,.upload-progress){grid-column:1/-1;min-width:0}
+body.vps1-scene-parity .scene-project-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;padding-bottom:17px;border-bottom:1px solid #eef0f5}
+body.vps1-scene-parity .scene-project-eyebrow{display:block;margin-bottom:6px;color:#6255db;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+body.vps1-scene-parity .scene-project-heading h2{font-size:20px;margin:0 0 5px!important}
+body.vps1-scene-parity .scene-project-heading p{font-size:13px;line-height:1.5;color:#667085;margin:0}
+body.vps1-scene-parity .scene-project-step{flex:0 0 auto;padding:8px 12px;border-radius:99px;border:1px solid #e0dbff;background:#f5f2ff;color:#5546bd;font-size:12px;font-weight:800}
+body.vps1-scene-parity #project-form > label{display:flex!important;flex-direction:column;gap:7px;min-width:0;margin:0!important;font-size:13px!important;font-weight:700!important;color:#344054!important}
+body.vps1-scene-parity #project-form > label:has(#project-name){grid-column:1/-1}
+body.vps1-scene-parity #project-form .queue-preset-channel-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 20px;align-items:end;min-width:0}
+body.vps1-scene-parity #project-form .queue-preset-channel-row > .preset-field{order:1;margin:0!important}
+body.vps1-scene-parity #project-form .queue-preset-channel-row > .scene-channel-field{order:2;min-width:0}
+body.vps1-scene-parity #project-form .queue-preset-channel-row > #ae-queue-wire{order:3;grid-column:1/-1}
+body.vps1-scene-parity #project-form :is(.preset-field,.scene-channel-field label){font-weight:700!important;color:#344054!important}
+body.vps1-scene-parity #project-form :is(select,input:not([type="checkbox"])){box-sizing:border-box;min-width:0;width:100%;min-height:44px;margin:0!important;padding:10px 12px!important;border:1px solid #d7deea!important;border-radius:10px!important;background:#fff;color:#101828;font-size:14px}
+body.vps1-scene-parity #project-form input[type="file"]{min-height:54px!important;padding:10px!important;border-style:dashed!important;background:#fbfcff!important;cursor:pointer}
+body.vps1-scene-parity #project-form input[type="file"]::file-selector-button{border:1px solid #d7deea;background:#f5f7fc;border-radius:8px;padding:7px 12px;margin-right:12px;color:#344054;font-weight:700}
+body.vps1-scene-parity #project-form .field-help{display:block;margin-top:2px;font-size:12px;line-height:1.45;color:#667085;overflow-wrap:anywhere}
+body.vps1-scene-parity #project-form :is(input,select):focus-visible{outline:3px solid #8174eb;outline-offset:2px}
+body.vps1-scene-parity #project-form #ae-queue-wire{margin:0;padding:15px 16px;border-color:#e2e7ef;border-radius:12px;background:#f8f9fd}
+body.vps1-scene-parity #project-form #submit-button{grid-column:2;justify-self:end;min-height:44px;min-width:180px;padding:10px 20px!important;border-radius:10px!important;font-weight:750}
+body.vps1-scene-parity #project-form :is(.submission-message,.upload-progress)[hidden]{display:none!important}
+body.vps1-scene-parity .queue-section-gap{margin-top:18px}
+body.vps1-scene-parity :is(.folder-queue-panel,.all-projects-panel) .panel-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin:0 0 14px;padding-bottom:15px;border-bottom:1px solid #eef0f5}
+body.vps1-scene-parity :is(.folder-queue-panel,.all-projects-panel) h2{font-size:18px;margin:0!important}
+body.vps1-scene-parity .folder-picker{margin:0!important}
+body.vps1-scene-parity .project-toolbar{grid-template-columns:minmax(240px,1fr) minmax(160px,190px) auto;gap:12px;padding:15px;margin:0 0 12px;border:1px solid #e7eaf2;border-radius:12px;background:#f9faff}
+body.vps1-scene-parity .project-toolbar label{display:flex!important;flex-direction:column;gap:6px;margin:0!important}
+body.vps1-scene-parity .project-toolbar :is(input,select){min-height:44px!important;margin:0!important;border:1px solid #d7deea!important;border-radius:10px!important;background:#fff!important}
+body.vps1-scene-parity .queue-job-group{margin-top:16px}
+body.vps1-scene-parity .queue-job-group h3{font-size:12px;letter-spacing:.08em}
+body.vps1-scene-parity .job-row{min-width:0;border-radius:12px}
+body.vps1-scene-parity .job-row .actions :is(.button,button){min-height:38px;border-radius:9px}
+@media(max-width:900px){body.vps1-scene-parity .project-toolbar{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){body.vps1-scene-parity main :is(.queue-mode-card,.queue-new-project-card,.folder-queue-panel,.all-projects-panel){padding:16px!important}body.vps1-scene-parity #project-form{grid-template-columns:minmax(0,1fr);gap:15px}body.vps1-scene-parity #project-form > label,body.vps1-scene-parity #project-form > :is(.scene-project-heading,.queue-preset-channel-row,.submission-message,.upload-progress){grid-column:1/-1}body.vps1-scene-parity #project-form .queue-preset-channel-row{grid-template-columns:minmax(0,1fr)}body.vps1-scene-parity #project-form .queue-preset-channel-row > #ae-queue-wire{grid-column:1}body.vps1-scene-parity #project-form #submit-button{grid-column:1;width:100%;justify-self:stretch}body.vps1-scene-parity .scene-project-heading{align-items:flex-start;flex-direction:column}body.vps1-scene-parity .project-toolbar{grid-template-columns:minmax(0,1fr)}}
+@media(prefers-reduced-motion:reduce){body.vps1-scene-parity #project-form *,body.vps1-scene-parity .queue-mode-buttons button{transition:none!important}}

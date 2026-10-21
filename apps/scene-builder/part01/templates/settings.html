@@ -7,9 +7,9 @@
 <style>
 {% for key, font in caption_fonts.items() %}@font-face{font-family:'{{ font.family }}';src:url('/static/fonts/{{ font.filename }}');font-display:swap;font-weight:400 900}
 {% endfor %}
-.sb-settings-viewbar{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:14px;padding:12px 14px;border:1px solid #e3e7f0;border-radius:12px;background:#fff}.sb-settings-viewbar>div{display:flex;flex-direction:column;gap:2px}.sb-view-toggle{display:flex;align-items:center;gap:12px;margin:0}.sb-settings.presets-only .sb-subtabs button:not([data-tab="presets"]){display:none}.sb-settings.presets-only .sb-tab-panel:not([data-panel="presets"]){display:none!important}.sb-settings .sb-section-head p,.sb-settings .sb-control-grid small,.sb-settings .sb-note,.sb-settings .sb-preset-card small,.sb-settings .sb-settings-viewbar small,.sb-settings .sb-library-head small,.sb-settings .sb-ai-categories small,.sb-settings .sb-key-manager small,.sb-settings .sb-preview p{display:none!important}.sb-settings .sb-control-grid small:has(output){display:inline!important}.sb-settings .sb-control-grid{gap:10px}.sb-settings .sb-control-grid>label{min-height:54px;padding:10px 12px}.sb-selected-preset{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:14px 0 10px;padding:12px 14px;border:1px solid #dfe4ee;border-radius:12px;background:#fff}.sb-selected-preset strong{font-size:16px}.sb-selected-preset-status{font-size:12px;font-weight:700;color:#18794e}.sb-summary-section{margin-top:12px}.sb-summary-section>h4,.sb-timing-group>h4{margin:0 0 8px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#667085}.sb-summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.sb-summary-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 11px;border:1px solid #e6e9f0;border-radius:10px;background:#fff;min-height:44px}.sb-summary-row>span:first-child{font-weight:650}.sb-summary-row select,.sb-summary-row input[type=number]{max-width:150px}.sb-timing-groups{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.sb-timing-group{border:1px solid #e3e7f0;border-radius:12px;background:#fff;padding:12px}.sb-timing-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}.sb-timing-pair label{display:flex;flex-direction:column;gap:5px;font-weight:650}.sb-timing-pair input{width:100%}.sb-pexels-strategy{margin-top:10px}.sb-preset-card>span:last-child{font-size:12px;color:#667085}.sb-preset-lock{font-size:11px}.sb-save-bar{display:none!important}.sb-save-bar small{display:none!important}@media(max-width:760px){.sb-settings-viewbar{position:sticky;top:0;z-index:4}.sb-subtabs{overflow-x:auto;white-space:nowrap;scrollbar-width:thin}.sb-summary-grid{grid-template-columns:1fr}.sb-timing-groups{grid-template-columns:1fr}.sb-preset-grid{grid-template-columns:1fr}.sb-selected-preset{position:sticky;top:58px;z-index:3}}
+.sb-settings .sb-section-head p,.sb-settings .sb-control-grid small,.sb-settings .sb-note,.sb-settings .sb-preset-card small,.sb-settings .sb-library-head small,.sb-settings .sb-ai-categories small,.sb-settings .sb-key-manager small,.sb-settings .sb-preview p{display:none!important}.sb-settings .sb-control-grid small:has(output){display:inline!important}.sb-settings .sb-control-grid{gap:10px}.sb-settings .sb-control-grid>label{min-height:54px;padding:10px 12px}.sb-selected-preset{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:14px 0 10px;padding:12px 14px;border:1px solid #dfe4ee;border-radius:12px;background:#fff}.sb-selected-preset strong{font-size:16px}.sb-selected-preset-status{font-size:12px;font-weight:700;color:#18794e}.sb-summary-section{margin-top:12px}.sb-summary-section>h4,.sb-timing-group>h4{margin:0 0 8px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#667085}.sb-summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.sb-summary-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 11px;border:1px solid #e6e9f0;border-radius:10px;background:#fff;min-height:44px}.sb-summary-row>span:first-child{font-weight:650}.sb-summary-row select,.sb-summary-row input[type=number]{max-width:150px}.sb-timing-groups{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.sb-timing-group{border:1px solid #e3e7f0;border-radius:12px;background:#fff;padding:12px}.sb-timing-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}.sb-timing-pair label{display:flex;flex-direction:column;gap:5px;font-weight:650}.sb-timing-pair input{width:100%}.sb-pexels-strategy{margin-top:10px}.sb-preset-card>span:last-child{font-size:12px;color:#667085}.sb-preset-lock{font-size:11px}.sb-save-bar{display:none!important}.sb-save-bar small{display:none!important}@media(max-width:760px){.sb-subtabs{overflow-x:auto;white-space:nowrap;scrollbar-width:thin}.sb-summary-grid{grid-template-columns:1fr}.sb-timing-groups{grid-template-columns:1fr}.sb-preset-grid{grid-template-columns:1fr}.sb-selected-preset{position:sticky;top:58px;z-index:3}}
 
-.sb-preset-context{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:0 0 14px;padding:14px 16px;border:1px solid #dfe4ee;border-radius:14px;background:linear-gradient(135deg,#fff,#f7f8ff)}.sb-preset-context strong{font-size:17px}.sb-preset-context .sb-muted{font-size:11px;letter-spacing:.08em}.sb-settings.presets-only .sb-preset-context{margin-bottom:10px}.sb-preset-audio{margin-top:14px}.sb-universal-label{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:22px 0 10px;padding-top:18px;border-top:1px solid #e6e9f0}.sb-universal-label h4{margin:0}.sb-preset-grid+.sb-note{margin-top:12px}.sb-settings .sb-preset-context small{display:none!important}
+.sb-preset-context{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:0 0 14px;padding:14px 16px;border:1px solid #dfe4ee;border-radius:14px;background:linear-gradient(135deg,#fff,#f7f8ff)}.sb-preset-context strong{font-size:17px}.sb-preset-context .sb-muted{font-size:11px;letter-spacing:.08em}.sb-preset-audio{margin-top:14px}.sb-universal-label{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:22px 0 10px;padding-top:18px;border-top:1px solid #e6e9f0}.sb-universal-label h4{margin:0}.sb-preset-grid+.sb-note{margin-top:12px}.sb-settings .sb-preset-context small{display:none!important}
 </style>
 <form id="settings-form" class="sb-settings" method="post">
   <input type="hidden" name="quota_limit" value="{{ quota_limit }}">
@@ -19,11 +19,6 @@
   {% if retention_enabled %}<input type="hidden" name="retention_enabled" value="on">{% endif %}
 
   {% if request.query_params.get('saved') %}<div class="sb-saved">Settings saved. New submissions will use the updated controls.</div>{% endif %}
-
-  <div class="sb-settings-viewbar">
-    <div><strong>Settings View</strong></div>
-    <label class="sb-view-toggle"><span>Presets Only</span><span class="pro-switch"><input id="presets-only-toggle" type="checkbox"><i></i></span></label>
-  </div>
 
   <div class="sb-preset-context">
     <div><span class="sb-muted">SELECTED PRESET</span><br><strong id="selected-preset-name">{{ default_scene_profile.label }}</strong></div>
@@ -259,13 +254,11 @@
   const form=document.getElementById('settings-form');
   const tabs=[...document.querySelectorAll('.sb-subtabs button')];
   const panels=[...document.querySelectorAll('.sb-tab-panel')];
-  const presetsOnlyToggle=document.getElementById('presets-only-toggle');
   function openTab(name){tabs.forEach(x=>x.classList.toggle('active',x.dataset.tab===name));panels.forEach(x=>x.classList.toggle('active',x.dataset.panel===name));sessionStorage.setItem('sbSettingsTab',name);}
-  function applyPresetsOnly(enabled){form.classList.toggle('presets-only',enabled);presetsOnlyToggle.checked=enabled;localStorage.setItem('sceneBuilderPresetsOnly',enabled?'1':'0');if(enabled)openTab('presets');else openTab(sessionStorage.getItem('sbSettingsTab')||'presets');}
   tabs.forEach(button=>button.addEventListener('click',()=>openTab(button.dataset.tab)));
-  const presetsOnlySaved=localStorage.getItem('sceneBuilderPresetsOnly');
-  applyPresetsOnly(presetsOnlySaved===null?false:presetsOnlySaved==='1');
-  presetsOnlyToggle.addEventListener('change',()=>applyPresetsOnly(presetsOnlyToggle.checked));
+  // Preserve the previous real tab; deprecated view mode is permanently removed.
+  const initialTab=sessionStorage.getItem('sbSettingsTab')||'presets';
+  openTab(tabs.some(t=>t.dataset.tab===initialTab)?initialTab:'presets');
   async function presetApi(url,options={}){const response=await fetch(url,{headers:{'Content-Type':'application/json',...(options.headers||{})},...options});let data={};try{data=await response.json();}catch{}if(!response.ok)throw new Error(data.detail||data.error||('Request failed: '+response.status));return data;}
   function selectedPresetId(){return document.querySelector('[name=default_scene_preset]:checked')?.value||'{{ default_scene_preset }}';}
   const saveState=document.getElementById('preset-save-state');
@@ -1104,7 +1097,7 @@ html.acs-audio-component #settings-form{max-width:none!important;width:100%!impo
    if(n===form||n.matches('script,style,.sbm-backdrop,.sb-confirm-modal'))return;
    n.style.setProperty('display','none','important');
   });
-  form.querySelector('.sb-settings-viewbar')?.style.setProperty('display','none','important');
+  
   form.querySelector('.sb-preset-context')?.style.setProperty('display','none','important');
   form.querySelector('.sb-subtabs')?.style.setProperty('display','none','important');
   form.querySelectorAll('.sb-tab-panel').forEach(p=>{
