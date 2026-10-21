@@ -33,7 +33,7 @@ class SharedShellMobile(unittest.TestCase):
         self.assertIn(scene_css,tags.styles)
         self.assertIn(sml_css,tags.styles)
         self.assertIn(scene_js,[p for p,_ in tags.scripts])
-        self.assertIn("/self-media-library/static/app.js?v=20261021-queued-start-v1",
+        self.assertIn("/self-media-library/static/app.js?v=20261021-drive-quota-v1",
                       [p for p,_ in tags.scripts])
         self.assertEqual(len([a for _,a in tags.scripts if a.get("data-workspace")=="library"]),1)
         self.assertNotIn('src="/static/',s)
