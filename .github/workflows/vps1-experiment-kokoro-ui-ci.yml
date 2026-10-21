@@ -6,6 +6,7 @@ on:
       - 'apps/scene-builder/part01/static/experiment_browser.js'
       - 'apps/scene-builder/part01/static/experiment_antidetect_kokoro_20261021.css'
       - 'tests/test_experiment_browser_kokoro_ui.py'
+      - 'tests/test_experiment_browser_shell_alignment.py'
       - '.github/workflows/vps1-experiment-kokoro-ui-ci.yml'
 permissions:
   contents: read
@@ -23,3 +24,5 @@ jobs:
       - run: node --check apps/scene-builder/part01/static/experiment_browser.js
       - run: python -m unittest tests.test_experiment_browser_kokoro_ui -v
       - run: python tests/test_experiment_browser_kokoro_ui.py --browser
+      - run: python -m unittest tests.test_experiment_browser_shell_alignment -v
+      - run: python tests/test_experiment_browser_shell_alignment.py --browser
