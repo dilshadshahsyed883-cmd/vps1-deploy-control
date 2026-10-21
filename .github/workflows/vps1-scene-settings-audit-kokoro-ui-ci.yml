@@ -1,0 +1,20 @@
+name: Scene Builder Settings and Audit Kokoro UI regressions
+on:
+  pull_request:
+    paths:
+      - 'apps/scene-builder/part01/templates/settings.html'
+      - 'apps/scene-builder/part01/templates/audit_media.html'
+      - 'apps/scene-builder/part01/static/scene_settings_audit_kokoro_20261021.css'
+      - 'tests/test_scene_settings_audit_kokoro_20261021.py'
+      - '.github/workflows/vps1-scene-settings-audit-kokoro-ui-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  scene-settings-audit-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scene-only offline UI and workflow invariants
+        run: python3 -m unittest discover -s tests -p 'test_scene_settings_audit_kokoro_20261021.py' -v

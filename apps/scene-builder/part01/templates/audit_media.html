@@ -1,10 +1,15 @@
 {% extends "base.html" %}{% block title %}Audit Media{% endblock %}{% block subtitle %}Review first two-minute visuals{% endblock %}{% block content %}
+<link rel="stylesheet" href="/static/scene_settings_audit_kokoro_20261021.css?v=1">
+<div class="scene-audit-workspace">
 {% if not selected_job %}
+<div class="scene-audit-overview">
+  <div><span class="scene-ui-eyebrow">Scene Builder · Review workspace</span><h2>Visual Audit</h2><p>Review the first two minutes of projects that require visual approval.</p></div>
+</div>
 <section class="scene-compact-summary">
   <span class="summary-chip attention"><strong>{{ waiting_jobs|length }}</strong> needs audit</span>
   <span class="summary-chip">Visual review only · final 00:00–02:00</span>
 </section>
-<section class="panel">
+<section class="panel scene-audit-panel">
   <div class="panel-head compact-head"><div><h2>Waiting for audit</h2><p>Open only the projects that need your visual judgment. Waiting projects do not occupy the render lane.</p></div></div>
   <div class="audit-project-list">
     {% for job in waiting_jobs %}
@@ -15,7 +20,12 @@
       <a class="button" href="/audit-media?job={{ job.id|urlencode }}">Open Audit</a>
     </div>
     {% else %}
-    <div class="empty">No projects currently need Visual Audit.</div>
+    <div class="empty scene-audit-empty">
+      <span class="scene-audit-empty-icon" aria-hidden="true">✓</span>
+      <strong>All caught up</strong>
+      <p>No projects currently need Visual Audit.</p>
+      <a class="button secondary" href="/queue">View Queue</a>
+    </div>
     {% endfor %}
   </div>
 </section>
@@ -69,6 +79,7 @@
 .sml-result .muted{font-size:12px;overflow-wrap:anywhere}.sml-result button{margin-top:auto}
 </style>
 {% endif %}
+</div>
 {% endblock %}
 {% block scripts %}
 {% if selected_job %}
