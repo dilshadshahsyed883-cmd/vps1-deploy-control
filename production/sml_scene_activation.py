@@ -175,10 +175,10 @@ def activate() -> dict:
         return {"ok": True, "already_active": not (changed_sml or changed_scene),
                 **renderer, "three_scene_render": proof}
     except BaseException:
-        try:
-            worker.rollback()
-        finally:
-            _restore_pair(changed_sml, original_sml, changed_scene, original_scene)
+        # If a new user job prevents worker rollback, retain its paired
+        # credentials too. Never strand an active renderer against an old token.
+        worker.rollback()
+        _restore_pair(changed_sml, original_sml, changed_scene, original_scene)
         raise
 
 
