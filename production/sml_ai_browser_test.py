@@ -97,7 +97,8 @@ def browser_test():
                     page.get_by_role('button',name='Close AI inspector',exact=True).click()
                     page.locator('#aiQuery').fill('a mountain landscape')
                     page.get_by_role('button',name='Search media',exact=True).click()
-                    # Model-disabled fixture still supports catalog-only keyword search.\n                    page.locator('#aiSearchStatus').filter(has_text='Catalog filters').wait_for()
+                    # Model-disabled fixture still supports catalog-only keyword search.
+                    page.locator('#aiSearchStatus').filter(has_text='Catalog filters').wait_for()
                     assert not errors,errors
                     output=ROOT.parent/'qa';output.mkdir(exist_ok=True)
                     page.screenshot(path=str(output/f'sml-ai-{width}.png'))
