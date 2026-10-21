@@ -151,13 +151,13 @@
       "id": "admin",
       "path": "/admin",
       "group": "admin",
-      "mode": "native-document",
+      "mode": "alias",
       "owner": "admin",
       "auth": "backend",
-      "removal_condition": "Promote only after app-owned lifecycle adapter and authenticated browser regression pass",
       "api": "preserved by existing gateway",
       "assets": "preserved by existing gateway",
-      "websocket": "preserved by existing gateway"
+      "websocket": "preserved by existing gateway",
+      "target": "storage-manager"
     },
     {
       "id": "storage-manager",

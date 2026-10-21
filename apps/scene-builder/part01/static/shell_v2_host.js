@@ -15,16 +15,26 @@ for (const app of registry.apps.filter(app => app.mode === 'adapter')) {
     routes.set(path, app);
   }
 }
+for (const alias of registry.apps.filter(app => app.mode === 'alias')) {
+  const target = registry.apps.find(app => app.id === alias.target && app.mode === 'adapter');
+  if (!target || routes.has(alias.path)) throw new Error('Invalid route alias');
+  routes.set(alias.path, target);
+}
 const own = path => path === '/workspace/' || routes.has(path);
 const e = (tag, text) => {const node = document.createElement(tag); if (text) node.textContent = text; return node;};
 function cleanup() {
   try {view?.unmount();} finally {try {view?.dispose();} finally {view = null;}}
 }
 function activeNavigation(url, app) {
-  document.querySelectorAll('nav[aria-label="Persistent workspace"] a').forEach(link => {
-    if (new URL(link.href).pathname === (app?.path || url.pathname)) link.setAttribute('aria-current', 'page');
-    else link.removeAttribute('aria-current');
-  });
+  const adminNavigation = document.getElementById('vps1-admin-navigation');
+  if (adminNavigation) {
+    adminNavigation.hidden = app?.group !== 'admin';
+    adminNavigation.querySelectorAll('a').forEach(link => {
+      const selected = new URL(link.href).pathname === app?.path;
+      link.classList.toggle('active', selected);
+      if (selected) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
+    });
+  }
   document.querySelectorAll('#app-sidebar > nav > a').forEach(link => {
     const selected = app?.id === 'dashboard' ? new URL(link.href).pathname === '/' :
       app?.group === 'admin' && new URL(link.href).pathname === '/admin';
@@ -50,6 +60,9 @@ function mountApplication(app, identity) {
   const shadow = container.attachShadow({mode:'open'});
   const content = seed.content.cloneNode(true);
   if (content.querySelector('script, iframe, #app-sidebar, #vps1-native-site-sidebar')) throw new Error('Incompatible app content');
+  // Global Admin navigation belongs to the shell, never inside app content.
+  content.querySelector('nav[aria-label="Administration sections"]')?.remove();
+  content.querySelector('#vps1-admin-subtab-ui-v2')?.remove();
   content.querySelectorAll('link[rel="stylesheet"]').forEach(link => {link.href = styles[app.adapter];});
   const css = e('link'); css.rel='stylesheet'; css.href=styles[app.adapter];
   const style = e('style');
@@ -78,7 +91,7 @@ async function navigate(url, push = false) {
     if (disposed || turn !== generation) return;
     cleanup(); outlet.replaceChildren();
     if (app) mountApplication(app, identity);else outlet.append(overview(identity));
-    if (push) history.pushState({shell:CONTRACT}, '', url);
+    if (push) history.pushState({shell:CONTRACT}, '', routes.has(url.pathname) && app ? app.path + url.search + url.hash : url);
     activeNavigation(url, app);
     const title = app ? (app.id === 'dashboard' ? 'Dashboard' : 'Storage Manager') : 'Applications';
     document.title = title;
@@ -87,6 +100,8 @@ async function navigate(url, push = false) {
   } catch (err) {
     if (disposed || turn !== generation) return;
     cleanup();
+    const adminNavigation = document.getElementById('vps1-admin-navigation');
+    if (adminNavigation) adminNavigation.hidden = true;
     const error = e('section'); error.setAttribute('role','alert');
     error.append(e('h2','Application unavailable'),e('p',err.message));
     const retry = e('button','Retry'); retry.type='button';

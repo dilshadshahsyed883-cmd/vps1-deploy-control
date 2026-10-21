@@ -7,14 +7,20 @@ ROOT=Path(__file__).resolve().parents[1]
 SCENE=ROOT/'apps/scene-builder/part01'
 WIDTHS=(360,390,768,1024,1440)
 
-def fixture_html(admin=True):
+def fixture_html(admin=True, user_management=False):
     from jinja2 import Environment, FileSystemLoader
     from types import SimpleNamespace
     env=Environment(loader=FileSystemLoader(SCENE/'templates'),autoescape=True)
     manifest=json.loads((SCENE/'static/shell-v2/manifest.json').read_text())
-    return env.get_template('persistent_workspace.html').render(
+    return env.get_template('user_management.html' if user_management else 'persistent_workspace.html').render(
         request=SimpleNamespace(session={'is_admin':admin},query_params={}),
-        page='shell_workspace',username='fixture',storage_csrf='',drive_connected=False,shell_entry=manifest['entry'])
+        page='user_management' if user_management else 'shell_workspace',username='fixture',users=[],message='',error='',csrf_token='',storage_csrf='',drive_connected=False,shell_entry=manifest['entry'])
+
+def sidebar_click(page, label):
+    link=page.locator('#app-sidebar').get_by_role('link',name=label,exact=True)
+    if page.viewport_size['width'] <= 760 and page.locator('#mobile-nav-toggle').get_attribute('aria-expanded') != 'true':
+        page.locator('#mobile-nav-toggle').click()
+    link.click()
 
 def run(production=False):
     from playwright.sync_api import sync_playwright
@@ -50,6 +56,8 @@ window.clearInterval=id=>{window.__shellTimers.delete(id);return stop(id);};''')
                         path=route.request.url.split(origin,1)[-1].split('?',1)[0]
                         if path in ('/','/admin/storage') or path.startswith('/workspace/'):
                             route.fulfill(status=200,content_type='text/html',body=fixture_html(role['admin']))
+                        elif path=='/user-management':
+                            route.fulfill(status=200,content_type='text/html',body=fixture_html(role['admin'],True))
                         elif path.startswith('/static/'):
                             file=SCENE/path.lstrip('/')
                             if file.is_file():route.fulfill(status=200,content_type='application/javascript' if file.suffix=='.js' else 'text/css',body=file.read_bytes())
@@ -72,7 +80,7 @@ window.clearInterval=id=>{window.__shellTimers.delete(id);return stop(id);};''')
                     page.locator('#dashboard-refresh-rate').select_option('30')
                     page.locator('#dashboard-auto-refresh').uncheck()
                     assert page.evaluate('window.__shellTimers.size')==0,'disabled polling retained'
-                    page.locator('nav[aria-label="Persistent workspace"] a[href="/admin/storage"]').click()
+                    sidebar_click(page,'Admin')
                     page.locator('#cpu-value').wait_for()
                     page.go_back(wait_until='domcontentloaded');page.locator('#control-dashboard').wait_for()
                     assert not page.locator('#dashboard-auto-refresh').is_checked(),'dashboard preferences lost'
@@ -80,7 +88,7 @@ window.clearInterval=id=>{window.__shellTimers.delete(id);return stop(id);};''')
                     assert page.evaluate('window.__shellTimers.size')==0,'polling preference ignored'
                     page.locator('#dashboard-auto-refresh').check()
                     for _ in range(2):
-                        page.locator('nav[aria-label="Persistent workspace"] a[href="/admin/storage"]').click()
+                        sidebar_click(page,'Admin')
                         page.locator('#cpu-value').wait_for()
                         assert page.evaluate("window.__shellNode===document.getElementById('app-sidebar')"),'host replaced'
                         assert page.evaluate('performance.getEntriesByType("navigation").length')==1,'document reloaded'
@@ -94,7 +102,7 @@ window.clearInterval=id=>{window.__shellTimers.delete(id);return stop(id);};''')
                     page.go_forward(wait_until='domcontentloaded');page.locator('#cpu-value').wait_for()
                     page.reload(wait_until='networkidle');page.locator('#cpu-value').wait_for()
                     assert not page.evaluate('document.documentElement.scrollWidth>document.documentElement.clientWidth+2'),'storage overflow'
-                    page.locator('nav[aria-label="Persistent workspace"] a[href="/"]').click()
+                    sidebar_click(page,'Dashboard')
                     page.locator('#control-dashboard').wait_for()
                     assert not page.evaluate('document.documentElement.scrollWidth>document.documentElement.clientWidth+2'),'dashboard overflow'
                     if width>760:assert abs(page.locator('#app-sidebar').bounding_box()['width']-214)<2,'geometry'
@@ -103,26 +111,43 @@ window.clearInterval=id=>{window.__shellTimers.delete(id);return stop(id);};''')
                     page.keyboard.press('Tab');assert page.evaluate('document.activeElement!==document.body'),'keyboard focus'
                     # Canonical alias and hard refresh both mount the same adapter.
                     page.goto(origin+'/workspace/storage/',wait_until='networkidle');page.locator('#cpu-value').wait_for()
+                    assert page.locator('nav[aria-label="Persistent workspace"]').count()==0,'extra utility navigation returned'
+                    admin_tabs=page.locator('nav[aria-label="Administration sections"]')
+                    assert admin_tabs.count()==1,'duplicate Admin navigation'
+                    assert page.locator('#vps1-admin-navigation').is_visible(),'Admin tabs hidden'
+                    assert admin_tabs.locator('a[aria-current="page"]').count()==1,'Storage active state missing'
+                    user_link=admin_tabs.locator('a[href="/user-management"]')
+                    assert user_link.is_visible(),'User Management tab missing'
+                    assert user_link.bounding_box()['height']>=44,'Admin touch target too small'
+                    assert not page.evaluate('document.documentElement.scrollWidth>document.documentElement.clientWidth+2'),'Admin tabs overflow'
+                    user_link.click()
+                    page.get_by_role('heading',name='User Management',exact=True).wait_for()
+                    assert page.get_by_role('heading',name='Create user',exact=True).is_visible(),'User Management form missing'
+                    assert page.get_by_role('heading',name='Accounts',exact=True).is_visible(),'Accounts missing'
+                    assert not writes,'unexpected account writes'
+                    assert not failures,'User Management JavaScript error'
+                    page.locator('nav[aria-label="Administration sections"] a[href="/admin/storage"]').click()
+                    page.locator('#cpu-value').wait_for()
                     if not production:
                         role['admin']=False
-                        page.locator('nav[aria-label="Persistent workspace"] a[href="/"]').click()
+                        sidebar_click(page,'Dashboard')
                         page.locator('#control-dashboard').wait_for()
                         page.wait_for_function("!document.querySelector('#app-sidebar nav a[href=\"/admin\"]')")
-                        page.locator('nav[aria-label="Persistent workspace"] a[href="/admin/storage"]').click()
+                        page.goto(origin+'/admin/storage',wait_until='networkidle')
                         page.locator('#vps1-shell-outlet [role="alert"]').wait_for()
                         assert page.locator('[data-app-root]').count()==0,'revoked admin view retained'
                         page.goto(origin+'/',wait_until='networkidle');page.locator('#control-dashboard').wait_for()
                         assert page.locator('#vps1-storage-seed').count()==0,'member received admin seed'
-                        assert page.locator('nav[aria-label="Persistent workspace"] a[href="/admin/storage"]').count()==0
+                        assert page.locator('#vps1-admin-navigation').count()==0
                         api_fail['value']=True;page.locator('#dashboard-refresh-now').click()
                         page.wait_for_function("document.querySelector('[data-app-root]').shadowRoot.querySelector('#dashboard-updated').textContent.startsWith('Refresh failed')")
                         api_fail['value']=False;page.locator('#dashboard-refresh-now').click()
                         page.wait_for_function("document.querySelector('[data-app-root]').shadowRoot.querySelector('#dashboard-updated').textContent.startsWith('Updated')")
-                        role['authenticated']=False;page.locator('nav[aria-label="Persistent workspace"] a[href="/workspace/"]').click()
+                        role['authenticated']=False;page.goto(origin+'/workspace/',wait_until='networkidle')
                         page.locator('#vps1-shell-outlet [role="alert"]').wait_for()
                 finally:context.close()
         finally:browser.close()
-    print('SHELL_V2_BROWSER=PASS adapters=2 canonical_routes=PASS timer_cleanup=PASS viewports=5 zoom_layout_equivalent=200% host_persistence=PASS back_refresh=PASS writes=0 auth='+('PRODUCTION' if production else 'FIXTURE'))
+    print('SHELL_V2_BROWSER=PASS adapters=2 admin_tabs=PASS user_management=PASS canonical_routes=PASS timer_cleanup=PASS viewports=5 zoom_layout_equivalent=200% host_persistence=PASS back_refresh=PASS writes=0 auth='+('PRODUCTION' if production else 'FIXTURE'))
 if __name__=='__main__':
     import sys
     run('--production' in sys.argv)
