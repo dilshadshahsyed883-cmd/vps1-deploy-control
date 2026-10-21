@@ -98,6 +98,32 @@ class LocalLibrary(unittest.TestCase):
         self.assertEqual(self.c.get('/api/local/storage').json()['images'],1)
         self.assertEqual(self.c.get('/api/local/catalog?media_type=image&q=new').json()['total'],1)
         self.assertEqual(self.c.get('/api/v1/images?date_from=2999-01-01').json()['total'],0)
+    def test_decisions_survive_restart_and_invalid_pair_is_rejected(self):
+        ident,p=self.source();keep=p[0]['items'][0]['id']
+        self.assertEqual(self.choose(ident,0,None).status_code,400)
+        self.assertEqual(self.choose(ident,0,p[1]['items'][0]['id']).status_code,400)
+        self.choose(ident,0,keep)
+        self.m.startup()
+        saved=self.c.get('/api/local/reviews/'+ident).json()['pairs'][0]
+        self.assertTrue(saved['decided']);self.assertEqual(saved['keep_id'],keep)
+        self.assertTrue(self.original(ident).exists())
+        self.assertEqual(self.choose(ident,1,None).json()['state'],'cleaned')
+    def test_partial_ffmpeg_failure_protects_original_and_partial_clips(self):
+        sample=self.root/'partial.mp4'
+        subprocess.run(['ffmpeg','-y','-v','error','-f','lavfi','-i','testsrc2=size=96x64:rate=10:duration=10','-c:v','libx264','-threads','1',str(sample)],check=True,timeout=30)
+        up=self.c.post('/api/sources/upload',files={'file':('partial.mp4',sample.read_bytes(),'video/mp4')});ident=up.json()['id']
+        run=self.m.run_ffmpeg_clip
+        def partial(src,out,start,duration):
+            if start==4:raise RuntimeError('simulated FFmpeg failure')
+            return run(src,out,start,duration)
+        with patch.object(self.m,'scene_boundaries',return_value=[]),patch.object(self.m,'run_ffmpeg_clip',side_effect=partial):self.m.process_source(ident)
+        source=next(s for s in self.c.get('/api/sources').json()['items'] if s['id']==ident)
+        self.assertEqual(source['status'],'failed');self.assertTrue(self.original(ident).exists())
+        clips=self.c.get('/api/clips?source_id='+ident).json()['items']
+        self.assertTrue(clips)
+        for clip in clips:self.assertEqual(self.c.delete('/api/clips/'+clip['id']+'/permanent').status_code,409)
+        self.assertEqual(self.c.post('/api/local/reviews/'+ident+'/finalize').status_code,404)
+
     def test_drive_removed_not_reenabled_and_legacy_receipts_retained(self):
         self.assertFalse(self.c.get('/api/health').json()['drive_enabled'])
         self.assertEqual(self.c.get('/api/settings').json()['values']['drive_enabled'],'false')

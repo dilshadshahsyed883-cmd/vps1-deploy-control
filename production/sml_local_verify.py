@@ -24,6 +24,9 @@ def verify(venv):
     with opener.open(request,timeout=20) as response:assert isinstance(json.load(response)['items'],list)
     from production.scene_sml_worker import SceneSMLWorker
     # render_proof only uses existing authenticated acquisition/render functions; no install/restart.
-    proof=SceneSMLWorker(SCENE_CURRENT.resolve(strict=True),token).render_proof()
+    try:
+        proof=SceneSMLWorker(SCENE_CURRENT.resolve(strict=True),token).render_proof()
+    except Exception:
+        raise RuntimeError('SML Scene compatibility verification failed; source rollback required') from None
     assert proof['scene_count']==3 and proof['sml_scenes']>=1
     print('SML_LOCAL_PAIR_CLEANUP_AND_SCENE_COMPATIBILITY=PASS',flush=True)
