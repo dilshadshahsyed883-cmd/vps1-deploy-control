@@ -349,6 +349,7 @@ def install(revision: str) -> None:
     require_storage_backend = False
     production_worker = None
     whisper_compat = None
+    worker_home = None
     try:
         token = _candidate_storage_token()
         if token is not None:
@@ -381,6 +382,11 @@ def install(revision: str) -> None:
             from production.scene_whisper_compat import WhisperCompatibility
             whisper_compat = WhisperCompatibility(journal)
             whisper_result = whisper_compat.repair()
+        # Repair existing worker sandbox HOME without replacing its private env,
+        # project queue, model cache or independent admission-only service.
+        from production.scene_worker_home import SceneWorkerHome
+        worker_home = SceneWorkerHome(journal)
+        home_result = worker_home.install()
         atomic_link(CURRENT, target)
         changed = True
         run(["systemctl", "restart", UNIT], timeout=70, quiet=True)
@@ -408,6 +414,8 @@ def install(revision: str) -> None:
             raise RuntimeError("operational disk reserve breached")
         if whisper_compat is not None:
             integrations["whisper_decode_repair"] = whisper_result
+        if worker_home is not None:
+            integrations["worker_home_repair"] = home_result
         if production_worker is not None:
             production_worker.commit()
         atomic_json(RECORD, {"revision": revision, "status": "ACTIVE", "unit": UNIT,
@@ -427,5 +435,7 @@ def install(revision: str) -> None:
             production_worker.rollback()
         if whisper_compat is not None:
             whisper_compat.rollback()
+        if worker_home is not None:
+            worker_home.rollback()
         raise
 
