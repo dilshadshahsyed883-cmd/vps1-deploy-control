@@ -589,7 +589,7 @@ def main():
                         from production.sml_scene_activation import activate
                         activated = activate()
                         event(sml_scene_link="EDITOR_API_READY",
-                              runtime_render_worker="NOT_VERIFIED",
+                              runtime_render_worker="THREE_SCENE_RENDER_VERIFIED",
                               secrets_logged=False, **activated)
                     except BaseException:
                         record_path = BASE / 'control/state' / (app + '.json')

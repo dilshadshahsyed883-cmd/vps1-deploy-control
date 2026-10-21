@@ -24,6 +24,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.background import BackgroundTask
 
 from smart_scroll.ai_scene_txt import extract_intro_queries, parse_outer_ai_scene_txt
 from storage_manager_client import storage_manager_request
@@ -2639,10 +2640,34 @@ def _sml_safe_items(clips: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "keywords": [str(x.get("keyword") or "") if isinstance(x, dict) else str(x)
                          for x in (clip.get("keywords") or [])][:40],
             "quality": clip.get("quality"), "duration": clip.get("duration"),
+            "preview_url": f"/api/sml/clips/{clip['id']}/preview",
             "orientation": clip.get("source_orientation") or "unknown",
             "thumb_url": "/self-media-library" + thumb if thumb else "",
         })
     return items
+
+
+@app.get("/api/sml/clips/{clip_id}/preview")
+def scene_sml_preview(request: Request, clip_id: str):
+    require_login(request)
+    if not re.fullmatch(r"CLP-[A-Za-z0-9_-]+", clip_id):
+        raise HTTPException(400, "Invalid SML clip ID")
+    temp = Path(tempfile.mkdtemp(prefix="scene_sml_preview_"))
+    try:
+        # The existing authenticated SML content endpoint enforces approval and
+        # restores verified Drive copies. No editor credential reaches the browser.
+        path = download_verified({"id": clip_id, "type": "video",
+                                  "content_url": f"/api/v1/media/video/{clip_id}/content"},
+                                 temp / "preview.mp4")
+        return FileResponse(path, media_type="video/mp4",
+                            headers={"Cache-Control": "private, no-store"},
+                            background=BackgroundTask(shutil.rmtree, temp, ignore_errors=True))
+    except SMLUnavailable as exc:
+        shutil.rmtree(temp, ignore_errors=True)
+        raise HTTPException(503, str(exc)) from exc
+    except BaseException:
+        shutil.rmtree(temp, ignore_errors=True)
+        raise
 
 
 @app.get("/api/sml/clips")
@@ -2691,7 +2716,7 @@ def _sml_reserved_transfer(job_id: str, item: dict[str, Any],
     reservation_id = str(reservation["reservation_id"])
     uploaded = False
     try:
-        result = _sml_audit_transfer(job_id, item, clip)
+        result = _sml_audit_transfer(job_id, item, {**clip, **reservation})
         uploaded = True
         transition_reservation(reservation_id, "commit")
         return result

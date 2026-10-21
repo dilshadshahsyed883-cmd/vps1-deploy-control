@@ -109,7 +109,7 @@ def rank_clips(scene: dict[str, Any], clips: list[dict[str, Any]],
         kw = clip.get("keywords") or []
         tags = " ".join(str(x.get("keyword", "")) if isinstance(x, dict) else str(x)
                         for x in kw)
-        haystack = terms(tags + " " + str(clip.get("description") or ""))
+        haystack = terms(tags + " " + str(clip.get("description") or "") + " " + str(clip.get("source_filename") or ""))
         overlap = len(needle & haystack)
         if not overlap:
             continue

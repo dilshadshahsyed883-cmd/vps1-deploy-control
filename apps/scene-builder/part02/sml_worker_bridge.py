@@ -90,7 +90,7 @@ class SMLWorkerClient:
                 continue
             keywords = " ".join(str(x.get("keyword", "")) if isinstance(x, dict) else str(x)
                                 for x in (item.get("keywords") or []))
-            matching = len(needle & _terms(keywords + " " + str(item.get("description") or "")))
+            matching = len(needle & _terms(keywords + " " + str(item.get("description") or "") + " " + str(item.get("source_filename") or "")))
             if not matching:
                 continue
             try:

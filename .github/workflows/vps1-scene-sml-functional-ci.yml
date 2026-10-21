@@ -1,0 +1,26 @@
+name: Scene SML functional integration
+on:
+  pull_request:
+    paths:
+      - 'apps/scene-builder/**'
+      - 'production/*sml*'
+      - 'tests/*sml*'
+      - '.github/workflows/vps1-sml-scene-activate.yml'
+      - '.github/workflows/vps1-scene-sml-functional-ci.yml'
+permissions:
+  contents: read
+jobs:
+  sml-functional:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: python -m pip install 'fastapi==0.115.12' 'python-multipart==0.0.20' 'requests==2.32.3' 'pillow==11.1.0'
+      - name: Authenticated HTTP clips, real three-scene MP4 and rollback guards
+        env:
+          MIN_FREE_SPACE_GB: '1'
+        run: python -m unittest tests.test_sml_scene_bridge tests.test_sml_worker_bridge tests.test_sml_worker_acquisition tests.test_sml_scene_activation tests.test_scene_sml_functional -v
