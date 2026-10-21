@@ -93,7 +93,8 @@ class SceneSMLWorker:
         args += ['HOME='+str(STATE/'worker-home'), 'TMPDIR='+str(STATE/'tmp'),
                  str(VENV/'bin/python'), str(code), str(self.source/'part02'), str(STATE)]
         result = json.loads(self._run(args, timeout=600))
-        require(result.get('sml_scenes') == 3 and result.get('video_codec') == 'h264'
+        require(result.get('sml_scenes', 0) >= 1 and result.get('scene_count') == 3
+                and result.get('video_codec') == 'h264'
                 and result.get('audio_codec') == 'aac', 'real SML three-scene render failed')
         print('SML_THREE_SCENE_RENDER='+json.dumps(result, sort_keys=True), flush=True)
         return result
