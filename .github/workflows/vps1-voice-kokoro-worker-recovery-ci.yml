@@ -1,0 +1,33 @@
+name: Kokoro TTS heartbeat and release isolation CI
+on:
+  pull_request:
+    paths:
+      - 'production/voice_kokoro_worker_recovery.py'
+      - 'production/workers.py'
+      - 'production/runtime.py'
+      - 'production/voice_queue_release.py'
+      - 'tests/test_voice_kokoro_worker_recovery.py'
+      - '.github/workflows/vps1-voice-kokoro-worker-recovery*.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'production/voice_kokoro_worker_recovery.py'
+      - 'production/workers.py'
+      - 'production/runtime.py'
+      - 'production/voice_queue_release.py'
+      - 'tests/test_voice_kokoro_worker_recovery.py'
+permissions:
+  contents: read
+jobs:
+  kokoro-worker-recovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify isolated Kokoro repair, SQLite fences, true-ready release gate
+        run: python -m unittest tests.test_voice_kokoro_worker_recovery tests.test_voice_edge_worker_recovery -v
+      - name: Validate Python syntax
+        run: python -m py_compile production/voice_kokoro_worker_recovery.py production/voice_edge_worker_recovery.py production/runtime.py production/workers.py production/voice_queue_release.py

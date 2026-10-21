@@ -15,7 +15,7 @@ class EdgeHeartbeatRecoveryTests(unittest.TestCase):
         self.assertIn("Wants=vps1-production-voice-studio.service", unit)
         self.assertNotIn("Requires=vps1-production-voice-studio.service", unit)
         for key, part, entry in workers.SPECS["voice-studio"]:
-            if key != "edge-worker":
+            if key not in ("edge-worker", "kokoro-worker"):
                 self.assertIn("Requires=vps1-production-voice-studio.service",
                               workers.unit("voice-studio", "a" * 40, key, part, entry))
 
