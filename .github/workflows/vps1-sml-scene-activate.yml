@@ -5,7 +5,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: vps1-production
+  group: vps1-sml-scene-editor-activation
   cancel-in-progress: false
 jobs:
   activate:
