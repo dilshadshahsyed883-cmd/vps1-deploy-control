@@ -79,8 +79,10 @@ class RepositorySourceOfTruthContract(unittest.TestCase):
             self.assertEqual(item["route_configured"], item["id"] in verified_routes)
         markup = (ROOT / "rebuild/shell/index.html").read_text()
         client = (ROOT / "rebuild/shell/assets/shell.js").read_text()
-        self.assertIn('id="appFrame"', markup)
-        self.assertIn('appFrame.setAttribute("src", item.path)', client)
+        # Native app documents own their own sidebar: no competing iframe host.
+        self.assertNotIn("<iframe", markup)
+        self.assertNotIn("appFrame", client)
+        self.assertIn("link.href = item.path", client)
         self.assertIn("shell-assets/apps.json", client)
 
     def test_phase1_github_remote_lanes_are_unconditionally_disabled(self):

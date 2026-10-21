@@ -32,6 +32,7 @@ jobs:
           python -m unittest production.test_video_responsive -v
           python production/test_video_responsive.py --browser
           python -m py_compile production/ui_visual_ci.py
+          python -m production.shell_v2_browser
           python production/ui_visual_ci.py --screenshots "${{ runner.temp }}/ui-geometry"
       - name: Preserve sanitized non-production screenshots
         if: always()
@@ -53,6 +54,7 @@ jobs:
       - name: Enforce owner-approved UI design source contract
         run: |
           python3 production/ui_design_contract.py
+          python3 -m production.shell_v2_contract
           python3 -m unittest discover -s tests -p 'test_ui_design_governance.py' -v
       - name: Build pilot artifact
         run: python3 tools/build_pilot.py

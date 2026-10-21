@@ -4,11 +4,8 @@ const registryUrl = "/shell-assets/apps.json";
 const appList = document.getElementById("appList");
 const homeLink = document.getElementById("homeLink");
 const homePanel = document.getElementById("homePanel");
-const unavailablePanel = document.getElementById("unavailablePanel");
-const appFrame = document.getElementById("appFrame");
 const pageTitle = document.getElementById("pageTitle");
 const pageStatus = document.getElementById("pageStatus");
-const loadHint = document.getElementById("loadHint");
 const navToggle = document.getElementById("navToggle");
 const suiteSidebar = document.getElementById("suiteSidebar");
 let apps = new Map();
@@ -31,61 +28,25 @@ themeToggle.addEventListener("click", () => {
 });
 
 
-function selectedAppId() {
-  const match = /^#\/([a-z][a-z0-9-]{1,63})$/.exec(location.hash);
-  return match ? match[1] : null;
-}
-
-function renderSelected() {
-  const selected = selectedAppId();
-  const item = selected ? apps.get(selected) : null;
-  for (const link of appList.querySelectorAll("a[data-app-id]")) {
-    if (link.dataset.appId === selected) link.setAttribute("aria-current", "page");
-    else link.removeAttribute("aria-current");
-  }
-  if (!item) {
-    homeLink.setAttribute("aria-current", "page");
-    pageTitle.textContent = "Workspace";
-    pageStatus.textContent = "Preview shell";
-    homePanel.hidden = false;
-    unavailablePanel.hidden = true;
-    appFrame.hidden = true;
-    appFrame.removeAttribute("src");
-    loadHint.hidden = true;
-  } else {
-    homeLink.removeAttribute("aria-current");
-    pageTitle.textContent = item.title;
-    homePanel.hidden = true;
-    if (!item.route_configured) {
-      pageStatus.textContent = "Route pending";
-      unavailablePanel.hidden = false;
-      appFrame.hidden = true;
-      appFrame.removeAttribute("src");
-      loadHint.hidden = true;
-    } else {
-      pageStatus.textContent = "Runtime not verified";
-      unavailablePanel.hidden = true;
-      appFrame.hidden = false;
-      appFrame.title = item.title;
-      // Paths come only from the build-time registry, never from a raw URL.
-      if (appFrame.getAttribute("src") !== item.path) appFrame.setAttribute("src", item.path);
-      loadHint.hidden = false;
-    }
-  }
-  suiteSidebar.classList.remove("open");
-  navToggle.setAttribute("aria-expanded", "false");
-}
-
+// The overview only links to native, top-level application documents.
+// Do not inject a second application shell with iframes.
 function addNavigationItem(item) {
-  const link = document.createElement("a");
-  link.href = "#/" + item.id;
-  link.className = "app-link";
+  const link = document.createElement(item.route_configured ? "a" : "span");
+  link.className = "app-link" + (item.route_configured ? "" : " pending");
   link.dataset.appId = item.id;
+  if (item.route_configured) link.href = item.path;
+  else link.setAttribute("aria-disabled", "true");
   link.append(document.createTextNode(item.title));
   const dot = document.createElement("span");
-  dot.className = item.route_configured ? "dot configured" : "dot";
+  dot.className = item.runtime_verified ? "dot configured" : "dot";
   dot.setAttribute("aria-hidden", "true");
   link.appendChild(dot);
+  if (!item.route_configured) {
+    link.title = "Route pending";
+    link.append(document.createTextNode(" · Route pending"));
+  } else {
+    link.title = item.runtime_verified ? "Gateway checks verified" : "Route configured; runtime not verified";
+  }
   appList.appendChild(link);
 }
 
@@ -101,7 +62,7 @@ async function boot() {
         throw new Error("unsafe app route in registry");
       }
       if (verified.has(item.id)) throw new Error("duplicate app ID");
-      if (typeof item.title !== "string" || typeof item.route_configured !== "boolean") {
+      if (typeof item.title !== "string" || !item.title.trim() || typeof item.route_configured !== "boolean" || typeof item.runtime_verified !== "boolean") {
         throw new Error("incomplete app registry");
       }
       verified.set(item.id, item);
@@ -109,18 +70,19 @@ async function boot() {
     apps = verified;
     appList.replaceChildren();
     apps.forEach(addNavigationItem);
-    renderSelected();
+    pageStatus.textContent = "Navigation ready";
+    document.getElementById("appsHint").textContent =
+      [...apps.values()].filter(item => item.route_configured).length +
+      " configured app routes. Choose a tool to open its own page.";
   } catch (_) {
     pageTitle.textContent = "Workspace unavailable";
     pageStatus.textContent = "Registration error";
     homePanel.querySelector("h2").textContent = "Application registry unavailable";
     homePanel.querySelector("p").textContent = "Navigation was not loaded; no app will be opened until its routes are verified.";
     homePanel.hidden = false;
-    unavailablePanel.hidden = true;
-    appFrame.hidden = true;
+    document.getElementById("appsHint").textContent = "No routes were opened.";
   }
 }
-window.addEventListener("hashchange", renderSelected);
 navToggle.addEventListener("click", () => {
   const isOpen = suiteSidebar.classList.toggle("open");
   navToggle.setAttribute("aria-expanded", String(isOpen));

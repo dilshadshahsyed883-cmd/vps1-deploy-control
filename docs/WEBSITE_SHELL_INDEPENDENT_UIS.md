@@ -58,3 +58,30 @@ python3 -m unittest discover -s rebuild/tests -v
 python3 -m rebuild.fresh_vps assemble --root /tmp/fresh-shell-check --sha "$(git rev-parse HEAD)"
 python3 -m rebuild.fresh_vps verify --root /tmp/fresh-shell-check
 ```
+
+
+## 2026-10-21 Universal Shell V2 — source patch, production not yet verified
+
+The legacy preview index embedded apps in an iframe with a separate 240px
+sidebar and 820px breakpoint. That conflicts with the approved native shared
+navigation geometry (214px / 760px). The root now becomes a navigation
+overview only: links open app-owned documents at their canonical top-level
+paths, where the single shared native sidebar is already installed. No iframe
+may be reintroduced as a competing production shell.
+
+Configured routes and verified apps are distinct. The gateway writes the
+manifest as unverified, runs authenticated health+HTML checks, then marks only
+directly probed app routes verified. Scene-derived aliases stay unverified.
+Pending routes are non-clickable. Invalid registry entries fail closed.
+
+Shell assets are emitted to a new immutable per-attempt directory, so a failed
+Nginx cutover can restore the previous Nginx config **and** its original shell
+assets. This does not touch running jobs, stored media, OAuth, app databases
+or Auto Script (OFFLINE). Offline CI covers native links, geometry, and
+verification transition.
+
+Deferred app-specific work: remove historical broad !important selectors,
+eliminate response-body Nginx sub_filter by migrating apps to canonical base
+paths, reconcile global theme across native pages, and complete authenticated
+end-to-end browser coverage. These limitations must not be represented as
+fully resolved by this source patch.

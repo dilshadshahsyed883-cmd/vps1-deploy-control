@@ -309,6 +309,10 @@ def _verify_native_ui_release(target: Path) -> None:
         return  # older unrelated deployments retain their established behavior
     from production.scene_uploader_ui_release import verify_video_studio
     verify_video_studio()
+    if (target / "part01/templates/persistent_workspace.html").is_file():
+        from production.runtime import run
+        run(["/srv/fresh-website/venvs/scene-builder/bin/python", "-m",
+             "production.shell_v2_browser", "--production"], cwd=Path(__file__).resolve().parents[1], timeout=300, quiet=True)
 
 
 def _verify_native_ui_release(target: Path) -> None:
@@ -322,6 +326,10 @@ def _verify_native_ui_release(target: Path) -> None:
         return  # older unrelated deployments retain their established behavior
     from production.scene_uploader_ui_release import verify_video_studio
     verify_video_studio()
+    if (target / "part01/templates/persistent_workspace.html").is_file():
+        from production.runtime import run
+        run(["/srv/fresh-website/venvs/scene-builder/bin/python", "-m",
+             "production.shell_v2_browser", "--production"], cwd=Path(__file__).resolve().parents[1], timeout=300, quiet=True)
 
 
 def install(revision: str) -> None:

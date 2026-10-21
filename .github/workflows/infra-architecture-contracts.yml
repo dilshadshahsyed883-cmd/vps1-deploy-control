@@ -9,6 +9,8 @@ on:
       - 'tests/test_nginx*'
       - 'tests/fixtures/nginx-*'
       - 'rebuild/website_shell.py'
+      - 'production/gateway.py'
+      - 'production/test_gateway.py'
       - 'rebuild/shell/**'
       - 'rebuild/tests/test_website_shell.py'
       - 'rebuild/storage_admission.py'
@@ -21,6 +23,8 @@ on:
       - 'infrastructure/**'
       - 'tools/review_nginx_contracts.py'
       - 'rebuild/website_shell.py'
+      - 'production/gateway.py'
+      - 'production/test_gateway.py'
       - 'rebuild/shell/**'
       - 'rebuild/storage_admission.py'
   workflow_dispatch:
@@ -35,11 +39,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Verify strict routing, preview shell and independent storage plans
+      - name: Verify strict routing, native shell and independent storage plans
         run: |
           set -Eeuo pipefail
           python3 -m unittest discover -s tests -p 'test_nginx*.py' -v
-          python3 -m unittest rebuild.tests.test_website_shell rebuild.tests.test_storage_admission -v
+          python3 -m unittest rebuild.tests.test_website_shell rebuild.tests.test_storage_admission production.test_gateway.GatewayShellContractTests -v
           python3 -m py_compile tools/render_nginx_routes.py tools/review_nginx_contracts.py rebuild/storage_admission.py rebuild/website_shell.py
           python3 tools/review_nginx_contracts.py --registry infrastructure/registry/apps.json > "$RUNNER_TEMP/live-route-review.json"
           python3 tools/review_nginx_contracts.py --fixture --registry tests/fixtures/nginx-apps.json --inventory tests/fixtures/nginx-inventory.json > "$RUNNER_TEMP/synthetic-route-review.json"

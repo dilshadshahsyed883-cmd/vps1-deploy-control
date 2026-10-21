@@ -2,11 +2,11 @@
  * Independent deployment GC and app-owned Drive cleanup never share a delete control.
  * All network operations in this view are GETs.
  */
-(() => {
-  'use strict';
-  const root = document.getElementById('storage-app');
-  if (!root) return;
-  const get = id => document.getElementById(id);
+export function mount(root, context = {}) {
+  if (!root) throw new Error('Storage root required');
+  const lifetime = new AbortController();
+  const get = id => root.querySelector('#' + id);
+  const fetch = (url, options = {}) => window.fetch(url, {...options, signal:lifetime.signal});
   const bytes = value => {
     if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return 'Unavailable';
     let n = value;
@@ -123,10 +123,20 @@
       if (button) { button.disabled = false; button.textContent = 'Refresh cleanup status'; }
     }
   }
-  get('refresh-metrics')?.addEventListener('click', () => { loadMetrics(); loadStatus(); });
-  get('refresh-cleanup-status')?.addEventListener('click', loadStatus);
+  get('refresh-metrics')?.addEventListener('click', () => { loadMetrics(); loadStatus(); }, {signal:lifetime.signal});
+  get('refresh-cleanup-status')?.addEventListener('click', loadStatus, {signal:lifetime.signal});
   loadMetrics();
   loadStatus();
-  window.setInterval(loadMetrics, 30000);
-  window.setInterval(loadStatus, 60000);
-})();
+  const timers = [window.setInterval(() => {if (!document.hidden) loadMetrics();}, 30000),
+    window.setInterval(() => {if (!document.hidden) loadStatus();}, 60000)];
+  return {unmount() { lifetime.abort(); timers.forEach(window.clearInterval); }, dispose() {}};
+}
+
+// Legacy document boundary; the persistent adapter mounts its own shadow root.
+if (!document.getElementById('vps1-shell-outlet')) {
+  const root = document.getElementById('storage-app');
+  if (root) {
+    const view = mount(root);
+    window.addEventListener('pagehide', () => view.unmount(), {once:true});
+  }
+}
