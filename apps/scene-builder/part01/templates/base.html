@@ -131,7 +131,7 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
 <script defer src="/static/vps1_native_site_shell.js?v=20261020-sidebar-stable-v4&shell-contract=2-canonical" data-unify-sidebar="1"></script>
 {% if page in ['queue','settings','audit_media'] %}<link rel="stylesheet" href="/static/scene_builder_kokoro_parity_20261020.css?v=1">{% endif %}
 </head>
-<body{% if page in ['queue','settings','audit_media'] and request.query_params.get('acs_audio_embed') != '1' %} data-scene-ui="sml-compact"{% endif %} class="{% if page=='dashboard' %}dashboard-page{% endif %}{% if page in ['queue','settings','audit_media'] %} vps1-scene-parity{% endif %}">
+<body{% if page in ['queue','settings','audit_media'] and (request.query_params|default({})).get('acs_audio_embed') != '1' %} data-scene-ui="sml-compact"{% endif %} class="{% if page=='dashboard' %}dashboard-page{% endif %}{% if page in ['queue','settings','audit_media'] %} vps1-scene-parity{% endif %}">
 <button id="mobile-nav-toggle" class="mobile-nav-toggle" type="button"
   aria-label="Open navigation menu" aria-controls="app-sidebar" aria-expanded="false">
   <span></span><span></span><span></span>
@@ -200,7 +200,7 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
 <a href="/auto-caption-studio/">Auto Caption Studio</a>
 </nav>
 {% endif %}
-{% block content %}{% endblock %}{% if page in ['queue','settings','audit_media'] and request.query_params.get('acs_audio_embed') != '1' %}<link rel="stylesheet" href="/static/scene_compact_ui.css?v=20261022-1">{% endif %}</main>{% block scripts %}{% endblock %}
+{% block content %}{% endblock %}{% if page in ['queue','settings','audit_media'] and (request.query_params|default({})).get('acs_audio_embed') != '1' %}<link rel="stylesheet" href="/static/scene_compact_ui.css?v=20261022-1">{% endif %}</main>{% block scripts %}{% endblock %}
 <script>
 /* MOBILE_NAVIGATION_CONTROLLER */
 (() => {
