@@ -1810,9 +1810,10 @@ def experiment_studio_media_library(request: Request):
 
 
 # EXPERIMENT_STUDIO_BROWSER_ENGINE_V1: isolated browser service, same website shell.
-from experiment_browser import BrowserProfileEngine, BrowserError, browser_executable
+from experiment_browser import BrowserError, browser_executable
+from experiment_browser_management import ManagedBrowserProfileEngine
 
-EXPERIMENT_BROWSER = BrowserProfileEngine(DATA_DIR / "experiment-browser")
+EXPERIMENT_BROWSER = ManagedBrowserProfileEngine(DATA_DIR / "experiment-browser")
 app.add_event_handler("shutdown", EXPERIMENT_BROWSER.close_all)
 
 
@@ -1821,7 +1822,7 @@ def experiment_owner(request: Request) -> str:
     return str(request.session["username"])
 
 
-async def experiment_payload(request: Request) -> dict:
+async def experiment_payload(request: Request, max_bytes: int = 8192) -> dict:
     """Session-bound CSRF for every profile/browser mutation."""
     session_token = str(request.session.get("experiment_browser_csrf") or "")
     supplied = request.headers.get("X-Experiment-CSRF", "")
@@ -1830,7 +1831,7 @@ async def experiment_payload(request: Request) -> dict:
     if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
         raise HTTPException(415, "JSON request required")
     raw = await request.body()
-    if len(raw) > 8192:
+    if len(raw) > max_bytes:
         raise HTTPException(413, "Browser request too large")
     try:
         data = json.loads(raw)
@@ -1900,6 +1901,109 @@ async def experiment_browser_clone(request: Request, profile_id: str):
     await experiment_payload(request)
     try:
         return {"profile": await EXPERIMENT_BROWSER.clone(owner, profile_id)}
+    except BrowserError as exc:
+        experiment_failure(exc)
+
+
+# EXP-UX-20261021-02: management endpoints share the existing login and CSRF guard.
+@app.patch("/api/experiment-browser/profiles/{profile_id}")
+async def experiment_browser_update_profile(request: Request, profile_id: str):
+    owner = experiment_owner(request)
+    payload = await experiment_payload(request)
+    try:
+        return {"profile": await EXPERIMENT_BROWSER.update(owner, profile_id, payload)}
+    except BrowserError as exc:
+        experiment_failure(exc)
+
+
+@app.get("/api/experiment-browser/groups")
+async def experiment_browser_groups(request: Request):
+    return {"groups": await EXPERIMENT_BROWSER.groups(experiment_owner(request))}
+
+
+@app.post("/api/experiment-browser/groups")
+async def experiment_browser_group_create(request: Request):
+    owner = experiment_owner(request)
+    payload = await experiment_payload(request)
+    try:
+        return {"group": await EXPERIMENT_BROWSER.save_group(owner, payload)}
+    except BrowserError as exc:
+        experiment_failure(exc)
+
+
+@app.patch("/api/experiment-browser/groups/{group_id}")
+async def experiment_browser_group_update(request: Request, group_id: str):
+    owner = experiment_owner(request)
+    payload = await experiment_payload(request)
+    try:
+        return {"group": await EXPERIMENT_BROWSER.save_group(owner, payload, group_id)}
+    except BrowserError as exc:
+        experiment_failure(exc)
+
+
+@app.delete("/api/experiment-browser/groups/{group_id}")
+async def experiment_browser_group_delete(request: Request, group_id: str):
+    owner = experiment_owner(request)
+    await experiment_payload(request)
+    try:
+        await EXPERIMENT_BROWSER.delete_group(owner, group_id)
+        return {"ok": True}
+    except BrowserError as exc:
+        experiment_failure(exc)
+
+
+@app.get("/api/experiment-browser/templates")
+async def experiment_browser_templates(request: Request):
+    return {"templates": await EXPERIMENT_BROWSER.templates(experiment_owner(request))}
+
+
+@app.post("/api/experiment-browser/templates")
+async def experiment_browser_template_create(request: Request):
+    owner = experiment_owner(request)
+    payload = await experiment_payload(request)
+    try:
+        return {"template": await EXPERIMENT_BROWSER.save_template(owner, payload)}
+    except BrowserError as exc:
+        experiment_failure(exc)
+
+
+@app.patch("/api/experiment-browser/templates/{template_id}")
+async def experiment_browser_template_update(request: Request, template_id: str):
+    owner = experiment_owner(request)
+    payload = await experiment_payload(request)
+    try:
+        return {"template": await EXPERIMENT_BROWSER.save_template(owner, payload, template_id)}
+    except BrowserError as exc:
+        experiment_failure(exc)
+
+
+@app.delete("/api/experiment-browser/templates/{template_id}")
+async def experiment_browser_template_delete(request: Request, template_id: str):
+    owner = experiment_owner(request)
+    await experiment_payload(request)
+    try:
+        await EXPERIMENT_BROWSER.delete_template(owner, template_id)
+        return {"ok": True}
+    except BrowserError as exc:
+        experiment_failure(exc)
+
+
+@app.post("/api/experiment-browser/batches")
+async def experiment_browser_batch(request: Request):
+    owner = experiment_owner(request)
+    payload = await experiment_payload(request, max_bytes=96000)
+    try:
+        return await EXPERIMENT_BROWSER.batch_create(owner, payload)
+    except BrowserError as exc:
+        experiment_failure(exc)
+
+
+@app.post("/api/experiment-browser/profiles/bulk")
+async def experiment_browser_bulk(request: Request):
+    owner = experiment_owner(request)
+    payload = await experiment_payload(request)
+    try:
+        return await EXPERIMENT_BROWSER.bulk(owner, payload)
     except BrowserError as exc:
         experiment_failure(exc)
 

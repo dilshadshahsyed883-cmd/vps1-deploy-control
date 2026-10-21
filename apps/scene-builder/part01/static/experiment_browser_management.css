@@ -1,0 +1,54 @@
+/* EXP-UX-20261021-02: isolated Kokoro-inspired management surfaces. */
+#experiment-browser .experiment-manager-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0 14px;padding:8px;background:#f4f3ff;border:1px solid #e7e4fa;border-radius:14px}
+#experiment-browser .experiment-manager-tabs button{background:#fff;border:1px solid #e1ddf3;border-radius:9px;padding:12px 15px;min-height:44px;cursor:pointer;font-size:13px;font-weight:700;color:#344054}
+#experiment-browser .experiment-manager-tabs button[aria-selected="true"]{background:#6255db;color:#fff;border-color:#6255db}
+#experiment-browser .experiment-manager-tabs button:focus-visible{outline:3px solid #8174eb;outline-offset:2px}
+#experiment-browser .experiment-management-panel{min-width:0;margin-top:16px;padding:24px;border:1px solid #e2e7ef;border-radius:16px;background:#fff;box-shadow:0 2px 10px rgb(16 24 40 / 3%)}
+#experiment-browser .experiment-management-panel h3{font-size:18px;margin:0 0 12px;color:#101828}
+#experiment-browser .experiment-management-panel h4{font-size:15px;margin:24px 0 12px}
+#experiment-browser .experiment-management-panel p{color:#667085;line-height:1.6;font-size:13px}
+#experiment-browser .experiment-management-panel label{display:block;font-size:13px;font-weight:700;margin:12px 0 6px;color:#344054}
+#experiment-browser .experiment-management-panel input,
+#experiment-browser .experiment-management-panel select,
+#experiment-browser .experiment-browser-profiles-panel .experiment-profile-filters input,
+#experiment-browser .experiment-browser-profiles-panel .experiment-profile-filters select{width:100%;min-width:0;box-sizing:border-box;min-height:44px;padding:10px;border:1px solid #d0d5dd;border-radius:8px;background:#fff;color:#101828;font-size:14px}
+#experiment-browser .experiment-management-panel button{min-height:44px;padding:10px 14px;border:1px solid #d0d5dd;border-radius:8px;background:#fff;color:#344054;cursor:pointer;font-weight:700;font-size:13px}
+#experiment-browser .experiment-management-panel button.primary{color:white;background:#6255db;border-color:#6255db}
+#experiment-browser .experiment-management-panel :is(button,input,select):focus-visible{outline:3px solid #8174eb;outline-offset:2px}
+#experiment-browser .experiment-management-panel :is(button,input,select):disabled{opacity:.5;cursor:not-allowed}
+#experiment-browser .experiment-management-panel .experiment-browser-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 18px}
+#experiment-browser .experiment-management-panel .experiment-browser-field--full{grid-column:1/-1}
+#experiment-browser .experiment-management-panel .experiment-browser-actions{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}
+#experiment-browser .experiment-management-panel .hint{font-size:12px}
+#experiment-browser .exp-management-list{display:grid;gap:9px;margin-top:14px}
+#experiment-browser .exp-management-item{display:flex;gap:14px;flex-wrap:wrap;align-items:center;justify-content:space-between;padding:14px;border:1px solid #e2e7ef;border-radius:12px}
+#experiment-browser .exp-management-item strong{font-size:13px;color:#101828}
+#experiment-browser .exp-management-item small{display:block;color:#667085;font-size:12px;margin-top:5px}
+#experiment-browser .experiment-profile-filters{grid-template-columns:repeat(2,minmax(0,1fr))}
+#experiment-browser .experiment-profile-filters label{margin-bottom:6px}
+#experiment-browser .experiment-pagination{justify-content:center}
+#experiment-browser #exp-bulk-group{flex:1 1 140px;max-width:280px;min-height:44px;border:1px solid #d0d5dd;border-radius:8px;background:#fff;padding:8px}
+#experiment-browser #exp-selected-count,#experiment-browser #exp-page-label{color:#667085;font-size:12px;align-self:center}
+#experiment-browser .exp-row-check{width:18px;height:18px;flex:0 0 18px;accent-color:#6255db}
+#experiment-browser .experiment-profile:has(.exp-row-check:checked){border-color:#6255db}
+#experiment-browser #exp-manager-alert{min-height:20px;margin:0 0 6px;white-space:pre-line}
+#experiment-browser #exp-batch-results{white-space:pre-line;color:#344054;font-size:13px}
+#experiment-browser #exp-batch-results:not(:empty){padding:14px;border:1px solid #e2e7ef;border-radius:10px}
+#experiment-browser .exp-edit-box{margin-top:18px}
+#experiment-browser .exp-edit-box .experiment-browser-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+#experiment-browser[data-exp-tab="sessions"] .experiment-browser-profiles-panel{display:none}
+#experiment-browser[data-exp-tab="sessions"] .experiment-browser-grid{grid-template-columns:minmax(0,1fr)}
+#experiment-browser[data-exp-tab="sessions"] .experiment-browser-session-panel{max-width:1100px;width:100%;box-sizing:border-box;margin:auto}
+@media(max-width:800px){
+  #experiment-browser .experiment-manager-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+  #experiment-browser .experiment-manager-tabs button{padding:10px;overflow-wrap:anywhere}
+}
+@media(max-width:600px){
+  #experiment-browser .experiment-manager-tabs{grid-template-columns:minmax(0,1fr)}
+  #experiment-browser .experiment-management-panel{padding:16px}
+  #experiment-browser .experiment-management-panel .experiment-browser-fields,
+  #experiment-browser .experiment-profile-filters,
+  #experiment-browser .exp-edit-box .experiment-browser-fields{grid-template-columns:minmax(0,1fr)}
+  #experiment-browser .experiment-management-panel .experiment-browser-actions button{flex:1 1 auto}
+  #experiment-browser .experiment-manager-tabs button{text-align:left}
+}

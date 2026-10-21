@@ -104,6 +104,7 @@
        " · Browsing storage isolated per profile. Proxy IP not checked.") :
       "Create or select a profile to view its privacy configuration.";
     controls();
+    document.dispatchEvent(new Event("antidetect:render"));
   }
 
   function clearPreview() {
@@ -261,6 +262,9 @@
     if (pictureUrl) URL.revokeObjectURL(pictureUrl);
   });
 
+  window.antidetectManagementBridge = {api, sync, notice,
+    profiles: () => profiles.slice(), selected: () => selected,
+    select: id => { selected = id; clearPreview(); render(); }};
   api("/health").then(status => {
     byId("browser-engine-status").textContent =
       status.chrome_installed ? "Browser engine available · Up to 2 active profiles"
