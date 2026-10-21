@@ -43,7 +43,7 @@ CATALOG = {
                          packages=CORE + ['cryptography==44.0.3']),
     'self-media-library': dict(port=8147, module='app:app', health='/api/health', ui='/', packages=CORE + ['numpy==2.2.6', 'onnxruntime==1.22.1', 'tokenizers==0.21.2', 'faster-whisper==1.1.1']),
     'video-merger': dict(port=8148, script='app.py', health='/video-merger/health',
-                         ui='/video-merger/', packages=['yt-dlp', 'gdown==5.2.0', 'requests==2.32.3']),
+                         ui='/video-merger/', packages=['yt-dlp[default]', 'gdown==5.2.0', 'requests==2.32.3']),
     'voice-studio': dict(port=8143, module='vps1_omnivoice_app:app', health='/healthz',
                          ui='/', packages=CORE + ['edge-tts==7.3.1', 'kokoro-onnx==0.6.0', 'soundfile', 'numpy', 'yt-dlp']),
     'auto-caption-studio': dict(port=8144, module='web_backend.app:app', health='/health',
@@ -477,6 +477,9 @@ def install_app(app, revision):
     packages = CATALOG[app].get('packages')
     args = packages if packages else ['-r', release / CATALOG[app]['requirements']]
     run(['runuser', '-u', 'ubuntu', '--', *pip, *args, 'httpx==0.28.1'], timeout=900, quiet=True)
+    if app == 'video-merger':
+        from production.video_merger_import_release import install_js
+        install_js(venv)
     freeze = run([venv / 'bin/python', '-m', 'pip', 'freeze'], quiet=True)
     (venv / 'installed-requirements.txt').write_text(freeze)
     # Exercise real startup/UI and a bounded local render before changing live pointers.
