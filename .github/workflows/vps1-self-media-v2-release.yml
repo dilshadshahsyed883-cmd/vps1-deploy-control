@@ -56,8 +56,11 @@ jobs:
               -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
               vps1deploy@100.87.55.92 "$@"
           }
+          # Never interrupt a real media processor. Poll read-only for up to
+          # 20 minutes; fail closed on unhealthy API/SSH or a persistently busy app.
           echo "READ_ONLY_IDLE_PREFLIGHT"
-          remote 'python3 -' <<'PY'
+          for idle_attempt in $(seq 1 40); do
+            if remote 'python3 -' <<'PY'
           import json,urllib.request
           def read(p):
               with urllib.request.urlopen('http://127.0.0.1:8147'+p,timeout=15) as r:
@@ -65,10 +68,32 @@ jobs:
                   return json.load(r)
           health=read('/api/health')
           stats=read('/api/stats')
-          if not health.get('ok') or int(stats.get('processing',-1)) != 0:
-              raise RuntimeError('SML has active processing or is unhealthy')
+          if not health.get('ok'):
+              raise RuntimeError('SML health failed; abort without deployment')
+          processing=int(stats.get('processing',-1))
+          if processing < 0:
+              raise RuntimeError('SML processing count unknown; abort without deployment')
+          if processing:
+              print('SML_ACTIVE_PROCESSING='+str(processing),flush=True)
+              raise SystemExit(20)
           print('SML_IDLE_PREFLIGHT=PASS',flush=True)
           PY
+            then
+              break
+            else
+              idle_status=$?
+              if [[ "$idle_status" -ne 20 ]]; then
+                echo "SML_IDLE_PREFLIGHT=ERROR; installation blocked"
+                exit 1
+              fi
+              if [[ "$idle_attempt" -eq 40 ]]; then
+                echo "SML_IDLE_PREFLIGHT=BUSY_TIMEOUT; preserve active jobs, no deployment"
+                exit 1
+              fi
+              echo "SML_MEDIA_ACTIVE_WAIT: safe read-only retry in 30s"
+              sleep 30
+            fi
+          done
           echo "SML_IMMUTABLE_APP_ONLY_INSTALL"
           remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA self-media-library"
           if ! remote 'python3 -' <<'PY'
