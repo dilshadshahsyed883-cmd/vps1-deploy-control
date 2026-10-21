@@ -4,12 +4,14 @@ on:
     paths:
       - 'production/voice_template_release.py'
       - 'tests/test_voice_ui_live_parity_release.py'
+      - 'tests/test_omni_kokoro_header_20261021.py'
       - 'tests/test_voice_edge_audio_queue_20261021.py'
       - '.github/workflows/vps1-voice-ui-live-proof-ci.yml'
   push:
     paths:
       - 'production/voice_template_release.py'
       - 'tests/test_voice_ui_live_parity_release.py'
+      - 'tests/test_omni_kokoro_header_20261021.py'
       - 'tests/test_voice_edge_audio_queue_20261021.py'
       - '.github/workflows/vps1-voice-ui-live-proof-ci.yml'
 permissions:
@@ -26,6 +28,7 @@ jobs:
       - name: Prove old live UI becomes the expected source without touching jobs or workers
         run: |
           python -m unittest discover -s tests -p 'test_voice_ui_live_parity_release.py' -v
+          python -m unittest discover -s tests -p 'test_omni_kokoro_header_20261021.py' -v
           python -m unittest discover -s tests -p 'test_voice_edge_audio_queue_20261021.py' -v
           python -m unittest discover -s tests -p 'test_voice_ui_parity_20261021.py' -v
           python -m unittest discover -s tests -p 'test_voice_sidebar_ui_only_release.py' -v

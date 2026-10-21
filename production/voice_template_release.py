@@ -158,6 +158,97 @@ def omnivoice_parity_overlay(original: bytes, source: bytes) -> bytes:
 
 
 
+
+# OMNI_KOKORO_HEADER_LAYOUT_20261021: move only the already-working Omni
+# title/status and existing five action tabs into a Kokoro-style header card.
+# Keep scripts, engine state, queue data and all other app routes unchanged.
+OMNI_HEADER_STYLE_ID = b'<style id="omni-kokoro-header-layout-20261021">'
+OMNI_HEADER_START = b'<div id="vsOmniHeader" class="vs-omni-header">'
+OMNI_HEADER_END = b'<!-- VS_OMNI_HEADER_END -->'
+OMNI_PAGE_SECTION = b'<section class="page" id="page-omnivoice">\n'
+OMNI_HEADING_PLACEHOLDER = b'  <!-- OmniVoice heading and tabs rendered in shared header -->'
+OMNI_LEGACY_HEADING = ('  <div class="pagehead"><div><div class="eyebrow">'
+                       'SERVERLESS · MULTILINGUAL TTS</div><h1>OmniVoice GPU</h1>'
+                       '<div class="subtitle">Dedicated OmniVoice voice-clone '
+                       'production for Hindi, Marathi, Gujarati, Bengali and Arabic.'
+                       '</div></div><div class="statusbar"><span class="badge gray">'
+                       '5 languages</span><span class="badge amber" '
+                       'id="omniWorkerBadge">Checking worker…</span></div></div>').encode()
+
+
+def _omni_header(payload: bytes) -> bytes:
+    require(payload.count(OMNI_HEADER_START) == 1 and
+            payload.count(OMNI_HEADER_END) == 1,
+            "Omni header start/end missing or repeated")
+    start = payload.index(OMNI_HEADER_START)
+    end = payload.index(OMNI_HEADER_END) + len(OMNI_HEADER_END)
+    return payload[start:end]
+
+
+def verify_omni_kokoro_header(payload: bytes) -> None:
+    require(payload.count(OMNI_HEADER_STYLE_ID) == 1 and
+            payload.count(OMNI_HEADING_PLACEHOLDER) == 1 and
+            payload.count(b'id="omniWorkerBadge"') == 1,
+            "LIVE_OMNI_HEADER_MISSING: CSS, worker status or page placeholder")
+    header = _omni_header(payload)
+    require(payload.index(OMNI_HEADER_START) < payload.index(OMNI_PAGE_SECTION)
+            and header.count(b'<h1>OmniVoice</h1>') == 1
+            and header.count(b'<nav class="enginebar"') == 1
+            and header.count(b'data-vps1-tab=') == 5
+            and b'<h1>Kokoro TTS</h1>' not in header
+            and payload.count(b'<nav class="enginebar"') == 1
+            and (OMNI_PAGE_SECTION + OMNI_HEADING_PLACEHOLDER) in payload,
+            "LIVE_OMNI_HEADER_MISSING: heading is not above five existing tabs")
+
+
+def omni_kokoro_header_overlay(original: bytes, source: bytes) -> bytes:
+    """Allowlist exactly one scoped style + structural relocation; idempotent."""
+    verify_omni_kokoro_header(source)
+    start = source.index(OMNI_HEADER_STYLE_ID)
+    finish = source.index(b'</style>', start) + len(b'</style>')
+    css = source[start:finish]
+    require(len(css) < 5500 and b'<script' not in css and
+            b'url(' not in css and b'@import' not in css and
+            b'#vsOmniHeader .enginebar' in css and
+            b'body.vs-kokoro-active #vsOmniHeader' in css and
+            b'body.vs-edge-active #vsOmniHeader' in css and
+            b'body.vs-audio-active #vsOmniHeader' in css,
+            "Omni header CSS outside approved engine scope")
+    new_header = _omni_header(source)
+    start_nav = new_header.index(b'<nav class="enginebar"')
+    end_nav = new_header.index(b'</nav>', start_nav) + len(b'</nav>')
+    nav = new_header[start_nav:end_nav]
+    require(source.count(nav) == 1 and
+            source.count(OMNI_LEGACY_HEADING) == 0 and
+            source.count(OMNI_PAGE_SECTION + OMNI_HEADING_PLACEHOLDER) == 1,
+            "GitHub Omni header has unexpected source markup")
+    if OMNI_HEADER_START in original or OMNI_HEADER_END in original:
+        active = _omni_header(original)
+        require(active == new_header,
+                "installed Omni header differs from reviewed markup")
+    else:
+        require(original.count(nav) == 1 and
+                original.count(OMNI_PAGE_SECTION + OMNI_LEGACY_HEADING) == 1 and
+                original.count(OMNI_HEADING_PLACEHOLDER) == 0,
+                "installed Omni header not an approved previous layout")
+        original = original.replace(nav, new_header, 1)
+        original = original.replace(OMNI_PAGE_SECTION + OMNI_LEGACY_HEADING,
+                                    OMNI_PAGE_SECTION + OMNI_HEADING_PLACEHOLDER, 1)
+    require(original.count(OMNI_HEADER_STYLE_ID) <= 1,
+            "duplicate installed Omni header styles")
+    if OMNI_HEADER_STYLE_ID in original:
+        start = original.index(OMNI_HEADER_STYLE_ID)
+        require(original.find(b'</style>', start) >= 0,
+                "incomplete installed Omni header CSS")
+        finish = original.index(b'</style>', start) + len(b'</style>')
+        original = original[:start] + css + original[finish:]
+    else:
+        require(original.count(b'</head>') == 1, "installed Voice head changed")
+        original = original.replace(b'</head>', css + b'\n</head>', 1)
+    verify_omni_kokoro_header(original)
+    return original
+
+
 # The public native document is under /voice-studio/app, while the isolated
 # web service itself is under /app. Nginx text substitution must not decide
 # where the queue API points. Update only three currently used inline JS expressions.
@@ -261,8 +352,16 @@ def voice_ui_parity_overlay(original: bytes, source: bytes) -> bytes:
         old_end = original.index(b"</style>", old_start) + len(b"</style>")
         original = original[:old_start] + css + original[old_end:]
     else:
-        require(original.count(b"</head>") == 1, "missing Voice HTML head")
-        original = original.replace(b"</head>", css + b"\n</head>", 1)
+        # A new approved Omni header style may already be present when
+        # backfilling legacy Voice parity. Retain GitHub source CSS order.
+        if OMNI_HEADER_STYLE_ID in original:
+            require(original.count(OMNI_HEADER_STYLE_ID) == 1,
+                    "duplicate Omni header CSS in existing Voice HTML")
+            original = original.replace(OMNI_HEADER_STYLE_ID,
+                                        css + b"\n" + OMNI_HEADER_STYLE_ID, 1)
+        else:
+            require(original.count(b"</head>") == 1, "missing Voice HTML head")
+            original = original.replace(b"</head>", css + b"\n</head>", 1)
 
     for name, (legacy, reviewed) in zip((b"vseQueue", b"vskQueue"),
                                          VOICE_UI_MARKUP_PAIRS):
@@ -481,6 +580,7 @@ def verify_runtime() -> None:
                 OLD_LIMITS not in body and b'id="vsEngineOmni"' in body,
                 "Voice web UI template guard is not live")
     verify_edge_audio_markup(body)
+    verify_omni_kokoro_header(body)
     require(VOICE_UI_PARITY_ID in body and
             body.count(b'<th scope="col">Controls</th>') == 2 and
             b"tr.append(a,b,c,d);rows.append(tr);" in body and
@@ -501,6 +601,7 @@ def verify_runtime() -> None:
             "authenticated public Voice page template guard not updated")
     full_html = read_full_authenticated_voice_html(cookie)
     verify_edge_audio_markup(full_html)
+    verify_omni_kokoro_header(full_html)
     require(VOICE_UI_PARITY_ID in full_html and
             full_html.count(b'<th scope="col">Controls</th>') == 2 and
             b"tr.append(a,b,c,d);rows.append(tr);" in full_html and
@@ -580,6 +681,7 @@ def install(revision: str) -> None:
     patched_html = responsive_overlay(patched_html, source_html)
     patched_html = omnivoice_parity_overlay(patched_html, source_html)
     patched_html = voice_ui_parity_overlay(patched_html, source_html)
+    patched_html = omni_kokoro_header_overlay(patched_html, source_html)
     patched_html = voice_edge_audio_overlay(patched_html, source_html)
     patched_html = queue_route_overlay(patched_html, source_html)
     patched_html = audio_browser_route_overlay(patched_html, source_html)
