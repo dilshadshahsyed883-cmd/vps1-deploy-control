@@ -6,10 +6,11 @@ import stat
 from pathlib import Path
 import re
 import shutil
+import sqlite3
 import urllib.request
 import zipfile
 from production.runtime import BASE, DATA, REPO, atomic_json, atomic_link, event, http_check, run
-from production.video_template_release import idle, require
+from production.video_template_release import require, TERMINAL
 
 
 SYSTEMD=Path('/etc/systemd/system')
@@ -81,6 +82,25 @@ def swap_proxy(plan, data):
         staging.unlink(missing_ok=True)
 
 
+
+def idle_database(state):
+    """Read-only strict idle check without serializing the entire Library."""
+    path=Path(state)/'data/video_merger.db'
+    require(path.is_file() and not path.is_symlink(), 'Video Merger DB missing')
+    with sqlite3.connect('file:'+str(path)+'?mode=ro',uri=True,timeout=6) as db:
+        db.execute('PRAGMA query_only=ON')
+        allowed=sorted(TERMINAL)
+        placeholder=','.join('?' for _ in allowed)
+        for table in ('jobs','library_items'):
+            fields={row[1] for row in db.execute('PRAGMA table_info('+table+')')}
+            require('status' in fields, 'Video Merger '+table+' schema invalid')
+            count=db.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE lower(coalesce(status,'')) NOT IN ({placeholder})",
+                allowed).fetchone()[0]
+            require(count==0, 'Video Merger '+table+' has unfinished jobs')
+    event(app='video-merger',idle='SQLITE_READ_ONLY_PASS',owner_media_mutated=False)
+
+
 def install(revision):
     require(re.fullmatch('[a-f0-9]{40}',revision),'invalid revision')
     app='video-merger'
@@ -90,8 +110,9 @@ def install(revision):
     current=BASE/'current'/app
     previous=current.resolve(strict=True)
     require(current.is_symlink() and previous.is_relative_to(BASE/'releases'/app),'unowned release')
-    idle(app)
+    state,proxy_config=live_paths(DATA/app/'video-merger')
     http_check(app)
+    idle_database(state)
     match=re.search(r'^ExecStart=(\S+/bin/python)\s+app.py\s*$',previous_unit,re.M)
     require(match is not None,'unexpected Video Merger service command')
     old_python=Path(match.group(1))
@@ -119,7 +140,6 @@ def install(revision):
     manifest.update(revision=revision,import_overlay=str(previous))
     manifest['files'][name]=hashlib.sha256(source).hexdigest()
     atomic_json(target/'_production_manifest.json',manifest,0o644)
-    state,proxy_config=live_paths(DATA/app/'video-merger')
     activation=planned_proxy_activation(proxy_config)
     # Both real-source downloads happen in a temporary directory. Existing Drive
     # files and SQLite records are only read. Fail before any live mutation.
@@ -136,7 +156,8 @@ def install(revision):
     changed=False
     proxy_changed=False
     try:
-        idle(app)
+        http_check(app)
+        idle_database(state)
         if activation:
             require(proxy_config.read_bytes()==activation['before'],
                     'saved proxy changed after candidate; no activation')
