@@ -20,7 +20,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
-MAX_PROFILES = 24
+MAX_PROFILES = 500
 MAX_ACTIVE = 2
 IDLE_SECONDS = 30 * 60
 PROFILE_ID = re.compile(r"^[a-f0-9]{24}$")
