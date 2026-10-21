@@ -39,11 +39,6 @@ app.mount("/media/thumbs", StaticFiles(directory=THUMBS_DIR), name="thumbs")
 
 DB_LOCK = threading.Lock()
 PROCESS_LOCK = threading.Lock()
-DRIVE_LOCK = threading.Lock()
-RCLONE_IO_LOCK = threading.Lock()  # Serialize per-app remote CLI calls, including preflights.
-RCLONE_THROTTLE_UNTIL = 0.0  # A quota fault pauses new Drive API requests, not local media.
-RCLONE_QUOTA_MESSAGE = ("Google Drive API rate limit (403) reached; wait about 2 minutes, "
-                        "then use Retry failed Drive. Local source and generated clips are retained.")
 
 
 def now_iso() -> str:
@@ -159,7 +154,7 @@ def init_db() -> None:
             "duplicate_detection": "true",
             "quality_filter": "true",
             "ai_auto": "true",
-            "source_cleanup": "after_drive_verified",
+            "source_cleanup": "after_local_selection",
             "drive_enabled": "false",
             "drive_remote": "gdrive",
             "drive_root": "Self Media Library",
@@ -188,437 +183,10 @@ def setting_true(values: dict[str, str], key: str, default: bool = False) -> boo
     return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
 
-def drive_base(values: dict[str, str]) -> str:
-    remote = values.get("drive_remote", "gdrive").strip().rstrip(":")
-    root = values.get("drive_root", "Self Media Library").strip().strip("/")
-    if not remote:
-        raise RuntimeError("Drive remote name is empty")
-    return f"{remote}:{root}" if root else f"{remote}:"
+def schedule_metadata_sync(ids):
+    # Metadata is already durable in the local catalog; no remote queue.
+    return None
 
-
-def drive_path(values: dict[str, str], kind: str, filename: str) -> str:
-    folders = {"clip": "clips", "thumb": "thumbnails", "meta": "metadata", "sources": "sources"}
-    folder = folders[kind]
-    return f"{drive_base(values).rstrip('/')}/{folder}/{filename}"
-
-
-def runtime_rclone_config() -> Path:
-    configured = os.getenv("RCLONE_CONFIG", "").strip()
-    if configured:
-        return Path(configured).expanduser()
-    return Path.home() / ".config" / "self-media-library" / "rclone.conf"
-
-
-def is_drive_rate_limit_error(message: str) -> bool:
-    """Distinguish temporary API query throttling from real 403 permissions failures."""
-    message = message.lower()
-    return any(token in message for token in (
-        "ratelimitexceeded", "rate_limit_exceeded", "userratelimitexceeded",
-        "quota exceeded for quota metric", "requests per minute",
-        "too many requests", "resource_exhausted",
-    ))
-
-
-def run_rclone(args: list[str], timeout: int = 180) -> subprocess.CompletedProcess[str]:
-    global RCLONE_THROTTLE_UNTIL
-    if not shutil.which("rclone"):
-        raise RuntimeError("rclone is not installed")
-    # Limit intra-command API requests; each copyto / lsjson / mkdir is independently
-    # throttled by rclone, while the app-level lock guards concurrent commands.
-    cmd = ["rclone", "--tpslimit", "2", "--tpslimit-burst", "1"]
-    config = runtime_rclone_config()
-    if os.getenv("RCLONE_CONFIG", "").strip():
-        cmd += ["--config", str(config)]
-    with RCLONE_IO_LOCK:
-        if time.monotonic() < RCLONE_THROTTLE_UNTIL:
-            raise RuntimeError(RCLONE_QUOTA_MESSAGE)
-        proc = subprocess.run([*cmd, *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=timeout)
-        if proc.returncode != 0:
-            msg = (proc.stderr or proc.stdout or "rclone command failed").strip()
-            if is_drive_rate_limit_error(msg):
-                RCLONE_THROTTLE_UNTIL = time.monotonic() + 120.0
-                raise RuntimeError(RCLONE_QUOTA_MESSAGE)
-            raise RuntimeError(msg[-1200:])
-        return proc
-
-
-def drive_runtime_status(values: Optional[dict[str, str]] = None) -> dict:
-    values = values or get_settings_map()
-    config = runtime_rclone_config()
-    status = {
-        "rclone_available": shutil.which("rclone") is not None,
-        "config_path": str(config),
-        "config_exists": config.exists(),
-        "remotes": [],
-        "remote_configured": False,
-        "remote": values.get("drive_remote", "gdrive").strip().rstrip(":"),
-        "root": values.get("drive_root", "Self Media Library"),
-        "enabled": setting_true(values, "drive_enabled"),
-        "last_test_status": values.get("drive_last_test_status", "never"),
-        "last_test_at": values.get("drive_last_test_at", ""),
-        "last_test_detail": values.get("drive_last_test_detail", ""),
-    }
-    if not status["rclone_available"]:
-        return status
-    try:
-        out = run_rclone(["listremotes"], timeout=30).stdout.splitlines()
-        remotes = sorted({x.strip().rstrip(":") for x in out if x.strip()})
-        status["remotes"] = remotes
-        status["remote_configured"] = status["remote"] in remotes
-    except Exception as exc:
-        status["status_error"] = str(exc)[:400]
-    return status
-
-
-def remote_stat(remote_file: str) -> dict:
-    proc = run_rclone(["lsjson", remote_file, "--stat", "--hash"], timeout=90)
-    data = json.loads(proc.stdout or "{}")
-    if not isinstance(data, dict):
-        raise RuntimeError("Drive verification returned an unexpected response")
-    return data
-
-
-def md5_file(path: Path) -> str:
-    h = hashlib.md5()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def upload_and_verify(local_file: Path, remote_file: str, verify: bool = True) -> dict:
-    if not local_file.exists():
-        raise RuntimeError(f"Local file missing: {local_file.name}")
-    run_rclone(["copyto", str(local_file), remote_file, "--retries", "3", "--low-level-retries", "6"], timeout=900)
-    if not verify:
-        raise RuntimeError("Drive verification cannot be bypassed for cleanup-eligible outputs")
-    stat = remote_stat(remote_file)
-    remote_size = int(stat.get("Size", -1))
-    local_size = local_file.stat().st_size
-    if remote_size != local_size:
-        raise RuntimeError(f"Drive verification failed for {local_file.name}: size mismatch {local_size} != {remote_size}")
-    hashes = stat.get("Hashes") or {}
-    remote_md5 = hashes.get("MD5") or hashes.get("md5")
-    if remote_md5 and remote_md5.lower() != md5_file(local_file).lower():
-        raise RuntimeError(f"Drive verification failed for {local_file.name}: MD5 mismatch")
-    # A distinct download proves the selected remote object can be retrieved.
-    readback = TEMP_DIR / ("drive-readback-" + uuid.uuid4().hex)
-    try:
-        run_rclone(["copyto", remote_file, str(readback)], timeout=900)
-        if not readback.is_file() or sha256_file(readback) != sha256_file(local_file):
-            raise RuntimeError("Drive readback integrity check failed")
-    finally:
-        readback.unlink(missing_ok=True)
-    return {"verified": True, "readback_verified": True, "size": remote_size, "hashes": hashes}
-
-
-def drive_preflight(values: Optional[dict[str, str]] = None) -> dict:
-    values = values or get_settings_map()
-    if not setting_true(values, "drive_enabled"):
-        return {"ok": False, "enabled": False, "detail": "Drive backend is disabled"}
-    base = drive_base(values).rstrip("/")
-    probe = TEMP_DIR / f"drive-probe-{uuid.uuid4().hex[:8]}.json"
-    probe.write_text(json.dumps({"app": "Self Media Library", "time": now_iso()}), encoding="utf-8")
-    remote_probe = f"{base}/_system/preflight.json"
-    try:
-        run_rclone(["mkdir", f"{base}/clips"])
-        run_rclone(["mkdir", f"{base}/thumbnails"])
-        run_rclone(["mkdir", f"{base}/metadata"])
-        run_rclone(["mkdir", f"{base}/_system"])
-        upload_and_verify(probe, remote_probe, verify=True)
-        run_rclone(["deletefile", remote_probe], timeout=60)
-        return {"ok": True, "enabled": True, "base": base, "remote": values.get("drive_remote", "gdrive"), "root": values.get("drive_root", "Self Media Library")}
-    finally:
-        probe.unlink(missing_ok=True)
-
-
-def clip_manifest(clip_id: str) -> dict:
-    with db() as c:
-        row = c.execute(
-            """SELECT c.*, s.filename source_filename FROM clips c
-               LEFT JOIN sources s ON s.id=c.source_id WHERE c.id=?""",
-            (clip_id,),
-        ).fetchone()
-        if not row:
-            raise RuntimeError("Clip not found")
-        keywords = [dict(r) for r in c.execute(
-            "SELECT keyword,source,confidence,created_at FROM clip_keywords WHERE clip_id=? ORDER BY keyword", (clip_id,)
-        )]
-        return {
-            "schema_version": 1,
-            "clip_id": row["id"],
-            "source_id": row["source_id"],
-            "source_filename": row["source_filename"],
-            "filename": row["filename"],
-            "thumbnail": row["thumb_filename"],
-            "start_time": row["start_time"],
-            "end_time": row["end_time"],
-            "duration": row["duration"],
-            "status": row["status"],
-            "description": row["description"],
-            "quality": row["quality"],
-            "ai_state": row["ai_state"],
-            "ai_confidence": row["ai_confidence"],
-            "duplicate_state": row["duplicate_state"],
-            "deleted_at": row["deleted_at"],
-            "keywords": keywords,
-            "drive": {
-                "clip_path": row["drive_clip_path"],
-                "thumbnail_path": row["drive_thumb_path"],
-                "metadata_path": row["drive_meta_path"],
-                "state": row["drive_state"],
-                "verified_at": row["drive_verified_at"],
-            },
-            "updated_at": row["updated_at"],
-        }
-
-
-def write_clip_manifest(clip_id: str) -> Path:
-    path = METADATA_DIR / f"{clip_id}.json"
-    manifest = clip_manifest(clip_id)
-    try:
-        from ai_workspace import metadata
-        manifest["ai_content"] = metadata(DATA, "video", clip_id)
-    except (sqlite3.Error, HTTPException):
-        pass
-    path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
-    return path
-
-
-def sync_clip_to_drive(clip_id: str, upload_media: bool = True, values: Optional[dict[str, str]] = None) -> bool:
-    values = values or get_settings_map()
-    if not setting_true(values, "drive_enabled"):
-        return False
-    verify = True  # Mandatory per-app remote readback before local source cleanup.
-    with DRIVE_LOCK:
-        with db() as c:
-            row = c.execute("SELECT * FROM clips WHERE id=?", (clip_id,)).fetchone()
-            if not row:
-                raise RuntimeError("Clip not found")
-            c.execute("UPDATE clips SET drive_state='uploading',drive_error=NULL,updated_at=? WHERE id=?", (now_iso(), clip_id))
-        try:
-            remote_clip = drive_path(values, "clip", row["filename"])
-            remote_thumb = drive_path(values, "thumb", row["thumb_filename"]) if row["thumb_filename"] else None
-            remote_meta = drive_path(values, "meta", f"{clip_id}.json")
-            if upload_media:
-                upload_and_verify(CLIPS_DIR / row["filename"], remote_clip, verify)
-                if remote_thumb:
-                    upload_and_verify(THUMBS_DIR / row["thumb_filename"], remote_thumb, verify)
-            # Persist remote paths first so the JSON sidecar is self-describing.
-            with db() as c:
-                c.execute(
-                    "UPDATE clips SET drive_clip_path=?,drive_thumb_path=?,drive_meta_path=?,updated_at=? WHERE id=?",
-                    (remote_clip, remote_thumb, remote_meta, now_iso(), clip_id),
-                )
-            meta_path = write_clip_manifest(clip_id)
-            upload_and_verify(meta_path, remote_meta, verify)
-            ts = now_iso()
-            with db() as c:
-                c.execute("UPDATE clips SET drive_state='verified',drive_verified_at=?,drive_error=NULL,updated_at=? WHERE id=?", (ts, ts, clip_id))
-            # Refresh sidecar once more so it contains the final verified state.
-            meta_path = write_clip_manifest(clip_id)
-            upload_and_verify(meta_path, remote_meta, verify)
-            return True
-        except Exception as exc:
-            with db() as c:
-                c.execute("UPDATE clips SET drive_state='sync_failed',drive_error=?,updated_at=? WHERE id=?", (str(exc)[:1000], now_iso(), clip_id))
-            return False
-
-
-def sync_metadata_batch(ids: list[str]) -> None:
-    values = get_settings_map()
-    if not setting_true(values, "drive_enabled") or not setting_true(values, "drive_sync_metadata", True):
-        return
-    for cid in ids:
-        try:
-            with db() as c:
-                row = c.execute("SELECT drive_clip_path,drive_state FROM clips WHERE id=?", (cid,)).fetchone()
-            if row and row["drive_clip_path"]:
-                sync_clip_to_drive(cid, upload_media=False, values=values)
-        except Exception:
-            pass
-
-
-def schedule_metadata_sync(ids: list[str]) -> None:
-    ids = list(dict.fromkeys(ids))[:500]
-    if not ids:
-        return
-    threading.Thread(target=sync_metadata_batch, args=(ids,), daemon=True).start()
-
-
-def source_drive_gate(source_id: str) -> dict:
-    """Fresh database gate used before any automatic source deletion."""
-    with db() as c:
-        original = c.execute("SELECT drive_source_path,drive_source_verified_at FROM sources WHERE id=?", (source_id,)).fetchone()
-        original_verified = bool(original and original["drive_source_path"] and original["drive_source_verified_at"])
-        active_dependents = 0
-        if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ai_jobs'").fetchone():
-            active_dependents += c.execute("SELECT COUNT(*) FROM ai_jobs WHERE state IN ('queued','running') AND (media_id=? OR media_id IN (SELECT id FROM clips WHERE source_id=?))",(source_id,source_id)).fetchone()[0]
-        if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='media_reservations'").fetchone():
-            active_dependents += c.execute("SELECT COUNT(*) FROM media_reservations WHERE source_id=? AND state='reserved' AND expires_at>?",(source_id,int(time.time()))).fetchone()[0]
-        if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ai_metadata'").fetchone():
-            stale_metadata = c.execute("SELECT COUNT(*) FROM ai_metadata a JOIN clips v ON a.media_id=v.id AND a.media_type='video' WHERE v.source_id=? AND (v.drive_verified_at IS NULL OR a.updated_at>v.drive_verified_at)",(source_id,)).fetchone()[0]
-        else:
-            stale_metadata = 0
-        rows = c.execute(
-            """SELECT id,thumb_filename,drive_state,drive_clip_path,drive_thumb_path,
-                      drive_meta_path,drive_verified_at,drive_error
-               FROM clips WHERE source_id=? ORDER BY created_at""",
-            (source_id,),
-        ).fetchall()
-    total = len(rows)
-    verified = 0
-    failed = 0
-    pending = 0
-    unsafe: list[str] = []
-    failures: list[dict] = []
-    for row in rows:
-        thumb_ok = (not row["thumb_filename"]) or bool(row["drive_thumb_path"])
-        ok = (
-            row["drive_state"] == "verified"
-            and bool(row["drive_verified_at"])
-            and bool(row["drive_clip_path"])
-            and bool(row["drive_meta_path"])
-            and thumb_ok
-        )
-        if ok:
-            verified += 1
-        else:
-            unsafe.append(row["id"])
-            failures.append({"clip_id": row["id"], "state": row["drive_state"], "error": row["drive_error"] or "Drive verification pending"})
-            if row["drive_state"] == "sync_failed":
-                failed += 1
-            else:
-                pending += 1
-    return {
-        "total": total,
-        "verified": verified,
-        "failed": failed,
-        "pending": pending,
-        "all_verified": total > 0 and verified == total and original_verified,
-        "cleanup_ready": total > 0 and verified == total and original_verified and active_dependents == 0 and stale_metadata == 0,
-        "stale_ai_metadata": stale_metadata,
-        "original_verified": original_verified,
-        "active_dependents": active_dependents,
-        "unsafe_ids": unsafe[:100],
-        "failures": failures[:100],
-    }
-
-
-def cleanup_source_if_drive_safe(source_id: str, mode: str = "auto_drive_verified") -> dict:
-    gate = source_drive_gate(source_id)
-    if not gate["all_verified"] or not gate["cleanup_ready"]:
-        return {"cleaned": False, "reason": "drive_gate_failed_or_active_dependency", **gate}
-    with db() as c:
-        src = c.execute("SELECT * FROM sources WHERE id=?", (source_id,)).fetchone()
-        if not src:
-            raise RuntimeError("Source not found")
-        if src["source_deleted_at"]:
-            return {"cleaned": True, "already_cleaned": True, **gate}
-        source_file = SOURCES_DIR / src["stored_name"]
-        bytes_removed = source_file.stat().st_size if source_file.exists() else 0
-        source_file.unlink(missing_ok=True)
-        ts = now_iso()
-        c.execute(
-            """UPDATE sources SET source_deleted_at=?,source_cleanup_mode=?,updated_at=?
-               WHERE id=?""",
-            (ts, mode, ts, source_id),
-        )
-    return {"cleaned": True, "bytes_removed": bytes_removed, **gate}
-
-
-def sync_source_drive(source_id: str, values: Optional[dict[str, str]] = None) -> dict:
-    values = values or get_settings_map()
-    if not setting_true(values, "drive_enabled"):
-        return {"ok": False, "verified": 0, "total": 0, "detail": "Drive backend disabled"}
-
-    preflight = drive_preflight(values)
-    if not preflight.get("ok"):
-        return {"ok": False, "verified": 0, "total": 0, "detail": preflight.get("detail") or "Drive preflight failed"}
-
-    with db() as c:
-        clips = c.execute(
-            "SELECT id,drive_state FROM clips WHERE source_id=? ORDER BY created_at",
-            (source_id,),
-        ).fetchall()
-        src = c.execute("SELECT * FROM sources WHERE id=?", (source_id,)).fetchone()
-        if src:
-            c.execute(
-                "UPDATE sources SET stage='drive_retry',drive_state='uploading',error=NULL,updated_at=? WHERE id=?",
-                (now_iso(), source_id),
-            )
-    if not src:
-        raise RuntimeError("Source not found")
-    if not clips:
-        return {"ok": False, "verified": 0, "total": 0, "detail": "No clips were generated; source retained"}
-
-    # Preserve the full original independently of derived clips before cleanup.
-    original_path = SOURCES_DIR / src["stored_name"]
-    if original_path.is_file():
-        try:
-            remote_original = drive_path(values, "sources", src["stored_name"])
-            run_rclone(["mkdir", drive_base(values) + "/sources"])
-            upload_and_verify(original_path, remote_original, verify=True)
-            with db() as c:
-                c.execute("UPDATE sources SET drive_source_path=?,drive_source_verified_at=?,updated_at=? WHERE id=?",(remote_original,now_iso(),now_iso(),source_id))
-        except Exception:
-            return {"ok": False,"verified":0,"total":len(clips),"detail":"Original Drive archive/readback failed; source retained"}
-    retried = 0
-    skipped_verified = 0
-    for item in clips:
-        if item["drive_state"] == "verified":
-            skipped_verified += 1
-            continue
-        retried += 1
-        sync_clip_to_drive(item["id"], upload_media=True, values=values)
-
-    gate = source_drive_gate(source_id)
-    ts = now_iso()
-    with db() as c:
-        c.execute(
-            """UPDATE sources SET drive_state=?,drive_verified_at=?,status=?,stage=?,error=?,updated_at=?
-               WHERE id=?""",
-            (
-                "verified" if gate["all_verified"] else "sync_failed",
-                ts if gate["all_verified"] else None,
-                "completed" if gate["all_verified"] else "failed",
-                "drive_verified" if gate["all_verified"] else "drive_sync_failed",
-                None if gate["all_verified"] else f"Drive verified {gate['verified']}/{gate['total']} clips. Retry failed files; verified clips are preserved.",
-                ts,
-                source_id,
-            ),
-        )
-
-    cleaned = False
-    bytes_removed = 0
-    if gate["all_verified"] and values.get("source_cleanup", "after_drive_verified") == "after_drive_verified":
-        cleanup = cleanup_source_if_drive_safe(source_id)
-        cleaned = bool(cleanup.get("cleaned"))
-        bytes_removed = int(cleanup.get("bytes_removed", 0) or 0)
-        if cleaned:
-            with db() as c:
-                c.execute(
-                    "UPDATE sources SET stage='completed_source_cleaned',status='completed',updated_at=? WHERE id=?",
-                    (now_iso(), source_id),
-                )
-
-    return {
-        "ok": gate["all_verified"],
-        "verified": gate["verified"],
-        "total": gate["total"],
-        "failed": gate["failed"],
-        "pending": gate["pending"],
-        "retried": retried,
-        "skipped_verified": skipped_verified,
-        "source_cleaned": cleaned,
-        "bytes_removed": bytes_removed,
-        "detail": None if gate["all_verified"] else f"Drive verified {gate['verified']}/{gate['total']} clips",
-    }
-
-def remove_remote_file(remote_path: Optional[str]) -> None:
-    if not remote_path:
-        return
-    run_rclone(["deletefile", remote_path], timeout=120)
 
 def ffprobe_duration(path: Path) -> float:
     cmd = [
@@ -722,13 +290,9 @@ def process_source(source_id: str) -> None:
                 return
             path = SOURCES_DIR / src["stored_name"]
             settings = get_settings_map(c)
-            c.execute("UPDATE sources SET status='processing',stage='drive_preflight',progress=2,error=NULL,updated_at=? WHERE id=?", (now_iso(), source_id))
+            c.execute("UPDATE sources SET status='processing',stage='probing',progress=2,error=NULL,updated_at=? WHERE id=?", (now_iso(), source_id))
         if not path.exists():
             raise RuntimeError("Source file is no longer stored locally")
-        if setting_true(settings, "drive_enabled"):
-            preflight = drive_preflight(settings)
-            if not preflight.get("ok"):
-                raise RuntimeError(preflight.get("detail") or "Drive preflight failed")
         with db() as c:
             c.execute("UPDATE sources SET stage='probing',progress=5,updated_at=? WHERE id=?", (now_iso(), source_id))
         duration = ffprobe_duration(path)
@@ -743,6 +307,7 @@ def process_source(source_id: str) -> None:
             c.execute("UPDATE sources SET stage='creating_clips',progress=15,updated_at=? WHERE id=?", (now_iso(), source_id))
         total = max(1, len(segments))
         created_ids: list[str] = []
+        failed_segments = 0
         for i, (start_t, end_t) in enumerate(segments):
             cid = f"CLP-{uuid.uuid4().hex[:10].upper()}"
             clip_name = f"{cid}.mp4"
@@ -786,6 +351,7 @@ def process_source(source_id: str) -> None:
                             c.execute("INSERT OR IGNORE INTO clip_keywords(clip_id,keyword,source,confidence,created_at) VALUES (?,?,?,?,?)", (cid, kw, "ai", kconf, ts))
                 created_ids.append(cid)
             except Exception:
+                failed_segments += 1
                 clip_path.unlink(missing_ok=True)
                 thumb_path.unlink(missing_ok=True)
             progress = 15 + int(60 * ((i + 1) / total))
@@ -795,39 +361,12 @@ def process_source(source_id: str) -> None:
             with db() as c:
                 c.execute("UPDATE sources SET status='completed',stage='completed_no_clips',progress=100,clip_count=0,error='No usable clips were generated; source retained',updated_at=? WHERE id=?", (now_iso(), source_id))
             return
-        if setting_true(settings, "drive_enabled"):
-            with db() as c:
-                c.execute("UPDATE sources SET stage='drive_upload',progress=78,drive_state='uploading',updated_at=? WHERE id=?", (now_iso(), source_id))
-            verified = 0
-            for idx, cid in enumerate(created_ids):
-                if sync_clip_to_drive(cid, upload_media=True, values=settings):
-                    verified += 1
-                with db() as c:
-                    progress = 78 + int(20 * ((idx + 1) / len(created_ids)))
-                    c.execute("UPDATE sources SET progress=?,updated_at=? WHERE id=?", (progress, now_iso(), source_id))
-            gate = source_drive_gate(source_id)
-            if gate["all_verified"]:
-                ts = now_iso()
-                cleaned = False
-                if settings.get("source_cleanup", "after_drive_verified") == "after_drive_verified":
-                    cleanup = cleanup_source_if_drive_safe(source_id)
-                    cleaned = bool(cleanup.get("cleaned"))
-                with db() as c:
-                    c.execute(
-                        """UPDATE sources SET status='completed',stage=?,progress=100,clip_count=?,drive_state='verified',
-                           drive_verified_at=?,error=NULL,updated_at=? WHERE id=?""",
-                        ("completed_source_cleaned" if cleaned else "completed", len(created_ids), ts, ts, source_id),
-                    )
-            else:
-                with db() as c:
-                    c.execute(
-                        """UPDATE sources SET status='failed',stage='drive_sync_failed',progress=100,clip_count=?,
-                           drive_state='sync_failed',error=?,updated_at=? WHERE id=?""",
-                        (len(created_ids), f"Drive verified {gate['verified']}/{gate['total']} clips. Retry failed files; verified clips are preserved.", now_iso(), source_id),
-                    )
-        else:
-            with db() as c:
-                c.execute("UPDATE sources SET status='completed',stage='completed_local_only',progress=100,clip_count=?,drive_state='disabled',updated_at=? WHERE id=?", (len(created_ids), now_iso(), source_id))
+        if failed_segments:
+            raise RuntimeError(f"{failed_segments} clip segments failed; all source media retained")
+        from local_library import create_review
+        create_review(db, now_iso, source_id, created_ids)
+        with db() as c:
+            c.execute("UPDATE sources SET status='completed',stage='awaiting_pair_selection',progress=100,clip_count=?,drive_state='disabled',updated_at=? WHERE id=?", (len(created_ids), now_iso(), source_id))
     except Exception as e:
         with db() as c:
             c.execute("UPDATE sources SET status='failed',stage='failed',error=?,updated_at=? WHERE id=?", (str(e)[:1000], now_iso(), source_id))
@@ -877,6 +416,8 @@ def clip_to_dict(c: sqlite3.Row, conn: sqlite3.Connection) -> dict:
 @app.on_event("startup")
 def startup() -> None:
     init_db()
+    from local_library import initialize
+    with db() as c: initialize(c)
 
 
 @app.get("/")
@@ -887,7 +428,7 @@ def index():
 @app.get("/api/health")
 def health():
     values = get_settings_map()
-    return {"ok": True, "version": APP_VERSION, "ffmpeg": shutil.which("ffmpeg") is not None, "rclone": shutil.which("rclone") is not None, "drive_enabled": setting_true(values, "drive_enabled"), "ai_configured": model_ready(DATA / "ai_models")}
+    return {"ok": True, "version": APP_VERSION, "ffmpeg": shutil.which("ffmpeg") is not None, "rclone": shutil.which("rclone") is not None, "drive_enabled": False, "storage_mode": "vps_only", "ai_configured": model_ready(DATA / "ai_models")}
 
 
 @app.get("/api/stats")
@@ -911,12 +452,18 @@ def clips(
     source_id: str = "",
     orientation: str = "all",
     trash: bool = False,
+    date_from: str = "",
+    date_to: str = "",
     sort: str = "newest",
     limit: int = Query(48, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
     clauses = ["c.deleted_at IS NOT NULL" if trash else "c.deleted_at IS NULL"]
     params: list[object] = []
+    if date_from:
+        clauses.append("substr(c.created_at,1,10)>=?"); params.append(date_from)
+    if date_to:
+        clauses.append("substr(c.created_at,1,10)<=?"); params.append(date_to)
     if status != "all":
         clauses.append("c.status=?")
         params.append(status)
@@ -931,9 +478,9 @@ def clips(
     if q.strip():
         terms = [t.strip().lower() for t in q.split() if t.strip()]
         for term in terms:
-            clauses.append("(LOWER(c.description) LIKE ? OR EXISTS (SELECT 1 FROM clip_keywords k WHERE k.clip_id=c.id AND LOWER(k.keyword) LIKE ?))")
+            clauses.append("(LOWER(c.filename) LIKE ? OR EXISTS (SELECT 1 FROM sources s WHERE s.id=c.source_id AND LOWER(s.filename) LIKE ?) OR LOWER(c.description) LIKE ? OR EXISTS (SELECT 1 FROM clip_keywords k WHERE k.clip_id=c.id AND LOWER(k.keyword) LIKE ?))")
             like = f"%{term}%"
-            params += [like, like]
+            params += [like, like, like, like]
     order_map = {
         "newest": "c.created_at DESC",
         "oldest": "c.created_at ASC",
@@ -993,6 +540,9 @@ def bulk_status(body: BulkStatus):
         raise HTTPException(400, "Invalid status")
     ts = now_iso()
     with db() as c:
+        c.execute('BEGIN IMMEDIATE')
+        from local_library import busy, protect
+        busy(c); protect(c, 'video', body.ids[:500])
         for cid in body.ids[:500]:
             c.execute("UPDATE clips SET status=?,updated_at=? WHERE id=? AND deleted_at IS NULL", (body.status, ts, cid))
     schedule_metadata_sync(body.ids)
@@ -1002,6 +552,9 @@ def bulk_status(body: BulkStatus):
 @app.delete("/api/clips/{clip_id}")
 def trash_clip(clip_id: str):
     with db() as c:
+        c.execute('BEGIN IMMEDIATE')
+        from local_library import busy, protect
+        busy(c); protect(c, 'video', [clip_id])
         c.execute("UPDATE clips SET deleted_at=?,updated_at=? WHERE id=?", (now_iso(), now_iso(), clip_id))
     schedule_metadata_sync([clip_id])
     return {"ok": True}
@@ -1010,6 +563,11 @@ def trash_clip(clip_id: str):
 @app.post("/api/clips/{clip_id}/restore")
 def restore_clip(clip_id: str):
     with db() as c:
+        c.execute('BEGIN IMMEDIATE')
+        from local_library import protect
+        protect(c, 'video', [clip_id])
+        row=c.execute('SELECT local_selection FROM clips WHERE id=?',(clip_id,)).fetchone()
+        if row and row['local_selection']=='discarded':raise HTTPException(409, 'Discarded clip content was removed')
         c.execute("UPDATE clips SET deleted_at=NULL,updated_at=? WHERE id=?", (now_iso(), clip_id))
     schedule_metadata_sync([clip_id])
     return {"ok": True}
@@ -1017,27 +575,11 @@ def restore_clip(clip_id: str):
 
 @app.delete("/api/clips/{clip_id}/permanent")
 def permanent_delete(clip_id: str):
+    from local_library import erase
     with db() as c:
-        row = c.execute("SELECT * FROM clips WHERE id=?", (clip_id,)).fetchone()
-        if not row:
-            raise HTTPException(404, "Clip not found")
-    # If this clip exists on Drive, permanent deletion must remove remote assets first.
-    if row["drive_clip_path"] or row["drive_thumb_path"] or row["drive_meta_path"]:
-        try:
-            with DRIVE_LOCK:
-                remove_remote_file(row["drive_clip_path"])
-                remove_remote_file(row["drive_thumb_path"])
-                remove_remote_file(row["drive_meta_path"])
-        except Exception as exc:
-            raise HTTPException(502, f"Drive delete failed; local record kept for safety: {exc}")
-    (CLIPS_DIR / row["filename"]).unlink(missing_ok=True)
-    if row["thumb_filename"]:
-        (THUMBS_DIR / row["thumb_filename"]).unlink(missing_ok=True)
-    (METADATA_DIR / f"{clip_id}.json").unlink(missing_ok=True)
-    with db() as c:
-        c.execute("DELETE FROM clip_keywords WHERE clip_id=?", (clip_id,))
-        c.execute("DELETE FROM clips WHERE id=?", (clip_id,))
-    return {"ok": True}
+        c.execute('BEGIN IMMEDIATE')
+        erase(DATA,c,'video',[clip_id],now_iso)
+    return {"ok":True}
 
 
 @app.post("/api/clips/{clip_id}/reanalyze")
@@ -1134,18 +676,11 @@ def start_processing(source_id: str):
         if row["status"] == "processing":
             return {"ok": True, "status": "processing"}
         if row["source_deleted_at"]:
-            raise HTTPException(409, "Source was safely cleaned after Drive verification and cannot be reprocessed")
+            raise HTTPException(409, "Source was safely cleaned after local selection verification and cannot be reprocessed")
         existing = c.execute("SELECT COUNT(*) n FROM clips WHERE source_id=?", (source_id,)).fetchone()["n"]
         if existing:
-            raise HTTPException(409, "This source already has generated clips. Use Drive Retry instead of creating duplicates.")
+            raise HTTPException(409, "This source already has generated clips. Complete the existing pair review instead of creating duplicates.")
         values = get_settings_map(c)
-    if setting_true(values, "drive_enabled"):
-        try:
-            result = drive_preflight(values)
-            if not result.get("ok"):
-                raise RuntimeError(result.get("detail") or "Drive unavailable")
-        except Exception as exc:
-            raise HTTPException(503, f"Drive preflight failed; processing not started: {exc}")
     with db() as c:
         c.execute("UPDATE sources SET status='queued',stage='queued',progress=0,error=NULL,updated_at=? WHERE id=?", (now_iso(), source_id))
     thread = threading.Thread(target=process_source, args=(source_id,), daemon=True)
@@ -1155,43 +690,8 @@ def start_processing(source_id: str):
 
 @app.post("/api/sources/{source_id}/manual-cleanup")
 def manual_cleanup_source(source_id: str):
-    """Manually remove only the local original source after a failed job.
-
-    Generated clips, thumbnails, metadata records, and any Drive objects are intentionally
-    left untouched so Drive sync can still be retried from the generated clip files.
-    """
-    with db() as c:
-        src = c.execute("SELECT * FROM sources WHERE id=?", (source_id,)).fetchone()
-        if not src:
-            raise HTTPException(404, "Source not found")
-        if src["status"] == "processing":
-            raise HTTPException(409, "Cannot clean a source while it is processing")
-        failed_state = (
-            src["status"] == "failed"
-            or src["drive_state"] == "sync_failed"
-            or str(src["stage"] or "").endswith("failed")
-            or "failed" in str(src["stage"] or "")
-        )
-        if not failed_state:
-            raise HTTPException(409, "Manual cleanup is available only for failed jobs")
-        if src["source_deleted_at"]:
-            return {"ok": True, "already_cleaned": True, "bytes_removed": 0}
-        # A Drive quota failure is NOT permission to destroy the only local original.
-        if not src["drive_source_path"] or not src["drive_source_verified_at"]:
-            raise HTTPException(409, "Original source has not been verified on Drive; local original must be retained")
-        source_file = SOURCES_DIR / src["stored_name"]
-        bytes_removed = source_file.stat().st_size if source_file.exists() else 0
-        source_file.unlink(missing_ok=True)
-        ts = now_iso()
-        c.execute(
-            "UPDATE sources SET source_deleted_at=?,source_cleanup_mode='manual_failed',updated_at=? WHERE id=?",
-            (ts, ts, source_id),
-        )
-    return {
-        "ok": True,
-        "bytes_removed": bytes_removed,
-        "detail": "Local source removed. Generated clips and Drive assets were not deleted.",
-    }
+    from local_library import finalize
+    return finalize(DATA, db, now_iso, source_id)
 
 
 @app.delete("/api/sources/{source_id}")
@@ -1200,6 +700,9 @@ def delete_source(source_id: str):
         src = c.execute("SELECT * FROM sources WHERE id=?", (source_id,)).fetchone()
         if not src:
             raise HTTPException(404, "Source not found")
+        c.execute('BEGIN IMMEDIATE')
+        if src['status'] in ('queued','processing','failed'):
+            raise HTTPException(409, 'Pending, active or failed source is protected')
         clip_count = c.execute("SELECT COUNT(*) n FROM clips WHERE source_id=?", (source_id,)).fetchone()["n"]
         if clip_count:
             raise HTTPException(409, "Source has generated clips. Keep the source record to preserve clip provenance.")
@@ -1213,13 +716,9 @@ def get_settings():
     with db() as c:
         values = {r["key"]: r["value"] for r in c.execute("SELECT * FROM settings")}
     values["ai_configured"] = "true" if model_ready(DATA / "ai_models") else "false"
-    runtime = drive_runtime_status(values)
-    values["rclone_available"] = "true" if runtime["rclone_available"] else "false"
-    values["rclone_config_path"] = runtime["config_path"]
-    values["rclone_config_exists"] = "true" if runtime["config_exists"] else "false"
-    values["drive_remote_configured"] = "true" if runtime["remote_configured"] else "false"
-    values["drive_remotes"] = ",".join(runtime["remotes"])
-    return {"values": values, "drive_runtime": runtime}
+    values['drive_enabled'] = 'false'
+    return {"values": values, "storage_mode":"vps_only"}
+
 
 
 @app.patch("/api/settings")
@@ -1230,103 +729,32 @@ def update_settings(body: SettingsUpdate):
         if not .5<=minimum<=maximum<=30 or not .05<=threshold<=.9:raise ValueError()
     except (ValueError,TypeError):
         raise HTTPException(400,"Use 0.5 <= minimum <= maximum <= 30 seconds and scene sensitivity 0.05–0.9")
-    allowed = {"clip_min_seconds", "clip_max_seconds", "scene_threshold", "duplicate_detection", "quality_filter", "ai_auto", "source_cleanup", "drive_enabled", "drive_remote", "drive_root", "drive_verify", "drive_sync_metadata"}
+    allowed = {"clip_min_seconds", "clip_max_seconds", "scene_threshold", "duplicate_detection", "quality_filter", "ai_auto"}
     with db() as c:
         for k, v in body.values.items():
             if k in allowed:
                 c.execute("INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (k, str(v)))
     return {"ok": True}
 
-@app.get("/api/drive/status")
-def drive_status():
-    return drive_runtime_status()
-
-
-@app.post("/api/drive/test")
-def test_drive():
-    values = get_settings_map()
-    if not setting_true(values, "drive_enabled"):
-        raise HTTPException(400, "Enable Drive-backed library and save settings before testing")
-    ts = now_iso()
-    try:
-        runtime = drive_runtime_status(values)
-        if not runtime["rclone_available"]:
-            raise RuntimeError("rclone is not installed")
-        if not runtime["config_exists"]:
-            raise RuntimeError(f"Runtime rclone config is missing: {runtime['config_path']}")
-        if not runtime["remote_configured"]:
-            raise RuntimeError(f"rclone remote '{runtime['remote']}' is not configured in the runtime config")
-        result = drive_preflight(values)
-        if not result.get("ok"):
-            raise RuntimeError(result.get("detail") or "Drive test failed")
-        with db() as c:
-            c.execute("INSERT INTO settings(key,value) VALUES('drive_last_test_status','pass') ON CONFLICT(key) DO UPDATE SET value='pass'")
-            c.execute("INSERT INTO settings(key,value) VALUES('drive_last_test_at',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (ts,))
-            c.execute("INSERT INTO settings(key,value) VALUES('drive_last_test_detail',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (f"{result.get('base','')} verified",))
-        return {**result, "runtime": runtime, "tested_at": ts}
-    except Exception as exc:
-        detail = str(exc)[:1000]
-        with db() as c:
-            c.execute("INSERT INTO settings(key,value) VALUES('drive_last_test_status','fail') ON CONFLICT(key) DO UPDATE SET value='fail'")
-            c.execute("INSERT INTO settings(key,value) VALUES('drive_last_test_at',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (ts,))
-            c.execute("INSERT INTO settings(key,value) VALUES('drive_last_test_detail',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (detail,))
-        raise HTTPException(503, detail)
-
-
-@app.post("/api/clips/{clip_id}/drive-sync")
-def retry_clip_drive_sync(clip_id: str):
-    with db() as c:
-        if not c.execute("SELECT 1 FROM clips WHERE id=?", (clip_id,)).fetchone():
-            raise HTTPException(404, "Clip not found")
-    ok = sync_clip_to_drive(clip_id, upload_media=True)
-    if not ok:
-        with db() as c:
-            row = c.execute("SELECT drive_error FROM clips WHERE id=?", (clip_id,)).fetchone()
-        raise HTTPException(502, row["drive_error"] if row else "Drive sync failed")
-    return {"ok": True}
-
-
-@app.post("/api/sources/{source_id}/drive-sync")
-def retry_source_drive_sync(source_id: str):
-    try:
-        result = sync_source_drive(source_id)
-    except Exception as exc:
-        raise HTTPException(502, str(exc))
-    if not result.get("ok"):
-        raise HTTPException(502, result.get("detail") or f"Drive verified {result.get('verified', 0)}/{result.get('total', 0)} clips")
-    return result
-
-
-
 # Additive V2 media, image ingestion, and editor API. V1 records/routes remain intact.
 from media_extensions import register_media_extensions
 register_media_extensions(app, data_dir=DATA, db=db, now_iso=now_iso,
                           get_settings_map=get_settings_map, setting_true=setting_true,
-                          drive_base=drive_base, drive_preflight=drive_preflight,
-                          run_rclone=run_rclone, upload_and_verify=upload_and_verify,
                           source_dir=SOURCES_DIR)
 
 # Advanced AI remains an additive, isolated service within the independent app.
 from ai_engine import model_ready
 from ai_workspace import register_ai_workspace
-AI_HOUSEKEEPING_LOCK = threading.Lock()
-def queue_ai_housekeeping():
-    if not AI_HOUSEKEEPING_LOCK.acquire(blocking=False):return
-    def finish():
-        try:
-            values=get_settings_map()
-            if not setting_true(values,"drive_enabled"):return
-            with db() as c:
-                dirty=[r["id"] for r in c.execute("SELECT v.id FROM clips v JOIN ai_metadata a ON a.media_id=v.id AND a.media_type='video' WHERE v.drive_clip_path IS NOT NULL AND (v.drive_verified_at IS NULL OR a.updated_at>v.drive_verified_at) LIMIT 5")]
-            sync_metadata_batch(dirty)
-            if values.get("source_cleanup")=="after_drive_verified":
-                with db() as c:
-                    ids=[r["id"] for r in c.execute("SELECT id FROM sources WHERE source_deleted_at IS NULL AND drive_source_verified_at IS NOT NULL AND status='completed' LIMIT 10")]
-                for ident in ids:cleanup_source_if_drive_safe(ident)
-        except Exception:
-            pass  # Drive failures preserve local inputs and retry on the next pass.
-        finally:AI_HOUSEKEEPING_LOCK.release()
-    threading.Thread(target=finish,daemon=True).start()
-register_ai_workspace(app, DATA, housekeeping_callback=queue_ai_housekeeping)
+# Local lifecycle callback retries deferred cleanup after jobs finish.
+from local_library import finalize
+def local_housekeeping():
+    with db() as c:
+        ids=[r[0] for r in c.execute("SELECT source_id FROM local_reviews WHERE state='pending'")]
+    for ident in ids:
+        try: finalize(DATA, db, now_iso, ident)
+        except Exception: pass  # Retain all protected media; owner can retry explicitly.
+register_ai_workspace(app, DATA, housekeeping_callback=local_housekeeping)
+from local_library import register as register_local_library
+register_local_library(app, DATA, db, now_iso)
 (DATA / 'ai_previews').mkdir(exist_ok=True)
 app.mount('/media/ai-previews', StaticFiles(directory=DATA / 'ai_previews'), name='ai-previews')

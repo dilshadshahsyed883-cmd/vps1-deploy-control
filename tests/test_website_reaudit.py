@@ -35,7 +35,7 @@ class ReauditBehavior(unittest.TestCase):
         for value in ('https://drive.google.com/file/d/example/view','../clip.mp4','Videos//clip.mp4','gdrive:clip.mp4'):
             with self.assertRaises(HTTPException) as caught:fn(SimpleNamespace(source='drive',value=value))
             self.assertEqual(caught.exception.status_code,400)
-            self.assertIn('relative',caught.exception.detail)
+            self.assertIn('local uploads',caught.exception.detail)
 
     def test_audio_settings_validate_token_before_persisting(self):
         check=function('apps/scene-builder/part01/app.py','require_settings_csrf',{'HTTPException':HTTPException,'secrets':secrets})

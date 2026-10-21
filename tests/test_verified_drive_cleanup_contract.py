@@ -25,10 +25,11 @@ class PerAppCleanupContracts(unittest.TestCase):
         self.assertIn("root.parent != projects_root().resolve()", s)
         self.assertIn('not bool(meta.get("web_preview_reference", False))', s)
 
-    def test_library_never_bypasses_remote_check(self):
-        s = self.source("apps/self-media-library/part01/app.py")
-        self.assertIn("Drive verification cannot be bypassed", s)
-        self.assertIn('verify = True  # Mandatory per-app remote readback', s)
+    def test_library_local_selection_exception(self):
+        s = self.source("apps/self-media-library/part01/local_library.py")
+        self.assertIn("Complete every pair", s)
+        self.assertIn("sha256_file(path) != row['sha256']", s)
+        self.assertIn("protect(conn, 'video', ids, pending=False)", s)
 
     def test_merger_checks_exact_remote_bytes(self):
         s = self.source("apps/video-merger/part01/app.py")

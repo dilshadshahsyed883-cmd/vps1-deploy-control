@@ -73,21 +73,13 @@ class WorkspaceTests(unittest.TestCase):
         self.assertTrue(c.post('/api/v1/media/reservations/'+lease+'/commit',headers=h).json()['idempotent'])
         body['scene_id']='scene2'
         self.assertEqual(c.post('/api/v1/media/reservations',headers=h,json=body).json()['count'],0)
-    def test_source_cleanup_requires_full_original_and_no_active_dependents(self):
+    def test_legacy_source_without_selection_is_protected(self):
         m=self.module;ts=m.now_iso()
-        self.assertEqual(m.drive_path({'drive_remote':'gdrive','drive_root':'library'},'sources','source.mp4'),'gdrive:library/sources/source.mp4')
         with m.db() as c:
             c.execute("INSERT INTO sources(id,filename,stored_name,created_at,updated_at) VALUES('source','original.mp4','source.mp4',?,?)",(ts,ts))
-            c.execute("INSERT INTO clips(id,source_id,filename,created_at,updated_at,drive_state,drive_clip_path,drive_meta_path,drive_verified_at) VALUES('clip','source','clip.mp4',?,?,'verified','gdrive:clip','gdrive:meta',?)",(ts,ts,ts))
         original=m.SOURCES_DIR/'source.mp4';original.write_bytes(b'original protected')
-        self.assertFalse(m.source_drive_gate('source')['all_verified'])
-        self.assertFalse(m.cleanup_source_if_drive_safe('source')['cleaned']);self.assertTrue(original.is_file())
-        with m.db() as c:c.execute("UPDATE sources SET drive_source_path='gdrive:original',drive_source_verified_at=? WHERE id='source'",(ts,))
-        from ai_workspace import enqueue
-        job=enqueue(self.root,'analyze','source','source')
-        self.assertFalse(m.cleanup_source_if_drive_safe('source')['cleaned']);self.assertTrue(original.is_file())
-        self.client.post('/api/v1/ai/jobs/'+job+'/cancel')
-        self.assertTrue(m.source_drive_gate('source')['cleanup_ready'])
+        self.assertEqual(self.client.post('/api/sources/source/manual-cleanup').status_code,404)
+        self.assertTrue(original.is_file())
 
     def test_real_adaptive_scene_cut_and_default_segments(self):
         video=self.root/'cut.mp4'

@@ -14,7 +14,7 @@
 - **Short Maker:** per-job Drive copy + remote MD5 and size; verified-clean now enforced when Drive delivery selected and job temp directories included.
 - **Auto Caption / Video Studio:** web-flow cleanup already existed. Hardened to require *all sibling jobs* complete, uploaded and verified before deleting any shared project directory. Legacy explicit retention and preview references stay protected.
 - **Video Merger:** already deletes its per-job workspace on successful Drive delivery; strengthened remote verification to match local byte count.
-- **Self Media Library:** preserves reusable clip assets, while source input cleanup is gated on all clips/sidecars Drive verified. Removed the remote-verification bypass.
+- **Self Media Library — owner exception, 22 Oct 2026:** VPS-only reusable clips/images. No Drive upload/retry/deletion. Original and rejected clips are removed only after complete manual consecutive-pair review, local hash/decode verification and no active job/editor dependency. Other applications retain the Drive rule.
 - **Voice Studio (clone spooler):** already has per-job Drive-verified receipt-gated audio/text cleanup; keep protected library/media and other voice engines distinct.
 - **Scene Builder:** existing project-scoped cleanup in Storage Manager scanner is *not* app-owned; migrate delivery/verification hook into Scene runtime before enabling deletion.
 - **Local Upload Manager / Auto Uploader:** YouTube uploads and Google Drive source staging are not equivalent to uploading the output to Google Drive; retain active publish sources and queue data until genuine receipt + downstream completion. App-specific integration still required.

@@ -99,16 +99,16 @@
         </article>
         <div class="sml-input-right">
           <article class="panel sml-remote-card import-panel">
-            <div class="panel-head"><div><h2>Import from online sources</h2><p>Configured Drive or rights-authorized YouTube media.</p></div><span class="sml-input-tag">Remote</span></div>
+            <div class="panel-head"><div><h2>Import from online sources</h2><p>Rights-authorized YouTube media, stored on this VPS.</p></div><span class="sml-input-tag">Remote</span></div>
             <label class="sml-select-hidden" for="importSource">Remote source</label>
-            <select id="importSource" class="sml-select-hidden" aria-label="Remote source"><option value="drive">Google Drive relative path</option><option value="youtube">YouTube video (authorized)</option></select>
+            <select id="importSource" class="sml-select-hidden" aria-label="Remote source"><option value="youtube">YouTube video (authorized)</option></select>
             <div class="sml-import-tabs" role="tablist" aria-label="Remote import source">
-              <button type="button" role="tab" class="active" aria-selected="true" data-sml-import="drive">▱ Google Drive</button>
+
               <button type="button" role="tab" aria-selected="false" data-sml-import="youtube">▶ YouTube</button>
             </div>
-            <label for="importValue" id="smlImportLabel">Drive file path</label>
-            <input id="importValue" class="setting-text import-text" type="text" placeholder="My Footage/source.mp4" />
-            <p class="sml-input-help" id="smlImportHelp">Relative to your configured SML Drive remote. Share URLs are not supported.</p>
+            <label for="importValue" id="smlImportLabel">YouTube video URL</label>
+            <input id="importValue" class="setting-text import-text" type="text" placeholder="https://www.youtube.com/watch?v=..." />
+            <p class="sml-input-help" id="smlImportHelp">Only import videos you have permission to reuse.</p>
             <div class="sml-import-actions"><label class="import-choice"><input id="importRights" type="checkbox" /> I have permission to import and reuse this media.</label><button class="primary" type="button" id="submitImport">Queue import</button></div>
             <details class="sml-input-disclosure"><summary>Advanced import options</summary><label class="import-choice"><input id="importProxy" type="checkbox" /> Use existing server proxy profile (if configured)</label></details>
             <details class="sml-input-disclosure"><summary>Recent remote imports</summary><div id="importHistory" class="source-list" role="status"></div></details>
@@ -135,11 +135,12 @@
       <article class="panel sml-ai-panel"><div class="panel-head"><div><h2>Visual analysis queue</h2><p id="aiQueueNote">Actual media analysis runs in the background.</p></div><button class="primary" data-ai-action="analyze">Analyze pending media</button></div><div id="aiJobs" aria-live="polite"></div></article>
       <article class="panel">
         <div class="panel-head"><div><h2>Processing queue</h2><p>Shot detection → clip creation → automatic metadata.</p></div><button class="ghost" id="refreshProcessing">Refresh</button></div>
-        <div id="processingList" class="processing-list"></div>
+        <div id="processingList" class="processing-list"></div><h2>Pair review — Keep One / Discard Other</h2><p>Compare consecutive clips side by side. Pending decisions retain both files. The odd last clip can be kept or discarded.</p><div id="pairReviews"></div>
       </article>
     </section>
 
     <section id="page-library" class="page">
+      <div class="library-toolbar"><b>Library date range</b><label>From <input id="localFrom" type="date"></label><label>To <input id="localTo" type="date"></label><button class="ghost" id="clearLibraryDates">Clear dates</button></div>
       <article class="panel sml-ai-panel">
         <div class="panel-head"><div><h2>AI Search</h2><p>Describe a scene or find similar media. Model suggestions always remain reviewable.</p></div><button class="ghost" id="aiViewToggle">List view</button></div>
         <form id="aiSearchForm" class="sml-ai-search"><label class="sml-ai-wide">Scene description<input id="aiQuery" maxlength="500" placeholder="Peaceful mountain lake, cinematic city at night…"></label><button class="primary" type="submit">Search media</button></form>
@@ -152,7 +153,7 @@
           <label>Max duration (sec)<input name="max_duration" type="number" min="0" value="36000"></label>
           <label>Minimum width<input name="min_width" type="number" min="0" value="0"></label>
           <label>Minimum FPS<input name="min_fps" type="number" min="0" value="0"></label>
-          <label>Codec<input name="codec" placeholder="h264"></label><label>Subject<input name="subject" placeholder="flower"></label><label>Action<input name="action" placeholder="running"></label><label>Environment<input name="environment" placeholder="forest"></label><label>Lighting<input name="lighting" placeholder="daylight"></label><label>Mood<input name="mood" placeholder="peaceful"></label><label>Source<input name="source" placeholder="local / drive / source ID"></label>
+          <label>Codec<input name="codec" placeholder="h264"></label><label>Subject<input name="subject" placeholder="flower"></label><label>Action<input name="action" placeholder="running"></label><label>Environment<input name="environment" placeholder="forest"></label><label>Lighting<input name="lighting" placeholder="daylight"></label><label>Mood<input name="mood" placeholder="peaceful"></label><label>Source<input name="source" placeholder="local / youtube / source ID"></label>
           <label>Usage<select name="used"><option value="all">All usage</option><option value="unused">Unused</option><option value="used">Used</option></select></label>
           <label>Duplicates<select name="duplicate"><option value="all">All media</option><option value="clear">Exclude exact duplicates</option><option value="exact">Exact duplicates</option></select></label>
           <label>From date<input name="date_from" type="date"></label><label>To date<input name="date_to" type="date"></label>
@@ -179,13 +180,13 @@
         </div>
       </div>
       <div class="library-meta"><span id="resultCount">0 clips</span><span><button class="link-btn" id="selectVisible">Select visible</button><button class="link-btn" data-goto="trash">Trash / Restore</button></span></div>
-      <div id="libraryGrid" class="clip-grid"></div>
+      <h2>Video Clips</h2><div id="libraryGrid" class="clip-grid"></div>
 
       <div class="pager"><button class="ghost" id="loadMore">Load more video clips</button></div>
       <article class="panel settings-spaced">
         <div class="panel-head"><div><h2>Images</h2><p>Preview, search, rename, tag, approve and archive your photos.</p></div></div>
-        <div class="library-toolbar"><input id="imageSearch" class="setting-text" placeholder="Search image keywords…" /><select id="imageStatus"><option value="all">All images</option><option value="candidate">Candidate</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select><select id="imageOrientation" aria-label="Image orientation"><option value="all">All orientations</option><option value="landscape">Landscape</option><option value="portrait">Portrait</option><option value="square">Square</option><option value="unknown">Unknown</option></select></div>
-        <div id="imagesGrid" class="image-grid"></div>
+        <div class="library-toolbar"><input id="imageSearch" class="setting-text" placeholder="Search filename, description, keywords…" /><select id="imageStatus"><option value="all">All images</option><option value="candidate">Candidate</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select><select id="imageOrientation" aria-label="Image orientation"><option value="all">All orientations</option><option value="landscape">Landscape</option><option value="portrait">Portrait</option><option value="square">Square</option><option value="unknown">Unknown</option></select></div>
+        <div class="row-actions"><button id="selectAllImages" class="ghost">Select visible images</button><button id="deleteSelectedImages" class="danger-soft">Delete selected images</button><button id="deleteSelectedClips" class="danger-soft">Delete selected video clips permanently</button></div><div id="imagesGrid" class="image-grid"></div>
         <div id="imageEditor" class="image-editor hidden">
           <img id="imageEditorPreview" alt="Selected image preview"/>
           <div><h3 id="imageEditorHeading">Edit image</h3>
@@ -194,7 +195,7 @@
             <label for="imageKeywords">Keywords (comma separated)</label><input id="imageKeywords" class="setting-text" />
             <label for="imageDescription">Description</label><textarea id="imageDescription" class="setting-text" rows="2"></textarea>
             <label for="imageReviewStatus">Review state</label><select id="imageReviewStatus"><option value="candidate">Candidate</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>
-            <div class="row-actions"><button id="imageSave" class="primary">Save changes</button><button id="imageDriveRetry" class="ghost">Retry Drive</button><button id="imageTrash" class="danger-soft">Move to trash</button><button id="imageClose" class="ghost">Close</button></div>
+            <div class="row-actions"><button id="imageSave" class="primary">Save changes</button><button id="imageTrash" class="danger-soft">Move to trash</button><button id="imageClose" class="ghost">Close</button></div>
           </div>
         </div>
       </article>
@@ -229,19 +230,12 @@
       </article>
 
       <article class="panel settings-panel settings-spaced">
-        <div class="panel-head"><div><h2>Google Drive backend</h2><p>Drive is the durable library store. Local source cleanup happens only after verification.</p></div><div class="ai-pill" id="drivePill">Drive status</div></div>
-        <div class="setting-row"><div><b>Enable Drive-backed library</b><span>Require Drive preflight before processing and auto-upload every generated asset.</span></div><label class="switch"><input id="driveEnabled" type="checkbox"><span></span></label></div>
-        <div class="setting-row"><div><b>rclone remote</b><span>Name of the configured Google Drive remote on this VPS.</span></div><input id="driveRemote" class="setting-text" placeholder="gdrive"/></div>
-        <div class="setting-row"><div><b>Drive root folder</b><span>Clips, thumbnails and metadata folders are created inside this folder.</span></div><input id="driveRoot" class="setting-text" placeholder="Self Media Library"/></div>
-        <div class="setting-row"><div><b>Verify every upload</b><span>Compare remote file size and MD5 when Google Drive exposes the hash.</span></div><label class="switch"><input id="driveVerify" type="checkbox"><span></span></label></div>
-        <div class="setting-row"><div><b>Sync keyword metadata to Drive</b><span>Keyword, status, trash and AI changes update each clip's Drive JSON sidecar.</span></div><label class="switch"><input id="driveSyncMetadata" type="checkbox"><span></span></label></div>
-        <div class="setting-row"><div><b>Auto-clean local source</b><span>Delete the original source only after a fresh all-clips Drive verification gate passes.</span></div><label class="switch"><input id="sourceCleanup" type="checkbox"><span></span></label></div>
-        <div class="runtime-box" id="driveRuntimeBox">
-          <div><b>Runtime Drive configuration</b><span id="driveRuntimeState">Checking…</span></div>
-          <code id="driveConfigPath"></code>
-          <small id="driveLastTest"></small>
-        </div>
-        <div class="settings-actions"><button class="ghost" id="testDrive">Test Drive</button><button class="primary" id="saveSettings">Save settings</button></div>
+        <h2>VPS local storage</h2><p id="localStorage">Loading storage…</p>
+        <p>Originals and both candidates remain until every pair has a decision and kept clips pass verification. Active jobs and editor references are protected.</p>
+        <button class="primary" id="saveSettings">Save settings</button>
+        <h2>Clear &amp; Replace Library</h2><p>Begin replacement, upload and approve new media, then commit. Your current library stays available until the replacement is verified. Referenced media blocks clearing.</p>
+        <div id="replacementState"></div><button id="beginReplacement" class="danger-soft">Begin replacement</button>
+        <button id="commitReplacement" class="danger-soft" hidden>Verify new library &amp; clear old</button><button id="cancelReplacement" class="ghost" hidden>Cancel replacement</button>
       </article>
     </section>
   </main>
@@ -257,10 +251,10 @@
     <div><label>Source</label><b id="drawerSource"></b></div>
     <div><label>Timestamp</label><b id="drawerTime"></b></div>
     <div><label>Quality</label><b id="drawerQuality"></b></div>
-    <div><label>Drive</label><b id="drawerDrive"></b></div>
+    <div><label>Storage</label><b id="drawerDrive"></b></div>
     <div><label>Status</label><select id="drawerStatus" aria-label="Clip review status"><option value="candidate">Candidate</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select></div>
   </div>
-  <div class="drawer-actions"><button class="ghost" id="reanalyzeClip">↻ Re-analyze</button><button class="ghost" id="syncClipDrive">☁ Sync Drive</button><button class="primary" id="saveClip">Save changes</button><button class="danger-soft" id="deleteClip">Move to trash</button></div>
+  <div class="drawer-actions"><button class="ghost" id="reanalyzeClip">↻ Re-analyze</button><button class="primary" id="saveClip">Save changes</button><button class="danger-soft" id="deleteClip">Move to trash</button></div>
 </aside>
 
 <div class="modal hidden" id="keywordModal">
@@ -268,10 +262,11 @@
 </div>
 
 <div id="toast" class="toast hidden"></div>
-<script src="/self-media-library/static/app.js?v=20261021-drive-quota-v1"></script>
+<script src="/self-media-library/static/app.js?v=20261022-local-v1"></script>
 <aside id="aiInspector" class="sml-ai-inspector hidden" aria-label="AI metadata inspector"><div class="panel-head"><h2 id="aiInspectorTitle">Media inspector</h2><button id="aiInspectorClose" class="ghost" aria-label="Close AI inspector">Close</button></div><div id="aiInspectorMedia"></div><p id="aiInspectorState"></p>
 <form id="aiMetadataForm"><label>Description<textarea id="aiDescription" rows="3"></textarea></label><label>Keywords (comma separated)<input id="aiKeywords"></label><label>Review reason<input id="aiReviewReason" maxlength="500"></label><label>Custom fields (JSON object)<textarea id="aiCustom" rows="2">{}</textarea></label><label>Tag aliases (JSON object)<textarea id="aiAliases" rows="2">{}</textarea></label><label><input id="aiRights" type="checkbox"> I have permission to reuse this asset</label><div id="aiManualCategories" class="sml-ai-filters"></div><button class="primary" type="submit">Save corrections</button></form>
 <div class="sml-ai-actions"><button class="ghost" id="aiReanalyze">Reanalyze media</button><button class="ghost" id="aiSimilar">Find similar</button><button class="ghost" id="aiHistory">Change &amp; usage history</button></div><div id="aiFieldDetails"></div><div id="aiHistoryDetails"></div></aside>
+<script defer src="/self-media-library/static/local_library.js?v=20261022-local-v1"></script>
 <script defer src="/self-media-library/static/ai_workspace.js?v=20261020-ai-v1"></script>
 </body>
 </html>

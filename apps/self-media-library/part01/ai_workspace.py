@@ -500,8 +500,8 @@ def register_ai_workspace(app,root,housekeeping_callback=None):
             active=c.execute("SELECT COUNT(*) FROM ai_jobs WHERE state IN ('queued','running')").fetchone()[0]
             retained=c.execute("SELECT COUNT(*) FROM sources WHERE source_deleted_at IS NULL").fetchone()[0]
         return {'owner':'self-media-library','drive_enabled':config.get('drive_enabled')=='true','active_ai_jobs':active,
-                'retained_sources':retained,'rule':'Original Drive archive + output size/hash/readback + no active dependencies',
-                'protected':['originals without verified remote copies','model cache','databases','credentials','approved library assets']}
+                'retained_sources':retained,'rule':'Complete manual pair selection + local SHA-256/decode verification + no active dependencies',
+                'protected':['originals pending complete verified selection','model cache','databases','credentials','approved library assets']}
     @app.get('/api/v1/ai/usage/{media_id}')
     def usage(media_id:str):
         with connect(root) as c:rows=c.execute('SELECT project_id,scene_id,state,created_at,expires_at,committed_at FROM media_reservations WHERE media_id=? ORDER BY created_at DESC LIMIT 200',(media_id,)).fetchall()
