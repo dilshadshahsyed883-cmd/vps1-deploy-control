@@ -67,6 +67,37 @@ async function loadSettings(){ const d=await api('/api/settings'),v=d.values,r=d
 $('#saveSettings').onclick=async()=>{ const values={clip_min_seconds:$('#clipMin').value,clip_max_seconds:$('#clipMax').value,scene_threshold:$('#sceneThreshold').value,ai_auto:String($('#aiAuto').checked),duplicate_detection:String($('#dupToggle').checked),quality_filter:String($('#qualityToggle').checked),drive_enabled:String($('#driveEnabled').checked),drive_remote:$('#driveRemote').value.trim()||'gdrive',drive_root:$('#driveRoot').value.trim()||'Self Media Library',drive_verify:String($('#driveVerify').checked),drive_sync_metadata:String($('#driveSyncMetadata').checked),source_cleanup:$('#sourceCleanup').checked?'after_drive_verified':'keep'}; await api('/api/settings',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({values})}); toast('Settings saved'); checkHealth(); };
 $('#testDrive').onclick=async()=>{ $('#testDrive').disabled=true; $('#testDrive').textContent='Testing…'; try{ const d=await api('/api/drive/test',{method:'POST'}); $('#drivePill').textContent=`Verified · ${d.remote}:${d.root}`; $('#drivePill').classList.add('ready'); toast('Drive read/write verification passed'); }catch(e){ $('#drivePill').textContent='Drive test failed'; $('#drivePill').classList.remove('ready'); toast(e.message); }finally{$('#testDrive').disabled=false;$('#testDrive').textContent='Test Drive';loadSettings()} };
 
+// Owner-approved compact SML Input controls: retain all existing endpoints/IDs.
+const smlUploadTabs=Array.from(document.querySelectorAll('[data-sml-upload]'));
+function setSmlUploadTab(kind){
+  smlUploadTabs.forEach(button=>{const active=button.dataset.smlUpload===kind;button.classList.toggle('active',active);button.setAttribute('aria-selected',String(active));button.tabIndex=active?0:-1;});
+  for(const pane of document.querySelectorAll('.sml-upload-pane'))pane.hidden=pane.id!=='sml-upload-'+kind;
+}
+smlUploadTabs.forEach(button=>button.addEventListener('click',()=>setSmlUploadTab(button.dataset.smlUpload)));
+const smlImportButtons=Array.from(document.querySelectorAll('[data-sml-import]'));
+function setSmlImportSource(source){
+  const select=document.getElementById('importSource');select.value=source;
+  smlImportButtons.forEach(button=>{const active=button.dataset.smlImport===source;button.classList.toggle('active',active);button.setAttribute('aria-selected',String(active));button.tabIndex=active?0:-1;});
+  document.getElementById('smlImportLabel').textContent=source==='youtube'?'YouTube video URL':'Drive file path';
+  document.getElementById('importValue').placeholder=source==='youtube'?'https://www.youtube.com/watch?v=...':'My Footage/source.mp4';
+  document.getElementById('smlImportHelp').textContent=source==='youtube'?'Only import videos you have permission to reuse.':'Relative to your configured SML Drive remote. Share URLs are not supported.';
+  select.dispatchEvent(new Event('change',{bubbles:true}));
+}
+smlImportButtons.forEach(button=>button.addEventListener('click',()=>setSmlImportSource(button.dataset.smlImport)));
+document.getElementById('importSource').addEventListener('change',event=>setSmlImportSource(event.target.value));
+document.getElementById('smlChooseImages').addEventListener('click',()=>document.getElementById('imageFiles').click());
+document.getElementById('smlChooseFolder').addEventListener('click',()=>document.getElementById('aiFolderInput').click());
+document.getElementById('imageFiles').addEventListener('change',event=>{const n=event.target.files.length;document.getElementById('imageUploadResult').textContent=n?n+' image(s) selected. Choose Add selected images to upload.':'';});
+const smlImageDrop=document.getElementById('smlImageDrop');
+['dragenter','dragover'].forEach(type=>smlImageDrop.addEventListener(type,event=>{event.preventDefault();smlImageDrop.classList.add('drag');}));
+['dragleave','drop'].forEach(type=>smlImageDrop.addEventListener(type,event=>{event.preventDefault();smlImageDrop.classList.remove('drag');}));
+smlImageDrop.addEventListener('drop',event=>{
+  const files=Array.from(event.dataTransfer?.files||[]).filter(file=>/\\.(jpe?g|png|webp)$/i.test(file.name));
+  if(!files.length){document.getElementById('imageUploadResult').textContent='Choose JPG, PNG, or WEBP images.';return;}
+  const transfer=new DataTransfer();files.forEach(file=>transfer.items.add(file));
+  const input=document.getElementById('imageFiles');input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));
+});
+
 const sourceFile=$('#sourceFile'), drop=$('#dropPanel');
 $('#chooseSource').onclick=()=>sourceFile.click();
 $('#topAddSource').onclick=()=>{gotoPage('sources');sourceFile.click()};
