@@ -14,8 +14,7 @@ jobs:
       github.actor == 'dilshadshahsyed883-cmd' &&
       github.event_name == 'push' &&
       github.run_attempt == 1 &&
-      contains(github.event.head_commit.message, '[vps1-video-merger-imports-release]') &&
-      contains(github.event.head_commit.message, '[vps1-voice-template-only]')
+      contains(github.event.head_commit.message, '[vps1-video-merger-import-release]')
     environment: production
     runs-on: ubuntu-24.04
     timeout-minutes: 45

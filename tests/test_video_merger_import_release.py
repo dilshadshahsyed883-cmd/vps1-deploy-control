@@ -40,6 +40,14 @@ class Release(unittest.TestCase):
                     self.assertEqual((pointer/'part01/templates/index.html').read_text(),'active parallel UI')
                     self.assertEqual((pointer/'part01/app.py').read_text(),'new = True')
                     self.assertIn('a'*40+'-imports/bin/python',unit.read_text())
+    def test_workflow_intent_and_smoke_syntax(self):
+        root=Path(__file__).resolve().parents[1]
+        workflow=(root/'.github/workflows/vps1-video-merger-import-release.yml').read_text()
+        self.assertIn("contains(github.event.head_commit.message, '[vps1-video-merger-import-release]')",workflow)
+        self.assertNotIn('vps1-voice-template-only',workflow)
+        self.assertIn('install $SOURCE_SHA video-merger',workflow)
+        self.assertIn('StrictHostKeyChecking=yes',workflow)
+        compile((root/'production/video_merger_import_smoke.py').read_text(),'smoke','exec')
     def test_failure_before_promotion_preserves_live_service(self):self.exercise('smoke')
     def test_failed_health_rolls_back_pointer_and_python(self):self.exercise('health')
     def test_success_preserves_active_ui(self):self.exercise(None)
