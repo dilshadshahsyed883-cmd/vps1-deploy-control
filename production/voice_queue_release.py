@@ -79,8 +79,8 @@ def local_endpoint(engine: str, action: str) -> tuple[int, dict]:
 def verify_queues() -> None:
     for engine in ENGINES:
         status, health = local_endpoint(engine, "status")
-        require(status == 200 and "ready" in health,
-                engine + " upstream status API unavailable")
+        require(status == 200 and health.get("ready") is True,
+                engine + " upstream worker not ready: " + str(health.get("reason","status_missing")))
         status, jobs = local_endpoint(engine, "jobs?limit=1")
         require(status == 200 and isinstance(jobs.get("jobs"), list),
                 engine + " upstream queue API not registered/healthy")
