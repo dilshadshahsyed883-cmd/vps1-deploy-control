@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, importlib.util, json, os, re, shutil, socket, sqlite3, subprocess, threading, time, uuid, urllib.parse, ipaddress, html
+import sys, importlib.util, json, os, re, shutil, socket, sqlite3, subprocess, threading, time, uuid, urllib.parse, ipaddress, html, tempfile
 from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
@@ -192,10 +192,20 @@ def set_proxy_enabled(enabled):
         raise ValueError('Add and select a proxy profile first')
     cfg['enabled']=bool(enabled); save_proxy_config(cfg)
 
+def youtube_cookie_args():
+    # Optional owner-provided, app-specific Netscape cookie file; never log contents.
+    value=os.environ.get('VIDEO_MERGER_YOUTUBE_COOKIES_FILE','').strip()
+    if not value: return []
+    path=Path(value).expanduser()
+    if not path.is_absolute() or not path.is_file() or path.is_symlink():
+        raise RuntimeError('Configured Video Merger YouTube cookies file is unavailable')
+    return ['--cookies',str(path)]
+
 def yt_common_args(profile=None, force_profile=False):
     args=['-4','--no-playlist','--no-progress','--socket-timeout','30','--retries','2','--extractor-retries','2']
     if DENO.exists(): args += ['--js-runtimes',f'deno:{DENO}']
     elif shutil.which('node'): args += ['--js-runtimes','node:'+shutil.which('node')]
+    args += youtube_cookie_args()
     if profile is None and not force_profile: profile=active_proxy_profile()
     args += ['--proxy',proxy_url(profile) if profile else '']
     return args
@@ -203,9 +213,14 @@ def yt_common_args(profile=None, force_profile=False):
 def scrub_proxy_error(text):
     text=str(text or '')
     for p in load_proxy_config().get('profiles',[]):
+        # Scrub complete credential-bearing URLs first. Replacing one-character
+        # usernames/passwords globally would corrupt error diagnostics.
+        text=text.replace(proxy_url(p),'[private proxy URL]')
         for secret in (str(p.get('password') or ''),str(p.get('username') or '')):
-            if secret: text=text.replace(secret,'***')
+            if len(secret)>=4: text=text.replace(secret,'***')
     text=re.sub(r'https?://[^\s@]+@','http://***:***@',text)
+    cookie_path=os.environ.get('VIDEO_MERGER_YOUTUBE_COOKIES_FILE','').strip()
+    if cookie_path: text=text.replace(cookie_path,'[private cookie file]')
     return text[-1800:]
 
 def test_proxy_profile(pid):
@@ -215,10 +230,19 @@ def test_proxy_profile(pid):
     try:
         ip=run(['/usr/bin/curl','-fsS','--max-time','30','--proxy',url,'https://api.ipify.org'],timeout=40).strip()
         if not ip: raise RuntimeError('No egress IP returned')
-        out=run(downloader_command('yt_dlp')+yt_common_args(p,True)+['--simulate','--quiet','--no-warnings','--print','%(id)s','https://youtu.be/jNQXAC9IVRw'],timeout=90)
-        ok='jNQXAC9IVRw' in out
-        if not ok: raise RuntimeError('YouTube extraction test did not return the expected video ID')
-        return {'egress_ip':ip,'youtube_ok':True}
+        # Metadata extraction is NOT evidence that actual video bytes can download.
+        # Use a short public sample, verify its media stream, and discard all bytes.
+        with tempfile.TemporaryDirectory(prefix='vm-proxy-test-',dir=WORK) as workdir:
+            out_pattern=str(Path(workdir)/'sample.%(ext)s')
+            run(downloader_command('yt_dlp')+yt_common_args(p,True)+[
+                '--format','worst[ext=mp4]/worst','--max-filesize','100M',
+                '-o',out_pattern,'https://youtu.be/jNQXAC9IVRw'],timeout=240)
+            candidates=[f for f in Path(workdir).glob('sample.*')
+                        if f.is_file() and f.suffix.lower() not in ('.part','.ytdl','.json')]
+            if not candidates: raise RuntimeError('YouTube real download returned no media')
+            validate_downloaded_file(candidates[0],1)
+            verify_library_media(candidates[0])
+        return {'egress_ip':ip,'youtube_ok':True,'download_verified':True}
     except Exception as e:
         raise RuntimeError(scrub_proxy_error(e))
 
