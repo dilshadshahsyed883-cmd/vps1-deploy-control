@@ -493,11 +493,6 @@ def download_direct_http(url, dst, idx):
         r.close(); validate_downloaded_file(dst,idx); return
     raise RuntimeError(f'Video {idx}: too many redirects')
 
-def find_drive_item(fid):
-    out=rclone(['lsjson', REMOTE, '--recursive','--files-only','--fast-list'], timeout=1800)
-    items=json.loads(out or '[]')
-    return next((x for x in items if str(x.get('ID') or x.get('Id') or '')==fid),None)
-
 def source_to_file(url, dst, job_id, idx, status_cb=None):
     url=validate_url(url)
     def note(progress,message):
@@ -526,11 +521,15 @@ def source_to_file(url, dst, job_id, idx, status_cb=None):
         if dst.exists(): dst.unlink(missing_ok=True)
         fid=drive_id_from_url(url)
         if not fid: raise RuntimeError(f'Video {idx}: Drive download failed and file ID could not be parsed')
-        match=find_drive_item(fid)
-        if not match: raise RuntimeError(f'Video {idx}: Drive file is not accessible through the connected Drive account. Public download: {public_error}')
-        path=match.get('Path')
-        if not path: raise RuntimeError(f'Video {idx}: Drive file path could not be resolved')
-        rclone(['copyto',f'{REMOTE}{path}',str(dst)],timeout=7200)
+        # Rclone's Drive backend supports direct ID reads. Scanning every
+        # folder with lsjson --recursive caused Google API quota exhaustion.
+        # Keep the connected-account fallback limited to this one file ID.
+        if not re.fullmatch(r'[A-Za-z0-9_-]{10,}',fid):
+            raise RuntimeError('Invalid connected Drive file ID')
+        try:
+            rclone(['backend','copyid',REMOTE,fid,str(dst)],timeout=7200)
+        except Exception as exc:
+            raise RuntimeError(f'Video {idx}: connected Drive file-ID download failed; verify access or retry later: {scrub_proxy_error(exc)}') from None
         if not dst.exists() or dst.stat().st_size<=0: raise RuntimeError(f'Video {idx}: Drive copy failed')
         validate_downloaded_file(dst,idx); verify_library_media(dst); return
     reject_private_host(url); note(max(3,min(38,4+idx*5)),f'Downloading video {idx}'); download_direct_http(url,dst,idx)
