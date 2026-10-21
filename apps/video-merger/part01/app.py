@@ -314,7 +314,11 @@ def run_youtube_download(options, timeout, profile=None, force_profile=False):
             except Exception as exc:
                 last_error=exc
                 low=scrub_proxy_error(exc).lower().replace('’',"'")
-                challenge=('not a bot' in low or 'sign in to confirm' in low)
+                # Public clips sometimes return 'video unavailable' from one
+                # YouTube client even when Audio succeeds on the same VPS.
+                # Try one documented alternate; never repeat 429/403/proxy errors.
+                challenge=('not a bot' in low or 'sign in to confirm' in low
+                           or 'this video is unavailable' in low or 'video unavailable' in low)
                 if client=='default' and challenge and not any(
                     term in low for term in ('429','too many requests','403','proxy authentication','http error 407')
                 ):
