@@ -62,7 +62,7 @@ def planned_proxy_activation(config):
     require(bool(selected.get('host')) and bool(selected.get('username'))
             and bool(selected.get('password')), 'selected saved proxy credentials missing')
     obj['enabled']=True
-    return {'before':before,'after':(json.dumps(obj,indent=2)+'\\n').encode('utf-8'),
+    return {'before':before,'after':(json.dumps(obj,indent=2)+'\n').encode('utf-8'),
             'path':config,'uid':st.st_uid,'gid':st.st_gid}
 
 
@@ -133,7 +133,6 @@ def install(revision):
     atomic_json(journal/'previous.json',{'current':str(previous),'unit':previous_unit})
     new_unit=previous_unit.replace(str(old_python),str(python))
     new_unit=new_unit.replace(str(old_python.parent)+':',str(python.parent)+':')
-    idle(app)
     changed=False
     proxy_changed=False
     try:
