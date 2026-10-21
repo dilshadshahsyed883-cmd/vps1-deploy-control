@@ -68,6 +68,21 @@ def browser_test():
                         page.keyboard.press('Escape');assert page.locator('.vps1-native-toggle').get_attribute('aria-expanded')=='false'
                     else:assert round(page.locator('#vps1-native-site-sidebar').bounding_box()['width'])==214
                     page.locator('#nav button').filter(has_text='Input').click()
+                    # Exercise the actual approved Input controls before uploading.
+                    page.locator('[data-sml-import="youtube"]').click()
+                    assert page.locator('#importSource').input_value()=='youtube'
+                    assert 'YouTube' in page.locator('#smlImportLabel').inner_text()
+                    page.locator('[data-sml-import="drive"]').click()
+                    assert page.locator('#importSource').input_value()=='drive'
+                    page.locator('#smlBatchDetails summary').click()
+                    assert page.locator('#aiBatchUrls').is_visible()
+                    page.locator('#smlBatchDetails summary').click()
+                    page.locator('[data-sml-upload="folder"]').click()
+                    assert page.locator('#sml-upload-folder').is_visible()
+                    page.locator('[data-sml-upload="video"]').click()
+                    assert page.locator('#dropPanel').is_visible()
+                    page.locator('[data-sml-upload="image"]').click()
+                    assert page.locator('#sml-upload-image').is_visible()
                     page.locator('#imageFiles').set_input_files(sample)
                     page.locator('#imageUpload').click() if page.locator('#imageUpload').count() else page.get_by_role('button',name='Add selected images',exact=True).click()
                     page.get_by_text('imported',exact=False).first.wait_for()
