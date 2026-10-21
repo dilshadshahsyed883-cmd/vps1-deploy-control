@@ -32,6 +32,7 @@ class ManagementTests(unittest.IsolatedAsyncioTestCase):
                         "", 1280, 800, "1"))
             db.commit()
         folder = self.engine.root / "profiles" / ("a" * 24)
+        folder.mkdir(parents=True, exist_ok=True)
         (folder / "Cookies").write_text("persist")
         another = ManagedBrowserProfileEngine(self.engine.root)
         info = await another.list("alice")
