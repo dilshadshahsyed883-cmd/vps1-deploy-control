@@ -15,8 +15,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class AudioProxyTests(unittest.TestCase):
     def setUp(self):
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
+        try:
+            from fastapi import FastAPI
+            from fastapi.testclient import TestClient
+        except ImportError:
+            self.skipTest('FastAPI/httpx are installed and required by scoped Audio CI')
         self.tmp = tempfile.TemporaryDirectory()
         self.env = patch.dict(os.environ, {'AUDIO_DOWNLOADER_ROOT': self.tmp.name})
         self.env.start()
@@ -168,7 +171,10 @@ class AudioProxyTests(unittest.TestCase):
             self.assertNotIn('p:a ss', str(error))
 
     def test_real_ytdlp_parser_respects_explicit_private_config(self):
-        import yt_dlp
+        try:
+            import yt_dlp
+        except ImportError:
+            self.skipTest('yt-dlp is installed and required by scoped Audio CI')
         with self.m.youtube_execution() as (args, _):
             opts = yt_dlp.parse_options(args + ['--simulate', self.job()['url']]).ydl_opts
             self.assertEqual(opts['proxy'], 'http://u%40ser:p%3Aa%20ss@proxy.example.com:8080')
