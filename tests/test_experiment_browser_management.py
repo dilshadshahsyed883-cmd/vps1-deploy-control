@@ -44,6 +44,33 @@ class ManagementTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(another._get("alice", "a" * 24)["proxy_password"], "secret")
         self.assertNotIn("secret", json.dumps(info))
 
+    async def test_first_real_legacy_schema_upgrade_creates_private_backup(self):
+        root = self.engine.root
+        root.mkdir(parents=True, exist_ok=True)
+        dbpath = root / "profiles.sqlite3"
+        with sqlite3.connect(dbpath) as db:
+            db.execute("""CREATE TABLE profiles (
+                id TEXT PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL,
+                start_url TEXT NOT NULL, proxy_server TEXT NOT NULL,
+                proxy_username TEXT NOT NULL, proxy_password TEXT NOT NULL,
+                locale TEXT NOT NULL, timezone TEXT NOT NULL,
+                user_agent TEXT NOT NULL, width INTEGER NOT NULL,
+                height INTEGER NOT NULL, created_at TEXT NOT NULL)""")
+            db.execute("INSERT INTO profiles VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                       ("b"*24, "alice", "Original", "about:blank", "", "", "keep-me",
+                        "en-US", "UTC", "", 1280, 800, "100"))
+        folder = root / "profiles" / ("b"*24)
+        folder.mkdir(parents=True)
+        (folder / "Cookies").write_text("real-cookie-storage")
+        self.assertEqual((await self.engine.list("alice"))[0]["name"], "Original")
+        backups = list((root / "profile-backups").glob("profiles-pre-management-*.sqlite3"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].stat().st_mode & 0o777, 0o600)
+        with sqlite3.connect(backups[0]) as db:
+            self.assertEqual(db.execute("SELECT proxy_password FROM profiles").fetchone()[0],
+                             "keep-me")
+        self.assertEqual((folder / "Cookies").read_text(), "real-cookie-storage")
+
     async def test_groups_defaults_edits_and_cross_owner_access(self):
         group = await self.engine.save_group("alice", {
             "name": "Research", "proxy_server": "http://proxy.example:8000"})
