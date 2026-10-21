@@ -84,20 +84,17 @@ class LocalLibrary(unittest.TestCase):
         self.assertTrue(self.choose(ident,1,None).json()['cleanup_pending']);self.assertTrue(self.original(ident).exists())
         self.c.post('/api/v1/ai/jobs/'+job+'/cancel')
         self.m.local_housekeeping();self.assertFalse(self.original(ident).exists())
-    def test_replacement_requires_verified_new_assets_and_protects_references(self):
-        old=self.image();r=self.c.post('/api/local/replacements').json()['id']
-        self.assertEqual(self.c.post('/api/local/replacements/'+r+'/commit').status_code,409)
-        new=self.image('new.png','blue')
+    def test_owner_deletes_media_without_replacement_and_references_are_protected(self):
+        old=self.image()
+        self.assertEqual(self.c.post('/api/local/replacements').status_code,404)
         lease=self.c.post('/api/v1/media/reservations',headers=self.h,json={'project_id':'p','scene_id':'s','media_type':'image','preferred_ids':[old]}).json()['items'][0]['reservation_id']
-        self.assertEqual(self.c.post('/api/local/replacements/'+r+'/commit').status_code,409)
-        self.assertEqual(self.c.delete('/api/v1/images/'+old).status_code,409)
+        body={'media_type':'image','ids':[old]}
+        self.assertEqual(self.c.post('/api/local/delete',json=body).status_code,409)
         self.c.post('/api/v1/media/reservations/'+lease+'/release',headers=self.h)
-        self.assertEqual(self.c.post('/api/local/replacements/'+r+'/commit').status_code,200)
+        self.assertEqual(self.c.post('/api/local/delete',json=body).status_code,200)
         self.assertEqual(self.c.get('/api/v1/images/'+old+'/content').status_code,404)
-        self.assertEqual(self.c.get('/api/v1/images/'+new+'/content').status_code,200)
-        self.assertEqual(self.c.get('/api/local/storage').json()['images'],1)
-        self.assertEqual(self.c.get('/api/local/catalog?media_type=image&q=new').json()['total'],1)
-        self.assertEqual(self.c.get('/api/v1/images?date_from=2999-01-01').json()['total'],0)
+        self.assertEqual(self.c.get('/api/local/storage').json()['images'],0)
+
     def test_decisions_survive_restart_and_invalid_pair_is_rejected(self):
         ident,p=self.source();keep=p[0]['items'][0]['id']
         self.assertEqual(self.choose(ident,0,None).status_code,400)

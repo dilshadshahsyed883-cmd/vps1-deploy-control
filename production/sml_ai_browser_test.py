@@ -118,6 +118,8 @@ def browser_test():
                         page.locator('#nav button').filter(has_text='API & Settings').click()
                         page.locator('#localStorage').filter(has_text='Available').wait_for()
                         assert page.locator('#testDrive').count()==0
+                        assert page.locator('#beginReplacement').count()==0
+                        assert page.get_by_role('heading',name='Clear & Replace Library',exact=True).count()==0
                     assert not errors,errors
                     output=ROOT.parent/'qa';output.mkdir(exist_ok=True)
                     page.screenshot(path=str(output/f'sml-ai-{width}.png'))

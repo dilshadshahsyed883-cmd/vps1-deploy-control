@@ -21,11 +21,9 @@ description and keyword search, orientation/status filters, previews, metadata,
 saved search collections and bulk deletion. Dashboard and Settings show library
 size, VPS usage/free space, counts and pending cleanup.
 
-**Clear & Replace:** begin a staged replacement, upload/approve replacement
-media, then explicitly commit. The old catalog stays available until new media
-is verified. Pending pair reviews and required editor references block clearing.
-Cancel preserves both old and newly uploaded media. Project references are
-retained conservatively; committed use is never silently expired for deletion.
+The owner adds and deletes media directly in Library & Preview. No staged
+replacement workflow or prerequisite new library is required. Active processing
+and required editor references remain protected during deletion.
 
 Google Drive upload, retry, remote restoration and remote deletion are retired
 for SML only. Historical Drive columns/receipts and existing credentials remain

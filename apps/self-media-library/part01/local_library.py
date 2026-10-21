@@ -7,7 +7,6 @@ import json
 import shutil
 import subprocess
 import time
-import uuid
 from fastapi import HTTPException, Query
 from pydantic import BaseModel, Field
 from media_integrity import sha256_file
@@ -32,8 +31,6 @@ def initialize(conn):
       source_id TEXT NOT NULL, pair_index INTEGER NOT NULL, ids_json TEXT NOT NULL,
       decided INTEGER NOT NULL DEFAULT 0, keep_id TEXT,
       PRIMARY KEY(source_id,pair_index));
-    CREATE TABLE IF NOT EXISTS library_replacements (
-      id TEXT PRIMARY KEY, old_json TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL);
     ''')
     if 'local_selection' not in {r['name'] for r in conn.execute('PRAGMA table_info(clips)')}:
         conn.execute("ALTER TABLE clips ADD COLUMN local_selection TEXT NOT NULL DEFAULT 'legacy'")
@@ -245,42 +242,3 @@ def register(app, root, db, now):
             if any(not conn.execute(f'SELECT 1 FROM {table} WHERE id=?',(i,)).fetchone() for i in body.ids):raise HTTPException(404,'Media not found')
             erase(root,conn,body.media_type,body.ids,now)
         return {'ok':True,'deleted':len(body.ids)}
-
-    @app.post('/api/local/replacements')
-    def begin_replace():
-        with db() as conn:
-            conn.execute('BEGIN IMMEDIATE');busy(conn)
-            if conn.execute("SELECT 1 FROM library_replacements WHERE state='pending'").fetchone():raise HTTPException(409,'A replacement is already pending')
-            old={kind:[r[0] for r in conn.execute(f'SELECT id FROM {table} WHERE deleted_at IS NULL')] for kind,table in [('video','clips'),('image','image_assets')]}
-            ident=uuid.uuid4().hex
-            conn.execute('INSERT INTO library_replacements VALUES(?,?,?,?)',(ident,json.dumps(old),'pending',now()))
-        return {'id':ident,'state':'pending','detail':'Upload and approve the replacement media. Old library remains available until verified commit.'}
-
-    @app.get('/api/local/replacements')
-    def replacements():
-        with db() as conn:rows=conn.execute("SELECT id,state,created_at FROM library_replacements WHERE state='pending'").fetchall()
-        return {'items':[dict(r) for r in rows]}
-
-    @app.post('/api/local/replacements/{ident}/cancel')
-    def cancel_replace(ident:str):
-        with db() as conn:conn.execute("UPDATE library_replacements SET state='cancelled' WHERE id=? AND state='pending'",(ident,))
-        return {'ok':True}
-
-    @app.post('/api/local/replacements/{ident}/commit')
-    def commit_replace(ident:str):
-        with db() as conn:
-            conn.execute('BEGIN IMMEDIATE');busy(conn)
-            row=conn.execute('SELECT * FROM library_replacements WHERE id=?',(ident,)).fetchone()
-            if not row:raise HTTPException(404,'Replacement not found')
-            if row['state']=='completed':return {'ok':True,'idempotent':True}
-            if row['state']!='pending':raise HTTPException(409,'Replacement is not pending')
-            if conn.execute("SELECT 1 FROM local_reviews WHERE state!='cleaned'").fetchone():raise HTTPException(409,'Complete outstanding pair reviews first')
-            old=json.loads(row['old_json']);new_count=0
-            for kind,table in [('video','clips'),('image','image_assets')]:
-                protect(conn,kind,old[kind])
-                for asset in conn.execute(f"SELECT * FROM {table} WHERE deleted_at IS NULL AND status='approved'"):
-                    if asset['id'] not in old[kind]:verify(root,asset,kind);new_count+=1
-            if not new_count:raise HTTPException(409,'Save and approve verified replacement media first')
-            for kind in ('video','image'):erase(root,conn,kind,old[kind],now)
-            conn.execute("UPDATE library_replacements SET state='completed' WHERE id=?",(ident,))
-        return {'ok':True,'state':'completed','new_assets':new_count}

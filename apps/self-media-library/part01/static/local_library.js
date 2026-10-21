@@ -24,11 +24,6 @@ async function showPairs(id){
 const refreshPairReviews=loadPairReviews;
 loadPairReviews=async function(){if(openedReview&&document.querySelector('[data-pairs="'+openedReview+'"] video'))return;return refreshPairReviews()};
 async function loadLocalStorage(){try{const s=await api('/api/local/storage');$('#localStorage').textContent=`Library ${fmtSize(s.library_bytes)} · VPS used ${fmtSize(s.vps_used_bytes)} · Available ${fmtSize(s.free_bytes)} · ${s.clips} clips · ${s.images} images · ${s.pending_reviews} pending reviews · ${s.sources_cleaned} sources cleaned`;}catch(e){$('#localStorage').textContent=e.message}}
-let replacementId='';
-async function loadReplacement(){try{const r=await api('/api/local/replacements');replacementId=r.items[0]?.id||'';$('#beginReplacement').hidden=!!replacementId;$('#commitReplacement').hidden=!replacementId;$('#cancelReplacement').hidden=!replacementId;$('#replacementState').textContent=replacementId?'Replacement pending: upload and approve new media before committing.':''}catch(e){toast(e.message)}}
-$('#beginReplacement').onclick=async()=>{try{await localPost('/api/local/replacements');await loadReplacement();toast('Upload and approve the new library, then commit replacement')}catch(e){toast(e.message)}};
-$('#commitReplacement').onclick=async()=>{if(!confirm('Permanently remove the old library after verifying the new approved media? Referenced assets will block clearing.'))return;try{await localPost('/api/local/replacements/'+replacementId+'/commit');await loadReplacement();loadLocalStorage();toast('Library replaced')}catch(e){toast(e.message)}};
-$('#cancelReplacement').onclick=async()=>{try{await localPost('/api/local/replacements/'+replacementId+'/cancel');loadReplacement()}catch(e){toast(e.message)}};
 for(const id of ['localFrom','localTo'])$('#'+id).onchange=()=>{loadClips(true);loadImages()};
 $('#clearLibraryDates').onclick=()=>{$('#localFrom').value='';$('#localTo').value='';loadClips(true);loadImages()};
 $('#selectAllImages').onclick=()=>$$('[data-image-select]').forEach(x=>x.checked=true);
