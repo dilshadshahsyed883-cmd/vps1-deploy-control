@@ -232,6 +232,48 @@ class Imports(unittest.TestCase):
         saved.chmod(0o644)
         self.assertIsNone(self.app.working_audio_proxy_profile())
 
+    def test_live_proxy_503_failover_uses_real_audio_profile(self):
+        """Regression: 21-Oct live Video proxy test got tunnel 503, but Audio works."""
+        saved=self.root/'audio-live-proxy.json'
+        audio={'id':'aud','name':'Audio live','host':'audio.example','port':8080,
+               'username':'owner','password':'private-secret'}
+        saved.write_text(json.dumps({'enabled':True,'active_id':'aud','profiles':[audio]}))
+        saved.chmod(0o600)
+        self.app.AUDIO_PROXY_PATH=saved
+        video={'id':'vid','name':'Video live','host':'video.example','port':8080,
+               'username':'owner','password':'video-secret'}
+        self.app.save_proxy_config({'enabled':True,'active_id':'vid','profiles':[video]})
+        calls=[]
+        def fake_run(args,**kw):
+            calls.append((args,kw))
+            if len(calls)==1:
+                raise RuntimeError("Unable to connect to proxy: Tunnel connection failed: 503 Service Unavailable")
+            return 'real downloadable video'
+        with patch.object(self.app,'run',side_effect=fake_run), \
+             patch.object(self.app,'downloader_command',return_value=['python','-m','yt_dlp']):
+            result=self.app.run_youtube_download(['https://youtu.be/jNQXAC9IVRw'],30)
+        self.assertEqual(result,'real downloadable video')
+        self.assertEqual(len(calls),2)
+        self.assertIn('video.example',calls[0][1]['env']['HTTPS_PROXY'])
+        self.assertIn('audio.example',calls[1][1]['env']['HTTPS_PROXY'])
+        self.assertNotIn('private-secret',str(calls[1][0]))
+        self.assertEqual(json.loads(saved.read_text())['profiles'][0]['id'],'aud')
+
+    def test_direct_proxy_503_with_no_audio_fallback_is_explicit(self):
+        self.app.AUDIO_PROXY_PATH=self.root/'absent-audio.json'
+        video={'id':'vid','name':'Video live','host':'video.example','port':8080,
+               'username':'owner','password':'video-secret'}
+        self.app.save_proxy_config({'enabled':True,'active_id':'vid','profiles':[video]})
+        calls=[]
+        def failure(*args,**kw):
+            calls.append(args)
+            raise RuntimeError("Unable to connect to proxy: Tunnel connection failed: 503 Service Unavailable")
+        with patch.object(self.app,'run',side_effect=failure), \
+             patch.object(self.app,'downloader_command',return_value=['python','-m','yt_dlp']):
+            with self.assertRaisesRegex(RuntimeError,'PROXY_CONNECTION_FAILED'):
+                self.app.run_youtube_download(['https://youtu.be/jNQXAC9IVRw'],30)
+        self.assertEqual(len(calls),1)
+
     def test_audio_route_not_used_for_proxy_auth_failure(self):
         saved=self.root/'audio-proxy.json'
         saved.write_text(json.dumps({'enabled':True,'active_id':'audio',
