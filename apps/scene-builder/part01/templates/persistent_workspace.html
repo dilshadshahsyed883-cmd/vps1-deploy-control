@@ -1,9 +1,12 @@
-{% extends "storage_manager.html" %}
+{% extends "base.html" %}
+{% from "dashboard.html" import dashboard_content with context %}
+{% from "storage_manager.html" import storage_content with context %}
 {% block title %}Workspace{% endblock %}
 {% block subtitle %}Independent applications{% endblock %}
 {% block content %}
-<nav aria-label="Persistent workspace"><a href="/workspace/">Workspace</a> · <a href="/workspace/storage/">Storage Manager</a></nav>
+<nav aria-label="Persistent workspace"><a href="/">Dashboard</a>{% if request.session.get('is_admin') %} · <a href="/admin/storage">Storage Manager</a>{% endif %} · <a href="/workspace/">Applications</a></nav>
 <div id="vps1-shell-outlet" tabindex="-1" aria-live="polite"></div>
-<template id="vps1-storage-seed">{{ super() }}</template>
+<template id="vps1-dashboard-seed">{{ dashboard_content() }}</template>
+{% if request.session.get('is_admin') %}<template id="vps1-storage-seed">{{ storage_content() }}</template>{% endif %}
 {% endblock %}
 {% block scripts %}<script type="module" src="{{ shell_entry }}"></script>{% endblock %}

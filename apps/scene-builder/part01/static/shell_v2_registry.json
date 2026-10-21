@@ -13,13 +13,19 @@
       "id": "dashboard",
       "path": "/",
       "group": "general",
-      "mode": "native-document",
+      "mode": "adapter",
       "owner": "dashboard",
       "auth": "backend",
-      "removal_condition": "Promote only after app-owned lifecycle adapter and authenticated browser regression pass",
       "api": "preserved by existing gateway",
       "assets": "preserved by existing gateway",
-      "websocket": "preserved by existing gateway"
+      "websocket": "preserved by existing gateway",
+      "adapter": "dashboard",
+      "contract": 2,
+      "design": 1,
+      "role": "authenticated",
+      "smoke": "production.shell_v2_browser",
+      "legacy": "/?native=1",
+      "aliases": []
     },
     {
       "id": "scene-builder",
@@ -157,13 +163,21 @@
       "id": "storage-manager",
       "path": "/admin/storage",
       "group": "admin",
-      "mode": "native-document",
+      "mode": "adapter",
       "owner": "storage-manager",
       "auth": "backend",
-      "removal_condition": "Promote only after app-owned lifecycle adapter and authenticated browser regression pass",
       "api": "preserved by existing gateway",
       "assets": "preserved by existing gateway",
-      "websocket": "preserved by existing gateway"
+      "websocket": "preserved by existing gateway",
+      "adapter": "storage",
+      "contract": 2,
+      "design": 1,
+      "role": "admin",
+      "smoke": "production.shell_v2_browser",
+      "legacy": "/admin/storage?native=1",
+      "aliases": [
+        "/workspace/storage/"
+      ]
     },
     {
       "id": "user-management",
@@ -188,19 +202,6 @@
       "api": "preserved by existing gateway",
       "assets": "preserved by existing gateway",
       "websocket": "preserved by existing gateway"
-    },
-    {
-      "id": "storage-pilot",
-      "path": "/workspace/storage/",
-      "group": "admin",
-      "mode": "adapter",
-      "owner": "storage-manager",
-      "adapter": "storage",
-      "contract": 2,
-      "design": 1,
-      "role": "admin",
-      "smoke": "production.shell_v2_browser",
-      "legacy": "/admin/storage"
     }
   ]
 }

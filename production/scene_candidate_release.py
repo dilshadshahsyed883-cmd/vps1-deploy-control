@@ -311,25 +311,11 @@ def _verify_native_ui_release(target: Path) -> None:
     verify_video_studio()
     if (target / "part01/templates/persistent_workspace.html").is_file():
         from production.runtime import run
-        run(["/srv/fresh-website/venvs/scene-builder/bin/python", "-m",
+        evidence = run(["/srv/fresh-website/venvs/scene-builder/bin/python", "-m",
              "production.shell_v2_browser", "--production"], cwd=Path(__file__).resolve().parents[1], timeout=300, quiet=True)
-
-
-def _verify_native_ui_release(target: Path) -> None:
-    """Fail the guarded Scene cutover if independently owned native UIs are missing.
-
-    Called only for this new UI revision, after all required apps have been installed.
-    Browser authentication, route health, tabs and real app documents are checked
-    over the existing trusted HTTPS gateway. A failure rolls Scene back.
-    """
-    if not (target / "part01/static/vps1_native_site_shell.js").is_file():
-        return  # older unrelated deployments retain their established behavior
-    from production.scene_uploader_ui_release import verify_video_studio
-    verify_video_studio()
-    if (target / "part01/templates/persistent_workspace.html").is_file():
-        from production.runtime import run
-        run(["/srv/fresh-website/venvs/scene-builder/bin/python", "-m",
-             "production.shell_v2_browser", "--production"], cwd=Path(__file__).resolve().parents[1], timeout=300, quiet=True)
+        if "auth=PRODUCTION" not in evidence or "SHELL_V2_BROWSER=PASS" not in evidence:
+            raise RuntimeError("persistent shell browser proof absent")
+        print(evidence.strip(), flush=True)
 
 
 def install(revision: str) -> None:

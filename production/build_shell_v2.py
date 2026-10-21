@@ -16,12 +16,18 @@ def build(check=False):
         path=f'/static/shell-v2/{stem}.{digest}.{suffix}'
         outputs[STATIC/path.removeprefix('/static/')]=text
         return path
-    view=asset('storage_manager.js',(STATIC/'storage_manager.js').read_text())
-    css=asset('storage_manager.css',(STATIC/'storage_manager.css').read_text())
-    host=(STATIC/'shell_v2_host.js').read_text().replace("'./storage_manager.js'",json.dumps(view))
-    host=host.replace('__SHELL_REGISTRY__',json.dumps(registry,separators=(',',':'))).replace('__STORAGE_CSS__',css)
+    modules={}
+    css={}
+    for adapter,name in [('storage','storage_manager'),('dashboard','dashboard_control_center')]:
+        modules[name+'.js']=asset(name+'.js',(STATIC/(name+'.js')).read_text())
+        css[adapter]=asset(name+'.css',(STATIC/(name+'.css')).read_text())
+    host=(STATIC/'shell_v2_host.js').read_text()
+    for name,url in modules.items():
+        host=host.replace("'./"+name+"'",json.dumps(url))
+    host=host.replace('__SHELL_REGISTRY__',json.dumps(registry,separators=(',',':')))
+    host=host.replace('__APP_STYLES__',json.dumps(css,separators=(',',':')))
     entry=asset('host.js',host)
-    outputs[STATIC/'shell-v2/manifest.json']=json.dumps({'contract':2,'entry':entry,'assets':[entry,view,css]},indent=2)+'\n'
+    outputs[STATIC/'shell-v2/manifest.json']=json.dumps({'contract':2,'entry':entry,'assets':[entry,*modules.values(),*css.values()]},indent=2)+'\n'
     for path,text in outputs.items():
         if check:
             if not path.is_file() or path.read_text()!=text: raise ValueError(f'stale generated shell asset: {path.name}')

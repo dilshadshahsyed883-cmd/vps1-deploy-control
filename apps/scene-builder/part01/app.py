@@ -1774,6 +1774,8 @@ def _dashboard_activity(request: Request) -> list[dict[str, str]]:
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
+    if request.query_params.get("native") != "1":
+        return persistent_workspace(request)
     return templates.TemplateResponse("dashboard.html", {"request":request,"page":"dashboard","username":request.session.get("username","team")})
 
 @app.get("/experiment-studio/")
@@ -3768,9 +3770,9 @@ def require_storage_csrf(request: Request) -> None:
 @app.get("/workspace/", response_class=HTMLResponse)
 @app.get("/workspace/storage/", response_class=HTMLResponse)
 def persistent_workspace(request: Request):
-    # Pilot is read-only and admin-gated, just like the existing Storage page.
-    # Existing application URLs remain supported native-document boundaries.
-    require_admin(request)
+    require_login(request)
+    if request.url.path in {"/admin/storage", "/workspace/storage/"}:
+        require_admin(request)
     import json as shell_json
     shell_manifest = shell_json.loads((Path(__file__).parent / "static/shell-v2/manifest.json").read_text())
     return templates.TemplateResponse("persistent_workspace.html", {
@@ -3784,6 +3786,8 @@ def persistent_workspace(request: Request):
 @app.get("/admin/storage", response_class=HTMLResponse)
 def storage_manager_page(request: Request):
     require_admin(request)
+    if request.query_params.get("native") != "1":
+        return persistent_workspace(request)
     token = secrets.token_urlsafe(32)
     request.session["storage_csrf"] = token
     health = get_health()

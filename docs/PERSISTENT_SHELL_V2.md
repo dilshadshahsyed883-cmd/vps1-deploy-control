@@ -3,32 +3,39 @@
 Extends `UI_UX_MASTER_RULES_V1.md`; does not replace the canonical native
 sidebar or independently owned application engines.
 
-## Current boundary
+## Current boundary — canonical Dashboard/Storage batch
 
-`/workspace/` is an admin-gated persistent host using the existing base template
-and native sidebar. `/workspace/storage/` mounts the existing read-only Storage
-Manager in a Shadow DOM, from its existing server-rendered inert template.
-No fetched HTML/script injection, iframe, framework, new database, credentials,
-worker, queue or central cleanup engine. `/admin/storage` stays supported.
+`/` and `/admin/storage` now mount app-owned Dashboard and Storage adapters
+inside one persistent host using the existing base template and native sidebar.
+`/workspace/` remains the application directory; `/workspace/storage/` remains
+a supported alias. These routes use the same no-store host and hashed module/CSS
+manifest. `?native=1` selects the original server-rendered page for rollback or
+compatibility diagnosis without bypassing backend permissions.
 
-The ES module has mount/unmount/dispose, abortable requests/listeners and timer
-cleanup. Browser history and refresh re-enter the same host. Content-addressed
-entry/module/CSS files and a no-store host prevent mixed pilot assets; previous
-hashes must remain available for open hosts. Existing full-page native routes
-remain compatibility boundaries. Do not describe these as migrated.
+Dashboard is authenticated-user accessible; Storage is admin-only. The backend
+checks permissions before rendering and the host checks a fresh backend identity
+before mounting. Non-admin HTML excludes the Storage seed. Both adapters use
+isolated Shadow DOM and reuse macros in their original app-owned templates;
+no fetched HTML/script injection or iframe is involved.
+
+Unmount aborts requests/listeners and clears polling. Dashboard serializes only
+its validated refresh-rate/auto-refresh preferences into per-user sessionStorage;
+no credentials, role decisions, jobs or media state are stored there. Back, refresh,
+aliases, API recovery and role revocation have dedicated browser checks. All other
+apps retain native-document compatibility boundaries and are not called migrated.
 
 ## Ownership and gates
 
 - Native navigation/theme/geometry: existing `vps1_native_site_shell.css/.js`.
 - Registration: `static/shell_v2_registry.json`; schema 2, shell 2, design 1.
-- Adapter: app-owned `static/storage_manager.js`; shell only calls lifecycle.
+- Adapter: app-owned `static/storage_manager.js` and `dashboard_control_center.js`; shell only calls lifecycle.
 - Assets: `python -m production.build_shell_v2`; check mode blocks stale output.
 - Required offline gate: `production.shell_v2_contract`, negative contract tests.
 - Required Chromium gate: `production.shell_v2_browser`; actual committed host
   template/module/styles, synthetic API identities and responses.
 - Protected production transaction: same browser test with `--production`,
   existing root-protected session credentials, no screenshot/data capture.
-  Failure raises within existing immutable Scene release rollback transaction.
+  Exit/result marker is checked and printed; failure raises within existing immutable Scene release rollback transaction.
 - Existing deployment lock serializes host changes. Deploy with the existing
   Scene-only protected main release lane; no independent engine reinstall.
 
@@ -66,3 +73,13 @@ No automatic raw-document importer is permitted as a migration shortcut.
 No universal completion claim: Scene/Video, Voice, Upload/Stream, Experiment,
 ACS and remaining app adapters, global CSS retirement and gateway consolidation
 remain implementation work. Auto Script stays OFFLINE.
+
+## Canonical batch verification
+
+The fixture/production Chromium gate now measures Dashboard → Storage → Back
+DOM identity, one document navigation, exact live interval counts (1/2), repeated
+unmounts, polling preferences, direct refresh, legacy alias and zero API writes.
+Fixtures additionally cover ordinary-user access, exclusion of admin template
+content, admin revocation, logout and dashboard API failure/recovery. Six viewport
+layouts are checked. Actual toolbar zoom remains unverified. Production results
+are emitted as a sanitized `SHELL_V2_BROWSER=PASS ... auth=PRODUCTION` marker.

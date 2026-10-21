@@ -1,9 +1,11 @@
 {
   "contract": 2,
-  "entry": "/static/shell-v2/host.c0ad92eb5713a5ae5142.js",
+  "entry": "/static/shell-v2/host.0971182706eda56ffabf.js",
   "assets": [
-    "/static/shell-v2/host.c0ad92eb5713a5ae5142.js",
-    "/static/shell-v2/storage_manager.27d05a8367ab7b6d2993.js",
-    "/static/shell-v2/storage_manager.1856f025b31ad101c75b.css"
+    "/static/shell-v2/host.0971182706eda56ffabf.js",
+    "/static/shell-v2/storage_manager.96384efe67313a546c3a.js",
+    "/static/shell-v2/dashboard_control_center.4296b813993296e4a81d.js",
+    "/static/shell-v2/storage_manager.1856f025b31ad101c75b.css",
+    "/static/shell-v2/dashboard_control_center.aa892a8fbca351ec9c06.css"
   ]
 }

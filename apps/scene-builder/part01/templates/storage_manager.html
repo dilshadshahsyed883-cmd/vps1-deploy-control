@@ -2,7 +2,7 @@
 {% block title %}VPS Storage Manager{% endblock %}
 {% block subtitle %}Live resources and independent verified cleanup monitoring{% endblock %}
 
-{% block content %}
+{% macro storage_content() %}
 {% include "admin_workspace_nav.html" %}
 <link rel="stylesheet" href="/static/storage_manager.css?v=20261020-active-gc-dashboard-v2">
 <div id="storage-app" data-csrf="{{ storage_csrf }}">
@@ -84,6 +84,9 @@
 
   <div id="storage-toast" class="sm-toast" hidden></div>
 </div>
+{% endmacro %}
+{% block content %}{{ storage_content() }}
+
 {% endblock %}
 
 {% block scripts %}<script type="module" src="/static/storage_manager.js?v=20261020-active-gc-dashboard-v2"></script>{% endblock %}
