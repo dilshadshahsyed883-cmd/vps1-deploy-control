@@ -1,0 +1,25 @@
+name: VPS1 Voice Studio UI parity CI
+on:
+  pull_request:
+    paths:
+      - 'apps/voice-studio/part01/templates/voice_studio.html'
+      - 'tests/test_voice_ui_parity_20261021.py'
+      - '.github/workflows/vps1-voice-ui-parity-ci.yml'
+  push:
+    paths:
+      - 'apps/voice-studio/part01/templates/voice_studio.html'
+      - 'tests/test_voice_ui_parity_20261021.py'
+      - '.github/workflows/vps1-voice-ui-parity-ci.yml'
+permissions:
+  contents: read
+jobs:
+  voice-ui-parity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate isolated Voice markup, queue actions, Drive links and JS syntax
+        run: python -m unittest discover -s tests -p 'test_voice_ui_parity_20261021.py' -v
