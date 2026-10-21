@@ -21,6 +21,9 @@ def validate(registry):
         elif app['mode']=='adapter':
             if app.get('contract')!=2 or app.get('design')!=1 or not app.get('smoke') or not app.get('legacy') or app.get('adapter') not in {'storage','dashboard'} or app.get('role') not in {'admin','authenticated'}:
                 raise ValueError('incompatible adapter')
+        elif app['mode']=='alias':
+            target=next((a for a in registry['apps'] if a['id']==app.get('target')),None)
+            if not target or target.get('mode')!='adapter' or app.get('auth')!='backend': raise ValueError('invalid route alias')
         else: raise ValueError('unsupported integration mode')
     if not {'dashboard','storage-manager'} <= ids: raise ValueError('required adapters missing')
     aliases=set(paths)
