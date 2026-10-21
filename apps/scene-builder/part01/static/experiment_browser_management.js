@@ -253,5 +253,17 @@ el("exp-export-csv").addEventListener("click",()=>{
  a.href=url;a.download="browser-profiles.csv";a.click();
  setTimeout(()=>URL.revokeObjectURL(url),1500);
 });
+async function openDiagnostic(url) {
+ const identity=bridge.selected();
+ if(!identity)throw Error("Choose a profile to test.");
+ const profile=bridge.profiles().find(p=>p.id===identity);
+ if(profile?.state!=="running")throw Error("Start the selected browser profile first.");
+ await bridge.api("/profiles/"+identity+"/navigate","POST",{url});
+ el("browser-address").value=url;
+ el("browser-refresh-preview").click();
+ message("Opened third-party diagnostic in the selected browser. Interpret the displayed results; no leak-free guarantee is made.");
+}
+el("exp-dns-check").addEventListener("click",()=>job(()=>openDiagnostic("https://browserleaks.com/dns")));
+el("exp-webrtc-check").addEventListener("click",()=>job(()=>openDiagnostic("https://browserleaks.com/webrtc")));
 refreshData().catch(error=>message(error.message,true));
 })();
