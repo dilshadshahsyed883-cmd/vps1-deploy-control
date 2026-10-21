@@ -1,3 +1,4 @@
+@import url("/static/studio_compact_ui.css?v=20261022-1");
 /* VPS1_NATIVE_SITE_SHELL_V1: shared navigation, independent application document */
 body.vps1-native-site{padding-left:var(--vps1-sidebar-width,214px)!important;background:#f8fafc!important;box-sizing:border-box!important}
 #vps1-native-site-sidebar{position:fixed;z-index:9990;inset:0 auto 0 0;width:var(--vps1-sidebar-width,214px);box-sizing:border-box;background:#101526;color:white;padding:20px 14px;display:flex;flex-direction:column;font-family:Inter,system-ui,Arial,sans-serif}

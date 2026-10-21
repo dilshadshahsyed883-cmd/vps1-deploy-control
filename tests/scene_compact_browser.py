@@ -113,6 +113,8 @@ def main():
                     page.goto('https://audit.test/settings?acs_audio_embed=1')
                     assert page.locator('body').get_attribute('data-scene-ui') is None
                     assert page.locator('link[href*="scene_compact_ui.css"]').count()==0
+                    expect(page.locator('html')).to_have_class('acs-audio-component')
+                    assert page.locator('#settings-form').evaluate("e=>getComputedStyle(e).getPropertyValue('--studio-accent').trim()")=='#315edb'
                     assert not errors,errors
                     assert not writes,('read-only navigation wrote settings',writes)
                     print('PASS Scene compact UI',width,'7 settings + 4 audio tabs, Queue/Audit, density, no overflow, save/reload, ACS isolation')

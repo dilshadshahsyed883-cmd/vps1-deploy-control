@@ -1,0 +1,79 @@
+/* SML Input compact component adapter for Auto Caption Studio, Short Maker
+   and Video Merger. Shared shell loads this versioned file for existing live
+   documents; app content alone opts in. No engine/template/JS/API changes.
+   Important declarations bridge legacy inline/important component styling.
+   Do not target renderer preview text, media geometry or shared navigation. */
+body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) {
+  --studio-accent:#315edb;--studio-line:#dfe5ef;--studio-muted:#64748b;
+  --vm-primary:#315edb;--vm-primary2:#254bbc;--blue:#315edb;--accent:#315edb;
+  color:#17253c;font:14px/1.5 Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) :is(.panel,.card,.section,.metric,.queue-metrics>div,.filebox,.video-item,.list-row,.qrow) {
+  border-color:var(--studio-line)!important;border-radius:12px!important;
+  min-width:0;box-shadow:0 2px 10px rgb(18 32 64 / 3.5%)!important;
+}
+body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) :is(.panel,.card) {padding:14px 16px!important;margin-bottom:12px!important;}
+body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) :is(.section,.filebox,.metric,.queue-metrics>div,.list-row,.qrow) {padding:12px!important;}
+body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) :is(h2,h3,h4) {font-size:15px!important;line-height:1.4;letter-spacing:normal!important;text-transform:none;margin:0 0 8px!important;}
+body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) :is(label,.field label,.section-head,.section-title,.badge,.tag,.drive-batch-stat span,.text-mode-output) {letter-spacing:normal!important;}
+body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) :is(.hint,.subtle,.small,.head p) {font-size:12px;line-height:1.5;color:var(--studio-muted);}
+body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) :is(.grid,.grid2,.grid3,.g2,.g3,.g4,.two,.three,.control-grid,.preset-grid,.queue-metrics,.summary,.upload-primary-grid,.upload-secondary-grid) {gap:12px!important;}
+body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) :is(.field,.actions,.footer,.queue-pager) {margin-top:10px;}
+body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) :is(.head,.queue-head,.section-head,.section-title,.panel-head) {gap:12px;margin-bottom:10px!important;}
+body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="hidden"]),select,textarea) {
+  box-sizing:border-box;min-width:0;max-width:100%;min-height:44px;height:auto;
+  padding:8px 10px!important;margin-bottom:0;border:1px solid #cbd5e1;border-radius:8px!important;
+  font:14px/1.5 Inter,system-ui,sans-serif;color:#17253c;background:#fff;
+}
+body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) :is(button,.btn) {
+  box-sizing:border-box;min-height:44px;height:auto;border-radius:8px!important;
+  padding:8px 12px!important;font:650 13px/1.4 Inter,system-ui,sans-serif;letter-spacing:normal;
+}
+body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) :is(.btn.primary,button.primary,.pill.active,.tab.active),
+#makerPanel button:not(.secondary):not(.danger),#queuePanel button:not(.secondary):not(.danger) {
+  background:#315edb!important;border-color:#315edb!important;color:#fff!important;box-shadow:none!important;
+}
+body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) :is(.btn.secondary,button.secondary) {background:#fff!important;border:1px solid #d6ddea!important;color:#34415b!important;}
+body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) :is(.tabs,.subtabs) {display:flex!important;gap:8px!important;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin;}
+body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) .tabs {padding:6px!important;margin-bottom:12px!important;border:1px solid var(--studio-line)!important;border-radius:10px;background:#f8faff!important;}
+body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) :is(.tab,.pill) {flex:0 0 auto;white-space:nowrap;}
+body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) .page {padding:14px 16px;}
+body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) .preset {padding:12px;min-height:90px;border-radius:10px;}
+body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) .queue-table :is(th,td) {padding:9px 10px;}
+body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) .setting {min-height:56px;padding:8px 0;gap:12px;}
+body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) :is(.actions,.footer,.queue-actions,.qactions,.row-actions) {gap:8px;flex-wrap:wrap;}
+body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) .video-row {padding:10px;}
+body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) .trim-fields {gap:10px;}
+body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) :is(button,a,input,select,textarea):focus-visible {outline:3px solid #315edb;outline-offset:2px;}
+/* Maker's local tab rail is outside its content panels. Preserve shell geometry. */
+body:has(#makerPanel) main>.sm-tabs {gap:8px!important;padding:6px!important;margin-bottom:12px!important;border:1px solid #dfe5ef!important;border-radius:10px!important;background:#f8faff!important;}
+body:has(#makerPanel) main>.sm-tabs button {min-height:44px;padding:8px 12px!important;border-radius:8px!important;font-size:13px!important;}
+body:has(#makerPanel) main>.sm-tabs button.active {background:#315edb!important;border-color:#315edb!important;color:#fff!important;}
+@media(max-width:1000px) {
+  body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) :is(.g4,.g3,.control-grid) {grid-template-columns:repeat(2,minmax(0,1fr));}
+}
+@media(max-width:760px) {
+  body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) :is(.panel,.card,.page) {padding:12px!important;}
+  body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) :is(button,.btn,input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="hidden"]),select) {min-height:44px!important;}
+  body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) :is(.grid,.grid2,.grid3,.g2,.g3,.g4,.two,.three,.control-grid,.upload-primary-grid,.upload-secondary-grid,.folder,.profile) {grid-template-columns:minmax(0,1fr);}
+  body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) :is(.head,.queue-toolbar,.section-title) {flex-wrap:wrap;}
+  body:has(#makerPanel) main>.sm-tabs button {min-height:44px;}
+}
+@media(prefers-reduced-motion:reduce) {
+  body :is(#makerPanel,#queuePanel,.vm-app,html:has(script[data-workspace="acs"]) .workspace,html.acs-audio-component #settings-form) * {scroll-behavior:auto!important;transition:none!important;}
+}
+
+/* ACS owns this detached shared Audio Engine component; regular Scene pages
+   retain their already-approved adapter. Renderer previews remain untouched. */
+html.acs-audio-component #settings-form .sb-control-grid {gap:12px;}
+html.acs-audio-component #settings-form .sb-control-grid>label {min-height:60px;padding:10px 12px!important;gap:8px;}
+html.acs-audio-component #settings-form :is(.sb-tab-panel,.aev2-card) {padding:12px!important;border-radius:12px!important;}
+html.acs-audio-component #settings-form :is(.aev2-tabs button.active,.button:not(.secondary)) {background:#315edb!important;color:white!important;border-color:#315edb!important;}
+html:has(script[data-workspace="acs"]) #acs-native-live .worker {min-height:160px;}
+body:has(#makerPanel) main>.sm-tabs button.active[aria-pressed="true"] {background:#315edb!important;color:#fff!important;border-color:#315edb!important;}
+body:has(#makerPanel) main>header h1 {font-size:23px;line-height:1.35;margin-bottom:4px;letter-spacing:normal;}
+body:has(#makerPanel) main>header {margin-bottom:12px!important;}
+body:has(#makerPanel) main>header p {font-size:12px;line-height:1.5;margin:3px 0 0;}
+@media(max-width:760px) {
+  html:has(script[data-workspace="acs"]) #upload .g4:has(.metric) {grid-template-columns:repeat(2,minmax(0,1fr));}
+}
