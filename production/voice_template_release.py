@@ -252,6 +252,8 @@ def voice_ui_parity_overlay(original: bytes, source: bytes) -> bytes:
     require(original.count(VOICE_UI_PARITY_ID) <= 1, "duplicate Voice parity CSS")
     if VOICE_UI_PARITY_ID in original:
         old_start = original.index(VOICE_UI_PARITY_ID)
+        require(original.find(b"</style>", old_start) >= 0,
+                "incomplete installed Voice parity CSS")
         old_end = original.index(b"</style>", old_start) + len(b"</style>")
         original = original[:old_start] + css + original[old_end:]
     else:
