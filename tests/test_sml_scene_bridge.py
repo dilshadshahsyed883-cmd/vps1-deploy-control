@@ -38,7 +38,9 @@ class SMLBridgeTests(unittest.TestCase):
 
     def test_match_is_keyword_focused(self):
         scene = {"keyword_used": "snow mountain", "final_start": 0, "final_end": 3}
-        matches = bridge.rank_clips(scene, [clip(), clip(id="CLP-OTHER", keyword="office")])
+        unrelated = clip(id="CLP-OTHER", keyword="office")
+        unrelated["description"] = "Desk office document"
+        matches = bridge.rank_clips(scene, [clip(), unrelated])
         self.assertEqual([m["id"] for m in matches], ["CLP-ABCD1234"])
 
     def test_no_match_preserves_stock_fallback(self):
