@@ -27,7 +27,8 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from smart_scroll.ai_scene_txt import extract_intro_queries, parse_outer_ai_scene_txt
 from storage_manager_client import storage_manager_request
-from sml_scene_bridge import SMLUnavailable, approved_clips, download_verified, rank_clips
+from sml_scene_bridge import (SMLUnavailable, approved_clips, download_verified,
+                              rank_clips, reserve_for_scene, transition_reservation)
 
 RUNTIME_CANDIDATE = os.getenv("VPS1_RUNTIME_CANDIDATE") == "1"
 SCENE_PRECUTOVER_EDITING = os.getenv("VPS1_SCENE_PRECUTOVER_EDITING", "0") == "1"
@@ -2529,7 +2530,7 @@ def _sml_safe_items(clips: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def scene_sml_clips(request: Request, q: str = ""):
     require_login(request)
     try:
-        catalog = approved_clips()
+        catalog = approved_clips(query=q.strip())
     except SMLUnavailable as exc:
         raise HTTPException(503, str(exc)) from exc
     if q.strip():
@@ -2551,6 +2552,37 @@ def _sml_audit_transfer(job_id: str, item: dict[str, Any],
                 files={"file": (safe_path.name, stream, "video/mp4")}, timeout=3600,
             )
         return _web_audit_payload(job_id, response.json())
+
+
+
+def _sml_reserved_transfer(job_id: str, item: dict[str, Any],
+                           clip: dict[str, Any], used: set[str] | None = None) -> dict[str, Any] | None:
+    """Reserve exactly this approved SML ID, upload copy, then commit usage.
+
+    On upload failure release the SML reservation. On commit failure leave the
+    uploaded media intact and surface the error for reconciliation.
+    """
+    revision = int(item.get("revision") or 0)
+    reservation = reserve_for_scene(
+        job_id, f"{item['item_id']}-r{revision}", "",
+        preferred_id=str(clip["id"]), exclude_ids=used,
+    )
+    if reservation is None:
+        return None
+    reservation_id = str(reservation["reservation_id"])
+    uploaded = False
+    try:
+        result = _sml_audit_transfer(job_id, item, clip)
+        uploaded = True
+        transition_reservation(reservation_id, "commit")
+        return result
+    except Exception:
+        if not uploaded:
+            try:
+                transition_reservation(reservation_id, "release")
+            except SMLUnavailable:
+                pass  # Expiry still clears abandoned SML reservations.
+        raise
 
 
 @app.post("/api/audit-media/{job_id}/{item_id}/sml-select")
@@ -2576,10 +2608,12 @@ async def scene_sml_manual_select(request: Request, job_id: str, item_id: str):
         if supplied_revision != int(item.get("revision") or 0):
             raise HTTPException(409, "Media changed; refresh and select again")
         try:
-            clip = next((x for x in approved_clips() if x["id"] == clip_id), None)
-            if clip is None:
-                raise HTTPException(404, "SML clip is no longer approved")
-            return _sml_audit_transfer(job_id, item, clip)
+            clip = {"id": clip_id, "type": "video",
+                    "content_url": f"/api/v1/media/video/{clip_id}/content"}
+            updated = _sml_reserved_transfer(job_id, item, clip)
+            if updated is None:
+                raise HTTPException(409, "SML clip is unavailable or already used")
+            return updated
         except SMLUnavailable as exc:
             raise HTTPException(503, str(exc)) from exc
 
@@ -2611,11 +2645,22 @@ def scene_sml_auto_match(request: Request, job_id: str):
                str(item.get("source_type") or "").lower() in {"uploaded", "sml"}:
                 continue
             candidates = rank_clips(item, catalog, used)
+            if not candidates:
+                query = str(item.get("query_override") or item.get("keyword_used") or
+                            item.get("original_query") or "").strip()
+                if query:
+                    try:
+                        candidates = rank_clips(item, approved_clips(query=query), used)
+                    except SMLUnavailable:
+                        candidates = []
             for clip in candidates[:3]:
                 try:
-                    current = _sml_audit_transfer(job_id, item, clip)
+                    updated = _sml_reserved_transfer(job_id, item, clip, used)
+                    if updated is None:
+                        continue
+                    current = updated
                 except SMLUnavailable:
-                    continue  # Locally cleaned/Drive-only clip: try the next match.
+                    continue  # Offline/Drive restoring: use the existing stock result.
                 except HTTPException as exc:
                     errors.append(f"{item['item_id']}: worker status {exc.status_code}")
                     break
