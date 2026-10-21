@@ -68,7 +68,10 @@ def verify():
 def smoke(target, environment):
     python = Path(environment['PATH'].split(':')[0]) / 'python'
     require(python.is_file(), 'service Python missing')
-    process = subprocess.Popen(['runuser', '-u', 'ubuntu', '--', str(python),
+    runner = next((path for path in (Path('/usr/sbin/runuser'), Path('/usr/bin/runuser'))
+                   if path.is_file()), None)
+    require(runner is not None, 'system runuser missing')
+    process = subprocess.Popen([str(runner), '-u', 'ubuntu', '--', str(python),
                                 str(REPO / 'production/audio_downloader_smoke.py'), str(target / MODULE)],
                                env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                                start_new_session=True)
