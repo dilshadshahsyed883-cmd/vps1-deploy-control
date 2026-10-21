@@ -54,9 +54,9 @@ def smoke(source, state, proxy_config=None):
         except Exception as exc:
             results['proxy_test'] = 'FAIL: '+app.scrub_proxy_error(exc)
         try:
-            # The short no-login Audio Downloader production canary succeeded on
+            # The identical no-login Audio Downloader production canary succeeded on
             # this VPS; require VIDEO bytes and FFprobe, not audio-only metadata.
-            app.source_to_file('https://youtu.be/BaW_jenozKc', root/'youtube.bin', None, 1)
+            app.source_to_file('https://youtu.be/jNQXAC9IVRw', root/'youtube.bin', None, 1)
             results['youtube'] = 'PASS'
         except Exception as exc:
             results['youtube'] = 'FAIL: '+app.scrub_proxy_error(exc)
