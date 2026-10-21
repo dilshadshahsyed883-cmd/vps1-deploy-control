@@ -85,13 +85,13 @@ class VoiceUI20261021Regression(unittest.TestCase):
         self.assertIn("ctrl.className='vsq-controls'", HTML)
         self.assertIn("for(const act of j.allowed_actions||[])ctrl.append(b(", HTML)
         self.assertIn("['mp3','wav','txt','srt']", HTML)
-        self.assertIn("const root=(location.pathname", HTML) if False else None
         self.assertIn("tts/api/edge", HTML)
 
     def test_omni_voice_clone_and_queue_isolated_css(self):
         css = re.search(r'<style id="voiceStudioUiParity20261021">(.*?)</style>', HTML, re.S)
         self.assertIsNotNone(css)
         sheet = css.group(1)
+        self.assertNotIn("{#", sheet, "CSS must not look like a Jinja comment")
         for rule in ("#page-clone .field", "#page-clone .cards",
                      "#page-clone .card.pad", "#page-queue .tablewrap",
                      "#vskQueue .vsq-controls", "#vseQueue .vsq-controls",
@@ -108,7 +108,7 @@ class VoiceUI20261021Regression(unittest.TestCase):
         for label, block in (("Kokoro", k), ("Edge", e)):
             with self.subTest(engine=label):
                 self.assertIn("j.allowed_actions||[]", block)
-                self.assertIn("action", block) if label == "Kokoro" else self.assertIn("act", block)
+                self.assertIn("action" if label == "Kokoro" else "act", block)
                 self.assertIn("confirm('Hide this finished job from history?", block)
                 self.assertIn("delivery/retry", block)
                 self.assertIn("j.drive_verified_at", block)
