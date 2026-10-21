@@ -2,6 +2,8 @@
 import unittest
 from html.parser import HTMLParser
 from pathlib import Path
+import shutil
+import subprocess
 
 SML=Path(__file__).resolve().parents[1]/"apps/self-media-library/part01/static"
 class Page(HTMLParser):
@@ -28,4 +30,26 @@ class CompactInput(unittest.TestCase):
         for token in (".sml-input-grid","[hidden]{display:none!important}","@media(max-width:950px)","@media(max-width:760px)"):
             self.assertIn(token,css)
         self.assertNotIn("localStorage",js[js.index("// Owner-approved compact SML Input controls"):js.index("const sourceFile=$('#sourceFile')")])
+
+    def test_process_queue_manual_start_control(self):
+        js=(SML/"app.js").read_text()
+        self.assertIn("Awaiting start",js)
+        self.assertIn("${(!processing||canProcess)?",js)
+        self.assertIn("${processing?((failed||canProcess)?actions:",js)
+        if not shutil.which("node"): return
+        # Evaluate just the pure row renderer, avoiding network/browser side effects.
+        row_fn="function sourceRow("+js.split("function sourceRow(",1)[1].split("\nfunction bindSourceActions(",1)[0]
+        harness=(
+            "const esc=v=>String(v??'');const fmtTime=v=>String(v);const fmtSize=v=>String(v);\n"
+            +row_fn+
+            "\nconst row={id:'SRC-Q',filename:'Alexandra Eala.mp4',size_bytes:1024,status:'queued',stage:'queued',clip_count:0,progress:0};"
+            "const queued=sourceRow(row,true);"
+            "if(!queued.includes('Awaiting start')||!queued.includes('data-process=\\\"SRC-Q\\\"'))process.exit(2);"
+            "const running=sourceRow({...row,status:'processing',stage:'detecting_shots'},true);"
+            "if(running.includes('data-process='))process.exit(3);"
+            "const complete=sourceRow({...row,status:'completed',clip_count:4},true);"
+            "if(complete.includes('data-process='))process.exit(4);"
+        )
+        subprocess.run(["node","-e",harness],check=True,capture_output=True,timeout=10)
+
 if __name__=="__main__": unittest.main()
