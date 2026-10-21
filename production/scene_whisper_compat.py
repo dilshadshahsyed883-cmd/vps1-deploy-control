@@ -98,7 +98,8 @@ class WhisperCompatibility:
                 self._run([py,'-m','pip','download','--disable-pip-version-check','--only-binary=:all:',
                            '--no-deps','--dest',str(wheels),'av=='+version],timeout=180)
             idle_worker(health(URL,self.token))
-            self._run(['systemctl','stop',UNIT],timeout=45); self.stopped=True
+            self.stopped=True
+            self._run(['systemctl','stop',UNIT],timeout=45)
             # Catch a submission racing the read-only idle preflight. Never
             # change dependencies beneath a queued or interrupted user job.
             with sqlite3.connect('file:'+str(STATE/'queue.sqlite3')+'?mode=ro',uri=True) as conn:
@@ -128,6 +129,7 @@ class WhisperCompatibility:
                              "ORDER BY e.id DESC LIMIT 1").fetchone()
         require(row and re.fullmatch('[a-f0-9]{32}',row[0]), 'affected failed narration unavailable for caption proof')
         root=(STATE/'jobs'/row[0]).resolve()
+        require(root.is_relative_to((STATE/'jobs').resolve()), 'affected job path escaped Scene state')
         paths=list(root.rglob('narration_internal_audio_engine.mp3'))
         require(len(paths) == 1 and paths[0].resolve().is_relative_to(root), 'processed narration checkpoint unavailable')
         source=paths[0].resolve()
@@ -144,7 +146,8 @@ class WhisperCompatibility:
             # decoder is retained rather than interrupting a new user's job.
             if not self.stopped:
                 idle_worker(health(URL,self.token))
-                self._run(['systemctl','stop',UNIT],timeout=45); self.stopped=True
+                self.stopped=True
+            self._run(['systemctl','stop',UNIT],timeout=45)
             py=str(VENV/'bin/python')
             self._run([py,'-m','pip','install','--disable-pip-version-check','--no-index',
                        '--find-links',str(self.journal/'wheels'),'--no-deps','--force-reinstall',

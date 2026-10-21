@@ -14,6 +14,15 @@ import tempfile
 import uuid
 
 
+def proxy_disabled_report(report):
+    """No proxy configured: never treat a direct-only YouTube failure as release failure."""
+    if report.get('proxy', {}).get('enabled'):
+        return False
+    report['result'] = 'PROXY_DISABLED_ON_VPS'
+    report['reason'] = 'Audio Downloader proxy disabled; external download and Drive not verified'
+    return True
+
+
 def main(source):
     live_root = Path(os.environ['AUDIO_DOWNLOADER_ROOT'])
     # yt-dlp's own short test video, rather than an owner's media or queue item.
@@ -36,6 +45,9 @@ def main(source):
         report = {'ytdlp_version': version, 'proxy': m.proxy_runtime_status(),
                   'session': m.cookie_status(), 'owner_jobs_mutated': False,
                   'audio': 'NOT_VERIFIED', 'drive': 'NOT_VERIFIED'}
+        if proxy_disabled_report(report):
+            print(json.dumps(report, sort_keys=True))
+            return 0
         jid = 'ADJ-' + nonce
         job = {'job_id': jid, 'video_id': 'BaW_jenozKc', 'url': 'https://www.youtube.com/watch?v=BaW_jenozKc',
                'format': 'mp3', 'quality': 128, 'keep_metadata': False,
