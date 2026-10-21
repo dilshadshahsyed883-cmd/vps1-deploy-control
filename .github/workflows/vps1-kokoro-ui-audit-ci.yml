@@ -8,6 +8,7 @@ on:
       - 'tests/test_website_reaudit.py'
       - 'tests/website_reaudit_scene_browser.py'
       - 'tests/scene_compact_browser.py'
+      - 'tests/studio_compact_browser.py'
       - 'apps/scene-builder/part01/**'
       - 'apps/auto-caption-studio/part01/**'
       - 'apps/short-stream/part01/auto_stream_ui.py'
@@ -34,3 +35,4 @@ jobs:
       - run: python -m unittest tests.test_website_reaudit tests.test_website_reaudit_release -v
       - run: python tests/website_reaudit_scene_browser.py
       - run: python tests/scene_compact_browser.py
+      - run: python tests/studio_compact_browser.py
