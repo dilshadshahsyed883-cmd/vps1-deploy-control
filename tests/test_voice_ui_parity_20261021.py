@@ -78,7 +78,7 @@ class VoiceUI20261021Regression(unittest.TestCase):
     def test_edge_kokoro_parity_and_edge_specific_controls(self):
         table = QueueTableParser("vseQueue")
         table.feed(HTML)
-        self.assertEqual(table.headers, ["File", "Job status", "Files", "Controls"])
+        self.assertEqual(table.headers, ["File", "Job status", "Audio", "Controls"])
         self.assertEqual(table.bodies, ["vseQueueRows"])
         self.assertEqual(table.wrappers, 1)
         self.assertEqual(table.refreshes, 1)
