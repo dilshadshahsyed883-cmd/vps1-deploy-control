@@ -758,14 +758,13 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
     @app.get("/api/v1/media/imports")
     def list_imports():
         with db() as conn:
-            rows = conn.execute("SELECT id,source_type,name,status,message,progress,source_id,created_at,updated_at FROM media_imports ORDER BY created_at DESC LIMIT 30").fetchall()
+            rows = conn.execute("SELECT id,source_type,name,status,message,progress,source_id,created_at,updated_at,request_json FROM media_imports ORDER BY created_at DESC LIMIT 30").fetchall()
         items = []
         for row in rows:
             item = dict(row)
-            with db() as conn:
-                saved = conn.execute("SELECT request_json FROM media_imports WHERE id=?", (item["id"],)).fetchone()
+            saved = item.pop("request_json", None)  # Do not send saved import bodies to the browser.
             try:
-                item["use_proxy"] = bool(json.loads(saved["request_json"]).get("use_proxy")) if saved and saved["request_json"] else False
+                item["use_proxy"] = bool(json.loads(saved).get("use_proxy")) if saved else False
             except (ValueError, TypeError, AttributeError):
                 item["use_proxy"] = False
             items.append(item)
