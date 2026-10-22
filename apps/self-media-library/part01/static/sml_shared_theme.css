@@ -439,3 +439,91 @@ body.vps1-native-library #page-processing .sml-ai-queue-disclosure:not([open]) #
  body.vps1-native-library #page-processing .local-batch-footer>button{flex:1;min-width:135px}
  body.vps1-native-library #page-processing .local-pair video{max-height:230px}
 }
+
+
+/* SML-QUEUE-WIDE-001 — Input's persistent YouTube jobs use the whole grid width. */
+body.vps1-native-library .sml-input-grid > .sml-import-wide,
+body.vps1-native-library .sml-input-grid > .sml-batch-wide {
+  grid-column:1 / -1;
+  min-width:0;
+  width:100%;
+  box-sizing:border-box;
+}
+body.vps1-native-library .sml-input-grid > .sml-import-wide {
+  margin:0;
+  padding:16px 18px!important;
+  border:1px solid #dce5f2;
+  border-radius:10px;
+  background:#fff;
+}
+body.vps1-native-library .sml-import-wide .sml-import-queue-head {
+  margin-bottom:12px;
+}
+body.vps1-native-library .sml-import-wide .sml-import-queue-head h3 {
+  font-size:15px;
+  color:#23364e;
+}
+body.vps1-native-library .sml-import-wide .source-list {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  align-items:stretch;
+  gap:12px;
+  min-width:0;
+  max-height:460px;
+  margin:0;
+  overflow:auto;
+  scrollbar-gutter:stable;
+}
+body.vps1-native-library .sml-import-wide .source-list > .empty {
+  grid-column:1/-1;
+}
+body.vps1-native-library .sml-import-wide .sml-import-job {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width:0;
+  margin:0!important;
+  padding:12px!important;
+  border:1px solid #dbe5f1;
+  border-radius:9px;
+  background:#fbfcff;
+  box-sizing:border-box;
+}
+body.vps1-native-library .sml-import-wide .sml-import-job .source-main {
+  min-width:0;
+  flex:1 1 0;
+}
+body.vps1-native-library .sml-import-wide .sml-import-job .source-main :is(b,span,small) {
+  display:block;
+  min-width:0;
+  max-width:100%;
+  white-space:normal;
+  overflow-wrap:anywhere;
+  line-height:1.45;
+}
+body.vps1-native-library .sml-import-wide .sml-import-job progress {
+  display:block;
+  width:100%;
+  max-width:none;
+  height:9px;
+}
+body.vps1-native-library .sml-import-wide .sml-import-job > .state,
+body.vps1-native-library .sml-import-wide .sml-import-job > button {
+  flex:0 0 auto;
+}
+body.vps1-native-library .sml-input-disclosure .sml-proxy-help {
+  margin:7px 0 0;
+  font-size:11px;
+  line-height:1.45;
+  color:#6b7c92;
+}
+@media(max-width:1100px){
+  body.vps1-native-library .sml-import-wide .source-list {grid-template-columns:minmax(0,1fr)}
+}
+@media(max-width:760px){
+  body.vps1-native-library .sml-input-grid > .sml-import-wide{padding:14px!important}
+  body.vps1-native-library .sml-import-wide .source-list{max-height:540px}
+  body.vps1-native-library .sml-import-wide .sml-import-job{align-items:flex-start;flex-wrap:wrap}
+  body.vps1-native-library .sml-import-wide .sml-import-job .source-main{flex-basis:100%}
+  body.vps1-native-library .sml-import-wide .sml-import-queue-head{flex-wrap:wrap}
+}
