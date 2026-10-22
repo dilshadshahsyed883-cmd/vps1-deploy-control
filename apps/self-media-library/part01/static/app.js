@@ -53,7 +53,26 @@ let searchTimer; $('#clipSearch').oninput=()=>{clearTimeout(searchTimer);searchT
 function toggleSelect(id){ state.selected.has(id)?state.selected.delete(id):state.selected.add(id); renderClips(state.clips,'#libraryGrid',true,false); updateBulk(); }
 function updateBulk(){ $('#bulkBar').classList.toggle('hidden',state.selected.size===0); $('#selectedCount').textContent=state.selected.size; }
 $('#clearSelection').onclick=()=>{state.selected.clear();renderClips(state.clips,'#libraryGrid');updateBulk()}; $('#selectVisible').onclick=()=>{state.clips.forEach(c=>state.selected.add(c.id));renderClips(state.clips,'#libraryGrid');updateBulk()};
-$$('[data-bulk-status]').forEach(b=>b.onclick=async()=>{ if(!state.selected.size)return; await api('/api/clips/bulk/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:[...state.selected],status:b.dataset.bulkStatus})}); toast(`Updated ${state.selected.size} clips`); loadClips(true); });
+$('[data-bulk-status]').forEach(b=>b.onclick=async()=>{
+  if(!state.selected.size)return;
+  const ids=[...state.selected], buttons=$('#bulkBar button');
+  buttons.forEach(button=>button.disabled=true);
+  try{
+    const result=await api('/api/clips/bulk/status',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ids,status:b.dataset.bulkStatus})});
+    await loadClips(true);
+    const skipped=Array.isArray(result.skipped)?result.skipped:[];
+    toast(`Reviewed ${result.updated||0} of ${ids.length} clips`+
+      (skipped.length?` · ${skipped.length} protected/unavailable (first: ${skipped[0].reason})`:''));
+    if(skipped.length){
+      state.selected=new Set(skipped.map(item=>item.id));
+      renderClips(state.clips,'#libraryGrid');
+      updateBulk();
+    }
+  }catch(error){toast('Clip review failed: '+error.message)}
+  finally{buttons.forEach(button=>button.disabled=false)}
+});
 $('#bulkDelete').onclick=async()=>{ if(!state.selected.size)return; if(!confirm(`Move ${state.selected.size} selected clips to Trash?`))return; const button=$('#bulkDelete');button.disabled=true;try{const r=await api('/api/clips/bulk/trash',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:[...state.selected]})});toast(r.trashed+' clips moved to Trash');await loadClips(true)}catch(e){toast('Unable to delete: '+e.message)}finally{button.disabled=false} };
 $('#bulkKeyword').onclick=()=>$('#keywordModal').classList.remove('hidden'); $('#cancelKeywordModal').onclick=()=>$('#keywordModal').classList.add('hidden');
 async function bulkKeyword(action){ const keyword=$('#bulkKeywordInput').value.trim(); if(!keyword)return; await api('/api/clips/bulk/keywords',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:[...state.selected],keyword,action})}); $('#keywordModal').classList.add('hidden'); $('#bulkKeywordInput').value=''; toast(`Keyword ${action==='add'?'added':'removed'}`); loadClips(true); }
