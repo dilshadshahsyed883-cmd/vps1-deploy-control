@@ -1328,9 +1328,10 @@ def _resolve_scene_stock_media(
     )
     sml_client = SMLWorkerClient()
     has_sml_first = any(bool(scene.get("_sml_first")) for scene in scenes) and sml_client.enabled
-    if needs_stock_search and not has_sml_first and not any(bool(scene.get("pexels_enabled", True)) for scene in scenes):
+    has_sml_fallback = any(bool(scene.get("_sml_fallback")) for scene in scenes) and sml_client.enabled
+    if needs_stock_search and not (has_sml_first or has_sml_fallback) and not any(bool(scene.get("pexels_enabled", True)) for scene in scenes):
         raise RuntimeError("No SML media integration or Pexels source is enabled for unresolved scenes.")
-    if needs_stock_search and not has_sml_first and not _current_pexels_keys():
+    if needs_stock_search and not (has_sml_first or has_sml_fallback) and not _current_pexels_keys():
         raise RuntimeError(
             "The VPS has no Pexels API key for unresolved scenes. Set PEXELS_API_KEY or PEXELS_API_KEYS in the VPS environment and restart the worker."
         )
@@ -1347,7 +1348,7 @@ def _resolve_scene_stock_media(
     used_authors: set[str] = set()
     used_sml_ids: set[str] = set()
     sml_source_root = job_dir / "sml_sources"
-    if has_sml_first:
+    if has_sml_first or has_sml_fallback:
         sml_source_root.mkdir(parents=True, exist_ok=True)
 
     for index, original_scene in enumerate(scenes):
@@ -1434,10 +1435,10 @@ def _resolve_scene_stock_media(
         if not keywords:
             keywords = ["documentary background"]
 
-        if has_sml_first:
+        if bool(scene.get("_sml_first")) and sml_client.enabled:
             update_job(job_id, status="downloading_media", stage="SML Media",
                        progress=15 + int(index / max(1, len(scenes)) * 20),
-                       message=f"{scene_code}: searching approved SML clips before Pexels")
+                       message=f"{scene_code}: searching approved SML videos/images before Pexels")
             matched = _try_sml_first_scene(
                 client=sml_client, job_id=job_id, scene=scene,
                 scene_code=scene_code, keywords=keywords,
@@ -1450,7 +1451,7 @@ def _resolve_scene_stock_media(
                 continue
 
         if not bool(scene.get("pexels_enabled", True)):
-            errors[scene_code] = "SML clip not found; Pexels disabled for unresolved scene"
+            errors[scene_code] = "No approved matching SML media available; Pexels disabled by source priority"
             results[index] = {**scene, "status": "stock_failed", "last_media_error": errors[scene_code]}
             continue
 
@@ -1508,7 +1509,24 @@ def _resolve_scene_stock_media(
                     resolved["fallback_reason"] = "No valid Pexels video was available"
                     break
 
+        if resolved is None and bool(scene.get("_sml_fallback")) and sml_client.enabled:
+            update_job(job_id, status="downloading_media", stage="SML Fallback",
+                       progress=15 + int(index / max(1, len(scenes)) * 20),
+                       message=f"{scene_code}: Pexels exhausted; trying approved SML media")
+            resolved = _try_sml_first_scene(
+                client=sml_client, job_id=job_id,
+                scene={**scene, "_sml_first": True}, scene_code=scene_code,
+                keywords=keywords, assignment_root=assignment_root,
+                source_root=sml_source_root, used_sml_ids=used_sml_ids,
+                used_hashes=used_hashes,
+            )
+            if resolved is not None:
+                resolved["fallback_reason"] = "Pexels had no usable matching media; approved SML fallback"
+                resolved["fallback_source"] = "sml"
         if resolved is not None:
+            if str(resolved.get("media_provider") or "") == "pexels" and bool(scene.get("_sml_first")):
+                resolved["fallback_reason"] = "No matching approved SML asset passed media validation"
+                resolved["fallback_source"] = "pexels"
             results[index] = resolved
         else:
             failed = dict(scene)
@@ -1520,6 +1538,17 @@ def _resolve_scene_stock_media(
             )
             results[index] = failed
             errors[scene_code] = last_error
+
+    # SML Only is strict: do not silently fill missing scenes with Pexels
+    # or a repeated neighbor's footage during the general continuity fallback.
+    strict_missing = [str(row.get("scene_code") or i + 1)
+                      for i, row in enumerate(results)
+                      if scenes[i].get("_sml_only") and
+                      not Path(str((row or {}).get("media_path") or "")).is_file()]
+    if strict_missing:
+        raise RuntimeError("SML Only: no approved matching media for scenes " +
+                           ", ".join(strict_missing[:15]) +
+                           ". Approve suitable SML assets or choose SML First with Pexels fallback.")
 
     resolved_indices = [
         index
