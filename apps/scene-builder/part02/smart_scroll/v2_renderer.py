@@ -386,6 +386,46 @@ def _effect(name:str,intensity:float)->str:
       'bloom':f'gblur=sigma={max(.15,.55*i):.3f},eq=brightness={.022*i}:saturation={1+.06*i}'
     }.get(name,'null')
 
+def _canvas_fill_chains(media_input: int, index: int, width: int, height: int,
+                        mode: str, blur_strength: int, color: str) -> tuple[list[str], str]:
+    """Normalize a scene's source into its target canvas before editorial effects.
+
+    Legacy crop is intentionally unchanged for old saved projects. Blur uses one
+    decoded input split into cover/background + contain/foreground, so videos
+    stay synchronized without a second decode or a stretched foreground.
+    """
+    mode = str(mode or "crop").lower()
+    source = f"[{media_input}:v]"
+    target = f"[canvas{index}]"
+    if mode == "crop":
+        return [], source
+    if mode == "stretch":
+        return [f"{source}scale={width}:{height},setsar=1{target}"], target
+    if mode in {"black", "solid"}:
+        valid_color = str(color or "").lstrip("#")
+        if len(valid_color) != 6 or any(c not in "0123456789abcdefABCDEF" for c in valid_color):
+            valid_color = "101018"
+        fill = "0x000000" if mode == "black" else "0x" + valid_color
+        return [
+            f"{source}scale={width}:{height}:force_original_aspect_ratio=decrease,"
+            f"setsar=1,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color={fill}{target}"
+        ], target
+    if mode == "blur":
+        sigma = max(0, min(40, int(blur_strength)))
+        bg = f"[canvasbg{index}]"
+        fg = f"[canvasfg{index}]"
+        return [
+            f"{source}split=2[canvasbgsrc{index}][canvasfgsrc{index}]",
+            f"[canvasbgsrc{index}]scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{height},setsar=1"
+            + (f",gblur=sigma={sigma}:steps=1" if sigma else "") + bg,
+            f"[canvasfgsrc{index}]scale={width}:{height}:force_original_aspect_ratio=decrease,"
+            f"setsar=1{fg}",
+            f"{bg}{fg}overlay=x=(W-w)/2:y=(H-h)/2:shortest=1,setsar=1{target}",
+        ], target
+    raise ValueError(f"Unsupported Canvas Fill mode: {mode}")
+
+
 def _motion(scene:dict[str,Any],w:int,h:int,fps:int,dur:float,is_image:bool)->str:
     """Frame-animated pan/zoom for both stills and videos (no static substitution)."""
     m = str(scene.get('motion','none') or 'none').lower()
@@ -510,7 +550,10 @@ def _render_fingerprint(scenes:list[dict[str,Any]],settings:Any)->tuple[str,list
         }
         scene_fingerprints.append(hashlib.sha256(json.dumps(payload,sort_keys=True,default=str).encode()).hexdigest())
     global_payload={
-        'renderer':'v18-motion-transitions-colour-verified',
+        'renderer':'v19-canvas-fill-motion-transitions-colour',
+        'canvas_fill_mode':str(getattr(settings,'canvas_fill_mode','crop')),
+        'canvas_blur_strength':int(getattr(settings,'canvas_blur_strength',16)),
+        'canvas_fill_color':str(getattr(settings,'canvas_fill_color','#101018')),
         'scenes':scene_fingerprints,
         'width':int(settings.width),'height':int(settings.height),'fps':int(settings.fps),
         'quality_crf':int(getattr(settings,'quality_crf',22) or 22),
@@ -621,6 +664,9 @@ def render_mixed_media(settings:Any,progress_callback:Progress=None,cancel_callb
             'transitions':transition_durations[start:end],
             'inbound':inbound,'outbound':outbound,
             'preset':intermediate_preset,'crf':intermediate_crf,
+            'canvas':(str(getattr(settings,'canvas_fill_mode','crop')),
+                      int(getattr(settings,'canvas_blur_strength',16)),
+                      str(getattr(settings,'canvas_fill_color','#101018'))),
         },sort_keys=True).encode()).hexdigest()
         reusable=group_index in completed_chunks and checkpoint.get('chunk_fingerprints',{}).get(str(group_index))==chunk_fp and _valid_checkpoint_video(target,ffmpeg,expected)
         if reusable:
@@ -644,6 +690,13 @@ def render_mixed_media(settings:Any,progress_callback:Progress=None,cancel_callb
             if bool(getattr(settings,'lut_enabled',True)) and lut_label.startswith('Missing LUT:'): raise ValueError(f'{code}: {lut_label}')
             speed=min(1.20,max(.85,float(scene.get('playback_speed',1.0) or 1.0)))
             scene_filter_chain,quality_chain=_resolved_color_filters(scene,settings,lut_chain)
+            canvas_chains,canvas_source=_canvas_fill_chains(
+                media_input,local_index,w,h,
+                getattr(settings,'canvas_fill_mode','crop'),
+                getattr(settings,'canvas_blur_strength',16),
+                getattr(settings,'canvas_fill_color','#101018'),
+            )
+            chains.extend(canvas_chains)
             base=_motion(scene,w,h,fps,max(.05,input_need),is_image)+','+lut_chain+','+scene_filter_chain+','+_effect(str(scene.get('effect','none')),float(scene.get('effect_intensity',.35)))+','+quality_chain+(f',setpts=PTS/{speed:.6f}' if not is_image else '')
             overlay=resolve_asset(str(scene.get('overlay','none')),'overlays',str(scene.get('media_type','image')),library)
             creative=f'creative{local_index}'
@@ -651,11 +704,11 @@ def render_mixed_media(settings:Any,progress_callback:Progress=None,cancel_callb
                 overlay_input=media_input+1
                 cmd+=['-stream_loop','-1','-i',str(overlay['_file_path'])]
                 alpha=max(0,min(1,float(scene.get('overlay_intensity',.35))))
-                chains.append(f'[{media_input}:v]{base},format=rgba[base{local_index}]')
+                chains.append(f'{canvas_source}{base},format=rgba[base{local_index}]')
                 chains.append(f'[{overlay_input}:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,format=rgba,colorchannelmixer=aa={alpha:.3f}[ov{local_index}]')
                 chains.append(f'[base{local_index}][ov{local_index}]overlay=shortest=1,scale=in_range=auto:out_range=tv,format=yuv420p[{creative}]')
             else:
-                chains.append(f'[{media_input}:v]{base},scale=in_range=auto:out_range=tv,format=yuv420p[{creative}]')
+                chains.append(f'{canvas_source}{base},scale=in_range=auto:out_range=tv,format=yuv420p[{creative}]')
             trim_start=inbound if local_index==0 else 0.0
             available=(outbound if global_index==end else durations[global_index]+transition_durations[global_index]-trim_start)
             chains.append(f'[{creative}]trim=start={trim_start:.6f}:duration={available:.6f},scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,format=yuv420p,setpts=PTS-STARTPTS,fps={fps},settb=AVTB[p{local_index}]')
