@@ -57,7 +57,7 @@ class SMLSettings(unittest.TestCase):
         node=next(x for x in save.body if isinstance(x,ast.If) and ast.unparse(x.test)=="sml_controls_present == '1'")
         code=compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),'<save mapping>','exec')
         for present in (None,'1'):
-            scope=dict(values={},sml_controls_present=present,sml_enabled=None,media_source_mode='pexels_only',sml_auto_scene_matching=None,sml_manual_audit_selection='on',sml_clip_preview=None)
+            scope=dict(values={},sml_controls_present=present,sml_enabled=None,media_source_mode='pexels_only',sml_media_order='smart',sml_target_percent=80,sml_auto_scene_matching=None,sml_manual_audit_selection='on',sml_clip_preview=None)
             exec(code,scope)
             self.assertEqual(scope['values'].get('sml_enabled'), '0' if present else None)
             if present:self.assertEqual(scope['values']['sml_manual_audit_selection'],'1')
@@ -76,8 +76,14 @@ class SMLSettings(unittest.TestCase):
     def test_live_counts_authenticate_and_use_total_not_page_size(self):
         spec=importlib.util.spec_from_file_location('sml_counts',PART/'sml_scene_bridge.py')
         bridge=importlib.util.module_from_spec(spec);spec.loader.exec_module(bridge)
-        with patch.object(bridge,'_request',side_effect=[{'items':[{}],'total':321},{'items':[],'total':0}]) as api:
-            self.assertEqual(bridge.library_status(),{'connected':True,'clips':321,'images':0})
+        with patch.object(bridge,'_request',side_effect=[
+            {'items':[{}],'total':321}, {'items':[],'total':0},
+            {'counts':{'video':{'total':400,'candidate':79},'image':{'total':50,'candidate':50}}}
+        ]) as api:
+            status=bridge.library_status()
+            self.assertEqual(status['clips'],321)
+            self.assertEqual(status['images'],0)
+            self.assertEqual(status['inventory']['image']['candidate'],50)
             self.assertEqual(api.call_args_list[0].kwargs['params']['media_type'],'video')
         with patch.object(bridge,'_request',return_value={'items':[]}):
             with self.assertRaises(bridge.SMLUnavailable):bridge.library_status()
