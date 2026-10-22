@@ -95,6 +95,50 @@ class LocalLibrary(unittest.TestCase):
         self.assertEqual(self.c.get('/api/v1/images/'+old+'/content').status_code,404)
         self.assertEqual(self.c.get('/api/local/storage').json()['images'],0)
 
+    def test_five_pair_batch_atomic_pagination_and_restart(self):
+        import json
+        ident, pairs = self.source()
+        ids = [x['id'] for x in pairs[0]['items']]
+        # Seed additional review rows only; never synthesize, alter or delete media files.
+        with self.m.db() as conn:
+            for i in range(2, 12):
+                conn.execute(
+                    'INSERT INTO local_pairs(source_id,pair_index,ids_json) VALUES(?,?,?)',
+                    (ident, i, json.dumps(ids)),
+                )
+        detail = self.c.get(f'/api/local/reviews/{ident}?offset=5&limit=5')
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual([p['pair_index'] for p in detail.json()['pairs']], list(range(5, 10)))
+        self.assertEqual(detail.json()['total_pairs'], 12)
+        self.assertEqual(detail.json()['saved_pairs'], 0)
+        self.assertEqual(detail.json()['first_pending_pair_index'], 0)
+        original = self.original(ident)
+        wrong = [{'pair_index': i, 'keep_id': ids[0]} for i in range(5)]
+        wrong[1]['keep_id'] = 'INVALID_CLIP'
+        response = self.c.put(f'/api/local/reviews/{ident}/pairs/batch', json={'decisions': wrong})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.c.get(f'/api/local/reviews/{ident}?limit=5').json()['saved_pairs'], 0)
+        valid = [{'pair_index': i, 'keep_id': pairs[1]['items'][0]['id'] if i==1 else ids[0]} for i in range(5)]
+        response = self.c.put(f'/api/local/reviews/{ident}/pairs/batch', json={'decisions': valid})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(response.json()['cleanup_pending'])
+        self.assertEqual(response.json()['saved_count'], 5)
+        self.assertTrue(original.exists())
+        # Force app restart/readback: first five are durable; next batch is five.
+        self.m.startup()
+        persisted = self.c.get(f'/api/local/reviews/{ident}?limit=5').json()
+        self.assertEqual(persisted['saved_pairs'], 5)
+        self.assertEqual(persisted['first_pending_pair_index'], 5)
+        self.assertTrue(all(p['decided'] for p in persisted['pairs']))
+        second = self.c.get(f'/api/local/reviews/{ident}?offset=5&limit=5').json()
+        self.assertEqual(len(second['pairs']), 5)
+        self.assertFalse(any(p['decided'] for p in second['pairs']))
+        duplicate = [{'pair_index': 5, 'keep_id': ids[0]}, {'pair_index': 5, 'keep_id': ids[1]}]
+        self.assertEqual(self.c.put(f'/api/local/reviews/{ident}/pairs/batch',json={'decisions':duplicate}).status_code, 400)
+        crossed = [{'pair_index': 4, 'keep_id': ids[0]}, {'pair_index': 5, 'keep_id': ids[1]}]
+        self.assertEqual(self.c.put(f'/api/local/reviews/{ident}/pairs/batch',json={'decisions':crossed}).status_code, 400)
+        self.assertTrue(original.exists())
+
     def test_decisions_survive_restart_and_invalid_pair_is_rejected(self):
         ident,p=self.source();keep=p[0]['items'][0]['id']
         self.assertEqual(self.choose(ident,0,None).status_code,400)
