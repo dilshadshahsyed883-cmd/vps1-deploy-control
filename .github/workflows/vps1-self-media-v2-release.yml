@@ -104,7 +104,13 @@ jobs:
           active=Path('/srv/fresh-website/current/self-media-library').resolve(strict=True)
           downloader=Path('/srv/fresh-website/venvs/self-media-library')/active.name/'bin/yt-dlp'
           assert downloader.is_file() and os.access(downloader,os.X_OK), 'SML yt-dlp missing after deployment'
+          source=active/'part01'/'video_merger_downloader.py'
+          assert source.is_file(), 'SML video downloader source missing'
+          downloader_code=source.read_text()
+          assert '"--max-downloads"' not in downloader_code, 'SML download-count limit regression'
+          assert '"--no-playlist"' in downloader_code and '"bv*+ba/best/bv*"' in downloader_code
           print('SML_YTDLP_INSTALLED=PASS',flush=True)
+          print('SML_YOUTUBE_MERGED_AV_SINGLE_VIDEO=PASS',flush=True)
           def read(p):
               with urllib.request.urlopen('http://127.0.0.1:8147'+p,timeout=25) as r:
                   if r.status!=200: raise RuntimeError('HTTP readback failure')
