@@ -1,5 +1,6 @@
 """SML independent proxy profile CRUD and YouTube selection regression."""
 import importlib.util
+import json
 import os
 from pathlib import Path
 import stat
@@ -121,6 +122,23 @@ class ProfileManager(unittest.TestCase):
                 self.assertEqual(client.post(base+"/toggle", json={"enabled":True}).status_code, 200)
                 self.assertTrue(client.get(base).json()["enabled"])
                 self.assertTrue(client.get("/api/v1/media/status").json()["proxy_configured"])
+                now=module.now_iso()
+                original={"source":"youtube","value":"https://youtu.be/jNQXAC9IVRw",
+                          "rights_confirmed":True,"use_proxy":False}
+                with module.db() as conn:
+                    conn.execute("""INSERT INTO media_imports
+                      (id,source_type,name,status,created_at,updated_at,request_json)
+                      VALUES(?,?,?,?,?,?,?)""",
+                      ("proxy_retry_fixture","youtube","https://youtu.be/jNQXAC9IVRw",
+                       "failed",now,now,json.dumps(original)))
+                response=client.post("/api/v1/media/imports/proxy_retry_fixture/retry",
+                                     json={"with_proxy":True})
+                self.assertEqual(response.status_code,200,response.text)
+                self.assertTrue(response.json()["with_proxy"])
+                with module.db() as conn:
+                    row=conn.execute("SELECT request_json FROM media_imports WHERE id=?",
+                                     ("proxy_retry_fixture",)).fetchone()
+                self.assertTrue(json.loads(row["request_json"])["use_proxy"])
                 self.assertEqual(client.post(base+"/delete",json={"id":profile_id}).status_code,200)
                 self.assertFalse(client.get(base).json()["enabled"])
         finally:
