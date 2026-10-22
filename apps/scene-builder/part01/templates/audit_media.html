@@ -297,7 +297,7 @@
   // scenes remain reviewable, and players for other batches are never mounted.
   let batchRefreshBusy=false;
   setInterval(async()=>{
-    if(batchRefreshBusy||audit.resolution_complete!==false)return;
+    if(batchRefreshBusy||(Array.isArray(audit.items)&&audit.resolution_complete!==false))return;
     batchRefreshBusy=true;
     try{
       const next=await api(`/api/audit-media/${encodeURIComponent(jobId)}`);
