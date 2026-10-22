@@ -176,6 +176,7 @@
           <button class="ghost" data-bulk-status="rejected">Reject</button>
           <button class="ghost" id="bulkKeyword">Keyword</button>
           <button class="danger-soft" id="bulkDelete">Move to trash</button>
+          <button class="danger-soft" id="deleteSelectedClips">Delete selected forever</button>
           <button class="link-btn" id="clearSelection">Clear</button>
         </div>
       </div>
@@ -186,7 +187,7 @@
       <article class="panel settings-spaced">
         <div class="panel-head"><div><h2>Images</h2><p>Preview, search, rename, tag, approve and archive your photos.</p></div></div>
         <div class="library-toolbar"><input id="imageSearch" class="setting-text" placeholder="Search filename, description, keywords…" /><select id="imageStatus"><option value="all">All images</option><option value="candidate">Candidate</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select><select id="imageOrientation" aria-label="Image orientation"><option value="all">All orientations</option><option value="landscape">Landscape</option><option value="portrait">Portrait</option><option value="square">Square</option><option value="unknown">Unknown</option></select></div>
-        <div class="row-actions"><button id="selectAllImages" class="ghost">Select visible images</button><button id="deleteSelectedImages" class="danger-soft">Delete selected images</button><button id="deleteSelectedClips" class="danger-soft">Delete selected video clips permanently</button></div><div id="imagesGrid" class="image-grid"></div>
+        <div class="row-actions"><button id="selectAllImages" class="ghost">Select visible images</button><button id="deleteSelectedImages" class="danger-soft">Delete selected images</button></div><div id="imagesGrid" class="image-grid"></div>
         <div id="imageEditor" class="image-editor hidden">
           <img id="imageEditorPreview" alt="Selected image preview"/>
           <div><h3 id="imageEditorHeading">Edit image</h3>
