@@ -24,6 +24,19 @@ class ShellV2Contract(unittest.TestCase):
     def test_duplicate_ids_and_routes_are_blocked(self):
         bad=copy.deepcopy(self.registry);bad['apps'].append(bad['apps'][0])
         with self.assertRaises(ValueError):validate(bad)
+    def test_native_user_management_verification_remains_fail_closed(self):
+        from production.shell_v2_browser import fixture_html
+        html = fixture_html(admin=True, user_management=True)
+        self.assertIn('<h1>User Management</h1>', html)
+        self.assertIn('<h2>Create user</h2>', html)
+        self.assertIn('<h2>Accounts</h2>', html)
+        browser = (Path(__file__).resolve().parents[1] / 'production/shell_v2_browser.py').read_text()
+        self.assertIn("page.wait_for_url(expected, timeout=15000)", browser)
+        self.assertIn("for heading in ('User Management', 'Create user', 'Accounts')", browser)
+        self.assertIn("if observed != '/user-management':", browser)
+        self.assertIn("page.reload(wait_until='domcontentloaded'", browser)
+        self.assertIn("assert not writes,'unexpected account writes'", browser)
+
     def test_seed_contains_only_app_content(self):
         from production.shell_v2_browser import fixture_html
         html=fixture_html();seed=html.split('<template id="vps1-storage-seed">')[1].split('</template>')[0]
