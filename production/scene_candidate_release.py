@@ -348,6 +348,7 @@ def install(revision: str) -> None:
     original_env: bytes | None = None
     require_storage_backend = False
     production_worker = None
+    worker_source_refresh = None
     whisper_compat = None
     worker_home = None
     try:
@@ -413,6 +414,12 @@ def install(revision: str) -> None:
         if backend_result is not None:
             integrations["scene_backend_repair"] = backend_result
         _verify_native_ui_release(target)
+        # The candidate UI and the independently writable worker have separate
+        # immutable source pointers. Refresh ONLY our owned idle worker, with
+        # four disposable real HD FFmpeg renders and a rollback on any failure.
+        from production.scene_worker_source_refresh import SceneWorkerSourceRefresh
+        worker_source_refresh = SceneWorkerSourceRefresh(target, journal)
+        integrations["production_worker_render_source"] = worker_source_refresh.refresh()
         if (target / "part01/experiment_browser.py").is_file():
             from production.experiment_browser_smoke import verify as verify_experiment_browser
             verify_experiment_browser()
@@ -438,6 +445,8 @@ def install(revision: str) -> None:
             subprocess.run(["systemctl", "restart", UNIT], capture_output=True, timeout=70)
             _health()
             event(app="scene-builder", rollback="PASS", data="PRESERVED")
+        if worker_source_refresh is not None:
+            worker_source_refresh.rollback()
         if production_worker is not None:
             production_worker.rollback()
         if whisper_compat is not None:
