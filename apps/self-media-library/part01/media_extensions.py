@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from media_integrity import sha256_file
 from media_catalog import probe_video, safe_origin, classify_orientation
+from video_merger_downloader import download_youtube_video, proxy_available
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}
@@ -101,7 +102,9 @@ class ImportRetryRequest(BaseModel):
 
 
 def sml_proxy_configured() -> bool:
-    return bool(os.getenv("SML_YTDLP_PROXY_URL", "").strip())
+    # Video Merger/Audio selected proxy routes are borrowed READ-ONLY when
+    # the owner explicitly opts in; no credentials copied or changed.
+    return proxy_available()
 
 
 class ReservationRequest(BaseModel):
@@ -666,59 +669,16 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                         raise RuntimeError("Only HTTPS YouTube video URLs are supported")
                     if not body.rights_confirmed:
                         raise RuntimeError("Media usage rights confirmation is required")
-                    # systemd may launch the venv Python with a system-wide PATH.
-                    tool = shutil.which("yt-dlp")
-                    if not tool:
-                        venv_tool = Path(sys.executable).with_name("yt-dlp")
-                        if venv_tool.is_file() and os.access(venv_tool, os.X_OK):
-                            tool = str(venv_tool)
-                    if not tool:
-                        raise RuntimeError("yt-dlp is not installed in the SML environment")
-                    args = [tool,"--no-playlist","--newline","--no-warnings",
-                            "--progress-template","download:%(progress._percent_str)s",
-                            "--max-filesize","1200M","--max-downloads","1",
-                            "-f","best[ext=mp4]/best","-o",str(temp_dir/"download.%(ext)s")]
-                    proxy = os.getenv("SML_YTDLP_PROXY_URL","") if body.use_proxy else ""
-                    if body.use_proxy and not proxy:
-                        raise RuntimeError("Proxy profile is not configured")
-                    if proxy:
-                        args += ["--proxy",proxy]
-                    args += [body.value]
-                    report_import(job_id, 5, "Connecting to YouTube")
-                    recent = deque(maxlen=12)
-                    percent_seen = -1
-                    with subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                          text=True, errors="replace", bufsize=1) as proc:
-                        timed_out = threading.Event()
-                        def kill_expired():
-                            timed_out.set()
-                            proc.kill()
-                        timer = threading.Timer(900, kill_expired)
-                        timer.daemon = True
-                        timer.start()
-                        try:
-                            for line in proc.stdout:
-                                actual = parse_ytdlp_progress(line)
-                                if actual is not None:
-                                    if actual >= percent_seen + 3 or actual == 100:
-                                        percent_seen = actual
-                                        report_import(job_id, 10 + int(actual * .80),
-                                                      f"Downloading from YouTube: {actual}%")
-                                elif line.strip():
-                                    recent.append(line.strip())
-                            return_code = proc.wait()
-                        finally:
-                            timer.cancel()
-                    if timed_out.is_set():
-                        raise RuntimeError("YouTube import timed out after 15 minutes")
-                    if return_code:
-                        raise RuntimeError("YouTube import failed (access/rights/format or network): " +
-                                           " ".join(recent)[-180:])
+                    # Reuse Video Merger's proven video-only downloader strategy
+                    # in an independent SML worker; do not touch VM's queue/DB.
+                    output = download_youtube_video(
+                        body.value, temp_dir,
+                        lambda pct, message: report_import(job_id, pct, message),
+                        use_proxy=body.use_proxy, timeout=900,
+                    )
                     report_import(job_id, 93, "Validating downloaded video")
-                    files = [p for p in temp_dir.iterdir() if p.is_file()]
-                    if len(files) != 1:
-                        raise RuntimeError("Expected one downloaded media file")
-                    output = files[0]
+                    if not output.is_file():
+                        raise RuntimeError("Downloader returned no verified video")
                     ext = output.suffix.lower()
                 if ext not in IMAGE_EXT | VIDEO_EXT:
                     raise RuntimeError("Unsupported imported media extension")
