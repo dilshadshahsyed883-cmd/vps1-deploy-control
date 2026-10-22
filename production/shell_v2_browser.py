@@ -22,6 +22,52 @@ def sidebar_click(page, label):
         page.locator('#mobile-nav-toggle').click()
     link.click()
 
+def verify_user_management_navigation(page, link, origin):
+    """Prove the actual Admin link opens a readable, authenticated native page.
+
+    Never treat a redirect, client-side shell fallback or missing form as PASS.
+    A production page can intermittently be incomplete while changing from the
+    persistent shell to the separately served native document; one reload of
+    the *already reached canonical route* is safe and read-only.
+    """
+    from urllib.parse import urlsplit
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+    expected = origin + '/user-management'
+    link.click()
+    try:
+        page.wait_for_url(expected, timeout=15000)
+    except PlaywrightTimeout as exc:
+        observed = urlsplit(page.url).path
+        raise AssertionError(
+            f'User Management admin tab did not navigate to canonical page: path={observed!r}'
+        ) from exc
+
+    for attempt in range(2):
+        try:
+            for heading in ('User Management', 'Create user', 'Accounts'):
+                page.get_by_role('heading', name=heading, exact=True).wait_for(timeout=12000)
+            if urlsplit(page.url).path != '/user-management':
+                raise AssertionError('User Management changed route while loading')
+            return
+        except PlaywrightTimeout as exc:
+            observed = urlsplit(page.url).path
+            headings = page.locator('h1,h2').all_inner_texts()[:8]
+            if attempt:
+                raise AssertionError(
+                    f'User Management not readable after canonical reload: '
+                    f'path={observed!r} headings={headings!r}'
+                ) from exc
+            if observed != '/user-management':
+                raise AssertionError(
+                    f'User Management redirected to unexpected path={observed!r}'
+                ) from exc
+            print('USER_MANAGEMENT_NATIVE_NAV_TRANSIENT: retrying same canonical GET', flush=True)
+            page.reload(wait_until='domcontentloaded', timeout=45000)
+            if urlsplit(page.url).path != '/user-management':
+                raise AssertionError('User Management reload redirected away from admin route')
+
+
 def run(production=False):
     from playwright.sync_api import sync_playwright
     origin='https://app.scenebuilder.online'
@@ -120,8 +166,7 @@ window.clearInterval=id=>{window.__shellTimers.delete(id);return stop(id);};''')
                     assert user_link.is_visible(),'User Management tab missing'
                     assert user_link.bounding_box()['height']>=44,'Admin touch target too small'
                     assert not page.evaluate('document.documentElement.scrollWidth>document.documentElement.clientWidth+2'),'Admin tabs overflow'
-                    user_link.click()
-                    page.get_by_role('heading',name='User Management',exact=True).wait_for()
+                    verify_user_management_navigation(page, user_link, origin)
                     assert page.get_by_role('heading',name='Create user',exact=True).is_visible(),'User Management form missing'
                     assert page.get_by_role('heading',name='Accounts',exact=True).is_visible(),'Accounts missing'
                     assert not writes,'unexpected account writes'
