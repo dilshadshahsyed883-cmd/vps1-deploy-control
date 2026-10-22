@@ -141,8 +141,9 @@ jobs:
           PY
           echo 'SML_SOURCE_RELEASE_AND_ATOMIC_PRIVATE_EDITOR_ACTIVATION'
           if ! remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA self-media-library"; then
-            echo 'SML_ACTIVATION_FAILED: attempting bounded Scene source rollback'
-            remote "sudo -n /usr/local/sbin/vps1-production-deploy rollback $SOURCE_SHA scene-builder" || true
+            # The unchanged live Scene renderer was not installed by this job.
+            # SML installer owns its own rollback; never roll back Scene here.
+            echo 'SML_ACTIVATION_FAILED: Scene owner jobs and source preserved'
             exit 1
           fi
           echo 'SML_SCENE_POST_RELEASE_READBACK'
