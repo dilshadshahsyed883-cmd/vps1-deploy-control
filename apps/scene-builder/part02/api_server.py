@@ -2989,6 +2989,8 @@ def _shift_time_fields(row: dict[str, Any], offset: float) -> dict[str, Any]:
                 result[key] = float(result[key] or 0.0) + offset
             except Exception:
                 pass
+    if isinstance(result.get("words"), list):
+        result["words"] = [_shift_time_fields(word, offset) for word in result["words"] if isinstance(word, dict)]
     return result
 
 
