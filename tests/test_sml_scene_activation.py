@@ -67,6 +67,18 @@ class ActivationTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 module._ensure_private(link)
 
+    def test_owner_approved_media_source_contract_for_reactivation(self):
+        source = (ROOT/"apps/self-media-library/part01/media_extensions.py").read_text()
+        for required in ('/api/v1/media/inventory', '/api/v1/media/image/{asset_id}/content',
+                         "status='approved'", 'x_sml_editor_token'):
+            self.assertIn(required, source)
+        browser = (ROOT/"apps/self-media-library/part01/static/app.js").read_text()
+        self.assertIn("document.querySelectorAll('[data-bulk-status]')", browser)
+        self.assertIn("document.querySelectorAll('#bulkBar button')", browser)
+        scene = (ROOT/"apps/scene-builder/part02/sml_worker_bridge.py").read_text()
+        self.assertIn('image', scene)
+        self.assertIn('video', scene)
+
     def test_activation_never_restarts_scene_worker_admission(self):
         s=(ROOT/"production/sml_scene_activation.py").read_text()
         self.assertIn('SML_SERVICE = "vps1-production-self-media-library.service"',s)
