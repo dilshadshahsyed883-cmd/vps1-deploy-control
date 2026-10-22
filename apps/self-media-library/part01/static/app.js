@@ -55,7 +55,7 @@ function updateBulk(){ $('#bulkBar').classList.toggle('hidden',state.selected.si
 $('#clearSelection').onclick=()=>{state.selected.clear();renderClips(state.clips,'#libraryGrid');updateBulk()}; $('#selectVisible').onclick=()=>{state.clips.forEach(c=>state.selected.add(c.id));renderClips(state.clips,'#libraryGrid');updateBulk()};
 document.querySelectorAll('[data-bulk-status]').forEach(b=>b.onclick=async()=>{
   if(!state.selected.size)return;
-  const ids=[...state.selected], buttons=$('#bulkBar button');
+  const ids=[...state.selected], buttons=document.querySelectorAll('#bulkBar button');
   buttons.forEach(button=>button.disabled=true);
   try{
     const result=await api('/api/clips/bulk/status',{method:'POST',
