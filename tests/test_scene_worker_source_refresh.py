@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 import os
 import shutil
@@ -136,6 +137,17 @@ class WorkerSourceRefreshPolicy(unittest.TestCase):
                      if x.startswith("SCENE_LIVE_WORKER_RENDER_PROOF=")]
             self.assertEqual(len(markers),4,result.stdout[-3000:])
             self.assertTrue(all('"codec": "h264/aac"' in x for x in markers))
+            full=[x for x in result.stdout.splitlines()
+                  if x.startswith("SCENE_LIVE_EFFECT_MATRIX=")]
+            self.assertEqual(len(full),1,result.stdout[-3000:])
+            data=json.loads(full[0].split("=",1)[1])
+            self.assertEqual(data["image_motions"],5)
+            self.assertEqual(data["video_motions"],4)
+            self.assertEqual(data["transitions"],14)
+            self.assertEqual(data["luts"],23)
+            self.assertGreaterEqual(data["colour_filters"],15)
+            self.assertEqual(data["lut_plus_filter"],"PASS")
+            self.assertEqual(data["whisper_karaoke"],"ASS_FFMPEG_PIXELS_PASS")
             self.assertFalse((root/"queue.sqlite3").exists())
             self.assertFalse((root/"project.json").exists())
 

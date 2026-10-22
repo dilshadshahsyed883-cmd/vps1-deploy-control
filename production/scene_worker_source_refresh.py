@@ -92,6 +92,121 @@ try:
            media_path=str(image), motion="ken_burns", motion_intensity=.8,
            transition_out="none", filter="none"),
     ]
+    # Production-side synthetic pixel proofs: no queue DB, project, login,
+    # user media or output directory is touched. Everything stays in root.
+    import hashlib
+    from vps_engine.smart_scroll.v2_renderer import (
+        _motion, _xfade_filter, _filter, _resolved_color_filters, _write_ass)
+    from vps_engine.smart_scroll.transition_engine import TRANSITION_CATALOG
+    from vps_engine.smart_scroll.creative_v21 import FILTERS
+    from vps_engine.smart_scroll.caption_sync import _script_guided_segments_from_anchors
+    from vps_engine.smart_scroll.lut_engine import (
+        PACK_DEFINITIONS, ensure_builtin_luts, blended_lut, ffmpeg_filter_path)
+
+    def raw(*args):
+        result = subprocess.run(["ffmpeg","-nostdin","-loglevel","error","-y",
+                                 *map(str,args)],capture_output=True,timeout=65)
+        if result.returncode:
+            raise RuntimeError("Scene effect pixel proof failed: "+
+                               result.stderr.decode(errors="replace")[-900:])
+        return result.stdout
+
+    def motion_frames(name, still):
+        graph = _motion({"motion":name,"motion_intensity":.8},128,72,8,1.5,still)
+        flags = (["-loop","1","-framerate","8","-t","1.5","-i",image]
+                 if still else ["-i",video])
+        data = raw(*flags,"-vf",graph,"-frames:v","12","-pix_fmt","rgb24",
+                   "-f","rawvideo","-")
+        frame = 128*72*3
+        assert len(data) >= frame*10 and len(data)%frame == 0,(name,len(data))
+        return data[:frame],data[-frame:]
+
+    image_motions = ("pan_left","pan_right","ken_burns","zoom_in","zoom_out")
+    video_motions = ("slow_push","reframe_left","reframe_right","gentle_zoom")
+    for name in image_motions:
+        first,last = motion_frames(name,True)
+        assert hashlib.sha256(first).digest()!=hashlib.sha256(last).digest(),name
+    for name in video_motions:
+        first,last = motion_frames(name,False)
+        assert hashlib.sha256(first).digest()!=hashlib.sha256(last).digest(),name
+
+    visual_transitions = [name for name in TRANSITION_CATALOG
+                          if name not in ("none","hard_cut")]
+    transition_hashes = set()
+    for name in visual_transitions:
+        spec = _xfade_filter({"transition_out":name},0,.6,.3)
+        frames = raw("-f","lavfi","-i","testsrc2=s=128x72:r=12:d=1.2",
+                     "-f","lavfi","-i","smptebars=s=128x72:r=12:d=1.2",
+                     "-filter_complex",f"[0:v][1:v]{spec},format=yuv420p[v]",
+                     "-map","[v]","-frames:v","18","-pix_fmt","rgb24",
+                     "-f","rawvideo","-")
+        assert len(frames) >= 128*72*3*8,name
+        digest = hashlib.sha256(frames).hexdigest()
+        assert digest not in transition_hashes,("duplicate transition",name)
+        transition_hashes.add(digest)
+
+    scene_luts = root/"verify-luts"
+    ensure_builtin_luts(scene_luts)
+    cache = root/"verify-lut-blends"
+    cache.mkdir()
+    graded = set()
+    lut_count = 0
+    for pack,presets in PACK_DEFINITIONS.items():
+        for preset in presets["presets"]:
+            source = scene_luts/pack/(preset+".cube")
+            assert source.is_file(),str(source)
+            original = blended_lut(source,0,cache)
+            maximum = blended_lut(source,100,cache)
+            def grade(path):
+                return raw("-i",image,"-vf",
+                           f"format=rgb24,lut3d=file='{ffmpeg_filter_path(path)}',format=rgb24",
+                           "-frames:v","1","-pix_fmt","rgb24","-f","rawvideo","-")
+            neutral,applied = grade(original),grade(maximum)
+            assert neutral != applied,(pack,preset,"LUT strength ignored")
+            graded.add(hashlib.sha256(applied).hexdigest())
+            lut_count += 1
+    assert lut_count == 23 and len(graded)>=20,(lut_count,len(graded))
+
+    baseline = raw("-i",image,"-frames:v","1","-pix_fmt","rgb24","-f","rawvideo","-")
+    active_filters = [f for f in FILTERS if f!="none"]
+    for name in active_filters:
+        applied = raw("-i",image,"-vf",_filter(name,.75),
+                      "-frames:v","1","-pix_fmt","rgb24","-f","rawvideo","-")
+        assert applied != baseline,("scene colour filter ignored",name)
+    selected = {"filter":"warm","filter_intensity":.9}
+    sample_lut = scene_luts/"cinematic"/"filmic.cube"
+    lut_chain = f"lut3d=file='{ffmpeg_filter_path(sample_lut)}'"
+    scene_grade,quality = _resolved_color_filters(
+        selected,SimpleNamespace(video_quality_preset="original"),lut_chain)
+    assert scene_grade != "null" and quality=="null","LUT hid selected filter"
+    just_lut = raw("-i",image,"-vf",lut_chain,
+                   "-frames:v","1","-pix_fmt","rgb24","-f","rawvideo","-")
+    lut_plus_filter = raw("-i",image,"-vf",lut_chain+","+scene_grade,
+                          "-frames:v","1","-pix_fmt","rgb24","-f","rawvideo","-")
+    assert lut_plus_filter != just_lut,"selected filter silently ignored after LUT"
+
+    words = _script_guided_segments_from_anchors(
+        script_text="alpha beta",anchors=[(0.0,0.2),(0.7,0.9)],
+        duration=1.0,max_words=8,offset=0.0)
+    assert len(words)==1 and len(words[0].words)==2
+    assert words[0].words[1]["start"]==.7
+    ass=root/"verified-karaoke.ass"
+    assert _write_ass([words[0].to_dict()],ass,
+                      SimpleNamespace(caption_karaoke_enabled=True),640,360)
+    script=ass.read_text(encoding="utf-8-sig")
+    assert r"{\kf70}alpha" in script and r"{\kf20}beta" in script
+    input_args = ("-f","lavfi","-i","color=c=black:s=640x360:r=8:d=1")
+    empty = raw(*input_args,"-frames:v","1","-pix_fmt","rgb24","-f","rawvideo","-")
+    burned = raw(*input_args,"-vf",f"subtitles='{ass}'",
+                 "-frames:v","1","-pix_fmt","rgb24","-f","rawvideo","-")
+    assert burned!=empty,"ASS karaoke failed to burn visible rendered pixels"
+
+    print("SCENE_LIVE_EFFECT_MATRIX="+json.dumps({
+        "image_motions":len(image_motions),"video_motions":len(video_motions),
+        "transitions":len(visual_transitions),"luts":lut_count,
+        "colour_filters":len(active_filters),"lut_plus_filter":"PASS",
+        "whisper_karaoke":"ASS_FFMPEG_PIXELS_PASS"},sort_keys=True),flush=True)
+
     for w,h in ((1280,720),(720,1280),(1920,1080),(1080,1920)):
         dest = root/(str(w)+"x"+str(h))
         dest.mkdir()
@@ -243,10 +358,11 @@ class SceneWorkerSourceRefresh:
             smoke=subprocess.run(_smoke_command(new_runner),
                                   capture_output=True,text=True,timeout=300)
             worker.require(smoke.returncode==0 and
-                           smoke.stdout.count("SCENE_LIVE_WORKER_RENDER_PROOF=")==4,
-                           "real worker FFmpeg render proof failed: "+smoke.stderr[-700:])
+                           smoke.stdout.count("SCENE_LIVE_WORKER_RENDER_PROOF=")==4 and
+                           smoke.stdout.count("SCENE_LIVE_EFFECT_MATRIX=")==1,
+                           "real worker FFmpeg full-effects proof failed: "+smoke.stderr[-1000:])
             for line in smoke.stdout.splitlines():
-                if line.startswith("SCENE_LIVE_WORKER_RENDER_PROOF="):
+                if line.startswith(("SCENE_LIVE_WORKER_RENDER_PROOF=","SCENE_LIVE_EFFECT_MATRIX=")):
                     print(line,flush=True)
             record["source"] = str(latest)
             atomic_json(worker.RECORD,record,0o600)
