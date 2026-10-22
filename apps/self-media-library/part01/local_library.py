@@ -17,6 +17,14 @@ class Choice(BaseModel):
     keep_id: str | None = None  # None is allowed only for an odd singleton.
 
 
+class PairDecision(Choice):
+    pair_index: int = Field(ge=0)
+
+
+class PairDecisions(BaseModel):
+    decisions: list[PairDecision] = Field(min_length=1, max_length=5)
+
+
 class MediaBatch(BaseModel):
     media_type: str
     ids: list[str] = Field(min_length=1, max_length=500)
@@ -206,18 +214,58 @@ def register(app, root, db, now):
         return {'items':[dict(r) for r in rows]}
 
     @app.get('/api/local/reviews/{source_id}')
-    def review(source_id:str):
+    def review(source_id:str, offset:int=Query(0,ge=0), limit:int=Query(500,ge=1,le=500)):
         with db() as conn:
             source=conn.execute('SELECT * FROM local_reviews WHERE source_id=?',(source_id,)).fetchone()
             if not source:raise HTTPException(404,'Review not found')
+            summary=conn.execute(
+                'SELECT COUNT(*) total,COALESCE(SUM(decided),0) saved,'
+                ' MIN(CASE WHEN decided=0 THEN pair_index END) first_pending'
+                ' FROM local_pairs WHERE source_id=?',(source_id,)).fetchone()
             pairs=[]
-            for pair in conn.execute('SELECT * FROM local_pairs WHERE source_id=? ORDER BY pair_index',(source_id,)):
+            for pair in conn.execute(
+                'SELECT * FROM local_pairs WHERE source_id=? ORDER BY pair_index LIMIT ? OFFSET ?',
+                (source_id,limit,offset)):
                 items=[]
                 for ident in json.loads(pair['ids_json']):
                     row=conn.execute('SELECT * FROM clips WHERE id=?',(ident,)).fetchone()
+                    if not row:raise HTTPException(409,'Review clip missing; media retained')
                     items.append({**dict(row),'clip_url':'/media/clips/'+row['filename']})
                 pairs.append({**dict(pair),'items':items})
-        return {**dict(source),'pairs':pairs}
+        return {**dict(source),'total_pairs':summary['total'],
+                'saved_pairs':summary['saved'],
+                'first_pending_pair_index':summary['first_pending'],'pairs':pairs}
+
+    @app.put('/api/local/reviews/{source_id}/pairs/batch')
+    def choose_batch(source_id:str, body:PairDecisions):
+        # One SQLite transaction per batch; no half-saved batch or early cleanup.
+        with db() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            review=conn.execute('SELECT state FROM local_reviews WHERE source_id=?',(source_id,)).fetchone()
+            if not review:raise HTTPException(404,'Review not found')
+            if review['state']=='cleaned':raise HTTPException(409,'Selection already saved')
+            indices=[decision.pair_index for decision in body.decisions]
+            if len(set(indices)) != len(indices):
+                raise HTTPException(400,'Duplicate pair indexes in batch')
+            if max(indices)-min(indices)>=5 or min(indices)//5 != max(indices)//5:
+                raise HTTPException(400,'Batch must contain pairs from one five-pair page')
+            for decision in body.decisions:
+                pair=conn.execute('SELECT ids_json FROM local_pairs WHERE source_id=? AND pair_index=?',
+                                  (source_id,decision.pair_index)).fetchone()
+                if not pair:raise HTTPException(404,'Review pair not found')
+                ids=json.loads(pair['ids_json'])
+                if decision.keep_id not in ids and not (len(ids)==1 and decision.keep_id is None):
+                    raise HTTPException(400,'Keep one clip from each pair; only an odd last clip can be discarded')
+            for decision in body.decisions:
+                conn.execute('UPDATE local_pairs SET decided=1,keep_id=? WHERE source_id=? AND pair_index=?',
+                             (decision.keep_id,source_id,decision.pair_index))
+        try:
+            result=finalize(root,db,now,source_id)
+        except HTTPException as exc:
+            # All decisions are durably committed even when verification blocks cleanup.
+            return {'ok':True,'saved':True,'saved_count':len(body.decisions),
+                    'cleanup_pending':True,'detail':exc.detail}
+        return {**result,'saved':True,'saved_count':len(body.decisions)}
 
     @app.put('/api/local/reviews/{source_id}/pairs/{index}')
     def choose(source_id:str,index:int,body:Choice):
