@@ -114,7 +114,8 @@ jobs:
           images=read('/api/v1/images?limit=1')
           imports=read('/api/v1/media/imports')
           assert isinstance(imports.get('items'),list)
-          assert all('progress' in item for item in imports['items'])
+          assert all('progress' in item and 'use_proxy' in item for item in imports['items'])
+          assert isinstance(imports.get('proxy_configured'),bool), 'SML proxy availability missing'
           storage=read('/api/local/storage')
           assert storage['storage_mode']=='vps_only' and storage['free_bytes']>0
           assert health['drive_enabled'] is False
@@ -133,6 +134,7 @@ jobs:
           assert 'src="/self-media-library/static/app.js' in index
           assert index.count('data-page="') >= 5
           assert 'id="importHistory"' in index and 'id="refreshImports"' in index
+          assert 'id="importProxyState"' in index
           scene_js=asset(18080,'/static/vps1_native_site_shell.js')
           assert 'vps1-native-experiment-tabs' in scene_js
           assert 'app === "library"' in scene_js
@@ -143,11 +145,13 @@ jobs:
           app_js=asset(8147,'/static/app.js')
           assert 'const libraryPath = path =>' in app_js
           assert 'fetch(libraryPath(url)' in app_js
-          assert 'renderImports(items)' in app_js and 'data-import-retry' in app_js
+          assert 'renderImports(items,' in app_js and 'data-import-retry' in app_js
+          assert 'data-import-direct' in app_js and 'direct_without_proxy:direct' in app_js
           print('SML_SHARED_SHELL_ASSETS=PASS',flush=True)
           print('SML_UI_LIGHT_THEME_AND_SCOPED_API=PASS',flush=True)
           print('SML_V2_SERVICE_HEALTH=PASS',flush=True)
           print('SML_YOUTUBE_QUEUE_UI_AND_PROGRESS=PASS',flush=True)
+          print('SML_YOUTUBE_PROXY_RECOVERY=PASS',flush=True)
           print('EDITOR_TOKEN_CONFIGURED='+str(bool(status.get('editor_token_configured'))),flush=True)
           print('DRIVE_ENABLED='+str(bool(health.get('drive_enabled'))),flush=True)
           PY
