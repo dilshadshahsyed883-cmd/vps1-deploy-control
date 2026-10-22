@@ -30,7 +30,7 @@ class ShellV2Contract(unittest.TestCase):
         self.assertIn('<h1>User Management</h1>', html)
         self.assertIn('<h2>Create user</h2>', html)
         self.assertIn('<h2>Accounts</h2>', html)
-        browser = (ROOT / 'production/shell_v2_browser.py').read_text()
+        browser = (Path(__file__).resolve().parents[1] / 'production/shell_v2_browser.py').read_text()
         self.assertIn("page.wait_for_url(expected, timeout=15000)", browser)
         self.assertIn("for heading in ('User Management', 'Create user', 'Accounts')", browser)
         self.assertIn("if observed != '/user-management':", browser)
