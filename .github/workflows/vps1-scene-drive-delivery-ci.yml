@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'apps/scene-builder/part01/app.py'
+      - 'apps/scene-builder/part01/precutover_policy.py'
+      - 'production/scene_worker_source_refresh.py'
       - 'apps/scene-builder/part01/templates/queue.html'
       - 'apps/scene-builder/part02/api_server.py'
       - 'production/scene_production_worker.py'
@@ -25,7 +27,7 @@ jobs:
         with:
           node-version: '22'
       - name: Compile changed Python modules
-        run: python3 -m py_compile apps/scene-builder/part02/api_server.py apps/scene-builder/part01/app.py production/scene_production_worker.py
+        run: python3 -m py_compile apps/scene-builder/part02/api_server.py apps/scene-builder/part01/app.py apps/scene-builder/part01/precutover_policy.py production/scene_production_worker.py production/scene_worker_source_refresh.py
       - name: Verify completed MP4 and Drive recovery contracts
         run: python3 -m unittest discover -s tests -p 'test_scene_*drive*20261022.py' -v
       - name: Verify existing completed-video action regression
