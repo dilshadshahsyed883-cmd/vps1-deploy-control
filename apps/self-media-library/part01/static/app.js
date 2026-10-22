@@ -365,6 +365,12 @@ async function loadSmlProxyProfiles(){
   catch(e){$('#smlProxyList').textContent='Proxy settings unavailable: '+e.message}
 }
 $('#smlProxyManager').addEventListener('toggle',()=>{if($('#smlProxyManager').open)loadSmlProxyProfiles()});
+$('#smlOpenProxyManager').onclick=()=>{
+  $('#smlProxyOptions').open=true;
+  $('#smlProxyManager').open=true;
+  loadSmlProxyProfiles();
+  $('#smlProxyManager').scrollIntoView({behavior:'smooth',block:'nearest'});
+};
 $('#smlProxyCancel').onclick=resetSmlProxyForm;
 $('#smlProxyForm').onsubmit=async(event)=>{
   event.preventDefault();
