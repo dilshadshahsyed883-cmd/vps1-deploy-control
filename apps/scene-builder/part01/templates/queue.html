@@ -128,15 +128,16 @@ function actionsFor(j){
   const s=String(j.status||'').toLowerCase();
   const base=`/queue/${encodeURIComponent(j.id)}`;
   let out=`<a class="button secondary" href="${base}/log.txt">Download Logs TXT</a>`;
+  // Rendered MP4 remains available while automatic Drive transfer is pending or running.
+  const localVideo=['ready_to_upload','drive_uploading','completed'].includes(s)
+    && Boolean(j.output_file) && Number(j.size_bytes||0)>1024;
+  if(localVideo){
+    out+=`<a class="button" href="${base}/view" target="_blank" rel="noopener noreferrer">View Video</a>`;
+    out+=`<a class="button secondary" href="${base}/download">Download MP4</a>`;
+  }
   if(['completed','cleaned'].includes(s)){
-    // A local render can be complete before verified Drive delivery.
-    const localVideo=s==='completed' && Boolean(j.output_file) && Number(j.size_bytes||0)>1024;
-    if(localVideo){
-      out+=`<a class="button" href="${base}/view" target="_blank" rel="noopener noreferrer">View Video</a>`;
-      out+=`<a class="button secondary" href="${base}/download">Download MP4</a>`;
-    }
     if(j.drive_view_url&&String(j.drive_status||"")==="completed")out+=`<a class="button" href="${esc(j.drive_view_url)}" target="_blank" rel="noopener noreferrer">View on Drive</a>`;
-    if(localVideo&&String(j.drive_status||"")!=="completed")out+=`<form action="${base}/upload-drive" method="post"><button type="submit" class="secondary">Upload to Drive</button></form>`;
+    if(s==='completed'&&localVideo&&String(j.drive_status||"")!=="completed")out+=`<form action="${base}/upload-drive" method="post"><button type="submit" class="secondary">Upload to Drive</button></form>`;
     if(s==='completed'&&String(j.drive_status||'')==='completed'&&!j.files_cleaned_at)
       out+=`<form action="${base}/clean-now" method="post" onsubmit="return confirm('Clean all local files for this Drive-verified project now?')"><button type="submit" class="secondary">Clean Now</button></form>`;
   }else if(s==='waiting_for_audit'){
