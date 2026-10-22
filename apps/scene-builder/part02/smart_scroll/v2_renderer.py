@@ -426,6 +426,93 @@ def _canvas_fill_chains(media_input: int, index: int, width: int, height: int,
     raise ValueError(f"Unsupported Canvas Fill mode: {mode}")
 
 
+
+def _capcut_selected_scene_indices(scenes: list[dict[str, Any]], percent: int,
+                                  *, target: str) -> set[int]:
+    """Pick whole scenes (never frames) with a reproducible exact coverage quota."""
+    percent = max(0, min(100, int(percent)))
+    if percent == 0:
+        return set()
+    target = str(target).lower()
+    eligible = []
+    for index, scene in enumerate(scenes):
+        filename = str(scene.get('media_path') or scene.get('video_candidate_path') or '')
+        ext = Path(filename).suffix.lower()
+        if (target == 'videos' and ext in VIDEO_EXTENSIONS) or (
+            target == 'images' and ext in IMAGE_EXTENSIONS
+        ) or (target == 'both' and ext in VIDEO_EXTENSIONS | IMAGE_EXTENSIONS):
+            eligible.append(index)
+    count = (len(eligible) * percent + 50) // 100
+    ranked = sorted(
+        eligible,
+        key=lambda index: hashlib.sha256(
+            (str(index) + ':' + str(scenes[index].get('scene_code') or '') + ':' +
+             str(scenes[index].get('media_path') or '')).encode('utf-8')
+        ).digest(),
+    )
+    return set(ranked[:count])
+
+
+def _capcut_zoom_chains(source: str, index: int, width: int, height: int,
+                       zoom_level: int, canvas_mode: str, fill_color: str,
+                       blur_strength: int) -> tuple[list[str], str]:
+    """Static 50–300% transform, before text/overlays, without stretching the canvas."""
+    zoom = max(50, min(300, int(zoom_level)))
+    if zoom == 100:
+        return [], source
+    output = f'[capcutzoom{index}]'
+    scaled_w = max(2, (width * zoom // 100) // 2 * 2)
+    scaled_h = max(2, (height * zoom // 100) // 2 * 2)
+    if zoom > 100:
+        return [f'{source}scale={scaled_w}:{scaled_h},crop={width}:{height},setsar=1{output}'], output
+
+    color = str(fill_color or '#101018').lstrip('#')
+    if len(color) != 6 or any(ch not in '0123456789abcdefABCDEF' for ch in color):
+        color = '101018'
+    if str(canvas_mode or 'crop') == 'blur':
+        sigma = max(0, min(40, int(blur_strength)))
+        background = f'[capcutzoombg{index}]'
+        foreground = f'[capcutzoomfg{index}]'
+        return [
+            f'{source}split=2[capcutzoombgsrc{index}][capcutzoomfgsrc{index}]',
+            f'[capcutzoombgsrc{index}]' +
+            (f'gblur=sigma={sigma}:steps=1' if sigma else 'null') + background,
+            f'[capcutzoomfgsrc{index}]scale={scaled_w}:{scaled_h}{foreground}',
+            f'{background}{foreground}overlay=x=(W-w)/2:y=(H-h)/2:shortest=1,setsar=1{output}',
+        ], output
+    fill = '0x' + color if canvas_mode == 'solid' else '0x000000'
+    return [
+        f'{source}scale={scaled_w}:{scaled_h},'
+        f'pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color={fill},setsar=1{output}'
+    ], output
+
+
+def _capcut_grain_filter(effect: str, intensity: int) -> str:
+    """Bounded FFmpeg source-media texture; captions and overlays remain clean."""
+    amount = max(0, min(100, int(intensity)))
+    if amount == 0:
+        return 'null'
+    effect = str(effect or 'film').lower()
+    if effect == 'white':
+        return f'noise=alls={max(1,int(amount*.28))}:allf=t+u,eq=brightness={amount*.0004:.4f}'
+    if effect == 'black':
+        return f'noise=alls={max(1,int(amount*.25))}:allf=t+u,eq=brightness={-amount*.00045:.4f}'
+    if effect == 'film':
+        return f'noise=alls={max(1,int(amount*.16))}:allf=t+u,eq=saturation={1-amount*.0009:.4f}'
+    if effect == 'analog':
+        return (
+            f'noise=alls={max(1,int(amount*.42))}:allf=t+u,'
+            f'drawgrid=w=iw:h=6:t=1:c=white@{amount*.0025:.3f}'
+        )
+    if effect == 'dust':
+        return (
+            f'noise=alls={max(1,int(amount*.13))}:allf=t+u,'
+            f'drawbox=x=iw/5:y=0:w=1:h=ih:color=white@{amount*.004:.3f}:t=fill,'
+            f'drawbox=x=iw*4/5:y=0:w=1:h=ih:color=black@{amount*.003:.3f}:t=fill'
+        )
+    raise ValueError(f'Unsupported Noise / Grain effect: {effect}')
+
+
 def _motion(scene:dict[str,Any],w:int,h:int,fps:int,dur:float,is_image:bool)->str:
     """Frame-animated pan/zoom for both stills and videos (no static substitution)."""
     m = str(scene.get('motion','none') or 'none').lower()
@@ -550,7 +637,11 @@ def _render_fingerprint(scenes:list[dict[str,Any]],settings:Any)->tuple[str,list
         }
         scene_fingerprints.append(hashlib.sha256(json.dumps(payload,sort_keys=True,default=str).encode()).hexdigest())
     global_payload={
-        'renderer':'v19-canvas-fill-motion-transitions-colour',
+        'renderer':'v20-capcut-controls-canvas-fill',
+        'capcut':{key:getattr(settings,key,None) for key in (
+            'capcut_mirror_enabled','capcut_mirror_percent','capcut_zoom_level',
+            'capcut_noise_enabled','capcut_noise_effect','capcut_noise_intensity',
+            'capcut_noise_percent','capcut_noise_target')},
         'canvas_fill_mode':str(getattr(settings,'canvas_fill_mode','crop')),
         'canvas_blur_strength':int(getattr(settings,'canvas_blur_strength',16)),
         'canvas_fill_color':str(getattr(settings,'canvas_fill_color','#101018')),
@@ -638,6 +729,13 @@ def render_mixed_media(settings:Any,progress_callback:Progress=None,cancel_callb
     chunk_root.mkdir(exist_ok=True)
     library=_creative_library()
     lut_choices=assign_scene_luts(scenes,settings); lut_cache:dict[str,Path]={}
+    mirror_indices = _capcut_selected_scene_indices(
+        scenes, int(getattr(settings,'capcut_mirror_percent',0)), target='videos'
+    ) if bool(getattr(settings,'capcut_mirror_enabled',False)) else set()
+    noise_indices = _capcut_selected_scene_indices(
+        scenes, int(getattr(settings,'capcut_noise_percent',40)),
+        target=str(getattr(settings,'capcut_noise_target','both')),
+    ) if bool(getattr(settings,'capcut_noise_enabled',False)) else set()
     durations=[_duration(scene) for scene in scenes]
     transition_durations=[
         _transition_seconds(scenes[i],durations[i],durations[i+1],fps) if i<len(scenes)-1 else 0.0
@@ -664,6 +762,13 @@ def render_mixed_media(settings:Any,progress_callback:Progress=None,cancel_callb
             'transitions':transition_durations[start:end],
             'inbound':inbound,'outbound':outbound,
             'preset':intermediate_preset,'crf':intermediate_crf,
+            'capcut':{
+                'flip':sorted(mirror_indices.intersection(range(start,end+1))),
+                'grain':sorted(noise_indices.intersection(range(start,end+1))),
+                'zoom':int(getattr(settings,'capcut_zoom_level',100)),
+                'effect':str(getattr(settings,'capcut_noise_effect','film')),
+                'intensity':int(getattr(settings,'capcut_noise_intensity',35)),
+            },
             'canvas':(str(getattr(settings,'canvas_fill_mode','crop')),
                       int(getattr(settings,'canvas_blur_strength',16)),
                       str(getattr(settings,'canvas_fill_color','#101018'))),
@@ -697,18 +802,32 @@ def render_mixed_media(settings:Any,progress_callback:Progress=None,cancel_callb
                 getattr(settings,'canvas_fill_color','#101018'),
             )
             chains.extend(canvas_chains)
-            base=_motion(scene,w,h,fps,max(.05,input_need),is_image)+','+lut_chain+','+scene_filter_chain+','+_effect(str(scene.get('effect','none')),float(scene.get('effect_intensity',.35)))+','+quality_chain+(f',setpts=PTS/{speed:.6f}' if not is_image else '')
+            base=('hflip,' if global_index in mirror_indices and not is_image else '') + _motion(scene,w,h,fps,max(.05,input_need),is_image)+','+lut_chain+','+scene_filter_chain+','+_effect(str(scene.get('effect','none')),float(scene.get('effect_intensity',.35)))+','+quality_chain+(f',setpts=PTS/{speed:.6f}' if not is_image else '')
+            prepared=f'[capcutbase{local_index}]'
+            chains.append(f'{canvas_source}{base}{prepared}')
+            zoom_chains,zoom_source=_capcut_zoom_chains(
+                prepared,local_index,w,h,int(getattr(settings,'capcut_zoom_level',100)),
+                str(getattr(settings,'canvas_fill_mode','crop')),
+                str(getattr(settings,'canvas_fill_color','#101018')),
+                int(getattr(settings,'canvas_blur_strength',16)),
+            )
+            chains.extend(zoom_chains)
+            grain = _capcut_grain_filter(
+                str(getattr(settings,'capcut_noise_effect','film')),
+                int(getattr(settings,'capcut_noise_intensity',35))
+            ) if global_index in noise_indices else 'null'
+            processed=f'[capcutmedia{local_index}]'
+            chains.append(f'{zoom_source}{grain},format=rgba{processed}')
             overlay=resolve_asset(str(scene.get('overlay','none')),'overlays',str(scene.get('media_type','image')),library)
             creative=f'creative{local_index}'
             if overlay:
                 overlay_input=media_input+1
                 cmd+=['-stream_loop','-1','-i',str(overlay['_file_path'])]
                 alpha=max(0,min(1,float(scene.get('overlay_intensity',.35))))
-                chains.append(f'{canvas_source}{base},format=rgba[base{local_index}]')
                 chains.append(f'[{overlay_input}:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,format=rgba,colorchannelmixer=aa={alpha:.3f}[ov{local_index}]')
-                chains.append(f'[base{local_index}][ov{local_index}]overlay=shortest=1,scale=in_range=auto:out_range=tv,format=yuv420p[{creative}]')
+                chains.append(f'{processed}[ov{local_index}]overlay=shortest=1,scale=in_range=auto:out_range=tv,format=yuv420p[{creative}]')
             else:
-                chains.append(f'{canvas_source}{base},scale=in_range=auto:out_range=tv,format=yuv420p[{creative}]')
+                chains.append(f'{processed}scale=in_range=auto:out_range=tv,format=yuv420p[{creative}]')
             trim_start=inbound if local_index==0 else 0.0
             available=(outbound if global_index==end else durations[global_index]+transition_durations[global_index]-trim_start)
             chains.append(f'[{creative}]trim=start={trim_start:.6f}:duration={available:.6f},scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,format=yuv420p,setpts=PTS-STARTPTS,fps={fps},settb=AVTB[p{local_index}]')

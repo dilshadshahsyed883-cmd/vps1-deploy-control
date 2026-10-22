@@ -25,6 +25,15 @@ class ProjectSettings:
     canvas_fill_mode: str = "crop"  # blur, black, solid, stretch, crop
     canvas_blur_strength: int = 16
     canvas_fill_color: str = "#101018"
+    # CapCut Controls. Old saved project JSON defaults to no extra effects.
+    capcut_mirror_enabled: bool = False
+    capcut_mirror_percent: int = 0
+    capcut_zoom_level: int = 100
+    capcut_noise_enabled: bool = False
+    capcut_noise_effect: str = "film"
+    capcut_noise_intensity: int = 35
+    capcut_noise_percent: int = 40
+    capcut_noise_target: str = "both"
     duration_seconds: float = 30.0
 
     font_family: str = "Jameel Noori Nastaleeq Kasheeda"

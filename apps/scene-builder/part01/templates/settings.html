@@ -31,6 +31,7 @@
     <button type="button" data-tab="timing">Timing</button>
     <button type="button" data-tab="media">Stock Media</button>
     <button type="button" data-tab="creative">Colour & Motion</button>
+    <button type="button" data-tab="capcut">CapCut Controls</button>
     <button type="button" data-tab="captions">Captions</button>
     <button type="button" data-tab="audio">Audio Engine</button>
     {# Music & SFX moved inside Audio Engine · SCENE_AUDIO_ENGINE_EMBED_V1 #}
@@ -245,11 +246,31 @@
   </section>
 
   <style>.sb-control-grid>label[hidden]{display:none!important}</style>
-  <section class="sb-tab-panel" data-panel="output">
-    <div class="sb-section-head"><div><h3>Output and encoding</h3><p>Professional defaults suitable for the current four-vCPU VPS.</p></div></div>
-    <div class="sb-control-grid">
-      <label><span><strong>Custom resolution</strong><small>Used by Custom Web Settings.</small></span><select name="quality"><option value="480p" {% if quality=='480p' %}selected{% endif %}>480p</option><option value="720p" {% if quality=='720p' %}selected{% endif %}>720p</option><option value="1080p" {% if quality=='1080p' %}selected{% endif %}>1080p</option></select></label>
-      <label><span><strong>Aspect ratio</strong><small>Landscape, vertical or square.</small></span><select name="custom_aspect_ratio"><option value="16:9" {% if custom_aspect_ratio=='16:9' %}selected{% endif %}>16:9 Landscape</option><option value="9:16" {% if custom_aspect_ratio=='9:16' %}selected{% endif %}>9:16 Vertical</option><option value="1:1" {% if custom_aspect_ratio=='1:1' %}selected{% endif %}>1:1 Square</option></select></label>
+
+  <style>
+    .sb-capcut-hero{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
+    .sb-capcut-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(225px,.8fr);gap:18px}
+    .sb-capcut-card{padding:16px;border:1px solid #dfe6f3;border-radius:14px;background:#fff;margin-bottom:15px}
+    .sb-capcut-card h4{margin:0 0 5px;font-size:16px;color:#17213a}
+    .sb-capcut-card p{margin:0 0 12px;font-size:12px;color:#667085}
+    .sb-capcut-card .sb-control-grid{grid-template-columns:1fr;gap:8px}
+    .sb-capcut-card .sb-control-grid>label{min-height:58px}
+    .sb-capcut-preview{position:sticky;top:16px;border:1px solid #dfe6f3;background:#f8fafc;padding:13px;border-radius:14px}
+    .sb-capcut-screen{position:relative;aspect-ratio:16/9;overflow:hidden;border-radius:11px;background:linear-gradient(145deg,#242e59,#ba7389 55%,#f2bd8d)}
+    .sb-capcut-screen .landscape{position:absolute;inset:0;background:linear-gradient(140deg,transparent 45%,#263d5e 46% 75%,transparent 76%),linear-gradient(25deg,transparent 40%,#34466b 42% 65%,transparent 66%);transition:transform .15s}
+    .sb-capcut-screen .static{position:absolute;inset:0;pointer-events:none;opacity:0;background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.25) 0 1px,transparent 1px 9px),repeating-linear-gradient(-65deg,rgba(0,0,0,.25) 0 1px,transparent 1px 7px);background-size:19px 23px}
+    .sb-capcut-screen .scratches{position:absolute;inset:0;pointer-events:none;opacity:0;background:repeating-linear-gradient(90deg,transparent 0 48px,rgba(255,255,255,.6) 49px 50px,transparent 51px 99px)}
+    .sb-capcut-preview small{display:block;color:#667085;margin-top:9px}
+    .sb-capcut-sections{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+    .sb-capcut-sections a{font-size:12px;padding:7px 10px;background:#eff3ff;border:1px solid #d9e2fc;border-radius:9px;text-decoration:none;color:#343f77}
+    @media(max-width:940px){.sb-capcut-grid{grid-template-columns:1fr}.sb-capcut-preview{position:static}}
+  </style>
+  <section class="sb-tab-panel" data-panel="capcut">
+    <div class="sb-capcut-hero"><div class="sb-section-head"><div><h3>CapCut Controls</h3><p>Per-preset visual controls; applied to media before captions and overlays.</p></div></div></div>
+    <div class="sb-capcut-sections"><a href="#sb-capcut-canvas">Canvas Fill</a><a href="#sb-capcut-mirror">Mirror / Flip</a><a href="#sb-capcut-zoom">Zoom</a><a href="#sb-capcut-grain">Noise / Grain</a></div>
+    <div class="sb-capcut-grid">
+      <div>
+        <div class="sb-capcut-card" id="sb-capcut-canvas"><h4>Canvas Fill / Background Fill</h4><p>Fill empty sides without distorting the original media.</p><div class="sb-control-grid">
       <label><span><strong>Canvas Fill</strong><small>Keep the original media centered and fill unused sides.</small></span><select id="canvas-fill-mode" name="canvas_fill_mode">
         <option value="blur" {% if canvas_fill_mode=='blur' %}selected{% endif %}>Blur Background (recommended)</option>
         <option value="black" {% if canvas_fill_mode=='black' %}selected{% endif %}>Black Bars</option>
@@ -259,6 +280,51 @@
       </select></label>
       <label id="canvas-blur-control"><span><strong>Blur Intensity</strong><small><output id="canvas-blur-value">{{ canvas_blur_strength }}</output> / 40</small></span><input id="canvas-blur-strength" data-output="canvas-blur-value" name="canvas_blur_strength" type="range" min="0" max="40" step="1" value="{{ canvas_blur_strength }}"></label>
       <label id="canvas-color-control"><span><strong>Canvas Color</strong><small>Used in Solid Color mode.</small></span><input id="canvas-fill-color" name="canvas_fill_color" type="color" value="{{ canvas_fill_color }}"></label>
+
+        </div></div>
+        <div class="sb-capcut-card" id="sb-capcut-mirror"><h4>Mirror / Flip</h4><p>Horizontal only. Eligible video clips are selected deterministically per render job.</p><div class="sb-control-grid">
+          <label><span><strong>Horizontal Mirror</strong></span><span class="pro-switch"><input id="capcut-mirror-enabled" name="capcut_mirror_enabled" type="checkbox" {% if capcut_mirror_enabled %}checked{% endif %}><i></i></span></label>
+          <label><span><strong>Clips to Flip</strong><small><output id="capcut-mirror-percent-value">{{ capcut_mirror_percent }}</output>% of video clips</small></span><input id="capcut-mirror-percent" type="range" name="capcut_mirror_percent" data-output="capcut-mirror-percent-value" min="0" max="100" step="5" value="{{ capcut_mirror_percent }}"></label>
+        </div></div>
+        <div class="sb-capcut-card" id="sb-capcut-zoom"><h4>Zoom In / Out</h4><p>Static media scale, separate from animated image/video motions.</p><div class="sb-control-grid">
+          <label><span><strong>Zoom Level</strong><small><output id="capcut-zoom-value">{{ capcut_zoom_level }}</output>% · 50% to 300%</small></span><input id="capcut-zoom" type="range" name="capcut_zoom_level" data-output="capcut-zoom-value" min="50" max="300" step="5" value="{{ capcut_zoom_level }}"></label>
+        </div><button type="button" class="button secondary mini" id="capcut-zoom-reset">Reset 100%</button></div>
+        <div class="sb-capcut-card" id="sb-capcut-grain"><h4>Noise / Grain Effects</h4><p>Choose one texture. Settings apply to source media only.</p><div class="sb-control-grid">
+          <label><span><strong>Enable Grain</strong></span><span class="pro-switch"><input id="capcut-noise-enabled" name="capcut_noise_enabled" type="checkbox" {% if capcut_noise_enabled %}checked{% endif %}><i></i></span></label>
+          <label><span><strong>Effect</strong></span><select id="capcut-noise-effect" name="capcut_noise_effect">
+            <option value="white" {% if capcut_noise_effect=='white' %}selected{% endif %}>White Noise / White Grain</option>
+            <option value="black" {% if capcut_noise_effect=='black' %}selected{% endif %}>Black Noise / Dark Grain</option>
+            <option value="film" {% if capcut_noise_effect=='film' %}selected{% endif %}>Film Grain</option>
+            <option value="analog" {% if capcut_noise_effect=='analog' %}selected{% endif %}>Analog TV Static</option>
+            <option value="dust" {% if capcut_noise_effect=='dust' %}selected{% endif %}>Dust &amp; Scratches</option>
+          </select></label>
+          <label><span><strong>Intensity</strong><small><output id="capcut-noise-intensity-value">{{ capcut_noise_intensity }}</output>%</small></span><input name="capcut_noise_intensity" type="range" data-output="capcut-noise-intensity-value" min="0" max="100" step="5" value="{{ capcut_noise_intensity }}"></label>
+          <label><span><strong>Apply to Media</strong><small><output id="capcut-noise-percent-value">{{ capcut_noise_percent }}</output>% of eligible items</small></span><input name="capcut_noise_percent" type="range" data-output="capcut-noise-percent-value" min="0" max="100" step="5" value="{{ capcut_noise_percent }}"></label>
+          <label><span><strong>Media Type</strong></span><select name="capcut_noise_target">
+            <option value="both" {% if capcut_noise_target=='both' %}selected{% endif %}>Images &amp; Videos</option>
+            <option value="images" {% if capcut_noise_target=='images' %}selected{% endif %}>Images Only</option>
+            <option value="videos" {% if capcut_noise_target=='videos' %}selected{% endif %}>Videos Only</option>
+          </select></label>
+        </div></div>
+      </div>
+      <aside class="sb-capcut-preview">
+        <strong>Editing Preview</strong>
+        <div class="sb-capcut-screen" aria-label="Illustrative media effect preview" id="sb-capcut-screen">
+          <div class="landscape" id="sb-capcut-preview-image"></div>
+          <div class="static" id="sb-capcut-preview-static"></div>
+          <div class="scratches" id="sb-capcut-preview-scratches"></div>
+        </div>
+        <small>Illustrative preview only; final video is rendered using FFmpeg and the saved preset settings.</small>
+        <small id="sb-capcut-preview-summary">Editing controls</small>
+      </aside>
+    </div>
+  </section>
+
+  <section class="sb-tab-panel" data-panel="output">
+    <div class="sb-section-head"><div><h3>Output and encoding</h3><p>Professional defaults suitable for the current four-vCPU VPS.</p></div></div>
+    <div class="sb-control-grid">
+      <label><span><strong>Custom resolution</strong><small>Used by Custom Web Settings.</small></span><select name="quality"><option value="480p" {% if quality=='480p' %}selected{% endif %}>480p</option><option value="720p" {% if quality=='720p' %}selected{% endif %}>720p</option><option value="1080p" {% if quality=='1080p' %}selected{% endif %}>1080p</option></select></label>
+      <label><span><strong>Aspect ratio</strong><small>Landscape, vertical or square.</small></span><select name="custom_aspect_ratio"><option value="16:9" {% if custom_aspect_ratio=='16:9' %}selected{% endif %}>16:9 Landscape</option><option value="9:16" {% if custom_aspect_ratio=='9:16' %}selected{% endif %}>9:16 Vertical</option><option value="1:1" {% if custom_aspect_ratio=='1:1' %}selected{% endif %}>1:1 Square</option></select></label>
       <label><span><strong>Frame rate</strong><small>24 for cinematic, 30 for social.</small></span><select name="output_fps"><option value="24" {% if output_fps=='24' %}selected{% endif %}>24 fps</option><option value="25" {% if output_fps=='25' %}selected{% endif %}>25 fps</option><option value="30" {% if output_fps=='30' %}selected{% endif %}>30 fps</option><option value="60" {% if output_fps=='60' %}selected{% endif %}>60 fps</option></select></label>
       <label><span><strong>Quality CRF</strong><small>Lower is better quality; 20 is recommended.</small></span><input name="quality_crf" type="number" min="16" max="30" value="{{ quality_crf }}"></label>
       <label><span><strong>Encoder speed</strong><small>Veryfast balances VPS speed and file size.</small></span><select name="ffmpeg_preset">{% for value in ['ultrafast','veryfast','faster','fast','medium'] %}<option value="{{ value }}" {% if ffmpeg_preset==value %}selected{% endif %}>{{ value|title }}</option>{% endfor %}</select></label>
@@ -369,6 +435,27 @@
     }
     canvasMode?.addEventListener('change',updateCanvasControls);
     updateCanvasControls();
+
+    function updateCapCutPreview(){
+      const enabled=document.getElementById('capcut-noise-enabled')?.checked;
+      const type=document.getElementById('capcut-noise-effect')?.value||'film';
+      const amount=Number(document.querySelector('[name="capcut_noise_intensity"]')?.value||0)/100;
+      const flip=document.getElementById('capcut-mirror-enabled')?.checked;
+      const scale=Number(document.getElementById('capcut-zoom')?.value||100)/100;
+      const image=document.getElementById('sb-capcut-preview-image');
+      const grain=document.getElementById('sb-capcut-preview-static');
+      const scratches=document.getElementById('sb-capcut-preview-scratches');
+      if(image)image.style.transform='scale('+scale+') scaleX('+(flip?-1:1)+')';
+      if(grain){grain.style.opacity=enabled?String(amount):'0';grain.style.filter=type==='white'?'brightness(2)':type==='black'?'brightness(.3)':type==='film'?'blur(1px)':'none';}
+      if(scratches)scratches.style.opacity=enabled&&type==='dust'?String(amount):'0';
+      const summary=document.getElementById('sb-capcut-preview-summary');
+      if(summary)summary.textContent='Zoom '+Math.round(scale*100)+'% · Mirror '+(flip?'ON':'OFF')+' · '+(enabled?type+' grain':'Grain OFF');
+    }
+    ['capcut-noise-enabled','capcut-noise-effect','capcut-mirror-enabled','capcut-zoom'].forEach(id=>document.getElementById(id)?.addEventListener('change',updateCapCutPreview));
+    document.querySelectorAll('#sb-capcut-grain input').forEach(el=>el.addEventListener('input',updateCapCutPreview));
+    document.getElementById('capcut-zoom')?.addEventListener('input',updateCapCutPreview);
+    document.getElementById('capcut-zoom-reset')?.addEventListener('click',()=>{const slider=document.getElementById('capcut-zoom');slider.value='100';slider.dispatchEvent(new Event('input',{bubbles:true}));slider.dispatchEvent(new Event('change',{bubbles:true}));});
+    updateCapCutPreview();
     const lutPacks={{ lut_packs|tojson }};const lutPack=document.getElementById('lut-pack');const lutPreset=document.getElementById('lut-preset');function updateLuts(){const values=lutPacks[lutPack.value]?.presets||[];const previous=lutPreset.value;lutPreset.innerHTML=values.map(value=>`<option value="${value}">${value.replaceAll('_',' ').replace(/\b\w/g,c=>c.toUpperCase())}</option>`).join('');if(values.includes(previous))lutPreset.value=previous;syncAllMirrors();}lutPack.addEventListener('change',updateLuts);
   const captionStyles={{ caption_styles|tojson }};
   const demo=document.getElementById('caption-demo');
