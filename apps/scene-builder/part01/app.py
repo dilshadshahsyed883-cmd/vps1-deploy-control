@@ -829,6 +829,8 @@ def record_job_owner(job_id: str, username: str, project_name: str = "", sml_set
 def scene_sml_settings() -> dict[str, Any]:
     return {"sml_enabled": setting("sml_enabled", "1") == "1",
             "media_source_mode": setting("media_source_mode", "sml_first"),
+            "sml_media_order": setting("sml_media_order", "smart"),
+            "sml_target_percent": max(0, min(100, int(setting("sml_target_percent", "80")))),
             "sml_auto_scene_matching": setting("sml_auto_scene_matching", "1") == "1",
             "sml_manual_audit_selection": setting("sml_manual_audit_selection", "1") == "1",
             "sml_clip_preview": setting("sml_clip_preview", "1") == "1"}
@@ -840,6 +842,7 @@ def job_sml_settings(job_id: str) -> dict[str, Any]:
     # Existing jobs retain the previously deployed, always-on SML behavior.
     return json.loads(row["settings_json"]) if row else {
         "sml_enabled": True, "media_source_mode": "sml_first",
+        "sml_media_order": "video_only", "sml_target_percent": 80,
         "sml_auto_scene_matching": True, "sml_manual_audit_selection": True,
         "sml_clip_preview": True}
 
@@ -2425,7 +2428,8 @@ async def submit_project(
     record_job_owner(job_id, submitter, project_name, {
         key: packaged_project["metadata"][key] for key in (
             "sml_enabled", "media_source_mode", "sml_auto_scene_matching",
-            "sml_manual_audit_selection", "sml_clip_preview")})
+            "sml_manual_audit_selection", "sml_clip_preview",
+            "sml_media_order", "sml_target_percent")})
     audit_event("project_submitted", "Website project submission accepted", {
         "job_id": job_id,
         "project_name": project_name,
@@ -3626,6 +3630,8 @@ def save_settings(
     sml_controls_present: str | None = Form(None),
     sml_enabled: str | None = Form(None),
     media_source_mode: str = Form("sml_first"),
+    sml_media_order: str = Form("smart"),
+    sml_target_percent: int = Form(80),
     sml_auto_scene_matching: str | None = Form(None),
     sml_manual_audit_selection: str | None = Form(None),
     sml_clip_preview: str | None = Form(None),
@@ -3744,8 +3750,12 @@ def save_settings(
             raise HTTPException(400, f"{label}: maximum duration must be equal to or greater than minimum duration")
         if minimum > 10 or maximum > 15:
             raise HTTPException(400, f"{label}: duration is outside the supported range")
-    if media_source_mode not in {"sml_first", "pexels_only"}:
+    if media_source_mode not in {"sml_first", "sml_only", "pexels_first", "mixed", "pexels_only"}:
         raise HTTPException(400, "Invalid media selection priority")
+    if sml_media_order not in {"smart", "video_only", "image_only", "videos_first", "images_first", "alternate"}:
+        raise HTTPException(400, "Invalid SML media type order")
+    if not 0 <= sml_target_percent <= 100:
+        raise HTTPException(400, "SML target percentage must be between 0 and 100")
     if pexels_selection_mode not in {"first_result", "best_match", "top_n_random", "popularity", "best_match_variety"}:
         raise HTTPException(400, "Invalid Pexels selection mode")
     if not 1 <= int(pexels_search_pool) <= 40:
@@ -3886,6 +3896,8 @@ def save_settings(
     if sml_controls_present == "1":
         values.update({"sml_enabled": "1" if sml_enabled == "on" else "0",
                        "media_source_mode": media_source_mode,
+                       "sml_media_order": sml_media_order,
+                       "sml_target_percent": str(sml_target_percent),
                        "sml_auto_scene_matching": "1" if sml_auto_scene_matching == "on" else "0",
                        "sml_manual_audit_selection": "1" if sml_manual_audit_selection == "on" else "0",
                        "sml_clip_preview": "1" if sml_clip_preview == "on" else "0"})
