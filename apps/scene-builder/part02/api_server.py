@@ -3771,7 +3771,7 @@ def _prepare_first2_visual_audit(
     if not bool(getattr(settings, "first_two_minute_visual_audit_enabled", False)):
         return narration_scenes, False
     existing = _load_audit_checkpoint(job_dir)
-    if existing and str(existing.get("source_signature") or "") == source_signature:
+    if existing and str(existing.get("source_signature") or "") == source_signature and bool(existing.get("resolution_complete", True)):
         if bool(existing.get("approved")):
             return _apply_approved_visual_audit(job_dir, settings, narration_scenes, existing), False
         missing = sum(1 for item in existing.get("items", []) if not Path(str(item.get("media_path") or "")).is_file())
@@ -3788,7 +3788,26 @@ def _prepare_first2_visual_audit(
     assignment_root = job_dir / "audit_media"
     shutil.rmtree(assignment_root, ignore_errors=True)
     assignment_root.mkdir(parents=True, exist_ok=True)
-    items: list[dict[str, Any]] = []
+    # Persist a complete scene manifest before resolving the first batch.
+    # The authenticated Audit page can display completed batches immediately,
+    # while the next 30-second section resolves in this existing worker thread.
+    items = [_audit_item_from_result(row, None, "Awaiting media resolution", revision=1) for row in rows]
+    batches = _audit_batch_ranges(items, AUDIT_WINDOW_SECONDS)
+    batch_for_item = {item_id: b["index"] for b in batches for item_id in b["item_ids"]}
+    payload = {
+        "version": AUDIT_CHECKPOINT_VERSION,
+        "source_signature": source_signature,
+        "window_seconds": AUDIT_WINDOW_SECONDS,
+        "target_width": int(settings.width),
+        "target_height": int(settings.height),
+        "approved": False,
+        "approved_at": "",
+        "items": items,
+        "resolution_completed_batches": 0,
+        "resolution_complete": False,
+        "created_at": now_iso(),
+    }
+    _save_audit_checkpoint(job_dir, payload)
     used_asset_keys: set[str] = set()
     used_hashes: set[str] = set()
     audit_sml_client = SMLWorkerClient()
@@ -3841,18 +3860,15 @@ def _prepare_first2_visual_audit(
             if path.is_file():
                 try: used_hashes.add(sha256_file(path))
                 except Exception: pass
-        items.append(item)
-    payload = {
-        "version": AUDIT_CHECKPOINT_VERSION,
-        "source_signature": source_signature,
-        "window_seconds": AUDIT_WINDOW_SECONDS,
-        "target_width": int(settings.width),
-        "target_height": int(settings.height),
-        "approved": False,
-        "approved_at": "",
-        "items": items,
-        "created_at": now_iso(),
-    }
+        items[index] = item
+        current_batch = batch_for_item.get(item_id, 0)
+        next_batch = (batch_for_item.get(str(rows[index + 1].get("item_id") or ""), 0)
+                      if index + 1 < len(rows) else len(batches))
+        if next_batch != current_batch:
+            payload["resolution_completed_batches"] = current_batch + 1
+            _save_audit_checkpoint(job_dir, payload)
+    payload["resolution_completed_batches"] = len(batches)
+    payload["resolution_complete"] = True
     _save_audit_checkpoint(job_dir, payload)
     missing = sum(1 for item in items if not Path(str(item.get("media_path") or "")).is_file())
     update_job(
@@ -3922,6 +3938,8 @@ def _public_audit_payload(job_id: str, payload: dict[str, Any]) -> dict[str, Any
         "missing_count": sum(1 for item in items if not bool(item.get("has_media"))),
         "approved_count": sum(1 for item in items if bool(item.get("approved"))),
         "batches": _audit_batch_ranges(items, float(payload.get("window_seconds") or AUDIT_WINDOW_SECONDS)),
+        "resolution_completed_batches": int(payload.get("resolution_completed_batches") or 0),
+        "resolution_complete": bool(payload.get("resolution_complete", True)),
     }
 
 
