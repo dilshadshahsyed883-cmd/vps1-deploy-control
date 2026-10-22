@@ -319,16 +319,29 @@ def _write_ass(segments: list[dict[str, Any]], path: Path, settings: Any, width:
         if text:
             start=float(x.get('start',0) or 0); end=float(x.get('end',0) or 0)
             event_text=_ass_escape(text)
-            if karaoke and ' ' in text:
+            if karaoke:
                 words=[w for w in text.split() if w]
-                if words:
+                timings=[w for w in (x.get('words') or []) if isinstance(w,dict)]
+                if words and len(timings)==len(words):
+                    valid = all('start' in w and 'end' in w for w in timings)
+                    starts = [max(start, min(end, float(w['start']))) for w in timings] if valid else []
+                    valid = valid and all(starts[i] <= starts[i+1] for i in range(len(starts)-1))
+                    if valid:
+                        parts=[]
+                        first_cs=max(0,int(round((starts[0]-start)*100)))
+                        if first_cs:
+                            parts.append(r'{\k%d}{\alpha&HFF&}\h{\alpha&H00&}' % first_cs)
+                        for idx,word in enumerate(words):
+                            next_start=starts[idx+1] if idx+1<len(starts) else end
+                            centiseconds=max(1,int(round(max(.01,next_start-starts[idx])*100)))
+                            parts.append(r'{\kf%d}%s' % (centiseconds,_ass_escape(word)))
+                        event_text=' '.join(parts)
+                elif len(words)>1:
+                    # Explicit fallback only for older captions without word timestamps.
                     total_cs=max(len(words),int(round(max(.1,end-start)*100)))
                     base=max(1,total_cs//len(words)); remain=max(0,total_cs-base*len(words))
-                    parts=[]
-                    for idx,word in enumerate(words):
-                        k=base+(1 if idx<remain else 0)
-                        parts.append(r'{\kf%d}%s' % (k,_ass_escape(word)))
-                    event_text=' '.join(parts)
+                    event_text=' '.join(r'{\kf%d}%s' % (base+(1 if idx<remain else 0),_ass_escape(word))
+                                        for idx,word in enumerate(words))
             events.append(f"Dialogue: 0,{ts(start)},{ts(end)},Default,,0,0,0,,{event_text}")
     if not events: return False
     position=str(getattr(settings,'caption_position','bottom') or 'bottom').lower()
