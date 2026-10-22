@@ -16,7 +16,7 @@
     <div class="audit-project-row">
       <div><strong>{{ job.project_name or 'Untitled' }}</strong><small>{{ job.message or job.stage or 'Needs Visual Audit' }}</small></div>
       <span class="audit-stat"><b>{{ job.progress or 34 }}%</b> prepared</span>
-      <span class="status waiting_for_audit">Needs Audit</span>
+      <span class="status waiting_for_audit">{{ 'Resolving Batches' if job.status == 'downloading_media' else 'Needs Audit' }}</span>
       <a class="button" href="/audit-media?job={{ job.id|urlencode }}">Open Audit</a>
     </div>
     {% else %}
@@ -177,13 +177,17 @@
     const reviewed=batchItems.filter(i=>i.approved).length;
     const reviewable=batchItems.filter(i=>i.has_media&&!i.approved).length;
     batchTitle.textContent=`Batch ${batchIndex+1} of ${available.length} · ${time(current.start)}–${time(current.end)}`;
-    batchProgress.textContent=`${reviewed}/${batchItems.length} reviewed · ${batchItems.length} scenes · scene boundary ±3s`;
+    const finished=Number(audit.resolution_completed_batches||0);
+    batchProgress.textContent=`${reviewed}/${batchItems.length} reviewed · ${batchItems.length} scenes · ${finished}/${available.length} batches resolved · boundary ±3s`;
     prevBatch.disabled=batchIndex===0;
     nextBatch.disabled=batchIndex>=available.length-1;
-    approveBatch.disabled=!Array.isArray(audit.batches)||!reviewable||!!audit.approved;
+    approveBatch.disabled=!Array.isArray(audit.batches)||!reviewable||!!audit.approved||audit.resolution_complete===false;
     summary.innerHTML=`<b>${total}</b> scenes · <b>${changed}</b> changed · <b>${missing}</b> missing · <b>${approved}/${total}</b> reviewed`;
-    continueBtn.disabled=missing>0||approved<total||!!audit.approved;
-    approveAll.disabled=missing>0&&approved>=total-missing || !!audit.approved;
+    continueBtn.disabled=missing>0||approved<total||!!audit.approved||audit.resolution_complete===false;
+    approveAll.disabled=(missing>0&&approved>=total-missing)||!!audit.approved||audit.resolution_complete===false;
+    if(audit.resolution_complete===false){
+      grid.querySelectorAll('button[data-action]:not([data-action="preview"]),input[data-action]').forEach(control=>control.disabled=true);
+    }
     grid.querySelectorAll('video').forEach(v=>v.addEventListener('play',()=>stopOthers(v)));
   }
   prevBatch.onclick=()=>{if(batchIndex>0){batchIndex--;render();}};
@@ -288,7 +292,24 @@
   }
   approveAll.onclick=async()=>{try{audit=await api(`/api/audit-media/${encodeURIComponent(jobId)}/approve-all`,{method:'POST'});render();show('All available scenes reviewed ✓')}catch(e){show(e.message,'error')}};
   continueBtn.onclick=async()=>{if(!confirm('Approve the first 2-minute visuals and continue automatic production?'))return;try{continueBtn.disabled=true;await api(`/api/audit-media/${encodeURIComponent(jobId)}/continue`,{method:'POST'});location.href='/queue'}catch(e){show(e.message,'error');render()}};
-  if(!audit||!Array.isArray(audit.items)){api(`/api/audit-media/${encodeURIComponent(jobId)}`).then(d=>{audit=d;render();autoMatchSml()}).catch(e=>show(e.message,'error'))}else{render();autoMatchSml()}
+  // Poll partial checkpoint only while resolution is active. Previously resolved
+  // scenes remain reviewable, and players for other batches are never mounted.
+  let batchRefreshBusy=false;
+  setInterval(async()=>{
+    if(batchRefreshBusy||audit.resolution_complete!==false)return;
+    batchRefreshBusy=true;
+    try{
+      const next=await api(`/api/audit-media/${encodeURIComponent(jobId)}`);
+      if(next.updated_at!==audit.updated_at||next.status!==audit.status){
+        audit=next;render();
+        if(next.resolution_complete)autoMatchSml();
+      }
+    }catch(e){/* Keep the last usable batch while a worker is briefly unavailable. */}
+    finally{batchRefreshBusy=false;}
+  },3000);
+  if(!audit||!Array.isArray(audit.items)){
+    api(`/api/audit-media/${encodeURIComponent(jobId)}`).then(d=>{audit=d;render();if(d.resolution_complete!==false)autoMatchSml()}).catch(e=>show(e.message,'error'));
+  }else{render();if(audit.resolution_complete!==false)autoMatchSml();}
 })();
 </script>
 {% endif %}
