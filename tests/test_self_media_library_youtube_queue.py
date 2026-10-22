@@ -65,7 +65,7 @@ class Contracts(unittest.TestCase):
         self.assertEqual(page.ids.count("importHistory"), 1)
         self.assertEqual(page.ids.count("refreshImports"), 1)
         js = (ROOT / "static/app.js").read_text()
-        for token in ("renderImports(items)", "data-import-retry", "item.progress",
+        for token in ("renderImports(items,", "data-import-retry", "item.progress",
                       "await loadImports()", "if(state.page==='sources')loadImports()"):
             self.assertIn(token, js)
 
