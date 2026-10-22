@@ -1193,7 +1193,9 @@ def _sml_media_type_order(scene: dict[str, Any]) -> list[str]:
     elif mode == "alternate":
         order = ["image", "video"] if index % 2 else ["video", "image"]
     elif mode == "smart":
-        preferred = authored if authored in {"video", "image"} else ("image" if index % 2 else "video")
+        # A video-typed plan must not starve the photo library: alternate in
+        # Smart Mixed while honoring explicit authored image requests.
+        preferred = "image" if authored == "image" or index % 2 else "video"
         order = [preferred, "video" if preferred == "image" else "image"]
     else:
         order = ["video"]
