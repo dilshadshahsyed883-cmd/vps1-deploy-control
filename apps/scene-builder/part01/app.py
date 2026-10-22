@@ -2674,7 +2674,10 @@ def _web_audit_payload(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 @app.get("/audit-media", response_class=HTMLResponse)
 def audit_media_page(request: Request):
     username = str(request.session.get("username") or "")
-    waiting = [job for job in jobs_for_user(username, 1000) if str(job.get("status") or "") == "waiting_for_audit"]
+    waiting = [job for job in jobs_for_user(username, 1000)
+               if str(job.get("status") or "") == "waiting_for_audit"
+               or (str(job.get("status") or "") == "downloading_media"
+                   and str(job.get("stage") or "") == "Preparing Visual Audit")]
     selected_job_id = str(request.query_params.get("job") or "").strip()
     selected_job: dict[str, Any] | None = None
     audit_payload: dict[str, Any] | None = None
@@ -2961,6 +2964,21 @@ async def api_audit_upload(request: Request, job_id: str, item_id: str, file: Up
         return _web_audit_payload(job_id, result)
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+@app.post("/api/audit-media/{job_id}/batches/{batch_index}/approve")
+def api_audit_approve_batch(request: Request, job_id: str, batch_index: int):
+    require_job_access(request, job_id)
+    result = worker_request("POST", f"/jobs/{job_id}/audit/media/batches/{batch_index}/approve").json()
+    return _web_audit_payload(job_id, result)
+
+
+@app.post("/api/audit-media/{job_id}/{item_id}/approve")
+def api_audit_approve_item(request: Request, job_id: str, item_id: str, revision: int | None = None):
+    require_job_access(request, job_id)
+    result = worker_request("POST", f"/jobs/{job_id}/audit/media/{item_id}/approve",
+                            params={"revision": revision} if revision is not None else {}).json()
+    return _web_audit_payload(job_id, result)
 
 
 @app.post("/api/audit-media/{job_id}/approve-all")

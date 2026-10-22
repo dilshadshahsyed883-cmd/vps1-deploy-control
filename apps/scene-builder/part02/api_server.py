@@ -3551,6 +3551,47 @@ def _save_audit_checkpoint(job_dir: Path, payload: dict[str, Any]) -> None:
     _atomic_json(_audit_checkpoint_path(job_dir), data)
 
 
+def _audit_batch_ranges(items: list[dict[str, Any]], window_seconds: float = AUDIT_WINDOW_SECONDS) -> list[dict[str, Any]]:
+    """Partition opening visual review into ~30s batches with scene-end snap ±3s.
+
+    Every scene belongs to the batch containing its original start timestamp.
+    Even a scene crossing a hard fallback boundary is never copied or split.
+    This maps PREVIEW/APPROVAL only; final render timing stays untouched.
+    """
+    duration = max(0.0, float(window_seconds))
+    if duration <= 0:
+        return []
+    ends = sorted({
+        round(float(i.get("final_end") or 0), 3)
+        for i in items if isinstance(i, dict) and 0 < float(i.get("final_end") or 0) < duration
+    })
+    batches: list[dict[str, Any]] = []
+    start = 0.0
+    while start < duration - 0.001:
+        target = min(duration, start + 30.0)
+        if target >= duration - 0.001:
+            end = duration
+        else:
+            nearby = [v for v in ends if abs(v - target) <= 3.0 and v > start + 0.001]
+            end = min(nearby, key=lambda v: (abs(v - target), v)) if nearby else target
+        end = round(min(duration, end), 3)
+        if end <= start:
+            end = round(min(duration, start + 30.0), 3)
+        ids = [
+            str(i.get("item_id") or "")
+            for i in items if isinstance(i, dict)
+            and start <= float(i.get("final_start") or 0) < end
+        ]
+        batches.append({
+            "index": len(batches),
+            "start": round(start, 3),
+            "end": end,
+            "item_ids": ids,
+        })
+        start = end
+    return batches
+
+
 def _audit_final_timeline_rows(settings: ProjectSettings, narration_scenes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Return only scene references intersecting final timeline 00:00-02:00."""
     metadata = dict(settings.metadata or {})
@@ -3730,7 +3771,7 @@ def _prepare_first2_visual_audit(
     if not bool(getattr(settings, "first_two_minute_visual_audit_enabled", False)):
         return narration_scenes, False
     existing = _load_audit_checkpoint(job_dir)
-    if existing and str(existing.get("source_signature") or "") == source_signature:
+    if existing and str(existing.get("source_signature") or "") == source_signature and bool(existing.get("resolution_complete", True)):
         if bool(existing.get("approved")):
             return _apply_approved_visual_audit(job_dir, settings, narration_scenes, existing), False
         missing = sum(1 for item in existing.get("items", []) if not Path(str(item.get("media_path") or "")).is_file())
@@ -3747,7 +3788,26 @@ def _prepare_first2_visual_audit(
     assignment_root = job_dir / "audit_media"
     shutil.rmtree(assignment_root, ignore_errors=True)
     assignment_root.mkdir(parents=True, exist_ok=True)
-    items: list[dict[str, Any]] = []
+    # Persist a complete scene manifest before resolving the first batch.
+    # The authenticated Audit page can display completed batches immediately,
+    # while the next 30-second section resolves in this existing worker thread.
+    items = [_audit_item_from_result(row, None, "", revision=1) for row in rows]
+    batches = _audit_batch_ranges(items, AUDIT_WINDOW_SECONDS)
+    batch_for_item = {item_id: b["index"] for b in batches for item_id in b["item_ids"]}
+    payload = {
+        "version": AUDIT_CHECKPOINT_VERSION,
+        "source_signature": source_signature,
+        "window_seconds": AUDIT_WINDOW_SECONDS,
+        "target_width": int(settings.width),
+        "target_height": int(settings.height),
+        "approved": False,
+        "approved_at": "",
+        "items": items,
+        "resolution_completed_batches": 0,
+        "resolution_complete": False,
+        "created_at": now_iso(),
+    }
+    _save_audit_checkpoint(job_dir, payload)
     used_asset_keys: set[str] = set()
     used_hashes: set[str] = set()
     audit_sml_client = SMLWorkerClient()
@@ -3800,18 +3860,15 @@ def _prepare_first2_visual_audit(
             if path.is_file():
                 try: used_hashes.add(sha256_file(path))
                 except Exception: pass
-        items.append(item)
-    payload = {
-        "version": AUDIT_CHECKPOINT_VERSION,
-        "source_signature": source_signature,
-        "window_seconds": AUDIT_WINDOW_SECONDS,
-        "target_width": int(settings.width),
-        "target_height": int(settings.height),
-        "approved": False,
-        "approved_at": "",
-        "items": items,
-        "created_at": now_iso(),
-    }
+        items[index] = item
+        current_batch = batch_for_item.get(item_id, 0)
+        next_batch = (batch_for_item.get(str(rows[index + 1].get("item_id") or ""), 0)
+                      if index + 1 < len(rows) else len(batches))
+        if next_batch != current_batch:
+            payload["resolution_completed_batches"] = current_batch + 1
+            _save_audit_checkpoint(job_dir, payload)
+    payload["resolution_completed_batches"] = len(batches)
+    payload["resolution_complete"] = True
     _save_audit_checkpoint(job_dir, payload)
     missing = sum(1 for item in items if not Path(str(item.get("media_path") or "")).is_file())
     update_job(
@@ -3868,6 +3925,7 @@ def _public_audit_payload(job_id: str, payload: dict[str, Any]) -> dict[str, Any
         row["has_media"] = Path(str(raw.get("media_path") or "")).is_file()
         row["preview_url"] = f"/jobs/{job_id}/audit/media/{raw.get('item_id')}/preview" if row["has_media"] else ""
         items.append(row)
+    batches = _audit_batch_ranges(items, float(payload.get("window_seconds") or AUDIT_WINDOW_SECONDS))
     return {
         "job_id": job_id,
         "window_seconds": float(payload.get("window_seconds") or AUDIT_WINDOW_SECONDS),
@@ -3880,6 +3938,9 @@ def _public_audit_payload(job_id: str, payload: dict[str, Any]) -> dict[str, Any
         "changed_count": sum(1 for item in items if bool(item.get("changed"))),
         "missing_count": sum(1 for item in items if not bool(item.get("has_media"))),
         "approved_count": sum(1 for item in items if bool(item.get("approved"))),
+        "batches": batches,
+        "resolution_completed_batches": int(payload.get("resolution_completed_batches", len(batches) if payload.get("resolution_complete", True) else 0)),
+        "resolution_complete": bool(payload.get("resolution_complete", True)),
     }
 
 
@@ -5621,6 +5682,38 @@ def visual_audit_approve_item(job_id: str, item_id: str, revision: int | None = 
         payload["items"][index] = item
         _save_audit_checkpoint(job_dir, payload)
         return _public_audit_payload(job_id, payload)
+
+
+
+@app.post("/jobs/{job_id}/audit/media/batches/{batch_index}/approve")
+def visual_audit_approve_batch(job_id: str, batch_index: int, token: str | None = None):
+    auth(token)
+    current = get_job(job_id)
+    if str(current.get("status") or "") != "waiting_for_audit":
+        raise HTTPException(409, "Project is not waiting for Visual Audit")
+    job_dir = JOBS / job_id
+    with _audit_lock(job_id):
+        payload = _load_audit_checkpoint(job_dir)
+        if not payload or bool(payload.get("approved")):
+            raise HTTPException(409, "Visual Audit is not editable")
+        batches = _audit_batch_ranges(payload.get("items", []), float(payload.get("window_seconds") or AUDIT_WINDOW_SECONDS))
+        if batch_index < 0 or batch_index >= len(batches):
+            raise HTTPException(404, "Audit batch not found")
+        selected = set(batches[batch_index]["item_ids"])
+        changed = 0
+        for item in payload.get("items", []):
+            if not isinstance(item, dict) or str(item.get("item_id") or "") not in selected:
+                continue
+            # Unresolved media is NEVER approved. Other batches are untouched.
+            if Path(str(item.get("media_path") or "")).is_file() and not bool(item.get("approved")):
+                item["approved"] = True
+                item["revision"] = int(item.get("revision") or 0) + 1
+                changed += 1
+        if changed:
+            _save_audit_checkpoint(job_dir, payload)
+        response = _public_audit_payload(job_id, payload)
+        response["batch_approved_count"] = changed
+        return response
 
 
 @app.post("/jobs/{job_id}/audit/media/approve-all")
