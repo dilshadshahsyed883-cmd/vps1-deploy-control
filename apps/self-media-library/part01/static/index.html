@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Self Media Library</title>
-  <link rel="stylesheet" href="/self-media-library/static/styles.css?v=20261020-legacy-v2" />
+  <link rel="stylesheet" href="/self-media-library/static/styles.css?v=20261022-image-bulk-v1" />
   <!-- One canonical website shell, served by Scene Builder rather than the library's static mount. -->
   <link rel="stylesheet" href="/&#115;tatic/vps1_native_site_shell.css?v=20261020-experiment-ui-v5" />
   <link rel="stylesheet" href="/self-media-library/static/sml_shared_theme.css?v=20261022-yt-queue-pair-batch-v1" />
@@ -193,7 +193,23 @@
       <article class="panel settings-spaced">
         <div class="panel-head"><div><h2>Images</h2><p>Preview, search, rename, tag, approve and archive your photos.</p></div></div>
         <div class="library-toolbar"><input id="imageSearch" class="setting-text" placeholder="Search filename, description, keywords…" /><select id="imageStatus"><option value="all">All images</option><option value="candidate">Candidate</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select><select id="imageOrientation" aria-label="Image orientation"><option value="all">All orientations</option><option value="landscape">Landscape</option><option value="portrait">Portrait</option><option value="square">Square</option><option value="unknown">Unknown</option></select></div>
-        <div class="row-actions"><button id="selectAllImages" class="ghost">Select visible images</button><button id="deleteSelectedImages" class="danger-soft">Delete selected images</button></div><div id="imagesGrid" class="image-grid"></div>
+        <div class="bulkbar hidden" id="imageBulkBar">
+          <strong><span id="imageSelectedCount">0</span> selected images</strong>
+          <div>
+            <button class="ghost" data-image-bulk-status="approved">Approve</button>
+            <button class="ghost" data-image-bulk-status="rejected">Reject</button>
+            <button class="ghost" id="imageBulkKeyword">Keyword</button>
+            <button class="danger-soft" id="imageBulkTrash">Move to trash</button>
+            <button class="danger-soft" id="deleteSelectedImages">Delete selected forever</button>
+            <button class="link-btn" id="clearImageSelection">Clear</button>
+          </div>
+        </div>
+        <div class="library-meta">
+          <span id="imageCountSummary" role="status" aria-live="polite">Total images: 0 · Selected images: 0</span>
+          <span><button class="link-btn" id="selectAllImages">Select visible images</button><button class="link-btn" data-goto="trash">Trash / Restore</button></span>
+        </div>
+        <div id="imagesGrid" class="image-grid"></div>
+        <div class="pager"><button class="ghost hidden" id="loadMoreImages">Load more images</button></div>
         <div id="imageEditor" class="image-editor hidden">
           <img id="imageEditorPreview" alt="Selected image preview"/>
           <div><h3 id="imageEditorHeading">Edit image</h3>
@@ -212,6 +228,7 @@
       <article class="panel">
         <div class="panel-head"><div><h2>Trash</h2><p>Restore clips or permanently remove their files and metadata.</p></div></div>
         <div id="trashGrid" class="clip-grid"></div>
+        <h2 class="trash-images-heading">Images in Trash</h2><div id="imageTrashGrid" class="image-grid"></div>
       </article>
     </section>
 
@@ -265,12 +282,15 @@
   <div class="modal-card"><h3>Bulk keyword</h3><p>Add or remove one keyword from all selected clips.</p><input id="bulkKeywordInput" placeholder="e.g. Iceland"/><div class="modal-actions"><button class="ghost" id="cancelKeywordModal">Cancel</button><button class="ghost" id="removeBulkKeyword">Remove</button><button class="primary" id="addBulkKeyword">Add</button></div></div>
 </div>
 
+<div class="modal hidden" id="imageKeywordModal">
+  <div class="modal-card"><h3>Bulk image keyword</h3><p>Add or remove a keyword from selected images.</p><input id="imageBulkKeywordInput" placeholder="e.g. tennis"/><div class="modal-actions"><button class="ghost" id="cancelImageKeywordModal">Cancel</button><button class="ghost" id="removeImageBulkKeyword">Remove</button><button class="primary" id="addImageBulkKeyword">Add</button></div></div>
+</div>
 <div id="toast" class="toast hidden"></div>
-<script src="/self-media-library/static/app.js?v=20261022-image-sharp-v2-yt-queue-v1"></script>
+<script src="/self-media-library/static/app.js?v=20261022-image-bulk-v1"></script>
 <aside id="aiInspector" class="sml-ai-inspector hidden" aria-label="AI metadata inspector"><div class="panel-head"><h2 id="aiInspectorTitle">Media inspector</h2><button id="aiInspectorClose" class="ghost" aria-label="Close AI inspector">Close</button></div><div id="aiInspectorMedia"></div><p id="aiInspectorState"></p>
 <form id="aiMetadataForm"><label>Description<textarea id="aiDescription" rows="3"></textarea></label><label>Keywords (comma separated)<input id="aiKeywords"></label><label>Review reason<input id="aiReviewReason" maxlength="500"></label><label>Custom fields (JSON object)<textarea id="aiCustom" rows="2">{}</textarea></label><label>Tag aliases (JSON object)<textarea id="aiAliases" rows="2">{}</textarea></label><label><input id="aiRights" type="checkbox"> I have permission to reuse this asset</label><div id="aiManualCategories" class="sml-ai-filters"></div><button class="primary" type="submit">Save corrections</button></form>
 <div class="sml-ai-actions"><button class="ghost" id="aiReanalyze">Reanalyze media</button><button class="ghost" id="aiSimilar">Find similar</button><button class="ghost" id="aiHistory">Change &amp; usage history</button></div><div id="aiFieldDetails"></div><div id="aiHistoryDetails"></div></aside>
-<script defer src="/self-media-library/static/local_library.js?v=20261022-pair-batch-v1"></script>
+<script defer src="/self-media-library/static/local_library.js?v=20261022-image-bulk-v1"></script>
 <script defer src="/self-media-library/static/ai_workspace.js?v=20261020-ai-v1"></script>
 </body>
 </html>
