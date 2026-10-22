@@ -53,7 +53,7 @@ let searchTimer; $('#clipSearch').oninput=()=>{clearTimeout(searchTimer);searchT
 function toggleSelect(id){ state.selected.has(id)?state.selected.delete(id):state.selected.add(id); renderClips(state.clips,'#libraryGrid',true,false); updateBulk(); }
 function updateBulk(){ $('#bulkBar').classList.toggle('hidden',state.selected.size===0); $('#selectedCount').textContent=state.selected.size; }
 $('#clearSelection').onclick=()=>{state.selected.clear();renderClips(state.clips,'#libraryGrid');updateBulk()}; $('#selectVisible').onclick=()=>{state.clips.forEach(c=>state.selected.add(c.id));renderClips(state.clips,'#libraryGrid');updateBulk()};
-$('[data-bulk-status]').forEach(b=>b.onclick=async()=>{
+document.querySelectorAll('[data-bulk-status]').forEach(b=>b.onclick=async()=>{
   if(!state.selected.size)return;
   const ids=[...state.selected], buttons=$('#bulkBar button');
   buttons.forEach(button=>button.disabled=true);
