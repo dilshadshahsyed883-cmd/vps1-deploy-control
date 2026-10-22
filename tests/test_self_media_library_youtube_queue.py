@@ -89,7 +89,8 @@ class QueueAPI(unittest.TestCase):
                     self.assertEqual(client.post(route, json={
                         "source": "youtube", "value": "https://youtu.be/abc",
                         "rights_confirmed": False}).status_code, 400)
-                    with patch("media_extensions.shutil.which", return_value=None):
+                    with patch("media_extensions.shutil.which", return_value=None), \
+                         patch("media_extensions.os.access", return_value=False):
                         res = client.post(route, json={
                             "source": "youtube", "value": "https://youtu.be/abc",
                             "rights_confirmed": True})
