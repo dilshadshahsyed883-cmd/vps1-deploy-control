@@ -3,9 +3,9 @@
 Only exact owner-authorized user-management and Experiment Studio browser
 mutations work while general precutover editing is disabled. Each route still
 requires an active web session; browser mutations additionally enforce a
-session-bound CSRF header. With the existing editing gate on, the two exact
-Scene backend repair routes reach their authenticated handlers. Other queue,
-media, storage and worker operations remain denied.
+session-bound CSRF header. With the existing editing gate on, Scene submissions, owned-job cancellation
+and recovery reach their authenticated handlers. Other queue, media, storage
+and worker operations remain denied.
 """
 from __future__ import annotations
 import re
@@ -21,7 +21,7 @@ _ALLOWED_EXACT = frozenset((
     ("POST", "/queue/submit"),
 ))
 _PRESET_MUTATION = re.compile(r"\A/api/presets/[^/]+/(?:duplicate|rename)\Z")
-_PROJECT_RECOVERY = re.compile(r"\A/queue/[0-9a-f]{32}/(?:restart-stage|restart)\Z")
+_PROJECT_RECOVERY = re.compile(r"\A/queue/[0-9a-f]{32}/(?:cancel|restart-stage|restart)\Z")
 _ADMIN_USER_MANAGEMENT = ("POST", "/user-management")
 
 
