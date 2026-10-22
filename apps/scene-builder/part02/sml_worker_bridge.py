@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 CLIP_ID = re.compile(r"CLP-[A-Za-z0-9_-]+\Z")
+IMAGE_ID = re.compile(r"IMG-[A-Za-z0-9_-]+\Z")
 RES_ID = re.compile(r"RES-[0-9a-f]{32}\Z")
 MAX_BYTES = 256 * 1024 * 1024
 WORD = re.compile(r"[^\W_]+", re.UNICODE)
@@ -68,14 +69,17 @@ class SMLWorkerClient:
         except (OSError, TimeoutError, ValueError, urllib.error.URLError) as exc:
             raise SMLMediaUnavailable("SML V2 editor API not reachable") from exc
 
-    def ranked(self, query: str, *, used_ids: set[str] | None = None) -> list[dict[str, Any]]:
-        """Only return positively matching approved video candidates, no arbitrary defaults."""
+    def ranked(self, query: str, *, used_ids: set[str] | None = None,
+               media_type: str = "video") -> list[dict[str, Any]]:
+        """Only positively matching approved videos/images; no unapproved defaults."""
+        if media_type not in {"video", "image"}:
+            raise SMLMediaUnavailable("Unsupported SML media type")
         query = str(query or "").strip()[:200]
         needle = _terms(query)
         if not needle:
             return []
         result = self._json("GET", "/api/v1/media/search",
-                            params={"query": query, "media_type": "video", "limit": 100})
+                            params={"query": query, "media_type": media_type, "limit": 100})
         items = result.get("items")
         if not isinstance(items, list):
             raise SMLMediaUnavailable("SML V2 search response invalid")
@@ -84,9 +88,10 @@ class SMLWorkerClient:
             if not isinstance(item, dict):
                 continue
             ident = str(item.get("id") or "")
-            if (not CLIP_ID.fullmatch(ident) or ident in (used_ids or set()) or
-                    item.get("type") != "video" or
-                    item.get("content_url") != f"/api/v1/media/video/{ident}/content"):
+            media_id_valid = CLIP_ID.fullmatch(ident) if media_type == "video" else IMAGE_ID.fullmatch(ident)
+            if (not media_id_valid or ident in (used_ids or set()) or
+                    item.get("type") != media_type or
+                    item.get("content_url") != f"/api/v1/media/{media_type}/{ident}/content"):
                 continue
             keywords = " ".join(str(x.get("keyword", "")) if isinstance(x, dict) else str(x)
                                 for x in (item.get("keywords") or []))
@@ -103,12 +108,13 @@ class SMLWorkerClient:
         return [x[2] for x in ranked]
 
     def reserve(self, project_id: str, scene_id: str, clip_id: str,
-                used_ids: set[str] | None = None) -> str | None:
-        if not CLIP_ID.fullmatch(clip_id):
+                used_ids: set[str] | None = None, media_type: str = "video") -> str | None:
+        valid = CLIP_ID.fullmatch(clip_id) if media_type == "video" else IMAGE_ID.fullmatch(clip_id) if media_type == "image" else False
+        if not valid:
             raise SMLMediaUnavailable("Invalid SML media ID")
         result = self._json("POST", "/api/v1/media/reservations", payload={
             "project_id": project_id[:100], "scene_id": scene_id[:100],
-            "query": "", "media_type": "video", "count": 1,
+            "query": "", "media_type": media_type, "count": 1,
             "preferred_ids": [clip_id], "exclude_ids": sorted(used_ids or set())[:500],
         })
         entries = result.get("items") or []
@@ -129,8 +135,10 @@ class SMLWorkerClient:
 
     def download(self, clip: dict[str, Any], destination: Path) -> str:
         ident = str(clip.get("id") or "")
-        if (not self.enabled or not CLIP_ID.fullmatch(ident) or
-                clip.get("content_url") != f"/api/v1/media/video/{ident}/content"):
+        kind = str(clip.get("type") or "")
+        valid = CLIP_ID.fullmatch(ident) if kind == "video" else IMAGE_ID.fullmatch(ident) if kind == "image" else False
+        if (not self.enabled or not valid or
+                clip.get("content_url") != f"/api/v1/media/{kind}/{ident}/content"):
             raise SMLMediaUnavailable("Unsafe SML media reference")
         expected = str(clip.get("sha256") or "").lower()
         if expected and not re.fullmatch(r"[0-9a-f]{64}", expected):

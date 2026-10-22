@@ -19,6 +19,8 @@ SOURCE = ROOT / "apps/scene-builder/part02/api_server.py"
 source_ast = ast.parse(SOURCE.read_text(encoding="utf-8"))
 fn = next(node for node in source_ast.body if isinstance(node, ast.FunctionDef)
           and node.name == "_try_sml_first_scene")
+order_fn = next(node for node in source_ast.body if isinstance(node, ast.FunctionDef)
+                and node.name == "_sml_media_type_order")
 
 
 class OfflineSML(Exception):
@@ -57,11 +59,12 @@ def load_acquisition():
     def working_clip(source, target, seconds, **kwargs):
         shutil.copyfile(source, target)
         return {"source_duration": 3.0, "working_duration": seconds, "trimmed": False}
-    module = ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[]))
+    module = ast.fix_missing_locations(ast.Module(body=[order_fn, fn], type_ignores=[]))
     globals_map = {
         "SMLWorkerClient": FakeClient,
         "SMLMediaUnavailable": OfflineSML,
-        "Any": typing.Any, "Path": Path, "uuid": uuid,
+        "Any": typing.Any, "Path": Path, "uuid": uuid, "shutil": shutil,
+        "IMAGE_EXTENSIONS": {".jpg", ".jpeg", ".png", ".webp"},
         "_scene_duration": lambda scene: float(scene.get("end", 3)) - float(scene.get("start", 0)),
         "sha256_file": lambda p: hashlib.sha256(Path(p).read_bytes()).hexdigest(),
         "validate_media": lambda path, kind, seconds, **kw: {
@@ -117,6 +120,29 @@ class WorkerAcquisitionTests(unittest.TestCase):
             self.assertFalse(used)
             self.assertIn(("transition", "release"), client.events)
             self.assertFalse(list((Path(folder) / "resolved").glob("*.mp4")))
+
+    def test_image_first_loads_and_commits_image_media(self):
+        class ImageClient(FakeClient):
+            def ranked(self, query, *, used_ids=None, media_type="video"):
+                self.events.append(("rank", media_type))
+                if media_type == "image":
+                    return [{"id": "IMG-AB12", "type": "image", "source_filename": "tennis.jpg",
+                             "content_url": "/api/v1/media/image/IMG-AB12/content",
+                             "duration": 0}]
+                return []
+            def reserve(self, job_id, scene_id, clip_id, used_ids, media_type="video"):
+                self.events.append(("reserve", media_type))
+                return "RES-" + "b" * 32
+        with tempfile.TemporaryDirectory() as folder:
+            client = ImageClient()
+            result, used, _ = self.run_acquisition(
+                client, folder, _sml_media_order="images_first", _sml_scene_index=1)
+            self.assertEqual(result["assigned_media_type"], "image")
+            self.assertTrue(result["media_path"].endswith(".jpg"))
+            self.assertEqual(result["image_hash"], result["media_hash"])
+            self.assertEqual(used, {"IMG-AB12"})
+            self.assertIn(("reserve", "image"), client.events)
+            self.assertIn(("transition", "commit"), client.events)
 
     def test_disabled_scene_never_contacts_sml(self):
         with tempfile.TemporaryDirectory() as folder:

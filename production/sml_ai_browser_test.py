@@ -77,11 +77,19 @@ def browser_test():
                     assert page.locator('#aiBatchUrls').is_visible()
                     page.locator('#smlBatchDetails summary').click()
                     page.locator('[data-sml-upload="folder"]').click()
-                    assert page.locator('#sml-upload-folder').is_visible()
+                    if not page.locator('#sml-upload-folder').is_visible():
+                        raise AssertionError({
+                            'page_errors':errors,
+                            'button_selected':page.locator('[data-sml-upload="folder"]').get_attribute('aria-selected'),
+                            'pane_hidden':page.locator('#sml-upload-folder').get_attribute('hidden'),
+                            'sml_upload_tab_init':page.evaluate("document.querySelectorAll('[data-sml-upload]').length"),
+                            'app_script_loaded':page.evaluate("typeof setSmlUploadTab"),
+                            'image_init':page.evaluate("typeof imageRequest"),
+                        })
                     page.locator('[data-sml-upload="video"]').click()
                     assert page.locator('#dropPanel').is_visible()
                     page.locator('[data-sml-upload="image"]').click()
-                    assert page.locator('#sml-upload-image').is_visible()
+                    page.locator('#sml-upload-image').wait_for(state='visible',timeout=5000)
                     page.locator('#imageFiles').set_input_files(sample)
                     page.locator('#imageUpload').click() if page.locator('#imageUpload').count() else page.get_by_role('button',name='Add selected images',exact=True).click()
                     page.get_by_text('imported',exact=False).first.wait_for()

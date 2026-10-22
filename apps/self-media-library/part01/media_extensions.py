@@ -544,12 +544,31 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                                     "source_filename":r["original_name"],"keywords":r["keywords"],
                                     "description":r["description"],"quality":80,"duration":0,
                                     "width":r["width"],"height":r["height"],
-                                    "content_url":r["content_url"]})
+                                    "content_url":f"/api/v1/media/image/{r['id']}/content",
+                                    "sha256":r["sha256"]})
         if terms:
             results = [x for x in results if any(
                 term in " ".join(x["keywords"]) or term in x["description"].lower()
                 or term in x["source_filename"].lower() for term in terms)]
         return results
+
+    @app.get("/api/v1/media/inventory")
+    def editor_media_inventory(x_sml_editor_token: str = Header(default="")):
+        check_editor_token(x_sml_editor_token)
+        counts = {}
+        with db() as conn:
+            for kind, table in (("video", "clips"), ("image", "image_assets")):
+                grouped = conn.execute(
+                    f"SELECT status, COUNT(*) AS n FROM {table} WHERE deleted_at IS NULL GROUP BY status"
+                ).fetchall()
+                statuses = {str(row["status"]): int(row["n"]) for row in grouped}
+                counts[kind] = {
+                    "total": sum(statuses.values()),
+                    "approved": statuses.get("approved", 0),
+                    "candidate": statuses.get("candidate", 0),
+                    "rejected": statuses.get("rejected", 0),
+                }
+        return {"counts": counts, "eligibility": "Approved media must also be locally available"}
 
     @app.get("/api/v1/media/search")
     def media_search(query: str = "", media_type: str = "all", semantic: bool = False, orientation: str = "all",
@@ -654,6 +673,20 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
         if not path.is_file():
             raise HTTPException(404, "Local clip is not available; metadata preserved")
         return FileResponse(path, media_type="video/mp4")
+
+    @app.get("/api/v1/media/image/{asset_id}/content")
+    def editor_image_content(asset_id: str, x_sml_editor_token: str = Header(default="")):
+        # The worker can fetch only approved images with its server-to-server token.
+        check_editor_token(x_sml_editor_token)
+        if not re.fullmatch(r"IMG-[A-Za-z0-9_-]+", asset_id):
+            raise HTTPException(400, "Invalid approved image ID")
+        with db() as conn:
+            row = conn.execute(
+                "SELECT * FROM image_assets WHERE id=? AND status='approved' AND deleted_at IS NULL",
+                (asset_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "Approved image not found")
+        return FileResponse(ensure_image(row))
 
     @app.get("/api/v1/media/status")
     def media_api_status():

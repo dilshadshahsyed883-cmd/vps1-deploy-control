@@ -53,7 +53,10 @@ class LocalLibrary(unittest.TestCase):
         ident,pairs=self.source();keep=pairs[0]['items'][1]['id'];reject=pairs[0]['items'][0]['id']
         self.assertTrue(self.choose(ident,0,keep).json()['cleanup_pending']);self.assertTrue(self.original(ident).exists())
         self.assertTrue((self.m.CLIPS_DIR/(reject+'.mp4')).exists())
-        self.assertEqual(self.c.post('/api/clips/bulk/status',json={'ids':[keep],'status':'approved'}).status_code,409)
+        review=self.c.post('/api/clips/bulk/status',json={'ids':[keep],'status':'approved'})
+        self.assertEqual(review.status_code,200,review.text)
+        self.assertEqual(review.json()['updated'],0)
+        self.assertEqual(len(review.json()['skipped']),1)
         self.assertEqual(self.c.delete('/api/clips/'+keep).status_code,409)
         self.assertEqual(self.choose(ident,1,None).json()['state'],'cleaned')
         self.assertFalse(self.original(ident).exists());self.assertFalse((self.m.CLIPS_DIR/(reject+'.mp4')).exists());self.assertTrue((self.m.CLIPS_DIR/(keep+'.mp4')).exists())

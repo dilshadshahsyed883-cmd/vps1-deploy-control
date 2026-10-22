@@ -542,15 +542,36 @@ def bulk_keywords(body: BulkKeywords):
 def bulk_status(body: BulkStatus):
     if body.status not in {"candidate", "approved", "rejected"}:
         raise HTTPException(400, "Invalid status")
+    # Review may proceed independently of unrelated library imports/AI jobs.
+    # Do not bypass pair-review, active-source or editor-reservation protection:
+    # report blocked IDs, never silently approve the whole selection.
+    ids = list(dict.fromkeys(body.ids))
+    if not 1 <= len(ids) <= 500:
+        raise HTTPException(400, "Select between 1 and 500 clips")
     ts = now_iso()
+    updated, skipped = [], []
+    from local_library import guard_manual, protect
     with db() as c:
-        c.execute('BEGIN IMMEDIATE')
-        from local_library import busy, protect
-        busy(c); protect(c, 'video', body.ids[:500])
-        for cid in body.ids[:500]:
-            c.execute("UPDATE clips SET status=?,updated_at=? WHERE id=? AND deleted_at IS NULL", (body.status, ts, cid))
-    schedule_metadata_sync(body.ids)
-    return {"ok": True}
+        c.execute("BEGIN IMMEDIATE")
+        for cid in ids:
+            c.execute("SAVEPOINT selected_clip_review")
+            try:
+                if not c.execute("SELECT 1 FROM clips WHERE id=? AND deleted_at IS NULL", (cid,)).fetchone():
+                    raise HTTPException(404, "Clip not found or already trashed")
+                guard_manual(c, "video", [cid])
+                protect(c, "video", [cid])
+                c.execute("UPDATE clips SET status=?,updated_at=? WHERE id=?",
+                          (body.status, ts, cid))
+                c.execute("RELEASE SAVEPOINT selected_clip_review")
+                updated.append(cid)
+            except HTTPException as exc:
+                c.execute("ROLLBACK TO SAVEPOINT selected_clip_review")
+                c.execute("RELEASE SAVEPOINT selected_clip_review")
+                skipped.append({"id": cid, "reason": str(exc.detail)})
+    if updated:
+        schedule_metadata_sync(updated)
+    return {"ok": True, "updated": len(updated), "skipped": skipped,
+            "requested": len(ids)}
 
 
 @app.post("/api/clips/bulk/trash")
