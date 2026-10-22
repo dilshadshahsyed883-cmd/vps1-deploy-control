@@ -533,6 +533,24 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                 or term in x["source_filename"].lower() for term in terms)]
         return results
 
+    @app.get("/api/v1/media/inventory")
+    def editor_media_inventory(x_sml_editor_token: str = Header(default="")):
+        check_editor_token(x_sml_editor_token)
+        counts = {}
+        with db() as conn:
+            for kind, table in (("video", "clips"), ("image", "image_assets")):
+                grouped = conn.execute(
+                    f"SELECT status, COUNT(*) AS n FROM {table} WHERE deleted_at IS NULL GROUP BY status"
+                ).fetchall()
+                statuses = {str(row["status"]): int(row["n"]) for row in grouped}
+                counts[kind] = {
+                    "total": sum(statuses.values()),
+                    "approved": statuses.get("approved", 0),
+                    "candidate": statuses.get("candidate", 0),
+                    "rejected": statuses.get("rejected", 0),
+                }
+        return {"counts": counts, "eligibility": "Approved media must also be locally available"}
+
     @app.get("/api/v1/media/search")
     def media_search(query: str = "", media_type: str = "all", semantic: bool = False, orientation: str = "all",
                      limit: int = Query(30, ge=1, le=100),
