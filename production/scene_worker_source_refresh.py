@@ -58,7 +58,7 @@ def _require_supported_ffmpeg() -> None:
     result = subprocess.run(["ffmpeg", "-hide_banner", "-h", "filter=xfade"],
                             capture_output=True, text=True, timeout=15)
     worker.require(result.returncode == 0, "FFmpeg xfade capability unavailable")
-    worker.require(all(re.search(r"(?m)^\\s*"+re.escape(name)+r"\\s+",
+    worker.require(all(re.search(r"(?m)^\s*"+re.escape(name)+r"\s+",
                                  result.stdout) for name in REQUIRED_XFADE),
                    "VPS FFmpeg missing selected Scene transition effects; refresh deferred")
 
@@ -213,7 +213,7 @@ class SceneWorkerSourceRefresh:
             pid=subprocess.run(["systemctl","show",worker.UNIT,"--property=MainPID","--value"],
                                capture_output=True,text=True,timeout=10,check=True).stdout.strip()
             worker.require(pid.isdigit() and int(pid)>1 and
-                           Path("/proc"/Path(pid)/"cwd").resolve()==new_runner,
+                           (Path("/proc")/pid/"cwd").resolve()==new_runner,
                            "running worker still bound to old source")
             env = os.environ.copy()
             env["PYTHONPATH"] = str(new_runner)+":"+str(new_runner/"vps_engine")
