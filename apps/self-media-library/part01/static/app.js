@@ -68,7 +68,7 @@ $('#deleteClip').onclick=async()=>{ if(!confirm('Move this clip to Trash?'))retu
 $('#reanalyzeClip').onclick=async()=>{ $('#reanalyzeClip').disabled=true; try{await api(`/api/clips/${state.current.id}/reanalyze`,{method:'POST'});toast('Visual analysis queued; follow progress in Process');closeDrawer();loadClips(true);}catch(e){toast(e.message)}finally{$('#reanalyzeClip').disabled=false} };
 
 
-async function loadTrash(){ const d=await api('/api/clips?trash=true&limit=200'); state.trash=d.items; renderClips(d.items,'#trashGrid',false,true); }
+async function loadTrash(){ const d=await api('/api/clips?trash=true&limit=200'); state.trash=d.items; renderClips(d.items,'#trashGrid',false,true); await loadImageTrash(); }
 async function restoreTrashClip(id){try{await api(`/api/clips/${encodeURIComponent(id)}/restore`,{method:'POST'});toast('Clip restored');await loadTrash()}catch(e){toast(e.message)}}
 async function purgeTrashClip(id){if(!confirm('Permanently remove this clip and its local files from VPS? This cannot be undone.'))return;try{await api(`/api/clips/${encodeURIComponent(id)}/permanent`,{method:'DELETE'});toast('Clip permanently deleted');await loadTrash()}catch(e){toast('Unable to delete: '+e.message)}}
 
@@ -149,26 +149,115 @@ setInterval(()=>{if(state.page==='processing')loadSources();},3000);
 checkHealth(); loadDashboard();
 
 
-// Self Media Library V2: additive image intake, in-page review and durable import queue.
-let imageRows=[], selectedImage=null;
-async function loadImages() {
+// Self Media Library V2: image library uses the same guarded bulk workflow as clips.
+let imageRows=[], selectedImage=null, imageTotal=0, imageTotalAll=0, imageRequest=0;
+const imageSelected=new Set();
+function updateImageBulk(){
+  const selected=imageSelected.size;
+  $('#imageBulkBar').classList.toggle('hidden',selected===0);
+  $('#imageSelectedCount').textContent=selected;
+  $('#imageCountSummary').textContent='Total images: '+imageTotalAll+
+    ' · Selected images: '+selected+
+    (imageTotal!==imageTotalAll?' · Matching: '+imageTotal:'')+
+    (imageRows.length<imageTotal?' · Showing: '+imageRows.length:'');
+}
+async function loadImages(reset=true){
+  const request=++imageRequest;
+  if(reset){imageRows=[];imageSelected.clear();updateImageBulk();}
+  const offset=imageRows.length;
   const q=encodeURIComponent($('#imageSearch').value.trim());
   const status=encodeURIComponent($('#imageStatus').value),orientation=encodeURIComponent($('#imageOrientation').value);
-  try {
-    const data=await api('/api/v1/images?q='+q+'&status='+status+'&orientation='+orientation+'&limit=200&date_from='+$('#localFrom').value+'&date_to='+$('#localTo').value);
-    imageRows=data.items;
+  const more=$('#loadMoreImages');
+  more.disabled=true;
+  try{
+    const data=await api('/api/v1/images?q='+q+'&status='+status+'&orientation='+orientation+
+      '&limit=200&offset='+offset+'&date_from='+encodeURIComponent($('#localFrom').value)+
+      '&date_to='+encodeURIComponent($('#localTo').value));
+    if(request!==imageRequest)return;
+    imageTotal=data.total;imageTotalAll=data.total_images;
+    imageRows=reset?data.items:imageRows.concat(data.items);
     $('#imagesGrid').innerHTML=imageRows.length?imageRows.map(i=>
-      '<div class="image-tile"><label class="image-select"><input type="checkbox" data-image-select="'+esc(i.id)+'"> Select</label>'+
+      '<div class="image-tile"><label class="image-select"><input type="checkbox" data-image-select="'+esc(i.id)+'"'+
+      (imageSelected.has(i.id)?' checked':'')+'> Select</label>'+
       '<button class="image-card" type="button" data-image="'+esc(i.id)+'" title="'+esc(i.original_name)+'">'+
       '<span class="image-preview-frame"><img loading="lazy" decoding="async" src="'+esc(mediaUrl(i.thumb_url))+'" alt="Preview of '+esc(i.original_name)+'"></span>'+
       '<b class="image-card-name" title="'+esc(i.original_name)+'">'+esc(i.original_name)+'</b>'+
       '<small class="image-card-meta">'+esc(i.status)+' · VPS local · '+esc(i.width)+'×'+esc(i.height)+' · '+esc(i.orientation)+' · '+esc(i.source_kind||'legacy')+'</small>'+
-      '</button></div>').join(''):'<p class="empty">No images yet. Upload one in Input.</p>';
+      '</button></div>').join(''):'<p class="empty">No images match these filters.</p>';
     $$('#imagesGrid [data-image]').forEach(el=>el.onclick=()=>openImageEditor(el.dataset.image));
-  } catch(e) { $('#imagesGrid').textContent=e.message; }
+    $$('#imagesGrid [data-image-select]').forEach(el=>el.onchange=()=>{
+      if(el.checked)imageSelected.add(el.dataset.imageSelect);
+      else imageSelected.delete(el.dataset.imageSelect);
+      updateImageBulk();
+    });
+    more.classList.toggle('hidden',imageRows.length>=imageTotal);
+    updateImageBulk();
+  }catch(e){
+    if(request===imageRequest)$('#imagesGrid').textContent=e.message;
+  }finally{if(request===imageRequest)more.disabled=false}
 }
-$('#imageSearch').oninput=()=>{clearTimeout(window.imageDelay);window.imageDelay=setTimeout(loadImages,300)};
-$('#imageStatus').onchange=loadImages; $('#imageOrientation').onchange=loadImages;
+$('#loadMoreImages').onclick=()=>loadImages(false);
+$('#imageSearch').oninput=()=>{clearTimeout(window.imageDelay);window.imageDelay=setTimeout(()=>loadImages(true),300)};
+$('#imageStatus').onchange=()=>loadImages(true);
+$('#imageOrientation').onchange=()=>loadImages(true);
+$('#clearImageSelection').onclick=()=>{imageSelected.clear();$$('#imagesGrid [data-image-select]').forEach(el=>el.checked=false);updateImageBulk()};
+$$('[data-image-bulk-status]').forEach(button=>button.onclick=()=>runImageBulk('/api/v1/images/bulk/status',
+  {ids:[...imageSelected],status:button.dataset.imageBulkStatus},'Image review status updated'));
+$('#imageBulkTrash').onclick=async()=>{
+  if(!imageSelected.size||!confirm('Move '+imageSelected.size+' selected images to Trash?'))return;
+  await runImageBulk('/api/v1/images/bulk/trash',{ids:[...imageSelected]},'Images moved to Trash');
+};
+$('#imageBulkKeyword').onclick=()=>{$('#imageKeywordModal').classList.remove('hidden');$('#imageBulkKeywordInput').focus()};
+$('#cancelImageKeywordModal').onclick=()=>$('#imageKeywordModal').classList.add('hidden');
+async function runImageBulk(path,body,message){
+  if(!imageSelected.size)return;
+  const buttons=$$('#imageBulkBar button');
+  buttons.forEach(button=>button.disabled=true);
+  try{
+    const result=await api(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    toast((result.updated||result.trashed||imageSelected.size)+' · '+message);
+    await loadImages(true);
+    return true;
+  }catch(e){toast('Image bulk operation failed: '+e.message);return false}
+  finally{buttons.forEach(button=>button.disabled=false)}
+}
+async function submitImageKeyword(action){
+  const keyword=$('#imageBulkKeywordInput').value.trim();
+  if(!keyword||!imageSelected.size){toast('Select images and enter a keyword');return}
+  const ok=await runImageBulk('/api/v1/images/bulk/keywords',{ids:[...imageSelected],keyword,action},'Image keyword '+action);
+  if(ok){$('#imageKeywordModal').classList.add('hidden');$('#imageBulkKeywordInput').value=''}
+}
+$('#addImageBulkKeyword').onclick=()=>submitImageKeyword('add');
+$('#removeImageBulkKeyword').onclick=()=>submitImageKeyword('remove');
+async function loadImageTrash(){
+  const host=$('#imageTrashGrid');
+  if(!host)return;
+  try{
+    const data=await api('/api/v1/images/trash?limit=500');
+    host.innerHTML=data.items.length?data.items.map(i=>
+      '<div class="image-tile"><div class="image-card">'+
+      '<span class="image-preview-frame"><img loading="lazy" src="'+esc(mediaUrl(i.thumb_url))+'" alt="Trashed image"></span>'+
+      '<b class="image-card-name">'+esc(i.original_name)+'</b>'+
+      '<small class="image-card-meta">In Trash · '+esc(i.id)+'</small>'+
+      '<div class="row-actions"><button class="ghost" type="button" data-image-restore="'+esc(i.id)+'">Restore</button>'+
+      '<button class="danger-soft" type="button" data-image-purge="'+esc(i.id)+'">Delete forever</button></div></div></div>').join(''):
+      '<p class="empty">No images in Trash.</p>';
+    host.querySelectorAll('[data-image-restore]').forEach(b=>b.onclick=async()=>{
+      b.disabled=true;
+      try{await api('/api/v1/images/'+encodeURIComponent(b.dataset.imageRestore)+'/restore',{method:'POST'});
+        toast('Image restored');await loadImageTrash();await loadImages(true)}
+      catch(e){toast(e.message);b.disabled=false}
+    });
+    host.querySelectorAll('[data-image-purge]').forEach(b=>b.onclick=async()=>{
+      if(!confirm('Permanently delete this image and metadata? This cannot be undone.'))return;
+      b.disabled=true;
+      try{await api('/api/local/delete',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({media_type:'image',ids:[b.dataset.imagePurge]})});
+        toast('Image permanently deleted');await loadImageTrash();await loadImages(true)}
+      catch(e){toast(e.message);b.disabled=false}
+    });
+  }catch(e){host.textContent='Could not load trashed images: '+e.message}
+}
 function openImageEditor(id){
   selectedImage=imageRows.find(i=>i.id===id);
   if(!selectedImage)return;
