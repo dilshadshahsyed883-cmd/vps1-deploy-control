@@ -28,6 +28,13 @@ class CompletedVideoActionsTests(unittest.TestCase):
             "if(!result.includes('View Video')||!result.includes('Download MP4'))throw Error('missing local actions');",
             "if(!result.includes('/queue/'+local.id+'/view')||!result.includes('/queue/'+local.id+'/download'))throw Error('bad paths');",
             "if(result.includes('View on Drive')||result.includes('Clean Now'))throw Error('fake delivery');",
+            "const waiting={...local,status:'ready_to_upload'};",
+            "const uploading={...local,status:'drive_uploading',drive_status:'uploading'};",
+            "for(const job of [waiting,uploading]){const buttons=actionsFor(job);if(!buttons.includes('View Video')||!buttons.includes('Download MP4'))throw Error('rendered MP4 not available during Drive upload');if(buttons.includes('Upload to Drive'))throw Error('automatic transfer must not get a second upload button');}",
+            "const rendering={...local,status:'rendering'};",
+            "if(actionsFor(rendering).includes('View Video')||actionsFor(rendering).includes('Download MP4'))throw Error('partially-rendered MP4 exposed');",
+            "const missing={...waiting,output_file:'',size_bytes:0};",
+            "if(actionsFor(missing).includes('View Video')||actionsFor(missing).includes('Download MP4'))throw Error('no local render exists');",
             "const cleaned={...local,status:'cleaned',output_file:'',size_bytes:0,drive_status:'completed',drive_view_url:'https://drive.google.com/file/d/real/view'};",
             "const delivered=actionsFor(cleaned);",
             "if(!delivered.includes('View on Drive')||delivered.includes('Download MP4'))throw Error('cleaned actions invalid');",
@@ -66,6 +73,12 @@ class CompletedVideoActionsTests(unittest.TestCase):
         self.assertIn('job_dir / "input"', block)
         self.assertNotIn('"final.mp4"', block)
         self.assertNotIn("shutil.rmtree(job_dir)", block)
+        download_block = WORKER.split('@app.get("/jobs/{job_id}/download")', 1)[1].split('@app.post("/jobs/{job_id}/download-confirmed")', 1)[0]
+        self.assertIn('current["status"] not in {"ready_to_upload", "drive_uploading", "completed"}', download_block)
+        self.assertIn('current["status"] == "completed"', download_block)
+        self.assertIn('current.get("drive_status") == "completed"', download_block)
+        self.assertIn('if not path.is_file():', download_block)
+        self.assertIn('if not output_name:', download_block)
         self.assertIn('drive_required = bool(DRIVE_UPLOAD_ENABLED)', WORKER)
         self.assertIn('status="completed",stage="Completed"', WORKER)
         self.assertIn('output_file=str(result),size_bytes=result_size', WORKER)
