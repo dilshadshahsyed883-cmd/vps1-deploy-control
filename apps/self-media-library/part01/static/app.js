@@ -211,12 +211,35 @@ $('#uploadImages').onclick=async()=>{
   toast(ok+' imported'+(fail?', '+fail+' failed':''));
   if(ok)gotoPage('library');
 };
+function renderImports(items){
+  const active=items.filter(item=>item.status==='queued'||item.status==='processing').length;
+  $('#importQueueStatus').textContent=active+' active / waiting · '+items.length+' recent jobs';
+  const list=$('#importHistory');
+  list.innerHTML=items.length?items.map(item=>{
+    const status=['queued','processing','completed','failed'].includes(item.status)?item.status:'unknown';
+    const progress=status==='completed'?100:Math.min(99,Math.max(0,Number(item.progress)||0));
+    const retry=status==='failed'?'<button type="button" class="ghost" data-import-retry="'+esc(item.id)+'">Retry</button>':'';
+    return '<div class="source-row sml-import-job" data-import-job="'+esc(item.id)+'"><div class="source-main"><b>'+esc(item.name)+'</b><span>'+esc(item.message||status)+'</span><small>Job '+esc(item.id)+' · '+esc(status)+' · '+progress+'%</small><progress max="100" value="'+progress+'" aria-label="Import '+esc(item.id)+' progress"></progress></div><span class="state">'+esc(status)+'</span>'+retry+'</div>';
+  }).join(''):'<p class="empty">No YouTube imports yet. Queue a video URL above.</p>';
+  list.querySelectorAll('[data-import-retry]').forEach(button=>button.onclick=async()=>{
+    button.disabled=true;
+    try{
+      await api('/api/v1/media/imports/'+encodeURIComponent(button.dataset.importRetry)+'/retry',{method:'POST'});
+      toast('Import retry queued');
+      await loadImports();
+    }catch(e){toast(e.message);button.disabled=false}
+  });
+}
 async function loadImports(){
   try{
     const result=await api('/api/v1/media/imports');
-    $('#importHistory').innerHTML=result.items.length?result.items.map(item=>'<div class="source-row"><div class="source-main"><b>'+esc(item.source_type)+' · '+esc(item.name)+'</b><span>'+esc(item.message||item.status)+'</span></div><span class="state">'+esc(item.status)+'</span></div>').join(''):'<p class="empty">No queued imports</p>';
-  }catch(e){$('#importHistory').textContent=e.message}
+    renderImports(result.items||[]);
+  }catch(e){
+    $('#importQueueStatus').textContent='Queue unavailable';
+    $('#importHistory').textContent='Cannot load import queue: '+e.message;
+  }
 }
+$('#refreshImports').onclick=loadImports;
 $('#submitImport').onclick=async()=>{
   const source=$('#importSource').value,value=$('#importValue').value.trim();
   if(!value){toast('Enter a source path or video URL');return}
@@ -225,7 +248,8 @@ $('#submitImport').onclick=async()=>{
     const result=await api('/api/v1/media/imports',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
       source,value,rights_confirmed:$('#importRights').checked,use_proxy:$('#importProxy').checked
     })});
-    toast('Import queued: '+result.job_id);$('#importValue').value='';loadImports();updateInputEligibility();
+    renderImports([{id:result.job_id,name:value,status:'queued',progress:0,message:'Waiting for worker'}]);
+    toast('Import queued: '+result.job_id);$('#importValue').value='';await loadImports();updateInputEligibility();
   }catch(e){toast(e.message)}finally{updateInputEligibility()}
 };
 async function loadEditorStatus(){
@@ -236,7 +260,7 @@ async function loadEditorStatus(){
     $('#editorApiInfo').textContent=s.images+' stored images · '+s.imports_processing+' imports running';
   }catch(e){$('#editorApiInfo').textContent=e.message}
 }
-setInterval(()=>{if(state.page==='sources')loadImports()},6000);
+setInterval(()=>{if(state.page==='sources')loadImports()},3000);
 
 // Selection-dependent input actions remain unavailable until input is present.
 function updateInputEligibility(){
