@@ -144,6 +144,21 @@ loadPairReviews=async function(){
 async function loadLocalStorage(){try{const s=await api('/api/local/storage');$('#localStorage').textContent=`Library ${fmtSize(s.library_bytes)} · VPS used ${fmtSize(s.vps_used_bytes)} · Available ${fmtSize(s.free_bytes)} · ${s.clips} clips · ${s.images} images · ${s.pending_reviews} pending reviews · ${s.sources_cleaned} sources cleaned`;}catch(e){$('#localStorage').textContent=e.message}}
 for(const id of ['localFrom','localTo'])$('#'+id).onchange=()=>{loadClips(true);loadImages()};
 $('#clearLibraryDates').onclick=()=>{$('#localFrom').value='';$('#localTo').value='';loadClips(true);loadImages()};
-$('#selectAllImages').onclick=()=>$$('[data-image-select]').forEach(x=>x.checked=true);
-$('#deleteSelectedImages').onclick=async()=>{const ids=$$('[data-image-select]:checked').map(x=>x.dataset.imageSelect);if(!ids.length)return;if(!confirm('Permanently delete '+ids.length+' selected images from VPS?'))return;try{await localPost('/api/local/delete',{media_type:'image',ids});loadImages();toast('Images deleted')}catch(e){toast(e.message)}};
+$('#selectAllImages').onclick=()=>{
+  imageRows.forEach(row=>imageSelected.add(row.id));
+  $('#imagesGrid [data-image-select]').forEach(input=>input.checked=true);
+  updateImageBulk();
+};
+$('#deleteSelectedImages').onclick=async()=>{
+  const ids=[...imageSelected];
+  if(!ids.length)return;
+  if(!confirm('Permanently delete '+ids.length+' selected images and metadata from VPS? This cannot be undone.'))return;
+  const button=$('#deleteSelectedImages');button.disabled=true;
+  try{
+    const result=await localPost('/api/local/delete',{media_type:'image',ids});
+    await loadImages(true);
+    toast(result.deleted+' images permanently deleted');
+  }catch(e){toast('Unable to delete images: '+e.message)}
+  finally{button.disabled=false}
+};
 $('#deleteSelectedClips').onclick=async()=>{const ids=[...state.selected];if(!ids.length)return;if(!confirm('Permanently delete '+ids.length+' selected clips and metadata from VPS? This cannot be undone.'))return;const button=$('#deleteSelectedClips');button.disabled=true;try{const r=await localPost('/api/local/delete',{media_type:'video',ids});await loadClips(true);toast(r.deleted+' clips permanently deleted')}catch(e){toast('Unable to delete: '+e.message)}finally{button.disabled=false}};
