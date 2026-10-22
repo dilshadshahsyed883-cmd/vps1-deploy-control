@@ -100,6 +100,7 @@ class ImportRetryRequest(BaseModel):
     # Explicit opt-in is required before replacing a saved proxy request
     # with a direct VPS network request.
     direct_without_proxy: bool = False
+    with_proxy: bool = False
 
 
 def sml_proxy_configured() -> bool:
@@ -817,6 +818,9 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
     @app.post('/api/v1/media/imports/{job_id}/retry')
     def retry_import(job_id: str, body: ImportRetryRequest | None = None):
         direct = bool(body and body.direct_without_proxy)
+        with_proxy = bool(body and body.with_proxy)
+        if direct and with_proxy:
+            raise HTTPException(400, 'Choose direct OR proxy for retry')
         with db() as conn:
             conn.execute('BEGIN IMMEDIATE')
             row = conn.execute('SELECT * FROM media_imports WHERE id=?', (job_id,)).fetchone()
@@ -830,17 +834,25 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                     raise HTTPException(409, 'This job already uses a direct connection')
                 # Do not silently bypass user-selected proxy on normal Retry.
                 original.use_proxy = False
+            elif with_proxy:
+                if original.use_proxy:
+                    raise HTTPException(409, 'This job already uses the selected proxy')
+                if not sml_proxy_configured():
+                    raise HTTPException(409, 'Activate a proxy profile first')
+                original.use_proxy = True
             elif original.use_proxy and not sml_proxy_configured():
                 raise HTTPException(409, 'Proxy profile is not configured. Choose Retry direct to use the VPS connection.')
-            if direct:
+            if direct or with_proxy:
+                message = ('Proxy retry queued (owner selected active proxy)' if with_proxy
+                           else 'Direct retry queued (proxy disabled by user)')
                 conn.execute("""UPDATE media_imports SET status='queued',progress=0,
-                             message='Direct retry queued (proxy disabled by user)',
-                             request_json=?,updated_at=? WHERE id=?""",
-                             (original.model_dump_json(), now_iso(), job_id))
+                             message=?,request_json=?,updated_at=? WHERE id=?""",
+                             (message,original.model_dump_json(),now_iso(),job_id))
             else:
                 conn.execute("UPDATE media_imports SET status='queued',progress=0,message='Retry queued',updated_at=? WHERE id=?",
                              (now_iso(), job_id))
-        return {'ok': True, 'status': 'queued', 'direct_without_proxy': direct}
+        return {'ok': True, 'status': 'queued',
+                'direct_without_proxy': direct, 'with_proxy': with_proxy}
 
     @app.post('/api/v1/media/imports/batch')
     def batch_imports(items:list[ImportRequest]):
