@@ -25,7 +25,9 @@ CANONICAL_RCLONE_CONFIGS = (
     Path('/etc/rclone/rclone.conf'),
 )
 
-TERMINAL = frozenset({"done", "completed", "complete", "success", "failed",
+# Drive-cleaned Scene projects are terminal (per api_server.TERMINAL_STATUSES).
+# Still reject queued, running, retrying, or unknown statuses.
+TERMINAL = frozenset({"done", "completed", "cleaned", "complete", "success", "failed",
                        "error", "cancelled", "canceled", "skipped", "expired", "deleted"})
 REQUIRED_XFADE = ("zoomin", "hblur", "fadeslow", "fadefast", "fadewhite",
                   "fadeblack", "coverleft", "coverright", "hlwind", "hrwind", "custom")
