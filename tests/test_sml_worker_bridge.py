@@ -63,12 +63,30 @@ class SMLWorkerBridgeTests(unittest.TestCase):
         with patch.object(self.client, "_json", return_value={"items": [row]}):
             self.assertEqual(self.client.ranked("snow"), [])
 
+    def test_only_approved_image_editor_urls_are_accepted(self):
+        image = {"id":"IMG-ABCDEF","type":"image",
+                 "content_url":"/api/v1/media/image/IMG-ABCDEF/content",
+                 "source_filename":"Alex_Eala.jpg","keywords":["alex","eala"],"description":"tennis"}
+        with patch.object(self.client, "_json", return_value={"items":[image]}) as api:
+            matches=self.client.ranked("alex eala",media_type="image")
+        self.assertEqual(matches[0]["id"],"IMG-ABCDEF")
+        self.assertEqual(api.call_args.kwargs["params"]["media_type"],"image")
+        image["content_url"]="/api/v1/images/IMG-ABCDEF/content"
+        with patch.object(self.client, "_json", return_value={"items":[image]}):
+            self.assertEqual(self.client.ranked("alex",media_type="image"),[])
+
     def test_reservation_uses_exact_approved_id(self):
         item = {"id": "CLP-A123", "reservation_id": "RES-" + "c" * 32}
         with patch.object(self.client, "_json", return_value={"items": [item]}) as api:
             reservation = self.client.reserve("JOB-1", "SCENE_001", "CLP-A123")
         self.assertEqual(reservation, item["reservation_id"])
         self.assertEqual(api.call_args.kwargs["payload"]["preferred_ids"], ["CLP-A123"])
+
+    def test_image_reservation_exact_media_type(self):
+        row={"id":"IMG-ABCDEF","reservation_id":"RES-"+"c"*32}
+        with patch.object(self.client,"_json",return_value={"items":[row]}) as api:
+            self.client.reserve("JOB-1","SCENE_002","IMG-ABCDEF",media_type="image")
+        self.assertEqual(api.call_args.kwargs["payload"]["media_type"],"image")
 
     def test_mismatch_reservation_never_used(self):
         item = {"id": "CLP-OTHER", "reservation_id": "RES-" + "c" * 32}
