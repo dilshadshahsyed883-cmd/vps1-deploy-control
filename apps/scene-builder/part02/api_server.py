@@ -1156,6 +1156,32 @@ def _download_scene_candidate(
 
 
 
+def _sml_media_type_order(scene: dict[str, Any]) -> list[str]:
+    """Project-owned SML order, separate from the Pexels provider preferences.
+
+    Legacy jobs keep their original video-only selection. New Smart Mixed jobs
+    use the scene's authored type, then alternate to give approved stills a
+    genuine chance rather than silently trying video for every scene.
+    """
+    mode = str(scene.get("_sml_media_order") or "video_only")
+    index = int(scene.get("_sml_scene_index") or 0)
+    authored = str(scene.get("media_type") or "").lower()
+    if mode == "image_only":
+        order = ["image"]
+    elif mode == "videos_first":
+        order = ["video", "image"]
+    elif mode == "images_first":
+        order = ["image", "video"]
+    elif mode == "alternate":
+        order = ["image", "video"] if index % 2 else ["video", "image"]
+    elif mode == "smart":
+        preferred = authored if authored in {"video", "image"} else ("image" if index % 2 else "video")
+        order = [preferred, "video" if preferred == "image" else "image"]
+    else:
+        order = ["video"]
+    return [kind for kind in order if bool(scene.get("pexels_allow_" + kind, True))]
+
+
 def _try_sml_first_scene(
     *,
     client: SMLWorkerClient,
@@ -1168,87 +1194,100 @@ def _try_sml_first_scene(
     used_sml_ids: set[str],
     used_hashes: set[str],
 ) -> dict[str, Any] | None:
-    """Resolve SML *before* any Pexels lookup, preserving independent lifecycles.
+    """Use approved SML clips AND images before Pexels, with reservations.
 
-    Only previously-approved SML video clips may be reserved. Failed integrity,
-    short-duration, missing Drive restore or unusable dimensions fall through
-    to the existing Pexels acquisition. Reviewed/locked scenes bypass this.
+    No anonymous or unapproved image route is used; a media type is part of
+    the authenticated V2 Editor contract and sha256 is checked on transfer.
     """
-    if (not bool(scene.get("_sml_first")) or not client.enabled or
-            not bool(scene.get("pexels_allow_video", True))):
+    if not bool(scene.get("_sml_first")) or not client.enabled:
         return None
     scene_duration = _scene_duration(scene)
-    for query in keywords[:4]:
-        try:
-            candidates = client.ranked(query, used_ids=used_sml_ids)
-        except SMLMediaUnavailable:
-            return None  # SML offline: keep Pexels operating.
-        for candidate in candidates[:5]:
-            clip_id = str(candidate["id"])
-            reservation = None
-            source = source_root / f"{scene_code}_{uuid.uuid4().hex}.mp4"
-            temporary = assignment_root / f".{scene_code}_{uuid.uuid4().hex}.mp4"
-            destination = assignment_root / f"{scene_code}.mp4"
-            finalized = False
+    for kind in _sml_media_type_order(scene):
+        for query in keywords[:4]:
             try:
-                reservation = client.reserve(job_id, scene_code, clip_id, used_sml_ids)
-                if not reservation:
-                    continue
-                client.download(candidate, source)
-                source_hash = sha256_file(source)
-                if source_hash in used_hashes:
-                    raise SMLMediaUnavailable("SML duplicate media checksum")
-                validation = validate_media(
-                    source, "video", scene_duration,
-                    require_landscape=bool(scene.get("pexels_prefer_landscape", True)),
-                )
-                if validation.get("handling") == "reject_short":
-                    raise SMLMediaUnavailable("SML clip too short")
-                clip_info = build_working_video_clip(
-                    source, temporary, scene_duration,
-                    source_duration=float(validation.get("duration") or candidate.get("duration") or 0),
-                    require_landscape=bool(scene.get("pexels_prefer_landscape", True)),
-                )
-                if not temporary.is_file():
-                    raise SMLMediaUnavailable("SML working clip was not generated")
-                temporary.replace(destination)
-                finalized = True
-                # Commit only after the job-scoped working media has been created.
-                client.transition(reservation, "commit")
-                digest = sha256_file(destination)
-                used_sml_ids.add(clip_id)
-                used_hashes.add(source_hash)
-                resolved = dict(scene)
-                resolved.update(
-                    media_path=str(destination), media_source_path=str(source),
-                    media_hash=digest, image_hash="", selected_keyword=query,
-                    keyword_used=query, provider="sml", asset_id=clip_id,
-                    media_provider="sml", provider_asset_id=clip_id,
-                    source_type="SML", assigned_media_type="video",
-                    automation_status="ready_sml", status="matched_stock",
-                    media_locked=False, last_media_error="",
-                    validation_handling=str(validation.get("handling") or ""),
-                    provider_duration=float(candidate.get("duration") or 0),
-                    source_media_duration=float(clip_info.get("source_duration") or 0),
-                    media_duration=float(clip_info.get("working_duration") or 0),
-                    media_trimmed=bool(clip_info.get("trimmed")),
-                    working_clip_target=float(working_clip_target_duration(scene_duration)),
-                    visual_action="sml_library", previously_used=False,
-                    acquisition_variant="sml_v2_editor_reserved",
-                    sml_reservation_id=reservation,
-                )
-                return resolved
-            except (SMLMediaUnavailable, ValueError, OSError, RuntimeError):
-                if finalized:
-                    destination.unlink(missing_ok=True)
-                source.unlink(missing_ok=True)
-            finally:
-                temporary.unlink(missing_ok=True)
-                if reservation and clip_id not in used_sml_ids:
-                    try:
-                        client.transition(reservation, "release")
-                    except SMLMediaUnavailable:
-                        pass  # TTL expires on the SML side; do not block Pexels.
+                if kind == "video":
+                    candidates = client.ranked(query, used_ids=used_sml_ids)
+                else:
+                    candidates = client.ranked(query, used_ids=used_sml_ids, media_type=kind)
+            except SMLMediaUnavailable:
+                continue
+            for candidate in candidates[:12]:
+                media_id = str(candidate["id"])
+                reservation = None
+                suffix = ".mp4"
+                if kind == "image":
+                    suffix = Path(str(candidate.get("source_filename") or "")).suffix.lower()
+                    if suffix not in IMAGE_EXTENSIONS:
+                        suffix = ".jpg"
+                source = source_root / f"{scene_code}_{uuid.uuid4().hex}{suffix}"
+                temporary = assignment_root / f".{scene_code}_{uuid.uuid4().hex}{suffix}"
+                destination = assignment_root / f"{scene_code}{suffix}"
+                finalized = False
+                try:
+                    if kind == "video":
+                        reservation = client.reserve(job_id, scene_code, media_id, used_sml_ids)
+                    else:
+                        reservation = client.reserve(job_id, scene_code, media_id, used_sml_ids, media_type=kind)
+                    if not reservation:
+                        continue
+                    client.download(candidate, source)
+                    source_hash = sha256_file(source)
+                    if source_hash in used_hashes:
+                        raise SMLMediaUnavailable("SML duplicate media checksum")
+                    validation = validate_media(
+                        source, kind, scene_duration,
+                        require_landscape=bool(scene.get("pexels_prefer_landscape", True)),
+                    )
+                    if validation.get("handling") == "reject_short":
+                        raise SMLMediaUnavailable("SML clip too short")
+                    if kind == "video":
+                        clip_info = build_working_video_clip(
+                            source, temporary, scene_duration,
+                            source_duration=float(validation.get("duration") or candidate.get("duration") or 0),
+                            require_landscape=bool(scene.get("pexels_prefer_landscape", True)),
+                        )
+                    else:
+                        shutil.copy2(source, temporary)
+                        clip_info = {"source_duration": 0, "working_duration": scene_duration, "trimmed": False}
+                    if not temporary.is_file() or temporary.stat().st_size == 0:
+                        raise SMLMediaUnavailable("SML working media was not generated")
+                    temporary.replace(destination)
+                    finalized = True
+                    client.transition(reservation, "commit")
+                    digest = sha256_file(destination)
+                    used_sml_ids.add(media_id)
+                    used_hashes.add(source_hash)
+                    resolved = dict(scene)
+                    resolved.update(
+                        media_path=str(destination), media_source_path=str(source),
+                        media_hash=digest, image_hash=digest if kind == "image" else "",
+                        selected_keyword=query, keyword_used=query, provider="sml",
+                        asset_id=media_id, media_provider="sml", provider_asset_id=media_id,
+                        source_type="SML", assigned_media_type=kind,
+                        automation_status="ready_sml", status="matched_stock",
+                        media_locked=False, last_media_error="",
+                        validation_handling=str(validation.get("handling") or ""),
+                        provider_duration=float(candidate.get("duration") or 0),
+                        source_media_duration=float(clip_info.get("source_duration") or 0),
+                        media_duration=float(clip_info.get("working_duration") or 0),
+                        media_trimmed=bool(clip_info.get("trimmed")),
+                        working_clip_target=float(working_clip_target_duration(scene_duration)) if kind == "video" else 0.0,
+                        visual_action="sml_library", previously_used=False,
+                        acquisition_variant="sml_v2_editor_reserved",
+                        sml_reservation_id=reservation,
+                    )
+                    return resolved
+                except (SMLMediaUnavailable, ValueError, OSError, RuntimeError):
+                    if finalized:
+                        destination.unlink(missing_ok=True)
+                    source.unlink(missing_ok=True)
+                finally:
+                    temporary.unlink(missing_ok=True)
+                    if reservation and media_id not in used_sml_ids:
+                        try:
+                            client.transition(reservation, "release")
+                        except SMLMediaUnavailable:
+                            pass
     return None
 
 
