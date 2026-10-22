@@ -4,65 +4,39 @@ import hashlib
 from collections import Counter
 from typing import Any
 
-# Professional logical transition catalog.  `pixelize` / black-dot styles are
-# intentionally absent from Auto mode and legacy pixel/circle aliases are
-# normalized to a safe dissolve.
-# V16 FFmpeg-compatibility policy:
-# Use only xfade names that have existed since the original xfade filter.
-# Some deployed FFmpeg builds reject newer names such as coverleft/coverright.
+# Named transitions render as visually distinct FFmpeg effects.  Do not silently
+# replace unavailable styles with a generic fade: an unsupported FFmpeg build
+# must fail the guarded render so the selected creative intent is preserved.
 SAFE_XFADE_TRANSITIONS = frozenset({
-    "fade",
+    "fade", "fadeslow", "fadefast", "fadeblack", "fadewhite", "fadegrays",
+    "dissolve", "zoomin", "hblur", "radial", "custom",
     "wipeleft", "wiperight", "wipeup", "wipedown",
     "slideleft", "slideright", "slideup", "slidedown",
+    "coverleft", "coverright", "hlwind", "hrwind",
 })
-
-# Compatibility aliases also sanitize transition names already persisted in old
-# job/checkpoint data, so a failed render can resume without rebuilding its plan.
 XFADE_COMPAT_ALIASES = {
-    "coverleft": "slideleft",
-    "coverright": "slideright",
-    "coverup": "slideup",
-    "coverdown": "slidedown",
-    "revealleft": "wipeleft",
-    "revealright": "wiperight",
-    "revealup": "wipeup",
-    "revealdown": "wipedown",
-    "hlwind": "slideleft",
-    "hrwind": "slideright",
-    "vuwind": "slideup",
-    "vdwind": "slidedown",
-    # Newer/special xfade styles degrade to the universally safe fade.
-    "dissolve": "fade",
-    "fadegrays": "fade",
-    "zoomin": "fade",
-    "hblur": "fade",
-    "fadefast": "fade",
-    "fadeslow": "fade",
-    "distance": "fade",
-    "radial": "fade",
-    "squeezeh": "fade",
-    "squeezev": "fade",
-    "fadewhite": "fade",
-    "fadeblack": "fade",
+    "revealleft": "wipeleft", "revealright": "wiperight",
+    "revealup": "wipeup", "revealdown": "wipedown",
+    "vuwind": "slideup", "vdwind": "slidedown",
 }
 
 TRANSITION_CATALOG: dict[str, dict[str, Any]] = {
     "none": {"label": "Off / No Transition", "category": "clean", "engine": "cut", "sfx": "none"},
     "hard_cut": {"label": "Hard Cut", "category": "clean", "engine": "cut", "sfx": "none"},
     "cross_dissolve": {"label": "Cross Dissolve", "category": "soft", "xfade": "fade", "sfx": "none"},
-    "film_fade": {"label": "Film Fade", "category": "soft", "xfade": "fade", "sfx": "none"},
-    "smooth_zoom": {"label": "Smooth Zoom", "category": "dynamic", "xfade": "fade", "sfx": "riser"},
-    "push": {"label": "Push", "category": "dynamic", "xfade_variants": ("slideleft", "slideright"), "sfx": "soft_whoosh"},
+    "film_fade": {"label": "Film Fade", "category": "soft", "xfade": "fadeslow", "sfx": "none"},
+    "smooth_zoom": {"label": "Smooth Zoom", "category": "dynamic", "xfade": "zoomin", "sfx": "riser"},
+    "push": {"label": "Push", "category": "dynamic", "xfade_variants": ("coverleft", "coverright"), "sfx": "soft_whoosh"},
     "slide": {"label": "Slide", "category": "dynamic", "xfade_variants": ("slideleft", "slideright", "slideup", "slidedown"), "sfx": "soft_whoosh"},
-    "whip_pan": {"label": "Whip Pan", "category": "dynamic", "xfade_variants": ("slideleft", "slideright"), "sfx": "fast_whoosh"},
-    "blur_dissolve": {"label": "Blur Dissolve", "category": "soft", "xfade": "fade", "sfx": "soft_whoosh"},
-    "light_flash": {"label": "Light Flash", "category": "special", "xfade": "fade", "sfx": "impact"},
-    "luma_fade": {"label": "Luma Fade", "category": "special", "xfade": "fade", "sfx": "none"},
+    "whip_pan": {"label": "Whip Pan", "category": "dynamic", "xfade_variants": ("hlwind", "hrwind"), "sfx": "fast_whoosh"},
+    "blur_dissolve": {"label": "Blur Dissolve", "category": "soft", "xfade": "hblur", "sfx": "soft_whoosh"},
+    "light_flash": {"label": "Light Flash", "category": "special", "xfade": "fadefast", "sfx": "impact"},
+    "luma_fade": {"label": "Luma Fade", "category": "special", "xfade": "dissolve", "sfx": "none"},
     "directional_wipe": {"label": "Directional Wipe", "category": "special", "xfade_variants": ("wipeleft", "wiperight", "wipeup", "wipedown"), "sfx": "fast_whoosh"},
-    "soft_spin": {"label": "Soft Spin", "category": "special", "xfade": "fade", "sfx": "riser"},
-    "zoom_blur": {"label": "Zoom Blur", "category": "dynamic", "xfade": "fade", "sfx": "riser"},
-    "dip_white": {"label": "Dip to White", "category": "special", "xfade": "fade", "sfx": "none"},
-    "dip_black": {"label": "Dip to Black", "category": "special", "xfade": "fade", "sfx": "none"},
+    "soft_spin": {"label": "Soft Spin", "category": "special", "xfade": "custom", "sfx": "riser"},
+    "zoom_blur": {"label": "Zoom Blur", "category": "dynamic", "xfade": "custom", "sfx": "riser"},
+    "dip_white": {"label": "Dip to White", "category": "special", "xfade": "fadewhite", "sfx": "none"},
+    "dip_black": {"label": "Dip to Black", "category": "special", "xfade": "fadeblack", "sfx": "none"},
 }
 
 TRANSITION_UI = tuple((key, spec["label"]) for key, spec in TRANSITION_CATALOG.items())
@@ -168,7 +142,7 @@ def sanitize_xfade_transition(value: Any) -> str:
     """Return an xfade name safe for older deployed FFmpeg builds."""
     name = _slug(value) or "fade"
     name = XFADE_COMPAT_ALIASES.get(name, name)
-    return name if name in SAFE_XFADE_TRANSITIONS else "fade"
+    if name not in SAFE_XFADE_TRANSITIONS:\n        raise ValueError(f"Unsupported xfade effect: {name}; a generic fade is not an acceptable substitute")\n    return name
 
 
 def transition_uses_xfade(value: Any) -> bool:
