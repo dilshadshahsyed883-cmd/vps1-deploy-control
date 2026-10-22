@@ -2963,6 +2963,21 @@ async def api_audit_upload(request: Request, job_id: str, item_id: str, file: Up
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+@app.post("/api/audit-media/{job_id}/batches/{batch_index}/approve")
+def api_audit_approve_batch(request: Request, job_id: str, batch_index: int):
+    require_job_access(request, job_id)
+    result = worker_request("POST", f"/jobs/{job_id}/audit/media/batches/{batch_index}/approve").json()
+    return _web_audit_payload(job_id, result)
+
+
+@app.post("/api/audit-media/{job_id}/{item_id}/approve")
+def api_audit_approve_item(request: Request, job_id: str, item_id: str, revision: int | None = None):
+    require_job_access(request, job_id)
+    result = worker_request("POST", f"/jobs/{job_id}/audit/media/{item_id}/approve",
+                            params={"revision": revision} if revision is not None else {}).json()
+    return _web_audit_payload(job_id, result)
+
+
 @app.post("/api/audit-media/{job_id}/approve-all")
 def api_audit_approve_all(request: Request, job_id: str):
     require_job_access(request, job_id)
