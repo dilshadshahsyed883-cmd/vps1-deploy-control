@@ -57,7 +57,10 @@ jobs:
               vps1deploy@100.87.55.92 "$@"
           }
           echo 'SML_SCENE_READ_ONLY_PREFLIGHT'
-          remote 'python3 -' <<'PY'
+          # Read-only deferral: do not mistake active owner Scene work for an
+          # unhealthy system. All other preflight errors abort immediately.
+          for idle_attempt in $(seq 1 20); do
+            if remote 'python3 -' <<'PY'
           import json,subprocess,urllib.request
           def api(port,route):
               opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -72,7 +75,9 @@ jobs:
           assert renderer.get('ok') is True and renderer.get('admission_only') is False
           terminal={'completed','failed','cancelled','cleaned'}
           assert isinstance(renderer.get('queue_counts'),dict)
-          assert not any(int(n) for state,n in renderer['queue_counts'].items() if state not in terminal),'Scene renderer busy'
+          if any(int(n) for state,n in renderer['queue_counts'].items() if state not in terminal):
+              print('SCENE_QUEUE_BUSY: queued or in-flight job; retry later',flush=True)
+              raise SystemExit(20)
           worker=api(8000,'/health')
           assert worker.get('admission_only') is True,'Worker ownership changed: abort'
           for service in ('vps1-scene-candidate.service',
@@ -80,8 +85,47 @@ jobs:
               assert subprocess.run(['systemctl','is-active','--quiet',service]).returncode==0
           print('SML_SCENE_IDLE_AND_WORKER_OWNERSHIP=PASS')
           PY
+            then
+              break
+            else
+              idle_code=$?
+              if [[ "$idle_code" -ne 20 ]]; then
+                echo 'SML_SCENE_PREFLIGHT_ERROR: fail closed'
+                exit 1
+              fi
+              if [[ "$idle_attempt" -ge 20 ]]; then
+                echo 'SCENE_QUEUE_STILL_BUSY: leave owner jobs intact'
+                exit 1
+              fi
+              echo "SCENE_PREFLIGHT_SAFE_RETRY $idle_attempt/20"
+              sleep 60
+            fi
+          done
           echo 'SCENE_WEB_GUARDED_SOURCE_RELEASE'
-          remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA scene-builder"
+          # An unrelated job may enter the Scene queue AFTER read-only preflight.
+          # Respect the installer's fail-closed worker guard; retry ONLY when
+          # it explicitly says active queued/in-flight Scene work deferred refresh.
+          # Never cancel, drain forcibly, delete or mutate owner jobs.
+          scene_ready=false
+          for attempt in $(seq 1 20); do
+            if remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA scene-builder" > "$scratch/scene-install.log" 2>&1; then
+              cat "$scratch/scene-install.log"
+              scene_ready=true
+              break
+            fi
+            cat "$scratch/scene-install.log"
+            if ! grep -Fq 'queued or in-flight Scene jobs exist; source refresh deferred' "$scratch/scene-install.log"; then
+              echo 'SCENE_INSTALL_NON_BUSY_ERROR: fail closed without retry'
+              exit 1
+            fi
+            if [[ "$attempt" -ge 20 ]]; then
+              echo 'SCENE_JOBS_REMAIN_ACTIVE: deferred without modifying queued jobs'
+              exit 1
+            fi
+            echo "SCENE_BUSY_SAFE_RETRY $attempt/20: waiting for unrelated jobs to complete"
+            sleep 60
+          done
+          [[ "$scene_ready" == true ]]
           echo 'SML_SOURCE_RELEASE_AND_ATOMIC_PRIVATE_EDITOR_ACTIVATION'
           if ! remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA self-media-library"; then
             echo 'SML_ACTIVATION_FAILED: attempting bounded Scene source rollback'
