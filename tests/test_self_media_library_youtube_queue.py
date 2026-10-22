@@ -36,6 +36,26 @@ class VisibleQueue(HTMLParser):
             self.details -= 1
 
 
+class ProductionPackaging(unittest.TestCase):
+    def test_production_catalog_installs_ytdlp_in_sml_venv(self):
+        from production.runtime import CATALOG
+        packages = CATALOG["self-media-library"]["packages"]
+        dependency = [value for value in packages if value.startswith("yt-dlp")]
+        self.assertEqual(dependency, ["yt-dlp>=2025.3.31,<2027"])
+        requirements = (ROOT / "requirements.txt").read_text()
+        self.assertIn(dependency[0], requirements)
+        self.assertNotIn("yt-dlp", CATALOG["short-maker"]["packages"])
+
+    def test_release_checks_real_downloader_before_switching_pointer(self):
+        source = (ROOT.parents[2] / "production/runtime.py").read_text()
+        before_pointer = source.index("    journal = BASE / 'transactions'")
+        probe = source.index("        downloader = venv / 'bin/yt-dlp'")
+        self.assertLess(probe, before_pointer)
+        for token in ("PASS_DEPENDENCY_INSTALLED", "-m', 'yt_dlp', '--version",
+                      "SML_YTDLP_MISSING"):
+            self.assertIn(token, source)
+
+
 class Contracts(unittest.TestCase):
     def test_queue_is_not_collapsed_and_refreshes(self):
         page = VisibleQueue()
