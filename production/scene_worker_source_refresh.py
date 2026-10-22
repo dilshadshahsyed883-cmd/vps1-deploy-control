@@ -252,6 +252,7 @@ class SceneWorkerSourceRefresh:
         self.target = Path(target)
         self.journal = Path(journal)
         self.original_unit: bytes | None = None
+        self.original_env: bytes | None = None
         self.original_record: dict | None = None
         self.token = ""
         self.did_refresh = False
@@ -261,6 +262,8 @@ class SceneWorkerSourceRefresh:
             return
         from production.runtime import atomic_json, run
         _atomic_regular_file(worker.UNIT_FILE, self.original_unit, 0o644)
+        if self.original_env is not None:
+            _atomic_regular_file(worker.ENV, self.original_env, 0o600)
         atomic_json(worker.RECORD, self.original_record, 0o600)
         run(["systemctl", "daemon-reload"], timeout=20, quiet=True)
         run(["systemctl", "restart", worker.UNIT], timeout=70, quiet=True)
@@ -275,6 +278,7 @@ class SceneWorkerSourceRefresh:
         else:
             raise RuntimeError("Scene worker rollback health timed out; previous unit retained")
         self.original_unit = None
+        self.original_env = None
         self.original_record = None
         self.did_refresh = False
         print("SCENE_WORKER_SOURCE_ROLLBACK=PASS PREVIOUS_SOURCE_RESTORED",flush=True)
@@ -339,8 +343,31 @@ class SceneWorkerSourceRefresh:
             (new_runner/"entry.py").chmod(0o644)
         _require_idle()  # Fail closed if a user submitted a job during preparation.
         self.original_unit = worker.UNIT_FILE.read_bytes()
+        self.original_env = worker.ENV.read_bytes()
         self.original_record = dict(record)
         try:
+            if private.get("DRIVE_UPLOAD_ENABLED") != "1":
+                # The original production installer wrote 0; a source refresh
+                # must repair that saved setting as well, but only after a
+                # credential-free read probe succeeds as the actual service user.
+                service_home = worker.STATE / "worker-home"
+                remote = private.get("DRIVE_REMOTE", "gdrive") or "gdrive"
+                env = ["HOME="+str(service_home),
+                       "XDG_CONFIG_HOME="+str(service_home/".config")]
+                if private.get("RCLONE_CONFIG"):
+                    env.append("RCLONE_CONFIG="+private["RCLONE_CONFIG"])
+                probe = subprocess.run(
+                    ["runuser", "-u", "vps1scene", "--", "/usr/bin/env", *env,
+                     "rclone", "lsd", remote+":"],
+                    capture_output=True, text=True, timeout=90)
+                worker.require(probe.returncode == 0,
+                               "Scene Drive remote unreadable by production worker; source/config change deferred")
+                raw = self.original_env.decode("utf-8")
+                lines = [line for line in raw.splitlines()
+                         if line.split("=",1)[0].strip() != "DRIVE_UPLOAD_ENABLED"]
+                _atomic_regular_file(worker.ENV,
+                                     ("\n".join(lines+["DRIVE_UPLOAD_ENABLED=1"])+"\n").encode(),
+                                     0o600)
             _atomic_regular_file(worker.UNIT_FILE,worker.unit_text(new_runner).encode(),0o644)
             run(["systemctl","daemon-reload"],timeout=20,quiet=True)
             run(["systemctl","restart",worker.UNIT],timeout=70,quiet=True)

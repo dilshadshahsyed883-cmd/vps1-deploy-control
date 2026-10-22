@@ -159,7 +159,7 @@ class ProductionWorker:
                       'HF_HOME':str(STATE/'model-cache'),'XDG_CACHE_HOME':str(STATE/'cache')}
             # Retain any preconfigured app-specific Drive, stock and SML settings.
             for key in ('PEXELS_API_KEY','PEXELS_API_KEYS','SCENE_SML_URL','SCENE_SML_EDITOR_TOKEN',
-                        'DRIVE_UPLOAD_ENABLED','DRIVE_REMOTE','RCLONE_CONFIG'):
+                        'DRIVE_REMOTE','RCLONE_CONFIG'):
                 if key in web: values[key] = web[key]
             fd = os.open(ENV,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
             with os.fdopen(fd,'w') as out:

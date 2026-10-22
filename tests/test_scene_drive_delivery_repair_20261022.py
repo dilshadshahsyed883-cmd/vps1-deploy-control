@@ -39,5 +39,12 @@ class SceneDriveDeliveryTests(unittest.TestCase):
         self.assertIn('Retry Drive Upload', QUEUE)
         self.assertIn('DRIVE PENDING', QUEUE)
         self.assertIn("'DRIVE_UPLOAD_ENABLED':'1'", INSTALL)
+        self.assertNotIn("'DRIVE_UPLOAD_ENABLED','DRIVE_REMOTE'", INSTALL)
+        REFRESH=(ROOT/'production/scene_worker_source_refresh.py').read_text()
+        ast.parse(REFRESH)
+        self.assertIn('self.original_env', REFRESH)
+        self.assertIn('rclone", "lsd", remote+":"', REFRESH)
+        self.assertIn('DRIVE_UPLOAD_ENABLED=1', REFRESH)
+        self.assertIn('worker.ENV, self.original_env, 0o600', REFRESH)
 
 if __name__=="__main__": unittest.main()
