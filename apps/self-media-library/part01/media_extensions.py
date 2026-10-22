@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from media_integrity import sha256_file
 from media_catalog import probe_video, safe_origin, classify_orientation
 from video_merger_downloader import download_youtube_video, proxy_available
+import sml_proxy_profiles
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}
@@ -99,12 +100,30 @@ class ImportRetryRequest(BaseModel):
     # Explicit opt-in is required before replacing a saved proxy request
     # with a direct VPS network request.
     direct_without_proxy: bool = False
+    with_proxy: bool = False
 
 
 def sml_proxy_configured() -> bool:
     # Video Merger/Audio selected proxy routes are borrowed READ-ONLY when
     # the owner explicitly opts in; no credentials copied or changed.
     return proxy_available()
+
+
+class ProxyProfileInput(BaseModel):
+    id: str = ""
+    name: str = ""
+    host: str = ""
+    port: int = 0
+    username: str = ""
+    password: str = ""
+
+
+class ProxyProfileId(BaseModel):
+    id: str
+
+
+class ProxyToggle(BaseModel):
+    enabled: bool
 
 
 class ReservationRequest(BaseModel):
@@ -645,6 +664,51 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                 "images": imgs, "imports_processing": imports,
                 "proxy_configured": sml_proxy_configured()}
 
+    # SML-only proxy profiles: same controls as Video Merger, independent data.
+    # Never serve credential values, and never alter Video Merger's profile file.
+    @app.get("/api/v1/media/proxy")
+    def proxy_settings():
+        return sml_proxy_profiles.state()
+
+    @app.post("/api/v1/media/proxy/save")
+    def proxy_save(body: ProxyProfileInput):
+        try:
+            pid = sml_proxy_profiles.save(body.model_dump())
+            return {"ok": True, "id": pid}
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+
+    @app.post("/api/v1/media/proxy/active")
+    def proxy_activate(body: ProxyProfileId):
+        try:
+            sml_proxy_profiles.set_active(body.id)
+            return {"ok": True}
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+
+    @app.post("/api/v1/media/proxy/toggle")
+    def proxy_toggle(body: ProxyToggle):
+        try:
+            sml_proxy_profiles.toggle(body.enabled)
+            return {"ok": True}
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+
+    @app.post("/api/v1/media/proxy/delete")
+    def proxy_delete(body: ProxyProfileId):
+        try:
+            sml_proxy_profiles.delete(body.id)
+            return {"ok": True}
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+
+    @app.post("/api/v1/media/proxy/test")
+    def proxy_test(body: ProxyProfileId):
+        try:
+            return sml_proxy_profiles.test(body.id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+
     def report_import(job_id, percent, message):
         with db() as conn:
             conn.execute("UPDATE media_imports SET progress=?,message=?,updated_at=? WHERE id=?",
@@ -754,6 +818,9 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
     @app.post('/api/v1/media/imports/{job_id}/retry')
     def retry_import(job_id: str, body: ImportRetryRequest | None = None):
         direct = bool(body and body.direct_without_proxy)
+        with_proxy = bool(body and body.with_proxy)
+        if direct and with_proxy:
+            raise HTTPException(400, 'Choose direct OR proxy for retry')
         with db() as conn:
             conn.execute('BEGIN IMMEDIATE')
             row = conn.execute('SELECT * FROM media_imports WHERE id=?', (job_id,)).fetchone()
@@ -767,17 +834,25 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                     raise HTTPException(409, 'This job already uses a direct connection')
                 # Do not silently bypass user-selected proxy on normal Retry.
                 original.use_proxy = False
+            elif with_proxy:
+                if original.use_proxy:
+                    raise HTTPException(409, 'This job already uses the selected proxy')
+                if not sml_proxy_configured():
+                    raise HTTPException(409, 'Activate a proxy profile first')
+                original.use_proxy = True
             elif original.use_proxy and not sml_proxy_configured():
                 raise HTTPException(409, 'Proxy profile is not configured. Choose Retry direct to use the VPS connection.')
-            if direct:
+            if direct or with_proxy:
+                message = ('Proxy retry queued (owner selected active proxy)' if with_proxy
+                           else 'Direct retry queued (proxy disabled by user)')
                 conn.execute("""UPDATE media_imports SET status='queued',progress=0,
-                             message='Direct retry queued (proxy disabled by user)',
-                             request_json=?,updated_at=? WHERE id=?""",
-                             (original.model_dump_json(), now_iso(), job_id))
+                             message=?,request_json=?,updated_at=? WHERE id=?""",
+                             (message,original.model_dump_json(),now_iso(),job_id))
             else:
                 conn.execute("UPDATE media_imports SET status='queued',progress=0,message='Retry queued',updated_at=? WHERE id=?",
                              (now_iso(), job_id))
-        return {'ok': True, 'status': 'queued', 'direct_without_proxy': direct}
+        return {'ok': True, 'status': 'queued',
+                'direct_without_proxy': direct, 'with_proxy': with_proxy}
 
     @app.post('/api/v1/media/imports/batch')
     def batch_imports(items:list[ImportRequest]):

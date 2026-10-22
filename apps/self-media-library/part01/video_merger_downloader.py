@@ -22,6 +22,7 @@ import time
 from urllib.parse import quote
 
 from media_catalog import probe_video
+from sml_proxy_profiles import active_url as sml_active_proxy_url
 
 # Video Merger's actual production per-app state path (production/runtime.py).
 VIDEO_PROXY_FILE = Path(
@@ -83,10 +84,13 @@ def _profile_url(profile):
 def _proxy_routes(use_proxy: bool):
     if not use_proxy:
         return [None]  # Never silently use a saved proxy for a direct job.
+    # The SML-managed active profile wins; existing VM/Audio routes remain
+    # read-only fallbacks, never mutated by this app.
+    local_url = sml_active_proxy_url()
     video_url = os.getenv("SML_YTDLP_PROXY_URL", "").strip()
     vm = _read_active_profile(VIDEO_PROXY_FILE)
     audio = _read_active_profile(AUDIO_PROXY_FILE)
-    first = video_url or (_profile_url(vm) if vm else "")
+    first = local_url or video_url or (_profile_url(vm) if vm else "")
     second = _profile_url(audio) if audio else ""
     routes = [first] if first else []
     if second and second not in routes:

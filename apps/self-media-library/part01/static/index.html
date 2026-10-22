@@ -110,7 +110,35 @@
             <input id="importValue" class="setting-text import-text" type="text" placeholder="https://www.youtube.com/watch?v=..." />
             <p class="sml-input-help" id="smlImportHelp">Only import videos you have permission to reuse.</p>
             <div class="sml-import-actions"><label class="import-choice"><input id="importRights" type="checkbox" /> I have permission to import and reuse this media.</label><button class="primary" type="button" id="submitImport">Queue import</button></div>
-            <details class="sml-input-disclosure"><summary>Advanced import options</summary><label class="import-choice"><input id="importProxy" type="checkbox" /> Use configured server proxy (optional)</label><p id="importProxyState" role="status">Checking server proxy availability…</p><p class="sml-proxy-help">Proxy setup is on the VPS server, not in this form. No proxy? Keep this unchecked for direct imports.</p></details>
+            <button class="ghost sml-proxy-open" id="smlOpenProxyManager" type="button">+ Add / Manage Proxy Profiles</button>
+            <details class="sml-input-disclosure" id="smlProxyOptions">
+              <summary>Advanced import options — Proxy profiles</summary>
+              <label class="import-choice"><input id="importProxy" type="checkbox" /> Use active proxy for this YouTube import</label>
+              <p id="importProxyState" role="status">Checking proxy availability…</p>
+              <details class="sml-proxy-manager" id="smlProxyManager">
+                <summary>Manage proxy profiles — Add / Edit / Test</summary>
+                <div class="sml-proxy-head">
+                  <strong>YouTube proxy profiles</strong>
+                  <label class="sml-proxy-switch"><input id="smlProxyEnabled" type="checkbox" /> Enable selected profile</label>
+                </div>
+                <p class="sml-proxy-help">SML's private profiles are separate from Video Merger. Proxy applies only when the import checkbox is selected. A working proxy does not guarantee YouTube login access.</p>
+                <form id="smlProxyForm">
+                  <input id="smlProxyId" type="hidden" />
+                  <div class="sml-proxy-form-grid">
+                    <label>Profile name<input id="smlProxyName" placeholder="YouTube proxy" maxlength="80" required /></label>
+                    <label>Host<input id="smlProxyHost" placeholder="proxy.example.com" maxlength="255" required /></label>
+                    <label>Port<input id="smlProxyPort" type="number" min="1" max="65535" placeholder="10000" required /></label>
+                    <label>Username<input id="smlProxyUser" autocomplete="off" maxlength="255" required /></label>
+                    <label>Password<input id="smlProxyPass" type="password" autocomplete="new-password" placeholder="Proxy password" /></label>
+                  </div>
+                  <p class="sml-proxy-help">When editing, leave Password empty to retain saved credentials. Passwords are not shown again.</p>
+                  <div class="sml-proxy-actions"><button class="primary" id="smlProxySave" type="submit">Save profile</button><button class="ghost" id="smlProxyCancel" type="button" hidden>Cancel edit</button></div>
+                </form>
+                <div class="sml-proxy-list-head"><strong>Saved proxy profiles</strong><span id="smlProxyCount">0 profiles</span></div>
+                <div id="smlProxyList" aria-live="polite">Loading profiles…</div>
+                <p id="smlProxyTestResult" role="status"></p>
+              </details>
+            </details>
           </article>
         </div>
         <section class="panel sml-import-queue sml-import-wide" aria-label="YouTube import queue">
@@ -289,7 +317,7 @@
   <div class="modal-card"><h3>Bulk image keyword</h3><p>Add or remove a keyword from selected images.</p><input id="imageBulkKeywordInput" placeholder="e.g. tennis"/><div class="modal-actions"><button class="ghost" id="cancelImageKeywordModal">Cancel</button><button class="ghost" id="removeImageBulkKeyword">Remove</button><button class="primary" id="addImageBulkKeyword">Add</button></div></div>
 </div>
 <div id="toast" class="toast hidden"></div>
-<script src="/self-media-library/static/app.js?v=20261022-image-bulk-v1"></script>
+<script src="/self-media-library/static/app.js?v=20261022-sml-proxy-profiles-v1"></script>
 <aside id="aiInspector" class="sml-ai-inspector hidden" aria-label="AI metadata inspector"><div class="panel-head"><h2 id="aiInspectorTitle">Media inspector</h2><button id="aiInspectorClose" class="ghost" aria-label="Close AI inspector">Close</button></div><div id="aiInspectorMedia"></div><p id="aiInspectorState"></p>
 <form id="aiMetadataForm"><label>Description<textarea id="aiDescription" rows="3"></textarea></label><label>Keywords (comma separated)<input id="aiKeywords"></label><label>Review reason<input id="aiReviewReason" maxlength="500"></label><label>Custom fields (JSON object)<textarea id="aiCustom" rows="2">{}</textarea></label><label>Tag aliases (JSON object)<textarea id="aiAliases" rows="2">{}</textarea></label><label><input id="aiRights" type="checkbox"> I have permission to reuse this asset</label><div id="aiManualCategories" class="sml-ai-filters"></div><button class="primary" type="submit">Save corrections</button></form>
 <div class="sml-ai-actions"><button class="ghost" id="aiReanalyze">Reanalyze media</button><button class="ghost" id="aiSimilar">Find similar</button><button class="ghost" id="aiHistory">Change &amp; usage history</button></div><div id="aiFieldDetails"></div><div id="aiHistoryDetails"></div></aside>

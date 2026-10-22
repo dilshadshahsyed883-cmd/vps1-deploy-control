@@ -527,3 +527,54 @@ body.vps1-native-library .sml-input-disclosure .sml-proxy-help {
   body.vps1-native-library .sml-import-wide .sml-import-job .source-main{flex-basis:100%}
   body.vps1-native-library .sml-import-wide .sml-import-queue-head{flex-wrap:wrap}
 }
+
+/* SML-PROXY-PROFILES-001: compact Video Merger-equivalent proxy controls. */
+body.vps1-native-library .sml-proxy-manager{
+  margin-top:10px;padding:12px;border:1px solid #dbe5f3;
+  border-radius:9px;background:#f9fbff;min-width:0
+}
+body.vps1-native-library .sml-proxy-manager>summary{
+  font-size:12px;font-weight:750;color:#315edb;cursor:pointer
+}
+body.vps1-native-library .sml-proxy-head,
+body.vps1-native-library .sml-proxy-list-head{
+  display:flex;gap:12px;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;margin:14px 0 9px
+}
+body.vps1-native-library .sml-proxy-switch{
+  display:flex;gap:8px;align-items:center;font-size:12px;color:#334155
+}
+body.vps1-native-library .sml-proxy-form-grid{
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:10px 0
+}
+body.vps1-native-library .sml-proxy-form-grid label{
+  display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:700;color:#51637c
+}
+body.vps1-native-library .sml-proxy-form-grid input{
+  min-width:0;width:100%;box-sizing:border-box;
+  border:1px solid #cbd5e1;background:#fff;color:#1e293b;
+  border-radius:7px;padding:9px;font-size:12px
+}
+body.vps1-native-library .sml-proxy-actions{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+body.vps1-native-library .sml-proxy-actions button{min-height:32px!important}
+body.vps1-native-library .sml-proxy-row{
+  display:flex;gap:12px;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;min-width:0;padding:12px;margin:8px 0;
+  border:1px solid #dbe5ef;border-radius:8px;background:white
+}
+body.vps1-native-library .sml-proxy-info{min-width:0;flex:1 1 200px;overflow-wrap:anywhere}
+body.vps1-native-library .sml-proxy-info b,
+body.vps1-native-library .sml-proxy-info small{display:block;line-height:1.5}
+body.vps1-native-library .sml-proxy-info small{font-size:11px;color:#64748b}
+body.vps1-native-library #smlProxyTestResult{font-size:11px;overflow-wrap:anywhere}
+@media(max-width:760px){
+  body.vps1-native-library .sml-proxy-form-grid{grid-template-columns:minmax(0,1fr)}
+  body.vps1-native-library .sml-proxy-row{align-items:flex-start}
+}
+
+body.vps1-native-library #smlOpenProxyManager{
+  width:100%;margin-top:8px;min-height:35px!important;
+  border:1px solid #cbd8f4;background:#f0f5ff;
+  color:#315edb;text-align:center;font-size:12px;font-weight:750;
+}
+body.vps1-native-library #smlOpenProxyManager:hover{background:#e5edff}

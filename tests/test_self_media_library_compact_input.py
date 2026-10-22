@@ -29,7 +29,7 @@ class CompactInput(unittest.TestCase):
         self.assertEqual(html.count('class="panel sml-import-queue sml-import-wide"'),1)
         self.assertEqual(html.count('class="panel sml-batch-card sml-batch-wide"'),1)
         self.assertIn('id="importProxyState"',html)
-        self.assertIn('Proxy setup is on the VPS server, not in this form.',html)
+        self.assertIn("SML's private profiles are separate from Video Merger.",html)
         grid=html.split('class="sml-input-grid"',1)[1].split('class="panel sml-input-history"',1)[0]
         self.assertRegex(grid,r'</article>\s*</div>\s*<section class="panel sml-import-queue sml-import-wide"')
         self.assertLess(grid.index('class="panel sml-import-queue sml-import-wide"'),
