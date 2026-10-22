@@ -21,7 +21,7 @@ _ALLOWED_EXACT = frozenset((
     ("POST", "/queue/submit"),
 ))
 _PRESET_MUTATION = re.compile(r"\A/api/presets/[^/]+/(?:duplicate|rename)\Z")
-_PROJECT_RECOVERY = re.compile(r"\A/queue/[0-9a-f]{32}/(?:cancel|restart-stage|restart)\Z")
+_PROJECT_RECOVERY = re.compile(r"\A/queue/[0-9a-f]{32}/(?:cancel|restart-stage|restart|upload-drive)\Z")
 _ADMIN_USER_MANAGEMENT = ("POST", "/user-management")
 
 

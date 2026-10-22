@@ -3032,6 +3032,14 @@ def retry_serial_cleanup(request: Request, job_id: str):
     return RedirectResponse("/queue", status_code=303)
 
 
+@app.post("/queue/{job_id}/upload-drive")
+def upload_existing_render_to_drive_web(request: Request, job_id: str):
+    require_job_access(request, job_id)
+    worker_request("POST", f"/jobs/{job_id}/upload-drive")
+    audit_event("scene_drive_upload_recovered", "Existing Scene MP4 scheduled for Drive delivery", {"job_id": job_id})
+    return RedirectResponse("/queue", status_code=303)
+
+
 @app.post("/queue/{job_id}/clean-now")
 def clean_delivered_job(request: Request, job_id: str):
     require_job_access(request, job_id)
