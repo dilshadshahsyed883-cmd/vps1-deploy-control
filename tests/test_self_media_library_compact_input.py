@@ -23,6 +23,23 @@ class CompactInput(unittest.TestCase):
         self.assertIn('id="sml-upload-video" role="tabpanel"',html)
         self.assertIn('id="sml-upload-image" role="tabpanel" hidden',html)
         self.assertIn('id="sml-upload-folder" role="tabpanel" hidden',html)
+    def test_full_width_youtube_queue_is_sibling_of_import_form(self):
+        html=(SML/"index.html").read_text()
+        css=(SML/"sml_shared_theme.css").read_text()
+        self.assertEqual(html.count('class="panel sml-import-queue sml-import-wide"'),1)
+        self.assertEqual(html.count('class="panel sml-batch-card sml-batch-wide"'),1)
+        self.assertIn('id="importProxyState"',html)
+        self.assertIn('Proxy setup is on the VPS server, not in this form.',html)
+        grid=html.split('class="sml-input-grid"',1)[1].split('class="panel sml-input-history"',1)[0]
+        self.assertRegex(grid,r'</article>\s*</div>\s*<section class="panel sml-import-queue sml-import-wide"')
+        self.assertLess(grid.index('class="panel sml-import-queue sml-import-wide"'),
+                        grid.index('class="panel sml-batch-card sml-batch-wide"'))
+        self.assertIn('.sml-input-grid > .sml-import-wide',css)
+        self.assertIn('grid-column:1 / -1',css)
+        self.assertIn('grid-template-columns:repeat(2,minmax(0,1fr))',css)
+        self.assertIn('@media(max-width:1100px)',css)
+        self.assertIn('SML-QUEUE-WIDE-001',css)
+
     def test_ui_switching_without_backend_changes(self):
         js=(SML/"app.js").read_text(); css=(SML/"sml_shared_theme.css").read_text()
         for token in ("setSmlUploadTab","setSmlImportSource","smlImageDrop","smlChooseFolder","updateInputEligibility","/api/v1/images/upload","/api/v1/media/imports","/api/sources/upload"):
