@@ -43,11 +43,19 @@
   </div>
 </section>
 <div id="audit-flash" class="submission-message" role="status" aria-live="polite" hidden></div>
+<nav class="audit-batch-nav" aria-label="Audit preview batches">
+  <div><strong id="audit-batch-title">Loading batch…</strong><small id="audit-batch-progress" aria-live="polite"></small></div>
+  <div class="audit-batch-nav-actions">
+    <button id="audit-batch-previous" class="button secondary" type="button">← Previous 30s</button>
+    <button id="audit-batch-next" class="button secondary" type="button">Next 30s →</button>
+  </div>
+</nav>
 <section id="audit-grid" class="audit-grid"></section>
 <div id="audit-empty" class="panel empty" hidden>No scenes match this filter.</div>
 <div class="audit-sticky-approve">
   <div id="audit-summary">Loading audit…</div>
   <div style="display:flex;gap:8px;align-items:center">
+    <button id="audit-approve-batch" class="button" type="button">Approve All Scenes in This Batch</button>
     <button id="audit-approve-all" class="button secondary" type="button">Approve All Remaining</button>
     <button id="audit-continue" class="button" type="button">Approve &amp; Continue</button>
   </div>
@@ -77,6 +85,11 @@
 .sml-result{border:1px solid var(--border,#cbd5e1);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px;min-width:0}
 .sml-result img{width:100%;aspect-ratio:16/9;object-fit:cover;background:#1e293b;border-radius:6px}
 .sml-result .muted{font-size:12px;overflow-wrap:anywhere}.sml-result button{margin-top:auto}
+.audit-batch-nav{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 18px;border:1px solid #e2e7ef;background:#fff;border-radius:14px}
+.audit-batch-nav strong{display:block;font-size:15px}.audit-batch-nav small{display:block;margin-top:5px;color:#667085;font-size:12px}
+.audit-batch-nav-actions{display:flex;gap:8px;flex-wrap:wrap}
+.audit-batch-nav-actions button{min-height:42px}
+@media(max-width:760px){.audit-batch-nav-actions{width:100%}.audit-batch-nav-actions button{flex:1 1 140px}}
 </style>
 {% endif %}
 </div>
@@ -101,6 +114,12 @@
   const empty=document.getElementById('audit-empty');
   const summary=document.getElementById('audit-summary');
   const approveAll=document.getElementById('audit-approve-all');
+  const approveBatch=document.getElementById('audit-approve-batch');
+  const prevBatch=document.getElementById('audit-batch-previous');
+  const nextBatch=document.getElementById('audit-batch-next');
+  const batchTitle=document.getElementById('audit-batch-title');
+  const batchProgress=document.getElementById('audit-batch-progress');
+  let batchIndex=0;
   const continueBtn=document.getElementById('audit-continue');
   const flash=document.getElementById('audit-flash');
   const modal=document.getElementById('keyword-modal');
@@ -129,6 +148,7 @@
         ${i.error?`<div class="submission-message error" style="display:block">${esc(i.error)}</div>`:''}
         <div class="audit-actions">
           <button type="button" data-action="preview" ${missing?'disabled':''}>Preview</button>
+          <button type="button" data-action="approve" ${missing||i.approved?'disabled':''}>Approve Scene</button>
           <button type="button" data-action="replace" class="primary">Get New</button>
           <button type="button" data-action="keyword">Change Keyword</button>
           ${smlConfig.sml_enabled&&smlConfig.sml_manual_audit_selection?'<button type="button" data-action="sml" class="primary">Browse SML</button>':''}
@@ -137,15 +157,47 @@
         <div class="audit-status-line"><span>${i.changed?'Modified':'Original selection'}</span><span>${i.approved?'✓ Reviewed':'Needs review'} · r${Number(i.revision||0)}</span></div>
       </div></article>`;
   }
+  function batches(){
+    if(Array.isArray(audit.batches)&&audit.batches.length)return audit.batches;
+    // Legacy workers are read-only for batch approvals: never guess batch IDs.
+    return [{index:0,start:0,end:Number(audit.window_seconds||120),item_ids:(audit.items||[]).map(i=>String(i.item_id))}];
+  }
   function render(){
-    const items=(audit.items||[]).filter(qualifies);
-    grid.innerHTML=items.map(card).join('');empty.hidden=items.length!==0;
+    const available=batches();
+    batchIndex=Math.min(Math.max(0,batchIndex),available.length-1);
+    const current=available[batchIndex];
+    const included=new Set(current.item_ids||[]);
+    const batchItems=(audit.items||[]).filter(i=>included.has(String(i.item_id)));
+    const items=batchItems.filter(qualifies);
+    // Only the chosen batch gets DOM media players or requested preview URLs.
+    // Replacing innerHTML releases previous batch video players.
+    grid.innerHTML=items.map(card).join('');
+    empty.hidden=items.length!==0;
     const total=Number(audit.scene_count||audit.items?.length||0),changed=Number(audit.changed_count||0),missing=Number(audit.missing_count||0),approved=Number(audit.approved_count||0);
+    const reviewed=batchItems.filter(i=>i.approved).length;
+    const reviewable=batchItems.filter(i=>i.has_media&&!i.approved).length;
+    batchTitle.textContent=`Batch ${batchIndex+1} of ${available.length} · ${time(current.start)}–${time(current.end)}`;
+    batchProgress.textContent=`${reviewed}/${batchItems.length} reviewed · ${batchItems.length} scenes · scene boundary ±3s`;
+    prevBatch.disabled=batchIndex===0;
+    nextBatch.disabled=batchIndex>=available.length-1;
+    approveBatch.disabled=!Array.isArray(audit.batches)||!reviewable||!!audit.approved;
     summary.innerHTML=`<b>${total}</b> scenes · <b>${changed}</b> changed · <b>${missing}</b> missing · <b>${approved}/${total}</b> reviewed`;
     continueBtn.disabled=missing>0||approved<total||!!audit.approved;
     approveAll.disabled=missing>0&&approved>=total-missing || !!audit.approved;
     grid.querySelectorAll('video').forEach(v=>v.addEventListener('play',()=>stopOthers(v)));
   }
+  prevBatch.onclick=()=>{if(batchIndex>0){batchIndex--;render();}};
+  nextBatch.onclick=()=>{if(batchIndex<batches().length-1){batchIndex++;render();}};
+  approveBatch.onclick=async()=>{
+    if(!Array.isArray(audit.batches))return;
+    const index=batches()[batchIndex].index;
+    approveBatch.disabled=true;
+    try{
+      const data=await api(`/api/audit-media/${encodeURIComponent(jobId)}/batches/${index}/approve`,{method:'POST'});
+      audit=data;render();
+      show(`${Number(data.batch_approved_count||0)} scenes approved in this batch ✓`);
+    }catch(e){render();show(e.message,'error');}
+  };
   async function mutate(itemId,kind,extra={}){
     const i=itemById(itemId);if(!i)return;
     const cardEl=grid.querySelector(`[data-item="${CSS.escape(String(itemId))}"]`);cardEl?.classList.add('busy');
@@ -162,6 +214,12 @@
     const cardEl=btn.closest('.audit-card');if(!cardEl)return;const id=cardEl.dataset.item;const action=btn.dataset.action;
     if(action==='preview'){const v=cardEl.querySelector('video');if(v){stopOthers(v);v.paused?v.play():v.pause()}else cardEl.querySelector('img')?.scrollIntoView({behavior:'smooth',block:'center'});}
     if(action==='replace')mutate(id,'replace');
+    if(action==='approve'){
+      const item=itemById(id);btn.disabled=true;
+      api(`/api/audit-media/${encodeURIComponent(jobId)}/${encodeURIComponent(id)}/approve?revision=${Number(item?.revision||0)}`,{method:'POST'})
+        .then(data=>{audit=data;render();show('Scene approved ✓')})
+        .catch(err=>{render();show(err.message,'error')});
+    }
     if(action==='sml')openSml(id);
     if(action==='keyword'){const i=itemById(id);keywordItem=id;keywordInput.value=i?.query_override||i?.keyword_used||i?.original_query||'';modal.hidden=false;setTimeout(()=>keywordInput.focus(),0)}
   });
