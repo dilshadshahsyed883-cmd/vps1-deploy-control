@@ -38,3 +38,28 @@ returns a no-match/unavailable response, never fabricated availability.
 Standalone: `./install.sh`, then `./start.sh` (port 8090). Production uses the
 existing protected GitHub → Tailscale SML-only immutable release transaction,
 SQLite backup, idle checks, functional verification and source rollback.
+
+
+## People & Face Recognition (opt-in, approval only)
+
+In Library & Preview → Images, open an image and choose Identify person.
+A face selector appears if multiple people are present. Enter the name,
+save the reference and begin a CPU-only scan. People & Face Recognition displays
+pending matches with similarity scores. Select matching images and press
+Approve selected before SML adds the name to keyword tags. Reject and Undo
+are also available. Approved tags work with existing keyword search.
+
+The detector and recognizer are OpenCV Zoo YuNet and SFace. SHA-256-pinned
+ONNX weights download only on first explicit scan/identification into
+SML_DATA_ROOT/face_models, not Git. Download failure is recoverable.
+Embeddings and approval history are kept in local SQLite under SML_DATA_ROOT.
+No user media, face vectors, names, or secret credentials belong in GitHub.
+
+Similarity scores are not identity probabilities, and all suggestions require
+owner approval. Existing person-name keywords are preserved on undo.
+No image files are renamed, moved, uploaded or deleted.
+Restart an interrupted or failed scan from the People panel; image face
+embeddings are cached by image SHA and model version.
+
+Image-only v1: video frame face indexing and automatic new-upload review are
+not enabled yet. Users supply their own reference images and names.
