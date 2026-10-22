@@ -121,6 +121,61 @@ class LocalLibrary(unittest.TestCase):
         for clip in clips:self.assertEqual(self.c.delete('/api/clips/'+clip['id']+'/permanent').status_code,409)
         self.assertEqual(self.c.post('/api/local/reviews/'+ident+'/finalize').status_code,404)
 
+    def test_legacy_clips_bulk_trash_restore_and_purge_with_unrelated_ai_job(self):
+        source_id, pairs = self.source()
+        keep = pairs[0]['items'][0]['id']
+        self.choose(source_id, 0, keep)
+        self.assertEqual(self.choose(source_id, 1, None).status_code, 200)
+        path = self.m.CLIPS_DIR / (keep + '.mp4')
+        self.assertTrue(path.exists())
+        with self.m.db() as conn:
+            conn.execute("UPDATE clips SET local_selection='legacy' WHERE id=?", (keep,))
+            conn.execute("""INSERT INTO ai_jobs(id,kind,media_type,media_id,payload,state,created_at,updated_at)
+                VALUES(?,?,?,?,?,?,?,?)""", ('unrelated','analyze','video','other-clip','{}','queued',time.time(),time.time()))
+        # An unrelated stuck/queued AI job must not block deleting older clips.
+        gone = self.c.post('/api/clips/bulk/trash', json={'ids':[keep,keep]})
+        self.assertEqual(gone.status_code, 200, gone.text)
+        self.assertEqual(gone.json()['trashed'], 1)
+        self.assertNotIn(keep, [x['id'] for x in self.c.get('/api/clips').json()['items']])
+        self.assertEqual(self.c.post('/api/clips/'+keep+'/restore').status_code, 200)
+        self.assertEqual(self.c.post('/api/clips/bulk/trash', json={'ids':[keep]}).status_code, 200)
+        self.assertEqual(self.c.delete('/api/clips/'+keep+'/permanent').status_code, 200)
+        self.assertFalse(path.exists())
+        self.assertNotIn(keep, [x['id'] for x in self.c.get('/api/clips?trash=true').json()['items']])
+        with self.m.db() as conn:
+            self.assertIsNone(conn.execute('SELECT id FROM clips WHERE id=?',(keep,)).fetchone())
+            self.assertIsNotNone(conn.execute('SELECT id FROM sources WHERE id=?',(source_id,)).fetchone())
+            self.assertEqual(conn.execute("SELECT state FROM ai_jobs WHERE id='unrelated'").fetchone()[0], 'queued')
+
+    def test_legacy_failed_source_owner_can_delete_but_pending_source_is_protected(self):
+        source_id, pairs = self.source()
+        keep = pairs[0]['items'][0]['id']
+        pending = pairs[0]['items'][1]['id']
+        self.assertEqual(self.c.post('/api/clips/bulk/trash', json={'ids':[keep,pending]}).status_code, 409)
+        with self.m.db() as conn:
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM clips WHERE source_id=? AND deleted_at IS NOT NULL',(source_id,)).fetchone()[0], 0)
+        self.choose(source_id,0,keep)
+        self.choose(source_id,1,None)
+        with self.m.db() as conn:
+            conn.execute("UPDATE clips SET local_selection='legacy' WHERE id=?",(keep,))
+            conn.execute("UPDATE sources SET status='failed' WHERE id=?",(source_id,))
+        gone = self.c.post('/api/local/delete', json={'media_type':'video','ids':[keep]})
+        self.assertEqual(gone.status_code,200,gone.text)
+        self.assertFalse((self.m.CLIPS_DIR/(keep+'.mp4')).exists())
+        with self.m.db() as conn:
+            self.assertIsNone(conn.execute('SELECT id FROM clips WHERE id=?',(keep,)).fetchone())
+
+    def test_clip_permanent_delete_actions_visible_in_video_and_trash_sections(self):
+        html = (APP/'static/index.html').read_text()
+        js = (APP/'static/app.js').read_text()
+        library = html.split('<h2>Video Clips</h2>')[0].split('id="bulkBar"')[-1]
+        self.assertIn('id="deleteSelectedClips"', library)
+        images = html.split('<h2>Images</h2>')[-1].split('id="imagesGrid"')[0]
+        self.assertNotIn('id="deleteSelectedClips"', images)
+        self.assertIn('data-restore-clip', js)
+        self.assertIn('data-purge-clip', js)
+        self.assertIn("api('/api/clips/bulk/trash'", js)
+
     def test_drive_removed_not_reenabled_and_legacy_receipts_retained(self):
         self.assertFalse(self.c.get('/api/health').json()['drive_enabled'])
         self.assertEqual(self.c.get('/api/settings').json()['values']['drive_enabled'],'false')
