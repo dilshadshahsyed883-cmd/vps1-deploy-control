@@ -7,13 +7,13 @@ Arabic, Hindi, Gujarati, and other languages from being changed by ASR mistakes.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 import math
 import re
 import hashlib
 import json
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable
 
 ProgressCallback = Callable[[int, str], None]
 CancelCallback = Callable[[], bool]
@@ -24,6 +24,7 @@ class CaptionSegment:
     start: float
     end: float
     text: str
+    words: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -303,7 +304,7 @@ def _smooth_segments(segments: list[CaptionSegment], duration: float) -> list[Ca
             end = min(duration, end)
         text = re.sub(r"\s+", " ", seg.text or "").strip()
         if text and start < duration:
-            cleaned.append(CaptionSegment(start=start, end=min(duration, end), text=text))
+            cleaned.append(CaptionSegment(start=start, end=min(duration, end), text=text, words=[dict(w) for w in seg.words]))
             prev_end = cleaned[-1].end
     return cleaned
 
@@ -339,7 +340,7 @@ def polish_caption_segments(segments: list[CaptionSegment], duration: float, *, 
         if index < len(segments) - 1:
             end = min(end, duration)
         if (seg.text or "").strip() and start < duration:
-            out.append(CaptionSegment(start=start, end=min(duration, max(start + 0.15, end)), text=seg.text))
+            out.append(CaptionSegment(start=start, end=min(duration, max(start + 0.15, end)), text=seg.text, words=[dict(w) for w in seg.words]))
     return _smooth_segments(out, duration)
 
 
@@ -405,23 +406,32 @@ def _script_guided_segments_from_anchors(*, script_text: str, anchors: list[tupl
         return []
     if not anchors:
         return fast_sync_captions(script_text, duration, max_words=max_words, offset=offset)
-
-    total_units = max(1, sum(max(1, units) for _chunk, units in chunks))
-    total_anchors = max(1, len(anchors))
+    all_words = [word for chunk, _units in chunks for word in chunk.split()]
+    # Whisper's word anchors remain the source of per-word timing. Script text
+    # is retained, and count mismatches are explicitly tagged as estimates.
+    count = len(all_words)
+    exact = count == len(anchors)
     out: list[CaptionSegment] = []
-    used_units = 0
-    for chunk, units in chunks:
-        units = max(1, units)
-        start_units = used_units
-        end_units = min(total_units, used_units + units)
-        start_idx = min(total_anchors - 1, max(0, int(math.floor(start_units / total_units * total_anchors))))
-        end_idx = min(total_anchors - 1, max(start_idx, int(math.ceil(end_units / total_units * total_anchors)) - 1))
-        start = anchors[start_idx][0]
-        end = anchors[end_idx][1]
-        seg = _apply_offset(start, end, offset, duration)
+    cursor = 0
+    for chunk, _units in chunks:
+        chunk_words = chunk.split()
+        aligned = []
+        for word in chunk_words:
+            index = min(len(anchors) - 1, int(cursor * len(anchors) / max(1, count)))
+            next_index = min(len(anchors) - 1, int((cursor + 1) * len(anchors) / max(1, count)))
+            start = max(0.0, min(duration, anchors[index][0] + offset))
+            end = max(start, min(duration, anchors[index if exact else next_index][1] + offset))
+            aligned.append({'word': word, 'start': start, 'end': end,
+                            'timing_source': 'whisper' if exact else 'whisper-aligned-estimate'})
+            cursor += 1
+        if not aligned:
+            continue
+        seg = _apply_offset(anchors[max(0, min(len(anchors)-1, int((cursor-len(aligned))*len(anchors)/max(1,count))))][0],
+                            anchors[min(len(anchors)-1, int((cursor-1)*len(anchors)/max(1,count)))][1],
+                            offset, duration)
         seg.text = chunk
+        seg.words = aligned
         out.append(seg)
-        used_units = end_units
     return _smooth_segments(out, duration)
 
 
@@ -434,6 +444,7 @@ def _whisper_transcript_segments_from_anchors_text(*, segments: Iterable[object]
         words = getattr(seg, "words", None) or []
         if words:
             bucket: list[str] = []
+            bucket_words: list[dict[str, Any]] = []
             bucket_start: float | None = None
             bucket_end: float | None = None
             for w in words:
@@ -444,14 +455,19 @@ def _whisper_transcript_segments_from_anchors_text(*, segments: Iterable[object]
                     bucket_start = float(getattr(w, "start", getattr(seg, "start", 0.0)) or 0.0)
                 bucket_end = float(getattr(w, "end", getattr(seg, "end", duration)) or duration)
                 bucket.append(token)
+                word_start = max(0.0, min(duration, float(getattr(w, "start", bucket_start) or bucket_start) + offset))
+                word_end = min(duration, max(word_start, float(getattr(w, "end", bucket_end) or bucket_end) + offset))
+                bucket_words.append({'word': token, 'start': word_start, 'end': word_end, 'timing_source': 'whisper'})
                 if len(bucket) >= max_words:
                     s = _apply_offset(bucket_start, bucket_end or bucket_start + 1.0, offset, duration)
                     s.text = " ".join(bucket).strip()
+                    s.words = bucket_words
                     out.append(s)
-                    bucket, bucket_start, bucket_end = [], None, None
+                    bucket, bucket_words, bucket_start, bucket_end = [], [], None, None
             if bucket:
                 s = _apply_offset(bucket_start or float(getattr(seg, "start", 0.0) or 0.0), bucket_end or float(getattr(seg, "end", duration) or duration), offset, duration)
                 s.text = " ".join(bucket).strip()
+                s.words = bucket_words
                 out.append(s)
         else:
             seg_text = str(getattr(seg, "text", "") or "").strip()
