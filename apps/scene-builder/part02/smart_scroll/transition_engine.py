@@ -142,7 +142,9 @@ def sanitize_xfade_transition(value: Any) -> str:
     """Return an xfade name safe for older deployed FFmpeg builds."""
     name = _slug(value) or "fade"
     name = XFADE_COMPAT_ALIASES.get(name, name)
-    if name not in SAFE_XFADE_TRANSITIONS:\n        raise ValueError(f"Unsupported xfade effect: {name}; a generic fade is not an acceptable substitute")\n    return name
+    if name not in SAFE_XFADE_TRANSITIONS:
+        raise ValueError(f"Unsupported xfade effect: {name}; a generic fade is not an acceptable substitute")
+    return name
 
 
 def transition_uses_xfade(value: Any) -> bool:
