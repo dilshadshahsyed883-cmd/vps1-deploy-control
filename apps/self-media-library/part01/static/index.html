@@ -60,6 +60,7 @@
           <div class="panel-head"><div><h2>Upload from your device</h2><p>Choose a source type; keep the same simple upload flow.</p></div><span class="sml-input-tag">Local files</span></div>
           <div class="sml-upload-tabs" role="tablist" aria-label="Upload media type">
             <button class="sml-upload-tab active" type="button" role="tab" aria-selected="true" aria-controls="sml-upload-video" data-sml-upload="video">▣ Videos</button>
+            <button class="sml-upload-tab" type="button" role="tab" aria-selected="false" aria-controls="sml-upload-processed" data-sml-upload="processed">✓ Processed Clips</button>
             <button class="sml-upload-tab" type="button" role="tab" aria-selected="false" aria-controls="sml-upload-image" data-sml-upload="image">▧ Images</button>
             <button class="sml-upload-tab" type="button" role="tab" aria-selected="false" aria-controls="sml-upload-folder" data-sml-upload="folder">▤ Folder</button>
           </div>
@@ -73,6 +74,17 @@
             </div>
             <p class="sml-pane-footnote">Clips: 2–4 seconds by default, editable in Settings · Original quality preserved</p>
             <p id="sourceUploadResult" role="status" aria-live="polite" class="sml-input-status"></p>
+          </div>
+          <div class="sml-upload-pane" id="sml-upload-processed" role="tabpanel" hidden>
+            <div class="drop-panel" id="processedDropPanel">
+              <input type="file" id="processedClipFiles" accept=".mp4,.mov,.mkv,.webm,.m4v,.avi,video/*" multiple hidden />
+              <div class="drop-icon" aria-hidden="true">✓</div>
+              <h3>Add already processed clips</h3>
+              <p>Ready-made clips · MP4, MOV, MKV, WEBM, M4V, AVI · No cutting or reprocessing</p>
+              <button class="primary" type="button" id="chooseProcessed">Choose processed clips</button>
+            </div>
+            <p class="sml-pane-footnote">Direct to Video Clips library · Automatically Approved · Original video preserved</p>
+            <p id="processedUploadResult" role="status" aria-live="polite" class="sml-input-status"></p>
           </div>
           <div class="sml-upload-pane" id="sml-upload-image" role="tabpanel" hidden>
             <div class="sml-media-drop" id="smlImageDrop">
@@ -317,7 +329,7 @@
   <div class="modal-card"><h3>Bulk image keyword</h3><p>Add or remove a keyword from selected images.</p><input id="imageBulkKeywordInput" placeholder="e.g. tennis"/><div class="modal-actions"><button class="ghost" id="cancelImageKeywordModal">Cancel</button><button class="ghost" id="removeImageBulkKeyword">Remove</button><button class="primary" id="addImageBulkKeyword">Add</button></div></div>
 </div>
 <div id="toast" class="toast hidden"></div>
-<script src="/self-media-library/static/app.js?v=20261022-sml-proxy-profiles-v1"></script>
+<script src="/self-media-library/static/app.js?v=20261022-processed-clips-v1"></script>
 <aside id="aiInspector" class="sml-ai-inspector hidden" aria-label="AI metadata inspector"><div class="panel-head"><h2 id="aiInspectorTitle">Media inspector</h2><button id="aiInspectorClose" class="ghost" aria-label="Close AI inspector">Close</button></div><div id="aiInspectorMedia"></div><p id="aiInspectorState"></p>
 <form id="aiMetadataForm"><label>Description<textarea id="aiDescription" rows="3"></textarea></label><label>Keywords (comma separated)<input id="aiKeywords"></label><label>Review reason<input id="aiReviewReason" maxlength="500"></label><label>Custom fields (JSON object)<textarea id="aiCustom" rows="2">{}</textarea></label><label>Tag aliases (JSON object)<textarea id="aiAliases" rows="2">{}</textarea></label><label><input id="aiRights" type="checkbox"> I have permission to reuse this asset</label><div id="aiManualCategories" class="sml-ai-filters"></div><button class="primary" type="submit">Save corrections</button></form>
 <div class="sml-ai-actions"><button class="ghost" id="aiReanalyze">Reanalyze media</button><button class="ghost" id="aiSimilar">Find similar</button><button class="ghost" id="aiHistory">Change &amp; usage history</button></div><div id="aiFieldDetails"></div><div id="aiHistoryDetails"></div></aside>
