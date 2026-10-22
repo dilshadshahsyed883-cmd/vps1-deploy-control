@@ -254,7 +254,7 @@ def _filter(name:str,intensity:float)->str:
       'bright':f'eq=brightness={.22*i}', 'dark':f'eq=brightness={-.22*i}',
       'vintage':f'curves=vintage,eq=saturation={1-.35*i}', 'documentary':f'eq=contrast={1+.25*i}:saturation={1-.18*i},unsharp=5:5:{.5*i}',
       'cinematic':f'eq=contrast={1+.3*i}:saturation={1+.08*i},colorbalance=bs={-.05*i}:rs={.05*i}',
-      'black_white':f'hue=s=0','sepia':f'colorchannelmixer=.393:.769:.189:.349:.686:.168:.272:.534:.131',
+      'black_white':f'eq=saturation={1-i}', 'sepia':f'colorchannelmixer={1-.607*i}:{.769*i}:{.189*i}:{.349*i}:{1-.314*i}:{.168*i}:{.272*i}:{.534*i}:{1-.869*i}',
       'desaturated':f'eq=saturation={1-.8*i}','vivid':f'eq=saturation={1+.75*i}:contrast={1+.18*i}',
       'sharpen':f'unsharp=5:5:{.8*i}:5:5:0',
       'teal_orange':f'eq=contrast={1+.18*i}:saturation={1+.12*i},colorbalance=bs={.06*i}:gs={.015*i}:rs={.08*i}',
@@ -277,28 +277,18 @@ def _global_quality_filter(settings: Any) -> str:
 
 
 def _resolved_color_filters(scene: dict[str, Any], settings: Any, lut_chain: str) -> tuple[str, str]:
-    """Return one scene-color layer plus a non-competing quality layer.
+    """Deterministic grade order: LUT first, explicitly selected scene filter next.
 
-    A real LUT owns contrast/saturation/color when enabled. Legacy scene filters
-    that also grade color are suppressed so V17 does not stack scene grade + LUT
-    + global EQ. Sharpen/soft remain available because they are not color grades.
+    Global cleanup cannot overwrite the owner's selected colour grade. Legacy
+    saved selections remain valid even when a LUT is enabled.
     """
     requested = str(scene.get('filter', 'none') or 'none').lower()
+    scene_filter = _filter(requested, float(scene.get('filter_intensity', .5)))
     lut_active = bool(lut_chain and lut_chain != 'null')
-    color_grade_names = {
-        'warm','cool','high_contrast','bright','dark','vintage','documentary','cinematic',
-        'black_white','sepia','desaturated','vivid','teal_orange','natural_pop','moody_green','clean_premium',
-    }
-    if lut_active and requested in color_grade_names:
-        scene_filter = 'null'
-    else:
-        scene_filter = _filter(requested, float(scene.get('filter_intensity', .5)))
-
     profile = str(getattr(settings, 'video_quality_preset', 'enhanced') or 'enhanced').lower()
     if profile == 'original':
         quality = 'null'
     elif lut_active:
-        # LUT already owns grading. Keep only restrained cleanup/detail work.
         if profile == '4k_premium': quality = 'hqdn3d=1.15:1.15:5.0:5.0,unsharp=5:5:0.48:5:5:0'
         elif profile == 'cinematic': quality = 'hqdn3d=1.0:1.0:4.0:4.0,unsharp=5:5:0.34:5:5:0'
         else: quality = 'hqdn3d=0.7:0.7:3.0:3.0,unsharp=5:5:0.24:5:5:0'
@@ -384,29 +374,71 @@ def _effect(name:str,intensity:float)->str:
     }.get(name,'null')
 
 def _motion(scene:dict[str,Any],w:int,h:int,fps:int,dur:float,is_image:bool)->str:
-    m=scene.get('motion','none'); intensity=float(scene.get('motion_intensity',.35) or .35)
-    if is_image and m in {'zoom_in','zoom_out','ken_burns'}:
-        frames=max(1,int(round(dur*fps))); delta=.0008*max(.2,intensity)
-        z=f"min(zoom+{delta},1.10)" if m!='zoom_out' else f"if(eq(on,1),1.10,max(1.0,zoom-{delta}))"
-        return f"scale={w*2}:{h*2}:force_original_aspect_ratio=increase,crop={w*2}:{h*2},zoompan=z='{z}':d={frames}:s={w}x{h}:fps={fps}"
-    return f'scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},fps={fps}'
+    """Frame-animated pan/zoom for both stills and videos (no static substitution)."""
+    m = str(scene.get('motion','none') or 'none').lower()
+    intensity = max(0.0, min(1.0, float(scene.get('motion_intensity',.35))))
+    base = f'scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,fps={fps}'
+    if m == 'none' or intensity <= 0:
+        return base
+    frames = max(2, int(round(max(.1, dur) * fps)))
+    t = f'min(1,on/{frames-1})'
+    image_names = {'zoom_in', 'zoom_out', 'pan_left', 'pan_right', 'ken_burns'}
+    video_names = {'slow_push', 'reframe_left', 'reframe_right', 'gentle_zoom'}
+    if m not in (image_names if is_image else video_names):
+        return base
+    amount = 0.045 + intensity * 0.105
+    if m == 'zoom_in':
+        z = f'1+{amount:.6f}*{t}'; x = '(iw-iw/zoom)/2'; y = '(ih-ih/zoom)/2'
+    elif m == 'zoom_out':
+        z = f'{1+amount:.6f}-{amount:.6f}*{t}'; x = '(iw-iw/zoom)/2'; y = '(ih-ih/zoom)/2'
+    elif m in {'pan_left', 'reframe_left'}:
+        z = f'{1+amount:.6f}'; x = f'(iw-iw/zoom)*(1-{t})'; y = '(ih-ih/zoom)/2'
+    elif m in {'pan_right', 'reframe_right'}:
+        z = f'{1+amount:.6f}'; x = f'(iw-iw/zoom)*{t}'; y = '(ih-ih/zoom)/2'
+    elif m == 'ken_burns':
+        z = f'1+{amount:.6f}*{t}'; x = f'(iw-iw/zoom)*{t}'; y = f'(ih-ih/zoom)*(1-{t})'
+    else:
+        speed = .75 if m == 'gentle_zoom' else 1.0
+        z = f'1+{amount*speed:.6f}*{t}'; x = '(iw-iw/zoom)/2'; y = '(ih-ih/zoom)/2'
+    # d=1 is critical with -loop 1 image input: d=duration*fps would
+    # duplicate every looped input frame and slow full-length renders enormously.
+    return (
+        f'fps={fps},scale={w*2}:{h*2}:force_original_aspect_ratio=increase,'
+        f'crop={w*2}:{h*2},setsar=1,'
+        f"zoompan=z='{z}':x='{x}':y='{y}':d=1:s={w}x{h}:fps={fps}"
+    )
+
 
 def _xfade_name(scene_or_name: Any, boundary_index: int = 0) -> str:
     if isinstance(scene_or_name, dict):
         logical = scene_or_name.get('transition_out') or scene_or_name.get('transition') or 'cross_dissolve'
         if not transition_uses_xfade(logical):
             raise ValueError(f"{canonical_transition(logical)} is a cut boundary and has no xfade name")
-        stored = str(scene_or_name.get('transition_xfade') or '').strip().lower()
-        if stored:
-            # Never trust persisted xfade names blindly. Older jobs may contain
-            # coverleft/coverright from a newer catalog than the VPS FFmpeg supports.
-            return sanitize_xfade_transition(stored)
-        return resolve_xfade_transition(
-            scene_or_name.get('transition_out') or scene_or_name.get('transition') or 'cross_dissolve',
-            boundary_index,
-            str(scene_or_name.get('transition_variant') or ''),
-        )
+        # An old saved transition_xfade='fade' must never mask the real selected
+        # visual. Re-resolve from the preserved logical name and valid variant.
+        return resolve_xfade_transition(logical, boundary_index, str(scene_or_name.get('transition_variant') or ''))
     return resolve_xfade_transition(scene_or_name, boundary_index)
+
+
+def _xfade_filter(scene: dict[str, Any], index: int, duration: float, offset: float) -> str:
+    """Use the real named effect; custom spin and zoom-blur are frame-animated."""
+    name = canonical_transition(scene.get('transition_out', 'cross_dissolve'))
+    effect = _xfade_name(scene, index)
+    options = f'duration={duration:.6f}:offset={offset:.6f}'
+    if name == 'soft_spin':
+        # Rotating source coordinates across the boundary, switching at halfway.
+        expr = ("if(lt(P,0.5),"
+                "a0(W/2+(X-W/2)*cos(PI*P)-(Y-H/2)*sin(PI*P),"
+                "H/2+(X-W/2)*sin(PI*P)+(Y-H/2)*cos(PI*P)),"
+                "b0(W/2+(X-W/2)*cos(PI*(1-P))+(Y-H/2)*sin(PI*(1-P)),"
+                "H/2-(X-W/2)*sin(PI*(1-P))+(Y-H/2)*cos(PI*(1-P))))")
+        return f"xfade=transition=custom:{options}:expr='{expr}'"
+    if name == 'zoom_blur':
+        expr = ("a0(X,Y)*(1-P)+"
+                "b0(W/2+(X-W/2)*(1.2-0.2*P),H/2+(Y-H/2)*(1.2-0.2*P))*P")
+        return f"xfade=transition=custom:{options}:expr='{expr}'"
+    return f'xfade=transition={effect}:{options}'
+
 
 def _write_srt(segments,path):
     def ts(v):
@@ -465,7 +497,7 @@ def _render_fingerprint(scenes:list[dict[str,Any]],settings:Any)->tuple[str,list
         }
         scene_fingerprints.append(hashlib.sha256(json.dumps(payload,sort_keys=True,default=str).encode()).hexdigest())
     global_payload={
-        'renderer':'v17.1-normalized-true-cut',
+        'renderer':'v18-motion-transitions-colour-verified',
         'scenes':scene_fingerprints,
         'width':int(settings.width),'height':int(settings.height),'fps':int(settings.fps),
         'quality_crf':int(getattr(settings,'quality_crf',22) or 22),
@@ -571,7 +603,7 @@ def render_mixed_media(settings:Any,progress_callback:Progress=None,cancel_callb
         chunk_durations.append(expected)
         target=chunk_root/f'chunk_{group_index:04d}.mp4'; timeline_chunks.append(target)
         chunk_fp=hashlib.sha256(json.dumps({
-            'algorithm':'v17.1-normalized-true-cut-xfade-boundary-complete',
+            'algorithm':'v18-motion-transitions-colour-verified',
             'scenes':scene_fingerprints[start:end+1 if end<len(scenes) else end],
             'transitions':transition_durations[start:end],
             'inbound':inbound,'outbound':outbound,
@@ -622,8 +654,7 @@ def render_mixed_media(settings:Any,progress_callback:Progress=None,cancel_callb
             outlabel=f'[v{local_index}]'
             if _boundary_engine(boundary_scene) == 'xfade':
                 chains.append(
-                    f'{current}[p{local_index}]xfade=transition={_xfade_name(boundary_scene,global_index-1)}:'
-                    f'duration={td:.6f}:offset={elapsed:.6f}{outlabel}'
+                    f'{current}[p{local_index}]{_xfade_filter(boundary_scene,global_index-1,td,elapsed)}{outlabel}'
                 )
             else:
                 chains.append(f'{current}[p{local_index}]concat=n=2:v=1:a=0{outlabel}')
@@ -633,8 +664,7 @@ def render_mixed_media(settings:Any,progress_callback:Progress=None,cancel_callb
             boundary_scene=scenes[end-1]
             outlabel='[vout]'
             chains.append(
-                f'{current}[p{member_count}]xfade=transition={_xfade_name(boundary_scene,end-1)}:'
-                f'duration={outbound:.6f}:offset={elapsed:.6f}{outlabel}'
+                f'{current}[p{member_count}]{_xfade_filter(boundary_scene,end-1,outbound,elapsed)}{outlabel}'
             )
             current=outlabel
         chains.append(f'{current}trim=duration={expected:.6f},setpts=PTS-STARTPTS[chunk]')
