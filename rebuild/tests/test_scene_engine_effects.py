@@ -103,7 +103,7 @@ class SceneEngineEffects(unittest.TestCase):
             self.assertTrue(ok)
             body = dest.read_text(encoding="utf-8-sig")
             self.assertIn(r"{\kf70}alpha", body)
-            self.assertIn(r"{\kf30}beta", body)
+            self.assertIn(r"{\kf20}beta", body)
             self.assertNotIn(r"{\kf50}alpha", body)
             # Backward compatibility with saved caption rows lacking words.
             older = CaptionSegment(start=0, end=1, text="old caption")
