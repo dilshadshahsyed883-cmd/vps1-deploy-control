@@ -159,6 +159,18 @@ jobs:
           assert 'fetch(libraryPath(url)' in app_js
           assert 'renderImports(items,' in app_js and 'data-import-retry' in app_js
           assert 'data-import-direct' in app_js and 'direct_without_proxy:direct' in app_js
+          # PR #308: read-only People/Face UI/API smoke; never fetch models,
+          # scan faces or mutate owner-provided image tags during installation.
+          people=read('/api/v1/people')
+          assert isinstance(people.get('items'),list), 'SML People API unavailable'
+          assert 'id="peoplePanel"' in index, 'SML People panel missing'
+          assert 'id="identifyImage"' in index, 'SML reference selector missing'
+          assert '/static/face_people.js' in index, 'SML People JS not linked'
+          face_js=asset(8147,'/static/face_people.js')
+          assert '/api/v1/people/' in face_js and 'peopleApprove' in face_js
+          face_css=asset(8147,'/static/face_people.css')
+          assert '.face-' in face_css
+          print('SML_FACE_PEOPLE_PR308_READBACK=PASS',flush=True)
           print('SML_SHARED_SHELL_ASSETS=PASS',flush=True)
           print('SML_UI_LIGHT_THEME_AND_SCOPED_API=PASS',flush=True)
           print('SML_V2_SERVICE_HEALTH=PASS',flush=True)
