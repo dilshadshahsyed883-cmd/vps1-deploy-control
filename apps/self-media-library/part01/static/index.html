@@ -110,7 +110,7 @@
             <input id="importValue" class="setting-text import-text" type="text" placeholder="https://www.youtube.com/watch?v=..." />
             <p class="sml-input-help" id="smlImportHelp">Only import videos you have permission to reuse.</p>
             <div class="sml-import-actions"><label class="import-choice"><input id="importRights" type="checkbox" /> I have permission to import and reuse this media.</label><button class="primary" type="button" id="submitImport">Queue import</button></div>
-            <details class="sml-input-disclosure"><summary>Advanced import options</summary><label class="import-choice"><input id="importProxy" type="checkbox" /> Use existing server proxy profile (if configured)</label></details>
+            <details class="sml-input-disclosure"><summary>Advanced import options</summary><label class="import-choice"><input id="importProxy" type="checkbox" /> Use existing server proxy profile (if configured)</label><p id="importProxyState" role="status">Checking server proxy availability…</p></details>
             <div class="sml-import-queue" aria-label="YouTube import queue">
               <div class="sml-import-queue-head"><div><h3>YouTube import queue</h3><p id="importQueueStatus" role="status">Loading jobs…</p></div><button class="ghost" type="button" id="refreshImports">↻ Refresh</button></div>
               <div id="importHistory" class="source-list" aria-live="polite">Loading queue…</div>
@@ -266,7 +266,7 @@
 </div>
 
 <div id="toast" class="toast hidden"></div>
-<script src="/self-media-library/static/app.js?v=20261022-image-sharp-v2-yt-queue-v1"></script>
+<script src="/self-media-library/static/app.js?v=20261022-yt-queue-proxy-v1"></script>
 <aside id="aiInspector" class="sml-ai-inspector hidden" aria-label="AI metadata inspector"><div class="panel-head"><h2 id="aiInspectorTitle">Media inspector</h2><button id="aiInspectorClose" class="ghost" aria-label="Close AI inspector">Close</button></div><div id="aiInspectorMedia"></div><p id="aiInspectorState"></p>
 <form id="aiMetadataForm"><label>Description<textarea id="aiDescription" rows="3"></textarea></label><label>Keywords (comma separated)<input id="aiKeywords"></label><label>Review reason<input id="aiReviewReason" maxlength="500"></label><label>Custom fields (JSON object)<textarea id="aiCustom" rows="2">{}</textarea></label><label>Tag aliases (JSON object)<textarea id="aiAliases" rows="2">{}</textarea></label><label><input id="aiRights" type="checkbox"> I have permission to reuse this asset</label><div id="aiManualCategories" class="sml-ai-filters"></div><button class="primary" type="submit">Save corrections</button></form>
 <div class="sml-ai-actions"><button class="ghost" id="aiReanalyze">Reanalyze media</button><button class="ghost" id="aiSimilar">Find similar</button><button class="ghost" id="aiHistory">Change &amp; usage history</button></div><div id="aiFieldDetails"></div><div id="aiHistoryDetails"></div></aside>
