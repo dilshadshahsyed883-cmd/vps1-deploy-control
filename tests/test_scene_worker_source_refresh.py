@@ -29,7 +29,12 @@ class WorkerSourceRefreshPolicy(unittest.TestCase):
                 con.execute("CREATE TABLE jobs(id TEXT, status TEXT)")
                 con.execute("INSERT INTO jobs VALUES('old','completed')")
                 con.execute("INSERT INTO jobs VALUES('old2','failed')")
+                con.execute("INSERT INTO jobs VALUES('clean-1','cleaned')")
+                con.execute("INSERT INTO jobs VALUES('clean-2','cleaned')")
+                con.execute("INSERT INTO jobs VALUES('cancel','cancelled')")
             with patch.object(worker, "STATE", state):
+                # Completed/Drive-cleaned/cancelled are all terminal. The same
+                # database still rejects a newly queued/in-flight/unknown job.
                 refresh._require_idle()
                 with sqlite3.connect(db) as con:
                     con.execute("INSERT INTO jobs VALUES('keep','queued')")
@@ -44,7 +49,7 @@ class WorkerSourceRefreshPolicy(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "in-flight"):
                     refresh._require_idle()
                 with sqlite3.connect(db) as con:
-                    self.assertEqual(con.execute("SELECT count(*) FROM jobs").fetchone()[0],3)
+                    self.assertEqual(con.execute("SELECT count(*) FROM jobs").fetchone()[0],6)
 
     def test_file_swap_preserves_content_and_permissions(self):
         with tempfile.TemporaryDirectory() as temp:
