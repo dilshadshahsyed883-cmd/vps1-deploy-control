@@ -1682,7 +1682,8 @@ def _resolve_intro_stock_media(
         return []
     sml_client = SMLWorkerClient()
     sml_intro_first = sml_client.enabled and any(bool(x.get("_sml_first")) for x in intro_scenes)
-    if not _current_pexels_keys() and not sml_intro_first:
+    sml_intro_fallback = sml_client.enabled and any(bool(x.get("_sml_fallback")) for x in intro_scenes)
+    if not _current_pexels_keys() and not (sml_intro_first or sml_intro_fallback):
         raise RuntimeError("Opening Intro needs an approved SML asset or Pexels API key.")
     queries = [dict(x) for x in intro_queries if isinstance(x, dict) and str(x.get("query") or "").strip()]
     if not queries:
@@ -1700,7 +1701,7 @@ def _resolve_intro_stock_media(
     next_query_index = 0
     used_sml_ids: set[str] = set()
     sml_source_root = job_dir / "sml_intro_sources"
-    if sml_intro_first:
+    if sml_intro_first or sml_intro_fallback:
         sml_source_root.mkdir(parents=True, exist_ok=True)
 
     for scene_index, source_scene in enumerate(intro_scenes):
@@ -1799,6 +1800,16 @@ def _resolve_intro_stock_media(
                         chosen["fallback_type"] = "image_fallback"
                         chosen["fallback_reason"] = "No valid Pexels intro video was available"
                         break
+            if chosen is None and candidate_scene.get("_sml_fallback") and sml_client.enabled:
+                chosen = _try_sml_first_scene(
+                    client=sml_client, job_id=job_id,
+                    scene={**candidate_scene, "_sml_first": True},
+                    scene_code=scene_code, keywords=keywords,
+                    assignment_root=assignment_root, source_root=sml_source_root,
+                    used_sml_ids=used_sml_ids, used_hashes=used_hashes)
+                if chosen is not None:
+                    chosen["fallback_reason"] = "Pexels intro lookup exhausted; approved SML fallback"
+                    chosen["fallback_source"] = "sml"
             if chosen is not None:
                 chosen["intro_query_order"] = int(query_row.get("order") or (qindex + 1))
                 chosen["intro_query_reused"] = next_query_index > len(queries)
