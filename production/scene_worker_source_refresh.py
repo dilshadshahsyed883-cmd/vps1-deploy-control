@@ -195,8 +195,10 @@ class SceneWorkerSourceRefresh:
                            "previously created Scene worker runner differs")
         else:
             new_runner.mkdir(parents=True)
+            new_runner.chmod(0o755)  # systemd's vps1scene user must traverse the immutable runner.
             (new_runner/"vps_engine").symlink_to(latest/"part02",target_is_directory=True)
             (new_runner/"entry.py").write_text(worker.ENTRYPOINT)
+            (new_runner/"entry.py").chmod(0o644)
         _require_idle()  # Fail closed if a user submitted a job during preparation.
         self.original_unit = worker.UNIT_FILE.read_bytes()
         self.original_record = dict(record)
