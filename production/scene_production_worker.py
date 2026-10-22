@@ -153,7 +153,7 @@ class ProductionWorker:
                     'admission service changed during preparation')
             token = secrets.token_urlsafe(48)
             values = {'SCENE_WORKER_DATA':str(STATE),'SCENE_WORKER_TOKEN':token,
-                      'SCENE_WORKER_ADMISSION_ONLY':'0','DRIVE_UPLOAD_ENABLED':'0',
+                      'SCENE_WORKER_ADMISSION_ONLY':'0','DRIVE_UPLOAD_ENABLED':'1',
                       'AUTO_CLEAN_MEDIA_AFTER_RENDER':'1','MIN_FREE_SPACE_GB':'5',
                       'SCENE_INTERNAL_AUDIO_ENGINE_ROOT':str(STATE/'internal-audio-engine'),
                       'HF_HOME':str(STATE/'model-cache'),'XDG_CACHE_HOME':str(STATE/'cache')}
