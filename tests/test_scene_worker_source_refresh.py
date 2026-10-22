@@ -1,0 +1,110 @@
+"""Scene worker source refresh: fail-closed invariants and disposable real FFmpeg canary."""
+from __future__ import annotations
+
+import ast
+from pathlib import Path
+import os
+import shutil
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from production import scene_production_worker as worker
+from production import scene_worker_source_refresh as refresh
+
+ROOT = Path(__file__).resolve().parents[1]
+PART2 = ROOT / "apps/scene-builder/part02"
+
+
+class WorkerSourceRefreshPolicy(unittest.TestCase):
+    def test_queue_guard_denies_unknown_inflight_and_queued_without_changes(self):
+        with tempfile.TemporaryDirectory(prefix="scene-worker-policy-ci-") as temp:
+            state = Path(temp)
+            db = state / "queue.sqlite3"
+            with sqlite3.connect(db) as con:
+                con.execute("CREATE TABLE jobs(id TEXT, status TEXT)")
+                con.execute("INSERT INTO jobs VALUES('old','completed')")
+                con.execute("INSERT INTO jobs VALUES('old2','failed')")
+            with patch.object(worker, "STATE", state):
+                refresh._require_idle()
+                with sqlite3.connect(db) as con:
+                    con.execute("INSERT INTO jobs VALUES('keep','queued')")
+                with self.assertRaisesRegex(RuntimeError, "in-flight"):
+                    refresh._require_idle()
+                with sqlite3.connect(db) as con:
+                    con.execute("UPDATE jobs SET status='processing' WHERE id='keep'")
+                with self.assertRaisesRegex(RuntimeError, "in-flight"):
+                    refresh._require_idle()
+                with sqlite3.connect(db) as con:
+                    con.execute("UPDATE jobs SET status='unknown' WHERE id='keep'")
+                with self.assertRaisesRegex(RuntimeError, "in-flight"):
+                    refresh._require_idle()
+                with sqlite3.connect(db) as con:
+                    self.assertEqual(con.execute("SELECT count(*) FROM jobs").fetchone()[0],3)
+
+    def test_file_swap_preserves_content_and_permissions(self):
+        with tempfile.TemporaryDirectory() as temp:
+            p = Path(temp) / "test.service"
+            p.write_bytes(b"original\n")
+            refresh._atomic_regular_file(p,b"replacement\n",0o644)
+            self.assertEqual(p.read_bytes(),b"replacement\n")
+            self.assertEqual(p.stat().st_mode & 0o777,0o644)
+
+    def test_unknown_managed_record_fails_before_touching_service(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            record, unit, env, web = (root/x for x in ("state.json","unit.service","private.env","web.env"))
+            for file in (record,unit,env,web): file.write_text("{}")
+            with (patch.object(worker, "RECORD", record),
+                  patch.object(worker, "UNIT_FILE", unit),
+                  patch.object(worker, "ENV", env),
+                  patch.object(worker, "WEB_ENV", web),
+                  patch.object(worker.os, "geteuid", return_value=0),
+                  patch.object(refresh.subprocess, "run") as run):
+                with self.assertRaisesRegex(RuntimeError, "unrecognized production worker owner"):
+                    refresh.SceneWorkerSourceRefresh(root,root).refresh()
+                run.assert_not_called()
+            self.assertEqual(unit.read_text(),"{}")
+
+    def test_missing_owned_worker_does_not_modify_any_unmanaged_service(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            with patch.object(worker,"RECORD",root/"absent"),patch.object(worker.os,"geteuid",return_value=0):
+                self.assertEqual(refresh.SceneWorkerSourceRefresh(root,root).refresh()["state"],
+                                 "SKIPPED_NO_MANAGED_WORKER")
+
+    def test_existing_release_wraps_worker_with_safe_rollback(self):
+        s=(ROOT/"production/scene_candidate_release.py").read_text()
+        ast.parse(s)
+        i=s.index('worker_source_refresh.refresh()')
+        self.assertGreater(i,s.index('atomic_link(CURRENT, target)'))
+        self.assertLess(i,s.index('production_worker.commit()'))
+        self.assertIn('worker_source_refresh.rollback()',s)
+        self.assertIn('production_worker.rollback()',s)
+        self.assertIn('if previous == target:',s)
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "Disposable FFmpeg proof requires ffmpeg and ffprobe")
+    def test_exact_worker_render_canary_runs_without_queue_or_projects(self):
+        with tempfile.TemporaryDirectory(prefix="scene-real-worker-fixture-") as td:
+            root=Path(td)
+            (root/"vps_engine").symlink_to(PART2,target_is_directory=True)
+            env=os.environ.copy()
+            env["PYTHONPATH"] = str(root)
+            env["PYTHONDONTWRITEBYTECODE"] = "1"
+            result=subprocess.run([sys.executable,"-c",refresh._SMOKE],
+                                  cwd=root,env=env,capture_output=True,text=True,timeout=240)
+            self.assertEqual(result.returncode,0,result.stderr[-3000:])
+            markers=[x for x in result.stdout.splitlines()
+                     if x.startswith("SCENE_LIVE_WORKER_RENDER_PROOF=")]
+            self.assertEqual(len(markers),4,result.stdout[-3000:])
+            self.assertTrue(all('"codec": "h264/aac"' in x for x in markers))
+            self.assertFalse((root/"queue.sqlite3").exists())
+            self.assertFalse((root/"project.json").exists())
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,42 @@
+name: Scene Builder guarded writable-worker source refresh and VPS render proof
+on:
+  pull_request:
+    paths:
+      - 'production/scene_candidate_release.py'
+      - 'production/scene_worker_source_refresh.py'
+      - 'tests/test_scene_worker_source_refresh.py'
+      - '.github/workflows/vps1-scene-worker-source-refresh-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  worker-source-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install real FFmpeg tools and minimal Scene renderer dependencies
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          python -m pip install 'requests==2.32.5'
+      - name: Syntax, idle guard, rollback contract and four isolated source-linked MP4s
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python -m compileall -q production/scene_candidate_release.py production/scene_worker_source_refresh.py tests/test_scene_worker_source_refresh.py
+          python -m unittest tests.test_scene_worker_source_refresh -v
+      - name: Preserve GitOps offline defaults
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          data=json.loads(Path('rebuild/groups.json').read_text())
+          assert data['offline_applications']==['auto-script']
+          assert data['production_deploy_enabled'] is False
+          assert data['fresh_install_enabled'] is False
+          PY
