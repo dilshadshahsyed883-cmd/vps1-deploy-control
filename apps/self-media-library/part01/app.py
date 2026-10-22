@@ -389,6 +389,10 @@ class BulkStatus(BaseModel):
     status: str
 
 
+class ClipSelection(BaseModel):
+    ids: list[str]
+
+
 class SettingsUpdate(BaseModel):
     values: dict[str, str]
 
@@ -549,12 +553,34 @@ def bulk_status(body: BulkStatus):
     return {"ok": True}
 
 
+@app.post("/api/clips/bulk/trash")
+def bulk_trash_clips(body: ClipSelection):
+    # One transaction instead of a burst of independent HTTP deletes.
+    ids = list(dict.fromkeys(body.ids))
+    if not ids or len(ids) > 500:
+        raise HTTPException(400, "Select between 1 and 500 clips")
+    from local_library import guard_manual, protect
+    with db() as c:
+        c.execute("BEGIN IMMEDIATE")
+        for ident in ids:
+            if not c.execute("SELECT 1 FROM clips WHERE id=? AND deleted_at IS NULL", (ident,)).fetchone():
+                raise HTTPException(404, "Clip not found or already in Trash: " + ident)
+        guard_manual(c, "video", ids)
+        protect(c, "video", ids)
+        stamp = now_iso()
+        c.executemany("UPDATE clips SET deleted_at=?,updated_at=? WHERE id=? AND deleted_at IS NULL",
+                      [(stamp, stamp, ident) for ident in ids])
+    return {"ok": True, "trashed": len(ids)}
+
+
 @app.delete("/api/clips/{clip_id}")
 def trash_clip(clip_id: str):
     with db() as c:
         c.execute('BEGIN IMMEDIATE')
-        from local_library import busy, protect
-        busy(c); protect(c, 'video', [clip_id])
+        from local_library import guard_manual, protect
+        if not c.execute("SELECT 1 FROM clips WHERE id=? AND deleted_at IS NULL", (clip_id,)).fetchone():
+            raise HTTPException(404, "Clip not found or already in Trash")
+        guard_manual(c, 'video', [clip_id]); protect(c, 'video', [clip_id])
         c.execute("UPDATE clips SET deleted_at=?,updated_at=? WHERE id=?", (now_iso(), now_iso(), clip_id))
     schedule_metadata_sync([clip_id])
     return {"ok": True}
