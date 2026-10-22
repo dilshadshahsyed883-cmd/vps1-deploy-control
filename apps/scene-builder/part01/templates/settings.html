@@ -244,11 +244,21 @@
     </div>
   </section>
 
+  <style>.sb-control-grid>label[hidden]{display:none!important}</style>
   <section class="sb-tab-panel" data-panel="output">
     <div class="sb-section-head"><div><h3>Output and encoding</h3><p>Professional defaults suitable for the current four-vCPU VPS.</p></div></div>
     <div class="sb-control-grid">
       <label><span><strong>Custom resolution</strong><small>Used by Custom Web Settings.</small></span><select name="quality"><option value="480p" {% if quality=='480p' %}selected{% endif %}>480p</option><option value="720p" {% if quality=='720p' %}selected{% endif %}>720p</option><option value="1080p" {% if quality=='1080p' %}selected{% endif %}>1080p</option></select></label>
       <label><span><strong>Aspect ratio</strong><small>Landscape, vertical or square.</small></span><select name="custom_aspect_ratio"><option value="16:9" {% if custom_aspect_ratio=='16:9' %}selected{% endif %}>16:9 Landscape</option><option value="9:16" {% if custom_aspect_ratio=='9:16' %}selected{% endif %}>9:16 Vertical</option><option value="1:1" {% if custom_aspect_ratio=='1:1' %}selected{% endif %}>1:1 Square</option></select></label>
+      <label><span><strong>Canvas Fill</strong><small>Keep the original media centered and fill unused sides.</small></span><select id="canvas-fill-mode" name="canvas_fill_mode">
+        <option value="blur" {% if canvas_fill_mode=='blur' %}selected{% endif %}>Blur Background (recommended)</option>
+        <option value="black" {% if canvas_fill_mode=='black' %}selected{% endif %}>Black Bars</option>
+        <option value="solid" {% if canvas_fill_mode=='solid' %}selected{% endif %}>Solid Color</option>
+        <option value="stretch" {% if canvas_fill_mode=='stretch' %}selected{% endif %}>Stretch to Fill</option>
+        <option value="crop" {% if canvas_fill_mode=='crop' %}selected{% endif %}>Crop to Fill (legacy)</option>
+      </select></label>
+      <label id="canvas-blur-control"><span><strong>Blur Intensity</strong><small><output id="canvas-blur-value">{{ canvas_blur_strength }}</output> / 40</small></span><input id="canvas-blur-strength" data-output="canvas-blur-value" name="canvas_blur_strength" type="range" min="0" max="40" step="1" value="{{ canvas_blur_strength }}"></label>
+      <label id="canvas-color-control"><span><strong>Canvas Color</strong><small>Used in Solid Color mode.</small></span><input id="canvas-fill-color" name="canvas_fill_color" type="color" value="{{ canvas_fill_color }}"></label>
       <label><span><strong>Frame rate</strong><small>24 for cinematic, 30 for social.</small></span><select name="output_fps"><option value="24" {% if output_fps=='24' %}selected{% endif %}>24 fps</option><option value="25" {% if output_fps=='25' %}selected{% endif %}>25 fps</option><option value="30" {% if output_fps=='30' %}selected{% endif %}>30 fps</option><option value="60" {% if output_fps=='60' %}selected{% endif %}>60 fps</option></select></label>
       <label><span><strong>Quality CRF</strong><small>Lower is better quality; 20 is recommended.</small></span><input name="quality_crf" type="number" min="16" max="30" value="{{ quality_crf }}"></label>
       <label><span><strong>Encoder speed</strong><small>Veryfast balances VPS speed and file size.</small></span><select name="ffmpeg_preset">{% for value in ['ultrafast','veryfast','faster','fast','medium'] %}<option value="{{ value }}" {% if ffmpeg_preset==value %}selected{% endif %}>{{ value|title }}</option>{% endfor %}</select></label>
@@ -351,7 +361,15 @@
   document.querySelectorAll('[data-preset-rename]').forEach(button=>button.addEventListener('click',async()=>{const item=button.closest('.sb-preset-item');const name=prompt('Rename preset',item?.dataset.presetLabel||'');if(name===null)return;try{await presetApi('/api/presets/'+encodeURIComponent(button.dataset.presetRename)+'/rename',{method:'POST',body:JSON.stringify({name})});window.location.href='/settings?preset='+encodeURIComponent(button.dataset.presetRename);}catch(error){alert(error.message);}}));
   document.querySelectorAll('[data-preset-delete]').forEach(button=>button.addEventListener('click',async()=>{const item=button.closest('.sb-preset-item');const label=item?.dataset.presetLabel||'this preset';if(!confirm('Delete preset "'+label+'"?\n\nOnly the preset configuration is deleted. Music/SFX libraries and existing projects are not deleted.'))return;try{const data=await presetApi('/api/presets/'+encodeURIComponent(button.dataset.presetDelete),{method:'DELETE'});window.location.href='/settings?preset='+encodeURIComponent(data.default_scene_preset||'cinematic_documentary');}catch(error){alert(error.message);}}));
   document.querySelectorAll('input[type=range][data-output]').forEach(input=>{const output=document.getElementById(input.dataset.output);input.addEventListener('input',()=>output.textContent=input.value);});
-  const lutPacks={{ lut_packs|tojson }};const lutPack=document.getElementById('lut-pack');const lutPreset=document.getElementById('lut-preset');function updateLuts(){const values=lutPacks[lutPack.value]?.presets||[];const previous=lutPreset.value;lutPreset.innerHTML=values.map(value=>`<option value="${value}">${value.replaceAll('_',' ').replace(/\b\w/g,c=>c.toUpperCase())}</option>`).join('');if(values.includes(previous))lutPreset.value=previous;syncAllMirrors();}lutPack.addEventListener('change',updateLuts);
+  const canvasMode=document.getElementById('canvas-fill-mode');
+    function updateCanvasControls(){
+      const mode=canvasMode?.value||'blur';
+      document.getElementById('canvas-blur-control').hidden=mode!=='blur';
+      document.getElementById('canvas-color-control').hidden=mode!=='solid';
+    }
+    canvasMode?.addEventListener('change',updateCanvasControls);
+    updateCanvasControls();
+    const lutPacks={{ lut_packs|tojson }};const lutPack=document.getElementById('lut-pack');const lutPreset=document.getElementById('lut-preset');function updateLuts(){const values=lutPacks[lutPack.value]?.presets||[];const previous=lutPreset.value;lutPreset.innerHTML=values.map(value=>`<option value="${value}">${value.replaceAll('_',' ').replace(/\b\w/g,c=>c.toUpperCase())}</option>`).join('');if(values.includes(previous))lutPreset.value=previous;syncAllMirrors();}lutPack.addEventListener('change',updateLuts);
   const captionStyles={{ caption_styles|tojson }};
   const demo=document.getElementById('caption-demo');
   const previewStage=document.getElementById('caption-preview-stage');

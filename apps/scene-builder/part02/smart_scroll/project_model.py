@@ -21,6 +21,10 @@ class ProjectSettings:
     width: int = 1280
     height: int = 720
     fps: int = 24
+    # Existing saved projects without these fields retain the legacy crop layout.
+    canvas_fill_mode: str = "crop"  # blur, black, solid, stretch, crop
+    canvas_blur_strength: int = 16
+    canvas_fill_color: str = "#101018"
     duration_seconds: float = 30.0
 
     font_family: str = "Jameel Noori Nastaleeq Kasheeda"

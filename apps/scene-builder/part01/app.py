@@ -308,6 +308,9 @@ def init_db() -> None:
             "caption_shadow_enabled": "1",
             "default_scene_preset": "cinematic_documentary",
             "custom_aspect_ratio": "16:9",
+            "canvas_fill_mode": "blur",
+            "canvas_blur_strength": "16",
+            "canvas_fill_color": "#101018",
             "custom_fps": "24",
             "timing_mode": "auto_repair",
             "max_scene_seconds": "4.0",
@@ -976,6 +979,9 @@ def custom_scene_profile() -> dict[str, Any]:
         "description": "Uses the advanced values saved in Scene Builder Settings.",
         "quality": setting("quality", "720p"),
         "aspect_ratio": setting("custom_aspect_ratio", "16:9"),
+        "canvas_fill_mode": setting("canvas_fill_mode", "blur"),
+        "canvas_blur_strength": max(0, min(40, int(setting("canvas_blur_strength", "16") or 0))),
+        "canvas_fill_color": setting("canvas_fill_color", "#101018"),
         "fps": max(20, min(60, int(setting("output_fps", "24") or 24))),
         "captions_enabled": setting("captions_enabled", "1") == "1",
         "caption_style": setting("caption_style", "karaoke"),
@@ -1033,7 +1039,7 @@ def custom_scene_profile() -> dict[str, Any]:
 
 
 PROFILE_FIELDS = (
-    "quality", "aspect_ratio", "fps", "captions_enabled", "caption_style", "caption_position", "caption_karaoke_enabled",
+    "quality", "aspect_ratio", "fps", "canvas_fill_mode", "canvas_blur_strength", "canvas_fill_color", "captions_enabled", "caption_style", "caption_position", "caption_karaoke_enabled",
     "timing_mode", "max_scene_seconds", "min_scene_seconds",
     "intro_media_min_seconds", "intro_media_max_seconds",
     "hook_media_min_seconds", "hook_media_max_seconds",
@@ -1161,6 +1167,9 @@ def scene_preset_catalog() -> dict[str, dict[str, Any]]:
     builtins: dict[str, dict[str, Any]] = {}
     for preset_id, raw in {"custom": custom_scene_profile(), **SCENE_PRESETS}.items():
         item = dict(raw)
+        item.setdefault("canvas_fill_mode", setting("canvas_fill_mode", "blur"))
+        item.setdefault("canvas_blur_strength", max(0, min(40, int(setting("canvas_blur_strength", "16") or 0))))
+        item.setdefault("canvas_fill_color", setting("canvas_fill_color", "#101018"))
         if preset_id in SCENE_PRESETS:
             item.update(builtin_scene_preset_override(preset_id))
         item["preset_id"] = preset_id
@@ -1372,6 +1381,9 @@ def build_project_package(
         "width": width,
         "height": height,
         "fps": int(profile["fps"]),
+        "canvas_fill_mode": str(profile.get("canvas_fill_mode", "blur")),
+        "canvas_blur_strength": max(0, min(40, int(profile.get("canvas_blur_strength", 16)))),
+        "canvas_fill_color": str(profile.get("canvas_fill_color", "#101018")),
         "captions_enabled": captions,
         "caption_mode": captions,
         "caption_sync_mode": "better",
@@ -3528,6 +3540,9 @@ def settings_page(request: Request):
             "default_scene_preset": editing_preset,
             "default_scene_profile": editing_profile,
             "custom_aspect_ratio": str(editing_profile.get("aspect_ratio") or setting("custom_aspect_ratio", "16:9")),
+            "canvas_fill_mode": str(editing_profile.get("canvas_fill_mode") or "blur"),
+            "canvas_blur_strength": int(editing_profile.get("canvas_blur_strength", 16)),
+            "canvas_fill_color": str(editing_profile.get("canvas_fill_color") or "#101018"),
             "timing_mode": str(editing_profile.get("timing_mode") or setting("timing_mode", "auto_repair")),
             "max_scene_seconds": str(editing_profile.get("general_media_max_seconds", editing_profile.get("max_scene_seconds", setting("general_media_max_seconds", setting("max_scene_seconds", "4.0"))))),
             "min_scene_seconds": str(editing_profile.get("general_media_min_seconds", editing_profile.get("min_scene_seconds", setting("general_media_min_seconds", setting("min_scene_seconds", "2.0"))))),
@@ -3598,6 +3613,9 @@ def save_settings(
     quality: str = Form(...),
     default_scene_preset: str = Form("cinematic_documentary"),
     custom_aspect_ratio: str = Form("16:9"),
+    canvas_fill_mode: str = Form("blur"),
+    canvas_blur_strength: int = Form(16),
+    canvas_fill_color: str = Form("#101018"),
     timing_mode: str = Form("auto_repair"),
     max_scene_seconds: float = Form(4.0),
     min_scene_seconds: float = Form(2.0),
@@ -3710,6 +3728,12 @@ def save_settings(
         raise HTTPException(400, "Invalid default preset")
     if custom_aspect_ratio not in {"16:9", "9:16", "1:1"}:
         raise HTTPException(400, "Invalid aspect ratio")
+    if canvas_fill_mode not in {"blur", "black", "solid", "stretch", "crop"}:
+        raise HTTPException(400, "Invalid Canvas Fill mode")
+    if not 0 <= canvas_blur_strength <= 40:
+        raise HTTPException(400, "Canvas blur intensity must be between 0 and 40")
+    if not re.fullmatch(r"#[0-9a-fA-F]{6}", canvas_fill_color or ""):
+        raise HTTPException(400, "Invalid Canvas Fill color")
     if timing_mode not in {"auto_repair", "whisper", "narration_weighted"}:
         raise HTTPException(400, "Invalid timing mode")
     if narration_start_mode not in {"auto", "manual"}:
@@ -3801,6 +3825,9 @@ def save_settings(
         "quality": quality,
         "default_scene_preset": default_scene_preset,
         "custom_aspect_ratio": custom_aspect_ratio,
+        "canvas_fill_mode": canvas_fill_mode,
+        "canvas_blur_strength": str(canvas_blur_strength),
+        "canvas_fill_color": canvas_fill_color.lower(),
         "timing_mode": timing_mode,
         "max_scene_seconds": str(max(0.25, min(15.0, general_media_max_seconds))),
         "min_scene_seconds": str(max(0.25, min(10.0, general_media_min_seconds))),
@@ -3904,6 +3931,8 @@ def save_settings(
     save_preset_media_config(default_scene_preset, preset_config)
     editable_profile = {
             "quality": quality, "aspect_ratio": custom_aspect_ratio, "fps": max(20, min(60, output_fps)),
+            "canvas_fill_mode": canvas_fill_mode, "canvas_blur_strength": canvas_blur_strength,
+            "canvas_fill_color": canvas_fill_color.lower(),
             "captions_enabled": captions_enabled == "on", "caption_style": caption_style,
             "caption_position": caption_position, "caption_karaoke_enabled": caption_karaoke_enabled == "on",
             "caption_words": max(1, min(5, caption_words)), "caption_font_size": max(18, min(120, caption_font_size)),

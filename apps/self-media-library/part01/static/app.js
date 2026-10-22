@@ -26,7 +26,7 @@ const fmtSize = n => n>1073741824?`${(n/1073741824).toFixed(1)} GB`:n>1048576?`$
 const toast = msg => { const el=$('#toast'); el.textContent=msg; el.classList.remove('hidden'); clearTimeout(window._toast); window._toast=setTimeout(()=>el.classList.add('hidden'),2200); };
 
 const pageMeta={dashboard:['Dashboard','Build and control your reusable clip library.'],sources:['Input','Add videos, images and authorized YouTube media.'],processing:['Process','Inspect import queues, scene detection and metadata generation.'],library:['Library & Preview','Search, review and control approved videos and images.'],trash:['Trash','Restore clips or permanently delete them.'],settings:['API & Settings','Editor API and safe library storage settings.']};
-function gotoPage(page){ state.page=page; $$('.page').forEach(x=>x.classList.remove('active')); $(`#page-${page}`).classList.add('active'); $$('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.page===page)); $('#pageTitle').textContent=pageMeta[page][0]; $('#pageSubtitle').textContent=pageMeta[page][1]; if(page==='library'){loadClips(true);loadImages();} if(page==='sources'||page==='processing') loadSources(); if(page==='sources')loadImports(); if(page==='trash') loadTrash(); if(page==='settings'){loadSettings();loadEditorStatus();} if(page==='dashboard') loadDashboard(); }
+function gotoPage(page){ state.page=page; $$('.page').forEach(x=>x.classList.remove('active')); $(`#page-${page}`).classList.add('active'); $$('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.page===page)); $('#pageTitle').textContent=pageMeta[page][0]; $('#pageSubtitle').textContent=pageMeta[page][1]; if(page==='library'){loadClips(true);loadImages();} if(page==='sources'||page==='processing') loadSources(); if(page==='sources'){loadImports();loadSmlProxyProfiles();} if(page==='trash') loadTrash(); if(page==='settings'){loadSettings();loadEditorStatus();} if(page==='dashboard') loadDashboard(); }
 $$('.nav-item').forEach(b=>b.onclick=()=>gotoPage(b.dataset.page)); $$('[data-goto]').forEach(b=>b.onclick=()=>gotoPage(b.dataset.goto));
 
 async function checkHealth(){ try{ const h=await api('/api/health'); $('#healthDot').classList.toggle('ok',h.ok&&h.ffmpeg); let msg=h.ffmpeg?'Engine online':'Engine online · FFmpeg missing'; msg+=' · VPS local storage'; $('#healthText').textContent=msg; }catch(e){ $('#healthDot').classList.remove('ok'); $('#healthText').textContent=e.status===401||e.status===403?'Website login required':'Engine unavailable · '+e.message; } }
@@ -321,6 +321,95 @@ $('#uploadImages').onclick=async()=>{
 };
 // Never silently downgrade a requested proxy import to the VPS direct connection.
 let smlProxyProfileReady=null;
+let smlProxySaved={enabled:false,active_id:'',profiles:[]};
+async function smlProxyRequest(action,payload){
+  return api('/api/v1/media/proxy/'+action,{
+    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)
+  });
+}
+function resetSmlProxyForm(){
+  $('#smlProxyForm').reset();
+  $('#smlProxyId').value='';
+  $('#smlProxyCancel').hidden=true;
+  $('#smlProxySave').textContent='Save profile';
+  $('#smlProxyPass').placeholder='Proxy password';
+}
+function renderSmlProxyProfiles(){
+  const p=smlProxySaved;
+  $('#smlProxyEnabled').checked=p.enabled===true;
+  $('#smlProxyCount').textContent=p.profiles.length+' profiles';
+  $('#smlProxyList').innerHTML=p.profiles.length?p.profiles.map(profile=>{
+    const active=profile.id===p.active_id;
+    return '<div class="sml-proxy-row"><div class="sml-proxy-info"><b>'+esc(profile.name)+(active?' · Active':'')+'</b><small>'+esc(profile.host)+':'+esc(profile.port)+' · '+esc(profile.username)+' · Password saved: '+(profile.has_password?'Yes':'No')+'</small></div><div class="sml-proxy-actions">'+
+      '<button type="button" class="ghost" data-sml-proxy-test="'+esc(profile.id)+'">Test</button>'+
+      (!active?'<button type="button" class="ghost" data-sml-proxy-activate="'+esc(profile.id)+'">Set active</button>':'')+
+      '<button type="button" class="ghost" data-sml-proxy-edit="'+esc(profile.id)+'">Edit</button>'+
+      '<button type="button" class="ghost" data-sml-proxy-delete="'+esc(profile.id)+'">Delete</button></div></div>';
+  }).join(''):'<p class="empty">No saved proxy profiles. Add your first one above.</p>';
+  const list=$('#smlProxyList');
+  list.querySelectorAll('[data-sml-proxy-edit]').forEach(button=>button.onclick=()=>{
+    const profile=p.profiles.find(x=>x.id===button.dataset.smlProxyEdit);
+    if(!profile)return;
+    $('#smlProxyId').value=profile.id;
+    $('#smlProxyName').value=profile.name;
+    $('#smlProxyHost').value=profile.host;
+    $('#smlProxyPort').value=profile.port;
+    $('#smlProxyUser').value=profile.username;
+    $('#smlProxyPass').value='';
+    $('#smlProxyPass').placeholder='Leave blank to keep saved password';
+    $('#smlProxyCancel').hidden=false;
+    $('#smlProxySave').textContent='Update profile';
+    $('#smlProxyName').focus();
+  });
+  list.querySelectorAll('[data-sml-proxy-activate]').forEach(button=>button.onclick=async()=>{
+    try{await smlProxyRequest('active',{id:button.dataset.smlProxyActivate});await loadSmlProxyProfiles();await loadImports();toast('Active proxy selected')}
+    catch(e){toast(e.message)}
+  });
+  list.querySelectorAll('[data-sml-proxy-test]').forEach(button=>button.onclick=async()=>{
+    button.disabled=true;$('#smlProxyTestResult').textContent='Testing proxy connection…';
+    try{
+      const r=await smlProxyRequest('test',{id:button.dataset.smlProxyTest});
+      $('#smlProxyTestResult').textContent=r.connectivity+' · Proxy connection works; YouTube video/login access not verified.';
+    }catch(e){$('#smlProxyTestResult').textContent='Proxy test failed: '+e.message}
+    finally{button.disabled=false}
+  });
+  list.querySelectorAll('[data-sml-proxy-delete]').forEach(button=>button.onclick=async()=>{
+    if(!confirm('Delete this SML proxy profile? Saved video jobs remain unchanged.'))return;
+    try{await smlProxyRequest('delete',{id:button.dataset.smlProxyDelete});await loadSmlProxyProfiles();await loadImports();toast('Proxy profile deleted')}
+    catch(e){toast(e.message)}
+  });
+}
+async function loadSmlProxyProfiles(){
+  try{smlProxySaved=await api('/api/v1/media/proxy');renderSmlProxyProfiles();}
+  catch(e){$('#smlProxyList').textContent='Proxy settings unavailable: '+e.message}
+}
+$('#smlProxyManager').addEventListener('toggle',()=>{if($('#smlProxyManager').open)loadSmlProxyProfiles()});
+$('#smlOpenProxyManager').onclick=()=>{
+  $('#smlProxyOptions').open=true;
+  $('#smlProxyManager').open=true;
+  loadSmlProxyProfiles();
+  $('#smlProxyManager').scrollIntoView({behavior:'smooth',block:'nearest'});
+};
+$('#smlProxyCancel').onclick=resetSmlProxyForm;
+$('#smlProxyForm').onsubmit=async(event)=>{
+  event.preventDefault();
+  const saveButton=$('#smlProxySave');saveButton.disabled=true;
+  try{
+    await smlProxyRequest('save',{
+      id:$('#smlProxyId').value,name:$('#smlProxyName').value.trim(),
+      host:$('#smlProxyHost').value.trim(),port:Number($('#smlProxyPort').value),
+      username:$('#smlProxyUser').value.trim(),password:$('#smlProxyPass').value
+    });
+    resetSmlProxyForm();await loadSmlProxyProfiles();await loadImports();
+    toast('SML proxy profile saved. Enable selected profile to use it.');
+  }catch(e){toast(e.message)}
+  finally{saveButton.disabled=false}
+};
+$('#smlProxyEnabled').onchange=async()=>{
+  const enabled=$('#smlProxyEnabled').checked;
+  try{await smlProxyRequest('toggle',{enabled});await loadSmlProxyProfiles();await loadImports();toast(enabled?'SML proxy enabled':'SML proxy disabled')}
+  catch(e){$('#smlProxyEnabled').checked=!enabled;toast(e.message)}
+};
 function renderImports(items, proxyConfigured=smlProxyProfileReady){
   const active=items.filter(item=>item.status==='queued'||item.status==='processing').length;
   $('#importQueueStatus').textContent=active+' active / waiting · '+items.length+' recent jobs'+(proxyConfigured===false?' · proxy unavailable':'');
@@ -330,17 +419,22 @@ function renderImports(items, proxyConfigured=smlProxyProfileReady){
     const progress=status==='completed'?100:Math.min(99,Math.max(0,Number(item.progress)||0));
     const directRetry=status==='failed'&&item.use_proxy&&proxyConfigured===false;
     const retry=status==='failed'?'<button type="button" class="ghost" data-import-retry="'+esc(item.id)+'"'+(directRetry?' data-import-direct="true" title="Connect directly from the VPS without a proxy"':'')+'>'+(directRetry?'Retry direct':'Retry')+'</button>':'';
-    return '<div class="source-row sml-import-job" data-import-job="'+esc(item.id)+'"><div class="source-main"><b>'+esc(item.name)+'</b><span>'+esc(item.message||status)+'</span><small>Job '+esc(item.id)+' · '+esc(status)+' · '+progress+'%</small><progress max="100" value="'+progress+'" aria-label="Import '+esc(item.id)+' progress"></progress></div><span class="state">'+esc(status)+'</span>'+retry+'</div>';
+    const retryProxy=status==='failed'&&!item.use_proxy&&proxyConfigured===true?
+      '<button type="button" class="ghost" data-import-retry="'+esc(item.id)+'" data-import-with-proxy="true">Retry via proxy</button>':'';
+    return '<div class="source-row sml-import-job" data-import-job="'+esc(item.id)+'"><div class="source-main"><b>'+esc(item.name)+'</b><span>'+esc(item.message||status)+'</span><small>Job '+esc(item.id)+' · '+esc(status)+' · '+progress+'%</small><progress max="100" value="'+progress+'" aria-label="Import '+esc(item.id)+' progress"></progress></div><span class="state">'+esc(status)+'</span>'+retry+retryProxy+'</div>';
   }).join(''):'<p class="empty">No YouTube imports yet. Queue a video URL above.</p>';
   list.querySelectorAll('[data-import-retry]').forEach(button=>button.onclick=async()=>{
     const direct=button.dataset.importDirect==='true';
+    const withProxy=button.dataset.importWithProxy==='true';
     if(direct&&!confirm('This retry will download directly through the VPS connection WITHOUT a proxy. Continue?'))return;
+    if(withProxy&&!confirm('Retry this saved YouTube URL using the active proxy profile?'))return;
     button.disabled=true;
     try{
       await api('/api/v1/media/imports/'+encodeURIComponent(button.dataset.importRetry)+'/retry',{
-        method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({direct_without_proxy:direct})
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({direct_without_proxy:direct,with_proxy:withProxy})
       });
-      toast(direct?'Direct import queued (no proxy)':'Import retry queued');
+      toast(withProxy?'Proxy retry queued':direct?'Direct import queued (no proxy)':'Import retry queued');
       await loadImports();
     }catch(e){toast(e.message);button.disabled=false}
   });
@@ -349,7 +443,7 @@ async function loadImports(){
   try{
     const result=await api('/api/v1/media/imports');
     smlProxyProfileReady=result.proxy_configured===true;
-    $('#importProxyState').textContent=smlProxyProfileReady?'Server proxy ready (optional)':'Server proxy not configured. Leave unchecked for direct imports.';
+    $('#importProxyState').textContent=smlProxyProfileReady?'Selected proxy route ready (optional). Use proxy checkbox above to opt in.':'No active proxy. Open Manage proxy profiles to add and enable one, or import directly.';
     renderImports(result.items||[],smlProxyProfileReady);
     updateInputEligibility();
   }catch(e){
