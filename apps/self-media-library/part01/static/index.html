@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/&#115;tatic/vps1_native_site_shell.css?v=20261020-experiment-ui-v5" />
   <link rel="stylesheet" href="/self-media-library/static/sml_shared_theme.css?v=20261022-queue-fullwidth-v1" />
   <script defer src="/&#115;tatic/vps1_native_site_shell.js?v=20261020-experiment-ui-v5" data-workspace="library"></script>
+  <link rel="stylesheet" href="/self-media-library/static/face_people.css?v=20261022-face-people-v1" />
 </head>
 <body class="vps1-native-library">
 <div class="app-shell">
@@ -249,9 +250,26 @@
             <label for="imageKeywords">Keywords (comma separated)</label><input id="imageKeywords" class="setting-text" />
             <label for="imageDescription">Description</label><textarea id="imageDescription" class="setting-text" rows="2"></textarea>
             <label for="imageReviewStatus">Review state</label><select id="imageReviewStatus"><option value="candidate">Candidate</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>
+            <div class="row-actions"><button id="identifyImage" class="ghost" type="button">Identify person</button></div>
             <div class="row-actions"><button id="imageSave" class="primary">Save changes</button><button id="imageTrash" class="danger-soft">Move to trash</button><button id="imageClose" class="ghost">Close</button></div>
           </div>
         </div>
+      </article>
+      <article class="panel settings-spaced" id="peoplePanel" aria-label="People and face recognition">
+        <div class="panel-head"><div><h2>People &amp; Face Recognition</h2><p>Choose a reference face, review AI suggestions, then approve names. Your images never leave VPS_1.</p></div><button type="button" class="ghost" id="peopleRefresh">Refresh people</button></div>
+        <div id="peopleReference" class="face-reference hidden">
+          <h3>Identify selected image</h3><p>Select the correct face if more than one person appears.</p>
+          <div class="face-reference-stage"><img id="peopleReferenceImage" alt="Reference image for selecting a face" /><div id="peopleFaceBoxes"></div></div>
+          <div id="peopleFaceChoices" class="row-actions"></div>
+          <label for="peopleName">Person name</label><input class="setting-text" id="peopleName" maxlength="100" placeholder="e.g. Alexandra Eala" />
+          <div class="row-actions"><button type="button" class="primary" id="peopleCreate">Save person &amp; scan images</button><button type="button" class="ghost" id="peopleReferenceClose">Cancel</button></div>
+          <p id="peopleReferenceStatus" role="status"></p>
+        </div>
+        <div class="people-toolbar"><label for="peoplePicker">Named person</label><select id="peoplePicker" aria-label="Select named person"><option value="">Choose a person</option></select><button class="ghost" type="button" id="peopleScan">Scan all images</button>
+          <label for="peopleMatchState">Review state</label><select id="peopleMatchState"><option value="pending">Pending approval</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select></div>
+        <p class="source-meta" id="peopleScanStatus" role="status" aria-live="polite">Select a person to view matches.</p>
+        <div class="row-actions people-review-actions"><button type="button" id="peopleSelectAll" class="ghost">Select visible matches</button><span id="peopleSelectedCount">0 selected</span><button type="button" id="peopleApprove" class="primary">Approve selected</button><button type="button" id="peopleReject" class="ghost">Reject selected</button><button type="button" id="peopleUndo" class="ghost">Undo selected</button></div>
+        <div class="face-match-grid" id="peopleMatches"></div>
       </article>
     </section>
 
