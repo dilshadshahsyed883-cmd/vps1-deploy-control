@@ -1681,7 +1681,7 @@ def _resolve_intro_stock_media(
     sml_client = SMLWorkerClient()
     sml_intro_first = sml_client.enabled and any(bool(x.get("_sml_first")) for x in intro_scenes)
     if not _current_pexels_keys() and not sml_intro_first:
-        raise RuntimeError("Opening Intro needs Pexels media, but no Pexels API key is configured.")
+        raise RuntimeError("Opening Intro needs an approved SML asset or Pexels API key.")
     queries = [dict(x) for x in intro_queries if isinstance(x, dict) and str(x.get("query") or "").strip()]
     if not queries:
         raise RuntimeError("Opening Intro is enabled, but no usable INTRO_QUERY rows were supplied.")
@@ -1762,7 +1762,7 @@ def _resolve_intro_stock_media(
                     assignment_root=assignment_root, source_root=sml_source_root,
                     used_sml_ids=used_sml_ids, used_hashes=used_hashes,
                 )
-            for keyword in ([] if chosen is not None else keywords):
+            for keyword in ([] if chosen is not None or candidate_scene.get("_sml_only") else keywords):
                 chosen, last_error = _download_scene_candidate(
                     scene=candidate_scene,
                     scene_code=scene_code,
@@ -1778,7 +1778,7 @@ def _resolve_intro_stock_media(
                 )
                 if chosen is not None:
                     break
-            if chosen is None and requested_type == "video" and bool(candidate_scene.get("allow_media_fallback", True)):
+            if chosen is None and requested_type == "video" and not candidate_scene.get("_sml_only") and bool(candidate_scene.get("allow_media_fallback", True)):
                 for keyword in keywords:
                     chosen, last_error = _download_scene_candidate(
                         scene=candidate_scene,
@@ -1807,7 +1807,7 @@ def _resolve_intro_stock_media(
         if chosen is None:
             # Intro-only continuity fallback is allowed only after ordered intro
             # queries have been exhausted. Never borrow a documentary scene.
-            if resolved_rows:
+            if resolved_rows and not scene.get("_sml_only"):
                 previous = resolved_rows[-1]
                 source_path = Path(str(previous.get("media_path") or ""))
                 destination = assignment_root / f"{scene_code}{source_path.suffix.lower()}"
