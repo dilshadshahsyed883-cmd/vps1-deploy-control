@@ -663,6 +663,112 @@ def get_sources():
     return {"items": rows}
 
 
+
+# Pre-edited clips are already final assets. Do not run source cutting, AI jobs,
+# quality grading or pair review when the owner only wants library storage.
+@app.post("/api/clips/processed/upload")
+async def upload_processed_clip(file: UploadFile = File(...)):
+    allowed = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}
+    original_name = str(file.filename or "").replace("\\", "/").rsplit("/", 1)[-1][:200]
+    ext = Path(original_name).suffix.lower()
+    if ext not in allowed:
+        raise HTTPException(400, "Unsupported processed clip format")
+    cid = f"CLP-{uuid.uuid4().hex[:10].upper()}"
+    sid = f"SRC-{uuid.uuid4().hex[:10].upper()}"
+    staging = TEMP_DIR / f".{cid}.upload{ext}"
+    thumb_staging = TEMP_DIR / f".{cid}.thumb.jpg"
+    clip_name = f"{cid}{ext}"
+    thumb_name = f"{cid}.jpg"
+    destination = CLIPS_DIR / clip_name
+    thumbnail = THUMBS_DIR / thumb_name
+    saved = False
+    count = 0
+    digest = hashlib.sha256()
+    try:
+        with staging.open("wb") as output:
+            while chunk := await file.read(1024 * 1024):
+                count += len(chunk)
+                if count > 2 * 1024 * 1024 * 1024:
+                    raise HTTPException(413, "2 GB clip upload limit")
+                digest.update(chunk)
+                output.write(chunk)
+            output.flush()
+            os.fsync(output.fileno())
+        if not count:
+            raise HTTPException(400, "Empty processed clip")
+        technical = probe_video(staging)
+        try:
+            duration = ffprobe_duration(staging)
+        except (OSError, subprocess.SubprocessError, ValueError) as exc:
+            raise HTTPException(422, "Processed clip has no valid duration") from exc
+        if not technical["width"] or not technical["height"] or not 0.2 <= duration <= 86400:
+            raise HTTPException(422, "File is not a usable video clip")
+        fingerprint = digest.hexdigest()
+        with db() as conn:
+            duplicate = conn.execute(
+                "SELECT id,status FROM clips WHERE sha256=? AND deleted_at IS NULL LIMIT 1",
+                (fingerprint,),
+            ).fetchone()
+            if duplicate:
+                return {"ok": True, "duplicate": True, "id": duplicate["id"],
+                        "status": duplicate["status"]}
+        # A single frame is extracted for the UI. Video bytes are never re-encoded.
+        try:
+            run_ffmpeg_thumb(staging, thumb_staging, min(duration / 2, 5.0))
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise HTTPException(422, "Could not generate clip preview") from exc
+        if not thumb_staging.is_file() or thumb_staging.stat().st_size == 0:
+            raise HTTPException(422, "Could not generate clip preview")
+        ts = now_iso()
+        with db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            # Repeat the hash check under a write lock for concurrent uploads.
+            duplicate = conn.execute(
+                "SELECT id,status FROM clips WHERE sha256=? AND deleted_at IS NULL LIMIT 1",
+                (fingerprint,),
+            ).fetchone()
+            if duplicate:
+                return {"ok": True, "duplicate": True, "id": duplicate["id"],
+                        "status": duplicate["status"]}
+            os.replace(staging, destination)
+            os.replace(thumb_staging, thumbnail)
+            conn.execute(
+                """INSERT INTO sources(id,filename,stored_name,size_bytes,duration,status,
+                       stage,progress,clip_count,created_at,updated_at,sha256,
+                       codec,width,height,fps,orientation,has_audio,source_kind,
+                       rights_confirmed,drive_state,source_deleted_at,source_cleanup_mode)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (sid, original_name, f"{sid}.already_processed", count, duration,
+                 "completed", "ready_clip_saved", 100, 1, ts, ts, fingerprint,
+                 technical["codec"], technical["width"], technical["height"],
+                 technical["fps"], technical["orientation"], int(technical["has_audio"]),
+                 "processed_clip", 1, "disabled", ts, "already_processed_direct_save"),
+            )
+            conn.execute(
+                """INSERT INTO clips(id,source_id,filename,thumb_filename,start_time,
+                       end_time,duration,status,description,quality,ai_state,
+                       created_at,updated_at,drive_state,sha256,duplicate_state,local_selection)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (cid, sid, clip_name, thumb_name, 0.0, duration, duration,
+                 "approved", "", 0, "pending", ts, ts, "disabled",
+                 fingerprint, "clear", "kept"),
+            )
+        saved = True
+        return {"ok": True, "duplicate": False, "id": cid,
+                "status": "approved", "duration": round(duration, 3)}
+    finally:
+        await file.close()
+        staging.unlink(missing_ok=True)
+        thumb_staging.unlink(missing_ok=True)
+        if not saved:
+            # Failed commit must not leave orphaned final assets.
+            # Duplicate paths are never moved to final destinations.
+            with db() as conn:
+                persisted = conn.execute("SELECT 1 FROM clips WHERE id=?", (cid,)).fetchone()
+            if not persisted:
+                destination.unlink(missing_ok=True)
+                thumbnail.unlink(missing_ok=True)
+
 @app.post("/api/sources/upload")
 async def upload_source(file: UploadFile = File(...)):
     ext = Path(file.filename or "video.mp4").suffix.lower()
