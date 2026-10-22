@@ -131,6 +131,15 @@ def isolated():
                 assert replay.status_code == 200 and replay.json()['job_id'] == job_id and replay.json()['duplicate'], replay.text
                 with sqlite3.connect(worker.DB_PATH) as db:
                     assert db.execute('SELECT count(*) FROM jobs').fetchone()[0] == 1
+                # Cancel must reach the existing authenticated worker and update
+                # only this owned job, without bypassing the candidate write gate.
+                cancelled = client.post(f'/queue/{job_id}/cancel')
+                assert cancelled.status_code == 303 and cancelled.headers.get('location') == '/queue', cancelled.text
+                assert worker.get_job(job_id)['status'] == 'cancelled'
+                assert worker.get_job(job_id)['cancel_requested'] == 1
+                assert client.post(f'/queue/{job_id}/cancel').status_code == 303  # Idempotent
+                assert worker.get_job(job_id)['status'] == 'cancelled'
+                assert client.post('/queue/' + 'a' * 31 + '/cancel').status_code == 403
                 worker_client.close(); client.close()
     print('SCENE_BACKEND_ISOLATED=PASS KEYS_PERSIST=PASS TXT_WAV_QUEUE_SQLITE_DEDUP=PASS')
 
