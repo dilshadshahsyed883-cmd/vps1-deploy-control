@@ -5678,10 +5678,17 @@ def visual_audit_continue(job_id: str, token: str | None = None):
 def download(job_id: str, token: str | None = None):
     auth(token)
     current = get_job(job_id)
-    if current["status"] != "completed":
-        raise HTTPException(409, "Job is not completed")
-    path = Path(current["output_file"])
-    if not path.exists() and current.get("drive_destination"):
+    # The final MP4 is ready before Drive upload/verification has completed.
+    # Never expose partially-rendered output or trigger a Drive restore mid-upload.
+    if current["status"] not in {"ready_to_upload", "drive_uploading", "completed"}:
+        raise HTTPException(409, "Rendered video is not ready")
+    output_name = str(current.get("output_file") or "").strip()
+    if not output_name:
+        raise HTTPException(404, "Rendered file is missing")
+    path = Path(output_name)
+    if (not path.is_file() and current["status"] == "completed"
+            and current.get("drive_status") == "completed"
+            and current.get("drive_destination")):
         path.parent.mkdir(parents=True, exist_ok=True)
         destination = str(current["drive_destination"])
         remote_file = (
@@ -5712,7 +5719,7 @@ def download(job_id: str, token: str | None = None):
                 "Could not restore rendered file from Google Drive: "
                 + (process.stdout or "").strip()[-500:],
             )
-    if not path.exists():
+    if not path.is_file():
         raise HTTPException(404, "Rendered file is missing")
     safe = safe_project_name(current["project_name"]) or job_id
     return FileResponse(path, media_type="video/mp4", filename=f"{safe}.mp4")
