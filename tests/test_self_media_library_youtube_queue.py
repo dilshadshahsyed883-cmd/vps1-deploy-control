@@ -42,7 +42,7 @@ class ProductionPackaging(unittest.TestCase):
         from production.runtime import CATALOG
         packages = CATALOG["self-media-library"]["packages"]
         dependency = [value for value in packages if value.startswith("yt-dlp")]
-        self.assertEqual(dependency, ["yt-dlp>=2025.3.31,<2027"])
+        self.assertEqual(dependency, ["yt-dlp[default]==2026.8.19"])
         requirements = (ROOT / "requirements.txt").read_text()
         self.assertIn(dependency[0], requirements)
         self.assertNotIn("yt-dlp", CATALOG["short-maker"]["packages"])
@@ -121,8 +121,8 @@ class QueueAPI(unittest.TestCase):
                     self.assertEqual(client.post(route, json={
                         "source": "youtube", "value": "https://youtu.be/abc",
                         "rights_confirmed": False}).status_code, 400)
-                    with patch("media_extensions.shutil.which", return_value=None), \
-                         patch("media_extensions.os.access", return_value=False):
+                    with patch("media_extensions.download_youtube_video",
+                               side_effect=RuntimeError("yt-dlp missing (test fixture)")):
                         res = client.post(route, json={
                             "source": "youtube", "value": "https://youtu.be/abc",
                             "rights_confirmed": True})
