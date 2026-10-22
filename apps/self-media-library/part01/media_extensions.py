@@ -9,6 +9,7 @@ import re
 import shutil
 import sqlite3
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -564,9 +565,14 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                         raise RuntimeError("Only HTTPS YouTube video URLs are supported")
                     if not body.rights_confirmed:
                         raise RuntimeError("Media usage rights confirmation is required")
+                    # systemd may launch the venv Python with a system-wide PATH.
                     tool = shutil.which("yt-dlp")
                     if not tool:
-                        raise RuntimeError("yt-dlp is not installed")
+                        venv_tool = Path(sys.executable).with_name("yt-dlp")
+                        if venv_tool.is_file() and os.access(venv_tool, os.X_OK):
+                            tool = str(venv_tool)
+                    if not tool:
+                        raise RuntimeError("yt-dlp is not installed in the SML environment")
                     args = [tool,"--no-playlist","--newline","--no-warnings",
                             "--progress-template","download:%(progress._percent_str)s",
                             "--max-filesize","1200M","--max-downloads","1",
