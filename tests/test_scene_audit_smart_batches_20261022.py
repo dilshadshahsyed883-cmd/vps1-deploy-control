@@ -53,7 +53,8 @@ class SmartAuditBatchTests(unittest.TestCase):
                 {"item_id": "two", "final_start": 28, "final_end": 49}]
         batches = calculate(rows, 49)
         self.assertEqual([(b["start"], b["end"]) for b in batches], [(0.0, 28.0), (28.0, 49.0)])
-        self.assertIn('"_audit_checkpoint_path"', '"_audit_checkpoint_path"')  # no disk effects from pure calculation
+        self.assertEqual(rows, [{"item_id": "one", "final_start": 0, "final_end": 28},
+                                {"item_id": "two", "final_start": 28, "final_end": 49}])
 
     def test_backend_requires_authorization_and_batch_scopes_approval(self):
         self.assertIn('def visual_audit_approve_batch(', WORKER)
