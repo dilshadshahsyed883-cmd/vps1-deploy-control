@@ -120,6 +120,16 @@ class DownloadStrategy(unittest.TestCase):
                 "-c:a", "aac", "-shortest", str(sample)
             ], check=True, timeout=30, capture_output=True)
 
+            # Probe the real combined output before mocking yt-dlp's Popen.
+            # subprocess.run/ffprobe must never inherit our fake process.
+            observed = subprocess.run([
+                "ffprobe", "-v", "error", "-show_entries",
+                "stream=codec_type", "-of", "csv=p=0", str(sample)
+            ], check=True, timeout=15, capture_output=True, text=True)
+            self.assertIn("video", observed.stdout)
+            self.assertIn("audio", observed.stdout)
+            video_info = d.probe_video(sample)
+
             command_used = []
             class FakeDownloader:
                 def __init__(self, args, **kwargs):
@@ -136,6 +146,7 @@ class DownloadStrategy(unittest.TestCase):
             with (
                 patch.object(d.subprocess, "Popen", FakeDownloader),
                 patch.object(d, "_js_runtime", return_value=None),
+                patch.object(d, "probe_video", return_value=video_info),
             ):
                 output = d._run_attempt(
                     "https://youtu.be/one-authorized-video", root / "attempt-1",
