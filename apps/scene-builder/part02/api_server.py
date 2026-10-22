@@ -69,7 +69,7 @@ PERMANENT_SFX_DIR.mkdir(parents=True, exist_ok=True)
 # values are intentionally ignored so a stale deployment cannot re-enable retry.
 AUTO_RETRY_INTERRUPTED = False
 MAX_RETRIES = 0
-DRIVE_UPLOAD_ENABLED = os.getenv("DRIVE_UPLOAD_ENABLED", "0").strip().lower() in {
+DRIVE_UPLOAD_ENABLED = os.getenv("DRIVE_UPLOAD_ENABLED", "0" if WORKER_ADMISSION_ONLY else "1").strip().lower() in {
     "1",
     "true",
     "yes",
@@ -2234,7 +2234,7 @@ def _prepare_captions_and_timing(
 
 def _drive_remote_entries(destination: str) -> list[dict[str, Any]]:
     process = subprocess.run(
-        ["rclone", "lsjson", destination, "--files-only", "--hash"],
+        ["rclone", "lsjson", destination, "--stat", "--hash"],
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -2269,7 +2269,7 @@ def _drive_entry_matches_local(entry: dict[str, Any], output_file: Path) -> bool
     if DRIVE_VERIFY_HASH:
         hashes = dict(entry.get("Hashes") or {})
         remote_md5 = str(hashes.get("MD5") or hashes.get("md5") or "").strip().lower()
-        if remote_md5 and remote_md5 != _file_md5(output_file):
+        if not remote_md5 or remote_md5 != _file_md5(output_file):
             return False
     return True
 
@@ -2302,7 +2302,9 @@ def _run_cancellable_drive_upload(job_id: str, output_file: Path, output_filenam
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("w", encoding="utf-8") as log_handle:
         process = subprocess.Popen(
-            [str(DRIVE_SCRIPT), str(output_file)],
+            ([str(DRIVE_SCRIPT), str(output_file)] if DRIVE_SCRIPT.is_file() and os.access(DRIVE_SCRIPT, os.X_OK)
+             else ["rclone", "copyto", str(output_file), f"{DRIVE_REMOTE}:{drive_folder}/{output_filename}",
+                   "--immutable", "--stats", "30s", "--stats-one-line", "-v"]),
             env=environment,
             text=True,
             stdout=log_handle,
@@ -2358,8 +2360,6 @@ def upload_output_to_drive(
 ) -> tuple[str, str, str]:
     if not DRIVE_UPLOAD_ENABLED:
         return "", "", ""
-    if not DRIVE_SCRIPT.exists():
-        raise RuntimeError(f"Drive transfer script is missing: {DRIVE_SCRIPT}")
     output_filename = drive_output_filename(project_name)
     drive_folder = _drive_folder_for_channel(channel_name)
     destination = f"{DRIVE_REMOTE}:{drive_folder}/{output_filename}"
@@ -4432,11 +4432,10 @@ def process_job(job_id: str) -> None:
             channel_name=str((settings.metadata or {}).get("web_channel") or "").strip()
             update_job(job_id,output_file=str(result),size_bytes=result_size)
             drive_destination=""; drive_view_url=""; output_filename=drive_output_filename(project_name); drive_status=""
-            # Presets may disable Drive delivery in Normal mode. Verified Serial
-            # always forces it because its release contract is Drive Verified + Cleanup Verified.
-            drive_required = bool(DRIVE_UPLOAD_ENABLED) and (
-                bool(getattr(settings, "drive_upload_enabled", True)) or _verified_serial_owns(job_id)
-            )
+            # Render success is not delivery success: every MP4 requires verified Drive storage.
+            drive_required = bool(DRIVE_UPLOAD_ENABLED)
+            if not drive_required:
+                raise RuntimeError("Drive delivery disabled on worker (DRIVE_UPLOAD_ENABLED=0); local MP4 preserved")
             if drive_required:
                 # Backpressure: a completed render keeps the single render slot until
                 # the single Drive uploader becomes available. This prevents a fourth
@@ -4454,7 +4453,7 @@ def process_job(job_id: str) -> None:
             message="Render completed" if not drive_destination else f"Render completed and transferred to {drive_destination}"
             update_job(job_id,status="completed",stage="Completed",progress=100,message=message,output_file=str(result),size_bytes=result_size,completed_at=now_iso(),drive_status=drive_status,drive_destination=drive_destination,drive_view_url=drive_view_url,output_filename=output_filename,resume_mode="",manual_start_required=0)
             _record_pipeline_success()
-            cleanup_delivery_safe=(not drive_required) or drive_status=="completed"
+            cleanup_delivery_safe=drive_status=="completed"
             # Auto Clean behavior is identical in Normal and Verified Serial.
             # Queue mode changes scheduling only; an intentionally confirmed OFF
             # leaves the delivered project local until the operator uses Clean Now.
@@ -4651,6 +4650,7 @@ def startup() -> None:
             name=f"project-pipeline-{index + 1}",
         ).start()
     threading.Thread(target=_retention_loop, daemon=True, name="retention-sweeper").start()
+    threading.Thread(target=_backfill_existing_drive_deliveries, daemon=True, name="scene-drive-backfill").start()
     _wake.set()
 
 
@@ -5116,6 +5116,92 @@ def _worker_job_log_text(job_id: str) -> str:
 def worker_job_log(job_id: str, token: str | None = None):
     auth(token)
     return PlainTextResponse(_worker_job_log_text(job_id), media_type="text/plain; charset=utf-8")
+
+
+
+# SCENE_DRIVE_DELIVERY_RECOVERY_V1
+# Only transfers an existing MP4. Never retries FFmpeg, overwrites other projects,
+# or removes local job data until the normal Drive size/hash checks pass.
+def _complete_existing_drive_delivery(job_id: str) -> None:
+    try:
+        job = get_job(job_id)
+        file_path = Path(str(job.get("output_file") or ""))
+        if not file_path.is_file() or file_path.stat().st_size <= 1024:
+            raise RuntimeError("Existing rendered MP4 is missing; cannot upload without rendering")
+        if not DRIVE_UPLOAD_ENABLED:
+            raise RuntimeError("Worker Drive upload disabled; enable DRIVE_UPLOAD_ENABLED=1")
+        project_name = str(job.get("project_name") or "Untitled")
+        channel_name = ""
+        try:
+            package = JOBS / job_id / "input" / "project.json"
+            if package.is_file():
+                channel_name = str((json.loads(package.read_text("utf-8")).get("metadata") or {}).get("web_channel") or "")
+        except Exception:
+            pass
+        with WORKERS.lane("drive_uploader", job_id, project_name, "Recover existing Drive delivery"):
+            destination, view_url, filename = upload_output_to_drive(
+                job_id, project_name, file_path, channel_name)
+        update_job(job_id, status="completed", stage="Completed", progress=100,
+                   drive_status="completed", drive_destination=destination,
+                   drive_view_url=view_url, output_filename=filename,
+                   message="Existing MP4 uploaded and verified on Google Drive")
+        with WORKERS.lane("cleanup", job_id, project_name, "Verified Drive project cleanup"):
+            cleaned = _auto_clean_delivered_project(job_id)
+        if cleaned:
+            _attempt_public_drive_viewer(job_id, destination, view_url)
+    except Exception as exc:
+        update_job(job_id, status="completed", stage="Drive Delivery Pending", progress=100,
+                   drive_status="failed", message=f"MP4 preserved; Google Drive upload failed: {exc}")
+    finally:
+        _wake.set()
+
+
+def _enqueue_existing_drive_delivery(job_id: str) -> dict[str, Any]:
+    if not DRIVE_UPLOAD_ENABLED:
+        raise HTTPException(409, "Google Drive delivery disabled on production worker")
+    with _db_lock, db() as connection:
+        row = connection.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "Project not found")
+        job = dict(row)
+        if job["status"] not in {"completed", "failed"} or job.get("drive_status") == "completed":
+            raise HTTPException(409, "Project is not eligible for Drive-only recovery")
+        file_path = Path(str(job.get("output_file") or ""))
+        if not file_path.is_file() or file_path.stat().st_size <= 1024:
+            raise HTTPException(409, "Local MP4 not found; cannot run upload-only recovery")
+        changed = connection.execute(
+            "UPDATE jobs SET status='ready_to_upload',stage='Waiting for Drive',"
+            "drive_status='uploading',progress=99,updated_at=?,"
+            "message='Existing MP4 queued for verified Drive upload' "
+            "WHERE id=? AND status IN ('completed','failed') AND drive_status!='completed'",
+            (now_iso(), job_id)).rowcount
+    if changed != 1:
+        raise HTTPException(409, "Drive recovery already active")
+    threading.Thread(target=_complete_existing_drive_delivery, args=(job_id,),
+                     daemon=True, name=f"drive-recovery-{job_id[:12]}").start()
+    return {"ok": True, "job_id": job_id, "status": "ready_to_upload"}
+
+
+@app.post("/jobs/{job_id}/upload-drive")
+def upload_existing_render_to_drive(job_id: str, token: str | None = None):
+    auth(token)
+    return _enqueue_existing_drive_delivery(job_id)
+
+
+def _backfill_existing_drive_deliveries() -> None:
+    if not DRIVE_UPLOAD_ENABLED:
+        return
+    with _db_lock, db() as connection:
+        jobs = [str(row["id"]) for row in connection.execute(
+            "SELECT id FROM jobs WHERE status='completed' AND drive_status!='completed' "
+            "AND output_file!='' ORDER BY completed_at ASC LIMIT 50").fetchall()]
+    for job_id in jobs:
+        if _stop.is_set():
+            return
+        try:
+            _enqueue_existing_drive_delivery(job_id)
+        except (HTTPException, OSError):
+            continue
 
 
 @app.post("/jobs/{job_id}/clean-now")
@@ -5642,12 +5728,15 @@ def _retention_sweep_once() -> dict[str, int]:
         age_days = (now - stamp).total_seconds() / 86400.0
         status = str(row.get("status") or "")
         if status == "completed":
-            safe = bool(row.get("downloaded_at")) or str(row.get("drive_status") or "") == "completed" or not DRIVE_UPLOAD_ENABLED
+            safe = str(row.get("drive_status") or "") == "completed"
             if safe and not row.get("files_cleaned_at") and age_days >= COMPLETED_OUTPUT_RETENTION_DAYS:
                 freed_bytes += _remove_job_heavy_files(str(row["id"]), keep_logs=True)
                 update_job(str(row["id"]), files_cleaned_at=now_iso(), message="Completed project retention cleanup applied")
                 removed_jobs += 1
         elif not row.get("files_cleaned_at") and age_days >= FAILED_JOB_RETENTION_DAYS:
+            existing = get_job(str(row["id"]))
+            if str(existing.get("output_file") or "") and Path(existing["output_file"]).is_file() and existing.get("drive_status") != "completed":
+                continue  # A failed Drive transfer must never delete the already-rendered MP4.
             freed_bytes += _remove_failed_job_heavy_files(str(row["id"]))
             update_job(str(row["id"]), files_cleaned_at=now_iso(), message=f"{status.title()} project heavy media expired; original input preserved for Restart Job")
             removed_jobs += 1
@@ -5664,8 +5753,12 @@ def _retention_sweep_once() -> dict[str, int]:
             stamp = _parse_utc(row.get("completed_at") or row.get("updated_at") or "")
             if not stamp or stamp > history_cutoff:
                 continue
-            if row["status"] == "completed" and DRIVE_UPLOAD_ENABLED and not (row.get("downloaded_at") or row.get("drive_status") == "completed"):
+            if row["status"] == "completed" and row.get("drive_status") != "completed":
                 continue
+            if row["status"] == "failed" and row.get("drive_status") != "completed":
+                candidate = get_job(str(row["id"]))
+                if candidate.get("output_file") and Path(str(candidate["output_file"])).is_file():
+                    continue
             shutil.rmtree(JOBS / str(row["id"]), ignore_errors=True)
             connection.execute("DELETE FROM job_events WHERE job_id=?", (row["id"],))
             connection.execute("DELETE FROM jobs WHERE id=?", (row["id"],))
