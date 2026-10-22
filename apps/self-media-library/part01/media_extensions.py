@@ -26,6 +26,10 @@ VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}
 MAX_IMAGE_BYTES = 30 * 1024 * 1024
 MAX_IMPORT_BYTES = 2 * 1024 * 1024 * 1024
 IMPORT_LOCK = threading.Lock()
+# Keep lazy image preview rebuilds bounded when a page opens many old photos.
+IMAGE_PREVIEW_SLOTS = threading.BoundedSemaphore(3)
+IMAGE_PREVIEW_VERSION = "sharp-v2"
+
 
 
 def normalized_tags(tags):
@@ -178,7 +182,7 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
         asset["quality"] = 80
         asset["orientation"] = classify_orientation(int(row["width"]), int(row["height"]))
         asset["content_url"] = f"/api/v1/images/{row['id']}/content"
-        asset["thumb_url"] = f"/api/v1/images/{row['id']}/preview"
+        asset["thumb_url"] = f"/api/v1/images/{row['id']}/preview?v={IMAGE_PREVIEW_VERSION}"
         asset.pop("keywords_json", None)
         return asset
 
@@ -209,13 +213,14 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
         asset_id = "IMG-" + uuid.uuid4().hex[:12].upper()
         name = asset_id + ext
         destination = images / name
-        thumb_name = asset_id + ".jpg"
+        thumb_name = f"{asset_id}-{IMAGE_PREVIEW_VERSION}.jpg"
         thumb = previews / thumb_name
         shutil.copyfile(file_path, destination)
         try:
             subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i",
                             str(destination), "-frames:v", "1",
-                            "-vf", "scale='min(480,iw)':-2", str(thumb)],
+                            "-vf", "scale='min(1200,iw)':-2:flags=lanczos",
+                            "-q:v", "2", "-threads", "1", "-update", "1", str(thumb)],
                            check=True, timeout=50, capture_output=True)
             info = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
                                    "-show_entries", "stream=width,height", "-of", "json",
@@ -342,10 +347,39 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
             row = conn.execute("SELECT * FROM image_assets WHERE id=? AND deleted_at IS NULL", (asset_id,)).fetchone()
         if row is None:
             raise HTTPException(404, "Image not found")
-        path = previews / row["thumb_name"]
-        if path.is_file():
-            return FileResponse(path, media_type="image/jpeg")
-        return FileResponse(ensure_image(row))
+        # Existing Drive-era photos retain their original bytes. Rebuild only a
+        # versioned, high-quality local cache; never upscale the source image.
+        high_quality = previews / f"{row['id']}-{IMAGE_PREVIEW_VERSION}.jpg"
+        if high_quality.is_file() and high_quality.stat().st_size:
+            return FileResponse(high_quality, media_type="image/jpeg")
+        with IMAGE_PREVIEW_SLOTS:
+            if high_quality.is_file() and high_quality.stat().st_size:
+                return FileResponse(high_quality, media_type="image/jpeg")
+            try:
+                source = ensure_image(row)
+            except HTTPException:
+                legacy = previews / (row["thumb_name"] or "")
+                if legacy.is_file() and legacy.stat().st_size:
+                    return FileResponse(legacy, media_type="image/jpeg")
+                raise
+            temporary = previews / f".{row['id']}-{uuid.uuid4().hex}.jpg"
+            try:
+                subprocess.run(
+                    ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                     "-i", str(source), "-frames:v", "1",
+                     "-vf", "scale='min(1200,iw)':-2:flags=lanczos",
+                     "-q:v", "2", "-threads", "1", "-update", "1", str(temporary)],
+                    check=True, timeout=50, capture_output=True,
+                )
+                if not temporary.is_file() or not temporary.stat().st_size:
+                    raise ValueError("Empty preview")
+                os.replace(temporary, high_quality)
+            except (OSError, subprocess.SubprocessError, ValueError):
+                # A preview failure must never block or change the durable photo.
+                return FileResponse(source)
+            finally:
+                temporary.unlink(missing_ok=True)
+            return FileResponse(high_quality, media_type="image/jpeg")
 
     def lookup_candidates(media_type, terms):
         results = []

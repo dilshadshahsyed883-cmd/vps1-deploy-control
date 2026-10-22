@@ -176,6 +176,47 @@ class LocalLibrary(unittest.TestCase):
         self.assertIn('data-purge-clip', js)
         self.assertIn("api('/api/clips/bulk/trash'", js)
 
+    def test_old_image_thumb_is_rebuilt_from_original_without_upsampling(self):
+        from PIL import Image
+        import hashlib
+        ident = self.image('legacy_sharpness.png')
+        with self.m.db() as conn:
+            row = conn.execute('SELECT stored_name,thumb_name FROM image_assets WHERE id=?', (ident,)).fetchone()
+            source = self.root/'images'/row['stored_name']
+            original_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+            highres = self.root/'image_previews'/(ident+'-sharp-v2.jpg')
+            legacy = self.root/'image_previews'/(ident+'.jpg')
+            highres.unlink(missing_ok=True)
+            Image.new('RGB', (12, 8), 'blue').save(legacy, 'JPEG')
+            conn.execute('UPDATE image_assets SET thumb_name=? WHERE id=?', (legacy.name, ident))
+        res = self.c.get('/api/v1/images/'+ident+'/preview')
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(res.headers['content-type'], 'image/jpeg')
+        with Image.open(highres) as preview:
+            self.assertEqual(preview.size, (64, 48))  # Never upsample the 64x48 original.
+        self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(), original_hash)
+        self.assertTrue(legacy.exists())  # Legacy evidence remains until owner delete.
+        first_stat = highres.stat().st_mtime_ns
+        self.assertEqual(self.c.get('/api/v1/images/'+ident+'/preview').status_code, 200)
+        self.assertEqual(highres.stat().st_mtime_ns, first_stat)
+        catalog = self.c.get('/api/v1/images').json()['items'][0]
+        self.assertIn('preview?v=sharp-v2', catalog['thumb_url'])
+        self.assertEqual(self.c.post('/api/local/delete', json={'media_type':'image','ids':[ident]}).status_code, 200)
+        self.assertFalse(source.exists())
+        self.assertFalse(legacy.exists())
+        self.assertFalse(highres.exists())
+
+    def test_image_cards_contain_long_names_and_show_uncropped_sharp_preview(self):
+        html = (APP/'static/index.html').read_text()
+        js = (APP/'static/app.js').read_text()
+        css = (APP/'static/sml_shared_theme.css').read_text()
+        self.assertIn('image-sharp-v2', html)
+        for token in ('image-tile','image-preview-frame','image-card-name','image-card-meta','decoding="async"'):
+            self.assertIn(token, js)
+        for token in ('#imagesGrid .image-tile','#imagesGrid .image-card img','object-fit:contain!important',
+                      'text-overflow:ellipsis','min-width:0','grid-template-columns:repeat(2,minmax(0,1fr))!important'):
+            self.assertIn(token, css)
+
     def test_drive_removed_not_reenabled_and_legacy_receipts_retained(self):
         self.assertFalse(self.c.get('/api/health').json()['drive_enabled'])
         self.assertEqual(self.c.get('/api/settings').json()['values']['drive_enabled'],'false')

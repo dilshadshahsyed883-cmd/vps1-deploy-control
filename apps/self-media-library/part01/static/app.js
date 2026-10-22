@@ -157,7 +157,13 @@ async function loadImages() {
   try {
     const data=await api('/api/v1/images?q='+q+'&status='+status+'&orientation='+orientation+'&limit=200&date_from='+$('#localFrom').value+'&date_to='+$('#localTo').value);
     imageRows=data.items;
-    $('#imagesGrid').innerHTML=imageRows.length?imageRows.map(i=>'<div><label><input type="checkbox" data-image-select="'+esc(i.id)+'"> Select</label><button class="image-card" type="button" data-image="'+esc(i.id)+'"><img loading="lazy" src="'+esc(mediaUrl(i.thumb_url))+'" alt="'+esc(i.original_name)+'"><b>'+esc(i.original_name)+'</b><small>'+esc(i.status)+' · '+'VPS local'+' · '+esc(i.width)+'×'+esc(i.height)+' · '+esc(i.orientation)+' · '+esc(i.source_kind||'legacy')+'</small></button></div>').join(''):'<p class="empty">No images yet. Upload one in Input.</p>';
+    $('#imagesGrid').innerHTML=imageRows.length?imageRows.map(i=>
+      '<div class="image-tile"><label class="image-select"><input type="checkbox" data-image-select="'+esc(i.id)+'"> Select</label>'+
+      '<button class="image-card" type="button" data-image="'+esc(i.id)+'" title="'+esc(i.original_name)+'">'+
+      '<span class="image-preview-frame"><img loading="lazy" decoding="async" src="'+esc(mediaUrl(i.thumb_url))+'" alt="Preview of '+esc(i.original_name)+'"></span>'+
+      '<b class="image-card-name" title="'+esc(i.original_name)+'">'+esc(i.original_name)+'</b>'+
+      '<small class="image-card-meta">'+esc(i.status)+' · VPS local · '+esc(i.width)+'×'+esc(i.height)+' · '+esc(i.orientation)+' · '+esc(i.source_kind||'legacy')+'</small>'+
+      '</button></div>').join(''):'<p class="empty">No images yet. Upload one in Input.</p>';
     $$('#imagesGrid [data-image]').forEach(el=>el.onclick=()=>openImageEditor(el.dataset.image));
   } catch(e) { $('#imagesGrid').textContent=e.message; }
 }
