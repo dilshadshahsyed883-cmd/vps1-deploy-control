@@ -3791,7 +3791,7 @@ def _prepare_first2_visual_audit(
     # Persist a complete scene manifest before resolving the first batch.
     # The authenticated Audit page can display completed batches immediately,
     # while the next 30-second section resolves in this existing worker thread.
-    items = [_audit_item_from_result(row, None, "Awaiting media resolution", revision=1) for row in rows]
+    items = [_audit_item_from_result(row, None, "", revision=1) for row in rows]
     batches = _audit_batch_ranges(items, AUDIT_WINDOW_SECONDS)
     batch_for_item = {item_id: b["index"] for b in batches for item_id in b["item_ids"]}
     payload = {
@@ -3925,6 +3925,7 @@ def _public_audit_payload(job_id: str, payload: dict[str, Any]) -> dict[str, Any
         row["has_media"] = Path(str(raw.get("media_path") or "")).is_file()
         row["preview_url"] = f"/jobs/{job_id}/audit/media/{raw.get('item_id')}/preview" if row["has_media"] else ""
         items.append(row)
+    batches = _audit_batch_ranges(items, float(payload.get("window_seconds") or AUDIT_WINDOW_SECONDS))
     return {
         "job_id": job_id,
         "window_seconds": float(payload.get("window_seconds") or AUDIT_WINDOW_SECONDS),
@@ -3937,8 +3938,8 @@ def _public_audit_payload(job_id: str, payload: dict[str, Any]) -> dict[str, Any
         "changed_count": sum(1 for item in items if bool(item.get("changed"))),
         "missing_count": sum(1 for item in items if not bool(item.get("has_media"))),
         "approved_count": sum(1 for item in items if bool(item.get("approved"))),
-        "batches": _audit_batch_ranges(items, float(payload.get("window_seconds") or AUDIT_WINDOW_SECONDS)),
-        "resolution_completed_batches": int(payload.get("resolution_completed_batches") or 0),
+        "batches": batches,
+        "resolution_completed_batches": int(payload.get("resolution_completed_batches", len(batches) if payload.get("resolution_complete", True) else 0)),
         "resolution_complete": bool(payload.get("resolution_complete", True)),
     }
 
