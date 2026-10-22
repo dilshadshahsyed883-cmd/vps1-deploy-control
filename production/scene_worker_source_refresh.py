@@ -6,8 +6,10 @@ renderer. Do not touch jobs, admission-only worker or unrelated applications.
 """
 from __future__ import annotations
 
+import configparser
 import json
 import os
+import pwd
 from pathlib import Path
 import re
 import sqlite3
@@ -16,6 +18,12 @@ import tempfile
 import time
 
 from production import scene_production_worker as worker
+
+CANONICAL_RCLONE_CONFIGS = (
+    Path('/home/ubuntu/.config/masterctl/rclone.conf'),
+    Path('/home/ubuntu/.config/rclone/rclone.conf'),
+    Path('/etc/rclone/rclone.conf'),
+)
 
 TERMINAL = frozenset({"done", "completed", "complete", "success", "failed",
                        "error", "cancelled", "canceled", "skipped", "expired", "deleted"})
@@ -254,6 +262,8 @@ class SceneWorkerSourceRefresh:
         self.original_unit: bytes | None = None
         self.original_env: bytes | None = None
         self.original_record: dict | None = None
+        self.original_rclone_path: Path | None = None
+        self.original_rclone_bytes: bytes | None = None
         self.token = ""
         self.did_refresh = False
 
@@ -264,6 +274,13 @@ class SceneWorkerSourceRefresh:
         _atomic_regular_file(worker.UNIT_FILE, self.original_unit, 0o644)
         if self.original_env is not None:
             _atomic_regular_file(worker.ENV, self.original_env, 0o600)
+        if self.original_rclone_path is not None:
+            if self.original_rclone_bytes is None:
+                self.original_rclone_path.unlink(missing_ok=True)
+            else:
+                _atomic_regular_file(self.original_rclone_path, self.original_rclone_bytes, 0o600)
+                account = pwd.getpwnam("vps1scene")
+                os.chown(self.original_rclone_path, account.pw_uid, account.pw_gid)
         atomic_json(worker.RECORD, self.original_record, 0o600)
         run(["systemctl", "daemon-reload"], timeout=20, quiet=True)
         run(["systemctl", "restart", worker.UNIT], timeout=70, quiet=True)
@@ -279,12 +296,63 @@ class SceneWorkerSourceRefresh:
             raise RuntimeError("Scene worker rollback health timed out; previous unit retained")
         self.original_unit = None
         self.original_env = None
+        self.original_rclone_path = None
+        self.original_rclone_bytes = None
         self.original_record = None
         self.did_refresh = False
         print("SCENE_WORKER_SOURCE_ROLLBACK=PASS PREVIOUS_SOURCE_RESTORED",flush=True)
 
     def rollback(self) -> None:
         self._restore()
+
+
+    def _private_scene_rclone_config(self, remote: str) -> Path:
+        """Reuse the owner-configured Drive Bridge remote without exposing its token.
+
+        The production unit has ProtectHome=true; a config under /home/ubuntu
+        must be installed inside Scene's private writable state for vps1scene.
+        Do not overwrite a pre-existing independent Scene rclone configuration.
+        """
+        target_dir = worker.STATE / "worker-home" / ".config" / "rclone"
+        target = target_dir / "rclone.conf"
+        account = pwd.getpwnam("vps1scene")
+        worker.require(not target.is_symlink() and not target_dir.is_symlink(),
+                       "Scene rclone state contains an unexpected symlink")
+        if target.is_file():
+            existing = target.read_bytes()
+            parser = configparser.RawConfigParser(interpolation=None)
+            try:
+                parser.read_string(existing.decode("utf-8"))
+            except (UnicodeError, configparser.Error):
+                raise RuntimeError("Existing private Scene rclone configuration is invalid; do not overwrite")
+            worker.require(parser.has_section(remote),
+                           "Existing Scene rclone config has no configured remote; do not overwrite")
+            return target
+        candidate = None
+        for source in CANONICAL_RCLONE_CONFIGS:
+            if source.is_symlink() or not source.is_file():
+                continue
+            try:
+                blob = source.read_bytes()
+                parser = configparser.RawConfigParser(interpolation=None)
+                parser.read_string(blob.decode("utf-8"))
+                if parser.has_section(remote):
+                    candidate = blob
+                    break
+            except (OSError, UnicodeError, configparser.Error):
+                continue
+        worker.require(candidate is not None,
+                       "No authorized Drive Bridge rclone remote available for Scene worker")
+        worker.require(target_dir.parent.is_dir() and not target_dir.parent.is_symlink(),
+                       "Scene worker private config home is not prepared")
+        target_dir.mkdir(mode=0o700, exist_ok=True)
+        os.chmod(target_dir, 0o700)
+        os.chown(target_dir, account.pw_uid, account.pw_gid)
+        self.original_rclone_path = target
+        self.original_rclone_bytes = None
+        _atomic_regular_file(target, candidate, 0o600)
+        os.chown(target, account.pw_uid, account.pw_gid)
+        return target
 
     def refresh(self) -> dict[str, str]:
         from production.runtime import atomic_json, run
@@ -347,27 +415,27 @@ class SceneWorkerSourceRefresh:
         self.original_record = dict(record)
         try:
             if private.get("DRIVE_UPLOAD_ENABLED") != "1":
-                # The original production installer wrote 0; a source refresh
-                # must repair that saved setting as well, but only after a
-                # credential-free read probe succeeds as the actual service user.
+                # Do not use /home/ubuntu from systemd (ProtectHome=true).
+                # Prepare a private copy of the canonical Drive Bridge remote.
                 service_home = worker.STATE / "worker-home"
                 remote = private.get("DRIVE_REMOTE", "gdrive") or "gdrive"
-                env = ["HOME="+str(service_home),
-                       "XDG_CONFIG_HOME="+str(service_home/".config")]
-                if private.get("RCLONE_CONFIG"):
-                    env.append("RCLONE_CONFIG="+private["RCLONE_CONFIG"])
+                config_file = self._private_scene_rclone_config(remote)
                 probe = subprocess.run(
-                    ["runuser", "-u", "vps1scene", "--", "/usr/bin/env", *env,
+                    ["runuser", "-u", "vps1scene", "--", "/usr/bin/env",
+                     "HOME="+str(service_home),
+                     "XDG_CONFIG_HOME="+str(service_home/".config"),
+                     "RCLONE_CONFIG="+str(config_file),
                      "rclone", "lsd", remote+":"],
                     capture_output=True, text=True, timeout=90)
                 worker.require(probe.returncode == 0,
-                               "Scene Drive remote unreadable by production worker; source/config change deferred")
+                               "Private Scene Drive remote cannot be listed; source/config change deferred")
                 raw = self.original_env.decode("utf-8")
                 lines = [line for line in raw.splitlines()
-                         if line.split("=",1)[0].strip() != "DRIVE_UPLOAD_ENABLED"]
+                         if line.split("=",1)[0].strip() not in
+                         {"DRIVE_UPLOAD_ENABLED", "RCLONE_CONFIG"}]
+                lines += ["DRIVE_UPLOAD_ENABLED=1", "RCLONE_CONFIG="+str(config_file)]
                 _atomic_regular_file(worker.ENV,
-                                     ("\n".join(lines+["DRIVE_UPLOAD_ENABLED=1"])+"\n").encode(),
-                                     0o600)
+                                     ("\n".join(lines)+"\n").encode(), 0o600)
             _atomic_regular_file(worker.UNIT_FILE,worker.unit_text(new_runner).encode(),0o644)
             run(["systemctl","daemon-reload"],timeout=20,quiet=True)
             run(["systemctl","restart",worker.UNIT],timeout=70,quiet=True)

@@ -44,6 +44,11 @@ class SceneDriveDeliveryTests(unittest.TestCase):
         ast.parse(REFRESH)
         self.assertIn('self.original_env', REFRESH)
         self.assertIn('rclone", "lsd", remote+":"', REFRESH)
+        self.assertIn("CANONICAL_RCLONE_CONFIGS", REFRESH)
+        self.assertIn("self._private_scene_rclone_config(remote)", REFRESH)
+        self.assertIn("self.original_rclone_path.unlink(missing_ok=True)", REFRESH)
+        self.assertIn('"RCLONE_CONFIG="+str(config_file)', REFRESH)
+        self.assertIn('ProtectHome=true', REFRESH)
         self.assertIn('DRIVE_UPLOAD_ENABLED=1', REFRESH)
         self.assertIn('worker.ENV, self.original_env, 0o600', REFRESH)
         import runpy
