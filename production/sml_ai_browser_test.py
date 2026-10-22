@@ -108,12 +108,22 @@ def browser_test():
                         page.request.post(url+'/self-media-library/api/sources/'+source+'/process')
                         page.locator('#nav button').filter(has_text='Process').click()
                         page.locator('[data-review="'+source+'"]').wait_for(timeout=60000)
+                        # Analysis action remains accessible; long queue stays collapsed below review.
+                        assert page.locator('#aiQueueDisclosure').count()==1
+                        assert not page.locator('#aiJobs').is_visible()
+                        assert page.evaluate("document.querySelector('#pairReviews').compareDocumentPosition(document.querySelector('#aiQueueDisclosure')) & Node.DOCUMENT_POSITION_FOLLOWING")
+                        page.locator('#aiQueueDisclosure summary').click()
+                        assert page.locator('#aiJobs').is_visible()
+                        page.locator('#aiQueueDisclosure summary').click()
+                        assert not page.locator('#aiJobs').is_visible()
                         page.locator('[data-review="'+source+'"]').click()
                         page.locator('.local-pair video').first.wait_for()
                         assert page.locator('.local-pair video').count()==3
-                        page.locator('[data-pair-index="0"]').first.click()
-                        page.get_by_role('button',name='Discard last clip',exact=True).wait_for()
-                        page.get_by_role('button',name='Discard last clip',exact=True).click()
+                        assert 'Batch 1 of 1' in page.locator('.local-batch-toolbar').inner_text()
+                        page.locator('[data-bulk-all]').check()
+                        page.locator('[data-bulk-keep="left"]').click()
+                        assert page.locator('.local-pair-choice button[aria-pressed="true"]').count()==2
+                        page.get_by_role('button',name='Save decisions & finish',exact=True).click()
                         page.get_by_text('No pending pair reviews.',exact=True).wait_for()
                         page.locator('#nav button').filter(has_text='API & Settings').click()
                         page.locator('#localStorage').filter(has_text='Available').wait_for()

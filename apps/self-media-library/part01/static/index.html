@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/self-media-library/static/styles.css?v=20261020-legacy-v2" />
   <!-- One canonical website shell, served by Scene Builder rather than the library's static mount. -->
   <link rel="stylesheet" href="/&#115;tatic/vps1_native_site_shell.css?v=20261020-experiment-ui-v5" />
-  <link rel="stylesheet" href="/self-media-library/static/sml_shared_theme.css?v=20261022-image-sharp-v2-yt-queue-v1" />
+  <link rel="stylesheet" href="/self-media-library/static/sml_shared_theme.css?v=20261022-yt-queue-pair-batch-v1" />
   <script defer src="/&#115;tatic/vps1_native_site_shell.js?v=20261020-experiment-ui-v5" data-workspace="library"></script>
 </head>
 <body class="vps1-native-library">
@@ -135,10 +135,13 @@
       </article>
     </section>
     <section id="page-processing" class="page">
-      <article class="panel sml-ai-panel"><div class="panel-head"><div><h2>Visual analysis queue</h2><p id="aiQueueNote">Actual media analysis runs in the background.</p></div><button class="primary" data-ai-action="analyze">Analyze pending media</button></div><div id="aiJobs" aria-live="polite"></div></article>
       <article class="panel">
         <div class="panel-head"><div><h2>Processing queue</h2><p>Shot detection → clip creation → automatic metadata.</p></div><button class="ghost" id="refreshProcessing">Refresh</button></div>
-        <div id="processingList" class="processing-list"></div><h2>Pair review — Keep One / Discard Other</h2><p>Compare consecutive clips side by side. Pending decisions retain both files. The odd last clip can be kept or discarded.</p><div id="pairReviews"></div>
+        <div id="processingList" class="processing-list"></div><h2>Pair review — Keep One / Discard Other</h2><p>Review five pairs at a time. Select pairs for bulk Keep Left / Keep Right, save the batch, then continue. Saved choices survive refresh; local files remain protected until the full review is verified.</p><div id="pairReviews"></div>
+      </article>
+      <article class="panel sml-ai-panel sml-ai-process-bottom">
+        <div class="panel-head"><div><h2>Visual analysis</h2><p id="aiQueueNote">Actual media analysis runs in the background.</p></div><button class="primary" data-ai-action="analyze" type="button">Analyze pending media</button></div>
+        <details id="aiQueueDisclosure" class="sml-ai-queue-disclosure"><summary id="aiQueueSummary">Visual analysis queue — expand / collapse</summary><div id="aiJobs" aria-live="polite"></div></details>
       </article>
     </section>
 
@@ -267,7 +270,7 @@
 <aside id="aiInspector" class="sml-ai-inspector hidden" aria-label="AI metadata inspector"><div class="panel-head"><h2 id="aiInspectorTitle">Media inspector</h2><button id="aiInspectorClose" class="ghost" aria-label="Close AI inspector">Close</button></div><div id="aiInspectorMedia"></div><p id="aiInspectorState"></p>
 <form id="aiMetadataForm"><label>Description<textarea id="aiDescription" rows="3"></textarea></label><label>Keywords (comma separated)<input id="aiKeywords"></label><label>Review reason<input id="aiReviewReason" maxlength="500"></label><label>Custom fields (JSON object)<textarea id="aiCustom" rows="2">{}</textarea></label><label>Tag aliases (JSON object)<textarea id="aiAliases" rows="2">{}</textarea></label><label><input id="aiRights" type="checkbox"> I have permission to reuse this asset</label><div id="aiManualCategories" class="sml-ai-filters"></div><button class="primary" type="submit">Save corrections</button></form>
 <div class="sml-ai-actions"><button class="ghost" id="aiReanalyze">Reanalyze media</button><button class="ghost" id="aiSimilar">Find similar</button><button class="ghost" id="aiHistory">Change &amp; usage history</button></div><div id="aiFieldDetails"></div><div id="aiHistoryDetails"></div></aside>
-<script defer src="/self-media-library/static/local_library.js?v=20261022-local-v2"></script>
+<script defer src="/self-media-library/static/local_library.js?v=20261022-pair-batch-v1"></script>
 <script defer src="/self-media-library/static/ai_workspace.js?v=20261020-ai-v1"></script>
 </body>
 </html>

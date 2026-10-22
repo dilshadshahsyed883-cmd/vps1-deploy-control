@@ -394,3 +394,48 @@ body.vps1-native-library #imagesGrid .image-card-meta {
 .sml-import-job progress{display:block;width:100%;max-width:360px;height:9px;margin-top:7px;accent-color:var(--accent)}
 .sml-import-job .state{flex-shrink:0;text-transform:capitalize}
 @media(max-width:760px){.sml-import-job{flex-wrap:wrap}.sml-import-job .source-main{flex-basis:100%}}
+
+/* Process: five-pair review batches, scoped bulk actions and below-fold AI jobs. */
+body.vps1-native-library #page-processing .local-review-card{min-width:0}
+body.vps1-native-library #page-processing .local-review-actions{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+body.vps1-native-library #page-processing .local-batch-toolbar{
+  display:grid;gap:10px;padding:12px;margin:12px 0 6px;
+  border:1px solid #dbe3ef;border-radius:10px;background:#f8fafc;min-width:0
+}
+body.vps1-native-library #page-processing .local-batch-toolbar>strong{font-size:14px;color:#23344e}
+body.vps1-native-library #page-processing .local-batch-progress{font-size:12px;color:#51657f}
+body.vps1-native-library #page-processing .local-batch-actions,
+body.vps1-native-library #page-processing .local-batch-footer{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0
+}
+body.vps1-native-library #page-processing .local-batch-actions>label{
+  display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:650;
+  cursor:pointer;white-space:nowrap;color:#334155
+}
+body.vps1-native-library #page-processing .local-batch-footer{
+  justify-content:space-between;margin-top:14px;padding-top:12px;border-top:1px solid #dbe3ef
+}
+body.vps1-native-library #page-processing [data-batch-status]{font-size:12px;color:#51657f}
+body.vps1-native-library #page-processing .local-pair-heading{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px
+}
+body.vps1-native-library #page-processing .local-pair-heading h4{margin:0;flex:1}
+body.vps1-native-library #page-processing .local-pair-select{display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:12px}
+body.vps1-native-library #page-processing .local-pair-state{font-size:11px;color:#52637a}
+body.vps1-native-library #page-processing .local-pair-choice{min-width:0}
+body.vps1-native-library #page-processing .local-pair-choice button{min-height:36px}
+body.vps1-native-library #page-processing .local-pair-choice button[aria-pressed="true"]{box-shadow:0 0 0 2px #a6bbfc}
+body.vps1-native-library #page-processing .sml-ai-process-bottom{margin-top:20px}
+body.vps1-native-library #page-processing .sml-ai-queue-disclosure{
+  border-top:1px solid #dce4f1;padding-top:10px;margin-top:12px;min-width:0
+}
+body.vps1-native-library #page-processing .sml-ai-queue-disclosure summary{
+  cursor:pointer;font-size:13px;font-weight:700;color:#355cbb;padding:8px 0
+}
+body.vps1-native-library #page-processing .sml-ai-queue-disclosure:not([open]) #aiJobs{display:none}
+@media(max-width:600px){
+ body.vps1-native-library #page-processing .local-pair-grid{grid-template-columns:minmax(0,1fr)}
+ body.vps1-native-library #page-processing .local-batch-actions>button{flex:1;min-width:115px}
+ body.vps1-native-library #page-processing .local-batch-footer>button{flex:1;min-width:135px}
+ body.vps1-native-library #page-processing .local-pair video{max-height:230px}
+}
