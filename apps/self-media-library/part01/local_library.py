@@ -52,9 +52,14 @@ def protect(conn, kind, ids, *, pending=True):
         if conn.execute("SELECT 1 FROM media_reservations WHERE media_type=? AND media_id=? AND (state='committed' OR (state='reserved' AND expires_at>?)) LIMIT 1", (kind, ident, int(time.time()))).fetchone():
             raise HTTPException(409, 'Media is required by an editor project: ' + ident)
         if kind == 'video':
-            source=conn.execute('SELECT s.status,c.local_selection FROM sources s JOIN clips c ON c.source_id=s.id WHERE c.id=?',(ident,)).fetchone()
+            source=conn.execute('SELECT s.status,s.drive_state,s.clip_count,c.local_selection FROM sources s JOIN clips c ON c.source_id=s.id WHERE c.id=?',(ident,)).fetchone()
+            # Failed/incomplete extraction retains its source/partial clips. A
+            # proven formerly complete Drive-era source can be owner-deleted.
+            legacy_complete = bool(source and source['local_selection']=='legacy' and
+                                   source['clip_count'] > 0 and
+                                   source['drive_state'] in ('verified','sync_failed','disabled'))
             if source and (source['status'] in ('queued','processing') or
-                           (source['status']=='failed' and source['local_selection']!='legacy')):
+                           (source['status']=='failed' and not legacy_complete)):
                 raise HTTPException(409, 'Pending, active or failed source media is protected')
         if pending and kind == 'video':
             row = conn.execute('SELECT local_selection FROM clips WHERE id=?', (ident,)).fetchone()
