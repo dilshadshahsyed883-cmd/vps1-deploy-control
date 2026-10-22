@@ -571,3 +571,10 @@ body.vps1-native-library #smlProxyTestResult{font-size:11px;overflow-wrap:anywhe
   body.vps1-native-library .sml-proxy-form-grid{grid-template-columns:minmax(0,1fr)}
   body.vps1-native-library .sml-proxy-row{align-items:flex-start}
 }
+
+body.vps1-native-library #smlOpenProxyManager{
+  width:100%;margin-top:8px;min-height:35px!important;
+  border:1px solid #cbd8f4;background:#f0f5ff;
+  color:#315edb;text-align:center;font-size:12px;font-weight:750;
+}
+body.vps1-native-library #smlOpenProxyManager:hover{background:#e5edff}
