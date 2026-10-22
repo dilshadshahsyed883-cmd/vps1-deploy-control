@@ -1,6 +1,16 @@
 /* Scene Builder Queue-only Kokoro UI parity: SC-UI-20261021-01.
    Scoped: no shared shell / other app, no data or queue side effects. */
 body.vps1-scene-parity main :is(.queue-mode-card,.queue-new-project-wrap,.folder-queue-panel,.all-projects-panel){box-sizing:border-box;max-width:1400px;min-width:0;margin-inline:auto}
+/* The queue's success, duplicate, error and paused notices share the exact
+   Kokoro card x-axis; preserve their native message colors and bottom spacing. */
+body.vps1-scene-parity main > .submission-banner {
+  box-sizing:border-box;
+  width:100%;
+  max-width:var(--vps1-studio-max,1400px);
+  min-width:0;
+  margin-inline:auto;
+}
+
 body.vps1-scene-parity main :is(.queue-mode-card,.queue-new-project-card,.folder-queue-panel,.all-projects-panel){padding:20px 22px!important;border:1px solid #e2e7ef!important;border-radius:16px!important;background:#fff!important;box-shadow:0 4px 16px #1f2d4a0d!important}
 body.vps1-scene-parity .queue-mode-card{gap:18px;margin-bottom:18px!important}
 body.vps1-scene-parity .queue-mode-left{gap:12px;flex-wrap:wrap}

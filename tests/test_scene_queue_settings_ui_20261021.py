@@ -14,6 +14,22 @@ class SceneUiTests(unittest.TestCase):
             self.assertIn(key,C)
         self.assertNotIn('body.vps1-native-voice',C)
         self.assertNotIn('fetch(',C)
+    def test_submission_banners_align_with_kokoro_queue_cards(self):
+        """All queue notices inherit the shared 1400px content axis, not page width."""
+        selector = 'body.vps1-scene-parity main > .submission-banner {'
+        self.assertIn(selector, C)
+        css = C.split(selector, 1)[1].split('}', 1)[0]
+        for declaration in ('box-sizing:border-box', 'width:100%',
+                            'max-width:var(--vps1-studio-max,1400px)',
+                            'min-width:0', 'margin-inline:auto'):
+            self.assertIn(declaration, css)
+        self.assertNotIn('background:', css)  # native status colors stay intact
+        self.assertNotIn('margin-bottom:', css)  # existing stack gaps remain
+        for markup in ('id="pipeline-circuit-banner" class="submission-banner error"',
+                       'class="submission-banner success"',
+                       'class="submission-banner error"'):
+            self.assertIn(markup, Q)
+
     def test_queue_actions_untouched(self):
         for key in ('id="project-form"','action="/queue/submit"','id="project-name"','id="script-file"','id="audio-file"','id="preset-id"','id="channel-name"','id="submit-button"','id="folder-start"','id="folder-pause"','id="folder-clear"','id="project-filter-search"','id="project-filter-status"','data-queue-mode="verified_serial"','id="jobs"',"fetch('/api/jobs')","box.id='ae-queue-wire'","data.append('audio_engine_preset'",'scene-project-heading'):
             self.assertIn(key,Q,key)
