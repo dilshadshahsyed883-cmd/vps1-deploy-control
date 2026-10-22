@@ -9,15 +9,21 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from fastapi import FastAPI, HTTPException
+try:
+    from fastapi import FastAPI, HTTPException
+except ImportError:
+    FastAPI = None
+    HTTPException = Exception
 
 PROJECT = Path(__file__).resolve().parents[1] / "apps/self-media-library/part01"
 spec = importlib.util.spec_from_file_location("sml_face_people_test_module", PROJECT / "face_people.py")
-module = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = module
-spec.loader.exec_module(module)
+module = importlib.util.module_from_spec(spec) if FastAPI is not None else None
+if FastAPI is not None:
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
 
 
+@unittest.skipUnless(FastAPI is not None, 'Dedicated SML CI supplies FastAPI dependencies')
 class FacePeopleTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
