@@ -51,14 +51,38 @@ jobs:
             'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
           printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
           echo 'PHASE=SCENE_BUILDER_ONLY'
-          timeout 2400s ssh -T -p 22 -i "$scratch/identity" \
-            -o UserKnownHostsFile="$scratch/known_hosts" \
-            -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
-            -o BatchMode=yes -o IdentitiesOnly=yes \
-            -o PreferredAuthentications=publickey -o PasswordAuthentication=no \
-            -o ConnectTimeout=20 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
-            vps1deploy@100.87.55.92 \
-            "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA scene-builder"
+          # Another app's guarded install may briefly hold the host-wide lock.
+          # Retry ONLY that exact lock condition; all other failures still fail
+          # immediately, including an in-flight Scene job, auth or canary error.
+          # No queue changes, forced lock release or service restart.
+          installed=0
+          for attempt in $(seq 1 12); do
+            if timeout 2400s ssh -T -p 22 -i "$scratch/identity" \
+                -o UserKnownHostsFile="$scratch/known_hosts" \
+                -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+                -o BatchMode=yes -o IdentitiesOnly=YES \
+                -o PreferredAuthentications=publickey -o PasswordAuthentication=no \
+                -o ConnectTimeout=20 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+                vps1deploy@100.87.55.92 \
+                "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA scene-builder" \
+                > "$scratch/install.log" 2>&1; then
+              cat "$scratch/install.log"
+              installed=1
+              break
+            fi
+            if grep -Fq 'BlockingIOError: [Errno 11] Resource temporarily unavailable' "$scratch/install.log"; then
+              echo "HOST_DEPLOY_LOCK_BUSY attempt=$attempt/12; no work interrupted"
+              if [ "$attempt" -eq 12 ]; then
+                echo "DEPLOY_DEFERRED_HOST_LOCK_HELD" >&2
+                exit 1
+              fi
+              sleep 30
+            else
+              cat "$scratch/install.log" >&2
+              exit 1
+            fi
+          done
+          test "$installed" = 1
           echo 'SCENE_TWO_ROLE_SOURCE=INSTALLED'
           echo 'NON_ADMIN_ADMIN_PAGE=GUARDED_BY_SCENE_BACKEND'
           echo 'OTHER_APP_INSTALLS=NONE'
