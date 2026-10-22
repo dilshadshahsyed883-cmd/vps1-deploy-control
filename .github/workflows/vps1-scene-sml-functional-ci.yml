@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'apps/scene-builder/**'
+      - 'apps/self-media-library/**'
       - 'production/*sml*'
       - 'tests/*sml*'
       - '.github/workflows/vps1-sml-scene-activate.yml'
@@ -23,4 +24,4 @@ jobs:
       - name: Authenticated HTTP clips, real three-scene MP4 and rollback guards
         env:
           MIN_FREE_SPACE_GB: '1'
-        run: python -m unittest tests.test_sml_scene_bridge tests.test_sml_worker_bridge tests.test_sml_worker_acquisition tests.test_sml_scene_activation tests.test_scene_sml_functional -v
+        run: python -m unittest tests.test_sml_scene_bridge tests.test_sml_worker_bridge tests.test_sml_worker_acquisition tests.test_sml_scene_activation tests.test_scene_sml_functional tests.test_scene_sml_settings tests.test_self_media_library_local tests.test_self_media_library_images_bulk -v
