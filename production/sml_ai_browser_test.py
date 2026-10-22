@@ -77,7 +77,14 @@ def browser_test():
                     assert page.locator('#aiBatchUrls').is_visible()
                     page.locator('#smlBatchDetails summary').click()
                     page.locator('[data-sml-upload="folder"]').click()
-                    page.locator('#sml-upload-folder').wait_for(state='visible',timeout=5000)
+                    if not page.locator('#sml-upload-folder').is_visible():
+                        raise AssertionError({
+                            'page_errors':errors,
+                            'button_selected':page.locator('[data-sml-upload="folder"]').get_attribute('aria-selected'),
+                            'pane_hidden':page.locator('#sml-upload-folder').get_attribute('hidden'),
+                            'current_page':page.locator('#pageTitle').inner_text(),
+                            'sml_upload_listener_source':'app.js',
+                        })
                     page.locator('[data-sml-upload="video"]').click()
                     assert page.locator('#dropPanel').is_visible()
                     page.locator('[data-sml-upload="image"]').click()
