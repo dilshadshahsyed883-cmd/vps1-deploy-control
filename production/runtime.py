@@ -41,7 +41,7 @@ CATALOG = {
     'short-maker': dict(port=8146, module='app:app', health='/health', ui='/', packages=CORE),
     'short-stream': dict(port=8145, module='app:app', health='/health', ui='/',
                          packages=CORE + ['cryptography==44.0.3']),
-    'self-media-library': dict(port=8147, module='app:app', health='/api/health', ui='/', packages=CORE + ['numpy==2.2.6', 'onnxruntime==1.22.1', 'tokenizers==0.21.2', 'faster-whisper==1.1.1', 'yt-dlp>=2025.3.31,<2027']),
+    'self-media-library': dict(port=8147, module='app:app', health='/api/health', ui='/', packages=CORE + ['numpy==2.2.6', 'onnxruntime==1.22.1', 'tokenizers==0.21.2', 'faster-whisper==1.1.1', 'yt-dlp[default]==2026.8.19']),
     'video-merger': dict(port=8148, script='app.py', health='/video-merger/health',
                          ui='/video-merger/', packages=['yt-dlp[default]', 'gdown==5.2.0', 'requests==2.32.3']),
     'voice-studio': dict(port=8143, module='vps1_omnivoice_app:app', health='/healthz',
