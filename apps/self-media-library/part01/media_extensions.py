@@ -12,6 +12,7 @@ import subprocess
 import threading
 import time
 import uuid
+from collections import deque
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -26,6 +27,12 @@ VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}
 MAX_IMAGE_BYTES = 30 * 1024 * 1024
 MAX_IMPORT_BYTES = 2 * 1024 * 1024 * 1024
 IMPORT_LOCK = threading.Lock()
+
+
+def parse_ytdlp_progress(line: str) -> int | None:
+    """Only actual yt-dlp percentages are used for download progress."""
+    match = re.search(r"download:\s*(\d{1,3}(?:\.\d+)?)\s*%", line)
+    return min(100, max(0, int(float(match.group(1))))) if match else None
 # Keep lazy image preview rebuilds bounded when a page opens many old photos.
 IMAGE_PREVIEW_SLOTS = threading.BoundedSemaphore(3)
 IMAGE_PREVIEW_VERSION = "sharp-v2"
@@ -154,9 +161,13 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
             }.items():
                 if column not in {col["name"] for col in conn.execute("PRAGMA table_info(image_assets)")}:
                     conn.execute(f"ALTER TABLE image_assets ADD COLUMN {column} {definition}")
-            if 'request_json' not in {col['name'] for col in conn.execute('PRAGMA table_info(media_imports)')}:
+            columns = {col['name'] for col in conn.execute('PRAGMA table_info(media_imports)')}
+            if 'request_json' not in columns:
                 conn.execute("ALTER TABLE media_imports ADD COLUMN request_json TEXT")
-            conn.execute("UPDATE media_imports SET status=CASE WHEN request_json IS NULL THEN 'failed' ELSE 'queued' END,message='Recovered after restart',updated_at=? WHERE status='processing'", (now_iso(),))
+            if 'progress' not in columns:
+                conn.execute("ALTER TABLE media_imports ADD COLUMN progress INTEGER NOT NULL DEFAULT 0")
+            conn.execute("UPDATE media_imports SET progress=100 WHERE status='completed' AND progress<100")
+            conn.execute("UPDATE media_imports SET status=CASE WHEN request_json IS NULL THEN 'failed' ELSE 'queued' END,message='Recovered after restart',progress=0,updated_at=? WHERE status='processing'", (now_iso(),))
         import_stop.clear()
         import_thread=threading.Thread(target=dispatch_imports,daemon=True)
         import_thread.start()
@@ -529,6 +540,11 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
         return {"ok": True, "v2": True,"editor_token_configured": bool(os.getenv("SML_EDITOR_API_TOKEN")),
                 "images": imgs, "imports_processing": imports}
 
+    def report_import(job_id, percent, message):
+        with db() as conn:
+            conn.execute("UPDATE media_imports SET progress=?,message=?,updated_at=? WHERE id=?",
+                         (max(0, min(99, int(percent))), message[:350], now_iso(), job_id))
+
     def background_import(job_id, body):
         ext = Path(urlsplit(body.value).path if body.source == "youtube" else body.value).suffix.lower()
         # yt-dlp chooses the actual container; user-supplied suffix is not trusted.
@@ -551,18 +567,47 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                     tool = shutil.which("yt-dlp")
                     if not tool:
                         raise RuntimeError("yt-dlp is not installed")
-                    args = [tool,"--no-playlist","--no-progress","--no-warnings","--max-filesize","1200M",
-                            "--max-downloads","1","-f","best[ext=mp4]/best","-o",str(temp_dir/"download.%(ext)s")]
+                    args = [tool,"--no-playlist","--newline","--no-warnings",
+                            "--progress-template","download:%(progress._percent_str)s",
+                            "--max-filesize","1200M","--max-downloads","1",
+                            "-f","best[ext=mp4]/best","-o",str(temp_dir/"download.%(ext)s")]
                     proxy = os.getenv("SML_YTDLP_PROXY_URL","") if body.use_proxy else ""
                     if body.use_proxy and not proxy:
                         raise RuntimeError("Proxy profile is not configured")
                     if proxy:
                         args += ["--proxy",proxy]
                     args += [body.value]
-                    result = subprocess.run(args,capture_output=True,text=True,timeout=900)
-                    if result.returncode:
+                    report_import(job_id, 5, "Connecting to YouTube")
+                    recent = deque(maxlen=12)
+                    percent_seen = -1
+                    with subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                          text=True, errors="replace", bufsize=1) as proc:
+                        timed_out = threading.Event()
+                        def kill_expired():
+                            timed_out.set()
+                            proc.kill()
+                        timer = threading.Timer(900, kill_expired)
+                        timer.daemon = True
+                        timer.start()
+                        try:
+                            for line in proc.stdout:
+                                actual = parse_ytdlp_progress(line)
+                                if actual is not None:
+                                    if actual >= percent_seen + 3 or actual == 100:
+                                        percent_seen = actual
+                                        report_import(job_id, 10 + int(actual * .80),
+                                                      f"Downloading from YouTube: {actual}%")
+                                elif line.strip():
+                                    recent.append(line.strip())
+                            return_code = proc.wait()
+                        finally:
+                            timer.cancel()
+                    if timed_out.is_set():
+                        raise RuntimeError("YouTube import timed out after 15 minutes")
+                    if return_code:
                         raise RuntimeError("YouTube import failed (access/rights/format or network): " +
-                                           result.stderr[-180:].replace("\n"," "))
+                                           " ".join(recent)[-180:])
+                    report_import(job_id, 93, "Validating downloaded video")
                     files = [p for p in temp_dir.iterdir() if p.is_file()]
                     if len(files) != 1:
                         raise RuntimeError("Expected one downloaded media file")
@@ -572,6 +617,7 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                     raise RuntimeError("Unsupported imported media extension")
                 if output.stat().st_size > MAX_IMPORT_BYTES or output.stat().st_size == 0:
                     raise RuntimeError("Import size outside permitted 1B–2GB range")
+                report_import(job_id, 97, "Saving media to library")
                 if ext in IMAGE_EXT:
                     saved = persist_image(
                         output.name if body.source == "youtube" else Path(body.value).name,
@@ -615,7 +661,7 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                                 destination.unlink(missing_ok=True)
                                 raise
                 with db() as conn:
-                    conn.execute("UPDATE media_imports SET status='completed',message='Imported; video sources require Process',source_id=?,updated_at=? WHERE id=?",
+                    conn.execute("UPDATE media_imports SET status='completed',progress=100,message='Imported; video sources require Process',source_id=?,updated_at=? WHERE id=?",
                                  (source_id,now_iso(),job_id))
             finally:
                 IMPORT_LOCK.release()
@@ -632,7 +678,7 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                 with db() as conn:
                     conn.execute('BEGIN IMMEDIATE')
                     job=conn.execute("SELECT * FROM media_imports WHERE status='queued' ORDER BY created_at LIMIT 1").fetchone()
-                    if job:conn.execute("UPDATE media_imports SET status='processing',updated_at=? WHERE id=?",(now_iso(),job['id']))
+                    if job:conn.execute("UPDATE media_imports SET status='processing',message='Starting import',progress=1,updated_at=? WHERE id=?",(now_iso(),job['id']))
                 if job:background_import(job['id'],ImportRequest(**json.loads(job['request_json'])))
             except Exception:
                 # Keep the dispatcher alive; original media remains protected.
@@ -644,7 +690,7 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
             row=conn.execute('SELECT * FROM media_imports WHERE id=?',(job_id,)).fetchone()
             if not row:raise HTTPException(404,'Import not found')
             if row['status']!='failed' or not row['request_json']:raise HTTPException(409,'Only a failed saved request can be retried')
-            conn.execute("UPDATE media_imports SET status='queued',message='Retry queued',updated_at=? WHERE id=?",(now_iso(),job_id))
+            conn.execute("UPDATE media_imports SET status='queued',progress=0,message='Retry queued',updated_at=? WHERE id=?",(now_iso(),job_id))
         return {'ok':True,'status':'queued'}
 
     @app.post('/api/v1/media/imports/batch')
@@ -656,16 +702,23 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
     def create_import(body: ImportRequest):
         if body.source != "youtube":
             raise HTTPException(400, "Use local uploads or authorized YouTube sources")
-        if not body.value.strip() or len(body.value) > 1000:
-            raise HTTPException(400, "A source path or URL is required")
+        value = body.value.strip()
+        if not value or len(value) > 1000:
+            raise HTTPException(400, "A YouTube URL is required (maximum 1000 characters)")
+        parsed = urlsplit(value)
+        if parsed.scheme != "https" or (parsed.hostname or "").lower() not in {
+                "youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"}:
+            raise HTTPException(400, "Use an HTTPS youtube.com or youtu.be video URL")
+        if not body.rights_confirmed:
+            raise HTTPException(400, "Media usage rights confirmation is required")
         job_id = uuid.uuid4().hex[:14]
         with db() as conn:
-            conn.execute("INSERT INTO media_imports(id,source_type,name,status,created_at,updated_at,request_json) VALUES(?,?,?,?,?,?,?)",
-                         (job_id,body.source,body.value[:250],"queued",now_iso(),now_iso(),body.model_dump_json()))
+            conn.execute("INSERT INTO media_imports(id,source_type,name,status,message,progress,created_at,updated_at,request_json) VALUES(?,?,?,?,?,?,?,?,?)",
+                         (job_id,body.source,value[:250],"queued","Waiting for worker",0,now_iso(),now_iso(),body.model_dump_json()))
         return {"ok": True, "job_id": job_id, "status": "queued"}
 
     @app.get("/api/v1/media/imports")
     def list_imports():
         with db() as conn:
-            rows = conn.execute("SELECT id,source_type,name,status,message,source_id,created_at,updated_at FROM media_imports ORDER BY created_at DESC LIMIT 30").fetchall()
+            rows = conn.execute("SELECT id,source_type,name,status,message,progress,source_id,created_at,updated_at FROM media_imports ORDER BY created_at DESC LIMIT 30").fetchall()
         return {"items": [dict(row) for row in rows]}
