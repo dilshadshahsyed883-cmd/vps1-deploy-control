@@ -170,7 +170,8 @@ def erase(root, conn, kind, ids, now):
         if kind == 'video':
             files=[('clips',row['filename']),('thumbs',row['thumb_filename']),('metadata',ident+'.json')]
         else:
-            files=[('images',row['stored_name']),('image_previews',row['thumb_name'])]
+            files=[('images',row['stored_name']),('image_previews',row['thumb_name']),
+                   ('image_previews',ident+'-sharp-v2.jpg')]
         for folder,name in files:
             if name:safe_file(root,folder,name).unlink(missing_ok=True)
         # Permanent deletion removes catalog/AI data as well as local bytes.
