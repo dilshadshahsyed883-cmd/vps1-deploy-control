@@ -162,6 +162,43 @@ async function uploadFiles(files){
     }else if(ok && files.length>1){status.textContent+=' · Select Process for each queued source.'}
   }finally{button.disabled=false;button.textContent='Choose videos';sourceFile.value=''}
 }
+
+const processedFiles=$('#processedClipFiles'), processedDrop=$('#processedDropPanel');
+$('#chooseProcessed').onclick=()=>processedFiles.click();
+processedFiles.onchange=()=>uploadProcessedClips(Array.from(processedFiles.files||[]));
+['dragenter','dragover'].forEach(ev=>processedDrop.addEventListener(ev,e=>{e.preventDefault();processedDrop.classList.add('drag')}));
+['dragleave','drop'].forEach(ev=>processedDrop.addEventListener(ev,e=>{e.preventDefault();processedDrop.classList.remove('drag')}));
+processedDrop.addEventListener('drop',e=>{e.preventDefault();uploadProcessedClips(Array.from(e.dataTransfer?.files||[]))});
+async function uploadProcessedClips(files){
+  if(!files.length)return;
+  const button=$('#chooseProcessed'), status=$('#processedUploadResult');
+  const allowed=/\.(mp4|mov|mkv|webm|m4v|avi)$/i;
+  let success=0,duplicates=0,failed=0;
+  button.disabled=true;
+  try{
+    for(let i=0;i<files.length;i++){
+      const file=files[i];
+      if(!allowed.test(file.name)){failed++;continue;}
+      button.textContent='Saving '+(i+1)+'/'+files.length;
+      status.textContent='Saving '+(i+1)+'/'+files.length+': '+file.name;
+      const data=new FormData();data.append('file',file);
+      try{
+        const saved=await api('/api/clips/processed/upload',{method:'POST',body:data});
+        if(saved.duplicate)duplicates++;else success++;
+      }catch(e){failed++;status.textContent='Failed '+file.name+': '+e.message;}
+    }
+    const summary=success+' saved and automatically approved · '+duplicates+' duplicates skipped · '+failed+' failed';
+    status.textContent=summary;toast(summary);
+    if(success){
+      $('#statusFilter').value='approved';
+      $('#clipSearch').value='';$('#clipOrientation').value='all';$('#sortFilter').value='newest';
+      await loadDashboard();
+      await loadClips(true);
+      gotoPage('library');
+    }
+  }finally{button.disabled=false;button.textContent='Choose processed clips';processedFiles.value='';}
+}
+
 $('#refreshSources').onclick=loadSources; $('#refreshProcessing').onclick=loadSources;
 setInterval(()=>{if(state.page==='processing')loadSources();},3000);
 

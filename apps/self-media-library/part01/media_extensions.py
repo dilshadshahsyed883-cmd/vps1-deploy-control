@@ -672,7 +672,11 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
         path = root / "clips" / row["filename"]
         if not path.is_file():
             raise HTTPException(404, "Local clip is not available; metadata preserved")
-        return FileResponse(path, media_type="video/mp4")
+        return FileResponse(path, media_type={
+            ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime",
+            ".mkv": "video/x-matroska", ".webm": "video/webm",
+            ".avi": "video/x-msvideo",
+        }.get(path.suffix.lower(), "application/octet-stream"))
 
     @app.get("/api/v1/media/image/{asset_id}/content")
     def editor_image_content(asset_id: str, x_sml_editor_token: str = Header(default="")):

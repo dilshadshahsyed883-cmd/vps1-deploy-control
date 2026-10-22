@@ -17,7 +17,9 @@ class CompactInput(unittest.TestCase):
         for item in ("page-sources","sourceFile","dropPanel","chooseSource","sourceUploadResult","sourcesList","refreshSources","imageFiles","uploadImages","imageUploadResult","aiFolderInput","aiInputStatus","aiBatchUrls","aiBatchRights","aiBatchImport","importSource","importValue","importRights","importProxy","submitImport","importHistory"):
             self.assertEqual(page.ids.get(item),1,item)
         self.assertEqual(html.count('class="sml-input-grid"'),1)
-        self.assertEqual(html.count('data-sml-upload='),3)
+        self.assertEqual(html.count('data-sml-upload='),4)
+        self.assertIn('data-sml-upload="processed"',html)
+        self.assertIn('id="sml-upload-processed" role="tabpanel" hidden',html)
         self.assertEqual(html.count('data-sml-import='),1)
         self.assertIn('id="smlBatchDetails"',html)
         self.assertIn('id="sml-upload-video" role="tabpanel"',html)

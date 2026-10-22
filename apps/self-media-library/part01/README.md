@@ -38,3 +38,14 @@ returns a no-match/unavailable response, never fabricated availability.
 Standalone: `./install.sh`, then `./start.sh` (port 8090). Production uses the
 existing protected GitHub → Tailscale SML-only immutable release transaction,
 SQLite backup, idle checks, functional verification and source rollback.
+
+## Already processed clips (direct save)
+
+Input → Processed Clips accepts local MP4/MOV/MKV/WEBM/M4V/AVI files through
+`POST /api/clips/processed/upload` (`multipart/form-data`, field `file`).
+Each valid clip is stored unchanged with a generated JPEG preview, an SHA-256,
+and an `approved`/`kept` catalog record. Processing, clip splitting, AI and
+pair review are skipped. Identical active clips return `duplicate: true` without
+changing their current review state. A synthetic completed source preserves
+filename/orientation provenance without storing an extra source copy. Approved
+clips are available through the existing authenticated Scene Builder V2 API.
