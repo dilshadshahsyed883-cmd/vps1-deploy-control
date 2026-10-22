@@ -99,6 +99,31 @@ class ProfileManager(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"symlink"):
                 profiles.state()
 
+    def test_http_api_saves_and_exposes_no_password(self):
+        from fastapi.testclient import TestClient
+        sys.modules.pop("app", None)
+        try:
+            import app as module
+            with TestClient(module.app) as client:
+                base = "/api/v1/media/proxy"
+                empty = client.get(base)
+                self.assertEqual(empty.status_code, 200)
+                self.assertEqual(empty.json()["profiles"], [])
+                saved = client.post(base+"/save", json=PROFILE)
+                self.assertEqual(saved.status_code, 200, saved.text)
+                profile_id = saved.json()["id"]
+                listed = client.get(base).json()
+                self.assertEqual(len(listed["profiles"]), 1)
+                self.assertNotIn("password", listed["profiles"][0])
+                self.assertNotIn("my-private-secret", str(listed))
+                self.assertEqual(client.post(base+"/toggle", json={"enabled":True}).status_code, 200)
+                self.assertTrue(client.get(base).json()["enabled"])
+                self.assertTrue(client.get("/api/v1/media/status").json()["proxy_configured"])
+                self.assertEqual(client.post(base+"/delete",json={"id":profile_id}).status_code,200)
+                self.assertFalse(client.get(base).json()["enabled"])
+        finally:
+            sys.modules.pop("app", None)
+
     def test_proxy_ui_has_all_video_merger_equivalent_controls(self):
         html=(ROOT/"static/index.html").read_text()
         js=(ROOT/"static/app.js").read_text()
