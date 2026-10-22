@@ -146,7 +146,7 @@ for(const id of ['localFrom','localTo'])$('#'+id).onchange=()=>{loadClips(true);
 $('#clearLibraryDates').onclick=()=>{$('#localFrom').value='';$('#localTo').value='';loadClips(true);loadImages()};
 $('#selectAllImages').onclick=()=>{
   imageRows.forEach(row=>imageSelected.add(row.id));
-  $('#imagesGrid [data-image-select]').forEach(input=>input.checked=true);
+  document.querySelectorAll('#imagesGrid [data-image-select]').forEach(input=>input.checked=true);
   updateImageBulk();
 };
 $('#deleteSelectedImages').onclick=async()=>{
