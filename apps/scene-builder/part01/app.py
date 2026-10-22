@@ -2674,7 +2674,10 @@ def _web_audit_payload(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 @app.get("/audit-media", response_class=HTMLResponse)
 def audit_media_page(request: Request):
     username = str(request.session.get("username") or "")
-    waiting = [job for job in jobs_for_user(username, 1000) if str(job.get("status") or "") == "waiting_for_audit"]
+    waiting = [job for job in jobs_for_user(username, 1000)
+               if str(job.get("status") or "") == "waiting_for_audit"
+               or (str(job.get("status") or "") == "downloading_media"
+                   and str(job.get("stage") or "") == "Preparing Visual Audit")]
     selected_job_id = str(request.query_params.get("job") or "").strip()
     selected_job: dict[str, Any] | None = None
     audit_payload: dict[str, Any] | None = None
