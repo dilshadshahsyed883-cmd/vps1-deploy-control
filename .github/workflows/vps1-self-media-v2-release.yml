@@ -113,6 +113,10 @@ jobs:
           status=read('/api/v1/media/status')
           images=read('/api/v1/images?limit=1')
           imports=read('/api/v1/media/imports')
+          proxy_state=read('/api/v1/media/proxy')
+          assert isinstance(proxy_state.get('profiles'),list), 'SML proxy manager endpoint missing'
+          assert isinstance(proxy_state.get('enabled'),bool), 'SML proxy enable status missing'
+          assert all('password' not in p and 'has_password' in p for p in proxy_state['profiles']), 'SML proxy secrets exposed'
           assert isinstance(imports.get('items'),list)
           assert all('progress' in item and 'use_proxy' in item for item in imports['items'])
           assert isinstance(imports.get('proxy_configured'),bool), 'SML proxy availability missing'
@@ -135,6 +139,8 @@ jobs:
           assert index.count('data-page="') >= 5
           assert 'id="importHistory"' in index and 'id="refreshImports"' in index
           assert 'id="importProxyState"' in index
+          assert 'id="smlOpenProxyManager"' in index and 'id="smlProxyForm"' in index
+          assert 'id="smlProxyEnabled"' in index and 'id="smlProxyList"' in index
           scene_js=asset(18080,'/static/vps1_native_site_shell.js')
           assert 'vps1-native-experiment-tabs' in scene_js
           assert 'app === "library"' in scene_js
@@ -152,6 +158,7 @@ jobs:
           print('SML_V2_SERVICE_HEALTH=PASS',flush=True)
           print('SML_YOUTUBE_QUEUE_UI_AND_PROGRESS=PASS',flush=True)
           print('SML_YOUTUBE_PROXY_RECOVERY=PASS',flush=True)
+          print('SML_PROXY_PROFILE_MANAGER_API_UI=PASS',flush=True)
           print('EDITOR_TOKEN_CONFIGURED='+str(bool(status.get('editor_token_configured'))),flush=True)
           print('DRIVE_ENABLED='+str(bool(health.get('drive_enabled'))),flush=True)
           PY
