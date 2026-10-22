@@ -102,9 +102,9 @@ class SceneEngineEffects(unittest.TestCase):
                             SimpleNamespace(caption_karaoke_enabled=True), 1280, 720)
             self.assertTrue(ok)
             body = dest.read_text(encoding="utf-8-sig")
-            self.assertIn(r"{\\kf70}alpha", body)
-            self.assertIn(r"{\\kf30}beta", body)
-            self.assertNotIn(r"{\\kf50}alpha", body)
+            self.assertIn(r"{\kf70}alpha", body)
+            self.assertIn(r"{\kf30}beta", body)
+            self.assertNotIn(r"{\kf50}alpha", body)
             # Backward compatibility with saved caption rows lacking words.
             older = CaptionSegment(start=0, end=1, text="old caption")
             self.assertTrue(_write_ass([older.to_dict()], dest,
@@ -136,6 +136,7 @@ class SceneEngineEffects(unittest.TestCase):
                     with self.subTest(pack=pack, preset=preset):
                         source = root / pack / f"{preset}.cube"
                         self.assertTrue(source.is_file(), source)
+                        (root / "cache").mkdir(exist_ok=True)
                         low = blended_lut(source, 0, root / "cache")
                         high = blended_lut(source, 100, root / "cache")
                         def pixels(lut):
