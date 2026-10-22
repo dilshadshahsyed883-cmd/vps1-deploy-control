@@ -46,5 +46,13 @@ class SceneDriveDeliveryTests(unittest.TestCase):
         self.assertIn('rclone", "lsd", remote+":"', REFRESH)
         self.assertIn('DRIVE_UPLOAD_ENABLED=1', REFRESH)
         self.assertIn('worker.ENV, self.original_env, 0o600', REFRESH)
+        import runpy
+        policy=runpy.run_path(str(ROOT/'apps/scene-builder/part01/precutover_policy.py'))
+        can_write=policy['mutation_allowed']
+        owned='/queue/'+'a'*32+'/upload-drive'
+        self.assertTrue(can_write('POST', owned, True))
+        self.assertFalse(can_write('POST', owned, False))
+        self.assertFalse(can_write('GET', owned, True))
+        self.assertFalse(can_write('POST', '/queue/x/upload-drive', True))
 
 if __name__=="__main__": unittest.main()
