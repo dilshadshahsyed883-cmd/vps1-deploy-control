@@ -117,6 +117,21 @@ finally:
 '''
 
 
+def _smoke_command(runner: Path) -> list[str]:
+    """runuser resets HOME to /nonexistent for service accounts; set it AFTER switch."""
+    home = worker.STATE / "worker-home"
+    return ["runuser", "-u", "vps1scene", "--", "/usr/bin/env",
+            "HOME="+str(home),
+            "XDG_CONFIG_HOME="+str(home/".config"),
+            "XDG_DATA_HOME="+str(home/".local/share"),
+            "TMPDIR="+str(worker.STATE/"tmp"),
+            "HF_HOME="+str(worker.STATE/"model-cache"),
+            "XDG_CACHE_HOME="+str(worker.STATE/"cache"),
+            "PYTHONPATH="+str(runner)+":"+str(runner/"vps_engine"),
+            "PYTHONDONTWRITEBYTECODE=1",
+            str(worker.VENV/"bin/python"), "-c", _SMOKE]
+
+
 class SceneWorkerSourceRefresh:
     def __init__(self, target: Path, journal: Path):
         self.target = Path(target)
@@ -134,8 +149,16 @@ class SceneWorkerSourceRefresh:
         atomic_json(worker.RECORD, self.original_record, 0o600)
         run(["systemctl", "daemon-reload"], timeout=20, quiet=True)
         run(["systemctl", "restart", worker.UNIT], timeout=70, quiet=True)
-        worker.require(worker.health(worker.URL,self.token).get("ok") is True,
-                       "rollback health failed; preserve previous owned worker")
+        # systemctl restart returns before uvicorn has completed Python imports,
+        # queue opening and health admission. Match the established worker-HOME
+        # release readiness probe instead of checking only once.
+        for _ in range(60):
+            payload = worker.health(worker.URL,self.token)
+            if payload.get("ok") is True and payload.get("admission_only") is False:
+                break
+            time.sleep(.5)
+        else:
+            raise RuntimeError("Scene worker rollback health timed out; previous unit retained")
         self.original_unit = None
         self.original_record = None
         self.did_refresh = False
@@ -217,13 +240,8 @@ class SceneWorkerSourceRefresh:
             worker.require(pid.isdigit() and int(pid)>1 and
                            (Path("/proc")/pid/"cwd").resolve()==new_runner,
                            "running worker still bound to old source")
-            env = os.environ.copy()
-            env["PYTHONPATH"] = str(new_runner)+":"+str(new_runner/"vps_engine")
-            env["TMPDIR"] = str(worker.STATE/"tmp")
-            env["HOME"] = str(worker.STATE/"worker-home")
-            smoke=subprocess.run(["runuser","-u","vps1scene","--",
-                                  str(worker.VENV/"bin/python"),"-c",_SMOKE],
-                                  env=env,capture_output=True,text=True,timeout=300)
+            smoke=subprocess.run(_smoke_command(new_runner),
+                                  capture_output=True,text=True,timeout=300)
             worker.require(smoke.returncode==0 and
                            smoke.stdout.count("SCENE_LIVE_WORKER_RENDER_PROOF=")==4,
                            "real worker FFmpeg render proof failed: "+smoke.stderr[-700:])
