@@ -2,6 +2,8 @@
 import importlib
 import json
 import os
+import shutil
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -98,6 +100,63 @@ class DownloadStrategy(unittest.TestCase):
                     d.download_youtube_video("https://youtu.be/jNQXAC9IVRw",
                                              Path(tmp), lambda *_: None, use_proxy=False)
         self.assertEqual(len(attempts), 1)
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg/FFprobe required for real video+audio regression")
+    def test_single_video_combined_av_is_accepted_without_max_downloads(self):
+        """Reproduce the former 5% failure after yt-dlp merged two streams.
+
+        A single YouTube URL must not carry a download-count limiter. Accept
+        one finished, ffprobe-valid video with an audio stream and report success.
+        """
+        with tempfile.TemporaryDirectory(prefix="sml-merged-av-") as tmp:
+            root = Path(tmp)
+            sample = root / "combined-av.mp4"
+            subprocess.run([
+                "ffmpeg", "-v", "error", "-y", "-f", "lavfi",
+                "-i", "color=c=black:s=160x90:d=1:r=24",
+                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=1",
+                "-c:v", "mpeg4", "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-shortest", str(sample)
+            ], check=True, timeout=30, capture_output=True)
+
+            command_used = []
+            class FakeDownloader:
+                def __init__(self, args, **kwargs):
+                    command_used.extend(args)
+                    self.stdout = iter(["download: 48.0%", "download:100%"])
+                    target = Path(args[args.index("-o") + 1].replace("%(ext)s", "mp4"))
+                    shutil.copyfile(sample, target)
+                def __enter__(self): return self
+                def __exit__(self, *args): return False
+                def wait(self): return 0
+                def kill(self): pass
+
+            percentages = []
+            with patch.object(d.subprocess, "Popen", FakeDownloader), \\
+                 patch.object(d, "_js_runtime", return_value=None):
+                output = d._run_attempt(
+                    "https://youtu.be/one-authorized-video", root / "attempt-1",
+                    None, "default", None, percentages.append, 30
+                )
+            self.assertEqual(output.name, "video.mp4")
+            self.assertTrue(output.is_file())
+            self.assertGreater(output.stat().st_size, 1000)
+            self.assertEqual(percentages, [48, 100])
+            self.assertNotIn("--max-downloads", command_used)
+            self.assertEqual(command_used[command_used.index("-f") + 1],
+                             "bv*+ba/best/bv*")
+            self.assertEqual(command_used[command_used.index("--merge-output-format") + 1],
+                             "mp4")
+            self.assertIn("--no-playlist",
+                          (root / "attempt-1" / "yt-dlp.conf").read_text())
+
+    def test_video_merger_has_no_download_count_limiter(self):
+        video_merger = (ROOT.parents[1] / "video-merger/part01/app.py").read_text()
+        sml_downloader = (ROOT / "video_merger_downloader.py").read_text()
+        self.assertNotIn("'--max-downloads'", video_merger)
+        self.assertNotIn('"--max-downloads", "1"', sml_downloader)
+        self.assertIn('"--no-playlist"', sml_downloader)
 
     def test_audio_only_is_rejected_by_ffprobe_gate(self):
         class FakeProcess:
