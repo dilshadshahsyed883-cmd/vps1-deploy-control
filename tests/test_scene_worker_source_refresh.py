@@ -69,6 +69,40 @@ class WorkerSourceRefreshPolicy(unittest.TestCase):
                 run.assert_not_called()
             self.assertEqual(unit.read_text(),"{}")
 
+    def test_runuser_sets_writable_home_after_identity_switch(self):
+        runner = Path("/srv/fresh-website/releases/scene-production-worker/revision")
+        cmd = refresh._smoke_command(runner)
+        self.assertEqual(cmd[:5],["runuser","-u","vps1scene","--","/usr/bin/env"])
+        after_switch = cmd[5:-3]
+        self.assertIn("HOME="+str(worker.STATE/"worker-home"),after_switch)
+        self.assertIn("XDG_DATA_HOME="+str(worker.STATE/"worker-home/.local/share"),after_switch)
+        self.assertIn("XDG_CONFIG_HOME="+str(worker.STATE/"worker-home/.config"),after_switch)
+        self.assertIn("TMPDIR="+str(worker.STATE/"tmp"),after_switch)
+        self.assertIn("PYTHONPATH="+str(runner)+":"+str(runner/"vps_engine"),after_switch)
+        self.assertEqual(cmd[-2],"-c")
+
+    def test_rollback_waits_for_old_worker_python_startup(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            unit=root/"old.service"
+            record=root/"record.json"
+            unit.write_text("new")
+            manager=refresh.SceneWorkerSourceRefresh(root,root)
+            manager.original_unit=b"old"
+            manager.original_record={"owner":"scene-production-worker-v1","source":"old"}
+            manager.token="private"
+            with (patch.object(worker,"UNIT_FILE",unit),
+                  patch.object(worker,"RECORD",record),
+                  patch.object(worker,"health",side_effect=[{},{"ok":True,"admission_only":False}]) as h,
+                  patch.object(refresh.time,"sleep") as pause,
+                  patch("production.runtime.run") as run):
+                manager._restore()
+                self.assertEqual(unit.read_text(),"old")
+                self.assertEqual(h.call_count,2)
+                pause.assert_called_once()
+                self.assertEqual(run.call_count,2)
+                self.assertIsNone(manager.original_unit)
+
     def test_missing_owned_worker_does_not_modify_any_unmanaged_service(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)
