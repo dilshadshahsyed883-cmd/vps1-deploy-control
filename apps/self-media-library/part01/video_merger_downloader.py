@@ -213,7 +213,11 @@ def _run_attempt(url, directory, route, client, session, on_download_percent, ti
         sys.executable, "-m", "yt_dlp", "--ignore-config", "--config-locations", str(config),
         "--newline", "--no-warnings", "--progress-template",
         "download:%(progress._percent_str)s", "--max-filesize", "1200M",
-        "--max-downloads", "1", "--merge-output-format", "mp4",
+        # --no-playlist limits intake to one YouTube video. Do not use
+        # --max-downloads=1: yt-dlp counts successful media downloads when
+        # merging separate video+audio streams and can exit non-zero after
+        # the finished output, making SML incorrectly mark the job failed.
+        "--merge-output-format", "mp4",
         "-f", "bv*+ba/best/bv*", "-o", str(directory / "video.%(ext)s"),
     ]
     if client != "default":
