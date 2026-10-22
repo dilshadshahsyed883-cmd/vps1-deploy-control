@@ -895,6 +895,11 @@ register_media_extensions(app, data_dir=DATA, db=db, now_iso=now_iso,
                           get_settings_map=get_settings_map, setting_true=setting_true,
                           source_dir=SOURCES_DIR)
 
+# Owner-opt-in, CPU-only face indexing and person-tag approval.
+from face_people import register_face_people
+register_face_people(app, data_dir=DATA, db=db, now_iso=now_iso)
+
+
 # Advanced AI remains an additive, isolated service within the independent app.
 from ai_engine import model_ready
 from ai_workspace import register_ai_workspace
