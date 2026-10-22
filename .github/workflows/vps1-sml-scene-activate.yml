@@ -22,6 +22,28 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify no Scene source drift from already-live renderer
+        shell: bash
+        env:
+          SCENE_LIVE_SHA: c9309d628eacfc32c906bff80e1807c169c79f12
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          git cat-file -e "$SCENE_LIVE_SHA^{commit}"
+          git diff --quiet "$SCENE_LIVE_SHA" "$SOURCE_SHA" -- \
+            apps/scene-builder \
+            production/scene_candidate_release.py \
+            production/scene_production_worker.py \
+            production/scene_worker_source_refresh.py \
+            production/scene_worker_home.py \
+            production/scene_sml_worker.py \
+            production/scene_sml_render_proof.py \
+            production/sml_scene_activation.py \
+            production/runtime.py
+          echo "SCENE_LIVE_IMMUTABLE_SOURCE_MATCH=PASS"
       - name: Join pinned Tailscale production network
         uses: tailscale/github-action@v4
         with:
@@ -101,35 +123,27 @@ jobs:
               sleep 60
             fi
           done
-          echo 'SCENE_WEB_GUARDED_SOURCE_RELEASE'
-          # An unrelated job may enter the Scene queue AFTER read-only preflight.
-          # Respect the installer's fail-closed worker guard; retry ONLY when
-          # it explicitly says active queued/in-flight Scene work deferred refresh.
-          # Never cancel, drain forcibly, delete or mutate owner jobs.
-          scene_ready=false
-          for attempt in $(seq 1 20); do
-            if remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA scene-builder" > "$scratch/scene-install.log" 2>&1; then
-              cat "$scratch/scene-install.log"
-              scene_ready=true
-              break
-            fi
-            cat "$scratch/scene-install.log"
-            if ! grep -Fq 'queued or in-flight Scene jobs exist; source refresh deferred' "$scratch/scene-install.log"; then
-              echo 'SCENE_INSTALL_NON_BUSY_ERROR: fail closed without retry'
-              exit 1
-            fi
-            if [[ "$attempt" -ge 20 ]]; then
-              echo 'SCENE_JOBS_REMAIN_ACTIVE: deferred without modifying queued jobs'
-              exit 1
-            fi
-            echo "SCENE_BUSY_SAFE_RETRY $attempt/20: waiting for unrelated jobs to complete"
-            sleep 60
-          done
-          [[ "$scene_ready" == true ]]
+          # Scene web and writable worker are already live at the exactly
+          # source-identical approved SHA. Do not restart either or touch owner
+          # jobs here. The checkout step proves no Scene code drift at new main.
+          echo 'SCENE_WEB_WORKER_READ_ONLY_SOURCE_REUSE'
+          remote 'python3 -' <<'PY'
+          from pathlib import Path
+          import json
+          expected='c9309d628eacfc32c906bff80e1807c169c79f12'
+          scene=Path('/srv/fresh-website/current/scene-builder').resolve(strict=True)
+          assert scene.name == expected, 'Live Scene code changed: cannot reuse source'
+          worker=json.loads(Path('/srv/fresh-website/control/state/scene-production-worker.json').read_text())
+          assert Path(worker['source']).resolve(strict=True) == scene, 'Renderer source differs from Scene web'
+          assert (scene/'part01/sml_scene_bridge.py').is_file(), 'Scene approved catalog bridge missing'
+          assert (scene/'part02/sml_worker_bridge.py').is_file(), 'Scene renderer acquisition bridge missing'
+          print('SCENE_ALREADY_LIVE_SOURCE_REUSE=PASS')
+          PY
           echo 'SML_SOURCE_RELEASE_AND_ATOMIC_PRIVATE_EDITOR_ACTIVATION'
           if ! remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA self-media-library"; then
-            echo 'SML_ACTIVATION_FAILED: attempting bounded Scene source rollback'
-            remote "sudo -n /usr/local/sbin/vps1-production-deploy rollback $SOURCE_SHA scene-builder" || true
+            # The unchanged live Scene renderer was not installed by this job.
+            # SML installer owns its own rollback; never roll back Scene here.
+            echo 'SML_ACTIVATION_FAILED: Scene owner jobs and source preserved'
             exit 1
           fi
           echo 'SML_SCENE_POST_RELEASE_READBACK'
