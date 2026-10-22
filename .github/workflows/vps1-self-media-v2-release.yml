@@ -71,10 +71,11 @@ jobs:
           if not health.get('ok'):
               raise RuntimeError('SML health failed; abort without deployment')
           processing=int(stats.get('processing',-1))
-          if processing < 0:
-              raise RuntimeError('SML processing count unknown; abort without deployment')
-          if processing:
-              print('SML_ACTIVE_PROCESSING='+str(processing),flush=True)
+          imports=int(read('/api/v1/media/status').get('imports_processing',-1))
+          if processing < 0 or imports < 0:
+              raise RuntimeError('SML processing/import count unknown; abort without deployment')
+          if processing or imports:
+              print('SML_ACTIVE_PROCESSING='+str(processing)+' IMPORTS='+str(imports),flush=True)
               raise SystemExit(20)
           print('SML_IDLE_PREFLIGHT=PASS',flush=True)
           PY
@@ -105,6 +106,9 @@ jobs:
           health=read('/api/health')
           status=read('/api/v1/media/status')
           images=read('/api/v1/images?limit=1')
+          imports=read('/api/v1/media/imports')
+          assert isinstance(imports.get('items'),list)
+          assert all('progress' in item for item in imports['items'])
           storage=read('/api/local/storage')
           assert storage['storage_mode']=='vps_only' and storage['free_bytes']>0
           assert health['drive_enabled'] is False
@@ -122,6 +126,7 @@ jobs:
           assert 'href="/self-media-library/static/sml_shared_theme.css' in index
           assert 'src="/self-media-library/static/app.js' in index
           assert index.count('data-page="') >= 5
+          assert 'id="importHistory"' in index and 'id="refreshImports"' in index
           scene_js=asset(18080,'/static/vps1_native_site_shell.js')
           assert 'vps1-native-experiment-tabs' in scene_js
           assert 'app === "library"' in scene_js
@@ -132,9 +137,11 @@ jobs:
           app_js=asset(8147,'/static/app.js')
           assert 'const libraryPath = path =>' in app_js
           assert 'fetch(libraryPath(url)' in app_js
+          assert 'renderImports(items)' in app_js and 'data-import-retry' in app_js
           print('SML_SHARED_SHELL_ASSETS=PASS',flush=True)
           print('SML_UI_LIGHT_THEME_AND_SCOPED_API=PASS',flush=True)
           print('SML_V2_SERVICE_HEALTH=PASS',flush=True)
+          print('SML_YOUTUBE_QUEUE_UI_AND_PROGRESS=PASS',flush=True)
           print('EDITOR_TOKEN_CONFIGURED='+str(bool(status.get('editor_token_configured'))),flush=True)
           print('DRIVE_ENABLED='+str(bool(health.get('drive_enabled'))),flush=True)
           PY
