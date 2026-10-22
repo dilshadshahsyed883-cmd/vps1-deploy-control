@@ -400,17 +400,22 @@ function renderImports(items, proxyConfigured=smlProxyProfileReady){
     const progress=status==='completed'?100:Math.min(99,Math.max(0,Number(item.progress)||0));
     const directRetry=status==='failed'&&item.use_proxy&&proxyConfigured===false;
     const retry=status==='failed'?'<button type="button" class="ghost" data-import-retry="'+esc(item.id)+'"'+(directRetry?' data-import-direct="true" title="Connect directly from the VPS without a proxy"':'')+'>'+(directRetry?'Retry direct':'Retry')+'</button>':'';
-    return '<div class="source-row sml-import-job" data-import-job="'+esc(item.id)+'"><div class="source-main"><b>'+esc(item.name)+'</b><span>'+esc(item.message||status)+'</span><small>Job '+esc(item.id)+' · '+esc(status)+' · '+progress+'%</small><progress max="100" value="'+progress+'" aria-label="Import '+esc(item.id)+' progress"></progress></div><span class="state">'+esc(status)+'</span>'+retry+'</div>';
+    const retryProxy=status==='failed'&&!item.use_proxy&&proxyConfigured===true?
+      '<button type="button" class="ghost" data-import-retry="'+esc(item.id)+'" data-import-with-proxy="true">Retry via proxy</button>':'';
+    return '<div class="source-row sml-import-job" data-import-job="'+esc(item.id)+'"><div class="source-main"><b>'+esc(item.name)+'</b><span>'+esc(item.message||status)+'</span><small>Job '+esc(item.id)+' · '+esc(status)+' · '+progress+'%</small><progress max="100" value="'+progress+'" aria-label="Import '+esc(item.id)+' progress"></progress></div><span class="state">'+esc(status)+'</span>'+retry+retryProxy+'</div>';
   }).join(''):'<p class="empty">No YouTube imports yet. Queue a video URL above.</p>';
   list.querySelectorAll('[data-import-retry]').forEach(button=>button.onclick=async()=>{
     const direct=button.dataset.importDirect==='true';
+    const withProxy=button.dataset.importWithProxy==='true';
     if(direct&&!confirm('This retry will download directly through the VPS connection WITHOUT a proxy. Continue?'))return;
+    if(withProxy&&!confirm('Retry this saved YouTube URL using the active proxy profile?'))return;
     button.disabled=true;
     try{
       await api('/api/v1/media/imports/'+encodeURIComponent(button.dataset.importRetry)+'/retry',{
-        method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({direct_without_proxy:direct})
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({direct_without_proxy:direct,with_proxy:withProxy})
       });
-      toast(direct?'Direct import queued (no proxy)':'Import retry queued');
+      toast(withProxy?'Proxy retry queued':direct?'Direct import queued (no proxy)':'Import retry queued');
       await loadImports();
     }catch(e){toast(e.message);button.disabled=false}
   });
