@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from media_integrity import sha256_file
 from media_catalog import probe_video, safe_origin, classify_orientation
 from video_merger_downloader import download_youtube_video, proxy_available
+import sml_proxy_profiles
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}
@@ -105,6 +106,23 @@ def sml_proxy_configured() -> bool:
     # Video Merger/Audio selected proxy routes are borrowed READ-ONLY when
     # the owner explicitly opts in; no credentials copied or changed.
     return proxy_available()
+
+
+class ProxyProfileInput(BaseModel):
+    id: str = ""
+    name: str = ""
+    host: str = ""
+    port: int = 0
+    username: str = ""
+    password: str = ""
+
+
+class ProxyProfileId(BaseModel):
+    id: str
+
+
+class ProxyToggle(BaseModel):
+    enabled: bool
 
 
 class ReservationRequest(BaseModel):
@@ -644,6 +662,51 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
         return {"ok": True, "v2": True,"editor_token_configured": bool(os.getenv("SML_EDITOR_API_TOKEN")),
                 "images": imgs, "imports_processing": imports,
                 "proxy_configured": sml_proxy_configured()}
+
+    # SML-only proxy profiles: same controls as Video Merger, independent data.
+    # Never serve credential values, and never alter Video Merger's profile file.
+    @app.get("/api/v1/media/proxy")
+    def proxy_settings():
+        return sml_proxy_profiles.state()
+
+    @app.post("/api/v1/media/proxy/save")
+    def proxy_save(body: ProxyProfileInput):
+        try:
+            pid = sml_proxy_profiles.save(body.model_dump())
+            return {"ok": True, "id": pid}
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+
+    @app.post("/api/v1/media/proxy/active")
+    def proxy_activate(body: ProxyProfileId):
+        try:
+            sml_proxy_profiles.set_active(body.id)
+            return {"ok": True}
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+
+    @app.post("/api/v1/media/proxy/toggle")
+    def proxy_toggle(body: ProxyToggle):
+        try:
+            sml_proxy_profiles.toggle(body.enabled)
+            return {"ok": True}
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+
+    @app.post("/api/v1/media/proxy/delete")
+    def proxy_delete(body: ProxyProfileId):
+        try:
+            sml_proxy_profiles.delete(body.id)
+            return {"ok": True}
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
+
+    @app.post("/api/v1/media/proxy/test")
+    def proxy_test(body: ProxyProfileId):
+        try:
+            return sml_proxy_profiles.test(body.id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from None
 
     def report_import(job_id, percent, message):
         with db() as conn:
