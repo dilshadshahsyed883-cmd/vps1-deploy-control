@@ -311,6 +311,14 @@ def init_db() -> None:
             "canvas_fill_mode": "blur",
             "canvas_blur_strength": "16",
             "canvas_fill_color": "#101018",
+            "capcut_mirror_enabled": "0",
+            "capcut_mirror_percent": "0",
+            "capcut_zoom_level": "100",
+            "capcut_noise_enabled": "0",
+            "capcut_noise_effect": "film",
+            "capcut_noise_intensity": "35",
+            "capcut_noise_percent": "40",
+            "capcut_noise_target": "both",
             "custom_fps": "24",
             "timing_mode": "auto_repair",
             "max_scene_seconds": "4.0",
@@ -982,6 +990,14 @@ def custom_scene_profile() -> dict[str, Any]:
         "canvas_fill_mode": setting("canvas_fill_mode", "blur"),
         "canvas_blur_strength": max(0, min(40, int(setting("canvas_blur_strength", "16") or 0))),
         "canvas_fill_color": setting("canvas_fill_color", "#101018"),
+        "capcut_mirror_enabled": setting("capcut_mirror_enabled", "0") == "1",
+        "capcut_mirror_percent": max(0, min(100, int(setting("capcut_mirror_percent", "0") or 0))),
+        "capcut_zoom_level": max(50, min(300, int(setting("capcut_zoom_level", "100") or 100))),
+        "capcut_noise_enabled": setting("capcut_noise_enabled", "0") == "1",
+        "capcut_noise_effect": setting("capcut_noise_effect", "film"),
+        "capcut_noise_intensity": max(0, min(100, int(setting("capcut_noise_intensity", "35") or 0))),
+        "capcut_noise_percent": max(0, min(100, int(setting("capcut_noise_percent", "40") or 0))),
+        "capcut_noise_target": setting("capcut_noise_target", "both"),
         "fps": max(20, min(60, int(setting("output_fps", "24") or 24))),
         "captions_enabled": setting("captions_enabled", "1") == "1",
         "caption_style": setting("caption_style", "karaoke"),
@@ -1039,7 +1055,9 @@ def custom_scene_profile() -> dict[str, Any]:
 
 
 PROFILE_FIELDS = (
-    "quality", "aspect_ratio", "fps", "canvas_fill_mode", "canvas_blur_strength", "canvas_fill_color", "captions_enabled", "caption_style", "caption_position", "caption_karaoke_enabled",
+    "quality", "aspect_ratio", "fps", "canvas_fill_mode", "canvas_blur_strength", "canvas_fill_color",
+    "capcut_mirror_enabled", "capcut_mirror_percent", "capcut_zoom_level",
+    "capcut_noise_enabled", "capcut_noise_effect", "capcut_noise_intensity", "capcut_noise_percent", "capcut_noise_target", "captions_enabled", "caption_style", "caption_position", "caption_karaoke_enabled",
     "timing_mode", "max_scene_seconds", "min_scene_seconds",
     "intro_media_min_seconds", "intro_media_max_seconds",
     "hook_media_min_seconds", "hook_media_max_seconds",
@@ -1170,6 +1188,14 @@ def scene_preset_catalog() -> dict[str, dict[str, Any]]:
         item.setdefault("canvas_fill_mode", setting("canvas_fill_mode", "blur"))
         item.setdefault("canvas_blur_strength", max(0, min(40, int(setting("canvas_blur_strength", "16") or 0))))
         item.setdefault("canvas_fill_color", setting("canvas_fill_color", "#101018"))
+        item.setdefault("capcut_mirror_enabled", False)
+        item.setdefault("capcut_mirror_percent", 0)
+        item.setdefault("capcut_zoom_level", 100)
+        item.setdefault("capcut_noise_enabled", False)
+        item.setdefault("capcut_noise_effect", "film")
+        item.setdefault("capcut_noise_intensity", 35)
+        item.setdefault("capcut_noise_percent", 40)
+        item.setdefault("capcut_noise_target", "both")
         if preset_id in SCENE_PRESETS:
             item.update(builtin_scene_preset_override(preset_id))
         item["preset_id"] = preset_id
@@ -1384,6 +1410,14 @@ def build_project_package(
         "canvas_fill_mode": str(profile.get("canvas_fill_mode", "blur")),
         "canvas_blur_strength": max(0, min(40, int(profile.get("canvas_blur_strength", 16)))),
         "canvas_fill_color": str(profile.get("canvas_fill_color", "#101018")),
+        "capcut_mirror_enabled": bool(profile.get("capcut_mirror_enabled", False)),
+        "capcut_mirror_percent": max(0, min(100, int(profile.get("capcut_mirror_percent", 0)))),
+        "capcut_zoom_level": max(50, min(300, int(profile.get("capcut_zoom_level", 100)))),
+        "capcut_noise_enabled": bool(profile.get("capcut_noise_enabled", False)),
+        "capcut_noise_effect": str(profile.get("capcut_noise_effect", "film")),
+        "capcut_noise_intensity": max(0, min(100, int(profile.get("capcut_noise_intensity", 35)))),
+        "capcut_noise_percent": max(0, min(100, int(profile.get("capcut_noise_percent", 40)))),
+        "capcut_noise_target": str(profile.get("capcut_noise_target", "both")),
         "captions_enabled": captions,
         "caption_mode": captions,
         "caption_sync_mode": "better",
@@ -3543,6 +3577,14 @@ def settings_page(request: Request):
             "canvas_fill_mode": str(editing_profile.get("canvas_fill_mode") or "blur"),
             "canvas_blur_strength": int(editing_profile.get("canvas_blur_strength", 16)),
             "canvas_fill_color": str(editing_profile.get("canvas_fill_color") or "#101018"),
+            "capcut_mirror_enabled": bool(editing_profile.get("capcut_mirror_enabled", False)),
+            "capcut_mirror_percent": int(editing_profile.get("capcut_mirror_percent", 0)),
+            "capcut_zoom_level": int(editing_profile.get("capcut_zoom_level", 100)),
+            "capcut_noise_enabled": bool(editing_profile.get("capcut_noise_enabled", False)),
+            "capcut_noise_effect": str(editing_profile.get("capcut_noise_effect", "film")),
+            "capcut_noise_intensity": int(editing_profile.get("capcut_noise_intensity", 35)),
+            "capcut_noise_percent": int(editing_profile.get("capcut_noise_percent", 40)),
+            "capcut_noise_target": str(editing_profile.get("capcut_noise_target", "both")),
             "timing_mode": str(editing_profile.get("timing_mode") or setting("timing_mode", "auto_repair")),
             "max_scene_seconds": str(editing_profile.get("general_media_max_seconds", editing_profile.get("max_scene_seconds", setting("general_media_max_seconds", setting("max_scene_seconds", "4.0"))))),
             "min_scene_seconds": str(editing_profile.get("general_media_min_seconds", editing_profile.get("min_scene_seconds", setting("general_media_min_seconds", setting("min_scene_seconds", "2.0"))))),
@@ -3616,6 +3658,14 @@ def save_settings(
     canvas_fill_mode: str = Form("blur"),
     canvas_blur_strength: int = Form(16),
     canvas_fill_color: str = Form("#101018"),
+    capcut_mirror_enabled: str | None = Form(None),
+    capcut_mirror_percent: int = Form(0),
+    capcut_zoom_level: int = Form(100),
+    capcut_noise_enabled: str | None = Form(None),
+    capcut_noise_effect: str = Form("film"),
+    capcut_noise_intensity: int = Form(35),
+    capcut_noise_percent: int = Form(40),
+    capcut_noise_target: str = Form("both"),
     timing_mode: str = Form("auto_repair"),
     max_scene_seconds: float = Form(4.0),
     min_scene_seconds: float = Form(2.0),
@@ -3734,6 +3784,16 @@ def save_settings(
         raise HTTPException(400, "Canvas blur intensity must be between 0 and 40")
     if not re.fullmatch(r"#[0-9a-fA-F]{6}", canvas_fill_color or ""):
         raise HTTPException(400, "Invalid Canvas Fill color")
+    if not 0 <= capcut_mirror_percent <= 100:
+        raise HTTPException(400, "Mirror percentage must be between 0 and 100")
+    if not 50 <= capcut_zoom_level <= 300:
+        raise HTTPException(400, "Zoom must be between 50 and 300 percent")
+    if capcut_noise_effect not in {"white", "black", "film", "analog", "dust"}:
+        raise HTTPException(400, "Invalid Noise / Grain effect")
+    if not 0 <= capcut_noise_intensity <= 100 or not 0 <= capcut_noise_percent <= 100:
+        raise HTTPException(400, "Noise intensity and coverage must be between 0 and 100")
+    if capcut_noise_target not in {"both", "images", "videos"}:
+        raise HTTPException(400, "Invalid Noise target")
     if timing_mode not in {"auto_repair", "whisper", "narration_weighted"}:
         raise HTTPException(400, "Invalid timing mode")
     if narration_start_mode not in {"auto", "manual"}:
@@ -3828,6 +3888,14 @@ def save_settings(
         "canvas_fill_mode": canvas_fill_mode,
         "canvas_blur_strength": str(canvas_blur_strength),
         "canvas_fill_color": canvas_fill_color.lower(),
+        "capcut_mirror_enabled": "1" if capcut_mirror_enabled == "on" else "0",
+        "capcut_mirror_percent": str(capcut_mirror_percent),
+        "capcut_zoom_level": str(capcut_zoom_level),
+        "capcut_noise_enabled": "1" if capcut_noise_enabled == "on" else "0",
+        "capcut_noise_effect": capcut_noise_effect,
+        "capcut_noise_intensity": str(capcut_noise_intensity),
+        "capcut_noise_percent": str(capcut_noise_percent),
+        "capcut_noise_target": capcut_noise_target,
         "timing_mode": timing_mode,
         "max_scene_seconds": str(max(0.25, min(15.0, general_media_max_seconds))),
         "min_scene_seconds": str(max(0.25, min(10.0, general_media_min_seconds))),
@@ -3933,6 +4001,14 @@ def save_settings(
             "quality": quality, "aspect_ratio": custom_aspect_ratio, "fps": max(20, min(60, output_fps)),
             "canvas_fill_mode": canvas_fill_mode, "canvas_blur_strength": canvas_blur_strength,
             "canvas_fill_color": canvas_fill_color.lower(),
+            "capcut_mirror_enabled": capcut_mirror_enabled == "on",
+            "capcut_mirror_percent": capcut_mirror_percent,
+            "capcut_zoom_level": capcut_zoom_level,
+            "capcut_noise_enabled": capcut_noise_enabled == "on",
+            "capcut_noise_effect": capcut_noise_effect,
+            "capcut_noise_intensity": capcut_noise_intensity,
+            "capcut_noise_percent": capcut_noise_percent,
+            "capcut_noise_target": capcut_noise_target,
             "captions_enabled": captions_enabled == "on", "caption_style": caption_style,
             "caption_position": caption_position, "caption_karaoke_enabled": caption_karaoke_enabled == "on",
             "caption_words": max(1, min(5, caption_words)), "caption_font_size": max(18, min(120, caption_font_size)),
