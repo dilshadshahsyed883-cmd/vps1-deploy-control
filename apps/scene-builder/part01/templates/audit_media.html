@@ -133,10 +133,11 @@
   function stopOthers(except){document.querySelectorAll('.audit-preview video').forEach(v=>{if(v!==except&&!v.paused)v.pause()})}
   function card(i){
     const missing=!i.has_media;
+    const preparing=missing&&audit.resolution_complete===false;
     const media=i.has_media ? (String(i.assigned_media_type||'video').toLowerCase()==='image'
       ? `<img loading="lazy" src="${esc(i.preview_url)}" alt="${esc(i.scene_code)} preview">`
       : `<video controls preload="metadata" playsinline src="${esc(i.preview_url)}"></video>`)
-      : `<div class="no-media">⚠ No Media Found</div>`;
+      : `<div class="no-media">${preparing?'Resolving preview…':'⚠ No Media Found'}</div>`;
     const source=String(i.source_type||'').toLowerCase();
     const query=i.query_override||i.keyword_used||i.original_query||'';
     return `<article class="audit-card ${i.changed?'changed':''} ${missing?'missing':''}" data-item="${esc(i.item_id)}">
