@@ -2,6 +2,7 @@
 import ast
 from html.parser import HTMLParser
 import importlib.util
+import json
 import os
 from pathlib import Path
 import re
@@ -80,6 +81,17 @@ class Contracts(unittest.TestCase):
         self.assertIsNone(parse("connecting to YouTube"))
         self.assertIsNone(parse("unrelated 90%"))
 
+    def test_proxy_direct_retry_requires_explicit_user_action(self):
+        html = (ROOT / "static/index.html").read_text()
+        js = (ROOT / "static/app.js").read_text()
+        self.assertIn('id="importProxyState"', html)
+        for token in ("proxy_configured", "data-import-direct", "Retry direct",
+                      "direct_without_proxy:direct", "confirm(", "proxyUnavailable"):
+            self.assertIn(token, js)
+        backend = (ROOT / "media_extensions.py").read_text()
+        self.assertIn("class ImportRetryRequest", backend)
+        self.assertIn("if body.use_proxy and not sml_proxy_configured()", backend)
+
     def test_durable_progress_schema_and_retry(self):
         py = (ROOT / "media_extensions.py").read_text()
         for token in ("ALTER TABLE media_imports ADD COLUMN progress", "progress=100",
@@ -136,6 +148,72 @@ class QueueAPI(unittest.TestCase):
                     os.environ.pop("SML_DATA_ROOT", None)
                 else:
                     os.environ["SML_DATA_ROOT"] = original
+
+
+    def test_explicit_proxy_guard_and_direct_retry(self):
+        from fastapi.testclient import TestClient
+        with tempfile.TemporaryDirectory(prefix="sml-proxy-queue-") as temporary:
+            old_root = os.environ.get("SML_DATA_ROOT")
+            os.environ["SML_DATA_ROOT"] = temporary
+            sys.path.insert(0, str(ROOT))
+            try:
+                sys.modules.pop("app", None)
+                import app as module
+                with patch.dict(os.environ, {"SML_YTDLP_PROXY_URL": ""}):
+                    with TestClient(module.app) as client:
+                        route = "/api/v1/media/imports"
+                        authorized_proxy = {
+                            "source": "youtube",
+                            "value": "https://www.youtube.com/shorts/fixture",
+                            "rights_confirmed": True,
+                            "use_proxy": True,
+                        }
+                        self.assertFalse(client.get("/api/v1/media/status").json()["proxy_configured"])
+                        # Explicit unavailable proxy is rejected before queue persistence.
+                        response = client.post(route, json=authorized_proxy)
+                        self.assertEqual(response.status_code, 400)
+                        self.assertIn("Proxy profile is not configured", response.text)
+                        self.assertEqual(client.get(route).json()["items"], [])
+
+                        job_id = "proxyfixture001"
+                        now = module.now_iso()
+                        with module.db() as conn:
+                            conn.execute("""INSERT INTO media_imports
+                              (id,source_type,name,status,message,created_at,updated_at,request_json)
+                              VALUES (?,?,?,?,?,?,?,?)""",
+                              (job_id, "youtube", authorized_proxy["value"], "failed",
+                               "Proxy profile is not configured", now, now,
+                               json.dumps(authorized_proxy)))
+                        listing = client.get(route).json()
+                        self.assertFalse(listing["proxy_configured"])
+                        self.assertTrue(listing["items"][0]["use_proxy"])
+                        self.assertNotIn("request_json", listing["items"][0])
+                        # Plain Retry cannot silently expose a proxy-intended job.
+                        denied = client.post(route + "/" + job_id + "/retry")
+                        self.assertEqual(denied.status_code, 409)
+                        self.assertIn("Retry direct", denied.text)
+                        with module.db() as conn:
+                            row = conn.execute("SELECT status,request_json FROM media_imports WHERE id=?", (job_id,)).fetchone()
+                            self.assertEqual(row["status"], "failed")
+                            self.assertTrue(json.loads(row["request_json"])["use_proxy"])
+                        # The owner explicitly agrees to a direct VPS connection.
+                        direct = client.post(route + "/" + job_id + "/retry",
+                                             json={"direct_without_proxy": True})
+                        self.assertEqual(direct.status_code, 200, direct.text)
+                        self.assertTrue(direct.json()["direct_without_proxy"])
+                        with module.db() as conn:
+                            row = conn.execute("SELECT request_json FROM media_imports WHERE id=?", (job_id,)).fetchone()
+                        saved = json.loads(row["request_json"])
+                        self.assertFalse(saved["use_proxy"])
+                        self.assertTrue(saved["rights_confirmed"])
+            finally:
+                sys.modules.pop("app", None)
+                sys.path.remove(str(ROOT))
+                if old_root is None:
+                    os.environ.pop("SML_DATA_ROOT", None)
+                else:
+                    os.environ["SML_DATA_ROOT"] = old_root
+
 
 
 if __name__ == "__main__":
