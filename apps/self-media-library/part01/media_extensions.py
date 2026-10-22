@@ -94,6 +94,16 @@ class ImportRequest(BaseModel):
     use_proxy: bool = False
 
 
+class ImportRetryRequest(BaseModel):
+    # Explicit opt-in is required before replacing a saved proxy request
+    # with a direct VPS network request.
+    direct_without_proxy: bool = False
+
+
+def sml_proxy_configured() -> bool:
+    return bool(os.getenv("SML_YTDLP_PROXY_URL", "").strip())
+
+
 class ReservationRequest(BaseModel):
     project_id: str = Field(min_length=1, max_length=100)
     scene_id: str = Field(min_length=1, max_length=100)
@@ -629,7 +639,8 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
             imgs = conn.execute("SELECT COUNT(*) AS n FROM image_assets WHERE deleted_at IS NULL").fetchone()["n"]
             imports = conn.execute("SELECT COUNT(*) AS n FROM media_imports WHERE status='processing'").fetchone()["n"]
         return {"ok": True, "v2": True,"editor_token_configured": bool(os.getenv("SML_EDITOR_API_TOKEN")),
-                "images": imgs, "imports_processing": imports}
+                "images": imgs, "imports_processing": imports,
+                "proxy_configured": sml_proxy_configured()}
 
     def report_import(job_id, percent, message):
         with db() as conn:
@@ -781,13 +792,32 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                 if import_stop.wait(2):return
 
     @app.post('/api/v1/media/imports/{job_id}/retry')
-    def retry_import(job_id:str):
+    def retry_import(job_id: str, body: ImportRetryRequest | None = None):
+        direct = bool(body and body.direct_without_proxy)
         with db() as conn:
-            row=conn.execute('SELECT * FROM media_imports WHERE id=?',(job_id,)).fetchone()
-            if not row:raise HTTPException(404,'Import not found')
-            if row['status']!='failed' or not row['request_json']:raise HTTPException(409,'Only a failed saved request can be retried')
-            conn.execute("UPDATE media_imports SET status='queued',progress=0,message='Retry queued',updated_at=? WHERE id=?",(now_iso(),job_id))
-        return {'ok':True,'status':'queued'}
+            conn.execute('BEGIN IMMEDIATE')
+            row = conn.execute('SELECT * FROM media_imports WHERE id=?', (job_id,)).fetchone()
+            if not row:
+                raise HTTPException(404, 'Import not found')
+            if row['status'] != 'failed' or not row['request_json']:
+                raise HTTPException(409, 'Only a failed saved request can be retried')
+            original = ImportRequest(**json.loads(row['request_json']))
+            if direct:
+                if not original.use_proxy:
+                    raise HTTPException(409, 'This job already uses a direct connection')
+                # Do not silently bypass user-selected proxy on normal Retry.
+                original.use_proxy = False
+            elif original.use_proxy and not sml_proxy_configured():
+                raise HTTPException(409, 'Proxy profile is not configured. Choose Retry direct to use the VPS connection.')
+            if direct:
+                conn.execute("""UPDATE media_imports SET status='queued',progress=0,
+                             message='Direct retry queued (proxy disabled by user)',
+                             request_json=?,updated_at=? WHERE id=?""",
+                             (original.model_dump_json(), now_iso(), job_id))
+            else:
+                conn.execute("UPDATE media_imports SET status='queued',progress=0,message='Retry queued',updated_at=? WHERE id=?",
+                             (now_iso(), job_id))
+        return {'ok': True, 'status': 'queued', 'direct_without_proxy': direct}
 
     @app.post('/api/v1/media/imports/batch')
     def batch_imports(items:list[ImportRequest]):
@@ -807,6 +837,8 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
             raise HTTPException(400, "Use an HTTPS youtube.com or youtu.be video URL")
         if not body.rights_confirmed:
             raise HTTPException(400, "Media usage rights confirmation is required")
+        if body.use_proxy and not sml_proxy_configured():
+            raise HTTPException(400, "Proxy profile is not configured. Uncheck Use server proxy to import directly.")
         job_id = uuid.uuid4().hex[:14]
         with db() as conn:
             conn.execute("INSERT INTO media_imports(id,source_type,name,status,message,progress,created_at,updated_at,request_json) VALUES(?,?,?,?,?,?,?,?,?)",
@@ -816,5 +848,14 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
     @app.get("/api/v1/media/imports")
     def list_imports():
         with db() as conn:
-            rows = conn.execute("SELECT id,source_type,name,status,message,progress,source_id,created_at,updated_at FROM media_imports ORDER BY created_at DESC LIMIT 30").fetchall()
-        return {"items": [dict(row) for row in rows]}
+            rows = conn.execute("SELECT id,source_type,name,status,message,progress,source_id,created_at,updated_at,request_json FROM media_imports ORDER BY created_at DESC LIMIT 30").fetchall()
+        items = []
+        for row in rows:
+            item = dict(row)
+            saved = item.pop("request_json", None)  # Do not send saved import bodies to the browser.
+            try:
+                item["use_proxy"] = bool(json.loads(saved).get("use_proxy")) if saved else False
+            except (ValueError, TypeError, AttributeError):
+                item["use_proxy"] = False
+            items.append(item)
+        return {"items": items, "proxy_configured": sml_proxy_configured()}
