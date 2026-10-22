@@ -1,4 +1,5 @@
 """SML independent proxy profile CRUD and YouTube selection regression."""
+import importlib.util
 import os
 from pathlib import Path
 import stat
@@ -99,6 +100,7 @@ class ProfileManager(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"symlink"):
                 profiles.state()
 
+    @unittest.skipUnless(importlib.util.find_spec("fastapi") is not None, "FastAPI is not installed in offline pilot")
     def test_http_api_saves_and_exposes_no_password(self):
         from fastapi.testclient import TestClient
         sys.modules.pop("app", None)
