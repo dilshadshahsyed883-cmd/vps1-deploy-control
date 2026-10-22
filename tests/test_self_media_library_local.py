@@ -254,7 +254,7 @@ class LocalLibrary(unittest.TestCase):
         html = (APP/'static/index.html').read_text()
         js = (APP/'static/app.js').read_text()
         css = (APP/'static/sml_shared_theme.css').read_text()
-        self.assertIn('id="imagesGrid"', html)
+        self.assertIn('image-bulk-v1', html)
         for token in ('image-tile','image-preview-frame','image-card-name','image-card-meta','decoding="async"'):
             self.assertIn(token, js)
         for token in ('#imagesGrid .image-tile','#imagesGrid .image-card img','object-fit:contain!important',

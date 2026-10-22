@@ -40,3 +40,16 @@ button,input,select{font:inherit} button{cursor:pointer}.hidden{display:none!imp
 
 /* RA-09: long filenames must not widen the inspector or hide timestamps. */
 #clipDrawer{max-width:100vw;overflow-x:hidden}#clipDrawer .drawer-grid{grid-template-columns:repeat(2,minmax(0,1fr))}#clipDrawer .drawer-grid>div{min-width:0}#drawerSource,#drawerDescription{overflow-wrap:anywhere;word-break:break-word}#clipDrawer .drawer-head>div{min-width:0}#drawerTitle{overflow-wrap:anywhere}
+
+/* Image library bulk toolbar mirrors clips and stays usable on narrow displays. */
+#imageBulkBar{flex-wrap:wrap;gap:10px}
+#imageBulkBar>div{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+#imageCountSummary{font-variant-numeric:tabular-nums}
+#imageTrashGrid .image-card{cursor:default;width:100%}
+#imageTrashGrid .image-card .row-actions{margin-top:auto}
+.trash-images-heading{margin-top:22px}
+@media(max-width:700px){
+  #imageBulkBar>div{width:100%}
+  #imageBulkBar button{flex:0 1 auto}
+  #imageCountSummary{font-size:.85rem}
+}

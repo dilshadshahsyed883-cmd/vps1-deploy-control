@@ -74,6 +74,19 @@ class ImageEdit(BaseModel):
     display_name: str | None = None
 
 
+class ImageSelection(BaseModel):
+    ids: list[str] = Field(min_length=1, max_length=500)
+
+
+class ImageBulkReview(ImageSelection):
+    status: str
+
+
+class ImageBulkKeywords(ImageSelection):
+    keyword: str
+    action: str
+
+
 class ImportRequest(BaseModel):
     source: str
     value: str
@@ -291,9 +304,11 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
 
     @app.get("/api/v1/images")
     def list_images(q: str = "", status: str = "all", orientation: str = "all", date_from: str = "", date_to: str = "",
-                    limit: int = Query(60, ge=1, le=200)):
+                    limit: int = Query(60, ge=1, le=200), offset: int = Query(0, ge=0)):
+        # Count the complete filtered collection, not an arbitrary first 500 rows.
         with db() as conn:
-            rows = conn.execute("SELECT * FROM image_assets WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 500").fetchall()
+            total_images = conn.execute("SELECT COUNT(*) FROM image_assets WHERE deleted_at IS NULL").fetchone()[0]
+            rows = conn.execute("SELECT * FROM image_assets WHERE deleted_at IS NULL ORDER BY created_at DESC").fetchall()
         items = [image_dict(r) for r in rows if (not date_from or r["created_at"][:10]>=date_from) and (not date_to or r["created_at"][:10]<=date_to)]
         if orientation not in {"all", "landscape", "portrait", "square", "unknown"}:
             raise HTTPException(400, "Invalid orientation filter")
@@ -306,7 +321,76 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
             items = [x for x in items if all(
                 t in " ".join(x["keywords"]) or t in (x["description"] or "").lower()
                 or t in x["original_name"].lower() for t in terms)]
-        return {"items": items[:limit], "total": len(items)}
+        return {"items": items[offset:offset+limit], "total": len(items),
+                "total_images": total_images, "limit": limit, "offset": offset}
+
+    @app.get("/api/v1/images/trash")
+    def list_trashed_images(limit: int = Query(200, ge=1, le=500)):
+        with db() as conn:
+            total = conn.execute("SELECT COUNT(*) FROM image_assets WHERE deleted_at IS NOT NULL").fetchone()[0]
+            rows = conn.execute("SELECT * FROM image_assets WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC LIMIT ?", (limit,)).fetchall()
+        return {"items": [image_dict(row) for row in rows], "total": total}
+
+    def check_image_batch(conn, raw_ids):
+        ids = list(dict.fromkeys(raw_ids))
+        if not 1 <= len(ids) <= 500:
+            raise HTTPException(400, "Select between 1 and 500 images")
+        for ident in ids:
+            if not conn.execute("SELECT 1 FROM image_assets WHERE id=? AND deleted_at IS NULL", (ident,)).fetchone():
+                raise HTTPException(404, "Image not found or already in Trash: " + ident)
+        from local_library import guard_manual, protect
+        guard_manual(conn, "image", ids)
+        protect(conn, "image", ids)
+        return ids
+
+    @app.post("/api/v1/images/bulk/status")
+    def bulk_image_status(body: ImageBulkReview):
+        if body.status not in {"candidate", "approved", "rejected"}:
+            raise HTTPException(400, "Invalid image review status")
+        with db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            ids = check_image_batch(conn, body.ids)
+            stamp = now_iso()
+            conn.executemany("UPDATE image_assets SET status=?,updated_at=? WHERE id=?",
+                             [(body.status, stamp, ident) for ident in ids])
+        return {"ok": True, "updated": len(ids)}
+
+    @app.post("/api/v1/images/bulk/keywords")
+    def bulk_image_keywords(body: ImageBulkKeywords):
+        if body.action not in {"add", "remove"}:
+            raise HTTPException(400, "Invalid keyword operation")
+        keyword = normalized_tags([body.keyword])
+        if not keyword:
+            raise HTTPException(400, "Keyword is required")
+        changed = []
+        with db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            ids = check_image_batch(conn, body.ids)
+            stamp = now_iso()
+            for ident in ids:
+                row = conn.execute("SELECT keywords_json FROM image_assets WHERE id=?", (ident,)).fetchone()
+                tags = normalized_tags(json.loads(row["keywords_json"]))
+                if body.action == "add":
+                    tags = normalized_tags([*tags, keyword[0]])
+                else:
+                    tags = [tag for tag in tags if tag != keyword[0]]
+                conn.execute("UPDATE image_assets SET keywords_json=?,updated_at=? WHERE id=?",
+                             (json.dumps(tags), stamp, ident))
+                changed.append((ident, tags))
+        from ai_workspace import manual_patch
+        for ident, tags in changed:
+            manual_patch(root, "image", ident, {"keywords": tags})
+        return {"ok": True, "updated": len(changed)}
+
+    @app.post("/api/v1/images/bulk/trash")
+    def bulk_image_trash(body: ImageSelection):
+        with db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            ids = check_image_batch(conn, body.ids)
+            stamp = now_iso()
+            conn.executemany("UPDATE image_assets SET deleted_at=?,updated_at=? WHERE id=?",
+                             [(stamp, stamp, ident) for ident in ids])
+        return {"ok": True, "trashed": len(ids)}
 
     @app.patch("/api/v1/images/{asset_id}")
     def edit_image(asset_id: str, body: ImageEdit):
@@ -349,10 +433,14 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
     @app.post("/api/v1/images/{asset_id}/restore")
     def restore_image(asset_id: str):
         with db() as conn:
-            cur = conn.execute("UPDATE image_assets SET deleted_at=NULL,updated_at=? WHERE id=?",
+            conn.execute("BEGIN IMMEDIATE")
+            from local_library import guard_manual, protect
+            guard_manual(conn, "image", [asset_id])
+            protect(conn, "image", [asset_id])
+            cur = conn.execute("UPDATE image_assets SET deleted_at=NULL,updated_at=? WHERE id=? AND deleted_at IS NOT NULL",
                                (now_iso(),asset_id))
             if cur.rowcount == 0:
-                raise HTTPException(404, "Image not found")
+                raise HTTPException(404, "Trashed image not found")
         return {"ok": True}
 
     @app.get("/api/v1/images/{asset_id}/content")
@@ -366,7 +454,9 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
     @app.get("/api/v1/images/{asset_id}/preview")
     def image_preview(asset_id: str):
         with db() as conn:
-            row = conn.execute("SELECT * FROM image_assets WHERE id=? AND deleted_at IS NULL", (asset_id,)).fetchone()
+            # Preview is available in Trash for the owner's restore decision;
+            # original content delivery remains restricted to non-trashed assets.
+            row = conn.execute("SELECT * FROM image_assets WHERE id=?", (asset_id,)).fetchone()
         if row is None:
             raise HTTPException(404, "Image not found")
         # Existing Drive-era photos retain their original bytes. Rebuild only a
