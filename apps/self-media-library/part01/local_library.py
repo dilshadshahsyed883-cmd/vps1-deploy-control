@@ -52,8 +52,9 @@ def protect(conn, kind, ids, *, pending=True):
         if conn.execute("SELECT 1 FROM media_reservations WHERE media_type=? AND media_id=? AND (state='committed' OR (state='reserved' AND expires_at>?)) LIMIT 1", (kind, ident, int(time.time()))).fetchone():
             raise HTTPException(409, 'Media is required by an editor project: ' + ident)
         if kind == 'video':
-            source=conn.execute('SELECT s.status FROM sources s JOIN clips c ON c.source_id=s.id WHERE c.id=?',(ident,)).fetchone()
-            if source and source['status'] in ('queued','processing','failed'):
+            source=conn.execute('SELECT s.status,c.local_selection FROM sources s JOIN clips c ON c.source_id=s.id WHERE c.id=?',(ident,)).fetchone()
+            if source and (source['status'] in ('queued','processing') or
+                           (source['status']=='failed' and source['local_selection']!='legacy')):
                 raise HTTPException(409, 'Pending, active or failed source media is protected')
         if pending and kind == 'video':
             row = conn.execute('SELECT local_selection FROM clips WHERE id=?', (ident,)).fetchone()
@@ -137,8 +138,25 @@ def finalize(root, db, now, source_id):
     return {'ok':True,'state':'cleaned','kept':len(kept),'discarded':len(ids)-len(kept)}
 
 
+def guard_manual(conn, kind, ids):
+    """Block media actively used by a job, not unrelated old queued jobs."""
+    if conn.execute("SELECT 1 FROM ai_jobs WHERE state='running' AND (media_id IS NULL OR media_type IS NULL) LIMIT 1").fetchone():
+        raise HTTPException(409, 'A library-wide AI job is running; retry when complete')
+    for ident in ids:
+        if conn.execute("SELECT 1 FROM ai_jobs WHERE state IN ('queued','running') AND media_type=? AND media_id=? LIMIT 1",
+                        (kind,ident)).fetchone():
+            raise HTTPException(409, 'Selected media has an active AI job: ' + ident)
+        if kind == 'video':
+            if conn.execute("""SELECT 1 FROM ai_jobs WHERE state IN ('queued','running') AND media_type='source'
+                AND media_id=(SELECT source_id FROM clips WHERE id=?) LIMIT 1""",(ident,)).fetchone():
+                raise HTTPException(409, 'Selected source has an active AI job: ' + ident)
+            if conn.execute("""SELECT 1 FROM media_imports WHERE status IN ('queued','processing')
+                AND source_id=(SELECT source_id FROM clips WHERE id=?) LIMIT 1""",(ident,)).fetchone():
+                raise HTTPException(409, 'Selected source has an active import: ' + ident)
+
+
 def erase(root, conn, kind, ids, now):
-    busy(conn)
+    guard_manual(conn,kind,ids)
     protect(conn,kind,ids)
     table = 'clips' if kind == 'video' else 'image_assets'
     for ident in ids:
@@ -150,9 +168,13 @@ def erase(root, conn, kind, ids, now):
             files=[('images',row['stored_name']),('image_previews',row['thumb_name'])]
         for folder,name in files:
             if name:safe_file(root,folder,name).unlink(missing_ok=True)
-        conn.execute(f'UPDATE {table} SET deleted_at=?,updated_at=? WHERE id=?',(now(),now(),ident))
+        # Permanent deletion removes catalog/AI data as well as local bytes.
+        # Historical unrelated Drive receipts and source provenance remain intact.
         if kind == 'video':
-            conn.execute("UPDATE clips SET local_selection='discarded',status='rejected' WHERE id=?",(ident,))
+            conn.execute("DELETE FROM clip_keywords WHERE clip_id=?",(ident,))
+        conn.execute("DELETE FROM ai_metadata WHERE media_type=? AND media_id=?",(kind,ident))
+        conn.execute("DELETE FROM ai_metadata_history WHERE media_type=? AND media_id=?",(kind,ident))
+        conn.execute(f'DELETE FROM {table} WHERE id=?',(ident,))
 
 
 def register(app, root, db, now):
@@ -236,7 +258,9 @@ def register(app, root, db, now):
         if body.media_type not in ('video','image'):raise HTTPException(400,'Invalid media type')
         with db() as conn:
             conn.execute('BEGIN IMMEDIATE')
-            busy(conn);protect(conn,body.media_type,body.ids)
+            # Validate and guard every selected asset before any filesystem unlink.
+            # Unrelated import/AI jobs must not lock the owner's entire library.
+            # erase() checks target AI jobs and editor reservations atomically.
             # Validate every record before irreversible filesystem operations.
             table='clips' if body.media_type=='video' else 'image_assets'
             if any(not conn.execute(f'SELECT 1 FROM {table} WHERE id=?',(i,)).fetchone() for i in body.ids):raise HTTPException(404,'Media not found')
