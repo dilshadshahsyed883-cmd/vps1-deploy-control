@@ -381,3 +381,16 @@ body.vps1-native-library #imagesGrid .image-card-meta {
 @media(max-width:380px){
   body.vps1-native-library #imagesGrid.image-grid {grid-template-columns:minmax(0,1fr)!important}
 }
+
+/* SML-YT-QUEUE-001: always-visible persistent import queue. */
+.sml-import-queue{margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
+.sml-import-queue-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.sml-import-queue-head h3{font-size:13px;margin:0}
+.sml-import-queue-head p{margin:3px 0 0;font-size:11px;color:var(--muted)}
+.sml-import-queue .source-list{max-height:340px;overflow-y:auto}
+.sml-import-job{display:flex;gap:12px;align-items:center;min-width:0}
+.sml-import-job .source-main{flex:1;min-width:0;overflow-wrap:anywhere}
+.sml-import-job .source-main b{display:block;word-break:break-word}
+.sml-import-job progress{display:block;width:100%;max-width:360px;height:9px;margin-top:7px;accent-color:var(--accent)}
+.sml-import-job .state{flex-shrink:0;text-transform:capitalize}
+@media(max-width:760px){.sml-import-job{flex-wrap:wrap}.sml-import-job .source-main{flex-basis:100%}}

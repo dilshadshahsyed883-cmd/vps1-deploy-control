@@ -92,7 +92,9 @@ class WorkspaceTests(unittest.TestCase):
 
     def test_durable_imports_and_duration_validation(self):
         c=self.client
-        response=c.post('/api/v1/media/imports/batch',json=[{'source':'youtube','value':'https://www.youtube.com/watch?v=fixture','rights_confirmed':False} for _ in range(2)])
+        unauthorized=c.post('/api/v1/media/imports',json={'source':'youtube','value':'https://www.youtube.com/watch?v=fixture','rights_confirmed':False})
+        self.assertEqual(unauthorized.status_code,400)
+        response=c.post('/api/v1/media/imports/batch',json=[{'source':'youtube','value':'https://www.youtube.com/watch?v=fixture','rights_confirmed':True} for _ in range(2)])
         self.assertEqual(response.status_code,200,response.text)
         ids=[x['job_id'] for x in response.json()['items']]
         from ai_workspace import connect
