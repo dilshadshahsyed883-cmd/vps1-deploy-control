@@ -42,7 +42,7 @@ class ProductionPackaging(unittest.TestCase):
         from production.runtime import CATALOG
         packages = CATALOG["self-media-library"]["packages"]
         dependency = [value for value in packages if value.startswith("yt-dlp")]
-        self.assertEqual(dependency, ["yt-dlp>=2025.3.31,<2027"])
+        self.assertEqual(dependency, ["yt-dlp[default]==2026.8.19"])
         requirements = (ROOT / "requirements.txt").read_text()
         self.assertIn(dependency[0], requirements)
         self.assertNotIn("yt-dlp", CATALOG["short-maker"]["packages"])
