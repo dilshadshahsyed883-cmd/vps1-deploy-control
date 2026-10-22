@@ -98,7 +98,13 @@ jobs:
           echo "SML_IMMUTABLE_APP_ONLY_INSTALL"
           remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA self-media-library"
           if ! remote 'python3 -' <<'PY'
-          import json,urllib.request
+          import json,urllib.request,os
+          from pathlib import Path
+          # Enforce the real installed binary, not just a successful API/HTML response.
+          active=Path('/srv/fresh-website/current/self-media-library').resolve(strict=True)
+          downloader=Path('/srv/fresh-website/venvs/self-media-library')/active.name/'bin/yt-dlp'
+          assert downloader.is_file() and os.access(downloader,os.X_OK), 'SML yt-dlp missing after deployment'
+          print('SML_YTDLP_INSTALLED=PASS',flush=True)
           def read(p):
               with urllib.request.urlopen('http://127.0.0.1:8147'+p,timeout=25) as r:
                   if r.status!=200: raise RuntimeError('HTTP readback failure')
