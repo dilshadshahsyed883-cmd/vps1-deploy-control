@@ -289,7 +289,14 @@
       if(!response.ok)throw new Error('Status unavailable');
       const data=await response.json();
       status.textContent=data.connected?'Connected':'Unavailable';
-      counts.textContent=data.connected?`Library status: ${data.clips} clips / ${data.images} images`:'Library status: unavailable';
+      const inventory=data.inventory;
+      const info=(kind,count)=>{
+        const row=inventory?.[kind];
+        return row?`${count} approved/searchable of ${row.total} total (${row.candidate} candidates)`:`${count} approved/searchable`;
+      };
+      counts.textContent=data.connected?
+        `SML: Clips ${info('video',data.clips)} · Images ${info('image',data.images)}`:
+        'Library status: unavailable';
     }catch{status.textContent='Unavailable';counts.textContent='Library status: unavailable';}
     finally{smlRefresh.disabled=false;}
   }
