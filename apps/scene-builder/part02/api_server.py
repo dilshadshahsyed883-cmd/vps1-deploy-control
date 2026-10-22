@@ -1156,6 +1156,24 @@ def _download_scene_candidate(
 
 
 
+def _apply_sml_policy(scene: dict[str, Any], metadata: dict[str, Any], index: int) -> dict[str, Any]:
+    """Snapshot the owner's source + media-order policy on each independent job scene."""
+    mode = str(metadata.get("media_source_mode") or "sml_first")
+    enabled = bool(metadata.get("sml_enabled", True)) and bool(metadata.get("sml_auto_scene_matching", False))
+    target = max(0, min(100, int(metadata.get("sml_target_percent", 80) or 0)))
+    # A fixed interleave makes Custom Mix deterministic across retries/checkpoints.
+    sml_mix_slot = ((index * 73) % 100) < target
+    scene["_sml_first"] = enabled and (mode in {"sml_first", "sml_only"} or
+                                        (mode == "mixed" and sml_mix_slot))
+    scene["_sml_fallback"] = enabled and mode == "pexels_first"
+    scene["_sml_only"] = enabled and mode == "sml_only"
+    scene["_sml_media_order"] = str(metadata.get("sml_media_order") or "video_only")
+    scene["_sml_scene_index"] = index
+    if scene["_sml_only"]:
+        scene["pexels_enabled"] = False
+    return scene
+
+
 def _sml_media_type_order(scene: dict[str, Any]) -> list[str]:
     """Project-owned SML order, separate from the Pexels provider preferences.
 
@@ -4079,7 +4097,8 @@ def process_job(job_id: str) -> None:
 
         # Freeze Pexels selection policy into each scene so normal acquisition and
         # First-2-Minute Visual Audit use the same project-owned behavior.
-        for scene in scenes:
+        for sml_index, scene in enumerate(scenes):
+            _apply_sml_policy(scene, dict(settings.metadata or {}), sml_index)
             scene.setdefault("pexels_selection_mode", str(getattr(settings, "pexels_selection_mode", "best_match_variety") or "best_match_variety"))
             scene.setdefault("pexels_search_pool", int(getattr(settings, "pexels_search_pool", 10) or 10))
             scene.setdefault("pexels_avoid_used_media", bool(getattr(settings, "pexels_avoid_used_media", True)))
@@ -4089,12 +4108,7 @@ def process_job(job_id: str) -> None:
             scene.setdefault("pexels_allow_video", bool(getattr(settings, "use_video_backgrounds", True)))
             scene.setdefault("pexels_allow_image", bool(getattr(settings, "use_image_backgrounds", True)))
             scene.setdefault("pexels_enabled", bool(getattr(settings, "pexels_enabled", True)))
-            scene["_sml_first"] = (
-                str((settings.metadata or {}).get("media_source_mode") or "") == "sml_first"
-                and bool((settings.metadata or {}).get("sml_auto_scene_matching", False))
-            )
-
-        # Unreviewed local PC paths are never trusted on the VPS. Approved + locked
+         # Unreviewed local PC paths are never trusted on the VPS. Approved + locked
         # review media may be bundled by the desktop remote package and is preserved
         # only when the remapped file lives inside this job's extracted input root.
         path_fields = (
@@ -4232,15 +4246,15 @@ def process_job(job_id: str) -> None:
                 _save_edit_checkpoint(job_dir, edit_signature, cleaned_scenes, transition_summary)
 
             metadata = dict(settings.metadata or {})
-            sml_for_intro = (
-                str(metadata.get("media_source_mode") or "") == "sml_first"
-                and bool(metadata.get("sml_auto_scene_matching", False))
-            )
             metadata["intro_scenes"] = [
-                {**dict(row), "_sml_first": sml_for_intro,
-                 "pexels_allow_video": bool(getattr(settings, "use_video_backgrounds", True)),
-                 "pexels_prefer_landscape": bool(getattr(settings, "pexels_prefer_landscape", True))}
-                for row in metadata.get("intro_scenes", []) if isinstance(row, dict)
+                _apply_sml_policy({
+                    **dict(row),
+                    "pexels_allow_video": bool(getattr(settings, "use_video_backgrounds", True)),
+                    "pexels_allow_image": bool(getattr(settings, "use_image_backgrounds", True)),
+                    "pexels_prefer_landscape": bool(getattr(settings, "pexels_prefer_landscape", True)),
+                }, metadata, index)
+                for index, row in enumerate(metadata.get("intro_scenes", []))
+                if isinstance(row, dict)
             ]
             metadata["scene_sync_plan"] = [dict(scene) for scene in cleaned_scenes]
             metadata["transition_direction"] = transition_summary
@@ -4332,13 +4346,10 @@ def process_job(job_id: str) -> None:
             planned_intro = [dict(x) for x in metadata.get("intro_scenes", []) if isinstance(x, dict)]
             resolved_intro_scenes: list[dict[str, Any]] = []
             if planned_intro:
-                sml_intro_enabled = (
-                    str(metadata.get("media_source_mode") or "") == "sml_first"
-                    and bool(metadata.get("sml_auto_scene_matching", False))
-                )
-                for intro_scene in planned_intro:
-                    intro_scene["_sml_first"] = sml_intro_enabled
+                for index, intro_scene in enumerate(planned_intro):
+                    _apply_sml_policy(intro_scene, metadata, index)
                     intro_scene.setdefault("pexels_allow_video", bool(getattr(settings, "use_video_backgrounds", True)))
+                    intro_scene.setdefault("pexels_allow_image", bool(getattr(settings, "use_image_backgrounds", True)))
                     intro_scene.setdefault("pexels_prefer_landscape", bool(getattr(settings, "pexels_prefer_landscape", True)))
                 resolved_intro_scenes = _load_saved_intro_media(job_dir, planned_intro) if reuse_checkpoints else None
                 if resolved_intro_scenes is None:
