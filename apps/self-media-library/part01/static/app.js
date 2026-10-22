@@ -211,21 +211,28 @@ $('#uploadImages').onclick=async()=>{
   toast(ok+' imported'+(fail?', '+fail+' failed':''));
   if(ok)gotoPage('library');
 };
-function renderImports(items){
+// Never silently downgrade a requested proxy import to the VPS direct connection.
+let smlProxyProfileReady=null;
+function renderImports(items, proxyConfigured=smlProxyProfileReady){
   const active=items.filter(item=>item.status==='queued'||item.status==='processing').length;
-  $('#importQueueStatus').textContent=active+' active / waiting · '+items.length+' recent jobs';
+  $('#importQueueStatus').textContent=active+' active / waiting · '+items.length+' recent jobs'+(proxyConfigured===false?' · proxy unavailable':'');
   const list=$('#importHistory');
   list.innerHTML=items.length?items.map(item=>{
     const status=['queued','processing','completed','failed'].includes(item.status)?item.status:'unknown';
     const progress=status==='completed'?100:Math.min(99,Math.max(0,Number(item.progress)||0));
-    const retry=status==='failed'?'<button type="button" class="ghost" data-import-retry="'+esc(item.id)+'">Retry</button>':'';
+    const directRetry=status==='failed'&&item.use_proxy&&proxyConfigured===false;
+    const retry=status==='failed'?'<button type="button" class="ghost" data-import-retry="'+esc(item.id)+'"'+(directRetry?' data-import-direct="true" title="Connect directly from the VPS without a proxy"':'')+'>'+(directRetry?'Retry direct':'Retry')+'</button>':'';
     return '<div class="source-row sml-import-job" data-import-job="'+esc(item.id)+'"><div class="source-main"><b>'+esc(item.name)+'</b><span>'+esc(item.message||status)+'</span><small>Job '+esc(item.id)+' · '+esc(status)+' · '+progress+'%</small><progress max="100" value="'+progress+'" aria-label="Import '+esc(item.id)+' progress"></progress></div><span class="state">'+esc(status)+'</span>'+retry+'</div>';
   }).join(''):'<p class="empty">No YouTube imports yet. Queue a video URL above.</p>';
   list.querySelectorAll('[data-import-retry]').forEach(button=>button.onclick=async()=>{
+    const direct=button.dataset.importDirect==='true';
+    if(direct&&!confirm('This retry will download directly through the VPS connection WITHOUT a proxy. Continue?'))return;
     button.disabled=true;
     try{
-      await api('/api/v1/media/imports/'+encodeURIComponent(button.dataset.importRetry)+'/retry',{method:'POST'});
-      toast('Import retry queued');
+      await api('/api/v1/media/imports/'+encodeURIComponent(button.dataset.importRetry)+'/retry',{
+        method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({direct_without_proxy:direct})
+      });
+      toast(direct?'Direct import queued (no proxy)':'Import retry queued');
       await loadImports();
     }catch(e){toast(e.message);button.disabled=false}
   });
@@ -233,13 +240,17 @@ function renderImports(items){
 async function loadImports(){
   try{
     const result=await api('/api/v1/media/imports');
-    renderImports(result.items||[]);
+    smlProxyProfileReady=result.proxy_configured===true;
+    $('#importProxyState').textContent=smlProxyProfileReady?'Server proxy ready (optional)':'Server proxy not configured. Leave unchecked for direct imports.';
+    renderImports(result.items||[],smlProxyProfileReady);
+    updateInputEligibility();
   }catch(e){
     $('#importQueueStatus').textContent='Queue unavailable';
     $('#importHistory').textContent='Cannot load import queue: '+e.message;
   }
 }
 $('#refreshImports').onclick=loadImports;
+$('#importProxy').addEventListener('change',updateInputEligibility);
 $('#submitImport').onclick=async()=>{
   const source=$('#importSource').value,value=$('#importValue').value.trim();
   if(!value){toast('Enter a source path or video URL');return}
@@ -266,8 +277,8 @@ setInterval(()=>{if(state.page==='sources')loadImports()},3000);
 function updateInputEligibility(){
  const files=document.getElementById('imageFiles'),upload=document.getElementById('uploadImages');if(upload)upload.disabled=!files?.files?.length;
  const value=document.getElementById('importValue')?.value.trim()||'',source=document.getElementById('importSource')?.value;
- const invalid=false;
- const submit=document.getElementById('submitImport');if(submit){submit.disabled=!value||invalid||(source==='youtube'&&!document.getElementById('importRights')?.checked);submit.title=submit.disabled?'Add a valid source and confirm YouTube usage rights.':'';}
+ const proxyUnavailable=document.getElementById('importProxy')?.checked&&smlProxyProfileReady===false;
+ const submit=document.getElementById('submitImport');if(submit){submit.disabled=!value||proxyUnavailable||(source==='youtube'&&!document.getElementById('importRights')?.checked);submit.title=proxyUnavailable?'Proxy unavailable — uncheck the proxy option to import directly.':submit.disabled?'Add a valid source and confirm YouTube usage rights.':'';}
  const batch=document.getElementById('aiBatchImport');if(batch)batch.disabled=!document.getElementById('aiBatchUrls')?.value.trim()||!document.getElementById('aiBatchRights')?.checked;
 }
 document.addEventListener('input',updateInputEligibility);document.addEventListener('change',updateInputEligibility);updateInputEligibility();
