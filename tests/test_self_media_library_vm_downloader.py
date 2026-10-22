@@ -133,8 +133,10 @@ class DownloadStrategy(unittest.TestCase):
                 def kill(self): pass
 
             percentages = []
-            with patch.object(d.subprocess, "Popen", FakeDownloader), \\
-                 patch.object(d, "_js_runtime", return_value=None):
+            with (
+                patch.object(d.subprocess, "Popen", FakeDownloader),
+                patch.object(d, "_js_runtime", return_value=None),
+            ):
                 output = d._run_attempt(
                     "https://youtu.be/one-authorized-video", root / "attempt-1",
                     None, "default", None, percentages.append, 30
