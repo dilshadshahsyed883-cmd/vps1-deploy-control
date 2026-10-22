@@ -180,3 +180,20 @@ body.vps1-scene-parity .scene-audit-workspace .audit-sticky-approve :is(button,.
   body.vps1-scene-parity main .scene-settings-workspace *,
   body.vps1-scene-parity main .scene-audit-workspace * {scroll-behavior:auto!important;transition:none!important;}
 }
+
+
+/* The batch action adds a third button. On narrow screens the legacy fixed
+   approval footer otherwise covers the Audit filters during scrolling.
+   Keep all approval controls but place them in normal flow on mobile. */
+@media(max-width:760px) {
+  body.vps1-scene-parity main .scene-audit-workspace .audit-sticky-approve {
+    position:static!important;
+    inset:auto!important;
+    width:auto!important;
+    margin:0!important;
+    z-index:auto;
+  }
+  body.vps1-scene-parity main .scene-audit-workspace .audit-grid {
+    padding-bottom:20px!important;
+  }
+}
