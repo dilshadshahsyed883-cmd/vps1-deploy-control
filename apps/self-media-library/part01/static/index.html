@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/self-media-library/static/styles.css?v=20261022-image-bulk-v1" />
   <!-- One canonical website shell, served by Scene Builder rather than the library's static mount. -->
   <link rel="stylesheet" href="/&#115;tatic/vps1_native_site_shell.css?v=20261020-experiment-ui-v5" />
-  <link rel="stylesheet" href="/self-media-library/static/sml_shared_theme.css?v=20261022-yt-queue-pair-batch-v1" />
+  <link rel="stylesheet" href="/self-media-library/static/sml_shared_theme.css?v=20261022-queue-fullwidth-v1" />
   <script defer src="/&#115;tatic/vps1_native_site_shell.js?v=20261020-experiment-ui-v5" data-workspace="library"></script>
 </head>
 <body class="vps1-native-library">
@@ -110,13 +110,17 @@
             <input id="importValue" class="setting-text import-text" type="text" placeholder="https://www.youtube.com/watch?v=..." />
             <p class="sml-input-help" id="smlImportHelp">Only import videos you have permission to reuse.</p>
             <div class="sml-import-actions"><label class="import-choice"><input id="importRights" type="checkbox" /> I have permission to import and reuse this media.</label><button class="primary" type="button" id="submitImport">Queue import</button></div>
-            <details class="sml-input-disclosure"><summary>Advanced import options</summary><label class="import-choice"><input id="importProxy" type="checkbox" /> Use existing server proxy profile (if configured)</label><p id="importProxyState" role="status">Checking server proxy availability…</p></details>
-            <div class="sml-import-queue" aria-label="YouTube import queue">
-              <div class="sml-import-queue-head"><div><h3>YouTube import queue</h3><p id="importQueueStatus" role="status">Loading jobs…</p></div><button class="ghost" type="button" id="refreshImports">↻ Refresh</button></div>
-              <div id="importHistory" class="source-list" aria-live="polite">Loading queue…</div>
-            </div>
+            <details class="sml-input-disclosure"><summary>Advanced import options</summary><label class="import-choice"><input id="importProxy" type="checkbox" /> Use configured server proxy (optional)</label><p id="importProxyState" role="status">Checking server proxy availability…</p><p class="sml-proxy-help">Proxy setup is on the VPS server, not in this form. No proxy? Keep this unchecked for direct imports.</p></details>
           </article>
-          <article class="panel sml-batch-card">
+        </div>
+        <section class="panel sml-import-queue sml-import-wide" aria-label="YouTube import queue">
+          <div class="sml-import-queue-head">
+            <div><h3>YouTube import queue</h3><p id="importQueueStatus" role="status">Loading jobs…</p></div>
+            <button class="ghost" type="button" id="refreshImports">↻ Refresh</button>
+          </div>
+          <div id="importHistory" class="source-list" aria-live="polite">Loading queue…</div>
+        </section>
+          <article class="panel sml-batch-card sml-batch-wide">
             <details id="smlBatchDetails">
               <summary><span class="sml-batch-icon" aria-hidden="true">≡</span><span><b>Batch YouTube URLs</b><small>Queue up to 32 authorized video links at once.</small></span><span class="sml-batch-expand">Expand</span></summary>
               <div class="sml-batch-content">
@@ -127,7 +131,6 @@
               </div>
             </details>
           </article>
-        </div>
       </div>
       <article class="panel sml-input-history">
         <div class="panel-head"><div><h2>Source history</h2><p>Original videos and their processing history. Image assets remain available in Library &amp; Preview.</p></div><button class="ghost" id="refreshSources" type="button">↻ Refresh</button></div>
