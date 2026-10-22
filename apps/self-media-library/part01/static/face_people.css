@@ -1,0 +1,21 @@
+/* Additive People panel. Does not modify legacy Library thumbnail layouts. */
+#peoplePanel .face-reference{margin:1rem 0;padding:1rem;border:1px solid var(--line,#dce3ea);border-radius:12px}
+#peoplePanel .face-reference-stage{position:relative;display:inline-block;max-width:min(100%,640px);line-height:0;margin:.75rem 0}
+#peoplePanel .face-reference-stage img{display:block;max-width:100%;max-height:420px;object-fit:contain}
+#peoplePanel #peopleFaceBoxes{position:absolute;inset:0}
+#peoplePanel .face-box{position:absolute;z-index:1;min-width:24px;min-height:24px;background:rgba(23,93,184,.12);border:2px solid #2563eb;color:#fff;text-shadow:0 1px 3px #000;cursor:pointer}
+#peoplePanel .face-box.selected{background:rgba(24,160,94,.25);border:3px solid #16a34a}
+#peoplePanel [data-face-index].selected:not(.face-box){border:2px solid #16a34a}
+#peoplePanel .people-toolbar{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin:1rem 0}
+#peoplePanel .people-toolbar select{max-width:300px;min-width:180px}
+#peoplePanel .people-review-actions{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin:1rem 0}
+#peoplePanel #peopleScanStatus{white-space:normal;overflow-wrap:anywhere}
+#peoplePanel .face-match-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+#peoplePanel .face-match-card{border:1px solid var(--line,#d9e2ed);border-radius:10px;overflow:hidden;min-width:0}
+#peoplePanel .face-match-card>img{width:100%;height:145px;object-fit:cover;display:block}
+#peoplePanel .face-match-card>div{padding:8px;display:grid;gap:6px}
+#peoplePanel .face-match-card b{font-size:12px;overflow-wrap:anywhere}
+#peoplePanel .face-match-card small{display:block;font-size:11px}
+#peoplePanel .face-match-check{display:block;padding:7px;font-size:12px}
+#peoplePanel #peopleName{max-width:440px;display:block;margin:.35rem 0 .75rem}
+@media(max-width:650px){#peoplePanel .face-match-grid{grid-template-columns:repeat(2,minmax(0,1fr))}#peoplePanel .face-match-card>img{height:116px}}
