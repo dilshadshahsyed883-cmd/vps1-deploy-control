@@ -78,7 +78,16 @@ def library_status() -> dict[str, Any]:
         if not isinstance(result.get("items"), list) or not isinstance(result.get("total"), int):
             raise SMLUnavailable("SML catalog status is unavailable")
         counts[label] = max(0, result["total"])
-    return {"connected": True, **counts}
+    status = {"connected": True, **counts}
+    # Search totals are searchable/available approved media, not every asset
+    # the owner can see on the SML Library page.
+    try:
+        inventory = _request("/api/v1/media/inventory").get("counts") or {}
+        if all(isinstance(inventory.get(kind), dict) for kind in ("video", "image")):
+            status["inventory"] = inventory
+    except SMLUnavailable:
+        pass  # Compatible with previously deployed V2 Editor API versions.
+    return status
 
 
 def approved_clips(limit: int = 100, query: str = "") -> list[dict[str, Any]]:
