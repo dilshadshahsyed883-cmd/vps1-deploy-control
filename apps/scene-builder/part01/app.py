@@ -684,7 +684,10 @@ def require_login(request: Request) -> None:
 @app.middleware("http")
 async def authentication(request: Request, call_next):
     if RUNTIME_CANDIDATE and request.method not in ("GET", "HEAD", "OPTIONS"):
-        if not candidate_mutation_allowed(request.method, request.url.path, SCENE_PRECUTOVER_EDITING):
+        if not candidate_mutation_allowed(
+            request.method, request.url.path, SCENE_PRECUTOVER_EDITING,
+            auto_script_enabled=os.getenv("FRESH_AUTO_SCRIPT_READY", "0") == "1",
+        ):
             return JSONResponse({"ok": False, "error": "candidate: write requires separate approval"}, status_code=403)
     if RUNTIME_CANDIDATE and request.url.path == "/internal/runtime-ready":
         return await call_next(request)
