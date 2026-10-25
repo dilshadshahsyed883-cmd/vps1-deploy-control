@@ -35,7 +35,7 @@
     if (/^\/(local-upload-manager|auto-stream)(\/|$)/.test(pathname)) return "upload";
     if (/^\/(scene-builder|video-studio|auto-caption-studio|short-maker|video-merger|queue|settings|audit-media)(\/|$)/.test(pathname)) return "video";
     if (/^\/voice-studio(\/|$)/.test(pathname)) return "voice";
-    if (/^\/(experiment-studio|self-media-library)(\/|$)/.test(pathname)) return "experiment";
+    if (/^\/(experiment-studio|self-media-library|auto-script)(\/|$)/.test(pathname)) return "experiment";
     if (/^\/(admin|storage-manager|user-management)(\/|$)/.test(pathname)) return "admin";
     if (pathname === "/" || pathname === "/dashboard") return "dashboard";
     return "";
@@ -305,6 +305,7 @@
       tabs.setAttribute("aria-label", "Experiment Studio");
       addLink(tabs, "Antidetect Browser", "/experiment-studio/antidetect-browser/", false);
       addLink(tabs, "Self Media Library", "/self-media-library/", true);
+      addLink(tabs, "Auto Script", "/experiment-studio/auto-script/", false);
       // Use the canonical independent application URL, without an iframe.
       toggle.after(tabs);
     }

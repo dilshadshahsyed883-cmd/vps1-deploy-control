@@ -1890,6 +1890,14 @@ def experiment_studio_media_library(request: Request):
     require_login(request)
     return RedirectResponse("/self-media-library/", status_code=303)
 
+@app.get("/experiment-studio/auto-script/")
+def experiment_studio_auto_script(request: Request):
+    """Link to the existing authenticated Auto Script app; do not duplicate it."""
+    require_login(request)
+    if os.getenv("FRESH_AUTO_SCRIPT_READY", "0") != "1":
+        raise HTTPException(status_code=404, detail="Auto Script is not activated")
+    return RedirectResponse("/auto-script", status_code=303)
+
 
 # EXPERIMENT_STUDIO_BROWSER_ENGINE_V1: isolated browser service, same website shell.
 from experiment_browser import BrowserError, browser_executable, MAX_ACTIVE
