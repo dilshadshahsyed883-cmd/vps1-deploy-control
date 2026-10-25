@@ -1,0 +1,104 @@
+name: VPS1 Auto Script guarded online release
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - apps/scene-builder/part01/app.py
+      - apps/scene-builder/part01/runtime_guard.py
+      - production/scene_candidate_release.py
+      - production/test_auto_script_activation.py
+      - .github/workflows/vps1-auto-script-online.yml
+permissions:
+  contents: read
+concurrency:
+  group: vps1-experiment-management-scene-release
+  cancel-in-progress: false
+jobs:
+  offline-auto-script:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify imported source, scope, runtime guard and environment patch
+        run: python3 -m unittest production.test_auto_script_activation -v
+  auto-script-scene-only:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'dilshadshahsyed883-cmd' &&
+      github.run_attempt == 1 &&
+      contains(github.event.head_commit.message, '[vps1-auto-script-online]')
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Join existing protected Tailscale lane
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Activate Auto Script via existing Scene release helper and prove live scheduler
+        shell: bash
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          test "$GITHUB_REF" = 'refs/heads/main'
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/id"
+          unset PRIVATE_IDENTITY
+          chmod 0600 "$scratch/id"
+          ssh-keygen -y -P '' -f "$scratch/id" > "$scratch/pub"
+          test "$(ssh-keygen -lf "$scratch/pub" -E sha256 | awk '{print $2}')" = \
+            'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
+          remote() {
+            timeout 2300s ssh -T -p 22 -i "$scratch/id" \
+              -o UserKnownHostsFile="$scratch/known_hosts" \
+              -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+              -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o PasswordAuthentication=no -o ConnectTimeout=20 \
+              -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+              vps1deploy@100.87.55.92 "$@"
+          }
+          changed=0
+          rollback() {
+            code=$?
+            if (( code != 0 && changed )); then
+              echo 'AUTO_SCRIPT_ACTIVATION=FAILED_ROLLBACK_ATTEMPT'
+              remote "sudo -n /usr/local/sbin/vps1-production-deploy rollback $SOURCE_SHA scene-builder" || true
+            fi
+            exit "$code"
+          }
+          trap rollback ERR
+          echo 'AUTO_SCRIPT_STORAGE=SCENE_OWNED_PERSISTENT_SQLITE'
+          echo 'AUTO_SCRIPT_ACTIVATION=OWNER_AUTHORIZED_GUARDED_RELEASE'
+          changed=1
+          remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA scene-builder"
+          echo 'AUTO_SCRIPT_PUBLIC_ASSETS_PROBE'
+          curl -fsS --connect-timeout 8 --max-time 25 \
+            'https://app.scenebuilder.online/static/auto_script.js' \
+            -o "$scratch/auto_script.js"
+          grep -q '/api/auto-script/state' "$scratch/auto_script.js"
+          curl -fsS --connect-timeout 8 --max-time 25 \
+            'https://app.scenebuilder.online/static/auto_script.css' \
+            -o "$scratch/auto_script.css"
+          grep -q 'as-shell' "$scratch/auto_script.css"
+          status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 25 \
+            'https://app.scenebuilder.online/api/auto-script/health')"
+          [[ "$status" = '303' || "$status" = '302' || "$status" = '401' || "$status" = '403' ]]
+          echo 'AUTO_SCRIPT_ANONYMOUS_API=DENIED'
+          echo 'AUTO_SCRIPT_AUTHENTICATED_SCHEDULER=VERIFIED_BY_SCENE_RELEASE'
+          echo 'OTHER_APP_INSTALLS=NONE'
+          trap - ERR
+          echo 'AUTO_SCRIPT_PRODUCTION_RELEASE=PASS'

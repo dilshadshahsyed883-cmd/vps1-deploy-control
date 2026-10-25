@@ -19,7 +19,11 @@ class SceneCandidateReleaseContract(unittest.TestCase):
         self.assertIn('/internal/workspace-auth?app=short-maker', source)
         self.assertIn('(\"script_work\", \"/script-work\")', source)
         self.assertIn('(\"storage_manager\", \"/admin/storage\")', source)
-        self.assertNotIn('auto-script', source.lower())
+        # The owner explicitly authorized a scoped Auto Script activation on
+        # 25 October 2026; the separate scheduler must remain marker-gated.
+        self.assertIn('"[vps1-auto-script-online]" in merge_message', source)
+        self.assertIn('integrations["auto_script"] = _verify_auto_script_online()', source)
+        self.assertIn('atomic_link(CURRENT, previous)', source)
         self.assertIn('dashboard_no_algrow', source)
         self.assertIn('("user_management", "/user-management")', source)
         self.assertIn('"Invalid user-management action token"', source)

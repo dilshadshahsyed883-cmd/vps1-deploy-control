@@ -83,6 +83,16 @@ def _stage(revision: str) -> Path:
 
     target = RELEASES / revision
     files = sources("scene-builder")
+    # Overlay manifest-verified Auto Script sources into the immutable Scene
+    # candidate. Runtime activation is a separate explicit production gate.
+    from rebuild.stage_auto_script import validated_files
+    script_files = validated_files()
+    existing = {name for name, _ in files}
+    for name, data in script_files.items():
+        target_name = "part01/" + name
+        if target_name in existing:
+            raise RuntimeError("Auto Script collides with a Scene-owned source")
+        files.append((target_name, data))
     manifest = {
         "app": "scene-builder",
         "revision": revision,
@@ -198,6 +208,53 @@ def _atomic_scene_env(payload: bytes) -> None:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
 
+
+
+def _auto_script_env_patch(current: str) -> str:
+    """Enable only the separately approved persistent Scene-owned Auto Script."""
+    db_path = str(STATE / "auto-script" / "auto_script.sqlite3")
+    updates = {"FRESH_AUTO_SCRIPT_READY": "1", "AUTO_SCRIPT_DB_PATH": db_path}
+    lines = current.splitlines()
+    for key, value in updates.items():
+        matches = [i for i, line in enumerate(lines) if line.split("=", 1)[0].strip() == key and "=" in line]
+        if len(matches) > 1:
+            raise RuntimeError("duplicate Auto Script Scene env key: " + key)
+        if matches:
+            existing = lines[matches[0]].split("=", 1)[1].strip().strip("\\\"'")
+            if key == "AUTO_SCRIPT_DB_PATH" and existing != value:
+                raise RuntimeError("refusing to replace existing Auto Script database")
+            lines[matches[0]] = key + "=" + value
+        else:
+            lines.append(key + "=" + value)
+    return "\n".join(lines) + "\n"
+
+
+def _verify_auto_script_online() -> dict:
+    """Authenticated, read-only proof of scheduler + state + UI; no jobs run."""
+    from production.route_uploader_scene_https import scene_cookie
+    cookie = scene_cookie()
+    unauth, _, _ = _request("/api/auto-script/health", follow_redirects=False)
+    if unauth not in (303, 401, 403):
+        raise RuntimeError("Auto Script API is accessible anonymously")
+    code, _, payload = _request("/api/auto-script/health", cookie)
+    if code != 200:
+        raise RuntimeError("Auto Script authenticated health unavailable")
+    response = json.loads(payload)
+    if not response.get("ok") or response.get("scheduler") is not True or response.get("contract_version") != 2:
+        raise RuntimeError("Auto Script scheduler not active")
+    if response.get("db") != str(STATE / "auto-script" / "auto_script.sqlite3"):
+        raise RuntimeError("Auto Script persistent SQLite identity mismatch")
+    for url, expected in (
+        ("/auto-script", b"auto-script-app"),
+        ("/static/auto_script.js", b"/api/auto-script/state"),
+        ("/static/auto_script.css", b".as-shell"),
+    ):
+        code, _, body = _request(url, cookie)
+        if code != 200 or expected not in body:
+            raise RuntimeError("Auto Script UI/static readback failed: " + url)
+    return {"result": "ONLINE", "scheduler": "PASS", "authenticated": "PASS",
+            "anonymous": "DENIED", "persistent_database": "PASS", "ui": "PASS",
+            "channels": response["channels"], "active_items": response["active_items"]}
 
 def _verify_integrations(*, require_storage_backend: bool = False) -> dict:
     from production.route_uploader_scene_https import scene_cookie
@@ -333,8 +390,13 @@ def install(revision: str) -> None:
     target = _stage(revision)
     if (target / "part01/experiment_browser.py").is_file():
         _ensure_experiment_browser_dependency()
+    from production.runtime import run as _run
+    merge_message = _run(["git", "log", "-1", "--format=%B"], cwd=Path(__file__).resolve().parents[1], quiet=True)
+    enable_auto_script = "[vps1-auto-script-online]" in merge_message
     if previous == target:
         integrations = _verify_integrations()
+        if enable_auto_script:
+            integrations["auto_script"] = _verify_auto_script_online()
         _verify_native_ui_release(target)
         event(app="scene-builder", result="PASS_ALREADY_INSTALLED", revision=revision,
               port=18080, integrations=integrations)
@@ -352,6 +414,20 @@ def install(revision: str) -> None:
     whisper_compat = None
     worker_home = None
     try:
+        if enable_auto_script:
+            state = STATE / "auto-script"
+            if state.is_symlink():
+                raise RuntimeError("unexpected Auto Script state symlink")
+            state.mkdir(mode=0o700, parents=True, exist_ok=True)
+            import pwd
+            owner = pwd.getpwnam("vps1scene")
+            os.chown(state, owner.pw_uid, owner.pw_gid)
+            state.chmod(0o700)
+            saved = ENV.read_bytes()
+            patched = _auto_script_env_patch(saved.decode("utf-8"))
+            if patched.encode("utf-8") != saved:
+                original_env = saved
+                _atomic_scene_env(patched.encode("utf-8"))
         token = _candidate_storage_token()
         if token is not None:
             original = ENV.read_bytes()
@@ -362,7 +438,8 @@ def install(revision: str) -> None:
             )
             if new_text.encode("utf-8") != original:
                 _atomic_scene_env(new_text.encode("utf-8"))
-                original_env = original
+                if original_env is None:
+                    original_env = original
         # The live web binding still points at a disabled candidate endpoint.
         # Provision a separate authenticated production service. The port-8000
         # admission worker and its read-only policy/data remain untouched.
@@ -414,6 +491,8 @@ def install(revision: str) -> None:
         if backend_result is not None:
             integrations["scene_backend_repair"] = backend_result
         _verify_native_ui_release(target)
+        if enable_auto_script:
+            integrations["auto_script"] = _verify_auto_script_online()
         # The candidate UI and the independently writable worker have separate
         # immutable source pointers. Refresh ONLY our owned idle worker, with
         # four disposable real HD FFmpeg renders and a rollback on any failure.

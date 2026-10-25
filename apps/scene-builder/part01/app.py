@@ -111,8 +111,13 @@ if os.getenv("FRESH_WEBSITE_INSTALL", "0") != "1":
 # MASTER_CONTROLLER_V1_IMPORT
 from master_controller import register_master_controller
 register_master_controller(app, templates)
-# Auto Script remains owned by the parallel GitHub branch.
-if not RUNTIME_CANDIDATE and (os.getenv("FRESH_WEBSITE_INSTALL", "0") != "1" or os.getenv("FRESH_AUTO_SCRIPT_READY", "0") == "1"):
+# Auto Script is enabled only by the guarded, owner-authorized VPS release.
+# Keep its SQLite state outside immutable Scene/Auto Script source releases.
+if os.getenv("FRESH_AUTO_SCRIPT_READY", "0") == "1":
+    import auto_script as _auto_script
+    _auto_script.DB_PATH = Path(os.environ["AUTO_SCRIPT_DB_PATH"])
+    _auto_script.register_auto_script(app, templates)
+elif not RUNTIME_CANDIDATE and os.getenv("FRESH_WEBSITE_INSTALL", "0") != "1":
     from auto_script import register_auto_script
     register_auto_script(app, templates)
 
@@ -679,7 +684,10 @@ def require_login(request: Request) -> None:
 @app.middleware("http")
 async def authentication(request: Request, call_next):
     if RUNTIME_CANDIDATE and request.method not in ("GET", "HEAD", "OPTIONS"):
-        if not candidate_mutation_allowed(request.method, request.url.path, SCENE_PRECUTOVER_EDITING):
+        if not candidate_mutation_allowed(
+            request.method, request.url.path, SCENE_PRECUTOVER_EDITING,
+            auto_script_enabled=os.getenv("FRESH_AUTO_SCRIPT_READY", "0") == "1",
+        ):
             return JSONResponse({"ok": False, "error": "candidate: write requires separate approval"}, status_code=403)
     if RUNTIME_CANDIDATE and request.url.path == "/internal/runtime-ready":
         return await call_next(request)

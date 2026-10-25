@@ -213,7 +213,8 @@ class RoleBehaviorTests(unittest.TestCase):
         self.assertIn('_ADMIN_USER_MANAGEMENT = ("POST", "/user-management")', source)
         self.assertIn('if (method, path) == _ADMIN_USER_MANAGEMENT:', source)
         app_source = SOURCE
-        self.assertIn("candidate_mutation_allowed(request.method, request.url.path, SCENE_PRECUTOVER_EDITING)", app_source)
+        self.assertIn("candidate_mutation_allowed(", app_source)
+        self.assertIn("auto_script_enabled=os.getenv(\"FRESH_AUTO_SCRIPT_READY\", \"0\") == \"1\"", app_source)
         self.assertIn('require_admin(request)\n    expected', app_source)
         self.assertIn("Invalid user-management action token", app_source)
 
