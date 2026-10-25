@@ -327,23 +327,46 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
     @app.get("/api/v1/images")
     def list_images(q: str = "", status: str = "all", orientation: str = "all", date_from: str = "", date_to: str = "",
                     limit: int = Query(60, ge=1, le=200), offset: int = Query(0, ge=0)):
-        # Count the complete filtered collection, not an arbitrary first 500 rows.
-        with db() as conn:
-            total_images = conn.execute("SELECT COUNT(*) FROM image_assets WHERE deleted_at IS NULL").fetchone()[0]
-            rows = conn.execute("SELECT * FROM image_assets WHERE deleted_at IS NULL ORDER BY created_at DESC").fetchall()
-        items = [image_dict(r) for r in rows if (not date_from or r["created_at"][:10]>=date_from) and (not date_to or r["created_at"][:10]<=date_to)]
+        # Filter, count and paginate inside SQLite instead of materializing
+        # every image and thumbnail metadata into the web worker.
         if orientation not in {"all", "landscape", "portrait", "square", "unknown"}:
             raise HTTPException(400, "Invalid orientation filter")
-        if orientation != "all":
-            items = [item for item in items if item["orientation"] == orientation]
+        clauses = ["deleted_at IS NULL"]
+        params = []
+        if date_from:
+            clauses.append("substr(created_at,1,10)>=?")
+            params.append(date_from)
+        if date_to:
+            clauses.append("substr(created_at,1,10)<=?")
+            params.append(date_to)
         if status != "all":
-            items = [x for x in items if x["status"] == status]
-        terms = normalized_tags(q.split())
-        if terms:
-            items = [x for x in items if all(
-                t in " ".join(x["keywords"]) or t in (x["description"] or "").lower()
-                or t in x["original_name"].lower() for t in terms)]
-        return {"items": items[offset:offset+limit], "total": len(items),
+            clauses.append("status=?")
+            params.append(status)
+        if orientation != "all":
+            orientation_sql = """CASE
+                WHEN width<=0 OR height<=0 THEN 'unknown'
+                WHEN width*100>=height*112 THEN 'landscape'
+                WHEN width*100<=height*89 THEN 'portrait'
+                ELSE 'square' END"""
+            clauses.append(f"({orientation_sql})=?")
+            params.append(orientation)
+        for term in normalized_tags(q.split()):
+            # Escape SQL wildcards so user search remains literal substring matching.
+            literal = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            pattern = "%" + literal + "%"
+            clauses.append("""(LOWER(original_name) LIKE ? ESCAPE '\\'
+                OR LOWER(description) LIKE ? ESCAPE '\\'
+                OR LOWER(keywords_json) LIKE ? ESCAPE '\\')""")
+            params.extend([pattern, pattern, pattern])
+        where = " AND ".join(clauses)
+        with db() as conn:
+            total_images = conn.execute(
+                "SELECT COUNT(*) FROM image_assets WHERE deleted_at IS NULL").fetchone()[0]
+            total = conn.execute(f"SELECT COUNT(*) FROM image_assets WHERE {where}", params).fetchone()[0]
+            rows = conn.execute(
+                f"SELECT * FROM image_assets WHERE {where} ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?",
+                params + [limit, offset]).fetchall()
+        return {"items": [image_dict(row) for row in rows], "total": total,
                 "total_images": total_images, "limit": limit, "offset": offset}
 
     @app.get("/api/v1/images/trash")

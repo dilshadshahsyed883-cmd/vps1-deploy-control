@@ -102,11 +102,49 @@ def catalog(root,media_type='all'):
 
 
 def locate(root,media_type,media_id):
-    if media_type not in ('image','video','source'):raise HTTPException(400,'Invalid media type')
-    row=next((x for x in catalog(root,media_type) if x['id']==media_id),None)
-    if not row:raise HTTPException(404,'Asset unavailable or in trash')
+    # Read one asset by primary key. The list catalog intentionally limits its
+    # preview to recent rows, but direct edits must work for older assets too.
+    if media_type not in ('image','video','source'):
+        raise HTTPException(400,'Invalid media type')
+    root=Path(root)
+    with connect(root) as c:
+        if media_type=='video':
+            r=c.execute('''SELECT c.*,s.filename AS source_filename,s.width,s.height,
+                s.orientation,s.codec,s.fps,s.rights_confirmed,s.source_kind,
+                s.stored_name AS source_stored_name FROM clips c
+                LEFT JOIN sources s ON c.source_id=s.id
+                WHERE c.id=? AND c.deleted_at IS NULL''',(media_id,)).fetchone()
+            if r:
+                row=dict(r)
+                row.update(type='video',path=str(root/'clips'/r['filename']),
+                           thumb_url='/media/thumbs/'+(r['thumb_filename'] or ''),
+                           content_url='/media/clips/'+r['filename'])
+                row['keywords']=[x['keyword'] for x in c.execute(
+                    'SELECT keyword FROM clip_keywords WHERE clip_id=?',(media_id,))]
+        elif media_type=='image':
+            r=c.execute('SELECT * FROM image_assets WHERE id=? AND deleted_at IS NULL',
+                        (media_id,)).fetchone()
+            if r:
+                row=dict(r)
+                width,height=r['width'],r['height']
+                row.update(type='image',path=str(root/'images'/r['stored_name']),
+                           source_id=r['id'],source_filename=r['original_name'],duration=0,quality=0,
+                           orientation='landscape' if width>height*1.12 else
+                                       'portrait' if height>width*1.12 else 'square',
+                           keywords=unpack(r['keywords_json'],[]),
+                           thumb_url=f"/api/v1/images/{r['id']}/preview",
+                           content_url=f"/api/v1/images/{r['id']}/content")
+        else:
+            r=c.execute('SELECT * FROM sources WHERE id=?',(media_id,)).fetchone()
+            if r:
+                row=dict(r)
+                row.update(type='source',path=str(root/'sources'/r['stored_name']),
+                           duration=r['duration'] or 0)
+    if not r:
+        raise HTTPException(404,'Asset unavailable or in trash')
     path=Path(row['path'])
-    if not path.resolve().is_relative_to(Path(root).resolve()):raise HTTPException(400,'Invalid asset path')
+    if not path.resolve().is_relative_to(root.resolve()):
+        raise HTTPException(400,'Invalid asset path')
     return row
 
 
@@ -464,26 +502,22 @@ def register_ai_workspace(app,root,housekeeping_callback=None):
         if row['state']!='completed':return {'state':row['state'],'error':row['error'],'items':[]}
         return {'state':'completed',**workspace.search(vector=unpack(row['result_json'])['embedding'],visual_only=True)}
     @app.get('/api/v1/ai/duplicates')
-    def duplicates():
-        result=workspace.search(limit=200)['items'];groups=[]
-        for i,a in enumerate(result):
-            qa=a['metadata'].get('quality',{});ha=qa.get('dhash')
-            if not ha:continue
-            with connect(root) as c:ra=c.execute('SELECT embedding_json FROM ai_metadata WHERE media_type=? AND media_id=?',(a['type'],a['id'])).fetchone()
-            va=unpack(ra['embedding_json'],[]) if ra else []
-            matches=[]
-            for b in result[i+1:]:
-                hb=b['metadata'].get('quality',{}).get('dhash')
-                if not hb or a['type']!=b['type']:continue
-                distance=(int(ha,16)^int(hb,16)).bit_count()
-                if distance>6:continue
-                with connect(root) as c:rb=c.execute('SELECT embedding_json FROM ai_metadata WHERE media_type=? AND media_id=?',(b['type'],b['id'])).fetchone()
-                similarity=cosine(va,unpack(rb['embedding_json'],[]) if rb else [])
-                if similarity>=.93:matches.append({'asset':b,'hash_distance':distance,'similarity':round(similarity,4)})
-            if matches:
-                best=max([a]+[x['asset'] for x in matches],key=lambda x:(x['quality'],(x.get('width') or 0)*(x.get('height') or 0)))
-                groups.append({'asset':a,'matches':matches,'recommended_keep':best['id'],'reason':'Perceptual hash <=6 bits AND CLIP similarity >=0.93; prefer quality then resolution. Review before rejection.'})
-        return {'groups':groups,'scanned':len(result),'automatic_deletion':False}
+    def duplicates(limit: int = Query(40, ge=1, le=200), offset: int = Query(0, ge=0)):
+        from duplicate_review import review_duplicates
+
+        # One SQLite read for indexed AI fingerprints; exact hash matching
+        # continues to work before AI model setup or inference.
+        assets = catalog(root)
+        with connect(root) as c:
+            records = {(row['media_type'], row['media_id']): dict(row)
+                       for row in c.execute(
+                           'SELECT media_type,media_id,machine_json,embedding_json,model_version FROM ai_metadata')}
+        result = review_duplicates(assets, records, public_asset, limit=limit, offset=offset)
+        result['catalog_limit_per_type'] = 5000
+        result['coverage_note'] = (
+            'This review covers the newest 5000 assets of each media type. '
+            'No deletion is automatic; review suggestions before making any changes.')
+        return result
     @app.get('/api/v1/ai/collections')
     def collections():
         with connect(root) as c:rows=c.execute('SELECT * FROM ai_collections ORDER BY created_at DESC').fetchall()

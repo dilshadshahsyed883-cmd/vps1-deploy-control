@@ -53,6 +53,22 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(c.get('/api/v1/ai/search?orientation=landscape&min_width=60').json()['total'],1)
         c.delete('/api/v1/images/'+i)
         self.assertEqual(c.get('/api/v1/ai/search').json()['total'],0)
+    def test_direct_asset_lookup_is_not_limited_by_catalog_preview(self):
+        from unittest import mock
+        import ai_workspace
+        ident = self.image('old-library-photo.png')
+        # The AI preview can be capped at 5000, but an exact ID lookup is not.
+        with mock.patch.object(ai_workspace, 'catalog',
+                               side_effect=AssertionError('catalog must not be scanned')):
+            detail = self.client.get('/api/v1/ai/assets/image/' + ident)
+            self.assertEqual(detail.status_code, 200, detail.text)
+            self.assertEqual(detail.json()['asset']['id'], ident)
+            patch = self.client.patch('/api/v1/ai/assets/image/' + ident,
+                                      json={'fields': {'description': 'Older asset kept accessible'}})
+            self.assertEqual(patch.status_code, 200, patch.text)
+        self.client.delete('/api/v1/images/' + ident)
+        self.assertEqual(self.client.get('/api/v1/ai/assets/image/' + ident).status_code, 404)
+
     def test_atomic_jobs_restart_cancel_and_retry(self):
         i=self.image();from ai_workspace import enqueue,connect,initialize
         first=enqueue(self.root,'analyze','image',i);second=enqueue(self.root,'analyze','image',i)

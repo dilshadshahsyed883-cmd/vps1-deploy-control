@@ -63,7 +63,31 @@ find('#aiSaveSearch').onclick=safe(async()=>{const name=prompt('Saved search nam
 find('#aiReference').onchange=safe(async()=>{const file=find('#aiReference').files[0];if(!file)return;const form=new FormData();form.append('file',file);const q=await api('/api/v1/ai/reference',{method:'POST',body:form});find('#aiSearchStatus').textContent='Reference image search queued…';let attempts=0;const poll=async()=>{try{const r=await api('/api/v1/ai/reference/'+q.job_id);if(r.state==='completed'){render(r.items);find('#aiSearchStatus').textContent='Reference-image similarity';return}if(['failed','cancelled'].includes(r.state))throw new Error(r.error||r.state);if(++attempts<120)setTimeout(poll,1000);else find('#aiSearchStatus').textContent='Reference search still queued. Check Process.'}catch(e){find('#aiSearchStatus').textContent=e.message}};poll()});
 let duplicateGroups=[];
 find('#aiCompare').onclick=safe(async()=>{if(selected.size!==2)throw new Error('Select two assets to compare');find('#aiDuplicateResults').innerHTML='<h3>Side-by-side comparison</h3><div class="sml-ai-grid">'+Array.from(selected).map(i=>{const a=results[i];return '<article class="panel"><h4>'+esc(a.source_filename||a.id)+'</h4>'+(a.type==='video'?'<video controls src="'+esc(mediaUrl(a.content_url))+'"></video>':'<img alt="Comparison media" src="'+esc(mediaUrl(a.content_url))+'">')+'<p>Q'+a.quality+' · '+esc(a.ai_state)+'</p><p>'+esc(a.description||'')+'</p></article>'}).join('')+'</div>'});
-find('#aiDuplicates').onclick=safe(async()=>{const d=await api('/api/v1/ai/duplicates');find('#aiDuplicateResults').innerHTML='<h3>Similar-copy review</h3><p>Recommendations only; originals are retained. Use selection and Compare to inspect copies before a reversible review decision.</p>'+ (d.groups.length?d.groups.map(g=>`<div class="panel"><b>Suggested best copy: ${esc(g.recommended_keep)}</b><p>${esc(g.reason)}</p><p>${esc(g.asset.id)} ↔ ${g.matches.map(x=>esc(x.asset.id)+' ('+x.similarity+')').join(', ')}</p></div>`).join(''):'<p class="empty">No near-duplicate groups in the analyzed selection.</p>')});
+let duplicateOffset = 0;
+async function showDuplicatePage(append = false){
+ if(!append) duplicateOffset = 0;
+ const size = 40;
+ const d = await api('/api/v1/ai/duplicates?limit='+size+'&offset='+duplicateOffset);
+ const container = find('#aiDuplicateResults');
+ const previousMore = container.querySelector('[data-duplicate-more]');
+ if(previousMore) previousMore.remove();
+ const intro = '<h3>Similar-copy review</h3><p>Exact SHA-256 and reviewable perceptual similarity. Never deletes files automatically.</p>';
+ const rows = d.groups.map(g=>{
+   const displayed = g.matches.slice(0,100);
+   const extra = g.matches.length - displayed.length;
+   return '<div class="panel"><b>Suggested best copy: '+esc(g.recommended_keep)+'</b><p>'+esc(g.reason)+'</p><p>'+esc(g.asset.id)+' ↔ '+displayed.map(x=>esc(x.asset.id)+(x.exact?' (exact)':' ('+x.similarity+')')).join(', ')+(extra?' · +'+extra+' more copies (open search to inspect)':'')+'</p></div>';
+ }).join('');
+ if(!append) container.innerHTML = intro + '<p id="aiDuplicateProgress" role="status"></p>' + (rows || '<p class="empty">No duplicates found in this reviewed selection.</p>');
+ else container.insertAdjacentHTML('beforeend',rows);
+ duplicateOffset += d.groups.length;
+ const note = container.querySelector('#aiDuplicateProgress');
+ if(note) note.textContent = duplicateOffset+' of '+d.total_groups+' groups shown; '+d.scanned+' media scanned'+(d.incomplete?' · Comparison budget reached; results incomplete':'')+'. '+(d.coverage_note||'');
+ if(duplicateOffset < d.total_groups){
+   const more = document.createElement('button');more.type='button';more.className='ghost';more.textContent='Load more duplicate groups';
+   more.dataset.duplicateMore='1';more.onclick=safe(()=>showDuplicatePage(true));container.appendChild(more);
+ }
+}
+find('#aiDuplicates').onclick=safe(()=>showDuplicatePage(false));
 all('[data-ai-bulk]').forEach(b=>b.onclick=safe(async()=>{let reason='';if(b.dataset.aiBulk==='rejected'){reason=prompt('Reason for rejecting the selected assets')||'';if(!reason.trim())return}for(const i of selected){const a=results[i];if(reason)await post('/api/v1/ai/assets/'+a.type+'/'+a.id,{fields:{review_reason:reason,duplicate_decision:'reviewed'}} ,'PATCH');if(a.type==='image')await post('/api/v1/images/'+a.id,{status:b.dataset.aiBulk},'PATCH');else await post('/api/clips/bulk/status',{ids:[a.id],status:b.dataset.aiBulk})}toast('Review states saved');await search()}));
 find('#aiBulkTags').onclick=safe(async()=>{if(!selected.size)return;const text=prompt('Keywords to apply (comma separated)');if(text===null)return;for(const i of selected){const a=results[i];await post('/api/v1/ai/assets/'+a.type+'/'+a.id,{fields:{keywords:text.split(',').map(x=>x.trim()).filter(Boolean)}},'PATCH')}toast('Manual keywords saved')});
 find('#aiFolderInput').onchange=safe(async()=>{
