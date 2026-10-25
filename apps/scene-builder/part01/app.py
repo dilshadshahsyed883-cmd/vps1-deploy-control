@@ -1884,7 +1884,7 @@ def experiment_studio_media_library(request: Request):
 
 
 # EXPERIMENT_STUDIO_BROWSER_ENGINE_V1: isolated browser service, same website shell.
-from experiment_browser import BrowserError, browser_executable
+from experiment_browser import BrowserError, browser_executable, MAX_ACTIVE
 from experiment_browser_management import ManagedBrowserProfileEngine
 
 EXPERIMENT_BROWSER = ManagedBrowserProfileEngine(DATA_DIR / "experiment-browser")
@@ -1939,6 +1939,8 @@ async def experiment_browser_health(request: Request):
     experiment_owner(request)
     return {"ok": True, "chrome_installed": browser_executable() is not None,
             "active_profiles": len(EXPERIMENT_BROWSER.running),
+            "max_active_profiles": MAX_ACTIVE,
+            "available_ram_mb": EXPERIMENT_BROWSER.available_memory_mb(),
             "engine": "Chromium persistent profiles via private Playwright pipe",
             "stealth_guaranteed": False}
 
@@ -2097,6 +2099,63 @@ async def experiment_browser_connection_check(request: Request, profile_id: str)
     await experiment_payload(request)
     try:
         return await EXPERIMENT_BROWSER.connection_check(owner, profile_id)
+    except BrowserError as exc:
+        experiment_failure(exc)
+
+
+# Experiment Studio scoped proxy pool management. Same login and mutation CSRF gates.
+@app.get("/api/experiment-browser/proxies")
+async def experiment_browser_proxies(request: Request):
+    return {"proxies": await EXPERIMENT_BROWSER.proxies(experiment_owner(request))}
+
+
+@app.post("/api/experiment-browser/proxies")
+async def experiment_browser_proxy_create(request: Request):
+    owner = experiment_owner(request)
+    payload = await experiment_payload(request)
+    try:
+        return {"proxy": await EXPERIMENT_BROWSER.save_proxy(owner, payload)}
+    except BrowserError as exc:
+        experiment_failure(exc)
+
+
+@app.patch("/api/experiment-browser/proxies/{proxy_id}")
+async def experiment_browser_proxy_update(request: Request, proxy_id: str):
+    owner = experiment_owner(request)
+    payload = await experiment_payload(request)
+    try:
+        return {"proxy": await EXPERIMENT_BROWSER.save_proxy(owner, payload, proxy_id)}
+    except BrowserError as exc:
+        experiment_failure(exc)
+
+
+@app.delete("/api/experiment-browser/proxies/{proxy_id}")
+async def experiment_browser_proxy_delete(request: Request, proxy_id: str):
+    owner = experiment_owner(request)
+    await experiment_payload(request)
+    try:
+        await EXPERIMENT_BROWSER.delete_proxy(owner, proxy_id)
+        return {"ok": True}
+    except BrowserError as exc:
+        experiment_failure(exc)
+
+
+@app.post("/api/experiment-browser/proxies/{proxy_id}/check")
+async def experiment_browser_proxy_check(request: Request, proxy_id: str):
+    owner = experiment_owner(request)
+    await experiment_payload(request)
+    try:
+        return await EXPERIMENT_BROWSER.check_proxy(owner, proxy_id)
+    except BrowserError as exc:
+        experiment_failure(exc)
+
+
+@app.post("/api/experiment-browser/profiles/{profile_id}/network-diagnostics")
+async def experiment_browser_network_diagnostics(request: Request, profile_id: str):
+    owner = experiment_owner(request)
+    await experiment_payload(request)
+    try:
+        return await EXPERIMENT_BROWSER.network_diagnostics(owner, profile_id)
     except BrowserError as exc:
         experiment_failure(exc)
 

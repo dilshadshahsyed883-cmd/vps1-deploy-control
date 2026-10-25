@@ -7,6 +7,7 @@ on:
       - 'apps/scene-builder/part01/static/experiment_browser.js'
       - 'apps/scene-builder/part01/templates/experiment_studio.html'
       - 'tests/test_experiment_browser_engine.py'
+      - 'tests/test_experiment_browser_capacity_proxy_20261025.py'
       - '.github/workflows/vps1-experiment-privacy-ci.yml'
 permissions:
   contents: read
@@ -22,7 +23,7 @@ jobs:
       - name: Syntax + isolated account and privacy regression tests
         run: |
           python -m py_compile apps/scene-builder/part01/experiment_browser.py apps/scene-builder/part01/app.py
-          python -m unittest discover -s tests -p 'test_experiment_browser_engine.py' -v
+          python -m unittest tests.test_experiment_browser_engine tests.test_experiment_browser_capacity_proxy_20261025 -v
       - name: Authenticated API / frontend boundaries remain explicit
         run: |
           python - <<'PY'

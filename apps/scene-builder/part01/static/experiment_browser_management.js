@@ -5,7 +5,7 @@ const root=document.getElementById("experiment-browser");
 const bridge=window.antidetectManagementBridge;
 if(!root||!bridge)return;
 const el=id=>document.getElementById(id);
-let groups=[],templates=[],csvRows=[],page=1;
+let groups=[],templates=[],managedProxies=[],csvRows=[],page=1;
 const picked=new Set();
 function message(text,failed=false){
  el("exp-manager-alert").textContent=text;
@@ -29,14 +29,26 @@ function list(container,items,description){
  if(!items.length)target.textContent="Nothing saved yet.";
 }
 async function refreshData(){
- const [a,b]=await Promise.all([bridge.api("/groups"),bridge.api("/templates")]);
- groups=a.groups||[];templates=b.templates||[];
+ const [a,b,c]=await Promise.all([bridge.api("/groups"),bridge.api("/templates"),bridge.api("/proxies")]);
+ groups=a.groups||[];templates=b.templates||[];managedProxies=c.proxies||[];
  for(const id of ["exp-create-group","exp-edit-group","exp-batch-group","exp-bulk-group"])
   choices(id,groups,"Ungrouped");
  choices("exp-filter-group",groups,"All groups");
  choices("exp-group-pick",groups,"Create new group");
  choices("exp-template-pick",templates,"New template");
  choices("exp-batch-template",templates,"Standard defaults");
+ for(const id of ["exp-create-managed-proxy","exp-edit-managed-proxy"]) {
+  const target=el(id),current=target.value;
+  target.replaceChildren(new Option("Manual proxy / direct",""));
+  for(const proxy of managedProxies)
+   target.add(new Option(proxy.pool+" / "+proxy.name+" · "+proxy.status,proxy.id));
+  target.value=Array.from(target.options).some(o=>o.value===current)?current:"";
+ }
+ choices("exp-managed-pick",managedProxies,"Add new proxy");
+ list("exp-managed-list",managedProxies,p=>p.pool+" · "+p.proxy_server+
+  " · priority "+p.priority+" · "+p.status+
+  (p.exit_ip?" · exit IP "+p.exit_ip:"")+
+  (p.credentials_configured?" · credentials saved":""));
  list("exp-groups-list",groups,g=>(g.profile_count||0)+" profiles · "+(g.proxy_server||"Direct"));
  list("exp-template-list",templates,t=>(t.settings.locale||"en-US")+" · "+(t.settings.privacy_mode||"strict"));
  filter();
@@ -115,6 +127,7 @@ function loadEdit(){
  if(!item)throw Error("Select a profile.");
  for(const [id,key] of Object.entries({"exp-edit-name":"name","exp-edit-url":"start_url",
   "exp-edit-locale":"locale","exp-edit-timezone":"timezone","exp-edit-proxy":"proxy_server",
+  "exp-edit-managed-proxy":"managed_proxy_id",
   "exp-edit-privacy":"privacy_mode","exp-edit-group":"group_id","exp-edit-tags":"tags"}))
   el(id).value=item[key]||"";
 }
@@ -147,6 +160,46 @@ el("exp-group-delete").addEventListener("click",()=>job(async()=>{
  await bridge.api("/groups/"+id,"DELETE");
  el("exp-group-pick").value="";loadGroup();await refreshData();await bridge.sync();
  message("Group deleted. Profiles are ungrouped, not deleted.");
+}));
+function loadManagedProxy(){
+ const proxy=managedProxies.find(x=>x.id===el("exp-managed-pick").value);
+ el("exp-managed-name").value=proxy?.name||"";
+ el("exp-managed-pool").value=proxy?.pool||"Default";
+ el("exp-managed-server").value=proxy?.proxy_server||"";
+ el("exp-managed-priority").value=String(proxy?.priority||100);
+ el("exp-managed-user").value="";
+ el("exp-managed-password").value="";
+}
+el("exp-managed-load").addEventListener("click",loadManagedProxy);
+el("exp-managed-proxy-form").addEventListener("submit",event=>{
+ event.preventDefault();job(async()=>{
+  const id=el("exp-managed-pick").value;
+  const data={name:el("exp-managed-name").value,pool:el("exp-managed-pool").value,
+   proxy_server:el("exp-managed-server").value,
+   priority:Number(el("exp-managed-priority").value)};
+  // Credentials are sent only if explicitly entered. Existing secrets are
+  // retained server-side on edit; never prefetched into the DOM.
+  if(el("exp-managed-user").value)data.proxy_username=el("exp-managed-user").value;
+  if(el("exp-managed-password").value)data.proxy_password=el("exp-managed-password").value;
+  await bridge.api("/proxies"+(id?"/"+id:""),id?"PATCH":"POST",data);
+  await refreshData();el("exp-managed-pick").value="";
+  loadManagedProxy();message("Managed proxy saved. Health untested until checked.");
+ });
+});
+el("exp-managed-test").addEventListener("click",()=>job(async()=>{
+ const id=el("exp-managed-pick").value;if(!id)throw Error("Select a saved proxy first.");
+ message("Testing proxy through a temporary Chromium session...");
+ const result=await bridge.api("/proxies/"+id+"/check","POST");
+ await refreshData();
+ message("Proxy "+result.status+(result.exit_ip?" · exit IPv4 "+result.exit_ip:"")+
+  " · This is an HTTP IPv4 reachability test, not a DNS/WebRTC leak test.",
+  result.status!=="healthy");
+}));
+el("exp-managed-delete").addEventListener("click",()=>job(async()=>{
+ const id=el("exp-managed-pick").value;if(!id)throw Error("Select a saved proxy.");
+ if(!confirm("Delete unused proxy? Assigned profiles must first be unassigned."))return;
+ await bridge.api("/proxies/"+id,"DELETE");await refreshData();
+ el("exp-managed-pick").value="";loadManagedProxy();message("Proxy removed.");
 }));
 function settingsFromForm(){
  const data=Object.fromEntries(new FormData(el("browser-create-form")).entries());
@@ -263,6 +316,21 @@ async function openDiagnostic(url) {
  el("browser-refresh-preview").click();
  message("Opened third-party diagnostic in the selected browser. Interpret the displayed results; no leak-free guarantee is made.");
 }
+el("exp-network-diagnostics").addEventListener("click",()=>job(async()=>{
+ const id=bridge.selected();if(!id)throw Error("Select a profile first.");
+ const profile=bridge.profiles().find(x=>x.id===id);
+ if(profile?.state!=="running")throw Error("Start the profile before diagnostics.");
+ message("Running browser-context IPv4/IPv6 and WebRTC ICE checks...");
+ const result=await bridge.api("/profiles/"+id+"/network-diagnostics","POST");
+ const rtc=result.webrtc_ice||{};
+ message("Browser exit IPv4: "+(result.observed_exit_ips.ipv4||"Unavailable")+
+  " · IPv6: "+(result.observed_exit_ips.ipv6||"Unavailable")+
+  "\nWebRTC ICE: "+(rtc.status||"unavailable")+
+  " · Candidate types: "+(rtc.candidate_types||[]).join(", ")+
+  " · Public candidate observed: "+Boolean(rtc.public_address_observed)+
+  "\nDNS: independent test REQUIRED (see DNS leak test button)." +
+  "\nImportant: unavailable/empty results do not prove leak-free browsing.");
+}));
 el("exp-dns-check").addEventListener("click",()=>job(()=>openDiagnostic("https://browserleaks.com/dns")));
 el("exp-webrtc-check").addEventListener("click",()=>job(()=>openDiagnostic("https://browserleaks.com/webrtc")));
 refreshData().catch(error=>message(error.message,true));
