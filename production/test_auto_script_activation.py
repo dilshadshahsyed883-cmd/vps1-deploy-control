@@ -73,6 +73,28 @@ class AutoScriptActivationTest(TestCase):
                 with self.assertRaises(RuntimeError):
                     module.validate_candidate_environment()
 
+    def test_auto_script_only_write_exceptions(self):
+        policy = ROOT / "apps/scene-builder/part01/precutover_policy.py"
+        spec = importlib.util.spec_from_file_location("precutover_policy_autoscript", policy)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        allowed = (
+            "/api/auto-script/channels",
+            "/api/auto-script/tick",
+            "/api/auto-script/channels/42/toggle",
+            "/api/auto-script/channels/42/run",
+            "/api/auto-script/items/99/retry",
+        )
+        for path in allowed:
+            with self.subTest(path=path):
+                self.assertFalse(module.mutation_allowed("POST", path, False))
+                self.assertTrue(module.mutation_allowed(
+                    "POST", path, False, auto_script_enabled=True))
+        for path in ("/api/auto-script/evil", "/api/auto-script/channels/xyz/run",
+                     "/api/auto-script/items/1/delete", "/api/scene/queue/delete"):
+            self.assertFalse(module.mutation_allowed(
+                "POST", path, False, auto_script_enabled=True))
+
     def test_scheduler_is_not_activated_by_source_commit(self):
         code = (ROOT / "apps/scene-builder/part01/app.py").read_text()
         self.assertIn('os.getenv("FRESH_AUTO_SCRIPT_READY", "0") == "1"', code)
