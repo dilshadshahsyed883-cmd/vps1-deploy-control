@@ -68,6 +68,21 @@ class ManagedBrowserProfileEngine(BrowserProfileEngine):
                     except Exception:
                         backup_path.unlink(missing_ok=True)
                         raise
+                # Online backup prior to *any* new management/proxy schema writes.
+                proxy_columns = {r[1] for r in db.execute("PRAGMA table_info(profiles)")}
+                if "managed_proxy_id" not in proxy_columns and db.execute(
+                        "SELECT COUNT(*) FROM profiles").fetchone()[0]:
+                    pre_dir = self.root / "profile-backups"
+                    pre_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+                    pre_path = pre_dir / ("profiles-pre-proxy-pools-" +
+                                          str(time.time_ns()) + ".sqlite3")
+                    try:
+                        with sqlite3.connect(pre_path) as safe:
+                            db.backup(safe)
+                        pre_path.chmod(0o600)
+                    except Exception:
+                        pre_path.unlink(missing_ok=True)
+                        raise
                 db.execute("""CREATE TABLE IF NOT EXISTS profile_groups (
                     id TEXT PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL,
                     proxy_server TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL,
@@ -88,18 +103,6 @@ class ManagedBrowserProfileEngine(BrowserProfileEngine):
                 # database before touching profile rows, never browser data.
                 profile_cols = {r[1] for r in db.execute("PRAGMA table_info(profiles)")}
                 if "managed_proxy_id" not in profile_cols:
-                    if db.execute("SELECT COUNT(*) FROM profiles").fetchone()[0]:
-                        backup_dir = self.root / "profile-backups"
-                        backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-                        backup_path = backup_dir / ("profiles-pre-proxy-pools-" +
-                                                    str(time.time_ns()) + ".sqlite3")
-                        try:
-                            with sqlite3.connect(backup_path) as safe:
-                                db.backup(safe)
-                            backup_path.chmod(0o600)
-                        except Exception:
-                            backup_path.unlink(missing_ok=True)
-                            raise
                     db.execute("ALTER TABLE profiles ADD COLUMN managed_proxy_id TEXT NOT NULL DEFAULT ''")
                 db.execute("""CREATE TABLE IF NOT EXISTS managed_proxies (
                     id TEXT PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL,
@@ -238,7 +241,38 @@ class ManagedBrowserProfileEngine(BrowserProfileEngine):
                 return self._public(dict(changed))
 
     async def start(self, owner, profile_id):
-        started = await super().start(owner, profile_id)
+        row = self._get(owner, profile_id)
+        managed_id = row.get("managed_proxy_id") or ""
+        if not managed_id or profile_id in self.running:
+            await super().start(owner, profile_id)
+        else:
+            # No direct-connection fallback. Every retry uses a proxy from the
+            # *same owner and named pool*, preserving the persistent directory.
+            async with self._proxy_start_lock:
+                with self._db() as db:
+                    selected = self._proxy_row(db, owner, managed_id)
+                    pool = db.execute(
+                        "SELECT * FROM managed_proxies WHERE owner=? AND pool=? "
+                        "ORDER BY priority,id", (owner, selected["pool"])).fetchall()
+                    candidates = [selected] + [dict(p) for p in pool if p["id"] != managed_id]
+                for candidate in candidates[:10]:
+                    self._launch_proxy[profile_id] = dict(
+                        proxy_server=candidate["proxy_server"],
+                        proxy_username=candidate["proxy_username"],
+                        proxy_password=candidate["proxy_password"])
+                    try:
+                        await super().start(owner, profile_id)
+                        result = await super().connection_check(owner, profile_id)
+                        self._record_proxy_result(owner, candidate["id"], True, result["ip"])
+                        break
+                    except BrowserError:
+                        self._record_proxy_result(owner, candidate["id"], False, "")
+                        if profile_id in self.running:
+                            await super().stop(owner, profile_id)
+                    finally:
+                        self._launch_proxy.pop(profile_id, None)
+                else:
+                    raise BrowserError("Proxy pool unavailable; no direct fallback was used", 502)
         with self._db() as db:
             db.execute("UPDATE profiles SET last_used=? WHERE id=? AND owner=?",
                        (str(int(time.time())), profile_id, owner))
@@ -434,3 +468,143 @@ class ManagedBrowserProfileEngine(BrowserProfileEngine):
                 for identity in ids:
                     shutil.rmtree(self.root / "profiles" / identity, ignore_errors=True)
             return {"ok": True, "updated": len(ids), "action": action}
+
+    @staticmethod
+    def _proxy_row(db, owner, proxy_id):
+        if not isinstance(proxy_id, str) or not PROFILE_ID.fullmatch(proxy_id):
+            raise BrowserError("Managed proxy not found", 404)
+        row = db.execute("SELECT * FROM managed_proxies WHERE id=? AND owner=?",
+                         (proxy_id, owner)).fetchone()
+        if row is None:
+            raise BrowserError("Managed proxy not found", 404)
+        return dict(row)
+
+    @staticmethod
+    def _proxy_public(row):
+        """Credentials are never returned to clients or included in status logs."""
+        return {key: row[key] for key in ("id", "name", "pool", "proxy_server",
+            "priority", "status", "checked_at", "exit_ip", "created_at")} | {
+            "credentials_configured": bool(row["proxy_username"] or row["proxy_password"])}
+
+    def _record_proxy_result(self, owner, identity, healthy, ip):
+        with self._db() as db:
+            db.execute("UPDATE managed_proxies SET status=?,checked_at=?,exit_ip=? "
+                       "WHERE id=? AND owner=?",
+                       ("healthy" if healthy else "unreachable",
+                        str(int(time.time())), ip, identity, owner))
+            db.commit()
+
+    async def proxies(self, owner):
+        async with self.lock:
+            with self._db() as db:
+                items = db.execute("SELECT * FROM managed_proxies WHERE owner=? "
+                                   "ORDER BY pool,priority,name COLLATE NOCASE",
+                                   (owner,)).fetchall()
+                return [self._proxy_public(dict(p)) for p in items]
+
+    async def save_proxy(self, owner, payload, proxy_id=""):
+        name = _name(payload.get("name"), "Proxy name")
+        pool = _name(payload.get("pool") or "Default", "Pool name")
+        server = validate_proxy(str(payload.get("proxy_server") or "").strip())
+        if not server:
+            raise BrowserError("Proxy server is required")
+        try:
+            priority = int(payload.get("priority", 100))
+        except (ValueError, TypeError):
+            raise BrowserError("Proxy priority must be a number") from None
+        if not 1 <= priority <= 1000:
+            raise BrowserError("Proxy priority must be 1–1000")
+        async with self.lock:
+            with self._db() as db:
+                old = self._proxy_row(db, owner, proxy_id) if proxy_id else None
+                username = str(payload.get("proxy_username") or
+                               (old["proxy_username"] if old else ""))
+                password = str(payload.get("proxy_password") or
+                               (old["proxy_password"] if old else ""))
+                validate_profile({"name": name, "proxy_server": server,
+                                  "proxy_username": username, "proxy_password": password})
+                try:
+                    if old:
+                        db.execute("UPDATE managed_proxies SET name=?,pool=?,proxy_server=?, "
+                                   "proxy_username=?,proxy_password=?,priority=?,"
+                                   "status='untested',checked_at='',exit_ip='' "
+                                   "WHERE id=? AND owner=?",
+                                   (name, pool, server, username, password, priority,
+                                    proxy_id, owner))
+                        identity = proxy_id
+                    else:
+                        count = db.execute("SELECT COUNT(*) FROM managed_proxies "
+                                           "WHERE owner=?", (owner,)).fetchone()[0]
+                        if count >= 100:
+                            raise BrowserError("Maximum 100 managed proxies per account", 409)
+                        identity = uuid.uuid4().hex[:24]
+                        db.execute("INSERT INTO managed_proxies "
+                                   "(id,owner,name,pool,proxy_server,proxy_username,"
+                                   "proxy_password,priority,created_at) VALUES "
+                                   "(?,?,?,?,?,?,?,?,?)",
+                                   (identity,owner,name,pool,server,username,password,
+                                    priority,str(int(time.time()))))
+                    db.commit()
+                except sqlite3.IntegrityError:
+                    raise BrowserError("Managed proxy name already exists", 409) from None
+                return self._proxy_public(self._proxy_row(db, owner, identity))
+
+    async def delete_proxy(self, owner, proxy_id):
+        async with self.lock:
+            with self._db() as db:
+                self._proxy_row(db, owner, proxy_id)
+                count = db.execute("SELECT COUNT(*) FROM profiles WHERE owner=? "
+                                   "AND managed_proxy_id=?", (owner, proxy_id)).fetchone()[0]
+                if count:
+                    raise BrowserError("Unassign this proxy from profiles before deleting", 409)
+                db.execute("DELETE FROM managed_proxies WHERE owner=? AND id=?",
+                           (owner, proxy_id))
+                db.commit()
+
+    async def check_proxy(self, owner, proxy_id):
+        """Explicit test with ephemeral Chrome; never touches persistent profiles."""
+        async with self._proxy_start_lock:
+            with self._db() as db:
+                item = self._proxy_row(db, owner, proxy_id)
+            if len(self.running) >= MAX_ACTIVE:
+                raise BrowserError("Stop a browser to run proxy diagnostics", 409)
+            memory = self.available_memory_mb()
+            if memory is None or memory < MIN_AVAILABLE_MEMORY_MB:
+                raise BrowserError("Insufficient free RAM for proxy test", 503)
+            chrome = browser_executable()
+            if not chrome:
+                raise BrowserError("Chrome is not installed", 503)
+            try:
+                from playwright.async_api import async_playwright
+            except ImportError:
+                raise BrowserError("Playwright runtime is not installed", 503) from None
+            good, address = False, ""
+            browser = None
+            try:
+                async with async_playwright() as pw:
+                    config = {"server": item["proxy_server"]}
+                    if item["proxy_username"]:
+                        config["username"] = item["proxy_username"]
+                    if item["proxy_password"]:
+                        config["password"] = item["proxy_password"]
+                    browser = await pw.chromium.launch(headless=True, executable_path=chrome,
+                                                      proxy=config, args=["--disable-dev-shm-usage"])
+                    page = await browser.new_page()
+                    response = await page.goto("https://api4.ipify.org?format=json",
+                                               wait_until="domcontentloaded", timeout=12000)
+                    if response and response.status == 200:
+                        parsed = ipaddress.ip_address(str(json.loads(await response.text())["ip"]))
+                        if parsed.is_global and parsed.version == 4:
+                            address, good = str(parsed), True
+            except Exception:
+                pass
+            finally:
+                if browser is not None:
+                    try:
+                        await browser.close()
+                    except Exception:
+                        pass
+            self._record_proxy_result(owner, proxy_id, good, address)
+            return {"id": proxy_id, "status": "healthy" if good else "unreachable",
+                    "exit_ip": address, "source": "api4.ipify.org",
+                    "limitations": "Single IPv4 HTTP probe; not a DNS or WebRTC leak test."}
