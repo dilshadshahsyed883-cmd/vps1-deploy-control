@@ -137,3 +137,8 @@ class ImageBulkAPI(unittest.TestCase):
         self.assertEqual(summary["total_images"], 502)
         self.assertEqual(len(summary["items"]), 200)
         self.assertEqual(len(self.client.get("/api/v1/images?limit=200&offset=400").json()["items"]), 102)
+        matching = self.client.get("/api/v1/images?q=bulk_500&limit=10").json()
+        self.assertEqual(matching["total"], 1)
+        self.assertEqual(matching["items"][0]["id"], "IMG-SYNTH-500")
+        self.assertEqual(self.client.get("/api/v1/images?orientation=landscape").json()["total"], 502)
+        self.assertEqual(self.client.get("/api/v1/images?orientation=portrait").json()["total"], 0)
