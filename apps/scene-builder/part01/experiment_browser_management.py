@@ -5,6 +5,8 @@ remain in the existing WEB_DATA_DIR; templates never retain proxy credentials.
 """
 from __future__ import annotations
 
+import asyncio
+import ipaddress
 import json
 import shutil
 import sqlite3
@@ -12,7 +14,8 @@ import time
 import uuid
 
 from experiment_browser import (BrowserError, BrowserProfileEngine, MAX_PROFILES,
-                                PROFILE_ID, validate_profile, validate_proxy)
+                                MAX_ACTIVE, MIN_AVAILABLE_MEMORY_MB, PROFILE_ID,
+                                browser_executable, validate_profile, validate_proxy)
 
 
 def _name(value: object, label: str = "Name") -> str:
@@ -42,6 +45,7 @@ class ManagedBrowserProfileEngine(BrowserProfileEngine):
     def __init__(self, root):
         super().__init__(root)
         self._management_initialized = False
+        self._proxy_start_lock = asyncio.Lock()
 
     def _db(self):
         db = super()._db()
@@ -80,6 +84,35 @@ class ManagedBrowserProfileEngine(BrowserProfileEngine):
                 ):
                     if column not in cols:
                         db.execute("ALTER TABLE profiles ADD COLUMN " + column + " " + declaration)
+                # Additive managed proxy pool migration. Back up the *existing*
+                # database before touching profile rows, never browser data.
+                profile_cols = {r[1] for r in db.execute("PRAGMA table_info(profiles)")}
+                if "managed_proxy_id" not in profile_cols:
+                    if db.execute("SELECT COUNT(*) FROM profiles").fetchone()[0]:
+                        backup_dir = self.root / "profile-backups"
+                        backup_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+                        backup_path = backup_dir / ("profiles-pre-proxy-pools-" +
+                                                    str(time.time_ns()) + ".sqlite3")
+                        try:
+                            with sqlite3.connect(backup_path) as safe:
+                                db.backup(safe)
+                            backup_path.chmod(0o600)
+                        except Exception:
+                            backup_path.unlink(missing_ok=True)
+                            raise
+                    db.execute("ALTER TABLE profiles ADD COLUMN managed_proxy_id TEXT NOT NULL DEFAULT ''")
+                db.execute("""CREATE TABLE IF NOT EXISTS managed_proxies (
+                    id TEXT PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL,
+                    pool TEXT NOT NULL, proxy_server TEXT NOT NULL,
+                    proxy_username TEXT NOT NULL DEFAULT '',
+                    proxy_password TEXT NOT NULL DEFAULT '',
+                    priority INTEGER NOT NULL DEFAULT 100,
+                    status TEXT NOT NULL DEFAULT 'untested',
+                    checked_at TEXT NOT NULL DEFAULT '',
+                    exit_ip TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    UNIQUE(owner, name COLLATE NOCASE))""")
+                db.execute("CREATE INDEX IF NOT EXISTS managed_proxies_pool_owner ON managed_proxies(owner,pool,priority)")
                 db.execute("CREATE INDEX IF NOT EXISTS profiles_owner_group ON profiles(owner,group_id)")
                 db.execute("CREATE INDEX IF NOT EXISTS groups_owner ON profile_groups(owner)")
                 db.execute("CREATE INDEX IF NOT EXISTS templates_owner ON profile_templates(owner)")
@@ -95,6 +128,7 @@ class ManagedBrowserProfileEngine(BrowserProfileEngine):
         data["group_id"] = row.get("group_id") or ""
         data["tags"] = row.get("tags") or ""
         data["last_used"] = row.get("last_used") or ""
+        data["managed_proxy_id"] = row.get("managed_proxy_id") or ""
         return data
 
     @staticmethod
@@ -146,7 +180,13 @@ class ManagedBrowserProfileEngine(BrowserProfileEngine):
                 count = db.execute("SELECT COUNT(*) FROM profiles WHERE owner=?", (owner,)).fetchone()[0]
                 if count >= MAX_PROFILES:
                     raise BrowserError("Profile limit reached", 409)
+                managed = str(payload.get("managed_proxy_id") or "")
+                if managed:
+                    self._proxy_row(db, owner, managed)
                 identity = self._insert(db, self.root / "profiles", owner, info, group, tags)
+                if managed:
+                    db.execute("UPDATE profiles SET managed_proxy_id=? WHERE id=?",
+                               (managed, identity))
                 db.commit()
                 row = db.execute("SELECT * FROM profiles WHERE id=?", (identity,)).fetchone()
                 return self._public(dict(row))
@@ -185,7 +225,11 @@ class ManagedBrowserProfileEngine(BrowserProfileEngine):
                 self._unique(db, owner, info["name"], profile_id)
                 group = self._group(db, owner, payload.get("group_id", row["group_id"]))
                 tags = _tags(payload.get("tags", row["tags"]))
-                updates = dict(info, group_id=group or None, tags=tags)
+                managed = str(payload.get("managed_proxy_id", row.get("managed_proxy_id") or "") or "")
+                if managed:
+                    self._proxy_row(db, owner, managed)
+                updates = dict(info, group_id=group or None, tags=tags,
+                               managed_proxy_id=managed)
                 db.execute("UPDATE profiles SET " + ",".join(k + "=?" for k in updates) +
                            " WHERE id=? AND owner=?", (*updates.values(), profile_id, owner))
                 db.commit()
