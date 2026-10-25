@@ -226,7 +226,7 @@ def _auto_script_env_patch(current: str) -> str:
             lines[matches[0]] = key + "=" + value
         else:
             lines.append(key + "=" + value)
-    return "\\n".join(lines) + "\\n"
+    return "\n".join(lines) + "\n"
 
 
 def _verify_auto_script_online() -> dict:
@@ -438,7 +438,8 @@ def install(revision: str) -> None:
             )
             if new_text.encode("utf-8") != original:
                 _atomic_scene_env(new_text.encode("utf-8"))
-                original_env = original
+                if original_env is None:
+                    original_env = original
         # The live web binding still points at a disabled candidate endpoint.
         # Provision a separate authenticated production service. The port-8000
         # admission worker and its read-only policy/data remain untouched.
