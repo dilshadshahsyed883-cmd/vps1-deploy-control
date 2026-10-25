@@ -102,11 +102,49 @@ def catalog(root,media_type='all'):
 
 
 def locate(root,media_type,media_id):
-    if media_type not in ('image','video','source'):raise HTTPException(400,'Invalid media type')
-    row=next((x for x in catalog(root,media_type) if x['id']==media_id),None)
-    if not row:raise HTTPException(404,'Asset unavailable or in trash')
+    # Read one asset by primary key. The list catalog intentionally limits its
+    # preview to recent rows, but direct edits must work for older assets too.
+    if media_type not in ('image','video','source'):
+        raise HTTPException(400,'Invalid media type')
+    root=Path(root)
+    with connect(root) as c:
+        if media_type=='video':
+            r=c.execute('''SELECT c.*,s.filename AS source_filename,s.width,s.height,
+                s.orientation,s.codec,s.fps,s.rights_confirmed,s.source_kind,
+                s.stored_name AS source_stored_name FROM clips c
+                LEFT JOIN sources s ON c.source_id=s.id
+                WHERE c.id=? AND c.deleted_at IS NULL''',(media_id,)).fetchone()
+            if r:
+                row=dict(r)
+                row.update(type='video',path=str(root/'clips'/r['filename']),
+                           thumb_url='/media/thumbs/'+(r['thumb_filename'] or ''),
+                           content_url='/media/clips/'+r['filename'])
+                row['keywords']=[x['keyword'] for x in c.execute(
+                    'SELECT keyword FROM clip_keywords WHERE clip_id=?',(media_id,))]
+        elif media_type=='image':
+            r=c.execute('SELECT * FROM image_assets WHERE id=? AND deleted_at IS NULL',
+                        (media_id,)).fetchone()
+            if r:
+                row=dict(r)
+                width,height=r['width'],r['height']
+                row.update(type='image',path=str(root/'images'/r['stored_name']),
+                           source_id=r['id'],source_filename=r['original_name'],duration=0,quality=0,
+                           orientation='landscape' if width>height*1.12 else
+                                       'portrait' if height>width*1.12 else 'square',
+                           keywords=unpack(r['keywords_json'],[]),
+                           thumb_url=f"/api/v1/images/{r['id']}/preview",
+                           content_url=f"/api/v1/images/{r['id']}/content")
+        else:
+            r=c.execute('SELECT * FROM sources WHERE id=?',(media_id,)).fetchone()
+            if r:
+                row=dict(r)
+                row.update(type='source',path=str(root/'sources'/r['stored_name']),
+                           duration=r['duration'] or 0)
+    if not r:
+        raise HTTPException(404,'Asset unavailable or in trash')
     path=Path(row['path'])
-    if not path.resolve().is_relative_to(Path(root).resolve()):raise HTTPException(400,'Invalid asset path')
+    if not path.resolve().is_relative_to(root.resolve()):
+        raise HTTPException(400,'Invalid asset path')
     return row
 
 
