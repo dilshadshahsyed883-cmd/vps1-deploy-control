@@ -552,6 +552,74 @@ class BrowserProfileEngine:
                     except Exception:
                         pass
 
+    async def network_diagnostics(self, owner: str, profile_id: str) -> dict:
+        """Explicit on-demand egress and ICE observations; never assert leak-free."""
+        async with self.lock:
+            state = await self._session(owner, profile_id)
+            context = state["context"]
+            observed = {"ipv4": None, "ipv6": None}
+            for family, url in (("ipv4", "https://api4.ipify.org?format=json"),
+                                ("ipv6", "https://api6.ipify.org?format=json")):
+                page = None
+                try:
+                    page = await context.new_page()
+                    response = await page.goto(url, wait_until="domcontentloaded", timeout=7000)
+                    if response is None or response.status != 200:
+                        continue
+                    address = ipaddress.ip_address(str(json.loads(await response.text())["ip"]))
+                    if address.is_global and address.version == (4 if family == "ipv4" else 6):
+                        observed[family] = str(address)
+                except Exception:
+                    pass
+                finally:
+                    if page is not None:
+                        try:
+                            await page.close()
+                        except Exception:
+                            pass
+            rtc = {"status": "unavailable", "candidate_types": [],
+                   "ip_versions": [], "public_address_observed": False}
+            try:
+                rtc = await state["page"].evaluate("""async () => {
+                    if (!window.RTCPeerConnection) return {status:'unsupported',
+                        candidate_types:[],ip_versions:[],public_address_observed:false};
+                    const pc = new RTCPeerConnection({
+                        iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
+                    const types = new Set(), families = new Set();
+                    let publicCandidate = false;
+                    try {
+                        pc.onicecandidate = event => {
+                            if (!event.candidate) return;
+                            const c=event.candidate;
+                            if (c.type) types.add(c.type);
+                            const a=c.address || '';
+                            if (a.includes(':')) families.add(6);
+                            else if (/^[0-9.]+$/.test(a)) families.add(4);
+                            if (c.type==='srflx') publicCandidate=true;
+                        };
+                        pc.createDataChannel('network-diagnostic');
+                        await pc.setLocalDescription(await pc.createOffer());
+                        await new Promise(resolve=>setTimeout(resolve,2200));
+                        return {status:'observed',candidate_types:Array.from(types),
+                            ip_versions:Array.from(families),
+                            public_address_observed:publicCandidate};
+                    } finally {pc.close();}
+                }""")
+            except Exception:
+                pass
+            return {"profile_id": profile_id, "observed_exit_ips": observed,
+                    "ip_sources": {"ipv4": "api4.ipify.org", "ipv6": "api6.ipify.org"},
+                    "webrtc_ice": rtc,
+                    "dns": {"status": "manual-third-party-check-required",
+                            "test_url": "https://browserleaks.com/dns"},
+                    "limitations": "A missing IPv6 result is not proof of no IPv6 leak. "
+                                   "ICE candidates are not comprehensive; DNS resolver "
+                                   "leaks require an independent test. Exit-IP and STUN "
+                                   "checks share network metadata with test providers.",
+                    "verified_dns_leak_free": False,
+                    "verified_webrtc_leak_free": False,
+                    "verified_ipv6_leak_free": False}
+
     async def screenshot(self, owner: str, profile_id: str) -> bytes:
         async with self.lock:
             state = await self._session(owner, profile_id)
