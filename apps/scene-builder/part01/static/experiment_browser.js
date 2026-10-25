@@ -72,10 +72,11 @@
       const details = document.createElement("small");
       details.textContent = profile.state + " · " + profile.locale + " · " +
         (profile.privacy_mode === "strict" ? "Strict privacy" : "Standard privacy") +
-        (profile.proxy_server ? " · Proxy configured" : " · Direct");
+        (profile.managed_proxy_id ? " · Managed proxy pool" : profile.proxy_server ? " · Proxy configured" : " · Direct") +
+        (profile.recovery_note ? " · " + profile.recovery_note : "");
       const state = document.createElement("span");
       state.className = "experiment-profile-status";
-      state.textContent = profile.state === "running" ? "Running" : "Stopped";
+      state.textContent = profile.state === "running" ? "Running" : (profile.state === "crashed" ? "Recovering" : "Stopped");
       description.append(title, state, details);
       const button = document.createElement("button");
       button.type = "button";
@@ -267,8 +268,9 @@
     select: id => { selected = id; clearPreview(); render(); }};
   api("/health").then(status => {
     byId("browser-engine-status").textContent =
-      status.chrome_installed ? "Browser engine available · Up to 2 active profiles"
-        : "Browser engine installed · Chrome binary unavailable";
+      status.chrome_installed ? "Browser engine available · Up to " + status.max_active_profiles +
+        " active profiles (RAM permitting) · Free RAM " + (status.available_ram_mb ?? "?") + " MB"
+        : "Browser engine unavailable · Chrome binary missing";
     return sync();
   }).catch(error => notice(error.message, true));
 })();
