@@ -26,3 +26,11 @@ Deployment must use the existing guarded GitHub → Tailscale release path; prod
 - Shared sidebar Admin link remains visible only after positive Scene session identity. All unrelated native app layouts remain untouched by scoped CSS.
 - New standalone production workflow `vps1-experiment-library-nav-release.yml` stages Scene Builder then Self Media Library under existing authorized Tailscale identity, with idle preflight, local source/HTML readback, app-only rollback, and anonymous gateway controls. Only triggered by merge message marker `[vps1-experiment-library-nav-release]`.
 - Automated tests: `python3 -m unittest production.test_unified_sidebar_navigation tests.test_self_media_library_navigation -v`, `node --test tests/test_scene_native_sidebar_role.js`; browser owner acceptance remains separate.
+
+## Third subtab — Auto Script (2026-10-25)
+
+- Experiment Studio navigation now has three subtabs: Antidetect Browser, Self Media Library, Auto Script.
+- The authenticated URL `/experiment-studio/auto-script/` redirects (303) to the already-deployed `/auto-script` UI. It returns 404 if the fresh runtime is not explicitly enabled. No iframe, duplicate scheduler, new database, or changed API.
+- The existing Auto Script UI uses the Experiment Studio shared header/sidebar and highlights Auto Script in its subtab rail. SML's independent native rail links to the same route; the SML HTML cache-busts only the shared navigation script.
+- Existing data, channels, queue, credentials, auth and scheduler are not modified by this navigation work. Two independent apps (Scene and SML) are the only guarded release targets, with SML idle preflight and app-specific rollback.
+- Release on protected main only with `[vps1-experiment-auto-script-nav]` and confirm public JS/readback and authenticated UI status. Offline tests exercise native and legacy shell navigation.

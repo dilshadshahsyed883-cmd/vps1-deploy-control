@@ -1,20 +1,41 @@
-name: VPS1 Experiment Studio Self Media Library navigation release
+name: VPS1 Experiment Studio navigation release
 on:
   push:
     branches: [main]
+  pull_request:
+    paths:
+      - apps/scene-builder/part01/app.py
+      - apps/scene-builder/part01/templates/base.html
+      - apps/scene-builder/part01/static/vps1_native_site_shell.js
+      - apps/self-media-library/part01/static/index.html
+      - tests/test_experiment_auto_script_navigation.py
+      - production/test_unified_sidebar_navigation.py
+      - tests/test_self_media_library_navigation.py
+      - tests/test_scene_native_sidebar_role.js
+      - .github/workflows/vps1-experiment-library-nav-release.yml
 permissions:
   contents: read
 concurrency:
   group: vps1-experiment-studio-library-navigation
   cancel-in-progress: false
 jobs:
+  offline-navigation:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Experiment Studio routes, subtab UI and independent library
+        run: |
+          python3 -m unittest production.test_unified_sidebar_navigation tests.test_self_media_library_navigation tests.test_experiment_auto_script_navigation -v
+          node --test tests/test_scene_native_sidebar_role.js
   experiment-library-nav:
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
       github.actor == 'dilshadshahsyed883-cmd' &&
       github.run_attempt == 1 &&
-      contains(github.event.head_commit.message, '[vps1-experiment-library-nav-release]')
+      (contains(github.event.head_commit.message, '[vps1-experiment-library-nav-release]') ||
+       contains(github.event.head_commit.message, '[vps1-experiment-auto-script-nav]'))
     environment: production
     runs-on: ubuntu-24.04
     timeout-minutes: 65
@@ -100,6 +121,7 @@ jobs:
           shell=read('http://127.0.0.1:18080/static/vps1_native_site_shell.js')
           assert 'vps1-native-experiment-tabs' in shell
           assert 'Self Media Library", "/self-media-library/"' in shell
+          assert 'Auto Script", "/experiment-studio/auto-script/"' in shell
           assert 'vps1-native-nav-backdrop' in shell
           assert 'aria-expanded' in shell and 'setMenuOpen(false)' in shell
           index=read('http://127.0.0.1:8147/')
@@ -108,7 +130,7 @@ jobs:
           assert 'class="sml-control-rail"' in index
           assert index.count('data-page="') >= 5
           assert '/&#115;tatic/vps1_native_site_shell.css?v=20261020-experiment-ui-v5' in index
-          assert '/&#115;tatic/vps1_native_site_shell.js?v=20261020-experiment-ui-v5' in index
+          assert '/&#115;tatic/vps1_native_site_shell.js?v=20261025-auto-script-nav-v1' in index
           css=read('http://127.0.0.1:18080/static/vps1_native_site_shell.css')
           assert 'body.vps1-native-library .app-shell' in css
           assert '--vps1-mobile-drawer-width:min(84vw,300px)' in css
@@ -128,7 +150,8 @@ jobs:
           print('SML_HEALTH=PASS',flush=True)
           PY
           trap - ERR
+          echo 'EXPERIMENT_STUDIO_AUTO_SCRIPT_SUBTAB=PASS'
           echo 'EXPERIMENT_LIBRARY_NAV_RELEASE=PASS'
           echo 'INDEPENDENT_APPS_OTHER_THAN_SCENE_AND_SML=UNTOUCHED'
-          echo 'AUTO_SCRIPT=OFFLINE_UNCHANGED'
+          echo 'AUTO_SCRIPT_RUNTIME=UNCHANGED_BY_NAVIGATION_RELEASE'
           echo 'OWNER_BROWSER_UAT=PENDING'
