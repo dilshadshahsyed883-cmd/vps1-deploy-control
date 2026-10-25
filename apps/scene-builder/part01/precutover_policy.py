@@ -25,7 +25,15 @@ _PROJECT_RECOVERY = re.compile(r"\A/queue/[0-9a-f]{32}/(?:cancel|resume|restart-
 _ADMIN_USER_MANAGEMENT = ("POST", "/user-management")
 
 
-def mutation_allowed(method: str, path: str, editing_enabled: bool) -> bool:
+def mutation_allowed(method: str, path: str, editing_enabled: bool, auto_script_enabled: bool = False) -> bool:
+    # Owner-approved Auto Script writes are scoped to its own APIs only.
+    if auto_script_enabled and method == "POST":
+        if path in ("/api/auto-script/channels", "/api/auto-script/tick"):
+            return True
+        if re.fullmatch(r"/api/auto-script/channels/[0-9]+/(?:toggle|run)", path):
+            return True
+        if re.fullmatch(r"/api/auto-script/items/[0-9]+/retry", path):
+            return True
     # The owner authorized administrator account management on the live shell.
     # This is an exact route match, never a blanket candidate-write bypass.
     if (method, path) == _ADMIN_USER_MANAGEMENT:
