@@ -11,15 +11,22 @@ def validate_candidate_environment() -> None:
         return
     if hasattr(os, "geteuid") and os.geteuid() == 0:
         raise RuntimeError("shadow candidate must run as non-root")
-    if os.getenv("FRESH_WEBSITE_INSTALL") != "1" or os.getenv("FRESH_AUTO_SCRIPT_READY", "0") == "1":
-        raise RuntimeError("Auto Script and Algrow must remain excluded")
+    if os.getenv("FRESH_WEBSITE_INSTALL") != "1":
+        raise RuntimeError("Algrow and legacy install must remain excluded")
+    # Production Auto Script needs an explicit, separately audited database
+    # beneath Scene's writable state root. No other candidate integrations change.
+    if os.getenv("FRESH_AUTO_SCRIPT_READY", "0") == "1":
+        db_raw = os.getenv("AUTO_SCRIPT_DB_PATH", "")
+        expected = ROOT / "auto-script" / "auto_script.sqlite3"
+        if not db_raw or Path(db_raw).resolve() != expected:
+            raise RuntimeError("Auto Script requires its isolated owner-approved database")
     if os.getenv("WEB_HOST") != "127.0.0.1" or os.getenv("WEB_PORT") != "18080":
         raise RuntimeError("candidate must bind only proposed shadow port 18080")
     editing = os.getenv("VPS1_SCENE_PRECUTOVER_EDITING", "0")
     if editing not in ("", "0", "1"):
         raise RuntimeError("precutover editing must be explicitly 0 or 1")
-    if editing == "1" and os.getenv("FRESH_AUTO_SCRIPT_READY", "0") != "0":
-        raise RuntimeError("precutover editing cannot enable Auto Script or worker loops")
+    # The isolated Auto Script scheduler is independent of the Scene render
+    # worker; editing mode must not silently start unrelated worker loops.
     if os.getenv("ATOMIC_FLOW_ENABLED", "0").lower() not in ("", "0", "false", "off"):
         raise RuntimeError("atomic flow disabled in candidate")
     for key in ("WEB_ACCESS_KEY", "SESSION_SECRET", "SCENE_RUNTIME_PROBE_TOKEN"):
