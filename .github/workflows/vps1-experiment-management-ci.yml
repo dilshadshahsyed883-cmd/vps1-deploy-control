@@ -10,6 +10,7 @@ on:
       - 'apps/scene-builder/part01/static/experiment_browser_management.css'
       - 'apps/scene-builder/part01/templates/experiment_studio.html'
       - 'tests/test_experiment_browser_management.py'
+      - 'tests/test_experiment_browser_capacity_proxy_20261025.py'
       - 'tests/test_experiment_browser_kokoro_ui.py'
       - '.github/workflows/vps1-experiment-management-ci.yml'
 permissions:
@@ -46,7 +47,7 @@ jobs:
           PY
       - name: Per-user API, storage, migration, batch and existing engine tests
         run: |
-          python -m unittest tests.test_experiment_browser_management tests.test_experiment_browser_engine -v
+          python -m unittest tests.test_experiment_browser_management tests.test_experiment_browser_engine tests.test_experiment_browser_capacity_proxy_20261025 -v
       - name: Desktop and mobile Chromium interaction and overflow
         run: |
           python -m pip install playwright==1.56.0
