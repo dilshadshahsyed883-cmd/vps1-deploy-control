@@ -33,7 +33,7 @@ class ExperimentNavigation(unittest.TestCase):
         m.feed(page)
         scripts=[attrs for tag,attrs in m.tags if tag=="script" and attrs.get("data-workspace")=="library"]
         self.assertEqual(len(scripts),1)
-        self.assertEqual(scripts[0].get("src"),"/static/vps1_native_site_shell.js?v=20261020-experiment-ui-v5")
+        self.assertEqual(scripts[0].get("src"),"/static/vps1_native_site_shell.js?v=20261025-auto-script-nav-v1")
         styles=[attrs.get("href") for tag,attrs in m.tags if tag=="link"]
         self.assertIn("/static/vps1_native_site_shell.css?v=20261020-experiment-ui-v5",styles)
         self.assertIn("/self-media-library/static/styles.css?v=20261022-image-bulk-v1",styles)
@@ -56,6 +56,7 @@ class ExperimentNavigation(unittest.TestCase):
         self.assertIn('app === "library" ? "experiment"',script)
         self.assertIn('if (app === "library")',script)
         self.assertIn('addLink(tabs, "Self Media Library", "/self-media-library/", true)',script)
+        self.assertIn('addLink(tabs, "Auto Script", "/experiment-studio/auto-script/", false)',script)
         css=(SCENE/"static/vps1_native_site_shell.css").read_text()
         for selector in (".vps1-native-experiment-tabs","body.vps1-native-library .app-shell",
                          "body.vps1-native-library .sml-control-rail"):
