@@ -165,6 +165,7 @@ class BrowserProfileEngine:
         self._maintenance_task = None
         self._crashed = {}
         self._restart_attempted = {}
+        self._recovery_tasks = set()
         self._manual_stop = set()
         self._launch_proxy = {}
 
@@ -328,7 +329,9 @@ class BrowserProfileEngine:
                 await self._close(identity)
                 if now - self._restart_attempted.get(identity, -10000) >= 600:
                     self._restart_attempted[identity] = now
-                    asyncio.create_task(self._recover(owner, identity))
+                    task = asyncio.create_task(self._recover(owner, identity))
+                    self._recovery_tasks.add(task)
+                    task.add_done_callback(self._recovery_tasks.discard)
             elif now - info["used"] > IDLE_SECONDS:
                 await self._close(identity)
 
@@ -629,6 +632,11 @@ class BrowserProfileEngine:
                 raise BrowserError("Browser preview unavailable", 502) from None
 
     async def close_all(self) -> None:
+        for recovery in list(self._recovery_tasks):
+            recovery.cancel()
+        if self._recovery_tasks:
+            await asyncio.gather(*self._recovery_tasks, return_exceptions=True)
+        self._recovery_tasks.clear()
         task = self._maintenance_task
         if task is not None:
             task.cancel()
