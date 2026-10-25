@@ -21,7 +21,8 @@ from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 MAX_PROFILES = 500
-MAX_ACTIVE = 2
+MAX_ACTIVE = 10
+MIN_AVAILABLE_MEMORY_MB = 384
 IDLE_SECONDS = 30 * 60
 PROFILE_ID = re.compile(r"^[a-f0-9]{24}$")
 LOCALE = re.compile(r"^[a-z]{2,3}(?:-[A-Z]{2})?$")
@@ -161,6 +162,44 @@ class BrowserProfileEngine:
         self.running: dict[str, dict] = {}
         self.playwright = None
         self._initialized = False
+        self._maintenance_task = None
+        self._crashed = {}
+        self._restart_attempted = {}
+        self._manual_stop = set()
+        self._launch_proxy = {}
+
+    @staticmethod
+    def available_memory_mb() -> int | None:
+        try:
+            with open("/proc/meminfo", encoding="ascii") as stream:
+                for line in stream:
+                    if line.startswith("MemAvailable:"):
+                        return int(line.split()[1]) // 1024
+        except (OSError, ValueError, IndexError):
+            pass
+        return None
+
+    async def _maintenance(self) -> None:
+        """Idle and crashed Chrome cleanup even when the user closes the UI."""
+        try:
+            while True:
+                await asyncio.sleep(45)
+                async with self.lock:
+                    await self._sweep()
+                    if not self.running:
+                        return
+        except asyncio.CancelledError:
+            return
+
+    async def _recover(self, owner: str, profile_id: str) -> None:
+        """One automatic retry within a 10-minute crash window."""
+        await asyncio.sleep(1)
+        if profile_id in self._manual_stop:
+            return
+        try:
+            await self.start(owner, profile_id)
+        except Exception:
+            self._crashed[profile_id] = "Recovery failed; press Start to retry"
 
     def _db(self):
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -224,8 +263,9 @@ class BrowserProfileEngine:
                     geo_lon=row["geo_lon"] if row["geolocation_mode"] == "fixed" else None,
                     color_scheme=row["color_scheme"], reduced_motion=row["reduced_motion"],
                     device_scale=row["device_scale"],
-                    state="running" if status else "stopped",
-                    current_url=status["page"].url if status else "")
+                    state="running" if status else ("crashed" if identity in self._crashed else "stopped"),
+                    current_url=status["page"].url if status else "",
+                    recovery_note=self._crashed.get(identity, ""))
 
     async def list(self, owner: str) -> list[dict]:
         async with self.lock:
@@ -278,7 +318,18 @@ class BrowserProfileEngine:
     async def _sweep(self) -> None:
         now = time.monotonic()
         for identity, info in list(self.running.items()):
-            if now - info["used"] > IDLE_SECONDS:
+            try:
+                page_dead = info["page"].is_closed()
+            except Exception:
+                page_dead = True
+            if page_dead:
+                self._crashed[identity] = "Chrome session exited unexpectedly"
+                owner = info["owner"]
+                await self._close(identity)
+                if now - self._restart_attempted.get(identity, -10000) >= 600:
+                    self._restart_attempted[identity] = now
+                    asyncio.create_task(self._recover(owner, identity))
+            elif now - info["used"] > IDLE_SECONDS:
                 await self._close(identity)
 
     async def _close(self, profile_id: str) -> None:
@@ -302,7 +353,10 @@ class BrowserProfileEngine:
                 self.running[profile_id]["used"] = time.monotonic()
                 return self._public(row)
             if len(self.running) >= MAX_ACTIVE:
-                raise BrowserError("Two browsers are already running; stop one first", 409)
+                raise BrowserError("Ten browsers are already running; stop one first", 409)
+            memory = self.available_memory_mb()
+            if memory is None or memory < MIN_AVAILABLE_MEMORY_MB:
+                raise BrowserError("Insufficient free VPS RAM for another browser", 503)
             chrome = browser_executable()
             if not chrome:
                 raise BrowserError("Chrome is not installed on this VPS", 503)
@@ -332,14 +386,15 @@ class BrowserProfileEngine:
                     args["permissions"] = []
                 if row["user_agent"]:
                     args["user_agent"] = row["user_agent"]
-                if row["proxy_server"]:
-                    args["proxy"] = {"server": row["proxy_server"]}
-                    if row["proxy_username"]:
-                        args["proxy"]["username"] = row["proxy_username"]
-                    if row["proxy_password"]:
-                        args["proxy"]["password"] = row["proxy_password"]
+                selected_proxy = self._launch_proxy.get(profile_id, row)
+                if selected_proxy["proxy_server"]:
+                    args["proxy"] = {"server": selected_proxy["proxy_server"]}
+                    if selected_proxy.get("proxy_username"):
+                        args["proxy"]["username"] = selected_proxy["proxy_username"]
+                    if selected_proxy.get("proxy_password"):
+                        args["proxy"]["password"] = selected_proxy["proxy_password"]
 
-                if row["privacy_mode"] == "strict" or row["proxy_server"]:
+                if row["privacy_mode"] == "strict" or selected_proxy["proxy_server"]:
                     # Chrome policy constrains UDP leakage, not a DNS/WebRTC anonymity proof.
                     args["args"].append("--force-webrtc-ip-handling-policy=disable_non_proxied_udp")
                 for folder in ("cache", "config"):
@@ -358,6 +413,10 @@ class BrowserProfileEngine:
                         pass  # The browser remains open for manual navigation.
                 self.running[profile_id] = dict(context=context, page=page,
                                                 owner=owner, used=time.monotonic())
+                self._crashed.pop(profile_id, None)
+                self._manual_stop.discard(profile_id)
+                if self._maintenance_task is None or self._maintenance_task.done():
+                    self._maintenance_task = asyncio.create_task(self._maintenance())
                 return self._public(row)
             except Exception:
                 if context is not None:
@@ -375,6 +434,8 @@ class BrowserProfileEngine:
     async def stop(self, owner: str, profile_id: str) -> dict:
         async with self.lock:
             row = self._get(owner, profile_id)
+            self._manual_stop.add(profile_id)
+            self._crashed.pop(profile_id, None)
             await self._close(profile_id)
             return self._public(row)
 
@@ -383,6 +444,10 @@ class BrowserProfileEngine:
         state = self.running.get(profile_id)
         if not state or state["owner"] != owner:
             raise BrowserError("Start the browser profile first", 409)
+        if state["page"].is_closed():
+            await self._close(profile_id)
+            self._crashed[profile_id] = "Chrome session exited unexpectedly; press Start"
+            raise BrowserError("Chrome exited; restart this profile to recover saved data", 503)
         state["used"] = time.monotonic()
         return state
 
@@ -496,6 +561,11 @@ class BrowserProfileEngine:
                 raise BrowserError("Browser preview unavailable", 502) from None
 
     async def close_all(self) -> None:
+        task = self._maintenance_task
+        if task is not None:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            self._maintenance_task = None
         async with self.lock:
             for identity in list(self.running):
                 await self._close(identity)
