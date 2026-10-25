@@ -76,7 +76,7 @@
         (profile.recovery_note ? " · " + profile.recovery_note : "");
       const state = document.createElement("span");
       state.className = "experiment-profile-status";
-      state.textContent = profile.state === "running" ? "Running" : (profile.state === "crashed" ? "Recovering" : "Stopped");
+      state.textContent = profile.state === "running" ? "Running" : (profile.state === "crashed" ? "Crashed — Start to retry" : "Stopped");
       description.append(title, state, details);
       const button = document.createElement("button");
       button.type = "button";
