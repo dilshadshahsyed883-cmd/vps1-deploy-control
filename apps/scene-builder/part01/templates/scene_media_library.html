@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}Media Library{% endblock %}
+{% block subtitle %}Scene Builder-only approved media catalog{% endblock %}
+{% block content %}
+<style>
+.scene-library{max-width:1440px;margin:0 auto;display:grid;gap:20px;color:#18243a}
+.scene-library *, .scene-library *::before,.scene-library *::after{box-sizing:border-box}
+.scene-library .sl-header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px;background:#fff;border:1px solid #e0e6ef;border-radius:18px;padding:22px 26px}
+.scene-library h2,.scene-library h3{margin:0;color:#172139}.scene-library p{margin:7px 0 0;color:#66758b}
+.scene-library .sl-actions{display:flex;flex-wrap:wrap;gap:9px}
+.scene-library button,.scene-library .sl-button{appearance:none;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:12px 17px;min-height:44px;border-radius:10px;border:1px solid #d4ddeb;background:#fff;color:#2b3d5e;font-weight:700;font-size:14px;text-decoration:none;cursor:pointer}
+.scene-library button:focus-visible,.scene-library a:focus-visible{outline:3px solid #93b6fc;outline-offset:3px}
+.scene-library button[disabled]{opacity:.5;cursor:wait}
+.scene-library .sl-primary{background:#315fdf;border-color:#315fdf;color:#fff}
+.scene-library .sl-danger{color:#b42318;border-color:#f0c7c2}
+.scene-library .sl-danger:hover{background:#fff3f2}
+.scene-library .sl-tabs,.scene-library .sl-kind-tabs{display:flex;gap:8px;flex-wrap:wrap}
+.scene-library .sl-tabs button[aria-selected="true"],.scene-library .sl-kind-tabs button[aria-pressed="true"]{background:#315fdf;border-color:#315fdf;color:white}
+.scene-library .sl-panel{display:none}.scene-library .sl-panel.active{display:block}
+.scene-library .sl-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.scene-library .sl-card{background:#fff;border:1px solid #e0e6ef;border-radius:17px;padding:23px}
+.scene-library .sl-metric small{display:block;color:#66758b;font-weight:650;font-size:13px}
+.scene-library .sl-metric strong{display:block;font-size:27px;margin-top:12px;color:#1c2e56}
+.scene-library .sl-status{min-height:24px;font-weight:600;overflow-wrap:anywhere}
+.scene-library .sl-status[data-error="true"]{color:#b42318}
+.scene-library .sl-toolbar{display:flex;align-items:center;flex-wrap:wrap;justify-content:space-between;gap:12px;margin:14px 0}
+.scene-library input[type="search"]{width:min(400px,100%);max-width:100%;min-height:44px;border-radius:10px;border:1px solid #cdd8e8;padding:10px 14px;font:inherit}
+.scene-library .sl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:15px}
+.scene-library .sl-asset{border:1px solid #dfe5ef;background:#fff;border-radius:14px;overflow:hidden;min-width:0}
+.scene-library .sl-thumb{display:block;background:#f0f3f9;aspect-ratio:16 / 10;width:100%;object-fit:cover}
+.scene-library .sl-asset-body{padding:13px;display:grid;gap:7px}
+.scene-library .sl-asset strong{overflow-wrap:anywhere;font-size:14px}
+.scene-library .sl-asset small{color:#617187}
+.scene-library .sl-approved{display:inline-block;color:#18794e;font-weight:700;font-size:12px}
+.scene-library .sl-empty{border:1px dashed #c9d3e1;border-radius:14px;padding:32px;text-align:center;color:#69778d;background:#fff}
+.scene-library input[type=file]{display:none}
+.scene-library .sl-help{font-size:13px;color:#64748b}
+@media(max-width:900px){.scene-library .sl-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.scene-library{gap:13px}.scene-library .sl-header{padding:17px}.scene-library .sl-card{padding:16px}.scene-library .sl-metric strong{font-size:23px}.scene-library .sl-actions{width:100%}.scene-library .sl-actions .sl-button{flex:1 1 140px}.scene-library .sl-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.scene-library .sl-asset-body{padding:9px}.scene-library .sl-toolbar input{flex:1}.scene-library .sl-asset button{width:100%}}
+</style>
+<div class="scene-library" id="scene-library" data-csrf="{{ csrf_token }}" data-admin="{{ '1' if is_admin else '0' }}">
+  <div class="sl-header">
+    <div><h2>Media Library</h2><p>Scene Builder private catalog · local images and videos · auto-approved after import</p></div>
+    <div class="sl-actions">
+      <a id="sl-settings" href="/settings" class="sl-button">Stock Media Settings</a>
+      <a href="/api/scene-media-library/summary.txt" class="sl-button">Download Summary .txt</a>
+    </div>
+  </div>
+  <div class="sl-tabs" role="tablist" aria-label="Media Library sections">
+    <button type="button" data-sl-tab="dashboard" role="tab" aria-selected="true">Dashboard</button>
+    <button type="button" data-sl-tab="media" role="tab" aria-selected="false">Media</button>
+  </div>
+  <section id="sl-dashboard" class="sl-panel active" role="tabpanel">
+    <div class="sl-metrics">
+      <div class="sl-card sl-metric"><small>Images</small><strong id="sl-image-count">0</strong></div>
+      <div class="sl-card sl-metric"><small>Videos</small><strong id="sl-video-count">0</strong></div>
+      <div class="sl-card sl-metric"><small>Auto Approved</small><strong id="sl-approved-count">0</strong></div>
+      <div class="sl-card sl-metric"><small>Storage Used</small><strong id="sl-bytes">0 B</strong></div>
+    </div>
+    <div class="sl-card" style="margin-top:16px">
+      <h3>Library Control</h3>
+      <p>Every successful processed-media upload is automatically searchable and available to Scene Builder's Media Audit. Files stay on VPS and never enter SML.</p>
+      <div class="sl-actions" style="margin-top:17px">
+        <button type="button" class="sl-primary" data-sl-open-media>Open Media</button>
+        {% if is_admin %}<button type="button" id="sl-clean" class="sl-danger">Clean Library</button>{% endif %}
+      </div>
+      <p class="sl-help">Clean Library permanently deletes this library's tracked images and videos. It cannot delete SML media or PC originals, and is blocked when Scene Builder jobs are active.</p>
+    </div>
+  </section>
+  <section id="sl-media" class="sl-panel" role="tabpanel">
+    <div class="sl-card">
+      <h3>Processed Media — Select from PC</h3>
+      <p>Choose multiple images/videos or a folder. After successful upload, all files are automatically approved.</p>
+      <div class="sl-actions" style="margin-top:15px">
+        <label for="sl-files" class="sl-button sl-primary" tabindex="0">Select Images / Videos</label>
+        <input type="file" id="sl-files" multiple accept="image/jpeg,image/png,image/webp,image/gif,image/bmp,video/mp4,video/quicktime,video/webm,.mkv,.m4v">
+        <label for="sl-folder" class="sl-button" tabindex="0">Select Folder</label>
+        <input type="file" id="sl-folder" multiple webkitdirectory directory>
+      </div>
+      <p id="sl-upload-hint" class="sl-help">Supported images: JPG, PNG, WebP, GIF, BMP · videos: MP4, MOV, M4V, WebM, MKV</p>
+    </div>
+    <div class="sl-toolbar">
+      <div class="sl-kind-tabs" aria-label="Media type filter">
+        <button type="button" data-sl-kind="all" aria-pressed="true">All</button>
+        <button type="button" data-sl-kind="image" aria-pressed="false">Images</button>
+        <button type="button" data-sl-kind="video" aria-pressed="false">Videos</button>
+      </div>
+      <input id="sl-search" type="search" placeholder="Search file name..." aria-label="Search media">
+    </div>
+    <div id="sl-gallery" class="sl-grid" aria-live="polite"></div>
+  </section>
+  <p id="sl-status" class="sl-status" role="status" aria-live="polite"></p>
+</div>
+<script>
+(()=> {
+  const root=document.getElementById('scene-library');
+  const csrf=root.dataset.csrf,isAdmin=root.dataset.admin==='1';
+  const $=id=>document.getElementById(id);
+  let kind='all',tab='dashboard',searchTimer;
+  const escapeHtml=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  const formatBytes=n=>{let count=Number(n)||0,unit=0;while(count>=1024&&unit<4){count/=1024;unit++}return count.toFixed(unit?1:0)+' '+['B','KB','MB','GB','TB'][unit]};
+  function status(message,error=false){$('sl-status').textContent=message;$('sl-status').dataset.error=String(error)}
+  function showTab(next){
+    tab=next;
+    root.querySelectorAll('[data-sl-tab]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.slTab===tab)));
+    root.querySelectorAll('.sl-panel').forEach(p=>p.classList.toggle('active',p.id==='sl-'+tab));
+  }
+  root.querySelectorAll('[data-sl-tab]').forEach(b=>b.addEventListener('click',()=>showTab(b.dataset.slTab)));
+  root.querySelectorAll('[data-sl-open-media]').forEach(b=>b.addEventListener('click',()=>showTab('media')));
+  $('sl-settings').addEventListener('click',()=>sessionStorage.setItem('sbSettingsTab','media'));
+  async function api(url,options={}){
+    const r=await fetch(url,{credentials:'same-origin',cache:'no-store',...options});
+    let data={};try{data=await r.json()}catch{throw new Error('Service returned an unexpected response')}
+    if(!r.ok)throw new Error(data.detail||data.error||'Request failed');
+    return data;
+  }
+  function updateSummary(s){
+    $('sl-image-count').textContent=s.images??0;
+    $('sl-video-count').textContent=s.videos??0;
+    $('sl-approved-count').textContent=s.approved??0;
+    $('sl-bytes').textContent=formatBytes(s.bytes);
+  }
+  function assetCard(item){
+    const name=escapeHtml(item.original_name),url=escapeHtml(item.url);
+    const media=item.kind==='image'
+      ?'<img class="sl-thumb" loading="lazy" src="'+url+'" alt="'+name+'">'
+      :'<video class="sl-thumb" controls playsinline preload="none" src="'+url+'"></video>';
+    const remove=isAdmin?'<button type="button" class="sl-danger" data-sl-delete="'+escapeHtml(item.id)+'">Delete</button>':'';
+    return '<article class="sl-asset">'+media+'<div class="sl-asset-body"><strong>'+name+'</strong>'+
+      '<small>'+escapeHtml(item.kind)+' · '+formatBytes(item.bytes)+'</small>'+
+      '<span class="sl-approved">✓ Auto Approved</span>'+remove+'</div></article>';
+  }
+  async function refresh(){
+    try{
+      const d=await api('/api/scene-media-library?kind='+encodeURIComponent(kind)+'&q='+encodeURIComponent($('sl-search').value));
+      updateSummary(d.summary||{});
+      $('sl-gallery').innerHTML=d.items?.length?d.items.map(assetCard).join(''):'<div class="sl-empty">No matching media yet. Select files from your PC.</div>';
+    }catch(e){status(e.message,true)}
+  }
+  root.querySelectorAll('[data-sl-kind]').forEach(b=>b.addEventListener('click',()=>{
+    kind=b.dataset.slKind;
+    root.querySelectorAll('[data-sl-kind]').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
+    refresh();
+  }));
+  $('sl-search').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(refresh,200)});
+  async function upload(files){
+    const picked=[...files].filter(f=>f&&f.name);
+    if(!picked.length)return;
+    if(picked.length>100){status('Please select no more than 100 files per batch.',true);return}
+    const data=new FormData();picked.forEach(f=>data.append('files',f,f.name));
+    status('Uploading '+picked.length+' media file(s)…');
+    root.querySelectorAll('.sl-actions input[type=file]').forEach(i=>i.disabled=true);
+    try{
+      const result=await api('/api/scene-media-library/upload',{method:'POST',headers:{'X-Settings-CSRF':csrf},body:data});
+      const good=(result.imported||[]).length,bad=(result.rejected||[]).length;
+      status(good+' media auto-approved'+(bad?' · '+bad+' rejected: '+result.rejected.map(x=>x.name+' ('+x.error+')').join('; '):''));
+      showTab('media');await refresh();
+    }catch(e){status('Upload failed: '+e.message,true)}
+    finally{root.querySelectorAll('.sl-actions input[type=file]').forEach(i=>{i.disabled=false;i.value=''})}
+  }
+  ['sl-files','sl-folder'].forEach(id=>$(id).addEventListener('change',e=>upload(e.target.files)));
+  $('sl-gallery').addEventListener('click',async e=>{
+    const id=e.target.closest('button[data-sl-delete]')?.dataset.slDelete;
+    if(!id||!isAdmin||!confirm('Delete this Scene Builder library asset permanently?'))return;
+    try{
+      await api('/api/scene-media-library/media/'+encodeURIComponent(id),{method:'DELETE',headers:{'X-Settings-CSRF':csrf}});
+      status('Media deleted');await refresh();
+    }catch(error){status(error.message,true)}
+  });
+  const clean=$('sl-clean');
+  if(clean)clean.addEventListener('click',async()=>{
+    if(!confirm('Remove ALL Scene Builder Media Library images and videos permanently? SML and PC files are unaffected.'))return;
+    const answer=prompt('Type CLEAN SCENE LIBRARY to confirm:');
+    if(answer!=='CLEAN SCENE LIBRARY'){status('Clean cancelled');return}
+    clean.disabled=true;
+    try{
+      const result=await api('/api/scene-media-library/clean',{method:'POST',
+        headers:{'Content-Type':'application/json','X-Settings-CSRF':csrf},
+        body:JSON.stringify({confirmation:answer})});
+      status('Clean completed · '+result.removed+' items removed');await refresh();
+    }catch(e){status('Clean blocked: '+e.message,true)}
+    finally{clean.disabled=false}
+  });
+  refresh();
+})();
+</script>
+{% endblock %}
