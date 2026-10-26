@@ -26,8 +26,73 @@ const fmtSize = n => n>1073741824?`${(n/1073741824).toFixed(1)} GB`:n>1048576?`$
 const toast = msg => { const el=$('#toast'); el.textContent=msg; el.classList.remove('hidden'); clearTimeout(window._toast); window._toast=setTimeout(()=>el.classList.add('hidden'),2200); };
 
 const pageMeta={dashboard:['Dashboard','Build and control your reusable clip library.'],sources:['Input','Add videos, images and authorized YouTube media.'],processing:['Process','Inspect import queues, scene detection and metadata generation.'],library:['Library & Preview','Search, review and control approved videos and images.'],trash:['Trash','Restore clips or permanently delete them.'],settings:['API & Settings','Editor API and safe library storage settings.']};
-function gotoPage(page){ state.page=page; $$('.page').forEach(x=>x.classList.remove('active')); $(`#page-${page}`).classList.add('active'); $$('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.page===page)); $('#pageTitle').textContent=pageMeta[page][0]; $('#pageSubtitle').textContent=pageMeta[page][1]; if(page==='library'){loadClips(true);loadImages();} if(page==='sources'||page==='processing') loadSources(); if(page==='sources'){loadImports();loadSmlProxyProfiles();} if(page==='trash') loadTrash(); if(page==='settings'){loadSettings();loadEditorStatus();} if(page==='dashboard') loadDashboard(); }
-$$('.nav-item').forEach(b=>b.onclick=()=>gotoPage(b.dataset.page)); $$('[data-goto]').forEach(b=>b.onclick=()=>gotoPage(b.dataset.goto));
+// Library & Preview: content-only subtabs; existing API actions and selections stay mounted.
+const SML_LIBRARY_TABS = ['media', 'ai', 'people', 'face', 'duplicates', 'trash'];
+const SML_MEDIA_TABS = ['videos', 'images'];
+let smlLibraryActiveTab = 'media';
+let smlMediaActiveTab = 'videos';
+function setLibraryTab(tab, focus=false){
+  if(!SML_LIBRARY_TABS.includes(tab)) return;
+  smlLibraryActiveTab = tab;
+  $$('[data-library-tab]').forEach(button=>{
+    const active=button.dataset.libraryTab===tab;
+    button.classList.toggle('active',active);
+    button.setAttribute('aria-selected',String(active));
+    button.tabIndex=active?0:-1;
+    if(active&&focus)button.focus();
+  });
+  $$('[data-library-pane]').forEach(pane=>{pane.hidden=pane.dataset.libraryPane!==tab;});
+  // The original /trash navigation now points to this same six-tab workspace.
+  if(tab==='trash') loadTrash().catch(e=>toast('Trash could not load: '+e.message));
+}
+function setLibraryMediaTab(tab,focus=false){
+  if(!SML_MEDIA_TABS.includes(tab))return;
+  smlMediaActiveTab=tab;
+  $$('[data-library-media]').forEach(button=>{
+    const active=button.dataset.libraryMedia===tab;
+    button.classList.toggle('active',active);
+    button.setAttribute('aria-selected',String(active));
+    button.tabIndex=active?0:-1;
+    if(active&&focus)button.focus();
+  });
+  $$('[data-media-pane]').forEach(pane=>{pane.hidden=pane.dataset.mediaPane!==tab;});
+}
+function bindTabArrows(selector,attribute,values,activate){
+  $$(selector).forEach(button=>button.addEventListener('keydown',event=>{
+    const key=event.key;
+    if(!['ArrowLeft','ArrowRight','Home','End'].includes(key))return;
+    event.preventDefault();
+    const position=values.indexOf(button.dataset[attribute]);
+    const next=key==='Home'?0:key==='End'?values.length-1:
+      (position+(key==='ArrowRight'?1:-1)+values.length)%values.length;
+    activate(values[next],true);
+  }));
+}
+$$('[data-library-tab]').forEach(button=>button.addEventListener('click',()=>setLibraryTab(button.dataset.libraryTab)));
+$$('[data-library-media]').forEach(button=>button.addEventListener('click',()=>setLibraryMediaTab(button.dataset.libraryMedia)));
+bindTabArrows('[data-library-tab]','libraryTab',SML_LIBRARY_TABS,setLibraryTab);
+bindTabArrows('[data-library-media]','libraryMedia',SML_MEDIA_TABS,setLibraryMediaTab);
+function gotoPage(page){
+  const trashRequest=page==='trash';
+  if(trashRequest)page='library';
+  state.page=page;
+  $$('.page').forEach(x=>x.classList.remove('active'));
+  $`#page-${page}`.classList.add('active');
+  $$('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.page===page));
+  $('#pageTitle').textContent=pageMeta[page][0];
+  $('#pageSubtitle').textContent=pageMeta[page][1];
+  if(page==='library'){
+    setLibraryTab(trashRequest?'trash':'media');
+    loadClips(true);
+    loadImages();
+  }
+  if(page==='sources'||page==='processing')loadSources();
+  if(page==='sources'){loadImports();loadSmlProxyProfiles();}
+  if(page==='settings'){loadSettings();loadEditorStatus();}
+  if(page==='dashboard')loadDashboard();
+}
+$$('.nav-item').forEach(b=>b.onclick=()=>gotoPage(b.dataset.page));
+$$('[data-goto]').forEach(b=>b.onclick=()=>gotoPage(b.dataset.goto));
 
 async function checkHealth(){ try{ const h=await api('/api/health'); $('#healthDot').classList.toggle('ok',h.ok&&h.ffmpeg); let msg=h.ffmpeg?'Engine online':'Engine online · FFmpeg missing'; msg+=' · VPS local storage'; $('#healthText').textContent=msg; }catch(e){ $('#healthDot').classList.remove('ok'); $('#healthText').textContent=e.status===401||e.status===403?'Website login required':'Engine unavailable · '+e.message; } }
 async function loadDashboard(){
