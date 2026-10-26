@@ -1,0 +1,75 @@
+name: SML Desktop Windows Portable
+
+on:
+  push:
+    branches:
+      - feature/sml-standalone-windows-desktop-20261026
+    paths:
+      - desktop/sml/**
+      - .github/workflows/sml-desktop-windows.yml
+      - apps/self-media-library/part01/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-desktop:
+    runs-on: windows-latest
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: apps/self-media-library/part01/requirements.txt
+      - name: Install FFmpeg and FFprobe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ffdir = "$env:ChocolateyInstall\lib\ffmpeg\tools"
+          if (-not (Test-Path $ffdir)) {
+            choco install ffmpeg -y --no-progress
+          }
+          $ffmpeg = Get-ChildItem $ffdir -Filter ffmpeg.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          $ffprobe = Get-ChildItem $ffdir -Filter ffprobe.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $ffmpeg -or -not $ffprobe) { throw 'Real FFmpeg and FFprobe executables not found' }
+          New-Item -ItemType Directory -Force build/sml_desktop/ffbin | Out-Null
+          Copy-Item $ffmpeg.FullName build/sml_desktop/ffbin/ffmpeg.exe
+          Copy-Item $ffprobe.FullName build/sml_desktop/ffbin/ffprobe.exe
+          "build/sml_desktop/ffbin" | Out-File -Append -FilePath $env:GITHUB_PATH
+      - name: Install SML desktop dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r apps/self-media-library/part01/requirements.txt
+          python -m pip install pyinstaller==6.16.0 pywebview==5.4 httpx==0.28.1
+      - name: Prepare Windows source copy
+        run: python desktop/sml/prepare_windows.py
+      - name: Compile sources and smoke-test backend
+        shell: pwsh
+        run: |
+          python -m compileall -q build/sml_desktop/stage desktop/sml
+          python desktop/sml/smoke.py
+      - name: Package native Windows desktop app
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = (Resolve-Path build/sml_desktop/stage).Path
+          $ff = (Resolve-Path build/sml_desktop/ffbin).Path
+          python -m PyInstaller --clean --noconfirm --onedir --windowed --name SML_Desktop --paths "$stage" --add-data "$stage/static;static" --add-binary "$ff/ffmpeg.exe;." --add-binary "$ff/ffprobe.exe;." --collect-all onnxruntime --collect-all faster_whisper --collect-all tokenizers --collect-all webview --hidden-import app --hidden-import ai_workspace --hidden-import ai_engine --hidden-import ai_text --hidden-import face_people --hidden-import manual_people --hidden-import local_library --hidden-import media_extensions --hidden-import media_catalog --hidden-import media_integrity --hidden-import video_merger_downloader --hidden-import sml_proxy_profiles --hidden-import duplicate_review --hidden-import fcntl desktop/sml/windows_entry.py
+          if ($LASTEXITCODE -ne 0) { throw 'Windows EXE build failed' }
+          Copy-Item desktop/sml/README.md dist/SML_Desktop/README.md
+          @'
+          @echo off
+          cd /d "%~dp0"
+          start "" "%~dp0SML_Desktop.exe" --choose-data
+          '@ | Set-Content -Encoding ascii dist/SML_Desktop/CHANGE_DATA_FOLDER.bat
+          if (-not (Test-Path dist/SML_Desktop/SML_Desktop.exe)) { throw 'Desktop exe missing' }
+          Compress-Archive -Path dist/SML_Desktop -DestinationPath dist/SML-Desktop-Windows.zip -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SML-Desktop-Windows
+          path: dist/SML-Desktop-Windows.zip
+          if-no-files-found: error
+          retention-days: 30
