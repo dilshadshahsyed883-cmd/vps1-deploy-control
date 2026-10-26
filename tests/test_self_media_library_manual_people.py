@@ -134,7 +134,7 @@ class ManualPersonTests(unittest.TestCase):
                          ["Ronaldo", "CR7", "R7"])
         self.endpoint("/api/v1/manual-people/{person_id}/assign", "POST")(
             pid, manual.AssignAssets(media_type="image", ids=["IMG-1"], action_tags=["trophy"]))
-        assets = self.endpoint("/api/v1/manual-people/{person_id}/assets", "GET")(pid)
+        assets = self.endpoint("/api/v1/manual-people/{person_id}/assets", "GET")(pid, media_type="all", limit=100, offset=0)
         self.assertEqual(assets["items"][0]["action_tags"], ["trophy"])
         self.assertIn("IMG-1", assets["items"][0]["thumb_url"])
         self.assertEqual(assets["items"][0]["status"], "approved")
