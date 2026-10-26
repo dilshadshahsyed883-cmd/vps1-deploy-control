@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="/self-media-library/static/sml_shared_theme.css?v=20261022-queue-fullwidth-v1" />
   <link rel="stylesheet" href="/self-media-library/static/library_subtabs.css?v=20261026-library-subtabs-v1" />
   <script defer src="/&#115;tatic/vps1_native_site_shell.js?v=20261025-auto-script-nav-v1" data-workspace="library"></script>
-  <link rel="stylesheet" href="/self-media-library/static/face_people.css?v=20261022-face-people-v1" />
+  <link rel="stylesheet" href="/self-media-library/static/face_people.css?v=20261026-video-faces-v1" />
   <link rel="stylesheet" href="/self-media-library/static/manual_people.css?v=20261026-person-v1" />
 </head>
 <body class="vps1-native-library">
@@ -344,6 +344,23 @@
         <div class="row-actions people-review-actions"><button type="button" id="peopleSelectAll" class="ghost">Select visible matches</button><span id="peopleSelectedCount">0 selected</span><button type="button" id="peopleApprove" class="primary">Approve selected</button><button type="button" id="peopleReject" class="ghost">Reject selected</button><button type="button" id="peopleUndo" class="ghost">Undo selected</button></div>
         <div class="face-match-grid" id="peopleMatches"></div>
       </article>
+      <article class="panel settings-spaced" id="videoFacePanel" aria-label="Video clip face recognition">
+        <div class="panel-head"><div><h2>Video Face Recognition</h2><p>Sample faces from video frames, then approve only real matches. Originals stay on VPS.</p></div><button type="button" class="ghost" id="videoFaceRefresh">Refresh people</button></div>
+        <p class="source-meta">Open any video in Media Library and click <b>Identify person</b>. For an already named person, choose them below and run Scan Videos.</p>
+        <div id="videoFaceReference" class="face-reference hidden">
+          <h3>Choose a reference video face</h3>
+          <div class="face-reference-stage video-face-stage"><video id="videoFaceReferencePlayer" preload="metadata" muted playsinline></video><div id="videoFaceBoxes"></div></div>
+          <div id="videoFaceChoices" class="row-actions video-face-choices"></div>
+          <label for="videoFaceName">Person name</label><input class="setting-text" id="videoFaceName" maxlength="100" placeholder="e.g. Alexandra Eala" />
+          <div class="row-actions"><button class="primary" type="button" id="videoFaceCreate" disabled>Save person &amp; scan videos</button><button class="ghost" type="button" id="videoFaceRetry">Retry</button><button class="ghost" type="button" id="videoFaceReferenceClose">Cancel</button></div>
+          <p id="videoFaceReferenceStatus" role="status"></p>
+        </div>
+        <div class="people-toolbar"><label for="videoFacePicker">Named person</label><select id="videoFacePicker"><option value="">Choose a person</option></select><button class="primary" type="button" id="videoFaceScan">Scan Videos</button>
+          <label for="videoFaceMatchState">Review state</label><select id="videoFaceMatchState"><option value="pending">Pending approval</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select></div>
+        <p class="source-meta" id="videoFaceStatus" role="status" aria-live="polite">Choose person and scan videos.</p>
+        <div class="row-actions people-review-actions"><button type="button" class="ghost" id="videoFaceSelectAll">Select visible matches</button><span id="videoFaceSelectedCount">0 selected</span><button type="button" class="primary" id="videoFaceApprove" disabled>Approve selected</button><button type="button" class="ghost" id="videoFaceReject" disabled>Reject selected</button><button type="button" class="ghost" id="videoFaceUndo" disabled>Undo selected</button></div>
+        <div class="face-match-grid" id="videoFaceMatches"></div>
+      </article>
       </div>
       <div id="smlLibraryPaneduplicates" class="sml-library-pane" data-library-pane="duplicates" role="tabpanel" aria-labelledby="smlLibraryTabduplicates" hidden>
       <article class="panel sml-ai-panel sml-duplicate-panel">
@@ -407,7 +424,7 @@
     <div><label>Storage</label><b id="drawerDrive"></b></div>
     <div><label>Status</label><select id="drawerStatus" aria-label="Clip review status"><option value="candidate">Candidate</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select></div>
   </div>
-  <div class="drawer-actions"><button class="ghost" id="reanalyzeClip">↻ Re-analyze</button><button class="primary" id="saveClip">Save changes</button><button class="danger-soft" id="deleteClip">Move to trash</button></div>
+  <div class="drawer-actions"><button class="ghost" type="button" id="identifyClipFace">◎ Identify person</button><button class="ghost" id="reanalyzeClip"↻ Re-analyze</button><button class="primary" id="saveClip">Save changes</button><button class="danger-soft" id="deleteClip">Move to trash</button></div>
 </aside>
 
 <div class="modal hidden" id="keywordModal">
@@ -426,5 +443,6 @@
 <script defer src="/self-media-library/static/ai_workspace.js?v=20261020-ai-v1"></script>
 <script defer src="/self-media-library/static/face_people.js?v=20261026-library-face-nav-v1"></script>
 <script defer src="/self-media-library/static/manual_people.js?v=20261026-person-v1"></script>
+<script defer src="/self-media-library/static/video_face_people.js?v=20261026-video-faces-v1"></script>
 </body>
 </html>
