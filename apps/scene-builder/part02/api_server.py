@@ -5597,9 +5597,14 @@ def _delete_cancelled_drive_output(current: dict[str, Any], project_dir: Path) -
     prefix = f"{DRIVE_REMOTE}:{DRIVE_FOLDER}/"
     relative = destination[len(prefix):] if destination.startswith(prefix) else ""
     parts = relative.split("/") if relative else []
-    valid_channel = len(parts) == 2 and _safe_drive_channel(parts[0]) == parts[0]
+    valid_channel = (len(parts) == 2 and parts[0] not in {".", ".."}
+                     and _safe_drive_channel(parts[0]) == parts[0])
+    default_name = drive_output_filename(str(current.get("project_name") or ""))
+    matching_name = (output_name == default_name or bool(re.fullmatch(
+        re.escape(default_name[:-4]) + r"_[2-9][0-9]*\\.mp4", output_name
+    )))
     if (not output_name or "/" in output_name or "\\" in output_name
-            or not (len(parts) == 1 or valid_channel)
+            or not matching_name or not (len(parts) == 1 or valid_channel)
             or parts[-1] != output_name):
         raise HTTPException(409, "Drive destination cannot be trusted; no files deleted")
     with _db_lock, db() as conn:
