@@ -94,6 +94,33 @@ def browser_test():
                     page.locator('#imageUpload').click() if page.locator('#imageUpload').count() else page.get_by_role('button',name='Add selected images',exact=True).click()
                     page.get_by_text('imported',exact=False).first.wait_for()
                     page.locator('#nav button').filter(has_text='Library & Preview').click()
+                    # The old monolithic Library is now six mounted subtabs.
+                    tabs=('media','ai','people','face','duplicates','trash')
+                    assert page.locator('[data-library-tab]').count()==6
+                    assert page.locator('[data-library-pane]:visible').count()==1
+                    assert page.locator('[data-library-pane="media"]').is_visible()
+                    page.locator('[data-library-media="images"]').click()
+                    page.locator('#imagesGrid .image-tile').first.wait_for()
+                    page.locator('#imagesGrid [data-image-select]').first.check()
+                    assert page.locator('#imageSelectedCount').inner_text()=='1'
+                    # Switching to manual collections must preserve selection.
+                    page.locator('[data-library-tab="people"]').click()
+                    assert page.locator('#manualPeoplePanel').is_visible()
+                    assert page.evaluate('imageSelected.size')==1
+                    page.locator('[data-library-tab="face"]').click()
+                    assert page.locator('#peoplePanel').is_visible()
+                    page.locator('[data-library-tab="duplicates"]').click()
+                    assert page.locator('#aiDuplicates').is_visible()
+                    assert page.locator('#aiCompare').is_visible()
+                    page.locator('[data-library-tab="trash"]').click()
+                    page.locator('#trashGrid > *').first.wait_for(state='visible',timeout=10000)
+                    assert page.locator('#smlLibraryPanetrash').is_visible()
+                    assert page.locator('#pageTitle').inner_text()=='Library & Preview'
+                    page.locator('[data-library-tab="media"]').click()
+                    page.locator('[data-library-media="videos"]').click()
+                    assert page.locator('#libraryGrid').is_visible()
+                    page.locator('[data-library-tab="ai"]').click()
+                    assert page.locator('#aiSearchForm').is_visible()
                     page.get_by_role('button',name='Search media',exact=True).click()
                     page.locator('#aiResults [data-inspect]').first.wait_for()
                     page.locator('#aiResults [data-inspect]').first.click()

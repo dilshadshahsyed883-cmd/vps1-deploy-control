@@ -1,0 +1,61 @@
+/* SML Library & Preview V1: additive, scoped layout over the existing shared shell. */
+#page-library .sml-library-subtabs {
+  display:flex; align-items:stretch; gap:6px; width:100%;
+  padding:6px; margin:0 0 18px; border-radius:12px;
+  border:1px solid #dfe6f2; background:#eef2fa;
+  overflow-x:auto; overscroll-behavior-x:contain; scrollbar-width:thin;
+}
+#page-library .sml-library-tab {
+  flex:1 0 auto; display:inline-flex; gap:7px; align-items:center;
+  justify-content:center; min-height:43px; padding:9px 13px;
+  border:1px solid transparent; border-radius:8px; background:transparent;
+  color:#50617d; font-size:12px; font-weight:750; line-height:1.2;
+  white-space:nowrap; box-shadow:none; transition:background-color .12s ease;
+}
+#page-library .sml-library-tab:hover:not(.active) {
+  color:#315edb; background:#e4ebfc;
+}
+#page-library .sml-library-tab.active,
+#page-library .sml-library-tab[aria-selected="true"] {
+  color:#315edb; background:#fff; border-color:#d3ddf0;
+  box-shadow:0 1px 3px #1e356512;
+}
+#page-library .sml-library-tab > span {font-size:14px; opacity:.85}
+#page-library [data-library-pane][hidden],
+#page-library [data-media-pane][hidden] {display:none!important}
+#page-library .sml-library-media-switch {
+  display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:5px 0 16px;
+}
+#page-library .sml-library-media-switch button {
+  background:#fff; color:#4a5973; border:1px solid #dbe3ef;
+  border-radius:9px; padding:10px 16px; font-weight:750; font-size:12px;
+  min-height:40px;
+}
+#page-library .sml-library-media-switch button.active,
+#page-library .sml-library-media-switch button[aria-selected="true"]{
+  color:#315edb; background:#edf3ff; border-color:#b9ccfb;
+}
+#page-library .sml-library-tab:focus-visible,
+#page-library .sml-library-media-switch button:focus-visible {
+  outline:2px solid #315edb;outline-offset:2px;
+}
+#smlLibraryPaneImages > .panel.settings-spaced,
+#smlLibraryPanePeople > .panel.settings-spaced,
+#smlLibraryPaneFace > .panel.settings-spaced {
+  margin-top:0;
+}
+#smlLibraryPaneTrash .panel {margin-top:0}
+#smlLibraryPaneTrash h2.trash-images-heading {margin-top:20px}
+#page-library .sml-duplicate-panel {min-height:170px}
+#page-library .sml-duplicate-panel .sml-ai-actions {margin-bottom:10px}
+#page-library .sml-library-pane {min-width:0}
+@media(max-width:900px){
+  #page-library .sml-library-tab{flex:0 0 auto}
+}
+@media(max-width:620px){
+  #page-library .sml-library-subtabs{margin-bottom:13px;gap:4px;padding:4px;border-radius:10px}
+  #page-library .sml-library-tab{padding:10px;min-height:40px;font-size:11px}
+  #page-library .sml-library-media-switch button{padding:9px 13px}
+  #page-library .sml-library-pane .library-toolbar{min-width:0}
+  #page-library .sml-library-pane .sml-ai-actions{flex-wrap:wrap}
+}

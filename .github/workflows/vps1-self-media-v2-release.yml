@@ -160,6 +160,20 @@ jobs:
           assert 'app === "library"' in scene_js
           scene_css=asset(18080,'/static/vps1_native_site_shell.css')
           assert '--vps1-sidebar-width:214px' in scene_css
+          # Six-tab Library & Preview must be present in the actual installed UI.
+          assert 'id="smlLibraryTabs"' in index, 'Library subtab navigator missing'
+          assert all('data-library-tab="'+tab+'"' in index for tab in
+                     ('media','ai','people','face','duplicates','trash'))
+          assert 'library_subtabs.css?v=20261026-library-subtabs-v1' in index
+          subtabs_css=asset(8147,'/static/library_subtabs.css')
+          assert '[data-library-pane][hidden]' in subtabs_css
+          assert '.sml-library-subtabs' in subtabs_css
+          tabs_js=asset(8147,'/static/app.js')
+          assert 'function setLibraryTab(tab, focus=false)' in tabs_js
+          assert "const trashRequest=page==='trash'" in tabs_js
+          face_js=asset(8147,'/static/face_people.js')
+          assert "setLibraryTab('face')" in face_js
+          print('SML_LIBRARY_SIX_SUBTABS_NAV_AND_ASSETS=PASS',flush=True)
           theme=asset(8147,'/static/sml_shared_theme.css')
           assert '#f8fafc' in theme and '#315edb' in theme and 'color-scheme:light' in theme
           app_js=asset(8147,'/static/app.js')
