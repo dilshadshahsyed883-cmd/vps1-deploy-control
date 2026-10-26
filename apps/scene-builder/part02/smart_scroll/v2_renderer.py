@@ -308,6 +308,66 @@ def _ass_escape(text: str) -> str:
     return str(text or '').replace('\\', r'\\').replace('{', r'\{').replace('}', r'\}').replace('\n', r'\N')
 
 
+def _word_spotlight_events(text: str, start: float, end: float, timing_rows: Any, highlight: str, *, uppercase: bool = False) -> list[tuple[float, float, str]]:
+    """Render only the currently spoken word in accent color (never a cumulative sweep).
+
+    Use Whisper word starts/ends when complete and ordered. Old jobs without
+    word timestamps get a deterministic segment-proportional fallback.
+    Working in ASS centiseconds prevents zero-length or overlapping events.
+    """
+    from math import isfinite
+
+    words = str(text or "").split()
+    if not words or len(words) > 80 or not isfinite(start) or not isfinite(end) or end <= start:
+        return []
+    if uppercase:
+        words = [word.upper() for word in words]
+    first = max(0, int(round(start * 100)))
+    last = max(first + 1, int(round(end * 100)))
+    rows = timing_rows if isinstance(timing_rows, list) else []
+    intervals: list[tuple[int, int]] = []
+    if len(rows) == len(words) and all(isinstance(w, dict) for w in rows):
+        try:
+            raw = [(float(w["start"]), float(w["end"])) for w in rows]
+            if all(isfinite(a) and isfinite(b) and b >= a for a, b in raw) and all(
+                raw[i][0] <= raw[i + 1][0] for i in range(len(raw) - 1)
+            ):
+                intervals = [
+                    (max(first, min(last, int(round(a * 100)))),
+                     max(first, min(last, int(round(b * 100)))))
+                    for a, b in raw
+                ]
+        except (KeyError, ValueError, TypeError, OverflowError):
+            intervals = []
+    if not intervals:
+        # This is an estimate, not claimed as Whisper-grade synchronization.
+        edges = [first + int(round((last - first) * i / len(words))) for i in range(len(words) + 1)]
+        intervals = list(zip(edges[:-1], edges[1:]))
+    # The next spoken word wins on overlapping model intervals.
+    boundaries = sorted({first, last, *(point for pair in intervals for point in pair)})
+    accent = _ass_color(highlight).replace("&H00", "&H", 1)
+    events: list[tuple[float, float, str]] = []
+    for left, right in zip(boundaries, boundaries[1:]):
+        if right <= left:
+            continue
+        active = next((i for i in range(len(intervals) - 1, -1, -1)
+                       if intervals[i][0] <= left < intervals[i][1]), -1)
+        parts = []
+        for index, word in enumerate(words):
+            escaped = _ass_escape(word)
+            if index == active:
+                parts.append(r"{\1c" + accent + "}" + escaped + r"{\r}")
+            else:
+                parts.append(escaped)
+        markup = " ".join(parts)
+        # Coalesce adjacent slices with the same emphasis.
+        if events and events[-1][1] == left / 100 and events[-1][2] == markup:
+            events[-1] = (events[-1][0], right / 100, markup)
+        else:
+            events.append((left / 100, right / 100, markup))
+    return events
+
+
 def _write_ass(segments: list[dict[str, Any]], path: Path, settings: Any, width: int, height: int) -> bool:
     def ts(v: float) -> str:
         cs=max(0,int(round(float(v)*100))); h,cs=divmod(cs,360000); m,cs=divmod(cs,6000); s,cs=divmod(cs,100)
@@ -319,6 +379,16 @@ def _write_ass(segments: list[dict[str, Any]], path: Path, settings: Any, width:
         if text:
             start=float(x.get('start',0) or 0); end=float(x.get('end',0) or 0)
             event_text=_ass_escape(text)
+            style_name=str(getattr(settings,'caption_style','karaoke') or 'karaoke').lower()
+            if karaoke and style_name in {'word_highlight','hormozi_purple'}:
+                for spot_start, spot_end, spot_text in _word_spotlight_events(
+                    text, start, end, x.get('words'),
+                    str(getattr(settings,'caption_highlight_color','#AA66FF') or '#AA66FF'),
+                    uppercase=(style_name == 'hormozi_purple'),
+                ):
+                    events.append(f"Dialogue: 0,{ts(spot_start)},{ts(spot_end)},Default,,0,0,0,,{spot_text}")
+                if end > start:
+                    continue
             if karaoke:
                 words=[w for w in text.split() if w]
                 timings=[w for w in (x.get('words') or []) if isinstance(w,dict)]
