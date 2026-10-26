@@ -113,7 +113,8 @@ def browser_test():
                     assert page.locator('#aiDuplicates').is_visible()
                     assert page.locator('#aiCompare').is_visible()
                     page.locator('[data-library-tab="trash"]').click()
-                    assert page.locator('#trashGrid').is_visible()
+                    page.locator('#trashGrid > *').first.wait_for(state='visible',timeout=10000)
+                    assert page.locator('#smlLibraryPanetrash').is_visible()
                     assert page.locator('#pageTitle').inner_text()=='Library & Preview'
                     page.locator('[data-library-tab="media"]').click()
                     page.locator('[data-library-media="videos"]').click()
