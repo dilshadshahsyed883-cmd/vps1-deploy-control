@@ -1239,10 +1239,10 @@ def _try_sml_first_scene(
                     candidates = client.ranked(query, used_ids=used_sml_ids, media_type=kind)
             except SMLMediaUnavailable:
                 continue
-            for candidate in candidates[:12]:
+            # Prefetched lists are ranked without used_ids; filter BEFORE the
+            # 12-candidate limit or long projects starve on earlier selections.
+            for candidate in [row for row in candidates if str(row.get("id")) not in used_sml_ids][:12]:
                 media_id = str(candidate["id"])
-                if media_id in used_sml_ids:
-                    continue
                 reservation = None
                 suffix = ".mp4"
                 if kind == "image":
