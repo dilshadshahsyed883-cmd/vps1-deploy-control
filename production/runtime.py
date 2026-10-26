@@ -394,6 +394,11 @@ def install_app(app, revision):
     # not the later generic port-8080 service.  Keep its unit/env/data ownership
     # and update only its immutable source pointer through the same root helper.
     if app == 'scene-builder' and (BASE / 'current/scene-builder').is_symlink():
+        intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-scene-web-policy-only]' in intent:
+            from production.scene_manual_start_web_release import install as release_manual_start
+            release_manual_start(revision)
+            return
         from production.scene_candidate_release import install as install_scene_candidate
         install_scene_candidate(revision)
         return

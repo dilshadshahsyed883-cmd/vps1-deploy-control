@@ -8,6 +8,10 @@ on:
       - 'tests/test_scene_queue_settings_ui_20261021.py'
       - 'tests/test_scene_completed_video_actions_20261021.py'
       - 'apps/scene-builder/part01/app.py'
+      - 'apps/scene-builder/part01/precutover_policy.py'
+      - 'production/scene_manual_start_web_release.py'
+      - 'production/runtime.py'
+      - 'tests/test_scene_manual_start_web_release_20261026.py'
       - '.github/workflows/vps1-scene-queue-settings-ui-ci.yml'
   workflow_dispatch:
 permissions:
@@ -20,5 +24,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Offline Scene Builder regression checks
         run: python3 -m unittest discover -s tests -p 'test_scene_queue_settings_ui_20261021.py' -v
+      - name: Validate safe web-only Scene manual Start recovery
+        run: python3 -m unittest tests.test_scene_manual_start_web_release_20261026 -v
       - name: Scene completed MP4 preview/download contracts and real Node UI behavior
         run: python3 -m unittest discover -s tests -p 'test_scene_completed_video_actions_20261021.py' -v
