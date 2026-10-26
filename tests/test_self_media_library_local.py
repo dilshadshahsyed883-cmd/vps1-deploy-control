@@ -57,7 +57,6 @@ class LocalLibrary(unittest.TestCase):
         self.assertEqual(review.status_code,200,review.text)
         self.assertEqual(review.json()['updated'],0)
         self.assertEqual(len(review.json()['skipped']),1)
-        self.assertEqual(self.c.delete('/api/clips/'+keep).status_code,409)
         self.assertEqual(self.choose(ident,1,None).json()['state'],'cleaned')
         self.assertFalse(self.original(ident).exists());self.assertFalse((self.m.CLIPS_DIR/(reject+'.mp4')).exists());self.assertTrue((self.m.CLIPS_DIR/(keep+'.mp4')).exists())
         self.assertEqual(self.c.get('/api/v1/media/video/'+keep+'/content',headers=self.h).status_code,200)
@@ -198,9 +197,13 @@ class LocalLibrary(unittest.TestCase):
         source_id, pairs = self.source()
         keep = pairs[0]['items'][0]['id']
         pending = pairs[0]['items'][1]['id']
+        # Active source extraction still blocks deletion; pair review alone does not.
+        with self.m.db() as conn:
+            conn.execute("UPDATE sources SET status='processing' WHERE id=?",(source_id,))
         self.assertEqual(self.c.post('/api/clips/bulk/trash', json={'ids':[keep,pending]}).status_code, 409)
         with self.m.db() as conn:
             self.assertEqual(conn.execute('SELECT COUNT(*) FROM clips WHERE source_id=? AND deleted_at IS NOT NULL',(source_id,)).fetchone()[0], 0)
+            conn.execute("UPDATE sources SET status='completed' WHERE id=?",(source_id,))
         self.choose(source_id,0,keep)
         self.choose(source_id,1,None)
         with self.m.db() as conn:
@@ -222,6 +225,56 @@ class LocalLibrary(unittest.TestCase):
         self.assertIn('data-restore-clip', js)
         self.assertIn('data-purge-clip', js)
         self.assertIn("api('/api/clips/bulk/trash'", js)
+
+    def test_pending_review_does_not_block_owner_trash_restore_or_permanent_delete(self):
+        ident, pairs = self.source()
+        left, right = (item['id'] for item in pairs[0]['items'])
+        last = pairs[1]['items'][0]['id']
+
+        # Manual delete is usable without completing the pair-review workflow.
+        moved = self.c.delete('/api/clips/' + left)
+        self.assertEqual(moved.status_code, 200, moved.text)
+        pair = self.c.get('/api/local/reviews/' + ident).json()['pairs'][0]
+        self.assertTrue(pair['decided'])
+        self.assertEqual(pair['keep_id'], right)
+        self.assertEqual([item['id'] for item in pair['items']], [right])
+        self.assertEqual(self.c.get('/api/clips?trash=true').json()['items'][0]['id'], left)
+        self.assertTrue((self.m.CLIPS_DIR/(left+'.mp4')).exists())
+
+        restored = self.c.post('/api/clips/' + left + '/restore')
+        self.assertEqual(restored.status_code, 200, restored.text)
+        pair = self.c.get('/api/local/reviews/' + ident).json()['pairs'][0]
+        self.assertFalse(pair['decided'])
+        self.assertEqual(len(pair['items']), 2)
+
+        # Permanent delete of two clips automatically closes their pair, while
+        # the untouched odd clip still needs its owner's selection.
+        deleted = self.c.post('/api/local/delete', json={
+            'media_type': 'video', 'ids': [left, right]
+        })
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        pair = self.c.get('/api/local/reviews/' + ident).json()['pairs'][0]
+        self.assertTrue(pair['decided'])
+        self.assertIsNone(pair['keep_id'])
+        self.assertEqual(pair['items'], [])
+        self.assertTrue(self.original(ident).exists())
+        self.assertEqual(self.choose(ident, 1, last).json()['state'], 'cleaned')
+        self.assertFalse(self.original(ident).exists())
+        self.assertTrue((self.m.CLIPS_DIR/(last+'.mp4')).exists())
+
+    def test_pending_review_still_protects_editor_reserved_media(self):
+        ident, pairs = self.source()
+        keep = pairs[0]['items'][0]['id']
+        with self.m.db() as conn:
+            conn.execute(
+                "INSERT INTO media_reservations VALUES('busy-manual','p','s','video',?,?,'reserved',?,?,NULL)",
+                (keep, ident, int(time.time()), int(time.time())+3600)
+            )
+        self.assertEqual(self.c.delete('/api/clips/'+keep).status_code,409)
+        self.assertEqual(self.c.post('/api/local/delete', json={
+            'media_type':'video','ids':[keep]}).status_code,409)
+        self.c.post('/api/v1/media/reservations/busy-manual/release',headers=self.h)
+        self.assertEqual(self.c.delete('/api/clips/'+keep).status_code,200)
 
     def test_old_image_thumb_is_rebuilt_from_original_without_upsampling(self):
         from PIL import Image
