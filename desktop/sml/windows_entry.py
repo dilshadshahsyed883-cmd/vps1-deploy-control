@@ -79,6 +79,19 @@ def start() -> None:
         change_data_folder()
         return
     data = prepare_environment()
+    if len(sys.argv) >= 3 and sys.argv[1:3] == ["-m", "yt_dlp"]:
+        import yt_dlp
+        sys.argv = [sys.executable] + sys.argv[3:]
+        raise SystemExit(yt_dlp.main())
+    if "--self-test" in sys.argv:
+        from app import app as sml_app
+        required = {"/api/health", "/api/clips", "/api/sources", "/api/clips/processed/upload"}
+        routes = {str(route.path) for route in sml_app.routes}
+        missing = sorted(required - routes)
+        if missing:
+            raise RuntimeError("Missing packaged API routes: " + ",".join(missing))
+        (data / "packaged-self-test.json").write_text(json.dumps({"ok": True, "routes": len(routes)}), encoding="utf-8")
+        return
     if "--sml-ai-worker" in sys.argv:
         from ai_workspace import run_worker
         run_worker(Path(sys.argv[sys.argv.index("--sml-ai-worker") + 1]))
