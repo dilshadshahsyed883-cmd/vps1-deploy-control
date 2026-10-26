@@ -7,6 +7,7 @@ renderer. Do not touch jobs, admission-only worker or unrelated applications.
 from __future__ import annotations
 
 import configparser
+import hashlib
 import json
 import os
 import pwd
@@ -47,6 +48,34 @@ def _atomic_regular_file(target: Path, content: bytes, mode: int) -> None:
     finally:
         if temp is not None:
             temp.unlink(missing_ok=True)
+
+
+
+def _identical_render_source(old: Path, latest: Path) -> bool:
+    """Byte-for-byte equality of the complete worker-owned part02 trees.
+
+    The worker imports `vps_engine` from part02, not the web UI. Do not update
+    its live source pointer (or require an idle queue) when it has no new bytes.
+    Unknown/symlinked/nonregular paths fail closed to the ordinary idle path.
+    """
+    def snapshot(release: Path) -> dict[str, str] | None:
+        root = release / "part02"
+        if root.is_symlink() or not root.is_dir():
+            return None
+        digests = {}
+        for item in root.rglob("*"):
+            if item.is_symlink():
+                return None
+            if item.is_dir():
+                continue
+            if not item.is_file():
+                return None
+            rel = item.relative_to(root).as_posix()
+            digests[rel] = hashlib.sha256(item.read_bytes()).hexdigest()
+        return digests or None
+
+    original, candidate = snapshot(old), snapshot(latest)
+    return original is not None and original == candidate
 
 
 def _require_idle() -> None:
@@ -392,6 +421,14 @@ class SceneWorkerSourceRefresh:
                        "production worker not healthy/writable")
         if old == latest:
             return {"state": "ALREADY_CURRENT", "revision": latest.name}
+        # A Scene template/static-only release must not restart or rebind the
+        # independent renderer with user jobs in flight. Compare the *actual*
+        # active worker source against the immutable candidate, never infer
+        # worker parity from a commit message or route name.
+        if _identical_render_source(old, latest):
+            return {"state": "IDENTICAL_WORKER_SOURCE_UNCHANGED",
+                    "active_worker_revision": old.name,
+                    "candidate_web_revision": latest.name}
         _require_idle()
         counts = current.get("queue_counts") or {}
         worker.require(isinstance(counts,dict) and
