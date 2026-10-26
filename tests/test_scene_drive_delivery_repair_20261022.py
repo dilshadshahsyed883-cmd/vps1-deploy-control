@@ -45,7 +45,7 @@ class SceneDriveDeliveryTests(unittest.TestCase):
         self.assertIn("_drive_name_reserved(destination, job_id)", WORKER)
         self.assertIn("with _drive_naming_lock:", WORKER)
         self.assertIn("local file preserved:", WORKER)
-        self.assertIn("const labels=duplicateProjectLabels()", QUEUE)
+        self.assertIn("projectNameLabels=duplicateProjectLabels()", QUEUE)
         self.assertIn("totals.get(name)>1", QUEUE)
 
     def test_unverified_mp4_cannot_be_swept(self):
