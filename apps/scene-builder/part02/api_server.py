@@ -2331,6 +2331,59 @@ def _prepare_captions_and_timing(
     return scenes
 
 
+_drive_naming_lock = threading.RLock()
+
+
+def _numbered_drive_output_filename(project_name: str, ordinal: int) -> str:
+    """Keep the first filename unchanged; append _2, _3, ... for duplicates."""
+    original = drive_output_filename(project_name)
+    if ordinal <= 1:
+        return original
+    return f"{original[:-4]}_{ordinal}.mp4"
+
+
+def _drive_name_reserved(destination: str, job_id: str) -> bool:
+    """A queued upload must not claim another job's reserved destination."""
+    with _db_lock, db() as connection:
+        return connection.execute(
+            """SELECT 1 FROM jobs
+               WHERE id <> ? AND drive_destination = ?
+                 AND drive_status IN ('uploading', 'completed')
+               LIMIT 1""",
+            (job_id, destination),
+        ).fetchone() is not None
+
+
+def _choose_drive_output_filename(
+    job_id: str, project_name: str, output_file: Path, drive_folder: str
+) -> str:
+    """Preserve this job's retry destination; never overwrite other Drive files."""
+    current = get_job(job_id)
+    saved_name = str(current.get("output_filename") or "").strip()
+    saved_destination = str(current.get("drive_destination") or "").strip()
+    expected_prefix = drive_output_filename(project_name)[:-4]
+    if saved_name and (
+        saved_name == f"{expected_prefix}.mp4"
+        or (saved_name.startswith(f"{expected_prefix}_")
+            and saved_name[:-4].rsplit("_", 1)[-1].isdigit()
+            and saved_name.lower().endswith(".mp4"))
+    ):
+        destination = f"{DRIVE_REMOTE}:{drive_folder}/{saved_name}"
+        if saved_destination == destination and not _drive_name_reserved(destination, job_id):
+            entries = _drive_remote_entries(destination)
+            if not entries or _drive_entry_matches_local(entries[0], output_file):
+                return saved_name
+
+    for ordinal in range(1, 1001):
+        filename = _numbered_drive_output_filename(project_name, ordinal)
+        destination = f"{DRIVE_REMOTE}:{drive_folder}/{filename}"
+        if _drive_name_reserved(destination, job_id):
+            continue
+        if not _drive_remote_entries(destination):
+            return filename
+    raise RuntimeError("No available numbered Google Drive filename; local render preserved")
+
+
 def _drive_remote_entries(destination: str) -> list[dict[str, Any]]:
     process = subprocess.run(
         ["rclone", "lsjson", destination, "--stat", "--hash"],
@@ -2459,17 +2512,23 @@ def upload_output_to_drive(
 ) -> tuple[str, str, str]:
     if not DRIVE_UPLOAD_ENABLED:
         return "", "", ""
-    output_filename = drive_output_filename(project_name)
     drive_folder = _drive_folder_for_channel(channel_name)
-    destination = f"{DRIVE_REMOTE}:{drive_folder}/{output_filename}"
 
-    # Crash-safe reconciliation: if a previous worker run already uploaded this
-    # exact file but crashed before SQLite reached Completed, accept the verified
-    # remote copy instead of treating it as a name collision.
-    existing_entries = _drive_remote_entries(destination)
-    if existing_entries:
-        entry = existing_entries[0]
-        if _drive_entry_matches_local(entry, output_file):
+    # Reserve a distinct name before uploading. Existing files are never replaced.
+    # Retry the same job against its previously reserved name for crash recovery.
+    with _drive_naming_lock:
+        output_filename = _choose_drive_output_filename(
+            job_id, project_name, output_file, drive_folder
+        )
+        destination = f"{DRIVE_REMOTE}:{drive_folder}/{output_filename}"
+        existing_entries = _drive_remote_entries(destination)
+        if existing_entries:
+            entry = existing_entries[0]
+            if not _drive_entry_matches_local(entry, output_file):
+                raise RuntimeError(
+                    "Reserved Google Drive output differs from local render; "
+                    "local file preserved: " + destination
+                )
             drive_view_url = _drive_view_url(entry)
             update_job(
                 job_id,
@@ -2488,18 +2547,17 @@ def upload_output_to_drive(
                 except OSError:
                     pass
             return destination, drive_view_url, output_filename
-        raise RuntimeError("A Google Drive output with this project name already exists but does not match the local render: " + destination)
 
-    update_job(
-        job_id,
-        status="drive_uploading",
-        stage="Drive Uploading",
-        progress=99,
-        message=f"Uploading completed video to {destination}",
-        drive_status="uploading",
-        drive_destination=destination,
-        output_filename=output_filename,
-    )
+        update_job(
+            job_id,
+            status="drive_uploading",
+            stage="Drive Uploading",
+            progress=99,
+            message=f"Uploading completed video to {destination}",
+            drive_status="uploading",
+            drive_destination=destination,
+            output_filename=output_filename,
+        )
     log_path = JOBS / job_id / "drive_upload.log"
     try:
         _run_cancellable_drive_upload(job_id, output_file, output_filename, drive_folder, log_path)
