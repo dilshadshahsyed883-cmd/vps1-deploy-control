@@ -70,6 +70,20 @@ class ManualPersonSearchIntegration(unittest.TestCase):
                                        "action_tags": ["goal", "playing"]})
             self.assertEqual(r.status_code, 200, r.text)
 
+        # Existing Video Clips list also recognizes virtual manual person tags.
+        (Path(self.temp.name) / "clips" / "CLP-OLDER.mp4").write_bytes(b"clip remains untouched")
+        with self.module.db() as conn:
+            conn.execute("""INSERT INTO clips
+                (id,filename,status,created_at,updated_at)
+                VALUES ('CLP-OLDER','CLP-OLDER.mp4','approved','2026-01-01','2026-01-01')""")
+        r = self.client.post("/api/v1/manual-people/"+ronaldo+"/assign",
+                             json={"media_type": "video", "ids": ["CLP-OLDER"],
+                                   "action_tags": ["training"]})
+        self.assertEqual(r.status_code, 200, r.text)
+        r = self.client.get("/api/clips", params={"q": "Ronaldo"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual([x["id"] for x in r.json()["items"]], ["CLP-OLDER"])
+
         headers = {"X-SML-Editor-Token": "manual-people-ci-token"}
         r = self.client.get("/api/v1/media/search",
                             params={"query": "Ronaldo goal", "media_type": "image"},
