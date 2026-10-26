@@ -345,7 +345,7 @@ def _word_spotlight_events(text: str, start: float, end: float, timing_rows: Any
         intervals = list(zip(edges[:-1], edges[1:]))
     # The next spoken word wins on overlapping model intervals.
     boundaries = sorted({first, last, *(point for pair in intervals for point in pair)})
-    accent = _ass_color(highlight).replace("&H00", "&H", 1)
+    accent = _ass_color(highlight).replace("&H00", "&H", 1).upper()
     events: list[tuple[float, float, str]] = []
     for left, right in zip(boundaries, boundaries[1:]):
         if right <= left:
