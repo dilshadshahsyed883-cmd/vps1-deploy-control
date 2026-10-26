@@ -357,8 +357,14 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
             pattern = "%" + literal + "%"
             clauses.append("""(LOWER(original_name) LIKE ? ESCAPE '\\'
                 OR LOWER(description) LIKE ? ESCAPE '\\'
-                OR LOWER(keywords_json) LIKE ? ESCAPE '\\')""")
-            params.extend([pattern, pattern, pattern])
+                OR LOWER(keywords_json) LIKE ? ESCAPE '\\'
+                OR EXISTS (SELECT 1 FROM sml_person_assets pa
+                           JOIN sml_person_collections pc ON pc.id=pa.person_id
+                           WHERE pa.media_type='image' AND pa.asset_id=image_assets.id
+                           AND (LOWER(pc.name) LIKE ? ESCAPE '\\'
+                                OR LOWER(pc.aliases_json) LIKE ? ESCAPE '\\'
+                                OR LOWER(pa.action_tags_json) LIKE ? ESCAPE '\\')))""")
+            params.extend([pattern] * 6)
         where = " AND ".join(clauses)
         with db() as conn:
             total_images = conn.execute(
