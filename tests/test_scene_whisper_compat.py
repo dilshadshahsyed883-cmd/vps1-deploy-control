@@ -24,13 +24,13 @@ class WhisperCompatibilityTests(unittest.TestCase):
         spec=importlib.util.spec_from_file_location('scene_recovery_policy',ROOT/'apps/scene-builder/part01/precutover_policy.py')
         policy=importlib.util.module_from_spec(spec);spec.loader.exec_module(policy)
         job='a'*32
-        for action in ('restart-stage','restart'):
+        for action in ('restart-stage','restart','delete'):
             path='/queue/'+job+'/'+action
             self.assertTrue(policy.mutation_allowed('POST',path,True))
             self.assertFalse(policy.mutation_allowed('POST',path,False))
             self.assertFalse(policy.mutation_allowed('DELETE',path,True))
             self.assertFalse(policy.mutation_allowed('POST',path+'/extra',True))
-        self.assertFalse(policy.mutation_allowed('POST','/queue/'+job+'/delete',True))
+        # The new delete route is owner-checked and worker-guarded to cancelled jobs only.
         self.assertFalse(policy.mutation_allowed('POST','/queue/not-a-job/restart-stage',True))
         from tests.test_scene_user_roles import get_function,HTTPException
         for name in ('restart_stage_job','restart_job'):

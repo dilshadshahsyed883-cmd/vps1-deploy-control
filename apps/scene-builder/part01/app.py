@@ -3190,6 +3190,22 @@ def cancel_job(request: Request, job_id: str):
     return RedirectResponse("/queue", status_code=303)
 
 
+@app.post("/queue/{job_id}/delete")
+def delete_cancelled_project_web(request: Request, job_id: str):
+    require_job_access(request, job_id)
+    job = worker_request("GET", f"/jobs/{job_id}").json()
+    if str(job.get("status") or "").lower() != "cancelled":
+        raise HTTPException(409, "Only cancelled projects can be permanently deleted")
+    removed = worker_request("DELETE", f"/jobs/{job_id}", timeout=480).json()
+    with db() as conn:
+        conn.execute("DELETE FROM job_sml_settings WHERE job_id=?", (job_id,))
+        conn.execute("DELETE FROM job_ownership WHERE job_id=?", (job_id,))
+    audit_event("scene_cancelled_project_deleted", "Cancelled Scene project permanently deleted", {
+        "job_id": job_id, "drive_deleted": bool(removed.get("drive_deleted"))
+    })
+    return RedirectResponse("/queue", status_code=303)
+
+
 @app.post("/queue/{job_id}/serial-retry-cleanup")
 def retry_serial_cleanup(request: Request, job_id: str):
     require_job_access(request, job_id)
