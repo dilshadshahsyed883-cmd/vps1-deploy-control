@@ -211,7 +211,11 @@
   }
 
   $face('identifyImage').addEventListener('click',()=>{
-    if(selectedImage) inspectReference(selectedImage.id);
+    if(!selectedImage)return;
+    // The reference picker now lives in its own pane, so reveal it before
+    // inspectReference scrolls the chosen face into view.
+    if(typeof setLibraryTab==='function')setLibraryTab('face');
+    inspectReference(selectedImage.id);
   });
   $face('peopleReferenceClose').addEventListener('click',()=>{
     referenceId='';$face('peopleReference').classList.add('hidden');
