@@ -7,7 +7,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 SOURCE = REPO / "apps" / "self-media-library" / "part01"
-STAGE = REPO / "build" / "sml_desktop" / "stage"
+STAGE = REPO / "desktop" / "sml" / ".build_stage"
 
 
 def replace_checked(path: Path, before: str, after: str) -> None:
