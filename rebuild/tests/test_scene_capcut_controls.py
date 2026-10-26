@@ -87,6 +87,39 @@ class CapCutControlsTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             _capcut_grain_filter("unknown",75)
 
+    def test_combo_cam_motion_real_ffmpeg_matrix(self):
+        from smart_scroll.capcut_animation import (
+            ALL_EFFECTS, COMBO_EFFECTS, CAM_MOTION_EFFECTS,
+            capcut_animation_filter, validate_animation,
+        )
+        from smart_scroll.v2_renderer import _canvas_fill_chains
+        self.assertEqual(len(ALL_EFFECTS), 19)
+        self.assertTrue(validate_animation("combo", "zoom_1"))
+        self.assertTrue(validate_animation("cam_motion", "pan_left"))
+        self.assertFalse(validate_animation("combo", "pan_left"))
+        self.assertFalse(validate_animation("wrong", "none"))
+        self.assertEqual(capcut_animation_filter("none", 2.5, 65, 128, 72, 8), "null")
+        signatures = {}
+        for effect in (*COMBO_EFFECTS, *CAM_MOTION_EFFECTS):
+            with self.subTest(effect=effect):
+                chain, source = _canvas_fill_chains(0, 0, 128, 72, "blur", 12, "#101018")
+                flt = capcut_animation_filter(effect, 1.0, 65, 128, 72, 8)
+                graph = ";".join(chain + [
+                    f"{source}fps=8[media]",
+                    f"[media]{flt},format=rgb24[done]",
+                ])
+                output = frames(graph)
+                signatures[effect] = hashlib.sha256(output).hexdigest()
+        self.assertNotEqual(signatures["pan_left"], signatures["pan_right"])
+        self.assertNotEqual(signatures["zoom_1"], signatures["zoom_2"])
+        for bad in ("unknown", "capcut_secret"):
+            with self.assertRaises(ValueError):
+                capcut_animation_filter(bad, 1, 65, 128, 72, 8)
+        with self.assertRaises(ValueError):
+            capcut_animation_filter("wobble", 0.1, 65, 128, 72, 8)
+        with self.assertRaises(ValueError):
+            capcut_animation_filter("wobble", 1.0, 101, 128, 72, 8)
+
     def test_real_mp4_render_with_flip_zoom_and_grain_preserves_job_compat(self):
         from smart_scroll.v2_renderer import render_mixed_media,_validate_final_mp4
         with tempfile.TemporaryDirectory(prefix="scene-capcut-ci-") as tmp:
@@ -116,6 +149,11 @@ class CapCutControlsTest(unittest.TestCase):
                         capcut_noise_enabled=True,capcut_noise_effect=effect,
                         capcut_noise_intensity=60,capcut_noise_percent=100,
                         capcut_noise_target="videos",
+                        capcut_animation_category="cam_motion",
+                        capcut_animation_effect="pan_left",
+                        capcut_animation_duration=0.9,
+                        capcut_animation_intensity=70,
+                        capcut_animation_target="videos",
                         metadata={"scene_sync_plan":[dict(scene_code="VIDEO_1",start=0,end=1.2,
                           media_type="video",media_path=str(video),motion="none",
                           transition_out="none")],"caption_segments":[]},

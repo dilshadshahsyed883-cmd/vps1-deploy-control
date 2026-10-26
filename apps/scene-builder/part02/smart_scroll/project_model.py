@@ -34,6 +34,12 @@ class ProjectSettings:
     capcut_noise_intensity: int = 35
     capcut_noise_percent: int = 40
     capcut_noise_target: str = "both"
+    # One preset-level animation, opt-in (legacy projects remain unchanged).
+    capcut_animation_category: str = "combo"
+    capcut_animation_effect: str = "none"
+    capcut_animation_duration: float = 2.5
+    capcut_animation_intensity: int = 65
+    capcut_animation_target: str = "both"
     duration_seconds: float = 30.0
 
     font_family: str = "Jameel Noori Nastaleeq Kasheeda"

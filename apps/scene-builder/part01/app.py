@@ -324,6 +324,11 @@ def init_db() -> None:
             "capcut_noise_intensity": "35",
             "capcut_noise_percent": "40",
             "capcut_noise_target": "both",
+            "capcut_animation_category": "combo",
+            "capcut_animation_effect": "none",
+            "capcut_animation_duration": "2.5",
+            "capcut_animation_intensity": "65",
+            "capcut_animation_target": "both",
             "custom_fps": "24",
             "timing_mode": "auto_repair",
             "max_scene_seconds": "4.0",
@@ -1006,6 +1011,11 @@ def custom_scene_profile() -> dict[str, Any]:
         "capcut_noise_intensity": max(0, min(100, int(setting("capcut_noise_intensity", "35") or 0))),
         "capcut_noise_percent": max(0, min(100, int(setting("capcut_noise_percent", "40") or 0))),
         "capcut_noise_target": setting("capcut_noise_target", "both"),
+        "capcut_animation_category": setting("capcut_animation_category", "combo"),
+        "capcut_animation_effect": setting("capcut_animation_effect", "none"),
+        "capcut_animation_duration": max(0.5, min(5.0, float(setting("capcut_animation_duration", "2.5") or 2.5))),
+        "capcut_animation_intensity": max(10, min(100, int(setting("capcut_animation_intensity", "65") or 65))),
+        "capcut_animation_target": setting("capcut_animation_target", "both"),
         "fps": max(20, min(60, int(setting("output_fps", "24") or 24))),
         "captions_enabled": setting("captions_enabled", "1") == "1",
         "caption_style": setting("caption_style", "karaoke"),
@@ -1066,6 +1076,7 @@ PROFILE_FIELDS = (
     "quality", "aspect_ratio", "fps", "canvas_fill_mode", "canvas_blur_strength", "canvas_fill_color",
     "capcut_mirror_enabled", "capcut_mirror_percent", "capcut_zoom_level",
     "capcut_noise_enabled", "capcut_noise_effect", "capcut_noise_intensity", "capcut_noise_percent", "capcut_noise_target", "captions_enabled", "caption_style", "caption_position", "caption_karaoke_enabled",
+    "capcut_animation_category", "capcut_animation_effect", "capcut_animation_duration", "capcut_animation_intensity", "capcut_animation_target",
     "timing_mode", "max_scene_seconds", "min_scene_seconds",
     "intro_media_min_seconds", "intro_media_max_seconds",
     "hook_media_min_seconds", "hook_media_max_seconds",
@@ -1204,6 +1215,11 @@ def scene_preset_catalog() -> dict[str, dict[str, Any]]:
         item.setdefault("capcut_noise_intensity", 35)
         item.setdefault("capcut_noise_percent", 40)
         item.setdefault("capcut_noise_target", "both")
+        item.setdefault("capcut_animation_category", "combo")
+        item.setdefault("capcut_animation_effect", "none")
+        item.setdefault("capcut_animation_duration", 2.5)
+        item.setdefault("capcut_animation_intensity", 65)
+        item.setdefault("capcut_animation_target", "both")
         if preset_id in SCENE_PRESETS:
             item.update(builtin_scene_preset_override(preset_id))
         item["preset_id"] = preset_id
@@ -1426,6 +1442,11 @@ def build_project_package(
         "capcut_noise_intensity": max(0, min(100, int(profile.get("capcut_noise_intensity", 35)))),
         "capcut_noise_percent": max(0, min(100, int(profile.get("capcut_noise_percent", 40)))),
         "capcut_noise_target": str(profile.get("capcut_noise_target", "both")),
+        "capcut_animation_category": str(profile.get("capcut_animation_category", "combo")),
+        "capcut_animation_effect": str(profile.get("capcut_animation_effect", "none")),
+        "capcut_animation_duration": max(0.5, min(5.0, float(profile.get("capcut_animation_duration", 2.5)))),
+        "capcut_animation_intensity": max(10, min(100, int(profile.get("capcut_animation_intensity", 65)))),
+        "capcut_animation_target": str(profile.get("capcut_animation_target", "both")),
         "captions_enabled": captions,
         "caption_mode": captions,
         "caption_sync_mode": "better",
@@ -3678,6 +3699,11 @@ def settings_page(request: Request):
             "capcut_noise_intensity": int(editing_profile.get("capcut_noise_intensity", 35)),
             "capcut_noise_percent": int(editing_profile.get("capcut_noise_percent", 40)),
             "capcut_noise_target": str(editing_profile.get("capcut_noise_target", "both")),
+            "capcut_animation_category": str(editing_profile.get("capcut_animation_category", "combo")),
+            "capcut_animation_effect": str(editing_profile.get("capcut_animation_effect", "none")),
+            "capcut_animation_duration": float(editing_profile.get("capcut_animation_duration", 2.5)),
+            "capcut_animation_intensity": int(editing_profile.get("capcut_animation_intensity", 65)),
+            "capcut_animation_target": str(editing_profile.get("capcut_animation_target", "both")),
             "timing_mode": str(editing_profile.get("timing_mode") or setting("timing_mode", "auto_repair")),
             "max_scene_seconds": str(editing_profile.get("general_media_max_seconds", editing_profile.get("max_scene_seconds", setting("general_media_max_seconds", setting("max_scene_seconds", "4.0"))))),
             "min_scene_seconds": str(editing_profile.get("general_media_min_seconds", editing_profile.get("min_scene_seconds", setting("general_media_min_seconds", setting("min_scene_seconds", "2.0"))))),
@@ -3759,6 +3785,11 @@ def save_settings(
     capcut_noise_intensity: int = Form(35),
     capcut_noise_percent: int = Form(40),
     capcut_noise_target: str = Form("both"),
+    capcut_animation_category: str = Form("combo"),
+    capcut_animation_effect: str = Form("none"),
+    capcut_animation_duration: float = Form(2.5),
+    capcut_animation_intensity: int = Form(65),
+    capcut_animation_target: str = Form("both"),
     timing_mode: str = Form("auto_repair"),
     max_scene_seconds: float = Form(4.0),
     min_scene_seconds: float = Form(2.0),
@@ -3887,6 +3918,18 @@ def save_settings(
         raise HTTPException(400, "Noise intensity and coverage must be between 0 and 100")
     if capcut_noise_target not in {"both", "images", "videos"}:
         raise HTTPException(400, "Invalid Noise target")
+    combo_effects = {"zoom_1", "bend_zoom", "distort_left", "pendulum_1", "pendulum_2", "spin_fall",
+                     "bouncy_rush", "zoom_2", "distort_right", "sway_in", "roll_in_out_2", "sway_out",
+                     "fall_right", "bounce_1", "wobble"}
+    cam_motion_effects = {"pan_left", "pan_right", "right_zoom", "dynamic_shake_2"}
+    if capcut_animation_category not in {"combo", "cam_motion"}:
+        raise HTTPException(400, "Invalid Animation category")
+    if capcut_animation_effect not in ({"none"} | (combo_effects if capcut_animation_category == "combo" else cam_motion_effects)):
+        raise HTTPException(400, "Invalid Animation effect for selected category")
+    if not 0.5 <= capcut_animation_duration <= 5.0 or not 10 <= capcut_animation_intensity <= 100:
+        raise HTTPException(400, "Invalid Animation duration or intensity")
+    if capcut_animation_target not in {"both", "images", "videos"}:
+        raise HTTPException(400, "Invalid Animation media target")
     if timing_mode not in {"auto_repair", "whisper", "narration_weighted"}:
         raise HTTPException(400, "Invalid timing mode")
     if narration_start_mode not in {"auto", "manual"}:
@@ -3989,6 +4032,11 @@ def save_settings(
         "capcut_noise_intensity": str(capcut_noise_intensity),
         "capcut_noise_percent": str(capcut_noise_percent),
         "capcut_noise_target": capcut_noise_target,
+        "capcut_animation_category": capcut_animation_category,
+        "capcut_animation_effect": capcut_animation_effect,
+        "capcut_animation_duration": str(capcut_animation_duration),
+        "capcut_animation_intensity": str(capcut_animation_intensity),
+        "capcut_animation_target": capcut_animation_target,
         "timing_mode": timing_mode,
         "max_scene_seconds": str(max(0.25, min(15.0, general_media_max_seconds))),
         "min_scene_seconds": str(max(0.25, min(10.0, general_media_min_seconds))),
@@ -4102,6 +4150,11 @@ def save_settings(
             "capcut_noise_intensity": capcut_noise_intensity,
             "capcut_noise_percent": capcut_noise_percent,
             "capcut_noise_target": capcut_noise_target,
+            "capcut_animation_category": capcut_animation_category,
+            "capcut_animation_effect": capcut_animation_effect,
+            "capcut_animation_duration": capcut_animation_duration,
+            "capcut_animation_intensity": capcut_animation_intensity,
+            "capcut_animation_target": capcut_animation_target,
             "captions_enabled": captions_enabled == "on", "caption_style": caption_style,
             "caption_position": caption_position, "caption_karaoke_enabled": caption_karaoke_enabled == "on",
             "caption_words": max(1, min(5, caption_words)), "caption_font_size": max(18, min(120, caption_font_size)),

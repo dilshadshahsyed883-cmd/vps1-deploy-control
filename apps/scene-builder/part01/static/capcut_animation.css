@@ -1,0 +1,39 @@
+/* Scene Builder Settings > CapCut Controls > Animation. Scoped to existing shell. */
+#sb-capcut-animation .sb-animation-tabs{display:flex;gap:8px;margin:0 0 12px}
+#sb-capcut-animation .sb-animation-tabs button{flex:1;border:1px solid #dce4f2;background:#f7f9ff;color:#283a5f;border-radius:9px;padding:10px;font-weight:750;cursor:pointer}
+#sb-capcut-animation .sb-animation-tabs button[aria-pressed="true"]{background:#2f5ce1;border-color:#2f5ce1;color:#fff}
+#sb-capcut-animation .sb-animation-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+#sb-capcut-animation .sb-animation-search{flex:1;min-width:130px;border:1px solid #dce4f2;padding:9px 11px;border-radius:9px;background:#fff}
+#sb-capcut-animation .sb-animation-favorite-toggle{font-size:12px;display:flex;align-items:center;gap:5px;white-space:nowrap}
+#sb-capcut-animation .sb-animation-gallery{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:8px 0 16px;max-height:340px;overflow:auto}
+#sb-capcut-animation .sb-animation-item{min-width:0;position:relative}
+#sb-capcut-animation .sb-animation-select{width:100%;border:2px solid transparent;cursor:pointer;background:#f2f5fb;padding:5px 5px 8px;border-radius:10px;color:#293c5e}
+#sb-capcut-animation .sb-animation-select[aria-pressed="true"]{border-color:#2f5ce1;background:#edf3ff}
+#sb-capcut-animation .sb-animation-select:focus-visible,#sb-capcut-animation .sb-animation-star:focus-visible{outline:3px solid #f6b44b;outline-offset:2px}
+#sb-capcut-animation .sb-animation-thumb{display:flex;align-items:center;justify-content:center;aspect-ratio:1.3;border-radius:7px;background:radial-gradient(circle at 68% 25%,#f1bb6b 0 9%,transparent 10%),linear-gradient(145deg,transparent 52%,#314b71 53% 78%,transparent 79%),linear-gradient(22deg,#34456a 45%,transparent 46%),linear-gradient(#3d6483,#ae99a1);color:white;font-size:21px;text-shadow:0 1px 4px #162b4d}
+#sb-capcut-animation .sb-animation-name{font-size:11px;line-height:1.25;min-height:29px;display:flex;align-items:center;justify-content:center;text-align:center;overflow-wrap:anywhere}
+#sb-capcut-animation .sb-animation-star{position:absolute;right:5px;top:5px;border:0;background:#0f2442bd;color:white;cursor:pointer;border-radius:50%;width:24px;height:24px;font-size:17px;line-height:24px;padding:0}
+#sb-capcut-animation .sb-animation-star[aria-pressed="true"]{color:#ffd264}
+#sb-capcut-animation .sb-animation-controls{display:grid;gap:12px}
+#sb-capcut-animation .sb-animation-controls label{display:flex;gap:10px;justify-content:space-between;align-items:center;flex-wrap:wrap;font-size:12px;font-weight:700}
+#sb-capcut-animation .sb-animation-controls input[type=range]{min-width:100px;flex:1}
+#sb-capcut-animation .sb-animation-controls output{font-weight:800;color:#2f5ce1}
+#sb-capcut-animation .sb-animation-controls select{max-width:190px;border:1px solid #dce4f2;border-radius:8px;padding:8px}
+#sb-capcut-animation .sb-animation-actions{display:flex;gap:7px;flex-wrap:wrap}
+#sb-capcut-animation .sb-animation-actions button{border:1px solid #ced9ef;background:#f2f5ff;border-radius:8px;padding:8px 12px;cursor:pointer;font-weight:700}
+#sb-capcut-animation .sb-animation-status{font-size:12px;color:#465f86;margin:7px 0 0}
+#sb-capcut-preview-image.sb-animation-active{transform-origin:center;will-change:transform;animation:sb-cam-zoom 2.5s ease-in-out infinite alternate}
+@keyframes sb-cam-zoom{from{transform:scale(1)}to{transform:scale(1.22)}}
+@keyframes sb-cam-pulse{0%{transform:scale(1)}50%{transform:scale(1.28)}100%{transform:scale(1.06)}}
+@keyframes sb-cam-swing{0%{transform:scale(1.15) rotate(-6deg)}50%{transform:scale(1.15) rotate(6deg)}100%{transform:scale(1.15) rotate(-6deg)}}
+@keyframes sb-cam-panleft{from{transform:scale(1.22) translateX(7%)}to{transform:scale(1.22) translateX(-7%)}}
+@keyframes sb-cam-panright{from{transform:scale(1.22) translateX(-7%)}to{transform:scale(1.22) translateX(7%)}}
+@keyframes sb-cam-rightzoom{from{transform:scale(1.04) translateX(-5%)}to{transform:scale(1.35) translateX(7%)}}
+@keyframes sb-cam-drift{from{transform:scale(1.12) rotate(-5deg) translateX(-5%)}to{transform:scale(1.22) rotate(5deg) translateX(5%)}}
+@keyframes sb-cam-bounce{0%{transform:scale(.95) translateY(5%)}45%{transform:scale(1.29) translateY(-6%)}80%{transform:scale(1.06) translateY(2%)}100%{transform:scale(1.12)}}
+@keyframes sb-cam-enter{from{transform:scale(1.2) translateX(-18%) rotate(-7deg)}to{transform:scale(1.1) translateX(0) rotate(0)}}
+@keyframes sb-cam-exit{from{transform:scale(1.1)}to{transform:scale(1.15) translateX(18%) rotate(6deg)}}
+@keyframes sb-cam-fall{from{transform:scale(1.2) translate(-12%,-15%) rotate(-11deg)}to{transform:scale(1.1) translate(4%,3%) rotate(3deg)}}
+@keyframes sb-cam-wobble{0%{transform:scale(1.15) rotate(0)}25%{transform:scale(1.15) rotate(-5deg)}50%{transform:scale(1.15) rotate(5deg)}75%{transform:scale(1.15) rotate(-3deg)}100%{transform:scale(1.15) rotate(0)}}
+@keyframes sb-cam-shake{0%{transform:scale(1.18) translateX(-1%)}25%{transform:scale(1.18) translate(3%,-2%)}50%{transform:scale(1.18) translate(-3%,2%)}75%{transform:scale(1.18) translate(2%,1%)}100%{transform:scale(1.18)}}
+@media(max-width:720px){#sb-capcut-animation .sb-animation-gallery{grid-template-columns:repeat(3,minmax(0,1fr));max-height:390px}}
