@@ -1,0 +1,26 @@
+name: SML manual person collections fast contract
+on:
+  pull_request:
+    paths:
+      - 'apps/self-media-library/**'
+      - 'tests/test_self_media_library_manual_people*.py'
+      - '.github/workflows/vps1-sml-manual-person-ci.yml'
+permissions:
+  contents: read
+jobs:
+  sml-manual-person:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install lightweight API test requirements
+        run: python -m pip install 'fastapi==0.115.12' 'httpx==0.28.1'
+      - name: Validate Python and browser source
+        run: |
+          python -m py_compile apps/self-media-library/part01/app.py apps/self-media-library/part01/manual_people.py apps/self-media-library/part01/media_extensions.py
+          node --check apps/self-media-library/part01/static/manual_people.js
+      - name: Verify manual collections and legacy feature preservation
+        run: python -m unittest tests.test_self_media_library_manual_people -v
