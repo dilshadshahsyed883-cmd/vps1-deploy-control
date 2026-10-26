@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Self Media Library</title>
-  <link rel="stylesheet" href="/self-media-library/static/styles.css?v=20261022-image-bulk-v1" />
+  <link rel="stylesheet" href="/self-media-library/static/styles.css?v=20261026-sml-clean-v1" />
   <!-- One canonical website shell, served by Scene Builder rather than the library's static mount. -->
   <link rel="stylesheet" href="/&#115;tatic/vps1_native_site_shell.css?v=20261020-experiment-ui-v5" />
   <link rel="stylesheet" href="/self-media-library/static/sml_shared_theme.css?v=20261022-queue-fullwidth-v1" />
@@ -34,7 +34,7 @@
         <h1 id="pageTitle">Dashboard</h1>
         <p id="pageSubtitle">Build and control your reusable clip library.</p>
       </div>
-      <button class="primary" id="topAddSource">＋ Add media</button>
+      <div class="sml-top-actions"><button class="danger-soft" type="button" id="openCleanLibrary">Clean Library</button><button class="primary" id="topAddSource">＋ Add media</button></div>
     </header>
 
     <section id="page-dashboard" class="page active">
@@ -434,8 +434,22 @@
 <div class="modal hidden" id="imageKeywordModal">
   <div class="modal-card"><h3>Bulk image keyword</h3><p>Add or remove a keyword from selected images.</p><input id="imageBulkKeywordInput" placeholder="e.g. tennis"/><div class="modal-actions"><button class="ghost" id="cancelImageKeywordModal">Cancel</button><button class="ghost" id="removeImageBulkKeyword">Remove</button><button class="primary" id="addImageBulkKeyword">Add</button></div></div>
 </div>
+
+<div class="modal hidden" id="cleanLibraryModal" role="dialog" aria-modal="true" aria-labelledby="cleanLibraryTitle">
+  <div class="modal-card sml-clean-dialog">
+    <div class="sml-clean-heading"><span class="sml-clean-warning" aria-hidden="true">!</span><div><h3 id="cleanLibraryTitle">Clean entire SML Library</h3><p>Permanent deletion of SML content only. This action cannot be undone.</p></div></div>
+    <p id="cleanLibrarySummary" role="status">Loading current library counts…</p>
+    <p class="sml-clean-caution">All stored videos, images, Trash, originals, previews, AI annotations, named people, import history and library records will be cleared. Scene Builder projects using these media may lose their references. Other applications, SML settings and installed AI models remain.</p>
+    <p class="sml-clean-blockers" id="cleanLibraryBlockers" role="alert"></p>
+    <label class="sml-clean-ack"><input type="checkbox" id="cleanLibraryAcknowledge" /> I understand that existing Scene Builder projects may lose their SML media references.</label>
+    <label class="sml-clean-label" for="cleanLibraryPhrase">Type <strong>CLEAN SML LIBRARY</strong> to confirm</label>
+    <input type="text" id="cleanLibraryPhrase" class="setting-text" placeholder="CLEAN SML LIBRARY" autocomplete="off" spellcheck="false" />
+    <div class="modal-actions"><button type="button" class="ghost" id="cancelCleanLibrary">Cancel</button><button type="button" class="sml-clean-confirm" id="confirmCleanLibrary" disabled>Permanently clean library</button></div>
+    <p id="cleanLibraryStatus" role="status" aria-live="polite"></p>
+  </div>
+</div>
 <div id="toast" class="toast hidden"></div>
-<script src="/self-media-library/static/app.js?v=20261026-library-subtabs-v1"></script>
+<script src="/self-media-library/static/app.js?v=20261026-sml-clean-v1"></script>
 <aside id="aiInspector" class="sml-ai-inspector hidden" aria-label="AI metadata inspector"><div class="panel-head"><h2 id="aiInspectorTitle">Media inspector</h2><button id="aiInspectorClose" class="ghost" aria-label="Close AI inspector">Close</button></div><div id="aiInspectorMedia"></div><p id="aiInspectorState"></p>
 <form id="aiMetadataForm"><label>Description<textarea id="aiDescription" rows="3"></textarea></label><label>Keywords (comma separated)<input id="aiKeywords"></label><label>Review reason<input id="aiReviewReason" maxlength="500"></label><label>Custom fields (JSON object)<textarea id="aiCustom" rows="2">{}</textarea></label><label>Tag aliases (JSON object)<textarea id="aiAliases" rows="2">{}</textarea></label><label><input id="aiRights" type="checkbox"> I have permission to reuse this asset</label><div id="aiManualCategories" class="sml-ai-filters"></div><button class="primary" type="submit">Save corrections</button></form>
 <div class="sml-ai-actions"><button class="ghost" id="aiReanalyze">Reanalyze media</button><button class="ghost" id="aiSimilar">Find similar</button><button class="ghost" id="aiHistory">Change &amp; usage history</button></div><div id="aiFieldDetails"></div><div id="aiHistoryDetails"></div></aside>

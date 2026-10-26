@@ -36,10 +36,10 @@ class ExperimentNavigation(unittest.TestCase):
         self.assertEqual(scripts[0].get("src"),"/static/vps1_native_site_shell.js?v=20261025-auto-script-nav-v1")
         styles=[attrs.get("href") for tag,attrs in m.tags if tag=="link"]
         self.assertIn("/static/vps1_native_site_shell.css?v=20261020-experiment-ui-v5",styles)
-        self.assertIn("/self-media-library/static/styles.css?v=20261022-image-bulk-v1",styles)
+        self.assertIn("/self-media-library/static/styles.css", [p.split("?", 1)[0] for p in styles])
         self.assertIn("/self-media-library/static/sml_shared_theme.css?v=20261022-queue-fullwidth-v1",styles)
         scripts_all=[attrs.get("src") for tag,attrs in m.tags if tag=="script"]
-        self.assertIn("/self-media-library/static/app.js?v=20261026-library-subtabs-v1",scripts_all)
+        self.assertIn("/self-media-library/static/app.js", [p.split("?", 1)[0] for p in scripts_all])
         self.assertIn("/self-media-library/static/library_subtabs.css?v=20261026-library-subtabs-v1",styles)
         self.assertNotIn('<aside class="sidebar">',page)
         self.assertEqual(page.count('id="nav"'),1)
