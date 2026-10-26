@@ -33,7 +33,7 @@ def require(condition: bool, message: str) -> None:
 
 def patch_manual_start(previous_policy: str) -> str:
     """Add just the exact manual Start action to the preexisting recovery regex."""
-    existing = r"_PROJECT_RECOVERY = re.compile(r\"\\A/queue/[0-9a-f]{32}/(?:"
+    existing = "_PROJECT_RECOVERY = re.compile("
     require(previous_policy.count(existing) == 1, "unknown previous recovery policy")
     start = previous_policy.index(existing)
     end = previous_policy.find(')\\Z")', start)
