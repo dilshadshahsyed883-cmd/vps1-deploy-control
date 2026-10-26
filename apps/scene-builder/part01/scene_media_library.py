@@ -98,7 +98,7 @@ class SceneMediaLibrary:
         entries = [self._row(row) for row in rows
                    if (kind == "all" or row["kind"] == kind)
                    and (not query or query in str(row["original_name"]).casefold())]
-        return entries[:max(1, min(2000, limit))]
+        return entries[:max(1, min(100000, limit))]
 
     def summary(self) -> dict:
         with self.lock, self._db() as conn:
@@ -198,7 +198,7 @@ class SceneMediaLibrary:
             return len(rows)
 
     def report(self) -> str:
-        items = self.list(limit=2000)
+        items = self.list(limit=100000)
         counts = self.summary()
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         lines = ["SCENE BUILDER | MEDIA LIBRARY SUMMARY", "=" * 40,
