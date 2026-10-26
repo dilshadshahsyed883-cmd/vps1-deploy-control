@@ -934,3 +934,7 @@ from local_library import register as register_local_library
 register_local_library(app, DATA, db, now_iso)
 (DATA / 'ai_previews').mkdir(exist_ok=True)
 app.mount('/media/ai-previews', StaticFiles(directory=DATA / 'ai_previews'), name='ai-previews')
+
+# Owner-triggered reset is isolated from scheduled housekeeping and other apps.
+from library_clean import register as register_library_clean
+register_library_clean(app, DATA, db, PROCESS_LOCK)
