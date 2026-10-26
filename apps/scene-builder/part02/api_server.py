@@ -5592,10 +5592,15 @@ def _delete_cancelled_drive_output(current: dict[str, Any], project_dir: Path) -
     if not destination:
         return False
     output_name = str(current.get("output_filename") or "").strip()
-    folder = _drive_folder_for_channel(str(current.get("channel_name") or ""))
-    expected_destination = f"{DRIVE_REMOTE}:{folder}/{output_name}"
+    # The worker DB has no channel column; inspect only the stored destination
+    # inside the configured Scene renders root, never a caller-supplied remote path.
+    prefix = f"{DRIVE_REMOTE}:{DRIVE_FOLDER}/"
+    relative = destination[len(prefix):] if destination.startswith(prefix) else ""
+    parts = relative.split("/") if relative else []
+    valid_channel = len(parts) == 2 and _safe_drive_channel(parts[0]) == parts[0]
     if (not output_name or "/" in output_name or "\\" in output_name
-            or destination != expected_destination):
+            or not (len(parts) == 1 or valid_channel)
+            or parts[-1] != output_name):
         raise HTTPException(409, "Drive destination cannot be trusted; no files deleted")
     with _db_lock, db() as conn:
         other = conn.execute(
