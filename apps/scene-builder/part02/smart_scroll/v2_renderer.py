@@ -513,6 +513,9 @@ def _capcut_grain_filter(effect: str, intensity: int) -> str:
     raise ValueError(f'Unsupported Noise / Grain effect: {effect}')
 
 
+from .capcut_animation import capcut_animation_filter, validate_animation
+
+
 def _motion(scene:dict[str,Any],w:int,h:int,fps:int,dur:float,is_image:bool)->str:
     """Frame-animated pan/zoom for both stills and videos (no static substitution)."""
     m = str(scene.get('motion','none') or 'none').lower()
@@ -637,11 +640,13 @@ def _render_fingerprint(scenes:list[dict[str,Any]],settings:Any)->tuple[str,list
         }
         scene_fingerprints.append(hashlib.sha256(json.dumps(payload,sort_keys=True,default=str).encode()).hexdigest())
     global_payload={
-        'renderer':'v20-capcut-controls-canvas-fill',
+        'renderer':'v21-capcut-combo-cam-motion',
         'capcut':{key:getattr(settings,key,None) for key in (
             'capcut_mirror_enabled','capcut_mirror_percent','capcut_zoom_level',
             'capcut_noise_enabled','capcut_noise_effect','capcut_noise_intensity',
-            'capcut_noise_percent','capcut_noise_target')},
+            'capcut_noise_percent','capcut_noise_target',
+            'capcut_animation_category','capcut_animation_effect',
+            'capcut_animation_duration','capcut_animation_intensity','capcut_animation_target')},
         'canvas_fill_mode':str(getattr(settings,'canvas_fill_mode','crop')),
         'canvas_blur_strength':int(getattr(settings,'canvas_blur_strength',16)),
         'canvas_fill_color':str(getattr(settings,'canvas_fill_color','#101018')),
@@ -768,6 +773,11 @@ def render_mixed_media(settings:Any,progress_callback:Progress=None,cancel_callb
                 'zoom':int(getattr(settings,'capcut_zoom_level',100)),
                 'effect':str(getattr(settings,'capcut_noise_effect','film')),
                 'intensity':int(getattr(settings,'capcut_noise_intensity',35)),
+                'animation':{
+                    key:getattr(settings,key,None) for key in (
+                        'capcut_animation_category','capcut_animation_effect',
+                        'capcut_animation_duration','capcut_animation_intensity',
+                        'capcut_animation_target')},
             },
             'canvas':(str(getattr(settings,'canvas_fill_mode','crop')),
                       int(getattr(settings,'canvas_blur_strength',16)),
@@ -812,6 +822,26 @@ def render_mixed_media(settings:Any,progress_callback:Progress=None,cancel_callb
                 int(getattr(settings,'canvas_blur_strength',16)),
             )
             chains.extend(zoom_chains)
+            # Optional source-only animation; captions and overlays remain stable.
+            anim_category = str(scene.get('capcut_animation_category',
+                                        getattr(settings,'capcut_animation_category','combo')))
+            anim_effect = str(scene.get('capcut_animation_effect',
+                                      getattr(settings,'capcut_animation_effect','none')))
+            anim_target = str(scene.get('capcut_animation_target',
+                                      getattr(settings,'capcut_animation_target','both')))
+            if not validate_animation(anim_category, anim_effect):
+                raise ValueError(f'{code}: invalid CapCut animation selection')
+            if anim_target not in ('both','images','videos'):
+                raise ValueError(f'{code}: invalid CapCut animation target')
+            anim_applies = anim_target == 'both' or (is_image and anim_target == 'images') or (not is_image and anim_target == 'videos')
+            if anim_effect != 'none' and anim_applies:
+                anim_duration = float(scene.get('capcut_animation_duration',
+                                              getattr(settings,'capcut_animation_duration',2.5)))
+                anim_intensity = int(scene.get('capcut_animation_intensity',
+                                            getattr(settings,'capcut_animation_intensity',65)))
+                animated = f'[capcutanim{local_index}]'
+                chains.append(f'{zoom_source}{capcut_animation_filter(anim_effect,anim_duration,anim_intensity,w,h,fps)}{animated}')
+                zoom_source = animated
             grain = _capcut_grain_filter(
                 str(getattr(settings,'capcut_noise_effect','film')),
                 int(getattr(settings,'capcut_noise_intensity',35))
