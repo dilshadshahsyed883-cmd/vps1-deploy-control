@@ -132,7 +132,7 @@ class SceneLocalLibraryTests(unittest.TestCase):
         if shutil.which("node"):
             for page in (rendered, env.from_string((SCENE / "templates/audit_media.html").read_text()).render(
                     selected_job={"id": "j1", "project_name": "Project"},
-                    audit={"items": [], "sml_settings": {"scene_library_enabled": True}}, waiting_jobs=[])):
+                    audit={"items": [], "scene_library_settings": {"scene_library_enabled": True}}, waiting_jobs=[])):
                 for js in [p.split("</script>", 1)[0] for p in page.split("<script>")[1:]]:
                     with tempfile.TemporaryDirectory() as folder:
                         script = Path(folder) / "frontend.js"
