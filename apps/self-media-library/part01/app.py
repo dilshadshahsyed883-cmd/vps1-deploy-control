@@ -899,6 +899,10 @@ register_media_extensions(app, data_dir=DATA, db=db, now_iso=now_iso,
 from face_people import register_face_people
 register_face_people(app, data_dir=DATA, db=db, now_iso=now_iso)
 
+# Manual collections coexist with CPU face recognition and all existing media tools.
+from manual_people import register_manual_people
+register_manual_people(app, db=db, now_iso=now_iso)
+
 
 # Advanced AI remains an additive, isolated service within the independent app.
 from ai_engine import model_ready
