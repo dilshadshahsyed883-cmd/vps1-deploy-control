@@ -8,6 +8,7 @@
   <!-- One canonical website shell, served by Scene Builder rather than the library's static mount. -->
   <link rel="stylesheet" href="/&#115;tatic/vps1_native_site_shell.css?v=20261020-experiment-ui-v5" />
   <link rel="stylesheet" href="/self-media-library/static/sml_shared_theme.css?v=20261022-queue-fullwidth-v1" />
+  <link rel="stylesheet" href="/self-media-library/static/library_subtabs.css?v=20261026-library-subtabs-v1" />
   <script defer src="/&#115;tatic/vps1_native_site_shell.js?v=20261025-auto-script-nav-v1" data-workspace="library"></script>
   <link rel="stylesheet" href="/self-media-library/static/face_people.css?v=20261022-face-people-v1" />
   <link rel="stylesheet" href="/self-media-library/static/manual_people.css?v=20261026-person-v1" />
@@ -191,29 +192,21 @@
     </section>
 
     <section id="page-library" class="page">
+      <div class="sml-library-subtabs" id="smlLibraryTabs" role="tablist" aria-label="Library and Preview sections">
+        <button type="button" id="smlLibraryTabmedia" class="sml-library-tab active" data-library-tab="media" role="tab" aria-controls="smlLibraryPanemedia" aria-selected="true" tabindex="0"><span aria-hidden="true">▦</span> Media Library</button>
+        <button type="button" id="smlLibraryTabai" class="sml-library-tab" data-library-tab="ai" role="tab" aria-controls="smlLibraryPaneai" aria-selected="false" tabindex="-1"><span aria-hidden="true">✧</span> AI Search</button>
+        <button type="button" id="smlLibraryTabpeople" class="sml-library-tab" data-library-tab="people" role="tab" aria-controls="smlLibraryPanepeople" aria-selected="false" tabindex="-1"><span aria-hidden="true">♙</span> Person Collections</button>
+        <button type="button" id="smlLibraryTabface" class="sml-library-tab" data-library-tab="face" role="tab" aria-controls="smlLibraryPaneface" aria-selected="false" tabindex="-1"><span aria-hidden="true">◎</span> Face Recognition</button>
+        <button type="button" id="smlLibraryTabduplicates" class="sml-library-tab" data-library-tab="duplicates" role="tab" aria-controls="smlLibraryPaneduplicates" aria-selected="false" tabindex="-1"><span aria-hidden="true">▣</span> Duplicates</button>
+        <button type="button" id="smlLibraryTabtrash" class="sml-library-tab" data-library-tab="trash" role="tab" aria-controls="smlLibraryPanetrash" aria-selected="false" tabindex="-1"><span aria-hidden="true">♧</span> Trash & Restore</button>
+      </div>
+      <div id="smlLibraryPanemedia" class="sml-library-pane" data-library-pane="media" role="tabpanel" aria-labelledby="smlLibraryTabmedia">
       <div class="library-toolbar"><b>Library date range</b><label>From <input id="localFrom" type="date"></label><label>To <input id="localTo" type="date"></label><button class="ghost" id="clearLibraryDates">Clear dates</button></div>
-      <article class="panel sml-ai-panel">
-        <div class="panel-head"><div><h2>AI Search</h2><p>Describe a scene or find similar media. Model suggestions always remain reviewable.</p></div><button class="ghost" id="aiViewToggle">List view</button></div>
-        <form id="aiSearchForm" class="sml-ai-search"><label class="sml-ai-wide">Scene description<input id="aiQuery" maxlength="500" placeholder="Peaceful mountain lake, cinematic city at night…"></label><button class="primary" type="submit">Search media</button></form>
-        <details><summary>Advanced filters</summary><div class="sml-ai-filters" id="aiFilters">
-          <label>Media<select name="media_type"><option value="all">Images and video</option><option value="image">Images</option><option value="video">Video clips</option></select></label>
-          <label>Review<select name="status"><option value="all">All review states</option><option>approved</option><option>candidate</option><option>rejected</option></select></label>
-          <label>Orientation<select name="orientation"><option value="all">All orientations</option><option>landscape</option><option>portrait</option><option>square</option></select></label>
-          <label>Minimum quality<input name="min_quality" type="number" min="0" max="100" value="0"></label>
-          <label>Min duration (sec)<input name="min_duration" type="number" min="0" value="0"></label>
-          <label>Max duration (sec)<input name="max_duration" type="number" min="0" value="36000"></label>
-          <label>Minimum width<input name="min_width" type="number" min="0" value="0"></label>
-          <label>Minimum FPS<input name="min_fps" type="number" min="0" value="0"></label>
-          <label>Codec<input name="codec" placeholder="h264"></label><label>Subject<input name="subject" placeholder="flower"></label><label>Action<input name="action" placeholder="running"></label><label>Environment<input name="environment" placeholder="forest"></label><label>Lighting<input name="lighting" placeholder="daylight"></label><label>Mood<input name="mood" placeholder="peaceful"></label><label>Source<input name="source" placeholder="local / youtube / source ID"></label>
-          <label>Usage<select name="used"><option value="all">All usage</option><option value="unused">Unused</option><option value="used">Used</option></select></label>
-          <label>Duplicates<select name="duplicate"><option value="all">All media</option><option value="clear">Exclude exact duplicates</option><option value="exact">Exact duplicates</option></select></label>
-          <label>From date<input name="date_from" type="date"></label><label>To date<input name="date_to" type="date"></label>
-        </div></details>
-        <div class="sml-ai-actions"><label>Reference image<input type="file" id="aiReference" accept="image/jpeg,image/png,image/webp"></label><button class="ghost" id="aiSaveSearch">Save search</button><select id="aiCollections" aria-label="Saved searches"><option value="">Saved searches &amp; collections</option></select><button class="ghost" id="aiDuplicates">Review similar copies</button><button class="ghost" id="aiCompare">Compare two selected</button></div>
-        <div class="sml-ai-actions"><span id="aiSelectedCount">0 selected</span><button class="ghost" data-ai-bulk="approved">Approve selected</button><button class="ghost" data-ai-bulk="rejected">Reject selected</button><button class="ghost" id="aiBulkTags">Tag selected</button></div>
-        <p id="aiSearchStatus" role="status" aria-live="polite">Search all media, or enter a scene description for semantic ranking.</p>
-        <div id="aiResults" class="sml-ai-grid"></div><div id="aiDuplicateResults"></div>
-      </article>
+      <div class="sml-library-media-switch" role="tablist" aria-label="Media type">
+        <button type="button" class="active" id="smlLibraryMediaVideos" role="tab" data-library-media="videos" aria-controls="smlMediaPaneVideos" aria-selected="true" tabindex="0">▤ Video Clips</button>
+        <button type="button" id="smlLibraryMediaImages" role="tab" data-library-media="images" aria-controls="smlMediaPaneImages" aria-selected="false" tabindex="-1">▧ Images</button>
+      </div>
+      <div id="smlMediaPaneVideos" class="sml-media-pane" data-media-pane="videos" role="tabpanel" aria-labelledby="smlLibraryMediaVideos">
       <div class="library-toolbar">
         <div class="searchbox"><span>⌕</span><input id="clipSearch" placeholder="Search keywords: mountain drone lake…" /></div>
         <select id="statusFilter" aria-label="Filter clips by review status"><option value="all">All states</option><option value="candidate">Candidate</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select>
@@ -235,6 +228,8 @@
       <h2>Video Clips</h2><div id="libraryGrid" class="clip-grid"></div>
 
       <div class="pager"><button class="ghost" id="loadMore">Load more video clips</button></div>
+      </div>
+      <div id="smlMediaPaneImages" class="sml-media-pane" data-media-pane="images" role="tabpanel" aria-labelledby="smlLibraryMediaImages" hidden>
       <article class="panel settings-spaced">
         <div class="panel-head"><div><h2>Images</h2><p>Preview, search, rename, tag, approve and archive your photos.</p></div></div>
         <div class="library-toolbar"><input id="imageSearch" class="setting-text" placeholder="Search filename, description, keywords…" /><select id="imageStatus"><option value="all">All images</option><option value="candidate">Candidate</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select><select id="imageOrientation" aria-label="Image orientation"><option value="all">All orientations</option><option value="landscape">Landscape</option><option value="portrait">Portrait</option><option value="square">Square</option><option value="unknown">Unknown</option></select></div>
@@ -268,6 +263,33 @@
           </div>
         </div>
       </article>
+      </div>
+      </div>
+      <div id="smlLibraryPaneai" class="sml-library-pane" data-library-pane="ai" role="tabpanel" aria-labelledby="smlLibraryTabai" hidden>
+      <article class="panel sml-ai-panel">
+        <div class="panel-head"><div><h2>AI Search</h2><p>Describe a scene or find similar media. Model suggestions always remain reviewable.</p></div><button class="ghost" id="aiViewToggle">List view</button></div>
+        <form id="aiSearchForm" class="sml-ai-search"><label class="sml-ai-wide">Scene description<input id="aiQuery" maxlength="500" placeholder="Peaceful mountain lake, cinematic city at night…"></label><button class="primary" type="submit">Search media</button></form>
+        <details><summary>Advanced filters</summary><div class="sml-ai-filters" id="aiFilters">
+          <label>Media<select name="media_type"><option value="all">Images and video</option><option value="image">Images</option><option value="video">Video clips</option></select></label>
+          <label>Review<select name="status"><option value="all">All review states</option><option>approved</option><option>candidate</option><option>rejected</option></select></label>
+          <label>Orientation<select name="orientation"><option value="all">All orientations</option><option>landscape</option><option>portrait</option><option>square</option></select></label>
+          <label>Minimum quality<input name="min_quality" type="number" min="0" max="100" value="0"></label>
+          <label>Min duration (sec)<input name="min_duration" type="number" min="0" value="0"></label>
+          <label>Max duration (sec)<input name="max_duration" type="number" min="0" value="36000"></label>
+          <label>Minimum width<input name="min_width" type="number" min="0" value="0"></label>
+          <label>Minimum FPS<input name="min_fps" type="number" min="0" value="0"></label>
+          <label>Codec<input name="codec" placeholder="h264"></label><label>Subject<input name="subject" placeholder="flower"></label><label>Action<input name="action" placeholder="running"></label><label>Environment<input name="environment" placeholder="forest"></label><label>Lighting<input name="lighting" placeholder="daylight"></label><label>Mood<input name="mood" placeholder="peaceful"></label><label>Source<input name="source" placeholder="local / youtube / source ID"></label>
+          <label>Usage<select name="used"><option value="all">All usage</option><option value="unused">Unused</option><option value="used">Used</option></select></label>
+          <label>Duplicates<select name="duplicate"><option value="all">All media</option><option value="clear">Exclude exact duplicates</option><option value="exact">Exact duplicates</option></select></label>
+          <label>From date<input name="date_from" type="date"></label><label>To date<input name="date_to" type="date"></label>
+        </div></details>
+        <div class="sml-ai-actions"><label>Reference image<input type="file" id="aiReference" accept="image/jpeg,image/png,image/webp"></label><button class="ghost" id="aiSaveSearch">Save search</button><select id="aiCollections" aria-label="Saved searches"><option value="">Saved searches &amp; collections</option></select></div>
+        <div class="sml-ai-actions"><span id="aiSelectedCount">0 selected</span><button class="ghost" data-ai-bulk="approved">Approve selected</button><button class="ghost" data-ai-bulk="rejected">Reject selected</button><button class="ghost" id="aiBulkTags">Tag selected</button></div>
+        <p id="aiSearchStatus" role="status" aria-live="polite">Search all media, or enter a scene description for semantic ranking.</p>
+        <div id="aiResults" class="sml-ai-grid"></div>
+      </article>
+      </div>
+      <div id="smlLibraryPanepeople" class="sml-library-pane" data-library-pane="people" role="tabpanel" aria-labelledby="smlLibraryTabpeople" hidden>
       <article class="panel settings-spaced" id="manualPeoplePanel" aria-label="Manual person collections">
         <div class="panel-head"><div><h2>Person Collections — Manual</h2>
           <p>Select a person, tick photos or clips in the existing library, and add them in bulk. No AI analysis required.</p></div>
@@ -299,11 +321,13 @@
           <button type="button" class="ghost" id="manualPersonEdit" disabled>Edit person name</button>
         </div>
         <p class="source-meta manual-person-status" id="manualPersonStatus" role="status" aria-live="polite">
-          Select images or clips above, then link them here. Existing review and Face Recognition remain available.
+          First select images or clips in Media Library, then return to Person Collections to link them. Existing review and Face Recognition remain available.
         </p>
         <div class="library-meta"><strong>Linked assets</strong><span id="manualPersonSummary">0 images · 0 clips</span></div>
         <div id="manualPersonAssets" class="manual-person-assets" aria-live="polite"></div>
       </article>
+      </div>
+      <div id="smlLibraryPaneface" class="sml-library-pane" data-library-pane="face" role="tabpanel" aria-labelledby="smlLibraryTabface" hidden>
       <article class="panel settings-spaced" id="peoplePanel" aria-label="People and face recognition">
         <div class="panel-head"><div><h2>People &amp; Face Recognition</h2><p>Choose a reference face, review AI suggestions, then approve names. Your images never leave VPS_1.</p></div><button type="button" class="ghost" id="peopleRefresh">Refresh people</button></div>
         <div id="peopleReference" class="face-reference hidden">
@@ -320,15 +344,25 @@
         <div class="row-actions people-review-actions"><button type="button" id="peopleSelectAll" class="ghost">Select visible matches</button><span id="peopleSelectedCount">0 selected</span><button type="button" id="peopleApprove" class="primary">Approve selected</button><button type="button" id="peopleReject" class="ghost">Reject selected</button><button type="button" id="peopleUndo" class="ghost">Undo selected</button></div>
         <div class="face-match-grid" id="peopleMatches"></div>
       </article>
-    </section>
+      </div>
+      <div id="smlLibraryPaneduplicates" class="sml-library-pane" data-library-pane="duplicates" role="tabpanel" aria-labelledby="smlLibraryTabduplicates" hidden>
+      <article class="panel sml-ai-panel sml-duplicate-panel">
+        <div class="panel-head"><div><h2>Duplicates &amp; Comparison</h2><p>Find similar copies and compare two results selected in AI Search. Existing review decisions stay protected.</p></div></div>
+        <div class="sml-ai-actions"><button class="ghost" id="aiDuplicates">Review similar copies</button><button class="ghost" id="aiCompare">Compare two selected</button></div>
+        <p class="source-meta">For side-by-side comparison, select exactly two AI Search results first. Existing duplicate matching and pagination remain unchanged.</p>
+        <div id="aiDuplicateResults"></div>
+      </article>
+      </div>
+      <div id="smlLibraryPanetrash" class="sml-library-pane" data-library-pane="trash" role="tabpanel" aria-labelledby="smlLibraryTabtrash" hidden>
 
-    <section id="page-trash" class="page">
       <article class="panel">
         <div class="panel-head"><div><h2>Trash</h2><p>Restore clips or permanently remove their files and metadata.</p></div></div>
         <div id="trashGrid" class="clip-grid"></div>
         <h2 class="trash-images-heading">Images in Trash</h2><div id="imageTrashGrid" class="image-grid"></div>
-      </article>
+      </article>      </div>
     </section>
+
+    <section id="page-trash" class="page" aria-hidden="true"></section>
 
     <section id="page-settings" class="page">
       <article class="panel sml-ai-panel"><div class="panel-head"><div><h2>Visual AI &amp; Search</h2><p>Local CPU model, shared embeddings for text and visual search.</p></div><span id="aiModelState" class="ai-pill">Checking…</span></div><p id="aiModelInfo"></p>
@@ -384,13 +418,13 @@
   <div class="modal-card"><h3>Bulk image keyword</h3><p>Add or remove a keyword from selected images.</p><input id="imageBulkKeywordInput" placeholder="e.g. tennis"/><div class="modal-actions"><button class="ghost" id="cancelImageKeywordModal">Cancel</button><button class="ghost" id="removeImageBulkKeyword">Remove</button><button class="primary" id="addImageBulkKeyword">Add</button></div></div>
 </div>
 <div id="toast" class="toast hidden"></div>
-<script src="/self-media-library/static/app.js?v=20261022-processed-clips-v1"></script>
+<script src="/self-media-library/static/app.js?v=20261026-library-subtabs-v1"></script>
 <aside id="aiInspector" class="sml-ai-inspector hidden" aria-label="AI metadata inspector"><div class="panel-head"><h2 id="aiInspectorTitle">Media inspector</h2><button id="aiInspectorClose" class="ghost" aria-label="Close AI inspector">Close</button></div><div id="aiInspectorMedia"></div><p id="aiInspectorState"></p>
 <form id="aiMetadataForm"><label>Description<textarea id="aiDescription" rows="3"></textarea></label><label>Keywords (comma separated)<input id="aiKeywords"></label><label>Review reason<input id="aiReviewReason" maxlength="500"></label><label>Custom fields (JSON object)<textarea id="aiCustom" rows="2">{}</textarea></label><label>Tag aliases (JSON object)<textarea id="aiAliases" rows="2">{}</textarea></label><label><input id="aiRights" type="checkbox"> I have permission to reuse this asset</label><div id="aiManualCategories" class="sml-ai-filters"></div><button class="primary" type="submit">Save corrections</button></form>
 <div class="sml-ai-actions"><button class="ghost" id="aiReanalyze">Reanalyze media</button><button class="ghost" id="aiSimilar">Find similar</button><button class="ghost" id="aiHistory">Change &amp; usage history</button></div><div id="aiFieldDetails"></div><div id="aiHistoryDetails"></div></aside>
 <script defer src="/self-media-library/static/local_library.js?v=20261022-image-bulk-v1"></script>
 <script defer src="/self-media-library/static/ai_workspace.js?v=20261020-ai-v1"></script>
-<script defer src="/self-media-library/static/face_people.js?v=20261022-face-people-v1"></script>
+<script defer src="/self-media-library/static/face_people.js?v=20261026-library-face-nav-v1"></script>
 <script defer src="/self-media-library/static/manual_people.js?v=20261026-person-v1"></script>
 </body>
 </html>
