@@ -200,7 +200,7 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
 <a href="/auto-caption-studio/">Auto Caption Studio</a>
 </nav>
 {% endif %}
-{% block content %}{% endblock %}{% if page in ['queue','settings','audit_media'] and (request.query_params|default({})).get('acs_audio_embed') != '1' %}<link rel="stylesheet" href="/static/scene_compact_ui.css?v=20261022-1">{% endif %}</main>{% block scripts %}{% endblock %}
+{% block content %}{% endblock %}{% if page=='auto_script' %}<link rel="stylesheet" href="/static/auto_script_kokoro_20261026.css?v=1">{% endif %}{% if page in ['queue','settings','audit_media'] and (request.query_params|default({})).get('acs_audio_embed') != '1' %}<link rel="stylesheet" href="/static/scene_compact_ui.css?v=20261022-1">{% endif %}</main>{% block scripts %}{% endblock %}
 <script>
 /* MOBILE_NAVIGATION_CONTROLLER */
 (() => {
