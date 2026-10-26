@@ -482,9 +482,16 @@ def clips(
     if q.strip():
         terms = [t.strip().lower() for t in q.split() if t.strip()]
         for term in terms:
-            clauses.append("(LOWER(c.filename) LIKE ? OR EXISTS (SELECT 1 FROM sources s WHERE s.id=c.source_id AND LOWER(s.filename) LIKE ?) OR LOWER(c.description) LIKE ? OR EXISTS (SELECT 1 FROM clip_keywords k WHERE k.clip_id=c.id AND LOWER(k.keyword) LIKE ?))")
+            clauses.append("""(LOWER(c.filename) LIKE ?
+                OR EXISTS (SELECT 1 FROM sources s WHERE s.id=c.source_id AND LOWER(s.filename) LIKE ?)
+                OR LOWER(c.description) LIKE ?
+                OR EXISTS (SELECT 1 FROM clip_keywords k WHERE k.clip_id=c.id AND LOWER(k.keyword) LIKE ?)
+                OR EXISTS (SELECT 1 FROM sml_person_assets a JOIN sml_person_collections p ON p.id=a.person_id
+                           WHERE a.media_type='video' AND a.asset_id=c.id
+                           AND (LOWER(p.name) LIKE ? OR LOWER(p.aliases_json) LIKE ?
+                                OR LOWER(a.action_tags_json) LIKE ?)))""")
             like = f"%{term}%"
-            params += [like, like, like, like]
+            params += [like] * 7
     order_map = {
         "newest": "c.created_at DESC",
         "oldest": "c.created_at ASC",
@@ -901,6 +908,10 @@ register_media_extensions(app, data_dir=DATA, db=db, now_iso=now_iso,
 # Owner-opt-in, CPU-only face indexing and person-tag approval.
 from face_people import register_face_people
 register_face_people(app, data_dir=DATA, db=db, now_iso=now_iso)
+
+# Manual collections coexist with CPU face recognition and all existing media tools.
+from manual_people import register_manual_people
+register_manual_people(app, db=db, now_iso=now_iso)
 
 
 # Advanced AI remains an additive, isolated service within the independent app.

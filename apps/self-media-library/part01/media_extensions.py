@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from media_integrity import sha256_file
 from media_catalog import probe_video, safe_origin, classify_orientation
+from manual_people import matching_collections, associated_ids, virtual_tags
 from video_merger_downloader import download_youtube_video, proxy_available
 import sml_proxy_profiles
 
@@ -356,8 +357,14 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
             pattern = "%" + literal + "%"
             clauses.append("""(LOWER(original_name) LIKE ? ESCAPE '\\'
                 OR LOWER(description) LIKE ? ESCAPE '\\'
-                OR LOWER(keywords_json) LIKE ? ESCAPE '\\')""")
-            params.extend([pattern, pattern, pattern])
+                OR LOWER(keywords_json) LIKE ? ESCAPE '\\'
+                OR EXISTS (SELECT 1 FROM sml_person_assets pa
+                           JOIN sml_person_collections pc ON pc.id=pa.person_id
+                           WHERE pa.media_type='image' AND pa.asset_id=image_assets.id
+                           AND (LOWER(pc.name) LIKE ? ESCAPE '\\'
+                                OR LOWER(pc.aliases_json) LIKE ? ESCAPE '\\'
+                                OR LOWER(pa.action_tags_json) LIKE ? ESCAPE '\\')))""")
+            params.extend([pattern] * 6)
         where = " AND ".join(clauses)
         with db() as conn:
             total_images = conn.execute(
@@ -539,40 +546,103 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
             return FileResponse(high_quality, media_type="image/jpeg")
 
     def lookup_candidates(media_type, terms):
+        """Legacy approved catalog + virtual manual person tags (original tags untouched)."""
         results = []
         with db() as conn:
-            if media_type in ("video","all"):
-                clips = conn.execute("""SELECT c.*, s.filename AS original_name FROM clips c
+            named_ids = matching_collections(conn, " ".join(terms))
+            recognized_phrases = []
+            if named_ids:
+                for person_id in named_ids:
+                    person = conn.execute(
+                        "SELECT name,aliases_json FROM sml_person_collections WHERE id=?",
+                        (person_id,),
+                    ).fetchone()
+                    if person:
+                        recognized_phrases.extend([person["name"], *json.loads(person["aliases_json"])])
+
+            if media_type in ("video", "all"):
+                clips = list(conn.execute("""SELECT c.*, s.filename AS original_name FROM clips c
                     LEFT JOIN sources s ON s.id=c.source_id
                     WHERE c.status='approved' AND c.deleted_at IS NULL
-                    AND c.duplicate_state != 'duplicate' ORDER BY c.created_at DESC LIMIT 500""").fetchall()
+                    AND c.duplicate_state != 'duplicate' ORDER BY c.created_at DESC LIMIT 500"""))
+                known = {r["id"] for r in clips}
+                for ident in associated_ids(conn, "video", named_ids):
+                    if ident not in known:
+                        row = conn.execute("""SELECT c.*, s.filename AS original_name FROM clips c
+                            LEFT JOIN sources s ON s.id=c.source_id
+                            WHERE c.id=? AND c.status='approved' AND c.deleted_at IS NULL
+                            AND c.duplicate_state != 'duplicate'""", (ident,)).fetchone()
+                        if row:
+                            clips.append(row)
+                            known.add(ident)
                 for row in clips:
                     r = dict(row)
-                    r["keywords"] = [x["keyword"] for x in conn.execute("SELECT keyword FROM clip_keywords WHERE clip_id=?", (row["id"],))]
+                    r["keywords"] = [x["keyword"] for x in conn.execute(
+                        "SELECT keyword FROM clip_keywords WHERE clip_id=?", (row["id"],))]
                     path = root / "clips" / row["filename"]
                     if not path.is_file():
                         continue
-                    results.append({"type":"video","id":row["id"],"source_id":row["source_id"] or row["id"],
-                                    "source_filename":row["original_name"] or "", "keywords":r["keywords"],
-                                    "description":row["description"],"quality":row["quality"],
-                                    "duration":row["duration"], "content_url":f"/api/v1/media/video/{row['id']}/content",
-                                    "thumb_url":f"/media/thumbs/{row['thumb_filename']}" if row["thumb_filename"] else "",
-                                    "sha256":row["sha256"]})
-            if media_type in ("image","all"):
-                for row in conn.execute("SELECT * FROM image_assets WHERE status='approved' AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 500"):
+                    results.append({"type": "video", "id": row["id"],
+                                    "source_id": row["source_id"] or row["id"],
+                                    "source_filename": row["original_name"] or "",
+                                    "keywords": r["keywords"], "description": row["description"],
+                                    "quality": row["quality"], "duration": row["duration"],
+                                    "content_url": f"/api/v1/media/video/{row['id']}/content",
+                                    "thumb_url": f"/media/thumbs/{row['thumb_filename']}" if row["thumb_filename"] else "",
+                                    "sha256": row["sha256"]})
+            if media_type in ("image", "all"):
+                image_rows = list(conn.execute(
+                    "SELECT * FROM image_assets WHERE status='approved' AND deleted_at IS NULL "
+                    "ORDER BY created_at DESC LIMIT 500"))
+                known = {r["id"] for r in image_rows}
+                for ident in associated_ids(conn, "image", named_ids):
+                    if ident not in known:
+                        row = conn.execute(
+                            "SELECT * FROM image_assets WHERE id=? AND status='approved' AND deleted_at IS NULL",
+                            (ident,)).fetchone()
+                        if row:
+                            image_rows.append(row)
+                            known.add(ident)
+                for row in image_rows:
                     if not (images / row["stored_name"]).is_file():
                         continue
                     r = image_dict(row)
-                    results.append({"type":"image","id":r["id"],"source_id":r["id"],
-                                    "source_filename":r["original_name"],"keywords":r["keywords"],
-                                    "description":r["description"],"quality":80,"duration":0,
-                                    "width":r["width"],"height":r["height"],
-                                    "content_url":f"/api/v1/media/image/{r['id']}/content",
-                                    "sha256":r["sha256"]})
+                    results.append({"type": "image", "id": r["id"], "source_id": r["id"],
+                                    "source_filename": r["original_name"], "keywords": r["keywords"],
+                                    "description": r["description"], "quality": 80, "duration": 0,
+                                    "width": r["width"], "height": r["height"],
+                                    "content_url": f"/api/v1/media/image/{r['id']}/content",
+                                    "sha256": r["sha256"]})
+
+            # Virtual person/action keywords: visible to existing Scene worker with
+            # no changes to legacy image keywords or clip_keywords tables.
+            membership_index = {}
+            for kind in ("video", "image"):
+                kind_items = [x for x in results if x["type"] == kind]
+                if not kind_items:
+                    continue
+                tags, memberships = virtual_tags(conn, kind, [x["id"] for x in kind_items])
+                for item in kind_items:
+                    item["keywords"] = list(dict.fromkeys([*item["keywords"], *tags.get(item["id"], [])]))
+                    membership_index[item["id"]] = memberships.get(item["id"], set())
+
+        if named_ids:
+            # When a named person is explicitly requested, a shot for another
+            # named person must not match merely because both share "playing".
+            def belongs_to_requested_person(item):
+                links = membership_index.get(item["id"], set())
+                if links:
+                    return bool(links & named_ids)
+                legacy = " ".join([*item["keywords"], item["source_filename"], item["description"]]).casefold()
+                return any(re.search(r"(?<!\w)" + re.escape(name.casefold()) + r"(?!\w)", legacy)
+                           for name in recognized_phrases)
+            results = [item for item in results if belongs_to_requested_person(item)]
         if terms:
             results = [x for x in results if any(
-                term in " ".join(x["keywords"]) or term in x["description"].lower()
-                or term in x["source_filename"].lower() for term in terms)]
+                term in " ".join(str(k).casefold() for k in x["keywords"])
+                or term in (x["description"] or "").casefold()
+                or term in (x["source_filename"] or "").casefold()
+                for term in terms)]
         return results
 
     @app.get("/api/v1/media/inventory")

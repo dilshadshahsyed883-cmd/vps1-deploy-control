@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/self-media-library/static/sml_shared_theme.css?v=20261022-queue-fullwidth-v1" />
   <script defer src="/&#115;tatic/vps1_native_site_shell.js?v=20261025-auto-script-nav-v1" data-workspace="library"></script>
   <link rel="stylesheet" href="/self-media-library/static/face_people.css?v=20261022-face-people-v1" />
+  <link rel="stylesheet" href="/self-media-library/static/manual_people.css?v=20261026-person-v1" />
 </head>
 <body class="vps1-native-library">
 <div class="app-shell">
@@ -267,6 +268,42 @@
           </div>
         </div>
       </article>
+      <article class="panel settings-spaced" id="manualPeoplePanel" aria-label="Manual person collections">
+        <div class="panel-head"><div><h2>Person Collections — Manual</h2>
+          <p>Select a person, tick photos or clips in the existing library, and add them in bulk. No AI analysis required.</p></div>
+          <button class="ghost" type="button" id="manualPersonRefresh">Refresh</button>
+        </div>
+        <div class="manual-person-grid">
+          <label>Person name<input id="manualPersonName" class="setting-text" maxlength="100" placeholder="Cristiano Ronaldo" /></label>
+          <label>Other names / aliases (optional)<input id="manualPersonAliases" class="setting-text" placeholder="Ronaldo, CR7" /></label>
+        </div>
+        <div class="manual-person-controls">
+          <button class="primary" type="button" id="manualPersonSave">+ Create person</button>
+          <button class="ghost" type="button" id="manualPersonEditCancel" hidden>Cancel editing</button>
+        </div>
+        <div class="manual-person-grid">
+          <label>Choose person<select class="setting-text" id="manualPersonPicker"><option value="">Select a person</option></select></label>
+          <label>Action preset (optional)<select class="setting-text" id="manualActionPreset">
+            <option value="">No action / general photos</option>
+            <option value="portrait">Portrait</option><option value="playing">Playing</option>
+            <option value="goal">Goal</option><option value="celebration">Celebration</option>
+            <option value="training">Training</option><option value="interview">Interview</option>
+            <option value="trophy">Trophy</option><option value="walking">Walking</option>
+            <option value="match">Match</option><option value="young">Young / early career</option>
+          </select></label>
+          <label>Additional action keywords (optional)<input id="manualPersonActionTags" class="setting-text" placeholder="shooting, trophy, final" /></label>
+        </div>
+        <div class="manual-person-controls">
+          <button type="button" class="primary" id="manualAssignImages">+ Add selected images</button>
+          <button type="button" class="ghost" id="manualAssignClips">+ Add selected video clips</button>
+          <button type="button" class="ghost" id="manualPersonEdit" disabled>Edit person name</button>
+        </div>
+        <p class="source-meta manual-person-status" id="manualPersonStatus" role="status" aria-live="polite">
+          Select images or clips above, then link them here. Existing review and Face Recognition remain available.
+        </p>
+        <div class="library-meta"><strong>Linked assets</strong><span id="manualPersonSummary">0 images · 0 clips</span></div>
+        <div id="manualPersonAssets" class="manual-person-assets" aria-live="polite"></div>
+      </article>
       <article class="panel settings-spaced" id="peoplePanel" aria-label="People and face recognition">
         <div class="panel-head"><div><h2>People &amp; Face Recognition</h2><p>Choose a reference face, review AI suggestions, then approve names. Your images never leave VPS_1.</p></div><button type="button" class="ghost" id="peopleRefresh">Refresh people</button></div>
         <div id="peopleReference" class="face-reference hidden">
@@ -354,5 +391,6 @@
 <script defer src="/self-media-library/static/local_library.js?v=20261022-image-bulk-v1"></script>
 <script defer src="/self-media-library/static/ai_workspace.js?v=20261020-ai-v1"></script>
 <script defer src="/self-media-library/static/face_people.js?v=20261022-face-people-v1"></script>
+<script defer src="/self-media-library/static/manual_people.js?v=20261026-person-v1"></script>
 </body>
 </html>
