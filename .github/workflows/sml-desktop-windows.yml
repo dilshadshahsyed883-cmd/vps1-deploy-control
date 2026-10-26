@@ -56,8 +56,13 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $stage = (Resolve-Path build/sml_desktop/stage).Path
-          $ff = (Resolve-Path build/sml_desktop/ffbin).Path
-          python -m PyInstaller --clean --noconfirm --onedir --windowed --name SML_Desktop --paths "$stage" --add-data "$stage/static;static" --add-binary "$ff/ffmpeg.exe;." --add-binary "$ff/ffprobe.exe;." --collect-all onnxruntime --collect-all faster_whisper --collect-all tokenizers --collect-all webview --hidden-import app --hidden-import ai_workspace --hidden-import ai_engine --hidden-import ai_text --hidden-import face_people --hidden-import manual_people --hidden-import local_library --hidden-import media_extensions --hidden-import media_catalog --hidden-import media_integrity --hidden-import video_merger_downloader --hidden-import sml_proxy_profiles --hidden-import duplicate_review --hidden-import fcntl desktop/sml/windows_entry.py
+          $ffdir = "$env:ChocolateyInstall\lib\ffmpeg\tools"
+          $ffmpeg = Get-ChildItem $ffdir -Filter ffmpeg.exe -Recurse | Select-Object -First 1
+          $ffprobe = Get-ChildItem $ffdir -Filter ffprobe.exe -Recurse | Select-Object -First 1
+          if (-not $ffmpeg -or -not $ffprobe) { throw 'FFmpeg packaging tools missing' }
+          Write-Host "Bundling FFmpeg:" $ffmpeg.FullName
+          Write-Host "Bundling FFprobe:" $ffprobe.FullName
+          python -m PyInstaller --clean --noconfirm --onedir --windowed --name SML_Desktop --paths "$stage" --add-data "$stage/static;static" --add-binary "$($ffmpeg.FullName);." --add-binary "$($ffprobe.FullName);." --collect-all onnxruntime --collect-all faster_whisper --collect-all tokenizers --collect-all webview --hidden-import app --hidden-import ai_workspace --hidden-import ai_engine --hidden-import ai_text --hidden-import face_people --hidden-import manual_people --hidden-import local_library --hidden-import media_extensions --hidden-import media_catalog --hidden-import media_integrity --hidden-import video_merger_downloader --hidden-import sml_proxy_profiles --hidden-import duplicate_review --hidden-import fcntl desktop/sml/windows_entry.py
           if ($LASTEXITCODE -ne 0) { throw 'Windows EXE build failed' }
           Copy-Item desktop/sml/README.md dist/SML_Desktop/README.md
           @'
