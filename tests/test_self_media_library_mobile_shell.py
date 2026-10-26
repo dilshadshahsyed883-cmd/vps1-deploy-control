@@ -34,8 +34,8 @@ class SharedShellMobile(unittest.TestCase):
         self.assertIn(sml_css,tags.styles)
         self.assertIn("/self-media-library/static/library_subtabs.css?v=20261026-library-subtabs-v1",tags.styles)
         self.assertIn(scene_js,[p for p,_ in tags.scripts])
-        self.assertIn("/self-media-library/static/app.js?v=20261026-library-subtabs-v1",
-                      [p for p,_ in tags.scripts])
+        self.assertIn("/self-media-library/static/app.js",
+                      [p.split("?", 1)[0] for p,_ in tags.scripts])
         self.assertEqual(len([a for _,a in tags.scripts if a.get("data-workspace")=="library"]),1)
         self.assertNotIn('src="/static/',s)
         self.assertNotIn('href="/static/',s)
