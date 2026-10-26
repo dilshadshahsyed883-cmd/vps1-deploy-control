@@ -42,12 +42,12 @@ class ManualPersonTests(unittest.TestCase):
                     deleted_at TEXT, keywords_json TEXT NOT NULL DEFAULT '[]');
                 CREATE TABLE clips (
                     id TEXT PRIMARY KEY, filename TEXT, status TEXT,
-                    deleted_at TEXT);
+                    deleted_at TEXT, thumb_filename TEXT);
                 INSERT INTO image_assets VALUES ('IMG-1','Ronaldo.jpg','approved',NULL,'["legacy tag"]');
                 INSERT INTO image_assets VALUES ('IMG-2','Messi.jpg','approved',NULL,'[]');
                 INSERT INTO image_assets VALUES ('IMG-3','deleted.png','approved','2026-10-26','[]');
-                INSERT INTO clips VALUES ('CLP-1','goal.mp4','approved',NULL);
-                INSERT INTO clips VALUES ('CLP-2','removed.mp4','approved','2026-10-26');
+                INSERT INTO clips(id,filename,status,deleted_at) VALUES ('CLP-1','goal.mp4','approved',NULL);
+                INSERT INTO clips(id,filename,status,deleted_at) VALUES ('CLP-2','removed.mp4','approved','2026-10-26');
             """)
         self.app = FastAPI()
         manual.register_manual_people(self.app, db=connect, now_iso=lambda: "2026-10-26T12:00:00Z")
