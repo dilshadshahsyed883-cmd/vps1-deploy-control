@@ -24,7 +24,7 @@ class WhisperCompatibilityTests(unittest.TestCase):
         spec=importlib.util.spec_from_file_location('scene_recovery_policy',ROOT/'apps/scene-builder/part01/precutover_policy.py')
         policy=importlib.util.module_from_spec(spec);spec.loader.exec_module(policy)
         job='a'*32
-        for action in ('restart-stage','restart','delete'):
+        for action in ('restart-stage','restart','delete','start'):
             path='/queue/'+job+'/'+action
             self.assertTrue(policy.mutation_allowed('POST',path,True))
             self.assertFalse(policy.mutation_allowed('POST',path,False))
