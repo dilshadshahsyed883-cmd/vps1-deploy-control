@@ -61,17 +61,17 @@ def capcut_animation_filter(
     elif effect == "bend_zoom":
         z = f"1.10+{amp:.5f}*{u}"
         x = f"(iw-iw/zoom)*(0.5+0.24*{wave})"
-        angle = f"{0.07*power:.5f}*sin(PI*t/{duration:.4f})"
+        angle = f"{0.07*power:.5f}*sin(PI*min(1\,t/{duration:.4f}))"
     elif effect == "distort_left":
         x = f"(iw-iw/zoom)*(0.65-0.42*{u})"
-        angle = f"-{0.085*power:.5f}*sin(PI*t/{duration:.4f})"
+        angle = f"-{0.085*power:.5f}*sin(PI*min(1\,t/{duration:.4f}))"
     elif effect == "distort_right":
         x = f"(iw-iw/zoom)*(0.35+0.42*{u})"
-        angle = f"{0.085*power:.5f}*sin(PI*t/{duration:.4f})"
+        angle = f"{0.085*power:.5f}*sin(PI*min(1\,t/{duration:.4f}))"
     elif effect in ("pendulum_1", "pendulum_2"):
         factor = 1.65 if effect == "pendulum_2" else 1.0
         z = f"{1.17+power*0.10:.5f}"
-        angle = f"{0.085*power*factor:.5f}*sin(2*PI*t/{duration:.4f})"
+        angle = f"{0.085*power*factor:.5f}*sin(2*PI*min(1\,t/{duration:.4f}))"
         x = f"(iw-iw/zoom)*(0.5+{0.12*factor:.5f}*sin(2*PI*{u}))"
     elif effect == "spin_fall":
         z = f"1.12+{amp:.5f}*{u}"
@@ -87,7 +87,7 @@ def capcut_animation_filter(
         angle = f"{0.08*power:.5f}*min(1\,t/{duration:.4f})"
     elif effect == "roll_in_out_2":
         z = f"1.04+{amp:.5f}*{wave}"
-        angle = f"{0.16*power:.5f}*sin(2*PI*t/{duration:.4f})"
+        angle = f"{0.16*power:.5f}*sin(2*PI*min(1\,t/{duration:.4f}))"
     elif effect == "fall_right":
         x = f"(iw-iw/zoom)*(0.18+0.65*{u})"
         y = f"(ih-ih/zoom)*(0.20+0.60*{u})"
@@ -97,7 +97,7 @@ def capcut_animation_filter(
         y = f"(ih-ih/zoom)*(0.50-{0.25*power:.5f}*{bounce})"
     elif effect == "wobble":
         z = f"{base+0.07:.5f}"
-        angle = f"{0.055*power:.5f}*sin(8*PI*t/{duration:.4f})"
+        angle = f"{0.055*power:.5f}*sin(8*PI*min(1\,t/{duration:.4f}))"
         x = f"(iw-iw/zoom)*(0.5+0.14*{jiggle})"
     elif effect == "pan_left":
         z = f"{base:.5f}"
@@ -112,7 +112,7 @@ def capcut_animation_filter(
         z = f"{base+0.07:.5f}"
         x = f"(iw-iw/zoom)*(0.5+{0.19*power:.5f}*{jiggle})"
         y = f"(ih-ih/zoom)*(0.5+{0.14*power:.5f}*sin(15*PI*{u}))"
-        angle = f"{0.018*power:.5f}*sin(13*PI*t/{duration:.4f})"
+        angle = f"{0.018*power:.5f}*sin(13*PI*min(1\,t/{duration:.4f}))"
 
     # Rotate the oversampled frame before crop; the 2x source keeps margins
     # around the central output so small camera turns do not expose corners.
