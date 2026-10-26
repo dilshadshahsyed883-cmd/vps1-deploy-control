@@ -9,6 +9,7 @@ on:
       - 'apps/scene-builder/part02/api_server.py'
       - 'production/scene_production_worker.py'
       - 'tests/test_scene_drive_delivery_repair_20261022.py'
+      - 'tests/test_scene_cancelled_delete_20261026.py'
       - 'tests/test_scene_completed_video_actions_20261021.py'
       - '.github/workflows/vps1-scene-drive-delivery-ci.yml'
   workflow_dispatch:
@@ -30,5 +31,7 @@ jobs:
         run: python3 -m py_compile apps/scene-builder/part02/api_server.py apps/scene-builder/part01/app.py apps/scene-builder/part01/precutover_policy.py production/scene_production_worker.py production/scene_worker_source_refresh.py
       - name: Verify completed MP4 and Drive recovery contracts
         run: python3 -m unittest discover -s tests -p 'test_scene_*drive*20261022.py' -v
+      - name: Verify cancelled-only deletion and project isolation
+        run: python3 -m unittest tests.test_scene_cancelled_delete_20261026 -v
       - name: Verify existing completed-video action regression
         run: python3 -m unittest tests.test_scene_completed_video_actions_20261021 -v
