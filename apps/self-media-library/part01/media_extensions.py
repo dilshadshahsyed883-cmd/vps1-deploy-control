@@ -250,7 +250,7 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
             return path
         raise HTTPException(404, "Local image content is not available; metadata preserved")
 
-    def persist_image(filename: str, file_path: Path, *, source_kind="local", source_locator="", rights_confirmed=False):
+    def persist_image(filename: str, file_path: Path, *, source_kind="local", source_locator="", rights_confirmed=False, approved=False):
         ext = Path(filename).suffix.lower()
         if ext not in IMAGE_EXT:
             raise ValueError("Unsupported image type")
@@ -267,7 +267,13 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
         with db() as conn:
             existing = conn.execute("SELECT * FROM image_assets WHERE sha256=? AND deleted_at IS NULL LIMIT 1", (digest,)).fetchone()
         if existing:
-            return {"ok": True, "id": existing["id"], "duplicate": True}
+            if not (images / existing["stored_name"]).is_file():
+                raise ValueError("Existing matching image is unavailable on local storage")
+            if approved and existing["status"] != "approved":
+                with db() as conn:
+                    conn.execute("UPDATE image_assets SET status='approved',rights_confirmed=1,updated_at=? WHERE id=? AND deleted_at IS NULL", (now_iso(), existing["id"]))
+            return {"ok": True, "id": existing["id"], "duplicate": True,
+                    "status": "approved" if approved else existing["status"], "type": "image"}
         asset_id = "IMG-" + uuid.uuid4().hex[:12].upper()
         name = asset_id + ext
         destination = images / name
@@ -294,17 +300,17 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
         with db() as conn:
             conn.execute("""INSERT INTO image_assets
                 (id,original_name,stored_name,thumb_name,size_bytes,sha256,width,height,
-                 keywords_json,created_at,updated_at,source_kind,source_locator,rights_confirmed)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 keywords_json,created_at,updated_at,source_kind,source_locator,rights_confirmed,status)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (asset_id,Path(filename).name[:200],name,thumb_name,size,digest,width,height,
                  json.dumps(keywords),ts,ts,source_kind,safe_origin(source_kind,source_locator),
-                 int(rights_confirmed)))
+                 int(rights_confirmed),"approved" if approved else "candidate"))
         # Failure to sync must preserve the only local copy, never erase it.
         # Images remain durable on the VPS.
-        return {"ok": True, "id": asset_id, "duplicate": False}
+        return {"ok": True, "id": asset_id, "duplicate": False,
+                "status": "approved" if approved else "candidate", "type": "image"}
 
-    @app.post("/api/v1/images/upload")
-    async def upload_image(file: UploadFile = File(...)):
+    async def _store_image_upload(file: UploadFile, *, processed: bool = False):
         ext = Path(file.filename or "").suffix.lower()
         if ext not in IMAGE_EXT:
             raise HTTPException(400, "Supported: JPG, PNG, WEBP")
@@ -318,12 +324,23 @@ def register_media_extensions(app, *, data_dir, db, now_iso, get_settings_map,
                         raise HTTPException(413, "30 MB image limit")
                     fp.write(chunk)
             try:
-                return persist_image(file.filename or "image" + ext, tmp)
+                return persist_image(file.filename or "image" + ext, tmp,
+                                     source_kind="processed_media" if processed else "local",
+                                     rights_confirmed=processed, approved=processed)
             except ValueError as exc:
                 raise HTTPException(400, str(exc))
         finally:
             tmp.unlink(missing_ok=True)
             await file.close()
+
+    @app.post("/api/v1/images/upload")
+    async def upload_image(file: UploadFile = File(...)):
+        return await _store_image_upload(file)
+
+    @app.post("/api/v1/images/processed/upload")
+    async def upload_processed_image(file: UploadFile = File(...)):
+        """Direct-save image alongside processed clips; instantly editor-eligible."""
+        return await _store_image_upload(file, processed=True)
 
     @app.get("/api/v1/images")
     def list_images(q: str = "", status: str = "all", orientation: str = "all", date_from: str = "", date_to: str = "",

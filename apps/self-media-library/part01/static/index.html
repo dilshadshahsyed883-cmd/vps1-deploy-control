@@ -63,7 +63,7 @@
           <div class="panel-head"><div><h2>Upload from your device</h2><p>Choose a source type; keep the same simple upload flow.</p></div><span class="sml-input-tag">Local files</span></div>
           <div class="sml-upload-tabs" role="tablist" aria-label="Upload media type">
             <button class="sml-upload-tab active" type="button" role="tab" aria-selected="true" aria-controls="sml-upload-video" data-sml-upload="video">▣ Videos</button>
-            <button class="sml-upload-tab" type="button" role="tab" aria-selected="false" aria-controls="sml-upload-processed" data-sml-upload="processed">✓ Processed Clips</button>
+            <button class="sml-upload-tab" type="button" role="tab" aria-selected="false" aria-controls="sml-upload-processed" data-sml-upload="processed">✓ Processed Media</button>
             <button class="sml-upload-tab" type="button" role="tab" aria-selected="false" aria-controls="sml-upload-image" data-sml-upload="image">▧ Images</button>
             <button class="sml-upload-tab" type="button" role="tab" aria-selected="false" aria-controls="sml-upload-folder" data-sml-upload="folder">▤ Folder</button>
           </div>
@@ -80,13 +80,13 @@
           </div>
           <div class="sml-upload-pane" id="sml-upload-processed" role="tabpanel" hidden>
             <div class="drop-panel" id="processedDropPanel">
-              <input type="file" id="processedClipFiles" accept=".mp4,.mov,.mkv,.webm,.m4v,.avi,video/*" multiple hidden />
+              <input type="file" id="processedClipFiles" accept=".mp4,.mov,.mkv,.webm,.m4v,.avi,.jpg,.jpeg,.png,.webp,video/*,image/jpeg,image/png,image/webp" multiple hidden />
               <div class="drop-icon" aria-hidden="true">✓</div>
-              <h3>Add already processed clips</h3>
-              <p>Ready-made clips · MP4, MOV, MKV, WEBM, M4V, AVI · No cutting or reprocessing</p>
-              <button class="primary" type="button" id="chooseProcessed">Choose processed clips</button>
+              <h3>Add already processed media</h3>
+              <p>Ready-to-use videos and images · MP4, MOV, MKV, WEBM, M4V, AVI, JPG, PNG, WEBP · No cutting or reprocessing</p>
+              <button class="primary" type="button" id="chooseProcessed">Choose processed media</button>
             </div>
-            <p class="sml-pane-footnote">Direct to Video Clips library · Automatically Approved · Original video preserved</p>
+            <p class="sml-pane-footnote">Direct to Video Clips / Images libraries · Automatically Approved · Ready for Scene Builder · Original media preserved</p>
             <p id="processedUploadResult" role="status" aria-live="polite" class="sml-input-status"></p>
           </div>
           <div class="sml-upload-pane" id="sml-upload-image" role="tabpanel" hidden>
