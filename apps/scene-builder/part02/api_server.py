@@ -5686,16 +5686,105 @@ def resume(job_id: str, token: str | None = None):
     return _public_job(get_job(job_id))
 
 
+
+def _delete_cancelled_drive_output(current: dict[str, Any], project_dir: Path) -> bool:
+    """Delete a Drive output only after proving that it belongs solely to this job."""
+    destination = str(current.get("drive_destination") or "").strip()
+    if not destination:
+        return False
+    output_name = str(current.get("output_filename") or "").strip()
+    # The worker DB has no channel column; inspect only the stored destination
+    # inside the configured Scene renders root, never a caller-supplied remote path.
+    prefix = f"{DRIVE_REMOTE}:{DRIVE_FOLDER}/"
+    relative = destination[len(prefix):] if destination.startswith(prefix) else ""
+    parts = relative.split("/") if relative else []
+    valid_channel = (len(parts) == 2 and parts[0] not in {".", ".."}
+                     and _safe_drive_channel(parts[0]) == parts[0])
+    default_name = drive_output_filename(str(current.get("project_name") or ""))
+    matching_name = (output_name == default_name or bool(re.fullmatch(
+        re.escape(default_name[:-4]) + r"_[2-9][0-9]*\.mp4", output_name
+    )))
+    if (not output_name or "/" in output_name or "\\" in output_name
+            or not matching_name or not (len(parts) == 1 or valid_channel)
+            or parts[-1] != output_name):
+        raise HTTPException(409, "Drive destination cannot be trusted; no files deleted")
+    with _db_lock, db() as conn:
+        other = conn.execute(
+            "SELECT 1 FROM jobs WHERE id<>? AND drive_destination=? LIMIT 1",
+            (str(current["id"]), destination),
+        ).fetchone()
+    if other:
+        raise HTTPException(409, "Drive file is referenced by another project; no files deleted")
+    remote_parent = destination.rsplit("/", 1)[0]
+
+    def remote_entry() -> dict[str, Any] | None:
+        listed = subprocess.run(
+            ["rclone", "lsjson", remote_parent, "--files-only", "--hash"],
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            timeout=120, check=False,
+        )
+        if listed.returncode:
+            raise HTTPException(502, "Cannot verify Drive contents; no local files deleted")
+        try:
+            entries = json.loads(listed.stdout or "[]")
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(502, "Drive listing invalid; no files deleted") from exc
+        if not isinstance(entries, list):
+            raise HTTPException(502, "Drive listing invalid; no files deleted")
+        matches = [item for item in entries if isinstance(item, dict)
+                   and item.get("Name") == output_name]
+        if len(matches) > 1:
+            raise HTTPException(409, "Multiple matching Drive files; no files deleted")
+        return matches[0] if matches else None
+
+    entry = remote_entry()
+    if entry is None:
+        return False
+    output_name_local = str(current.get("output_file") or "").strip()
+    output = Path(output_name_local) if output_name_local else project_dir / "_absent"
+    if not output.is_file() or not output.resolve().is_relative_to(project_dir.resolve()):
+        raise HTTPException(409, "Cannot verify Drive output against this project's local render")
+    if not _drive_entry_matches_local(entry, output):
+        raise HTTPException(409, "Drive copy differs from local render; nothing deleted")
+    removed = subprocess.run(
+        ["rclone", "deletefile", destination],
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        timeout=300, check=False,
+    )
+    if removed.returncode != 0 or remote_entry() is not None:
+        raise HTTPException(502, "Drive deletion not verified; local project preserved")
+    return True
+
+
 @app.delete("/jobs/{job_id}")
 def delete(job_id: str, token: str | None = None):
     auth(token)
-    current = get_job(job_id)
-    if current["status"] in {"preparing", "downloading_media", "ready_to_render", "rendering", "ready_to_upload", "drive_uploading", "running"}:
-        raise HTTPException(409, "Cannot delete an active job")
-    with _db_lock, db() as connection:
-        connection.execute("DELETE FROM jobs WHERE id=?", (job_id,))
-    shutil.rmtree(JOBS / job_id, ignore_errors=True)
-    return {"deleted": job_id}
+    if re.fullmatch(r"[0-9a-f]{32}", job_id) is None:
+        raise HTTPException(400, "Invalid project ID")
+    project_dir = JOBS / job_id
+    if project_dir.is_symlink() or project_dir.parent.resolve() != JOBS.resolve():
+        raise HTTPException(409, "Unsafe project directory; nothing deleted")
+    with _drive_naming_lock, _audit_lock(job_id):
+        current = get_job(job_id)
+        if str(current.get("status") or "").lower() != "cancelled":
+            raise HTTPException(409, "Only cancelled projects can be permanently deleted")
+        if int(current.get("cancel_requested") or 0) != 1:
+            raise HTTPException(409, "Cancellation has not been acknowledged")
+        remote_deleted = _delete_cancelled_drive_output(current, project_dir)
+        if project_dir.exists():
+            try:
+                shutil.rmtree(project_dir)
+            except OSError as exc:
+                raise HTTPException(500, f"Failed to remove project files: {exc}") from exc
+        if project_dir.exists():
+            raise HTTPException(500, "Project directory remains; queue record preserved")
+        with _db_lock, db() as conn:
+            if _runtime_value_conn(conn, "serial_active_job_id", "") == job_id:
+                _runtime_set_conn(conn, "serial_active_job_id", "")
+            conn.execute("DELETE FROM job_events WHERE job_id=?", (job_id,))
+            conn.execute("DELETE FROM jobs WHERE id=? AND status='cancelled'", (job_id,))
+        _wake.set()
+        return {"deleted": job_id, "local_files_deleted": True, "drive_deleted": remote_deleted}
 
 
 
