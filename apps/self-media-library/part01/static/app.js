@@ -77,7 +77,7 @@ function gotoPage(page){
   if(trashRequest)page='library';
   state.page=page;
   $$('.page').forEach(x=>x.classList.remove('active'));
-  $`#page-${page}`.classList.add('active');
+  $('#page-'+page).classList.add('active');
   $$('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.page===page));
   $('#pageTitle').textContent=pageMeta[page][0];
   $('#pageSubtitle').textContent=pageMeta[page][1];
