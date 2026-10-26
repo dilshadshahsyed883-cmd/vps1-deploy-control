@@ -72,9 +72,13 @@ jobs:
           '@ | Set-Content -Encoding ascii dist/SML_Desktop/CHANGE_DATA_FOLDER.bat
           if (-not (Test-Path dist/SML_Desktop/SML_Desktop.exe)) { throw 'Desktop exe missing' }
           $env:SML_DESKTOP_DATA_ROOT = Join-Path $env:GITHUB_WORKSPACE "build/selftest-user-data"
-          & "dist/SML_Desktop/SML_Desktop.exe" --self-test
-          if ($LASTEXITCODE -ne 0) { throw 'Packaged EXE self-test failed' }
-          if (-not (Test-Path "$env:SML_DESKTOP_DATA_ROOT/packaged-self-test.json")) { throw 'Packaged EXE did not start correctly' }
+          $process = Start-Process -FilePath (Resolve-Path "dist/SML_Desktop/SML_Desktop.exe").Path -ArgumentList "--self-test" -PassThru -Wait
+          if ($process.ExitCode -ne 0 -or -not (Test-Path "$env:SML_DESKTOP_DATA_ROOT/packaged-self-test.json")) {
+            if (Test-Path "$env:SML_DESKTOP_DATA_ROOT/desktop_startup_error.log") {
+              Get-Content "$env:SML_DESKTOP_DATA_ROOT/desktop_startup_error.log" -Tail 55
+            }
+            throw "Packaged EXE self-test failed with exit code $($process.ExitCode)"
+          }
           Compress-Archive -Path dist/SML_Desktop -DestinationPath dist/SML-Desktop-Windows.zip -Force
       - uses: actions/upload-artifact@v4
         with:
