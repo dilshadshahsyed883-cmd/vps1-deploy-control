@@ -49,6 +49,40 @@ class WorkerSourceRefreshPolicy(unittest.TestCase):
                 with sqlite3.connect(db) as con:
                     self.assertEqual(con.execute("SELECT count(*) FROM jobs").fetchone()[0],6)
 
+    def test_unchanged_renderer_bytes_do_not_require_worker_queue_idle(self):
+        with tempfile.TemporaryDirectory(prefix="scene-ui-worker-parity-") as temp:
+            root=Path(temp)
+            old, newest = root/"active-worker", root/"new-web"
+            for release in (old,newest):
+                (release/"part02/module").mkdir(parents=True)
+                (release/"part02/module/renderer.py").write_bytes(b"same renderer bytes")
+                (release/"part01").mkdir()
+            (old/"part01/auto_script_kokoro.css").write_text("old UI")
+            (newest/"part01/auto_script_kokoro.css").write_text("new UI")
+            self.assertTrue(refresh._identical_render_source(old,newest))
+            # No queue read needed: a worker with identical bytes isn't restarted.
+            with patch.object(refresh,"_require_idle",side_effect=AssertionError("queue touched")):
+                self.assertTrue(refresh._identical_render_source(old,newest))
+            (newest/"part02/module/renderer.py").write_bytes(b"new renderer implementation")
+            self.assertFalse(refresh._identical_render_source(old,newest))
+            (newest/"part02/module/renderer.py").write_bytes(b"same renderer bytes")
+            (newest/"part02/module/sidecar.py").write_bytes(b"extra worker file")
+            self.assertFalse(refresh._identical_render_source(old,newest))
+            (newest/"part02/module/sidecar.py").unlink()
+            (newest/"part02/module/linked.py").symlink_to("renderer.py")
+            self.assertFalse(refresh._identical_render_source(old,newest))
+            (newest/"part02/module/linked.py").unlink()
+            (old/"part02/module/renderer.py").unlink()
+            self.assertFalse(refresh._identical_render_source(old,newest))
+
+    def test_worker_source_parity_gate_precedes_idle_guard(self):
+        source=(ROOT/"production/scene_worker_source_refresh.py").read_text()
+        gate=source.index("if _identical_render_source(old, latest):")
+        idle=source.index("_require_idle()",gate)
+        self.assertLess(gate,idle)
+        self.assertIn("IDENTICAL_WORKER_SOURCE_UNCHANGED",source)
+        self.assertIn("worker.require(current.get(\"ok\") is True",source)
+
     def test_file_swap_preserves_content_and_permissions(self):
         with tempfile.TemporaryDirectory() as temp:
             p = Path(temp) / "test.service"
