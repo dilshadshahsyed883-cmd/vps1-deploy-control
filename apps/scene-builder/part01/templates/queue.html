@@ -148,6 +148,8 @@ function actionsFor(j){
     out+=`<form action="${base}/restart-stage" method="post"><button type="submit" class="secondary">Restart Stage</button></form><form action="${base}/restart" method="post"><button type="submit" class="secondary">Restart Job</button></form>`;
     if(queueMode==='verified_serial'&&serialActiveJobId===j.id)
       out+=`<form action="${base}/serial-skip" method="post" onsubmit="return confirm('Skip this failed/cancelled project and continue the Verified Serial queue?')"><button type="submit" class="secondary">Skip & Continue</button></form>`;
+    if(s==='cancelled')
+      out+=`<form action="${base}/delete" method="post" onsubmit="return confirm('Permanently delete this cancelled project? All of its local files, media, logs, queue history, and any verified Drive output will be deleted. This cannot be undone.')"><button type="submit" class="danger">Delete Permanently</button></form>`;
   }else if(s==='ready_to_render'&&Number(j.manual_start_required||0)===1){
     out+=`<form action="${base}/start" method="post"><button type="submit">Start</button></form>`;
   }else{
