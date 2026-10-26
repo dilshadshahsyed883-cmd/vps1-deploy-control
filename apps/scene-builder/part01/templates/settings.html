@@ -12,6 +12,7 @@
 .sb-preset-context{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:0 0 14px;padding:14px 16px;border:1px solid #dfe4ee;border-radius:14px;background:linear-gradient(135deg,#fff,#f7f8ff)}.sb-preset-context strong{font-size:17px}.sb-preset-context .sb-muted{font-size:11px;letter-spacing:.08em}.sb-preset-audio{margin-top:14px}.sb-universal-label{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:22px 0 10px;padding-top:18px;border-top:1px solid #e6e9f0}.sb-universal-label h4{margin:0}.sb-preset-grid+.sb-note{margin-top:12px}.sb-settings .sb-preset-context small{display:none!important}
 </style>
 <link rel="stylesheet" href="/static/scene_settings_audit_kokoro_20261021.css?v=1">
+<link rel="stylesheet" href="/static/capcut_animation.css?v=1">
 <form id="settings-form" class="sb-settings scene-settings-workspace" method="post">
   <input type="hidden" name="quota_limit" value="{{ quota_limit }}">
   <input type="hidden" name="allowed_storage_gb" value="{{ allowed_storage_gb }}">
@@ -267,7 +268,7 @@
   </style>
   <section class="sb-tab-panel" data-panel="capcut">
     <div class="sb-capcut-hero"><div class="sb-section-head"><div><h3>CapCut Controls</h3><p>Per-preset visual controls; applied to media before captions and overlays.</p></div></div></div>
-    <div class="sb-capcut-sections"><a href="#sb-capcut-canvas">Canvas Fill</a><a href="#sb-capcut-mirror">Mirror / Flip</a><a href="#sb-capcut-zoom">Zoom</a><a href="#sb-capcut-grain">Noise / Grain</a></div>
+    <div class="sb-capcut-sections"><a href="#sb-capcut-canvas">Canvas Fill</a><a href="#sb-capcut-mirror">Mirror / Flip</a><a href="#sb-capcut-zoom">Zoom</a><a href="#sb-capcut-grain">Noise / Grain</a><a href="#sb-capcut-animation">Animation</a></div>
     <div class="sb-capcut-grid">
       <div>
         <div class="sb-capcut-card" id="sb-capcut-canvas"><h4>Canvas Fill / Background Fill</h4><p>Fill empty sides without distorting the original media.</p><div class="sb-control-grid">
@@ -306,6 +307,62 @@
             <option value="videos" {% if capcut_noise_target=='videos' %}selected{% endif %}>Videos Only</option>
           </select></label>
         </div></div>
+        <div class="sb-capcut-card" id="sb-capcut-animation">
+          <h4>Animation</h4>
+          <p>Combo &amp; Cam Motion only. One animation per scene, applied before captions and overlays.</p>
+          <input id="sb-animation-category" type="hidden" name="capcut_animation_category" value="{{ capcut_animation_category }}">
+          <input id="sb-animation-effect" type="hidden" name="capcut_animation_effect" value="{{ capcut_animation_effect }}">
+          <div class="sb-animation-tabs" role="group" aria-label="Animation category">
+            <button type="button" data-animation-category="combo" aria-pressed="false">Combo</button>
+            <button type="button" data-animation-category="cam_motion" aria-pressed="false">Cam Motion</button>
+          </div>
+          <div class="sb-animation-toolbar">
+            <input class="sb-animation-search" id="sb-animation-search" type="search" placeholder="Search animations..." aria-label="Search animations">
+            <label class="sb-animation-favorite-toggle"><input id="sb-animation-favorites-only" type="checkbox"> ★ Favorites</label>
+          </div>
+          <div class="sb-animation-gallery" aria-label="Animation gallery">
+            <div class="sb-animation-item" data-animation-card="none" data-category="both" data-label="None">
+              <button type="button" class="sb-animation-select" data-animation-select aria-pressed="false"><span class="sb-animation-thumb">∅</span><span class="sb-animation-name">None</span></button>
+            </div>
+            {% for effect_id, effect_label, icon in [
+              ('zoom_1','Zoom 1','⊕'),('bend_zoom','Bend-Zoom','⤢'),
+              ('distort_left','Distort Left','↖'),('pendulum_1','Pendulum 1','↶'),
+              ('pendulum_2','Pendulum 2','↷'),('spin_fall','Spin Fall','⤵'),
+              ('bouncy_rush','Bouncy Rush','↟'),('zoom_2','Zoom 2','⊕'),
+              ('distort_right','Distort Right','↗'),('sway_in','Sway In','⇢'),
+              ('roll_in_out_2','Roll In&Out 2','⟳'),('sway_out','Sway Out','⇠'),
+              ('fall_right','Fall Right','⤵'),('bounce_1','Bounce 1','⇵'),
+              ('wobble','Wobble','≋')] %}
+            <div class="sb-animation-item" data-animation-card="{{ effect_id }}" data-category="combo" data-label="{{ effect_label }}">
+              <button type="button" class="sb-animation-select" data-animation-select aria-pressed="false" aria-label="Select {{ effect_label }}"><span class="sb-animation-thumb" aria-hidden="true">{{ icon }}</span><span class="sb-animation-name">{{ effect_label }}</span></button>
+              <button type="button" class="sb-animation-star" data-animation-star aria-pressed="false" aria-label="Favorite {{ effect_label }}">☆</button>
+            </div>
+            {% endfor %}
+            {% for effect_id, effect_label, icon in [
+              ('pan_left','Pan Left','⇠'),('pan_right','Pan Right','⇢'),
+              ('right_zoom','Right Zoom','⤢'),('dynamic_shake_2','Dynamic Shake II','≋')] %}
+            <div class="sb-animation-item" data-animation-card="{{ effect_id }}" data-category="cam_motion" data-label="{{ effect_label }}">
+              <button type="button" class="sb-animation-select" data-animation-select aria-pressed="false" aria-label="Select {{ effect_label }}"><span class="sb-animation-thumb" aria-hidden="true">{{ icon }}</span><span class="sb-animation-name">{{ effect_label }}</span></button>
+              <button type="button" class="sb-animation-star" data-animation-star aria-pressed="false" aria-label="Favorite {{ effect_label }}">☆</button>
+            </div>
+            {% endfor %}
+          </div>
+          <div class="sb-animation-controls">
+            <label for="sb-animation-duration">Duration <input id="sb-animation-duration" type="range" name="capcut_animation_duration" min="0.5" max="5" step="0.5" value="{{ capcut_animation_duration }}"><output id="sb-animation-duration-value">{{ capcut_animation_duration }}s</output></label>
+            <label for="sb-animation-intensity">Intensity <input id="sb-animation-intensity" type="range" name="capcut_animation_intensity" min="10" max="100" step="5" value="{{ capcut_animation_intensity }}"><output id="sb-animation-intensity-value">{{ capcut_animation_intensity }}%</output></label>
+            <label for="sb-animation-target">Apply to media <select id="sb-animation-target" name="capcut_animation_target">
+              <option value="both" {% if capcut_animation_target == 'both' %}selected{% endif %}>Images &amp; Videos</option>
+              <option value="images" {% if capcut_animation_target == 'images' %}selected{% endif %}>Images Only</option>
+              <option value="videos" {% if capcut_animation_target == 'videos' %}selected{% endif %}>Video Clips Only</option>
+            </select></label>
+            <div class="sb-animation-actions">
+              <button type="button" id="sb-animation-play">Pause preview</button>
+              <button type="button" id="sb-animation-replay">Replay</button>
+              <button type="button" id="sb-animation-clear">Remove animation</button>
+            </div>
+            <p class="sb-animation-status" id="sb-animation-status" role="status" aria-live="polite">Select a preset to preview. Changes save automatically.</p>
+          </div>
+        </div>
       </div>
       <aside class="sb-capcut-preview">
         <strong>Editing Preview</strong>
@@ -340,6 +397,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="/static/capcut_animation.js?v=1" defer></script>
 
 <div id="auto-clean-confirm-modal" class="sb-confirm-modal" hidden>
   <div class="sb-confirm-backdrop" data-auto-clean-cancel></div>
