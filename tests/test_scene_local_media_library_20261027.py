@@ -94,6 +94,28 @@ class SceneLocalLibraryTests(unittest.TestCase):
         self.assertIn('autoMatchLocal', audit)
         self.assertIn('scene-library-select', audit)
 
+    def test_media_library_shared_tabs_and_upload_label_contrast(self):
+        from types import SimpleNamespace
+        try:
+            from jinja2 import Environment, FileSystemLoader
+        except ImportError:
+            self.skipTest("Jinja2 not installed")
+        templates = Environment(loader=FileSystemLoader(str(SCENE / "templates")))
+        rendered = templates.get_template("scene_media_library.html").render(
+            page="scene_media_library",
+            request=SimpleNamespace(session={}, query_params={}),
+            username="team", csrf_token="test", is_admin=False,
+        )
+        self.assertIn('aria-label="Video Studio"', rendered)
+        self.assertIn('aria-label="Scene Builder"', rendered)
+        for url in ("/queue", "/settings", "/audit-media", "/scene-builder/media-library/"):
+            self.assertIn(f'href="{url}"', rendered)
+        self.assertIn('aria-current="page" href="/scene-builder/media-library/"', rendered)
+        self.assertIn("vps1-scene-parity", rendered)
+        self.assertIn("scene_builder_kokoro_parity_20261020.css", rendered)
+        self.assertIn('label.sl-button.sl-primary{background:#315fdf;border-color:#315fdf;color:#fff!important}', rendered)
+        self.assertIn('for="sl-files" class="sl-button sl-primary"', rendered)
+
     def test_template_and_browser_script_are_valid(self):
         try:
             from jinja2 import Environment, DictLoader

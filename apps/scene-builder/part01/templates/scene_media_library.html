@@ -12,6 +12,10 @@
 .scene-library button:focus-visible,.scene-library a:focus-visible{outline:3px solid #93b6fc;outline-offset:3px}
 .scene-library button[disabled]{opacity:.5;cursor:wait}
 .scene-library .sl-primary{background:#315fdf;border-color:#315fdf;color:#fff}
+/* File-picker labels override the global label color and layout rules. */
+.scene-library .sl-actions label.sl-button{display:inline-flex!important;align-items:center;justify-content:center;margin:0!important;color:#2b3d5e!important;font-size:14px!important;line-height:1.45;text-align:center}
+.scene-library .sl-actions label.sl-button.sl-primary{background:#315fdf;border-color:#315fdf;color:#fff!important}
+.scene-library .sl-actions label.sl-button.sl-primary:hover{background:#254fc5;border-color:#254fc5;color:#fff!important}
 .scene-library .sl-danger{color:#b42318;border-color:#f0c7c2}
 .scene-library .sl-danger:hover{background:#fff3f2}
 .scene-library .sl-tabs,.scene-library .sl-kind-tabs{display:flex;gap:8px;flex-wrap:wrap}
