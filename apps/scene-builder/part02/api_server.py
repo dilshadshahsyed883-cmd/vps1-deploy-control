@@ -38,7 +38,6 @@ from smart_scroll.transition_engine import assign_auto_transitions
 from smart_scroll.v2_renderer import render_mixed_media
 from smart_scroll.v3_engine import download_result, search_multi_provider, optimize_video_candidate, find_cached_provider_media
 from vps_engine.worker_registry import WorkerRegistry, env_capacity
-from vps_engine.sml_worker_bridge import SMLWorkerClient, SMLMediaUnavailable
 
 WORKER_API_VERSION = 26
 WORKER_BUILD = "2026.09.06-professional-editor-v17.5d-r6-internal-audio-studio-v1"
@@ -116,9 +115,7 @@ DRIVE_VERIFY_HASH = os.getenv("DRIVE_VERIFY_HASH", "1").strip().lower() not in {
 PIPELINE_WORKERS = env_capacity("PIPELINE_WORKERS", 3)
 # I/O-only stock searches per project; never more than five simultaneous lookups.
 SCENE_MEDIA_SEARCH_WORKERS = min(5, env_capacity("SCENE_MEDIA_SEARCH_WORKERS", 5))
-# Global cap for concurrent project-owned authenticated SML transfers.
-SCENE_SML_DOWNLOAD_WORKERS = min(5, env_capacity("SCENE_SML_DOWNLOAD_WORKERS", 5))
-_SML_DOWNLOAD_SLOTS = threading.BoundedSemaphore(SCENE_SML_DOWNLOAD_WORKERS)
+
 AUTO_CLEAN_MEDIA_AFTER_RENDER = os.getenv("AUTO_CLEAN_MEDIA_AFTER_RENDER", "1").strip().lower() not in {"0","false","no","off"}
 COMPRESSOR_ENABLED = os.getenv("COMPRESSOR_ENABLED", "0").strip().lower() in {"1","true","yes","on"}
 COMPRESS_CRF = max(18, min(32, int(os.getenv("COMPRESS_CRF", "25"))))
@@ -1164,316 +1161,44 @@ def _download_scene_candidate(
 
 
 
-def _apply_sml_policy(scene: dict[str, Any], metadata: dict[str, Any], index: int) -> dict[str, Any]:
-    """Snapshot the owner's source + media-order policy on each independent job scene."""
-    mode = str(metadata.get("media_source_mode") or "sml_first")
-    enabled = bool(metadata.get("sml_enabled", True)) and bool(metadata.get("sml_auto_scene_matching", False))
-    target = max(0, min(100, int(metadata.get("sml_target_percent", 80) or 0)))
-    # A fixed interleave makes Custom Mix deterministic across retries/checkpoints.
-    sml_mix_slot = ((index * 73) % 100) < target
-    scene["_sml_first"] = enabled and (mode in {"sml_first", "sml_only"} or
-                                        (mode == "mixed" and sml_mix_slot))
-    scene["_sml_fallback"] = enabled and mode == "pexels_first"
-    scene["_sml_only"] = enabled and mode == "sml_only"
-    scene["_sml_media_order"] = str(metadata.get("sml_media_order") or "video_only")
-    scene["_sml_scene_index"] = index
-    if scene["_sml_only"]:
-        scene["pexels_enabled"] = False
+def _discard_legacy_media_policy(scene: dict[str, Any], metadata: dict[str, Any], index: int) -> dict[str, Any]:
+    """Ignore retired source flags in queued projects without changing Pexels preferences."""
+    for key in list(scene):
+        if key.startswith("_sml_"):
+            scene.pop(key, None)
     return scene
 
 
-def _sml_media_type_order(scene: dict[str, Any]) -> list[str]:
-    """Project-owned SML order, separate from the Pexels provider preferences.
-
-    Legacy jobs keep their original video-only selection. New Smart Mixed jobs
-    use the scene's authored type, then alternate to give approved stills a
-    genuine chance rather than silently trying video for every scene.
-    """
-    mode = str(scene.get("_sml_media_order") or "video_only")
-    index = int(scene.get("_sml_scene_index") or 0)
-    authored = str(scene.get("media_type") or "").lower()
-    if mode == "image_only":
-        order = ["image"]
-    elif mode == "videos_first":
-        order = ["video", "image"]
-    elif mode == "images_first":
-        order = ["image", "video"]
-    elif mode == "alternate":
-        order = ["image", "video"] if index % 2 else ["video", "image"]
-    elif mode == "smart":
-        # A video-typed plan must not starve the photo library: alternate in
-        # Smart Mixed while honoring explicit authored image requests.
-        preferred = "image" if authored == "image" or index % 2 else "video"
-        order = [preferred, "video" if preferred == "image" else "image"]
-    else:
-        order = ["video"]
-    return [kind for kind in order if bool(scene.get("pexels_allow_" + kind, True))]
-
-
-
-class _SMLParallelReservations:
-    """Protect SML asset IDs and source hashes across concurrent scene transfers.
-
-    The reservation RPC is deliberately serialized; network downloads and
-    checksum verification run in parallel. No ID/hash becomes permanently used
-    until the remote reservation commit succeeds.
-    """
-
-    def __init__(self, used_ids: set[str], used_hashes: set[str]):
-        self.lock = threading.RLock()
-        self.used_ids = used_ids
-        self.used_hashes = used_hashes
-        self.pending_ids: set[str] = set()
-        self.pending_hashes: set[str] = set()
-
-    def used_snapshot(self) -> set[str]:
-        with self.lock:
-            return set(self.used_ids) | set(self.pending_ids)
-
-    def reserve(self, client: SMLWorkerClient, job_id: str, scene_code: str,
-                media_id: str, kind: str) -> str | None:
-        with self.lock:
-            excluded = self.used_ids | self.pending_ids
-            if media_id in excluded:
-                return None
-            reservation = client.reserve(
-                job_id, scene_code, media_id, set(excluded), media_type=kind)
-            if reservation:
-                self.pending_ids.add(media_id)
-            return reservation
-
-    def hold_hash(self, digest: str) -> bool:
-        with self.lock:
-            if digest in self.used_hashes or digest in self.pending_hashes:
-                return False
-            self.pending_hashes.add(digest)
-            return True
-
-    def commit(self, media_id: str, digest: str) -> None:
-        with self.lock:
-            self.used_ids.add(media_id)
-            self.used_hashes.add(digest)
-            self.pending_ids.discard(media_id)
-            self.pending_hashes.discard(digest)
-
-    def release(self, media_id: str, digest: str = "") -> None:
-        with self.lock:
-            self.pending_ids.discard(media_id)
-            if digest:
-                self.pending_hashes.discard(digest)
-
-
-def _try_sml_first_scene(
-    *,
-    client: SMLWorkerClient,
-    job_id: str,
-    scene: dict[str, Any],
-    scene_code: str,
-    keywords: list[str],
-    assignment_root: Path,
-    source_root: Path,
-    used_sml_ids: set[str],
-    used_hashes: set[str],
-    prefetched_ranked: tuple[str, str, list[dict[str, Any]]] | None = None,
-    coordinator: _SMLParallelReservations | None = None,
-) -> dict[str, Any] | None:
-    """Use approved SML clips AND images before Pexels, with reservations.
-
-    No anonymous or unapproved image route is used; a media type is part of
-    the authenticated V2 Editor contract and sha256 is checked on transfer.
-    """
-    if not bool(scene.get("_sml_first")) or not client.enabled:
-        return None
-    scene_duration = _scene_duration(scene)
-    for kind in _sml_media_type_order(scene):
-        for query in keywords[:4]:
-            if coordinator is not None and cancelled(job_id):
-                raise RuntimeError("Remote render cancelled.")
-            try:
-                excluded = coordinator.used_snapshot() if coordinator else set(used_sml_ids)
-                if prefetched_ranked is not None and prefetched_ranked[:2] == (kind, query):
-                    candidates = prefetched_ranked[2]
-                elif kind == "video":
-                    candidates = client.ranked(query, used_ids=excluded)
-                else:
-                    candidates = client.ranked(query, used_ids=excluded, media_type=kind)
-            except SMLMediaUnavailable:
-                continue
-            # Filter BEFORE candidate cap, including IDs currently reserved by peers.
-            for candidate in [row for row in candidates if str(row.get("id")) not in excluded][:12]:
-                if coordinator is not None and cancelled(job_id):
-                    raise RuntimeError("Remote render cancelled.")
-                media_id = str(candidate["id"])
-                reservation = None
-                source_hash = ""
-                hash_held = False
-                committed = False
-                suffix = ".mp4"
-                if kind == "image":
-                    suffix = Path(str(candidate.get("source_filename") or "")).suffix.lower()
-                    if suffix not in IMAGE_EXTENSIONS:
-                        suffix = ".jpg"
-                source = source_root / f"{scene_code}_{uuid.uuid4().hex}{suffix}"
-                temporary = assignment_root / f".{scene_code}_{uuid.uuid4().hex}{suffix}"
-                destination = assignment_root / f"{scene_code}{suffix}"
-                finalized = False
-                try:
-                    if coordinator:
-                        reservation = coordinator.reserve(client, job_id, scene_code, media_id, kind)
-                    elif kind == "video":
-                        reservation = client.reserve(job_id, scene_code, media_id, used_sml_ids)
-                    else:
-                        reservation = client.reserve(job_id, scene_code, media_id, used_sml_ids, media_type=kind)
-                    if not reservation:
-                        continue
-                    client.download(candidate, source)
-                    if coordinator is not None and cancelled(job_id):
-                        raise SMLMediaUnavailable("SML scene cancelled before reservation commit")
-                    source_hash = sha256_file(source)
-                    if coordinator:
-                        hash_held = coordinator.hold_hash(source_hash)
-                        if not hash_held:
-                            raise SMLMediaUnavailable("SML duplicate media checksum")
-                    elif source_hash in used_hashes:
-                        raise SMLMediaUnavailable("SML duplicate media checksum")
-                    validation = validate_media(
-                        source, kind, scene_duration,
-                        require_landscape=bool(scene.get("pexels_prefer_landscape", True)),
-                    )
-                    if validation.get("handling") == "reject_short":
-                        raise SMLMediaUnavailable("SML clip too short")
-                    if kind == "video":
-                        clip_info = build_working_video_clip(
-                            source, temporary, scene_duration,
-                            source_duration=float(validation.get("duration") or candidate.get("duration") or 0),
-                            require_landscape=bool(scene.get("pexels_prefer_landscape", True)),
-                        )
-                    else:
-                        shutil.copy2(source, temporary)
-                        clip_info = {"source_duration": 0, "working_duration": scene_duration, "trimmed": False}
-                    if not temporary.is_file() or temporary.stat().st_size == 0:
-                        raise SMLMediaUnavailable("SML working media was not generated")
-                    temporary.replace(destination)
-                    finalized = True
-                    digest = sha256_file(destination)
-                    if coordinator is not None and cancelled(job_id):
-                        raise SMLMediaUnavailable("SML scene cancelled before reservation commit")
-                    client.transition(reservation, "commit")
-                    committed = True
-                    if coordinator:
-                        coordinator.commit(media_id, source_hash)
-                    else:
-                        used_sml_ids.add(media_id)
-                        used_hashes.add(source_hash)
-                    resolved = dict(scene)
-                    resolved.update(
-                        media_path=str(destination), media_source_path=str(source),
-                        media_hash=digest, image_hash=digest if kind == "image" else "",
-                        selected_keyword=query, keyword_used=query, provider="sml",
-                        asset_id=media_id, media_provider="sml", provider_asset_id=media_id,
-                        source_type="SML", assigned_media_type=kind,
-                        automation_status="ready_sml", status="matched_stock",
-                        media_locked=False, last_media_error="",
-                        validation_handling=str(validation.get("handling") or ""),
-                        provider_duration=float(candidate.get("duration") or 0),
-                        source_media_duration=float(clip_info.get("source_duration") or 0),
-                        media_duration=float(clip_info.get("working_duration") or 0),
-                        media_trimmed=bool(clip_info.get("trimmed")),
-                        working_clip_target=float(working_clip_target_duration(scene_duration)) if kind == "video" else 0.0,
-                        visual_action="sml_library", previously_used=False,
-                        acquisition_variant="sml_v2_editor_reserved",
-                        sml_reservation_id=reservation,
-                    )
-                    return resolved
-                except (SMLMediaUnavailable, ValueError, OSError, RuntimeError):
-                    if finalized:
-                        destination.unlink(missing_ok=True)
-                    source.unlink(missing_ok=True)
-                finally:
-                    temporary.unlink(missing_ok=True)
-                    if coordinator and not committed:
-                        coordinator.release(media_id, source_hash if hash_held else "")
-                    if reservation and not committed:
-                        try:
-                            client.transition(reservation, "release")
-                        except SMLMediaUnavailable:
-                            pass
-    return None
-
-
-def _parallel_sml_scene_download(
-    *, client: SMLWorkerClient, job_id: str, scene: dict[str, Any],
-    scene_code: str, keywords: list[str], assignment_root: Path,
-    source_root: Path, used_sml_ids: set[str], used_hashes: set[str],
-    coordinator: _SMLParallelReservations,
-) -> dict[str, Any] | None:
-    # Project batches and the shared process-wide semaphore both cap downloads.
-    with _SML_DOWNLOAD_SLOTS:
-        return _try_sml_first_scene(
-            client=client, job_id=job_id, scene=scene, scene_code=scene_code,
-            keywords=keywords, assignment_root=assignment_root, source_root=source_root,
-            used_sml_ids=used_sml_ids, used_hashes=used_hashes, coordinator=coordinator)
-
-
 def _prefetch_first_scene_lookup(
-    scene: dict[str, Any],
-    source: str,
-    kind: str,
-    keyword: str,
-    target_width: int,
-    target_height: int,
+    scene: dict[str, Any], source: str, kind: str, keyword: str,
+    target_width: int, target_height: int,
 ) -> tuple[str, str, str, list[dict[str, Any]], str]:
-    """Read-only I/O search. Do not reserve/download or touch shared used-media sets."""
+    """Fetch Pexels search candidates without modifying any media files."""
     try:
-        if source == "sml":
-            rows = SMLWorkerClient().ranked(keyword, used_ids=set(), media_type=kind)
-        else:
-            selection_mode = str(scene.get("pexels_selection_mode") or "best_match_variety").strip().lower()
-            rows = search_multi_provider(
-                keyword, kind, {"pexels": list(_current_pexels_keys()), "pixabay": []},
-                ["pexels"],
-                per_provider=max(1, min(40, int(scene.get("pexels_search_pool") or 10))),
-                target_width=target_width, target_height=target_height,
-                prefer_landscape=bool(scene.get("pexels_prefer_landscape", True)),
-                preserve_provider_order=selection_mode in {"first_result", "popularity", "top_n_random"},
-            )
-        return source, kind, keyword, rows, ""
+        selection_mode = str(scene.get("pexels_selection_mode") or "best_match_variety").strip().lower()
+        rows = search_multi_provider(
+            keyword, kind, {"pexels": list(_current_pexels_keys()), "pixabay": []},
+            ["pexels"],
+            per_provider=max(1, min(40, int(scene.get("pexels_search_pool") or 10))),
+            target_width=target_width, target_height=target_height,
+            prefer_landscape=bool(scene.get("pexels_prefer_landscape", True)),
+            preserve_provider_order=selection_mode in {"first_result", "popularity", "top_n_random"},
+        )
+        return "pexels", kind, keyword, rows, ""
     except Exception as exc:
-        # Never surface credentials or SML tokens in search status/error telemetry.
-        return source, kind, keyword, [], type(exc).__name__
+        return "pexels", kind, keyword, [], type(exc).__name__
 
 
 def _parallel_scene_queries(
-    job_id: str,
-    scenes: list[dict[str, Any]],
-    sml_client: SMLWorkerClient,
-    target_width: int,
-    target_height: int,
-    *,
-    assignment_root: Path | None = None,
-    source_root: Path | None = None,
-    used_sml_ids: set[str] | None = None,
-    used_hashes: set[str] | None = None,
+    job_id: str, scenes: list[dict[str, Any]], target_width: int, target_height: int,
 ):
-    """Batch up to five read-only searches or SML-reserved downloads.
-
-    When acquisition paths are provided, SML-first scenes download in parallel.
-    All SML futures settle before any serial Pexels/review processing starts,
-    ensuring scene-order assignment and deduplication remain race-free.
-    Legacy lookup-only mode remains available for non-acquisition callers.
-    """
-    sml_download_enabled = (
-        assignment_root is not None and source_root is not None
-        and used_sml_ids is not None and used_hashes is not None
-    )
-    coordinator = _SMLParallelReservations(used_sml_ids, used_hashes) if sml_download_enabled else None
+    """Batch up to five Pexels searches; yield results in source scene order."""
     with ThreadPoolExecutor(max_workers=SCENE_MEDIA_SEARCH_WORKERS, thread_name_prefix="scene-media-search") as pool:
         for start in range(0, len(scenes), SCENE_MEDIA_SEARCH_WORKERS):
             if cancelled(job_id):
                 raise RuntimeError("Remote render cancelled.")
             end = min(start + SCENE_MEDIA_SEARCH_WORKERS, len(scenes))
             futures = {}
-            sml_futures: set[int] = set()
             for index in range(start, end):
                 scene = scenes[index]
                 if (bool(scene.get("review_approved")) and bool(scene.get("review_locked"))
@@ -1481,49 +1206,24 @@ def _parallel_scene_queries(
                     continue
                 if index and should_continue_previous_visual(_scene_duration(scene)):
                     continue
-                keywords = _scene_keywords(scene) or ["documentary background"]
-                if bool(scene.get("_sml_first")) and sml_client.enabled:
-                    kinds = _sml_media_type_order(scene)
-                    if not kinds:
-                        continue
-                    source, kind = "sml", kinds[0]
-                elif bool(scene.get("pexels_enabled", True)):
-                    source, kind = "pexels", _scene_media_type_order(scene)[0]
-                else:
+                if not bool(scene.get("pexels_enabled", True)):
                     continue
-                if source == "sml" and sml_download_enabled:
-                    sml_futures.add(index)
-                    futures[index] = pool.submit(
-                        _parallel_sml_scene_download, client=sml_client,
-                        job_id=job_id, scene=dict(scene),
-                        scene_code=str(scene.get("scene_code") or f"SCENE_{index + 1:03d}"),
-                        keywords=keywords, assignment_root=assignment_root,
-                        source_root=source_root, used_sml_ids=used_sml_ids,
-                        used_hashes=used_hashes, coordinator=coordinator,
-                    )
-                else:
-                    futures[index] = pool.submit(
-                        _prefetch_first_scene_lookup, scene, source, kind,
-                        keywords[0], target_width, target_height,
-                    )
+                keywords = _scene_keywords(scene) or ["documentary background"]
+                kind = _scene_media_type_order(scene)[0]
+                futures[index] = pool.submit(
+                    _prefetch_first_scene_lookup, scene, "pexels", kind,
+                    keywords[0], target_width, target_height,
+                )
             if futures:
                 update_job(
-                    job_id, status="downloading_media", stage="SML Downloads" if sml_futures else "Media Search",
+                    job_id, status="downloading_media", stage="Media Search",
                     progress=15 + int(start / max(1, len(scenes)) * 20),
-                    message=f"Processing {len(futures)} media scenes concurrently (max {SCENE_MEDIA_SEARCH_WORKERS})",
+                    message=f"Searching {len(futures)} scenes concurrently (max {SCENE_MEDIA_SEARCH_WORKERS})",
                 )
-            # Drain full SML acquisitions before serial scene finalization. Pexels
-            # writes and reviewed-media hashes cannot race with SML transfers.
-            acquired = {index: futures[index].result() for index in sorted(sml_futures)}
             for index in range(start, end):
                 if cancelled(job_id):
                     raise RuntimeError("Remote render cancelled.")
-                lookup = (
-                    ("sml_acquired", "", "", acquired[index], "")
-                    if index in sml_futures else
-                    (futures[index].result() if index in futures else None)
-                )
-                yield index, scenes[index], lookup
+                yield index, scenes[index], (futures[index].result() if index in futures else None)
 
 
 def _resolve_scene_stock_media(
@@ -1543,15 +1243,10 @@ def _resolve_scene_stock_media(
         )
         for scene in scenes
     )
-    sml_client = SMLWorkerClient()
-    has_sml_first = any(bool(scene.get("_sml_first")) for scene in scenes) and sml_client.enabled
-    has_sml_fallback = any(bool(scene.get("_sml_fallback")) for scene in scenes) and sml_client.enabled
-    if needs_stock_search and not (has_sml_first or has_sml_fallback) and not any(bool(scene.get("pexels_enabled", True)) for scene in scenes):
-        raise RuntimeError("No SML media integration or Pexels source is enabled for unresolved scenes.")
-    if needs_stock_search and not (has_sml_first or has_sml_fallback) and not _current_pexels_keys():
-        raise RuntimeError(
-            "The VPS has no Pexels API key for unresolved scenes. Set PEXELS_API_KEY or PEXELS_API_KEYS in the VPS environment and restart the worker."
-        )
+    if needs_stock_search and not any(bool(scene.get("pexels_enabled", True)) for scene in scenes):
+        raise RuntimeError("Pexels source is disabled for unresolved scenes.")
+    if needs_stock_search and not _current_pexels_keys():
+        raise RuntimeError("The VPS has no Pexels API key. Set PEXELS_API_KEY or PEXELS_API_KEYS and restart the worker.")
 
     assignment_root = job_dir / "resolved_media"
     assignment_root.mkdir(parents=True, exist_ok=True)
@@ -1563,15 +1258,8 @@ def _resolve_scene_stock_media(
     used_asset_ids: set[str] = set()
     used_hashes: set[str] = set()
     used_authors: set[str] = set()
-    used_sml_ids: set[str] = set()
-    sml_source_root = job_dir / "sml_sources"
-    if has_sml_first or has_sml_fallback:
-        sml_source_root.mkdir(parents=True, exist_ok=True)
-
     for index, original_scene, batch_lookup in _parallel_scene_queries(
-        job_id, scenes, sml_client, target_width, target_height,
-        assignment_root=assignment_root, source_root=sml_source_root,
-        used_sml_ids=used_sml_ids, used_hashes=used_hashes,
+        job_id, scenes, target_width, target_height,
     ):
         if cancelled(job_id):
             raise RuntimeError("Remote render cancelled.")
@@ -1656,31 +1344,8 @@ def _resolve_scene_stock_media(
         if not keywords:
             keywords = ["documentary background"]
 
-        if bool(scene.get("_sml_first")) and sml_client.enabled:
-            update_job(job_id, status="downloading_media", stage="SML Media",
-                       progress=15 + int(index / max(1, len(scenes)) * 20),
-                       message=f"{scene_code}: searching approved SML videos/images before Pexels")
-            if batch_lookup is not None and batch_lookup[0] == "sml_acquired":
-                matched = batch_lookup[3]
-            else:
-                matched = _try_sml_first_scene(
-                    client=sml_client, job_id=job_id, scene=scene,
-                    scene_code=scene_code, keywords=keywords,
-                    assignment_root=assignment_root, source_root=sml_source_root,
-                    used_sml_ids=used_sml_ids, used_hashes=used_hashes,
-                    prefetched_ranked=(
-                        (batch_lookup[1], batch_lookup[2], batch_lookup[3])
-                        if batch_lookup is not None and batch_lookup[0] == "sml" and not batch_lookup[4]
-                        else None
-                    ),
-                )
-            if matched is not None:
-                used_asset_ids.add(f"sml:{matched['asset_id']}")
-                results[index] = matched
-                continue
-
         if not bool(scene.get("pexels_enabled", True)):
-            errors[scene_code] = "No approved matching SML media available; Pexels disabled by source priority"
+            errors[scene_code] = "Pexels stock media is disabled for this scene"
             results[index] = {**scene, "status": "stock_failed", "last_media_error": errors[scene_code]}
             continue
 
@@ -1743,24 +1408,10 @@ def _resolve_scene_stock_media(
                     resolved["fallback_reason"] = "No valid Pexels video was available"
                     break
 
-        if resolved is None and bool(scene.get("_sml_fallback")) and sml_client.enabled:
-            update_job(job_id, status="downloading_media", stage="SML Fallback",
-                       progress=15 + int(index / max(1, len(scenes)) * 20),
-                       message=f"{scene_code}: Pexels exhausted; trying approved SML media")
-            resolved = _try_sml_first_scene(
-                client=sml_client, job_id=job_id,
-                scene={**scene, "_sml_first": True}, scene_code=scene_code,
-                keywords=keywords, assignment_root=assignment_root,
-                source_root=sml_source_root, used_sml_ids=used_sml_ids,
-                used_hashes=used_hashes,
-            )
-            if resolved is not None:
+        if resolved is not None:
                 resolved["fallback_reason"] = "Pexels had no usable matching media; approved SML fallback"
                 resolved["fallback_source"] = "sml"
         if resolved is not None:
-            if str(resolved.get("media_provider") or "") == "pexels" and bool(scene.get("_sml_first")):
-                resolved["fallback_reason"] = "No matching approved SML asset passed media validation"
-                resolved["fallback_source"] = "pexels"
             results[index] = resolved
         else:
             failed = dict(scene)
@@ -1772,17 +1423,6 @@ def _resolve_scene_stock_media(
             )
             results[index] = failed
             errors[scene_code] = last_error
-
-    # SML Only is strict: do not silently fill missing scenes with Pexels
-    # or a repeated neighbor's footage during the general continuity fallback.
-    strict_missing = [str(row.get("scene_code") or i + 1)
-                      for i, row in enumerate(results)
-                      if scenes[i].get("_sml_only") and
-                      not Path(str((row or {}).get("media_path") or "")).is_file()]
-    if strict_missing:
-        raise RuntimeError("SML Only: no approved matching media for scenes " +
-                           ", ".join(strict_missing[:15]) +
-                           ". Approve suitable SML assets or choose SML First with Pexels fallback.")
 
     resolved_indices = [
         index
@@ -1912,11 +1552,8 @@ def _resolve_intro_stock_media(
     """
     if not intro_scenes:
         return []
-    sml_client = SMLWorkerClient()
-    sml_intro_first = sml_client.enabled and any(bool(x.get("_sml_first")) for x in intro_scenes)
-    sml_intro_fallback = sml_client.enabled and any(bool(x.get("_sml_fallback")) for x in intro_scenes)
-    if not _current_pexels_keys() and not (sml_intro_first or sml_intro_fallback):
-        raise RuntimeError("Opening Intro needs an approved SML asset or Pexels API key.")
+    if not _current_pexels_keys():
+        raise RuntimeError("Opening Intro needs a Pexels API key.")
     queries = [dict(x) for x in intro_queries if isinstance(x, dict) and str(x.get("query") or "").strip()]
     if not queries:
         raise RuntimeError("Opening Intro is enabled, but no usable INTRO_QUERY rows were supplied.")
@@ -1931,11 +1568,6 @@ def _resolve_intro_stock_media(
     resolved_rows: list[dict[str, Any]] = []
     errors: dict[str, list[str]] = {}
     next_query_index = 0
-    used_sml_ids: set[str] = set()
-    sml_source_root = job_dir / "sml_intro_sources"
-    if sml_intro_first or sml_intro_fallback:
-        sml_source_root.mkdir(parents=True, exist_ok=True)
-
     for scene_index, source_scene in enumerate(intro_scenes):
         if cancelled(job_id):
             raise RuntimeError("Remote render cancelled.")
@@ -1990,14 +1622,7 @@ def _resolve_intro_stock_media(
             )
             keywords = _scene_keywords(candidate_scene) or [primary]
             last_error = "no usable result"
-            if sml_intro_first:
-                chosen = _try_sml_first_scene(
-                    client=sml_client, job_id=job_id, scene=candidate_scene,
-                    scene_code=scene_code, keywords=keywords,
-                    assignment_root=assignment_root, source_root=sml_source_root,
-                    used_sml_ids=used_sml_ids, used_hashes=used_hashes,
-                )
-            for keyword in ([] if chosen is not None or candidate_scene.get("_sml_only") else keywords):
+            for keyword in ([] if chosen is not None else keywords):
                 chosen, last_error = _download_scene_candidate(
                     scene=candidate_scene,
                     scene_code=scene_code,
@@ -2013,7 +1638,7 @@ def _resolve_intro_stock_media(
                 )
                 if chosen is not None:
                     break
-            if chosen is None and requested_type == "video" and not candidate_scene.get("_sml_only") and bool(candidate_scene.get("allow_media_fallback", True)):
+            if chosen is None and requested_type == "video" and bool(candidate_scene.get("allow_media_fallback", True)):
                 for keyword in keywords:
                     chosen, last_error = _download_scene_candidate(
                         scene=candidate_scene,
@@ -2032,14 +1657,7 @@ def _resolve_intro_stock_media(
                         chosen["fallback_type"] = "image_fallback"
                         chosen["fallback_reason"] = "No valid Pexels intro video was available"
                         break
-            if chosen is None and candidate_scene.get("_sml_fallback") and sml_client.enabled:
-                chosen = _try_sml_first_scene(
-                    client=sml_client, job_id=job_id,
-                    scene={**candidate_scene, "_sml_first": True},
-                    scene_code=scene_code, keywords=keywords,
-                    assignment_root=assignment_root, source_root=sml_source_root,
-                    used_sml_ids=used_sml_ids, used_hashes=used_hashes)
-                if chosen is not None:
+            if chosen is not None:
                     chosen["fallback_reason"] = "Pexels intro lookup exhausted; approved SML fallback"
                     chosen["fallback_source"] = "sml"
             if chosen is not None:
@@ -2052,7 +1670,7 @@ def _resolve_intro_stock_media(
         if chosen is None:
             # Intro-only continuity fallback is allowed only after ordered intro
             # queries have been exhausted. Never borrow a documentary scene.
-            if resolved_rows and not scene.get("_sml_only"):
+            if resolved_rows:
                 previous = resolved_rows[-1]
                 source_path = Path(str(previous.get("media_path") or ""))
                 destination = assignment_root / f"{scene_code}{source_path.suffix.lower()}"
@@ -4100,11 +3718,6 @@ def _prepare_first2_visual_audit(
     _save_audit_checkpoint(job_dir, payload)
     used_asset_keys: set[str] = set()
     used_hashes: set[str] = set()
-    audit_sml_client = SMLWorkerClient()
-    used_sml_ids: set[str] = set()
-    audit_sml_sources = job_dir / "audit_sml_sources"
-    if audit_sml_client.enabled:
-        audit_sml_sources.mkdir(parents=True, exist_ok=True)
     for index, row in enumerate(rows):
         if cancelled(job_id):
             raise RuntimeError("Remote render cancelled.")
@@ -4126,13 +3739,6 @@ def _prepare_first2_visual_audit(
             # fallbacks, but stops at the first usable asset. The UI exposes the
             # actual keyword used so a generic fallback is immediately visible.
             keywords = _scene_keywords(scene) or [_audit_safe_query(scene)]
-            if bool(scene.get("_sml_first")) and audit_sml_client.enabled:
-                result = _try_sml_first_scene(
-                    client=audit_sml_client, job_id=job_id, scene=scene,
-                    scene_code=item_id, keywords=keywords,
-                    assignment_root=assignment_root, source_root=audit_sml_sources,
-                    used_sml_ids=used_sml_ids, used_hashes=used_hashes,
-                )
             for keyword in ([] if result is not None else keywords):
                 result, error = _resolve_audit_candidate(
                     job_id=job_id, job_dir=job_dir, item_id=item_id, scene=scene, keyword=keyword, revision=1,
@@ -4490,8 +4096,8 @@ def process_job(job_id: str) -> None:
 
         # Freeze Pexels selection policy into each scene so normal acquisition and
         # First-2-Minute Visual Audit use the same project-owned behavior.
-        for sml_index, scene in enumerate(scenes):
-            _apply_sml_policy(scene, dict(settings.metadata or {}), sml_index)
+        for scene_index, scene in enumerate(scenes):
+            _discard_legacy_media_policy(scene, dict(settings.metadata or {}), scene_index)
             scene.setdefault("pexels_selection_mode", str(getattr(settings, "pexels_selection_mode", "best_match_variety") or "best_match_variety"))
             scene.setdefault("pexels_search_pool", int(getattr(settings, "pexels_search_pool", 10) or 10))
             scene.setdefault("pexels_avoid_used_media", bool(getattr(settings, "pexels_avoid_used_media", True)))
@@ -4640,7 +4246,7 @@ def process_job(job_id: str) -> None:
 
             metadata = dict(settings.metadata or {})
             metadata["intro_scenes"] = [
-                _apply_sml_policy({
+                _discard_legacy_media_policy({
                     **dict(row),
                     "pexels_allow_video": bool(getattr(settings, "use_video_backgrounds", True)),
                     "pexels_allow_image": bool(getattr(settings, "use_image_backgrounds", True)),
@@ -4740,7 +4346,7 @@ def process_job(job_id: str) -> None:
             resolved_intro_scenes: list[dict[str, Any]] = []
             if planned_intro:
                 for index, intro_scene in enumerate(planned_intro):
-                    _apply_sml_policy(intro_scene, metadata, index)
+                    _discard_legacy_media_policy(intro_scene, metadata, index)
                     intro_scene.setdefault("pexels_allow_video", bool(getattr(settings, "use_video_backgrounds", True)))
                     intro_scene.setdefault("pexels_allow_image", bool(getattr(settings, "use_image_backgrounds", True)))
                     intro_scene.setdefault("pexels_prefer_landscape", bool(getattr(settings, "pexels_prefer_landscape", True)))
