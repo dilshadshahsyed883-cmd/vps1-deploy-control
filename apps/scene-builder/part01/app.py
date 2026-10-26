@@ -30,6 +30,7 @@ from smart_scroll.ai_scene_txt import extract_intro_queries, parse_outer_ai_scen
 from storage_manager_client import storage_manager_request
 from sml_scene_bridge import (SMLUnavailable, approved_clips, download_verified,
                               rank_clips, reserve_for_scene, transition_reservation, library_status)
+from scene_media_library import SceneMediaLibrary, InvalidMedia
 
 RUNTIME_CANDIDATE = os.getenv("VPS1_RUNTIME_CANDIDATE") == "1"
 SCENE_PRECUTOVER_EDITING = os.getenv("VPS1_SCENE_PRECUTOVER_EDITING", "0") == "1"
@@ -49,6 +50,7 @@ APP_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("WEB_DATA_DIR", str(APP_DIR / "data"))).resolve()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "web.sqlite3"
+SCENE_LOCAL_LIBRARY = SceneMediaLibrary(Path(os.getenv("SCENE_MEDIA_LIBRARY_ROOT", str(DATA_DIR / "scene_media_library"))))
 WORKER_URL = os.getenv("WORKER_URL", "http://127.0.0.1:8000").rstrip("/")
 WORKER_TOKEN = os.getenv("WORKER_TOKEN", "").strip()
 WEB_USERNAME = os.getenv("WEB_USERNAME", "team").strip() or "team"
@@ -856,7 +858,9 @@ def scene_sml_settings() -> dict[str, Any]:
             "sml_target_percent": max(0, min(100, int(setting("sml_target_percent", "80")))),
             "sml_auto_scene_matching": setting("sml_auto_scene_matching", "1") == "1",
             "sml_manual_audit_selection": setting("sml_manual_audit_selection", "1") == "1",
-            "sml_clip_preview": setting("sml_clip_preview", "1") == "1"}
+            "sml_clip_preview": setting("sml_clip_preview", "1") == "1",
+            "scene_library_enabled": setting("scene_library_enabled", "0") == "1",
+            "scene_library_priority": setting("scene_library_priority", "scene_first") }
 
 
 def job_sml_settings(job_id: str) -> dict[str, Any]:
@@ -867,7 +871,8 @@ def job_sml_settings(job_id: str) -> dict[str, Any]:
         "sml_enabled": True, "media_source_mode": "sml_first",
         "sml_media_order": "video_only", "sml_target_percent": 80,
         "sml_auto_scene_matching": True, "sml_manual_audit_selection": True,
-        "sml_clip_preview": True}
+        "sml_clip_preview": True, "scene_library_enabled": False,
+        "scene_library_priority": "scene_first"}
 
 
 def reconcile_job_ownership(jobs: list[dict[str, Any]]) -> None:
@@ -2803,6 +2808,179 @@ def audit_media_page(request: Request):
 
 
 
+
+# SCENE_LOCAL_MEDIA_LIBRARY_V1: isolated media storage, never the SML catalog.
+@app.get("/scene-builder/media-library", response_class=HTMLResponse)
+@app.get("/scene-builder/media-library/", response_class=HTMLResponse)
+def scene_local_media_page(request: Request):
+    require_login(request)
+    token = str(request.session.get("settings_csrf") or secrets.token_urlsafe(32))
+    request.session["settings_csrf"] = token
+    return templates.TemplateResponse("scene_media_library.html", {
+        "request": request, "page": "scene_media_library",
+        "username": request.session.get("username", "team"),
+        "csrf_token": token, "is_admin": bool(request.session.get("is_admin")),
+        "audit_waiting_count": audit_waiting_count_for_user(str(request.session.get("username") or "")),
+    })
+
+
+@app.get("/api/scene-media-library")
+def scene_local_media_index(request: Request, kind: str = "all", q: str = ""):
+    require_login(request)
+    try:
+        items = SCENE_LOCAL_LIBRARY.list(kind=kind, query=q)
+    except InvalidMedia as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "items": items, "summary": SCENE_LOCAL_LIBRARY.summary()}
+
+
+@app.post("/api/scene-media-library/upload")
+async def scene_local_media_upload(request: Request, files: list[UploadFile] = File(...)):
+    require_login(request)
+    require_settings_csrf(request)
+    if len(files) > 100:
+        raise HTTPException(413, "Upload at most 100 media files per batch")
+    created, rejected = [], []
+    for item in files:
+        try:
+            created.append(await SCENE_LOCAL_LIBRARY.import_upload(item, min(MAX_UPLOAD, 5 * 1024 ** 3)))
+        except InvalidMedia as exc:
+            rejected.append({"name": str(item.filename or "")[:180], "error": str(exc)})
+    return {"ok": bool(created), "imported": created, "rejected": rejected,
+            "summary": SCENE_LOCAL_LIBRARY.summary()}
+
+
+@app.get("/api/scene-media-library/summary.txt")
+def scene_local_media_text(request: Request):
+    require_login(request)
+    return PlainTextResponse(SCENE_LOCAL_LIBRARY.report(), headers={
+        "Cache-Control": "private, no-store",
+        "Content-Disposition": 'attachment; filename="Scene_Builder_Media_Summary.txt"',
+    })
+
+
+@app.get("/api/scene-media-library/media/{media_id}")
+def scene_local_media_file(request: Request, media_id: str):
+    require_login(request)
+    try:
+        path, item = SCENE_LOCAL_LIBRARY.file(media_id)
+    except (InvalidMedia, FileNotFoundError) as exc:
+        raise HTTPException(404, "Media not found") from exc
+    return FileResponse(path, media_type=mimetypes.guess_type(item["original_name"])[0] or "application/octet-stream",
+                        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+
+
+def _scene_library_safe_to_clean() -> None:
+    # Fail closed when the worker is unavailable; do not delete any asset that
+    # could still be needed by an active render or a waiting audit.
+    jobs = worker_request("GET", "/jobs", params={"limit": 1000}).json().get("jobs")
+    if not isinstance(jobs, list):
+        raise HTTPException(503, "Worker job status unavailable; cleanup refused")
+    settled = {"completed", "failed", "cancelled", "canceled", "deleted", "cleaned", "error", "done"}
+    if any(str(job.get("status") or "").lower() not in settled for job in jobs):
+        raise HTTPException(409, "Active Scene Builder job exists; library cleanup is blocked")
+
+
+@app.delete("/api/scene-media-library/media/{media_id}")
+def scene_local_media_remove(request: Request, media_id: str):
+    require_login(request)
+    require_admin(request)
+    require_settings_csrf(request)
+    _scene_library_safe_to_clean()
+    try:
+        SCENE_LOCAL_LIBRARY.delete(media_id)
+    except (InvalidMedia, FileNotFoundError) as exc:
+        raise HTTPException(404, "Media not found") from exc
+    return {"ok": True, "summary": SCENE_LOCAL_LIBRARY.summary()}
+
+
+@app.post("/api/scene-media-library/clean")
+async def scene_local_media_clean(request: Request):
+    require_login(request)
+    require_admin(request)
+    require_settings_csrf(request)
+    payload = await request.json()
+    if not isinstance(payload, dict) or payload.get("confirmation") != "CLEAN SCENE LIBRARY":
+        raise HTTPException(400, "Type CLEAN SCENE LIBRARY to confirm permanent deletion")
+    _scene_library_safe_to_clean()
+    removed = SCENE_LOCAL_LIBRARY.clean()
+    audit_event("scene_local_library_cleaned", "Scene Builder local library cleared",
+                {"removed": removed, "username": str(request.session.get("username") or "")})
+    return {"ok": True, "removed": removed, "summary": SCENE_LOCAL_LIBRARY.summary()}
+
+
+def _scene_local_transfer(job_id: str, item: dict[str, Any], media_id: str) -> dict[str, Any]:
+    path, asset = SCENE_LOCAL_LIBRARY.file(media_id)
+    # Let the existing worker revision fencing and media validation handle the
+    # replacement. The local original remains permanently in Scene's library.
+    with path.open("rb") as stream:
+        response = worker_request(
+            "POST", f"/jobs/{job_id}/audit/media/{item['item_id']}/upload",
+            params={"revision": int(item.get("revision") or 0)},
+            files={"file": (asset["original_name"], stream,
+                            mimetypes.guess_type(asset["original_name"])[0] or "application/octet-stream")},
+            timeout=3600,
+        )
+    return _web_audit_payload(job_id, response.json())
+
+
+@app.post("/api/audit-media/{job_id}/{item_id}/scene-library-select")
+async def scene_local_manual_select(request: Request, job_id: str, item_id: str):
+    require_job_access(request, job_id)
+    if not job_sml_settings(job_id).get("scene_library_enabled"):
+        raise HTTPException(409, "Scene Media Library is disabled for this project")
+    payload = await request.json()
+    media_id = str(payload.get("media_id") or "")
+    with _SML_AUDIT_LOCK:
+        current = worker_request("GET", f"/jobs/{job_id}/audit/media").json()
+        item = next((x for x in current.get("items", []) if str(x.get("item_id")) == item_id), None)
+        if not item or int(item.get("revision") or 0) != int(payload.get("revision") or 0):
+            raise HTTPException(409, "Scene revision has changed; refresh Media Audit")
+        try:
+            return _scene_local_transfer(job_id, item, media_id)
+        except (FileNotFoundError, InvalidMedia) as exc:
+            raise HTTPException(404, "Library media no longer exists") from exc
+
+
+@app.post("/api/audit-media/{job_id}/scene-library-auto-match")
+def scene_local_auto_match(request: Request, job_id: str):
+    require_job_access(request, job_id)
+    config = job_sml_settings(job_id)
+    with _SML_AUDIT_LOCK:
+        current = worker_request("GET", f"/jobs/{job_id}/audit/media").json()
+        if not config.get("scene_library_enabled"):
+            return {"ok": True, "matched": 0, "audit": _web_audit_payload(job_id, current)}
+        used, matched, errors = set(), 0, []
+        media_order = config.get("sml_media_order", "smart")
+        for number, item in enumerate((current.get("items") or [])[:40]):
+            if not isinstance(item, dict) or not item.get("item_id") or item.get("approved") or item.get("changed"):
+                continue
+            if str(item.get("source_type") or "").lower() in {"uploaded", "sml"}:
+                continue
+            if config.get("scene_library_priority") == "pexels_first" and item.get("has_media"):
+                continue
+            if media_order == "image_only":
+                preferred = ["image"]
+            elif media_order == "video_only":
+                preferred = ["video"]
+            elif media_order == "images_first" or (media_order == "alternate" and number % 2):
+                preferred = ["image", "video"]
+            else:
+                preferred = ["video", "image"]
+            options = []
+            for kind in preferred:
+                options.extend(SCENE_LOCAL_LIBRARY.ranked(item, used=used, kind=kind))
+            for media in options[:3]:
+                try:
+                    current = _scene_local_transfer(job_id, item, media["id"])
+                    used.add(media["id"])
+                    matched += 1
+                    break
+                except (HTTPException, FileNotFoundError, InvalidMedia) as exc:
+                    errors.append(str(exc)[:100])
+        return {"ok": True, "matched": matched, "audit": current,
+                "errors": errors[:8], "fallback": "existing media"}
+
 # SCENE_SML_FIRST_V1 — app-isolated, server-to-server media selection.
 # SML stays the catalog/Drive owner; Scene's worker owns only job-scoped copies.
 _SML_AUDIT_LOCK = threading.RLock()
@@ -3827,6 +4005,8 @@ def save_settings(
     sml_auto_scene_matching: str | None = Form(None),
     sml_manual_audit_selection: str | None = Form(None),
     sml_clip_preview: str | None = Form(None),
+    scene_library_enabled: str | None = Form(None),
+    scene_library_priority: str = Form("scene_first"),
     pexels_enabled: str | None = Form(None),
     pexels_selection_mode: str = Form("best_match_variety"),
     pexels_search_pool: int = Form(10),
@@ -3964,6 +4144,8 @@ def save_settings(
             raise HTTPException(400, f"{label}: maximum duration must be equal to or greater than minimum duration")
         if minimum > 10 or maximum > 15:
             raise HTTPException(400, f"{label}: duration is outside the supported range")
+    if scene_library_priority not in {"scene_first", "sml_first", "pexels_first"}:
+        raise HTTPException(400, "Invalid Scene Media Library priority")
     if media_source_mode not in {"sml_first", "sml_only", "pexels_first", "mixed", "pexels_only"}:
         raise HTTPException(400, "Invalid media selection priority")
     if sml_media_order not in {"smart", "video_only", "image_only", "videos_first", "images_first", "alternate"}:
@@ -4127,7 +4309,9 @@ def save_settings(
                        "sml_target_percent": str(sml_target_percent),
                        "sml_auto_scene_matching": "1" if sml_auto_scene_matching == "on" else "0",
                        "sml_manual_audit_selection": "1" if sml_manual_audit_selection == "on" else "0",
-                       "sml_clip_preview": "1" if sml_clip_preview == "on" else "0"})
+                       "sml_clip_preview": "1" if sml_clip_preview == "on" else "0",
+                       "scene_library_enabled": "1" if scene_library_enabled == "on" else "0",
+                       "scene_library_priority": scene_library_priority})
     for key, value in values.items():
         set_setting(key, value)
     preset_config = {
