@@ -27,6 +27,22 @@ class ManualStartWebReleaseTests(unittest.TestCase):
         self.assertIn('@app.post("/queue/{job_id}/start")', WEB)
         self.assertIn('require_job_access(request, job_id)\n    worker_request("POST", f"/jobs/{job_id}/start")', WEB)
 
+    def test_existing_policy_is_patched_without_granting_new_delete_permissions(self):
+        tree = ast.parse(SOURCE)
+        fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                  and node.name == "patch_manual_start")
+        namespace = {
+            "re": __import__("re"),
+            "require": lambda condition, reason: None if condition else
+                (_ for _ in ()).throw(RuntimeError(reason)),
+        }
+        exec(compile(ast.Module(body=[fn], type_ignores=[]), "<patch>", "exec"), namespace)
+        original = POLICY.read_text().replace("(?:cancel|delete|start|", "(?:cancel|delete|")
+        patched = namespace["patch_manual_start"](original)
+        self.assertEqual(patched, POLICY.read_text())
+        self.assertEqual(namespace["patch_manual_start"](patched), patched)
+        self.assertNotIn("copyfile(POLICY_SOURCE, dst)", SOURCE)
+
     def test_policy_only_overlay_never_mutates_render_worker(self):
         ast.parse(SOURCE)
         for phrase in ('shutil.copytree(old, target, symlinks=True)',
