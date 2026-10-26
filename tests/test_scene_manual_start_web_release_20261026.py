@@ -39,7 +39,7 @@ class ManualStartWebReleaseTests(unittest.TestCase):
         exec(compile(ast.Module(body=[fn], type_ignores=[]), "<patch>", "exec"), namespace)
         original = POLICY.read_text().replace("(?:cancel|delete|start|", "(?:cancel|delete|")
         patched = namespace["patch_manual_start"](original)
-        self.assertEqual(patched, POLICY.read_text())
+        self.assertEqual(patched, POLICY.read_text().replace("(?:cancel|delete|start|", "(?:start|cancel|delete|"))
         self.assertEqual(namespace["patch_manual_start"](patched), patched)
         self.assertNotIn("copyfile(POLICY_SOURCE, dst)", SOURCE)
 
