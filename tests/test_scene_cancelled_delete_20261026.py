@@ -24,6 +24,7 @@ class SceneCancelDeleteTests(unittest.TestCase):
     def test_worker_cancel_only_and_real_local_cleanup(self):
         tree = ast.parse(WORKER)
         fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "delete")
+        fn.decorator_list = []  # Unit-test the handler without starting FastAPI.
         code = compile(ast.Module(body=[fn], type_ignores=[]), "<delete>", "exec")
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
