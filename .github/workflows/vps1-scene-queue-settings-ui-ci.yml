@@ -8,6 +8,8 @@ on:
       - 'tests/test_scene_queue_settings_ui_20261021.py'
       - 'tests/test_scene_completed_video_actions_20261021.py'
       - 'apps/scene-builder/part01/app.py'
+      - 'production/scene_cancelled_delete_web_release.py'
+      - 'tests/test_scene_cancelled_delete_web_release_20261026.py'
       - 'apps/scene-builder/part01/precutover_policy.py'
       - 'production/scene_manual_start_web_release.py'
       - 'production/runtime.py'
@@ -26,5 +28,7 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_scene_queue_settings_ui_20261021.py' -v
       - name: Validate safe web-only Scene manual Start recovery
         run: python3 -m unittest tests.test_scene_manual_start_web_release_20261026 -v
+      - name: Verify web-only cancelled-project Delete and Start isolation
+        run: python3 -m unittest tests.test_scene_cancelled_delete_web_release_20261026 -v
       - name: Scene completed MP4 preview/download contracts and real Node UI behavior
         run: python3 -m unittest discover -s tests -p 'test_scene_completed_video_actions_20261021.py' -v
