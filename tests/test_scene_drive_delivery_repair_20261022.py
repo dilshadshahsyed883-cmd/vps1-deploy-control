@@ -26,6 +26,28 @@ class SceneDriveDeliveryTests(unittest.TestCase):
         self.assertIn('else ["rclone", "copyto", str(output_file)', WORKER)
         self.assertIn('"--immutable"', WORKER)
 
+    def test_numbered_drive_duplicates_do_not_replace_prior_output(self):
+        tree = ast.parse(WORKER)
+        named = {node.name: node for node in tree.body
+                 if isinstance(node, ast.FunctionDef)}
+        functions = ["safe_project_name", "drive_output_filename",
+                     "_numbered_drive_output_filename"]
+        module = ast.Module(body=[named[name] for name in functions], type_ignores=[])
+        namespace = {}
+        exec(compile(module, "<filename-functions>", "exec"), namespace)
+        filename = namespace["_numbered_drive_output_filename"]
+        self.assertEqual(filename("Alex_Eala_2min_SceneBuilder_40_Scenes", 1),
+                         "Alex_Eala_2min_SceneBuilder_40_Scenes.mp4")
+        self.assertEqual(filename("Alex_Eala_2min_SceneBuilder_40_Scenes", 2),
+                         "Alex_Eala_2min_SceneBuilder_40_Scenes_2.mp4")
+        self.assertEqual(filename("Alex_Eala_2min_SceneBuilder_40_Scenes", 3),
+                         "Alex_Eala_2min_SceneBuilder_40_Scenes_3.mp4")
+        self.assertIn("_drive_name_reserved(destination, job_id)", WORKER)
+        self.assertIn("with _drive_naming_lock:", WORKER)
+        self.assertIn("local file preserved:", WORKER)
+        self.assertIn("const labels=duplicateProjectLabels()", QUEUE)
+        self.assertIn("totals.get(name)>1", QUEUE)
+
     def test_unverified_mp4_cannot_be_swept(self):
         self.assertIn('safe = str(row.get("drive_status") or "") == "completed"', WORKER)
         self.assertIn('A failed Drive transfer must never delete the already-rendered MP4.', WORKER)
