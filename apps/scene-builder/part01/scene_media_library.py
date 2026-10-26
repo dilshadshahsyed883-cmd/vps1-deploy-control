@@ -128,6 +128,7 @@ class SceneMediaLibrary:
         ext = Path(name).suffix.casefold()
         kind = ALLOWED.get(ext)
         if not name or not kind:
+            await upload.close()
             raise InvalidMedia("Unsupported image/video filename or format")
         ident = uuid.uuid4().hex
         hasher = hashlib.sha256()
