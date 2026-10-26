@@ -31,6 +31,23 @@ def require(condition: bool, message: str) -> None:
         raise RuntimeError("SCENE_MANUAL_START_WEB_BLOCKED: " + message)
 
 
+def patch_manual_start(previous_policy: str) -> str:
+    """Add just the exact manual Start action to the preexisting recovery regex."""
+    existing = r"_PROJECT_RECOVERY = re.compile(r\"\\A/queue/[0-9a-f]{32}/(?:"
+    require(previous_policy.count(existing) == 1, "unknown previous recovery policy")
+    start = previous_policy.index(existing)
+    end = previous_policy.find(')\\Z")', start)
+    require(end != -1, "previous recovery policy has unexpected syntax")
+    prefix, actions = previous_policy[:start], previous_policy[start:end]
+    suffix = previous_policy[end:]
+    options = actions.split("(?:", 1)[1].split("|")
+    require(all(re.fullmatch(r"[a-z-]+", value) for value in options),
+            "previous recovery actions are not simple exact verbs")
+    if "start" in options:
+        return previous_policy
+    return prefix + actions.replace("(?:", "(?:start|", 1) + suffix
+
+
 def policy_allows(path: Path) -> bool:
     if not path.is_file() or path.is_symlink():
         return False
@@ -39,7 +56,6 @@ def policy_allows(path: Path) -> bool:
     prefix = "/queue/" + PROJECT
     return (
         allowed("POST", prefix + "/start", True)
-        and allowed("POST", prefix + "/delete", True)
         and not allowed("GET", prefix + "/start", True)
         and not allowed("POST", prefix + "/start", False)
         and not allowed("POST", "/queue/not-a-uuid/start", True)
@@ -96,9 +112,12 @@ def install(revision: str) -> None:
         destination = target / "part01/precutover_policy.py"
         require(destination.is_file() and not destination.is_symlink(),
                 "existing candidate policy is not a regular file")
-        # The immutable overlay differs in precisely one text source file.
+        # Preserve ALL existing candidate policy semantics, adding only Start.
+        # In particular, do not enable Delete when its worker is not current.
+        before = destination.read_text(encoding="utf-8")
+        patched = patch_manual_start(before)
         dst = destination.with_name(destination.name + ".new")
-        shutil.copyfile(POLICY_SOURCE, dst)
+        dst.write_text(patched, encoding="utf-8")
         os.chmod(dst, 0o644)
         os.replace(dst, destination)
         require(policy_allows(destination), "staged policy verification failed")
