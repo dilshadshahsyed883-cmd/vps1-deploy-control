@@ -241,15 +241,17 @@ def erase(root, conn, kind, ids, now):
         # The affected clip rows no longer exist. Reconcile from the surviving
         # original pair IDs without relying on deleted catalog rows.
         for sid in affected_sources:
-            reconcile_source_pairs(conn, sid)
+            reconcile_source_pairs(conn, sid, ids)
 
 
-def reconcile_source_pairs(conn, source_id):
+def reconcile_source_pairs(conn, source_id, changed_ids):
     review = conn.execute('SELECT state FROM local_reviews WHERE source_id=?', (source_id,)).fetchone()
     if not review or review['state'] == 'cleaned':
         return
     for pair in conn.execute('SELECT pair_index,ids_json FROM local_pairs WHERE source_id=?', (source_id,)).fetchall():
         members = json.loads(pair['ids_json'])
+        if not any(ident in changed_ids for ident in members):
+            continue
         live = [
             ident for ident in members
             if (row := conn.execute('SELECT deleted_at FROM clips WHERE id=?', (ident,)).fetchone())
