@@ -1,0 +1,32 @@
+name: VPS1 required offline pilot checks (NO VPS)
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  offline-pilot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run real offline builder, deployment-simulation, and caption regression tests
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python -m unittest rebuild.tests.test_builder rebuild.tests.test_deploy_control rebuild.tests.test_scene_caption_word_spotlight -v
+      - name: Assert no production deployment or Auto Script activation
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          state = json.loads(Path("rebuild/groups.json").read_text())
+          assert state["production_deploy_enabled"] is False
+          assert state["fresh_install_enabled"] is False
+          assert state["offline_applications"] == ["auto-script"]
+          print("PASS: offline pilot only; production untouched")
+          PY

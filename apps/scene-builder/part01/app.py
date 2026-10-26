@@ -153,6 +153,8 @@ CAPTION_STYLE_PRESETS: dict[str, dict[str, Any]] = {
     "bold": {"label": "Bold Impact", "karaoke": False, "bold": True, "background": False, "outline": 4, "shadow": True},
     "documentary": {"label": "Documentary", "karaoke": False, "bold": True, "background": True, "outline": 2, "shadow": True},
     "social_pop": {"label": "Social Pop", "karaoke": True, "bold": True, "background": False, "outline": 4, "shadow": True},
+    "word_highlight": {"label": "Word Spotlight · Custom Color", "karaoke": True, "bold": True, "background": False, "outline": 3, "shadow": True},
+    "hormozi_purple": {"label": "Hormozi · Purple Word Highlight", "karaoke": True, "bold": True, "background": False, "outline": 3, "shadow": True},
 }
 
 SCENE_PRESETS: dict[str, dict[str, Any]] = {
