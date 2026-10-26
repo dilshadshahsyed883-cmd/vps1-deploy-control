@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 
 repo = Path(__file__).resolve().parents[2]
-stage = repo / "build" / "sml_desktop" / "stage"
+stage = repo / "desktop" / "sml" / ".build_stage"
 sys.path.insert(0, str(stage))
 os.environ["SML_DATA_ROOT"] = tempfile.mkdtemp(prefix="sml-desktop-smoke-")
 os.environ["SML_AI_WORKER"] = "0"
