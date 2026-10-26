@@ -62,7 +62,7 @@ jobs:
           if (-not $ffmpeg -or -not $ffprobe) { throw 'FFmpeg packaging tools missing' }
           Write-Host "Bundling FFmpeg:" $ffmpeg.FullName
           Write-Host "Bundling FFprobe:" $ffprobe.FullName
-          python -m PyInstaller --clean --noconfirm --onedir --windowed --name SML_Desktop --paths "$stage" --add-data "$stage/static;static" --add-binary "$($ffmpeg.FullName);." --add-binary "$($ffprobe.FullName);." --collect-all onnxruntime --collect-all faster_whisper --collect-all tokenizers --collect-all webview --hidden-import app --hidden-import ai_workspace --hidden-import ai_engine --hidden-import ai_text --hidden-import face_people --hidden-import manual_people --hidden-import local_library --hidden-import media_extensions --hidden-import media_catalog --hidden-import media_integrity --hidden-import video_merger_downloader --hidden-import sml_proxy_profiles --hidden-import duplicate_review --hidden-import fcntl desktop/sml/windows_entry.py
+          python -m PyInstaller --clean --noconfirm --onedir --windowed --name SML_Desktop --paths "$stage" --add-data "$stage/static;static" --add-binary "$($ffmpeg.FullName);." --add-binary "$($ffprobe.FullName);." --collect-all onnxruntime --collect-all faster_whisper --collect-all tokenizers --collect-all webview --collect-all yt_dlp --hidden-import app --hidden-import ai_workspace --hidden-import ai_engine --hidden-import ai_text --hidden-import face_people --hidden-import manual_people --hidden-import local_library --hidden-import media_extensions --hidden-import media_catalog --hidden-import media_integrity --hidden-import video_merger_downloader --hidden-import sml_proxy_profiles --hidden-import duplicate_review --hidden-import fcntl desktop/sml/windows_entry.py
           if ($LASTEXITCODE -ne 0) { throw 'Windows EXE build failed' }
           Copy-Item desktop/sml/README.md dist/SML_Desktop/README.md
           @'
@@ -71,6 +71,10 @@ jobs:
           start "" "%~dp0SML_Desktop.exe" --choose-data
           '@ | Set-Content -Encoding ascii dist/SML_Desktop/CHANGE_DATA_FOLDER.bat
           if (-not (Test-Path dist/SML_Desktop/SML_Desktop.exe)) { throw 'Desktop exe missing' }
+          $env:SML_DESKTOP_DATA_ROOT = Join-Path $env:GITHUB_WORKSPACE "build/selftest-user-data"
+          & "dist/SML_Desktop/SML_Desktop.exe" --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged EXE self-test failed' }
+          if (-not (Test-Path "$env:SML_DESKTOP_DATA_ROOT/packaged-self-test.json")) { throw 'Packaged EXE did not start correctly' }
           Compress-Archive -Path dist/SML_Desktop -DestinationPath dist/SML-Desktop-Windows.zip -Force
       - uses: actions/upload-artifact@v4
         with:
