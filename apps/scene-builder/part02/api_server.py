@@ -17,6 +17,7 @@ import time
 import traceback
 import uuid
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from contextvars import ContextVar
@@ -113,6 +114,8 @@ DRIVE_VERIFY_HASH = os.getenv("DRIVE_VERIFY_HASH", "1").strip().lower() not in {
 # each heavy resource keeps its own explicit capacity. Defaults are conservative for
 # a 4-vCore / 8-GB CPU VPS and can be tuned without changing code.
 PIPELINE_WORKERS = env_capacity("PIPELINE_WORKERS", 3)
+# I/O-only stock searches per project; never more than five simultaneous lookups.
+SCENE_MEDIA_SEARCH_WORKERS = min(5, env_capacity("SCENE_MEDIA_SEARCH_WORKERS", 5))
 AUTO_CLEAN_MEDIA_AFTER_RENDER = os.getenv("AUTO_CLEAN_MEDIA_AFTER_RENDER", "1").strip().lower() not in {"0","false","no","off"}
 COMPRESSOR_ENABLED = os.getenv("COMPRESSOR_ENABLED", "0").strip().lower() in {"1","true","yes","on"}
 COMPRESS_CRF = max(18, min(32, int(os.getenv("COMPRESS_CRF", "25"))))
@@ -973,6 +976,7 @@ def _download_scene_candidate(
     target_width: int = 1280,
     target_height: int = 720,
     used_authors: set[str] | None = None,
+    prefetched_search: tuple[list[dict[str, Any]], str] | None = None,
 ) -> tuple[dict[str, Any] | None, str]:
     errors: list[str] = []
     credentials = {"pexels": list(_current_pexels_keys()), "pixabay": []}
@@ -1041,20 +1045,21 @@ def _download_scene_candidate(
         except Exception as exc:
             errors.append(f"cached {keyword}: {exc}")
 
-    try:
-        candidates = search_multi_provider(
-            keyword,
-            requested_type,
-            credentials,
-            ["pexels"],
-            per_provider=search_pool,
-            target_width=target_width,
-            target_height=target_height,
-            prefer_landscape=prefer_landscape,
-            preserve_provider_order=selection_mode in {"first_result", "popularity", "top_n_random"},
-        )
-    except Exception as exc:
-        return None, f"{keyword}: search failed: {exc}"
+    if prefetched_search is not None:
+        candidates, search_error = prefetched_search
+        if search_error:
+            return None, f"{keyword}: search failed: {search_error}"
+    else:
+        try:
+            candidates = search_multi_provider(
+                keyword, requested_type, credentials, ["pexels"],
+                per_provider=search_pool,
+                target_width=target_width, target_height=target_height,
+                prefer_landscape=prefer_landscape,
+                preserve_provider_order=selection_mode in {"first_result", "popularity", "top_n_random"},
+            )
+        except Exception as exc:
+            return None, f"{keyword}: search failed: {exc}"
 
     ranked: list[dict[str, Any]] = []
     for provider_index, candidate in enumerate(candidates):
@@ -1213,6 +1218,7 @@ def _try_sml_first_scene(
     source_root: Path,
     used_sml_ids: set[str],
     used_hashes: set[str],
+    prefetched_ranked: tuple[str, str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any] | None:
     """Use approved SML clips AND images before Pexels, with reservations.
 
@@ -1225,7 +1231,9 @@ def _try_sml_first_scene(
     for kind in _sml_media_type_order(scene):
         for query in keywords[:4]:
             try:
-                if kind == "video":
+                if prefetched_ranked is not None and prefetched_ranked[:2] == (kind, query):
+                    candidates = prefetched_ranked[2]
+                elif kind == "video":
                     candidates = client.ranked(query, used_ids=used_sml_ids)
                 else:
                     candidates = client.ranked(query, used_ids=used_sml_ids, media_type=kind)
@@ -1233,6 +1241,8 @@ def _try_sml_first_scene(
                 continue
             for candidate in candidates[:12]:
                 media_id = str(candidate["id"])
+                if media_id in used_sml_ids:
+                    continue
                 reservation = None
                 suffix = ".mp4"
                 if kind == "image":
@@ -1311,6 +1321,87 @@ def _try_sml_first_scene(
     return None
 
 
+def _prefetch_first_scene_lookup(
+    scene: dict[str, Any],
+    source: str,
+    kind: str,
+    keyword: str,
+    target_width: int,
+    target_height: int,
+) -> tuple[str, str, str, list[dict[str, Any]], str]:
+    """Read-only I/O search. Do not reserve/download or touch shared used-media sets."""
+    try:
+        if source == "sml":
+            rows = SMLWorkerClient().ranked(keyword, used_ids=set(), media_type=kind)
+        else:
+            selection_mode = str(scene.get("pexels_selection_mode") or "best_match_variety").strip().lower()
+            rows = search_multi_provider(
+                keyword, kind, {"pexels": list(_current_pexels_keys()), "pixabay": []},
+                ["pexels"],
+                per_provider=max(1, min(40, int(scene.get("pexels_search_pool") or 10))),
+                target_width=target_width, target_height=target_height,
+                prefer_landscape=bool(scene.get("pexels_prefer_landscape", True)),
+                preserve_provider_order=selection_mode in {"first_result", "popularity", "top_n_random"},
+            )
+        return source, kind, keyword, rows, ""
+    except Exception as exc:
+        # Never surface credentials or SML tokens in search status/error telemetry.
+        return source, kind, keyword, [], type(exc).__name__
+
+
+def _parallel_scene_queries(
+    job_id: str,
+    scenes: list[dict[str, Any]],
+    sml_client: SMLWorkerClient,
+    target_width: int,
+    target_height: int,
+):
+    """Prefetch up to five SML/Pexels lookups while yielding results in scene order.
+
+    Bounded batches prevent unbounded requests; only lookup I/O is parallel.
+    Media downloads, SML reservations, deduplication and approved-media copying
+    remain serialized in the existing scene resolver.
+    """
+    with ThreadPoolExecutor(max_workers=SCENE_MEDIA_SEARCH_WORKERS, thread_name_prefix="scene-media-search") as pool:
+        for start in range(0, len(scenes), SCENE_MEDIA_SEARCH_WORKERS):
+            if cancelled(job_id):
+                raise RuntimeError("Remote render cancelled.")
+            end = min(start + SCENE_MEDIA_SEARCH_WORKERS, len(scenes))
+            futures = {}
+            for index in range(start, end):
+                scene = scenes[index]
+                if (bool(scene.get("review_approved")) and bool(scene.get("review_locked"))
+                        and Path(str(scene.get("media_path") or "")).is_file()):
+                    continue
+                if index and should_continue_previous_visual(_scene_duration(scene)):
+                    continue
+                keywords = _scene_keywords(scene) or ["documentary background"]
+                if bool(scene.get("_sml_first")) and sml_client.enabled:
+                    kinds = _sml_media_type_order(scene)
+                    if not kinds:
+                        continue
+                    source, kind = "sml", kinds[0]
+                elif bool(scene.get("pexels_enabled", True)):
+                    source, kind = "pexels", _scene_media_type_order(scene)[0]
+                else:
+                    continue
+                futures[index] = pool.submit(
+                    _prefetch_first_scene_lookup, scene, source, kind,
+                    keywords[0], target_width, target_height,
+                )
+            if futures:
+                update_job(
+                    job_id, status="downloading_media", stage="Media Search",
+                    progress=15 + int(start / max(1, len(scenes)) * 20),
+                    message=f"Searching {len(futures)} scenes in parallel (max {SCENE_MEDIA_SEARCH_WORKERS})",
+                )
+            for index in range(start, end):
+                if cancelled(job_id):
+                    raise RuntimeError("Remote render cancelled.")
+                lookup = futures[index].result() if index in futures else None
+                yield index, scenes[index], lookup
+
+
 def _resolve_scene_stock_media(
     job_id: str,
     scenes: list[dict[str, Any]],
@@ -1353,7 +1444,7 @@ def _resolve_scene_stock_media(
     if has_sml_first or has_sml_fallback:
         sml_source_root.mkdir(parents=True, exist_ok=True)
 
-    for index, original_scene in enumerate(scenes):
+    for index, original_scene, batch_lookup in _parallel_scene_queries(job_id, scenes, sml_client, target_width, target_height):
         if cancelled(job_id):
             raise RuntimeError("Remote render cancelled.")
         scene = dict(original_scene)
@@ -1446,6 +1537,11 @@ def _resolve_scene_stock_media(
                 scene_code=scene_code, keywords=keywords,
                 assignment_root=assignment_root, source_root=sml_source_root,
                 used_sml_ids=used_sml_ids, used_hashes=used_hashes,
+                prefetched_ranked=(
+                    (batch_lookup[1], batch_lookup[2], batch_lookup[3])
+                    if batch_lookup is not None and batch_lookup[0] == "sml" and not batch_lookup[4]
+                    else None
+                ),
             )
             if matched is not None:
                 used_asset_ids.add(f"sml:{matched['asset_id']}")
@@ -1481,6 +1577,11 @@ def _resolve_scene_stock_media(
                     target_width=target_width,
                     target_height=target_height,
                     used_authors=used_authors,
+                    prefetched_search=(
+                        (batch_lookup[3], batch_lookup[4])
+                        if batch_lookup is not None and batch_lookup[:3] == ("pexels", requested_type, keyword)
+                        else None
+                    ),
                 )
                 if resolved is not None:
                     break
