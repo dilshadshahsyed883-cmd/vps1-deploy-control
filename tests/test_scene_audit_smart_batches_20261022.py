@@ -69,11 +69,13 @@ class SmartAuditBatchTests(unittest.TestCase):
     def test_existing_project_review_actions_survive_lazy_batch_ui(self):
         for symbol in ('id="audit-approve-all"', 'id="audit-continue"',
                        'id="audit-approve-batch"', 'id="audit-batch-next"',
-                       'id="audit-batch-previous"', 'data-action="sml"',
+                       'id="audit-batch-previous"', 'data-action="scene-local"',
                        'data-action="keyword"', 'data-action="replace"',
                        'data-action="upload"', 'data-action="approve"',
-                       '/sml-select', '/sml-auto-match', '/approve-all', '/continue'):
+                       '/scene-library-select', '/scene-library-auto-match', '/approve-all', '/continue'):
             self.assertIn(symbol, UI)
+        self.assertNotIn('data-action="sml"', UI)
+        self.assertNotIn('/sml-select', UI)
         self.assertIn('const included=new Set(current.item_ids||[])', UI)
         self.assertIn('grid.innerHTML=items.map(card).join', UI)
         self.assertIn("audit.batches", UI)
