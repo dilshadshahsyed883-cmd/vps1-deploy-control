@@ -165,7 +165,7 @@
   </section>
 
   <section class="sb-tab-panel" data-panel="captions">
-    <div class="sb-section-head"><div><h3>Caption system</h3><p>Whisper remains authoritative for caption words and timing.</p></div></div>
+    <div class="sb-section-head"><div><h3>Caption system</h3><p>Whisper word timestamps drive karaoke. Word Spotlight highlights only the current word; old captions use estimated timing.</p></div></div>
     <div class="sb-caption-layout">
       <div class="sb-control-grid one-column">
         <label><span><strong>Automatic captions</strong><small>May be disabled without breaking visual timing in v10.</small></span><span class="pro-switch"><input id="captions-enabled" type="checkbox" name="captions_enabled" {% if captions_enabled %}checked{% endif %}><i></i></span></label>
@@ -519,6 +519,7 @@
   const demo=document.getElementById('caption-demo');
   const previewStage=document.getElementById('caption-preview-stage');
   const hexRgba=(hex,opacity)=>{const value=String(hex||'#000000').replace('#','');const r=parseInt(value.slice(0,2),16),g=parseInt(value.slice(2,4),16),b=parseInt(value.slice(4,6),16);return `rgba(${r},${g},${b},${Math.max(0,Math.min(1,opacity))})`;};
+  let captionPreviewWordIndex=0;
   async function captionPreview(){
     const enabled=document.getElementById('captions-enabled').checked;
     const count=Math.max(1,Math.min(5,Number(document.getElementById('caption-words').value||3)));
@@ -528,7 +529,7 @@
     const karaokeEnabled=document.getElementById('caption-karaoke-enabled').checked;
     const textColor=document.getElementById('caption-text').value;
     const highlightColor=document.getElementById('caption-highlight').value;
-    demo.innerHTML=words.slice(0,count).map((word,index)=>`<span style="color:${karaokeEnabled&&index===0?highlightColor:textColor}">${word}</span>`).join(' ');
+    demo.innerHTML=words.slice(0,count).map((word,index)=>`<span style="display:inline-block;transition:color .12s ease,transform .12s ease;color:${karaokeEnabled&&index===captionPreviewWordIndex%count?highlightColor:textColor};transform:scale(${karaokeEnabled&&index===captionPreviewWordIndex%count?'1.06':'1'})">${styleName==='hormozi_purple'?word.toUpperCase():word}</span>`).join(' ');
     demo.className='caption-style-'+styleName;
     const fontSelect=document.getElementById('caption-font');
     const family=fontSelect.options[fontSelect.selectedIndex].dataset.family;
@@ -555,6 +556,27 @@
     status.textContent='Loading '+family+'…';
     try{await document.fonts.load(`700 ${Math.max(12,rendererSize*stageScale)}px "${family}"`);status.textContent=family+' loaded';}catch(_){status.textContent=family;}
   }
+  document.getElementById('caption-style').addEventListener('change',()=>{
+    const chosen=document.getElementById('caption-style').value;
+    if(chosen==='word_highlight'||chosen==='hormozi_purple'){
+      document.getElementById('caption-karaoke-enabled').checked=true;
+      if(chosen==='hormozi_purple')document.getElementById('caption-highlight').value='#aa66ff';
+    }
+  });
+  window.setInterval(()=>{
+    if(document.hidden || !demo.isConnected)return;
+    const nodes=[...demo.querySelectorAll('span')];
+    if(!nodes.length)return;
+    const selected=document.getElementById('caption-karaoke-enabled').checked;
+    const highlight=document.getElementById('caption-highlight').value;
+    const base=document.getElementById('caption-text').value;
+    captionPreviewWordIndex=(captionPreviewWordIndex+1)%nodes.length;
+    nodes.forEach((node,index)=>{
+      const active=selected&&index===captionPreviewWordIndex;
+      node.style.color=active?highlight:base;
+      node.style.transform=active?'scale(1.06)':'scale(1)';
+    });
+  },850);
   ['captions-enabled','caption-karaoke-enabled','caption-words','caption-style','caption-font','caption-size','caption-position','caption-outline-width','caption-shadow','caption-opacity','caption-text','caption-outline','caption-highlight','caption-background'].forEach(id=>{const field=document.getElementById(id);field.addEventListener('input',captionPreview);field.addEventListener('change',captionPreview);});
   new ResizeObserver(captionPreview).observe(previewStage);
   captionPreview();
