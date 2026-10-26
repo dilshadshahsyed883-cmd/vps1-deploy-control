@@ -230,38 +230,45 @@ async function uploadFiles(files){
 
 const processedFiles=$('#processedClipFiles'), processedDrop=$('#processedDropPanel');
 $('#chooseProcessed').onclick=()=>processedFiles.click();
-processedFiles.onchange=()=>uploadProcessedClips(Array.from(processedFiles.files||[]));
+processedFiles.onchange=()=>uploadProcessedMedia(Array.from(processedFiles.files||[]));
 ['dragenter','dragover'].forEach(ev=>processedDrop.addEventListener(ev,e=>{e.preventDefault();processedDrop.classList.add('drag')}));
 ['dragleave','drop'].forEach(ev=>processedDrop.addEventListener(ev,e=>{e.preventDefault();processedDrop.classList.remove('drag')}));
-processedDrop.addEventListener('drop',e=>{e.preventDefault();uploadProcessedClips(Array.from(e.dataTransfer?.files||[]))});
-async function uploadProcessedClips(files){
+processedDrop.addEventListener('drop',e=>{e.preventDefault();uploadProcessedMedia(Array.from(e.dataTransfer?.files||[]))});
+async function uploadProcessedMedia(files){
   if(!files.length)return;
   const button=$('#chooseProcessed'), status=$('#processedUploadResult');
-  const allowed=/\.(mp4|mov|mkv|webm|m4v|avi)$/i;
-  let success=0,duplicates=0,failed=0;
+  const video=/\.(mp4|mov|mkv|webm|m4v|avi)$/i;
+  const image=/\.(jpg|jpeg|png|webp)$/i;
+  let success=0,videoSaved=0,imageSaved=0,duplicates=0,failed=0,lastError='';
   button.disabled=true;
   try{
     for(let i=0;i<files.length;i++){
-      const file=files[i];
-      if(!allowed.test(file.name)){failed++;continue;}
+      const file=files[i], isVideo=video.test(file.name), isImage=image.test(file.name);
+      if(!isVideo&&!isImage){failed++;lastError='Unsupported media format: '+file.name;continue;}
       button.textContent='Saving '+(i+1)+'/'+files.length;
       status.textContent='Saving '+(i+1)+'/'+files.length+': '+file.name;
       const data=new FormData();data.append('file',file);
       try{
-        const saved=await api('/api/clips/processed/upload',{method:'POST',body:data});
-        if(saved.duplicate)duplicates++;else success++;
-      }catch(e){failed++;status.textContent='Failed '+file.name+': '+e.message;}
+        const saved=isVideo
+          ?await api('/api/clips/processed/upload',{method:'POST',body:data})
+          :await api('/api/v1/images/processed/upload',{method:'POST',body:data});
+        if(saved.duplicate)duplicates++;
+        else{success++;if(isVideo)videoSaved++;else imageSaved++;}
+      }catch(e){failed++;lastError=file.name+': '+e.message;}
     }
-    const summary=success+' saved and automatically approved · '+duplicates+' duplicates skipped · '+failed+' failed';
-    status.textContent=summary;toast(summary);
+    const summary=videoSaved+' videos + '+imageSaved+' images saved, automatically approved and ready for Scene Builder · '+duplicates+' duplicates skipped · '+failed+' failed';
+    status.textContent=summary+(lastError?' · Last error: '+lastError:'');
+    toast(summary);
     if(success){
       $('#statusFilter').value='approved';
+      $('#imageStatus').value='approved';
       $('#clipSearch').value='';$('#clipOrientation').value='all';$('#sortFilter').value='newest';
+      $('#imageSearch').value='';$('#imageOrientation').value='all';
       await loadDashboard();
-      await loadClips(true);
       gotoPage('library');
+      setLibraryMediaTab(videoSaved?'videos':'images');
     }
-  }finally{button.disabled=false;button.textContent='Choose processed clips';processedFiles.value='';}
+  }finally{button.disabled=false;button.textContent='Choose processed media';processedFiles.value='';}
 }
 
 $('#refreshSources').onclick=loadSources; $('#refreshProcessing').onclick=loadSources;
