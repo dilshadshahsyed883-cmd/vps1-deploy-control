@@ -812,7 +812,15 @@ def render_mixed_media(settings:Any,progress_callback:Progress=None,cancel_callb
                 getattr(settings,'canvas_fill_color','#101018'),
             )
             chains.extend(canvas_chains)
-            base=('hflip,' if global_index in mirror_indices and not is_image else '') + _motion(scene,w,h,fps,max(.05,input_need),is_image)+','+lut_chain+','+scene_filter_chain+','+_effect(str(scene.get('effect','none')),float(scene.get('effect_intensity',.35)))+','+quality_chain+(f',setpts=PTS/{speed:.6f}' if not is_image else '')
+            # An explicitly selected CapCut animation replaces, rather than
+            # stacks onto, an automatically selected legacy pan/zoom motion.
+            active_effect = str(scene.get('capcut_animation_effect',
+                                          getattr(settings,'capcut_animation_effect','none')))
+            active_target = str(scene.get('capcut_animation_target',
+                                          getattr(settings,'capcut_animation_target','both')))
+            active_for_media = active_target == 'both' or (is_image and active_target == 'images') or (not is_image and active_target == 'videos')
+            motion_scene = dict(scene, motion='none') if active_effect != 'none' and active_for_media else scene
+            base=('hflip,' if global_index in mirror_indices and not is_image else '') + _motion(motion_scene,w,h,fps,max(.05,input_need),is_image)+','+lut_chain+','+scene_filter_chain+','+_effect(str(scene.get('effect','none')),float(scene.get('effect_intensity',.35)))+','+quality_chain+(f',setpts=PTS/{speed:.6f}' if not is_image else '')
             prepared=f'[capcutbase{local_index}]'
             chains.append(f'{canvas_source}{base}{prepared}')
             zoom_chains,zoom_source=_capcut_zoom_chains(
