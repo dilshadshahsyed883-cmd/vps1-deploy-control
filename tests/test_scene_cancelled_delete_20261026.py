@@ -109,10 +109,18 @@ class SceneCancelDeleteTests(unittest.TestCase):
         policy = {}
         exec(compile(POLICY, "policy", "exec"), policy)
         uri = "/queue/" + "a"*32 + "/delete"
+        manual_start = "/queue/" + "a"*32 + "/start"
         self.assertTrue(policy["mutation_allowed"]("POST", uri, True))
         self.assertFalse(policy["mutation_allowed"]("POST", uri, False))
         self.assertFalse(policy["mutation_allowed"]("GET", uri, True))
         self.assertFalse(policy["mutation_allowed"]("POST", "/queue/invalid/delete", True))
+        self.assertTrue(policy["mutation_allowed"]("POST", manual_start, True))
+        self.assertFalse(policy["mutation_allowed"]("POST", manual_start, False))
+        self.assertFalse(policy["mutation_allowed"]("GET", manual_start, True))
+        self.assertFalse(policy["mutation_allowed"]("POST", manual_start + "/extra", True))
+        self.assertIn('@app.post("/queue/{job_id}/start")', WEB)
+        self.assertIn('worker_request("POST", f"/jobs/{job_id}/start")', WEB)
+        self.assertIn('require_job_access(request, job_id)\n    worker_request("POST", f"/jobs/{job_id}/start")', WEB)
 
 
 if __name__ == "__main__":
