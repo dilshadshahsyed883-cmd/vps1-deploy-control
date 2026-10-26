@@ -1,0 +1,29 @@
+name: Scene Builder local Media Library checks
+on:
+  pull_request:
+    paths:
+      - 'apps/scene-builder/part01/app.py'
+      - 'apps/scene-builder/part01/scene_media_library.py'
+      - 'apps/scene-builder/part01/templates/base.html'
+      - 'apps/scene-builder/part01/templates/settings.html'
+      - 'apps/scene-builder/part01/templates/audit_media.html'
+      - 'apps/scene-builder/part01/templates/scene_media_library.html'
+      - 'tests/test_scene_local_media_library_20261027.py'
+      - '.github/workflows/vps1-scene-local-media-library-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  scene-local-media-library:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install jinja2
+      - name: Local catalog, audit UI and Stock Media regression tests
+        run: python -m unittest discover -s tests -p 'test_scene_local_media_library_20261027.py' -v
+      - name: Existing SML settings compatibility
+        run: python -m unittest discover -s tests -p 'test_scene_sml_settings.py' -v
