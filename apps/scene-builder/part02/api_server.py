@@ -5601,7 +5601,7 @@ def _delete_cancelled_drive_output(current: dict[str, Any], project_dir: Path) -
                      and _safe_drive_channel(parts[0]) == parts[0])
     default_name = drive_output_filename(str(current.get("project_name") or ""))
     matching_name = (output_name == default_name or bool(re.fullmatch(
-        re.escape(default_name[:-4]) + r"_[2-9][0-9]*\\.mp4", output_name
+        re.escape(default_name[:-4]) + r"_[2-9][0-9]*\.mp4", output_name
     )))
     if (not output_name or "/" in output_name or "\\" in output_name
             or not matching_name or not (len(parts) == 1 or valid_channel)
