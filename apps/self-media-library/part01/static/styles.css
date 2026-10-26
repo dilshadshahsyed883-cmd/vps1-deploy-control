@@ -53,3 +53,25 @@ button,input,select{font:inherit} button{cursor:pointer}.hidden{display:none!imp
   #imageBulkBar button{flex:0 1 auto}
   #imageCountSummary{font-size:.85rem}
 }
+
+
+/* Scoped SML owner library wipe (2026-10-26). */
+.sml-top-actions { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }
+#openCleanLibrary { border:1px solid #e99a9a; background:transparent; color:#e97575; font-weight:650; }
+#openCleanLibrary:hover, #openCleanLibrary:focus-visible { border-color:#dc5757; background:rgba(220,87,87,.11); }
+.sml-clean-dialog { width:min(620px,calc(100vw - 32px)); max-height:85vh; overflow-y:auto; text-align:left; }
+.sml-clean-heading { display:flex; align-items:flex-start; gap:14px; }
+.sml-clean-heading h3 { margin:0 0 5px; }
+.sml-clean-heading p { margin:0; font-size:13px; }
+.sml-clean-warning { width:34px; height:34px; flex:0 0 34px; border-radius:50%; display:grid; place-items:center; background:#8c2525; color:#fff; font-weight:800; }
+.sml-clean-caution { margin:14px 0; font-size:14px; line-height:1.55; }
+.sml-clean-ack { display:flex; align-items:flex-start; gap:10px; margin:14px 0; cursor:pointer; }
+.sml-clean-ack input { width:18px; height:18px; flex:0 0 18px; }
+.sml-clean-label { display:block; margin:12px 0 6px; font-size:14px; }
+#cleanLibraryPhrase { display:block; width:100%; box-sizing:border-box; }
+#cleanLibrarySummary { padding:12px; border:1px solid var(--border,#39465a); border-radius:10px; line-height:1.6; }
+.sml-clean-blockers:not(:empty) { color:#e27070; font-weight:600; }
+.sml-clean-confirm { padding:11px 16px; border-radius:9px; border:1px solid #a63d3d; background:#ba3b3b; color:#fff; font-weight:700; cursor:pointer; }
+.sml-clean-confirm:disabled { cursor:not-allowed; opacity:.4; }
+#cleanLibraryStatus:not(:empty) { margin-top:12px; font-weight:650; }
+@media(max-width:640px) { .sml-top-actions { width:100%; justify-content:flex-start; } .sml-top-actions button { flex:1; min-width:125px; } }
