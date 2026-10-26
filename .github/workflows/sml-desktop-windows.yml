@@ -49,20 +49,20 @@ jobs:
       - name: Compile sources and smoke-test backend
         shell: pwsh
         run: |
-          python -m compileall -q build/sml_desktop/stage desktop/sml
+          python -m compileall -q desktop/sml/.build_stage desktop/sml
           python desktop/sml/smoke.py
       - name: Package native Windows desktop app
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $stage = (Resolve-Path build/sml_desktop/stage).Path
+          $stage = (Resolve-Path desktop/sml/.build_stage).Path
           $ffdir = "$env:ChocolateyInstall\lib\ffmpeg\tools"
           $ffmpeg = Get-ChildItem $ffdir -Filter ffmpeg.exe -Recurse | Select-Object -First 1
           $ffprobe = Get-ChildItem $ffdir -Filter ffprobe.exe -Recurse | Select-Object -First 1
           if (-not $ffmpeg -or -not $ffprobe) { throw 'FFmpeg packaging tools missing' }
           Write-Host "Bundling FFmpeg:" $ffmpeg.FullName
           Write-Host "Bundling FFprobe:" $ffprobe.FullName
-          python -m PyInstaller --clean --noconfirm --onedir --windowed --name SML_Desktop --paths "$stage" --add-data "$stage/static;static" --add-binary "$($ffmpeg.FullName);." --add-binary "$($ffprobe.FullName);." --collect-all onnxruntime --collect-all faster_whisper --collect-all tokenizers --collect-all webview --collect-all yt_dlp --hidden-import app --hidden-import ai_workspace --hidden-import ai_engine --hidden-import ai_text --hidden-import face_people --hidden-import manual_people --hidden-import local_library --hidden-import media_extensions --hidden-import media_catalog --hidden-import media_integrity --hidden-import video_merger_downloader --hidden-import sml_proxy_profiles --hidden-import duplicate_review --hidden-import fcntl desktop/sml/windows_entry.py
+          python -m PyInstaller --workpath "$env:RUNNER_TEMP/SML_PYINSTALLER_WORK" --specpath "$env:RUNNER_TEMP" --clean --noconfirm --onedir --windowed --name SML_Desktop --paths "$stage" --add-data "$stage/static;static" --add-binary "$($ffmpeg.FullName);." --add-binary "$($ffprobe.FullName);." --collect-all onnxruntime --collect-all faster_whisper --collect-all tokenizers --collect-all webview --collect-all yt_dlp --hidden-import app --hidden-import ai_workspace --hidden-import ai_engine --hidden-import ai_text --hidden-import face_people --hidden-import manual_people --hidden-import local_library --hidden-import media_extensions --hidden-import media_catalog --hidden-import media_integrity --hidden-import video_merger_downloader --hidden-import sml_proxy_profiles --hidden-import duplicate_review --hidden-import fcntl desktop/sml/windows_entry.py
           if ($LASTEXITCODE -ne 0) { throw 'Windows EXE build failed' }
           Copy-Item desktop/sml/README.md dist/SML_Desktop/README.md
           @'
