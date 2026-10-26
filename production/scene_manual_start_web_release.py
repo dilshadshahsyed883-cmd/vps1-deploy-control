@@ -102,6 +102,11 @@ def install(revision: str) -> None:
             "existing web lacks owner-checked Start route")
     target = RELEASES / (revision + "-start-policy-only")
     journal = TRANSACTIONS / revision
+    if old == target:
+        require(policy_allows(target / "part01/precutover_policy.py"),
+                "installed web-only policy missing Start action")
+        print("SCENE_MANUAL_START_WEB=PASS_ALREADY_INSTALLED WORKER=UNTOUCHED", flush=True)
+        return
     require(not target.exists() and not target.is_symlink(), "release target already exists")
     require(not journal.exists(), "release transaction already exists")
     changed = False
