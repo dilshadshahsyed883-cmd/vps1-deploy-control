@@ -116,6 +116,9 @@ DRIVE_VERIFY_HASH = os.getenv("DRIVE_VERIFY_HASH", "1").strip().lower() not in {
 PIPELINE_WORKERS = env_capacity("PIPELINE_WORKERS", 3)
 # I/O-only stock searches per project; never more than five simultaneous lookups.
 SCENE_MEDIA_SEARCH_WORKERS = min(5, env_capacity("SCENE_MEDIA_SEARCH_WORKERS", 5))
+# Global cap for concurrent project-owned authenticated SML transfers.
+SCENE_SML_DOWNLOAD_WORKERS = min(5, env_capacity("SCENE_SML_DOWNLOAD_WORKERS", 5))
+_SML_DOWNLOAD_SLOTS = threading.BoundedSemaphore(SCENE_SML_DOWNLOAD_WORKERS)
 AUTO_CLEAN_MEDIA_AFTER_RENDER = os.getenv("AUTO_CLEAN_MEDIA_AFTER_RENDER", "1").strip().lower() not in {"0","false","no","off"}
 COMPRESSOR_ENABLED = os.getenv("COMPRESSOR_ENABLED", "0").strip().lower() in {"1","true","yes","on"}
 COMPRESS_CRF = max(18, min(32, int(os.getenv("COMPRESS_CRF", "25"))))
@@ -1207,6 +1210,59 @@ def _sml_media_type_order(scene: dict[str, Any]) -> list[str]:
     return [kind for kind in order if bool(scene.get("pexels_allow_" + kind, True))]
 
 
+
+class _SMLParallelReservations:
+    """Protect SML asset IDs and source hashes across concurrent scene transfers.
+
+    The reservation RPC is deliberately serialized; network downloads and
+    checksum verification run in parallel. No ID/hash becomes permanently used
+    until the remote reservation commit succeeds.
+    """
+
+    def __init__(self, used_ids: set[str], used_hashes: set[str]):
+        self.lock = threading.RLock()
+        self.used_ids = used_ids
+        self.used_hashes = used_hashes
+        self.pending_ids: set[str] = set()
+        self.pending_hashes: set[str] = set()
+
+    def used_snapshot(self) -> set[str]:
+        with self.lock:
+            return set(self.used_ids) | set(self.pending_ids)
+
+    def reserve(self, client: SMLWorkerClient, job_id: str, scene_code: str,
+                media_id: str, kind: str) -> str | None:
+        with self.lock:
+            excluded = self.used_ids | self.pending_ids
+            if media_id in excluded:
+                return None
+            reservation = client.reserve(
+                job_id, scene_code, media_id, set(excluded), media_type=kind)
+            if reservation:
+                self.pending_ids.add(media_id)
+            return reservation
+
+    def hold_hash(self, digest: str) -> bool:
+        with self.lock:
+            if digest in self.used_hashes or digest in self.pending_hashes:
+                return False
+            self.pending_hashes.add(digest)
+            return True
+
+    def commit(self, media_id: str, digest: str) -> None:
+        with self.lock:
+            self.used_ids.add(media_id)
+            self.used_hashes.add(digest)
+            self.pending_ids.discard(media_id)
+            self.pending_hashes.discard(digest)
+
+    def release(self, media_id: str, digest: str = "") -> None:
+        with self.lock:
+            self.pending_ids.discard(media_id)
+            if digest:
+                self.pending_hashes.discard(digest)
+
+
 def _try_sml_first_scene(
     *,
     client: SMLWorkerClient,
@@ -1219,6 +1275,7 @@ def _try_sml_first_scene(
     used_sml_ids: set[str],
     used_hashes: set[str],
     prefetched_ranked: tuple[str, str, list[dict[str, Any]]] | None = None,
+    coordinator: _SMLParallelReservations | None = None,
 ) -> dict[str, Any] | None:
     """Use approved SML clips AND images before Pexels, with reservations.
 
@@ -1230,20 +1287,27 @@ def _try_sml_first_scene(
     scene_duration = _scene_duration(scene)
     for kind in _sml_media_type_order(scene):
         for query in keywords[:4]:
+            if coordinator is not None and cancelled(job_id):
+                raise RuntimeError("Remote render cancelled.")
             try:
+                excluded = coordinator.used_snapshot() if coordinator else set(used_sml_ids)
                 if prefetched_ranked is not None and prefetched_ranked[:2] == (kind, query):
                     candidates = prefetched_ranked[2]
                 elif kind == "video":
-                    candidates = client.ranked(query, used_ids=used_sml_ids)
+                    candidates = client.ranked(query, used_ids=excluded)
                 else:
-                    candidates = client.ranked(query, used_ids=used_sml_ids, media_type=kind)
+                    candidates = client.ranked(query, used_ids=excluded, media_type=kind)
             except SMLMediaUnavailable:
                 continue
-            # Prefetched lists are ranked without used_ids; filter BEFORE the
-            # 12-candidate limit or long projects starve on earlier selections.
-            for candidate in [row for row in candidates if str(row.get("id")) not in used_sml_ids][:12]:
+            # Filter BEFORE candidate cap, including IDs currently reserved by peers.
+            for candidate in [row for row in candidates if str(row.get("id")) not in excluded][:12]:
+                if coordinator is not None and cancelled(job_id):
+                    raise RuntimeError("Remote render cancelled.")
                 media_id = str(candidate["id"])
                 reservation = None
+                source_hash = ""
+                hash_held = False
+                committed = False
                 suffix = ".mp4"
                 if kind == "image":
                     suffix = Path(str(candidate.get("source_filename") or "")).suffix.lower()
@@ -1254,15 +1318,23 @@ def _try_sml_first_scene(
                 destination = assignment_root / f"{scene_code}{suffix}"
                 finalized = False
                 try:
-                    if kind == "video":
+                    if coordinator:
+                        reservation = coordinator.reserve(client, job_id, scene_code, media_id, kind)
+                    elif kind == "video":
                         reservation = client.reserve(job_id, scene_code, media_id, used_sml_ids)
                     else:
                         reservation = client.reserve(job_id, scene_code, media_id, used_sml_ids, media_type=kind)
                     if not reservation:
                         continue
                     client.download(candidate, source)
+                    if coordinator is not None and cancelled(job_id):
+                        raise SMLMediaUnavailable("SML scene cancelled before reservation commit")
                     source_hash = sha256_file(source)
-                    if source_hash in used_hashes:
+                    if coordinator:
+                        hash_held = coordinator.hold_hash(source_hash)
+                        if not hash_held:
+                            raise SMLMediaUnavailable("SML duplicate media checksum")
+                    elif source_hash in used_hashes:
                         raise SMLMediaUnavailable("SML duplicate media checksum")
                     validation = validate_media(
                         source, kind, scene_duration,
@@ -1283,10 +1355,16 @@ def _try_sml_first_scene(
                         raise SMLMediaUnavailable("SML working media was not generated")
                     temporary.replace(destination)
                     finalized = True
-                    client.transition(reservation, "commit")
                     digest = sha256_file(destination)
-                    used_sml_ids.add(media_id)
-                    used_hashes.add(source_hash)
+                    if coordinator is not None and cancelled(job_id):
+                        raise SMLMediaUnavailable("SML scene cancelled before reservation commit")
+                    client.transition(reservation, "commit")
+                    committed = True
+                    if coordinator:
+                        coordinator.commit(media_id, source_hash)
+                    else:
+                        used_sml_ids.add(media_id)
+                        used_hashes.add(source_hash)
                     resolved = dict(scene)
                     resolved.update(
                         media_path=str(destination), media_source_path=str(source),
@@ -1313,12 +1391,28 @@ def _try_sml_first_scene(
                     source.unlink(missing_ok=True)
                 finally:
                     temporary.unlink(missing_ok=True)
-                    if reservation and media_id not in used_sml_ids:
+                    if coordinator and not committed:
+                        coordinator.release(media_id, source_hash if hash_held else "")
+                    if reservation and not committed:
                         try:
                             client.transition(reservation, "release")
                         except SMLMediaUnavailable:
                             pass
     return None
+
+
+def _parallel_sml_scene_download(
+    *, client: SMLWorkerClient, job_id: str, scene: dict[str, Any],
+    scene_code: str, keywords: list[str], assignment_root: Path,
+    source_root: Path, used_sml_ids: set[str], used_hashes: set[str],
+    coordinator: _SMLParallelReservations,
+) -> dict[str, Any] | None:
+    # Project batches and the shared process-wide semaphore both cap downloads.
+    with _SML_DOWNLOAD_SLOTS:
+        return _try_sml_first_scene(
+            client=client, job_id=job_id, scene=scene, scene_code=scene_code,
+            keywords=keywords, assignment_root=assignment_root, source_root=source_root,
+            used_sml_ids=used_sml_ids, used_hashes=used_hashes, coordinator=coordinator)
 
 
 def _prefetch_first_scene_lookup(
@@ -1355,19 +1449,31 @@ def _parallel_scene_queries(
     sml_client: SMLWorkerClient,
     target_width: int,
     target_height: int,
+    *,
+    assignment_root: Path | None = None,
+    source_root: Path | None = None,
+    used_sml_ids: set[str] | None = None,
+    used_hashes: set[str] | None = None,
 ):
-    """Prefetch up to five SML/Pexels lookups while yielding results in scene order.
+    """Batch up to five read-only searches or SML-reserved downloads.
 
-    Bounded batches prevent unbounded requests; only lookup I/O is parallel.
-    Media downloads, SML reservations, deduplication and approved-media copying
-    remain serialized in the existing scene resolver.
+    When acquisition paths are provided, SML-first scenes download in parallel.
+    All SML futures settle before any serial Pexels/review processing starts,
+    ensuring scene-order assignment and deduplication remain race-free.
+    Legacy lookup-only mode remains available for non-acquisition callers.
     """
+    sml_download_enabled = (
+        assignment_root is not None and source_root is not None
+        and used_sml_ids is not None and used_hashes is not None
+    )
+    coordinator = _SMLParallelReservations(used_sml_ids, used_hashes) if sml_download_enabled else None
     with ThreadPoolExecutor(max_workers=SCENE_MEDIA_SEARCH_WORKERS, thread_name_prefix="scene-media-search") as pool:
         for start in range(0, len(scenes), SCENE_MEDIA_SEARCH_WORKERS):
             if cancelled(job_id):
                 raise RuntimeError("Remote render cancelled.")
             end = min(start + SCENE_MEDIA_SEARCH_WORKERS, len(scenes))
             futures = {}
+            sml_futures: set[int] = set()
             for index in range(start, end):
                 scene = scenes[index]
                 if (bool(scene.get("review_approved")) and bool(scene.get("review_locked"))
@@ -1385,20 +1491,38 @@ def _parallel_scene_queries(
                     source, kind = "pexels", _scene_media_type_order(scene)[0]
                 else:
                     continue
-                futures[index] = pool.submit(
-                    _prefetch_first_scene_lookup, scene, source, kind,
-                    keywords[0], target_width, target_height,
-                )
+                if source == "sml" and sml_download_enabled:
+                    sml_futures.add(index)
+                    futures[index] = pool.submit(
+                        _parallel_sml_scene_download, client=sml_client,
+                        job_id=job_id, scene=dict(scene),
+                        scene_code=str(scene.get("scene_code") or f"SCENE_{index + 1:03d}"),
+                        keywords=keywords, assignment_root=assignment_root,
+                        source_root=source_root, used_sml_ids=used_sml_ids,
+                        used_hashes=used_hashes, coordinator=coordinator,
+                    )
+                else:
+                    futures[index] = pool.submit(
+                        _prefetch_first_scene_lookup, scene, source, kind,
+                        keywords[0], target_width, target_height,
+                    )
             if futures:
                 update_job(
-                    job_id, status="downloading_media", stage="Media Search",
+                    job_id, status="downloading_media", stage="SML Downloads" if sml_futures else "Media Search",
                     progress=15 + int(start / max(1, len(scenes)) * 20),
-                    message=f"Searching {len(futures)} scenes in parallel (max {SCENE_MEDIA_SEARCH_WORKERS})",
+                    message=f"Processing {len(futures)} media scenes concurrently (max {SCENE_MEDIA_SEARCH_WORKERS})",
                 )
+            # Drain full SML acquisitions before serial scene finalization. Pexels
+            # writes and reviewed-media hashes cannot race with SML transfers.
+            acquired = {index: futures[index].result() for index in sorted(sml_futures)}
             for index in range(start, end):
                 if cancelled(job_id):
                     raise RuntimeError("Remote render cancelled.")
-                lookup = futures[index].result() if index in futures else None
+                lookup = (
+                    ("sml_acquired", "", "", acquired[index], "")
+                    if index in sml_futures else
+                    (futures[index].result() if index in futures else None)
+                )
                 yield index, scenes[index], lookup
 
 
@@ -1444,7 +1568,11 @@ def _resolve_scene_stock_media(
     if has_sml_first or has_sml_fallback:
         sml_source_root.mkdir(parents=True, exist_ok=True)
 
-    for index, original_scene, batch_lookup in _parallel_scene_queries(job_id, scenes, sml_client, target_width, target_height):
+    for index, original_scene, batch_lookup in _parallel_scene_queries(
+        job_id, scenes, sml_client, target_width, target_height,
+        assignment_root=assignment_root, source_root=sml_source_root,
+        used_sml_ids=used_sml_ids, used_hashes=used_hashes,
+    ):
         if cancelled(job_id):
             raise RuntimeError("Remote render cancelled.")
         scene = dict(original_scene)
@@ -1532,17 +1660,20 @@ def _resolve_scene_stock_media(
             update_job(job_id, status="downloading_media", stage="SML Media",
                        progress=15 + int(index / max(1, len(scenes)) * 20),
                        message=f"{scene_code}: searching approved SML videos/images before Pexels")
-            matched = _try_sml_first_scene(
-                client=sml_client, job_id=job_id, scene=scene,
-                scene_code=scene_code, keywords=keywords,
-                assignment_root=assignment_root, source_root=sml_source_root,
-                used_sml_ids=used_sml_ids, used_hashes=used_hashes,
-                prefetched_ranked=(
-                    (batch_lookup[1], batch_lookup[2], batch_lookup[3])
-                    if batch_lookup is not None and batch_lookup[0] == "sml" and not batch_lookup[4]
-                    else None
-                ),
-            )
+            if batch_lookup is not None and batch_lookup[0] == "sml_acquired":
+                matched = batch_lookup[3]
+            else:
+                matched = _try_sml_first_scene(
+                    client=sml_client, job_id=job_id, scene=scene,
+                    scene_code=scene_code, keywords=keywords,
+                    assignment_root=assignment_root, source_root=sml_source_root,
+                    used_sml_ids=used_sml_ids, used_hashes=used_hashes,
+                    prefetched_ranked=(
+                        (batch_lookup[1], batch_lookup[2], batch_lookup[3])
+                        if batch_lookup is not None and batch_lookup[0] == "sml" and not batch_lookup[4]
+                        else None
+                    ),
+                )
             if matched is not None:
                 used_asset_ids.add(f"sml:{matched['asset_id']}")
                 results[index] = matched

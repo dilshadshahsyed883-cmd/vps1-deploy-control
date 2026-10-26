@@ -71,6 +71,9 @@ def load_acquisition():
             "handling": "use", "duration": 3.0},
         "build_working_video_clip": working_clip,
         "working_clip_target_duration": lambda duration: duration,
+        # The production worker checks cancellation around each transfer.
+        # These isolated offline fixtures represent a non-cancelled job.
+        "cancelled": lambda job_id: False,
     }
     exec(compile(module, str(SOURCE), "exec"), globals_map)
     return globals_map["_try_sml_first_scene"]

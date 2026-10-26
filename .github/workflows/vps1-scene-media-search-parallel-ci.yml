@@ -4,6 +4,7 @@ on:
     paths:
       - 'apps/scene-builder/part02/api_server.py'
       - 'tests/test_scene_media_search_parallel.py'
+      - 'tests/test_scene_sml_parallel_downloads.py'
       - '.github/workflows/vps1-scene-media-search-parallel-ci.yml'
   push:
     branches:
@@ -21,5 +22,5 @@ jobs:
           python-version: '3.12'
       - name: Syntax check production Scene Builder worker
         run: python -m py_compile apps/scene-builder/part02/api_server.py
-      - name: Five concurrent searches, SML-first, locks and error isolation
-        run: python -m unittest tests.test_scene_media_search_parallel -v
+      - name: Five parallel media searches and SML reserved downloads
+        run: python -m unittest tests.test_scene_media_search_parallel tests.test_scene_sml_parallel_downloads -v

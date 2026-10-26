@@ -132,7 +132,43 @@ jobs:
           # No restart or reinstallation of independent Voice/ACS/Uploader engines.
           if [[ "$UI_SHELL_PHASE_B" == "true" ]]; then
             echo "UI_SHELL_PHASE_B=BEGIN"
-            remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA scene-builder"
+            # The host production lock is non-blocking. Do not race an unrelated
+            # active app release: retry only the known lock-busy error, never
+            # a failed installer or a failed verification.
+            scene_install_done=0
+            for attempt in $(seq 1 36); do
+              install_output="$(remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA scene-builder" 2>&1)" && {
+                printf '%s\n' "$install_output"
+                scene_install_done=1
+                break
+              }
+              if [[ "$install_output" != *"BlockingIOError: [Errno 11] Resource temporarily unavailable"* ]]; then
+                printf '%s\n' "$install_output" >&2
+                exit 1
+              fi
+              echo "SCENE_UI_HOST_LOCK_BUSY_RETRY=$attempt"
+              sleep 15
+            done
+            if [[ "$scene_install_done" != 1 ]]; then
+              echo "SCENE_UI_HOST_LOCK_TIMEOUT" >&2
+              exit 1
+            fi
+            # The Auto Script Kokoro CSS is public and independently verifiable;
+            # a failed public asset readback must not report deployment success.
+            if [[ "$SOURCE_SHA" == "$(git rev-parse HEAD 2>/dev/null || true)" ]]; then :; fi
+            if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+              for attempt in $(seq 1 6); do
+                if curl -fsS --connect-timeout 8 --max-time 25 \
+                   'https://app.scenebuilder.online/static/auto_script_kokoro_20261026.css?v=1' \
+                   -o "$scratch/auto-script-kokoro.css" &&
+                   grep -q 'AS-UI-KOKORO-1440-20261026' "$scratch/auto-script-kokoro.css"; then
+                  break
+                fi
+                sleep 5
+              done
+              grep -q 'AS-UI-KOKORO-1440-20261026' "$scratch/auto-script-kokoro.css"
+              echo "AUTO_SCRIPT_KOKORO_PUBLIC_CSS=PASS"
+            fi
             if [[ "$VIDEO_TEMPLATE_ONLY" == "true" ]]; then
               for app in short-maker video-merger auto-caption-studio; do
                 remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA $app"

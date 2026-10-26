@@ -1,0 +1,23 @@
+name: VPS1 Auto Script Kokoro 1440 UI CI
+on:
+  pull_request:
+    paths:
+      - 'apps/scene-builder/part01/templates/base.html'
+      - 'apps/scene-builder/part01/static/auto_script_kokoro_20261026.css'
+      - 'tests/test_auto_script_kokoro_ui.py'
+      - '.github/workflows/vps1-auto-script-kokoro-ui-ci.yml'
+permissions:
+  contents: read
+jobs:
+  auto-script-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install playwright==1.56.0
+      - run: python -m playwright install --with-deps chromium
+      - run: python -m unittest tests.test_auto_script_kokoro_ui tests.test_experiment_auto_script_navigation -v
+      - run: python tests/test_auto_script_kokoro_ui.py --browser
