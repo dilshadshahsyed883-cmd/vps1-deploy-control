@@ -1,0 +1,23 @@
+name: Scene Builder no SML selection contract
+on:
+  pull_request:
+    paths:
+      - 'apps/scene-builder/**'
+      - 'tests/test_scene_without_sml_selector.py'
+      - '.github/workflows/vps1-scene-without-sml-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  no-sml-selection:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Static selector and Python syntax checks
+        run: |
+          python -m py_compile apps/scene-builder/part01/app.py apps/scene-builder/part02/api_server.py
+          python -m unittest tests.test_scene_without_sml_selector tests.test_scene_media_search_parallel -v

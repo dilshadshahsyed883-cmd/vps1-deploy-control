@@ -87,47 +87,19 @@
     <div class="sb-sml-settings" id="sb-local-media-settings">
       <input type="hidden" name="scene_library_controls_present" value="1">
       <div class="sb-section-head">
-        <div><h3>Scene Builder Media Library</h3><p>Local auto-approved images and videos, separate from SML.</p></div>
+        <div><h3>Scene Builder Media Library</h3><p>Local auto-approved images and videos, stored only in Scene Builder.</p></div>
         <a class="button secondary" href="/scene-builder/media-library/">Open Media Library</a>
       </div>
       <div class="sb-control-grid">
         <label><span><strong>Use Scene Media Library</strong><small>Enable automatic matching to new Scene Builder projects.</small></span><span class="pro-switch"><input type="checkbox" name="scene_library_enabled" {% if scene_library_enabled %}checked{% endif %}><i></i></span></label>
         <label><span><strong>Scene Library priority</strong><small>Controls the Media Audit source order; unmatched scenes keep existing stock visuals.</small></span>
           <select name="scene_library_priority">
-            <option value="scene_first" {% if scene_library_priority=='scene_first' %}selected{% endif %}>Scene Library First → SML / Pexels</option>
-            <option value="sml_first" {% if scene_library_priority=='sml_first' %}selected{% endif %}>SML First → Scene Library → Pexels</option>
+            <option value="scene_first" {% if scene_library_priority=='scene_first' %}selected{% endif %}>Scene Library First → Pexels Fallback</option>
             <option value="pexels_first" {% if scene_library_priority=='pexels_first' %}selected{% endif %}>Pexels First → Scene Library for Missing</option>
           </select>
         </label>
       </div>
-      <div class="sb-note">Local images and videos are auto-approved after import. SML and Pexels remain independent. This priority is for visual-audit matching in newly submitted jobs.</div>
-    </div>
-    <div id="sb-sml-settings" class="sb-sml-settings">
-      <div class="sb-section-head"><h3>Self Media Library (SML)</h3><span id="sb-sml-connection" role="status" aria-live="polite">Checking connection…</span></div>
-      <input type="hidden" name="sml_controls_present" value="1">
-      <div class="sb-control-grid">
-        <label><span><strong>Enable SML</strong></span><span class="pro-switch"><input type="checkbox" name="sml_enabled" {% if sml_enabled %}checked{% endif %}><i></i></span></label>
-        <label><span><strong>Media selection priority</strong></span><select name="media_source_mode">
-          <option value="sml_first" {% if media_source_mode=='sml_first' %}selected{% endif %}>SML First → Pexels Fallback</option>
-          <option value="sml_only" {% if media_source_mode=='sml_only' %}selected{% endif %}>SML Only · Never Pexels</option>
-          <option value="pexels_first" {% if media_source_mode=='pexels_first' or media_source_mode=='pexels_only' %}selected{% endif %}>Pexels First → SML Fallback</option>
-          <option value="mixed" {% if media_source_mode=='mixed' %}selected{% endif %}>Custom SML / Pexels Mix</option>
-        </select></label>
-        <label><span><strong>SML media type & order</strong></span><select name="sml_media_order">
-          <option value="smart" {% if sml_media_order=='smart' %}selected{% endif %}>Smart Mixed — contextual video &amp; image</option>
-          <option value="video_only" {% if sml_media_order=='video_only' %}selected{% endif %}>Videos Only</option>
-          <option value="image_only" {% if sml_media_order=='image_only' %}selected{% endif %}>Images Only</option>
-          <option value="videos_first" {% if sml_media_order=='videos_first' %}selected{% endif %}>Videos → Images</option>
-          <option value="images_first" {% if sml_media_order=='images_first' %}selected{% endif %}>Images → Videos</option>
-          <option value="alternate" {% if sml_media_order=='alternate' %}selected{% endif %}>Alternate Video / Image</option>
-        </select></label>
-        <label><span><strong>Custom SML target %</strong><small>Only applies to Custom Mix; available approved media and relevance still matter.</small></span><input type="number" min="0" max="100" step="5" name="sml_target_percent" value="{{ sml_target_percent }}" style="max-width:120px"></label>
-        <label><span><strong>Automatic Scene Matching</strong></span><span class="pro-switch"><input type="checkbox" name="sml_auto_scene_matching" {% if sml_auto_scene_matching %}checked{% endif %}><i></i></span></label>
-        <label><span><strong>Manual Media Selection</strong></span><span class="pro-switch"><input type="checkbox" name="sml_manual_audit_selection" {% if sml_manual_audit_selection %}checked{% endif %}><i></i></span></label>
-        <label><span><strong>Clip Preview</strong></span><span class="pro-switch"><input type="checkbox" name="sml_clip_preview" {% if sml_clip_preview %}checked{% endif %}><i></i></span></label>
-      </div>
-      <div class="sb-section-head"><span id="sb-sml-counts" role="status" aria-live="polite">Library status: loading…</span><button type="button" id="sb-sml-refresh" class="button secondary">Refresh</button></div>
-      <p>Counts distinguish all local assets from approved/searchable media. Candidate clips and images must be reviewed before rendering. No media reuse is attempted unless the existing tiny-scene continuity rule applies. Saved settings apply to new jobs.</p>
+      <div class="sb-note">Local images and videos are auto-approved after import. Pexels remains a separate stock-media source. This priority is for visual-audit matching in newly submitted jobs.</div>
     </div>
     <div class="sb-section-head"><div><h3>Stock-media strategy</h3><p>Control visual type, variety and fallback behavior.</p></div></div>
     <div class="sb-control-grid">
@@ -432,27 +404,6 @@
 <script>
 (() => {
   const form=document.getElementById('settings-form');
-  const smlRefresh=document.getElementById('sb-sml-refresh');
-  async function refreshSmlStatus(){
-    const status=document.getElementById('sb-sml-connection'),counts=document.getElementById('sb-sml-counts');
-    smlRefresh.disabled=true;status.textContent='Checking connection…';counts.textContent='Library status: loading…';
-    try{
-      const response=await fetch('/api/settings/sml-status');
-      if(!response.ok)throw new Error('Status unavailable');
-      const data=await response.json();
-      status.textContent=data.connected?'Connected':'Unavailable';
-      const inventory=data.inventory;
-      const info=(kind,count)=>{
-        const row=inventory?.[kind];
-        return row?`${count} approved/searchable of ${row.total} total (${row.candidate} candidates)`:`${count} approved/searchable`;
-      };
-      counts.textContent=data.connected?
-        `SML: Clips ${info('video',data.clips)} · Images ${info('image',data.images)}`:
-        'Library status: unavailable';
-    }catch{status.textContent='Unavailable';counts.textContent='Library status: unavailable';}
-    finally{smlRefresh.disabled=false;}
-  }
-  smlRefresh.addEventListener('click',refreshSmlStatus);refreshSmlStatus();
   const tabs=[...document.querySelectorAll('.sb-subtabs button')];
   const panels=[...document.querySelectorAll('.sb-tab-panel')];
   function openTab(name){tabs.forEach(x=>x.classList.toggle('active',x.dataset.tab===name));panels.forEach(x=>x.classList.toggle('active',x.dataset.panel===name));sessionStorage.setItem('sbSettingsTab',name);}

@@ -68,32 +68,23 @@
     <div class="audit-modal-actions"><button id="keyword-cancel" class="button secondary" type="button">Cancel</button><button id="keyword-save" class="button" type="button">Search New Media</button></div>
   </div>
 </div>
-<div id="sml-modal" class="audit-modal" hidden>
-  <div class="audit-modal-card sml-browser" role="dialog" aria-modal="true" aria-labelledby="sml-browser-title">
-    <div class="sml-browser-head"><h3 id="sml-browser-title">Select from Self Media Library</h3><button class="button secondary" type="button" id="sml-close">Close</button></div>
-    <p>Approved SML clips only. Selection copies the clip to this Scene job; library originals stay untouched.</p>
-    <div class="sml-search-row"><input id="sml-query" type="search" placeholder="Search clips and keywords" aria-label="Search SML clips"><button id="sml-search" class="button" type="button">Search</button></div>
-    <div id="sml-status" class="muted" role="status"></div>
-    <div id="sml-results" class="sml-results"></div>
-  </div>
-</div>
 <div id="scene-local-modal" class="audit-modal" hidden>
-  <div class="audit-modal-card sml-browser" role="dialog" aria-modal="true" aria-labelledby="scene-local-title">
-    <div class="sml-browser-head"><h3 id="scene-local-title">Scene Builder Media Library</h3><button type="button" class="button secondary" id="scene-local-close">Close</button></div>
+  <div class="audit-modal-card library-browser" role="dialog" aria-modal="true" aria-labelledby="scene-local-title">
+    <div class="library-browser-head"><h3 id="scene-local-title">Scene Builder Media Library</h3><button type="button" class="button secondary" id="scene-local-close">Close</button></div>
     <p>Auto-approved local images and videos. The selected original stays in Scene Builder's Media Library.</p>
-    <div class="sml-search-row"><input type="search" id="scene-local-query" placeholder="Search filename or keyword" aria-label="Search local media"><button type="button" class="button" id="scene-local-search">Search</button></div>
+    <div class="library-search-row"><input type="search" id="scene-local-query" placeholder="Search filename or keyword" aria-label="Search local media"><button type="button" class="button" id="scene-local-search">Search</button></div>
     <div id="scene-local-status" class="muted" role="status"></div>
-    <div class="sml-results" id="scene-local-results"></div>
+    <div class="library-results" id="scene-local-results"></div>
   </div>
 </div>
 <style>
-.sml-browser{width:min(1040px,94vw);max-width:1040px;max-height:88vh;overflow-y:auto}
-.sml-browser-head,.sml-search-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.sml-browser-head h3{margin:0}.sml-search-row input{flex:1;min-width:0}
-.sml-results{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:14px}
-.sml-result{border:1px solid var(--border,#cbd5e1);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px;min-width:0}
-.sml-result img{width:100%;aspect-ratio:16/9;object-fit:cover;background:#1e293b;border-radius:6px}
-.sml-result .muted{font-size:12px;overflow-wrap:anywhere}.sml-result button{margin-top:auto}
+.library-browser{width:min(1040px,94vw);max-width:1040px;max-height:88vh;overflow-y:auto}
+.library-browser-head,.library-search-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.library-browser-head h3{margin:0}.library-search-row input{flex:1;min-width:0}
+.library-results{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:14px}
+.library-result{border:1px solid var(--border,#cbd5e1);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.library-result img{width:100%;aspect-ratio:16/9;object-fit:cover;background:#1e293b;border-radius:6px}
+.library-result .muted{font-size:12px;overflow-wrap:anywhere}.library-result button{margin-top:auto}
 .audit-batch-nav{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 18px;border:1px solid #e2e7ef;background:#fff;border-radius:14px}
 .audit-batch-nav strong{display:block;font-size:15px}.audit-batch-nav small{display:block;margin-top:5px;color:#667085;font-size:12px}
 .audit-batch-nav-actions{display:flex;gap:8px;flex-wrap:wrap}
@@ -109,22 +100,15 @@
 (() => {
   const jobId={{ selected_job.id|tojson }};
   let audit={{ (audit or {})|tojson }};
-  const smlConfig=audit.sml_settings||{sml_enabled:true,sml_manual_audit_selection:true,sml_clip_preview:true};
+  const localConfig=audit.scene_library_settings||{scene_library_enabled:false,scene_library_priority:'scene_first'};
   let filter='all';
   let keywordItem=null;
-  let smlItem=null;
-  let smlCatalog=[];
-  let smlAutoStarted=false;
   let localAutoStarted=false;
   let localItem=null;
-  const smlModal=document.getElementById('sml-modal');
   const localModal=document.getElementById('scene-local-modal');
   const localResults=document.getElementById('scene-local-results');
   const localQuery=document.getElementById('scene-local-query');
   const localStatus=document.getElementById('scene-local-status');
-  const smlResults=document.getElementById('sml-results');
-  const smlStatus=document.getElementById('sml-status');
-  const smlQuery=document.getElementById('sml-query');
   const grid=document.getElementById('audit-grid');
   const empty=document.getElementById('audit-empty');
   const summary=document.getElementById('audit-summary');
@@ -167,8 +151,7 @@
           <button type="button" data-action="approve" ${missing||i.approved?'disabled':''}>Approve Scene</button>
           <button type="button" data-action="replace" class="primary">Get New</button>
           <button type="button" data-action="keyword">Change Keyword</button>
-          ${smlConfig.scene_library_enabled?'<button type="button" data-action="scene-local" class="primary">Scene Library</button>':''}
-          ${smlConfig.sml_enabled&&smlConfig.sml_manual_audit_selection?'<button type="button" data-action="sml" class="primary">Browse SML</button>':''}
+           ${localConfig.scene_library_enabled?'<button type="button" data-action="scene-local" class="primary">Scene Library</button>':''}
           <label>Upload<input type="file" data-action="upload" accept="video/*,.mp4,.mov,.mkv,.webm,.avi,.m4v" hidden></label>
         </div>
         <div class="audit-status-line"><span>${i.changed?'Modified':'Original selection'}</span><span>${i.approved?'✓ Reviewed':'Needs review'} · r${Number(i.revision||0)}</span></div>
@@ -241,7 +224,6 @@
         .then(data=>{audit=data;render();show('Scene approved ✓')})
         .catch(err=>{render();show(err.message,'error')});
     }
-    if(action==='sml')openSml(id);
     if(action==='scene-local')openLocal(id);
     if(action==='keyword'){const i=itemById(id);keywordItem=id;keywordInput.value=i?.query_override||i?.keyword_used||i?.original_query||'';modal.hidden=false;setTimeout(()=>keywordInput.focus(),0)}
   });
@@ -255,55 +237,12 @@
   modal.addEventListener('click',e=>{if(e.target===modal){modal.hidden=true;keywordItem=null}});
   document.getElementById('keyword-save').onclick=async()=>{const id=keywordItem,keyword=keywordInput.value.trim();if(!id||!keyword)return;modal.hidden=true;keywordItem=null;await mutate(id,'keyword',{keyword})};
 
-  function renderSml(){
-    smlStatus.textContent=`${smlCatalog.length} approved clips available`;
-    smlResults.innerHTML=smlCatalog.length?smlCatalog.map(c=>`<article class="sml-result">
-      ${smlConfig.sml_clip_preview?`<video controls preload="none" playsinline style="width:100%;aspect-ratio:16/9" src="${esc(c.preview_url)}" ${c.thumb_url?`poster="${esc(c.thumb_url)}"`:""}></video>`:''}
-      <strong>${esc(c.id)}</strong>
-      <span class="muted">${esc(c.description||c.keywords.join(', ')||'No description')}</span>
-      <span class="muted">${Number(c.duration||0).toFixed(1)}s · Quality ${esc(c.quality||0)} · ${esc(c.orientation)}</span>
-      <button type="button" class="button" data-sml-select="${esc(c.id)}">Use this clip</button>
-    </article>`).join(''):'<p>No approved matching SML clips. Current Pexels media will remain.</p>';
-  }
-  async function searchSml(){
-    smlStatus.textContent='Searching approved library clips…';
-    try{const d=await api('/api/sml/clips?q='+encodeURIComponent(smlQuery.value.trim()));
-      smlCatalog=d.items||[];renderSml();
-    }catch(e){smlResults.innerHTML='';smlStatus.textContent='SML unavailable · Pexels fallback stays available. '+e.message}
-  }
-  function openSml(id){
-    smlItem=id;
-    const i=itemById(id);
-    smlQuery.value=i?.query_override||i?.keyword_used||i?.original_query||'';
-    smlModal.hidden=false;
-    searchSml();
-    smlQuery.focus();
-  }
-  document.getElementById('sml-close').onclick=()=>{smlModal.hidden=true;smlItem=null};
-  smlModal.addEventListener('click',e=>{if(e.target===smlModal){smlModal.hidden=true;smlItem=null}});
-  document.getElementById('sml-search').onclick=searchSml;
-  smlQuery.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();searchSml()}});
-  smlResults.addEventListener('click',async e=>{
-    const button=e.target.closest('button[data-sml-select]');
-    if(!button||!smlItem)return;
-    const item=itemById(smlItem);
-    if(!item)return;
-    button.disabled=true;smlStatus.textContent='Copying and verifying selected SML clip…';
-    try{
-      audit=await api(`/api/audit-media/${encodeURIComponent(jobId)}/${encodeURIComponent(smlItem)}/sml-select`,{
-        method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({clip_id:button.dataset.smlSelect,revision:item.revision||0})
-      });
-      smlModal.hidden=true;smlItem=null;render();show('SML clip selected · review the updated preview ✓');
-    }catch(err){smlStatus.textContent=err.message;button.disabled=false}
-  });
-
   async function searchLocal(){
     localStatus.textContent='Searching Scene Media Library…';
     try{
       const result=await api('/api/scene-media-library?q='+encodeURIComponent(localQuery.value.trim()));
       const items=result.items||[];
-      localResults.innerHTML=items.length?items.map(c=>'<article class="sml-result">'+
+      localResults.innerHTML=items.length?items.map(c=>'<article class="library-result">'+
         (c.kind==='image'?'<img loading="lazy" src="'+esc(c.url)+'" alt="'+esc(c.original_name)+'">':
           '<video controls preload="none" playsinline style="width:100%;aspect-ratio:16/9" src="'+esc(c.url)+'"></video>')+
         '<strong>'+esc(c.original_name)+'</strong><span class="muted">'+esc(c.kind)+' · Auto Approved</span>'+
@@ -337,7 +276,7 @@
     }catch(err){localStatus.textContent=err.message;button.disabled=false}
   });
   async function autoMatchLocal(){
-    if(!smlConfig.scene_library_enabled||localAutoStarted||!Array.isArray(audit.items)||!audit.items.length)return;
+    if(!localConfig.scene_library_enabled||localAutoStarted||!Array.isArray(audit.items)||!audit.items.length)return;
     localAutoStarted=true;
     try{
       const result=await api('/api/audit-media/'+encodeURIComponent(jobId)+'/scene-library-auto-match',{method:'POST'});
@@ -345,24 +284,6 @@
       if(result.matched)show(result.matched+' scenes matched from Scene Library · other media preserved');
       if(result.errors?.length)show('Some local selections could not be applied; previous media retained','error');
     }catch(e){show('Scene Library matching unavailable · previous media retained','error')}
-  }
-  async function autoMatchSources(){
-    if(smlConfig.scene_library_priority==='sml_first'){
-      await autoMatchSml();await autoMatchLocal();
-    }else{
-      await autoMatchLocal();await autoMatchSml();
-    }
-  }
-  async function autoMatchSml(){
-    if(!smlConfig.sml_enabled||!smlConfig.sml_auto_scene_matching||smlConfig.media_source_mode!=='sml_first')return;
-    if(smlAutoStarted||!Array.isArray(audit.items)||!audit.items.length)return;
-    smlAutoStarted=true;
-    try{
-      const result=await api(`/api/audit-media/${encodeURIComponent(jobId)}/sml-auto-match`,{method:'POST'});
-      audit=result.audit||audit;render();
-      if(result.matched)show(`${result.matched} scenes matched from SML · other scenes retain Pexels`);
-      if(result.errors?.length)show('Some SML selections could not be applied; existing media preserved','error');
-    }catch(err){show('SML matching unavailable; existing media preserved','error')}
   }
   approveAll.onclick=async()=>{try{audit=await api(`/api/audit-media/${encodeURIComponent(jobId)}/approve-all`,{method:'POST'});render();show('All available scenes reviewed ✓')}catch(e){show(e.message,'error')}};
   continueBtn.onclick=async()=>{if(!confirm('Approve the first 2-minute visuals and continue automatic production?'))return;try{continueBtn.disabled=true;await api(`/api/audit-media/${encodeURIComponent(jobId)}/continue`,{method:'POST'});location.href='/queue'}catch(e){show(e.message,'error');render()}};
@@ -376,14 +297,14 @@
       const next=await api(`/api/audit-media/${encodeURIComponent(jobId)}`);
       if(next.updated_at!==audit.updated_at||next.status!==audit.status){
         audit=next;render();
-        if(next.resolution_complete)autoMatchSources();
+        if(next.resolution_complete)autoMatchLocal();
       }
     }catch(e){/* Keep the last usable batch while a worker is briefly unavailable. */}
     finally{batchRefreshBusy=false;}
   },3000);
   if(!audit||!Array.isArray(audit.items)){
-    api(`/api/audit-media/${encodeURIComponent(jobId)}`).then(d=>{audit=d;render();if(d.resolution_complete!==false)autoMatchSml()}).catch(e=>show(e.message,'error'));
-  }else{render();if(audit.resolution_complete!==false)autoMatchSources();}
+    api(`/api/audit-media/${encodeURIComponent(jobId)}`).then(d=>{audit=d;render();if(d.resolution_complete!==false)autoMatchLocal()}).catch(e=>show(e.message,'error'));
+  }else{render();if(audit.resolution_complete!==false)autoMatchLocal();}
 })();
 </script>
 {% endif %}

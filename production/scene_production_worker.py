@@ -157,8 +157,8 @@ class ProductionWorker:
                       'AUTO_CLEAN_MEDIA_AFTER_RENDER':'1','MIN_FREE_SPACE_GB':'5',
                       'SCENE_INTERNAL_AUDIO_ENGINE_ROOT':str(STATE/'internal-audio-engine'),
                       'HF_HOME':str(STATE/'model-cache'),'XDG_CACHE_HOME':str(STATE/'cache')}
-            # Retain any preconfigured app-specific Drive, stock and SML settings.
-            for key in ('PEXELS_API_KEY','PEXELS_API_KEYS','SCENE_SML_URL','SCENE_SML_EDITOR_TOKEN',
+            # Retain only independent Drive and Pexels provider settings.
+            for key in ('PEXELS_API_KEY','PEXELS_API_KEYS',
                         'DRIVE_REMOTE','RCLONE_CONFIG'):
                 if key in web: values[key] = web[key]
             fd = os.open(ENV,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
