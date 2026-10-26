@@ -1,0 +1,25 @@
+name: Auto Script scoped Scene web-only overlay CI
+on:
+  pull_request:
+    paths:
+      - 'production/scene_auto_script_ui_overlay.py'
+      - 'production/runtime.py'
+      - 'tests/test_scene_auto_script_ui_overlay.py'
+      - '.github/workflows/vps1-auto-script-ui-overlay-ci.yml'
+permissions:
+  contents: read
+jobs:
+  auto-script-overlay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Dry-run immutable two-file overlay, existing JS/renderer retention and rollback
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python -m compileall -q production/scene_auto_script_ui_overlay.py production/runtime.py
+          python -m unittest tests.test_scene_auto_script_ui_overlay tests.test_auto_script_kokoro_ui -v
