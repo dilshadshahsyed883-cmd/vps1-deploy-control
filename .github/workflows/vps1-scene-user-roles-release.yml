@@ -56,7 +56,7 @@ jobs:
           # immediately, including an in-flight Scene job, auth or canary error.
           # No queue changes, forced lock release or service restart.
           installed=0
-          for attempt in $(seq 1 12); do
+          for attempt in $(seq 1 18); do
             if timeout 2400s ssh -T -p 22 -i "$scratch/identity" \
                 -o UserKnownHostsFile="$scratch/known_hosts" \
                 -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
@@ -71,16 +71,18 @@ jobs:
               break
             fi
             if grep -Fq 'BlockingIOError: [Errno 11] Resource temporarily unavailable' "$scratch/install.log"; then
-              echo "HOST_DEPLOY_LOCK_BUSY attempt=$attempt/12; no work interrupted"
-              if [ "$attempt" -eq 12 ]; then
-                echo "DEPLOY_DEFERRED_HOST_LOCK_HELD" >&2
-                exit 1
-              fi
-              sleep 30
+              echo "HOST_DEPLOY_LOCK_BUSY attempt=$attempt/18; no work interrupted"
+            elif grep -Fq 'Scene production worker: queued or in-flight Scene jobs exist; source refresh deferred' "$scratch/install.log"; then
+              echo "SCENE_BUSY_DEFER attempt=$attempt/18; active renders preserved; retrying guarded install after idle"
             else
               cat "$scratch/install.log" >&2
               exit 1
             fi
+            if [ "$attempt" -eq 18 ]; then
+              echo "DEPLOY_DEFERRED_HOST_OR_SCENE_BUSY; no active jobs interrupted" >&2
+              exit 1
+            fi
+            sleep 60
           done
           test "$installed" = 1
           echo 'SCENE_TWO_ROLE_SOURCE=INSTALLED'
