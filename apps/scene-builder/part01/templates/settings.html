@@ -84,6 +84,23 @@
   </section>
 
   <section class="sb-tab-panel" data-panel="media">
+    <div class="sb-sml-settings" id="sb-local-media-settings">
+      <div class="sb-section-head">
+        <div><h3>Scene Builder Media Library</h3><p>Local auto-approved images and videos, separate from SML.</p></div>
+        <a class="button secondary" href="/scene-builder/media-library/">Open Media Library</a>
+      </div>
+      <div class="sb-control-grid">
+        <label><span><strong>Use Scene Media Library</strong><small>Enable automatic matching to new Scene Builder projects.</small></span><span class="pro-switch"><input type="checkbox" name="scene_library_enabled" {% if scene_library_enabled %}checked{% endif %}><i></i></span></label>
+        <label><span><strong>Scene Library priority</strong><small>Controls the Media Audit source order; unmatched scenes keep existing stock visuals.</small></span>
+          <select name="scene_library_priority">
+            <option value="scene_first" {% if scene_library_priority=='scene_first' %}selected{% endif %}>Scene Library First → SML / Pexels</option>
+            <option value="sml_first" {% if scene_library_priority=='sml_first' %}selected{% endif %}>SML First → Scene Library → Pexels</option>
+            <option value="pexels_first" {% if scene_library_priority=='pexels_first' %}selected{% endif %}>Pexels First → Scene Library for Missing</option>
+          </select>
+        </label>
+      </div>
+      <div class="sb-note">Local images and videos are auto-approved after import. SML and Pexels remain independent. This priority is for visual-audit matching in newly submitted jobs.</div>
+    </div>
     <div id="sb-sml-settings" class="sb-sml-settings">
       <div class="sb-section-head"><h3>Self Media Library (SML)</h3><span id="sb-sml-connection" role="status" aria-live="polite">Checking connection…</span></div>
       <input type="hidden" name="sml_controls_present" value="1">
