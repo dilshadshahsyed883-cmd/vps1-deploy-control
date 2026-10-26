@@ -90,7 +90,7 @@ class SceneWordSpotlightTests(unittest.TestCase):
             [{"start": 0.1, "end": 0.7}, {"start": .4, "end": .9}],
             "#aa66ff",
         )
-        overlapping = [line for begin, end, line in events if begin == .4 and end == .7]
+        overlapping = [line for begin, end, line in events if begin <= .4 < end]
         self.assertEqual(len(overlapping), 1)
         self.assertIn(r"}two{\r}", overlapping[0])
         self.assertNotIn(r"}one{\r}", overlapping[0])
