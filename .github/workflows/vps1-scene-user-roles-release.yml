@@ -7,7 +7,7 @@ permissions:
 # Separate from the complete-site workflow's pending slot, while the installed
 # production deployment helper serializes actual host writes and owns rollback.
 concurrency:
-  group: vps1-scene-user-roles-release
+  group: ${{ contains(github.event.head_commit.message, '[vps1-scene-web-policy-only]') && 'vps1-scene-web-policy-only' || 'vps1-scene-user-roles-release' }}
   cancel-in-progress: false
 jobs:
   scene-only:
