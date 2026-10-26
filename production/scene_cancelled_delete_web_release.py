@@ -47,7 +47,7 @@ def delete_cancelled_project_web(request: Request, job_id: str):
 '''
 
 DELETE_BUTTON = '''  if(s==='cancelled')
-    out+=\`<form action="\${base}/delete" method="post" onsubmit="return confirm('Permanently delete this cancelled project and its local data? This cannot be undone.')"><button type="submit" class="danger" style="background:#fff1f2;color:#b42336;border:1px solid #f4b4bd">Delete Permanently</button></form>\`;
+    out+=`<form action="${base}/delete" method="post" onsubmit="return confirm('Permanently delete this cancelled project and its local data? This cannot be undone.')"><button type="submit" class="danger" style="background:#fff1f2;color:#b42336;border:1px solid #f4b4bd">Delete Permanently</button></form>`;
 '''
 
 
