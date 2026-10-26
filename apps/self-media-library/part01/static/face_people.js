@@ -5,6 +5,7 @@
   let activePerson = '';
   let referenceId = '';
   let faceIndex = -1;
+  let detectionFailed = false;
   let matches = [];
   let selected = new Set();
   let scanTimer = null;
@@ -18,23 +19,27 @@
   const setMessage = (message) => {$face('peopleScanStatus').textContent=message;};
   const referenceMessage = message => {$face('peopleReferenceStatus').textContent=message;};
 
-  async function inspectReference(id) {
+  async function inspectReference(id, retry=false) {
+    const previousName = retry ? $face('peopleName').value : '';
     referenceId = id;
     faceIndex = -1;
+    detectionFailed = false;
     const image = imageRows.find(row=>row.id===id);
     if (!image) return;
     $face('peopleReference').classList.remove('hidden');
     $face('peopleReferenceImage').src = mediaUrl(image.content_url);
     $face('peopleFaceBoxes').innerHTML = '';
     $face('peopleFaceChoices').innerHTML = '';
-    $face('peopleName').value = '';
+    $face('peopleName').value = previousName;
     referenceMessage('Detecting faces locally; this can also initialize CPU models.');
     $face('peopleCreate').disabled = true;
+    $face('peopleCreate').textContent = 'Detecting face…';
     $face('peoplePanel').scrollIntoView({behavior:'smooth', block:'start'});
     try {
       const response=await api('/api/v1/faces/images/'+encodeURIComponent(id));
       if(referenceId!==id) return;
       if(!response.faces.length) {
+        $face('peopleCreate').textContent = 'No face detected';
         referenceMessage('No clear face detected. Choose another reference image.');
         return;
       }
@@ -63,16 +68,21 @@
       if(response.faces.length===1) selectFace(response.faces[0].face_index);
       referenceMessage(response.faces.length+' face(s) detected. Select face and enter person name.');
     } catch (error) {
-      referenceMessage('Face detector unavailable: '+error.message);
+      detectionFailed = true;
+      $face('peopleCreate').disabled = false;
+      $face('peopleCreate').textContent = 'Retry face detection';
+      referenceMessage('Face detector unavailable: '+error.message+'. You can retry without losing the name.');
     }
   }
 
   function selectFace(n) {
+    detectionFailed=false;
     faceIndex=n;
     for(const node of $face('peoplePanel').querySelectorAll('[data-face-index]')) {
       node.classList.toggle('selected',Number(node.dataset.faceIndex)===n);
     }
     $face('peopleCreate').disabled=false;
+    $face('peopleCreate').textContent='Save person & scan images';
   }
 
   async function loadPeople(prefer='') {
@@ -91,12 +101,17 @@
   }
 
   async function createPerson() {
+    if(detectionFailed && referenceId) {
+      await inspectReference(referenceId, true);
+      return;
+    }
     const name=$face('peopleName').value.trim();
     if(!referenceId || faceIndex<0 || !name) {
       referenceMessage('Choose a face and enter its name first.');return;
     }
     const button=$face('peopleCreate');
     button.disabled=true;
+    button.textContent='Saving person…';
     try {
       const person=await send('/api/v1/people', {image_id:referenceId,face_index:faceIndex,name});
       $face('peopleReference').classList.add('hidden');
@@ -104,7 +119,7 @@
       await startScan();
       toast('Person saved; scanning library images');
     } catch(error) {referenceMessage('Could not save person: '+error.message);}
-    finally{button.disabled=false;}
+    finally{button.disabled=false;button.textContent='Save person & scan images';}
   }
 
   async function startScan() {
