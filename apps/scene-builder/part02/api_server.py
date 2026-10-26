@@ -1409,9 +1409,6 @@ def _resolve_scene_stock_media(
                     break
 
         if resolved is not None:
-                resolved["fallback_reason"] = "Pexels had no usable matching media; approved SML fallback"
-                resolved["fallback_source"] = "sml"
-        if resolved is not None:
             results[index] = resolved
         else:
             failed = dict(scene)
@@ -1657,9 +1654,6 @@ def _resolve_intro_stock_media(
                         chosen["fallback_type"] = "image_fallback"
                         chosen["fallback_reason"] = "No valid Pexels intro video was available"
                         break
-            if chosen is not None:
-                    chosen["fallback_reason"] = "Pexels intro lookup exhausted; approved SML fallback"
-                    chosen["fallback_source"] = "sml"
             if chosen is not None:
                 chosen["intro_query_order"] = int(query_row.get("order") or (qindex + 1))
                 chosen["intro_query_reused"] = next_query_index > len(queries)
@@ -3863,7 +3857,7 @@ def _delete_audit_owned_if_unused(job_dir: Path, payload: dict[str, Any], path_v
     if not path.is_file():
         return
     allowed_roots = [(job_dir / "audit_media").resolve(), (job_dir / "pexels_provider_cache").resolve(),
-                     (job_dir / "audit_sml_sources").resolve()]
+                     ]
     try:
         resolved = path.resolve()
         if not any(resolved.is_relative_to(root) for root in allowed_roots):
