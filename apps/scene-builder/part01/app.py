@@ -4005,6 +4005,7 @@ def save_settings(
     sml_auto_scene_matching: str | None = Form(None),
     sml_manual_audit_selection: str | None = Form(None),
     sml_clip_preview: str | None = Form(None),
+    scene_library_controls_present: str | None = Form(None),
     scene_library_enabled: str | None = Form(None),
     scene_library_priority: str = Form("scene_first"),
     pexels_enabled: str | None = Form(None),
@@ -4309,8 +4310,9 @@ def save_settings(
                        "sml_target_percent": str(sml_target_percent),
                        "sml_auto_scene_matching": "1" if sml_auto_scene_matching == "on" else "0",
                        "sml_manual_audit_selection": "1" if sml_manual_audit_selection == "on" else "0",
-                       "sml_clip_preview": "1" if sml_clip_preview == "on" else "0",
-                       "scene_library_enabled": "1" if scene_library_enabled == "on" else "0",
+                       "sml_clip_preview": "1" if sml_clip_preview == "on" else "0"})
+    if scene_library_controls_present == "1":
+        values.update({"scene_library_enabled": "1" if scene_library_enabled == "on" else "0",
                        "scene_library_priority": scene_library_priority})
     for key, value in values.items():
         set_setting(key, value)
