@@ -181,7 +181,7 @@
     <section id="page-processing" class="page">
       <article class="panel">
         <div class="panel-head"><div><h2>Processing queue</h2><p>Shot detection → clip creation → automatic metadata.</p></div><button class="ghost" id="refreshProcessing">Refresh</button></div>
-        <div id="processingList" class="processing-list"></div><h2>Pair review — Keep One / Discard Other</h2><p>Review five pairs at a time. Select pairs for bulk Keep Left / Keep Right, save the batch, then continue. Saved choices survive refresh; local files remain protected until the full review is verified.</p><div id="pairReviews"></div>
+        <div id="processingList" class="processing-list"></div><h2>Pair review — Keep One / Discard Other</h2><p>Review five pairs at a time. Select pairs for bulk Keep Left / Keep Right, save the batch, then continue. Saved choices survive refresh. You can also move or delete clips directly from Library without finishing pair review.</p><div id="pairReviews"></div>
       </article>
       <article class="panel sml-ai-panel sml-ai-process-bottom">
         <div class="panel-head"><div><h2>Visual analysis</h2><p id="aiQueueNote">Actual media analysis runs in the background.</p></div><button class="primary" data-ai-action="analyze" type="button">Analyze pending media</button></div>
@@ -316,7 +316,7 @@
 
       <article class="panel settings-panel settings-spaced">
         <h2>VPS local storage</h2><p id="localStorage">Loading storage…</p>
-        <p>Originals and both candidates remain until every pair has a decision and kept clips pass verification. Active jobs and editor references are protected.</p>
+        <p>The optional pair review can verify kept clips and clean up the original source. Manual clip deletion is available separately in Library; active jobs and editor references remain protected.</p>
         <button class="primary" id="saveSettings">Save settings</button>
       </article>
     </section>

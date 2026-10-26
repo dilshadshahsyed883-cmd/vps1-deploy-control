@@ -44,7 +44,7 @@ async function showPairs(id, batchNumber){
     const total=data.total_pairs, pages=Math.max(1,Math.ceil(total/PAIRS_PER_BATCH));
     const draft=new Map(),items=data.pairs;
     const reviewCard=p=>{
-      const odd=p.items.length===1;
+      const odd=p.items.length===1, removed=p.items.length===0;
       return '<section class="local-pair" data-local-pair="'+p.pair_index+'">'+
         '<div class="local-pair-heading"><h4>'+(odd?'Odd last clip':'Pair '+(p.pair_index+1))+'</h4>'+
         '<label class="local-pair-select"><input type="checkbox" data-bulk-pair="'+p.pair_index+'"> Bulk select</label>'+
@@ -54,7 +54,7 @@ async function showPairs(id, batchNumber){
           '<p>'+esc(c.id)+' · '+fmtTime(c.start_time)+' – '+fmtTime(c.end_time)+' · Q'+esc(c.quality)+'</p>'+
           '<button class="ghost" type="button" data-pick-index="'+p.pair_index+'" data-pick-id="'+esc(c.id)+'" aria-pressed="false">'+
           (i===0?'Keep left clip':'Keep right clip')+'</button></div>'
-        ).join('')+'</div>'+
+        ).join('')+(removed?'<p class="empty">Clips already removed from Library. Pair resolved automatically.</p>':'')+'</div>'+
         (odd?'<button class="danger-soft" type="button" data-odd-discard="'+p.pair_index+'" aria-pressed="false">Discard last clip</button>':'')+
         '</section>';
     };
