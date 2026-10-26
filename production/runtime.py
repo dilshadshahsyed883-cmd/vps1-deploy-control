@@ -399,6 +399,12 @@ def install_app(app, revision):
             from production.scene_manual_start_web_release import install as release_manual_start
             release_manual_start(revision)
             return
+        # Explicitly UI-only: clone the running Scene web source, changing just
+        # the Auto Script CSS + its scoped link. Never refresh busy renderers.
+        if '[vps1-auto-script-ui-overlay]' in intent:
+            from production.scene_auto_script_ui_overlay import install as release_auto_script_ui
+            release_auto_script_ui(revision)
+            return
         from production.scene_candidate_release import install as install_scene_candidate
         install_scene_candidate(revision)
         return
