@@ -79,7 +79,7 @@ def verify_live() -> None:
         require(response.status == 200 and MARKER in response.read(),
                 "live CSS readback failed")
     status, _, page = _request("/auto-script", scene_cookie())
-    require(status == 200 and LINK.encode() in page,
+    require(status == 200 and b'<link rel="stylesheet" href="/static/auto_script_kokoro_20261026.css?v=1">' in page,
             "authenticated Auto Script page did not load the scoped CSS")
 
 
