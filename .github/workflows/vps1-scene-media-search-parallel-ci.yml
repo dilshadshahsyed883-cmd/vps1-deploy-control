@@ -1,0 +1,25 @@
+name: Scene five-way media search regression
+on:
+  pull_request:
+    paths:
+      - 'apps/scene-builder/part02/api_server.py'
+      - 'tests/test_scene_media_search_parallel.py'
+      - '.github/workflows/vps1-scene-media-search-parallel-ci.yml'
+  push:
+    branches:
+      - 'fix/scene-five-concurrent-media-search-20261026'
+permissions:
+  contents: read
+jobs:
+  scene-five-way-search:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Syntax check production Scene Builder worker
+        run: python -m py_compile apps/scene-builder/part02/api_server.py
+      - name: Five concurrent searches, SML-first, locks and error isolation
+        run: python -m unittest tests.test_scene_media_search_parallel -v
