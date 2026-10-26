@@ -42,12 +42,14 @@ class SettingsAuditParityTests(unittest.TestCase):
         self.assertIn("{% for job in waiting_jobs %}",AUDIT)
         for item in ('id="audit-grid"','id="audit-empty"','id="audit-summary"',
                      'id="audit-approve-all"','id="audit-continue"',
-                     'id="keyword-modal"','id="sml-modal"','id="sml-results"',
-                     'data-filter="attention"','data-action="sml"',
-                     'data-action="upload"','/sml-select','/sml-auto-match',
+                     'id="keyword-modal"','id="scene-local-modal"','id="scene-local-results"',
+                     'data-filter="attention"','data-action="scene-local"',
+                     'data-action="upload"','/scene-library-select','/scene-library-auto-match',
                      '/approve-all','/continue'):
             self.assertIn(item,AUDIT)
         self.assertIn('href="/audit-media?job=',AUDIT)
+        for retired in ('id="sml-modal"', 'data-action="sml"', '/sml-select', '/sml-auto-match'):
+            self.assertNotIn(retired, AUDIT)
 
 if __name__ == "__main__":
     unittest.main()
