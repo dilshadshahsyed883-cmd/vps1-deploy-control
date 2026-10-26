@@ -1287,7 +1287,7 @@ def _try_sml_first_scene(
     scene_duration = _scene_duration(scene)
     for kind in _sml_media_type_order(scene):
         for query in keywords[:4]:
-            if cancelled(job_id):
+            if coordinator is not None and cancelled(job_id):
                 raise RuntimeError("Remote render cancelled.")
             try:
                 excluded = coordinator.used_snapshot() if coordinator else set(used_sml_ids)
@@ -1301,7 +1301,7 @@ def _try_sml_first_scene(
                 continue
             # Filter BEFORE candidate cap, including IDs currently reserved by peers.
             for candidate in [row for row in candidates if str(row.get("id")) not in excluded][:12]:
-                if cancelled(job_id):
+                if coordinator is not None and cancelled(job_id):
                     raise RuntimeError("Remote render cancelled.")
                 media_id = str(candidate["id"])
                 reservation = None
@@ -1327,7 +1327,7 @@ def _try_sml_first_scene(
                     if not reservation:
                         continue
                     client.download(candidate, source)
-                    if cancelled(job_id):
+                    if coordinator is not None and cancelled(job_id):
                         raise SMLMediaUnavailable("SML scene cancelled before reservation commit")
                     source_hash = sha256_file(source)
                     if coordinator:
@@ -1356,7 +1356,7 @@ def _try_sml_first_scene(
                     temporary.replace(destination)
                     finalized = True
                     digest = sha256_file(destination)
-                    if cancelled(job_id):
+                    if coordinator is not None and cancelled(job_id):
                         raise SMLMediaUnavailable("SML scene cancelled before reservation commit")
                     client.transition(reservation, "commit")
                     committed = True
