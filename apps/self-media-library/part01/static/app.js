@@ -586,3 +586,73 @@ function updateInputEligibility(){
  const batch=document.getElementById('aiBatchImport');if(batch)batch.disabled=!document.getElementById('aiBatchUrls')?.value.trim()||!document.getElementById('aiBatchRights')?.checked;
 }
 document.addEventListener('input',updateInputEligibility);document.addEventListener('change',updateInputEligibility);updateInputEligibility();
+
+
+// Main SML clean control: preview -> deliberate acknowledgement -> exact phrase.
+// Never sends a deletion request on modal open, page load or Cancel.
+(()=>{
+  const openButton=$('#openCleanLibrary');
+  const dialog=$('#cleanLibraryModal');
+  const confirmButton=$('#confirmCleanLibrary');
+  const textInput=$('#cleanLibraryPhrase');
+  const acknowledge=$('#cleanLibraryAcknowledge');
+  const status=$('#cleanLibraryStatus');
+  let preview=null, running=false;
+  const eligible=()=>Boolean(preview?.ready && textInput.value==='CLEAN SML LIBRARY' && acknowledge.checked && !running);
+  const update=()=>{confirmButton.disabled=!eligible();};
+  const close=()=>{
+    if(running)return;
+    dialog.classList.add('hidden');
+    textInput.value='';
+    acknowledge.checked=false;
+    preview=null;
+    status.textContent='';
+    update();
+  };
+  $('#cancelCleanLibrary').onclick=close;
+  textInput.addEventListener('input',update);
+  acknowledge.addEventListener('change',update);
+  openButton.addEventListener('click',async()=>{
+    dialog.classList.remove('hidden');
+    preview=null;running=false;status.textContent='';
+    textInput.value='';acknowledge.checked=false;update();
+    $('#cleanLibrarySummary').textContent='Loading library contents…';
+    $('#cleanLibraryBlockers').textContent='';
+    try{
+      preview=await api('/api/library/clean/preview');
+      $('#cleanLibrarySummary').textContent=[
+        'Videos: '+preview.videos, 'Images: '+preview.images,
+        'Trash: '+(preview.trash_videos+preview.trash_images),
+        'Source videos: '+preview.sources, 'Stored files: '+preview.files,
+        'Disk to clear: '+fmtSize(preview.bytes),
+        'Existing editor references: '+preview.committed_editor_references
+      ].join('  ·  ');
+      $('#cleanLibraryBlockers').textContent=preview.ready?'':('Cleanup blocked: '+preview.blockers.join('; '));
+    }catch(error){
+      preview=null;
+      $('#cleanLibrarySummary').textContent='Unable to inspect this library: '+error.message;
+    }
+    update();
+  });
+  confirmButton.addEventListener('click',async()=>{
+    if(!eligible())return;
+    running=true;update();
+    status.textContent='Cleaning SML media and catalog…';
+    try{
+      await api('/api/library/clean',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','X-SML-Clean-Intent':'confirmed'},
+        body:JSON.stringify({
+          confirmation:textInput.value,
+          preview_token:preview.preview_token,
+          acknowledge_editor_references:acknowledge.checked
+        })
+      });
+      status.textContent='Library cleaned. Refreshing empty SML workspace…';
+      window.location.reload();
+    }catch(error){
+      status.textContent='Cleanup not completed: '+error.message+'. Check current library status before retrying.';
+      running=false;update();
+    }
+  });
+})();
