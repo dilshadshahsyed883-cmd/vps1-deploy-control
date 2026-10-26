@@ -98,7 +98,7 @@ class SceneCancelDeleteTests(unittest.TestCase):
         part = WEB.split('@app.post("/queue/{job_id}/delete")', 1)[1].split("\n\n@app.post(", 1)[0]
         for snippet in ("require_job_access(request, job_id)",
                         'worker_request("DELETE", f"/jobs/{job_id}"',
-                        "DELETE FROM job_sml_settings WHERE job_id=?",
+                        "DELETE FROM job_scene_library_settings WHERE job_id=?",
                         "DELETE FROM job_ownership WHERE job_id=?"):
             self.assertIn(snippet, part)
         block = QUEUE.split("function actionsFor(j){", 1)[1].split("\nfunction projectRow(j)", 1)[0]
