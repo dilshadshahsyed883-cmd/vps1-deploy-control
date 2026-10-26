@@ -716,7 +716,7 @@ async def upload_processed_clip(file: UploadFile = File(...)):
         fingerprint = digest.hexdigest()
         with db() as conn:
             duplicate = conn.execute(
-                "SELECT id,status FROM clips WHERE sha256=? AND deleted_at IS NULL LIMIT 1",
+                "SELECT id,status FROM clips WHERE sha256=? AND status='approved' AND local_selection='kept' AND deleted_at IS NULL LIMIT 1",
                 (fingerprint,),
             ).fetchone()
             if duplicate:
@@ -734,7 +734,7 @@ async def upload_processed_clip(file: UploadFile = File(...)):
             conn.execute("BEGIN IMMEDIATE")
             # Repeat the hash check under a write lock for concurrent uploads.
             duplicate = conn.execute(
-                "SELECT id,status FROM clips WHERE sha256=? AND deleted_at IS NULL LIMIT 1",
+                "SELECT id,status FROM clips WHERE sha256=? AND status='approved' AND local_selection='kept' AND deleted_at IS NULL LIMIT 1",
                 (fingerprint,),
             ).fetchone()
             if duplicate:
