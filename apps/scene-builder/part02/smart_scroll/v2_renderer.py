@@ -381,13 +381,14 @@ def _write_ass(segments: list[dict[str, Any]], path: Path, settings: Any, width:
             event_text=_ass_escape(text)
             style_name=str(getattr(settings,'caption_style','karaoke') or 'karaoke').lower()
             if karaoke and style_name in {'word_highlight','hormozi_purple'}:
-                for spot_start, spot_end, spot_text in _word_spotlight_events(
+                spotlight = _word_spotlight_events(
                     text, start, end, x.get('words'),
                     str(getattr(settings,'caption_highlight_color','#AA66FF') or '#AA66FF'),
                     uppercase=(style_name == 'hormozi_purple'),
-                ):
-                    events.append(f"Dialogue: 0,{ts(spot_start)},{ts(spot_end)},Default,,0,0,0,,{spot_text}")
-                if end > start:
+                )
+                if spotlight:
+                    for spot_start, spot_end, spot_text in spotlight:
+                        events.append(f"Dialogue: 0,{ts(spot_start)},{ts(spot_end)},Default,,0,0,0,,{spot_text}")
                     continue
             if karaoke:
                 words=[w for w in text.split() if w]
