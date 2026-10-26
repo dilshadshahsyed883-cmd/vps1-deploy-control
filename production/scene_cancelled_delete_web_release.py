@@ -63,7 +63,7 @@ def patch_policy(text: str) -> str:
     end = text.find(')\\Z")', start)
     require(end > start, "invalid recovery policy pattern")
     section = text[start:end]
-    require("(?:", in section, "recovery verb group missing")
+    require("(?:" in section, "recovery verb group missing")
     verbs = section.split("(?:", 1)[1].split("|")
     require(all(re.fullmatch(r"[a-z-]+", word) for word in verbs),
             "unrecognized recovery verbs")
