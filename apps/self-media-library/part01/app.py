@@ -587,17 +587,18 @@ def bulk_trash_clips(body: ClipSelection):
     ids = list(dict.fromkeys(body.ids))
     if not ids or len(ids) > 500:
         raise HTTPException(400, "Select between 1 and 500 clips")
-    from local_library import guard_manual, protect
+    from local_library import guard_manual, protect, reconcile_manual_pairs
     with db() as c:
         c.execute("BEGIN IMMEDIATE")
         for ident in ids:
             if not c.execute("SELECT 1 FROM clips WHERE id=? AND deleted_at IS NULL", (ident,)).fetchone():
                 raise HTTPException(404, "Clip not found or already in Trash: " + ident)
         guard_manual(c, "video", ids)
-        protect(c, "video", ids)
+        protect(c, "video", ids, pending=False)
         stamp = now_iso()
         c.executemany("UPDATE clips SET deleted_at=?,updated_at=? WHERE id=? AND deleted_at IS NULL",
                       [(stamp, stamp, ident) for ident in ids])
+        reconcile_manual_pairs(c, ids)
     return {"ok": True, "trashed": len(ids)}
 
 
@@ -605,11 +606,12 @@ def bulk_trash_clips(body: ClipSelection):
 def trash_clip(clip_id: str):
     with db() as c:
         c.execute('BEGIN IMMEDIATE')
-        from local_library import guard_manual, protect
+        from local_library import guard_manual, protect, reconcile_manual_pairs
         if not c.execute("SELECT 1 FROM clips WHERE id=? AND deleted_at IS NULL", (clip_id,)).fetchone():
             raise HTTPException(404, "Clip not found or already in Trash")
-        guard_manual(c, 'video', [clip_id]); protect(c, 'video', [clip_id])
+        guard_manual(c, 'video', [clip_id]); protect(c, 'video', [clip_id], pending=False)
         c.execute("UPDATE clips SET deleted_at=?,updated_at=? WHERE id=?", (now_iso(), now_iso(), clip_id))
+        reconcile_manual_pairs(c, [clip_id])
     schedule_metadata_sync([clip_id])
     return {"ok": True}
 
@@ -618,11 +620,12 @@ def trash_clip(clip_id: str):
 def restore_clip(clip_id: str):
     with db() as c:
         c.execute('BEGIN IMMEDIATE')
-        from local_library import protect
-        protect(c, 'video', [clip_id])
+        from local_library import protect, reconcile_manual_pairs
+        protect(c, 'video', [clip_id], pending=False)
         row=c.execute('SELECT local_selection FROM clips WHERE id=?',(clip_id,)).fetchone()
         if row and row['local_selection']=='discarded':raise HTTPException(409, 'Discarded clip content was removed')
         c.execute("UPDATE clips SET deleted_at=NULL,updated_at=? WHERE id=?", (now_iso(), clip_id))
+        reconcile_manual_pairs(c, [clip_id])
     schedule_metadata_sync([clip_id])
     return {"ok": True}
 

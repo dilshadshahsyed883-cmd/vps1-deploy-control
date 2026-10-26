@@ -75,6 +75,45 @@ def protect(conn, kind, ids, *, pending=True):
                 raise HTTPException(409, 'Complete pair review before changing this clip')
 
 
+def reconcile_manual_pairs(conn, changed_ids):
+    """A manual trash/delete/restore counts as a pair choice, not a review lock.
+
+    Preserve original pair membership for restore, and never touch reviews that
+    have already been finalized. Caller holds the same write transaction as
+    the asset change, so review state and catalog cannot drift apart.
+    """
+    if not changed_ids:
+        return
+    placeholders = ','.join('?' for _ in changed_ids)
+    sources = conn.execute(
+        f'SELECT DISTINCT source_id FROM clips WHERE id IN ({placeholders})',
+        tuple(changed_ids)
+    ).fetchall()
+    for source in sources:
+        sid = source['source_id']
+        review = conn.execute('SELECT state FROM local_reviews WHERE source_id=?', (sid,)).fetchone()
+        if not review or review['state'] == 'cleaned':
+            continue
+        for pair in conn.execute('SELECT pair_index,ids_json FROM local_pairs WHERE source_id=?', (sid,)).fetchall():
+            members = json.loads(pair['ids_json'])
+            if not any(ident in changed_ids for ident in members):
+                continue
+            live = [
+                ident for ident in members
+                if (row := conn.execute('SELECT deleted_at FROM clips WHERE id=?', (ident,)).fetchone())
+                and row['deleted_at'] is None
+            ]
+            # If exactly one survivor remains, the owner's delete selected it.
+            # If both were removed there is no keeper for this pair. A restore
+            # of a full pair returns it to an undecided review state.
+            decided = 1 if len(live) <= 1 else 0
+            keeper = live[0] if len(live) == 1 else None
+            conn.execute(
+                'UPDATE local_pairs SET decided=?,keep_id=? WHERE source_id=? AND pair_index=?',
+                (decided, keeper, sid, pair['pair_index'])
+            )
+
+
 def safe_file(root, folder, name):
     path = root / folder / name
     if not name or Path(name).name != name or path.is_symlink():
@@ -141,7 +180,11 @@ def finalize(root, db, now, source_id):
             if ident in kept:
                 conn.execute("UPDATE clips SET local_selection='kept',status='approved',duplicate_state='clear',updated_at=? WHERE id=?", (now(),ident))
                 continue
-            row = rows[ident]
+            row = rows.get(ident)
+            # A manually trashed clip remains restorable; a permanently erased
+            # clip has no catalog row or bytes left to clean a second time.
+            if not row or row['deleted_at']:
+                continue
             for folder, name in [('clips',row['filename']),('thumbs',row['thumb_filename']),('metadata',ident+'.json')]:
                 if name:safe_file(root,folder,name).unlink(missing_ok=True)
             conn.execute("UPDATE clips SET local_selection='discarded',status='rejected',deleted_at=?,updated_at=? WHERE id=?", (now(),now(),ident))
@@ -170,10 +213,15 @@ def guard_manual(conn, kind, ids):
 
 def erase(root, conn, kind, ids, now):
     guard_manual(conn,kind,ids)
-    protect(conn,kind,ids)
+    # Manual owner deletion is independent of the optional pair-review flow.
+    # Keep editor reservations, active jobs and incomplete-source safeguards.
+    protect(conn,kind,ids,pending=False)
     table = 'clips' if kind == 'video' else 'image_assets'
+    affected_sources = set()
     for ident in ids:
         row = conn.execute(f'SELECT * FROM {table} WHERE id=?', (ident,)).fetchone()
+        if row and kind == 'video':
+            affected_sources.add(row['source_id'])
         if not row:raise HTTPException(404,'Media not found: '+ident)
         if kind == 'video':
             files=[('clips',row['filename']),('thumbs',row['thumb_filename']),('metadata',ident+'.json')]
@@ -189,6 +237,29 @@ def erase(root, conn, kind, ids, now):
         conn.execute("DELETE FROM ai_metadata WHERE media_type=? AND media_id=?",(kind,ident))
         conn.execute("DELETE FROM ai_metadata_history WHERE media_type=? AND media_id=?",(kind,ident))
         conn.execute(f'DELETE FROM {table} WHERE id=?',(ident,))
+    if kind == 'video':
+        # The affected clip rows no longer exist. Reconcile from the surviving
+        # original pair IDs without relying on deleted catalog rows.
+        for sid in affected_sources:
+            reconcile_source_pairs(conn, sid, ids)
+
+
+def reconcile_source_pairs(conn, source_id, changed_ids):
+    review = conn.execute('SELECT state FROM local_reviews WHERE source_id=?', (source_id,)).fetchone()
+    if not review or review['state'] == 'cleaned':
+        return
+    for pair in conn.execute('SELECT pair_index,ids_json FROM local_pairs WHERE source_id=?', (source_id,)).fetchall():
+        members = json.loads(pair['ids_json'])
+        if not any(ident in changed_ids for ident in members):
+            continue
+        live = [
+            ident for ident in members
+            if (row := conn.execute('SELECT deleted_at FROM clips WHERE id=?', (ident,)).fetchone())
+            and row['deleted_at'] is None
+        ]
+        if len(live) <= 1:
+            conn.execute('UPDATE local_pairs SET decided=1,keep_id=? WHERE source_id=? AND pair_index=?',
+                         (live[0] if live else None, source_id, pair['pair_index']))
 
 
 def register(app, root, db, now):
@@ -229,8 +300,9 @@ def register(app, root, db, now):
                 items=[]
                 for ident in json.loads(pair['ids_json']):
                     row=conn.execute('SELECT * FROM clips WHERE id=?',(ident,)).fetchone()
-                    if not row:raise HTTPException(409,'Review clip missing; media retained')
-                    items.append({**dict(row),'clip_url':'/media/clips/'+row['filename']})
+                    # Manually removed/trashed clips must not break review pages.
+                    if row and row['deleted_at'] is None:
+                        items.append({**dict(row),'clip_url':'/media/clips/'+row['filename']})
                 pairs.append({**dict(pair),'items':items})
         return {**dict(source),'total_pairs':summary['total'],
                 'saved_pairs':summary['saved'],
@@ -254,8 +326,9 @@ def register(app, root, db, now):
                                   (source_id,decision.pair_index)).fetchone()
                 if not pair:raise HTTPException(404,'Review pair not found')
                 ids=json.loads(pair['ids_json'])
-                if decision.keep_id not in ids and not (len(ids)==1 and decision.keep_id is None):
-                    raise HTTPException(400,'Keep one clip from each pair; only an odd last clip can be discarded')
+                live=[ident for ident in ids if (row := conn.execute('SELECT deleted_at FROM clips WHERE id=?',(ident,)).fetchone()) and row['deleted_at'] is None]
+                if decision.keep_id not in live and not (len(live)<=1 and decision.keep_id is None):
+                    raise HTTPException(400,'Keep one available clip from each pair')
             for decision in body.decisions:
                 conn.execute('UPDATE local_pairs SET decided=1,keep_id=? WHERE source_id=? AND pair_index=?',
                              (decision.keep_id,source_id,decision.pair_index))
@@ -276,8 +349,9 @@ def register(app, root, db, now):
             if not r or not pair:raise HTTPException(404,'Review pair not found')
             if r['state']=='cleaned':raise HTTPException(409,'Selection already saved')
             ids=json.loads(pair['ids_json'])
-            if body.keep_id not in ids and not (len(ids)==1 and body.keep_id is None):
-                raise HTTPException(400,'Keep one clip from this pair; odd last clip can be discarded')
+            live=[ident for ident in ids if (row := conn.execute('SELECT deleted_at FROM clips WHERE id=?',(ident,)).fetchone()) and row['deleted_at'] is None]
+            if body.keep_id not in live and not (len(live)<=1 and body.keep_id is None):
+                raise HTTPException(400,'Keep one available clip from this pair')
             conn.execute('UPDATE local_pairs SET decided=1,keep_id=? WHERE source_id=? AND pair_index=?',(body.keep_id,source_id,index))
         try:
             result=finalize(root,db,now,source_id)
