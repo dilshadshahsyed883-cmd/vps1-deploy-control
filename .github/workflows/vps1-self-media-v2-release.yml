@@ -109,6 +109,14 @@ jobs:
           downloader_code=source.read_text()
           assert '"--max-downloads"' not in downloader_code, 'SML download-count limit regression'
           assert '"--no-playlist"' in downloader_code and '"bv*+ba/best/bv*"' in downloader_code
+          import subprocess
+          face_python=Path('/srv/fresh-website/venvs/self-media-library')/active.name/'bin/python'
+          assert face_python.is_file(), 'SML runtime interpreter missing'
+          face=subprocess.run([str(face_python),'-c',
+              'import cv2,numpy,PIL; assert callable(cv2.FaceDetectorYN.create) and callable(cv2.FaceRecognizerSF.create)'],
+              capture_output=True,text=True,timeout=40)
+          assert face.returncode==0, 'SML face engine unavailable: '+face.stderr[-500:]
+          print('SML_FACE_ENGINE_INSTALLED=PASS',flush=True)
           print('SML_YTDLP_INSTALLED=PASS',flush=True)
           print('SML_YOUTUBE_MERGED_AV_SINGLE_VIDEO=PASS',flush=True)
           def read(p):

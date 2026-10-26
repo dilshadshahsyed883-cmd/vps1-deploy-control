@@ -41,7 +41,7 @@ CATALOG = {
     'short-maker': dict(port=8146, module='app:app', health='/health', ui='/', packages=CORE),
     'short-stream': dict(port=8145, module='app:app', health='/health', ui='/',
                          packages=CORE + ['cryptography==44.0.3']),
-    'self-media-library': dict(port=8147, module='app:app', health='/api/health', ui='/', packages=CORE + ['numpy==2.2.6', 'onnxruntime==1.22.1', 'tokenizers==0.21.2', 'faster-whisper==1.1.1', 'yt-dlp[default]==2026.8.19']),
+    'self-media-library': dict(port=8147, module='app:app', health='/api/health', ui='/', packages=CORE + ['numpy==2.2.6', 'opencv-python-headless==4.11.0.86', 'onnxruntime==1.22.1', 'tokenizers==0.21.2', 'faster-whisper==1.1.1', 'yt-dlp[default]==2026.8.19']),
     'video-merger': dict(port=8148, script='app.py', health='/video-merger/health',
                          ui='/video-merger/', packages=['yt-dlp[default]', 'gdown==5.2.0', 'requests==2.32.3']),
     'voice-studio': dict(port=8143, module='vps1_omnivoice_app:app', health='/healthz',
@@ -493,6 +493,16 @@ def install_app(app, revision):
             raise RuntimeError('SML_YTDLP_MISSING: downloader absent from release environment')
         run(['runuser', '-u', 'ubuntu', '--', venv / 'bin/python',
              '-m', 'yt_dlp', '--version'], timeout=45, quiet=True)
+        # The production package catalog overrides SML requirements.txt.  Verify
+        # the exact face detector/recognizer runtime before activating a release,
+        # rather than leaving 'Save person & scan images' silently disabled.
+        run(['runuser', '-u', 'ubuntu', '--', venv / 'bin/python', '-c',
+             'import cv2, numpy, PIL; '
+             'assert callable(cv2.FaceDetectorYN.create) and '
+             'callable(cv2.FaceRecognizerSF.create), "OpenCV face modules unavailable"'],
+            timeout=45, quiet=True)
+        event(app=app, dependency='opencv-face-engine', result='PASS_DEPENDENCY_INSTALLED',
+              runtime=str(venv))
         event(app=app, dependency='yt-dlp', result='PASS_DEPENDENCY_INSTALLED',
               runtime=str(venv))
     if app == 'video-merger':
