@@ -58,6 +58,10 @@ class ManualStartWebReleaseTests(unittest.TestCase):
             self.assertNotIn(dangerous, SOURCE)
         self.assertIn("if '[vps1-scene-web-policy-only]' in intent:", RUNTIME)
         self.assertIn("release_manual_start(revision)", RUNTIME)
+        self.assertIn("if old == target:", SOURCE)
+        workflow = (ROOT / ".github/workflows/vps1-scene-user-roles-release.yml").read_text()
+        self.assertIn("vps1-scene-web-policy-only", workflow)
+        self.assertIn("vps1-scene-user-roles-release", workflow)
 
     def test_compiled_runtime_and_policy(self):
         ast.parse(RUNTIME)
