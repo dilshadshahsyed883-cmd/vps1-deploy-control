@@ -66,6 +66,7 @@
         choices.appendChild(button);
       });
       if(response.faces.length===1) selectFace(response.faces[0].face_index);
+      else $face('peopleCreate').textContent = 'Select a face first';
       referenceMessage(response.faces.length+' face(s) detected. Select face and enter person name.');
     } catch (error) {
       detectionFailed = true;
