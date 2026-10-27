@@ -1387,9 +1387,9 @@ def build_project_package(
     combined_script = " ".join(str(scene.get("text", "")).strip() for scene in scene_plan).strip()
     library_config = scene_library_settings()
     library_only = library_config["scene_library_enabled"] and library_config["scene_library_priority"] == "library_only"
-    effective_pexels = (director_compilation["source_mode"] == "scene_first"
-                        if director_compilation is not None else
-                        bool(profile.get("pexels_enabled", True)) and not library_only)
+    effective_pexels = bool(profile.get("pexels_enabled", True)) and not library_only
+    if director_compilation is not None:
+        effective_pexels = director_compilation["source_mode"] == "scene_first"
     metadata = {
         "project_text_file": "project.txt",
         "text_field_is_relative_file": False,
