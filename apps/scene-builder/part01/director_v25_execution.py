@@ -26,9 +26,10 @@ def _plain(text: str) -> str:
 
 def _required_settings(sections: dict[str, dict[str, str]], preset: str) -> dict[str, Any]:
     p = sections["PROJECT"]
-    if p["base_preset"] != preset:
-        raise DirectorSpecError(
-            f"[PROJECT].base_preset={p['base_preset']} conflicts with selected UI preset={preset}")
+    if not str(p.get("base_preset") or "").strip():
+        raise DirectorSpecError("[PROJECT].base_preset is required as a plan reference")
+    # Important: the UI preset is NOT an editing authority in Director Mode.
+    # Its mismatch must never block or modify a valid TXT specification.
     o, a, c, l, t, intro = (sections[key] for key in
                            ("OUTPUT", "AUDIO", "CAPTIONS", "LOOK", "TIMING", "INTRO"))
     dimension = {"480p": (854, 480), "720p": (1280, 720), "1080p": (1920, 1080)}
@@ -65,6 +66,39 @@ def _required_settings(sections: dict[str, dict[str, str]], preset: str) -> dict
         "intro_duration_seconds": duration,
         "intro_media_min_seconds": shot_seconds,
         "intro_media_max_seconds": shot_seconds,
+        # Director V25 controls all creative effects. Do NOT inherit the
+        # selected UI preset's implicit polish, music, SFX, captions or LUT mix.
+        "video_quality_preset": "original",
+        "quality_crf": int(o.get("quality_crf", "20") or 20),
+        "canvas_fill_mode": o.get("canvas_fill_mode", "crop") or "crop",
+        "canvas_fill_color": o.get("canvas_fill_color", "#000000") or "#000000",
+        "canvas_blur_strength": int(o.get("canvas_blur_strength", "0") or 0),
+        "voice_processing_preset": "off",
+        "sfx_enabled": False,
+        "environment_sfx_enabled": False,
+        "transition_sfx_library_enabled": False,
+        "first_two_minute_visual_audit_enabled": False,
+        "capcut_mirror_enabled": False,
+        "capcut_mirror_percent": 0,
+        "capcut_zoom_level": 100,
+        "capcut_noise_enabled": False,
+        "capcut_noise_percent": 0,
+        "capcut_animation_effect": "none",
+        "capcut_animation_category": "combo",
+        "capcut_animation_target": "both",
+        "lut_mode": "manual" if _flag(l["lut_enabled"]) else "off",
+        "lut_strength_percent": int(l.get("lut_strength_percent", "100") or 100),
+        "lut_normalize_enabled": False,
+        "lut_scene_aware_enabled": False,
+        "lut_continuity_enabled": False,
+        "caption_font": c.get("font", "dejavu_sans_bold") or "dejavu_sans_bold",
+        "caption_text_color": c.get("text_color", "#ffffff") or "#ffffff",
+        "caption_highlight_color": c.get("highlight_color", "#ffd54a") or "#ffd54a",
+        "caption_outline_color": c.get("outline_color", "#000000") or "#000000",
+        "caption_background_color": c.get("background_color", "#000000") or "#000000",
+        "caption_background_opacity": int(c.get("background_opacity_percent", "55") or 0),
+        "caption_font_size": int(c.get("font_size", "48") or 48),
+        "caption_max_words": int(c.get("max_words", "3") or 3),
         "transition_engine_enabled": True,
         "transition_engine_mode": "scene_plan",
         "general_media_min_seconds": 0.05,
@@ -204,6 +238,7 @@ def compile_v25(text: str, catalog: Any, *, source_mode: str, library_enabled: b
         })
     return {
         "schema": "scene-builder-director-v25-execution-v1",
+        "sections": sections,
         "scenes": scene_shots,
         "intro_queries": intro_rows,
         "intro_lookup": {key: val for key, val in resolved.items() if key.startswith("INTRO.")},

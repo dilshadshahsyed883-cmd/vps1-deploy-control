@@ -24,7 +24,7 @@
 <form id="project-form" class="panel form-card queue-new-project-card" action="/queue/submit" method="post" enctype="multipart/form-data" novalidate>
   <div class="scene-project-heading"><div><span class="scene-project-eyebrow">Scene Builder · Project setup</span><h2>New Project</h2><p>Choose a preset and channel, then add your scene script and narration.</p></div><span class="scene-project-step">01 · Configure</span></div>
   <div class="queue-preset-channel-row" data-feature="SCENE_CHANNEL_UI_V1">
-    <label class="preset-field">Preset
+    <label class="preset-field"><span id="scene-preset-label">Preset</span>
       <select id="preset-id" name="preset_id">{% for preset_id, preset in scene_presets.items() %}<option value="{{ preset_id }}" {% if preset_id==default_scene_preset %}selected{% endif %}>{{ preset.label }}</option>{% endfor %}</select>
     </label>
     <div class="scene-channel-field">
@@ -150,15 +150,13 @@ async function syncDirectorV25FromFile(file){
       updateDirectorMode();
     }
     const option=[...presetSelect.options].find(o=>o.value===header.preset);
-    if(!option){
-      showMessage('Director TXT ka preset "'+header.preset+'" available nahi. TXT ka base_preset correct karein.');
-      return;
-    }
-    presetSelect.value=header.preset;
+    if(option) presetSelect.value=header.preset;
+    // This preset control is informational in V25. A missing or changed
+    // UI preset must never block or override the Director TXT.
     nameInput.value=header.project;
     dirty=true;
-    showMessage('Director V25 TXT detected. Preset auto-selected: '+option.textContent.trim()+
-      ' · Project name: '+header.project+'. Dono TXT ke mutabiq sync hain.','info');
+    showMessage('Director V25 TXT detected. Preset reference: '+header.preset+
+      ' (editing disabled) · Project name: '+header.project+'. TXT controls rendering.','info');
   }catch(err){
     if(scriptInput.files?.[0]===file)showMessage('Director V25 header read failed: '+err.message);
   }
@@ -168,9 +166,11 @@ function updateDirectorMode(){
   directorPreview.hidden=!preview;
   submitButton.disabled=false;
   submitButton.textContent=preview?'Submit Director V25 Project':'Submit Project';
+  const label=document.getElementById('scene-preset-label');
+  if(label)label.textContent=preview?'Preset reference (TXT-controlled; no preset effects)':'Preset';
   directorReport.hidden=true;
   directorReport.textContent='';
-  if(preview)showMessage('Validate TXT before Director submission. Audio-aligned timing and media checks also run in the worker.','info');
+  if(preview)showMessage('Director V25: TXT owns video, media, transitions, captions and audio. Preset is reference only. Unsupported instructions fail preflight.','info');
   else clearMessage();
 }
 directorProcessor.addEventListener('change',()=>{
@@ -206,7 +206,7 @@ directorPreview.addEventListener('click',async()=>{
   finally{directorPreview.disabled=false;}
 });
 updateDirectorMode();
-function validate(){clearMessage();const name=nameInput.value.trim();if(!name){showMessage('Enter a project name.');return false;}if(directorProcessor.value==='director_preview'){if(!directorHeader){showMessage('Director V25 TXT header not validated. Reselect the V25 TXT.');return false;}if(presetSelect.value!==directorHeader.preset){showMessage('Director TXT requires preset '+directorHeader.preset+'. Select it or edit TXT; a different UI preset cannot silently override the Director.');return false;}if(name!==directorHeader.project){showMessage('Director TXT requires project name '+directorHeader.project+'. Rename the project or edit TXT.');return false;}}else if(directorHeader){showMessage('Director V25 TXT requires Director V25 processor.');return false;}const txt=scriptInput.files[0];if(!txt||!txt.name.toLowerCase().endsWith('.txt')||!txt.size||txt.size>10*1024*1024){showMessage('Select a valid Scene TXT file.');return false;}const media=audioInput.files[0];if(!media){showMessage('Select narration media.');return false;}const ext=(media.name.split('.').pop()||'').toLowerCase();if(!allowedMedia.has(ext)||!media.size||media.size>maxAudio){showMessage('Select valid narration media within the upload limit.');return false;}return true;}
+function validate(){clearMessage();const name=nameInput.value.trim();if(!name){showMessage('Enter a project name.');return false;}if(directorProcessor.value==='director_preview'){if(!directorHeader){showMessage('Director V25 TXT header not validated. Reselect the V25 TXT.');return false;}/* UI preset never gates Director V25 jobs: TXT is the only creative authority. */if(name!==directorHeader.project){showMessage('Director TXT requires project name '+directorHeader.project+'. Rename the project or edit TXT.');return false;}}else if(directorHeader){showMessage('Director V25 TXT requires Director V25 processor.');return false;}const txt=scriptInput.files[0];if(!txt||!txt.name.toLowerCase().endsWith('.txt')||!txt.size||txt.size>10*1024*1024){showMessage('Select a valid Scene TXT file.');return false;}const media=audioInput.files[0];if(!media){showMessage('Select narration media.');return false;}const ext=(media.name.split('.').pop()||'').toLowerCase();if(!allowedMedia.has(ext)||!media.size||media.size>maxAudio){showMessage('Select valid narration media within the upload limit.');return false;}return true;}
 nameInput.addEventListener('input',()=>{dirty=true;});scriptInput.addEventListener('change',()=>{dirty=true;const f=scriptInput.files[0];scriptSummary.textContent=f?`${f.name} · ${humanSize(f.size)}`:'UTF-8 TXT · maximum 10 MB';if(f){const base=f.name.replace(/\.[^.]+$/,'').trim();nameInput.value=base||'Untitled Project';void syncDirectorV25FromFile(f);}else directorHeader=null;});audioInput.addEventListener('change',()=>{dirty=true;const f=audioInput.files[0];audioSummary.textContent=f?`${f.name} · ${humanSize(f.size)}`:'FFmpeg-compatible media · maximum {{ max_upload_mb }} MB';});
 function submitFiles(projectName,presetId,channelName,txt,media,onProgress,processor='classic'){return new Promise((resolve,reject)=>{const data=new FormData();data.append('project_name',projectName);data.append('preset_id',presetId);data.append('director_processor',processor==='director_preview'?'director':'classic');data.append('channel_name',channelName||'General');data.append('script_file',txt,txt.name);data.append('audio_file',media,media.name);data.append('audio_engine_processed',media.__audioEngineProcessed?'1':'0');data.append('audio_engine_enabled',media.__audioEngineEnabled===false?'0':'1');data.append('audio_engine_preset',media.__audioEnginePreset||'documentary');const xhr=new XMLHttpRequest();xhr.open('POST','/queue/submit',true);xhr.setRequestHeader('X-Requested-With','XMLHttpRequest');xhr.setRequestHeader('Accept','application/json');xhr.upload.onprogress=e=>{if(e.lengthComputable)onProgress(Math.round((e.loaded/e.total)*85),'Uploading');};xhr.upload.onload=()=>onProgress(92,'Packaging');xhr.onload=()=>{let p={};try{p=JSON.parse(xhr.responseText||'{}');}catch(_){}if(xhr.status>=200&&xhr.status<300&&p.ok){onProgress(100,p.duplicate?'Existing job reused':'Accepted');resolve(p);}else reject(new Error(p.error||`Submission failed (HTTP ${xhr.status})`));};xhr.onerror=()=>reject(new Error('Network connection interrupted.'));xhr.send(data);});}
 form.addEventListener('submit',e=>{e.preventDefault();if(submitting||!validate())return;submitting=true;submitButton.disabled=true;submitButton.textContent='Submitting…';submitFiles(nameInput.value.trim(),presetSelect.value,channelSelect?.value||'General',scriptInput.files[0],audioInput.files[0],(p,s)=>setProgress(p,s,p<90?'Uploading…':'Building VPS package…'),directorProcessor.value).then(data=>{setProgress(100,data.duplicate?'Existing job':'Accepted','Project accepted by VPS');dirty=false;setTimeout(()=>location.href=data.redirect||'/queue',500);}).catch(err=>{submitting=false;submitButton.disabled=false;submitButton.textContent='Submit Project';progress.hidden=true;showMessage(err.message);});});

@@ -9,6 +9,10 @@ on:
       - 'apps/scene-builder/part01/director_v25_execution.py'
       - 'apps/scene-builder/part02/api_server.py'
       - 'tests/test_scene_director_v25_execution.py'
+      - 'tests/test_scene_director_v25_timing.py'
+      - 'tests/test_scene_director_v25_authority.py'
+      - 'apps/scene-builder/part02/director_v25_transitions.py'
+      - 'apps/scene-builder/part02/director_v25_timing.py'
       - 'apps/scene-builder/part01/templates/queue.html'
       - 'apps/scene-builder/part01/templates/base.html'
       - 'apps/scene-builder/part01/templates/settings.html'
@@ -43,3 +47,9 @@ jobs:
 
       - name: Director V25 upload auto-selects authoritative preset and project
         run: python -m unittest discover -s tests -p 'test_scene_director_v25_queue_autosync.py' -v
+
+      - name: Director V25 preserves all 337 authored shots after Whisper timing
+        run: python -m unittest discover -s tests -p 'test_scene_director_v25_timing.py' -v
+
+      - name: Director V25 TXT controls effects audio LUT and transitions independently of presets
+        run: python -m unittest discover -s tests -p 'test_scene_director_v25_authority.py' -v

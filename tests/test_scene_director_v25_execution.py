@@ -183,7 +183,7 @@ transition_out=none
         with tempfile.TemporaryDirectory() as tmp:
             catalog = Catalog(Path(tmp), ["Alexa 6.mp4"])
             bad = [
-                (plan(preset="not_matching"), "base_preset"),
+                # UI preset cannot override or invalidate a Director TXT plan.
                 (plan().replace("[PROJECT]\nmode=director\nname=Atlas", "[PROJECT]\nmode=director\nname=Wrong"), "filename"),
                 (plan().replace("animation=pan_left", "animation=unknown_motion"), "preflight"),
             ]

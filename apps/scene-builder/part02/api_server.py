@@ -34,6 +34,8 @@ from vps_engine.internal_audio_engine import VERSION as INTERNAL_AUDIO_ENGINE_VE
 from smart_scroll.project_model import ProjectSettings
 from smart_scroll.reliability_engine import candidate_score, sha256_file, validate_media, should_continue_previous_visual, build_working_video_clip, working_clip_target_duration
 from smart_scroll.scene_txt_pipeline import align_scenes_to_captions, normalize_scene_timing
+from director_v25_timing import DirectorTimingError, fit_director_shot_timing
+from director_v25_transitions import DirectorTransitionError, resolve_director_transitions
 from smart_scroll.transition_engine import assign_auto_transitions
 from smart_scroll.v2_renderer import render_mixed_media
 from smart_scroll.v3_engine import download_result, search_multi_provider, optimize_video_candidate, find_cached_provider_media
@@ -2149,16 +2151,44 @@ def _prepare_captions_and_timing(
 
     intro_duration_for_hook = float(getattr(settings, "intro_duration_seconds", 0) or 0) if bool(getattr(settings, "intro_enabled", False)) else 0.0
     narration_hook_seconds = max(0.0, AUDIT_WINDOW_SECONDS - intro_duration_for_hook)
-    scenes = normalize_scene_timing(
-        scenes,
-        max(0.1, audio_duration),
-        max_scene_seconds=float(getattr(settings, "general_media_max_seconds", settings.max_scene_seconds) or 4.0),
-        min_scene_seconds=float(getattr(settings, "general_media_min_seconds", metadata.get("minimum_scene_seconds", 0.50)) or 0.50),
-        hook_seconds=narration_hook_seconds,
-        hook_min_scene_seconds=float(getattr(settings, "hook_media_min_seconds", 1.5) or 1.5),
-        hook_max_scene_seconds=float(getattr(settings, "hook_media_max_seconds", 3.0) or 3.0),
-        timeline_start=narration_start,
-    )
+    if director_v25:
+        # Director shots have exact, approved media IDs and per-shot edit controls.
+        # The Classic normalizer may split these at 3s / the 2-minute boundary
+        # or merge tiny neighbors, invalidating both media locks and narration.
+        # Fit Whisper timing to authored shots WITHOUT changing shot cardinality.
+        try:
+            scenes, director_fit = fit_director_shot_timing(
+                scenes,
+                audio_duration=max(0.1, audio_duration),
+                narration_start=narration_start,
+                max_shot_seconds=3.0,
+                min_shot_seconds=0.05,
+            )
+        except DirectorTimingError as exc:
+            raise RuntimeError(str(exc)) from exc
+        metadata = dict(settings.metadata or {})
+        metadata["director_v25_timing_fit"] = director_fit
+        settings.metadata = metadata
+        update_job(
+            job_id, status="preparing", stage="Director V25 Timing", progress=13,
+            message=(
+                f"Director V25 preserved {director_fit['fitted_shots']} authored shots "
+                f"(Whisper boundary adjustments: {director_fit['shifted_whisper_boundaries']}; "
+                f"max shift: {director_fit['max_boundary_shift_seconds']}s)"
+            ),
+        )
+    else:
+        # Classic keeps its existing hook/general split and rebalance behavior.
+        scenes = normalize_scene_timing(
+            scenes,
+            max(0.1, audio_duration),
+            max_scene_seconds=float(getattr(settings, "general_media_max_seconds", settings.max_scene_seconds) or 4.0),
+            min_scene_seconds=float(getattr(settings, "general_media_min_seconds", metadata.get("minimum_scene_seconds", 0.50)) or 0.50),
+            hook_seconds=narration_hook_seconds,
+            hook_min_scene_seconds=float(getattr(settings, "hook_media_min_seconds", 1.5) or 1.5),
+            hook_max_scene_seconds=float(getattr(settings, "hook_media_max_seconds", 3.0) or 3.0),
+            timeline_start=narration_start,
+        )
     if director_v25:
         authored = list((settings.metadata or {}).get("director_v25_expected_shots") or [])
         observed = [str(item.get("director_v25_shot") or "") for item in scenes]
@@ -2892,12 +2922,21 @@ def _save_resolved_job_plan(job_dir: Path, source_signature: str, settings: Proj
         "version": PIPELINE_CHECKPOINT_VERSION,
         "worker_build": WORKER_BUILD,
         "source_signature": source_signature,
-        "authority": {
-            "outer_ai": "editorial_intent_and_media_planning",
-            "preset_settings": "technical_editing_rules",
-            "resolver": "single_resolution_before_render",
-            "renderer": "resolved_job_plan_only",
-        },
+        "authority": (
+            {
+                "director_txt": "sole_creative_source",
+                "ui_preset": "compatibility_label_only",
+                "timing": "whisper_boundary_fit_preserve_shots",
+                "renderer": "resolved_job_plan_only",
+            }
+            if bool((settings.metadata or {}).get("director_v25")) else
+            {
+                "outer_ai": "editorial_intent_and_media_planning",
+                "preset_settings": "technical_editing_rules",
+                "resolver": "single_resolution_before_render",
+                "renderer": "resolved_job_plan_only",
+            }
+        ),
         "render_audio_path": str(settings.render_audio_path or ""),
         "technical_profile": _technical_render_profile(settings),
         "metadata": {
@@ -4305,20 +4344,28 @@ def process_job(job_id: str) -> None:
                     if bool(settings.transition_engine_enabled)
                     else "off"
                 )
-                cleaned_scenes, transition_summary = assign_auto_transitions(
-                    cleaned_scenes,
-                    mode=transition_mode,
-                    preset=str(settings.transition_preset or "documentary"),
-                    intensity=int(settings.transition_intensity_percent or 0),
-                    base_seconds=float(settings.transition_base_seconds or 0.28),
-                    project_seed=f"{job_id}:{project_label}",
-                    hook_seconds=(
-                        float(settings.opening_hook_seconds or 0.0)
-                        if bool(settings.transition_hook_cut_bias)
-                        else 0.0
-                    ),
-                    no_repeat=bool(settings.transition_no_repeat),
-                )
+                if bool((settings.metadata or {}).get("director_v25")):
+                    try:
+                        cleaned_scenes, transition_summary = resolve_director_transitions(
+                            cleaned_scenes
+                        )
+                    except DirectorTransitionError as exc:
+                        raise RuntimeError(f"Director V25 TXT transition preflight: {exc}") from exc
+                else:
+                    cleaned_scenes, transition_summary = assign_auto_transitions(
+                        cleaned_scenes,
+                        mode=transition_mode,
+                        preset=str(settings.transition_preset or "documentary"),
+                        intensity=int(settings.transition_intensity_percent or 0),
+                        base_seconds=float(settings.transition_base_seconds or 0.28),
+                        project_seed=f"{job_id}:{project_label}",
+                        hook_seconds=(
+                            float(settings.opening_hook_seconds or 0.0)
+                            if bool(settings.transition_hook_cut_bias)
+                            else 0.0
+                        ),
+                        no_repeat=bool(settings.transition_no_repeat),
+                    )
                 cleaned_scenes = _resolve_editorial_scene_technical_fields(cleaned_scenes, settings)
                 _save_edit_checkpoint(job_dir, edit_signature, cleaned_scenes, transition_summary)
 
@@ -4336,11 +4383,19 @@ def process_job(job_id: str) -> None:
             metadata["scene_sync_plan"] = [dict(scene) for scene in cleaned_scenes]
             metadata["transition_direction"] = transition_summary
             metadata["transition_direction_authoritative"] = True
-            metadata["editing_authority"] = {
-                "outer_ai": "editorial_intent_and_media_planning",
-                "preset_settings": "technical_editing_rules",
-                "resolver": "single_resolution_before_render",
-            }
+            metadata["editing_authority"] = (
+                {
+                    "director_txt": "sole_creative_source",
+                    "ui_preset": "compatibility_label_only",
+                    "technical_safety": "explicit_fail_not_silent_override",
+                }
+                if bool(metadata.get("director_v25")) else
+                {
+                    "outer_ai": "editorial_intent_and_media_planning",
+                    "preset_settings": "technical_editing_rules",
+                    "resolver": "single_resolution_before_render",
+                }
+            )
             settings.metadata = metadata
 
             # V17.5 retention gate: resolve only visuals intersecting final 00:00-02:00

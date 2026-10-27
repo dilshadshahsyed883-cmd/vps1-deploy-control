@@ -25,7 +25,7 @@ class DirectorV25AutosyncTests(unittest.TestCase):
         self.assertIn("directorProcessor.value='director_preview';", code)
         self.assertIn("void syncDirectorV25FromFile(f)", code)
         self.assertIn("const option=[...presetSelect.options].find(o=>o.value===header.preset);", code)
-        self.assertIn("if(presetSelect.value!==directorHeader.preset)", code)
+        self.assertNotIn("if(presetSelect.value!==directorHeader.preset)", code)
         self.assertIn("if(name!==directorHeader.project)", code)
         self.assertIn("director_processor',processor==='director_preview'?'director':'classic'", code)
         self.assertIn("option value=\"classic\" selected", code)

@@ -1373,6 +1373,22 @@ def build_project_package(
     caption_controls = caption_render_settings(caption_style, profile)
     caption_controls["caption_karaoke_enabled"] = bool(profile.get("caption_karaoke_enabled", caption_controls.get("caption_karaoke_enabled", False)))
     media_config = preset_media_config(preset_id)
+    if director_compilation is not None:
+        # The UI preset is only a compatibility/template label in Director.
+        # Every creative/audio control comes from TXT; legacy saved preset
+        # settings cannot enter this job's media configuration.
+        media_config = {
+            **DEFAULT_PRESET_MEDIA_CONFIG,
+            "intro_enabled": bool(director_compilation["settings"]["intro_enabled"]),
+            "intro_duration_seconds": int(director_compilation["settings"]["intro_duration_seconds"]),
+            "music_enabled": bool(director_compilation["settings"]["music_enabled"]),
+            "music_playlist": [],
+            "music_ai_select_from_library": False,
+            "sfx_enabled": False,
+            "environment_sfx_enabled": False,
+            "transition_sfx_library_enabled": False,
+            "first_two_minute_visual_audit_enabled": False,
+        }
     first2_audit_enabled = bool(media_config.get("first_two_minute_visual_audit_enabled", False))
     manual_scene_review_requested = setting("scene_review_required", "0") == "1"
     # Queue never overrides production audio. The selected preset is the sole
@@ -1434,6 +1450,16 @@ def build_project_package(
     if director_compilation is not None:
         metadata["director_v25"] = True
         metadata["director_v25_schema"] = director_compilation["schema"]
+        metadata["editing_authority"] = {
+            "director_txt": "sole_creative_source",
+            "ui_preset": "compatibility_label_only",
+            "technical_safety": "explicit_fail_not_silent_override",
+        }
+        metadata["web_manual_scene_review_requested"] = False
+        metadata["web_scene_review_mode"] = "director_v25_explicit_assets"
+        metadata["avoid_duplicate_media"] = str(
+            director_compilation["sections"]["MEDIA"].get("avoid_duplicates", "true")
+        ).lower() == "true"
         metadata["director_v25_expected_shots"] = [
             str(row["director_v25_shot"]) for row in scene_plan
         ]
@@ -1586,10 +1612,26 @@ def build_project_package(
     if director_compilation is not None:
         override = dict(director_compilation["settings"])
         for key, value in override.items():
-            if key in data or key == "output_resolution":
+            if key in data or key in {
+                "output_resolution", "video_quality_preset",
+                "lut_scene_aware_enabled", "lut_continuity_enabled",
+            }:
                 data[key] = value
         data["music_enabled"] = bool(override["music_enabled"])
-        data["lut_mode"] = "manual" if bool(override["lut_enabled"]) else "auto"
+        data["lut_mode"] = "manual" if bool(override["lut_enabled"]) else "off"
+        data["caption_export_srt"] = bool(override["captions_enabled"])
+        data["text_color"] = override["caption_text_color"]
+        data["outline_color"] = override["caption_outline_color"]
+        data["text_background_color"] = override["caption_background_color"]
+        data["text_background_opacity_percent"] = override["caption_background_opacity"]
+        data["font_size"] = override["caption_font_size"]
+        data["caption_font_name"] = CAPTION_FONTS[override["caption_font"]]["label"]
+        data["avoid_duplicate_media"] = bool(metadata["avoid_duplicate_media"])
+        data["pexels_avoid_used_media"] = bool(metadata["avoid_duplicate_media"])
+        data["use_image_backgrounds"] = True
+        data["use_video_backgrounds"] = True
+        # Media acquisition remains an engine operation; visual choices remain TXT-controlled.
+        data["auto_prepare_backgrounds"] = True
         data["pexels_enabled"] = effective_pexels
         data["pexels_download_enabled"] = effective_pexels
         data["transition_engine_enabled"] = True
@@ -2473,6 +2515,7 @@ async def scene_director_v25_preflight(
         active_source_mode=str(source["scene_library_priority"]),
         library_enabled=bool(source["scene_library_enabled"]),
         capabilities={"caption_styles": list(CAPTION_STYLE_PRESETS),
+                      "caption_fonts": list(CAPTION_FONTS),
                       "lut_packs": {key: list(value["presets"]) for key, value in LUT_PACKS.items()}},
     )
 
@@ -2549,6 +2592,11 @@ async def submit_project(
             return submission_error(request, 400, str(exc))
 
         preset_id, profile = resolve_scene_profile(preset_id)
+        if director_processor == "director":
+            # A known engine baseline supplies infrastructure-only defaults.
+            # The user-selected UI preset must not leak creative settings to a
+            # Director V25 job. TXT overrides all supported creative controls.
+            _, profile = resolve_scene_profile("cinematic_documentary")
         director_compilation = None
         if director_processor == "director":
             try:
@@ -2560,6 +2608,7 @@ async def submit_project(
                     selected_preset=preset_id,
                     capabilities={
                         "caption_styles": list(CAPTION_STYLE_PRESETS),
+                        "caption_fonts": list(CAPTION_FONTS),
                         "lut_packs": {key: list(value["presets"]) for key, value in LUT_PACKS.items()},
                     },
                 )
@@ -2581,6 +2630,7 @@ async def submit_project(
                     "fps": requested["fps"],
                     "captions_enabled": requested["captions_enabled"],
                     "caption_style": requested["caption_style"],
+                    "caption_font": requested["caption_font"],
                     "caption_position": requested["caption_position"],
                     "caption_karaoke_enabled": requested["caption_karaoke_enabled"],
                     "voice_volume_percent": requested["voice_volume_percent"],
@@ -2608,7 +2658,17 @@ async def submit_project(
             selected_audio_engine_preset = "documentary"
         effective_audio_sha256 = audio_hasher.hexdigest()
         profile = dict(profile)
-        if audio_engine_was_used:
+        if director_compilation is not None:
+            # Director audio is the uploaded timeline. Preset DSP, mastering,
+            # YouTube/Deep voice selection or UI audio settings must not modify it.
+            profile["_internal_audio_engine"] = {
+                "enabled": False,
+                "preset": "off",
+                "architecture": "director_v25_narration_original",
+                "timeline_owner": "director_txt",
+            }
+            profile["voice_processing_preset"] = "off"
+        elif audio_engine_was_used:
             # Cached pre-V2 clients may still submit an already-processed file.
             # Preserve that compatibility without processing it a second time.
             profile["_internal_audio_engine"] = {
