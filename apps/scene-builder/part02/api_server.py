@@ -21,7 +21,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from contextvars import ContextVar
-from typing import Any
+from contextlib import contextmanager
+from typing import Any, Iterator
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, Request
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, JSONResponse
@@ -468,12 +469,23 @@ def _ensure_disk_space(stage: str, extra_required_bytes: int = 0) -> None:
         )
 
 
-def db(timeout: float = 30.0) -> sqlite3.Connection:
+@contextmanager
+def db(timeout: float = 30.0) -> Iterator[sqlite3.Connection]:
+    """Close every queue DB connection, including those used for render progress.
+
+    sqlite3.Connection's context manager commits/rolls back but does not close.
+    Thousands of FFmpeg progress updates otherwise leave file descriptors open
+    until garbage collection, eventually preventing ffprobe subprocess startup.
+    """
     connection = sqlite3.connect(DB_PATH, timeout=max(0.1, float(timeout)), check_same_thread=False)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA journal_mode=WAL")
-    connection.execute("PRAGMA synchronous=NORMAL")
-    return connection
+    try:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA synchronous=NORMAL")
+        with connection:
+            yield connection
+    finally:
+        connection.close()
 
 
 def init_db() -> None:
