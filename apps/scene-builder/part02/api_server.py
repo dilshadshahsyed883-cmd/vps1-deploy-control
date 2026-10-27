@@ -881,6 +881,15 @@ def _read_script_text(data: dict[str, Any], source_root: Path) -> str:
 
 
 def _scene_keywords(scene: dict[str, Any]) -> list[str]:
+    if scene.get("director_v25_shot"):
+        # Director V25 never substitutes narration or a local filename as a
+        # stock query. Use only its explicit V24 semantic Pexels search track.
+        primary = str(scene.get("primary_keyword") or "").strip()
+        backups = scene.get("fallback_keywords") or []
+        queries = [primary] + ([str(x).strip() for x in backups] if isinstance(backups, list) else [])
+        if not primary or len(queries) > 4:
+            raise RuntimeError(f"Director V25 missing/invalid Pexels query: {scene.get('director_v25_shot')}")
+        return [q for q in queries if q][:4]
     values: list[str] = []
     for key in (
         "primary_keyword",
