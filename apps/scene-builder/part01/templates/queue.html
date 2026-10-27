@@ -125,8 +125,8 @@ function parseDirectorV25Header(raw){
   const section=source.match(/(?:^|\r?\n)\[PROJECT\]\r?\n([\s\S]*?)(?=\r?\n\[[^\]]+\]|$)/);
   if(!section)throw new Error('V25 TXT mein [PROJECT] section missing hai.');
   const field=key=>{
-    const line=section[1].split(/\r?\n/).find(x=>x.trim().startsWith(key+'='));
-    return line?line.slice(line.indexOf('=')+1).trim():'';
+    const parsed=section[1].split(/\r?\n/).map(line=>line.match(/^\s*([A-Za-z_]+)\s*=\s*(.*?)\s*$/)).find(item=>item&&item[1]===key);
+    return parsed?parsed[2]:'';
   };
   const preset=field('base_preset'),project=field('name');
   if(!preset||!project)throw new Error('V25 [PROJECT].base_preset aur name required hain.');
