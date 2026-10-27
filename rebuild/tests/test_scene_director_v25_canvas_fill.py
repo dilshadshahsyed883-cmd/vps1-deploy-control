@@ -6,6 +6,7 @@ Classic's strict landscape gate must remain unchanged.
 from __future__ import annotations
 
 import ast
+import shutil
 import struct
 import sys
 import tempfile
@@ -51,6 +52,7 @@ def load_media_policy_func():
 
 
 class DirectorCanvasMediaTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("ffprobe"), "FFprobe needed for actual image decoding")
     def test_director_accepts_exact_612x435_with_any_canvas_mode(self):
         require_landscape = load_media_policy_func()
         with tempfile.TemporaryDirectory() as temp:
