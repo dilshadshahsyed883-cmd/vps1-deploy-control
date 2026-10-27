@@ -101,7 +101,7 @@ def bundle_local_media(scene_plan: list[dict[str, Any]], intro_queries: list[dic
             if selection:
                 break
         if selection is None:
-            if priority == "library_only":
+            if priority == "library_only" or not allow_pexels:
                 unmatched.append(code)
             continue
         media_path, media = catalog.file(selection["id"])
@@ -124,7 +124,9 @@ def bundle_local_media(scene_plan: list[dict[str, Any]], intro_queries: list[dic
         else:
             scene.update(properties)
     if unmatched:
-        raise ValueError("Scene Media Library Only: no matching approved local media for " +
+        reason = ("Scene Media Library Only" if priority == "library_only"
+                  else "Scene Media Library First with Pexels disabled")
+        raise ValueError(reason + ": no matching approved local media for " +
                          ", ".join(unmatched[:12]) +
                          (" and more scenes" if len(unmatched) > 12 else "") +
                          ". Add matching files to Scene Media Library or enable Pexels fallback.")
