@@ -23,9 +23,11 @@ FIELDS = {
     "MEDIA": {"source_mode", "avoid_duplicates", "missing_media",
               "library_summary_generated"},
     "TIMING": {"audio", "narration_start", "split", "max_semantic_beat_seconds"},
-    "CAPTIONS": {"captions_enabled", "caption_style", "caption_position"},
+    "CAPTIONS": {"captions_enabled", "caption_style", "caption_position",
+                 "text_color", "highlight_color", "outline_color", "background_color",
+                 "background_opacity_percent", "font_size", "max_words"},
     "AUDIO": {"voice_volume_percent", "music_enabled"},
-    "LOOK": {"lut_enabled", "lut_pack", "lut_preset"},
+    "LOOK": {"lut_enabled", "lut_pack", "lut_preset", "lut_strength_percent"},
     "INTRO": {"intro_enabled", "intro_duration_seconds"},
 }
 SHOT_FIELDS = {
@@ -188,6 +190,9 @@ def _validate_controls(doc: dict[str, dict[str, str]], errors: list[str],
             "[INTRO].intro_duration_seconds", errors, 1, 600)
     _number(_value(doc["AUDIO"].get("voice_volume_percent")),
             "[AUDIO].voice_volume_percent", errors, 0, 150, integer=True)
+    if _value(doc["AUDIO"].get("music_enabled")).casefold() == "true":
+        errors.append("[AUDIO].music_enabled=true needs an explicit track-binding feature; "
+                      "Director cannot silently select music from preset settings")
     for section, key in (("MEDIA", "avoid_duplicates"), ("CAPTIONS", "captions_enabled"),
                          ("AUDIO", "music_enabled"), ("LOOK", "lut_enabled"),
                          ("INTRO", "intro_enabled")):
@@ -195,6 +200,16 @@ def _validate_controls(doc: dict[str, dict[str, str]], errors: list[str],
     captions = doc["CAPTIONS"]
     if _value(captions.get("caption_position")) not in {"top", "center", "bottom"}:
         errors.append("[CAPTIONS].caption_position must be top, center or bottom")
+    _number(_value(captions.get("font_size")), "[CAPTIONS].font_size", errors, 18, 120, integer=True)
+    _number(_value(captions.get("max_words")), "[CAPTIONS].max_words", errors, 1, 5, integer=True)
+    _number(_value(captions.get("background_opacity_percent")),
+            "[CAPTIONS].background_opacity_percent", errors, 0, 100, integer=True)
+    for field in ("text_color", "highlight_color", "outline_color", "background_color"):
+        value = _value(captions.get(field))
+        if value and not re.fullmatch(r"#[0-9a-fA-F]{6}", value):
+            errors.append(f"[CAPTIONS].{field}: expected #RRGGBB")
+    _number(_value(doc["LOOK"].get("lut_strength_percent")),
+            "[LOOK].lut_strength_percent", errors, 0, 100, integer=True)
     if capabilities and _value(captions.get("caption_style")) not in set(capabilities.get("caption_styles", [])):
         errors.append("[CAPTIONS].caption_style not registered in current Scene Builder")
     if capabilities and _value(doc["LOOK"].get("lut_enabled")).casefold() == "true":
