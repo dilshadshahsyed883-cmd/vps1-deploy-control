@@ -29,6 +29,7 @@ from starlette.background import BackgroundTask
 from smart_scroll.ai_scene_txt import extract_intro_queries, parse_outer_ai_scene_txt
 from storage_manager_client import storage_manager_request
 from scene_media_library import SceneMediaLibrary, InvalidMedia
+from director_v25 import preflight_v25
 from scene_media_source_policy import bundle_local_media
 
 RUNTIME_CANDIDATE = os.getenv("VPS1_RUNTIME_CANDIDATE") == "1"
@@ -2401,6 +2402,36 @@ def scene_builder_audio_engine_process(source: Path, temp_dir: Path, preset: str
     if not out.is_file() or out.stat().st_size < 1024:
         raise RuntimeError("Scene Builder internal Audio Engine download is empty")
     return out, {"job_id": f"internal-studio:{studio_id}", "preset": preset, "architecture": "scene_builder_worker_internal", "result": payload.get("result") or {}}
+
+
+@app.post("/api/scene-builder/director-v25/preflight")
+async def scene_director_v25_preflight(
+    request: Request,
+    director_txt: UploadFile = File(...),
+):
+    """Read-only V25 intent validation; never queues or renders a Director job."""
+    require_login(request)
+    if not str(director_txt.filename or "").lower().endswith(".txt"):
+        raise HTTPException(400, "Director input must be a .txt file")
+    try:
+        blob = await director_txt.read(10 * 1024 * 1024 + 1)
+    finally:
+        await director_txt.close()
+    if len(blob) > 10 * 1024 * 1024:
+        raise HTTPException(413, "Director TXT exceeds 10 MB")
+    try:
+        plan_text = blob.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(400, "Director TXT must be UTF-8") from exc
+    source = scene_library_settings()
+    return preflight_v25(
+        plan_text,
+        SCENE_LOCAL_LIBRARY.list(limit=100000),
+        active_source_mode=str(source["scene_library_priority"]),
+        library_enabled=bool(source["scene_library_enabled"]),
+        capabilities={"caption_styles": list(CAPTION_STYLE_PRESETS),
+                      "lut_packs": {key: list(value["presets"]) for key, value in LUT_PACKS.items()}},
+    )
 
 
 @app.post("/queue/submit")
