@@ -24,7 +24,7 @@
 <form id="project-form" class="panel form-card queue-new-project-card" action="/queue/submit" method="post" enctype="multipart/form-data" novalidate>
   <div class="scene-project-heading"><div><span class="scene-project-eyebrow">Scene Builder · Project setup</span><h2>New Project</h2><p>Choose a preset and channel, then add your scene script and narration.</p></div><span class="scene-project-step">01 · Configure</span></div>
   <div class="queue-preset-channel-row" data-feature="SCENE_CHANNEL_UI_V1">
-    <label class="preset-field">Preset
+    <label class="preset-field"><span id="scene-preset-label">Preset</span>
       <select id="preset-id" name="preset_id">{% for preset_id, preset in scene_presets.items() %}<option value="{{ preset_id }}" {% if preset_id==default_scene_preset %}selected{% endif %}>{{ preset.label }}</option>{% endfor %}</select>
     </label>
     <div class="scene-channel-field">
@@ -168,9 +168,11 @@ function updateDirectorMode(){
   directorPreview.hidden=!preview;
   submitButton.disabled=false;
   submitButton.textContent=preview?'Submit Director V25 Project':'Submit Project';
+  const label=document.getElementById('scene-preset-label');
+  if(label)label.textContent=preview?'Preset reference (TXT-controlled; no preset effects)':'Preset';
   directorReport.hidden=true;
   directorReport.textContent='';
-  if(preview)showMessage('Validate TXT before Director submission. Audio-aligned timing and media checks also run in the worker.','info');
+  if(preview)showMessage('Director V25: TXT owns video, media, transitions, captions and audio. Preset is reference only. Unsupported instructions fail preflight.','info');
   else clearMessage();
 }
 directorProcessor.addEventListener('change',()=>{
