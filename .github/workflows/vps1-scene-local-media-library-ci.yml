@@ -16,6 +16,7 @@ on:
       - 'apps/scene-builder/part01/templates/scene_media_library.html'
       - 'tests/test_scene_local_media_library_20261027.py'
       - 'tests/test_scene_director_v25_preflight.py'
+      - 'tests/test_scene_director_v25_queue_autosync.py'
       - '.github/workflows/vps1-scene-local-media-library-ci.yml'
   workflow_dispatch:
 permissions:
@@ -39,3 +40,6 @@ jobs:
 
       - name: Director V25 job compilation and exact local media regression
         run: python -m unittest discover -s tests -p 'test_scene_director_v25_execution.py' -v
+
+      - name: Director V25 upload auto-selects authoritative preset and project
+        run: python -m unittest discover -s tests -p 'test_scene_director_v25_queue_autosync.py' -v
