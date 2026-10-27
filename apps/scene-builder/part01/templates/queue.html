@@ -118,6 +118,51 @@ function showMessage(text,type='error'){message.hidden=false;message.className=`
 const directorProcessor=document.getElementById('director-processor');
 const directorPreview=document.getElementById('director-preview-btn');
 const directorReport=document.getElementById('director-preflight-result');
+let directorHeader=null;
+function parseDirectorV25Header(raw){
+  const source=String(raw||'').replace(/^\uFEFF/,'');
+  if(!/^\s*SCENE_PLAN_VERSION\s*=\s*2\s*(?:\r?\n|$)/.test(source))return null;
+  const section=source.match(/(?:^|\r?\n)\[PROJECT\]\r?\n([\s\S]*?)(?=\r?\n\[[^\]]+\]|$)/);
+  if(!section)throw new Error('V25 TXT mein [PROJECT] section missing hai.');
+  const field=key=>{
+    const line=section[1].split(/\r?\n/).find(x=>x.trim().startsWith(key+'='));
+    return line?line.slice(line.indexOf('=')+1).trim():'';
+  };
+  const preset=field('base_preset'),project=field('name');
+  if(!preset||!project)throw new Error('V25 [PROJECT].base_preset aur name required hain.');
+  return {preset,project};
+}
+async function syncDirectorV25FromFile(file){
+  directorHeader=null;
+  if(!file)return;
+  try{
+    const raw=await file.slice(0,65536).text();
+    if(scriptInput.files?.[0]!==file)return; // A newer file selection wins.
+    const header=parseDirectorV25Header(raw);
+    if(!header){
+      if(directorProcessor.value==='director_preview')
+        showMessage('Yeh V25 TXT nahi hai. Director V25 file select karein, ya Classic processor choose karein.');
+      return;
+    }
+    directorHeader=header;
+    if(directorProcessor.value!=='director_preview'){
+      directorProcessor.value='director_preview';
+      updateDirectorMode();
+    }
+    const option=[...presetSelect.options].find(o=>o.value===header.preset);
+    if(!option){
+      showMessage('Director TXT ka preset "'+header.preset+'" available nahi. TXT ka base_preset correct karein.');
+      return;
+    }
+    presetSelect.value=header.preset;
+    nameInput.value=header.project;
+    dirty=true;
+    showMessage('Director V25 TXT detected. Preset auto-selected: '+option.textContent.trim()+
+      ' · Project name: '+header.project+'. Dono TXT ke mutabiq sync hain.','info');
+  }catch(err){
+    if(scriptInput.files?.[0]===file)showMessage('Director V25 header read failed: '+err.message);
+  }
+}
 function updateDirectorMode(){
   const preview=directorProcessor.value==='director_preview';
   directorPreview.hidden=!preview;
@@ -128,7 +173,10 @@ function updateDirectorMode(){
   if(preview)showMessage('Validate TXT before Director submission. Audio-aligned timing and media checks also run in the worker.','info');
   else clearMessage();
 }
-directorProcessor.addEventListener('change',updateDirectorMode);
+directorProcessor.addEventListener('change',()=>{
+  updateDirectorMode();
+  if(scriptInput.files?.[0])void syncDirectorV25FromFile(scriptInput.files[0]);
+});
 directorPreview.addEventListener('click',async()=>{
   const file=scriptInput.files?.[0];
   if(!file||!file.name.toLowerCase().endsWith('.txt')||file.size>10*1024*1024){
@@ -145,7 +193,7 @@ directorPreview.addEventListener('click',async()=>{
     const lines=[
       'Status: '+data.status,
       'Scene beats: '+(data.scenes||0)+' · Scene shots: '+(data.shots||0)+' · Intro slots: '+(data.intro_shots||0),
-      'Static intent validated: '+(data.render_ready?'YES':'YES — final render gate requires audio-aligned worker validation'),
+      'Render gate: '+(data.render_ready?'Ready':'Audio-aligned timing verified separately by worker; preflight is not render approval'),
       'Live assets resolved: '+(data.resolved_assets||[]).filter(x=>x.source==='scene_media_library').length,
       'Pexels searches pending: '+(data.resolved_assets||[]).filter(x=>x.source==='pexels_pending').length,
       '',
@@ -158,8 +206,8 @@ directorPreview.addEventListener('click',async()=>{
   finally{directorPreview.disabled=false;}
 });
 updateDirectorMode();
-function validate(){clearMessage();const name=nameInput.value.trim();if(!name){showMessage('Enter a project name.');return false;}const txt=scriptInput.files[0];if(!txt||!txt.name.toLowerCase().endsWith('.txt')||!txt.size||txt.size>10*1024*1024){showMessage('Select a valid Scene TXT file.');return false;}const media=audioInput.files[0];if(!media){showMessage('Select narration media.');return false;}const ext=(media.name.split('.').pop()||'').toLowerCase();if(!allowedMedia.has(ext)||!media.size||media.size>maxAudio){showMessage('Select valid narration media within the upload limit.');return false;}return true;}
-nameInput.addEventListener('input',()=>{dirty=true;});scriptInput.addEventListener('change',()=>{dirty=true;const f=scriptInput.files[0];scriptSummary.textContent=f?`${f.name} · ${humanSize(f.size)}`:'UTF-8 TXT · maximum 10 MB';if(f){const base=f.name.replace(/\.[^.]+$/,'').trim();nameInput.value=base||'Untitled Project';}});audioInput.addEventListener('change',()=>{dirty=true;const f=audioInput.files[0];audioSummary.textContent=f?`${f.name} · ${humanSize(f.size)}`:'FFmpeg-compatible media · maximum {{ max_upload_mb }} MB';});
+function validate(){clearMessage();const name=nameInput.value.trim();if(!name){showMessage('Enter a project name.');return false;}if(directorProcessor.value==='director_preview'){if(!directorHeader){showMessage('Director V25 TXT header not validated. Reselect the V25 TXT.');return false;}if(presetSelect.value!==directorHeader.preset){showMessage('Director TXT requires preset '+directorHeader.preset+'. Select it or edit TXT; a different UI preset cannot silently override the Director.');return false;}if(name!==directorHeader.project){showMessage('Director TXT requires project name '+directorHeader.project+'. Rename the project or edit TXT.');return false;}}else if(directorHeader){showMessage('Director V25 TXT requires Director V25 processor.');return false;}const txt=scriptInput.files[0];if(!txt||!txt.name.toLowerCase().endsWith('.txt')||!txt.size||txt.size>10*1024*1024){showMessage('Select a valid Scene TXT file.');return false;}const media=audioInput.files[0];if(!media){showMessage('Select narration media.');return false;}const ext=(media.name.split('.').pop()||'').toLowerCase();if(!allowedMedia.has(ext)||!media.size||media.size>maxAudio){showMessage('Select valid narration media within the upload limit.');return false;}return true;}
+nameInput.addEventListener('input',()=>{dirty=true;});scriptInput.addEventListener('change',()=>{dirty=true;const f=scriptInput.files[0];scriptSummary.textContent=f?`${f.name} · ${humanSize(f.size)}`:'UTF-8 TXT · maximum 10 MB';if(f){const base=f.name.replace(/\.[^.]+$/,'').trim();nameInput.value=base||'Untitled Project';void syncDirectorV25FromFile(f);}else directorHeader=null;});audioInput.addEventListener('change',()=>{dirty=true;const f=audioInput.files[0];audioSummary.textContent=f?`${f.name} · ${humanSize(f.size)}`:'FFmpeg-compatible media · maximum {{ max_upload_mb }} MB';});
 function submitFiles(projectName,presetId,channelName,txt,media,onProgress,processor='classic'){return new Promise((resolve,reject)=>{const data=new FormData();data.append('project_name',projectName);data.append('preset_id',presetId);data.append('director_processor',processor==='director_preview'?'director':'classic');data.append('channel_name',channelName||'General');data.append('script_file',txt,txt.name);data.append('audio_file',media,media.name);data.append('audio_engine_processed',media.__audioEngineProcessed?'1':'0');data.append('audio_engine_enabled',media.__audioEngineEnabled===false?'0':'1');data.append('audio_engine_preset',media.__audioEnginePreset||'documentary');const xhr=new XMLHttpRequest();xhr.open('POST','/queue/submit',true);xhr.setRequestHeader('X-Requested-With','XMLHttpRequest');xhr.setRequestHeader('Accept','application/json');xhr.upload.onprogress=e=>{if(e.lengthComputable)onProgress(Math.round((e.loaded/e.total)*85),'Uploading');};xhr.upload.onload=()=>onProgress(92,'Packaging');xhr.onload=()=>{let p={};try{p=JSON.parse(xhr.responseText||'{}');}catch(_){}if(xhr.status>=200&&xhr.status<300&&p.ok){onProgress(100,p.duplicate?'Existing job reused':'Accepted');resolve(p);}else reject(new Error(p.error||`Submission failed (HTTP ${xhr.status})`));};xhr.onerror=()=>reject(new Error('Network connection interrupted.'));xhr.send(data);});}
 form.addEventListener('submit',e=>{e.preventDefault();if(submitting||!validate())return;submitting=true;submitButton.disabled=true;submitButton.textContent='Submitting…';submitFiles(nameInput.value.trim(),presetSelect.value,channelSelect?.value||'General',scriptInput.files[0],audioInput.files[0],(p,s)=>setProgress(p,s,p<90?'Uploading…':'Building VPS package…'),directorProcessor.value).then(data=>{setProgress(100,data.duplicate?'Existing job':'Accepted','Project accepted by VPS');dirty=false;setTimeout(()=>location.href=data.redirect||'/queue',500);}).catch(err=>{submitting=false;submitButton.disabled=false;submitButton.textContent='Submit Project';progress.hidden=true;showMessage(err.message);});});
 
