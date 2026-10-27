@@ -145,8 +145,9 @@ class DirectorPreflightTests(unittest.TestCase):
         self.assertIn("def parse_authoritative_scene_plan(", app)
         self.assertIn("parse_outer_ai_scene_txt(txt_path)", app)
         self.assertIn("build_project_package(", app)
-        self.assertNotIn("director_v25", (ROOT / "apps/scene-builder/part02/api_server.py")
-                         .read_text(encoding="utf-8"))
+        worker = (ROOT / "apps/scene-builder/part02/api_server.py").read_text(encoding="utf-8")
+        self.assertIn('if bool((settings.metadata or {}).get("director_v25")):', worker)
+        self.assertNotIn("from director_v25 import", worker)  # Worker relies only on packaged instructions.
 
 
 if __name__ == "__main__":
