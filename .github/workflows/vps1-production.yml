@@ -16,8 +16,10 @@ on:
         options: [install, rollback, nginx-route-only, nginx-route-rollback]
 permissions:
   contents: read
+# Keep this workflow independent of complete-site workflow scheduling.
+# VPS's existing deploy helper still serializes host operations and guards rollback.
 concurrency:
-  group: vps1-production
+  group: vps1-production-applications
   cancel-in-progress: false
 jobs:
   deploy:
