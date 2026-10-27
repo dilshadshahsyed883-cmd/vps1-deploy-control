@@ -7,6 +7,7 @@ on:
       - 'apps/scene-builder/part01/templates/settings.html'
       - 'rebuild/tests/test_scene_canvas_fill.py'
       - 'rebuild/tests/test_scene_capcut_controls.py'
+      - 'rebuild/tests/test_scene_director_v25_ffmpeg.py'
       - 'rebuild/tests/test_scene_engine_effects.py'
       - '.github/workflows/vps1-scene-engine-effects-ci.yml'
   workflow_dispatch:
@@ -35,7 +36,7 @@ jobs:
           MIN_FREE_SPACE_GB: '1'
         run: |
           python3 -m compileall -q apps/scene-builder/part02/smart_scroll apps/scene-builder/part02/api_server.py
-          python3 -m unittest rebuild.tests.test_scene_engine_effects rebuild.tests.test_scene_canvas_fill rebuild.tests.test_scene_capcut_controls -v
+          python3 -m unittest rebuild.tests.test_scene_engine_effects rebuild.tests.test_scene_canvas_fill rebuild.tests.test_scene_capcut_controls rebuild.tests.test_scene_director_v25_ffmpeg -v
       - name: Preserve offline production gates
         run: |
           python3 - <<'PY'
