@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'apps/scene-builder/part01/app.py'
+      - 'apps/scene-builder/part01/precutover_policy.py'
       - 'apps/scene-builder/part01/scene_media_library.py'
       - 'apps/scene-builder/part01/director_v25.py'
       - 'apps/scene-builder/part01/director_v25_execution.py'
