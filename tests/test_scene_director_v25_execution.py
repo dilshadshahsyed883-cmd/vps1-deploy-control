@@ -184,7 +184,7 @@ transition_out=none
             catalog = Catalog(Path(tmp), ["Alexa 6.mp4"])
             bad = [
                 (plan(preset="not_matching"), "base_preset"),
-                (plan().replace("name=Atlas", "name=Wrong"), "filename"),
+                (plan().replace("[PROJECT]\nmode=director\nname=Atlas", "[PROJECT]\nmode=director\nname=Wrong"), "filename"),
                 (plan().replace("animation=pan_left", "animation=unknown_motion"), "preflight"),
             ]
             for txt, reason in bad:
