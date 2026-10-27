@@ -87,6 +87,7 @@ def _required_settings(sections: dict[str, dict[str, str]], preset: str) -> dict
         "lut_normalize_enabled": False,
         "lut_scene_aware_enabled": False,
         "lut_continuity_enabled": False,
+        "caption_font": c.get("font", "dejavu_sans_bold") or "dejavu_sans_bold",
         "caption_text_color": c.get("text_color", "#ffffff") or "#ffffff",
         "caption_highlight_color": c.get("highlight_color", "#ffd54a") or "#ffd54a",
         "caption_outline_color": c.get("outline_color", "#000000") or "#000000",
