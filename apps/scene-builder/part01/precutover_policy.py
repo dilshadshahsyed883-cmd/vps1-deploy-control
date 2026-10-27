@@ -34,6 +34,17 @@ def mutation_allowed(method: str, path: str, editing_enabled: bool, auto_script_
             return True
         if re.fullmatch(r"/api/auto-script/items/[0-9]+/retry", path):
             return True
+    # Scene Builder's separate local Media Library has its own login, session
+    # CSRF and admin/active-job checks. Grant only these exact API mutations;
+    # this does not enable general candidate writes or touch SML.
+    if method == "POST" and path in (
+        "/api/scene-media-library/upload", "/api/scene-media-library/clean"
+    ):
+        return True
+    if method == "DELETE" and re.fullmatch(
+        r"/api/scene-media-library/media/[0-9a-f]{32}", path
+    ):
+        return True
     # The owner authorized administrator account management on the live shell.
     # This is an exact route match, never a blanket candidate-write bypass.
     if (method, path) == _ADMIN_USER_MANAGEMENT:
