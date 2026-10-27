@@ -1550,7 +1550,7 @@ def _resolve_intro_stock_media(
     if not intro_scenes:
         return []
     needs_pexels = any(not (bool(row.get("review_approved")) and bool(row.get("review_locked")) and Path(str(row.get("media_path") or "")).is_file()) for row in intro_scenes)
-    if needs_pexels and not _current_pexels_keys():
+    if needs_pexels and any(bool(scene.get("pexels_enabled", True)) for scene in intro_scenes) and not _current_pexels_keys():
         raise RuntimeError("Opening Intro needs a Pexels API key for unresolved scenes.")
     queries = [dict(x) for x in intro_queries if isinstance(x, dict) and str(x.get("query") or "").strip()]
     if not queries:
@@ -1595,6 +1595,8 @@ def _resolve_intro_stock_media(
             errors[scene_code] = []
             update_job(job_id, status="downloading_media", stage="Intro Media", progress=31 + int((scene_index + 1) / max(1, len(intro_scenes)) * 3), message=f"{scene_code}: reusing approved Visual Audit media")
             continue
+        if not bool(scene.get("pexels_enabled", True)):
+            raise RuntimeError(f"{scene_code}: local intro media unavailable and Pexels fallback is disabled")
         chosen = None
         local_errors: list[str] = []
         attempts = 0
@@ -3591,7 +3593,9 @@ def _copy_review_media_for_audit(scene: dict[str, Any], item_id: str, assignment
         "asset_id": str(scene.get("asset_id") or scene.get("provider_asset_id") or sha256_file(source)[:16]),
         "keyword_used": _audit_safe_query(scene),
         "selected_keyword": _audit_safe_query(scene),
-        "source_type": "UPLOADED" if str(scene.get("provider") or "").lower() == "uploaded" else "REVIEWED",
+        "source_type": ("SCENE_LIBRARY" if str(scene.get("media_provider") or "").lower() == "scene_media_library"
+                        else "UPLOADED" if str(scene.get("provider") or "").lower() == "uploaded"
+                        else "REVIEWED"),
     }
 
 
@@ -3609,6 +3613,8 @@ def _resolve_audit_candidate(
     target_width: int,
     target_height: int,
 ) -> tuple[dict[str, Any] | None, str]:
+    if not bool(scene.get("pexels_enabled", True)):
+        return None, "Pexels disabled for this scene by Media Library source policy"
     if not _current_pexels_keys():
         return None, "No Pexels API key is configured"
     assignment_root = job_dir / "audit_media"
