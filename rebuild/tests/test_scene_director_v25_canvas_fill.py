@@ -14,13 +14,15 @@ import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "apps/scene-builder/part02"))
-sys.path.insert(0, str(ROOT / "apps/scene-builder/part01"))
 sys.path.insert(0, str(ROOT / "tests"))
-from smart_scroll.reliability_engine import validate_media
-from rebuild.tests.test_scene_canvas_fill import render_canvas
+sys.path.insert(0, str(ROOT / "apps/scene-builder/part01"))
 from director_v25_execution import compile_v25
 from test_scene_director_v25_execution import Catalog, plan, CAPS
+# The imported fixture adds web/part01 to sys.path. Pin worker/part02 LAST,
+# otherwise its smart_scroll package is shadowed and unrelated renderer tests break.
+sys.path.insert(0, str(ROOT / "apps/scene-builder/part02"))
+from smart_scroll.reliability_engine import validate_media
+from rebuild.tests.test_scene_canvas_fill import render_canvas
 
 
 def png_rgb(path: Path, width: int, height: int) -> None:
