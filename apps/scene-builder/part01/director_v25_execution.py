@@ -234,6 +234,7 @@ def compile_v25(text: str, catalog: Any, *, source_mode: str, library_enabled: b
         })
     return {
         "schema": "scene-builder-director-v25-execution-v1",
+        "sections": sections,
         "scenes": scene_shots,
         "intro_queries": intro_rows,
         "intro_lookup": {key: val for key, val in resolved.items() if key.startswith("INTRO.")},
