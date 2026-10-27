@@ -34,6 +34,7 @@ from vps_engine.internal_audio_engine import VERSION as INTERNAL_AUDIO_ENGINE_VE
 from smart_scroll.project_model import ProjectSettings
 from smart_scroll.reliability_engine import candidate_score, sha256_file, validate_media, should_continue_previous_visual, build_working_video_clip, working_clip_target_duration
 from smart_scroll.scene_txt_pipeline import align_scenes_to_captions, normalize_scene_timing
+from director_v25_timing import DirectorTimingError, fit_director_shot_timing
 from smart_scroll.transition_engine import assign_auto_transitions
 from smart_scroll.v2_renderer import render_mixed_media
 from smart_scroll.v3_engine import download_result, search_multi_provider, optimize_video_candidate, find_cached_provider_media
@@ -2149,16 +2150,44 @@ def _prepare_captions_and_timing(
 
     intro_duration_for_hook = float(getattr(settings, "intro_duration_seconds", 0) or 0) if bool(getattr(settings, "intro_enabled", False)) else 0.0
     narration_hook_seconds = max(0.0, AUDIT_WINDOW_SECONDS - intro_duration_for_hook)
-    scenes = normalize_scene_timing(
-        scenes,
-        max(0.1, audio_duration),
-        max_scene_seconds=float(getattr(settings, "general_media_max_seconds", settings.max_scene_seconds) or 4.0),
-        min_scene_seconds=float(getattr(settings, "general_media_min_seconds", metadata.get("minimum_scene_seconds", 0.50)) or 0.50),
-        hook_seconds=narration_hook_seconds,
-        hook_min_scene_seconds=float(getattr(settings, "hook_media_min_seconds", 1.5) or 1.5),
-        hook_max_scene_seconds=float(getattr(settings, "hook_media_max_seconds", 3.0) or 3.0),
-        timeline_start=narration_start,
-    )
+    if director_v25:
+        # Director shots have exact, approved media IDs and per-shot edit controls.
+        # The Classic normalizer may split these at 3s / the 2-minute boundary
+        # or merge tiny neighbors, invalidating both media locks and narration.
+        # Fit Whisper timing to authored shots WITHOUT changing shot cardinality.
+        try:
+            scenes, director_fit = fit_director_shot_timing(
+                scenes,
+                audio_duration=max(0.1, audio_duration),
+                narration_start=narration_start,
+                max_shot_seconds=3.0,
+                min_shot_seconds=0.05,
+            )
+        except DirectorTimingError as exc:
+            raise RuntimeError(str(exc)) from exc
+        metadata = dict(settings.metadata or {})
+        metadata["director_v25_timing_fit"] = director_fit
+        settings.metadata = metadata
+        update_job(
+            job_id, status="preparing", stage="Director V25 Timing", progress=13,
+            message=(
+                f"Director V25 preserved {director_fit['fitted_shots']} authored shots "
+                f"(Whisper boundary adjustments: {director_fit['shifted_whisper_boundaries']}; "
+                f"max shift: {director_fit['max_boundary_shift_seconds']}s)"
+            ),
+        )
+    else:
+        # Classic keeps its existing hook/general split and rebalance behavior.
+        scenes = normalize_scene_timing(
+            scenes,
+            max(0.1, audio_duration),
+            max_scene_seconds=float(getattr(settings, "general_media_max_seconds", settings.max_scene_seconds) or 4.0),
+            min_scene_seconds=float(getattr(settings, "general_media_min_seconds", metadata.get("minimum_scene_seconds", 0.50)) or 0.50),
+            hook_seconds=narration_hook_seconds,
+            hook_min_scene_seconds=float(getattr(settings, "hook_media_min_seconds", 1.5) or 1.5),
+            hook_max_scene_seconds=float(getattr(settings, "hook_media_max_seconds", 3.0) or 3.0),
+            timeline_start=narration_start,
+        )
     if director_v25:
         authored = list((settings.metadata or {}).get("director_v25_expected_shots") or [])
         observed = [str(item.get("director_v25_shot") or "") for item in scenes]
