@@ -12,8 +12,8 @@ import re
 from typing import Any
 
 VERSION = "SCENE_PLAN_VERSION=2"
-SCENE_RE = re.compile(r"SCENE_(\d{3,4})$")
-SHOT_RE = re.compile(r"SCENE_(\d{3,4})\.SHOT_(\d{2,3})$")
+SCENE_RE = re.compile(r"SCENE_([0-9]{3}|[1-9][0-9]{3})$")
+SHOT_RE = re.compile(r"SCENE_([0-9]{3}|[1-9][0-9]{3})\.SHOT_(\d{2,3})$")
 INTRO_SHOT_RE = re.compile(r"INTRO\.SHOT_(\d{2})$")
 FILENAME_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp",
                        ".mp4", ".mov", ".m4v", ".webm", ".mkv"}
@@ -162,7 +162,8 @@ def _number(value: str, field: str, errors: list[str],
         errors.append(f"{field}: expected {'integer' if integer else 'number'} in [{minimum}, {maximum}]")
 
 
-def _validate_controls(doc: dict[str, dict[str, str]], errors: list[str]) -> None:
+def _validate_controls(doc: dict[str, dict[str, str]], errors: list[str],
+                       capabilities: dict[str, Any] | None = None) -> None:
     output = doc["OUTPUT"]
     for key, allowed in {
         "resolution": {"480p", "720p", "1080p"},
@@ -191,11 +192,26 @@ def _validate_controls(doc: dict[str, dict[str, str]], errors: list[str]) -> Non
                          ("AUDIO", "music_enabled"), ("LOOK", "lut_enabled"),
                          ("INTRO", "intro_enabled")):
         _bool(_value(doc[section].get(key)), f"[{section}].{key}", errors)
+    captions = doc["CAPTIONS"]
+    if _value(captions.get("caption_position")) not in {"top", "center", "bottom"}:
+        errors.append("[CAPTIONS].caption_position must be top, center or bottom")
+    if capabilities and _value(captions.get("caption_style")) not in set(capabilities.get("caption_styles", [])):
+        errors.append("[CAPTIONS].caption_style not registered in current Scene Builder")
+    if capabilities and _value(doc["LOOK"].get("lut_enabled")).casefold() == "true":
+        packs = capabilities.get("lut_packs", {})
+        pack = _value(doc["LOOK"].get("lut_pack"))
+        preset = _value(doc["LOOK"].get("lut_preset"))
+        if pack not in packs or preset not in packs[pack]:
+            errors.append("[LOOK]: selected LUT pack/preset not registered in current Scene Builder")
     if _value(doc["MEDIA"].get("missing_media")) != "fail":
         errors.append("[MEDIA].missing_media must be fail")
     for section in [s for s in doc if SHOT_RE.fullmatch(s) or INTRO_SHOT_RE.fullmatch(s)]:
         shot = doc[section]
         kind = _value(shot.get("media_type"))
+        if section.startswith("INTRO.") and _value(shot.get("hook_role")) not in HOOK_ROLES:
+            errors.append(f"[{section}].hook_role missing or unrecognized")
+        if _value(shot.get("local_match_basis")) not in {"", "descriptive_filename", "filename_only_unverified"}:
+            errors.append(f"[{section}].local_match_basis invalid")
         if kind not in {"image", "video"}:
             errors.append(f"[{section}].media_type must be image or video")
         motion = _value(shot.get("motion")) or "none"
@@ -221,7 +237,8 @@ def _validate_controls(doc: dict[str, dict[str, str]], errors: list[str]) -> Non
 
 
 def preflight_v25(text: str, live_assets: list[dict[str, Any]],
-                  active_source_mode: str, library_enabled: bool) -> dict[str, Any]:
+                  active_source_mode: str, library_enabled: bool,
+                  capabilities: dict[str, Any] | None = None) -> dict[str, Any]:
     """Validate intent against live approved filenames; NEVER claim render readiness."""
     try:
         parsed = parse_v25(text)
@@ -239,7 +256,7 @@ def preflight_v25(text: str, live_assets: list[dict[str, Any]],
         errors.append(f"[MEDIA].source_mode={actual_mode} conflicts with current UI mode={active_source_mode}")
     if not library_enabled:
         errors.append("Scene Media Library is disabled in Stock Media Settings")
-    _validate_controls(doc, errors)
+    _validate_controls(doc, errors, capabilities)
     files: dict[str, list[dict[str, Any]]] = {}
     for asset in live_assets:
         if asset.get("approved") is True and asset.get("kind") in {"image", "video"}:
@@ -272,6 +289,9 @@ def preflight_v25(text: str, live_assets: list[dict[str, Any]],
             matches = [row for row in files.get(name, []) if row.get("kind") == kind]
             chosen_id = _value(shot.get("library_asset_id"))
             if chosen_id:
+                if not re.fullmatch(r"[0-9a-f]{32}", chosen_id):
+                    errors.append(f"[{section}]: invalid library_asset_id")
+                    continue
                 matches = [row for row in matches if row.get("id") == chosen_id]
             if len(matches) == 1:
                 asset = matches[0]
@@ -287,6 +307,9 @@ def preflight_v25(text: str, live_assets: list[dict[str, Any]],
             if len(matches) > 1:
                 errors.append(f"[{section}]: duplicate exact filename {name}; approved asset ID required")
                 continue
+        if _value(shot.get("library_asset_id")) and not name:
+            errors.append(f"[{section}]: library_asset_id without library_filename")
+            continue
         if actual_mode == "scene_first" and fallback == "pexels_if_missing" and primary:
             resolved.append({"shot": section, "filename": "", "asset_id": "",
                              "media_type": kind, "source": "pexels_pending",
