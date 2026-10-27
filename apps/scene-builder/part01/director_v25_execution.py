@@ -37,7 +37,10 @@ def _required_settings(sections: dict[str, dict[str, str]], preset: str) -> dict
         w, h = h, w
     elif o["aspect_ratio"] == "1:1":
         w = h = {"480p": 480, "720p": 720, "1080p": 1080}[o["resolution"]]
-    duration = int(float(intro["intro_duration_seconds"]))
+    exact_duration = float(intro["intro_duration_seconds"])
+    if not exact_duration.is_integer():
+        raise DirectorSpecError("[INTRO].intro_duration_seconds must be whole seconds")
+    duration = int(exact_duration)
     if _flag(intro["intro_enabled"]) and (duration < 8 or duration > 24):
         raise DirectorSpecError("[INTRO]: 8 hook shots require 8-24 seconds, each <=3s")
     shot_seconds = duration / 8
@@ -86,7 +89,7 @@ def compile_v25(text: str, catalog: Any, *, source_mode: str, library_enabled: b
     sections = parsed["sections"]
     settings = _required_settings(sections, selected_preset)
     requested_name = sections["PROJECT"]["name"]
-    if not requested_name or Path(requested_name).name != requested_name or not all(
+    if not requested_name or len(requested_name) > 80 or Path(requested_name).name != requested_name or not all(
         char.isalnum() or char in "._-" for char in requested_name):
         raise DirectorSpecError("[PROJECT].name must be a safe simple filename stem")
     if Path(settings["output_filename_requested"]).stem != requested_name:
