@@ -1586,7 +1586,7 @@ def build_project_package(
     if director_compilation is not None:
         override = dict(director_compilation["settings"])
         for key, value in override.items():
-            if key in data:
+            if key in data or key == "output_resolution":
                 data[key] = value
         data["music_enabled"] = bool(override["music_enabled"])
         data["lut_mode"] = "manual" if bool(override["lut_enabled"]) else "auto"
