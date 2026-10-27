@@ -1,0 +1,49 @@
+name: VPS1 Scene deployment result readback (NO VPS)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/vps1-scene-production-readback.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  read-only-deployment-status:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 11
+    steps:
+      - name: Verify exact protected-main Scene Builder deployment conclusion
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json, os, sys, time, urllib.request
+          repo = "dilshadshahsyed883-cmd/vps1-deploy-control"
+          commit = "c419cc1733479c24b1c457a9578f8d1571a2f4fd"
+          url = f"https://api.github.com/repos/{repo}/actions/workflows/vps1-production.yml/runs?branch=main&per_page=40"
+          for attempt in range(24):
+              request = urllib.request.Request(url, headers={
+                  "Authorization": "Bearer " + os.environ["GH_TOKEN"],
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+                  "User-Agent": "vps1-release-readback",
+              })
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  payload = json.load(response)
+              runs = payload.get("workflow_runs", [])
+              rows = [r for r in runs if r.get("head_sha") == commit and r.get("event") == "push"]
+              if not rows:
+                  print("READBACK_NO_MATCH_FOR_EXACT_SHA", commit, "attempt", attempt+1, flush=True)
+              else:
+                  target = rows[0]
+                  print("READBACK_RUN", target.get("id"), "STATUS", target.get("status"),
+                        "CONCLUSION", target.get("conclusion"), "URL", target.get("html_url"), flush=True)
+                  if target.get("status") == "completed":
+                      if target.get("conclusion") != "success":
+                          sys.exit("Scene Builder scoped deployment did not succeed")
+                      print("SCENE_DEPLOYMENT_CI_RELEASE_SUCCESS=PASS", flush=True)
+                      sys.exit(0)
+              time.sleep(15)
+          sys.exit("Exact protected-main release was not completed within bounded readback")
+          PY
