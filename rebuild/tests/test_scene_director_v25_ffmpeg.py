@@ -16,6 +16,9 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 from director_v25_execution import compile_v25
 from test_scene_director_v25_execution import Catalog, plan, CAPS
+# The shared smart_scroll package must resolve to the worker renderer, not the
+# web-side Classic parser imported by the compiler fixture.
+sys.path.insert(0, str(ROOT / "apps/scene-builder/part02"))
 
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
