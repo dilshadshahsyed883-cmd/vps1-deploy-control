@@ -85,7 +85,11 @@ def compile_v25(text: str, catalog: Any, *, source_mode: str, library_enabled: b
     parsed = parse_v25(text)
     sections = parsed["sections"]
     settings = _required_settings(sections, selected_preset)
-    if Path(settings["output_filename_requested"]).stem != sections["PROJECT"]["name"]:
+    requested_name = sections["PROJECT"]["name"]
+    if not requested_name or Path(requested_name).name != requested_name or not all(
+        char.isalnum() or char in "._-" for char in requested_name):
+        raise DirectorSpecError("[PROJECT].name must be a safe simple filename stem")
+    if Path(settings["output_filename_requested"]).stem != requested_name:
         raise DirectorSpecError("[OUTPUT].filename must equal [PROJECT].name + .mp4 in V25")
     resolved = {row["shot"]: row for row in preview["resolved_assets"]}
     if any(row["source"] not in {"scene_media_library", "pexels_pending"}
@@ -139,7 +143,7 @@ def compile_v25(text: str, catalog: Any, *, source_mode: str, library_enabled: b
                 "capcut_animation_effect": capcut,
                 "capcut_animation_duration": float(shot.get("animation_duration", "2.5") or 2.5),
                 "capcut_animation_intensity": int(shot.get("animation_intensity", "65") or 65),
-                "capcut_animation_target": shot["media_type"],
+                "capcut_animation_target": "images" if shot["media_type"] == "image" else "videos",
                 "transition_out": shot.get("transition_out", "none"),
                 "transition_duration_ms": int(round(float(shot.get("transition_duration", "0") or 0) * 1000)),
                 "filter": "none", "filter_intensity": 0.0,
@@ -220,11 +224,10 @@ def bundle_exact_director_media(compilation: dict[str, Any], assets_dir: Path,
         if row["director_v25_media_source"] == "scene_media_library":
             row.update(bundle(row["director_v25_media_asset_id"],
                               row["director_v25_media_filename"], row["media_type"]))
+    parsed = parse_v25(compilation["raw_director_txt"])
     for index, (key, asset) in enumerate(sorted(compilation["intro_lookup"].items()), 1):
         if asset["source"] != "scene_media_library":
             continue
-        original = compilation["raw_director_txt"]
-        # Exact kind is looked up from the validated Director section.
-        kind = parse_v25(original)["sections"][key]["media_type"]
+        kind = parsed["sections"][key]["media_type"]
         assignments[f"INTRO_{index:03d}"] = bundle(asset["asset_id"], asset["filename"], kind)
     return assignments
