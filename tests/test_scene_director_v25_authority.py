@@ -18,6 +18,19 @@ from test_scene_director_v25_execution import Catalog, plan, CAPS
 
 
 class DirectorSoleAuthorityTests(unittest.TestCase):
+    def test_selected_ui_preset_does_not_reject_or_change_director_txt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            catalog = Catalog(Path(tmp), ["Alexa 6.mp4"])
+            result = compile_v25(
+                plan(preset="storytelling"), catalog,
+                source_mode="library_only", library_enabled=True,
+                selected_preset="cinematic_documentary", capabilities=CAPS,
+            )
+            self.assertEqual(result["sections"]["PROJECT"]["base_preset"], "storytelling")
+            self.assertEqual(result["settings"]["caption_style"], "karaoke")
+            self.assertEqual(result["settings"]["lut_pack"], "cinematic")
+            self.assertFalse(result["settings"]["sfx_enabled"])
+
     def test_music_true_is_blocked_not_silently_selected_from_preset(self):
         with tempfile.TemporaryDirectory() as tmp:
             catalog = Catalog(Path(tmp), ["Alexa 6.mp4"])
