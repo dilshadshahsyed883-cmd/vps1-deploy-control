@@ -35,6 +35,7 @@ from smart_scroll.project_model import ProjectSettings
 from smart_scroll.reliability_engine import candidate_score, sha256_file, validate_media, should_continue_previous_visual, build_working_video_clip, working_clip_target_duration
 from smart_scroll.scene_txt_pipeline import align_scenes_to_captions, normalize_scene_timing
 from director_v25_timing import DirectorTimingError, fit_director_shot_timing
+from director_v25_transitions import DirectorTransitionError, resolve_director_transitions
 from smart_scroll.transition_engine import assign_auto_transitions
 from smart_scroll.v2_renderer import render_mixed_media
 from smart_scroll.v3_engine import download_result, search_multi_provider, optimize_video_candidate, find_cached_provider_media
@@ -4343,20 +4344,28 @@ def process_job(job_id: str) -> None:
                     if bool(settings.transition_engine_enabled)
                     else "off"
                 )
-                cleaned_scenes, transition_summary = assign_auto_transitions(
-                    cleaned_scenes,
-                    mode=transition_mode,
-                    preset=str(settings.transition_preset or "documentary"),
-                    intensity=int(settings.transition_intensity_percent or 0),
-                    base_seconds=float(settings.transition_base_seconds or 0.28),
-                    project_seed=f"{job_id}:{project_label}",
-                    hook_seconds=(
-                        float(settings.opening_hook_seconds or 0.0)
-                        if bool(settings.transition_hook_cut_bias)
-                        else 0.0
-                    ),
-                    no_repeat=bool(settings.transition_no_repeat),
-                )
+                if bool((settings.metadata or {}).get("director_v25")):
+                    try:
+                        cleaned_scenes, transition_summary = resolve_director_transitions(
+                            cleaned_scenes
+                        )
+                    except DirectorTransitionError as exc:
+                        raise RuntimeError(f"Director V25 TXT transition preflight: {exc}") from exc
+                else:
+                    cleaned_scenes, transition_summary = assign_auto_transitions(
+                        cleaned_scenes,
+                        mode=transition_mode,
+                        preset=str(settings.transition_preset or "documentary"),
+                        intensity=int(settings.transition_intensity_percent or 0),
+                        base_seconds=float(settings.transition_base_seconds or 0.28),
+                        project_seed=f"{job_id}:{project_label}",
+                        hook_seconds=(
+                            float(settings.opening_hook_seconds or 0.0)
+                            if bool(settings.transition_hook_cut_bias)
+                            else 0.0
+                        ),
+                        no_repeat=bool(settings.transition_no_repeat),
+                    )
                 cleaned_scenes = _resolve_editorial_scene_technical_fields(cleaned_scenes, settings)
                 _save_edit_checkpoint(job_dir, edit_signature, cleaned_scenes, transition_summary)
 
