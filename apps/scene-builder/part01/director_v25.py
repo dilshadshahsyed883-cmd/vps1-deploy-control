@@ -236,6 +236,7 @@ def _validate_controls(doc: dict[str, dict[str, str]], errors: list[str],
         _number(_value(shot.get("animation_duration")), f"[{section}].animation_duration", errors, .5, 5)
         _number(_value(shot.get("animation_intensity")), f"[{section}].animation_intensity", errors, 10, 100, integer=True)
         _number(_value(shot.get("motion_intensity")), f"[{section}].motion_intensity", errors, 0, 1)
+        _number(_value(shot.get("effect_intensity")), f"[{section}].effect_intensity", errors, 0, 1)
         transition = _value(shot.get("transition_out")) or "none"
         if transition not in TRANSITIONS:
             errors.append(f"[{section}].transition_out unsupported")
