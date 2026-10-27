@@ -615,6 +615,15 @@ def main():
     args = parser.parse_args()
     check_host(args.revision)
     with deployment_lock():
+        # One protected-main release, one specific Scene job. Never enter normal
+        # install/rollback or restart a service during a cancellation request.
+        intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-scene-job-terminate-3327-20261027]' in intent:
+            if args.action != 'install' or args.apps != ['scene-builder']:
+                raise RuntimeError('targeted Scene cancellation requires scene-builder-only install lane')
+            from production.scene_exact_job_cancel_20261027 import terminate_exact_job
+            terminate_exact_job()
+            return
         for app in args.apps:
             if args.action == 'install':
                 intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
