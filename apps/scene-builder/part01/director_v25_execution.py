@@ -153,6 +153,7 @@ def compile_v25(text: str, catalog: Any, *, source_mode: str, library_enabled: b
                 "transition_sfx": "none", "sfx_volume": 0.0,
                 "allow_media_fallback": media["source"] == "pexels_pending",
                 "pexels_enabled": media["source"] == "pexels_pending",
+                "pexels_prefer_landscape": False,
                 "director_v25_media_source": media["source"],
                 "director_v25_media_filename": media["filename"],
                 "director_v25_media_asset_id": media["asset_id"],
@@ -164,6 +165,7 @@ def compile_v25(text: str, catalog: Any, *, source_mode: str, library_enabled: b
     if not scene_shots:
         raise DirectorSpecError("Director plan has no narration shots")
     intro_rows: list[dict[str, Any]] = []
+    intro_edit: dict[str, dict[str, Any]] = {}
     for n, key in enumerate(parsed["intro_shots"], 1):
         shot = sections[key]
         media = resolved.get(key)
@@ -172,6 +174,24 @@ def compile_v25(text: str, catalog: Any, *, source_mode: str, library_enabled: b
         if media is None:
             continue
         keyword = shot.get("pexels_primary_keyword", "") if media["source"] == "pexels_pending" else ""
+        effect = shot.get("effect", "none")
+        if effect not in SUPPORTED_EFFECTS:
+            raise DirectorSpecError(f"[{key}].effect unsupported: {effect}")
+        intro_edit[f"INTRO_{n:03d}"] = {
+            "director_v25_shot": key,
+            "outer_ai_source": "director_v25",
+            "capcut_animation_category": shot.get("animation_category", "combo"),
+            "capcut_animation_effect": shot.get("animation", "none"),
+            "capcut_animation_duration": float(shot.get("animation_duration", "2.5") or 2.5),
+            "capcut_animation_intensity": int(shot.get("animation_intensity", "65") or 65),
+            "capcut_animation_target": "images" if shot["media_type"] == "image" else "videos",
+            "motion": shot.get("motion", "none"),
+            "motion_intensity": float(shot.get("motion_intensity", "0") or 0),
+            "effect": effect,
+            "effect_intensity": float(shot.get("effect_intensity", "0") or 0),
+            "transition_out": shot.get("transition_out", "none"),
+            "transition_duration_ms": int(round(float(shot.get("transition_duration", "0") or 0) * 1000)),
+        }
         intro_rows.append({
             "order": n, "director_v25_shot": key,
             "query": keyword if keyword else media["filename"],
@@ -184,6 +204,7 @@ def compile_v25(text: str, catalog: Any, *, source_mode: str, library_enabled: b
         "scenes": scene_shots,
         "intro_queries": intro_rows,
         "intro_lookup": {key: val for key, val in resolved.items() if key.startswith("INTRO.")},
+        "intro_edit": intro_edit,
         "source_mode": source_mode,
         "settings": settings,
         "narration_text": " ".join(combined_narration),
