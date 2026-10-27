@@ -25,7 +25,7 @@ FIELDS = {
     "TIMING": {"audio", "narration_start", "split", "max_semantic_beat_seconds"},
     "CAPTIONS": {"captions_enabled", "caption_style", "caption_position",
                  "text_color", "highlight_color", "outline_color", "background_color",
-                 "background_opacity_percent", "font_size", "max_words"},
+                 "background_opacity_percent", "font_size", "max_words", "font"},
     "AUDIO": {"voice_volume_percent", "music_enabled"},
     "LOOK": {"lut_enabled", "lut_pack", "lut_preset", "lut_strength_percent"},
     "INTRO": {"intro_enabled", "intro_duration_seconds"},
@@ -210,6 +210,8 @@ def _validate_controls(doc: dict[str, dict[str, str]], errors: list[str],
             errors.append(f"[CAPTIONS].{field}: expected #RRGGBB")
     _number(_value(doc["LOOK"].get("lut_strength_percent")),
             "[LOOK].lut_strength_percent", errors, 0, 100, integer=True)
+    if capabilities and _value(captions.get("font")) and _value(captions.get("font")) not in set(capabilities.get("caption_fonts", [])):
+        errors.append("[CAPTIONS].font is not a registered font")
     if capabilities and _value(captions.get("caption_style")) not in set(capabilities.get("caption_styles", [])):
         errors.append("[CAPTIONS].caption_style not registered in current Scene Builder")
     if capabilities and _value(doc["LOOK"].get("lut_enabled")).casefold() == "true":
