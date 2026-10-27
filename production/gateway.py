@@ -301,6 +301,14 @@ def main():
     parser.add_argument('--apps', nargs='+', choices=sorted(CATALOG), required=True)
     args = parser.parse_args()
     check_host(args.revision)
+    # The exact-job cancellation release performs no application install.
+    # Do not reload Nginx or republish unrelated routes after that operation.
+    intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+    if '[vps1-scene-job-terminate-3327-20261027]' in intent:
+        if args.apps != ['scene-builder']:
+            raise RuntimeError('cancel-only release cannot modify application gateway')
+        print('SCENE_TARGET_CANCEL_GATEWAY_MUTATIONS=NONE', flush=True)
+        return
     with deployment_lock():
         selected = public_apps_for_revision(args.apps, args.revision)
         install(selected)
