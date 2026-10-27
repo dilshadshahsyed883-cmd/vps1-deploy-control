@@ -1204,7 +1204,7 @@ def _parallel_scene_queries(
                 if (bool(scene.get("review_approved")) and bool(scene.get("review_locked"))
                         and Path(str(scene.get("media_path") or "")).is_file()):
                     continue
-                if index and should_continue_previous_visual(_scene_duration(scene)):
+                if index and should_continue_previous_visual(_scene_duration(scene)) and not scene.get("director_v25_shot"):
                     continue
                 if not bool(scene.get("pexels_enabled", True)):
                     continue
@@ -1308,7 +1308,7 @@ def _resolve_scene_stock_media(
         scene_duration = _scene_duration(scene)
         # Tiny-scene efficiency rule: keep narration timing but continue the prior
         # visual. This prevents an entire Pexels video download for 0.02-0.74 sec.
-        if should_continue_previous_visual(scene_duration) and index > 0:
+        if should_continue_previous_visual(scene_duration) and index > 0 and not scene.get("director_v25_shot"):
             previous = results[index - 1]
             previous_path = Path(str((previous or {}).get("media_path", "") or ""))
             if previous and previous_path.is_file():
@@ -2035,7 +2035,8 @@ def _prepare_captions_and_timing(
     detected_language = "auto"
     sync_engine = "captions-disabled"
 
-    if bool(settings.captions_enabled) and bool(settings.caption_mode):
+    director_v25 = bool((settings.metadata or {}).get("director_v25"))
+    if (bool(settings.captions_enabled) and bool(settings.caption_mode)) or director_v25:
         update_job(
             job_id,
             status="preparing",
@@ -2149,6 +2150,22 @@ def _prepare_captions_and_timing(
         hook_max_scene_seconds=float(getattr(settings, "hook_media_max_seconds", 3.0) or 3.0),
         timeline_start=narration_start,
     )
+    if director_v25:
+        authored = list((settings.metadata or {}).get("director_v25_expected_shots") or [])
+        observed = [str(item.get("director_v25_shot") or "") for item in scenes]
+        if not authored or observed != authored:
+            raise RuntimeError(
+                "Director V25 timing preflight: authored shot order/count changed. "
+                "Shorten scene narration or add explicit shot narration; automatic "
+                "splits/merges are forbidden in Director Mode."
+            )
+        for item in scenes:
+            duration = float(item.get("duration") or 0)
+            if duration > 3.001 or duration <= 0.0 or int(item.get("source_scene_parts") or 1) != 1:
+                raise RuntimeError(
+                    f"Director V25 timing conflict: {item.get('director_v25_shot')} "
+                    f"has duration {duration:.3f}s (maximum 3.0s); edit TXT semantic beats."
+                )
     # A music-only lead-in belongs to the uploaded audio itself. Fill it with
     # Intro Media paced visuals on the same absolute timeline; do not prepend audio.
     scenes = _embedded_audio_preroll_scenes(settings, scenes, narration_start)
@@ -4122,6 +4139,24 @@ def process_job(job_id: str) -> None:
 
         # Freeze Pexels selection policy into each scene so normal acquisition and
         # First-2-Minute Visual Audit use the same project-owned behavior.
+        if bool((settings.metadata or {}).get("director_v25")):
+            expected = list((settings.metadata or {}).get("director_v25_expected_shots") or [])
+            if [str(s.get("director_v25_shot") or "") for s in scenes] != expected:
+                raise RuntimeError("Director V25 package integrity failed: shot identities changed")
+            for scene in scenes:
+                if scene.get("director_v25_media_source") == "scene_media_library":
+                    if not (scene.get("review_approved") and scene.get("review_locked") and
+                            Path(str(scene.get("media_path") or "")).is_file()):
+                        raise RuntimeError(
+                            f"Director V25 exact local asset missing: {scene.get('director_v25_shot')}"
+                        )
+                elif scene.get("director_v25_media_source") == "pexels_pending":
+                    if not bool(scene.get("pexels_enabled")) or not str(scene.get("primary_keyword") or ""):
+                        raise RuntimeError(
+                            f"Director V25 Pexels query missing: {scene.get('director_v25_shot')}"
+                        )
+                else:
+                    raise RuntimeError("Director V25 unknown visual source")
         for scene_index, scene in enumerate(scenes):
             _discard_legacy_media_policy(scene, dict(settings.metadata or {}), scene_index)
             scene.setdefault("pexels_selection_mode", str(getattr(settings, "pexels_selection_mode", "best_match_variety") or "best_match_variety"))
