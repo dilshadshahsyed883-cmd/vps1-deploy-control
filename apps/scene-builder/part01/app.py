@@ -2429,6 +2429,8 @@ async def scene_director_v25_preflight(
         SCENE_LOCAL_LIBRARY.list(limit=100000),
         active_source_mode=str(source["scene_library_priority"]),
         library_enabled=bool(source["scene_library_enabled"]),
+        capabilities={"caption_styles": list(CAPTION_STYLE_PRESETS),
+                      "lut_packs": {key: list(value["presets"]) for key, value in LUT_PACKS.items()}},
     )
 
 
