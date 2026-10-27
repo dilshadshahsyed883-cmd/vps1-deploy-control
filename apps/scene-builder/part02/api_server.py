@@ -937,6 +937,19 @@ def _scene_duration(scene: dict[str, Any]) -> float:
     )
 
 
+def _requires_landscape_media(scene: dict[str, Any]) -> bool:
+    """Classic preserves its configured source-shape filter.
+
+    Director V25 instead uses the TXT [OUTPUT].canvas_fill_mode to adapt
+    *any decodable* aspect ratio to the output canvas. Never reject a locked
+    image/video just because its source shape differs from 16:9 or 9:16.
+    Exact filename/asset identity, decoding and minimum file-size checks remain.
+    """
+    if scene.get("director_v25_shot"):
+        return False
+    return bool(scene.get("pexels_prefer_landscape", True))
+
+
 def _assigned_media_type(path: Path) -> str:
     return "video" if path.suffix.lower() in VIDEO_EXTENSIONS else "image"
 
@@ -998,7 +1011,7 @@ def _download_scene_candidate(
     search_pool = max(1, min(40, int(scene.get("pexels_search_pool") or 10)))
     avoid_used_media = bool(scene.get("pexels_avoid_used_media", True))
     avoid_same_creator = bool(scene.get("pexels_avoid_same_creator", True))
-    prefer_landscape = bool(scene.get("pexels_prefer_landscape", True))
+    prefer_landscape = _requires_landscape_media(scene)
     author_history = used_authors if used_authors is not None else set()
 
     # Library second: before any network request, reuse an exact-keyword provider
@@ -1192,7 +1205,7 @@ def _prefetch_first_scene_lookup(
             ["pexels"],
             per_provider=max(1, min(40, int(scene.get("pexels_search_pool") or 10))),
             target_width=target_width, target_height=target_height,
-            prefer_landscape=bool(scene.get("pexels_prefer_landscape", True)),
+            prefer_landscape=(bool(scene.get("pexels_prefer_landscape", True)) and not bool(scene.get("director_v25_shot"))),
             preserve_provider_order=selection_mode in {"first_result", "popularity", "top_n_random"},
         )
         return "pexels", kind, keyword, rows, ""
@@ -1280,7 +1293,7 @@ def _resolve_scene_stock_media(
         reviewed_path = Path(str(scene.get("media_path", "") or ""))
         if reviewed_locked and reviewed_path.is_file():
             requested_type = _assigned_media_type(reviewed_path)
-            validation = validate_media(reviewed_path, requested_type, _scene_duration(scene), require_landscape=bool(scene.get("pexels_prefer_landscape", True)))
+            validation = validate_media(reviewed_path, requested_type, _scene_duration(scene), require_landscape=_requires_landscape_media(scene))
             if validation.get("handling") == "reject_short":
                 raise RuntimeError(
                     f"{scene_code}: approved reviewed video is too short for its scene duration. Unlock and replace it."
@@ -1533,7 +1546,7 @@ def _load_saved_intro_media(job_dir: Path, intro_scenes: list[dict[str, Any]]) -
         if old_code != new_code or not media_path.is_file() or media_path.stat().st_size < 1024:
             return None
         try:
-            validate_media(media_path, str(old.get("media_type") or "video").lower(), max(0.05, _scene_duration(fresh)), require_landscape=bool(old.get("pexels_prefer_landscape", True)))
+            validate_media(media_path, str(old.get("media_type") or "video").lower(), max(0.05, _scene_duration(fresh)), require_landscape=_requires_landscape_media(old))
         except Exception:
             return None
         item = dict(old)
@@ -1588,7 +1601,7 @@ def _resolve_intro_stock_media(
         reviewed_path = Path(str(scene.get("media_path") or ""))
         if bool(scene.get("review_approved")) and bool(scene.get("review_locked")) and reviewed_path.is_file():
             requested_type = _assigned_media_type(reviewed_path)
-            validation = validate_media(reviewed_path, requested_type, _scene_duration(scene), require_landscape=bool(scene.get("pexels_prefer_landscape", True)))
+            validation = validate_media(reviewed_path, requested_type, _scene_duration(scene), require_landscape=_requires_landscape_media(scene))
             if validation.get("handling") == "reject_short":
                 raise RuntimeError(f"{scene_code}: approved audited intro video is too short")
             destination = assignment_root / f"{scene_code}{reviewed_path.suffix.lower()}"
@@ -2631,7 +2644,7 @@ def _load_saved_media(job_dir: Path, timed_scenes: list[dict[str, Any]]) -> list
         if old_code != new_code or not media_path.is_file() or media_path.stat().st_size < 1024:
             return None
         try:
-            validate_media(media_path, str(old.get("media_type") or "video").lower(), max(0.05, _scene_duration(fresh)), require_landscape=bool(old.get("pexels_prefer_landscape", True)))
+            validate_media(media_path, str(old.get("media_type") or "video").lower(), max(0.05, _scene_duration(fresh)), require_landscape=_requires_landscape_media(old))
         except Exception:
             return None
         item = dict(old)
@@ -3002,7 +3015,7 @@ def _load_resolved_job_plan(job_dir: Path, source_signature: str, settings: Proj
         if not media_path.is_file() or media_path.stat().st_size < 1024:
             return None
         try:
-            validate_media(media_path, str(scene.get("media_type") or "video").lower(), max(0.05, _scene_duration(scene)), require_landscape=bool(scene.get("pexels_prefer_landscape", True)))
+            validate_media(media_path, str(scene.get("media_type") or "video").lower(), max(0.05, _scene_duration(scene)), require_landscape=_requires_landscape_media(scene))
         except Exception:
             return None
         logical = str(scene.get("transition_out") or "none").strip().lower()
@@ -3119,7 +3132,7 @@ def _planned_intro_scenes(settings: ProjectSettings) -> list[dict[str, Any]]:
             "pexels_search_pool": int(getattr(settings, "pexels_search_pool", 10) or 10),
             "pexels_avoid_used_media": bool(getattr(settings, "pexels_avoid_used_media", True)),
             "pexels_avoid_same_creator": bool(getattr(settings, "pexels_avoid_same_creator", True)),
-            "pexels_prefer_landscape": bool(getattr(settings, "pexels_prefer_landscape", True)),
+            "pexels_prefer_landscape": (False if metadata.get("director_v25") else bool(getattr(settings, "pexels_prefer_landscape", True))),
             "pexels_prefer_video": bool(getattr(settings, "pexels_prefer_video", True)),
             "intro_query_order": int(query_row.get("order") or (index + 1)),
             "intro_query_reused": index >= len(queries),
@@ -3654,7 +3667,7 @@ def _copy_review_media_for_audit(scene: dict[str, Any], item_id: str, assignment
     if not source.is_file():
         return None
     requested_type = _assigned_media_type(source)
-    validate_media(source, requested_type, _scene_duration(scene), require_landscape=bool(scene.get("pexels_prefer_landscape", True)))
+    validate_media(source, requested_type, _scene_duration(scene), require_landscape=_requires_landscape_media(scene))
     destination = assignment_root / f"{item_id}_review{source.suffix.lower()}"
     shutil.copy2(source, destination)
     return {

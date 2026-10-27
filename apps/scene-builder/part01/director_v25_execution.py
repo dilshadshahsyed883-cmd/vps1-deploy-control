@@ -70,9 +70,9 @@ def _required_settings(sections: dict[str, dict[str, str]], preset: str) -> dict
         # selected UI preset's implicit polish, music, SFX, captions or LUT mix.
         "video_quality_preset": "original",
         "quality_crf": int(o.get("quality_crf", "20") or 20),
-        "canvas_fill_mode": o.get("canvas_fill_mode", "crop") or "crop",
+        "canvas_fill_mode": o.get("canvas_fill_mode", "blur") or "blur",
         "canvas_fill_color": o.get("canvas_fill_color", "#000000") or "#000000",
-        "canvas_blur_strength": int(o.get("canvas_blur_strength", "0") or 0),
+        "canvas_blur_strength": int(o.get("canvas_blur_strength", "16") or 0),
         "voice_processing_preset": "off",
         "sfx_enabled": False,
         "environment_sfx_enabled": False,
