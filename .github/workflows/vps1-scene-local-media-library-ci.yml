@@ -4,11 +4,14 @@ on:
     paths:
       - 'apps/scene-builder/part01/app.py'
       - 'apps/scene-builder/part01/scene_media_library.py'
+      - 'apps/scene-builder/part01/director_v25.py'
+      - 'apps/scene-builder/part01/templates/queue.html'
       - 'apps/scene-builder/part01/templates/base.html'
       - 'apps/scene-builder/part01/templates/settings.html'
       - 'apps/scene-builder/part01/templates/audit_media.html'
       - 'apps/scene-builder/part01/templates/scene_media_library.html'
       - 'tests/test_scene_local_media_library_20261027.py'
+      - 'tests/test_scene_director_v25_preflight.py'
       - '.github/workflows/vps1-scene-local-media-library-ci.yml'
   workflow_dispatch:
 permissions:
@@ -26,3 +29,6 @@ jobs:
       - name: Local catalog, audit UI and Stock Media regression tests
         run: python -m unittest discover -s tests -p 'test_scene_local_media_library_20261027.py' -v
 
+
+      - name: Director V25 isolated parser and live-catalog preflight tests
+        run: python -m unittest discover -s tests -p 'test_scene_director_v25_preflight.py' -v
