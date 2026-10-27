@@ -13,6 +13,9 @@ SCENE = ROOT / "apps/scene-builder/part01"
 spec = importlib.util.spec_from_file_location("scene_local_library", SCENE / "scene_media_library.py")
 media = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(media)
+source_spec = importlib.util.spec_from_file_location("scene_media_source_policy", SCENE / "scene_media_source_policy.py")
+source_policy = importlib.util.module_from_spec(source_spec)
+source_spec.loader.exec_module(source_policy)
 
 
 class Upload:
@@ -93,6 +96,64 @@ class SceneLocalLibraryTests(unittest.TestCase):
         self.assertIn('CLEAN SCENE LIBRARY', fourth)
         self.assertIn('autoMatchLocal', audit)
         self.assertIn('scene-library-select', audit)
+
+    def test_exactly_two_source_modes_and_legacy_job_safety(self):
+        settings = (SCENE / "templates/settings.html").read_text(encoding="utf-8")
+        app = (SCENE / "app.py").read_text(encoding="utf-8")
+        worker = (ROOT / "apps/scene-builder/part02/api_server.py").read_text(encoding="utf-8")
+        self.assertEqual(settings.count('option value="library_only"'), 1)
+        self.assertEqual(settings.count('option value="scene_first"'), 1)
+        self.assertNotIn('option value="pexels_first"', settings)
+        self.assertIn("Scene Media Library Only", settings)
+        self.assertIn("Scene Media Library First", settings)
+        self.assertIn('if scene_library_priority not in {"scene_first", "library_only"}:', app)
+        self.assertIn('{"scene_first", "library_only", "pexels_first"}', app)
+        self.assertIn('effective_pexels = bool(profile.get("pexels_enabled", True)) and not library_only', app)
+        self.assertIn('bundle_local_media(', app)
+        self.assertIn('"_trusted_source_root"', worker)
+        self.assertIn('needs_pexels = any(', worker)
+
+    def test_library_only_bundles_narration_and_intro_no_pexels(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            catalog = media.SceneMediaLibrary(root / "library")
+            item = asyncio.run(catalog.import_upload(Upload(
+                "Alexa hero.jpg", b"\xff\xd8\xff" + b"fake-photo-test" * 4
+            ), 4096))
+            scenes = [{"scene_code": "SCENE_001", "primary_keyword": "Alexa hero"}]
+            packaged = root / "package-assets"
+            intro = [{"query": "Alexa hero", "backup_keywords": [], "order": 1}]
+            assigned = source_policy.bundle_local_media(
+                scenes, intro, packaged, catalog, priority="library_only",
+                media_mix="image_heavy", intro_enabled=True, intro_duration_seconds=6,
+                intro_min_seconds=1.5, intro_max_seconds=3.0,
+            )
+            self.assertTrue(scenes[0]["review_approved"])
+            self.assertTrue(scenes[0]["review_locked"])
+            self.assertFalse(scenes[0]["pexels_enabled"])
+            self.assertEqual(scenes[0]["media_provider"], "scene_media_library")
+            self.assertTrue(assigned["INTRO_001"]["review_locked"])
+            self.assertFalse(assigned["INTRO_001"]["pexels_enabled"])
+            self.assertIn(item["id"], scenes[0]["media_path"])
+            self.assertTrue((packaged / (item["id"] + ".jpg")).is_file())
+            self.assertEqual(len(list(packaged.iterdir())), 1)
+
+    def test_library_only_rejects_missing_but_local_first_allows_pexels(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            catalog = media.SceneMediaLibrary(root / "library")
+            scenes = [{"scene_code": "SCENE_001", "keyword": "no matching media"}]
+            result = source_policy.bundle_local_media(
+                scenes, [], root / "assets", catalog,
+                priority="scene_first", media_mix="video_first",
+            )
+            self.assertEqual(result, {})
+            self.assertNotIn("review_locked", scenes[0])
+            with self.assertRaisesRegex(ValueError, "no matching approved local media"):
+                source_policy.bundle_local_media(
+                    scenes, [], root / "assets", catalog,
+                    priority="library_only", media_mix="video_first",
+                )
 
     def test_media_library_shared_tabs_and_upload_label_contrast(self):
         from types import SimpleNamespace
