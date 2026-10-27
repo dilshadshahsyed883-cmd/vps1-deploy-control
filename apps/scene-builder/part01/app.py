@@ -1380,7 +1380,7 @@ def build_project_package(
     music_enabled = bool(media_config.get("music_enabled"))
     selected_music_volume = max(0, min(100, int(media_config.get("music_volume_percent", 12) or 12)))
     selected_ducking = bool(media_config.get("music_ducking_enabled", True))
-    scene_plan = ([dict(row) for row in director_compilation["scenes"]]
+    scene_plan = (director_compilation["scenes"]
                   if director_compilation is not None else parse_authoritative_scene_plan(script_text))
     intro_queries = (list(director_compilation["intro_queries"])
                      if director_compilation is not None else extract_intro_queries(script_text))
