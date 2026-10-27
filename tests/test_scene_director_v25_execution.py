@@ -205,7 +205,7 @@ transition_out=none
         self.assertIn('director_processor: str = Form("classic")', web)
         self.assertIn("if director_compilation is not None:", web)
         self.assertIn('if bool((settings.metadata or {}).get("director_v25")):', worker)
-        self.assertIn("automatic splits/merges are forbidden", worker)
+        self.assertIn("splits/merges are forbidden in Director Mode", worker)
         self.assertIn("Director V25 — validate & render", queue)
 
 
