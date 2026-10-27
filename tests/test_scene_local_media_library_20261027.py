@@ -226,11 +226,11 @@ class SceneLocalLibraryTests(unittest.TestCase):
             self.skipTest("node not installed")
 
         limits = re.search(r"  const UPLOAD_BATCH_FILES=.*?;", source)
-        planner = re.search(r"  function planBatches\\(files\\)\\{[\\s\\S]*?\\n  \\}", source)
+        planner = re.search(r"  function planBatches\(files\)\{[\s\S]*?\n  \}", source)
         self.assertIsNotNone(limits)
         self.assertIsNotNone(planner)
         check = (
-            limits.group(0) + "\\n" + planner.group(0) + "\\n"
+            limits.group(0) + "\n" + planner.group(0) + "\n"
             + """
             const small=Array.from({length:1001},(_,i)=>({name:'clip'+i+'.mp4',size:1024}));
             const groups=planBatches(small);
