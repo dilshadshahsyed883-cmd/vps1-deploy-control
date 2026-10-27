@@ -1,0 +1,25 @@
+name: Scene exact-job cancellation offline safeguards
+on:
+  pull_request:
+    paths:
+      - 'production/scene_exact_job_cancel_20261027.py'
+      - 'production/runtime.py'
+      - 'production/gateway.py'
+      - 'tests/test_scene_exact_job_cancel_20261027.py'
+      - '.github/workflows/vps1-scene-job-cancel-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'production/scene_exact_job_cancel_20261027.py'
+      - 'tests/test_scene_exact_job_cancel_20261027.py'
+permissions:
+  contents: read
+jobs:
+  cancel-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python syntax and limited exact-job cancellation tests (no VPS)
+        run: |
+          python3 -m py_compile production/scene_exact_job_cancel_20261027.py production/runtime.py production/gateway.py
+          python3 -m unittest tests.test_scene_exact_job_cancel_20261027 -v
