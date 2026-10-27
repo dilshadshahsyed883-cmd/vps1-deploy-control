@@ -1630,7 +1630,8 @@ def build_project_package(
         data["pexels_avoid_used_media"] = bool(metadata["avoid_duplicate_media"])
         data["use_image_backgrounds"] = True
         data["use_video_backgrounds"] = True
-        data["auto_prepare_backgrounds"] = False
+        # Media acquisition remains an engine operation; visual choices remain TXT-controlled.
+        data["auto_prepare_backgrounds"] = True
         data["pexels_enabled"] = effective_pexels
         data["pexels_download_enabled"] = effective_pexels
         data["transition_engine_enabled"] = True
