@@ -3082,6 +3082,14 @@ def _planned_intro_scenes(settings: ProjectSettings) -> list[dict[str, Any]]:
             "transition_sfx": "none", "sfx_volume": 0.0,
             "outer_ai_source": "intro_query_v174",
         })
+        if bool(metadata.get("director_v25")):
+            instructions = metadata.get("director_v25_intro_instructions") or {}
+            authored_intro = instructions.get(f"INTRO_{index + 1:03d}") if isinstance(instructions, dict) else None
+            if not isinstance(authored_intro, dict):
+                raise RuntimeError(
+                    f"Director V25 intro integrity: missing INTRO_{index + 1:03d} instruction"
+                )
+            intro[-1].update(authored_intro)
         # Local visual assets are separately bundled and path-remapped on import.
         # Accept a reviewed intro visual only if it stays under this job's ZIP root.
         bundles = metadata.get("scene_media_intro_assignments") or {}
