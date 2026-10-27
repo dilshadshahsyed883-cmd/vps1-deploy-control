@@ -1583,6 +1583,7 @@ def build_project_package(
                 intro_duration_seconds=float(data["intro_duration_seconds"]),
                 intro_min_seconds=float(data["intro_media_min_seconds"]),
                 intro_max_seconds=float(data["intro_media_max_seconds"]),
+                allow_pexels=effective_pexels,
             )
         (root / "project.json").write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:

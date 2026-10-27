@@ -65,7 +65,8 @@ def bundle_local_media(scene_plan: list[dict[str, Any]], intro_queries: list[dic
                        media_mix: str, intro_enabled: bool = False,
                        intro_duration_seconds: float = 15,
                        intro_min_seconds: float = 1.5,
-                       intro_max_seconds: float = 3.0) -> dict[str, dict[str, Any]]:
+                       intro_max_seconds: float = 3.0,
+                       allow_pexels: bool = True) -> dict[str, dict[str, Any]]:
     """Attach ranked, auto-approved Scene local assets without touching SML.
 
     For library_only require a local match for *every* narration and intro shot.
@@ -100,7 +101,7 @@ def bundle_local_media(scene_plan: list[dict[str, Any]], intro_queries: list[dic
             if selection:
                 break
         if selection is None:
-            if priority == "library_only":
+            if priority == "library_only" or not allow_pexels:
                 unmatched.append(code)
             continue
         media_path, media = catalog.file(selection["id"])
@@ -116,14 +117,16 @@ def bundle_local_media(scene_plan: list[dict[str, Any]], intro_queries: list[dic
             "provider_asset_id": selection["id"],
             "assigned_media_type": media["kind"],
             "review_approved": True, "review_locked": True,
-            "pexels_enabled": False,
+            "pexels_enabled": bool(allow_pexels) and priority == "scene_first",
         }
         if is_intro:
             manifest[code] = properties
         else:
             scene.update(properties)
     if unmatched:
-        raise ValueError("Scene Media Library Only: no matching approved local media for " +
+        reason = ("Scene Media Library Only" if priority == "library_only"
+                  else "Scene Media Library First with Pexels disabled")
+        raise ValueError(reason + ": no matching approved local media for " +
                          ", ".join(unmatched[:12]) +
                          (" and more scenes" if len(unmatched) > 12 else "") +
                          ". Add matching files to Scene Media Library or enable Pexels fallback.")

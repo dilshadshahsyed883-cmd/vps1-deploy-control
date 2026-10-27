@@ -155,6 +155,32 @@ class SceneLocalLibraryTests(unittest.TestCase):
                     priority="library_only", media_mix="video_first",
                 )
 
+    def test_audit_and_intro_do_not_search_pexels_when_disabled(self):
+        worker = (ROOT / "apps/scene-builder/part02/api_server.py").read_text(encoding="utf-8")
+        self.assertIn('return None, "Pexels disabled for this scene by Media Library source policy"', worker)
+        self.assertIn('raise RuntimeError(f"{scene_code}: local intro media unavailable and Pexels fallback is disabled")', worker)
+        self.assertIn('"SCENE_LIBRARY" if str(scene.get("media_provider")', worker)
+
+    def test_local_first_preserves_pexels_fallback_and_off_preflight(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            catalog = media.SceneMediaLibrary(root / "library")
+            item = asyncio.run(catalog.import_upload(Upload(
+                "Alexa hero.jpg", b"\xff\xd8\xff" + b"fake-photo-test" * 4
+            ), 4096))
+            scene = [{"scene_code": "SCENE_001", "primary_keyword": "Alexa hero"}]
+            source_policy.bundle_local_media(scene, [], root / "assets", catalog,
+                                             priority="scene_first", media_mix="video_first",
+                                             allow_pexels=True)
+            self.assertEqual(scene[0]["provider_asset_id"], item["id"])
+            self.assertTrue(scene[0]["pexels_enabled"])
+            with self.assertRaisesRegex(ValueError, "Pexels disabled"):
+                source_policy.bundle_local_media(
+                    [{"scene_code": "SCENE_002", "keyword": "missing media"}], [],
+                    root / "assets", catalog, priority="scene_first",
+                    media_mix="video_first", allow_pexels=False,
+                )
+
     def test_media_library_shared_tabs_and_upload_label_contrast(self):
         from types import SimpleNamespace
         try:
