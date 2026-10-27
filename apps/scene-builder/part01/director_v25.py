@@ -19,7 +19,8 @@ FILENAME_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp",
                        ".mp4", ".mov", ".m4v", ".webm", ".mkv"}
 FIELDS = {
     "PROJECT": {"mode", "name", "base_preset", "validation"},
-    "OUTPUT": {"resolution", "aspect_ratio", "fps", "codec", "filename"},
+    "OUTPUT": {"resolution", "aspect_ratio", "fps", "codec", "filename",
+               "canvas_fill_mode", "canvas_fill_color", "canvas_blur_strength", "quality_crf"},
     "MEDIA": {"source_mode", "avoid_duplicates", "missing_media",
               "library_summary_generated"},
     "TIMING": {"audio", "narration_start", "split", "max_semantic_beat_seconds"},
@@ -175,6 +176,15 @@ def _validate_controls(doc: dict[str, dict[str, str]], errors: list[str],
         if _value(output.get(key)) not in allowed:
             errors.append(f"[OUTPUT].{key}: unsupported or missing value")
     _number(_value(output.get("fps")), "[OUTPUT].fps", errors, 20, 60, integer=True)
+    _number(_value(output.get("quality_crf")), "[OUTPUT].quality_crf", errors, 16, 30, integer=True)
+    _number(_value(output.get("canvas_blur_strength")),
+            "[OUTPUT].canvas_blur_strength", errors, 0, 40, integer=True)
+    fill = _value(output.get("canvas_fill_mode"))
+    if fill and fill not in {"crop", "black", "solid", "stretch", "blur"}:
+        errors.append("[OUTPUT].canvas_fill_mode unsupported")
+    color = _value(output.get("canvas_fill_color"))
+    if color and not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+        errors.append("[OUTPUT].canvas_fill_color must be #RRGGBB")
     filename = _value(output.get("filename"))
     if filename and (Path(filename).name != filename or not filename.lower().endswith(".mp4")):
         errors.append("[OUTPUT].filename must be a simple .mp4 basename")
