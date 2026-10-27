@@ -2592,6 +2592,11 @@ async def submit_project(
             return submission_error(request, 400, str(exc))
 
         preset_id, profile = resolve_scene_profile(preset_id)
+        if director_processor == "director":
+            # A known engine baseline supplies infrastructure-only defaults.
+            # The user-selected UI preset must not leak creative settings to a
+            # Director V25 job. TXT overrides all supported creative controls.
+            _, profile = resolve_scene_profile("cinematic_documentary")
         director_compilation = None
         if director_processor == "director":
             try:
