@@ -34,7 +34,18 @@
   </div>
   <div id="submission-message" class="submission-message" role="status" aria-live="polite" hidden></div>
   <label>Project name<input id="project-name" name="project_name" required maxlength="120" placeholder="Nigeria Documentary" autocomplete="off"></label>
+  <label>Scene Plan Processor
+    <select id="director-processor" aria-label="Scene Plan Processor">
+      <option value="classic" selected>Classic — existing Scene Builder</option>
+      <option value="director_preview">Director V25 — preflight preview only</option>
+    </select>
+    <small class="field-help">Director is validation-only until the isolated renderer adapters are ready. It cannot enter the Queue yet.</small>
+  </label>
   <label>Scene TXT<input id="script-file" name="script_file" type="file" accept=".txt,text/plain" required><small id="script-summary" class="field-help">UTF-8 TXT · maximum 10 MB</small></label>
+  <div>
+    <button type="button" class="button secondary" id="director-preview-btn" hidden>Validate Director V25 TXT</button>
+    <pre id="director-preflight-result" role="status" aria-live="polite" hidden style="margin:10px 0 0;white-space:pre-wrap;word-break:break-word;background:#f5f7fb;border:1px solid #dbe3f0;border-radius:10px;padding:12px;color:#263c60;max-height:420px;overflow:auto"></pre>
+  </div>
   <label>Narration<input id="audio-file" name="audio_file" type="file" accept="audio/*,video/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.wma,.aiff,.aif,.amr,.ac3,.mka,.mp2,.webm,.mp4,.mov,.mkv,.avi,.mpeg,.mpg,.mts,.m2ts" required><small id="audio-summary" class="field-help">FFmpeg-compatible media · maximum {{ max_upload_mb }} MB</small></label>
   <div id="upload-progress" class="upload-progress" hidden><div class="upload-progress-head"><strong id="upload-stage">Ready</strong><span id="upload-percent">0%</span></div><div class="bar"><span id="upload-bar" style="width:0%"></span></div><p id="upload-detail">Preparing submission…</p></div>
   <button id="submit-button" class="button" type="submit">Submit Project</button>
@@ -104,10 +115,52 @@ channelRemove?.addEventListener('click',async()=>{const name=channelSelect?.valu
 loadSceneChannels();
 const humanSize=n=>n<1024?`${n} B`:n<1048576?`${(n/1024).toFixed(1)} KB`:`${(n/1048576).toFixed(1)} MB`;
 function showMessage(text,type='error'){message.hidden=false;message.className=`submission-message ${type}`;message.textContent=text;}function clearMessage(){message.hidden=true;message.textContent='';message.className='submission-message';}function setProgress(value,title,text){progress.hidden=false;const n=Math.max(0,Math.min(100,Math.round(value)));bar.style.width=`${n}%`;percent.textContent=`${n}%`;stage.textContent=title;uploadDetail.textContent=text;}
+const directorProcessor=document.getElementById('director-processor');
+const directorPreview=document.getElementById('director-preview-btn');
+const directorReport=document.getElementById('director-preflight-result');
+function updateDirectorMode(){
+  const preview=directorProcessor.value==='director_preview';
+  directorPreview.hidden=!preview;
+  submitButton.disabled=preview;
+  directorReport.hidden=true;
+  directorReport.textContent='';
+  if(preview)showMessage('Director V25 is preflight-only: no render job will be submitted.','info');
+  else clearMessage();
+}
+directorProcessor.addEventListener('change',updateDirectorMode);
+directorPreview.addEventListener('click',async()=>{
+  const file=scriptInput.files?.[0];
+  if(!file||!file.name.toLowerCase().endsWith('.txt')||file.size>10*1024*1024){
+    showMessage('Choose a Director V25 UTF-8 TXT file (10 MB max).');return;
+  }
+  directorPreview.disabled=true;directorReport.hidden=false;
+  directorReport.textContent='Validating V25 instructions against the live Scene Media Library…';
+  try{
+    const body=new FormData();
+    body.append('director_txt',file,file.name);
+    const res=await fetch('/api/scene-builder/director-v25/preflight',{method:'POST',body,credentials:'same-origin'});
+    const data=await res.json();
+    if(!res.ok)throw Error(data.detail||data.error||'V25 preflight failed');
+    const lines=[
+      'Status: '+data.status,
+      'Scene beats: '+(data.scenes||0)+' · Scene shots: '+(data.shots||0)+' · Intro slots: '+(data.intro_shots||0),
+      'Render ready: NO — Director render adapters are not enabled',
+      'Live assets resolved: '+(data.resolved_assets||[]).filter(x=>x.source==='scene_media_library').length,
+      'Pexels searches pending: '+(data.resolved_assets||[]).filter(x=>x.source==='pexels_pending').length,
+      '',
+      'ERRORS:',...(data.errors?.length?data.errors:['None']),
+      '',
+      'WARNINGS:',...(data.warnings?.length?data.warnings:['None']),
+    ];
+    directorReport.textContent=lines.join('\n');
+  }catch(err){directorReport.textContent='Preflight failed: '+err.message;}
+  finally{directorPreview.disabled=false;}
+});
+updateDirectorMode();
 function validate(){clearMessage();const name=nameInput.value.trim();if(!name){showMessage('Enter a project name.');return false;}const txt=scriptInput.files[0];if(!txt||!txt.name.toLowerCase().endsWith('.txt')||!txt.size||txt.size>10*1024*1024){showMessage('Select a valid Scene TXT file.');return false;}const media=audioInput.files[0];if(!media){showMessage('Select narration media.');return false;}const ext=(media.name.split('.').pop()||'').toLowerCase();if(!allowedMedia.has(ext)||!media.size||media.size>maxAudio){showMessage('Select valid narration media within the upload limit.');return false;}return true;}
 nameInput.addEventListener('input',()=>{dirty=true;});scriptInput.addEventListener('change',()=>{dirty=true;const f=scriptInput.files[0];scriptSummary.textContent=f?`${f.name} · ${humanSize(f.size)}`:'UTF-8 TXT · maximum 10 MB';if(f){const base=f.name.replace(/\.[^.]+$/,'').trim();nameInput.value=base||'Untitled Project';}});audioInput.addEventListener('change',()=>{dirty=true;const f=audioInput.files[0];audioSummary.textContent=f?`${f.name} · ${humanSize(f.size)}`:'FFmpeg-compatible media · maximum {{ max_upload_mb }} MB';});
 function submitFiles(projectName,presetId,channelName,txt,media,onProgress){return new Promise((resolve,reject)=>{const data=new FormData();data.append('project_name',projectName);data.append('preset_id',presetId);data.append('channel_name',channelName||'General');data.append('script_file',txt,txt.name);data.append('audio_file',media,media.name);data.append('audio_engine_processed',media.__audioEngineProcessed?'1':'0');data.append('audio_engine_enabled',media.__audioEngineEnabled===false?'0':'1');data.append('audio_engine_preset',media.__audioEnginePreset||'documentary');const xhr=new XMLHttpRequest();xhr.open('POST','/queue/submit',true);xhr.setRequestHeader('X-Requested-With','XMLHttpRequest');xhr.setRequestHeader('Accept','application/json');xhr.upload.onprogress=e=>{if(e.lengthComputable)onProgress(Math.round((e.loaded/e.total)*85),'Uploading');};xhr.upload.onload=()=>onProgress(92,'Packaging');xhr.onload=()=>{let p={};try{p=JSON.parse(xhr.responseText||'{}');}catch(_){}if(xhr.status>=200&&xhr.status<300&&p.ok){onProgress(100,p.duplicate?'Existing job reused':'Accepted');resolve(p);}else reject(new Error(p.error||`Submission failed (HTTP ${xhr.status})`));};xhr.onerror=()=>reject(new Error('Network connection interrupted.'));xhr.send(data);});}
-form.addEventListener('submit',e=>{e.preventDefault();if(submitting||!validate())return;submitting=true;submitButton.disabled=true;submitButton.textContent='Submitting…';submitFiles(nameInput.value.trim(),presetSelect.value,channelSelect?.value||'General',scriptInput.files[0],audioInput.files[0],(p,s)=>setProgress(p,s,p<90?'Uploading…':'Building VPS package…')).then(data=>{setProgress(100,data.duplicate?'Existing job':'Accepted','Project accepted by VPS');dirty=false;setTimeout(()=>location.href=data.redirect||'/queue',500);}).catch(err=>{submitting=false;submitButton.disabled=false;submitButton.textContent='Submit Project';progress.hidden=true;showMessage(err.message);});});
+form.addEventListener('submit',e=>{e.preventDefault();if(directorProcessor.value!=='classic'){showMessage('Director V25 cannot render yet; run Validate Director V25 TXT instead.');return;}if(submitting||!validate())return;submitting=true;submitButton.disabled=true;submitButton.textContent='Submitting…';submitFiles(nameInput.value.trim(),presetSelect.value,channelSelect?.value||'General',scriptInput.files[0],audioInput.files[0],(p,s)=>setProgress(p,s,p<90?'Uploading…':'Building VPS package…')).then(data=>{setProgress(100,data.duplicate?'Existing job':'Accepted','Project accepted by VPS');dirty=false;setTimeout(()=>location.href=data.redirect||'/queue',500);}).catch(err=>{submitting=false;submitButton.disabled=false;submitButton.textContent='Submit Project';progress.hidden=true;showMessage(err.message);});});
 
 /* Folder upload: pair TXT and narration by the same relative filename. */
 const picker=document.getElementById('folder-picker'),queueBox=document.getElementById('folder-queue'),summary=document.getElementById('folder-summary'),startBtn=document.getElementById('folder-start'),pauseBtn=document.getElementById('folder-pause'),clearBtn=document.getElementById('folder-clear');const STORE='sceneBuilderFolderQueueV175c';let folderQueue=[],running=false,paused=false;
