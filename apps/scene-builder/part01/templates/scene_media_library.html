@@ -39,6 +39,14 @@
 .scene-library .sl-empty{border:1px dashed #c9d3e1;border-radius:14px;padding:32px;text-align:center;color:#69778d;background:#fff}
 .scene-library input[type=file]{display:none}
 .scene-library .sl-help{font-size:13px;color:#64748b}
+.scene-library [hidden]{display:none!important}
+.scene-library .sl-transfer{margin-top:16px;padding:15px;border:1px solid #d6e1f6;border-radius:12px;background:#f7faff}
+.scene-library .sl-transfer-heading{display:flex;justify-content:space-between;gap:10px;align-items:center;color:#1c2e56;font-size:14px}
+.scene-library .sl-transfer-heading span{font-variant-numeric:tabular-nums}
+.scene-library .sl-progress-bar{display:block;width:100%;height:15px;margin:11px 0 9px;accent-color:#315fdf}
+.scene-library .sl-transfer-meta{font-size:13px;color:#4b5f80;overflow-wrap:anywhere}
+.scene-library .sl-transfer button{margin-top:12px}
+.scene-library .sl-actions label[aria-disabled="true"]{opacity:.55;cursor:wait;pointer-events:none}
 @media(max-width:900px){.scene-library .sl-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){.scene-library{gap:13px}.scene-library .sl-header{padding:17px}.scene-library .sl-card{padding:16px}.scene-library .sl-metric strong{font-size:23px}.scene-library .sl-actions{width:100%}.scene-library .sl-actions .sl-button{flex:1 1 140px}.scene-library .sl-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.scene-library .sl-asset-body{padding:9px}.scene-library .sl-toolbar input{flex:1}.scene-library .sl-asset button{width:100%}}
 </style>
@@ -81,7 +89,13 @@
         <label for="sl-folder" class="sl-button" tabindex="0">Select Folder</label>
         <input type="file" id="sl-folder" multiple webkitdirectory directory>
       </div>
-      <p id="sl-upload-hint" class="sl-help">Supported images: JPG, PNG, WebP, GIF, BMP · videos: MP4, MOV, M4V, WebM, MKV</p>
+      <p id="sl-upload-hint" class="sl-help">Supported images: JPG, PNG, WebP, GIF, BMP · videos: MP4, MOV, M4V, WebM, MKV · Large folders upload in automatic small batches. Keep this tab open.</p>
+      <div id="sl-transfer" class="sl-transfer" hidden>
+        <div class="sl-transfer-heading"><strong id="sl-progress-title">Preparing upload…</strong><span id="sl-progress-percent">0%</span></div>
+        <progress id="sl-progress-bar" class="sl-progress-bar" value="0" max="100" aria-label="Media upload progress">0%</progress>
+        <div id="sl-progress-meta" class="sl-transfer-meta" aria-live="polite"></div>
+        <button type="button" id="sl-retry" hidden>Retry Failed Files</button>
+      </div>
     </div>
     <div class="sl-toolbar">
       <div class="sl-kind-tabs" aria-label="Media type filter">
@@ -100,7 +114,8 @@
   const root=document.getElementById('scene-library');
   const csrf=root.dataset.csrf,isAdmin=root.dataset.admin==='1';
   const $=id=>document.getElementById(id);
-  let kind='all',tab='dashboard',searchTimer;
+  let kind='all',tab='dashboard',searchTimer,uploadBusy=false,retryFiles=[];
+  const UPLOAD_BATCH_FILES=20,UPLOAD_BATCH_BYTES=128*1024*1024;
   const escapeHtml=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
   const formatBytes=n=>{let count=Number(n)||0,unit=0;while(count>=1024&&unit<4){count/=1024;unit++}return count.toFixed(unit?1:0)+' '+['B','KB','MB','GB','TB'][unit]};
   function status(message,error=false){$('sl-status').textContent=message;$('sl-status').dataset.error=String(error)}
@@ -147,22 +162,132 @@
     refresh();
   }));
   $('sl-search').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(refresh,200)});
+  // The 100-file server guard is per HTTP request, not a selection limit.
+  // Chunk by file count AND bytes to avoid giant browser requests and VPS spikes.
+  function planBatches(files){
+    const groups=[];let group=[],bytes=0;
+    for(const file of files){
+      const size=Math.max(1,Number(file.size)||0);
+      if(group.length&&(group.length>=UPLOAD_BATCH_FILES||bytes+size>UPLOAD_BATCH_BYTES)){
+        groups.push(group);group=[];bytes=0;
+      }
+      group.push(file);bytes+=size;
+    }
+    if(group.length)groups.push(group);
+    return groups;
+  }
+  function sendBatch(files,onProgress){
+    return new Promise((resolve,reject)=>{
+      const xhr=new XMLHttpRequest();
+      xhr.open('POST','/api/scene-media-library/upload',true);
+      xhr.withCredentials=true;
+      xhr.setRequestHeader('X-Settings-CSRF',csrf);
+      xhr.upload.onprogress=e=>{if(e.lengthComputable)onProgress(Math.min(1,e.loaded/Math.max(1,e.total)))};
+      xhr.onerror=()=>reject(new Error('Network connection lost during upload'));
+      xhr.onabort=()=>reject(new Error('Upload interrupted'));
+      xhr.onload=()=>{
+        let result;
+        try{result=JSON.parse(xhr.responseText)}catch{
+          reject(new Error('Server returned an unexpected response'));return;
+        }
+        if(xhr.status<200||xhr.status>=300){
+          reject(new Error(result.detail||result.error||'Server rejected batch ('+xhr.status+')'));return;
+        }
+        if(!Array.isArray(result.imported)||!Array.isArray(result.rejected)||
+           result.imported.length+result.rejected.length!==files.length){
+          reject(new Error('Upload confirmation is incomplete'));return;
+        }
+        resolve(result);
+      };
+      const form=new FormData();
+      files.forEach(file=>form.append('files',file,file.name));
+      xhr.send(form);
+    });
+  }
+  function setUploadBusy(busy){
+    uploadBusy=busy;
+    root.querySelectorAll('.sl-actions input[type=file]').forEach(i=>{i.disabled=busy;if(!busy)i.value=''});
+    root.querySelectorAll('label[for="sl-files"],label[for="sl-folder"]').forEach(i=>i.setAttribute('aria-disabled',String(busy)));
+    $('sl-retry').disabled=busy;
+  }
   async function upload(files){
-    const picked=[...files].filter(f=>f&&f.name);
+    if(uploadBusy)return;
+    const picked=Array.from(files||[]).filter(f=>f&&f.name);
     if(!picked.length)return;
-    if(picked.length>100){status('Please select no more than 100 files per batch.',true);return}
-    const data=new FormData();picked.forEach(f=>data.append('files',f,f.name));
-    status('Uploading '+picked.length+' media file(s)…');
-    root.querySelectorAll('.sl-actions input[type=file]').forEach(i=>i.disabled=true);
+    const groups=planBatches(picked),total=picked.length;
+    const totalBytes=picked.reduce((n,f)=>n+Math.max(1,Number(f.size)||0),0);
+    let completedBytes=0,processed=0,approved=0,failed=0,skippedDuplicates=0;
+    const failures=[],errors=[];
+    const transfer=$('sl-transfer'),retry=$('sl-retry');
+    transfer.hidden=false;retry.hidden=true;retryFiles=[];
+    setUploadBusy(true);
+    showTab('media');
+    function display(estimatedBytes,label,done=false){
+      const percent=done?100:Math.min(99,Math.floor((completedBytes+estimatedBytes)/Math.max(1,totalBytes)*100));
+      $('sl-progress-bar').value=percent;
+      $('sl-progress-percent').textContent=percent+'%';
+      $('sl-progress-title').textContent=label;
+      $('sl-progress-meta').textContent=processed+' / '+total+' files processed · '+approved+
+        ' auto-approved · '+failed+' failed · '+(total-processed)+' remaining';
+    }
+    display(0,'Preparing '+total+' media file(s)…');
     try{
-      const result=await api('/api/scene-media-library/upload',{method:'POST',headers:{'X-Settings-CSRF':csrf},body:data});
-      const good=(result.imported||[]).length,bad=(result.rejected||[]).length;
-      status(good+' media auto-approved'+(bad?' · '+bad+' rejected: '+result.rejected.map(x=>x.name+' ('+x.error+')').join('; '):''));
-      showTab('media');await refresh();
-    }catch(e){status('Upload failed: '+e.message,true)}
-    finally{root.querySelectorAll('.sl-actions input[type=file]').forEach(i=>{i.disabled=false;i.value=''})}
+      for(let i=0;i<groups.length;i++){
+        const group=groups[i],groupBytes=group.reduce((n,f)=>n+Math.max(1,Number(f.size)||0),0);
+        const label='Uploading batch '+(i+1)+' / '+groups.length;
+        display(0,label);
+        try{
+          const result=await sendBatch(group,ratio=>{
+            display(groupBytes*Math.min(.95,ratio),ratio>=1?'Processing batch '+(i+1)+' / '+groups.length+'…':label);
+          });
+          const rejectedByName=new Map();
+          for(const item of result.rejected){
+            const key=String(item.name||'');
+            if(!rejectedByName.has(key))rejectedByName.set(key,[]);
+            rejectedByName.get(key).push(String(item.error||'Rejected by server'));
+          }
+          let matched=0;
+          for(const file of group){
+            const reasons=rejectedByName.get(file.name.trim().slice(0,180));
+            if(reasons&&reasons.length){
+              const reason=reasons.shift();
+              failures.push(file);errors.push(file.name+': '+reason);matched++;
+            }
+          }
+          // Every rejected result must stay retryable, including duplicate names.
+          if(matched!==result.rejected.length){
+            for(const file of group){
+              if(failures.includes(file))continue;
+              if(matched>=result.rejected.length)break;
+              failures.push(file);errors.push(file.name+': Server rejected this file');matched++;
+            }
+          }
+          approved+=result.imported.length;
+          skippedDuplicates+=result.imported.filter(x=>x.duplicate).length;
+          failed+=result.rejected.length;
+        }catch(e){
+          failed+=group.length;
+          failures.push(...group);
+          errors.push('Batch '+(i+1)+': '+e.message);
+        }
+        processed+=group.length;
+        completedBytes+=groupBytes;
+        display(0,'Completed batch '+(i+1)+' / '+groups.length);
+      }
+      retryFiles=failures;
+      retry.hidden=!retryFiles.length;
+      retry.textContent='Retry Failed Files ('+retryFiles.length+')';
+      const summary=approved+' media auto-approved'+(skippedDuplicates?' ('+skippedDuplicates+' already present)':'')+
+        (failed?' · '+failed+' failed. '+errors.slice(0,3).join('; ')+(errors.length>3?' · '+(errors.length-3)+' more errors':''):'');
+      display(0,failed?'Completed with '+failed+' failed file(s)':'Upload complete',true);
+      status(summary,failed>0);
+      await refresh();
+    }finally{
+      setUploadBusy(false);
+    }
   }
   ['sl-files','sl-folder'].forEach(id=>$(id).addEventListener('change',e=>upload(e.target.files)));
+  $('sl-retry').addEventListener('click',()=>{if(!uploadBusy&&retryFiles.length)upload(retryFiles.slice())});
   $('sl-gallery').addEventListener('click',async e=>{
     const id=e.target.closest('button[data-sl-delete]')?.dataset.slDelete;
     if(!id||!isAdmin||!confirm('Delete this Scene Builder library asset permanently?'))return;
