@@ -1549,8 +1549,9 @@ def _resolve_intro_stock_media(
     """
     if not intro_scenes:
         return []
-    if not _current_pexels_keys():
-        raise RuntimeError("Opening Intro needs a Pexels API key.")
+    needs_pexels = any(not (bool(row.get("review_approved")) and bool(row.get("review_locked")) and Path(str(row.get("media_path") or "")).is_file()) for row in intro_scenes)
+    if needs_pexels and not _current_pexels_keys():
+        raise RuntimeError("Opening Intro needs a Pexels API key for unresolved scenes.")
     queries = [dict(x) for x in intro_queries if isinstance(x, dict) and str(x.get("query") or "").strip()]
     if not queries:
         raise RuntimeError("Opening Intro is enabled, but no usable INTRO_QUERY rows were supplied.")
@@ -3062,6 +3063,29 @@ def _planned_intro_scenes(settings: ProjectSettings) -> list[dict[str, Any]]:
             "transition_sfx": "none", "sfx_volume": 0.0,
             "outer_ai_source": "intro_query_v174",
         })
+        # Local visual assets are separately bundled and path-remapped on import.
+        # Accept a reviewed intro visual only if it stays under this job's ZIP root.
+        bundles = metadata.get("scene_media_intro_assignments") or {}
+        bundle = bundles.get(f"INTRO_{index + 1:03d}", {}) if isinstance(bundles, dict) else {}
+        trusted_root = str(metadata.get("_trusted_source_root") or "")
+        bundled_path = Path(str(bundle.get("media_path") or "")) if isinstance(bundle, dict) else Path("")
+        verified = False
+        if trusted_root and isinstance(bundle, dict):
+            try:
+                verified = bundled_path.is_file() and bundled_path.resolve().is_relative_to(Path(trusted_root).resolve())
+            except (OSError, ValueError):
+                verified = False
+        if verified:
+            intro[-1].update({
+                "media_path": str(bundled_path.resolve()),
+                "media_source_path": str(bundled_path.resolve()),
+                "media_provider": "scene_media_library",
+                "provider_asset_id": str(bundle.get("provider_asset_id") or ""),
+                "assigned_media_type": str(bundle.get("assigned_media_type") or "video"),
+                "review_approved": True, "review_locked": True, "pexels_enabled": False,
+            })
+        elif metadata.get("scene_library_enabled") and metadata.get("scene_library_priority") == "library_only":
+            raise RuntimeError(f"Scene Media Library Only: bundled local media missing for INTRO_{index + 1:03d}")
         cursor = end
         index += 1
         if index > 500:
@@ -4064,6 +4088,8 @@ def process_job(job_id: str) -> None:
 
         settings = ProjectSettings.from_dict(remap_paths(data, files, source_root))
         settings.text = script_text
+        # Authoritative extracted package root; never trust a source-root claim in the ZIP.
+        settings.metadata = {**dict(settings.metadata or {}), "_trusted_source_root": str(source_root.resolve())}
         if bool(settings.voice_review_required) and not (
             bool(settings.voice_approved) and bool(settings.voice_locked)
         ):

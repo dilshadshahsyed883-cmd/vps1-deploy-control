@@ -29,6 +29,7 @@ from starlette.background import BackgroundTask
 from smart_scroll.ai_scene_txt import extract_intro_queries, parse_outer_ai_scene_txt
 from storage_manager_client import storage_manager_request
 from scene_media_library import SceneMediaLibrary, InvalidMedia
+from scene_media_source_policy import bundle_local_media
 
 RUNTIME_CANDIDATE = os.getenv("VPS1_RUNTIME_CANDIDATE") == "1"
 SCENE_PRECUTOVER_EDITING = os.getenv("VPS1_SCENE_PRECUTOVER_EDITING", "0") == "1"
@@ -853,7 +854,7 @@ def record_job_owner(job_id: str, username: str, project_name: str = "", media_s
 
 def scene_library_settings() -> dict[str, Any]:
     priority = setting("scene_library_priority", "scene_first")
-    if priority not in {"scene_first", "pexels_first"}:
+    if priority not in {"scene_first", "library_only"}:
         priority = "scene_first"
     return {"scene_library_enabled": setting("scene_library_enabled", "0") == "1",
             "scene_library_priority": priority,
@@ -866,7 +867,7 @@ def job_scene_library_settings(job_id: str) -> dict[str, Any]:
     saved = json.loads(row["settings_json"]) if row else {}
     priority = str(saved.get("scene_library_priority", "scene_first"))
     return {"scene_library_enabled": bool(saved.get("scene_library_enabled", False)),
-            "scene_library_priority": priority if priority in {"scene_first", "pexels_first"} else "scene_first",
+            "scene_library_priority": priority if priority in {"scene_first", "library_only", "pexels_first"} else "scene_first",
             "scene_library_media_mix": str(saved.get("scene_library_media_mix", "video_first"))}
 
 
@@ -1380,6 +1381,8 @@ def build_project_package(
     intro_queries = extract_intro_queries(script_text)
     combined_script = " ".join(str(scene.get("text", "")).strip() for scene in scene_plan).strip()
     library_config = scene_library_settings()
+    library_only = library_config["scene_library_enabled"] and library_config["scene_library_priority"] == "library_only"
+    effective_pexels = bool(profile.get("pexels_enabled", True)) and not library_only
     metadata = {
         "project_text_file": "project.txt",
         "text_field_is_relative_file": False,
@@ -1404,7 +1407,7 @@ def build_project_package(
         "narration_start_mode": str(profile.get("narration_start_mode", "auto")),
         "narration_start_manual_seconds": float(profile.get("narration_start_manual_seconds", 0.0)),
         "uploaded_audio_master_timeline": True,
-        "pexels_enabled": bool(profile.get("pexels_enabled", True)),
+        "pexels_enabled": effective_pexels,
         "pexels_selection_mode": str(profile.get("pexels_selection_mode", "best_match_variety")),
         "pexels_search_pool": int(profile.get("pexels_search_pool", 10)),
         "pexels_avoid_used_media": bool(profile.get("pexels_avoid_used_media", True)),
@@ -1510,8 +1513,8 @@ def build_project_package(
         "auto_clean_project_after_drive": bool(media_config.get("auto_clean_project_after_drive", True)),
         "first_two_minute_visual_audit_enabled": first2_audit_enabled,
         "ai_media_enabled": True,
-        "pexels_enabled": bool(profile.get("pexels_enabled", True)),
-        "pexels_download_enabled": bool(profile.get("pexels_enabled", True)),
+        "pexels_enabled": effective_pexels,
+        "pexels_download_enabled": effective_pexels,
         "pexels_use_library": False,
         "use_image_backgrounds": bool(profile["use_images"]),
         "use_video_backgrounds": bool(profile["use_videos"]),
@@ -1571,6 +1574,16 @@ def build_project_package(
         font_assets.mkdir()
         shutil.copy2(caption_font_source, font_assets / caption_font["filename"])
         (root / "project.txt").write_text(script_text, encoding="utf-8")
+        if library_config["scene_library_enabled"]:
+            metadata["scene_media_intro_assignments"] = bundle_local_media(
+                scene_plan, intro_queries, assets / "scene_local", SCENE_LOCAL_LIBRARY,
+                priority=library_config["scene_library_priority"],
+                media_mix=str(profile.get("media_mix", "video_first")),
+                intro_enabled=bool(data["intro_enabled"]),
+                intro_duration_seconds=float(data["intro_duration_seconds"]),
+                intro_min_seconds=float(data["intro_media_min_seconds"]),
+                intro_max_seconds=float(data["intro_media_max_seconds"]),
+            )
         (root / "project.json").write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
             for item in root.rglob("*"):
@@ -3920,7 +3933,7 @@ def save_settings(
             raise HTTPException(400, f"{label}: maximum duration must be equal to or greater than minimum duration")
         if minimum > 10 or maximum > 15:
             raise HTTPException(400, f"{label}: duration is outside the supported range")
-    if scene_library_priority not in {"scene_first", "pexels_first"}:
+    if scene_library_priority not in {"scene_first", "library_only"}:
         raise HTTPException(400, "Invalid Scene Media Library priority")
     if pexels_selection_mode not in {"first_result", "best_match", "top_n_random", "popularity", "best_match_variety"}:
         raise HTTPException(400, "Invalid Pexels selection mode")
