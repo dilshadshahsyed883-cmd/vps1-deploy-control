@@ -1205,7 +1205,7 @@ def _prefetch_first_scene_lookup(
             ["pexels"],
             per_provider=max(1, min(40, int(scene.get("pexels_search_pool") or 10))),
             target_width=target_width, target_height=target_height,
-            prefer_landscape=_requires_landscape_media(scene),
+            prefer_landscape=(bool(scene.get("pexels_prefer_landscape", True)) and not bool(scene.get("director_v25_shot"))),
             preserve_provider_order=selection_mode in {"first_result", "popularity", "top_n_random"},
         )
         return "pexels", kind, keyword, rows, ""
