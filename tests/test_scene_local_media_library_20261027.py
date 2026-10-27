@@ -203,6 +203,32 @@ class SceneLocalLibraryTests(unittest.TestCase):
         self.assertIn('label.sl-button.sl-primary{background:#315fdf;border-color:#315fdf;color:#fff!important}', rendered)
         self.assertIn('for="sl-files" class="sl-button sl-primary"', rendered)
 
+    def test_candidate_guard_allows_only_scoped_media_library_writes(self):
+        """The live Scene candidate must accept CSRF-guarded Media Library uploads."""
+        policy_spec = importlib.util.spec_from_file_location(
+            "scene_media_precutover", SCENE / "precutover_policy.py"
+        )
+        policy = importlib.util.module_from_spec(policy_spec)
+        policy_spec.loader.exec_module(policy)
+        allowed = [
+            ("POST", "/api/scene-media-library/upload"),
+            ("POST", "/api/scene-media-library/clean"),
+            ("DELETE", "/api/scene-media-library/media/" + "a" * 32),
+        ]
+        for editing in (False, True):
+            for method, path in allowed:
+                with self.subTest(method=method, path=path, editing=editing):
+                    self.assertTrue(policy.mutation_allowed(method, path, editing))
+            for method, path in [
+                ("POST", "/api/scene-media-library/media/" + "a" * 32),
+                ("DELETE", "/api/scene-media-library/media/../../sml"),
+                ("POST", "/api/self-media-library/clean"),
+                ("POST", "/api/scene-media-library/upload/other"),
+                ("DELETE", "/api/scene-media-library/clean"),
+            ]:
+                with self.subTest(method=method, path=path, editing=editing):
+                    self.assertFalse(policy.mutation_allowed(method, path, editing))
+
     def test_folder_upload_auto_batches_and_shows_progress(self):
         """Large PC folder selections must be chunked, not rejected at 100 files."""
         import re
