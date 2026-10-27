@@ -26,9 +26,10 @@ def _plain(text: str) -> str:
 
 def _required_settings(sections: dict[str, dict[str, str]], preset: str) -> dict[str, Any]:
     p = sections["PROJECT"]
-    if p["base_preset"] != preset:
-        raise DirectorSpecError(
-            f"[PROJECT].base_preset={p['base_preset']} conflicts with selected UI preset={preset}")
+    if not str(p.get("base_preset") or "").strip():
+        raise DirectorSpecError("[PROJECT].base_preset is required as a plan reference")
+    # Important: the UI preset is NOT an editing authority in Director Mode.
+    # Its mismatch must never block or modify a valid TXT specification.
     o, a, c, l, t, intro = (sections[key] for key in
                            ("OUTPUT", "AUDIO", "CAPTIONS", "LOOK", "TIMING", "INTRO"))
     dimension = {"480p": (854, 480), "720p": (1280, 720), "1080p": (1920, 1080)}
