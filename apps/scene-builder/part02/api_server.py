@@ -2921,12 +2921,21 @@ def _save_resolved_job_plan(job_dir: Path, source_signature: str, settings: Proj
         "version": PIPELINE_CHECKPOINT_VERSION,
         "worker_build": WORKER_BUILD,
         "source_signature": source_signature,
-        "authority": {
-            "outer_ai": "editorial_intent_and_media_planning",
-            "preset_settings": "technical_editing_rules",
-            "resolver": "single_resolution_before_render",
-            "renderer": "resolved_job_plan_only",
-        },
+        "authority": (
+            {
+                "director_txt": "sole_creative_source",
+                "ui_preset": "compatibility_label_only",
+                "timing": "whisper_boundary_fit_preserve_shots",
+                "renderer": "resolved_job_plan_only",
+            }
+            if bool((settings.metadata or {}).get("director_v25")) else
+            {
+                "outer_ai": "editorial_intent_and_media_planning",
+                "preset_settings": "technical_editing_rules",
+                "resolver": "single_resolution_before_render",
+                "renderer": "resolved_job_plan_only",
+            }
+        ),
         "render_audio_path": str(settings.render_audio_path or ""),
         "technical_profile": _technical_render_profile(settings),
         "metadata": {
@@ -4365,11 +4374,19 @@ def process_job(job_id: str) -> None:
             metadata["scene_sync_plan"] = [dict(scene) for scene in cleaned_scenes]
             metadata["transition_direction"] = transition_summary
             metadata["transition_direction_authoritative"] = True
-            metadata["editing_authority"] = {
-                "outer_ai": "editorial_intent_and_media_planning",
-                "preset_settings": "technical_editing_rules",
-                "resolver": "single_resolution_before_render",
-            }
+            metadata["editing_authority"] = (
+                {
+                    "director_txt": "sole_creative_source",
+                    "ui_preset": "compatibility_label_only",
+                    "technical_safety": "explicit_fail_not_silent_override",
+                }
+                if bool(metadata.get("director_v25")) else
+                {
+                    "outer_ai": "editorial_intent_and_media_planning",
+                    "preset_settings": "technical_editing_rules",
+                    "resolver": "single_resolution_before_render",
+                }
+            )
             settings.metadata = metadata
 
             # V17.5 retention gate: resolve only visuals intersecting final 00:00-02:00
