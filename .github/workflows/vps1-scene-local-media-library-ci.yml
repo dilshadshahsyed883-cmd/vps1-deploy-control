@@ -5,6 +5,9 @@ on:
       - 'apps/scene-builder/part01/app.py'
       - 'apps/scene-builder/part01/scene_media_library.py'
       - 'apps/scene-builder/part01/director_v25.py'
+      - 'apps/scene-builder/part01/director_v25_execution.py'
+      - 'apps/scene-builder/part02/api_server.py'
+      - 'tests/test_scene_director_v25_execution.py'
       - 'apps/scene-builder/part01/templates/queue.html'
       - 'apps/scene-builder/part01/templates/base.html'
       - 'apps/scene-builder/part01/templates/settings.html'
@@ -32,3 +35,6 @@ jobs:
 
       - name: Director V25 isolated parser and live-catalog preflight tests
         run: python -m unittest discover -s tests -p 'test_scene_director_v25_preflight.py' -v
+
+      - name: Director V25 job compilation and exact local media regression
+        run: python -m unittest discover -s tests -p 'test_scene_director_v25_execution.py' -v

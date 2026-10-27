@@ -29,7 +29,8 @@ from starlette.background import BackgroundTask
 from smart_scroll.ai_scene_txt import extract_intro_queries, parse_outer_ai_scene_txt
 from storage_manager_client import storage_manager_request
 from scene_media_library import SceneMediaLibrary, InvalidMedia
-from director_v25 import preflight_v25
+from director_v25 import preflight_v25, DirectorSpecError
+from director_v25_execution import compile_v25, bundle_exact_director_media
 from scene_media_source_policy import bundle_local_media
 
 RUNTIME_CANDIDATE = os.getenv("VPS1_RUNTIME_CANDIDATE") == "1"
@@ -1343,6 +1344,7 @@ def build_project_package(
     profile: dict[str, Any],
     channel_name: str,
     destination: Path,
+    director_compilation: dict[str, Any] | None = None,
 ) -> None:
     width, height = profile_dimensions(str(profile["quality"]), str(profile["aspect_ratio"]))
     captions = bool(profile["captions_enabled"])
@@ -1378,12 +1380,16 @@ def build_project_package(
     music_enabled = bool(media_config.get("music_enabled"))
     selected_music_volume = max(0, min(100, int(media_config.get("music_volume_percent", 12) or 12)))
     selected_ducking = bool(media_config.get("music_ducking_enabled", True))
-    scene_plan = parse_authoritative_scene_plan(script_text)
-    intro_queries = extract_intro_queries(script_text)
+    scene_plan = (director_compilation["scenes"]
+                  if director_compilation is not None else parse_authoritative_scene_plan(script_text))
+    intro_queries = (list(director_compilation["intro_queries"])
+                     if director_compilation is not None else extract_intro_queries(script_text))
     combined_script = " ".join(str(scene.get("text", "")).strip() for scene in scene_plan).strip()
     library_config = scene_library_settings()
     library_only = library_config["scene_library_enabled"] and library_config["scene_library_priority"] == "library_only"
     effective_pexels = bool(profile.get("pexels_enabled", True)) and not library_only
+    if director_compilation is not None:
+        effective_pexels = director_compilation["source_mode"] == "scene_first"
     metadata = {
         "project_text_file": "project.txt",
         "text_field_is_relative_file": False,
@@ -1425,6 +1431,17 @@ def build_project_package(
         "preset_media_config": media_config,
         "internal_audio_engine": dict(profile.get("_internal_audio_engine") or {}),
     }
+    if director_compilation is not None:
+        metadata["director_v25"] = True
+        metadata["director_v25_schema"] = director_compilation["schema"]
+        metadata["director_v25_expected_shots"] = [
+            str(row["director_v25_shot"]) for row in scene_plan
+        ]
+        metadata["director_v25_source_mode"] = director_compilation["source_mode"]
+        metadata["director_v25_intro_instructions"] = director_compilation["intro_edit"]
+        metadata["director_v25_requested_filename"] = (
+            director_compilation["settings"]["output_filename_requested"]
+        )
     data = {
         "project_id": safe_name,
         "project_name": safe_name[:80],
@@ -1566,6 +1583,21 @@ def build_project_package(
         "drive_upload_enabled": bool(profile.get("drive_upload_enabled", True)),
         "metadata": metadata,
     }
+    if director_compilation is not None:
+        override = dict(director_compilation["settings"])
+        for key, value in override.items():
+            if key in data or key == "output_resolution":
+                data[key] = value
+        data["music_enabled"] = bool(override["music_enabled"])
+        data["lut_mode"] = "manual" if bool(override["lut_enabled"]) else "auto"
+        data["pexels_enabled"] = effective_pexels
+        data["pexels_download_enabled"] = effective_pexels
+        data["transition_engine_enabled"] = True
+        data["transition_engine_mode"] = "scene_plan"
+        data["intro_enabled"] = bool(override["intro_enabled"])
+        data["intro_duration_seconds"] = int(override["intro_duration_seconds"])
+        metadata["intro_queries_authoritative"] = True
+        data["metadata"] = metadata
     with tempfile.TemporaryDirectory(prefix="scene_web_package_") as temp:
         root = Path(temp)
         assets = root / "assets"
@@ -1574,8 +1606,19 @@ def build_project_package(
         font_assets = assets / "fonts"
         font_assets.mkdir()
         shutil.copy2(caption_font_source, font_assets / caption_font["filename"])
-        (root / "project.txt").write_text(script_text, encoding="utf-8")
-        if library_config["scene_library_enabled"]:
+        (root / "project.txt").write_text(
+            combined_script if director_compilation is not None else script_text,
+            encoding="utf-8",
+        )
+        if director_compilation is not None:
+            (root / "director_v25.txt").write_text(
+                director_compilation["raw_director_txt"], encoding="utf-8"
+            )
+            metadata["scene_media_intro_assignments"] = bundle_exact_director_media(
+                director_compilation, assets / "scene_local", SCENE_LOCAL_LIBRARY
+            )
+            metadata["scene_sync_plan"] = scene_plan
+        elif library_config["scene_library_enabled"]:
             metadata["scene_media_intro_assignments"] = bundle_local_media(
                 scene_plan, intro_queries, assets / "scene_local", SCENE_LOCAL_LIBRARY,
                 priority=library_config["scene_library_priority"],
@@ -2445,11 +2488,14 @@ async def submit_project(
     audio_engine_processed: str = Form(""),  # compatibility with pre-V2 cached clients
     audio_engine_enabled: str = Form("1"),
     audio_engine_preset: str = Form("documentary"),
+    director_processor: str = Form("classic"),
 ):
     project_name = project_name.strip()
     if not project_name:
         return submission_error(request, 400, "Project name is required")
     channel_name = sanitize_scene_channel(channel_name)
+    if director_processor not in {"classic", "director"}:
+        return submission_error(request, 400, "Unknown Scene Plan processing mode")
 
     submitter = str(request.session.get("username") or "")
     jobs = jobs_for_user(submitter, 1000)
@@ -2503,6 +2549,50 @@ async def submit_project(
             return submission_error(request, 400, str(exc))
 
         preset_id, profile = resolve_scene_profile(preset_id)
+        director_compilation = None
+        if director_processor == "director":
+            try:
+                source = scene_library_settings()
+                director_compilation = compile_v25(
+                    script_text, SCENE_LOCAL_LIBRARY,
+                    source_mode=str(source["scene_library_priority"]),
+                    library_enabled=bool(source["scene_library_enabled"]),
+                    selected_preset=preset_id,
+                    capabilities={
+                        "caption_styles": list(CAPTION_STYLE_PRESETS),
+                        "lut_packs": {key: list(value["presets"]) for key, value in LUT_PACKS.items()},
+                    },
+                )
+                if project_name != str(
+                    director_compilation["settings"]["output_filename_requested"]
+                ).removesuffix(".mp4"):
+                    raise DirectorSpecError(
+                        "Project name must match Director [PROJECT].name and [OUTPUT].filename"
+                    )
+                requested = director_compilation["settings"]
+                profile = dict(profile)
+                profile.update({
+                    "quality": requested["output_resolution"],
+                    "aspect_ratio": {
+                        (1920, 1080): "16:9", (1080, 1920): "9:16"
+                    }.get((requested["width"], requested["height"]),
+                          "1:1" if requested["width"] == requested["height"] else
+                          "9:16" if requested["width"] < requested["height"] else "16:9"),
+                    "fps": requested["fps"],
+                    "captions_enabled": requested["captions_enabled"],
+                    "caption_style": requested["caption_style"],
+                    "caption_position": requested["caption_position"],
+                    "caption_karaoke_enabled": requested["caption_karaoke_enabled"],
+                    "voice_volume_percent": requested["voice_volume_percent"],
+                    "lut_enabled": requested["lut_enabled"],
+                    "lut_pack": requested["lut_pack"],
+                    "lut_preset": requested["lut_preset"],
+                    "pexels_enabled": director_compilation["source_mode"] == "scene_first",
+                    "transition_engine_enabled": True,
+                    "transition_mode": "scene_plan",
+                })
+            except (DirectorSpecError, ValueError, KeyError) as exc:
+                return submission_error(request, 400, str(exc))
         # SCENE_INTERNAL_AUDIO_WEB_HANDOFF_V1
         # Web owns validation/packaging only. Narration DSP executes inside the
         # Scene Builder worker before Whisper/timing. No localhost Audio Engine job
@@ -2551,6 +2641,7 @@ async def submit_project(
                 profile,
                 channel_name,
                 package_path,
+                director_compilation=director_compilation,
             )
         except ValueError as exc:
             return submission_error(request, 400, str(exc))

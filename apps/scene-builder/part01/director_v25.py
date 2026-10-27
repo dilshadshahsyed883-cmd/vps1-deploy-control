@@ -29,7 +29,7 @@ FIELDS = {
     "INTRO": {"intro_enabled", "intro_duration_seconds"},
 }
 SHOT_FIELDS = {
-    "hook_role", "media_type", "library_filename", "library_asset_id",
+    "hook_role", "narration", "media_type", "library_filename", "library_asset_id",
     "library_keyword", "local_match_basis",
     "pexels_primary_keyword", "pexels_backup_keywords",
     "source_fallback", "motion", "motion_intensity", "animation_category",
@@ -207,6 +207,14 @@ def _validate_controls(doc: dict[str, dict[str, str]], errors: list[str],
         errors.append("[MEDIA].missing_media must be fail")
     for section in [s for s in doc if SHOT_RE.fullmatch(s) or INTRO_SHOT_RE.fullmatch(s)]:
         shot = doc[section]
+        if not section.startswith("INTRO.") and not shot.get("narration") and (
+                sum(1 for key in doc if SHOT_RE.fullmatch(key) and
+                    key.split(".")[0] == section.split(".")[0]) > 1):
+            errors.append(f"[{section}]: narration is required for multi-shot scenes")
+        effect = _value(shot.get("effect")) or "none"
+        if effect not in {"none", "subtle_pulse", "soft_glow", "edge_vignette",
+                          "gentle_shake", "cinematic_grain", "bloom"}:
+            errors.append(f"[{section}]: unsupported effect {effect}")
         kind = _value(shot.get("media_type"))
         if section.startswith("INTRO.") and _value(shot.get("hook_role")) not in HOOK_ROLES:
             errors.append(f"[{section}].hook_role missing or unrecognized")
@@ -228,6 +236,7 @@ def _validate_controls(doc: dict[str, dict[str, str]], errors: list[str],
         _number(_value(shot.get("animation_duration")), f"[{section}].animation_duration", errors, .5, 5)
         _number(_value(shot.get("animation_intensity")), f"[{section}].animation_intensity", errors, 10, 100, integer=True)
         _number(_value(shot.get("motion_intensity")), f"[{section}].motion_intensity", errors, 0, 1)
+        _number(_value(shot.get("effect_intensity")), f"[{section}].effect_intensity", errors, 0, 1)
         transition = _value(shot.get("transition_out")) or "none"
         if transition not in TRANSITIONS:
             errors.append(f"[{section}].transition_out unsupported")
