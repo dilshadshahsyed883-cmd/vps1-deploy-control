@@ -1438,6 +1438,7 @@ def build_project_package(
             str(row["director_v25_shot"]) for row in scene_plan
         ]
         metadata["director_v25_source_mode"] = director_compilation["source_mode"]
+        metadata["director_v25_intro_instructions"] = director_compilation["intro_edit"]
         metadata["director_v25_requested_filename"] = (
             director_compilation["settings"]["output_filename_requested"]
         )
