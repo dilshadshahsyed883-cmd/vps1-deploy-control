@@ -203,6 +203,46 @@ class SceneLocalLibraryTests(unittest.TestCase):
         self.assertIn('label.sl-button.sl-primary{background:#315fdf;border-color:#315fdf;color:#fff!important}', rendered)
         self.assertIn('for="sl-files" class="sl-button sl-primary"', rendered)
 
+    def test_folder_upload_auto_batches_and_shows_progress(self):
+        """Large PC folder selections must be chunked, not rejected at 100 files."""
+        import re
+        import shutil
+        import subprocess
+
+        source = (SCENE / "templates/scene_media_library.html").read_text()
+        self.assertNotIn("picked.length>100", source)
+        for marker in (
+            'id="sl-transfer"', 'id="sl-progress-bar"',
+            'id="sl-progress-percent"', 'id="sl-progress-meta"',
+            'id="sl-retry"', 'xhr.upload.onprogress',
+            "Retry Failed Files", "sendBatch(group,ratio=>",
+            "const UPLOAD_BATCH_FILES=20,UPLOAD_BATCH_BYTES=128*1024*1024;",
+        ):
+            self.assertIn(marker, source)
+        # The server-side request bound is kept: automatic chunks remain small.
+        server_source = (SCENE / "app.py").read_text()
+        self.assertIn('if len(files) > 100:', server_source)
+        if not shutil.which("node"):
+            self.skipTest("node not installed")
+
+        limits = re.search(r"  const UPLOAD_BATCH_FILES=.*?;", source)
+        planner = re.search(r"  function planBatches\\(files\\)\\{[\\s\\S]*?\\n  \\}", source)
+        self.assertIsNotNone(limits)
+        self.assertIsNotNone(planner)
+        check = (
+            limits.group(0) + "\\n" + planner.group(0) + "\\n"
+            + """
+            const small=Array.from({length:1001},(_,i)=>({name:'clip'+i+'.mp4',size:1024}));
+            const groups=planBatches(small);
+            if(groups.length!==51||groups.some(g=>g.length>20)||
+               groups.reduce((n,g)=>n+g.length,0)!==1001)
+              throw Error('1001-file selection was not fully batched');
+            const large=planBatches([{size:90*1024*1024},{size:60*1024*1024},{size:200*1024*1024},{size:1}]);
+            if(large.length!==4)throw Error('Byte bound or large single-file handling failed');
+            """
+        )
+        subprocess.run(["node", "-e", check], check=True, capture_output=True, text=True)
+
     def test_template_and_browser_script_are_valid(self):
         try:
             from jinja2 import Environment, DictLoader
