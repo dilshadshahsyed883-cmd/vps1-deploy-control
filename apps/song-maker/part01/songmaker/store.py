@@ -30,6 +30,8 @@ class Store:
             CREATE INDEX IF NOT EXISTS pending ON jobs(stage, created);
             CREATE TABLE IF NOT EXISTS settings (owner TEXT PRIMARY KEY, data TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS sync (owner TEXT PRIMARY KEY, data TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS exports (owner TEXT PRIMARY KEY, data TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS queue (owner TEXT PRIMARY KEY, data TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS workers (lane TEXT PRIMARY KEY, heartbeat REAL NOT NULL);
             ''')
 
@@ -93,9 +95,17 @@ class Store:
         stage = 'Preparing Inputs' if lane == 'render' else 'Drive Uploading'
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
-            row = db.execute('SELECT * FROM jobs WHERE stage=? AND cancel=0 AND deleted=0 '
-                             'ORDER BY created,id LIMIT 1', ready).fetchone()
-            if not row:
+            # Pending work is paused per owner, never interrupting an active render
+            # or Drive upload. Preserve FIFO order among runnable jobs.
+            row = None
+            for candidate in db.execute('SELECT * FROM jobs WHERE stage=? AND cancel=0 AND deleted=0 '
+                                        'ORDER BY created,id', ready):
+                control = db.execute('SELECT data FROM queue WHERE owner=?',
+                                     (candidate['owner'],)).fetchone()
+                if not control or not json.loads(control['data']).get('paused'):
+                    row = candidate
+                    break
+            if row is None:
                 return None
             db.execute('UPDATE jobs SET stage=?,lane=?,updated=? WHERE id=?',
                        (stage, lane, time.time(), row['id']))
@@ -110,7 +120,7 @@ class Store:
                        "WHERE lane=?", (lane,))
 
     def record(self, table, owner, data=None):
-        if table not in ('settings', 'sync'):
+        if table not in ('settings', 'sync', 'exports', 'queue'):
             raise ValueError('invalid record')
         with self.db() as db:
             if data is not None:
