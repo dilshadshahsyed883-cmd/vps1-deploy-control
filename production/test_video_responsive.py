@@ -112,6 +112,8 @@ def browser_test():
             assert max(b['width'] for b in rails)-min(b['width'] for b in rails)<2,(width,rails)
             # Actual link navigation, refresh and history through independent documents.
             page.locator('nav[aria-label="Video Studio"] a[href="/short-maker/"]').click()
+            # Native navigation may complete asynchronously; never reload the previous page.
+            page.wait_for_url('**/short-maker/', timeout=10000)
             page.reload()
             actual_title=page.locator('title').text_content()
             assert actual_title=='Short Maker',(width,page.url,actual_title)
