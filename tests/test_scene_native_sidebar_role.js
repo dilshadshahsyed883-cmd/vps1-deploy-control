@@ -41,6 +41,7 @@ class Element {
     this.children.unshift(element);
   }
   setAttribute(key, value) {this.attrs[key] = value;}
+  removeAttribute(key) {delete this.attrs[key];}
   addEventListener(name, callback) {
     this.listeners ||= {};
     this.listeners[name] = callback;
