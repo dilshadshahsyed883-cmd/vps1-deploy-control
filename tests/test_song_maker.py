@@ -129,11 +129,15 @@ class SongMakerTests(unittest.TestCase):
             self.assertIn('imageFolder', args)
 
         class Shared:
+            calls = 0
             def listing(_, folder):
+                _.calls += 1
                 self.assertEqual(folder, DEFAULT_INPUT)
                 return [self.item('BaW_jenozKc.jpg', 'img-1'),
                         self.item('BaW_jenozKc.mp3', 'sound-1')]
-        summary = sync_owner(self.store, 'alice', settings, Shared())
+        shared = Shared()
+        summary = sync_owner(self.store, 'alice', settings, shared)
+        self.assertEqual(shared.calls, 1)  # One shared-folder scan, not two
         self.assertEqual(summary['matched'], 1)
         jobs = self.store.jobs('alice')
         self.assertEqual(len(jobs), 1)
@@ -162,9 +166,9 @@ class SongMakerTests(unittest.TestCase):
         flags = {'fail_audio_once': False}
         owner_test = self
         class Fake(Drive):
-            def lookup(self, folder, name):
-                return [x for x in self.listing(folder) if x["Name"] == name]
+            listing_log = []
             def listing(_, folder):
+                _.listing_log.append(folder)
                 return [dict(x) for x in files.get(folder, [])]
             def call(_, args, folder=None, timeout=300):
                 if args[0] == 'mkdir':
@@ -206,6 +210,8 @@ class SongMakerTests(unittest.TestCase):
         self.assertTrue(ready['valid'])
         self.assertEqual(ready['archive_status'], 'Archived')
         self.assertEqual([name for name, _ in calls], ['Pair.jpg', 'Pair.wav'])
+        # Two initial reads plus two after each mutation, no duplicate pre/post scans.
+        self.assertEqual(len(Fake.listing_log), 6)
         self.assertFalse(files[DEFAULT_INPUT])
         self.assertEqual({x['ID'] for x in files[DEFAULT_INPUT + '/used']},
                          {'source-image-1', 'source-audio-1'})
@@ -417,14 +423,16 @@ class SongMakerTests(unittest.TestCase):
         self.store.update(job['id'],destination={'remote':'gdrive','output_folder':'outputFolder'})
         current=self.store.get(job['id'])
         class Fake(Drive):
-            def lookup(self, folder, name):
-                return [x for x in self.listing(folder) if x["Name"] == name]
             calls=[]
             def listing(_,folder):
                 result=[{'Name':current['local_name'],'Size':5,'ID':'old','Hashes':{'MD5':'other'}}]
                 if _.calls:
                     result.append({'Name':_.calls[-1],'Size':current['size'],'ID':'new','Hashes':{'MD5':current['md5']}})
                 return result
+            def stat(_, folder, name):
+                self.assertEqual(folder, 'outputFolder')
+                return {'Name':name, 'Size':current['size'], 'ID':'new',
+                        'Hashes':{'MD5':current['md5']}}
             def call(_,args,*a,**k):
                 self.assertIn('--ignore-existing',args)
                 _.calls.append(args[2].split(':',1)[1])
@@ -435,6 +443,22 @@ class SongMakerTests(unittest.TestCase):
         second=drive.upload(self.store.get(job['id']),self.store)
         self.assertEqual(first['remote_id'],second['remote_id'])
         self.assertEqual(drive.calls[0],drive.calls[1])
+
+    def test_upload_verifier_reads_only_exact_output_metadata(self):
+        from songmaker.drive import DEFAULT_OUTPUT, default_settings
+        metadata = {'Name':'Song.mp4', 'ID':'drive-identity', 'Size':120,
+                    'Hashes':{'MD5':'abc'}}
+        with patch('songmaker.drive.run', return_value=json.dumps(metadata)) as execute:
+            actual = Drive(default_settings()).stat(DEFAULT_OUTPUT, 'Song.mp4')
+            self.assertEqual(actual, metadata)
+            command = execute.call_args.args[0]
+            self.assertIn('lsjson', command)
+            self.assertIn('--stat', command)
+            self.assertIn('--hash', command)
+            self.assertIn('gdrive:Song Studio/song maker/Song.mp4', command)
+            self.assertNotIn('--drive-root-folder-id', command)
+        with self.assertRaises(ValueError):
+            Drive(default_settings()).stat(DEFAULT_OUTPUT, '../escape.mp4')
 
     def test_upload_preflight_runs_before_multipart_spooling(self):
         with patch('songmaker.app.capacity', side_effect=RuntimeError('disk reserve unavailable')):

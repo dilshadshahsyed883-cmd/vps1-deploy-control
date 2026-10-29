@@ -7,7 +7,7 @@ VPS_1 / Agent 1. Existing production and other applications remain independently
 - Show actual FFmpeg FPS, speed, frame count, processed seconds and elapsed time.
 - Owner-scoped durable pause/resume prevents new lane claims; active work finishes. Selected retry/cancel/delete use existing ownership and worker guards.
 - Shared image/audio input scans use one listing instead of two. Default automatic interval is 300 seconds (manual Sync Now remains available); saved 60-second settings remain supported.
-- Filter verification listings to a literal filename, keep collision allocation and remote ID/size/MD5 checks, reuse archive reservation listings, and let copyto create output directories.
+- Retain concurrent PR #389 quota optimization (exact output stat, shared archive snapshots) and add literal filename filtering for input download verification. Keep remote ID/size/MD5 checks.
 - Drive profile/sync remains administrator-scoped because existing server credentials must not expose another owner's files. Disabled Sync now explains the role requirement; actual reported owner-role fault still needs live diagnosis.
 
 Validation: 31 focused real-media/API/release tests and 20 Song Uploader/navigation regressions PASS locally. Chromium PASS at 360/390/768/1024/1440 with real render/download. Real Google Drive transfer and authenticated production verification remain separate gates; no live E2E claim.

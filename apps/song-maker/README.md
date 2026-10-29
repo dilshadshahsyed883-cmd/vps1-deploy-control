@@ -41,6 +41,9 @@ After FFmpeg finishes and MP4 validation succeeds, a Drive-synced pair from the 
 shared input folder immediately moves its image and audio into
 `Song Studio/Audio downloader/used` (before MP4 upload). The move is verified
 against each original Drive file ID/size/hash, collision-safe and restartable.
+For each archive decision Song Maker uses shared, fresh source/destination metadata snapshots;
+any server-side move invalidates both snapshots and triggers a fresh read before receipts.
+No cached result can replace a post-mutation verification.
 Failed/cancelled renders do not move inputs. If archiving fails, the verified local
 MP4 stays available while the job reports Needs Attention; retry resumes archive
 without rerendering. Manual PC uploads and older custom-folder/ID jobs are
@@ -48,8 +51,8 @@ unchanged. The last administrator-saved destination
 is the default for manual uploads. Each admin's Drive scan and its resulting jobs
 belong to that administrator; other users see only their own manual jobs.
 
-Automatic scan defaults to every 300 seconds (configurable 60–3600 seconds), with a persistent metadata snapshot and
-source-version job ledger. rclone exposes metadata listing rather than a Drive
+Automatic scan defaults to every 300 seconds (configurable 60–3600 seconds; manual Sync remains immediate), with a persistent metadata snapshot and
+source-version job ledger. Matching image/audio folders reuse one metadata listing per scan. rclone exposes metadata listing rather than a Drive
 change cursor here; unchanged pairs do not download again. Inputs download only
 when their queued job runs, with uniqueness, ID, size/modtime/hash checks before
 and after. Input versions use Drive IDs, checksums/modtime/size where exposed.
@@ -60,7 +63,8 @@ rename the duplicate in Drive and sync again. Default Drive input files are
 only moved after a successfully validated render, never on discovery or failure.
 
 Upload reserves a noncolliding name `(2)`, `(3)`, etc. in SQLite before transfer,
-uses `--ignore-existing`, then verifies exactly one remote ID, size and MD5.
+uses `--ignore-existing`, then queries the exact output file (not the whole output folder) to verify
+its remote ID, size and MD5.
 A crash or upload-only retry retains the same reservation. A mismatching external
 file becomes Needs Attention; it is never overwritten. Completed requires verified
 receipt persistence. Local MP4 stays available for preview/download until explicit
