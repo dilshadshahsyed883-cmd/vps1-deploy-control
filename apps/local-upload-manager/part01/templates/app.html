@@ -694,8 +694,8 @@
 {% elif tab == 'auto_engine' %}
     <section class="lum-card">
       <div class="lum-card-head">
-        <div><h2>{{ 'Song Uploader · Engine 2' if engine_instance == 'song' else 'Auto Uploader · Three Modes' }}</h2>
-          <p>{% if engine_instance == 'song' %}Independent Song Uploader with Engine 2 thumbnail matching, Sheets, schedules and upload records.{% else %}Three independent upload modes. Auto Stream is a separate main subtab. Switching modes never starts a job.{% endif %}</p></div>
+        <div><h2>{{ 'Song Uploader · Short Uploader Auto Engine' if engine_instance == 'song' else 'Auto Uploader · Three Modes' }}</h2>
+          <p>{% if engine_instance == 'song' %}Short Uploader Auto Engine workflow: channel-based Video ID matching, Sheets, schedules, queue and records. Matching JPG/PNG thumbnails are required for Song Uploader.{% else %}Three independent upload modes. Auto Stream is a separate main subtab. Switching modes never starts a job.{% endif %}</p></div>
       </div>
       {% if engine_instance != "song" %}
       <nav class="lum-ae-tabs lum-ae-tabs-primary" aria-label="Auto Uploader modes">
@@ -708,7 +708,7 @@
       </nav>
       {% endif %}
       {% if engine_instance != 'engine1' %}
-      <p class="lum-note" role="status"><strong>{{ 'Song Uploader · Engine 2' if engine_instance == 'song' else ('Engine 2' if engine_instance == 'engine2' else 'Short Uploader') }}</strong> — independent uploader workspace, data and queue. Automatic publishing remains disabled until configured.</p>
+      <p class="lum-note" role="status"><strong>{{ 'Song Uploader · Short Uploader Auto Engine' if engine_instance == 'song' else ('Engine 2' if engine_instance == 'engine2' else 'Short Uploader') }}</strong> — independent uploader workspace, data and queue. Automatic publishing remains disabled until configured.</p>
       {% endif %}
       {% if engine_instance != "song" %}<p class="lum-note">Engine 1 uses the original uploader. Engine 2 runs in parallel with a required thumbnail; Short Uploader uses the same upload workflow without a thumbnail. Existing channels, records, schedules and settings are untouched.</p>{% endif %}
       {% if mode_registry.cross_mode_record_collisions %}
