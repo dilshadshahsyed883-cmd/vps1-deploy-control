@@ -251,19 +251,12 @@ class AudioProxyTests(unittest.TestCase):
 
 
 
-    def test_disposable_drive_cleanup_targets_only_own_normalized_qa_file(self):
+    def test_disposable_smoke_never_uploads_or_deletes_owner_drive_files(self):
         import production.audio_downloader_smoke as qa
-        nonce = 'C96CA984DDF24F5D'
-        prefix = 'gdrive:Audio Downloader/Audio_Proxy_QA/' + nonce
-        good = prefix + '/jNQXAC9IVRw.mp3'
-        safe = self.m.safe_folder
-        self.assertTrue(qa.owns_qa_drive_file(good, nonce, 'gdrive', 'Audio Downloader', safe))
-        self.assertFalse(qa.owns_qa_drive_file(
-            good.replace(nonce + '/', 'Other/'), nonce, 'gdrive', 'Audio Downloader', safe))
-        self.assertFalse(qa.owns_qa_drive_file(
-            prefix + '/owner.mp3', nonce, 'gdrive', 'Audio Downloader', safe))
-        self.assertFalse(qa.owns_qa_drive_file(None, nonce, 'gdrive', 'Audio Downloader', safe))
-        self.assertFalse(qa.owns_qa_drive_file(prefix + '/jNQXAC9IVRw.mp3.old', nonce, 'gdrive', 'Audio Downloader', safe))
+        source = Path(qa.__file__).read_text()
+        self.assertIn("'auto_upload': False", source)
+        self.assertIn("'NOT_TESTED_FLAT_ROOT'", source)
+        self.assertNotIn("'deletefile'", source)
 
 
 
