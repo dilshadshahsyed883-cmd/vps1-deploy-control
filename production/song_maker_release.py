@@ -269,33 +269,34 @@ def update_existing(revision):
     database = STATE/'state/jobs.sqlite3'
     backup_databases(STATE,journal/'sqlite-backup')
     touched = False
+    admission_lock = None
     try:
-        # Stop the scan-only worker first so it cannot create new jobs.
+        # The scanner is read-only until pair admission; stop it before fencing.
         run(['systemctl','stop',unit_name('sync')],quiet=True)
         submission = STATE/'state/submission.lock'
         require(submission.is_file() and not submission.is_symlink(),
                 'Song Maker submission lock missing/untrusted')
-        with submission.open('a') as lock:
-            fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-            require_idle_jobs(database)
-            # Lock stops new web submissions and worker claims while we switch.
-            for lane in ('web','render','upload'):
-                run(['systemctl','stop',unit_name(lane)],quiet=True)
-            require_idle_jobs(database)
-            touched = True
-            atomic_link(CURRENT,release)
-            for lane in LANES:
-                (ROOT/unit_name(lane)).write_text(unit(lane,revision))
-            run(['systemctl','daemon-reload'],quiet=True)
-            for lane in LANES:
-                run(['systemctl','start',unit_name(lane)],quiet=True)
+        admission_lock = submission.open('a')
+        fcntl.flock(admission_lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        require_idle_jobs(database)
+        # Fence any new web jobs and worker claims until verification completes.
+        for lane in ('web','render','upload'):
+            run(['systemctl','stop',unit_name(lane)],quiet=True)
+        require_idle_jobs(database)
+        touched = True
+        atomic_link(CURRENT,release)
+        for lane in LANES:
+            (ROOT/unit_name(lane)).write_text(unit(lane,revision))
+        run(['systemctl','daemon-reload'],quiet=True)
+        for lane in LANES:
+            run(['systemctl','start',unit_name(lane)],quiet=True)
         evidence=verify()
         atomic_json(journal/'result.json',
                     {'revision':revision,'kind':'update','state':'LIVE_HEALTH_VERIFIED',
                      'evidence':evidence})
         return evidence
     except BaseException:
-        # Even pre-cutover failures may have stopped the scanner or web.
+        # The admission lock stays held through rollback, preventing worker races.
         if touched:
             evidence=restore_update(previous)
         else:
@@ -307,6 +308,9 @@ def update_existing(revision):
                     {'revision':revision,'kind':'update',
                      'state':'ROLLED_BACK_DATA_PRESERVED','evidence':evidence})
         raise
+    finally:
+        if admission_lock is not None:
+            admission_lock.close()
 
 
 def install(revision):
