@@ -427,6 +427,10 @@ def install_app(app, revision):
     # provision independent synthesis workers just to change sidebar markup.
     if app == 'voice-studio':
         commit_message = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-song-studio-release]' in commit_message:
+            from production.song_studio_release import install_voice
+            install_voice(revision)
+            return
         if '[vps1-voice-edge-recovery-only]' in commit_message:
             from production.voice_edge_worker_recovery import install as repair_edge_worker
             repair_edge_worker(revision)
