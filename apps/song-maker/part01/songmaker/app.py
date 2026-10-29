@@ -225,6 +225,8 @@ def create_app(store=None):
             return {'ok': True, 'paused': paused}
         if command not in {'cancel-pending', 'retry-failed', 'clear-completed'}:
             raise HTTPException(404, 'Unknown batch command')
+        if command == 'cancel-pending':
+            return {'ok': True, 'count': store.cancel_pending(user['owner'])}
         count = 0
         for job in store.jobs(user['owner']):
             if job['lane']:
