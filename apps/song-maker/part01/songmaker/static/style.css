@@ -5,7 +5,7 @@
 body{margin:0;background:#f5f7fb;color:#101828}
 .sm{
   --sm-bg:#f5f7fb;--sm-card:#fff;--sm-text:#101828;--sm-muted:#667085;
-  --sm-line:#e4e7ec;--sm-input-line:#d0d5dd;--sm-brand:#635bdf;
+  --sm-line:#e4e7ec;--sm-input-line:#d0d5dd;--sm-brand:#6355df;
   --sm-brand-hover:#5148c8;--sm-brand-soft:#efedff;
   --sm-shadow:0 6px 20px rgba(16,24,40,.035);
   box-sizing:border-box;max-width:1400px;margin:0 auto;padding:26px 34px 42px;
