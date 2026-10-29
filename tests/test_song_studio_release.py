@@ -97,3 +97,47 @@ class SongStudioReleaseTests(unittest.TestCase):
                     self.assertEqual((current/'renderer-sentinel').read_bytes(),b'keep worker state')
                     for call in commands.call_args_list:
                         if 'restart' in call.args[0]:self.assertEqual(call.args[0],['systemctl','restart',release.SCENE_UNIT])
+
+
+    def test_scene_legacy_release_without_generic_manifest_is_overlay_safe(self):
+        """A prior reviewed Scene candidate can lack the generic GitOps manifest.
+
+        The original release, render files and worker stay unmodified; only
+        a scoped overlay manifest is created at a new immutable revision.
+        """
+        import json, tempfile
+        from unittest.mock import patch
+        from production import song_studio_release as release
+        source = {name:(release.REPO/'apps/scene-builder'/name).read_bytes()
+                  for name in release.SCENE_FILES}
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); releases=root/'releases'; old=releases/'prior';old.mkdir(parents=True)
+            for name,payload in source.items():
+                (old/name).parent.mkdir(parents=True,exist_ok=True)
+                (old/name).write_bytes(payload)
+            (old/'render-worker-private-state').write_bytes(b'preserve')
+            current=root/'current';current.symlink_to(old,target_is_directory=True)
+            def response(path,cookie=''):
+                if path.startswith('/static/'):
+                    return 200,'application/javascript',source['part01/static/vps1_native_site_shell.js']
+                return (200 if path=='/scene-builder/' else 303),'',b''
+            with patch.object(release,'SCENE_CURRENT',current), \
+                 patch.object(release,'SCENE_RELEASES',releases), \
+                 patch.object(release,'SCENE_JOURNALS',root/'journals'), \
+                 patch.object(release,'run',return_value='123') as commands, \
+                 patch('production.route_uploader_scene_https.scene_cookie',return_value='fixture'), \
+                 patch('production.route_uploader_scene_https.https_get',side_effect=response):
+                release.install_scene('f'*40)
+            self.assertTrue(current.resolve()!=old)
+            manifest=json.loads((current/'_production_manifest.json').read_text())
+            self.assertTrue(manifest['partial_source_inventory'])
+            self.assertEqual(manifest['overlay_prior_release'],str(old))
+            self.assertEqual(set(manifest['files']),set(release.SCENE_FILES))
+            self.assertFalse((old/'_production_manifest.json').exists())
+            self.assertEqual((old/'render-worker-private-state').read_bytes(),b'preserve')
+            self.assertEqual((current/'render-worker-private-state').read_bytes(),b'preserve')
+            for name,payload in source.items():
+                self.assertEqual((old/name).read_bytes(),payload)
+            for call in commands.call_args_list:
+                if 'restart' in call.args[0]:
+                    self.assertEqual(call.args[0],['systemctl','restart',release.SCENE_UNIT])
