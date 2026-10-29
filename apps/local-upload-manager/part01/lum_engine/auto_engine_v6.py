@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 def thumbnail_required_for_mode() -> bool:
-    """Engine 2 needs thumbnails. Shorts deliberately omit thumbnails."""
+    """Song shares the Short Uploader Auto Engine flow but requires thumbnails.
+
+    Only the original Short Uploader omits thumbnails; the isolated Song
+    Uploader enforces a matched thumbnail for each channel Video ID.
+    """
     return os.environ.get("LUM_ENGINE_INSTANCE", "engine1").strip().lower() != "shorts"
 
 
