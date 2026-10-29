@@ -286,7 +286,14 @@ class SongMakerTests(unittest.TestCase):
         data=validate(output,1.27)
         self.assertGreater(data['size'],1000)
         self.assertEqual(self.client.get('/song-maker/api/jobs/'+job['id']+'/video',headers=self.headers).status_code,200)
-        process(self.store,self.store.claim('upload'),'upload')
+        # This test verifies the offline-failure state and local download. Never
+        # touch the VPS's real rclone config during release preflight.
+        class OfflineDrive:
+            def __init__(self, *_args):
+                pass
+            def upload(self, *_args):
+                raise RuntimeError('disposable offline Drive fixture')
+        process(self.store,self.store.claim('upload'),'upload',drive_factory=OfflineDrive)
         self.assertEqual(self.store.get(job['id'])['stage'],'Waiting for Drive')
         self.assertTrue(output.exists())
 
