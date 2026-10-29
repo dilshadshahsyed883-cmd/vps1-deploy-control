@@ -108,13 +108,14 @@ class UniversalSidebarContracts(unittest.TestCase):
         self.assertIn('@app.get("/song-studio/audio-downloader/")', scene)
         self.assertIn('RedirectResponse("/voice-studio/app#vs-audio", status_code=303)', scene)
         self.assertIn('@app.get("/song-studio/{studio_app}/", response_class=HTMLResponse)', scene)
-        self.assertIn('names = {"song-maker": "Song Maker", "song-uploader": "Song Uploader"}', scene)
+        self.assertIn('names = {"song-uploader": "Song Uploader"}', scene)
+        self.assertIn('return RedirectResponse("/song-maker/", status_code=303)', scene)
         self.assertIn('require_login(request)', scene)
         self.assertIn('Its processing service has not', slot)
 
     def test_library_uses_native_experiment_shell_with_five_independent_inner_tabs(self):
         source = SHELL_JS.read_text(encoding="utf-8")
-        self.assertIn('["acs", "voice", "uploader", "stream", "library"]', source)
+        self.assertIn('["acs", "voice", "uploader", "stream", "library", "song"]', source)
         self.assertIn('app === "library" ? "experiment"', source)
         self.assertIn('experiment-studio|self-media-library', source)
         self.assertIn('if (app === "library")', source)

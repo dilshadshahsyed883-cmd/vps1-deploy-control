@@ -46,6 +46,17 @@ class PlannerTests(unittest.TestCase):
         self.assertTrue(p["all_app_source_packaging_required"])
         self.assertFalse(p["production_deployment_authorized"])
 
+    def test_song_maker_is_explicit_dedicated_source_not_general_cutover(self):
+        p = plan(["apps/song-maker/part01/songmaker/app.py"])
+        self.assertEqual(p["dedicated_app_changes"], ["song-maker"])
+        self.assertEqual(p["source_release_candidates"], [])
+        self.assertEqual(p["validation_apps"], [])
+        self.assertIn("HOST_HELPER_UPGRADE_REQUIRED", p["runtime_blockers"]["song-maker"])
+        self.assertFalse(p["production_deployment_authorized"])
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError):
+                IntentQueue(Path(tmp) / "queue.sqlite3").enqueue("song-maker", A)
+
     def test_unknown_app_fail_closed(self):
         for path in ("apps/new-app/main.py", "apps/../secrets.env", "/etc/passwd"):
             with self.subTest(path=path), self.assertRaises(ValueError):

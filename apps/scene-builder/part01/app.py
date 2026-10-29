@@ -2011,7 +2011,9 @@ def song_studio_audio_downloader(request: Request):
 def song_studio_app_slot(request: Request, studio_app: str):
     """Reserved separate app surfaces; no nonfunctional upload controls."""
     require_login(request)
-    names = {"song-maker": "Song Maker", "song-uploader": "Song Uploader"}
+    if studio_app == "song-maker":
+        return RedirectResponse("/song-maker/", status_code=303)
+    names = {"song-uploader": "Song Uploader"}
     if studio_app not in names:
         raise HTTPException(status_code=404, detail="Unknown Song Studio application")
     return templates.TemplateResponse("song_studio_placeholder.html", {
@@ -4577,7 +4579,7 @@ def auto_caption_auth(request: Request):
 # The Scene session cookie remains the single login source of truth. Nginx
 # overwrites identity headers from these response headers, never from clients.
 SCENE_SSO_APP_IDS = frozenset({
-    "short-maker", "short-stream", "self-media-library", "video-merger",
+    "short-maker", "short-stream", "self-media-library", "video-merger", "song-maker",
     "voice-studio", "auto-caption-studio", "local-upload-manager",
 })
 

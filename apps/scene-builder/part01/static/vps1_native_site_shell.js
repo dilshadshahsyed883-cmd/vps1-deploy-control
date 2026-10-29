@@ -4,7 +4,7 @@
   const script = document.currentScript || document.querySelector('script[data-unify-sidebar="1"]');
   const app = script && script.dataset ? script.dataset.workspace : "";
   const legacySidebar = !!(script && script.dataset && script.dataset.unifySidebar === "1");
-  if (!legacySidebar && !["acs", "voice", "uploader", "stream", "library"].includes(app)) return;
+  if (!legacySidebar && !["acs", "voice", "uploader", "stream", "library", "song"].includes(app)) return;
   // During staggered releases an old Scene shell may still embed this document.
   // Never render a second navigation in that legacy framing context.
   if (window.self !== window.top) return;
@@ -192,7 +192,7 @@
     navigation.setAttribute("aria-label", "Applications");
     // Native pages and legacy Video Studio documents use the same menu.
     const current = app === "uploader" || app === "stream" ? "upload" :
-      app === "acs" ? "video" : app === "library" ? "experiment" :
+      app === "song" ? "song" : app === "acs" ? "video" : app === "library" ? "experiment" :
       app === "voice" && window.location?.hash === "#vs-audio" ? "song" : "voice";
     const primaryLinks = addPrimaryLinks(navigation, current);
     const voiceLink = primaryLinks.voice;
@@ -319,12 +319,12 @@
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) refreshIdentity();
     });
-    if (app === "voice") {
+    if (app === "voice" || app === "song") {
       const tabs = node("nav", "vps1-native-video-tabs vps1-native-song-tabs");
       tabs.dataset.vps1Component = "studio-tabs";
       tabs.setAttribute("aria-label", "Song Studio");
-      addLink(tabs, "Audio Downloader", "/song-studio/audio-downloader/", true);
-      addLink(tabs, "Song Maker", "/song-studio/song-maker/", false);
+      addLink(tabs, "Audio Downloader", "/song-studio/audio-downloader/", app === "voice");
+      addLink(tabs, "Song Maker", "/song-studio/song-maker/", app === "song");
       addLink(tabs, "Song Uploader", "/song-studio/song-uploader/", false);
       toggle.after(tabs);
       selectVoiceOrSong();
@@ -334,7 +334,8 @@
       tabs.dataset.vps1Component = "studio-tabs";
       tabs.setAttribute("aria-label", "Video Studio");
       addLink(tabs, "Scene Builder", "/scene-builder/", false);
-      addLink(tabs, "Auto Caption Studio", "/auto-caption-studio/", true);
+      if (app === "acs") addLink(tabs, "Auto Caption Studio", "/auto-caption-studio/", true);
+      else addLink(tabs, "Auto Caption Studio", "/auto-caption-studio/", false);
       addLink(tabs, "Short Maker", "/short-maker/", false);
       addLink(tabs, "Video Merger", "/video-merger/", false);
       toggle.after(tabs);

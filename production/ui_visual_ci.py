@@ -309,8 +309,12 @@ def run(screenshots: Path | None) -> int:
                             if rect["height"] < 62 - TOLERANCE_PX:
                                 errors.append(f"{width}px {app}: rail height={rect['height']}")
                             if app in VIDEOS:
-                                if nav.locator("a").count() != 4:
-                                    errors.append(f"{width}px {app}: not four Video tabs")
+                                destinations = nav.locator("a").evaluate_all(
+                                    "links => links.map(link => link.getAttribute('href'))")
+                                expected = ["/scene-builder/", "/auto-caption-studio/",
+                                            "/short-maker/", "/video-merger/"]
+                                if destinations != expected:
+                                    errors.append(f"{width}px {app}: Video destinations {destinations!r}")
                             else:
                                 if nav.locator("a").count() != 2:
                                     errors.append(f"{width}px {app}: not two Upload tabs")
