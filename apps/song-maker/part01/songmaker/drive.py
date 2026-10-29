@@ -1,5 +1,6 @@
 """Existing rclone credentials, safe Drive folder IDs or relative paths, no input mutation."""
 import json
+import fcntl
 import os
 from pathlib import Path
 import re
@@ -123,19 +124,128 @@ class Drive:
                 'verified_at': time.time(), 'drive_status': 'Verified'}
 
 
-def sync_owner(store, owner, settings, drive=None):
+    def archive_inputs(self, job, store):
+        """Move only this successfully rendered default Drive pair to /used.
+
+        Each move is reserved and independently verified by Google Drive file ID.
+        Retry after a crash resumes from the persisted destination and cannot
+        overwrite a previously archived file or archive a changed source.
+        """
+        if not archive_eligible(job):
+            return {}
+        source = job['source']
+        folder = source['image_folder']
+        used = folder + '/used'
+        # mkdir is safe and idempotent; it never deletes or moves the input.
+        self.call(['mkdir', self.remote + ':' + used])
+        receipts = dict(job.get('archive_moves') or {})
+        reservations = dict(job.get('archive_names') or {})
+        for kind in ('image', 'audio'):
+            item = source[kind]
+            name = item.get('Name', '')
+            ident = item.get('ID')
+            if (not ident or not isinstance(name, str) or not name or
+                    name in {'.', '..'} or '/' in name or '\\' in name):
+                raise ValueError('Unsafe or unidentified Drive source; archive blocked')
+            if kind in receipts:
+                if not self._archive_match(item, receipts[kind]['name'], used):
+                    raise ValueError('Previously archived Drive source changed; archive blocked')
+                if any(x['Name'] == name for x in self.listing(folder)):
+                    raise ValueError('Previously archived source unexpectedly still present')
+                continue
+            existing_used = self.listing(used)
+            chosen = reservations.get(kind)
+            if not chosen:
+                already = [x for x in existing_used if x.get('ID') == ident]
+                if already:
+                    if len(already) != 1 or not _same_identity(already[0], item):
+                        raise ValueError('Archived Drive identity collision')
+                    chosen = already[0]['Name']
+                else:
+                    occupied = {x['Name'].casefold() for x in existing_used}
+                    stem, ext = os.path.splitext(name)
+                    for version in range(1, 10001):
+                        candidate = name if version == 1 else f'{stem} ({version}){ext}'
+                        if candidate.casefold() not in occupied:
+                            chosen = candidate
+                            break
+                    if not chosen:
+                        raise RuntimeError('No collision-free used filename available')
+                reservations[kind] = chosen
+                store.update(job['id'], archive_names=reservations, archive_status='Moving')
+            target = [x for x in self.listing(used) if x['Name'] == chosen]
+            if len(target) > 1 or (target and not _same_identity(target[0], item)):
+                raise ValueError('Used destination occupied by a different Drive file')
+            originals = [x for x in self.listing(folder) if x['Name'] == name]
+            if len(originals) > 1 or (originals and fingerprint(originals[0]) != fingerprint(item)):
+                raise ValueError('Source changed since sync; refusing Drive move')
+            if not target:
+                if len(originals) != 1:
+                    raise ValueError('Original Drive source missing; cannot verify archive')
+                # Same-remote server-side move, with an existing-destination guard.
+                # Never move an unrecognized source or overwrite a used asset.
+                self.call(['moveto', self.remote + ':' + folder + '/' + name,
+                           self.remote + ':' + used + '/' + chosen,
+                           '--ignore-existing'])
+            if not self._archive_match(item, chosen, used):
+                raise ValueError('Drive move receipt missing or mismatched')
+            if any(x['Name'] == name for x in self.listing(folder)):
+                raise ValueError('Original Drive source still present after archive')
+            receipts[kind] = {'name': chosen, 'id': ident, 'verified_at': time.time()}
+            store.update(job['id'], archive_moves=receipts, archive_status='Moving')
+        store.update(job['id'], archive_moves=receipts, archive_status='Archived')
+        return receipts
+
+    def _archive_match(self, item, name, used):
+        candidates = [x for x in self.listing(used) if x['Name'] == name]
+        return len(candidates) == 1 and _same_identity(candidates[0], item)
+
+
+def _same_identity(actual, expected):
+    """Drive file ID and bytes must match; names can change on a safe collision."""
+    if not expected.get('ID') or actual.get('ID') != expected['ID']:
+        return False
+    if actual.get('Size') != expected.get('Size'):
+        return False
+    checksum = (expected.get('Hashes') or {}).get('MD5')
+    return not checksum or (actual.get('Hashes') or {}).get('MD5') == checksum
+
+
+def archive_eligible(job):
+    """Only default shared Drive input pairs may be moved, never manual/legacy jobs."""
+    source = job.get('source') or {}
+    dest = job.get('destination') or {}
+    return (job.get('origin') == 'drive'
+            and source.get('image_folder') == DEFAULT_INPUT
+            and source.get('audio_folder') == DEFAULT_INPUT
+            and source.get('remote') == dest.get('remote')
+            and bool(source.get('remote')))
+
+
+def sync_owner(store, owner, settings, drive=None, admission_lock=None):
     drive = drive or Drive(settings)
+    # Slow Drive listing never monopolizes manual queue admission.
     images = drive.listing(settings['image_folder'])
     audio = drive.listing(settings['audio_folder'])
     results = pairs(images, audio)
     count = 0
-    for pair in results:
-        if pair['stage'] != 'Matched':
-            continue
-        image, sound = pair['images'][0], pair['audio'][0]
-        job = enqueue_pair(store, owner, settings, image, sound)
-        pair['job_id'], pair['job_stage'] = job['id'], job['stage']
-        count += 1
+
+    def admit_pairs():
+        nonlocal count
+        for pair in results:
+            if pair['stage'] != 'Matched':
+                continue
+            image, sound = pair['images'][0], pair['audio'][0]
+            job = enqueue_pair(store, owner, settings, image, sound)
+            pair['job_id'], pair['job_stage'] = job['id'], job['stage']
+            count += 1
+
+    if admission_lock is not None:
+        with open(admission_lock, 'a') as admission:
+            fcntl.flock(admission, fcntl.LOCK_EX)
+            admit_pairs()
+    else:
+        admit_pairs()
     summary = {'last_sync': time.time(), 'pairs': results, 'images': sum(len(p['images']) for p in results),
                'audio': sum(len(p['audio']) for p in results), 'matched': count, 'error': ''}
     store.record('sync', owner, summary)
