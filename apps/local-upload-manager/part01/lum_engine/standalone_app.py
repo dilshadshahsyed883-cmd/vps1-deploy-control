@@ -361,9 +361,9 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         request.session["lum_embedded"] = "1"
     embedded_view = SUITE_AUTH_ENABLED and str(request.session.get("lum_embedded") or "") == "1"
     mode = "heavy"
-    allowed = ({"dashboard", "channels", "sheets", "auto_engine", "logs"}
-               if os.getenv("LUM_ENGINE_INSTANCE", "engine1") == "song" else
-               {"dashboard", "channels", "sheets", "auto_engine", "add_video", "bulk_import", "queue", "logs", "auto_stream"})
+    allowed = {"dashboard", "channels", "sheets", "auto_engine", "add_video", "bulk_import", "queue", "logs", "auto_stream"}
+    if os.getenv("LUM_ENGINE_INSTANCE", "engine1") == "song":
+        allowed = {"dashboard", "channels", "sheets", "auto_engine", "logs"}
     default_tab = "dashboard"
     selected = tab if tab in allowed else default_tab
     channels = all_channels()
