@@ -148,12 +148,12 @@ class AudioThumbnailTests(unittest.TestCase):
              patch.object(self.m, "_update", side_effect=lambda jid, st, **kw: updates.append((st, kw))):
             self.m.run_job(self.job(thumb=True, upload=True))
         self.assertEqual([args[args.index("copyto") + 2] for args in copies], [
-            "gdrive:Audio Downloader/" + VIDEO + ".mp3",
-            "gdrive:Audio Downloader/" + VIDEO + ".jpg"])
+            "gdrive:Song Studio/Audio downloader/" + VIDEO + ".mp3",
+            "gdrive:Song Studio/Audio downloader/" + VIDEO + ".jpg"])
         self.assertTrue(all("--immutable" in args for args in copies))
         self.assertEqual([x[2] for x in verified], ["mp3", "jpg"])
         self.assertEqual(updates[2][0], "delivered")
-        self.assertEqual(updates[2][1]["thumbnail_drive_path"], "gdrive:Audio Downloader/" + VIDEO + ".jpg")
+        self.assertEqual(updates[2][1]["thumbnail_drive_path"], "gdrive:Song Studio/Audio downloader/" + VIDEO + ".jpg")
         self.assertFalse((self.m.JOBS / self.job()["job_id"] / (VIDEO + ".jpg")).exists())
 
     def test_qa_upload_stays_nonce_scoped_for_safe_cleanup(self):
