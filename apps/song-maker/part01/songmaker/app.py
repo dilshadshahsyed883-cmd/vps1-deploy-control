@@ -1,5 +1,6 @@
 """Loopback-only backend; trusted Nginx overwrites identity headers from Scene SSO."""
 import fcntl
+import asyncio
 import hashlib
 import json
 from pathlib import Path
@@ -42,6 +43,8 @@ def create_app(store=None):
     def public(job):
         return {k: v for k, v in job.items() if k not in {'source', 'destination', 'source_key'}}
 
+    upload_lock = asyncio.Lock()
+
     @app.middleware('http')
     async def private_responses(request, call_next):
         length = request.headers.get('content-length', '0')
@@ -51,7 +54,18 @@ def create_app(store=None):
                 return JSONResponse({'detail': 'Request exceeds upload limit'}, status_code=413)
         except ValueError:
             raise HTTPException(400, 'Invalid content length')
-        response = await call_next(request)
+        if request.method == 'POST' and request.url.path == '/song-maker/api/jobs':
+            # Admit only one multipart parser at a time, before temporary upload
+            # spooling. Reserve the complete declared request above the disk floor.
+            async with upload_lock:
+                try:
+                    capacity(store.root, int(length) or 1100*1024*1024)
+                except RuntimeError as exc:
+                    from fastapi.responses import JSONResponse
+                    return JSONResponse({'detail': str(exc)}, status_code=507)
+                response = await call_next(request)
+        else:
+            response = await call_next(request)
         response.headers['Cache-Control'] = 'private, no-store'
         response.headers['X-Content-Type-Options'] = 'nosniff'
         return response

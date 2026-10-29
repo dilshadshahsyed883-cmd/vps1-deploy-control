@@ -207,6 +207,13 @@ class SongMakerTests(unittest.TestCase):
         self.assertEqual(first['remote_id'],second['remote_id'])
         self.assertEqual(drive.calls[0],drive.calls[1])
 
+    def test_upload_preflight_runs_before_multipart_spooling(self):
+        with patch('songmaker.app.capacity', side_effect=RuntimeError('disk reserve unavailable')):
+            response = self.client.post('/song-maker/api/jobs', headers=self.headers,
+                files={'image': ('x.png', b'input'), 'audio': ('x.wav', b'input')})
+        self.assertEqual(response.status_code, 507)
+        self.assertEqual(self.store.jobs('alice'), [])
+
     def test_disk_preflight_and_invalid_media(self):
         with patch('songmaker.worker.shutil.disk_usage',return_value=type('Disk',(),{'free':4_999_999_999})()):
             from songmaker.worker import capacity
