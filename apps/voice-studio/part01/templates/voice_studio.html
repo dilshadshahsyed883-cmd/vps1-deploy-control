@@ -150,6 +150,8 @@ body.vs-edge-active .enginebar, body.vs-edge-active section.page,body.vs-edge-ac
 <style id="audio-downloader-v1-css">
 /* AUDIO_DOWNLOADER_TAB_V1 styles: isolated from all existing engines */
 body.vs-audio-active .enginebar,body.vs-audio-active section.page,body.vs-audio-active #vsKokoroWorkspace,body.vs-audio-active #vsEdgeWorkspace{display:none!important}
+/* Audio Downloader is a Song Studio app; keep Voice engine tabs inside Voice Studio only. */
+body.vs-audio-active .vs-engine-selector{display:none!important}
 #vsAudioWorkspace[hidden]{display:none!important}
 #vsAudioWorkspace{display:block;padding:15px 0 30px;color:#101828;font-family:Inter,ui-sans-serif,system-ui,sans-serif}
 #vsAudioWorkspace *{box-sizing:border-box}
