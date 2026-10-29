@@ -52,6 +52,17 @@ class AudioDownloaderQueueHistoryTests(unittest.TestCase):
                  "2026-10-20T10:00:00+00:00" if status in ("completed", "delivered") else None),
             )
 
+    def test_enqueue_ignores_legacy_batch_and_subfolder_preferences(self):
+        data = {'links': ['https://youtu.be/BaW_jenozKc'], 'permission_confirmed': True,
+                'project_name': 'Old Batch', 'drive_folder': 'Old Subfolder'}
+        with patch.object(self.module, 'deps', return_value={'ready': True, 'upload_ready': True}):
+            result = self.client.post('/tts/api/audio-downloader/jobs', json=data)
+        self.assertEqual(result.status_code, 201)
+        self.assertEqual(result.json()['created'], 1)
+        with self.module.db() as con:
+            row = con.execute('SELECT video_id,project,folder FROM jobs').fetchone()
+        self.assertEqual(tuple(row), ('BaW_jenozKc', '', ''))
+
     def test_empty_queue_returns_authenticated_backend_response_shape(self):
         r = self.client.get("/tts/api/audio-downloader/jobs")
         self.assertEqual(r.status_code, 200)
@@ -104,6 +115,17 @@ class AudioDownloaderQueueHistoryTests(unittest.TestCase):
 
 
 class AudioDownloaderBrowserRouteContractTests(unittest.TestCase):
+    def test_audio_downloader_has_only_flat_drive_destination_and_no_batch_input(self):
+        html = TEMPLATE.read_text(encoding='utf-8')
+        panel = html.split('<!-- AUDIO_DOWNLOADER_TAB_V1 -->', 1)[1].split('<!-- /AUDIO_DOWNLOADER_TAB_V1 -->', 1)[0]
+        self.assertIn('id="vsaDrivePath">Google Drive / Audio Downloader</div>', panel)
+        for removed in ('id="vsaProject"', 'id="vsaFolder"', 'Project / batch name',
+                        'Google Drive subfolder', 'YouTube Audio / Audio Batch'):
+            self.assertNotIn(removed, panel)
+        self.assertNotIn("$('vsaProject')", html)
+        self.assertNotIn("$('vsaFolder')", html)
+        self.assertIn("job.video_id||'audio'", html)
+
     def test_voice_shell_prefix_for_all_audio_downloader_calls(self):
         html = TEMPLATE.read_text(encoding="utf-8")
         base = "(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')"
