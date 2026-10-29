@@ -58,6 +58,19 @@ def main():
                         assert page.locator('.sm input[name="image"]').evaluate(
                             "(el) => getComputedStyle(el).backgroundColor") == 'rgb(255, 255, 255)'
                         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'),f'page overflow at {width}'
+                        if width <= 390:
+                            # No clipped Song Studio destinations or workspace buttons on phones.
+                            for label in ('Song Studio','Song Maker tabs'):
+                                rail=page.get_by_role('navigation',name=label)
+                                assert rail.evaluate('(el) => el.scrollWidth <= el.clientWidth + 1'), (width,label,'horizontal scrolling')
+                                for item in rail.locator('a,button').all():
+                                    assert item.evaluate(
+                                        '(el) => {const a=el.getBoundingClientRect(),'
+                                        'b=el.parentElement.getBoundingClientRect();'
+                                        'return a.left>=b.left-1 && a.right<=b.right+1 && a.width>0;}'
+                                    ), (width,label,item.inner_text(),'tab is clipped')
+                            assert page.locator('.sm h1').evaluate(
+                                '(el) => getComputedStyle(el).color') == 'rgb(16, 24, 40)'
                         for tab in ('pairs','queue','output','input'):
                             page.locator(f'[data-tab="{tab}"]').click()
                             assert page.locator('#'+tab).is_visible()
