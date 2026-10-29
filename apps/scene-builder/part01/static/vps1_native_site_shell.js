@@ -33,6 +33,7 @@
     ["Experiment Studio", "/experiment-studio/", "experiment"]
   ]);
   const activeKeyForPath = (pathname) => {
+    if (pathname.startsWith("/local-upload-manager/modes/song/")) return "song";
     if (/^\/(local-upload-manager|auto-stream)(\/|$)/.test(pathname)) return "upload";
     if (/^\/(scene-builder|video-studio|auto-caption-studio|short-maker|video-merger|queue|settings|audit-media)(\/|$)/.test(pathname)) return "video";
     if (/^\/(song-studio|song-maker|song-uploader)(\/|$)/.test(pathname)) return "song";
