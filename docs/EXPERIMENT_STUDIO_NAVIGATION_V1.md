@@ -8,7 +8,7 @@ Requested navigation:
 - Subtab uses the shared responsive design tokens; no new backend services.
 - The landing route redirects to the first subtab, and the subtab renders an honest UI-only workspace.
 - Antidetect browser/profile engine is **not installed or active**. Never claim profile, proxy, fingerprint, or automation functions are working yet.
-- No modifications to other studio queues, sessions, OAuth, storage, or Auto Script (stays OFFLINE).
+- Historical 20 October scope: no modifications to other studio queues, sessions, OAuth, storage, or Auto Script. Current status supersedes this earlier offline-era note: Auto Script ONLINE per owner on 29 October; activation PR #314 and navigation PR #315 merged.
 
 Offline checks:
 `python3 -m unittest production.test_unified_sidebar_navigation -v`
