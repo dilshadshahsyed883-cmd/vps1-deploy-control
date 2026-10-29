@@ -81,7 +81,7 @@ class SongStudioReleaseTests(unittest.TestCase):
                 for name,payload in source.items():
                     (old/name).parent.mkdir(parents=True,exist_ok=True);(old/name).write_bytes(payload)
                 (old/'renderer-sentinel').write_bytes(b'keep worker state')
-                (old/'_production_manifest.json').write_text(json.dumps({'files':{name:'old' for name in source}}))
+                (old/'_scene_candidate_manifest.json').write_text(json.dumps({'app':'scene-builder','files':{name:'old' for name in source}}))
                 current=root/'current';current.symlink_to(old,target_is_directory=True)
                 def response(path,cookie=''):
                     if path.startswith('/static/'):return (200,'application/javascript',b'wrong' if fail else source['part01/static/vps1_native_site_shell.js'])
