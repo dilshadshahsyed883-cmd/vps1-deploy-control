@@ -404,4 +404,85 @@ class SongMakerTests(unittest.TestCase):
         self.assertEqual(self.store.jobs('alice'),[])
 
 
+    def test_sync_button_backend_access_is_sso_scoped_and_nonadmin_folder_locked(self):
+        # Non-admin workspace members can sync only the approved app defaults.
+        from songmaker.drive import default_settings
+        bob = {'X-Auth-User': 'bob', 'X-Song-Maker': '1'}
+        response = self.client.get('/song-maker/api/state', headers=bob)
+        self.assertTrue(response.json()['sync_access'])
+        response = self.client.post('/song-maker/api/sync', headers=bob)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.store.record('settings', 'bob')['image_folder'],
+                         default_settings()['image_folder'])
+        self.assertTrue(self.store.record('settings', 'bob')['sync_requested'])
+        self.assertEqual(self.client.post('/song-maker/api/settings', headers=bob,
+                         json={**default_settings(), 'image_folder':'other'}).status_code, 403)
+        self.assertEqual(self.client.post('/song-maker/api/sync').status_code, 401)
+        self.assertEqual(self.client.get('/song-maker/api/state', headers=bob).json()['jobs'], [])
+
+    def test_export_preferences_applied_to_manual_and_drive_matching(self):
+        settings = {'resolution': '9:16', 'fit': 'blur'}
+        response = self.client.post('/song-maker/api/export', headers=self.headers, json=settings)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.client.get('/song-maker/api/state', headers=self.headers).json()['export'], settings)
+        self.assertEqual(self.client.post('/song-maker/api/export', headers=self.headers,
+                         json={'resolution': 'bogus', 'fit': 'blur'}).status_code, 422)
+        image, audio = self.media()
+        response = self.client.post('/song-maker/api/jobs', headers=self.headers,
+            files={'image': ('image.png', image.read_bytes(), 'image/png'),
+                   'audio': ('song.wav', audio.read_bytes(), 'audio/wav')})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()['resolution'], '9:16')
+        self.assertEqual(response.json()['fit'], 'blur')
+        from songmaker.drive import default_settings
+        class Stub:
+            def listing(_, folder):
+                return [self.item('New.jpg', 'drive-image'), self.item('New.mp3', 'drive-audio')]
+        sync_owner(self.store, 'alice', default_settings(), Stub())
+        drive_job = next(j for j in self.store.jobs('alice') if j.get('origin') == 'drive')
+        self.assertEqual(drive_job['resolution'], '9:16')
+        self.assertEqual(drive_job['fit'], 'blur')
+
+    def test_owner_scoped_batch_pause_resume_retry_cancel_and_clear(self):
+        owned = [self.store.enqueue('alice', {'n': n}, {'project':str(n),'local_name':f'{n}.mp4'})
+                 for n in range(4)]
+        outsider = self.store.enqueue('bob', {'n': 8}, {'project':'bob','local_name':'bob.mp4'})
+        self.assertEqual(self.client.post('/song-maker/api/queue/pause', headers=self.headers).status_code,200)
+        claimed = self.store.claim('render')
+        self.assertEqual(claimed['id'], outsider['id'])
+        self.assertEqual(self.client.get('/song-maker/api/state',headers=self.headers).json()['queue']['paused'],True)
+        self.assertEqual(self.client.post('/song-maker/api/queue/resume', headers=self.headers).status_code,200)
+        self.assertEqual(self.store.claim('render')['id'],owned[0]['id'])
+        # Active jobs are not bulk-cancelled.
+        response = self.client.post('/song-maker/api/queue/cancel-pending',headers=self.headers)
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response.json()['count'],3)
+        self.assertEqual(self.store.get(owned[0]['id'])['stage'],'Preparing Inputs')
+        self.assertEqual(self.store.get(owned[1]['id'])['stage'],'Cancelled')
+        response = self.client.post('/song-maker/api/queue/retry-failed',headers=self.headers)
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response.json()['count'],3)
+        self.assertEqual(self.store.get(owned[1]['id'])['stage'],'Queued')
+        self.assertEqual(self.store.get(outsider['id'])['stage'],'Preparing Inputs')
+        self.store.update(owned[2]['id'],stage='Completed')
+        response = self.client.post('/song-maker/api/queue/clear-completed',headers=self.headers)
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response.json()['count'],1)
+        self.assertTrue(self.store.get(owned[2]['id'])['deleted'])
+        self.assertFalse(self.store.get(outsider['id'])['deleted'])
+        self.assertEqual(self.client.post('/song-maker/api/queue/unrecognized',headers=self.headers).status_code,404)
+
+    def test_ffmpeg_telemetry_uses_real_progress_output_not_guesses(self):
+        reports, seconds = [], []
+        script = ("import time;"
+                  "print('frame=20\\nfps=28.5\\nout_time_us=1000000\\nspeed=1.75x\\nprogress=continue',flush=True);"
+                  "time.sleep(.6)")
+        run([sys.executable, '-c', script], progress=seconds.append, telemetry=reports.append)
+        self.assertTrue(reports, 'progress parser should consume actual FFmpeg-style stdout')
+        self.assertEqual(reports[-1]['fps'], 28.5)
+        self.assertEqual(reports[-1]['speed'], 1.75)
+        self.assertAlmostEqual(reports[-1]['seconds'], 1.0)
+        self.assertIn(1.0, seconds)
+
+
 if __name__=='__main__':unittest.main()
