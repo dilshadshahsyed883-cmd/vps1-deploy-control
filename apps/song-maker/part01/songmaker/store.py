@@ -8,7 +8,7 @@ import time
 import uuid
 
 ROOT = Path(os.environ.get('SONG_MAKER_DATA', '/var/lib/fresh-website/song-maker'))
-ACTIVE = {'Preparing Inputs', 'Rendering', 'Validating MP4', 'Drive Uploading', 'Verifying Drive Upload'}
+ACTIVE = {'Preparing Inputs', 'Rendering', 'Validating MP4', 'Archiving Inputs', 'Drive Uploading', 'Verifying Drive Upload'}
 TERMINAL = {'Completed', 'Failed', 'Cancelled', 'Waiting for Drive', 'Needs Attention'}
 
 

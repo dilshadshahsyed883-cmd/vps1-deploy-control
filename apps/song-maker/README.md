@@ -37,7 +37,14 @@ filenames) and `Song Studio/song maker` for rendered MP4s. An administrator may
 change the remote or use legacy Drive folder IDs via Input & Drive Sync settings.
 The output folder must differ from the input folder; image/audio folders may be the
 same. An explicit existing administrator configuration is never overwritten.
-The app never moves or replaces Drive inputs. The last administrator-saved destination
+After FFmpeg finishes and MP4 validation succeeds, a Drive-synced pair from the default
+shared input folder immediately moves its image and audio into
+`Song Studio/Audio downloader/used` (before MP4 upload). The move is verified
+against each original Drive file ID/size/hash, collision-safe and restartable.
+Failed/cancelled renders do not move inputs. If archiving fails, the verified local
+MP4 stays available while the job reports Needs Attention; retry resumes archive
+without rerendering. Manual PC uploads and older custom-folder/ID jobs are
+unchanged. The last administrator-saved destination
 is the default for manual uploads. Each admin's Drive scan and its resulting jobs
 belong to that administrator; other users see only their own manual jobs.
 
@@ -49,7 +56,8 @@ and after. Input versions use Drive IDs, checksums/modtime/size where exposed.
 NFC/casefold basename matching supports Unicode and case-insensitive extensions.
 Conflicts require explicit image/audio ID selection. Exact duplicate Drive names
 remain blocked because filename-addressed rclone cannot safely disambiguate them;
-rename the duplicate in Drive and sync again. No original Drive input is modified.
+rename the duplicate in Drive and sync again. Default Drive input files are
+only moved after a successfully validated render, never on discovery or failure.
 
 Upload reserves a noncolliding name `(2)`, `(3)`, etc. in SQLite before transfer,
 uses `--ignore-existing`, then verifies exactly one remote ID, size and MD5.
@@ -85,9 +93,13 @@ not production authentication or real Google Drive evidence.
 `all` deployment. It stages immutable source, runs real-media tests, backs up affected
 Scene SQLite files, overlays only Scene SSO allowlist/shared navigation, starts bounded
 Song Maker services and adds one trusted SSO Nginx include. Failure restores scoped
-units/pointers/routes and preserves all persistent state. First installation only;
-future updates must add an idle admission contract before this lane will replace an
-already-installed Song Maker. Explicit rollback requires matching route/pointer journal.
+units/pointers/routes and preserves all persistent state. First installation creates the app and route. Existing-instance updates use an
+independent idle-only admission fence: stop scanner, hold the submission/claim lock,
+refuse queued or active jobs, back up the Song Maker SQLite database, and swap only
+Song Maker's immutable code pointer and four service units. Authenticated HTTPS and
+worker health must pass; any failure rolls back those exact Song Maker units/pointer
+while leaving all persistent state intact. Manual rollback is also idle-fenced.
+Scene renderers, Nginx, other apps and their queues are never restarted.
 
 The installed root-owned helper must first receive the reviewed Song Maker capability
 through an already-approved maintenance transport. A GitHub source merge cannot

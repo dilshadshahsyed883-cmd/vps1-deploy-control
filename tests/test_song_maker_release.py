@@ -1,4 +1,5 @@
 from pathlib import Path
+import sqlite3
 import unittest
 from unittest.mock import patch
 import tempfile
@@ -6,6 +7,37 @@ from production import song_maker_release as release
 from production import remote_deploy
 
 class SongMakerReleaseTests(unittest.TestCase):
+    def test_existing_instance_update_requires_idle_database(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / 'jobs.sqlite3'
+            with sqlite3.connect(database) as db:
+                db.execute('CREATE TABLE jobs (stage TEXT, lane TEXT, deleted INTEGER)')
+                db.execute("INSERT INTO jobs VALUES ('Completed','',0)")
+            release.require_idle_jobs(database)
+            with sqlite3.connect(database) as db:
+                db.execute("INSERT INTO jobs VALUES ('Queued','',0)")
+            with self.assertRaisesRegex(RuntimeError, 'active or queued'):
+                release.require_idle_jobs(database)
+            with sqlite3.connect(database) as db:
+                db.execute("DELETE FROM jobs WHERE stage='Queued'")
+                db.execute("INSERT INTO jobs VALUES ('Needs Attention','',0)")
+            release.require_idle_jobs(database)
+            with sqlite3.connect(database) as db:
+                db.execute("INSERT INTO jobs VALUES ('Rendering','render',0)")
+            with self.assertRaisesRegex(RuntimeError, 'active or queued'):
+                release.require_idle_jobs(database)
+
+    def test_update_release_is_scoped_and_guarded(self):
+        import inspect
+        source = inspect.getsource(release.update_existing)
+        self.assertIn('submission.lock',source)
+        self.assertIn('require_idle_jobs',source)
+        self.assertIn('backup_databases(STATE',source)
+        self.assertIn('restore_update(previous)',source)
+        self.assertNotIn('atomic_link(SCENE_CURRENT',source)
+        self.assertNotIn('SITE.write_text',source)
+        self.assertNotIn('SNIPPET.write_text',source)
+
     def test_independent_source_has_no_state_or_secrets(self):
         files=release.source_files()
         self.assertIn('part01/songmaker/app.py',files)
