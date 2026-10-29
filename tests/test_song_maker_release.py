@@ -46,6 +46,11 @@ class SongMakerReleaseTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,'immutable source drift'):
                 release.stage('a'*40)
 
+    def test_coordinated_shell_accepts_exact_reviewed_source_but_rejects_drift(self):
+        release.verify_shared_shell(b"reviewed Song Studio", b"reviewed Song Studio")
+        with self.assertRaisesRegex(RuntimeError, "shared shell drift"):
+            release.verify_shared_shell(b"unknown live changes", b"reviewed Song Studio")
+
     def test_protected_release_never_targets_all(self):
         workflow=(release.REPO/'.github/workflows/vps1-song-maker-release.yml').read_text()
         self.assertIn('environment: production',workflow)

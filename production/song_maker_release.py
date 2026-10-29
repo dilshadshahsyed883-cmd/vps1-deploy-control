@@ -185,6 +185,15 @@ def restore(previous):
         if previous['active'][lane]:run(['systemctl','start',unit_name(lane)],quiet=True)
 
 
+def verify_shared_shell(installed: bytes, reviewed: bytes) -> None:
+    # Accept either the original audited shell or the exact protected-main
+    # shell already installed by the coordinated Song Studio release.
+    allowed = {'d7b66595009c905307df4beb4064545262cbdca8c13e4d94200c774cb4cc8fd4',
+               hashlib.sha256(reviewed).hexdigest()}
+    require(hashlib.sha256(installed).hexdigest() in allowed,
+            'shared shell drift; reconcile before overlay')
+
+
 def install(revision):
     check_host(revision)
     require(hashlib.sha256(Path('/usr/local/sbin/vps1-production-deploy').read_bytes()).digest()==
@@ -220,9 +229,9 @@ def install(revision):
     require(scene.is_relative_to(BASE/'releases/scene-builder'),'Scene pointer outside owned releases')
     overlay=BASE/'releases/scene-builder'/(revision+'-song-maker-shell')
     require(not overlay.exists(),'immutable Scene overlay already exists')
-    require(hashlib.sha256((scene/'part01/static/vps1_native_site_shell.js').read_bytes()).hexdigest() ==
-            'd7b66595009c905307df4beb4064545262cbdca8c13e4d94200c774cb4cc8fd4',
-            'shared shell drift; reconcile before overlay')
+    verify_shared_shell(
+        (scene/'part01/static/vps1_native_site_shell.js').read_bytes(),
+        (REPO/'apps/scene-builder/part01/static/vps1_native_site_shell.js').read_bytes())
     shutil.copytree(scene,overlay,symlinks=True)
     web=overlay/'part01/app.py'
     require(web.is_file() and not web.is_symlink(),'Scene app ownership')
