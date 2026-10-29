@@ -195,16 +195,26 @@ def verify_song_navigation(browser, shell_js: str, shell_css: str) -> list[str]:
         voice = page.locator('#vps1-native-site-sidebar nav a[href*="#vps1-production"]')
         if song.get_attribute("aria-current") != "page":
             errors.append("song-studio: initial Audio Downloader selection missing")
+        if page.locator('.vs-engine-selector').is_visible():
+            errors.append("song-studio: Voice engine tabs leaked into Audio Downloader")
+        page.set_viewport_size({"width": 390, "height": 844})
+        if page.locator('.vs-engine-selector').is_visible():
+            errors.append("song-studio: Voice engine tabs leaked into mobile Audio Downloader")
+        page.set_viewport_size({"width": 1440, "height": 900})
         if page.locator('.vps1-native-song-tabs a').all_text_contents() != [
                 "Audio Downloader", "Song Maker", "Song Uploader"]:
             errors.append("song-studio: independent app tabs missing")
         page.evaluate("window.songNavigationSentinel = 1")
         voice.click()
         page.wait_for_function("!document.body.classList.contains('vs-audio-active')")
+        if not page.locator('.vs-engine-selector').is_visible():
+            errors.append("voice-studio: Voice engine tabs missing after switching back")
         if voice.get_attribute("aria-current") != "page":
             errors.append("song-studio: Voice Studio selection missing")
         song.click()
         page.locator('#vsAudioWorkspace').wait_for(state="visible")
+        if page.locator('.vs-engine-selector').is_visible():
+            errors.append("song-studio: Voice engine tabs visible after switching back")
         if song.get_attribute("aria-current") != "page":
             errors.append("song-studio: Song Studio selection missing after switch")
         if page.evaluate("window.songNavigationSentinel") != 1:
