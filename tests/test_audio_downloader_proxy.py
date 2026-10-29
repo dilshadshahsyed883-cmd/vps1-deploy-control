@@ -192,7 +192,7 @@ class AudioProxyTests(unittest.TestCase):
         self.assertEqual(Path(args[args.index('copyto') + 1]).name, 'BaW_jenozKc.mp3')
         self.assertEqual(args[args.index('copyto') + 2],
                          'gdrive:Audio Downloader/Music/Test/BaW_jenozKc.mp3')
-        self.assertEqual(updates[0][1]['title'], 'Test Title _BaW_jenozKc_')
+        self.assertEqual(updates[0][1]['title'], 'Test Title _BaW_jenozKc')
         self.assertEqual(updates[-1][0], 'delivered')
 
     def test_invalid_queued_video_id_cannot_escape_job_folder(self):
