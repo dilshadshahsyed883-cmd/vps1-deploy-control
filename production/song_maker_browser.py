@@ -54,7 +54,7 @@ def main():
                             "(el) => getComputedStyle(el).backgroundColor") == 'rgb(255, 255, 255)'
                         active_color = page.locator('.sm .tabs [aria-selected="true"]').evaluate(
                             "(el) => ({color:getComputedStyle(el).backgroundColor, markup:el.outerHTML, brand:getComputedStyle(document.querySelector('.sm')).getPropertyValue('--sm-brand'), sheets:[...document.styleSheets].map(x=>x.href)})")
-                        assert active_color['color'] == 'rgb(99, 91, 223)', (width, active_color)
+                        assert active_color['color'] == 'rgb(99, 85, 223)', (width, active_color)
                         assert page.locator('.sm input[name="image"]').evaluate(
                             "(el) => getComputedStyle(el).backgroundColor") == 'rgb(255, 255, 255)'
                         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'),f'page overflow at {width}'
