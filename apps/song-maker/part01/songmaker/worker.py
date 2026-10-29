@@ -64,7 +64,8 @@ def process(store, job, lane, shutdown=lambda: False, drive_factory=Drive):
             if not output.exists():
                 store.update(job_id, stage='Rendering', duration=duration, progress=5, error='')
                 render(image, audio, output, temp, job.get('resolution', '1080p'), job.get('fit', 'fit'),
-                       cancelled, lambda seconds: store.update(job_id, progress=min(84, 5+int(seconds/duration*79))))
+                       cancelled, lambda seconds: store.update(job_id, progress=min(84, 5+int(seconds/duration*79))),
+                       metrics=lambda values: store.update(job_id, **values))
             store.update(job_id, stage='Validating MP4', progress=86)
             result = validate(output, duration, cancelled)
             if cancelled():
@@ -136,7 +137,7 @@ def main():
                     if owner == '__default__':
                         continue
                     previous = store.record('sync', owner)
-                    due = settings.get('sync_requested') or (settings.get('auto_sync') and time.time()-previous.get('last_sync', 0) >= 60)
+                    due = settings.get('sync_requested') or (settings.get('auto_sync') and time.time()-previous.get('last_sync', 0) >= settings.get('sync_interval', 300))
                     if due:
                         settings.pop('sync_requested', None)
                         store.record('settings', owner, settings)

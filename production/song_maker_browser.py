@@ -71,7 +71,7 @@ def main():
                                     ), (width,label,item.inner_text(),'tab is clipped')
                             assert page.locator('.sm h1').evaluate(
                                 '(el) => getComputedStyle(el).color') == 'rgb(16, 24, 40)'
-                        for tab in ('pairs','queue','output','input'):
+                        for tab in ('pairs','queue','preferences','input'):
                             page.locator(f'[data-tab="{tab}"]').click()
                             assert page.locator('#'+tab).is_visible()
                         assert page.locator('nav[aria-label="Song Studio"] a[href="/song-studio/song-maker/"]').count()==1
@@ -82,7 +82,7 @@ def main():
                     page.wait_for_function("document.querySelector('#jobs').textContent.includes('Ready to Upload') || document.querySelector('#jobs').textContent.includes('Waiting for Drive')",timeout=60000)
                     page.reload()
                     assert page.locator('#queue').is_visible()
-                    page.locator('[data-tab="output"]').click()
+                    page.locator('[data-tab="queue"]').click()
                     page.wait_for_selector('video')
                     with page.expect_download() as info:page.get_by_text('Download MP4',exact=True).click()
                     assert info.value.suggested_filename=='Voice name.mp4'
