@@ -20,6 +20,10 @@ JPG = b"\\xff\\xd8\\xff" + b"x" * 2048
 
 class DriveUploadSchedulingTests(unittest.TestCase):
     def setUp(self):
+        try:
+            import fastapi  # noqa: F401 - optional in the broad offline pilot
+        except ImportError:
+            self.skipTest("FastAPI dependency is provided by dedicated Audio Downloader CI")
         self.tmp = tempfile.TemporaryDirectory()
         self.env = patch.dict(os.environ, {"AUDIO_DOWNLOADER_ROOT": self.tmp.name})
         self.env.start()
