@@ -161,6 +161,51 @@ class AudioProxyTests(unittest.TestCase):
             self.m.run_job(job)
         self.assertEqual([x[0] for x in updates], ['downloaded', 'completed'])
         self.assertTrue(Path(updates[0][1]['local_file']).is_file())
+        self.assertEqual(Path(updates[0][1]['local_file']).name, 'BaW_jenozKc.mp3')
+
+
+    def test_drive_filename_and_immutable_upload(self):
+        job = self.job()
+        job.update(auto_upload=True, folder='Music', project='Test')
+        updates, copies = [], []
+        def execute(args, **kw):
+            if args[0] == '/fake/yt-dlp':
+                source = Path(kw['cwd']) / 'Test Title [BaW_jenozKc].mp3'
+                source.write_bytes(b'ID3' + b'x' * 2048)
+                return subprocess.CompletedProcess(args, 0, str(source) + '\n', '')
+            if 'copyto' in args:
+                copies.append(args)
+                return subprocess.CompletedProcess(args, 0, '', '')
+            if 'lsjson' in args:
+                return subprocess.CompletedProcess(args, 0, json.dumps({'Size': 2051}), '')
+            self.fail('Unexpected process: ' + repr(args))
+        state = {'ytdlp': '/fake/yt-dlp', 'ffmpeg': '/fake/ffmpeg',
+                 'rclone': '/fake/rclone', 'upload_ready': True}
+        with patch.object(self.m, 'deps', return_value=state), \
+             patch.object(self.m.subprocess, 'run', side_effect=execute), \
+             patch.object(self.m, 'verified_drive_public_link', return_value='https://drive.google.com/file/d/qa/view'), \
+             patch.object(self.m, '_update', side_effect=lambda jid, status, **kw: updates.append((status, kw))):
+            self.m.run_job(job)
+        self.assertEqual(len(copies), 1)
+        args = copies[0]
+        self.assertIn('--immutable', args)
+        self.assertEqual(Path(args[args.index('copyto') + 1]).name, 'BaW_jenozKc.mp3')
+        self.assertEqual(args[args.index('copyto') + 2],
+                         'gdrive:Audio Downloader/Music/Test/BaW_jenozKc.mp3')
+        self.assertEqual(updates[0][1]['title'], 'Test Title _BaW_jenozKc_')
+        self.assertEqual(updates[-1][0], 'delivered')
+
+    def test_invalid_queued_video_id_cannot_escape_job_folder(self):
+        job = self.job()
+        job['video_id'] = '../BAD'
+        def execute(args, **kw):
+            source = Path(kw['cwd']) / 'test.mp3'
+            source.write_bytes(b'ID3' + b'x'*2048)
+            return subprocess.CompletedProcess(args, 0, str(source) + '\n', '')
+        with patch.object(self.m, 'deps', return_value={'ytdlp': '/fake/yt-dlp', 'ffmpeg': '/fake/ffmpeg'}), \
+             patch.object(self.m.subprocess, 'run', side_effect=execute):
+            with self.assertRaisesRegex(RuntimeError, 'Invalid YouTube video ID'):
+                self.m.run_job(job)
 
     def test_error_categories_are_truthful_and_do_not_leak_credentials(self):
         for raw, code in [("Sign in to confirm you’re not a bot", 'YOUTUBE_AUTH_REQUIRED'),
@@ -210,7 +255,7 @@ class AudioProxyTests(unittest.TestCase):
         import production.audio_downloader_smoke as qa
         nonce = 'C96CA984DDF24F5D'
         prefix = 'gdrive:Audio Downloader/Audio_Proxy_QA/' + nonce
-        good = prefix + '/Me_at_the_zoo _jNQXAC9IVRw_ADJ-' + nonce + '.mp3'
+        good = prefix + '/jNQXAC9IVRw.mp3'
         safe = self.m.safe_folder
         self.assertTrue(qa.owns_qa_drive_file(good, nonce, 'gdrive', 'Audio Downloader', safe))
         self.assertFalse(qa.owns_qa_drive_file(
@@ -218,6 +263,7 @@ class AudioProxyTests(unittest.TestCase):
         self.assertFalse(qa.owns_qa_drive_file(
             prefix + '/owner.mp3', nonce, 'gdrive', 'Audio Downloader', safe))
         self.assertFalse(qa.owns_qa_drive_file(None, nonce, 'gdrive', 'Audio Downloader', safe))
+        self.assertFalse(qa.owns_qa_drive_file(prefix + '/jNQXAC9IVRw.mp3.old', nonce, 'gdrive', 'Audio Downloader', safe))
 
 
 
@@ -265,6 +311,15 @@ class AudioReleaseFenceTests(unittest.TestCase):
                 with self.assertRaises(sqlite3.OperationalError):
                     db.execute("INSERT INTO jobs VALUES('racing-job','queued')")
             fence.close()
+
+    def test_filename_release_preserves_proxy_selection(self):
+        from production import audio_downloader_release as release
+        source = Path(release.__file__).read_text()
+        dispatcher = (ROOT / 'production/runtime.py').read_text()
+        self.assertIn('plan_proxy_restore(root) if restore_proxy else None', source)
+        self.assertIn('ensure_audio_js(environment) if restore_proxy else False', source)
+        self.assertIn('install_audio_filename(revision, restore_proxy=False)', dispatcher)
+        self.assertIn('PASS_AUDIO_FILENAME_ONLY', source)
 
     def test_installer_mutates_only_audio_module_preserving_template_and_workers(self):
         import production.audio_downloader_release as release
