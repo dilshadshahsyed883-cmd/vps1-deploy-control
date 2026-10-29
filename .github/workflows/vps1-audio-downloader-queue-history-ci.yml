@@ -7,6 +7,9 @@ on:
       - 'production/voice_template_release.py'
       - 'tests/test_audio_downloader_queue_history.py'
       - 'tests/test_audio_downloader_proxy.py'
+      - 'tests/test_audio_downloader_thumbnail.py'
+      - 'production/runtime.py'
+      - '.github/workflows/vps1-audio-thumbnail-release.yml'
       - 'production/audio_downloader*.py'
       - '.github/workflows/vps1-audio-proxy-release.yml'
       - 'tests/audio_downloader_browser_urls.test.cjs'
@@ -31,6 +34,8 @@ jobs:
         run: python -m unittest discover -s tests -p test_audio_downloader_queue_history.py -v
       - name: Proxy, private session, worker and guarded release regression
         run: python -m unittest discover -s tests -p test_audio_downloader_proxy.py -v
+      - name: Thumbnail pairing, Drive integrity and browser checkbox regression
+        run: python -m unittest discover -s tests -p test_audio_downloader_thumbnail.py -v
       - name: Check isolated Audio Downloader JavaScript syntax
         run: |
           node - <<'JS'

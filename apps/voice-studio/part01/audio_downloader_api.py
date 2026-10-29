@@ -78,6 +78,14 @@ def init_storage() -> None:
                 if 'duplicate column name' not in str(exc).lower():
                     raise
 
+        # Additive migration, preserving existing job records and queue status.
+        columns = {col[1] for col in con.execute('PRAGMA table_info(jobs)').fetchall()}
+        for name, sql_type in (('download_thumbnail', 'INTEGER NOT NULL DEFAULT 0'),
+                               ('local_thumbnail', 'TEXT'), ('thumbnail_drive_path', 'TEXT'),
+                               ('thumbnail_drive_url', 'TEXT')):
+            if name not in columns:
+                con.execute(f'ALTER TABLE jobs ADD COLUMN {name} {sql_type}')
+
 
 def recover_interrupted_jobs() -> None:
     # Only at application startup; do not mark actively processing jobs failed on API requests.
@@ -127,12 +135,17 @@ class BatchRequest(BaseModel):
     quality: Literal[128, 192, 256] = 192
     auto_upload: bool = True
     keep_metadata: bool = False
+    download_thumbnail: bool = False
     permission_confirmed: bool = False
 
 
 def sanitized_row(row: sqlite3.Row) -> dict:
     data = dict(row)
     data.pop('local_file', None)
+    data.pop('local_thumbnail', None)
+    data['download_thumbnail'] = bool(data['download_thumbnail'])
+    data['thumbnail_url'] = ('/tts/api/audio-downloader/jobs/' + data['job_id'] + '/thumbnail') if row['local_thumbnail'] and Path(row['local_thumbnail']).is_file() else None
+    data['thumbnail_drive_url'] = data.get('thumbnail_drive_url') if data['status'] == 'delivered' else None
     data['drive_url'] = data.get('drive_url') if data.get('status') == 'delivered' else None
     data['audio_url'] = ('/tts/api/audio-downloader/jobs/' + data['job_id'] + '/audio') if row['local_file'] and Path(row['local_file']).is_file() else None
     data['auto_upload'] = bool(data['auto_upload'])
@@ -190,9 +203,9 @@ def enqueue(payload: BatchRequest):
             for video, url in ids:
                 jid = 'ADJ-' + uuid.uuid4().hex[:16].upper()
                 con.execute('''INSERT INTO jobs(job_id,batch_id,video_id,url,project,folder,format,quality,
-                    auto_upload,keep_metadata,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                    auto_upload,keep_metadata,download_thumbnail,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                     (jid, batch_id, video, url, '', '', payload.format, payload.quality,
-                     int(payload.auto_upload), int(payload.keep_metadata), 'queued', created, created))
+                     int(payload.auto_upload), int(payload.keep_metadata), int(payload.download_thumbnail), 'queued', created, created))
                 jobs.append(jid)
             con.execute('COMMIT')
         except BaseException:
@@ -254,10 +267,24 @@ def download_audio(job_id: str):
     return FileResponse(str(f), media_type='audio/mpeg' if f.suffix == '.mp3' else 'audio/wav', filename=f.name)
 
 
+@router.get('/jobs/{job_id}/thumbnail')
+def download_thumbnail(job_id: str):
+    init_storage()
+    row = row_for(job_id)
+    local = row['local_thumbnail']
+    if not local or not row['download_thumbnail']:
+        raise HTTPException(404, 'Thumbnail not ready')
+    image = Path(local).resolve()
+    expected = (JOBS / job_id).resolve()
+    if expected not in image.parents or image.name != row['video_id'] + '.jpg' or not image.is_file():
+        raise HTTPException(404, 'Thumbnail not found')
+    return FileResponse(str(image), media_type='image/jpeg', filename=image.name)
+
+
 def _update(jid: str, new_state: str, **kwargs):
     columns = ['status=?', 'updated_at=?']
     values: list = [new_state, utc()]
-    for key in ('title', 'local_file', 'drive_path', 'drive_url', 'error', 'started_at', 'completed_at'):
+    for key in ('title', 'local_file', 'local_thumbnail', 'drive_path', 'drive_url', 'thumbnail_drive_path', 'thumbnail_drive_url', 'error', 'started_at', 'completed_at'):
         if key in kwargs:
             columns.append(key + '=?')
             values.append(kwargs[key])
@@ -340,15 +367,22 @@ def verified_drive_public_link(remote: str, local_path=None, expected_format='mp
         raise RuntimeError('Google Drive anonymous audio download not verified') from exc
     audio_magic = header.startswith(b'ID3') or (header[:1] == b'\xff' and len(header)>1 and (header[1] & 0xe0)==0xe0)
     wav_magic = header.startswith(b'RIFF')
-    if mime not in ('audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'application/octet-stream'):
-        raise RuntimeError('Drive anonymous access returned non-audio content')
-    if not (audio_magic if expected_format == 'mp3' else wav_magic):
-        raise RuntimeError('Drive anonymous response did not contain audio bytes')
+    jpg_magic = header.startswith(b'\xff\xd8\xff')
+    accepted = {'mp3': ('audio/mpeg', 'audio/mp3', 'application/octet-stream'),
+                'wav': ('audio/wav', 'audio/x-wav', 'application/octet-stream'),
+                'jpg': ('image/jpeg', 'image/jpg', 'application/octet-stream')}
+    if expected_format not in accepted or mime not in accepted[expected_format]:
+        raise RuntimeError('Drive anonymous access returned unexpected content type')
+    if not {'mp3': audio_magic, 'wav': wav_magic, 'jpg': jpg_magic}[expected_format]:
+        raise RuntimeError('Drive anonymous response did not contain expected file bytes')
     return canonical
 
 
 def run_job(job: dict):
     jid = job['job_id']
+    video_id = job['video_id']
+    if not VIDEO_ID.fullmatch(video_id):
+        raise RuntimeError('Invalid YouTube video ID in queued job')
     folder = JOBS / jid
     folder.mkdir(mode=0o750, parents=True, exist_ok=True)
     state = deps()
@@ -356,16 +390,19 @@ def run_job(job: dict):
     if not command or not state['ffmpeg']:
         raise RuntimeError('yt-dlp/FFmpeg unavailable')
     audio_format = job['format']
+    want_thumbnail = bool(job.get('download_thumbnail', False))
     out_template = str(folder / '%(title).70s [%(id)s].%(ext)s')
     args = command + ['--no-playlist', '--no-warnings', '--no-progress', '--no-cache-dir',
             '--no-overwrites', '--restrict-filenames', '--max-filesize', '120M',
             '--format', 'bestaudio/best', '--ffmpeg-location', state['ffmpeg'],
             '--extract-audio', '--audio-format', audio_format, '--audio-quality', str(job['quality']) + 'K',
             '--print', 'after_move:filepath', '-o', out_template]
+    if want_thumbnail:
+        args.extend(['--write-thumbnail', '--convert-thumbnails', 'jpg'])
     if job['keep_metadata']:
         args.append('--embed-metadata')
     args.append(job['url'])
-    # One immutable selection/session snapshot per attempt. Credentials never enter argv.
+    # Use the same private proxy/session snapshot for audio and thumbnail extraction.
     with youtube_execution() as (options, environment):
         try:
             p = subprocess.run(command + options + args[len(command):], capture_output=True,
@@ -381,52 +418,79 @@ def run_job(job: dict):
     if len(paths) != 1:
         raise RuntimeError('Expected exactly one downloaded audio file')
     original = paths[0]
-    safe = re.sub(r'[^a-zA-Z0-9._ -]', '_', original.stem).strip(' ._')[:105] or job['video_id']
-    # Queue/history retain the readable title; the deliverable is VideoID only.
-    if not VIDEO_ID.fullmatch(job['video_id']):
-        raise RuntimeError('Invalid YouTube video ID in queued job')
-    final = folder / f'{job["video_id"]}.{audio_format}'
+    safe = re.sub(r'[^a-zA-Z0-9._ -]', '_', original.stem).strip(' ._')[:105] or video_id
+    final = folder / f'{video_id}.{audio_format}'
     if original != final:
         original.rename(final)
     if final.stat().st_size <= 1000 or final.stat().st_size > 150 * 1024 * 1024:
         raise RuntimeError('Unexpected downloaded audio size')
-    _update(jid, 'downloaded', title=safe, local_file=str(final))
+
+    thumbnail = None
+    if want_thumbnail:
+        images = sorted(p for p in folder.glob('*.jpg') if p.is_file())
+        if len(images) != 1:
+            raise RuntimeError('YouTube thumbnail unavailable; audio retained for retry')
+        thumbnail = folder / f'{video_id}.jpg'
+        if images[0] != thumbnail:
+            images[0].rename(thumbnail)
+        if not 1024 < thumbnail.stat().st_size <= 20 * 1024 * 1024:
+            raise RuntimeError('Unexpected downloaded thumbnail size')
+        with thumbnail.open('rb') as handle:
+            if handle.read(3) != b'\xff\xd8\xff':
+                raise RuntimeError('Downloaded thumbnail is not JPEG')
+
+    _update(jid, 'downloaded', title=safe, local_file=str(final),
+            local_thumbnail=str(thumbnail) if thumbnail else None)
     if not job['auto_upload']:
         _update(jid, 'completed', completed_at=utc())
         return
     if not state['upload_ready']:
         raise RuntimeError('Google Drive connection unavailable')
     _update(jid, 'uploading')
-    # Flat Drive destination, including retries of legacy queued jobs.
-    remote = f'{DRIVE_REMOTE}:{DRIVE_BASE}/{final.name}'
-    # An identical video ID must never overwrite an existing Drive object.
-    cmd = [state['rclone'], '--config', RCLONE_CONFIG, 'copyto', str(final), remote, '--immutable',
-           '--retries', '2', '--low-level-retries', '2', '--timeout', '5m', '--contimeout', '30s']
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=1500, check=False)
-    if result.returncode:
-        raise RuntimeError('Google Drive upload failed; retry available')
-    # Verify the destination's exact stored byte size before declaring delivered.
-    stat = subprocess.run([state['rclone'], '--config', RCLONE_CONFIG, 'lsjson', '--stat', remote],
-                          capture_output=True, text=True, timeout=120, check=False)
-    if stat.returncode:
-        raise RuntimeError('Upload verification unavailable')
-    try:
-        info = json.loads(stat.stdout)
-        size = int(info['Size'])
-    except (ValueError, KeyError, TypeError) as exc:
-        raise RuntimeError('Could not verify Drive destination size') from exc
-    if size != final.stat().st_size:
-        raise RuntimeError('Drive uploaded file size differs from local file')
-    public_url = verified_drive_public_link(remote, final, audio_format)
-    _update(jid, 'delivered', drive_path=remote, drive_url=public_url, completed_at=utc())
-    # No file deletion before remote size, MD5 and unauthenticated audio checks pass.
-    try:
-        if final.is_file() and final.resolve().parent == (JOBS / jid).resolve():
-            final.unlink()
-            _update(jid, 'delivered', local_file=None)
-    except OSError:
-        # Delivery remains valid; local cleanup can be retried without re-downloading.
-        pass
+
+    # User files are saved directly in Google Drive / Audio Downloader.
+    # Release smoke uses a unique private QA namespace to protect user content.
+    base = f'{DRIVE_REMOTE}:{DRIVE_BASE}/'
+    if job.get('folder') == '__Audio_Proxy_QA__' and re.fullmatch(r'[A-F0-9]{16}', job.get('project', '')):
+        base += safe_folder(job['folder']) + '/' + safe_folder(job['project']) + '/'
+    remote = base + final.name
+
+    def upload_file(source: Path, destination: str, fmt: str) -> str:
+        cmd = [state['rclone'], '--config', RCLONE_CONFIG, 'copyto', str(source), destination,
+               '--immutable', '--retries', '2', '--low-level-retries', '2', '--timeout', '5m',
+               '--contimeout', '30s']
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=1500, check=False)
+        if result.returncode:
+            raise RuntimeError('Google Drive upload failed; retry available')
+        stat = subprocess.run([state['rclone'], '--config', RCLONE_CONFIG, 'lsjson', '--stat', destination],
+                              capture_output=True, text=True, timeout=120, check=False)
+        if stat.returncode:
+            raise RuntimeError('Upload verification unavailable')
+        try:
+            info = json.loads(stat.stdout)
+            size = int(info['Size'])
+        except (ValueError, KeyError, TypeError) as exc:
+            raise RuntimeError('Could not verify Drive destination size') from exc
+        if size != source.stat().st_size:
+            raise RuntimeError('Drive uploaded file size differs from local file')
+        return verified_drive_public_link(destination, source, fmt)
+
+    public_url = upload_file(final, remote, audio_format)
+    thumb_remote = base + thumbnail.name if thumbnail else None
+    thumb_public_url = upload_file(thumbnail, thumb_remote, 'jpg') if thumbnail else None
+    _update(jid, 'delivered', drive_path=remote, drive_url=public_url,
+            thumbnail_drive_path=thumb_remote, thumbnail_drive_url=thumb_public_url,
+            completed_at=utc())
+    # Delete local files only after BOTH uploads pass size, hash and public-byte checks.
+    for local in (final, thumbnail):
+        if local is None:
+            continue
+        try:
+            if local.is_file() and local.resolve().parent == (JOBS / jid).resolve():
+                local.unlink()
+                _update(jid, 'delivered', **{'local_thumbnail' if local == thumbnail else 'local_file': None})
+        except OSError:
+            pass
 
 
 def worker_loop():

@@ -1,0 +1,80 @@
+name: VPS1 Audio Downloader thumbnail-only release
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: vps1-audio-thumbnail-only
+  cancel-in-progress: false
+jobs:
+  audio-thumbnail-only:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'dilshadshahsyed883-cmd' &&
+      github.event_name == 'push' &&
+      github.run_attempt == 1 &&
+      contains(github.event.head_commit.message, '[vps1-audio-thumbnail-release]') &&
+      contains(github.event.head_commit.message, '[vps1-audio-thumbnail-only]')
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Join existing VPS1 protected Tailscale identity
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Install thumbnail-only Audio module, preserving proxy and workers
+        shell: bash
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/identity"
+          unset PRIVATE_IDENTITY
+          chmod 0600 "$scratch/identity"
+          ssh-keygen -y -P '' -f "$scratch/identity" > "$scratch/public"
+          test "$(ssh-keygen -lf "$scratch/public" -E sha256 | awk '{print $2}')" = \
+            'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
+          # Host-wide lock is nonblocking. Retry ONLY that pre-execution lock
+          # failure; do not repeat any failed installer after it starts.
+          for attempt in $(seq 1 15); do
+            if timeout 600s ssh -T -p 22 -i "$scratch/identity" \
+              -o UserKnownHostsFile="$scratch/known_hosts" \
+              -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+              -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o PreferredAuthentications=publickey -o PasswordAuthentication=no \
+              -o ConnectTimeout=20 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+              vps1deploy@100.87.55.92 \
+              "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA voice-studio" \
+              > "$scratch/installer.log" 2>&1; then
+              cat "$scratch/installer.log"
+              grep -Fq '"result": "PASS_AUDIO_THUMBNAIL_ONLY"' "$scratch/installer.log"
+              echo 'AUDIO_THUMBNAIL_CONTRACT=VERIFIED'
+              echo 'VOICE_WORKERS=UNCHANGED'
+              echo 'AUTO_SCRIPT=OFFLINE'
+              exit 0
+            fi
+            if grep -Fq 'BlockingIOError: [Errno 11]' "$scratch/installer.log"; then
+              echo "VPS busy; safe lock-only retry $attempt/15"
+              sleep 12
+            else
+              cat "$scratch/installer.log"
+              exit 1
+            fi
+          done
+          echo 'VPS deployment lock still occupied; no Audio mutation attempted'
+          exit 1
