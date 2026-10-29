@@ -236,6 +236,23 @@ def run(screenshots: Path | None) -> int:
             kwargs["executable_path"] = os.environ["VPS1_CHROMIUM_EXECUTABLE"]
         browser = pw.chromium.launch(**kwargs)
         try:
+            for workspace, selected in (("song", "Song Maker"), ("song-uploader", "Song Uploader")):
+                context = browser.new_context()
+                try:
+                    page = context.new_page()
+                    page.set_content(page_html("voice-studio"))
+                    page.evaluate("""([workspace, source]) => {
+                        const s = document.createElement('script');
+                        s.dataset.workspace = workspace; s.textContent = source;
+                        document.body.append(s);
+                    }""", [workspace, native_js])
+                    rails = page.locator('nav[aria-label="Song Studio"]')
+                    if rails.count() != 1 or rails.locator('a[aria-current="page"]').all_text_contents() != [selected]:
+                        errors.append(f"{workspace}: Song rail/selection mismatch")
+                    if page.locator('nav[aria-label="Video Studio"]').count():
+                        errors.append(f"{workspace}: unexpected Video Studio rail")
+                finally:
+                    context.close()
             errors.extend(verify_song_navigation(browser, native_js, shell_css))
             errors.extend(verify_actual_short_maker_identity(
                 browser, native_js, shell_css, geometry_css))

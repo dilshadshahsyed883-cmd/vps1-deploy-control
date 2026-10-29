@@ -2011,6 +2011,9 @@ def song_studio_audio_downloader(request: Request):
 def song_studio_app_slot(request: Request, studio_app: str):
     """Reserved separate app surfaces; no nonfunctional upload controls."""
     require_login(request)
+    if studio_app == "song-uploader":
+        # Dedicated authenticated uploader mode gateway; never proxy directly to loopback.
+        return RedirectResponse("/local-upload-manager/modes/song/app?embedded=1&tab=dashboard", status_code=303)
     if studio_app == "song-maker":
         return RedirectResponse("/song-maker/", status_code=303)
     names = {"song-uploader": "Song Uploader"}

@@ -33,7 +33,7 @@ class RequestStub:
 @unittest.skipUnless(GATEWAY_DEPS_READY, "Gateway requires uploader FastAPI/httpx dependencies")
 class LUMModeProxyTests(unittest.TestCase):
     def test_only_two_fixed_loopback_targets(self):
-        self.assertEqual(MODE_PORTS, {"engine2": 8016, "shorts": 8017})
+        self.assertEqual(MODE_PORTS, {"engine2": 8016, "shorts": 8017, "song": 8018})
         self.assertEqual(
             proxy_target("engine2", "/local-upload-manager/modes/engine2/app", "tab=auto_engine"),
             "http://127.0.0.1:8016/local-upload-manager/modes/engine2/app?tab=auto_engine",

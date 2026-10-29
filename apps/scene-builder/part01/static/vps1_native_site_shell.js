@@ -4,7 +4,7 @@
   const script = document.currentScript || document.querySelector('script[data-unify-sidebar="1"]');
   const app = script && script.dataset ? script.dataset.workspace : "";
   const legacySidebar = !!(script && script.dataset && script.dataset.unifySidebar === "1");
-  if (!legacySidebar && !["acs", "voice", "uploader", "stream", "library", "song"].includes(app)) return;
+  if (!legacySidebar && !["acs", "voice", "uploader", "stream", "library", "song", "song-uploader"].includes(app)) return;
   // During staggered releases an old Scene shell may still embed this document.
   // Never render a second navigation in that legacy framing context.
   if (window.self !== window.top) return;
@@ -33,6 +33,7 @@
     ["Experiment Studio", "/experiment-studio/", "experiment"]
   ]);
   const activeKeyForPath = (pathname) => {
+    if (pathname.startsWith("/local-upload-manager/modes/song/")) return "song";
     if (/^\/(local-upload-manager|auto-stream)(\/|$)/.test(pathname)) return "upload";
     if (/^\/(scene-builder|video-studio|auto-caption-studio|short-maker|video-merger|queue|settings|audit-media)(\/|$)/.test(pathname)) return "video";
     if (/^\/(song-studio|song-maker|song-uploader)(\/|$)/.test(pathname)) return "song";
@@ -192,7 +193,7 @@
     navigation.setAttribute("aria-label", "Applications");
     // Native pages and legacy Video Studio documents use the same menu.
     const current = app === "uploader" || app === "stream" ? "upload" :
-      app === "song" ? "song" : app === "acs" ? "video" : app === "library" ? "experiment" :
+      (app === "song" || app === "song-uploader") ? "song" : app === "acs" ? "video" : app === "library" ? "experiment" :
       app === "voice" && window.location?.hash === "#vs-audio" ? "song" : "voice";
     const primaryLinks = addPrimaryLinks(navigation, current);
     const voiceLink = primaryLinks.voice;
@@ -319,13 +320,13 @@
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) refreshIdentity();
     });
-    if (app === "voice" || app === "song") {
+    if (app === "voice" || app === "song" || app === "song-uploader") {
       const tabs = node("nav", "vps1-native-video-tabs vps1-native-song-tabs");
       tabs.dataset.vps1Component = "studio-tabs";
       tabs.setAttribute("aria-label", "Song Studio");
       addLink(tabs, "Audio Downloader", "/song-studio/audio-downloader/", app === "voice");
       addLink(tabs, "Song Maker", "/song-studio/song-maker/", app === "song");
-      addLink(tabs, "Song Uploader", "/song-studio/song-uploader/", false);
+      addLink(tabs, "Song Uploader", "/song-studio/song-uploader/", app === "song-uploader");
       toggle.after(tabs);
       selectVoiceOrSong();
     }

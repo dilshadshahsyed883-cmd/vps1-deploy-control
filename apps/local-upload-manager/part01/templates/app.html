@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Auto Uploader{% endblock %}
+{% block title %}{{ 'Song Uploader' if engine_instance == 'song' else 'Auto Uploader' }}{% endblock %}
 {% block subtitle %}Main web integrated{% endblock %}
 {% block content %}
 <div class="lum-shell" data-mode="{{ mode }}" data-engine-instance="{{ engine_instance }}" data-ui-patch="LUM_AUTOMATION_QUEUE_STICKY_UI_V1">
@@ -8,7 +8,7 @@
 
 
 
-  {% if tab != 'auto_stream' or engine_instance == 'engine1' %}
+  {% if (tab != 'auto_stream' or engine_instance == 'engine1') and engine_instance != 'song' %}
   <nav class="lum-primary-workspaces" aria-label="Auto Uploader main subtabs">
     <a class="{{ 'active' if tab != 'auto_stream' else '' }}" href="{{ base_path }}/app?tab=dashboard" aria-current="{{ 'page' if tab != 'auto_stream' else 'false' }}">Auto Uploader</a>
     <a class="{{ 'active' if tab == 'auto_stream' else '' }}" href="/auto-stream/" aria-current="{{ 'page' if tab == 'auto_stream' else 'false' }}">Auto Stream</a>
@@ -17,7 +17,7 @@
   {% if not embedded_view %}
   <section class="lum-statusbar">
     <div class="lum-status-primary">
-      <div class="lum-status-left"><strong>Auto Uploader</strong><span class="lum-badge good">{{ 'Main web connected' if suite_auth else 'Standalone online' }}</span>{% if suite_auth %}<span class="lum-badge brand">Shared login</span>{% else %}<span class="lum-badge brand">Standalone auth</span>{% endif %}</div>
+      <div class="lum-status-left"><strong>{{ 'Song Uploader' if engine_instance == 'song' else 'Auto Uploader' }}</strong><span class="lum-badge good">{{ 'Main web connected' if suite_auth else 'Standalone online' }}</span>{% if suite_auth %}<span class="lum-badge brand">Shared login</span>{% else %}<span class="lum-badge brand">Standalone auth</span>{% endif %}</div>
 
     </div>
     <div class="lum-status-meta"><span>Serial uploader</span><strong>1 active</strong><span>Verified cleanup</span><strong>{{ 'ON' if health.verified_cleanup else 'OFF' }}</strong></div>
@@ -30,9 +30,11 @@
       <a class="{{ 'active' if tab=='channels' else '' }}" href="{{ base_path }}/app?tab=channels">Channels</a>
       <a class="{{ 'active' if tab=='sheets' else '' }}" href="{{ base_path }}/app?tab=sheets">Sheets Sync</a>
       <a class="{{ 'active' if tab=='auto_engine' else '' }}" href="{{ base_path }}/app?tab=auto_engine">Auto Engine</a>
+      {% if engine_instance != 'song' %}
       <a class="{{ 'active' if tab=='add_video' else '' }}" href="{{ base_path }}/app?tab=add_video">Add Video</a>
       <a class="{{ 'active' if tab=='bulk_import' else '' }}" href="{{ base_path }}/app?tab=bulk_import">Bulk Import</a>
       <a class="{{ 'active' if tab=='queue' else '' }}" href="{{ base_path }}/app?tab=queue">Queue</a>
+      {% endif %}
       <a class="{{ 'active' if tab=='logs' else '' }}" href="{{ base_path }}/app?tab=logs">Logs</a>
   </nav>
 </div>
@@ -53,9 +55,9 @@
     </section>
     {% if engine_instance != 'shorts' %}
     <section class="lum-card">
-      <div class="lum-card-head"><div><h2>Thumbnail {{ '(required)' if engine_instance == 'engine2' else '' }}</h2><p>JPG/PNG, maximum 2 MB.</p></div></div>
+      <div class="lum-card-head"><div><h2>Thumbnail {{ '(required)' if engine_instance in ['engine2', 'song'] else '' }}</h2><p>JPG/PNG, maximum 2 MB.</p></div></div>
       <div class="lum-thumb" id="lum-thumb-preview"><span>16:9 thumbnail preview</span></div>
-      <label class="lum-field"><span>Thumbnail file</span><input id="lum-thumbnail" name="thumbnail" type="file" accept="image/jpeg,image/png" {{ 'required' if engine_instance == 'engine2' else '' }}></label>
+      <label class="lum-field"><span>Thumbnail file</span><input id="lum-thumbnail" name="thumbnail" type="file" accept="image/jpeg,image/png" {{ 'required' if engine_instance in ['engine2', 'song'] else '' }}></label>
     </section>
     {% else %}
     <section class="lum-card"><h2>Short Uploader</h2><p>No thumbnail needed. YouTube can select a frame from the video.</p></section>
@@ -692,9 +694,10 @@
 {% elif tab == 'auto_engine' %}
     <section class="lum-card">
       <div class="lum-card-head">
-        <div><h2>Auto Uploader · Three Modes</h2>
-          <p>Three independent upload modes. Auto Stream is a separate main subtab. Switching modes never starts a job.</p></div>
+        <div><h2>{{ 'Song Uploader · Engine 2' if engine_instance == 'song' else 'Auto Uploader · Three Modes' }}</h2>
+          <p>{% if engine_instance == 'song' %}Independent Song Uploader with Engine 2 thumbnail matching, Sheets, schedules and upload records.{% else %}Three independent upload modes. Auto Stream is a separate main subtab. Switching modes never starts a job.{% endif %}</p></div>
       </div>
+      {% if engine_instance != "song" %}
       <nav class="lum-ae-tabs lum-ae-tabs-primary" aria-label="Auto Uploader modes">
         {% for key, label in [('engine1', 'Engine 1'), ('engine2', 'Engine 2'), ('shorts', 'Short Uploader')] %}
         {% set active_engine = engine_instance == key %}
@@ -703,10 +706,11 @@
            aria-current="{{ 'page' if active_engine else 'false' }}">{{ label }}</a>
         {% endfor %}
       </nav>
-      {% if engine_instance != 'engine1' %}
-      <p class="lum-note" role="status"><strong>{{ 'Engine 2' if engine_instance == 'engine2' else 'Short Uploader' }}</strong> — independent uploader workspace, data and queue. Automatic publishing remains disabled until configured.</p>
       {% endif %}
-      <p class="lum-note">Engine 1 uses the original uploader. Engine 2 runs in parallel with a required thumbnail; Short Uploader uses the same upload workflow without a thumbnail. Existing channels, records, schedules and settings are untouched.</p>
+      {% if engine_instance != 'engine1' %}
+      <p class="lum-note" role="status"><strong>{{ 'Song Uploader · Engine 2' if engine_instance == 'song' else ('Engine 2' if engine_instance == 'engine2' else 'Short Uploader') }}</strong> — independent uploader workspace, data and queue. Automatic publishing remains disabled until configured.</p>
+      {% endif %}
+      {% if engine_instance != "song" %}<p class="lum-note">Engine 1 uses the original uploader. Engine 2 runs in parallel with a required thumbnail; Short Uploader uses the same upload workflow without a thumbnail. Existing channels, records, schedules and settings are untouched.</p>{% endif %}
       {% if mode_registry.cross_mode_record_collisions %}
         <div class="lum-alert error">Cross-mode receipt collision(s) detected: {{ mode_registry.cross_mode_record_collisions }}. Do not activate additional upload workers before reconciling these identities.</div>
       {% endif %}

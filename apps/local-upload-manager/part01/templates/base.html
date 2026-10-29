@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>{% block title %}Auto Uploader{% endblock %}</title>
+  <title>{% block title %}{{ 'Song Uploader' if engine_instance == 'song' else 'Auto Uploader' }}{% endblock %}</title>
   <link rel="stylesheet" href="{{ base_path }}/static/standalone.css?v=20260824-rwd2">
   <link rel="stylesheet" href="{{ base_path }}/static/local_upload_manager.css?v=20260905-iframe-nav-parity-v1">
   <link rel="stylesheet" href="{{ base_path }}/static/lum_desktop_theme_v4.css?v=20260826-v4">
@@ -34,14 +34,14 @@ label { display: block !important; margin-bottom: var(--sb-spacing-sm) !importan
 </style>
 {% if embedded_view %}
 <link rel="stylesheet" href="/static/vps1_native_site_shell.css?v=20261020-upload-studio-v1&song=20261029">
-<script src="/static/vps1_native_site_shell.js?v=20261020-upload-studio-v1&song=20261029" data-workspace="uploader" defer></script>
+<script src="/static/vps1_native_site_shell.js?v=20261020-upload-studio-v1&song=20261029" data-workspace="{{ 'song-uploader' if engine_instance == 'song' else 'uploader' }}" defer></script>
 {% endif %}
 </head>
 <body class="{% if embedded_view %}lum-embedded{% endif %}">
   {% if not embedded_view %}<header class="app-topbar">
     <div class="app-brand">
       <div class="brand-mark">LU</div>
-      <div><strong>Auto Uploader</strong><span>{% block subtitle %}VPS YouTube uploader{% endblock %}</span></div>
+      <div><strong>{{ 'Song Uploader' if engine_instance == 'song' else 'Auto Uploader' }}</strong><span>{% block subtitle %}VPS YouTube uploader{% endblock %}</span></div>
     </div>
     {% if user %}
     <div class="app-userbar">

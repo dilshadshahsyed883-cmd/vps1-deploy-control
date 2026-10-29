@@ -101,6 +101,8 @@ def validate_job(job: Dict[str, Any]) -> List[PreflightIssue]:
     import os
     if os.environ.get("LUM_ENGINE_INSTANCE", "engine1").strip().lower() == "engine2" and not thumb_raw:
         issues.append(PreflightIssue(video_id, "ERROR", "THUMBNAIL_MISSING", "Engine 2 requires a thumbnail before upload."))
+    if os.environ.get("LUM_ENGINE_INSTANCE", "engine1").strip().lower() == "song" and not thumb_raw:
+        issues.append(PreflightIssue(video_id, "ERROR", "THUMBNAIL_MISSING", "Song Uploader requires a thumbnail before upload."))
     if thumb_raw:
         thumb = resolve_stored_path(thumb_raw)
         if not thumb.exists() or not thumb.is_file() or thumb.stat().st_size <= 0:

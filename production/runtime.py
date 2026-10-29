@@ -330,6 +330,11 @@ def require_lum_release_idle(state: Path) -> None:
         ("engine2", 8016, "/local-upload-manager/modes/engine2/health", "lum2"),
         ("shorts", 8017, "/local-upload-manager/modes/shorts/health", "lum3"),
     )
+    # Song Uploader is optional on the first rollout; once installed it must
+    # pass the same idle checks before any shared uploader runtime restarts.
+    if ((state / "lum-song/core/data/uploader.db").exists() or
+            Path("/etc/systemd/system/vps1-production-lum-song-web.service").exists()):
+        modes += (("song", 8018, "/local-upload-manager/modes/song/health", "lum-song"),)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     in_flight = ("CLAIMED", "UPLOADING", "THUMBNAIL_UPLOADING",
                  "PROCESSING", "IN_PROGRESS", "WAITING_NETWORK")
@@ -422,6 +427,10 @@ def install_app(app, revision):
     # provision independent synthesis workers just to change sidebar markup.
     if app == 'voice-studio':
         commit_message = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-song-studio-release]' in commit_message:
+            from production.song_studio_release import install_voice
+            install_voice(revision)
+            return
         if '[vps1-voice-edge-recovery-only]' in commit_message:
             from production.voice_edge_worker_recovery import install as repair_edge_worker
             repair_edge_worker(revision)

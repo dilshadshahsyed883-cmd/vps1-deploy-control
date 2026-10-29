@@ -13,7 +13,7 @@ from fastapi import Request, HTTPException
 from fastapi.responses import Response, StreamingResponse
 from starlette.background import BackgroundTask
 
-MODE_PORTS = {"engine2": 8016, "shorts": 8017}
+MODE_PORTS = {"engine2": 8016, "shorts": 8017, "song": 8018}
 ALLOWED_METHODS = {"GET", "HEAD", "POST"}
 
 

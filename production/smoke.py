@@ -49,7 +49,7 @@ def smoke_isolated_uploader_pages(state):
     import httpx
     source = REPO / "apps" / "local-upload-manager" / "part01"
     checked = {}
-    for mode, leaf in (("engine2", "lum2"), ("shorts", "lum3")):
+    for mode, leaf in (("engine2", "lum2"), ("shorts", "lum3"), ("song", "lum-song")):
         root = state / leaf
         root.mkdir(parents=True, exist_ok=True)
         env = {
@@ -112,14 +112,14 @@ def smoke_isolated_uploader_pages(state):
                             f"{mode} health timeout: " + log.read()[-3000:]
                         )
                     page = client.get(base + "/app?embedded=1&tab=auto_engine")
-                    expected = "Engine 2" if mode == "engine2" else "Short Uploader"
+                    expected = "Song Uploader" if mode == "song" else ("Engine 2" if mode == "engine2" else "Short Uploader")
                     if (page.status_code != 200 or
                             "text/html" not in page.headers.get("content-type", "") or
                             "Auto Engine" not in page.text or expected not in page.text or
                             f'data-engine-instance="{mode}"' not in page.text or
-                            page.text.count('aria-label="Auto Uploader modes"') != 1 or
+                            page.text.count('aria-label="Auto Uploader modes"') != (0 if mode == 'song' else 1) or
                             page.text.count('aria-label="Auto Uploader workspace"') != 1 or
-                            "lum-primary-workspaces" not in page.text or
+                            ("lum-primary-workspaces" not in page.text and mode != "song") or
                             "vps1_native_site_shell.js" not in page.text or
                             "<iframe" in page.text.lower() or
                             "Internal Server Error" in page.text):
@@ -128,6 +128,23 @@ def smoke_isolated_uploader_pages(state):
                             f"{mode} embedded UI HTTP {page.status_code}: " +
                             log.read()[-4000:]
                         )
+                    if mode == "song":
+                        from html.parser import HTMLParser
+                        class Tabs(HTMLParser):
+                            def __init__(self):
+                                super().__init__(); self.rail = False; self.labels = []
+                            def handle_starttag(self, tag, attrs):
+                                if tag == "nav" and dict(attrs).get("aria-label") == "Auto Uploader workspace":
+                                    self.rail = True
+                            def handle_endtag(self, tag):
+                                if tag == "nav": self.rail = False
+                            def handle_data(self, data):
+                                if self.rail and data.strip(): self.labels.append(data.strip())
+                        tabs = Tabs(); tabs.feed(page.text)
+                        assert tabs.labels == ["Dashboard", "Channels", "Sheets Sync", "Auto Engine", "Logs"], tabs.labels
+                        assert 'data-workspace="song-uploader"' in page.text
+                        for tab in ("dashboard", "channels", "sheets", "logs"):
+                            assert client.get(base + "/app?embedded=1&tab=" + tab).status_code == 200
                     checked[mode] = "NATIVE_HTML_200_NO_IFRAME"
             finally:
                 proc.terminate()

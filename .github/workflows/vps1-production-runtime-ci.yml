@@ -51,6 +51,7 @@ jobs:
           python -m unittest production.test_uploader_mode_runtime -v
           python -m unittest production.test_uploader_mode_gateway -v
           python -m unittest production.test_uploader_mode_services -v
+          python -m unittest production.test_song_uploader_v1 -v
           python -m unittest production.test_uploader_mode_coordinator -v
           python -m unittest production.test_gateway -v
           python -m production.smoke --app "$APP"
