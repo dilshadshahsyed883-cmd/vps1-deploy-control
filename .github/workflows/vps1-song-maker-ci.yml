@@ -11,6 +11,8 @@ jobs:
   song-maker:
     runs-on: ubuntu-24.04
     timeout-minutes: 12
+    env:
+      SONG_MAKER_REQUIRE_DEPS: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
