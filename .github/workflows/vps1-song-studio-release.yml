@@ -36,6 +36,7 @@ jobs:
           # Explicit UI-only release avoids restarting unrelated Song Studio apps.
           VOICE_UI_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-song-audio-selector-only]') && '1' || '0' }}
           SONG_UPLOADER_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-song-uploader-only]') && '1' || '0' }}
+          AUDIO_URL_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-song-audio-url-only]') && '1' || '0' }}
         run: |
           set -Eeuo pipefail
           set +x
@@ -52,7 +53,9 @@ jobs:
           printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
           # Serialized, app-scoped installers retain their own idle/backup/rollback
           # checks. Voice uses its template-only path from the merge intent.
-          if [[ "$SONG_UPLOADER_ONLY" == "1" ]]; then
+          if [[ "$AUDIO_URL_ONLY" == "1" ]]; then
+            apps=(scene-builder)
+          elif [[ "$SONG_UPLOADER_ONLY" == "1" ]]; then
             apps=(local-upload-manager)
           elif [[ "$VOICE_UI_ONLY" == "1" ]]; then
             apps=(voice-studio)

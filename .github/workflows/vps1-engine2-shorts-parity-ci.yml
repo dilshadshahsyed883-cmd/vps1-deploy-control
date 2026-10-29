@@ -1,0 +1,39 @@
+name: VPS1 Engine 2 and Short Uploader parity CI
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/local-upload-manager/**'
+      - 'production/test_uploader_engine2_shorts_parity.py'
+      - 'production/test_uploader_three_mode_split.py'
+      - '.github/workflows/vps1-engine2-shorts-parity-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: vps1-uploader-parity-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  offline-parity:
+    name: Engine 2 thumbnail required / Shorts parity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Syntax check only (no production connections)
+        run: |
+          python -m py_compile apps/local-upload-manager/part01/lum_engine/auto_engine_v6.py
+          python -m py_compile apps/local-upload-manager/part01/lum_engine/auto_engine_v6_worker.py
+          python -m py_compile apps/local-upload-manager/part01/lum_engine/standalone_app.py
+      - name: Offline parity and mode-isolation regression tests
+        run: |
+          python -m unittest \
+            production.test_uploader_engine2_shorts_parity \
+            production.test_uploader_three_mode_split \
+            production.test_uploader_four_modes -v

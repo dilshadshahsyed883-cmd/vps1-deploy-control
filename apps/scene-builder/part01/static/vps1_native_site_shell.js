@@ -4,6 +4,11 @@
   const script = document.currentScript || document.querySelector('script[data-unify-sidebar="1"]');
   const app = script && script.dataset ? script.dataset.workspace : "";
   const legacySidebar = !!(script && script.dataset && script.dataset.unifySidebar === "1");
+  // Preserve previously shared Voice Studio audio links via the canonical Song Studio page.
+  if (app === "voice" && /^\/voice-studio\/app\/?$/.test(window.location?.pathname || "") && window.location?.hash === "#vs-audio" && typeof window.location.replace === "function") {
+    window.location.replace("/audio-downloader/");
+    return;
+  }
   if (!legacySidebar && !["acs", "voice", "uploader", "stream", "library", "song", "song-uploader"].includes(app)) return;
   // During staggered releases an old Scene shell may still embed this document.
   // Never render a second navigation in that legacy framing context.
@@ -36,6 +41,7 @@
     if (pathname.startsWith("/local-upload-manager/modes/song/")) return "song";
     if (/^\/(local-upload-manager|auto-stream)(\/|$)/.test(pathname)) return "upload";
     if (/^\/(scene-builder|video-studio|auto-caption-studio|short-maker|video-merger|queue|settings|audit-media)(\/|$)/.test(pathname)) return "video";
+    if (/^\/audio-downloader\/?$/.test(pathname)) return "song";
     if (/^\/(song-studio|song-maker|song-uploader)(\/|$)/.test(pathname)) return "song";
     if (/^\/voice-studio(\/|$)/.test(pathname)) return window.location.hash === "#vs-audio" ? "song" : "voice";
     if (/^\/(experiment-studio|self-media-library|auto-script)(\/|$)/.test(pathname)) return "experiment";
@@ -194,7 +200,7 @@
     // Native pages and legacy Video Studio documents use the same menu.
     const current = app === "uploader" || app === "stream" ? "upload" :
       (app === "song" || app === "song-uploader") ? "song" : app === "acs" ? "video" : app === "library" ? "experiment" :
-      app === "voice" && window.location?.hash === "#vs-audio" ? "song" : "voice";
+      app === "voice" && (window.location?.hash === "#vs-audio" || /^\/audio-downloader\/?$/.test(window.location?.pathname || "")) ? "song" : "voice";
     const primaryLinks = addPrimaryLinks(navigation, current);
     const voiceLink = primaryLinks.voice;
     const songLink = primaryLinks.song;
@@ -212,6 +218,7 @@
       // document or restart voice engines, queues, and ongoing audio previews.
       // Keyboard/modifier navigation and uninitialized UI fall back to href.
       voiceLink.addEventListener("click", (event) => {
+        if (/^\/audio-downloader\/?$/.test(window.location?.pathname || "")) return;
         if (event.defaultPrevented || (event.button !== undefined && event.button !== 0) ||
             event.ctrlKey || event.metaKey || event.shiftKey || event.altKey ||
             typeof window.vps1VoiceStudioTab !== "function") return;
@@ -226,6 +233,8 @@
 
     if (app === "voice") {
       songLink.addEventListener("click", event => {
+        // Voice Studio to Song Studio always navigates to its independent URL.
+        if (/^\/voice-studio\//.test(window.location?.pathname || "")) return;
         if (event.defaultPrevented || (event.button !== undefined && event.button !== 0) ||
             event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
         const audioEngine = document.getElementById("vsEngineAudio");
@@ -324,7 +333,7 @@
       const tabs = node("nav", "vps1-native-video-tabs vps1-native-song-tabs");
       tabs.dataset.vps1Component = "studio-tabs";
       tabs.setAttribute("aria-label", "Song Studio");
-      addLink(tabs, "Audio Downloader", "/song-studio/audio-downloader/", app === "voice");
+      addLink(tabs, "Audio Downloader", "/audio-downloader/", app === "voice");
       addLink(tabs, "Song Maker", "/song-studio/song-maker/", app === "song");
       addLink(tabs, "Song Uploader", "/song-studio/song-uploader/", app === "song-uploader");
       toggle.after(tabs);
@@ -515,7 +524,10 @@
     // A late Omni startup response can rewrite the URL after engine selection.
     // Keep refresh on the visible engine; Omni keeps its own workspace hashes.
     const engineHash={kokoro:'#vs-kokoro',edge:'#vs-edge','audio-downloader':'#vs-audio'}[document.documentElement.dataset.vsEngine];
-    if(engineHash&&location.hash!==engineHash)history.replaceState(null,'',engineHash);
+    if (/^\/audio-downloader\/?$/.test(location.pathname)) {
+      if (document.documentElement.dataset.vsEngine === "audio-downloader" && location.hash)
+        history.replaceState(null, "", "/audio-downloader/");
+    } else if(engineHash&&location.hash!==engineHash)history.replaceState(null,'',engineHash);
     const proxy=$('vsaProxy'),audio=$('vsAudioWorkspace');
     if(proxy&&audio&&!audio.contains(proxy))audio.append(proxy);
     runtimeCards('vskRuntimeDetails');runtimeCards('vseDetails');
@@ -531,7 +543,8 @@
     // The old Omni initializer rewrites the hash before the other engines boot.
     // Restore only explicit engine deep links after all initializers have run.
     const restoreEngine = () => {
-      const id={'#vs-kokoro':'vsEngineKokoro','#vs-edge':'vsEngineEdge','#vs-audio':'vsEngineAudio'}[initialEngineHash];
+      const targetHash = /^\/audio-downloader\/?$/.test(location.pathname) ? '#vs-audio' : initialEngineHash;
+      const id={'#vs-kokoro':'vsEngineKokoro','#vs-edge':'vsEngineEdge','#vs-audio':'vsEngineAudio'}[targetHash];
       const button=id&&$(id);if(button&&button.getAttribute('aria-selected')!=='true')button.click();
     };
     if(document.readyState==='complete')restoreEngine();
