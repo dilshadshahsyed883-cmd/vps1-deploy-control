@@ -52,7 +52,9 @@ def browser_acceptance():
             page.locator('#vsKokoroWorkspace').get_by_role('button',name='System',exact=True).click()
             expect(page.locator('#vskRuntimeDetails dl')).to_be_visible()
             assert page.locator('#vsKokoroWorkspace').bounding_box()['x']==left
-            page.get_by_role('tab',name='Audio Downloader',exact=True).click()
+            if width < 761:
+                page.locator('.vps1-native-toggle').click()
+            page.locator('#vps1-native-site-sidebar nav a[href="/song-studio/"]').click()
             page.get_by_role('button',name='Proxy Settings',exact=True).click()
             expect(page.locator('#vsaProxy')).to_be_visible()
             page.locator('#vsaProxyName').fill('Unsaved local profile')
@@ -64,7 +66,9 @@ def browser_acceptance():
             expect(page.locator('[data-vps1-tab="production"]')).to_have_class('engine-tab active')
             expect(page.locator('#omniProductionPanel')).to_be_visible()
             expect(page.locator('#page-gpu')).not_to_be_visible()
-            page.get_by_role('tab',name='Audio Downloader',exact=True).click()
+            if width < 761:
+                page.locator('.vps1-native-toggle').click()
+            page.locator('#vps1-native-site-sidebar nav a[href="/song-studio/"]').click()
             page.get_by_role('button',name='Proxy Settings',exact=True).click()
             expect(page.locator('#vsaProxyName')).to_have_value('Unsaved local profile')
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth'),(width,'overflow')

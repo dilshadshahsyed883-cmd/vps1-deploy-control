@@ -194,8 +194,9 @@
     const current = app === "uploader" || app === "stream" ? "upload" :
       app === "acs" ? "video" : app === "library" ? "experiment" :
       app === "voice" && window.location?.hash === "#vs-audio" ? "song" : "voice";
-    const voiceLink = addPrimaryLinks(navigation, current).voice;
-    const songLink = Array.from(navigation.children).find(link => link.href === "/song-studio/");
+    const primaryLinks = addPrimaryLinks(navigation, current);
+    const voiceLink = primaryLinks.voice;
+    const songLink = primaryLinks.song;
     const selectVoiceOrSong = () => {
       if (app !== "voice") return;
       const inSong = document.body.classList.contains("vs-audio-active");

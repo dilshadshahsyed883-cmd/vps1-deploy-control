@@ -52,7 +52,8 @@ class UniversalSidebarContracts(unittest.TestCase):
         for marker in links:
             self.assertEqual(src.count(marker), 1, marker)
         self.assertIn("addPrimaryLinks(navigation, current)", src)
-        self.assertIn("const voiceLink = addPrimaryLinks(navigation, current).voice;", src)
+        self.assertIn("const voiceLink = primaryLinks.voice;", src)
+        self.assertIn("const songLink = primaryLinks.song;", src)
         self.assertIn("installLegacySidebar()", src)
         self.assertIn("const isCanonical =", src)
         self.assertNotIn('["Auto Script",', src)
