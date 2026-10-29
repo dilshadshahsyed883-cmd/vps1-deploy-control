@@ -1998,6 +1998,31 @@ def dashboard(request: Request):
         return persistent_workspace(request)
     return templates.TemplateResponse("dashboard.html", {"request":request,"page":"dashboard","username":request.session.get("username","team")})
 
+# SONG_STUDIO_NAV_V1: Keep existing downloader engine, independent app slots.
+@app.get("/song-studio/")
+@app.get("/song-studio/audio-downloader/")
+def song_studio_audio_downloader(request: Request):
+    """Use the existing Voice service without copying engines or queue state."""
+    require_login(request)
+    return RedirectResponse("/voice-studio/app#vs-audio", status_code=303)
+
+
+@app.get("/song-studio/{studio_app}/", response_class=HTMLResponse)
+def song_studio_app_slot(request: Request, studio_app: str):
+    """Reserved separate app surfaces; no nonfunctional upload controls."""
+    require_login(request)
+    names = {"song-maker": "Song Maker", "song-uploader": "Song Uploader"}
+    if studio_app not in names:
+        raise HTTPException(status_code=404, detail="Unknown Song Studio application")
+    return templates.TemplateResponse("song_studio_placeholder.html", {
+        "request": request,
+        "page": "song_studio",
+        "studio_app": studio_app,
+        "studio_name": names[studio_app],
+        "username": request.session.get("username", "team"),
+    })
+
+
 @app.get("/experiment-studio/")
 def experiment_studio_home(request: Request):
     """The Experiment Studio main tab opens its first independent subtab."""
