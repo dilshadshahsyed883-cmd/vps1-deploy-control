@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from .store import Store, ACTIVE, TERMINAL
 from .media import IMAGES, AUDIO, FORMATS, audio_duration, output_name, run
-from .drive import CONFIG, Drive, folder_ref, default_settings, enqueue_pair
+from .drive import CONFIG, Drive, folder_ref, default_settings, enqueue_pair, archive_eligible
 from .worker import capacity
 
 
@@ -208,7 +208,10 @@ def create_app(store=None):
         elif action == 'retry':
             if job['stage'] not in TERMINAL or job['stage'] == 'Completed' or job['lane']:
                 raise HTTPException(409, 'Job is not retryable')
-            store.update(job_id, stage='Ready to Upload' if job.get('valid') else 'Queued',
+            # A rendered Drive job that has not archived its input must resume
+            # the render lane to complete the safe /used move (without rerender).
+            archived = not archive_eligible(job) or job.get('archive_status') == 'Archived'
+            store.update(job_id, stage='Ready to Upload' if job.get('valid') and archived else 'Queued',
                          cancel=0, error='', drive_status='Pending')
         elif action == 'delete':
             if job['lane'] or job['stage'] not in TERMINAL:
