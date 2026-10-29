@@ -11,7 +11,7 @@ This change sits on the draft migration PR #7, not production main.
 - Kokoro standalone snapshot is not Voice Studio's deployable source tree.
   Snapshot edits flag a required source synchronization and suppress stale
   Voice Studio release artifacts; unknown IDs fail closed.
-- Auto Script is OFFLINE in this migration and cannot enter release/queue.
+- Auto Script is excluded from this *historical fresh-rebuild migration* release/queue, regardless of its independent existing runtime. It is ONLINE per owner (29 Oct 2026; PR #314).
 - A durable SQLite FIFO of deployment INTENTS with (app, commit) deduplication,
   one host-wide claimed request and strict terminal outcomes.
 - A new GitHub CI workflow builds the change plan, tests queue behavior and
