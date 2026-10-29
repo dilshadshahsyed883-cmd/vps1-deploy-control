@@ -159,7 +159,8 @@ def main():
                     if owner == '__default__':
                         continue
                     previous = store.record('sync', owner)
-                    due = settings.get('sync_requested') or (settings.get('auto_sync') and time.time()-previous.get('last_sync', 0) >= 60)
+                    # Five-minute automatic scan reduces provider polling 80%; manual Sync stays immediate.
+                    due = settings.get('sync_requested') or (settings.get('auto_sync') and time.time()-previous.get('last_sync', 0) >= 300)
                     if due:
                         settings.pop('sync_requested', None)
                         store.record('settings', owner, settings)
