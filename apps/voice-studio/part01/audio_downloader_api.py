@@ -123,8 +123,6 @@ def safe_folder(s: str, default='Untitled', maxlen=65) -> str:
 
 class BatchRequest(BaseModel):
     links: list[str] = Field(min_length=1, max_length=30)
-    project_name: str = Field(default='Audio Batch', max_length=90)
-    drive_folder: str = Field(default='YouTube Audio', max_length=90)
     format: Literal['mp3', 'wav'] = 'mp3'
     quality: Literal[128, 192, 256] = 192
     auto_upload: bool = True
@@ -182,8 +180,6 @@ def enqueue(payload: BatchRequest):
             ids.append(video_url(link))
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
-    project = safe_folder(payload.project_name, 'Audio Batch')
-    folder = safe_folder(payload.drive_folder, 'YouTube Audio')
     init_storage()
     batch_id = 'ADB-' + uuid.uuid4().hex[:12].upper()
     created = utc()
@@ -195,7 +191,7 @@ def enqueue(payload: BatchRequest):
                 jid = 'ADJ-' + uuid.uuid4().hex[:16].upper()
                 con.execute('''INSERT INTO jobs(job_id,batch_id,video_id,url,project,folder,format,quality,
                     auto_upload,keep_metadata,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)''',
-                    (jid, batch_id, video, url, project, folder, payload.format, payload.quality,
+                    (jid, batch_id, video, url, '', '', payload.format, payload.quality,
                      int(payload.auto_upload), int(payload.keep_metadata), 'queued', created, created))
                 jobs.append(jid)
             con.execute('COMMIT')
@@ -401,8 +397,8 @@ def run_job(job: dict):
     if not state['upload_ready']:
         raise RuntimeError('Google Drive connection unavailable')
     _update(jid, 'uploading')
-    remote = (f'{DRIVE_REMOTE}:{DRIVE_BASE}/'
-              f'{safe_folder(job["folder"])}/{safe_folder(job["project"])}/{final.name}')
+    # Flat Drive destination, including retries of legacy queued jobs.
+    remote = f'{DRIVE_REMOTE}:{DRIVE_BASE}/{final.name}'
     # An identical video ID must never overwrite an existing Drive object.
     cmd = [state['rclone'], '--config', RCLONE_CONFIG, 'copyto', str(final), remote, '--immutable',
            '--retries', '2', '--low-level-retries', '2', '--timeout', '5m', '--contimeout', '30s']

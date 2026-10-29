@@ -1,7 +1,7 @@
 """Disposable authorized yt-dlp test clip, using the exact deployed worker path.
 
-Runs as the Voice service owner. Never inserts into the owner queue. Only its
-own temporary media and uniquely named QA Drive file may be removed.
+Runs as the Voice service owner. Never inserts into the owner queue or writes
+into the shared flat Drive root; verifies audio extraction without upload.
 """
 import importlib.util
 import json
@@ -12,15 +12,6 @@ import subprocess
 import sys
 import tempfile
 import uuid
-
-
-def owns_qa_drive_file(remote, nonce, drive_remote, drive_base, safe_folder):
-    """Confirm exactly the disposable QA output; reject any owner file."""
-    if not isinstance(remote, str) or not isinstance(nonce, str):
-        return False
-    prefix = (f'{drive_remote}:{drive_base}/'
-              f'{safe_folder("__Audio_Proxy_QA__")}/{safe_folder(nonce)}/')
-    return remote == prefix + 'jNQXAC9IVRw.mp3'
 
 
 def proxy_disabled_report(report):
@@ -60,7 +51,7 @@ def main(source):
         jid = 'ADJ-' + nonce
         job = {'job_id': jid, 'video_id': 'jNQXAC9IVRw', 'url': 'https://www.youtube.com/watch?v=jNQXAC9IVRw',
                'format': 'mp3', 'quality': 128, 'keep_metadata': False,
-               'auto_upload': state['upload_ready'], 'folder': '__Audio_Proxy_QA__', 'project': nonce}
+               'auto_upload': False, 'folder': '', 'project': ''}
         # Capture only this synthetic job's state; the real queue is never opened.
         result = {}
         def update(_jid, status, **values):
@@ -70,19 +61,14 @@ def main(source):
         try:
             m.run_job(job)
             report['audio'] = 'PASS'
-            report['drive'] = 'PASS' if result.get('status') == 'delivered' else 'NOT_CONFIGURED'
+            # Flat shared output names cannot safely hold a disposable QA upload.
+            report['drive'] = 'NOT_TESTED_FLAT_ROOT'
             report['result'] = 'PASS' if report['proxy']['enabled'] else 'DIRECT_ONLY_PROXY_NOT_ENABLED'
         except Exception as exc:
             report['audio'] = 'PASS' if result.get('local_file') else 'NOT_VERIFIED'
             report['result'] = getattr(exc, 'code', 'DELIVERY_OR_RUNTIME_FAILURE')
             # No raw subprocess error, credentials, cookie contents or argv.
             report['reason'] = m._safe_proxy_error(str(exc)) if isinstance(exc, m.DownloadFailure) else 'Worker failed after stage ' + result.get('status', 'download')
-        finally:
-            remote = result.get('drive_path')
-            if result.get('status') == 'delivered' and owns_qa_drive_file(remote, nonce, m.DRIVE_REMOTE, m.DRIVE_BASE, m.safe_folder):
-                clean = subprocess.run([state['rclone'], '--config', m.RCLONE_CONFIG, 'deletefile', remote],
-                                       capture_output=True, timeout=60)
-                report['qa_remote_cleanup'] = 'PASS' if clean.returncode == 0 else 'PENDING'
         print(json.dumps(report, sort_keys=True))
         return 0 if report['result'] in ('PASS', 'DIRECT_ONLY_PROXY_NOT_ENABLED', 'YOUTUBE_AUTH_REQUIRED',
                                         'YOUTUBE_PROVIDER_CHALLENGE', 'YOUTUBE_RATE_LIMIT', 'YOUTUBE_ACCESS_DENIED',

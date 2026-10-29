@@ -172,7 +172,7 @@ body.vs-audio-active .enginebar,body.vs-audio-active section.page,body.vs-audio-
 #vsAudioWorkspace label{display:block;font-size:11px;font-weight:750;color:#344054;margin:12px 0 7px}
 #vsAudioWorkspace input[type=text],#vsAudioWorkspace textarea,#vsAudioWorkspace select{width:100%;display:block;border:1px solid #d0d5dd;background:#fff;border-radius:9px;padding:11px 12px;color:#101828;font:13px system-ui,sans-serif;margin-top:7px;min-height:40px}
 #vsAudioWorkspace textarea{resize:vertical;min-height:145px;line-height:1.45}
-#vsAudioWorkspace .vsa-three{display:grid;grid-template-columns:1.5fr .7fr .8fr;gap:12px}
+#vsAudioWorkspace .vsa-two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 #vsAudioWorkspace .vsa-actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:14px}
 #vsAudioWorkspace button{font:750 12px system-ui,sans-serif}
 #vsAudioWorkspace .vsa-primary{background:#635bdf;border:0;color:white;border-radius:9px;padding:12px 18px;cursor:pointer}
@@ -203,8 +203,8 @@ body.vs-audio-active .enginebar,body.vs-audio-active section.page,body.vs-audio-
 #vsAudioWorkspace .vsa-pill.delivered,#vsAudioWorkspace .vsa-pill.completed{background:#e7fbef;color:#067647}
 #vsAudioWorkspace .vsa-pill.failed{background:#fff1f3;color:#b42318}
 #vsAudioWorkspace .vsa-pill.downloading,#vsAudioWorkspace .vsa-pill.uploading{background:#eef4ff;color:#3538cd}
-@media(max-width:960px){ #vsAudioWorkspace .vsa-grid{grid-template-columns:1fr}#vsAudioWorkspace .vsa-three{grid-template-columns:1fr 1fr}#vsAudioWorkspace .vsa-three label:first-child{grid-column:1/-1}}
-@media(max-width:500px){ #vsAudioWorkspace .vsa-three{grid-template-columns:1fr}#vsAudioWorkspace .vsa-three label:first-child{grid-column:auto}#vsAudioWorkspace .vsa-heading{flex-wrap:wrap}}
+@media(max-width:960px){ #vsAudioWorkspace .vsa-grid{grid-template-columns:1fr}}
+@media(max-width:500px){ #vsAudioWorkspace .vsa-two{grid-template-columns:1fr}#vsAudioWorkspace .vsa-heading{flex-wrap:wrap}}
 
 </style>
 
@@ -425,20 +425,18 @@ body.vs-kokoro-active #vsOmniHeader,body.vs-edge-active #vsOmniHeader,body.vs-au
     <div class="vsa-grid">
       <div class="vsa-card">
         <h2>Download setup</h2><p class="vsa-note">Add up to 30 standard YouTube video links, one per line.</p>
-        <div class="vsa-three">
-          <label>Project / batch name<input id="vsaProject" type="text" maxlength="90" placeholder="Podcast Episodes - September" value="Audio Batch"></label>
+        <div class="vsa-two">
           <label>Audio format<select id="vsaFormat"><option value="mp3">MP3</option><option value="wav">WAV</option></select></label>
           <label>Quality<select id="vsaQuality"><option value="128">128 kbps</option><option value="192" selected>192 kbps</option><option value="256">256 kbps</option></select></label>
         </div>
         <label>YouTube links (one per line)<textarea id="vsaLinks" spellcheck="false" rows="7" placeholder="https://www.youtube.com/watch?v=XXXXXXXXXXX&#10;https://youtu.be/XXXXXXXXXXX"></textarea></label>
         <p class="vsa-hint">Supports standard YouTube video, Shorts and YouTube live-video links. Playlists and restricted/private content are not supported.</p>
-        <label>Google Drive subfolder<input id="vsaFolder" maxlength="90" value="YouTube Audio" placeholder="YouTube Audio"></label>
         <label class="vsa-check"><input id="vsaPermission" type="checkbox"> I confirm I have permission to download and use these videos.</label>
         <div class="vsa-actions"><button id="vsaSubmit" class="vsa-primary" type="button">Start download</button><button type="button" id="vsaClear" class="vsa-secondary">Clear links</button></div>
         <p id="vsaMessage" class="vsa-message" role="status" aria-live="polite">Ready for your links.</p>
       </div>
       <div class="vsa-right">
-        <div class="vsa-card"><h2>Google Drive destination</h2><p class="vsa-note">Files use a unique job ID to prevent overwriting previous downloads.</p><div class="vsa-path" id="vsaDrivePath">Google Drive / Audio Downloader / YouTube Audio / Audio Batch</div></div>
+        <div class="vsa-card"><h2>Google Drive destination</h2><p class="vsa-note">Audio filenames use the YouTube video ID. Existing different files cannot be overwritten.</p><div class="vsa-path" id="vsaDrivePath">Google Drive / Audio Downloader</div></div>
         <div class="vsa-card"><h2>Download options</h2>
           <label class="vsa-option"><input id="vsaUpload" type="checkbox" checked><span><strong>Auto upload after download</strong><small>Verify the file size on Google Drive after upload</small></span></label>
           <label class="vsa-option"><input type="checkbox" checked disabled><span><strong>Extract audio only</strong><small>Video files are not retained</small></span></label>
@@ -2151,8 +2149,7 @@ const api = async (url,options={}) => {
   return data;
 };
 const msg=(text,type='')=>{const el=$('vsaMessage');el.textContent=text;el.className='vsa-message'+(type?' '+type:'');};
-function sanitizeFolder(text){return (text||'').replace(/[^a-zA-Z0-9 _-]/g,'-').trim().slice(0,65)||'Untitled';}
-function drivePath(){$('vsaDrivePath').textContent='Google Drive / Audio Downloader / '+sanitizeFolder($('vsaFolder').value)+' / '+sanitizeFolder($('vsaProject').value);$('vsaOutput').textContent=$('vsaFormat').value.toUpperCase();}
+function drivePath(){$('vsaDrivePath').textContent='Google Drive / Audio Downloader';$('vsaOutput').textContent=$('vsaFormat').value.toUpperCase();}
 function tab(name){selected=name;for(const id of ['downloader','drive','queue','history','proxy']){$('vsa'+id[0].toUpperCase()+id.slice(1)).hidden=id!==name;}document.querySelectorAll('[data-vsa-section]').forEach(x=>x.setAttribute('aria-selected',String(x.dataset.vsaSection===name)));if(name==='queue'||name==='history')loadJobs();if(name==='drive')loadStatus();if(name==='proxy'&&typeof window.vsaProxyLoad==='function')window.vsaProxyLoad();}
 function choose(on){active=on;document.body.classList.toggle('vs-audio-active',on);$('vsAudioWorkspace').hidden=!on;$('vsEngineAudio').setAttribute('aria-selected',String(on));if(on){document.body.classList.remove('vs-edge-active','vs-kokoro-active');$('vsEdgeWorkspace').hidden=true;$('vsKokoroWorkspace').hidden=true;for(const id of ['vsEngineOmni','vsEngineKokoro','vsEngineEdge'])$(id).setAttribute('aria-selected','false');document.documentElement.dataset.vsEngine='audio-downloader';history.replaceState(null,'','#vs-audio');tab('downloader');loadStatus();loadJobs();if(!tick)tick=setInterval(()=>{if(active){loadStatus();loadJobs();}},6000);}else{if(tick){clearInterval(tick);tick=null;}}}
 function make(tag,text,klass){const node=document.createElement(tag);if(text!=null)node.textContent=String(text);if(klass)node.className=klass;return node;}
@@ -2180,7 +2177,7 @@ async function downloadViaSession(job, anchor, actions){
   const data=await response.blob();
   if(data.size<1024)throw new Error('Audio response was unexpectedly small.');
   const extension=job.format==='wav'?'wav':'mp3';
-  const filename=(String(job.title||job.video_id||'audio').replace(/[^a-zA-Z0-9._ -]/g,'_').replace(/^\.+|\.+$/g,'').slice(0,94)||'audio')+'.'+extension;
+  const filename=(String(job.video_id||'audio').replace(/[^a-zA-Z0-9_-]/g,'')||'audio')+'.'+extension;
   const objectURL=URL.createObjectURL(data),save=document.createElement('a');
   save.href=objectURL;save.download=filename;save.style.display='none';document.body.append(save);save.click();save.remove();
   setTimeout(()=>URL.revokeObjectURL(objectURL),60000);
@@ -2206,13 +2203,13 @@ function jobTable(jobs,limit){const wrap=make('div',null,'vsa-tablewrap'),table=
  if(!jobs.length){const empty=make('tr'),td=make('td','No audio jobs yet.');td.colSpan=6;empty.append(td);body.append(empty);}table.append(body);wrap.append(table);return wrap;}
 async function loadStatus(){try{const s=await api(root+'/'+'status');lastStatus=s;$('vsaReady').textContent=s.ready?'Downloader ready':'Downloader unavailable';$('vsaReady').classList.toggle('ready',!!s.ready);$('vsaWorker').textContent=s.worker?'Online':'Offline';$('vsaDriveState').textContent=s.upload_ready?'Connected':'Unavailable';$('vsaDriveSummary').textContent=s.upload_ready?'Google Drive configured.':'Drive upload unavailable. Check the worker configuration.';$('vsaCount').textContent=Object.values(s.queue||{}).reduce((a,n)=>a+Number(n||0),0)+' jobs';$('vsaSubmit').disabled=!s.ready;}catch(e){$('vsaReady').textContent='Downloader offline';$('vsaReady').classList.remove('ready');$('vsaWorker').textContent='Offline';$('vsaSubmit').disabled=true;$('vsaDriveSummary').textContent=e.message;}}
 async function loadJobs(){try{const r=await api(root+'/'+'jobs?limit=200');if(!Array.isArray(r.jobs))throw new Error('Invalid queue API response: jobs list missing');const jobs=r.jobs;const terminal=new Set(['completed','delivered','failed','cancelled']);const historyJobs=jobs.filter(j=>terminal.has(j.status));$('vsaRecent').replaceChildren(jobTable(jobs,5));$('vsaQueueRows').replaceChildren(jobTable(jobs,200));$('vsaHistoryRows').replaceChildren(jobTable(historyJobs,200));}catch(e){$('vsaRecent').textContent='Queue unavailable: '+e.message;$('vsaQueueRows').textContent='Queue unavailable: '+e.message;$('vsaHistoryRows').textContent='History unavailable: '+e.message;}}
-async function submit(){const btn=$('vsaSubmit');try{const links=$('vsaLinks').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);if(!links.length||links.length>30)throw new Error('Provide 1–30 YouTube video links.');if(!$('vsaPermission').checked)throw new Error('Confirm you have permission to download these videos.');btn.disabled=true;msg('Submitting audio download jobs…');const data=await api(root+'/'+'jobs',{method:'POST',body:JSON.stringify({links,project_name:$('vsaProject').value,drive_folder:$('vsaFolder').value,format:$('vsaFormat').value,quality:Number($('vsaQuality').value),auto_upload:$('vsaUpload').checked,keep_metadata:$('vsaMetadata').checked,permission_confirmed:$('vsaPermission').checked})});msg(data.created+' audio job(s) queued in batch '+data.batch_id,'ok');$('vsaLinks').value='';$('vsaPermission').checked=false;await loadJobs();tab('queue');}catch(e){msg(e.message,'error')}finally{btn.disabled=!(lastStatus&&lastStatus.ready);}}
+async function submit(){const btn=$('vsaSubmit');try{const links=$('vsaLinks').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);if(!links.length||links.length>30)throw new Error('Provide 1–30 YouTube video links.');if(!$('vsaPermission').checked)throw new Error('Confirm you have permission to download these videos.');btn.disabled=true;msg('Submitting audio download jobs…');const data=await api(root+'/'+'jobs',{method:'POST',body:JSON.stringify({links,format:$('vsaFormat').value,quality:Number($('vsaQuality').value),auto_upload:$('vsaUpload').checked,keep_metadata:$('vsaMetadata').checked,permission_confirmed:$('vsaPermission').checked})});msg(data.created+' audio job(s) queued.','ok');$('vsaLinks').value='';$('vsaPermission').checked=false;await loadJobs();tab('queue');}catch(e){msg(e.message,'error')}finally{btn.disabled=!(lastStatus&&lastStatus.ready);}}
 function boot(){if(!$('vsEngineAudio')||!$('vsAudioWorkspace'))return;
  $('vsEngineAudio').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();choose(true);},true);
  // Capture before legacy listeners switch engines, then let them handle their own state.
  for(const id of ['vsEngineOmni','vsEngineKokoro','vsEngineEdge'])$(id).addEventListener('click',()=>{if(active)choose(false);},true);
  document.querySelectorAll('[data-vsa-section]').forEach(b=>b.addEventListener('click',()=>tab(b.dataset.vsaSection)));
- for(const id of ['vsaFolder','vsaProject','vsaFormat'])$(id).addEventListener('input',drivePath);
+ $('vsaFormat').addEventListener('input',drivePath);
  $('vsaSubmit').addEventListener('click',submit);$('vsaClear').addEventListener('click',()=>{$('vsaLinks').value='';msg('Links cleared.');});
  for(const id of ['vsaRefreshMain','vsaRefreshQueue','vsaRefreshHistory'])$(id).addEventListener('click',loadJobs);
  drivePath();if(location.hash==='#vs-audio')choose(true);}
