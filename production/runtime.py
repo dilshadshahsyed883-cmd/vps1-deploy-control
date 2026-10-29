@@ -430,6 +430,10 @@ def install_app(app, revision):
             from production.voice_kokoro_worker_recovery import install as repair_kokoro_worker
             repair_kokoro_worker(revision)
             return
+        if '[vps1-audio-thumbnail-only]' in commit_message:
+            from production.audio_downloader_release import install as install_audio_thumbnail
+            install_audio_thumbnail(revision, restore_proxy=False, include_thumbnail=True)
+            return
         if '[vps1-audio-filename-only]' in commit_message:
             from production.audio_downloader_release import install as install_audio_filename
             install_audio_filename(revision, restore_proxy=False)
