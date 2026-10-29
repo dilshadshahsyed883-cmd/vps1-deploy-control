@@ -20,6 +20,7 @@ CURRENT = BASE / 'current/voice-studio'
 RELEASES = BASE / 'releases/voice-studio'
 UNIT = 'vps1-production-voice-studio.service'
 MODULE = Path('part01/audio_downloader_api.py')
+PAGE = Path('part01/templates/voice_studio.html')
 BUSY = ('queued', 'downloading', 'downloaded', 'processing', 'converting', 'uploading')
 
 
@@ -112,7 +113,30 @@ def smoke(target, environment):
     return value
 
 
-def install(revision, *, restore_proxy=True):
+def audio_thumbnail_overlay(installed: bytes, source: bytes) -> bytes:
+    """Copy ONLY Audio Downloader markup and controller, retaining other Voice UIs."""
+    regions = (
+        (b'<!-- AUDIO_DOWNLOADER_TAB_V1 -->', b'<!-- /AUDIO_DOWNLOADER_TAB_V1 -->'),
+        (b'<script id="audio-downloader-v1-js">', b'</script>'),
+    )
+    updated = installed
+    for begin, end in regions:
+        require(source.count(begin) == 1 and updated.count(begin) == 1,
+                'Audio Downloader source/installed region missing or duplicated')
+        start = source.index(begin)
+        stop = source.index(end, start) + len(end)
+        block = source[start:stop]
+        old_start = updated.index(begin)
+        old_stop = updated.index(end, old_start) + len(end)
+        updated = updated[:old_start] + block + updated[old_stop:]
+    require(updated.count(b'id="vsaThumbnail"') == 1 and
+            updated.count(b'download_thumbnail:') == 1,
+            'thumbnail browser control contract missing')
+    return updated
+
+
+def install(revision, *, restore_proxy=True, include_thumbnail=False):
+    require(not (restore_proxy and include_thumbnail), 'thumbnail overlay cannot restore proxy')
     require(len(revision) == 40 and all(c in '0123456789abcdef' for c in revision), 'invalid SHA')
     require(CURRENT.is_symlink(), 'unmanaged current Voice release')
     previous = CURRENT.resolve(strict=True)
@@ -128,7 +152,7 @@ def install(revision, *, restore_proxy=True):
     payload = source.read_bytes()
     ast.parse(payload)
     require(b'def youtube_execution' in payload, 'reviewed proxy implementation missing')
-    kind = 'audio-proxy-only' if restore_proxy else 'audio-filename-only'
+    kind = 'audio-thumbnail-only' if include_thumbnail else ('audio-proxy-only' if restore_proxy else 'audio-filename-only')
     target = RELEASES / (revision + '-' + kind)
     journal = BASE / 'transactions' / kind / revision
     require(not target.exists() and not journal.exists(), 'immutable release already exists')
@@ -162,12 +186,24 @@ def install(revision, *, restore_proxy=True):
         deno_new = ensure_audio_js(environment) if restore_proxy else False
         shutil.copytree(previous, target, symlinks=True)
         (target / MODULE).write_bytes(payload)
+        if include_thumbnail:
+            installed_page = previous / PAGE
+            source_page = REPO / 'apps/voice-studio' / PAGE
+            require(installed_page.is_file() and not installed_page.is_symlink() and
+                    source_page.is_file() and not source_page.is_symlink(),
+                    'Voice HTML not a trusted regular file')
+            html = audio_thumbnail_overlay(installed_page.read_bytes(), source_page.read_bytes())
+            (target / PAGE).write_bytes(html)
         manifest_file = target / '_production_manifest.json'
         require(manifest_file.is_file() and not manifest_file.is_symlink(), 'manifest missing')
         manifest = json.loads(manifest_file.read_text())
         require(manifest.get('app') == 'voice-studio' and str(MODULE) in manifest.get('files', {}), 'manifest identity invalid')
         manifest['files'][str(MODULE)] = hashlib.sha256(payload).hexdigest()
-        manifest.update(revision=revision, **{('audio_proxy_overlay' if restore_proxy else 'audio_filename_overlay'): str(previous)})
+        if include_thumbnail:
+            require(str(PAGE) in manifest.get('files', {}), 'Voice template not in release manifest')
+            manifest['files'][str(PAGE)] = hashlib.sha256(html).hexdigest()
+        overlay_name = 'audio_thumbnail_overlay' if include_thumbnail else ('audio_proxy_overlay' if restore_proxy else 'audio_filename_overlay')
+        manifest.update(revision=revision, **{overlay_name: str(previous)})
         atomic_json(manifest_file, manifest, 0o644)
         atomic_link(CURRENT, target)
         switched = True
@@ -176,7 +212,8 @@ def install(revision, *, restore_proxy=True):
         verify()
         result = smoke(target, environment)
         atomic_json(journal / 'result.json', {'state': 'ACTIVE', 'revision': revision, 'smoke': result})
-        event(app='voice-studio', result='PASS_AUDIO_PROXY_ONLY' if restore_proxy else 'PASS_AUDIO_FILENAME_ONLY', workers='PRESERVED', data='PRESERVED',
+        result_name = 'PASS_AUDIO_THUMBNAIL_ONLY' if include_thumbnail else ('PASS_AUDIO_PROXY_ONLY' if restore_proxy else 'PASS_AUDIO_FILENAME_ONLY')
+        event(app='voice-studio', result=result_name, workers='PRESERVED', data='PRESERVED',
               https='PASS', sqlite_backup='PASS', proxy_restore='ENABLED' if proxy_changed else 'UNCHANGED', smoke=result, rollback=str(journal))
     except BaseException:
         if proxy_changed:

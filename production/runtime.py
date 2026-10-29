@@ -330,6 +330,11 @@ def require_lum_release_idle(state: Path) -> None:
         ("engine2", 8016, "/local-upload-manager/modes/engine2/health", "lum2"),
         ("shorts", 8017, "/local-upload-manager/modes/shorts/health", "lum3"),
     )
+    # Song Uploader is optional on the first rollout; once installed it must
+    # pass the same idle checks before any shared uploader runtime restarts.
+    if ((state / "lum-song/core/data/uploader.db").exists() or
+            Path("/etc/systemd/system/vps1-production-lum-song-web.service").exists()):
+        modes += (("song", 8018, "/local-upload-manager/modes/song/health", "lum-song"),)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     in_flight = ("CLAIMED", "UPLOADING", "THUMBNAIL_UPLOADING",
                  "PROCESSING", "IN_PROGRESS", "WAITING_NETWORK")
@@ -429,6 +434,10 @@ def install_app(app, revision):
         if '[vps1-voice-kokoro-recovery-only]' in commit_message:
             from production.voice_kokoro_worker_recovery import install as repair_kokoro_worker
             repair_kokoro_worker(revision)
+            return
+        if '[vps1-audio-thumbnail-only]' in commit_message:
+            from production.audio_downloader_release import install as install_audio_thumbnail
+            install_audio_thumbnail(revision, restore_proxy=False, include_thumbnail=True)
             return
         if '[vps1-audio-filename-only]' in commit_message:
             from production.audio_downloader_release import install as install_audio_filename

@@ -2014,7 +2014,9 @@ def song_studio_app_slot(request: Request, studio_app: str):
     if studio_app == "song-uploader":
         # Dedicated authenticated uploader mode gateway; never proxy directly to loopback.
         return RedirectResponse("/local-upload-manager/modes/song/app?embedded=1&tab=dashboard", status_code=303)
-    names = {"song-maker": "Song Maker", "song-uploader": "Song Uploader"}
+    if studio_app == "song-maker":
+        return RedirectResponse("/song-maker/", status_code=303)
+    names = {"song-uploader": "Song Uploader"}
     if studio_app not in names:
         raise HTTPException(status_code=404, detail="Unknown Song Studio application")
     return templates.TemplateResponse("song_studio_placeholder.html", {
@@ -4580,7 +4582,7 @@ def auto_caption_auth(request: Request):
 # The Scene session cookie remains the single login source of truth. Nginx
 # overwrites identity headers from these response headers, never from clients.
 SCENE_SSO_APP_IDS = frozenset({
-    "short-maker", "short-stream", "self-media-library", "video-merger",
+    "short-maker", "short-stream", "self-media-library", "video-merger", "song-maker",
     "voice-studio", "auto-caption-studio", "local-upload-manager",
 })
 

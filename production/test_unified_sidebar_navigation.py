@@ -52,7 +52,8 @@ class UniversalSidebarContracts(unittest.TestCase):
         for marker in links:
             self.assertEqual(src.count(marker), 1, marker)
         self.assertIn("addPrimaryLinks(navigation, current)", src)
-        self.assertIn("const voiceLink = addPrimaryLinks(navigation, current).voice;", src)
+        self.assertIn("const voiceLink = primaryLinks.voice;", src)
+        self.assertIn("const songLink = primaryLinks.song;", src)
         self.assertIn("installLegacySidebar()", src)
         self.assertIn("const isCanonical =", src)
         self.assertNotIn('["Auto Script",', src)
@@ -91,7 +92,7 @@ class UniversalSidebarContracts(unittest.TestCase):
         css = SHELL_CSS.read_text(encoding="utf-8")
         slot = (SCENE / "templates/song_studio_placeholder.html").read_text(encoding="utf-8")
         self.assertIn('["Song Studio", "/song-studio/", "song"]', src)
-        self.assertIn('location.hash === "#vs-audio" ? "song" : "voice"', src)
+        self.assertIn('window.location?.hash === "#vs-audio" ? "song" : "voice"', src)
         self.assertIn('tabs.setAttribute("aria-label", "Song Studio")', src)
         for name in ("Audio Downloader", "Song Maker", "Song Uploader"):
             self.assertIn(f'addLink(tabs, "{name}"', src)
@@ -107,13 +108,14 @@ class UniversalSidebarContracts(unittest.TestCase):
         self.assertIn('@app.get("/song-studio/audio-downloader/")', scene)
         self.assertIn('RedirectResponse("/voice-studio/app#vs-audio", status_code=303)', scene)
         self.assertIn('@app.get("/song-studio/{studio_app}/", response_class=HTMLResponse)', scene)
-        self.assertIn('names = {"song-maker": "Song Maker", "song-uploader": "Song Uploader"}', scene)
+        self.assertIn('names = {"song-uploader": "Song Uploader"}', scene)
+        self.assertIn('return RedirectResponse("/song-maker/", status_code=303)', scene)
         self.assertIn('require_login(request)', scene)
         self.assertIn('Its processing service has not', slot)
 
     def test_library_uses_native_experiment_shell_with_five_independent_inner_tabs(self):
         source = SHELL_JS.read_text(encoding="utf-8")
-        self.assertIn('["acs", "voice", "uploader", "stream", "library"]', source)
+        self.assertIn('["acs", "voice", "uploader", "stream", "library", "song", "song-uploader"]', source)
         self.assertIn('app === "library" ? "experiment"', source)
         self.assertIn('experiment-studio|self-media-library', source)
         self.assertIn('if (app === "library")', source)

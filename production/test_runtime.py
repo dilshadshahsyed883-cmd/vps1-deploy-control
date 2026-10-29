@@ -90,6 +90,31 @@ class RuntimeTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'LUM_RELEASE_BLOCKED'):
                 runtime.require_lum_release_idle(Path(tmp))
 
+    def test_song_uploader_active_work_blocks_shared_release(self):
+        class Response:
+            status = 200
+            def __init__(self, mode): self.mode = mode
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+            def read(self, _):
+                return json.dumps({"ok": True, "engine_instance": self.mode,
+                                   "active_project_id": "song-in-flight" if self.mode == "song" else None}).encode()
+        class Opener:
+            def open(self, url, timeout):
+                mode = url.split("/modes/")[1].split("/")[0] if "/modes/" in url else "engine1"
+                return Response(mode)
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "lum-song/core/data/uploader.db"
+            database.parent.mkdir(parents=True)
+            with sqlite3.connect(database) as conn:
+                conn.execute("CREATE TABLE preserved(value TEXT)")
+                conn.execute("INSERT INTO preserved VALUES ('keep')")
+            with patch.object(runtime.urllib.request, "build_opener", return_value=Opener()):
+                with self.assertRaisesRegex(RuntimeError, "uploader song"):
+                    runtime.require_lum_release_idle(Path(tmp))
+            with sqlite3.connect(database) as conn:
+                self.assertEqual(conn.execute("SELECT value FROM preserved").fetchone(), ("keep",))
+
     def test_source_drift_rejected_without_overwriting_release(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(runtime, 'BASE', Path(tmp)):
             with patch('rebuild.fresh_vps.sources', return_value=[('part01/app.py', b'original')]):

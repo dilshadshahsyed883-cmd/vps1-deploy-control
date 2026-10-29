@@ -167,6 +167,55 @@ def verify_actual_short_maker_identity(browser, shell_js: str, shell_css: str,
     return errors
 
 
+
+def verify_song_navigation(browser, shell_js: str, shell_css: str) -> list[str]:
+    """Exercise the actual Voice page and same-document Song/Voice switch."""
+    html = (ROOT / "apps/voice-studio/part01/templates/voice_studio.html").read_text()
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    errors = []
+    origin = "https://app.scenebuilder.online"
+    try:
+        def route_request(route):
+            url = route.request.url
+            if url.split("?", 1)[0] == origin + "/voice-studio/app":
+                route.fulfill(content_type="text/html", body=html)
+            elif "/static/vps1_native_site_shell.js" in url:
+                route.fulfill(content_type="application/javascript", body=shell_js)
+            elif "/static/vps1_native_site_shell.css" in url:
+                route.fulfill(content_type="text/css", body=shell_css)
+            else:
+                route.fulfill(content_type="application/json", body=
+                    '{"authenticated":true,"is_admin":false,"username":"fixture",'
+                    '"jobs":[],"voices":[],"profiles":[],"counts":{}}')
+        context.route("**/*", route_request)
+        page = context.new_page()
+        page.goto(origin + "/voice-studio/app#vs-audio", wait_until="load")
+        page.locator('.vps1-native-song-tabs').wait_for(state="visible")
+        song = page.locator('#vps1-native-site-sidebar nav a[href="/song-studio/"]')
+        voice = page.locator('#vps1-native-site-sidebar nav a[href*="#vps1-production"]')
+        if song.get_attribute("aria-current") != "page":
+            errors.append("song-studio: initial Audio Downloader selection missing")
+        if page.locator('.vps1-native-song-tabs a').all_text_contents() != [
+                "Audio Downloader", "Song Maker", "Song Uploader"]:
+            errors.append("song-studio: independent app tabs missing")
+        page.evaluate("window.songNavigationSentinel = 1")
+        voice.click()
+        page.wait_for_function("!document.body.classList.contains('vs-audio-active')")
+        if voice.get_attribute("aria-current") != "page":
+            errors.append("song-studio: Voice Studio selection missing")
+        song.click()
+        page.locator('#vsAudioWorkspace').wait_for(state="visible")
+        if song.get_attribute("aria-current") != "page":
+            errors.append("song-studio: Song Studio selection missing after switch")
+        if page.evaluate("window.songNavigationSentinel") != 1:
+            errors.append("song-studio: switch reloaded the engine document")
+    except Exception as exc:
+        errors.append(f"song-studio: {type(exc).__name__}: {exc}")
+    finally:
+        context.close()
+    return errors
+
+
 def run(screenshots: Path | None) -> int:
     try:
         from playwright.sync_api import sync_playwright
@@ -187,6 +236,24 @@ def run(screenshots: Path | None) -> int:
             kwargs["executable_path"] = os.environ["VPS1_CHROMIUM_EXECUTABLE"]
         browser = pw.chromium.launch(**kwargs)
         try:
+            for workspace, selected in (("song", "Song Maker"), ("song-uploader", "Song Uploader")):
+                context = browser.new_context()
+                try:
+                    page = context.new_page()
+                    page.set_content(page_html("voice-studio"))
+                    page.evaluate("""([workspace, source]) => {
+                        const s = document.createElement('script');
+                        s.dataset.workspace = workspace; s.textContent = source;
+                        document.body.append(s);
+                    }""", [workspace, native_js])
+                    rails = page.locator('nav[aria-label="Song Studio"]')
+                    if rails.count() != 1 or rails.locator('a[aria-current="page"]').all_text_contents() != [selected]:
+                        errors.append(f"{workspace}: Song rail/selection mismatch")
+                    if page.locator('nav[aria-label="Video Studio"]').count():
+                        errors.append(f"{workspace}: unexpected Video Studio rail")
+                finally:
+                    context.close()
+            errors.extend(verify_song_navigation(browser, native_js, shell_css))
             errors.extend(verify_actual_short_maker_identity(
                 browser, native_js, shell_css, geometry_css))
             for width, height in VIEWPORTS:
@@ -215,7 +282,7 @@ def run(screenshots: Path | None) -> int:
                                     native_js)
                                 names = page.locator("#app-sidebar > nav > a").all_text_contents()
                                 if names != ["Dashboard", "Upload Studio", "Video Studio",
-                                             "Voice Studio", "Experiment Studio"]:
+                                             "Voice Studio", "Song Studio", "Experiment Studio"]:
                                     errors.append(f"{width}px {app}: sidebar drift {names!r}")
                             if app in NATIVE:
                                 workspace = {"auto-caption-studio": "acs",
@@ -259,8 +326,12 @@ def run(screenshots: Path | None) -> int:
                             if rect["height"] < 62 - TOLERANCE_PX:
                                 errors.append(f"{width}px {app}: rail height={rect['height']}")
                             if app in VIDEOS:
-                                if nav.locator("a").count() != 4:
-                                    errors.append(f"{width}px {app}: not four Video tabs")
+                                destinations = nav.locator("a").evaluate_all(
+                                    "links => links.map(link => link.getAttribute('href'))")
+                                expected = ["/scene-builder/", "/auto-caption-studio/",
+                                            "/short-maker/", "/video-merger/"]
+                                if destinations != expected:
+                                    errors.append(f"{width}px {app}: Video destinations {destinations!r}")
                             else:
                                 if nav.locator("a").count() != 2:
                                     errors.append(f"{width}px {app}: not two Upload tabs")
