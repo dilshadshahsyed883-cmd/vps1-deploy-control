@@ -63,11 +63,12 @@ class AudioThumbnailTests(unittest.TestCase):
             columns = {r[1] for r in db.execute("PRAGMA table_info(jobs)")}
         self.assertTrue({"download_thumbnail", "local_thumbnail",
                          "thumbnail_drive_path", "thumbnail_drive_url"}.issubset(columns))
+        self.m.BatchRequest.model_rebuild(_types_namespace=vars(self.m))
         with patch.object(self.m, "deps", return_value={"ready": True, "upload_ready": True}):
-            response = self.client.post("/tts/api/audio-downloader/jobs",
-                json={"links": ["https://youtu.be/" + VIDEO],
-                      "auto_upload": False, "permission_confirmed": True})
-        self.assertEqual(response.status_code, 201)
+            response = self.m.enqueue(self.m.BatchRequest(
+                links=["https://youtu.be/" + VIDEO], auto_upload=False,
+                permission_confirmed=True))
+        self.assertEqual(response["created"], 1)
         jobs = self.client.get("/tts/api/audio-downloader/jobs").json()["jobs"]
         self.assertFalse(jobs[0]["download_thumbnail"])
         self.assertIsNone(jobs[0]["thumbnail_url"])
@@ -76,12 +77,13 @@ class AudioThumbnailTests(unittest.TestCase):
         self.assertEqual(len(self.client.get("/tts/api/audio-downloader/jobs").json()["jobs"]), 1)
 
     def test_checkbox_on_persists_through_queue_and_retry(self):
+        self.m.BatchRequest.model_rebuild(_types_namespace=vars(self.m))
         with patch.object(self.m, "deps", return_value={"ready": True, "upload_ready": True}):
-            response = self.client.post("/tts/api/audio-downloader/jobs",
-                json={"links": ["https://youtu.be/" + VIDEO], "auto_upload": False,
-                      "download_thumbnail": True, "permission_confirmed": True})
-        self.assertEqual(response.status_code, 201)
-        jid = response.json()["job_ids"][0]
+            response = self.m.enqueue(self.m.BatchRequest(
+                links=["https://youtu.be/" + VIDEO], auto_upload=False,
+                download_thumbnail=True, permission_confirmed=True))
+        self.assertEqual(response["created"], 1)
+        jid = response["job_ids"][0]
         self.assertTrue(self.client.get("/tts/api/audio-downloader/jobs/" + jid).json()["download_thumbnail"])
         self.assertEqual(self.client.post("/tts/api/audio-downloader/jobs/" + jid + "/cancel").status_code, 200)
         self.assertEqual(self.client.post("/tts/api/audio-downloader/jobs/" + jid + "/retry").status_code, 200)
