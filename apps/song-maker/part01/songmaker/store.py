@@ -111,6 +111,22 @@ class Store:
                        (stage, lane, time.time(), row['id']))
         return self.get(row['id'])
 
+    def cancel_pending(self, owner):
+        """Atomically cancel only unclaimed pending jobs owned by this user.
+
+        Claim uses BEGIN IMMEDIATE too: a concurrent worker can either claim
+        the job first (and this operation leaves it running), or this operation
+        cancels it first. Never flip an active job's stage via a stale UI read.
+        """
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            cursor = db.execute(
+                "UPDATE jobs SET stage='Cancelled',cancel=1,updated=? "
+                "WHERE owner=? AND deleted=0 AND lane='' "
+                "AND stage IN ('Queued','Ready to Upload')",
+                (time.time(), owner))
+            return cursor.rowcount
+
     def recover(self, lane):
         # Called ONLY with the exclusive, lifetime OS lock for this lane held.
         # No expiring lease can steal work from a slow but still-live process.
