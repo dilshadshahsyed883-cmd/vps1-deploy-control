@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from .store import Store, ACTIVE, TERMINAL
 from .media import IMAGES, AUDIO, FORMATS, audio_duration, output_name, run
-from .drive import CONFIG, Drive, folder_id, enqueue_pair
+from .drive import CONFIG, Drive, folder_ref, default_settings, enqueue_pair
 from .worker import capacity
 
 
@@ -83,7 +83,7 @@ def create_app(store=None):
 
     @app.get('/song-maker/api/state')
     def state(user=Depends(principal)):
-        settings = store.record('settings', user['owner'])
+        settings = store.record('settings', user['owner']) or default_settings()
         return {'jobs': [public(j) for j in store.jobs(user['owner'])], 'settings': settings,
                 'sync': store.record('sync', user['owner']), 'admin': user['admin']}
 
@@ -104,9 +104,9 @@ def create_app(store=None):
             raise HTTPException(403, 'Administrator required')
         data = await request.json()
         try:
-            clean = {key: folder_id(str(data[key])) for key in ('image_folder', 'audio_folder', 'output_folder')}
-            if len(set(clean.values())) != 3:
-                raise ValueError('Input and output folders must be distinct')
+            clean = {key: folder_ref(str(data[key])) for key in ('image_folder', 'audio_folder', 'output_folder')}
+            if clean['output_folder'] in {clean['image_folder'], clean['audio_folder']}:
+                raise ValueError('Output folder must differ from the input folder')
             clean.update(remote=str(data['remote']), auto_sync=bool(data.get('auto_sync')),
                          resolution=data.get('resolution', '1080p'), fit=data.get('fit', 'fit'))
             if clean['resolution'] not in FORMATS or clean['fit'] not in {'fit', 'blur'}:
@@ -124,9 +124,7 @@ def create_app(store=None):
     def sync(user=Depends(principal)):
         if not user['admin']:
             raise HTTPException(403, 'Administrator required')
-        settings = store.record('settings', user['owner'])
-        if not settings:
-            raise HTTPException(409, 'Select Drive folders first')
+        settings = store.record('settings', user['owner']) or default_settings()
         settings['sync_requested'] = True
         store.record('settings', user['owner'], settings)
         return {'queued': True}
