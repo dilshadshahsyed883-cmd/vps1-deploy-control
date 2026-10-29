@@ -1,1 +1,121 @@
-.sm{max-width:1400px;margin:auto;padding:26px 34px;color:#e8edf7;font:14px system-ui}.sm h1{font-size:25px;margin:4px 0}.sm h2{font-size:17px;margin:0 0 16px}.sm p{line-height:1.6;color:#b9c7db}.sm .eyebrow{font-size:11px;letter-spacing:2px;color:#7bafff}.sm .tabs{display:flex;gap:8px;overflow-x:auto;margin:20px 0}.sm button,.sm input,.sm select{font:inherit;border:1px solid #40526e;border-radius:8px;background:#17243b;color:#f3f6fc;padding:11px;min-height:44px}.sm button{cursor:pointer;white-space:nowrap}.sm button:hover{border-color:#80adff}.sm button[aria-selected=true],.sm .primary{background:#2862cd;border-color:#528afb}.sm button:disabled{opacity:.5;cursor:wait}.sm :focus-visible{outline:3px solid #a9ceff;outline-offset:2px}.sm .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr));gap:18px}.sm .card{background:#111e33;border:1px solid #30415c;border-radius:12px;padding:20px;min-width:0}.sm label{display:block;margin:14px 0}.sm input:not([type=checkbox]),.sm select{display:block;width:100%;box-sizing:border-box;margin-top:7px}.sm input[type=checkbox]{min-height:auto}.sm #preview{max-width:100%;height:160px;object-fit:contain}.sm .metrics{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}.sm .metrics span{background:#17243b;padding:12px;border-radius:8px}.sm .tableWrap{overflow:auto}.sm table{border-collapse:collapse;width:100%;font-size:13px}.sm th,.sm td{text-align:left;padding:12px;border-bottom:1px solid #30415c;max-width:220px;overflow-wrap:anywhere}.sm th{color:#b9c7db}.sm td button{padding:7px;margin:2px;font-size:12px}.sm progress{width:100px;accent-color:#659aff}.sm video{width:100%;max-height:280px;background:#000;border-radius:8px}.sm a{color:#9ac3ff}.sm .actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.sm .muted{font-size:12px}.sm #notice{min-height:22px;color:#b6d3ff}.sm dialog{background:#111e33;color:#eef4ff;border:1px solid #40526e;border-radius:12px;max-width:80vw}.sm pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:60vh;overflow:auto}.sm [hidden]{display:none!important}@media(max-width:760px){.sm{padding:18px 14px}.sm .card{padding:15px}.sm .tabs button{font-size:12px}}@media(prefers-reduced-motion:reduce){.sm *{scroll-behavior:auto}}
+/* Song Studio UI parity (Audio Downloader + Song Uploader).
+   Scope all component rules to .sm; the shared site sidebar/rails stay owned by
+   vps1_native_site_shell.css. Never change render/queue/Drive behavior here. */
+:root{color-scheme:light}
+body{margin:0;background:#f5f7fb;color:#101828}
+.sm{
+  --sm-bg:#f5f7fb;--sm-card:#fff;--sm-text:#101828;--sm-muted:#667085;
+  --sm-line:#e4e7ec;--sm-input-line:#d0d5dd;--sm-brand:#635bdf;
+  --sm-brand-hover:#5148c8;--sm-brand-soft:#efedff;
+  --sm-shadow:0 6px 20px rgba(16,24,40,.035);
+  box-sizing:border-box;max-width:1400px;margin:0 auto;padding:26px 34px 42px;
+  color:var(--sm-text);font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+.sm *{box-sizing:border-box;min-width:0}
+.sm header{margin:3px 0 18px}
+.sm h1{margin:2px 0 5px;font-size:28px;line-height:1.25;font-weight:850;color:var(--sm-text)}
+.sm h2{margin:0 0 12px;font-size:16px;line-height:1.4;font-weight:800;color:var(--sm-text)}
+.sm p{color:var(--sm-muted);line-height:1.55;margin:8px 0 12px}
+.sm header>p:last-child{margin:0;font-size:13px}
+.sm .eyebrow{margin:0;color:var(--sm-brand);font-size:10px;font-weight:900;letter-spacing:.1em;text-transform:uppercase}
+.sm .muted{font-size:11px;color:var(--sm-muted)}
+/* Same light tab rail and active purple pill as Audio Downloader. */
+.sm .tabs{
+  display:flex;flex-wrap:nowrap;gap:7px;overflow-x:auto;
+  width:100%;margin:18px 0 16px;padding:5px;
+  background:var(--sm-card);border:1px solid var(--sm-line);
+  border-radius:12px;scrollbar-width:thin;
+}
+.sm button,.sm input,.sm select{font:inherit}
+.sm button{
+  min-height:38px;padding:9px 14px;background:#f2f4f7;
+  color:#344054;border:1px solid var(--sm-line);border-radius:9px;
+  font-size:12px;font-weight:750;cursor:pointer;white-space:nowrap;
+  transition:background-color .12s ease,border-color .12s ease;
+}
+.sm button:hover:not(:disabled){background:#e9eaf8;border-color:#c5c1f3;color:#35308a}
+.sm button:disabled{opacity:.5;cursor:not-allowed}
+.sm button.primary,.sm .tabs button[aria-selected="true"]{
+  background:var(--sm-brand);color:#fff;border-color:var(--sm-brand);
+}
+.sm button.primary:hover:not(:disabled),.sm .tabs button[aria-selected="true"]:hover{
+  background:var(--sm-brand-hover);border-color:var(--sm-brand-hover);color:#fff;
+}
+.sm .tabs button{flex:0 0 auto;background:transparent;border-color:transparent;padding:11px 16px}
+.sm .tabs button:hover:not([aria-selected="true"]){background:#f2f4f7;border-color:transparent}
+.sm :focus-visible{outline:3px solid #a5a0ff;outline-offset:2px}
+.sm input[type="checkbox"]{accent-color:var(--sm-brand);width:16px;height:16px;min-height:auto;vertical-align:middle}
+.sm .grid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr));gap:14px;
+}
+.sm .card{
+  min-width:0;background:var(--sm-card);border:1px solid var(--sm-line);
+  border-radius:14px;padding:19px;box-shadow:var(--sm-shadow);
+}
+.sm label{display:block;margin:12px 0 7px;color:#344054;font-size:12px;font-weight:700}
+.sm input:not([type="checkbox"]),.sm select{
+  display:block;width:100%;min-height:42px;margin-top:7px;
+  border:1px solid var(--sm-input-line);border-radius:9px;
+  background:#fff;color:var(--sm-text);padding:10px 12px;
+  font-size:13px;font-weight:400;
+}
+.sm input[type="file"]{padding:9px 10px;max-width:100%;overflow:hidden}
+.sm input[type="file"]::file-selector-button{
+  border:1px solid #d9d6fe;border-radius:7px;background:#f2f0ff;
+  color:#5148c8;padding:7px 10px;margin-right:12px;cursor:pointer;
+  font:750 12px Inter,system-ui,sans-serif;
+}
+.sm input:focus,.sm select:focus{border-color:#aaa7f4}
+.sm #preview{
+  display:block;max-width:100%;height:170px;width:100%;object-fit:contain;
+  border:1px solid var(--sm-line);border-radius:9px;background:#f8f9fc;
+}
+.sm #audioInfo{font-size:11px;overflow-wrap:anywhere}
+.sm details{margin-top:15px;padding-top:12px;border-top:1px solid var(--sm-line)}
+.sm summary{color:#5148c8;cursor:pointer;font-weight:750}
+.sm .metrics{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.sm .metrics span{
+  flex:1 1 155px;background:#fff;border:1px solid var(--sm-line);border-radius:11px;
+  box-shadow:var(--sm-shadow);padding:12px 14px;font-size:12px;font-weight:750;color:#344054;
+}
+.sm #pairList>div{padding:10px 0;border-bottom:1px solid #eef0f4;overflow-wrap:anywhere}
+.sm #pairList>div:last-child{border-bottom:0}
+.sm #pairList>div p:first-child{color:var(--sm-text);font-weight:750}
+.sm #pairList select{max-width:360px}
+.sm #pairList button{margin:8px 0}
+.sm .tableWrap{
+  width:100%;overflow-x:auto;background:#fff;border:1px solid var(--sm-line);
+  border-radius:14px;box-shadow:var(--sm-shadow);
+}
+.sm table{border-collapse:collapse;width:100%;min-width:960px;font-size:12px}
+.sm th,.sm td{text-align:left;padding:12px 10px;border-bottom:1px solid #eef0f4;max-width:240px;overflow-wrap:anywhere;vertical-align:middle}
+.sm th{background:#fafbfe;color:var(--sm-muted);font-size:11px;font-weight:800;white-space:nowrap}
+.sm tbody tr:last-child td{border-bottom:0}
+.sm tbody tr:hover{background:#fafbfe}
+.sm td button{min-height:32px;padding:6px 9px;margin:2px;font-size:11px}
+.sm progress{width:100px;max-width:100%;accent-color:var(--sm-brand)}
+.sm video{display:block;width:100%;max-height:280px;background:#101828;border-radius:9px}
+.sm a{color:#5148c8;font-weight:700}
+.sm a:hover{color:#35308a}
+.sm .actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
+.sm #notice{min-height:0;margin:0;color:#5148c8}
+.sm #notice:not(:empty){
+  margin:0 0 14px;padding:10px 12px;border:1px solid #d9d6fe;
+  border-radius:9px;background:#f7f6ff;font-size:12px;overflow-wrap:anywhere;
+}
+.sm dialog{
+  background:#fff;color:var(--sm-text);border:1px solid var(--sm-line);
+  border-radius:14px;box-shadow:0 16px 50px rgba(16,24,40,.16);
+  max-width:min(680px,calc(100vw - 28px));max-height:85dvh;padding:20px;
+}
+.sm dialog::backdrop{background:rgba(16,24,40,.45)}
+.sm pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:60vh;overflow:auto;font-size:12px;color:#344054}
+.sm [hidden]{display:none!important}
+@media(max-width:760px){
+  .sm{padding:18px 14px 32px}
+  .sm .card{padding:15px}
+  .sm .tabs{gap:4px}
+  .sm .tabs button{padding:10px 12px;font-size:12px}
+  .sm h1{font-size:24px}
+}
+@media(prefers-reduced-motion:reduce){.sm button{transition:none}}
