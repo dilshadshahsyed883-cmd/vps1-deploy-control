@@ -553,17 +553,8 @@ def upload_downloaded(job: dict, final: Path, thumbnail: Path | None, state: dic
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=1500, check=False)
         if result.returncode:
             raise RuntimeError('Google Drive upload failed; automatic retry scheduled')
-        stat = subprocess.run([state['rclone'], '--config', RCLONE_CONFIG, 'lsjson', '--stat', destination],
-                              capture_output=True, text=True, timeout=120, check=False)
-        if stat.returncode:
-            raise RuntimeError('Upload verification unavailable')
-        try:
-            info = json.loads(stat.stdout)
-            size = int(info['Size'])
-        except (ValueError, KeyError, TypeError) as exc:
-            raise RuntimeError('Could not verify Drive destination size') from exc
-        if size != source.stat().st_size:
-            raise RuntimeError('Drive uploaded file size differs from local file')
+        # Avoid a duplicate remote metadata query: the authoritative verifier
+        # checks remote size/MD5, public link and anonymous file bytes.
         return verified_drive_public_link(destination, source, fmt)
 
     # An audio already verified in a previous attempt is never uploaded twice.

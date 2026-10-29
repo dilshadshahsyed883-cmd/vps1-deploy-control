@@ -123,7 +123,7 @@ class AudioThumbnailTests(unittest.TestCase):
                 self.m.run_job(self.job(thumb=True))
 
     def test_drive_pair_is_verified_and_immutable_before_local_cleanup(self):
-        copies, verified = [], []
+        copies, verified, redundant_stats = [], [], []
         def execute(args, **kw):
             if args[0] == "/fake/yt-dlp":
                 return self.fake_download(args, **kw)
@@ -131,6 +131,7 @@ class AudioThumbnailTests(unittest.TestCase):
                 copies.append(args)
                 return subprocess.CompletedProcess(args, 0, "", "")
             if "lsjson" in args:
+                redundant_stats.append(args)
                 remote = args[-1]
                 size = len(JPG) if remote.endswith(".jpg") else len(MP3)
                 return subprocess.CompletedProcess(args, 0, json.dumps({"Size": size}), "")
@@ -151,6 +152,7 @@ class AudioThumbnailTests(unittest.TestCase):
             "gdrive:Song Studio/Audio downloader/" + VIDEO + ".mp3",
             "gdrive:Song Studio/Audio downloader/" + VIDEO + ".jpg"])
         self.assertTrue(all("--immutable" in args for args in copies))
+        self.assertEqual(redundant_stats, [])  # Only the authoritative verifier queries Drive.
         self.assertEqual([x[2] for x in verified], ["mp3", "jpg"])
         self.assertEqual(next(st for st, kw in updates if st == "delivered"), "delivered")
         self.assertEqual(next(kw for st, kw in updates if st == "delivered" and "thumbnail_drive_path" in kw)["thumbnail_drive_path"], "gdrive:Song Studio/Audio downloader/" + VIDEO + ".jpg")
