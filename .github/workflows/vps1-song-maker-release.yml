@@ -1,5 +1,7 @@
 name: VPS1 Song Maker guarded release
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       operation:
@@ -14,7 +16,13 @@ concurrency:
   cancel-in-progress: false
 jobs:
   deploy:
-    if: github.ref == 'refs/heads/main' && github.actor == 'dilshadshahsyed883-cmd'
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'dilshadshahsyed883-cmd' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'push' && github.run_attempt == 1 &&
+        contains(github.event.head_commit.message, '[vps1-song-maker-update-release]') &&
+        contains(github.event.head_commit.message, '[vps1-song-maker-only]')))
     environment: production
     runs-on: ubuntu-24.04
     timeout-minutes: 20
