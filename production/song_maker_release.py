@@ -400,6 +400,29 @@ def main(operation,revision):
             path=TRANSACTIONS/revision/'previous.json'
             require(path.is_file(),'rollback journal absent')
             previous=json.loads(path.read_text())
+            if previous.get('kind') == 'update':
+                require(CURRENT.is_symlink() and CURRENT.resolve().name == revision,
+                        'Song Maker revision drift blocks update rollback')
+                for lane in LANES:
+                    require((ROOT/unit_name(lane)).read_text() == unit(lane,revision),
+                            'Song Maker service drift blocks rollback')
+                submission=STATE/'state/submission.lock'
+                require(submission.is_file() and not submission.is_symlink(),
+                        'Song Maker submission lock missing')
+                try:
+                    run(['systemctl','stop',unit_name('sync')],quiet=True)
+                    with submission.open('a') as admission:
+                        fcntl.flock(admission, fcntl.LOCK_EX|fcntl.LOCK_NB)
+                        require_idle_jobs(STATE/'state/jobs.sqlite3')
+                        evidence=restore_update(previous)
+                        atomic_json(TRANSACTIONS/revision/'result.json',
+                                    {'revision':revision,'kind':'update',
+                                     'state':'MANUAL_ROLLBACK_DATA_PRESERVED',
+                                     'evidence':evidence})
+                except BaseException:
+                    run(['systemctl','start',unit_name('sync')],quiet=True)
+                    raise
+                return
             require(SCENE_CURRENT.resolve().name==revision+'-song-maker-shell','Scene drift blocks rollback')
             require(SITE.read_text()==previous['site'].replace(MARKER,INCLUDE+MARKER,1),'Nginx drift blocks rollback')
             restore(previous)
