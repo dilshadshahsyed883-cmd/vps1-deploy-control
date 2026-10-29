@@ -50,7 +50,7 @@ def main():
                         for tab in ('pairs','queue','output','input'):
                             page.locator(f'[data-tab="{tab}"]').click()
                             assert page.locator('#'+tab).is_visible()
-                        assert page.locator('nav[aria-label="Video Studio"] a[href="/song-maker/"]').count()==1
+                        assert page.locator('nav[aria-label="Song Studio"] a[href="/song-studio/song-maker/"]').count()==1
                     page.locator('input[name="image"]').set_input_files(root/'image.png')
                     page.locator('input[name="audio"]').set_input_files(root/'Voice name.wav')
                     page.locator('#manual select[name="resolution"]').select_option('720p')

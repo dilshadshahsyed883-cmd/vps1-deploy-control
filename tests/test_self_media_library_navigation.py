@@ -33,9 +33,9 @@ class ExperimentNavigation(unittest.TestCase):
         m.feed(page)
         scripts=[attrs for tag,attrs in m.tags if tag=="script" and attrs.get("data-workspace")=="library"]
         self.assertEqual(len(scripts),1)
-        self.assertEqual(scripts[0].get("src"),"/static/vps1_native_site_shell.js?v=20261025-auto-script-nav-v1")
+        self.assertEqual(scripts[0].get("src"),"/static/vps1_native_site_shell.js?v=20261025-auto-script-nav-v1&song=20261029")
         styles=[attrs.get("href") for tag,attrs in m.tags if tag=="link"]
-        self.assertIn("/static/vps1_native_site_shell.css?v=20261020-experiment-ui-v5",styles)
+        self.assertIn("/static/vps1_native_site_shell.css?v=20261020-experiment-ui-v5&song=20261029",styles)
         self.assertIn("/self-media-library/static/styles.css", [p.split("?", 1)[0] for p in styles])
         self.assertIn("/self-media-library/static/sml_shared_theme.css?v=20261022-queue-fullwidth-v1",styles)
         scripts_all=[attrs.get("src") for tag,attrs in m.tags if tag=="script"]

@@ -29,12 +29,14 @@
     ["Upload Studio", "/local-upload-manager", "upload"],
     ["Video Studio", "/scene-builder/", "video"],
     ["Voice Studio", "/voice-studio/app#vps1-production", "voice"],
+    ["Song Studio", "/song-studio/", "song"],
     ["Experiment Studio", "/experiment-studio/", "experiment"]
   ]);
   const activeKeyForPath = (pathname) => {
     if (/^\/(local-upload-manager|auto-stream)(\/|$)/.test(pathname)) return "upload";
-    if (/^\/(scene-builder|video-studio|auto-caption-studio|short-maker|song-maker|video-merger|queue|settings|audit-media)(\/|$)/.test(pathname)) return "video";
-    if (/^\/voice-studio(\/|$)/.test(pathname)) return "voice";
+    if (/^\/(scene-builder|video-studio|auto-caption-studio|short-maker|video-merger|queue|settings|audit-media)(\/|$)/.test(pathname)) return "video";
+    if (/^\/(song-studio|song-maker|song-uploader)(\/|$)/.test(pathname)) return "song";
+    if (/^\/voice-studio(\/|$)/.test(pathname)) return window.location.hash === "#vs-audio" ? "song" : "voice";
     if (/^\/(experiment-studio|self-media-library|auto-script)(\/|$)/.test(pathname)) return "experiment";
     if (/^\/(admin|storage-manager|user-management)(\/|$)/.test(pathname)) return "admin";
     if (pathname === "/" || pathname === "/dashboard") return "dashboard";
@@ -51,8 +53,6 @@
     const rail = document.querySelector?.('nav[aria-label="Video Studio"]');
     if (!rail || rail.dataset.videoAligned) return;
     rail.dataset.videoAligned = "1";
-    if (!rail.querySelector('a[href="/song-maker/"]'))
-      addLink(rail, "Song Maker", "/song-maker/", location.pathname.startsWith("/song-maker/"));
     const current = location.pathname.replace(/\/$/, "");
     for (const link of rail.querySelectorAll("a")) {
       const destination = (link.getAttribute("href") || "").split(/[?#]/)[0].replace(/\/$/, "");
@@ -192,8 +192,20 @@
     navigation.setAttribute("aria-label", "Applications");
     // Native pages and legacy Video Studio documents use the same menu.
     const current = app === "uploader" || app === "stream" ? "upload" :
-      (app === "acs" || app === "song") ? "video" : app === "library" ? "experiment" : "voice";
-    const voiceLink = addPrimaryLinks(navigation, current).voice;
+      app === "song" ? "song" : app === "acs" ? "video" : app === "library" ? "experiment" :
+      app === "voice" && window.location?.hash === "#vs-audio" ? "song" : "voice";
+    const primaryLinks = addPrimaryLinks(navigation, current);
+    const voiceLink = primaryLinks.voice;
+    const songLink = primaryLinks.song;
+    const selectVoiceOrSong = () => {
+      if (app !== "voice") return;
+      const inSong = document.body.classList.contains("vs-audio-active");
+      for (const [link, selected] of [[voiceLink, !inSong], [songLink, inSong]]) {
+        link.classList.toggle("active", selected);
+        if (selected) link.setAttribute("aria-current", "page");
+        else link.removeAttribute("aria-current");
+      }
+    };
     if (app === "voice") {
       // A click on the already-open Voice Studio must not reload its large
       // document or restart voice engines, queues, and ongoing audio previews.
@@ -203,8 +215,26 @@
             event.ctrlKey || event.metaKey || event.shiftKey || event.altKey ||
             typeof window.vps1VoiceStudioTab !== "function") return;
         event.preventDefault();
+        if (document.body.classList.contains("vs-audio-active")) {
+          document.getElementById("vsEngineOmni")?.click();
+        }
         window.vps1VoiceStudioTab("production");
+        selectVoiceOrSong();
       });
+    }
+
+    if (app === "voice") {
+      songLink.addEventListener("click", event => {
+        if (event.defaultPrevented || (event.button !== undefined && event.button !== 0) ||
+            event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+        const audioEngine = document.getElementById("vsEngineAudio");
+        if (!audioEngine) return;
+        event.preventDefault();
+        audioEngine.click();
+        selectVoiceOrSong();
+      });
+      window.addEventListener("vps1:voice-engine-changed", selectVoiceOrSong);
+      window.addEventListener("hashchange", selectVoiceOrSong);
     }
 
     // All native app screens use the live Scene session role; no local-app
@@ -289,7 +319,17 @@
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) refreshIdentity();
     });
-    if (app === "acs" || app === "song") {
+    if (app === "voice" || app === "song") {
+      const tabs = node("nav", "vps1-native-video-tabs vps1-native-song-tabs");
+      tabs.dataset.vps1Component = "studio-tabs";
+      tabs.setAttribute("aria-label", "Song Studio");
+      addLink(tabs, "Audio Downloader", "/song-studio/audio-downloader/", app === "voice");
+      addLink(tabs, "Song Maker", "/song-studio/song-maker/", app === "song");
+      addLink(tabs, "Song Uploader", "/song-studio/song-uploader/", false);
+      toggle.after(tabs);
+      selectVoiceOrSong();
+    }
+    if (app === "acs") {
       const tabs = node("nav", "vps1-native-video-tabs");
       tabs.dataset.vps1Component = "studio-tabs";
       tabs.setAttribute("aria-label", "Video Studio");
@@ -298,7 +338,6 @@
       else addLink(tabs, "Auto Caption Studio", "/auto-caption-studio/", false);
       addLink(tabs, "Short Maker", "/short-maker/", false);
       addLink(tabs, "Video Merger", "/video-merger/", false);
-      addLink(tabs, "Song Maker", "/song-maker/", app === "song");
       toggle.after(tabs);
       alignVideoTabs();
     }

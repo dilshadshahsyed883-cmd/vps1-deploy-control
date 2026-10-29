@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ studio_name }}{% endblock %}
+{% block subtitle %}Song Studio · Independent application{% endblock %}
+{% block content %}
+<section class="song-studio-app-slot" aria-label="{{ studio_name }}">
+  <div style="max-width:740px;padding:24px;background:#fff;border:1px solid #e0e5ef;border-radius:14px">
+    <h2 style="margin:0 0 10px;font-size:20px">{{ studio_name }}</h2>
+    <p style="color:#475467;line-height:1.6;margin:0">
+      This app has its own reserved Song Studio tab. Its processing service has not
+      been deployed yet, so no upload or rendering job can be submitted from this screen.
+    </p>
+    <p style="color:#667085;font-size:13px;margin:16px 0 0">
+      Existing Audio Downloader and Voice Studio jobs remain unchanged.
+    </p>
+  </div>
+</section>
+{% endblock %}
