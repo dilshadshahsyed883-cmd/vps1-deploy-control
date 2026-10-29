@@ -66,7 +66,7 @@ def digest(path, algorithm='sha256'):
     return h.hexdigest()
 
 
-def run(command, cancelled=lambda: False, progress=None, timeout=7200):
+def run(command, cancelled=lambda: False, progress=None, timeout=7200, telemetry=None):
     # Temporary files avoid pipe deadlocks and unbounded in-memory FFmpeg logs.
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
         proc = subprocess.Popen(command, stdout=out, stderr=err, start_new_session=True)
@@ -83,6 +83,13 @@ def run(command, cancelled=lambda: False, progress=None, timeout=7200):
                     times = re.findall(r'out_time_us=(\d+)', chunk)
                     if times:
                         progress(int(times[-1])/1_000_000)
+                    if telemetry:
+                        fps = re.findall(r'(?:^|\n)fps=\s*([0-9.]+)', chunk)
+                        speeds = re.findall(r'(?:^|\n)speed=\s*([0-9.]+)x', chunk)
+                        if fps or speeds:
+                            telemetry({'fps': float(fps[-1]) if fps else None,
+                                       'speed': float(speeds[-1]) if speeds else None,
+                                       'seconds': int(times[-1])/1_000_000 if times else None})
                 time.sleep(.15)
             out.seek(0)
             stdout = out.read().decode('utf-8', errors='replace')
@@ -131,7 +138,7 @@ def validate(path, duration, cancelled=lambda: False):
     return {'duration': duration, 'size': Path(path).stat().st_size, 'md5': digest(path, 'md5')}
 
 
-def render(image, audio, output, temporary, resolution='1080p', fit='fit', cancelled=lambda: False, progress=None):
+def render(image, audio, output, temporary, resolution='1080p', fit='fit', cancelled=lambda: False, progress=None, telemetry=None):
     if resolution not in FORMATS or fit not in {'fit', 'blur'}:
         raise ValueError('Unsupported output options')
     duration = audio_duration(audio)
@@ -150,7 +157,7 @@ def render(image, audio, output, temporary, resolution='1080p', fit='fit', cance
          '-tune', 'stillimage', '-crf', '20', '-threads', '2', '-pix_fmt', 'yuv420p',
          '-c:a', 'aac', '-b:a', '192k', '-t', str(duration), '-shortest',
          '-movflags', '+faststart', '-progress', 'pipe:1', str(partial)],
-        cancelled, progress, max(120, duration*8))
+        cancelled, progress, max(120, duration*8), telemetry=telemetry)
     if output.exists():
         raise RuntimeError('Local output collision')
     partial.replace(output)
