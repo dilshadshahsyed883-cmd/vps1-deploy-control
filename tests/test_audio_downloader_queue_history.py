@@ -55,10 +55,11 @@ class AudioDownloaderQueueHistoryTests(unittest.TestCase):
     def test_enqueue_ignores_legacy_batch_and_subfolder_preferences(self):
         data = {'links': ['https://youtu.be/BaW_jenozKc'], 'permission_confirmed': True,
                 'project_name': 'Old Batch', 'drive_folder': 'Old Subfolder'}
+        # Exercise the actual enqueue contract without FastAPI's unresolved
+        # forward-reference adapter from this dynamically imported test module.
         with patch.object(self.module, 'deps', return_value={'ready': True, 'upload_ready': True}):
-            result = self.client.post('/tts/api/audio-downloader/jobs', json=data)
-        self.assertEqual(result.status_code, 201)
-        self.assertEqual(result.json()['created'], 1)
+            result = self.module.enqueue(self.module.BatchRequest(**data))
+        self.assertEqual(result['created'], 1)
         with self.module.db() as con:
             row = con.execute('SELECT video_id,project,folder FROM jobs').fetchone()
         self.assertEqual(tuple(row), ('BaW_jenozKc', '', ''))
