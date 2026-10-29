@@ -139,8 +139,8 @@ class DriveUploadSchedulingTests(unittest.TestCase):
                     json.dumps({"Size": len(JPG) if dest.endswith(".jpg") else len(MP3)}), "")
             self.fail("Unexpected command: " + repr(args))
         state = {"upload_ready": True, "rclone": "/fake/rclone"}
-        with patch.object(self.m, "deps", return_value=state), \\
-             patch.object(self.m.subprocess, "run", side_effect=subprocess_run), \\
+        with patch.object(self.m, "deps", return_value=state), \
+             patch.object(self.m.subprocess, "run", side_effect=subprocess_run), \
              patch.object(self.m, "verified_drive_public_link",
                           return_value="https://drive.google.com/file/d/123456789012/view?usp=sharing"):
             with self.assertRaisesRegex(RuntimeError, "automatic retry"):
