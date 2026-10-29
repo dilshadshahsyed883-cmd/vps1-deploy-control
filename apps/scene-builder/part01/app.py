@@ -4552,7 +4552,7 @@ def auto_caption_auth(request: Request):
 # The Scene session cookie remains the single login source of truth. Nginx
 # overwrites identity headers from these response headers, never from clients.
 SCENE_SSO_APP_IDS = frozenset({
-    "short-maker", "short-stream", "self-media-library", "video-merger",
+    "short-maker", "short-stream", "self-media-library", "video-merger", "song-maker",
     "voice-studio", "auto-caption-studio", "local-upload-manager",
 })
 

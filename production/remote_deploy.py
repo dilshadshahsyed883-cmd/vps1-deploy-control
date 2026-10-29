@@ -40,6 +40,9 @@ def main():
     elif selected == STORAGE_BACKEND_APP:
         if operation not in STORAGE_BACKEND_OPERATIONS:
             raise ValueError('Storage Manager requires dedicated backend operation')
+    elif selected == 'song-maker':
+        if operation not in {'install', 'rollback'}:
+            raise ValueError('Song Maker requires dedicated release operation')
     elif selected != 'all' and selected not in APPS:
         raise ValueError('application not allowed')
     if operation.startswith('nginx-route-') and selected in {'all', 'scene-builder'}:
@@ -77,6 +80,12 @@ def main():
         # Dedicated lane: preserve the existing candidate unit, environment and state.
         subprocess.run(['/usr/bin/python3', '-m', 'production.storage_backend_release',
                         operation, '--revision', revision], cwd=checkout, check=True)
+        return
+    if selected == 'song-maker':
+        # Independent new app lane; never rebuild the general production gateway.
+        subprocess.run(['/usr/bin/python3', '-c',
+                        'import sys; from production.song_maker_release import main; main(sys.argv[1],sys.argv[2])',
+                        operation, revision], cwd=checkout, check=True)
         return
     if operation.startswith('nginx-route-'):
         # No application restart, gateway reconstruction, queue or database touch.
