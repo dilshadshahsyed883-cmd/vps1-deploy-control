@@ -193,9 +193,9 @@
     // Native pages and legacy Video Studio documents use the same menu.
     const current = app === "uploader" || app === "stream" ? "upload" :
       app === "acs" ? "video" : app === "library" ? "experiment" :
-      app === "voice" && location.hash === "#vs-audio" ? "song" : "voice";
+      app === "voice" && window.location?.hash === "#vs-audio" ? "song" : "voice";
     const voiceLink = addPrimaryLinks(navigation, current).voice;
-    const songLink = navigation.querySelector('a[href="/song-studio/"]');
+    const songLink = Array.from(navigation.children).find(link => link.href === "/song-studio/");
     const selectVoiceOrSong = () => {
       if (app !== "voice") return;
       const inSong = document.body.classList.contains("vs-audio-active");
