@@ -191,7 +191,7 @@ class AudioProxyTests(unittest.TestCase):
         self.assertIn('--immutable', args)
         self.assertEqual(Path(args[args.index('copyto') + 1]).name, 'BaW_jenozKc.mp3')
         self.assertEqual(args[args.index('copyto') + 2],
-                         'gdrive:Audio Downloader/Music/Test/BaW_jenozKc.mp3')
+                         'gdrive:Audio Downloader/BaW_jenozKc.mp3')
         self.assertEqual(updates[0][1]['title'], 'Test Title _BaW_jenozKc')
         self.assertEqual(updates[-1][0], 'delivered')
 
