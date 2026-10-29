@@ -46,6 +46,8 @@ body.vps1-native-site{padding-left:var(--vps1-sidebar-width,214px)!important;bac
 /* Audio Downloader keeps its existing engine and queue, but is reached via Song Studio. */
 body.vps1-native-voice:not(.vs-audio-active) .vps1-native-song-tabs{display:none!important}
 body.vps1-native-voice #vsEngineAudio{display:none!important}
+/* Remove the foreign Voice selector only while Song Studio Audio Downloader is active. */
+body.vps1-native-voice.vs-audio-active .vs-engine-selector{display:none!important}
 .vps1-song-studio-tabs a{display:inline-flex;align-items:center}
 body.vps1-native-voice .vps3-main-sidebar{display:none!important}
 body.vps1-native-voice .vps3-layout{display:block!important;min-height:auto!important}
