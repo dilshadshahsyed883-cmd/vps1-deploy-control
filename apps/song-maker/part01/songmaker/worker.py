@@ -62,9 +62,32 @@ def process(store, job, lane, shutdown=lambda: False, drive_factory=Drive):
             output = outputs / job['local_name']
             # A crash after rename but before DB commit must validate/reuse the MP4.
             if not output.exists():
-                store.update(job_id, stage='Rendering', duration=duration, progress=5, error='')
+                started = time.monotonic()
+                last_progress = [0.0]
+                def render_progress(seconds):
+                    now = time.monotonic()
+                    if now-last_progress[0] >= .7 or seconds >= duration:
+                        store.update(job_id, progress=min(84, 5+int(seconds/duration*79)),
+                                     rendered_seconds=min(seconds, duration),
+                                     render_elapsed=round(now-started, 1))
+                        last_progress[0] = now
+                last_telemetry = [0.0]
+                def render_telemetry(stats):
+                    now = time.monotonic()
+                    if now-last_telemetry[0] < 1.0:
+                        return
+                    speed, seconds = stats.get('speed'), stats.get('seconds')
+                    eta = (max(0.0, duration-seconds)/speed
+                           if speed and speed > 0 and seconds is not None else None)
+                    store.update(job_id, render_fps=stats.get('fps'), render_speed=speed,
+                                 render_eta=round(eta, 1) if eta is not None else None,
+                                 render_elapsed=round(now-started, 1))
+                    last_telemetry[0] = now
+                store.update(job_id, stage='Rendering', duration=duration, progress=5,
+                             render_fps=None, render_speed=None, render_eta=None,
+                             render_elapsed=0, rendered_seconds=0, error='')
                 render(image, audio, output, temp, job.get('resolution', '1080p'), job.get('fit', 'fit'),
-                       cancelled, lambda seconds: store.update(job_id, progress=min(84, 5+int(seconds/duration*79))))
+                       cancelled, render_progress, telemetry=render_telemetry)
             store.update(job_id, stage='Validating MP4', progress=86)
             result = validate(output, duration, cancelled)
             if cancelled():
