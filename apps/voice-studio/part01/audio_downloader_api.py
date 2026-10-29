@@ -18,7 +18,7 @@ import subprocess
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -40,10 +40,16 @@ router = APIRouter(prefix='/tts/api/audio-downloader', tags=['Voice Studio Audio
 VIDEO_ID = re.compile(r'^[a-zA-Z0-9_-]{11}$')
 JOB_ID = re.compile(r'^ADJ-[A-F0-9]{16}$')
 _worker: threading.Thread | None = None
+UPLOAD_GAP_SECONDS = 60
+UPLOAD_RETRY_SECONDS = 180
 
 
 def utc() -> str:
     return datetime.now(timezone.utc).isoformat(timespec='seconds')
+
+
+def utc_after(seconds: int) -> str:
+    return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat(timespec='seconds')
 
 
 @contextmanager
@@ -82,15 +88,37 @@ def init_storage() -> None:
         columns = {col[1] for col in con.execute('PRAGMA table_info(jobs)').fetchall()}
         for name, sql_type in (('download_thumbnail', 'INTEGER NOT NULL DEFAULT 0'),
                                ('local_thumbnail', 'TEXT'), ('thumbnail_drive_path', 'TEXT'),
-                               ('thumbnail_drive_url', 'TEXT')):
+                               ('thumbnail_drive_url', 'TEXT'), ('next_retry_at', 'TEXT'),
+                               ('upload_retry_count', 'INTEGER NOT NULL DEFAULT 0')):
             if name not in columns:
                 con.execute(f'ALTER TABLE jobs ADD COLUMN {name} {sql_type}')
+        con.execute('''CREATE TABLE IF NOT EXISTS audio_upload_pacing (
+            id INTEGER PRIMARY KEY CHECK (id=1), next_upload_at TEXT NOT NULL
+        )''')
 
 
 def recover_interrupted_jobs() -> None:
-    # Only at application startup; do not mark actively processing jobs failed on API requests.
+    # Only on startup: keep completed downloads and their verified Drive receipts.
+    # Failed/in-flight uploads resume from local media without touching YouTube.
     with db() as con:
-        con.execute("UPDATE jobs SET status='failed',error='Interrupted by service restart; retry manually',updated_at=? WHERE status IN ('downloading','uploading')", (utc(),))
+        con.execute('BEGIN IMMEDIATE')
+        # Old terminal Drive failures with a preserved local audio also qualify.
+        rows = con.execute("""SELECT job_id,local_file,video_id,format,auto_upload,status FROM jobs
+            WHERE status IN ('downloading','downloaded','uploading')
+               OR (status='failed' AND auto_upload=1 AND local_file IS NOT NULL)""").fetchall()
+        for row in rows:
+            local = Path(row['local_file']) if row['local_file'] else None
+            expected = (JOBS / row['job_id'] / (row['video_id'] + '.' + row['format'])).resolve()
+            if (row['auto_upload'] and row['status'] != 'downloading' and local
+                    and local.resolve() == expected and local.is_file()):
+                con.execute("""UPDATE jobs SET status='upload_retry',next_retry_at=?,
+                    error='Upload interrupted; automatic retry scheduled',updated_at=?
+                    WHERE job_id=?""", (utc_after(UPLOAD_RETRY_SECONDS), utc(), row['job_id']))
+            elif row['status'] != 'failed':
+                con.execute("""UPDATE jobs SET status='failed',next_retry_at=NULL,
+                    error='Interrupted or local audio unavailable; retry manually',updated_at=?
+                    WHERE job_id=?""", (utc(), row['job_id']))
+        con.execute('COMMIT')
 
 
 def video_url(value: str) -> tuple[str, str]:
@@ -175,7 +203,8 @@ def status():
             'formats': ['mp3', 'wav'], 'quality': [128, 192, 256],
             'download_contract': 'explicit-proxy-private-session-v2',
             'proxy': proxy_runtime_status(), 'youtube_session': cookie_status(),
-            'retry_policy': 'manual after terminal failure; bounded transport retries only',
+            'retry_policy': 'upload-only automatic retry every 180s; 60s between verified audio uploads',
+            'upload_gap_seconds': UPLOAD_GAP_SECONDS, 'upload_retry_seconds': UPLOAD_RETRY_SECONDS,
             'queue': {v['status']: v['n'] for v in q}, 'worker': bool(_worker and _worker.is_alive())}
 
 
@@ -244,10 +273,10 @@ def job_action(job_id: str, action: Literal['cancel', 'retry']):
     init_storage()
     row = row_for(job_id)
     with db() as con:
-        if action == 'cancel' and row['status'] == 'queued':
-            con.execute("UPDATE jobs SET status='cancelled',updated_at=? WHERE job_id=? AND status='queued'", (utc(), job_id))
+        if action == 'cancel' and row['status'] in ('queued', 'upload_retry'):
+            con.execute("UPDATE jobs SET status='cancelled',next_retry_at=NULL,updated_at=? WHERE job_id=? AND status IN ('queued','upload_retry')", (utc(), job_id))
         elif action == 'retry' and row['status'] in ('failed', 'cancelled'):
-            con.execute("UPDATE jobs SET status='queued',error=NULL,started_at=NULL,completed_at=NULL,updated_at=? WHERE job_id=? AND status IN ('failed','cancelled')", (utc(), job_id))
+            con.execute("UPDATE jobs SET status='queued',error=NULL,next_retry_at=NULL,upload_retry_count=0,started_at=NULL,completed_at=NULL,updated_at=? WHERE job_id=? AND status IN ('failed','cancelled')", (utc(), job_id))
         else:
             raise HTTPException(409, 'Action not available for this job status')
     return {'job_id': job_id, 'action': action, 'ok': True}
@@ -284,7 +313,7 @@ def download_thumbnail(job_id: str):
 def _update(jid: str, new_state: str, **kwargs):
     columns = ['status=?', 'updated_at=?']
     values: list = [new_state, utc()]
-    for key in ('title', 'local_file', 'local_thumbnail', 'drive_path', 'drive_url', 'thumbnail_drive_path', 'thumbnail_drive_url', 'error', 'started_at', 'completed_at'):
+    for key in ('title', 'local_file', 'local_thumbnail', 'drive_path', 'drive_url', 'thumbnail_drive_path', 'thumbnail_drive_url', 'error', 'started_at', 'completed_at', 'next_retry_at', 'upload_retry_count'):
         if key in kwargs:
             columns.append(key + '=?')
             values.append(kwargs[key])
@@ -296,13 +325,23 @@ def _update(jid: str, new_state: str, **kwargs):
 def _claim():
     with db() as con:
         con.execute('BEGIN IMMEDIATE')
-        row = con.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created_at,job_id LIMIT 1").fetchone()
+        # Due uploads get priority over fresh YouTube downloads.
+        row = con.execute("""SELECT * FROM jobs
+            WHERE (status='upload_retry' AND next_retry_at<=?) OR status='queued'
+            ORDER BY CASE WHEN status='upload_retry' THEN 0 ELSE 1 END,
+                CASE WHEN status='upload_retry' THEN next_retry_at ELSE created_at END,job_id
+            LIMIT 1""", (utc(),)).fetchone()
         if not row:
             con.execute('COMMIT')
             return None
-        con.execute("UPDATE jobs SET status='downloading',started_at=?,updated_at=? WHERE job_id=?", (utc(), utc(), row['job_id']))
+        resume = row['status'] == 'upload_retry'
+        new_state = 'uploading' if resume else 'downloading'
+        con.execute("UPDATE jobs SET status=?,started_at=?,updated_at=? WHERE job_id=?",
+                    (new_state, utc(), utc(), row['job_id']))
         con.execute('COMMIT')
-    return dict(row)
+    job = dict(row)
+    job['_resume_upload'] = resume
+    return job
 
 
 def verified_drive_public_link(remote: str, local_path=None, expected_format='mp3') -> str:
@@ -378,6 +417,54 @@ def verified_drive_public_link(remote: str, local_path=None, expected_format='mp
     return canonical
 
 
+def _wait_for_audio_upload_slot() -> None:
+    """Persisted across restarts; the next audio starts after the previous verified upload."""
+    while True:
+        with db() as con:
+            row = con.execute('SELECT next_upload_at FROM audio_upload_pacing WHERE id=1').fetchone()
+        if not row:
+            return
+        remaining = (datetime.fromisoformat(row['next_upload_at']) - datetime.now(timezone.utc)).total_seconds()
+        if remaining <= 0:
+            return
+        time.sleep(min(3, remaining))
+
+
+def _record_audio_upload() -> None:
+    with db() as con:
+        con.execute("""INSERT INTO audio_upload_pacing(id,next_upload_at) VALUES(1,?)
+            ON CONFLICT(id) DO UPDATE SET next_upload_at=excluded.next_upload_at""",
+            (utc_after(UPLOAD_GAP_SECONDS),))
+
+
+def _schedule_upload_retry(jid: str, error: Exception) -> None:
+    # Never re-download an audio file after a Drive-only failure.
+    with db() as con:
+        row = con.execute('SELECT * FROM jobs WHERE job_id=?', (jid,)).fetchone()
+    if row and row['status'] in ('uploading', 'downloaded'):
+        local = Path(row['local_file']) if row['local_file'] else None
+        expected = (JOBS / jid / (row['video_id'] + '.' + row['format'])).resolve()
+        if local and local.resolve() == expected and local.is_file():
+            _update(jid, 'upload_retry', error=_safe_proxy_error(str(error))[:420],
+                    next_retry_at=utc_after(UPLOAD_RETRY_SECONDS),
+                    upload_retry_count=int(row['upload_retry_count']) + 1)
+            return
+    _update(jid, 'failed', error=_safe_proxy_error(str(error))[:420], next_retry_at=None)
+
+
+def resume_upload(job: dict) -> None:
+    """Retry the saved local file and any missing thumbnail without yt-dlp."""
+    jid = job['job_id']
+    local = JOBS / jid / (job['video_id'] + '.' + job['format'])
+    if not job.get('local_file') or Path(job['local_file']).resolve() != local.resolve() or not local.is_file():
+        raise RuntimeError('Downloaded audio no longer available; manual retry required')
+    thumbnail = JOBS / jid / (job['video_id'] + '.jpg') if job.get('download_thumbnail') else None
+    if thumbnail and (not job.get('local_thumbnail') or
+                      Path(job['local_thumbnail']).resolve() != thumbnail.resolve() or not thumbnail.is_file()):
+        raise RuntimeError('Downloaded thumbnail no longer available; manual retry required')
+    upload_downloaded(job, local, thumbnail, deps())
+
+
 def run_job(job: dict):
     jid = job['job_id']
     video_id = job['video_id']
@@ -444,12 +531,16 @@ def run_job(job: dict):
     if not job['auto_upload']:
         _update(jid, 'completed', completed_at=utc())
         return
-    if not state['upload_ready']:
+    upload_downloaded(job, final, thumbnail, state)
+
+
+def upload_downloaded(job: dict, final: Path, thumbnail: Path | None, state: dict) -> None:
+    jid = job['job_id']
+    if not state.get('upload_ready'):
         raise RuntimeError('Google Drive connection unavailable')
     _update(jid, 'uploading')
 
-    # User files are saved directly in Google Drive / Song Studio / Audio downloader.
-    # Release smoke uses a unique private QA namespace to protect user content.
+    # Existing flat destination, immutable filename, and QA nonce segregation.
     base = f'{DRIVE_REMOTE}:{DRIVE_BASE}/'
     if job.get('folder') == '__Audio_Proxy_QA__' and re.fullmatch(r'[A-F0-9]{16}', job.get('project', '')):
         base += safe_folder(job['folder']) + '/' + safe_folder(job['project']) + '/'
@@ -461,7 +552,7 @@ def run_job(job: dict):
                '--contimeout', '30s']
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=1500, check=False)
         if result.returncode:
-            raise RuntimeError('Google Drive upload failed; retry available')
+            raise RuntimeError('Google Drive upload failed; automatic retry scheduled')
         stat = subprocess.run([state['rclone'], '--config', RCLONE_CONFIG, 'lsjson', '--stat', destination],
                               capture_output=True, text=True, timeout=120, check=False)
         if stat.returncode:
@@ -475,12 +566,24 @@ def run_job(job: dict):
             raise RuntimeError('Drive uploaded file size differs from local file')
         return verified_drive_public_link(destination, source, fmt)
 
-    public_url = upload_file(final, remote, audio_format)
+    # An audio already verified in a previous attempt is never uploaded twice.
+    if job.get('drive_path') == remote and job.get('drive_url'):
+        public_url = job['drive_url']
+    else:
+        _wait_for_audio_upload_slot()
+        public_url = upload_file(final, remote, job['format'])
+        _record_audio_upload()
+        _update(jid, 'uploading', drive_path=remote, drive_url=public_url)
     thumb_remote = base + thumbnail.name if thumbnail else None
-    thumb_public_url = upload_file(thumbnail, thumb_remote, 'jpg') if thumbnail else None
+    if thumbnail and job.get('thumbnail_drive_path') == thumb_remote and job.get('thumbnail_drive_url'):
+        thumb_public_url = job['thumbnail_drive_url']
+    else:
+        thumb_public_url = upload_file(thumbnail, thumb_remote, 'jpg') if thumbnail else None
+        if thumbnail:
+            _update(jid, 'uploading', thumbnail_drive_path=thumb_remote, thumbnail_drive_url=thumb_public_url)
     _update(jid, 'delivered', drive_path=remote, drive_url=public_url,
             thumbnail_drive_path=thumb_remote, thumbnail_drive_url=thumb_public_url,
-            completed_at=utc())
+            completed_at=utc(), next_retry_at=None, error=None)
     # Delete local files only after BOTH uploads pass size, hash and public-byte checks.
     for local in (final, thumbnail):
         if local is None:
@@ -499,9 +602,12 @@ def worker_loop():
             item = _claim()
             if item:
                 try:
-                    run_job(item)
+                    if item.get('_resume_upload'):
+                        resume_upload(item)
+                    else:
+                        run_job(item)
                 except Exception as exc:
-                    _update(item['job_id'], 'failed', error=_safe_proxy_error(str(exc))[:420])
+                    _schedule_upload_retry(item['job_id'], exc)
             else:
                 time.sleep(3)
         except Exception:
