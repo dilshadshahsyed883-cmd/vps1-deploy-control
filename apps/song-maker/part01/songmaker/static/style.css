@@ -113,11 +113,31 @@ body{margin:0;background:#f5f7fb;color:#101828}
 .sm dialog::backdrop{background:rgba(16,24,40,.45)}
 .sm pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:60vh;overflow:auto;font-size:12px;color:#344054}
 .sm [hidden]{display:none!important}
+/* Song Maker mobile: all three studio destinations and all four workspace tabs
+   stay fully visible without an invisible horizontal-scroll affordance.  This
+   override is app-scoped; the separate Audio Downloader/Uploader are untouched. */
 @media(max-width:760px){
+  body.vps1-native-site > .vps1-native-song-tabs{
+    display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));
+    align-items:stretch!important;gap:5px!important;
+    padding:7px!important;overflow-x:hidden!important;white-space:normal!important;
+  }
+  body.vps1-native-site > .vps1-native-song-tabs > a{
+    width:100%!important;min-width:0!important;min-height:49px!important;
+    padding:7px 4px!important;white-space:normal!important;
+    text-align:center!important;overflow-wrap:break-word;
+    font-size:11px!important;line-height:1.25!important;
+  }
   .sm{padding:18px 14px 32px}
   .sm .card{padding:15px}
-  .sm .tabs{gap:4px}
-  .sm .tabs button{padding:10px 12px;font-size:12px}
+  .sm .tabs{
+    display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:5px;overflow-x:visible;white-space:normal;
+  }
+  .sm .tabs button{
+    width:100%;min-width:0;min-height:46px;
+    padding:9px 7px;font-size:12px;line-height:1.25;white-space:normal;
+  }
   .sm h1{font-size:24px}
 }
 @media(prefers-reduced-motion:reduce){.sm button{transition:none}}
