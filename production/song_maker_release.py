@@ -6,6 +6,8 @@ Persistent databases, credentials and render workers are never replaced.
 """
 from __future__ import annotations
 import hashlib
+import fcntl
+import sqlite3
 import json
 import os
 from pathlib import Path
@@ -196,6 +198,117 @@ def verify_shared_shell(installed: bytes, reviewed: bytes) -> None:
             'shared shell drift; reconcile before overlay')
 
 
+def require_idle_jobs(database):
+    """Fail closed if a render, upload, pending item or worker claim exists."""
+    require(database.is_file() and not database.is_symlink(),
+            'Song Maker database missing or untrusted')
+    with sqlite3.connect('file:' + str(database) + '?mode=ro', uri=True) as db:
+        require(db.execute('PRAGMA quick_check').fetchone()[0] == 'ok',
+                'Song Maker database integrity failed')
+        pending = db.execute(
+            "SELECT 1 FROM jobs WHERE deleted=0 AND "
+            "(lane != '' OR stage NOT IN ('Completed','Failed','Cancelled',"
+            "'Waiting for Drive','Needs Attention')) LIMIT 1").fetchone()
+        require(pending is None, 'active or queued Song Maker work; leave production unchanged')
+
+
+def restore_update(previous):
+    """Update rollback touches only the Song Maker pointer and its four units."""
+    for lane in LANES:
+        subprocess.run(['systemctl', 'stop', unit_name(lane)], check=False,
+                       capture_output=True)
+    atomic_link(CURRENT, previous['current'])
+    for lane in LANES:
+        name = unit_name(lane)
+        (ROOT/name).write_text(previous['units'][lane])
+    run(['systemctl', 'daemon-reload'], quiet=True)
+    for lane in LANES:
+        if previous['active'][lane]:
+            run(['systemctl', 'start', unit_name(lane)], quiet=True)
+    return verify()
+
+
+def update_existing(revision):
+    """Idle-fenced app-only upgrade; state, Scene, Nginx and other workers stay put."""
+    require(CURRENT.is_symlink(), 'Song Maker has no owned install')
+    old = CURRENT.resolve(strict=True)
+    require(old.is_relative_to(BASE/'releases'/APP) and
+            re.fullmatch(r'[a-f0-9]{40}', old.name),
+            'installed Song Maker release not owned')
+    require(SNIPPET.is_file() and not SNIPPET.is_symlink() and
+            SNIPPET.read_text() == route_config(),
+            'Song Maker route drift')
+    require(SITE.is_file() and not SITE.is_symlink() and
+            SITE.read_text().count(INCLUDE) == 1,
+            'Song Maker site route drift')
+    require((CONFIG/'production-song-maker.env').is_file(),
+            'Song Maker environment missing')
+    units = {lane: (ROOT/unit_name(lane)).read_text() for lane in LANES}
+    for lane in LANES:
+        require(units[lane] == unit(lane,old.name),
+                'Song Maker service drift: '+lane)
+    require(old.name != revision, 'already installed; refusing redundant restart')
+    release = stage(revision)
+    venv = BASE/'venvs'/APP/revision
+    run(['python3','-m','venv',venv],quiet=True)
+    run([venv/'bin/pip','install','--no-cache-dir','-r',
+         release/'part01/requirements.txt','httpx==0.28.1'],timeout=600,quiet=True)
+    # Disposable real FFmpeg/API/Drive-fake tests before touching live services.
+    run([venv/'bin/python','-m','unittest','discover','-s','tests',
+         '-p','test_song_maker.py'],cwd=REPO,timeout=240,quiet=True)
+    previous = {'kind':'update','current':str(old), 'units':units,
+                'active':{lane:subprocess.run(
+                    ['systemctl','is-active','--quiet',unit_name(lane)],
+                    capture_output=True).returncode == 0 for lane in LANES}}
+    require(all(previous['active'].values()),
+            'Song Maker service not fully active; do not repair through release')
+    journal = TRANSACTIONS/revision
+    require(not journal.exists(), 'Song Maker update journal already exists')
+    journal.mkdir(parents=True)
+    atomic_json(journal/'previous.json',previous)
+    database = STATE/'state/jobs.sqlite3'
+    backup_databases(STATE,journal/'sqlite-backup')
+    touched = False
+    try:
+        # Stop the scan-only worker first so it cannot create new jobs.
+        run(['systemctl','stop',unit_name('sync')],quiet=True)
+        submission = STATE/'state/submission.lock'
+        require(submission.is_file() and not submission.is_symlink(),
+                'Song Maker submission lock missing/untrusted')
+        with submission.open('a') as lock:
+            fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            require_idle_jobs(database)
+            # Lock stops new web submissions and worker claims while we switch.
+            for lane in ('web','render','upload'):
+                run(['systemctl','stop',unit_name(lane)],quiet=True)
+            require_idle_jobs(database)
+            touched = True
+            atomic_link(CURRENT,release)
+            for lane in LANES:
+                (ROOT/unit_name(lane)).write_text(unit(lane,revision))
+            run(['systemctl','daemon-reload'],quiet=True)
+            for lane in LANES:
+                run(['systemctl','start',unit_name(lane)],quiet=True)
+        evidence=verify()
+        atomic_json(journal/'result.json',
+                    {'revision':revision,'kind':'update','state':'LIVE_HEALTH_VERIFIED',
+                     'evidence':evidence})
+        return evidence
+    except BaseException:
+        # Even pre-cutover failures may have stopped the scanner or web.
+        if touched:
+            evidence=restore_update(previous)
+        else:
+            for lane in LANES:
+                if previous['active'][lane]:
+                    run(['systemctl','start',unit_name(lane)],quiet=True)
+            evidence={'services':'RESTORED_BEFORE_CUTOVER'}
+        atomic_json(journal/'result.json',
+                    {'revision':revision,'kind':'update',
+                     'state':'ROLLED_BACK_DATA_PRESERVED','evidence':evidence})
+        raise
+
+
 def install(revision):
     check_host(revision)
     require(hashlib.sha256(Path('/usr/local/sbin/vps1-production-deploy').read_bytes()).digest()==
@@ -204,8 +317,7 @@ def install(revision):
     require(shutil.which('ffmpeg') and shutil.which('ffprobe') and shutil.which('rclone'),'existing media tools required')
     require(SCENE_CURRENT.is_symlink() and SITE.is_file() and not SITE.is_symlink(),'existing Scene ownership unavailable')
     if CURRENT.is_symlink():
-        # Never interrupt work on a later update. Hold all lane locks through switching.
-        raise RuntimeError('SONG_MAKER_BLOCKED: existing Song Maker update requires idle-release admission')
+        return update_existing(revision)
     with socket.socket() as sock:sock.bind(('127.0.0.1',PORT))
     require(SITE.read_text().count(MARKER)==1 and '/song-maker' not in SITE.read_text(),'route conflict/drift')
     require(not SNIPPET.exists(),'unowned Song Maker route snippet')
