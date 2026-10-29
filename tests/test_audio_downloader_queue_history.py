@@ -55,8 +55,9 @@ class AudioDownloaderQueueHistoryTests(unittest.TestCase):
     def test_enqueue_ignores_legacy_batch_and_subfolder_preferences(self):
         data = {'links': ['https://youtu.be/BaW_jenozKc'], 'permission_confirmed': True,
                 'project_name': 'Old Batch', 'drive_folder': 'Old Subfolder'}
-        # Exercise the actual enqueue contract without FastAPI's unresolved
-        # forward-reference adapter from this dynamically imported test module.
+        # This test loads the API through importlib rather than sys.modules;
+        # resolve postponed type annotations for the isolated Pydantic model.
+        self.module.BatchRequest.model_rebuild(_types_namespace=vars(self.module))
         with patch.object(self.module, 'deps', return_value={'ready': True, 'upload_ready': True}):
             result = self.module.enqueue(self.module.BatchRequest(**data))
         self.assertEqual(result['created'], 1)
