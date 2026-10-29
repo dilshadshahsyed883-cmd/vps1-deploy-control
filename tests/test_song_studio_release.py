@@ -88,12 +88,14 @@ class SongStudioReleaseTests(unittest.TestCase):
                     return (200 if path=='/scene-builder/' else 303,'',b'')
                 with patch.object(release,'SCENE_CURRENT',current),patch.object(release,'SCENE_RELEASES',releases), \
                      patch.object(release,'SCENE_JOURNALS',root/'journals'),patch.object(release,'run',return_value='123') as commands, \
+                     patch('production.scene_candidate_release._health',return_value={'ok':True}) as readiness, \
                      patch('production.route_uploader_scene_https.scene_cookie',return_value='fixture'), \
                      patch('production.route_uploader_scene_https.https_get',side_effect=response):
                     if fail:
                         with self.assertRaisesRegex(RuntimeError,'not live'):release.install_scene('a'*40)
                         self.assertEqual(current.resolve(),old)
                     else:release.install_scene('a'*40)
+                    self.assertEqual(readiness.call_count,2 if fail else 1)
                     self.assertEqual((current/'renderer-sentinel').read_bytes(),b'keep worker state')
                     for call in commands.call_args_list:
                         if 'restart' in call.args[0]:self.assertEqual(call.args[0],['systemctl','restart',release.SCENE_UNIT])

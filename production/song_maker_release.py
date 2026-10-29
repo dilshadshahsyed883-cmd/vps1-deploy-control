@@ -180,6 +180,8 @@ def restore(previous):
     run(['nginx','-t'],quiet=True)
     run(['systemctl','daemon-reload'],quiet=True)
     run(['systemctl','restart','vps1-scene-candidate.service'],quiet=True)
+    from production.scene_candidate_release import _health
+    _health()
     run(['systemctl','reload','nginx'],quiet=True)
     for lane in LANES:
         if previous['active'][lane]:run(['systemctl','start',unit_name(lane)],quiet=True)
@@ -260,6 +262,8 @@ def install(revision):
         for lane in LANES:run(['systemctl','enable','--now',unit_name(lane)],quiet=True)
         atomic_link(SCENE_CURRENT,overlay)
         run(['systemctl','restart','vps1-scene-candidate.service'],quiet=True)
+        from production.scene_candidate_release import _health
+        _health()
         SNIPPET.write_text(route_config())
         SITE.write_text(previous['site'].replace(MARKER,INCLUDE+MARKER,1))
         run(['nginx','-t'],quiet=True)

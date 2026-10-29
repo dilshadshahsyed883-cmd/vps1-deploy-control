@@ -166,6 +166,8 @@ def install_scene(revision):
     try:
         atomic_link(SCENE_CURRENT,target); switched = True
         run(['systemctl','restart',SCENE_UNIT],timeout=70,quiet=True)
+        from production.scene_candidate_release import _health
+        _health()
         from production.route_uploader_scene_https import scene_cookie, https_get
         cookie = scene_cookie()
         require(https_get('/scene-builder/',cookie)[0] == 200, 'Scene web unavailable')
@@ -180,5 +182,7 @@ def install_scene(revision):
         if switched:
             atomic_link(SCENE_CURRENT,previous)
             run(['systemctl','restart',SCENE_UNIT],timeout=70,quiet=True)
+            from production.scene_candidate_release import _health
+            _health()
             event(app='scene-builder',rollback='PASS',worker='PRESERVED',data='UNCHANGED')
         raise
