@@ -141,11 +141,9 @@ def main():
                         settings.pop('sync_requested', None)
                         store.record('settings', owner, settings)
                         try:
-                            # Coordinate scanner admissions with guarded app updates,
-                            # manual submissions and render worker claims.
-                            with (store.root / 'state/submission.lock').open('a') as admission:
-                                fcntl.flock(admission, fcntl.LOCK_EX)
-                                sync_owner(store, owner, settings, Drive(settings, stop.is_set))
+                            # Only the short enqueue phase holds the admission lock.
+                            sync_owner(store, owner, settings, Drive(settings, stop.is_set),
+                                       admission_lock=store.root / 'state/submission.lock')
                         except Exception:
                             previous.update(last_sync=time.time(), error='Drive scan failed; check profile and folder access')
                             store.record('sync', owner, previous)
