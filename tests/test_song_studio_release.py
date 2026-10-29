@@ -16,7 +16,9 @@ class SongStudioReleaseTests(unittest.TestCase):
         for marker in ('environment: production', 'StrictHostKeyChecking=yes', 'tags: tag:ci',
                        '[vps1-song-studio-release]', 'cancel-in-progress: false',
                        'apps=(scene-builder voice-studio local-upload-manager song-maker)',
-                        'apps=(voice-studio)', '[vps1-song-audio-selector-only]'):
+                        'apps=(voice-studio)', '[vps1-song-audio-selector-only]',
+                        'apps=(local-upload-manager)', '[vps1-song-uploader-only]',
+                        'SONG_UPLOADER_ONLY'):
             self.assertIn(marker,source)
         self.assertNotIn('pull_request_target',source)
         self.assertIn('install_voice(revision)',(root/'production/runtime.py').read_text())
