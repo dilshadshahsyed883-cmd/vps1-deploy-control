@@ -4,7 +4,7 @@
   const script = document.currentScript || document.querySelector('script[data-unify-sidebar="1"]');
   const app = script && script.dataset ? script.dataset.workspace : "";
   const legacySidebar = !!(script && script.dataset && script.dataset.unifySidebar === "1");
-  if (!legacySidebar && !["acs", "voice", "uploader", "stream", "library"].includes(app)) return;
+  if (!legacySidebar && !["acs", "voice", "uploader", "stream", "library", "song"].includes(app)) return;
   // During staggered releases an old Scene shell may still embed this document.
   // Never render a second navigation in that legacy framing context.
   if (window.self !== window.top) return;
@@ -193,7 +193,7 @@
     navigation.setAttribute("aria-label", "Applications");
     // Native pages and legacy Video Studio documents use the same menu.
     const current = app === "uploader" || app === "stream" ? "upload" :
-      app === "acs" ? "video" : app === "library" ? "experiment" :
+      app === "song" ? "song" : app === "acs" ? "video" : app === "library" ? "experiment" :
       app === "voice" && location.hash === "#vs-audio" ? "song" : "voice";
     const voiceLink = addPrimaryLinks(navigation, current).voice;
     const songLink = navigation.querySelector('a[href="/song-studio/"]');
@@ -349,6 +349,15 @@
       addLink(tabs, "Self Media Library", "/self-media-library/", true);
       addLink(tabs, "Auto Script", "/experiment-studio/auto-script/", false);
       // Use the canonical independent application URL, without an iframe.
+      toggle.after(tabs);
+    }
+    if (app === "song") {
+      const tabs = node("nav", "vps1-native-video-tabs vps1-native-song-tabs");
+      tabs.dataset.vps1Component = "studio-tabs";
+      tabs.setAttribute("aria-label", "Song Studio");
+      addLink(tabs, "Audio Downloader", "/song-studio/audio-downloader/", false);
+      addLink(tabs, "Song Maker", "/song-studio/song-maker/", false);
+      addLink(tabs, "Song Uploader", "/song-studio/song-uploader/", true);
       toggle.after(tabs);
     }
     if (app === "uploader" || app === "stream") {
