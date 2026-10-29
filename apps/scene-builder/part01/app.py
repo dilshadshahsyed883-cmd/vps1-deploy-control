@@ -1999,12 +1999,75 @@ def dashboard(request: Request):
     return templates.TemplateResponse("dashboard.html", {"request":request,"page":"dashboard","username":request.session.get("username","team")})
 
 # SONG_STUDIO_NAV_V1: Keep existing downloader engine, independent app slots.
+# AUDIO_DOWNLOADER_CANONICAL_URL_V1: Same Voice service, standalone Song Studio address.
+@app.get("/audio-downloader", include_in_schema=False)
+def audio_downloader_url_slash(request: Request):
+    require_login(request)
+    return RedirectResponse("/audio-downloader/", status_code=308)
+
+
+def _audio_downloader_canonical_html(payload: bytes) -> bytes:
+    """Scope URL/bootstrap adaptation to this one HTML response; leave Voice workers alone."""
+    rewrites = (
+        (
+            b"(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/audio-downloader'",
+            b"'/voice-studio/tts/api/audio-downloader'",
+            1,
+        ),
+        (
+            b"(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/audio-downloader/proxy'",
+            b"'/voice-studio/tts/api/audio-downloader/proxy'",
+            1,
+        ),
+        (
+            b"document.documentElement.dataset.vsEngine='audio-downloader';history.replaceState(null,'','#vs-audio');tab('downloader')",
+            b"document.documentElement.dataset.vsEngine='audio-downloader';history.replaceState(null,'','/audio-downloader/');tab('downloader')",
+            1,
+        ),
+        (
+            b"drivePath();if(location.hash==='#vs-audio')choose(true);",
+            b"drivePath();if(location.pathname==='/audio-downloader/' || location.hash==='#vs-audio')choose(true);",
+            1,
+        ),
+        (
+            b"<title>Voice Studio \xc2\xb7 VPS1</title>",
+            b"<title>Audio Downloader \xc2\xb7 Song Studio</title>",
+            1,
+        ),
+        (
+            b"vps1_native_site_shell.js?v=20261029-song-studio-v1",
+            b"vps1_native_site_shell.js?v=20261030-audio-url-v1",
+            1,
+        ),
+    )
+    for previous, canonical, expected in rewrites:
+        if payload.count(previous) != expected:
+            raise HTTPException(status_code=502, detail="Audio Downloader upstream UI version mismatch")
+        payload = payload.replace(previous, canonical)
+    return payload
+
+
+@app.get("/audio-downloader/", response_class=HTMLResponse)
+async def audio_downloader_canonical_page(request: Request):
+    require_login(request)
+    upstream = await _vps1_voice_studio_proxy(request, "app")
+    if upstream.status_code != 200 or "text/html" not in upstream.headers.get("content-type", "").lower():
+        return upstream
+    html = _audio_downloader_canonical_html(upstream.body)
+    return _VSResponse(
+        content=html,
+        status_code=200,
+        media_type="text/html",
+        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+    )
+
+
 @app.get("/song-studio/")
 @app.get("/song-studio/audio-downloader/")
 def song_studio_audio_downloader(request: Request):
     """Use the existing Voice service without copying engines or queue state."""
     require_login(request)
-    return RedirectResponse("/voice-studio/app#vs-audio", status_code=303)
+    return RedirectResponse("/audio-downloader/", status_code=303)
 
 
 @app.get("/song-studio/{studio_app}/", response_class=HTMLResponse)

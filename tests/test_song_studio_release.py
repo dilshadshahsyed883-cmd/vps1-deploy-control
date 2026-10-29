@@ -10,6 +10,18 @@ class SongStudioReleaseTests(unittest.TestCase):
                         source.replace(b'data-workspace="voice"', b'data-workspace="wrong"')):
             with self.assertRaises(RuntimeError): validate_template(changed)
 
+    def test_canonical_audio_downloader_url_without_new_worker(self):
+        root = Path(__file__).resolve().parents[1]
+        scene = (root/"apps/scene-builder/part01/app.py").read_text()
+        shell = (root/"apps/scene-builder/part01/static/vps1_native_site_shell.js").read_text()
+        self.assertIn('@app.get("/audio-downloader/", response_class=HTMLResponse)', scene)
+        self.assertIn('require_login(request)\n    upstream = await _vps1_voice_studio_proxy(request, "app")', scene)
+        self.assertIn('Audio Downloader upstream UI version mismatch', scene)
+        self.assertIn('location.replace("/audio-downloader/")', shell)
+        self.assertIn('if (/^\\/audio-downloader\\/?$/.test(location.pathname))', shell)
+        self.assertIn('history.replaceState(null, "", "/audio-downloader/")', shell)
+        self.assertNotIn('RedirectResponse("/voice-studio/app#vs-audio", status_code=303)', scene)
+
     def test_guarded_coordinated_release(self):
         root=Path(__file__).resolve().parents[1]
         source=(root/'.github/workflows/vps1-song-studio-release.yml').read_text()
@@ -18,7 +30,7 @@ class SongStudioReleaseTests(unittest.TestCase):
                        'apps=(scene-builder voice-studio local-upload-manager song-maker)',
                         'apps=(voice-studio)', '[vps1-song-audio-selector-only]',
                         'apps=(local-upload-manager)', '[vps1-song-uploader-only]',
-                        'SONG_UPLOADER_ONLY'):
+                        'SONG_UPLOADER_ONLY', '[vps1-song-audio-url-only]', 'apps=(scene-builder)'):
             self.assertIn(marker,source)
         self.assertNotIn('pull_request_target',source)
         self.assertIn('install_voice(revision)',(root/'production/runtime.py').read_text())
@@ -88,7 +100,9 @@ class SongStudioReleaseTests(unittest.TestCase):
                 current=root/'current';current.symlink_to(old,target_is_directory=True)
                 def response(path,cookie=''):
                     if path.startswith('/static/'):return (200,'application/javascript',b'wrong' if fail else source['part01/static/vps1_native_site_shell.js'])
-                    return (200 if path=='/scene-builder/' else 303,'',b'')
+                    if path == '/audio-downloader/':
+                        return (200 if cookie else 303, '', b'')
+                    return (200 if path == '/scene-builder/' else 303, '', b'')
                 with patch.object(release,'SCENE_CURRENT',current),patch.object(release,'SCENE_RELEASES',releases), \
                      patch.object(release,'SCENE_JOURNALS',root/'journals'),patch.object(release,'run',return_value='123') as commands, \
                      patch('production.scene_candidate_release._health',return_value={'ok':True}) as readiness, \
