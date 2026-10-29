@@ -55,6 +55,9 @@ jobs:
           python -m unittest production.test_uploader_mode_coordinator -v
           python -m unittest production.test_gateway -v
           python -m production.smoke --app "$APP"
+      - name: Verify guarded Song Studio legacy Scene overlay and rollback
+        if: matrix.app == 'scene-builder'
+        run: python -m unittest discover -s tests -p 'test_song_studio_release.py' -v
       - name: Real CPU speech using official immutable model release
         if: matrix.app == 'voice-studio'
         run: python -m production.worker_smoke
