@@ -1,5 +1,6 @@
 """Existing rclone credentials, safe Drive folder IDs or relative paths, no input mutation."""
 import json
+import fcntl
 import os
 from pathlib import Path
 import re
@@ -221,19 +222,30 @@ def archive_eligible(job):
             and bool(source.get('remote')))
 
 
-def sync_owner(store, owner, settings, drive=None):
+def sync_owner(store, owner, settings, drive=None, admission_lock=None):
     drive = drive or Drive(settings)
+    # Slow Drive listing never monopolizes manual queue admission.
     images = drive.listing(settings['image_folder'])
     audio = drive.listing(settings['audio_folder'])
     results = pairs(images, audio)
     count = 0
-    for pair in results:
-        if pair['stage'] != 'Matched':
-            continue
-        image, sound = pair['images'][0], pair['audio'][0]
-        job = enqueue_pair(store, owner, settings, image, sound)
-        pair['job_id'], pair['job_stage'] = job['id'], job['stage']
-        count += 1
+
+    def admit_pairs():
+        nonlocal count
+        for pair in results:
+            if pair['stage'] != 'Matched':
+                continue
+            image, sound = pair['images'][0], pair['audio'][0]
+            job = enqueue_pair(store, owner, settings, image, sound)
+            pair['job_id'], pair['job_stage'] = job['id'], job['stage']
+            count += 1
+
+    if admission_lock is not None:
+        with open(admission_lock, 'a') as admission:
+            fcntl.flock(admission, fcntl.LOCK_EX)
+            admit_pairs()
+    else:
+        admit_pairs()
     summary = {'last_sync': time.time(), 'pairs': results, 'images': sum(len(p['images']) for p in results),
                'audio': sum(len(p['audio']) for p in results), 'matched': count, 'error': ''}
     store.record('sync', owner, summary)
