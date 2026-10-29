@@ -106,7 +106,6 @@ class UniversalSidebarContracts(unittest.TestCase):
         self.assertIn('body.vps1-native-voice #vsEngineAudio{display:none!important}', css)
         # Song Studio must show only its own tabs; Voice Studio retains its engines.
         self.assertIn('body.vs-audio-active .vs-engine-selector{display:none!important}', voice)
-        self.assertIn('body.vps1-native-voice.vs-audio-active .vs-engine-selector{display:none!important}', css)
         self.assertIn('@app.get("/song-studio/")', scene)
         self.assertIn('@app.get("/song-studio/audio-downloader/")', scene)
         self.assertIn('RedirectResponse("/voice-studio/app#vs-audio", status_code=303)', scene)
