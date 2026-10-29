@@ -21,9 +21,10 @@ uncropped foreground. No captions, effects, animation or separate compression pa
 * Dedicated `inputs`, `temp`, `outputs`, `staging`, `logs`, `state` directories;
   `state/jobs.sqlite3` holds WAL-persistent jobs, settings, sync snapshots and
   worker heartbeats. No existing application's DB or queue is opened by the app.
-* Render progress comes from FFmpeg timestamps; upload is stage-based progress,
-  not fabricated byte-transfer percentages. ffprobe plus complete error-failing
-  decode validate stream codecs/durations before a video is downloadable.
+* Render progress and live FPS / processing speed come from FFmpeg progress output.
+  Elapsed time is measured while rendering and ETA is derived only when FFmpeg
+  reports speed. Upload remains stage-based (no fabricated byte percentages).
+  ffprobe plus complete error-failing decode validate codecs/durations before download.
 
 ## Drive configuration and source ownership
 
@@ -34,7 +35,7 @@ Song Maker DB, browser or repository; rclone remains responsible for token refre
 New installations default to the existing `gdrive` remote and relative paths:
 `Song Studio/Audio downloader` for **both** images and audio (matching Video ID
 filenames) and `Song Studio/song maker` for rendered MP4s. An administrator may
-change the remote or use legacy Drive folder IDs via Input & Drive Sync settings.
+change the remote or use legacy Drive folder IDs in the **Settings** tab.
 The output folder must differ from the input folder; image/audio folders may be the
 same. An explicit existing administrator configuration is never overwritten.
 After FFmpeg finishes and MP4 validation succeeds, a Drive-synced pair from the default
@@ -45,8 +46,9 @@ Failed/cancelled renders do not move inputs. If archiving fails, the verified lo
 MP4 stays available while the job reports Needs Attention; retry resumes archive
 without rerendering. Manual PC uploads and older custom-folder/ID jobs are
 unchanged. The last administrator-saved destination
-is the default for manual uploads. Each admin's Drive scan and its resulting jobs
-belong to that administrator; other users see only their own manual jobs.
+is the default for manual uploads. Any SSO-authorized Song Maker user can request Sync Now for the fixed approved
+default Song Studio folders; only administrators can change Drive profiles or
+folder IDs. Every scan and resulting job remains strictly owner-scoped.
 
 Automatic scan runs every 60 seconds, with a persistent metadata snapshot and
 source-version job ledger. rclone exposes metadata listing rather than a Drive
@@ -70,8 +72,10 @@ Delete is blocked while any worker owns the job and retains an idempotency tombs
 
 The backend trusts Scene SSO headers only from the protected loopback proxy.
 Nginx overwrites client identity/admin headers. Jobs, media and settings are owner
-scoped; settings/sync/conflict selection require admin. Mutations require same-origin
-application headers. No iframe; shared header/sidebar tokens and Video Studio rail.
+scoped; only Drive credential/folder settings require admin. Sync and pair
+selection use own authorized workspace and owner-scoped snapshots. Mutations
+require same-origin application headers. No iframe; shared header/sidebar tokens
+and Video Studio rail.
 
 ## Tests
 
@@ -112,3 +116,15 @@ Acceptance is not complete until an isolated real Drive pair is detected by the
 running sync worker, rendered, and its remote ID/size/hash independently read back.
 Health/CI alone does not establish that result. Current live configuration and
 production evidence are recorded separately in `docs/song-maker-v1-20261029.md`.
+
+## Song Maker queue and UI (30 Oct 2026)
+
+The workspace has four tabs: Input & Drive Sync, Pair Matching, Queue and Settings.
+There is no separate Output tab: the Queue exposes preview, local MP4 download and
+verified Drive link. The Settings tab persists each owner's 1080p/720p/vertical
+resolution and fit/blur defaults; these affect only newly admitted manual and
+Drive-matched projects. The Queue shows real, throttled FPS, speed, elapsed time,
+estimated render time remaining and stage/progress. A per-owner durable Pause/Resume
+blocks new queue claims without interrupting active jobs. Batch retry, cancel
+pending, and clear completed are owner-scoped; clear completed deletes local MP4
+copies after explicit confirmation but never remotely uploaded Drive files.
