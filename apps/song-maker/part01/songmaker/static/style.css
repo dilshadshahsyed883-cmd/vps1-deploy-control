@@ -141,3 +141,43 @@ body{margin:0;background:#f5f7fb;color:#101828}
   .sm h1{font-size:24px}
 }
 @media(prefers-reduced-motion:reduce){.sm button{transition:none}}
+
+/* Song Maker native queue dashboard and settings controls. */
+.sm .queueControls{margin-bottom:14px}
+.sm .queueControls .metrics{margin-bottom:8px}
+.sm .queueControls .actions{gap:8px}
+.sm #adminSettings{margin:0;padding:19px;border:1px solid var(--sm-line)}
+.sm #adminSettings summary{font-size:16px;font-weight:800}
+.sm #previewDialog video{width:min(600px,100%);max-height:50vh}
+.sm #previewDialog .actions{margin:16px 0}
+.sm table{min-width:1220px}
+.sm td[data-label="Actions"]{min-width:200px}
+.sm td[data-label="Media"]{max-width:190px}
+.sm td[data-label="Progress"]{min-width:125px}
+.sm td[data-label="Progress"] small{white-space:nowrap}
+@media(max-width:760px){
+  .sm .queueControls{padding:14px}
+  .sm .tableWrap{overflow:visible;border:0;background:transparent;box-shadow:none}
+  .sm table{display:block;width:100%;min-width:0}
+  .sm thead{display:none}
+  .sm tbody{display:grid;gap:12px}
+  .sm tbody tr{
+    display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px 9px;
+    padding:14px;background:#fff;border:1px solid var(--sm-line);border-radius:12px;
+  }
+  .sm tbody td{
+    display:flex;flex-direction:column;gap:3px;
+    max-width:none;min-width:0;padding:5px 1px;border:0;overflow-wrap:anywhere;
+  }
+  .sm tbody td::before{
+    content:attr(data-label);font-size:10px;font-weight:800;color:var(--sm-muted);
+    text-transform:uppercase;letter-spacing:.02em;
+  }
+  .sm tbody td[data-label="Project"],.sm tbody td[data-label="Media"],
+  .sm tbody td[data-label="Actions"],.sm tbody td[colspan]{grid-column:1/-1}
+  .sm tbody td[data-label="Actions"]{display:block;min-width:0}
+  .sm tbody td[data-label="Actions"]::before{display:block;margin:0 0 4px}
+  .sm tbody td button{white-space:normal}
+  .sm tbody td[data-label="Progress"]{min-width:0}
+  .sm progress{width:100%}
+}
