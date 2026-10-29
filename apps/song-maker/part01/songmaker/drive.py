@@ -149,6 +149,8 @@ class Drive:
             if kind in receipts:
                 if not self._archive_match(item, receipts[kind]['name'], used):
                     raise ValueError('Previously archived Drive source changed; archive blocked')
+                if any(x['Name'] == name for x in self.listing(folder)):
+                    raise ValueError('Previously archived source unexpectedly still present')
                 continue
             existing_used = self.listing(used)
             chosen = reservations.get(kind)
@@ -216,8 +218,7 @@ def archive_eligible(job):
             and source.get('image_folder') == DEFAULT_INPUT
             and source.get('audio_folder') == DEFAULT_INPUT
             and source.get('remote') == dest.get('remote')
-            and bool(source.get('remote'))
-            and all((source.get(kind) or {}).get('ID') for kind in ('image', 'audio')))
+            and bool(source.get('remote')))
 
 
 def sync_owner(store, owner, settings, drive=None):
