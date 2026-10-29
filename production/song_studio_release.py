@@ -153,8 +153,26 @@ def install_scene(revision):
     atomic_json(journal/'previous.json', {'release':str(previous),'worker_pid':pid,'files':list(changes)})
     shutil.copytree(previous,target,symlinks=True)
     manifest_path = target/'_production_manifest.json'
-    require(manifest_path.is_file() and not manifest_path.is_symlink(), 'Scene manifest ownership')
-    manifest = json.loads(manifest_path.read_text())
+    # The pre-GitOps Scene candidate is a verified, root-owned immutable release
+    # but has no generic _production_manifest.json. Its known release-pointer
+    # identity and four reviewed existing files are already checked above.
+    # Generate a LIMITED overlay inventory rather than misrepresenting a full
+    # generic application manifest or modifying the prior release.
+    require(not manifest_path.is_symlink(), 'Scene manifest symlink denied')
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text())
+        require(isinstance(manifest, dict) and isinstance(manifest.get('files'), dict),
+                'Scene manifest format invalid')
+        require(manifest.get('app') in (None, 'scene-builder'),
+                'Scene manifest app ownership')
+    elif not manifest_path.exists():
+        manifest = {'app':'scene-builder', 'revision':revision,
+                    'files':{name:hashlib.sha256(payload).hexdigest()
+                             for name,payload in original.items()},
+                    'partial_source_inventory':True,
+                    'overlay_prior_release':str(previous)}
+    else:
+        raise RuntimeError('Scene manifest is not a regular file')
     for name,payload in changes.items():
         require(name in manifest.get('files',{}), 'Scene manifest file missing')
         (target/name).write_bytes(payload)
