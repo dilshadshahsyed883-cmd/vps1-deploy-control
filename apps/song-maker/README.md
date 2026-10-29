@@ -93,9 +93,13 @@ not production authentication or real Google Drive evidence.
 `all` deployment. It stages immutable source, runs real-media tests, backs up affected
 Scene SQLite files, overlays only Scene SSO allowlist/shared navigation, starts bounded
 Song Maker services and adds one trusted SSO Nginx include. Failure restores scoped
-units/pointers/routes and preserves all persistent state. First installation only;
-future updates must add an idle admission contract before this lane will replace an
-already-installed Song Maker. Explicit rollback requires matching route/pointer journal.
+units/pointers/routes and preserves all persistent state. First installation creates the app and route. Existing-instance updates use an
+independent idle-only admission fence: stop scanner, hold the submission/claim lock,
+refuse queued or active jobs, back up the Song Maker SQLite database, and swap only
+Song Maker's immutable code pointer and four service units. Authenticated HTTPS and
+worker health must pass; any failure rolls back those exact Song Maker units/pointer
+while leaving all persistent state intact. Manual rollback is also idle-fenced.
+Scene renderers, Nginx, other apps and their queues are never restarted.
 
 The installed root-owned helper must first receive the reviewed Song Maker capability
 through an already-approved maintenance transport. A GitHub source merge cannot
