@@ -28,7 +28,10 @@ SPECS = {
    ('lum-engine2-scheduler', 'part01', '-m lum_engine.auto_engine_v6_scheduler'),
    ('lum-shorts-web', 'part01', '-m uvicorn lum_engine.standalone_app:app --host 127.0.0.1 --port 8017'),
    ('lum-shorts-worker', 'part01', '-m lum_engine.auto_engine_v6_worker'),
-   ('lum-shorts-scheduler', 'part01', '-m lum_engine.auto_engine_v6_scheduler')],
+   ('lum-shorts-scheduler', 'part01', '-m lum_engine.auto_engine_v6_scheduler'),
+   ('lum-song-web', 'part01', '-m uvicorn lum_engine.standalone_app:app --host 127.0.0.1 --port 8018'),
+   ('lum-song-worker', 'part01', '-m lum_engine.auto_engine_v6_worker'),
+   ('lum-song-scheduler', 'part01', '-m lum_engine.auto_engine_v6_scheduler')],
  'voice-studio': [
    ('edge-worker', 'part03', 'edge_worker.py'),
    ('kokoro-worker', 'part02', 'kokoro_worker.py'),
@@ -38,7 +41,7 @@ SPECS = {
 
 
 # The new engines NEVER reuse Engine 1's database, OAuth directory or queue.
-MODE_ROOTS = {"engine2": "lum2", "shorts": "lum3"}
+MODE_ROOTS = {"engine2": "lum2", "shorts": "lum3", "song": "lum-song"}
 MODE_MARKER = ".vps1-independent-engine"
 
 
@@ -71,7 +74,7 @@ def prepare_mode_roots() -> None:
 def mode_exec(key: str, python: Path, entry: str) -> str:
     # /usr/bin/env wins over the parent EnvironmentFile values for this ExecStart.
     mode = "engine2" if key.startswith("lum-engine2-") else (
-        "shorts" if key.startswith("lum-shorts-") else ""
+        "shorts" if key.startswith("lum-shorts-") else ("song" if key.startswith("lum-song-") else "")
     )
     if not mode:
         return f"{python} {entry}"
@@ -247,7 +250,7 @@ def install(app, revision):
         # An active unit is not enough: require the correct app/engine response
         # before treating the independent mode installation as successful.
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        for mode, port in (("engine2", 8016), ("shorts", 8017)):
+        for mode, port in (("engine2", 8016), ("shorts", 8017), ("song", 8018)):
             address = f"http://127.0.0.1:{port}/local-upload-manager/modes/{mode}/health"
             last = None
             for attempt in range(25):
