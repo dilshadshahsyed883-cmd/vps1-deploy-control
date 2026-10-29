@@ -47,7 +47,10 @@ class SongUploaderContracts(unittest.TestCase):
                       (LUM / "lum_engine/standalone_app.py").read_text())
         for panel in ("automation", "profiles", "queue", "records"):
             self.assertIn('data-ae-panel-target="' + panel + '"', template)
-        self.assertIn('Song Uploader · Engine 2', template)
+        self.assertIn('Song Uploader · Short Uploader Auto Engine', template)
+        self.assertIn('Short Uploader Auto Engine workflow:', template)
+        self.assertIn('Matching JPG/PNG thumbnails are required for Song Uploader.', template)
+        self.assertNotIn('Song Uploader · Engine 2', template)
         try:
             from jinja2 import Environment
         except ImportError:
@@ -72,6 +75,36 @@ class SongUploaderContracts(unittest.TestCase):
         self.assertIn('== "song" and not thumb_raw', preflight)
         self.assertIn("['engine2', 'song']", template)
         self.assertIn('!= "shorts"', (LUM / "lum_engine/auto_engine_v6.py").read_text())
+
+
+    def test_song_reuses_short_uploader_channel_workflow_without_sharing_data(self):
+        """Shared V6 channel queue/worker/scheduler, with Song-only thumbnail policy."""
+        specs = {name: command for name, _, command in workers.SPECS["local-upload-manager"]}
+        self.assertEqual(specs["lum-shorts-worker"], specs["lum-song-worker"])
+        self.assertEqual(specs["lum-shorts-scheduler"], specs["lum-song-scheduler"])
+        self.assertEqual(workers.MODE_ROOTS["shorts"], "lum3")
+        self.assertEqual(workers.MODE_ROOTS["song"], "lum-song")
+        engine_source = (LUM / "lum_engine/auto_engine_v6.py").read_text()
+        engine_tree = ast.parse(engine_source)
+        thumbnail_fn = next(
+            node for node in engine_tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "thumbnail_required_for_mode"
+        )
+        import os
+        namespace = {"os": os}
+        exec(compile(ast.Module(body=[thumbnail_fn], type_ignores=[]), "<thumbnail-policy>", "exec"), namespace)
+        with patch.dict(os.environ, {"LUM_ENGINE_INSTANCE": "shorts"}):
+            self.assertFalse(namespace["thumbnail_required_for_mode"]())
+        with patch.dict(os.environ, {"LUM_ENGINE_INSTANCE": "song"}):
+            self.assertTrue(namespace["thumbnail_required_for_mode"]())
+        self.assertIn("Song shares the Short Uploader Auto Engine flow", engine_source)
+        queue_worker = (LUM / "lum_engine/auto_engine_v6_worker.py").read_text()
+        self.assertIn("strict_thumbnail", queue_worker)
+        ui = (LUM / "templates/app.html").read_text()
+        self.assertIn("Thumbnail Drive Folder URL / ID (required)", ui)
+        self.assertIn("engine_instance != 'shorts'", ui)
+        self.assertIn('data-ae-panel-target="profiles"', ui)
+        self.assertIn('data-ae-panel-target="queue"', ui)
 
     def test_song_studio_authenticated_link_and_no_auto_enable(self):
         scene = (SCENE / "app.py").read_text()
