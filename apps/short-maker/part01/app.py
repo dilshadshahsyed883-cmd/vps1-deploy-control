@@ -597,7 +597,7 @@ button.secondary{background:#f0efff;color:#4d4fc7}button.danger{background:#fff0
 
 
 .drive-link-row{display:flex;gap:8px;align-items:center;margin:8px 0}
-.drive-link-row input{flex:1;min-width:0}
+.drive-link-row input{flex:1;min-width:0;border:1px solid #dfe3ec;padding:10px 12px;background:#fff;border-radius:10px}
 .drive-link-row button{flex:0 0 auto;white-space:nowrap}
 .source-action{margin-top:9px;background:#eeeefe;color:#4945bc}
 .song-item{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e7eaf1;overflow-wrap:anywhere}
