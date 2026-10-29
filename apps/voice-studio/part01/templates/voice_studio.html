@@ -172,7 +172,7 @@ body.vs-audio-active .enginebar,body.vs-audio-active section.page,body.vs-audio-
 #vsAudioWorkspace label{display:block;font-size:11px;font-weight:750;color:#344054;margin:12px 0 7px}
 #vsAudioWorkspace input[type=text],#vsAudioWorkspace textarea,#vsAudioWorkspace select{width:100%;display:block;border:1px solid #d0d5dd;background:#fff;border-radius:9px;padding:11px 12px;color:#101828;font:13px system-ui,sans-serif;margin-top:7px;min-height:40px}
 #vsAudioWorkspace textarea{resize:vertical;min-height:145px;line-height:1.45}
-#vsAudioWorkspace .vsa-three{display:grid;grid-template-columns:1.5fr .7fr .8fr;gap:12px}
+#vsAudioWorkspace .vsa-two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 #vsAudioWorkspace .vsa-actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:14px}
 #vsAudioWorkspace button{font:750 12px system-ui,sans-serif}
 #vsAudioWorkspace .vsa-primary{background:#635bdf;border:0;color:white;border-radius:9px;padding:12px 18px;cursor:pointer}
@@ -203,8 +203,8 @@ body.vs-audio-active .enginebar,body.vs-audio-active section.page,body.vs-audio-
 #vsAudioWorkspace .vsa-pill.delivered,#vsAudioWorkspace .vsa-pill.completed{background:#e7fbef;color:#067647}
 #vsAudioWorkspace .vsa-pill.failed{background:#fff1f3;color:#b42318}
 #vsAudioWorkspace .vsa-pill.downloading,#vsAudioWorkspace .vsa-pill.uploading{background:#eef4ff;color:#3538cd}
-@media(max-width:960px){ #vsAudioWorkspace .vsa-grid{grid-template-columns:1fr}#vsAudioWorkspace .vsa-three{grid-template-columns:1fr 1fr}#vsAudioWorkspace .vsa-three label:first-child{grid-column:1/-1}}
-@media(max-width:500px){ #vsAudioWorkspace .vsa-three{grid-template-columns:1fr}#vsAudioWorkspace .vsa-three label:first-child{grid-column:auto}#vsAudioWorkspace .vsa-heading{flex-wrap:wrap}}
+@media(max-width:960px){ #vsAudioWorkspace .vsa-grid{grid-template-columns:1fr}}
+@media(max-width:500px){ #vsAudioWorkspace .vsa-two{grid-template-columns:1fr}#vsAudioWorkspace .vsa-heading{flex-wrap:wrap}}
 
 </style>
 
@@ -425,7 +425,7 @@ body.vs-kokoro-active #vsOmniHeader,body.vs-edge-active #vsOmniHeader,body.vs-au
     <div class="vsa-grid">
       <div class="vsa-card">
         <h2>Download setup</h2><p class="vsa-note">Enter YouTube video links (up to 30), one per line.</p>
-        <div class="vsa-three">
+        <div class="vsa-two">
           <label>Audio format<select id="vsaFormat"><option value="mp3">MP3</option><option value="wav">WAV</option></select></label>
           <label>Quality<select id="vsaQuality"><option value="128">128 kbps</option><option value="192" selected>192 kbps</option><option value="256">256 kbps</option></select></label>
         </div>
@@ -2150,7 +2150,6 @@ const api = async (url,options={}) => {
   return data;
 };
 const msg=(text,type='')=>{const el=$('vsaMessage');el.textContent=text;el.className='vsa-message'+(type?' '+type:'');};
-function sanitizeFolder(text){return (text||'').replace(/[^a-zA-Z0-9 _-]/g,'-').trim().slice(0,65)||'Untitled';}
 function drivePath(){$('vsaDrivePath').textContent='Google Drive / Audio Downloader';$('vsaOutput').textContent=$('vsaFormat').value.toUpperCase();}
 function tab(name){selected=name;for(const id of ['downloader','drive','queue','history','proxy']){$('vsa'+id[0].toUpperCase()+id.slice(1)).hidden=id!==name;}document.querySelectorAll('[data-vsa-section]').forEach(x=>x.setAttribute('aria-selected',String(x.dataset.vsaSection===name)));if(name==='queue'||name==='history')loadJobs();if(name==='drive')loadStatus();if(name==='proxy'&&typeof window.vsaProxyLoad==='function')window.vsaProxyLoad();}
 function choose(on){active=on;document.body.classList.toggle('vs-audio-active',on);$('vsAudioWorkspace').hidden=!on;$('vsEngineAudio').setAttribute('aria-selected',String(on));if(on){document.body.classList.remove('vs-edge-active','vs-kokoro-active');$('vsEdgeWorkspace').hidden=true;$('vsKokoroWorkspace').hidden=true;for(const id of ['vsEngineOmni','vsEngineKokoro','vsEngineEdge'])$(id).setAttribute('aria-selected','false');document.documentElement.dataset.vsEngine='audio-downloader';history.replaceState(null,'','#vs-audio');tab('downloader');loadStatus();loadJobs();if(!tick)tick=setInterval(()=>{if(active){loadStatus();loadJobs();}},6000);}else{if(tick){clearInterval(tick);tick=null;}}}
