@@ -33,7 +33,7 @@ DATA = ROOT / 'data'
 DB = DATA / 'jobs.sqlite3'
 JOBS = DATA / 'jobs'
 DRIVE_REMOTE = os.environ.get('AUDIO_DOWNLOADER_DRIVE_REMOTE', 'gdrive')
-DRIVE_BASE = 'Audio Downloader'
+DRIVE_BASE = 'Song Studio/Audio downloader'
 RCLONE_CONFIG = '/home/ubuntu/.config/masterctl/rclone.conf'
 YTDLP = os.environ.get('AUDIO_DOWNLOADER_YTDLP_BIN', str(ROOT / '.venv' / 'bin' / 'yt-dlp'))
 router = APIRouter(prefix='/tts/api/audio-downloader', tags=['Voice Studio Audio Downloader'])
@@ -448,7 +448,7 @@ def run_job(job: dict):
         raise RuntimeError('Google Drive connection unavailable')
     _update(jid, 'uploading')
 
-    # User files are saved directly in Google Drive / Audio Downloader.
+    # User files are saved directly in Google Drive / Song Studio / Audio downloader.
     # Release smoke uses a unique private QA namespace to protect user content.
     base = f'{DRIVE_REMOTE}:{DRIVE_BASE}/'
     if job.get('folder') == '__Audio_Proxy_QA__' and re.fullmatch(r'[A-F0-9]{16}', job.get('project', '')):
