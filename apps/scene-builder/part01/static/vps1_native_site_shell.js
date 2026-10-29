@@ -4,7 +4,7 @@
   const script = document.currentScript || document.querySelector('script[data-unify-sidebar="1"]');
   const app = script && script.dataset ? script.dataset.workspace : "";
   const legacySidebar = !!(script && script.dataset && script.dataset.unifySidebar === "1");
-  if (!legacySidebar && !["acs", "voice", "uploader", "stream", "library"].includes(app)) return;
+  if (!legacySidebar && !["acs", "voice", "uploader", "stream", "library", "song"].includes(app)) return;
   // During staggered releases an old Scene shell may still embed this document.
   // Never render a second navigation in that legacy framing context.
   if (window.self !== window.top) return;
@@ -33,7 +33,7 @@
   ]);
   const activeKeyForPath = (pathname) => {
     if (/^\/(local-upload-manager|auto-stream)(\/|$)/.test(pathname)) return "upload";
-    if (/^\/(scene-builder|video-studio|auto-caption-studio|short-maker|video-merger|queue|settings|audit-media)(\/|$)/.test(pathname)) return "video";
+    if (/^\/(scene-builder|video-studio|auto-caption-studio|short-maker|song-maker|video-merger|queue|settings|audit-media)(\/|$)/.test(pathname)) return "video";
     if (/^\/voice-studio(\/|$)/.test(pathname)) return "voice";
     if (/^\/(experiment-studio|self-media-library|auto-script)(\/|$)/.test(pathname)) return "experiment";
     if (/^\/(admin|storage-manager|user-management)(\/|$)/.test(pathname)) return "admin";
@@ -51,6 +51,8 @@
     const rail = document.querySelector?.('nav[aria-label="Video Studio"]');
     if (!rail || rail.dataset.videoAligned) return;
     rail.dataset.videoAligned = "1";
+    if (!rail.querySelector('a[href="/song-maker/"]'))
+      addLink(rail, "Song Maker", "/song-maker/", location.pathname.startsWith("/song-maker/"));
     const current = location.pathname.replace(/\/$/, "");
     for (const link of rail.querySelectorAll("a")) {
       const destination = (link.getAttribute("href") || "").split(/[?#]/)[0].replace(/\/$/, "");
@@ -190,7 +192,7 @@
     navigation.setAttribute("aria-label", "Applications");
     // Native pages and legacy Video Studio documents use the same menu.
     const current = app === "uploader" || app === "stream" ? "upload" :
-      app === "acs" ? "video" : app === "library" ? "experiment" : "voice";
+      (app === "acs" || app === "song") ? "video" : app === "library" ? "experiment" : "voice";
     const voiceLink = addPrimaryLinks(navigation, current).voice;
     if (app === "voice") {
       // A click on the already-open Voice Studio must not reload its large
@@ -287,14 +289,16 @@
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) refreshIdentity();
     });
-    if (app === "acs") {
+    if (app === "acs" || app === "song") {
       const tabs = node("nav", "vps1-native-video-tabs");
       tabs.dataset.vps1Component = "studio-tabs";
       tabs.setAttribute("aria-label", "Video Studio");
       addLink(tabs, "Scene Builder", "/scene-builder/", false);
-      addLink(tabs, "Auto Caption Studio", "/auto-caption-studio/", true);
+      if (app === "acs") addLink(tabs, "Auto Caption Studio", "/auto-caption-studio/", true);
+      else addLink(tabs, "Auto Caption Studio", "/auto-caption-studio/", false);
       addLink(tabs, "Short Maker", "/short-maker/", false);
       addLink(tabs, "Video Merger", "/video-merger/", false);
+      addLink(tabs, "Song Maker", "/song-maker/", app === "song");
       toggle.after(tabs);
       alignVideoTabs();
     }

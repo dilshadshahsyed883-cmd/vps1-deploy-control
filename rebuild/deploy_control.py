@@ -13,6 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 SHA = re.compile(r"^[a-f0-9]{40}$")
 IDENT = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
 ALIASES = {"kokoro": "voice-studio"}
+# Independently reviewed new-app lanes must not join legacy ten-app `all`
+# builds/cutover or acquire intent-queue execution privileges implicitly.
+DEDICATED_APPS = {
+    "song-maker": "production.song_maker_release; HOST_HELPER_UPGRADE_REQUIRED; real Drive acceptance pending"
+}
 FLAGS = ("production_deploy_enabled", "fresh_install_enabled",
          "automatic_database_migrations", "legacy_database_import",
          "legacy_queue_import", "legacy_media_import")
@@ -70,7 +75,7 @@ def safe_path(value):
 def plan(paths):
     groups, profiles, active, offline = registry()
     changed = sorted({safe_path(x.strip()) for x in paths if x.strip()})
-    direct, inactive, snapshots = set(), set(), set()
+    direct, inactive, snapshots, dedicated = set(), set(), set(), set()
     validate_all, shell = False, False
     for path in changed:
         parts = PurePosixPath(path).parts
@@ -84,6 +89,9 @@ def plan(paths):
                 snapshots.add(ALIASES[parts[1]])
                 continue
             app = parts[1]
+            if app in DEDICATED_APPS:
+                dedicated.add(app)
+                continue
             if app not in groups:
                 raise ValueError("unregistered app source: " + path)
             (inactive if app in offline else direct).add(app)
@@ -110,11 +118,15 @@ def plan(paths):
         "all_app_source_packaging_required": package_all,
         "validation_apps": sort(validation),
         "offline_app_changes": sorted(inactive),
+        "dedicated_app_changes": sorted(dedicated),
         "source_snapshot_sync_required": sorted(snapshots),
         "shell_build_required": shell,
-        "runtime_blockers": {app: profiles[app].get("pending", "no services configured")
-                             for app in sort(direct)
-                             if profiles[app].get("pending") or not profiles[app]["services"]},
+        "runtime_blockers": {
+            **{app: profiles[app].get("pending", "no services configured")
+               for app in sort(direct)
+               if profiles[app].get("pending") or not profiles[app]["services"]},
+            **{app: DEDICATED_APPS[app] for app in sorted(dedicated)},
+        },
         "production_deployment_authorized": False,
         "deploy_command_executed": False,
     }
