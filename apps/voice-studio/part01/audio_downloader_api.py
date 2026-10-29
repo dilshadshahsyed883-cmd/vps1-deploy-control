@@ -102,7 +102,10 @@ def recover_interrupted_jobs() -> None:
     # Failed/in-flight uploads resume from local media without touching YouTube.
     with db() as con:
         con.execute('BEGIN IMMEDIATE')
-        rows = con.execute("SELECT job_id,local_file,video_id,format,auto_upload,status FROM jobs WHERE status IN ('downloading','downloaded','uploading')").fetchall()
+        # Old terminal Drive failures with a preserved local audio also qualify.
+        rows = con.execute("""SELECT job_id,local_file,video_id,format,auto_upload,status FROM jobs
+            WHERE status IN ('downloading','downloaded','uploading')
+               OR (status='failed' AND auto_upload=1 AND local_file IS NOT NULL)""").fetchall()
         for row in rows:
             local = Path(row['local_file']) if row['local_file'] else None
             expected = (JOBS / row['job_id'] / (row['video_id'] + '.' + row['format'])).resolve()
@@ -111,7 +114,7 @@ def recover_interrupted_jobs() -> None:
                 con.execute("""UPDATE jobs SET status='upload_retry',next_retry_at=?,
                     error='Upload interrupted; automatic retry scheduled',updated_at=?
                     WHERE job_id=?""", (utc_after(UPLOAD_RETRY_SECONDS), utc(), row['job_id']))
-            else:
+            elif row['status'] != 'failed':
                 con.execute("""UPDATE jobs SET status='failed',next_retry_at=NULL,
                     error='Interrupted or local audio unavailable; retry manually',updated_at=?
                     WHERE job_id=?""", (utc(), row['job_id']))
