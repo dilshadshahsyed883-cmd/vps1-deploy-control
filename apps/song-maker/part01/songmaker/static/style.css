@@ -42,6 +42,8 @@ body{margin:0;background:#f5f7fb;color:#101828}
   background:var(--sm-brand-hover);border-color:var(--sm-brand-hover);color:#fff;
 }
 .sm .tabs button{flex:0 0 auto;background:transparent;border-color:transparent;padding:11px 16px}
+/* Shared site styles use !important for native tabs; keep Song Maker selected state authoritative. */
+.sm .tabs button[aria-selected="true"]{background:var(--sm-brand)!important;border-color:var(--sm-brand)!important;color:#fff!important}
 .sm .tabs button:hover:not([aria-selected="true"]){background:#f2f4f7;border-color:transparent}
 .sm :focus-visible{outline:3px solid #a5a0ff;outline-offset:2px}
 .sm input[type="checkbox"]{accent-color:var(--sm-brand);width:16px;height:16px;min-height:auto;vertical-align:middle}
