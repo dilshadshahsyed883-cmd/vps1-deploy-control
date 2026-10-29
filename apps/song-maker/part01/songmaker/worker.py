@@ -9,7 +9,7 @@ import threading
 import time
 from .store import Store
 from .media import Cancelled, render, validate, audio_duration, digest
-from .drive import Drive, sync_owner, default_settings
+from .drive import Drive, sync_owner, default_settings, archive_eligible
 
 
 def capacity(root, required):
@@ -69,7 +69,14 @@ def process(store, job, lane, shutdown=lambda: False, drive_factory=Drive):
             result = validate(output, duration, cancelled)
             if cancelled():
                 raise Cancelled('Cancelled')
-            store.update(job_id, stage='Ready to Upload', progress=90, lane='', valid=True, **result)
+            # Persist the fully validated MP4 before any remote input mutation.
+            # Drive inputs move immediately after rendering; MP4 uploads later.
+            if archive_eligible(job):
+                store.update(job_id, stage='Archiving Inputs', progress=88,
+                             archive_status='Moving', valid=True, **result)
+                drive_factory(job['destination'], cancelled).archive_inputs(job, store)
+            store.update(job_id, stage='Ready to Upload', progress=90, lane='',
+                         valid=True, **result)
         else:
             settings = (job.get('destination') or store.record('settings', job['owner'])
                         or store.record('settings', '__default__') or default_settings())
@@ -80,6 +87,8 @@ def process(store, job, lane, shutdown=lambda: False, drive_factory=Drive):
             if not job.get('destination'):
                 store.update(job_id, destination=settings)
                 job = store.get(job_id)
+            if archive_eligible(job) and job.get('archive_status') != 'Archived':
+                raise ValueError('Move verified inputs to used before uploading MP4')
             local = store.root / 'outputs' / job_id / job['local_name']
             if not job.get('valid') or digest(local, 'md5') != job.get('md5'):
                 raise ValueError('Validated local MP4 missing or changed; no upload attempted')
@@ -96,9 +105,15 @@ def process(store, job, lane, shutdown=lambda: False, drive_factory=Drive):
         else:
             store.update(job_id, stage='Cancelled', lane='')
     except Exception as exc:
-        stage = 'Needs Attention' if isinstance(exc, ValueError) else 'Waiting for Drive' if lane == 'upload' else 'Failed'
-        store.update(job_id, stage=stage, lane='', error=str(exc)[-2000:],
-                     drive_status='Upload failed' if lane == 'upload' else 'Pending')
+        archiving = (lane == 'render' and
+                     store.get(job_id).get('stage') == 'Archiving Inputs')
+        stage = ('Needs Attention' if archiving or isinstance(exc, ValueError)
+                 else 'Waiting for Drive' if lane == 'upload' else 'Failed')
+        update = {'stage': stage, 'lane': '', 'error': str(exc)[-2000:],
+                  'drive_status': 'Upload failed' if lane == 'upload' else 'Pending'}
+        if archiving:
+            update['archive_status'] = 'Needs Attention'
+        store.update(job_id, **update)
         logging.exception('Song Maker %s failed for %s', lane, job_id)
 
 
@@ -126,7 +141,9 @@ def main():
                         settings.pop('sync_requested', None)
                         store.record('settings', owner, settings)
                         try:
-                            sync_owner(store, owner, settings, Drive(settings, stop.is_set))
+                            # Only the short enqueue phase holds the admission lock.
+                            sync_owner(store, owner, settings, Drive(settings, stop.is_set),
+                                       admission_lock=store.root / 'state/submission.lock')
                         except Exception:
                             previous.update(last_sync=time.time(), error='Drive scan failed; check profile and folder access')
                             store.record('sync', owner, previous)
