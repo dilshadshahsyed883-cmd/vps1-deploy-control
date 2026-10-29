@@ -37,7 +37,14 @@ filenames) and `Song Studio/song maker` for rendered MP4s. An administrator may
 change the remote or use legacy Drive folder IDs via Input & Drive Sync settings.
 The output folder must differ from the input folder; image/audio folders may be the
 same. An explicit existing administrator configuration is never overwritten.
-The app never moves or replaces Drive inputs. The last administrator-saved destination
+After FFmpeg finishes and MP4 validation succeeds, a Drive-synced pair from the default
+shared input folder immediately moves its image and audio into
+`Song Studio/Audio downloader/used` (before MP4 upload). The move is verified
+against each original Drive file ID/size/hash, collision-safe and restartable.
+Failed/cancelled renders do not move inputs. If archiving fails, the verified local
+MP4 stays available while the job reports Needs Attention; retry resumes archive
+without rerendering. Manual PC uploads and older custom-folder/ID jobs are
+unchanged. The last administrator-saved destination
 is the default for manual uploads. Each admin's Drive scan and its resulting jobs
 belong to that administrator; other users see only their own manual jobs.
 
@@ -49,7 +56,8 @@ and after. Input versions use Drive IDs, checksums/modtime/size where exposed.
 NFC/casefold basename matching supports Unicode and case-insensitive extensions.
 Conflicts require explicit image/audio ID selection. Exact duplicate Drive names
 remain blocked because filename-addressed rclone cannot safely disambiguate them;
-rename the duplicate in Drive and sync again. No original Drive input is modified.
+rename the duplicate in Drive and sync again. Default Drive input files are
+only moved after a successfully validated render, never on discovery or failure.
 
 Upload reserves a noncolliding name `(2)`, `(3)`, etc. in SQLite before transfer,
 uses `--ignore-existing`, then verifies exactly one remote ID, size and MD5.
