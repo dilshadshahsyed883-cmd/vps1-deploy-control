@@ -361,7 +361,9 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         request.session["lum_embedded"] = "1"
     embedded_view = SUITE_AUTH_ENABLED and str(request.session.get("lum_embedded") or "") == "1"
     mode = "heavy"
-    allowed = {"dashboard", "channels", "sheets", "auto_engine", "add_video", "bulk_import", "queue", "logs", "auto_stream"}
+    allowed = ({"dashboard", "channels", "sheets", "auto_engine", "logs"}
+               if os.getenv("LUM_ENGINE_INSTANCE", "engine1") == "song" else
+               {"dashboard", "channels", "sheets", "auto_engine", "add_video", "bulk_import", "queue", "logs", "auto_stream"})
     default_tab = "dashboard"
     selected = tab if tab in allowed else default_tab
     channels = all_channels()
@@ -379,7 +381,7 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
     except ValueError:
         raise HTTPException(status_code=400, detail="Unknown uploader mode")
     engine_instance = os.getenv("LUM_ENGINE_INSTANCE", "engine1")
-    if engine_instance in {"engine2", "shorts"}:
+    if engine_instance in {"engine2", "shorts", "song"}:
         # Independent uploaders cannot access Auto Stream.
         if selected == "auto_stream":
             raise HTTPException(404, "Auto Stream is not an uploader engine")
@@ -623,6 +625,8 @@ async def add_video(
         has_thumbnail = bool(thumbnail and thumbnail.filename)
         if upload_instance == "engine2" and not has_thumbnail:
             raise ValueError("Engine 2 requires a JPG/PNG thumbnail before queue admission.")
+        if upload_instance == "song" and not has_thumbnail:
+            raise ValueError("Song Uploader requires a JPG/PNG thumbnail before queue admission.")
         if upload_instance == "shorts" and has_thumbnail:
             raise ValueError("Short Uploader does not use thumbnails.")
         if thumbnail and thumbnail.filename:
