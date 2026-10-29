@@ -400,6 +400,10 @@ def install_app(app, revision):
     # and update only its immutable source pointer through the same root helper.
     if app == 'scene-builder' and (BASE / 'current/scene-builder').is_symlink():
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-song-studio-release]' in intent:
+            from production.song_studio_release import install_scene
+            install_scene(revision)
+            return
         if '[vps1-scene-delete-web-only]' in intent:
             from production.scene_cancelled_delete_web_release import install as release_cancelled_delete
             release_cancelled_delete(revision)
