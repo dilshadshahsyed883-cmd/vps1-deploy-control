@@ -337,6 +337,15 @@ def _channel_result_handled(db:Database,store:V6Store,video_id:int) -> bool:
             set_channel_job_post_state(store,video_id,"MANUAL_RETRY_REQUIRED",retry_count=retries)
             emit_channel_sheet_writeback(store,video_id,"UPLOADED",youtube_url=clean(row.get("youtube_url")) or f"https://www.youtube.com/watch?v={yid}",error="Thumbnail retry limit reached; video is already on YouTube.")
             return True
+        if thumb_state=="SKIPPED" and int(meta.get("strict_thumbnail") or 0):
+            # A completed video is not a completed Engine 2 job until its
+            # required thumbnail is uploaded. Never archive/delete its Drive
+            # inputs or mark the Sheet complete for a skipped thumbnail.
+            message="Required Engine 2 thumbnail was skipped; retry the thumbnail-only stage."
+            db.mark_channel_post_upload_failed(video_id,message)
+            set_channel_job_post_state(store,video_id,"MANUAL_RETRY_REQUIRED",retry_count=retries)
+            emit_channel_sheet_writeback(store,video_id,"UPLOADED",youtube_url=clean(row.get("youtube_url")) or f"https://www.youtube.com/watch?v={yid}",error=message)
+            return True
         if thumb_state in {"SUCCEEDED","SKIPPED"}:
             store.set_job_state(video_id,"REMOTE_VERIFYING")
             reconcile_completed(db,store,video_id)

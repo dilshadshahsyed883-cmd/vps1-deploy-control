@@ -1905,6 +1905,11 @@ def _channel_validate_rows(pc_db: Any, store: V6Store, profile: Dict[str, Any]) 
                                 state="ERROR"; error=(error+" " if error else "")+f"Multiple thumbnails match Video ID ({len(tm)} found)."
                             else:
                                 tname=clean(tm[0].get("filename"))
+                                thumb_bytes=int(tm[0].get("size_bytes") or 0)
+                                if thumb_bytes > 2 * 1024 * 1024:
+                                    state="ERROR"; error=(error+" " if error else "")+"Matching thumbnail exceeds 2 MB."
+                                elif thumb_bytes <= 0:
+                                    state="ERROR"; error=(error+" " if error else "")+"Matching thumbnail is empty or its size is unavailable."
             con.execute("""
             INSERT INTO channel_metadata_rows(profile_id,row_number,video_key,title,description,tags,seo_keywords,source_done,
                 upload_date,upload_time,privacy_status,upload_enabled,source_status,source_youtube_url,
@@ -2165,14 +2170,24 @@ def download_channel_thumbnail_for_job(store: V6Store, video_id: int) -> str:
     if not source:
         raise RuntimeError("Auto Engine source mapping is missing.")
     target=Path(clean(source.get("staging_path"))).parent/"thumbnail"/clean(meta.get("thumbnail_filename"))
-    if target.is_file() and target.stat().st_size>0:
-        return str(target)
     folder=clean(meta.get("thumbnail_source_folder_id")); name=clean(meta.get("thumbnail_filename"))
     if not folder or not name:
         raise RuntimeError("Matched thumbnail Drive reference is missing.")
-    drive_download(folder,name,target)
-    if not target.is_file() or target.stat().st_size<=0:
-        raise RuntimeError("Matched thumbnail download failed.")
+    if Path(name).suffix.lower() not in THUMB_EXTS:
+        raise RuntimeError("Matched thumbnail must be JPG/JPEG/PNG.")
+    try:
+        if not target.is_file():
+            drive_download(folder,name,target)
+        if not target.is_file() or not 0 < target.stat().st_size <= 2 * 1024 * 1024:
+            raise RuntimeError("Matched thumbnail is missing, empty or exceeds 2 MB.")
+        width,height=_image_dimensions(target)
+        if width < 120 or height < 68:
+            raise RuntimeError("Matched thumbnail dimensions are too small.")
+    except Exception as exc:
+        # Never allow a corrupt or oversized cached thumbnail into YouTube's
+        # upload stage, even when an earlier Drive download appeared successful.
+        target.unlink(missing_ok=True)
+        raise RuntimeError(f"Matched thumbnail validation failed: {exc}") from exc
     return str(target)
 
 
@@ -2240,11 +2255,20 @@ def queue_preflight(pc_db: Any, store: V6Store) -> Dict[str,Any]:
             continue
         vid=int(issue.get("video_id") or 0)
         meta=store.channel_job_meta(vid)
-        if meta and clean(issue.get("code")) in {"THUMBNAIL_MISSING","THUMBNAIL_FILE_MISSING"}:
-            # Channel jobs keep the matched thumbnail in Drive until the job is claimed.
+        if thumbnail_required_for_mode() and meta and clean(issue.get("code")) in {"THUMBNAIL_MISSING","THUMBNAIL_FILE_MISSING"}:
+            # Engine 2 keeps matched thumbnails in Drive until claim. Suppress
+            # only this expected local-file warning if the *same* eligible
+            # thumbnail remains indexed in the right channel folder.
             with store.connect() as con:
-                row=con.execute("SELECT present FROM drive_thumbnails WHERE profile_id=? AND drive_file_id=?",(int(meta.get("profile_id") or 0),clean(meta.get("thumbnail_drive_file_id")))).fetchone()
-            if row and int(row["present"] or 0)==1:
+                row=con.execute(
+                    "SELECT present,filename,source_folder_id,size_bytes FROM drive_thumbnails WHERE profile_id=? AND drive_file_id=?",
+                    (int(meta.get("profile_id") or 0),clean(meta.get("thumbnail_drive_file_id"))),
+                ).fetchone()
+            if (row and int(row["present"] or 0)==1
+                    and clean(row["filename"])==clean(meta.get("thumbnail_filename"))
+                    and clean(row["source_folder_id"])==clean(meta.get("thumbnail_source_folder_id"))
+                    and Path(clean(row["filename"])).suffix.lower() in THUMB_EXTS
+                    and 0 < int(row["size_bytes"] or 0) <= 2 * 1024 * 1024):
                 continue
         filtered.append(issue)
     errors=sum(1 for x in filtered if clean(x.get("severity")).upper()=="ERROR")
