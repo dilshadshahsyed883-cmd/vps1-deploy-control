@@ -78,6 +78,14 @@ def init_storage() -> None:
                 if 'duplicate column name' not in str(exc).lower():
                     raise
 
+        # Additive migration, preserving existing job records and queue status.
+        columns = {col[1] for col in con.execute('PRAGMA table_info(jobs)').fetchall()}
+        for name, sql_type in (('download_thumbnail', 'INTEGER NOT NULL DEFAULT 0'),
+                               ('local_thumbnail', 'TEXT'), ('thumbnail_drive_path', 'TEXT'),
+                               ('thumbnail_drive_url', 'TEXT')):
+            if name not in columns:
+                con.execute(f'ALTER TABLE jobs ADD COLUMN {name} {sql_type}')
+
 
 def recover_interrupted_jobs() -> None:
     # Only at application startup; do not mark actively processing jobs failed on API requests.
@@ -129,12 +137,17 @@ class BatchRequest(BaseModel):
     quality: Literal[128, 192, 256] = 192
     auto_upload: bool = True
     keep_metadata: bool = False
+    download_thumbnail: bool = False
     permission_confirmed: bool = False
 
 
 def sanitized_row(row: sqlite3.Row) -> dict:
     data = dict(row)
     data.pop('local_file', None)
+    data.pop('local_thumbnail', None)
+    data['download_thumbnail'] = bool(data['download_thumbnail'])
+    data['thumbnail_url'] = ('/tts/api/audio-downloader/jobs/' + data['job_id'] + '/thumbnail') if row['local_thumbnail'] and Path(row['local_thumbnail']).is_file() else None
+    data['thumbnail_drive_url'] = data.get('thumbnail_drive_url') if data['status'] == 'delivered' else None
     data['drive_url'] = data.get('drive_url') if data.get('status') == 'delivered' else None
     data['audio_url'] = ('/tts/api/audio-downloader/jobs/' + data['job_id'] + '/audio') if row['local_file'] and Path(row['local_file']).is_file() else None
     data['auto_upload'] = bool(data['auto_upload'])
@@ -194,9 +207,9 @@ def enqueue(payload: BatchRequest):
             for video, url in ids:
                 jid = 'ADJ-' + uuid.uuid4().hex[:16].upper()
                 con.execute('''INSERT INTO jobs(job_id,batch_id,video_id,url,project,folder,format,quality,
-                    auto_upload,keep_metadata,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                    auto_upload,keep_metadata,download_thumbnail,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                     (jid, batch_id, video, url, project, folder, payload.format, payload.quality,
-                     int(payload.auto_upload), int(payload.keep_metadata), 'queued', created, created))
+                     int(payload.auto_upload), int(payload.keep_metadata), int(payload.download_thumbnail), 'queued', created, created))
                 jobs.append(jid)
             con.execute('COMMIT')
         except BaseException:
@@ -258,10 +271,24 @@ def download_audio(job_id: str):
     return FileResponse(str(f), media_type='audio/mpeg' if f.suffix == '.mp3' else 'audio/wav', filename=f.name)
 
 
+@router.get('/jobs/{job_id}/thumbnail')
+def download_thumbnail(job_id: str):
+    init_storage()
+    row = row_for(job_id)
+    local = row['local_thumbnail']
+    if not local or not row['download_thumbnail']:
+        raise HTTPException(404, 'Thumbnail not ready')
+    image = Path(local).resolve()
+    expected = (JOBS / job_id).resolve()
+    if expected not in image.parents or image.name != row['video_id'] + '.jpg' or not image.is_file():
+        raise HTTPException(404, 'Thumbnail not found')
+    return FileResponse(str(image), media_type='image/jpeg', filename=image.name)
+
+
 def _update(jid: str, new_state: str, **kwargs):
     columns = ['status=?', 'updated_at=?']
     values: list = [new_state, utc()]
-    for key in ('title', 'local_file', 'drive_path', 'drive_url', 'error', 'started_at', 'completed_at'):
+    for key in ('title', 'local_file', 'local_thumbnail', 'drive_path', 'drive_url', 'thumbnail_drive_path', 'thumbnail_drive_url', 'error', 'started_at', 'completed_at'):
         if key in kwargs:
             columns.append(key + '=?')
             values.append(kwargs[key])
@@ -344,10 +371,14 @@ def verified_drive_public_link(remote: str, local_path=None, expected_format='mp
         raise RuntimeError('Google Drive anonymous audio download not verified') from exc
     audio_magic = header.startswith(b'ID3') or (header[:1] == b'\xff' and len(header)>1 and (header[1] & 0xe0)==0xe0)
     wav_magic = header.startswith(b'RIFF')
-    if mime not in ('audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'application/octet-stream'):
-        raise RuntimeError('Drive anonymous access returned non-audio content')
-    if not (audio_magic if expected_format == 'mp3' else wav_magic):
-        raise RuntimeError('Drive anonymous response did not contain audio bytes')
+    jpg_magic = header.startswith(b'\xff\xd8\xff')
+    accepted = {'mp3': ('audio/mpeg', 'audio/mp3', 'application/octet-stream'),
+                'wav': ('audio/wav', 'audio/x-wav', 'application/octet-stream'),
+                'jpg': ('image/jpeg', 'image/jpg', 'application/octet-stream')}
+    if expected_format not in accepted or mime not in accepted[expected_format]:
+        raise RuntimeError('Drive anonymous access returned unexpected content type')
+    if not {'mp3': audio_magic, 'wav': wav_magic, 'jpg': jpg_magic}[expected_format]:
+        raise RuntimeError('Drive anonymous response did not contain expected file bytes')
     return canonical
 
 
