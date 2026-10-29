@@ -100,6 +100,13 @@ class DriveUploadSchedulingTests(unittest.TestCase):
         self.m.recover_interrupted_jobs()
         self.assertEqual(self.job()["status"], "failed")
 
+    def test_preexisting_failed_drive_upload_is_automatically_recovered(self):
+        self.create_job(status="failed")
+        self.m.recover_interrupted_jobs()
+        self.assertEqual(self.job()["status"], "upload_retry")
+        self.assertIsNotNone(self.job()["next_retry_at"])
+        self.assertTrue(self.local.exists())
+
     def test_successful_audio_sets_60_second_pacing_and_waits_before_next(self):
         self.m._record_audio_upload()
         with self.m.db() as con:
