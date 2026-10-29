@@ -120,7 +120,7 @@ class AudioDownloaderBrowserRouteContractTests(unittest.TestCase):
     def test_audio_downloader_has_only_flat_drive_destination_and_no_batch_input(self):
         html = TEMPLATE.read_text(encoding='utf-8')
         panel = html.split('<!-- AUDIO_DOWNLOADER_TAB_V1 -->', 1)[1].split('<!-- /AUDIO_DOWNLOADER_TAB_V1 -->', 1)[0]
-        self.assertIn('id="vsaDrivePath">Google Drive / Audio Downloader</div>', panel)
+        self.assertIn('id="vsaDrivePath">Google Drive / Song Studio / Audio downloader</div>', panel)
         for removed in ('id="vsaProject"', 'id="vsaFolder"', 'Project / batch name',
                         'Google Drive subfolder', 'YouTube Audio / Audio Batch'):
             self.assertNotIn(removed, panel)

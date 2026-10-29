@@ -31,10 +31,13 @@ Use the existing rclone config selected by server `RCLONE_CONFIG`. Default is
 `/home/ubuntu/.config/masterctl/rclone.conf`. No credentials are copied into the
 Song Maker DB, browser or repository; rclone remains responsible for token refresh.
 
-An authenticated administrator selects an existing remote name and three distinct
-Google Drive folder IDs in Input & Drive Sync settings. Suggested organization:
-`Song Maker Input/Images`, `Song Maker Input/Audio`, `Song Maker Output`. The app
-never moves or replaces existing folders. The last administrator-saved destination
+New installations default to the existing `gdrive` remote and relative paths:
+`Song Studio/Audio downloader` for **both** images and audio (matching Video ID
+filenames) and `Song Studio/song maker` for rendered MP4s. An administrator may
+change the remote or use legacy Drive folder IDs via Input & Drive Sync settings.
+The output folder must differ from the input folder; image/audio folders may be the
+same. An explicit existing administrator configuration is never overwritten.
+The app never moves or replaces Drive inputs. The last administrator-saved destination
 is the default for manual uploads. Each admin's Drive scan and its resulting jobs
 belong to that administrator; other users see only their own manual jobs.
 

@@ -41,6 +41,59 @@ class SongMakerTests(unittest.TestCase):
         self.client = TestClient(create_app(self.store))
         self.headers = {'X-Auth-User': 'alice', 'X-Is-Admin': '1', 'X-Song-Maker': '1'}
 
+    def test_song_studio_shared_drive_defaults_and_explicit_overrides(self):
+        from songmaker.drive import DEFAULT_INPUT, DEFAULT_OUTPUT, folder_ref, default_settings
+        self.assertEqual(DEFAULT_INPUT, 'Song Studio/Audio downloader')
+        self.assertEqual(DEFAULT_OUTPUT, 'Song Studio/song maker')
+        defaults = default_settings()
+        self.assertEqual(defaults['image_folder'], defaults['audio_folder'])
+        self.assertEqual(defaults['output_folder'], DEFAULT_OUTPUT)
+        response = self.client.get('/song-maker/api/state', headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['settings']['audio_folder'], DEFAULT_INPUT)
+        self.assertEqual(self.store.record('settings', 'alice'), {})  # read never mutates settings
+        response = self.client.post('/song-maker/api/sync', headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.store.record('settings', 'alice')['image_folder'], DEFAULT_INPUT)
+
+        response = self.client.post('/song-maker/api/settings', headers=self.headers,
+            json={**defaults, 'auto_sync': True})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.store.record('settings', 'alice')['audio_folder'], DEFAULT_INPUT)
+        legacy = {**defaults, 'image_folder': 'imageFolder',
+                  'audio_folder': 'audioFolder', 'output_folder': 'outputFolder'}
+        response = self.client.post('/song-maker/api/settings', headers=self.headers, json=legacy)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.store.record('settings', 'alice')['image_folder'], 'imageFolder')
+        for unsafe in ('../escape', '/absolute/folder', 'Song Studio/../escape',
+                       'Song Studio//Audio downloader', 'gdrive:Song Studio/Audio downloader'):
+            with self.assertRaises(ValueError):
+                folder_ref(unsafe)
+
+    def test_named_drive_transport_and_same_folder_media_pairing(self):
+        from songmaker.drive import DEFAULT_INPUT, default_settings
+        settings = default_settings()
+        with patch('songmaker.drive.run', return_value='[]') as execute:
+            Drive(settings).listing(DEFAULT_INPUT)
+            args = execute.call_args.args[0]
+            self.assertIn('gdrive:Song Studio/Audio downloader/', args)
+            self.assertNotIn('--drive-root-folder-id', args)
+            Drive({'remote': 'gdrive'}).listing('imageFolder')
+            args = execute.call_args.args[0]
+            self.assertIn('--drive-root-folder-id', args)
+            self.assertIn('imageFolder', args)
+
+        class Shared:
+            def listing(_, folder):
+                self.assertEqual(folder, DEFAULT_INPUT)
+                return [self.item('BaW_jenozKc.jpg', 'img-1'),
+                        self.item('BaW_jenozKc.mp3', 'sound-1')]
+        summary = sync_owner(self.store, 'alice', settings, Shared())
+        self.assertEqual(summary['matched'], 1)
+        jobs = self.store.jobs('alice')
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0]['destination']['output_folder'], 'Song Studio/song maker')
+
     def item(self, name, identity='id', version=1):
         return {'Name': name, 'ID': identity, 'Size': version, 'ModTime': str(version), 'Hashes': {}}
 

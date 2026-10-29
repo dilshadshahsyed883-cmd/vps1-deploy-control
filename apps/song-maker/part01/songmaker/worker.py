@@ -9,7 +9,7 @@ import threading
 import time
 from .store import Store
 from .media import Cancelled, render, validate, audio_duration, digest
-from .drive import Drive, sync_owner
+from .drive import Drive, sync_owner, default_settings
 
 
 def capacity(root, required):
@@ -71,7 +71,8 @@ def process(store, job, lane, shutdown=lambda: False, drive_factory=Drive):
                 raise Cancelled('Cancelled')
             store.update(job_id, stage='Ready to Upload', progress=90, lane='', valid=True, **result)
         else:
-            settings = job.get('destination') or store.record('settings', job['owner']) or store.record('settings', '__default__')
+            settings = (job.get('destination') or store.record('settings', job['owner'])
+                        or store.record('settings', '__default__') or default_settings())
             if not settings.get('output_folder'):
                 store.update(job_id, stage='Waiting for Drive', lane='', error='Administrator must select Drive output folder')
                 return

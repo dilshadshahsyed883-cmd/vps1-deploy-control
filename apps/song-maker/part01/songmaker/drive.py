@@ -1,4 +1,4 @@
-"""Existing rclone credentials, ID-rooted folders, no input mutation."""
+"""Existing rclone credentials, safe Drive folder IDs or relative paths, no input mutation."""
 import json
 import os
 from pathlib import Path
@@ -7,6 +7,30 @@ import time
 from .media import fingerprint, pairs, run, digest, output_name
 
 CONFIG = os.environ.get('RCLONE_CONFIG', '/home/ubuntu/.config/masterctl/rclone.conf')
+DEFAULT_INPUT = 'Song Studio/Audio downloader'
+DEFAULT_OUTPUT = 'Song Studio/song maker'
+
+
+def default_settings():
+    """New installations only: preserve explicit saved settings and old ID-based jobs."""
+    return {'remote': os.environ.get('SONG_MAKER_DRIVE_REMOTE',
+                                    os.environ.get('AUDIO_DOWNLOADER_DRIVE_REMOTE', 'gdrive')),
+            'image_folder': DEFAULT_INPUT, 'audio_folder': DEFAULT_INPUT,
+            'output_folder': DEFAULT_OUTPUT, 'auto_sync': False,
+            'resolution': '1080p', 'fit': 'fit'}
+
+
+def folder_ref(value):
+    """Support existing Drive folder IDs and scoped, relative named folders."""
+    if '/' not in value:
+        return folder_id(value)
+    if len(value) > 220 or value.startswith('/') or value.endswith('/'):
+        raise ValueError('Choose a safe relative Google Drive folder path')
+    parts = value.split('/')
+    if any(not re.fullmatch(r'[A-Za-z0-9 _.-]+', part) or part in {'.', '..'}
+           for part in parts):
+        raise ValueError('Choose a safe relative Google Drive folder path')
+    return value
 
 
 def folder_id(value):
@@ -26,7 +50,15 @@ class Drive:
         command = ['rclone', *args, '--config', CONFIG, '--contimeout', '20s', '--timeout', '60s',
                    '--retries', '2', '--low-level-retries', '2']
         if folder:
-            command += ['--drive-root-folder-id', folder_id(folder)]
+            folder = folder_ref(folder)
+            if '/' in folder:
+                # Only default/new named paths use rclone's relative-path addressing.
+                # Legacy ID-backed jobs still use --drive-root-folder-id unchanged.
+                prefix = self.remote + ':'
+                command = [prefix + folder + '/' + value[len(prefix):]
+                           if value.startswith(prefix) else value for value in command]
+            else:
+                command += ['--drive-root-folder-id', folder]
         try:
             return run(command, self.cancelled, timeout=timeout)
         except RuntimeError:
@@ -66,6 +98,9 @@ class Drive:
         local = store.root / 'outputs' / job['id'] / job['local_name']
         destination = job['destination']
         folder = destination['output_folder']
+        if '/' in folder_ref(folder):
+            # New output folder may not exist yet; never mutate the input folder.
+            self.call(['mkdir', self.remote+':'], folder)
         name = job.get('remote_name')
         if not name:
             name = self.allocate(job['local_name'], folder)
