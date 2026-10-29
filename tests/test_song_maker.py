@@ -84,11 +84,15 @@ class SongMakerTests(unittest.TestCase):
             self.assertIn('imageFolder', args)
 
         class Shared:
+            calls = 0
             def listing(_, folder):
+                _.calls += 1
                 self.assertEqual(folder, DEFAULT_INPUT)
                 return [self.item('BaW_jenozKc.jpg', 'img-1'),
                         self.item('BaW_jenozKc.mp3', 'sound-1')]
-        summary = sync_owner(self.store, 'alice', settings, Shared())
+        shared = Shared()
+        summary = sync_owner(self.store, 'alice', settings, shared)
+        self.assertEqual(shared.calls, 1)  # One shared-folder scan, not two
         self.assertEqual(summary['matched'], 1)
         jobs = self.store.jobs('alice')
         self.assertEqual(len(jobs), 1)
@@ -117,7 +121,9 @@ class SongMakerTests(unittest.TestCase):
         flags = {'fail_audio_once': False}
         owner_test = self
         class Fake(Drive):
+            listing_log = []
             def listing(_, folder):
+                _.listing_log.append(folder)
                 return [dict(x) for x in files.get(folder, [])]
             def call(_, args, folder=None, timeout=300):
                 if args[0] == 'mkdir':
@@ -159,6 +165,8 @@ class SongMakerTests(unittest.TestCase):
         self.assertTrue(ready['valid'])
         self.assertEqual(ready['archive_status'], 'Archived')
         self.assertEqual([name for name, _ in calls], ['Pair.jpg', 'Pair.wav'])
+        # Two initial reads plus two after each mutation, no duplicate pre/post scans.
+        self.assertEqual(len(Fake.listing_log), 6)
         self.assertFalse(files[DEFAULT_INPUT])
         self.assertEqual({x['ID'] for x in files[DEFAULT_INPUT + '/used']},
                          {'source-image-1', 'source-audio-1'})
@@ -376,6 +384,10 @@ class SongMakerTests(unittest.TestCase):
                 if _.calls:
                     result.append({'Name':_.calls[-1],'Size':current['size'],'ID':'new','Hashes':{'MD5':current['md5']}})
                 return result
+            def stat(_, folder, name):
+                self.assertEqual(folder, 'outputFolder')
+                return {'Name':name, 'Size':current['size'], 'ID':'new',
+                        'Hashes':{'MD5':current['md5']}}
             def call(_,args,*a,**k):
                 self.assertIn('--ignore-existing',args)
                 _.calls.append(args[2].split(':',1)[1])
@@ -386,6 +398,22 @@ class SongMakerTests(unittest.TestCase):
         second=drive.upload(self.store.get(job['id']),self.store)
         self.assertEqual(first['remote_id'],second['remote_id'])
         self.assertEqual(drive.calls[0],drive.calls[1])
+
+    def test_upload_verifier_reads_only_exact_output_metadata(self):
+        from songmaker.drive import DEFAULT_OUTPUT, default_settings
+        metadata = {'Name':'Song.mp4', 'ID':'drive-identity', 'Size':120,
+                    'Hashes':{'MD5':'abc'}}
+        with patch('songmaker.drive.run', return_value=json.dumps(metadata)) as execute:
+            actual = Drive(default_settings()).stat(DEFAULT_OUTPUT, 'Song.mp4')
+            self.assertEqual(actual, metadata)
+            command = execute.call_args.args[0]
+            self.assertIn('lsjson', command)
+            self.assertIn('--stat', command)
+            self.assertIn('--hash', command)
+            self.assertIn('gdrive:Song Studio/song maker/Song.mp4', command)
+            self.assertNotIn('--drive-root-folder-id', command)
+        with self.assertRaises(ValueError):
+            Drive(default_settings()).stat(DEFAULT_OUTPUT, '../escape.mp4')
 
     def test_upload_preflight_runs_before_multipart_spooling(self):
         with patch('songmaker.app.capacity', side_effect=RuntimeError('disk reserve unavailable')):
@@ -402,7 +430,6 @@ class SongMakerTests(unittest.TestCase):
              files={'image':('x.jpg',b'bad'),'audio':('x.wav',b'bad')})
         self.assertEqual(result.status_code,422)
         self.assertEqual(self.store.jobs('alice'),[])
-
 
     def test_sync_button_backend_access_is_sso_scoped_and_nonadmin_folder_locked(self):
         # Non-admin workspace members can sync only the approved app defaults.
