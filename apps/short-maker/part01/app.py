@@ -36,7 +36,7 @@ DEFAULT_DRIVE_INPUT = "gdrive:Short_Maker/Input"
 DEFAULT_DRIVE_OUTPUT = "gdrive:Short_Maker/Outputs"
 WIDTH, HEIGHT = 1080, 1920
 
-app = FastAPI(title="Short Maker", version="1.3-drive-link-input")
+app = FastAPI(title="Short Maker", version="1.4-multi-drive-audio-input")
 executor = ThreadPoolExecutor(max_workers=1)
 jobs = {}
 jobs_lock = threading.Lock()
@@ -243,6 +243,30 @@ def parse_drive_folder_input(value: str):
             return {"kind":"folder_id","folder_id":m.group(1),"raw":value}
     raise RuntimeError("Use a Google Drive folder link (drive.google.com/drive/folders/...) or a gdrive: folder path.")
 
+def parse_drive_folder_inputs(single_path: str = "", paths_json: str = ""):
+    """Keep single-folder jobs backward compatible while accepting ordered folder lists."""
+    if (paths_json or "").strip():
+        try:
+            paths = json.loads(paths_json)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("Drive folders must be a valid list.") from exc
+        if not isinstance(paths, list) or not all(isinstance(path, str) for path in paths):
+            raise RuntimeError("Drive folders must be a list of links or gdrive: paths.")
+    else:
+        paths = [single_path]
+    paths = [path.strip() for path in paths if path.strip()]
+    if not 1 <= len(paths) <= 50:
+        raise RuntimeError("Select between 1 and 50 Google Drive folders.")
+    seen = set()
+    for path in paths:
+        source = parse_drive_folder_input(path)
+        identity = (source["kind"], source.get("folder_id") or source.get("path"))
+        if identity in seen:
+            raise RuntimeError("The same Google Drive folder was added more than once.")
+        seen.add(identity)
+    return paths
+
+
 def rclone_run(args, timeout=900, attempts=3):
     cmd=[RCLONE,"--config",RCLONE_CONFIG,*args]
     env=os.environ.copy()
@@ -271,33 +295,50 @@ def rclone_run(args, timeout=900, attempts=3):
             time.sleep(min(15,3*attempt))
     raise RuntimeError(f"rclone failed after {attempts} attempt(s): {last_detail}")
 
-def import_drive_images(job_id: str, remote_path: str, job_dir: Path):
-    source=parse_drive_folder_input(remote_path)
-    stage=job_dir / "drive_input"
-    image_dir=job_dir / "input" / "images"
-    shutil.rmtree(stage,ignore_errors=True)
-    stage.mkdir(parents=True,exist_ok=True)
-    image_dir.mkdir(parents=True,exist_ok=True)
-    set_state(job_id,message="Copying images from Google Drive",input_source="drive",drive_input_path=remote_path,drive_input_kind=source["kind"])
-    common=["--transfers","4","--checkers","8","--retries","3","--low-level-retries","10"]
-    if source["kind"]=="folder_id":
-        args=["copy","gdrive:",str(stage),f"--drive-root-folder-id={source['folder_id']}",*common]
-    else:
-        args=["copy",source["path"],str(stage),*common]
-    rclone_run(args,timeout=900,attempts=3)
-    found=[]
-    seq=1
-    for src in sorted(x for x in stage.rglob("*") if x.is_file()):
-        if not is_image(src):
-            continue
-        target=image_dir / f"{seq:05d}_{safe_name(src.name)}"
-        shutil.copy2(src,target)
-        found.append(str(target))
-        seq+=1
-    shutil.rmtree(stage,ignore_errors=True)
+def import_drive_images(job_id: str, remote_paths, job_dir: Path):
+    if isinstance(remote_paths, str):
+        remote_paths = [remote_paths]
+    remote_paths = parse_drive_folder_inputs(paths_json=json.dumps(remote_paths))
+    sources = [parse_drive_folder_input(path) for path in remote_paths]
+    stage_root = job_dir / "drive_input"
+    image_dir = job_dir / "input" / "images"
+    shutil.rmtree(stage_root, ignore_errors=True)
+    stage_root.mkdir(parents=True, exist_ok=True)
+    image_dir.mkdir(parents=True, exist_ok=True)
+    # A recovered job may have partial imports; rebuild its drive-owned image list.
+    for previous in image_dir.iterdir():
+        if previous.is_file():
+            previous.unlink()
+    set_state(job_id, message="Copying images from Google Drive",
+              input_source="drive", drive_input_path=remote_paths[0],
+              drive_input_paths=remote_paths, drive_input_kind=sources[0]["kind"])
+    common = ["--transfers", "4", "--checkers", "8", "--retries", "3",
+              "--low-level-retries", "10"]
+    found = []
+    seq = 1
+    for folder_idx, source in enumerate(sources, 1):
+        stage = stage_root / f"folder_{folder_idx:03d}"
+        stage.mkdir(parents=True, exist_ok=True)
+        set_state(job_id, message=f"Importing Drive folder {folder_idx}/{len(sources)}")
+        if source["kind"] == "folder_id":
+            args = ["copy", "gdrive:", str(stage),
+                    f"--drive-root-folder-id={source['folder_id']}", *common]
+        else:
+            args = ["copy", source["path"], str(stage), *common]
+        rclone_run(args, timeout=900, attempts=3)
+        for src in sorted(x for x in stage.rglob("*") if x.is_file()):
+            if not is_image(src):
+                continue
+            target = image_dir / f"{seq:05d}_{safe_name(src.name)}"
+            shutil.copy2(src, target)
+            found.append(str(target))
+            seq += 1
+        shutil.rmtree(stage, ignore_errors=True)
+    shutil.rmtree(stage_root, ignore_errors=True)
     if not found:
-        raise RuntimeError("Drive input folder contains no readable images.")
-    set_state(job_id,message=f"Drive input ready · {len(found)} image(s)",drive_input_count=len(found))
+        raise RuntimeError("Drive input folders contain no readable images.")
+    set_state(job_id, message=f"Drive input ready · {len(found)} image(s) from {len(sources)} folder(s)",
+              drive_input_count=len(found))
     return found
 
 def local_md5(path: Path) -> str:
@@ -380,7 +421,7 @@ def render_job(job_id: str, cfg: dict):
     try:
         input_mode=str(cfg.get("input_mode") or "upload")
         if input_mode=="drive":
-            image_paths=[Path(p) for p in import_drive_images(job_id,cfg.get("drive_input_path",""),job_dir)]
+            image_paths=[Path(p) for p in import_drive_images(job_id,cfg.get("drive_input_paths") or cfg.get("drive_input_path",""),job_dir)]
         else:
             image_paths=[Path(p) for p in cfg.get("images",[]) if is_image(Path(p))]
         if not image_paths:
@@ -501,7 +542,7 @@ def recover_pending_jobs():
         required=("video_duration","image_duration","output_count","order","fit","motion","fps","crf","base_name")
         images=sorted(str(x) for x in image_dir.iterdir()) if image_dir.exists() else []
         audio=sorted(str(x) for x in audio_dir.iterdir()) if audio_dir.exists() else []
-        has_input=bool(images) or (str(cfg.get("input_mode") or "upload")=="drive" and bool(cfg.get("drive_input_path")))
+        has_input=bool(images) or (str(cfg.get("input_mode") or "upload")=="drive" and bool(cfg.get("drive_input_paths") or cfg.get("drive_input_path")))
         if not has_input or any(k not in cfg for k in required):
             with jobs_lock:
                 jobs[job_id]=state
@@ -555,6 +596,15 @@ button.secondary{background:#f0efff;color:#4d4fc7}button.danger{background:#fff0
 @media(max-width:700px){.queue-head{align-items:flex-start;flex-direction:column}.queue-metrics{grid-template-columns:1fr 1fr}}
 
 
+.drive-link-row{display:flex;gap:8px;align-items:center;margin:8px 0}
+.drive-link-row input{flex:1;min-width:0;border:1px solid #dfe3ec;padding:10px 12px;background:#fff;border-radius:10px}
+.drive-link-row button{flex:0 0 auto;white-space:nowrap}
+.source-action{margin-top:9px;background:#eeeefe;color:#4945bc}
+.song-item{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e7eaf1;overflow-wrap:anywhere}
+.song-item span{min-width:0;flex:1}
+.song-item button{padding:7px 10px;flex-shrink:0}
+@media(max-width:600px){.drive-link-row{align-items:stretch}.drive-link-row button{padding:8px}}
+
 /* VIDEO_STUDIO_UI_UNIFIED_V1 */
 main{max-width:none!important;padding:26px 34px 42px!important}
 main>[data-video-studio-subnav="1"],main>header,main>.sm-tabs,main>#makerPanel,main>#queuePanel{width:100%!important;max-width:1400px!important;margin-left:auto!important;margin-right:auto!important;box-sizing:border-box!important}
@@ -603,15 +653,22 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
     <div id="imageCount" class="count">0 images selected</div>
    </div>
    <div id="driveImageBox" class="filebox" style="margin-top:10px" hidden>
-    <div class="field" style="margin-top:0"><label>Drive image folder / link</label><input id="driveInputPath" name="drive_input_path" value="" placeholder="Paste Google Drive folder link or gdrive:Short_Maker/Input"></div>
-    <div class="hint" style="margin:8px 0 0">Paste a Google Drive folder link such as https://drive.google.com/drive/folders/... or enter a gdrive: path. The job copies readable images into its isolated input area before rendering.</div>
+    <label for="driveInputPath"><b>Google Drive image folders / links</b></label>
+    <div id="driveInputRows">
+     <div class="drive-link-row"><input id="driveInputPath" class="drive-path-input" type="text" placeholder="Drive folder link or gdrive:Short_Maker/Input" aria-label="Google Drive folder link 1"><button class="danger remove-drive" type="button" disabled>Remove</button></div>
+    </div>
+    <button id="addDriveLink" type="button" class="source-action">+ Add another Drive link</button>
+    <div id="driveLinkCount" class="count">0 Drive folders entered</div>
+    <div class="hint" style="margin:8px 0 0">Add multiple Google Drive folder links or gdrive: paths. Images from all folders are combined into this job.</div>
    </div>
   </section>
   <section class="panel">
    <h2>Audio <span class="default">Optional</span></h2><div class="hint">Select one or more songs/voice files. They play sequentially. Audio is trimmed or padded to the video duration.</div>
    <div class="filebox">
     <input id="audio" name="audio" type="file" multiple accept="audio/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.wma,.aiff,.aif">
+    <button id="addAudioBtn" type="button" class="source-action">+ Add more songs</button>
     <div id="audioCount" class="count">No audio selected</div>
+    <div id="songList" aria-live="polite"></div>
    </div>
   </section>
  </div>
@@ -671,10 +728,54 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
 <script>
 const form=document.getElementById('form'), images=document.getElementById('images'), audio=document.getElementById('audio'),inputMode=document.getElementById('inputMode'),localImageBox=document.getElementById('localImageBox'),driveImageBox=document.getElementById('driveImageBox');
 const imageCount=document.getElementById('imageCount'),audioCount=document.getElementById('audioCount'),statusEl=document.getElementById('status'),bar=document.getElementById('bar'),outputs=document.getElementById('outputs'),render=document.getElementById('render');
-images.addEventListener('change',()=>imageCount.textContent=`${images.files.length} image(s) selected`);
+const driveInputRows=document.getElementById('driveInputRows'),driveLinkCount=document.getElementById('driveLinkCount'),songList=document.getElementById('songList');
+const selectedAudioFiles=[];
+images.addEventListener('change',()=>imageCount.textContent=images.files.length+' image(s) selected');
 function syncInputMode(){const d=inputMode.value==='drive';localImageBox.hidden=d;driveImageBox.hidden=!d;}
 inputMode.addEventListener('change',syncInputMode);syncInputMode();
-audio.addEventListener('change',()=>audioCount.textContent=audio.files.length?`${audio.files.length} audio file(s) selected`:'No audio selected');
+function drivePaths(){return Array.from(driveInputRows.querySelectorAll('.drive-path-input')).map(input=>input.value.trim()).filter(Boolean);}
+function syncDriveRows(){
+ const rows=Array.from(driveInputRows.querySelectorAll('.drive-link-row'));
+ rows.forEach((row,index)=>{
+  row.querySelector('.remove-drive').disabled=rows.length===1;
+  row.querySelector('input').setAttribute('aria-label','Google Drive folder link '+(index+1));
+ });
+ const total=drivePaths().length;
+ driveLinkCount.textContent=total+' Drive folder(s) entered';
+}
+driveInputRows.addEventListener('input',syncDriveRows);
+driveInputRows.addEventListener('click',event=>{
+ if(!event.target.classList.contains('remove-drive'))return;
+ event.target.closest('.drive-link-row').remove();syncDriveRows();
+});
+document.getElementById('addDriveLink').addEventListener('click',()=>{
+ const row=driveInputRows.firstElementChild.cloneNode(true);
+ row.querySelector('input').value='';
+ row.querySelector('input').removeAttribute('id');
+ driveInputRows.appendChild(row);syncDriveRows();row.querySelector('input').focus();
+});
+syncDriveRows();
+function renderSelectedAudio(){
+ audioCount.textContent=selectedAudioFiles.length?selectedAudioFiles.length+' song(s) selected':'No audio selected';
+ songList.replaceChildren();
+ selectedAudioFiles.forEach((file,index)=>{
+  const row=document.createElement('div');row.className='song-item';
+  const label=document.createElement('span');label.textContent=(index+1)+'. '+file.name;
+  const remove=document.createElement('button');remove.type='button';remove.className='danger';remove.textContent='Remove';
+  remove.addEventListener('click',()=>{selectedAudioFiles.splice(index,1);renderSelectedAudio();});
+  row.append(label,remove);songList.appendChild(row);
+ });
+}
+audio.addEventListener('change',()=>{
+ Array.from(audio.files).forEach(file=>{
+  if(!selectedAudioFiles.some(existing=>existing.name===file.name&&existing.size===file.size&&existing.lastModified===file.lastModified)){
+   selectedAudioFiles.push(file);
+  }
+ });
+ audio.value='';renderSelectedAudio();
+});
+document.getElementById('addAudioBtn').addEventListener('click',()=>audio.click());
+
 function slots(){const v=Number(form.video_duration.value||0),i=Number(form.image_duration.value||0);document.getElementById('slotNote').textContent=(v>0&&i>0)?`${v} sec ÷ ${i} sec/image ≈ ${(v/i).toFixed(2)} image slots per video.`:'Enter valid durations.';}
 form.video_duration.addEventListener('input',slots);form.image_duration.addEventListener('input',slots);
 async function poll(id){
@@ -711,20 +812,31 @@ document.getElementById('prevPage').onclick=()=>{if(queuePage>1){queuePage--;ren
 loadQueue();setInterval(loadQueue,2000);
 
 form.addEventListener('submit',async e=>{
- e.preventDefault(); if(inputMode.value==='upload'&&!images.files.length){alert('Select an image folder first.');return;} if(inputMode.value==='drive'&&!document.getElementById('driveInputPath').value.trim()){alert('Paste a Google Drive folder link or enter a gdrive: folder path.');return;}
+ e.preventDefault();
+ const paths=drivePaths();
+ if(inputMode.value==='upload'&&!images.files.length){alert('Select an image folder first.');return;}
+ if(inputMode.value==='drive'&&!paths.length){alert('Add at least one Google Drive folder link.');return;}
+ if(inputMode.value==='drive'&&new Set(paths).size!==paths.length){alert('Remove duplicate Google Drive folder links.');return;}
  render.disabled=true;outputs.innerHTML='';bar.style.width='0%';statusEl.textContent='Uploading files...';
  const fd=new FormData();
- [...images.files].forEach(f=>fd.append('images',f,f.webkitRelativePath||f.name));
- [...audio.files].forEach(f=>fd.append('audio',f,f.name));
- ['video_duration','image_duration','output_count','order','fit','motion','fps','crf','base_name','input_mode','drive_input_path','drive_output_path'].forEach(k=>fd.append(k,form.elements[k].value));
+ if(inputMode.value==='upload')Array.from(images.files).forEach(f=>fd.append('images',f,f.webkitRelativePath||f.name));
+ selectedAudioFiles.forEach(f=>fd.append('audio',f,f.name));
+ ['video_duration','image_duration','output_count','order','fit','motion','fps','crf','base_name','input_mode','drive_output_path'].forEach(k=>fd.append(k,form.elements[k].value));
+ fd.append('drive_input_path',inputMode.value==='drive'?(paths[0]||''):'');
+ fd.append('drive_input_paths_json',inputMode.value==='drive'?JSON.stringify(paths):'');
  fd.append('upload_to_drive',document.getElementById('uploadToDrive').checked?'true':'false');
  fd.append('verified_clean',document.getElementById('verifiedClean').checked?'true':'false');
  try{
   const r=await fetch('api/jobs',{method:'POST',body:fd});
   const data=await r.json(); if(!r.ok)throw new Error(data.detail||'Submission failed');
-  render.disabled=false;images.value='';audio.value='';imageCount.textContent='0 images selected';audioCount.textContent='No audio selected';statusEl.textContent=`Job ${data.job_id.slice(0,8)} queued. Ready for another job.`;bar.style.width='0%';outputs.innerHTML='';loadQueue();
- }catch(err){render.disabled=false;statusEl.textContent=`Failed: ${err.message}`;}
+  render.disabled=false;images.value='';audio.value='';selectedAudioFiles.length=0;
+  imageCount.textContent='0 images selected';renderSelectedAudio();
+  statusEl.textContent='Job '+data.job_id.slice(0,8)+' queued. Ready for another job.';
+  bar.style.width='0%';outputs.innerHTML='';loadQueue();
+ }catch(err){render.disabled=false;statusEl.textContent='Failed: '+err.message;}
 });
+
+
 </script>
 <script>
 (() => {
@@ -817,6 +929,7 @@ async def create_job(
     base_name: str = Form("short_video.mp4"),
     input_mode: str = Form("upload"),
     drive_input_path: str = Form(""),
+    drive_input_paths_json: str = Form(""),
     upload_to_drive: bool = Form(True),
     drive_output_path: str = Form(DEFAULT_DRIVE_OUTPUT),
     verified_clean: bool = Form(True),
@@ -824,9 +937,11 @@ async def create_job(
     input_mode=input_mode if input_mode in ("upload","drive") else "upload"
     if input_mode=="upload" and not images:
         raise HTTPException(status_code=400, detail="At least one uploaded image is required.")
+    drive_input_paths = []
     if input_mode=="drive":
         try:
-            parse_drive_folder_input(drive_input_path)
+            drive_input_paths = parse_drive_folder_inputs(drive_input_path, drive_input_paths_json)
+            drive_input_path = drive_input_paths[0]
         except Exception as exc:
             raise HTTPException(status_code=400,detail=str(exc))
     if upload_to_drive:
@@ -882,6 +997,7 @@ async def create_job(
         "base_name": safe_name(base_name),
         "input_mode": input_mode,
         "drive_input_path": drive_input_path,
+        "drive_input_paths": drive_input_paths,
         "upload_to_drive": bool(upload_to_drive),
         "drive_output_path": drive_output_path,
         "verified_clean": bool(verified_clean),
