@@ -32,7 +32,7 @@ def create_app(store=None):
                 raise HTTPException(403, 'Cross-origin request denied')
             if request.headers.get('x-song-maker') != '1':
                 raise HTTPException(403, 'Same-origin application request required')
-        return {'owner': user, 'admin': request.headers.get('x-is-admin') == '1'}
+        return {'owner': user, 'admin': request.headers.get('x-is-admin', '').strip().lower() in {'1', 'true', 'yes'}}
 
     def owned(job_id, user):
         job = store.get(job_id)
@@ -84,8 +84,12 @@ def create_app(store=None):
     @app.get('/song-maker/api/state')
     def state(user=Depends(principal)):
         settings = store.record('settings', user['owner']) or default_settings()
+        exports = store.record('exports', user['owner']) or {
+            'resolution': settings.get('resolution', '1080p'), 'fit': settings.get('fit', 'fit')}
         return {'jobs': [public(j) for j in store.jobs(user['owner'])], 'settings': settings,
-                'sync': store.record('sync', user['owner']), 'admin': user['admin']}
+                'export': exports, 'queue': store.record('queue', user['owner']),
+                'sync': store.record('sync', user['owner']), 'admin': user['admin'],
+                'sync_access': True}
 
     @app.get('/song-maker/api/profiles')
     def profiles(user=Depends(principal)):
@@ -120,19 +124,30 @@ def create_app(store=None):
         store.record('settings', '__default__', {**clean, 'auto_sync': False})
         return {'saved': True}
 
+    @app.post('/song-maker/api/export')
+    async def save_export(request: Request, user=Depends(principal)):
+        # Output preferences are personal; changing Drive remotes remains admin-only.
+        data = await request.json()
+        resolution, fit = data.get('resolution'), data.get('fit')
+        if resolution not in FORMATS or fit not in {'fit', 'blur'}:
+            raise HTTPException(422, 'Unsupported export settings')
+        store.record('exports', user['owner'], {'resolution': resolution, 'fit': fit})
+        return {'saved': True}
+
     @app.post('/song-maker/api/sync')
     def sync(user=Depends(principal)):
-        if not user['admin']:
-            raise HTTPException(403, 'Administrator required')
-        settings = store.record('settings', user['owner']) or default_settings()
+        # Only Scene SSO-authorized Song Maker users can request a scan.
+        # Non-admin users are locked to the app's approved default remote/folders;
+        # they cannot inspect or configure arbitrary Drive IDs.
+        settings = (store.record('settings', user['owner']) or default_settings()
+                    if user['admin'] else default_settings())
         settings['sync_requested'] = True
         store.record('settings', user['owner'], settings)
         return {'queued': True}
 
     @app.post('/song-maker/api/pairs/select')
     async def select_pair(request: Request, user=Depends(principal)):
-        if not user['admin']:
-            raise HTTPException(403, 'Administrator required')
+        # Conflict resolution is restricted to the user's own sync snapshot/jobs.
         data = await request.json()
         snapshot = store.record('sync', user['owner'])
         matches = [p for p in snapshot.get('pairs', []) if p['key'] == data.get('key')]
@@ -148,7 +163,10 @@ def create_app(store=None):
 
     @app.post('/song-maker/api/jobs')
     async def submit(request: Request, image: UploadFile = File(...), audio: UploadFile = File(...),
-                     resolution: str = Form('1080p'), fit: str = Form('fit'), user=Depends(principal)):
+                     resolution: str = Form(''), fit: str = Form(''), user=Depends(principal)):
+        preferences = store.record('exports', user['owner'])
+        resolution = resolution or preferences.get('resolution', '1080p')
+        fit = fit or preferences.get('fit', 'fit')
         form = await request.form()
         if len(form.getlist('image')) != 1 or len(form.getlist('audio')) != 1:
             raise HTTPException(422, 'Exactly one image and one audio required')
@@ -197,6 +215,36 @@ def create_app(store=None):
         finally:
             if staging.exists():
                 shutil.rmtree(staging)
+
+    @app.post('/song-maker/api/queue/{command}')
+    def queue_command(command: str, user=Depends(principal)):
+        # Batch operations never touch jobs owned by another authenticated user.
+        if command in {'pause', 'resume'}:
+            paused = command == 'pause'
+            store.record('queue', user['owner'], {'paused': paused})
+            return {'ok': True, 'paused': paused}
+        if command not in {'cancel-pending', 'retry-failed', 'clear-completed'}:
+            raise HTTPException(404, 'Unknown batch command')
+        count = 0
+        for job in store.jobs(user['owner']):
+            if job['lane']:
+                continue
+            if command == 'cancel-pending' and job['stage'] in {'Queued', 'Ready to Upload'}:
+                store.update(job['id'], cancel=1, stage='Cancelled')
+            elif command == 'retry-failed' and job['stage'] in {'Failed', 'Cancelled', 'Waiting for Drive', 'Needs Attention'}:
+                archived = not archive_eligible(job) or job.get('archive_status') == 'Archived'
+                store.update(job['id'], stage='Ready to Upload' if job.get('valid') and archived else 'Queued',
+                             cancel=0, error='', drive_status='Pending')
+            elif command == 'clear-completed' and job['stage'] == 'Completed':
+                store.update(job['id'], deleted=1)
+                for category in ('inputs', 'temp', 'outputs', 'staging', 'logs'):
+                    path = store.root / category / job['id']
+                    if path.is_dir() and not path.is_symlink():
+                        shutil.rmtree(path)
+            else:
+                continue
+            count += 1
+        return {'ok': True, 'count': count}
 
     @app.post('/song-maker/api/jobs/{job_id}/{action}')
     def action(job_id: str, action: str, user=Depends(principal)):
