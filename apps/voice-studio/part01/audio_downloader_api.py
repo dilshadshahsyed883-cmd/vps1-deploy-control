@@ -386,7 +386,10 @@ def run_job(job: dict):
         raise RuntimeError('Expected exactly one downloaded audio file')
     original = paths[0]
     safe = re.sub(r'[^a-zA-Z0-9._ -]', '_', original.stem).strip(' ._')[:105] or job['video_id']
-    final = folder / f'{safe}_{jid}.{audio_format}'
+    # Queue/history retain the readable title; the deliverable is VideoID only.
+    if not VIDEO_ID.fullmatch(job['video_id']):
+        raise RuntimeError('Invalid YouTube video ID in queued job')
+    final = folder / f'{job["video_id"]}.{audio_format}'
     if original != final:
         original.rename(final)
     if final.stat().st_size <= 1000 or final.stat().st_size > 150 * 1024 * 1024:
@@ -400,7 +403,8 @@ def run_job(job: dict):
     _update(jid, 'uploading')
     remote = (f'{DRIVE_REMOTE}:{DRIVE_BASE}/'
               f'{safe_folder(job["folder"])}/{safe_folder(job["project"])}/{final.name}')
-    cmd = [state['rclone'], '--config', RCLONE_CONFIG, 'copyto', str(final), remote,
+    # An identical video ID must never overwrite an existing Drive object.
+    cmd = [state['rclone'], '--config', RCLONE_CONFIG, 'copyto', str(final), remote, '--immutable',
            '--retries', '2', '--low-level-retries', '2', '--timeout', '5m', '--contimeout', '30s']
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=1500, check=False)
     if result.returncode:

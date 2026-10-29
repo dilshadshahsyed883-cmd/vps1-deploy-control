@@ -20,7 +20,7 @@ def owns_qa_drive_file(remote, nonce, drive_remote, drive_base, safe_folder):
         return False
     prefix = (f'{drive_remote}:{drive_base}/'
               f'{safe_folder("__Audio_Proxy_QA__")}/{safe_folder(nonce)}/')
-    return remote.startswith(prefix) and remote.endswith(f'_ADJ-{nonce}.mp3')
+    return remote == prefix + 'jNQXAC9IVRw.mp3'
 
 
 def proxy_disabled_report(report):

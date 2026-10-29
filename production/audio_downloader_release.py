@@ -112,7 +112,7 @@ def smoke(target, environment):
     return value
 
 
-def install(revision):
+def install(revision, *, restore_proxy=True):
     require(len(revision) == 40 and all(c in '0123456789abcdef' for c in revision), 'invalid SHA')
     require(CURRENT.is_symlink(), 'unmanaged current Voice release')
     previous = CURRENT.resolve(strict=True)
@@ -121,15 +121,16 @@ def install(revision):
     environment = live_environment()
     root = Path(environment['AUDIO_DOWNLOADER_ROOT'])
     require(root.is_absolute(), 'unknown Audio data root')
-    proxy_plan = plan_proxy_restore(root)
+    proxy_plan = plan_proxy_restore(root) if restore_proxy else None
     old = previous / MODULE
     source = REPO / 'apps/voice-studio' / MODULE
     require(old.is_file() and not old.is_symlink() and not source.is_symlink(), 'untrusted Audio module')
     payload = source.read_bytes()
     ast.parse(payload)
     require(b'def youtube_execution' in payload, 'reviewed proxy implementation missing')
-    target = RELEASES / (revision + '-audio-proxy-only')
-    journal = BASE / 'transactions/audio-proxy-only' / revision
+    kind = 'audio-proxy-only' if restore_proxy else 'audio-filename-only'
+    target = RELEASES / (revision + '-' + kind)
+    journal = BASE / 'transactions' / kind / revision
     require(not target.exists() and not journal.exists(), 'immutable release already exists')
     # Transactional idle fence closes the enqueue/claim race before web shutdown.
     fence = lock_idle(root / 'data/jobs.sqlite3')
@@ -158,7 +159,7 @@ def install(revision):
             replace_private(proxy_plan, proxy_plan['after'])
             proxy_changed = True
             event(app='audio-downloader', proxy_restore='CANARY_PASS_ENABLED', credentials_logged=False)
-        deno_new = ensure_audio_js(environment)
+        deno_new = ensure_audio_js(environment) if restore_proxy else False
         shutil.copytree(previous, target, symlinks=True)
         (target / MODULE).write_bytes(payload)
         manifest_file = target / '_production_manifest.json'
@@ -166,7 +167,7 @@ def install(revision):
         manifest = json.loads(manifest_file.read_text())
         require(manifest.get('app') == 'voice-studio' and str(MODULE) in manifest.get('files', {}), 'manifest identity invalid')
         manifest['files'][str(MODULE)] = hashlib.sha256(payload).hexdigest()
-        manifest.update(revision=revision, audio_proxy_overlay=str(previous))
+        manifest.update(revision=revision, **{('audio_proxy_overlay' if restore_proxy else 'audio_filename_overlay'): str(previous)})
         atomic_json(manifest_file, manifest, 0o644)
         atomic_link(CURRENT, target)
         switched = True
@@ -175,7 +176,7 @@ def install(revision):
         verify()
         result = smoke(target, environment)
         atomic_json(journal / 'result.json', {'state': 'ACTIVE', 'revision': revision, 'smoke': result})
-        event(app='voice-studio', result='PASS_AUDIO_PROXY_ONLY', workers='PRESERVED', data='PRESERVED',
+        event(app='voice-studio', result='PASS_AUDIO_PROXY_ONLY' if restore_proxy else 'PASS_AUDIO_FILENAME_ONLY', workers='PRESERVED', data='PRESERVED',
               https='PASS', sqlite_backup='PASS', proxy_restore='ENABLED' if proxy_changed else 'UNCHANGED', smoke=result, rollback=str(journal))
     except BaseException:
         if proxy_changed:
