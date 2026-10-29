@@ -94,6 +94,120 @@ class SongMakerTests(unittest.TestCase):
         self.assertEqual(len(jobs), 1)
         self.assertEqual(jobs[0]['destination']['output_folder'], 'Song Studio/song maker')
 
+    def archive_fixture(self):
+        from songmaker.drive import DEFAULT_INPUT, default_settings
+        settings = default_settings()
+        image, audio = self.media()
+        jpg = self.root / 'Pair.jpg'
+        jpg.write_bytes(image.read_bytes())
+        files = {DEFAULT_INPUT: [
+            {'Name': 'Pair.jpg', 'ID': 'source-image-1', 'Size': jpg.stat().st_size,
+             'ModTime': '1', 'Hashes': {'MD5': digest(jpg, 'md5')}},
+            {'Name': 'Pair.wav', 'ID': 'source-audio-1', 'Size': audio.stat().st_size,
+             'ModTime': '1', 'Hashes': {'MD5': digest(audio, 'md5')}}
+        ], DEFAULT_INPUT + '/used': []}
+        source = {'remote': 'gdrive', 'image_folder': DEFAULT_INPUT,
+                  'audio_folder': DEFAULT_INPUT,
+                  'image': dict(files[DEFAULT_INPUT][0]), 'audio': dict(files[DEFAULT_INPUT][1])}
+        job = self.store.enqueue('alice', source,
+            {'origin': 'drive', 'source': source, 'destination': settings,
+             'image_name': 'Pair.jpg', 'audio_name': 'Pair.wav',
+             'local_name': 'Pair.mp4', 'project': 'Pair'})
+        calls = []
+        flags = {'fail_audio_once': False}
+        owner_test = self
+        class Fake(Drive):
+            def listing(_, folder):
+                return [dict(x) for x in files.get(folder, [])]
+            def call(_, args, folder=None, timeout=300):
+                if args[0] == 'mkdir':
+                    files.setdefault(args[1].split(':', 1)[1], [])
+                    return ''
+                if args[0] != 'moveto':
+                    raise AssertionError('Unexpected Drive mutation: ' + repr(args))
+                owner_test.assertIn('--ignore-existing', args)
+                assert owner_test.store.get(job['id'])['valid']
+                assert owner_test.store.get(job['id'])['stage'] == 'Archiving Inputs'
+                src, dst = (x.split(':', 1)[1] for x in args[1:3])
+                src_folder, src_name = src.rsplit('/', 1)
+                dst_folder, dst_name = dst.rsplit('/', 1)
+                if flags['fail_audio_once'] and src_name.endswith('.wav'):
+                    flags['fail_audio_once'] = False
+                    raise RuntimeError('Drive temporary failure')
+                original = next(x for x in files[src_folder] if x['Name'] == src_name)
+                assert not any(x['Name'] == dst_name for x in files[dst_folder])
+                files[src_folder].remove(original)
+                files[dst_folder].append({**original, 'Name': dst_name})
+                calls.append((src_name, dst_name))
+                return ''
+            def download(_, folder, item, target):
+                assert folder == DEFAULT_INPUT
+                target.write_bytes((jpg if item['Name'].endswith('.jpg') else audio).read_bytes())
+            def upload(_, job, store):
+                assert len(files[DEFAULT_INPUT]) == 0
+                assert store.get(job['id'])['archive_status'] == 'Archived'
+                return {'remote_id': 'output-verified', 'verified_at': time.time(),
+                        'drive_status': 'Verified'}
+        return job, settings, files, calls, flags, Fake
+
+    def test_render_archives_inputs_immediately_before_upload(self):
+        from songmaker.drive import DEFAULT_INPUT
+        job, settings, files, calls, flags, Fake = self.archive_fixture()
+        process(self.store, self.store.claim('render'), 'render', drive_factory=Fake)
+        ready = self.store.get(job['id'])
+        self.assertEqual(ready['stage'], 'Ready to Upload', ready)
+        self.assertTrue(ready['valid'])
+        self.assertEqual(ready['archive_status'], 'Archived')
+        self.assertEqual([name for name, _ in calls], ['Pair.jpg', 'Pair.wav'])
+        self.assertFalse(files[DEFAULT_INPUT])
+        self.assertEqual({x['ID'] for x in files[DEFAULT_INPUT + '/used']},
+                         {'source-image-1', 'source-audio-1'})
+        # MP4 upload has not run, but archive is already finished.
+        self.assertFalse(ready.get('remote_id'))
+        process(self.store, self.store.claim('upload'), 'upload', drive_factory=Fake)
+        self.assertEqual(self.store.get(job['id'])['stage'], 'Completed')
+
+    def test_archive_partial_failure_collision_retry_without_rerender(self):
+        from songmaker.drive import DEFAULT_INPUT
+        job, settings, files, calls, flags, Fake = self.archive_fixture()
+        files[DEFAULT_INPUT + '/used'].append({
+            'Name': 'Pair.jpg', 'ID': 'older-file', 'Size': 42, 'Hashes': {}})
+        flags['fail_audio_once'] = True
+        process(self.store, self.store.claim('render'), 'render', drive_factory=Fake)
+        paused = self.store.get(job['id'])
+        self.assertEqual(paused['stage'], 'Needs Attention')
+        self.assertTrue(paused['valid'])
+        self.assertEqual(paused['archive_moves']['image']['name'], 'Pair (2).jpg')
+        self.assertEqual(len(calls), 1)
+        self.assertEqual({x['ID'] for x in files[DEFAULT_INPUT + '/used']},
+                         {'older-file', 'source-image-1'})
+        output = self.root/'outputs'/job['id']/job['local_name']
+        before = digest(output)
+        self.assertFalse(self.store.claim('upload'))
+        response = self.client.post('/song-maker/api/jobs/'+job['id']+'/retry',
+                                    headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.store.get(job['id'])['stage'], 'Queued')
+        with patch('songmaker.worker.render', side_effect=AssertionError('must not rerender')):
+            process(self.store, self.store.claim('render'), 'render', drive_factory=Fake)
+        done = self.store.get(job['id'])
+        self.assertEqual(done['stage'], 'Ready to Upload', done)
+        self.assertEqual(done['archive_status'], 'Archived')
+        self.assertEqual(digest(output), before)
+        self.assertEqual(len(calls), 2)  # image was not moved twice
+        self.assertEqual({x['ID'] for x in files[DEFAULT_INPUT + '/used']},
+                         {'older-file', 'source-image-1', 'source-audio-1'})
+        self.assertFalse(files[DEFAULT_INPUT])
+
+    def test_failed_render_never_moves_drive_inputs(self):
+        from songmaker.drive import DEFAULT_INPUT
+        job, settings, files, calls, flags, Fake = self.archive_fixture()
+        with patch('songmaker.worker.render', side_effect=RuntimeError('render failed')):
+            process(self.store, self.store.claim('render'), 'render', drive_factory=Fake)
+        self.assertEqual(self.store.get(job['id'])['stage'], 'Failed')
+        self.assertFalse(calls)
+        self.assertEqual(len(files[DEFAULT_INPUT]), 2)
+
     def item(self, name, identity='id', version=1):
         return {'Name': name, 'ID': identity, 'Size': version, 'ModTime': str(version), 'Hashes': {}}
 
