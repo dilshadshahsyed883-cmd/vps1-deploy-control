@@ -1,7 +1,7 @@
 # Song Maker V1
 
 Independent Video Studio app at `/song-maker/`. Source and release belong to
-`dilshadshahsyed883-cmd/vps1-deploy-control`; VPS_1 / Agent 1. Auto Script OFFLINE.
+`dilshadshahsyed883-cmd/vps1-deploy-control`; VPS_1 / Agent 1. Auto Script state is unchanged by Song Maker releases.
 
 One JPG/JPEG/PNG/WEBP plus one MP3/WAV/M4A becomes a static-image H.264/AAC MP4.
 The filename comes from the audio basename, with Unicode retained and unsafe path

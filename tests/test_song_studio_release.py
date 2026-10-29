@@ -15,9 +15,12 @@ class SongStudioReleaseTests(unittest.TestCase):
         source=(root/'.github/workflows/vps1-song-studio-release.yml').read_text()
         for marker in ('environment: production', 'StrictHostKeyChecking=yes', 'tags: tag:ci',
                        '[vps1-song-studio-release]', 'cancel-in-progress: false',
-                       'for app in scene-builder voice-studio local-upload-manager song-maker'):
+                       'for app in scene-builder voice-studio local-upload-manager'):
             self.assertIn(marker,source)
         self.assertNotIn('pull_request_target',source)
+        self.assertNotIn('for app in scene-builder voice-studio local-upload-manager song-maker',source)
+        self.assertIn('SONG_MAKER=NOT_INSTALLED_BY_THIS_LANE',source)
+        self.assertIn('AUTO_SCRIPT=UNCHANGED',source)
         self.assertIn('install_voice(revision)',(root/'production/runtime.py').read_text())
 
     def test_voice_cutover_and_failure_restore_only_web_pointer(self):

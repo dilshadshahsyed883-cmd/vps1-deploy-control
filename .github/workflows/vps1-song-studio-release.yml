@@ -49,7 +49,11 @@ jobs:
           printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
           # Serialized, app-scoped installers retain their own idle/backup/rollback
           # checks. Voice uses its template-only path from the merge intent.
-          for app in scene-builder voice-studio local-upload-manager song-maker; do
+          # Song Maker has its own first-install workflow and requires a
+          # separately reviewed root helper upgrade. Do not start a partially
+          # deployable four-app sequence or bypass that privileged capability.
+          # This lane only promotes the navigation, Voice HTML and Song Uploader.
+          for app in scene-builder voice-studio local-upload-manager; do
             echo "SONG_STUDIO_RELEASE_START=$app"
             timeout 2100s ssh -T -p 22 -i "$scratch/identity" \
               -o UserKnownHostsFile="$scratch/known_hosts" \
@@ -60,4 +64,7 @@ jobs:
               "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA $app"
             echo "SONG_STUDIO_RELEASE_PASS=$app"
           done
-          echo 'AUTO_SCRIPT=OFFLINE'
+          echo 'SONG_STUDIO_SHELL_AND_UPLOADER=DEPLOYED_IF_ALL_THREE_PASS'
+          echo 'SONG_MAKER=NOT_INSTALLED_BY_THIS_LANE'
+          echo 'SONG_MAKER_RELEASE=SEPARATE_PRIVILEGED_HELPER_GATE'
+          echo 'AUTO_SCRIPT=UNCHANGED'
