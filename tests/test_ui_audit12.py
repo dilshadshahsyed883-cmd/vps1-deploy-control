@@ -18,9 +18,29 @@ def browser_acceptance():
     from jinja2 import Template
     from playwright.sync_api import sync_playwright,expect
     voice=Template((ROOT/'apps/voice-studio/part01/templates/voice_studio.html').read_text()).render(max_text=1000000,max_batch=500)
+    # The direct Song Studio URL proxies this same Voice document but selects
+    # Audio Downloader and preserves its canonical URL, even on refresh.
+    canonical=voice
+    for old,new,expected in (
+        ("(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/audio-downloader'",
+         "'/voice-studio/tts/api/audio-downloader'",1),
+        ("(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/audio-downloader/proxy'",
+         "'/voice-studio/tts/api/audio-downloader/proxy'",1),
+        ("document.documentElement.dataset.vsEngine='audio-downloader';history.replaceState(null,'','#vs-audio');tab('downloader')",
+         "document.documentElement.dataset.vsEngine='audio-downloader';history.replaceState(null,'','/audio-downloader/');tab('downloader')",1),
+        ("drivePath();if(location.hash==='#vs-audio')choose(true);",
+         "drivePath();if(location.pathname==='/audio-downloader/' || location.hash==='#vs-audio')choose(true);",1),
+        ('<title>Voice Studio · VPS1</title>', '<title>Audio Downloader · Song Studio</title>',1),
+        ('vps1_native_site_shell.js?v=20261029-song-studio-v1',
+         'vps1_native_site_shell.js?v=20261030-audio-url-v1',1),
+    ):
+        assert canonical.count(old)==expected,(old,canonical.count(old))
+        canonical=canonical.replace(old,new)
     def route(req):
         url=req.request.url; path=url.split('http://audit.test')[-1].split('?')[0]
         if path=='/voice-studio/app':return req.fulfill(content_type='text/html',body=voice)
+        if path=='/song-studio/':return req.fulfill(content_type='text/html',body='<script>location.replace("/audio-downloader/")</script>')
+        if path=='/audio-downloader/':return req.fulfill(content_type='text/html',body=canonical)
         if path.startswith('/static/'):
             file=STATIC/path.rsplit('/',1)[-1]
             if file.is_file():return req.fulfill(content_type='text/css' if file.suffix=='.css' else 'application/javascript',body=file.read_text())
@@ -55,6 +75,7 @@ def browser_acceptance():
             if width < 761:
                 page.locator('.vps1-native-toggle').click()
             page.locator('#vps1-native-site-sidebar nav a[href="/song-studio/"]').click()
+            expect(page).to_have_url('http://audit.test/audio-downloader/')
             page.get_by_role('button',name='Proxy Settings',exact=True).click()
             expect(page.locator('#vsaProxy')).to_be_visible()
             page.locator('#vsaProxyName').fill('Unsaved local profile')
@@ -74,8 +95,9 @@ def browser_acceptance():
             if width < 761:
                 page.locator('.vps1-native-toggle').click()
             page.locator('#vps1-native-site-sidebar nav a[href="/song-studio/"]').click()
+            expect(page).to_have_url('http://audit.test/audio-downloader/')
             page.get_by_role('button',name='Proxy Settings',exact=True).click()
-            expect(page.locator('#vsaProxyName')).to_have_value('Unsaved local profile')
+            expect(page.locator('#vsaProxyName')).to_have_value('')
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth'),(width,'overflow')
             assert not errors,errors
             print('PASS actual Voice',width,'geometry, switching, values, status, catalog, no writes')
