@@ -69,6 +69,20 @@ class Drive:
     def listing(self, folder):
         return json.loads(self.call(['lsjson', self.remote+':', '--files-only', '--hash'], folder))
 
+    def stat(self, folder, name):
+        """Query one output file after transfer instead of rescanning the entire folder.
+
+        This is a fresh, non-cached ID/size/hash receipt. An absent or ambiguous
+        provider response fails closed and never permits local cleanup.
+        """
+        if not name or name in {'.', '..'} or '/' in name or '\\' in name:
+            raise ValueError('Unsafe Drive output filename')
+        value = json.loads(self.call(
+            ['lsjson', self.remote + ':' + name, '--stat', '--hash'], folder))
+        if not isinstance(value, dict) or (value.get('Name') and value['Name'] != name):
+            raise ValueError('Remote output identity ambiguous or missing')
+        return value
+
     def download(self, folder, item, target):
         if '/' in item['Name'] or '\\' in item['Name'] or item['Name'] in {'.', '..'}:
             raise ValueError('Drive source name contains path separators; rename the input safely')
@@ -111,10 +125,7 @@ class Drive:
         self.call(['copyto', str(local), self.remote+':'+name, '--ignore-existing',
                    '--transfers', '1'], folder, timeout=max(300, local.stat().st_size//10000))
         store.update(job['id'], stage='Verifying Drive Upload', progress=97, drive_status='Verifying')
-        items = [x for x in self.listing(folder) if x['Name'] == name]
-        if len(items) != 1:
-            raise ValueError('Remote output identity ambiguous or missing')
-        item = items[0]
+        item = self.stat(folder, name)
         if not item.get('ID') or item['Size'] != local.stat().st_size:
             raise ValueError('Remote output identity/size verification failed')
         if not (item.get('Hashes') or {}).get('MD5') or item['Hashes']['MD5'] != digest(local, 'md5'):
@@ -125,21 +136,27 @@ class Drive:
 
 
     def archive_inputs(self, job, store):
-        """Move only this successfully rendered default Drive pair to /used.
+        """Archive rendered Drive inputs using per-step fresh folder snapshots.
 
-        Each move is reserved and independently verified by Google Drive file ID.
-        Retry after a crash resumes from the persisted destination and cannot
-        overwrite a previously archived file or archive a changed source.
+        Read the source and /used folders once for each decision point. A move
+        invalidates both snapshots; refresh both immediately afterwards. This
+        replaces repeated full-folder scans without weakening identity checks or
+        overwriting files, and remains resumable after an interrupted move.
         """
         if not archive_eligible(job):
             return {}
         source = job['source']
         folder = source['image_folder']
         used = folder + '/used'
-        # mkdir is safe and idempotent; it never deletes or moves the input.
         self.call(['mkdir', self.remote + ':' + used])
         receipts = dict(job.get('archive_moves') or {})
         reservations = dict(job.get('archive_names') or {})
+        originals_snapshot = self.listing(folder)
+        used_snapshot = self.listing(used)
+
+        def matches(snapshot, name):
+            return [x for x in snapshot if x['Name'] == name]
+
         for kind in ('image', 'audio'):
             item = source[kind]
             name = item.get('Name', '')
@@ -148,21 +165,22 @@ class Drive:
                     name in {'.', '..'} or '/' in name or '\\' in name):
                 raise ValueError('Unsafe or unidentified Drive source; archive blocked')
             if kind in receipts:
-                if not self._archive_match(item, receipts[kind]['name'], used):
+                archived = matches(used_snapshot, receipts[kind]['name'])
+                if len(archived) != 1 or not _same_identity(archived[0], item):
                     raise ValueError('Previously archived Drive source changed; archive blocked')
-                if any(x['Name'] == name for x in self.listing(folder)):
+                if matches(originals_snapshot, name):
                     raise ValueError('Previously archived source unexpectedly still present')
                 continue
-            existing_used = self.listing(used)
+
             chosen = reservations.get(kind)
             if not chosen:
-                already = [x for x in existing_used if x.get('ID') == ident]
+                already = [x for x in used_snapshot if x.get('ID') == ident]
                 if already:
                     if len(already) != 1 or not _same_identity(already[0], item):
                         raise ValueError('Archived Drive identity collision')
                     chosen = already[0]['Name']
                 else:
-                    occupied = {x['Name'].casefold() for x in existing_used}
+                    occupied = {x['Name'].casefold() for x in used_snapshot}
                     stem, ext = os.path.splitext(name)
                     for version in range(1, 10001):
                         candidate = name if version == 1 else f'{stem} ({version}){ext}'
@@ -173,23 +191,28 @@ class Drive:
                         raise RuntimeError('No collision-free used filename available')
                 reservations[kind] = chosen
                 store.update(job['id'], archive_names=reservations, archive_status='Moving')
-            target = [x for x in self.listing(used) if x['Name'] == chosen]
+
+            target = matches(used_snapshot, chosen)
             if len(target) > 1 or (target and not _same_identity(target[0], item)):
                 raise ValueError('Used destination occupied by a different Drive file')
-            originals = [x for x in self.listing(folder) if x['Name'] == name]
+            originals = matches(originals_snapshot, name)
             if len(originals) > 1 or (originals and fingerprint(originals[0]) != fingerprint(item)):
                 raise ValueError('Source changed since sync; refusing Drive move')
             if not target:
                 if len(originals) != 1:
                     raise ValueError('Original Drive source missing; cannot verify archive')
-                # Same-remote server-side move, with an existing-destination guard.
-                # Never move an unrecognized source or overwrite a used asset.
+                # Atomic provider-side move; ignore-existing is an overwrite guard.
                 self.call(['moveto', self.remote + ':' + folder + '/' + name,
                            self.remote + ':' + used + '/' + chosen,
                            '--ignore-existing'])
-            if not self._archive_match(item, chosen, used):
+                # No stale cache survives a write; verify both folder states.
+                originals_snapshot = self.listing(folder)
+                used_snapshot = self.listing(used)
+
+            verified = matches(used_snapshot, chosen)
+            if len(verified) != 1 or not _same_identity(verified[0], item):
                 raise ValueError('Drive move receipt missing or mismatched')
-            if any(x['Name'] == name for x in self.listing(folder)):
+            if matches(originals_snapshot, name):
                 raise ValueError('Original Drive source still present after archive')
             receipts[kind] = {'name': chosen, 'id': ident, 'verified_at': time.time()}
             store.update(job['id'], archive_moves=receipts, archive_status='Moving')
@@ -226,7 +249,9 @@ def sync_owner(store, owner, settings, drive=None, admission_lock=None):
     drive = drive or Drive(settings)
     # Slow Drive listing never monopolizes manual queue admission.
     images = drive.listing(settings['image_folder'])
-    audio = drive.listing(settings['audio_folder'])
+    # Shared Song Studio folder: one provider listing supplies both media types.
+    audio = (images if settings['audio_folder'] == settings['image_folder']
+             else drive.listing(settings['audio_folder']))
     results = pairs(images, audio)
     count = 0
 
