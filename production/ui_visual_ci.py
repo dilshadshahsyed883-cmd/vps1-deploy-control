@@ -169,8 +169,26 @@ def verify_actual_short_maker_identity(browser, shell_js: str, shell_css: str,
 
 
 def verify_song_navigation(browser, shell_js: str, shell_css: str) -> list[str]:
-    """Exercise the actual Voice page and same-document Song/Voice switch."""
+    """Exercise separate Audio Downloader and Voice URLs with real shared navigation."""
     html = (ROOT / "apps/voice-studio/part01/templates/voice_studio.html").read_text()
+    canonical_html = html
+    for old, new, count in (
+        ("(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/audio-downloader'",
+         "'/voice-studio/tts/api/audio-downloader'", 1),
+        ("(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/audio-downloader/proxy'",
+         "'/voice-studio/tts/api/audio-downloader/proxy'", 1),
+        ("document.documentElement.dataset.vsEngine='audio-downloader';history.replaceState(null,'','#vs-audio');tab('downloader')",
+         "document.documentElement.dataset.vsEngine='audio-downloader';history.replaceState(null,'','/audio-downloader/');tab('downloader')", 1),
+        ("drivePath();if(location.hash==='#vs-audio')choose(true);",
+         "drivePath();if(location.pathname==='/audio-downloader/' || location.hash==='#vs-audio')choose(true);", 1),
+        ('<title>Voice Studio · VPS1</title>',
+         '<title>Audio Downloader · Song Studio</title>', 1),
+        ('vps1_native_site_shell.js?v=20261029-song-studio-v1',
+         'vps1_native_site_shell.js?v=20261030-audio-url-v1', 1),
+    ):
+        if canonical_html.count(old) != count:
+            raise RuntimeError("canonical URL fixture differs from reviewed Voice HTML")
+        canonical_html = canonical_html.replace(old, new)
     context = browser.new_context(viewport={"width": 1440, "height": 900})
     errors = []
     origin = "https://app.scenebuilder.online"
@@ -179,6 +197,10 @@ def verify_song_navigation(browser, shell_js: str, shell_css: str) -> list[str]:
             url = route.request.url
             if url.split("?", 1)[0] == origin + "/voice-studio/app":
                 route.fulfill(content_type="text/html", body=html)
+            elif url.split("?", 1)[0] == origin + "/song-studio/":
+                route.fulfill(content_type="text/html", body='<script>location.replace("/audio-downloader/")</script>')
+            elif url.split("?", 1)[0] == origin + "/audio-downloader/":
+                route.fulfill(content_type="text/html", body=canonical_html)
             elif "/static/vps1_native_site_shell.js" in url:
                 route.fulfill(content_type="application/javascript", body=shell_js)
             elif "/static/vps1_native_site_shell.css" in url:
@@ -189,7 +211,9 @@ def verify_song_navigation(browser, shell_js: str, shell_css: str) -> list[str]:
                     '"jobs":[],"voices":[],"profiles":[],"counts":{}}')
         context.route("**/*", route_request)
         page = context.new_page()
-        page.goto(origin + "/voice-studio/app#vs-audio", wait_until="load")
+        page.goto(origin + "/audio-downloader/", wait_until="load")
+        if page.url != origin + "/audio-downloader/":
+            errors.append("song-studio: canonical URL changed unexpectedly")
         page.locator('.vps1-native-song-tabs').wait_for(state="visible")
         song = page.locator('#vps1-native-site-sidebar nav a[href="/song-studio/"]')
         voice = page.locator('#vps1-native-site-sidebar nav a[href*="#vps1-production"]')
@@ -204,21 +228,22 @@ def verify_song_navigation(browser, shell_js: str, shell_css: str) -> list[str]:
         if page.locator('.vps1-native-song-tabs a').all_text_contents() != [
                 "Audio Downloader", "Song Maker", "Song Uploader"]:
             errors.append("song-studio: independent app tabs missing")
-        page.evaluate("window.songNavigationSentinel = 1")
         voice.click()
+        page.wait_for_url(origin + "/voice-studio/app#vps1-production")
         page.wait_for_function("!document.body.classList.contains('vs-audio-active')")
         if not page.locator('.vs-engine-selector').is_visible():
             errors.append("voice-studio: Voice engine tabs missing after switching back")
         if voice.get_attribute("aria-current") != "page":
             errors.append("song-studio: Voice Studio selection missing")
         song.click()
+        page.wait_for_url(origin + "/audio-downloader/")
         page.locator('#vsAudioWorkspace').wait_for(state="visible")
         if page.locator('.vs-engine-selector').is_visible():
             errors.append("song-studio: Voice engine tabs visible after switching back")
         if song.get_attribute("aria-current") != "page":
             errors.append("song-studio: Song Studio selection missing after switch")
-        if page.evaluate("window.songNavigationSentinel") != 1:
-            errors.append("song-studio: switch reloaded the engine document")
+        if page.url != origin + "/audio-downloader/":
+            errors.append("song-studio: navigation did not preserve the clean URL")
     except Exception as exc:
         errors.append(f"song-studio: {type(exc).__name__}: {exc}")
     finally:

@@ -122,7 +122,16 @@ def patch_scene_payloads(original, source):
         old = 'vps1_native_site_shell.'+ext+'?v=20261020-sidebar-stable-v4'
         if old+'&song=20261029' not in base: base = base.replace(old, old+'&song=20261029')
     key = 'part01/static/vps1_native_site_shell.js'
-    verify_shared_shell(original[key], source[key])
+    # Accept only the audited pre-change shell or the exact reviewed shell.
+    # Unexpected live changes block the scoped web-only release.
+    reviewed = source[key].decode()
+    prior = reviewed
+    reverse_pairs = [["  const legacySidebar = !!(script && script.dataset && script.dataset.unifySidebar === \"1\");","  const legacySidebar = !!(script && script.dataset && script.dataset.unifySidebar === \"1\");\n  // Preserve previously shared Voice Studio audio links via the canonical Song Studio page.\n  if (app === \"voice\" && /^\\/voice-studio\\/app\\/?$/.test(window.location?.pathname || \"\") && window.location?.hash === \"#vs-audio\" && typeof window.location.replace === \"function\") {\n    window.location.replace(\"/audio-downloader/\");\n    return;\n  }"],["    if (/^\\/(song-studio|song-maker|song-uploader)(\\/|$)/.test(pathname)) return \"song\";","    if (/^\\/audio-downloader\\/?$/.test(pathname)) return \"song\";\n    if (/^\\/(song-studio|song-maker|song-uploader)(\\/|$)/.test(pathname)) return \"song\";"],["app === \"voice\" && window.location?.hash === \"#vs-audio\" ? \"song\" : \"voice\";","app === \"voice\" && (window.location?.hash === \"#vs-audio\" || /^\\/audio-downloader\\/?$/.test(window.location?.pathname || \"\")) ? \"song\" : \"voice\";"],["      voiceLink.addEventListener(\"click\", (event) => {\n","      voiceLink.addEventListener(\"click\", (event) => {\n        if (/^\\/audio-downloader\\/?$/.test(window.location?.pathname || \"\")) return;\n"],["      songLink.addEventListener(\"click\", event => {\n","      songLink.addEventListener(\"click\", event => {\n        // Voice Studio to Song Studio always navigates to its independent URL.\n        if (/^\\/voice-studio\\//.test(window.location?.pathname || \"\")) return;\n"],["addLink(tabs, \"Audio Downloader\", \"/song-studio/audio-downloader/\", app === \"voice\");","addLink(tabs, \"Audio Downloader\", \"/audio-downloader/\", app === \"voice\");"],["    if(engineHash&&location.hash!==engineHash)history.replaceState(null,'',engineHash);","    if (/^\\/audio-downloader\\/?$/.test(location.pathname)) {\n      if (document.documentElement.dataset.vsEngine === \"audio-downloader\" && location.hash)\n        history.replaceState(null, \"\", \"/audio-downloader/\");\n    } else if(engineHash&&location.hash!==engineHash)history.replaceState(null,'',engineHash);"],["      const id={'#vs-kokoro':'vsEngineKokoro','#vs-edge':'vsEngineEdge','#vs-audio':'vsEngineAudio'}[initialEngineHash];","      const targetHash = /^\\/audio-downloader\\/?$/.test(location.pathname) ? '#vs-audio' : initialEngineHash;\n      const id={'#vs-kokoro':'vsEngineKokoro','#vs-edge':'vsEngineEdge','#vs-audio':'vsEngineAudio'}[targetHash];"]]
+    for old, new in reverse_pairs:
+        require(prior.count(new) == 1, 'reviewed canonical URL shell marker drift')
+        prior = prior.replace(new, old, 1)
+    require(original[key] == source[key] or original[key] == prior.encode(),
+            'shared shell drift; reconcile before overlay')
     css = original['part01/static/vps1_native_site_shell.css'].decode()
     reviewed_css = source['part01/static/vps1_native_site_shell.css'].decode()
     css_start = reviewed_css.index('/* Audio Downloader keeps its existing engine')
@@ -171,9 +180,12 @@ def install_scene(revision):
         from production.route_uploader_scene_https import scene_cookie, https_get
         cookie = scene_cookie()
         require(https_get('/scene-builder/',cookie)[0] == 200, 'Scene web unavailable')
-        for route in ('/song-studio/','/song-studio/song-maker/','/song-studio/song-uploader/'):
+        for route in ('/song-studio/','/song-studio/audio-downloader/',
+                      '/song-studio/song-maker/','/song-studio/song-uploader/'):
             require(https_get(route,cookie)[0] == 303, 'Song Studio redirect unavailable')
             require(https_get(route)[0] in (303,401,403), 'Song Studio anonymous access')
+        require(https_get('/audio-downloader/',cookie)[0] == 200, 'canonical Audio Downloader unavailable')
+        require(https_get('/audio-downloader/')[0] in (303,401,403), 'Audio Downloader anonymous access')
         require(https_get('/static/vps1_native_site_shell.js',cookie)[2] == source['part01/static/vps1_native_site_shell.js'], 'Scene shared shell not live')
         require(run(['systemctl','show','--property=MainPID','--value',worker],quiet=True) == pid, 'Scene render worker changed')
         atomic_json(journal/'result.json', {'state':'ACTIVE','worker':'PRESERVED','https':'PASS'})
