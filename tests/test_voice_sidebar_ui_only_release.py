@@ -110,7 +110,14 @@ class VoiceSidebarUIOnlyTests(unittest.TestCase):
         self.assertIn("install_voice_template(revision)", source)
         self.assertIn("return", source)
         voice = (ROOT / "apps/voice-studio/part01/templates/voice_studio.html").read_bytes()
-        self.assertIn(NEW_ASSETS, voice)
+        song_assets = NEW_ASSETS.replace(
+            b"vps1_native_site_shell.css?v=20261020-upload-studio-v1",
+            b"vps1_native_site_shell.css?v=20261029-song-studio-v1",
+        ).replace(
+            b"vps1_native_site_shell.js?v=20261020-upload-studio-v1",
+            b"vps1_native_site_shell.js?v=20261029-song-studio-v1",
+        )
+        self.assertIn(song_assets, voice)
 
 
 
