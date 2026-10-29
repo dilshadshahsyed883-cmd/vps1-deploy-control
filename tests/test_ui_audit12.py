@@ -58,7 +58,12 @@ def browser_acceptance():
             page.get_by_role('button',name='Proxy Settings',exact=True).click()
             expect(page.locator('#vsaProxy')).to_be_visible()
             page.locator('#vsaProxyName').fill('Unsaved local profile')
-            page.get_by_role('tab',name='OmniVoice',exact=True).click()
+            # The Voice engine selector is intentionally hidden inside Song Studio.
+            expect(page.locator('.vs-engine-selector')).not_to_be_visible()
+            if width < 761:
+                page.locator('.vps1-native-toggle').click()
+            page.locator('#vps1-native-site-sidebar nav a[href*="#vps1-production"]').click()
+            expect(page.locator('.vs-engine-selector')).to_be_visible()
             expect(page.locator('#vsaProxy')).not_to_be_visible()
             page.locator('[data-vps1-tab="clone"]').click()
             page.get_by_role('button',name='Open OmniVoice production',exact=True).click()
