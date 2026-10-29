@@ -232,11 +232,13 @@ def sync_owner(store, owner, settings, drive=None, admission_lock=None):
 
     def admit_pairs():
         nonlocal count
+        export = store.record('exports', owner)
+        job_settings = {**settings, **{k: export[k] for k in ('resolution', 'fit') if k in export}}
         for pair in results:
             if pair['stage'] != 'Matched':
                 continue
             image, sound = pair['images'][0], pair['audio'][0]
-            job = enqueue_pair(store, owner, settings, image, sound)
+            job = enqueue_pair(store, owner, job_settings, image, sound)
             pair['job_id'], pair['job_stage'] = job['id'], job['stage']
             count += 1
 
