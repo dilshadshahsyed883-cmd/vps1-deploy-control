@@ -1,12 +1,105 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Song Maker · Song Studio</title>
-<link rel="stylesheet" href="/static/vps1_native_site_shell.css?v=song-maker-v1"><link rel="stylesheet" href="/song-maker/assets/style.css?v=song-studio-mobile-parity-20261030-2">
-<script defer src="/static/vps1_native_site_shell.js?v=song-maker-v1" data-workspace="song"></script><script defer src="/song-maker/assets/app.js"></script></head>
-<body><main class="sm"><header><p class="eyebrow">SONG STUDIO</p><h1>Song Maker</h1><p>One image. One audio file. Your finished video.</p></header>
-<nav class="tabs" aria-label="Song Maker tabs"><button data-tab="input" aria-selected="true">Input &amp; Drive Sync</button><button data-tab="pairs">Pair Matching</button><button data-tab="queue">Queue</button><button data-tab="output">Output</button></nav>
-<p id="notice" role="status" aria-live="polite"></p>
-<section id="input"><div class="grid"><form id="manual" class="card"><h2>Create a video</h2><label>Image<input name="image" type="file" accept=".jpg,.jpeg,.png,.webp" required></label><img id="preview" hidden alt="Selected image preview"><label>Audio<input name="audio" type="file" accept=".mp3,.wav,.m4a" required></label><p id="audioInfo"></p><div class="grid"><label>Output<select name="resolution"><option value="1080p">1080p · 16:9</option><option value="720p">720p · 16:9</option><option value="9:16">1080p · 9:16</option></select></label><label>Image fit<select name="fit"><option value="fit">Fit · black background</option><option value="blur">Blur background</option></select></label></div><button class="primary">Add to Queue</button></form>
-<div class="card"><h2>Drive sync</h2><p id="syncStatus">Loading…</p><p id="folderInfo"></p><button id="syncNow" type="button">Sync Now</button><details id="adminSettings" hidden><summary>Drive settings</summary><form id="settings"><label>Existing Drive profile<select name="remote" required></select></label><label>Images folder ID or path<input name="image_folder" placeholder="Song Studio/Audio downloader" required></label><label>Audio folder ID or path<input name="audio_folder" placeholder="Song Studio/Audio downloader" required></label><label>Output folder ID or path<input name="output_folder" placeholder="Song Studio/song maker" required></label><p class="muted">By default, images and audio share Song Studio/Audio downloader; MP4s go to Song Studio/song maker. Existing folder IDs and credentials remain supported.</p><label><input name="auto_sync" type="checkbox"> Automatically scan every minute</label><label>Automatic output<select name="resolution"><option value="1080p">1080p · 16:9</option><option value="720p">720p · 16:9</option><option value="9:16">1080p · 9:16</option></select></label><label>Image fit<select name="fit"><option value="fit">Fit</option><option value="blur">Blur background</option></select></label><button>Save settings</button></form></details></div></div></section>
-<section id="pairs" hidden><div id="metrics" class="metrics"></div><div id="pairList" class="card"></div></section>
-<section id="queue" hidden><div class="tableWrap"><table><thead><tr><th>Project</th><th>Image</th><th>Audio</th><th>Duration</th><th>Stage</th><th>Progress</th><th>Output filename</th><th>Drive</th><th>Actions</th></tr></thead><tbody id="jobs"></tbody></table></div></section>
-<section id="output" hidden><div id="outputs" class="grid"></div></section>
-<dialog id="details"><h2>Project details</h2><pre id="detailText"></pre><button id="closeDetails">Close</button></dialog></main></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Song Maker · Song Studio</title>
+  <link rel="stylesheet" href="/static/vps1_native_site_shell.css?v=song-maker-v1">
+  <link rel="stylesheet" href="/song-maker/assets/style.css?v=song-maker-queue-settings-20261030">
+  <script defer src="/static/vps1_native_site_shell.js?v=song-maker-v1" data-workspace="song"></script>
+  <script defer src="/song-maker/assets/app.js?v=song-maker-queue-settings-20261030"></script>
+</head>
+<body>
+<main class="sm">
+  <header><p class="eyebrow">SONG STUDIO</p><h1>Song Maker</h1>
+    <p>Match image + audio, render MP4 and upload to Google Drive.</p></header>
+  <nav class="tabs" aria-label="Song Maker tabs">
+    <button data-tab="input" aria-selected="true">Input &amp; Drive Sync</button>
+    <button data-tab="pairs">Pair Matching</button>
+    <button data-tab="queue">Queue</button>
+    <button data-tab="settingsTab">Settings</button>
+  </nav>
+  <p id="notice" role="status" aria-live="polite"></p>
+
+  <section id="input">
+    <div class="grid">
+      <form id="manual" class="card">
+        <h2>Create a video</h2>
+        <label>Image<input name="image" type="file" accept=".jpg,.jpeg,.png,.webp" required></label>
+        <img id="preview" hidden alt="Selected image preview">
+        <label>Audio<input name="audio" type="file" accept=".mp3,.wav,.m4a" required></label>
+        <p id="audioInfo"></p>
+        <p class="muted">Resolution and image fit use the saved Settings tab defaults.</p>
+        <button class="primary" type="submit">Add to Queue</button>
+      </form>
+      <div class="card">
+        <h2>Drive sync</h2>
+        <p id="syncStatus">Loading…</p><p id="folderInfo"></p>
+        <button id="syncNow" class="primary" type="button">Sync Now</button>
+        <p class="muted">Matches the image and audio with the same filename. Re-scanning never duplicates an existing source version.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="pairs" hidden>
+    <div id="metrics" class="metrics"></div><div id="pairList" class="card"></div>
+  </section>
+
+  <section id="queue" hidden>
+    <div class="card queueControls">
+      <div id="queueMetrics" class="metrics" aria-live="polite"></div>
+      <div class="actions">
+        <button id="pauseQueue" type="button">Pause pending</button>
+        <button id="retryFailed" type="button">Retry Failed</button>
+        <button id="cancelPending" type="button">Cancel Pending</button>
+        <button id="clearCompleted" type="button">Clear Completed</button>
+      </div>
+      <p id="queueHint" class="muted">Pause stops the next jobs being claimed; active rendering and uploading continue safely.</p>
+    </div>
+    <div class="tableWrap"><table>
+      <thead><tr><th>Project</th><th>Image / Audio</th><th>Duration</th><th>Stage</th>
+        <th>Progress</th><th>FPS</th><th>Render speed</th><th>Elapsed</th><th>ETA</th>
+        <th>Output</th><th>Drive</th><th>Actions</th></tr></thead>
+      <tbody id="jobs"></tbody>
+    </table></div>
+  </section>
+
+  <section id="settingsTab" hidden>
+    <div class="grid">
+      <form id="exportSettings" class="card">
+        <h2>Export settings</h2>
+        <label>Resolution &amp; aspect ratio
+          <select name="resolution"><option value="1080p">1080p · 16:9</option>
+            <option value="720p">720p · 16:9</option><option value="9:16">1080p · 9:16</option></select>
+        </label>
+        <label>Image fit
+          <select name="fit"><option value="fit">Fit · black background</option>
+            <option value="blur">Fit · blurred background</option></select>
+        </label>
+        <p class="muted">Saved defaults apply to newly queued manual and Drive-matched projects. Existing jobs keep their original settings.</p>
+        <button class="primary" type="submit">Save Export Settings</button>
+      </form>
+      <details id="adminSettings" class="card" hidden>
+        <summary>Administrator · Drive settings</summary>
+        <form id="settings">
+          <label>Existing Drive profile<select name="remote" required></select></label>
+          <label>Images folder ID or path<input name="image_folder" required placeholder="Song Studio/Audio downloader"></label>
+          <label>Audio folder ID or path<input name="audio_folder" required placeholder="Song Studio/Audio downloader"></label>
+          <label>Output folder ID or path<input name="output_folder" required placeholder="Song Studio/song maker"></label>
+          <label><input name="auto_sync" type="checkbox"> Automatically scan every minute</label>
+          <p class="muted">Default input: Song Studio/Audio downloader; output: Song Studio/song maker. Drive credentials stay on the server.</p>
+          <button type="submit">Save Drive Settings</button>
+        </form>
+      </details>
+    </div>
+  </section>
+
+  <dialog id="details"><h2>Project details</h2><pre id="detailText"></pre>
+    <button id="closeDetails" type="button">Close</button></dialog>
+  <dialog id="previewDialog"><h2 id="previewTitle">Video preview</h2>
+    <video id="renderedVideo" controls preload="none"></video>
+    <div class="actions"><a id="downloadMP4" href="#">Download MP4</a>
+      <a id="driveMP4" href="#" target="_blank" rel="noopener" hidden>Open in Google Drive</a></div>
+    <button id="closePreview" type="button">Close</button>
+  </dialog>
+</main>
+</body></html>
