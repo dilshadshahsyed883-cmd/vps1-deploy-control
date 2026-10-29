@@ -4975,10 +4975,10 @@ async def _vps1_voice_studio_proxy(request:_VSRequest,upstream_path:str):
         # Bust that stale browser cache without deploying/restarting its engine.
         content=content.replace(
             b"vps1_native_site_shell.js?v=1",
-            b"vps1_native_site_shell.js?v=20261020-upload-studio-v1",
+            b"vps1_native_site_shell.js?v=20261029-song-studio-v1",
         ).replace(
             b"vps1_native_site_shell.css?v=1",
-            b"vps1_native_site_shell.css?v=20261020-upload-studio-v1",
+            b"vps1_native_site_shell.css?v=20261029-song-studio-v1",
         )
     out={k:r.headers[k] for k in ("content-type","content-disposition","cache-control") if k in r.headers}
     return _VSResponse(content=content,status_code=r.status_code,headers=out)
