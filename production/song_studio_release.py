@@ -152,9 +152,10 @@ def install_scene(revision):
     journal.mkdir(parents=True, mode=0o700)
     atomic_json(journal/'previous.json', {'release':str(previous),'worker_pid':pid,'files':list(changes)})
     shutil.copytree(previous,target,symlinks=True)
-    manifest_path = target/'_production_manifest.json'
+    manifest_path = target/'_scene_candidate_manifest.json'
     require(manifest_path.is_file() and not manifest_path.is_symlink(), 'Scene manifest ownership')
     manifest = json.loads(manifest_path.read_text())
+    require(manifest.get('app') == 'scene-builder', 'Scene manifest app ownership')
     for name,payload in changes.items():
         require(name in manifest.get('files',{}), 'Scene manifest file missing')
         (target/name).write_bytes(payload)

@@ -241,7 +241,8 @@ def install(revision):
     shared.write_bytes((REPO/'apps/scene-builder/part01/static/vps1_native_site_shell.js').read_bytes())
     subprocess.run([venv/'bin/python','-m','py_compile',web],check=True)
     # Source manifest records exact changed bytes while all other installed code stays copied.
-    manifest=overlay/'_production_manifest.json'
+    manifest=overlay/'_scene_candidate_manifest.json'
+    require(manifest.is_file() and not manifest.is_symlink(),'Scene candidate manifest missing/linked')
     if manifest.exists():
         data=json.loads(manifest.read_text())
         for file in (web,shared):data['files'][str(file.relative_to(overlay))]=hashlib.sha256(file.read_bytes()).hexdigest()
