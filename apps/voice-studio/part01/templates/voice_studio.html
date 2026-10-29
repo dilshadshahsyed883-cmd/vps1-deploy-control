@@ -436,7 +436,7 @@ body.vs-kokoro-active #vsOmniHeader,body.vs-edge-active #vsOmniHeader,body.vs-au
         <p id="vsaMessage" class="vsa-message" role="status" aria-live="polite">Ready for your links.</p>
       </div>
       <div class="vsa-right">
-        <div class="vsa-card"><h2>Google Drive destination</h2><p class="vsa-note">Audio and optional thumbnail use the YouTube Video ID as their filename.</p><div class="vsa-path" id="vsaDrivePath">Google Drive / Audio Downloader</div></div>
+        <div class="vsa-card"><h2>Google Drive destination</h2><p class="vsa-note">Audio and optional thumbnail use the YouTube Video ID as their filename.</p><div class="vsa-path" id="vsaDrivePath">Google Drive / Song Studio / Audio downloader</div></div>
         <div class="vsa-card"><h2>Download options</h2>
           <label class="vsa-option"><input id="vsaUpload" type="checkbox" checked><span><strong>Auto upload after download</strong><small>Verify the file size on Google Drive after upload</small></span></label>
           <label class="vsa-option"><input type="checkbox" checked disabled><span><strong>Extract audio only</strong><small>Video files are not retained</small></span></label>
@@ -448,7 +448,7 @@ body.vs-kokoro-active #vsOmniHeader,body.vs-edge-active #vsOmniHeader,body.vs-au
     </div>
     <div class="vsa-card vsa-spaced"><div class="vsa-inline"><h2>Recent jobs</h2><button id="vsaRefreshMain" type="button" class="vsa-secondary">Refresh</button></div><div id="vsaRecent">No audio jobs yet.</div></div>
   </div>
-  <div id="vsaDrive" class="vsa-content" hidden><div class="vsa-card"><h2>Google Drive upload</h2><p>Completed jobs show their upload verification status and destination in Queue and History. The root folder is <strong>Google Drive / Audio Downloader</strong>.</p><p class="vsa-note" id="vsaDriveSummary">Checking Drive connection…</p><p>Auto upload can be disabled for local download only. Upload attempts are recorded separately for each audio job.</p></div></div>
+  <div id="vsaDrive" class="vsa-content" hidden><div class="vsa-card"><h2>Google Drive upload</h2><p>Completed jobs show their upload verification status and destination in Queue and History. The root folder is <strong>Google Drive / Song Studio / Audio downloader</strong>.</p><p class="vsa-note" id="vsaDriveSummary">Checking Drive connection…</p><p>Auto upload can be disabled for local download only. Upload attempts are recorded separately for each audio job.</p></div></div>
   <div id="vsaQueue" class="vsa-content" hidden><div class="vsa-card"><div class="vsa-inline"><h2>Audio download queue</h2><button id="vsaRefreshQueue" type="button" class="vsa-secondary">Refresh queue</button></div><div id="vsaQueueRows">No jobs yet.</div></div></div>
   <div id="vsaHistory" class="vsa-content" hidden><div class="vsa-card"><div class="vsa-inline"><h2>Download history</h2><button id="vsaRefreshHistory" type="button" class="vsa-secondary">Refresh history</button></div><div id="vsaHistoryRows">No jobs yet.</div></div></div>
 </section>
@@ -2150,7 +2150,7 @@ const api = async (url,options={}) => {
   return data;
 };
 const msg=(text,type='')=>{const el=$('vsaMessage');el.textContent=text;el.className='vsa-message'+(type?' '+type:'');};
-function drivePath(){$('vsaDrivePath').textContent='Google Drive / Audio Downloader';$('vsaOutput').textContent=$('vsaFormat').value.toUpperCase();}
+function drivePath(){$('vsaDrivePath').textContent='Google Drive / Song Studio / Audio downloader';$('vsaOutput').textContent=$('vsaFormat').value.toUpperCase();}
 function tab(name){selected=name;for(const id of ['downloader','drive','queue','history','proxy']){$('vsa'+id[0].toUpperCase()+id.slice(1)).hidden=id!==name;}document.querySelectorAll('[data-vsa-section]').forEach(x=>x.setAttribute('aria-selected',String(x.dataset.vsaSection===name)));if(name==='queue'||name==='history')loadJobs();if(name==='drive')loadStatus();if(name==='proxy'&&typeof window.vsaProxyLoad==='function')window.vsaProxyLoad();}
 function choose(on){active=on;document.body.classList.toggle('vs-audio-active',on);$('vsAudioWorkspace').hidden=!on;$('vsEngineAudio').setAttribute('aria-selected',String(on));if(on){document.body.classList.remove('vs-edge-active','vs-kokoro-active');$('vsEdgeWorkspace').hidden=true;$('vsKokoroWorkspace').hidden=true;for(const id of ['vsEngineOmni','vsEngineKokoro','vsEngineEdge'])$(id).setAttribute('aria-selected','false');document.documentElement.dataset.vsEngine='audio-downloader';history.replaceState(null,'','#vs-audio');tab('downloader');loadStatus();loadJobs();if(!tick)tick=setInterval(()=>{if(active){loadStatus();loadJobs();}},6000);}else{if(tick){clearInterval(tick);tick=null;}}window.dispatchEvent(new Event("vps1:voice-engine-changed"));}
 function make(tag,text,klass){const node=document.createElement(tag);if(text!=null)node.textContent=String(text);if(klass)node.className=klass;return node;}
