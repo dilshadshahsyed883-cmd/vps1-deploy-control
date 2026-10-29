@@ -131,8 +131,6 @@ def safe_folder(s: str, default='Untitled', maxlen=65) -> str:
 
 class BatchRequest(BaseModel):
     links: list[str] = Field(min_length=1, max_length=30)
-    project_name: str = Field(default='Audio Batch', max_length=90)
-    drive_folder: str = Field(default='YouTube Audio', max_length=90)
     format: Literal['mp3', 'wav'] = 'mp3'
     quality: Literal[128, 192, 256] = 192
     auto_upload: bool = True
@@ -195,8 +193,6 @@ def enqueue(payload: BatchRequest):
             ids.append(video_url(link))
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
-    project = safe_folder(payload.project_name, 'Audio Batch')
-    folder = safe_folder(payload.drive_folder, 'YouTube Audio')
     init_storage()
     batch_id = 'ADB-' + uuid.uuid4().hex[:12].upper()
     created = utc()
@@ -208,7 +204,7 @@ def enqueue(payload: BatchRequest):
                 jid = 'ADJ-' + uuid.uuid4().hex[:16].upper()
                 con.execute('''INSERT INTO jobs(job_id,batch_id,video_id,url,project,folder,format,quality,
                     auto_upload,keep_metadata,download_thumbnail,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
-                    (jid, batch_id, video, url, project, folder, payload.format, payload.quality,
+                    (jid, batch_id, video, url, '', '', payload.format, payload.quality,
                      int(payload.auto_upload), int(payload.keep_metadata), int(payload.download_thumbnail), 'queued', created, created))
                 jobs.append(jid)
             con.execute('COMMIT')
