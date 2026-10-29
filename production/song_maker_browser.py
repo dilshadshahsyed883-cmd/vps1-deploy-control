@@ -46,6 +46,17 @@ def main():
                         page.wait_for_selector('#vps1-native-site-sidebar')
                         assert page.locator('#vps1-native-site-sidebar').count()==1
                         assert page.locator('iframe').count()==0
+                        # Theme contract: parity with light Audio Downloader / Song Uploader.
+                        # Assert computed styles to detect stale CSS and white-on-white regressions.
+                        assert page.locator('main.sm').evaluate(
+                            "(el) => getComputedStyle(el).color") == 'rgb(16, 24, 40)'
+                        assert page.locator('.sm .card').first.evaluate(
+                            "(el) => getComputedStyle(el).backgroundColor") == 'rgb(255, 255, 255)'
+                        active_color = page.locator('.sm .tabs [aria-selected="true"]').evaluate(
+                            "(el) => ({color:getComputedStyle(el).backgroundColor, markup:el.outerHTML, brand:getComputedStyle(document.querySelector('.sm')).getPropertyValue('--sm-brand'), sheets:[...document.styleSheets].map(x=>x.href)})")
+                        assert active_color['color'] == 'rgb(99, 85, 223)', (width, active_color)
+                        assert page.locator('.sm input[name="image"]').evaluate(
+                            "(el) => getComputedStyle(el).backgroundColor") == 'rgb(255, 255, 255)'
                         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'),f'page overflow at {width}'
                         for tab in ('pairs','queue','output','input'):
                             page.locator(f'[data-tab="{tab}"]').click()
