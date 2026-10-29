@@ -2198,7 +2198,7 @@ async function downloadThumbnailViaSession(job,anchor,actions){
  const oldLabel=anchor.textContent;
  anchor.textContent='Downloading…';anchor.style.pointerEvents='none';
  try{
-  const response=await fetch(root+endpoint.slice(('/'+'tts/api/audio-downloader').length),{method:'GET',credentials:'same-origin',cache:'no-store',headers:{'Accept':'image/jpeg'}});
+  const response=await fetch(root+'/'+'jobs/'+encodeURIComponent(job.job_id)+'/'+'thumbnail',{method:'GET',credentials:'same-origin',cache:'no-store',headers:{'Accept':'image/jpeg'}});
   const type=String(response.headers.get('content-type')||'').split(';')[0].trim().toLowerCase();
   if(!response.ok||type!=='image/jpeg')throw new Error('Thumbnail endpoint did not return JPEG.');
   const data=await response.blob();
