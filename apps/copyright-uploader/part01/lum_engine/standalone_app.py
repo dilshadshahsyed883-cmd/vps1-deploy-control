@@ -2,6 +2,8 @@ from __future__ import annotations
 import os
 import secrets
 import shutil
+import hashlib
+import uuid
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -14,7 +16,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from .auth_store import UserStore
 from .config import (
-    API_VERSION, BASE_PATH, BUILD, COOKIE_SECURE, DATA_ROOT, REPORTS_ROOT, SESSION_SECRET,
+    API_VERSION, BASE_PATH, BUILD, COOKIE_SECURE, DATA_ROOT, REPORTS_ROOT, SESSION_SECRET, STAGING_ROOT,
     SUITE_AUTH_ENABLED, SUITE_LOGIN_URL, THUMBNAIL_ROOT, ensure_dirs,
 )
 from .oauth_web import complete_oauth, list_clients, save_client_json, save_shared_client_json, start_oauth
@@ -87,11 +89,73 @@ from .auto_engine_v6 import (
     shortstudio_list_folders as v6_shortstudio_list_folders,
 )
 
-app = FastAPI(title="Short Uploader" if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio" else "Auto Uploader", version=BUILD, docs_url=None, redoc_url=None)
+app = FastAPI(title="Copyright Uploader", version=BUILD, docs_url=None, redoc_url=None)
 v6_store = V6Store()
 app.mount(route("/static"), StaticFiles(directory=str(STATIC_ROOT)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATE_ROOT))
 templates.env.globals["base_path"] = BASE_PATH
+
+COPYRIGHT_MEDIA_ROOT = Path(os.environ.get("COPYRIGHT_MEDIA_ROOT", str(DATA_ROOT / "copyright_handoff")))
+COPYRIGHT_MAX_VIDEO = 12 * 1024 * 1024 * 1024
+COPYRIGHT_MIN_FREE = 5 * 1024 * 1024 * 1024
+
+def copyright_owner_root(owner: str) -> Path:
+    key = hashlib.sha256(owner.strip().lower().encode("utf-8")).hexdigest()[:32]
+    return COPYRIGHT_MEDIA_ROOT / key
+
+def copyright_folder_files(owner: str) -> list[str]:
+    folder = copyright_owner_root(owner)
+    if folder.is_symlink() or not folder.is_dir():
+        return []
+    return sorted(
+        [p.name for p in folder.iterdir()
+         if not p.is_symlink() and p.is_file() and p.suffix.lower() in {".mp4", ".mkv", ".mov"}
+         and p.stat().st_size > 0], key=str.lower
+    )[:500]
+
+async def copyright_stage_file(video: UploadFile, ext: str) -> tuple[str, int, str]:
+    if ext not in {".mp4", ".mkv", ".mov"}:
+        raise ValueError("Video file must be MP4, MKV or MOV")
+    if shutil.disk_usage(STAGING_ROOT).free < COPYRIGHT_MIN_FREE:
+        raise ValueError("Not enough free space to stage video safely")
+    target = STAGING_ROOT / ("copyright_" + uuid.uuid4().hex + ext)
+    sha = hashlib.sha256()
+    total = 0
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    try:
+        with os.fdopen(fd, "wb") as out:
+            while True:
+                chunk = await video.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > COPYRIGHT_MAX_VIDEO or shutil.disk_usage(STAGING_ROOT).free < COPYRIGHT_MIN_FREE:
+                    raise ValueError("Video too large or operational disk reserve reached")
+                sha.update(chunk)
+                out.write(chunk)
+            out.flush()
+            os.fsync(out.fileno())
+        if total == 0:
+            raise ValueError("Video file is empty")
+        return str(target), total, sha.hexdigest()
+    except BaseException:
+        target.unlink(missing_ok=True)
+        raise
+
+async def copyright_stage_owner_file(owner: str, filename: str) -> tuple[str, int, str]:
+    if not filename or Path(filename).name != filename or filename.startswith("."):
+        raise ValueError("Invalid folder filename")
+    directory = copyright_owner_root(owner)
+    source = directory / filename
+    if directory.is_symlink() or source.is_symlink() or not source.is_file() or source.resolve().parent != directory.resolve():
+        raise ValueError("Selected video is not in your Copyright Uploader folder")
+    if source.suffix.lower() not in {".mp4", ".mkv", ".mov"}:
+        raise ValueError("Unsupported video format")
+    from starlette.datastructures import UploadFile as _UploadFile
+    with source.open("rb") as input_file:
+        wrapped = _UploadFile(file=input_file, filename=source.name)
+        return await copyright_stage_file(wrapped, source.suffix.lower())
+
 
 
 def redirect(path: str, *, message: str = "", error: str = "") -> RedirectResponse:
@@ -360,12 +424,12 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
     user = current_user(request)
     if SUITE_AUTH_ENABLED and embedded:
         request.session["lum_embedded"] = "1"
-    embedded_view = (SUITE_AUTH_ENABLED and str(request.session.get("lum_embedded") or "") == "1") or os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio"
+    embedded_view = True
     mode = "heavy"
     allowed = {"dashboard", "channels", "sheets", "auto_engine", "add_video", "bulk_import", "queue", "logs", "auto_stream"}
-    if os.getenv("LUM_ENGINE_INSTANCE", "engine1") in {"song", "shortstudio"}:
-        allowed = {"dashboard", "channels", "sheets", "auto_engine", "logs"}
-    default_tab = "dashboard"
+    if os.getenv("LUM_ENGINE_INSTANCE", "engine1") == "copyright":
+        allowed = {"dashboard", "channels", "sheets", "profiles", "add_video", "queue", "logs"}
+    default_tab = "add_video"
     selected = tab if tab in allowed else default_tab
     channels = all_channels()
     projects = get_projects(user)
@@ -382,7 +446,7 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
     except ValueError:
         raise HTTPException(status_code=400, detail="Unknown uploader mode")
     engine_instance = os.getenv("LUM_ENGINE_INSTANCE", "engine1")
-    if engine_instance in {"engine2", "shorts", "song", "shortstudio"}:
+    if engine_instance in {"engine2", "shorts", "song", "shortstudio", "copyright"}:
         # Independent uploaders cannot access Auto Stream.
         if selected == "auto_stream":
             raise HTTPException(404, "Auto Stream is not an uploader engine")
@@ -510,6 +574,8 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         "build": BUILD,
         "suite_auth": SUITE_AUTH_ENABLED,
         "embedded_view": embedded_view,
+        "copyright_profiles": store.copyright_profiles(str(user["username"])),
+        "copyright_files": copyright_folder_files(str(user["username"])),
     })
 
 
@@ -613,17 +679,63 @@ def action_report_health(request: Request, csrf_token: str = Form(...)):
         return redirect("/app", error=f"Health report failed: {exc}")
 
 
+@app.post(route("/actions/copyright/profile"))
+async def copyright_add_profile(
+    request: Request, csrf_token: str = Form(...), profile_name: str = Form(...),
+    group_name: str = Form(""), metadata_source: str = Form("manual"),
+):
+    user = current_user(request)
+    require_csrf(request, csrf_token)
+    if os.environ.get("LUM_ENGINE_INSTANCE") != "copyright":
+        raise HTTPException(404, "Not found")
+    try:
+        store.add_copyright_profile(str(user["username"]), profile_name, group_name, metadata_source)
+        return redirect("/app?tab=profiles", message="Upload profile saved")
+    except ValueError as exc:
+        return redirect("/app?tab=profiles", error=str(exc))
+
+
 @app.post(route("/actions/add-video"))
 async def add_video(
-    request: Request, csrf_token: str = Form(...), drive_url: str = Form(...), title: str = Form(...),
+    request: Request, csrf_token: str = Form(...), drive_url: str = Form(""), title: str = Form(...),
     description: str = Form(""), tags: str = Form(""), category_id: str = Form("22"), privacy_status: str = Form("private"),
     app_upload_at: str = Form(""), made_for_kids: str = Form(""), playlist_id: str = Form(""), channel_db_id: int = Form(...),
     group_name: str = Form(""), thumbnail: UploadFile | None = File(default=None),
+    source_mode: str = Form("drive_link"), video_file: UploadFile | None = File(default=None),
+    folder_file: str = Form(""), profile_id: int = Form(0),
 ):
     user = current_user(request); require_csrf(request, csrf_token)
     thumb_path = ""
+    owned_staging = ""
+    source_original = ""
+    fingerprint = ""
+    source_size = 0
     try:
         upload_instance = os.getenv("LUM_ENGINE_INSTANCE", "engine1").strip().lower()
+        if upload_instance == "copyright":
+            if profile_id:
+                profile = store.copyright_profile(str(user["username"]), int(profile_id))
+                if not profile:
+                    raise ValueError("Upload profile not found for current account")
+                group_name = str(profile["group_name"])
+            if source_mode == "drive_link":
+                if not drive_url.strip():
+                    raise ValueError("Google Drive URL required")
+                fingerprint = hashlib.sha256(("drive:" + drive_url.strip()).encode()).hexdigest()
+            elif source_mode == "pc_upload":
+                if video_file is None or not video_file.filename:
+                    raise ValueError("Select a video file from your PC")
+                source_original = Path(video_file.filename).name
+                owned_staging, source_size, fingerprint = await copyright_stage_file(
+                    video_file, Path(source_original).suffix.lower())
+            elif source_mode == "folder":
+                if folder_file not in copyright_folder_files(str(user["username"])):
+                    raise ValueError("Choose an available file from your uploader folder")
+                source_original = folder_file
+                owned_staging, source_size, fingerprint = await copyright_stage_owner_file(
+                    str(user["username"]), folder_file)
+            else:
+                raise ValueError("Unknown source mode")
         has_thumbnail = bool(thumbnail and thumbnail.filename)
         if upload_instance == "engine2" and not has_thumbnail:
             raise ValueError("Engine 2 requires a JPG/PNG thumbnail before queue admission.")
@@ -652,12 +764,16 @@ async def add_video(
             app_upload_at_utc = _pkt_value.astimezone(_pkt_utc.utc).replace(microsecond=0).isoformat()
         project_id = store.create_project({
             "owner_username": str(user["username"]), "ui_mode": user_mode(user),
-            "source_mode": "drive_link", "drive_url": drive_url, "thumbnail_path": thumb_path,
+            "source_mode": "local_file" if owned_staging else "drive_link",
+            "drive_url": drive_url, "thumbnail_path": thumb_path,
+            "staging_path": owned_staging, "source_file_name": source_original,
+            "source_file_size": source_size, "source_fingerprint": fingerprint,
             "title": title, "description": description, "tags": tags, "category_id": category_id,
             "privacy_status": privacy_status, "app_upload_at": app_upload_at_utc,
             "made_for_kids": str(made_for_kids).lower() in {"1", "true", "on", "yes"},
             "playlist_id": playlist_id, "channel_db_id": channel_db_id, "group_name": group_name,
         })
+        owned_staging = ""
         if thumb_path:
             final = THUMBNAIL_ROOT / f"{project_id}{Path(thumb_path).suffix.lower()}"
             Path(thumb_path).replace(final)
@@ -665,6 +781,8 @@ async def add_video(
         next_tab = "upload" if user_mode(user) == "simple" else "queue"
         return redirect(f"/app?tab={next_tab}", message=f"Project #{project_id} added to VPS queue")
     except Exception as exc:
+        if owned_staging:
+            Path(owned_staging).unlink(missing_ok=True)
         if thumb_path:
             Path(thumb_path).unlink(missing_ok=True)
         next_tab = "upload" if user_mode(user) == "simple" else "add_video"
