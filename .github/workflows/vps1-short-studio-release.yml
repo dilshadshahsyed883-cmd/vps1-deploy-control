@@ -55,7 +55,7 @@ jobs:
           # it does not restart Song Uploader, Short Maker or any sibling worker.
           if [[ "$RELEASE_INTENT" == *'[vps1-short-maker-only]'* ]]; then
             apps=(short-maker)
-          elif [[ "$RELEASE_INTENT" == *'[vps1-shortstudio-intro-only]'* ]] || [[ "$RELEASE_INTENT" == *'[vps1-shortstudio-profile-controls]'* ]] || [[ "$RELEASE_INTENT" == *'[vps1-shortstudio-network-fairness]'* ]]; then
+          elif [[ "$RELEASE_INTENT" == *'[vps1-shortstudio-intro-only]'* ]] || [[ "$RELEASE_INTENT" == *'[vps1-shortstudio-profile-controls]'* ]] || [[ "$RELEASE_INTENT" == *'[vps1-shortstudio-network-fairness]'* ]] || [[ "$RELEASE_INTENT" == *'[vps1-shortstudio-final-ui]'* ]]; then
             apps=(local-upload-manager)
           fi
           for app in "${apps[@]}"; do

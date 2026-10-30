@@ -107,6 +107,7 @@ def verify_live(*, ui_only=False):
         require('id="short-profile-privacy-status"' in form and
                 re.search(r'<option value="public"[^>]*selected',form),
                 'New Short Uploader profile does not default to Public')
+        verify_final_ui(html, form, cookie, https_get)
     if ui_only:
         require('Group profiles, sources and upload queue.' not in html and
                 'independent uploader workspace' not in html and
@@ -114,6 +115,46 @@ def verify_live(*, ui_only=False):
                 'Short Uploader duplicate introduction persists')
     require(https_get('/short-uploader/app')[0]==401,'anonymous route protection failed')
     print('SHORT_UPLOADER_LIVE=PASS AUTH=PASS GROUP_FORM=PASS GROUP_SUMMARY=PASS NO_UPLOAD_OR_ARM_ACTIONS',flush=True)
+
+
+def verify_final_ui(html, form, cookie, https_get):
+    """Read-only acceptance; never submit a profile, arm, sync or upload."""
+    require('lum-short-engine-tabbar' in html and 'lum-short-engine-status' in html
+            and '<section class="lum-ae-head">' not in html,
+            'runtime badges/tab row or removed header regressed')
+    require('data-short-profile-grid' in form and
+            'name="schedule_times" data-short-schedule-csv value="06:00"' in form,
+            'new profile layout or first PKT slot regressed')
+    for field, value in (('work_mode','auto'), ('upload_scope','per_channel'),
+                         ('after_upload_action','delete'), ('metadata_source','manual')):
+        select=re.search(r'<select[^>]*name="'+field+r'"[^>]*>(.*?)</select>',form,re.S)
+        require(select and re.search(r'<option value="'+value+r'"[^>]*selected',select[1]),
+                'new profile default regressed: '+field)
+    for field in ('enabled','schedule_enabled'):
+        require(re.search(r'<input[^>]*type="checkbox"[^>]*name="'+field+r'"[^>]*checked',form),
+                'new profile default regressed: '+field)
+    require(re.search(r'name="daily_upload_count"[^>]*value="1"',form),
+            'new profile daily count regressed')
+    status,_,body=https_get('/short-uploader/app?tab=sheets',cookie)
+    sheets=body.decode('utf-8')
+    require(status==200 and '<summary>Sheet format</summary>' in sheets and
+            '<h2>Manual Update</h2>' not in sheets and
+            'PC-app Sheets engine' not in sheets and
+            'lum-short-sheet-header-actions' in sheets and
+            'Update All Enabled Sheets' in sheets,
+            'compact Sheets Sync readback failed')
+    status,_,body=https_get('/short-uploader/app?tab=bulk_import',cookie)
+    require(status==200 and 'Bulk Import' not in body.decode('utf-8'),
+            'Short Uploader direct Bulk Import page exposed')
+    status,_,body=https_get('/short-uploader/static/local_upload_manager.css',cookie)
+    require(status==200 and all(marker in body for marker in (
+            b'.lum-short-engine-tabbar', b'.lum-short-engine-status',
+            b'.lum-short-profile-grid', b'.lum-short-sheet-header-actions')),
+            'current compact CSS missing')
+    from production.song_uploader_group_summary_release import health as song_health
+    require(song_health().get('ok') is True,
+            'Song Uploader health readback failed')
+    print('SHORT_FINAL_UI=PASS DEFAULTS=PASS SHEETS=PASS BULK_HIDDEN=PASS CSS=PASS SONG_HEALTH=PASS',flush=True)
 
 
 def install(revision, *, ui_only=False, network_only=False):

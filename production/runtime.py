@@ -969,7 +969,8 @@ def main():
                 raise RuntimeError('Unsupported Copyright operation')
             return
         # Preserve active protected-main Short Uploader network fairness release.
-        if '[vps1-shortstudio-network-fairness]' in intent:
+        if ('[vps1-shortstudio-network-fairness]' in intent or
+                '[vps1-shortstudio-final-ui]' in intent):
             if args.action != 'install' or args.apps != ['local-upload-manager']:
                 raise RuntimeError('Short Uploader network fix requires isolated release lane')
             from production.short_uploader_group_release import install as install_network_fix

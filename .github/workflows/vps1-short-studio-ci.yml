@@ -54,6 +54,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_short_maker_queue_modal.py' -v
       - name: Short Uploader group metadata and queue regressions
         run: python -m unittest discover -s tests -p 'test_short_uploader_group_metadata.py' -v
+      - name: Short Uploader final release scope and live acceptance guards
+        run: python -m unittest discover -s tests -p 'test_short_uploader_final_release.py' -v
       - name: Short Studio profile Start/Pause and per-video schedule regression
         run: python -m unittest discover -s tests -p 'test_short_studio_profile_controls.py' -v
       - name: Forbid changed credentials and activation
