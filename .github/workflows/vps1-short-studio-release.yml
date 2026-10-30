@@ -48,7 +48,7 @@ jobs:
           # Only these existing host allowlisted app installers; no custom shell
           # or new root operation. LUM installs the isolated 8019 service and
           # guards the Nginx route before Short Maker/Scene UI promotion.
-          for app in local-upload-manager short-maker scene-builder; do
+          for app in local-upload-manager short-maker video-merger scene-builder; do
             echo "SHORT_STUDIO_RELEASE_START=$app"
             timeout 2100s ssh -T -p 22 -i "$scratch/identity" \
               -o UserKnownHostsFile="$scratch/known_hosts" \
