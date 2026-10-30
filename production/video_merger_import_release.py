@@ -161,7 +161,7 @@ def overlay_queue_layout_ui(live, source, baseline):
         require(len(lines) == 1, 'Merger JS anchor drift: ' + name)
         return lines[0]
 
-    for name in ('function showTab(tab)', 'function queueMerge()',
+    for name in ('function showTab(tab)', 'async function queueMerge()',
                  'function activeStatus(s)', 'function renderQueue()'):
         old = js_line(baseline, name)
         new = js_line(source, name)
