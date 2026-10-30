@@ -3,6 +3,7 @@ import html
 import hashlib
 import os
 import random
+import sqlite3
 import re
 import shutil
 import subprocess
@@ -94,12 +95,12 @@ def short_vps_folder_names() -> list[str]:
     )
 
 
-def publish_short_to_vps(path: Path, folder_name: str, job_id: str) -> str:
+def publish_short_to_vps(path: Path, folder_name: str, job_id: str, strict: bool = False) -> str:
     folder = short_vps_folder(folder_name)
     if not folder.is_dir():
         raise RuntimeError("Chosen VPS folder was deleted. Select an existing folder.")
     final = folder / path.name
-    if final.exists() or final.is_symlink():
+    if (final.exists() or final.is_symlink()) and not strict:
         final = folder / f"{path.stem}_{job_id[:8]}{path.suffix}"
     if final.exists() or final.is_symlink():
         raise RuntimeError("Output filename already exists in VPS folder.")
@@ -108,10 +109,64 @@ def publish_short_to_vps(path: Path, folder_name: str, job_id: str) -> str:
         shutil.copyfile(path, tmp)
         if tmp.stat().st_size != path.stat().st_size or not tmp.stat().st_size:
             raise RuntimeError("VPS output copy failed validation.")
-        os.replace(tmp, final)
+        # Atomic no-clobber publish; never overwrite another job/worker.
+        os.link(tmp, final)
     finally:
         tmp.unlink(missing_ok=True)
     return final.name
+
+
+def reserve_short_output_names(folder_name: str, count: int) -> list[str]:
+    """Reserve strictly increasing per-folder output numbers across batches.
+
+    SQLite's write transaction serializes submissions; numbering survives
+    restarts and Short Uploader deletion, including Drive-only deliveries.
+    """
+    folder = short_vps_folder(folder_name)
+    if not folder.is_dir():
+        raise ValueError("Selected VPS folder does not exist.")
+    if count < 1 or count > 999:
+        raise ValueError("Output count must be 1–999.")
+    DATA_ROOT.mkdir(parents=True, exist_ok=True)
+    database = DATA_ROOT / "short_output_sequences.sqlite3"
+    if database.is_symlink():
+        raise ValueError("Unsafe output naming database.")
+    with sqlite3.connect(database, timeout=30) as con:
+        con.execute("BEGIN IMMEDIATE")
+        con.execute("""CREATE TABLE IF NOT EXISTS short_output_sequences (
+            folder_name TEXT PRIMARY KEY,
+            last_number INTEGER NOT NULL,
+            last_tag TEXT NOT NULL
+        )""")
+        row = con.execute(
+            "SELECT last_number,last_tag FROM short_output_sequences WHERE folder_name=?",
+            (folder_name,),
+        ).fetchone()
+        highest, last_tag = (int(row[0]), str(row[1])) if row else (0, "")
+        used_tags = set()
+        pattern = re.compile(
+            rf"^{re.escape(folder_name)}[ _](\\d{{3,}})(?:_([a-f0-9]{{6}}))?\\.mp4$",
+            re.IGNORECASE,
+        )
+        for entry in folder.iterdir():
+            if entry.is_symlink() or not entry.is_file():
+                continue
+            match = pattern.fullmatch(entry.name)
+            if match:
+                highest = max(highest, int(match.group(1)))
+                if match.group(2):
+                    used_tags.add(match.group(2).lower())
+        tag = uuid.uuid4().hex[:6]
+        while tag == last_tag or tag in used_tags:
+            tag = uuid.uuid4().hex[:6]
+        names = [f"{folder_name} {index:03d}_{tag}.mp4"
+                 for index in range(highest + 1, highest + count + 1)]
+        con.execute("""INSERT INTO short_output_sequences(folder_name,last_number,last_tag)
+                       VALUES(?,?,?)
+                       ON CONFLICT(folder_name) DO UPDATE SET
+                       last_number=excluded.last_number,last_tag=excluded.last_tag""",
+                    (folder_name, highest + count, tag))
+    return names
 
 
 def state_path(job_id: str) -> Path:
@@ -527,7 +582,8 @@ def render_job(job_id: str, cfg: dict):
                     "-i", str(concat), "-c", "copy", str(joined)
                 ])
 
-                final_name = output_name(cfg["base_name"], out_idx, count)
+                reserved_names = cfg.get("output_names") or []
+                final_name = reserved_names[out_idx - 1] if len(reserved_names) == count else output_name(cfg["base_name"], out_idx, count)
                 final_path = out_dir / final_name
                 if combined_audio:
                     set_state(job_id, message=f"Video {out_idx}/{count} · adding audio")
@@ -555,14 +611,17 @@ def render_job(job_id: str, cfg: dict):
                 })
 
         folder_name=cfg.get("short_vps_folder") or ""
-        if folder_name:
+        if cfg.get("available_to_short_uploader", not cfg.get("upload_to_drive", True)):
+            if not folder_name:
+                raise RuntimeError("Short Uploader destination requires a VPS folder.")
             for item in created:
                 item["short_vps_folder"] = folder_name
                 item["short_vps_filename"] = publish_short_to_vps(
-                    Path(item["local_path"]), folder_name, job_id
+                    Path(item["local_path"]), folder_name, job_id,
+                    strict=bool(cfg.get("output_names")),
                 )
             set_state(job_id, short_vps_folder=folder_name,
-                      message=f"Saved {len(created)} video(s) to VPS folder {folder_name}")
+                      message=f"Saved {len(created)} video(s) to Short Uploader folder {folder_name}")
         if cfg.get("upload_to_drive", True):
             created=deliver_outputs(job_id,created,cfg,job_dir)
             final_message=f"Completed {len(created)} video(s) · Drive verified"
@@ -571,8 +630,8 @@ def render_job(job_id: str, cfg: dict):
         else:
             for row in created:
                 row.pop("local_path",None)
-            set_state(job_id,delivery_status="local_only",drive_verified=False,local_cleaned=False)
-            final_message=f"Completed {len(created)} video(s) · local output"
+            set_state(job_id,delivery_status="short_uploader",drive_verified=False,local_cleaned=False)
+            final_message=f"Completed {len(created)} video(s) · available to Short Uploader"
 
         set_state(
             job_id, status="completed", progress=100,
@@ -1082,13 +1141,21 @@ async def create_job(
     input_mode: str = Form("upload"),
     drive_input_path: str = Form(""),
     drive_input_paths_json: str = Form(""),
-    upload_to_drive: bool = Form(True),
+    upload_to_drive: bool = Form(False),
+    available_to_short_uploader: bool | None = Form(None),
     drive_output_path: str = Form(DEFAULT_DRIVE_OUTPUT),
     verified_clean: bool = Form(True),
     short_vps_folder_name: str = Form("", alias="short_vps_folder"),
 ):
     input_mode=input_mode if input_mode in ("upload","drive") else "upload"
+    # Backward-compatible API inference; explicit checkbox states must be exclusive.
+    if available_to_short_uploader is None:
+        available_to_short_uploader = not upload_to_drive
+    if bool(upload_to_drive) == bool(available_to_short_uploader):
+        raise HTTPException(status_code=400, detail="Select exactly one output destination.")
+    short_vps_folder_name = short_vps_folder_name or SHORT_VPS_DEFAULT
     try:
+        short_vps_folder_names()  # Ensure protected default folder exists.
         short_target = short_vps_folder(short_vps_folder_name) if short_vps_folder_name else None
         if short_target is not None and not short_target.is_dir():
             raise ValueError("Selected VPS folder does not exist.")
@@ -1142,6 +1209,11 @@ async def create_job(
             shutil.copyfileobj(upload.file, f)
         audio_paths.append(str(target))
 
+    try:
+        reserved_names = reserve_short_output_names(short_vps_folder_name, output_count)
+    except (ValueError, OSError, sqlite3.Error) as exc:
+        raise HTTPException(status_code=400, detail="Output naming reservation failed: " + str(exc))
+
     cfg = {
         "images": image_paths,
         "audio": audio_paths,
@@ -1153,11 +1225,14 @@ async def create_job(
         "motion": motion if motion in ("random", "zoom_in", "zoom_out", "pan_lr", "pan_rl", "none") else "random",
         "fps": fps,
         "crf": crf,
-        "base_name": safe_name(base_name),
+        "base_name": safe_name(base_name),  # Legacy job compatibility.
+        "output_names": reserved_names,
+        "batch_tag": reserved_names[0].rsplit("_", 1)[-1].removesuffix(".mp4"),
         "input_mode": input_mode,
         "drive_input_path": drive_input_path,
         "drive_input_paths": drive_input_paths,
         "upload_to_drive": bool(upload_to_drive),
+        "available_to_short_uploader": bool(available_to_short_uploader),
         "drive_output_path": drive_output_path,
         "verified_clean": bool(verified_clean),
         "short_vps_folder": short_vps_folder_name,
@@ -1168,7 +1243,7 @@ async def create_job(
             "job_id": job_id, "status": "queued", "progress": 0,
             "created_at": utc_now(),
             "message": "Queued", "outputs": [],
-            "delivery_status": "waiting_render" if upload_to_drive else "local_only",
+            "delivery_status": "waiting_render" if upload_to_drive else "short_uploader",
             "drive_verified": False,
             "local_cleaned": False,
             "config": {k: v for k, v in cfg.items() if k not in ("images", "audio")}
