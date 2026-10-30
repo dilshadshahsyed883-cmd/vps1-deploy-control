@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Any
 
 import requests
+import httpx
+from song_uploader_alias import upstream_path as song_uploader_upstream_path, public_html as song_uploader_public_html, public_cookie as song_uploader_public_cookie, public_location as song_uploader_public_location
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -2062,6 +2064,79 @@ async def audio_downloader_canonical_page(request: Request):
     )
 
 
+
+# SONG_UPLOADER_CANONICAL_URL_V1: Canonical URL is a trusted facade over the
+# EXISTING LUM song gateway. Never launch or duplicate an uploader worker.
+@app.api_route("/song-uploader", methods=["GET", "HEAD"])
+@app.api_route("/song-uploader/", methods=["GET", "HEAD"])
+@app.api_route("/song-uploader/{upstream_path:path}", methods=["GET", "HEAD", "POST"])
+async def song_uploader_canonical(request: Request, upstream_path: str = ""):
+    account = require_local_upload_manager_access(request)
+    try:
+        legacy_path = song_uploader_upstream_path(request.url.path, request.url.query)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Invalid Song Uploader route") from exc
+
+    # Use the same Scene-verified identity used by the Nginx LUM SSO gate.
+    # Inbound X-Auth-* / Authorization / Host headers must NEVER be trusted.
+    admin = bool(account.get("is_admin"))
+    headers = {
+        "x-auth-user": str(account["username"]),
+        "x-app-access": "all" if admin else "lum",
+        "x-is-admin": "1" if admin else "0",
+        "accept-encoding": "identity",
+    }
+    for key in ("accept", "accept-language", "content-type", "cookie", "user-agent"):
+        value = request.headers.get(key)
+        if value:
+            headers[key] = value
+    client = httpx.AsyncClient(
+        timeout=httpx.Timeout(1900.0, connect=5.0),
+        follow_redirects=False, trust_env=False,
+    )
+    try:
+        outbound = client.build_request(
+            request.method, "http://127.0.0.1:8015" + legacy_path,
+            headers=headers,
+            content=request.stream() if request.method == "POST" else None,
+        )
+        upstream = await client.send(outbound, stream=True)
+    except httpx.RequestError:
+        await client.aclose()
+        return Response("Song Uploader service unavailable", status_code=503, media_type="text/plain")
+    except BaseException:
+        await client.aclose()
+        raise
+
+    forwarded = {}
+    for key in ("content-type", "content-disposition", "cache-control", "location", "set-cookie"):
+        if key in upstream.headers:
+            forwarded[key] = upstream.headers[key]
+    if "location" in forwarded:
+        forwarded["location"] = song_uploader_public_location(forwarded["location"])
+    if "set-cookie" in forwarded:
+        forwarded["set-cookie"] = song_uploader_public_cookie(forwarded["set-cookie"])
+
+    if "text/html" in upstream.headers.get("content-type", "").lower():
+        try:
+            payload = await upstream.aread()
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+        forwarded["cache-control"] = "private, no-store"
+        return Response(song_uploader_public_html(payload), status_code=upstream.status_code,
+                        headers=forwarded)
+
+    async def _close_song_response():
+        await upstream.aclose()
+        await client.aclose()
+
+    return StreamingResponse(
+        upstream.aiter_raw(), status_code=upstream.status_code,
+        headers=forwarded, background=BackgroundTask(_close_song_response),
+    )
+
+
 @app.get("/song-studio/")
 @app.get("/song-studio/audio-downloader/")
 def song_studio_audio_downloader(request: Request):
@@ -2076,7 +2151,7 @@ def song_studio_app_slot(request: Request, studio_app: str):
     require_login(request)
     if studio_app == "song-uploader":
         # Dedicated authenticated uploader mode gateway; never proxy directly to loopback.
-        return RedirectResponse("/local-upload-manager/modes/song/app?embedded=1&tab=dashboard", status_code=303)
+        return RedirectResponse("/song-uploader", status_code=303)
     if studio_app == "song-maker":
         return RedirectResponse("/song-maker/", status_code=303)
     names = {"song-uploader": "Song Uploader"}
