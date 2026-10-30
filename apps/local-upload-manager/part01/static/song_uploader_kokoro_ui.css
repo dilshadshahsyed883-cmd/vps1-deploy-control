@@ -1,0 +1,172 @@
+/* SONG_UPLOADER_KOKORO_PARITY_V1
+   Song-only presentation layer, based on the native Kokoro/Voice UI contract.
+   No workflow, scheduling, authorization, URL or data-state changes.
+   The older LUM desktop theme remains untouched for every other uploader.
+*/
+body.lum-song-ui {
+  --song-panel: #fff;
+  --song-ink: #101828;
+  --song-muted: #667085;
+  --song-border: #e4e7ec;
+  --song-primary: #6355df;
+  background: #f6f7fb !important;
+  color: var(--song-ink) !important;
+  font: 400 14px/1.5 Inter, system-ui, -apple-system, "Segoe UI", sans-serif !important;
+}
+body.lum-song-ui .app-main {
+  box-sizing: border-box !important;
+  width: calc(100% - 68px) !important;
+  max-width: 1400px !important;
+  min-width: 0 !important;
+  margin: 0 auto 34px !important;
+  padding: 0 !important;
+}
+body.lum-song-ui .lum-shell {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  padding: 0 0 34px !important;
+  background: transparent !important;
+  color: var(--song-ink) !important;
+  font: inherit !important;
+}
+body.lum-song-ui .lum-shell :is(.lum-tabs, .lum-ae-tabs, .lum-channel-subnav) {
+  display: flex !important;
+  align-items: center !important;
+  flex-wrap: nowrap !important;
+  gap: 6px !important;
+  min-height: 54px !important;
+  padding: 6px 8px !important;
+  margin: 0 0 16px !important;
+  overflow-x: auto !important;
+  background: var(--song-panel) !important;
+  border: 1px solid var(--song-border) !important;
+  border-radius: 12px !important;
+  box-shadow: none !important;
+  scrollbar-width: thin;
+}
+body.lum-song-ui .lum-shell :is(.lum-tabs, .lum-ae-tabs, .lum-channel-subnav) > :is(a, button) {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 auto !important;
+  white-space: nowrap !important;
+  min-height: 44px !important;
+  padding: 10px 14px !important;
+  border: 1px solid transparent !important;
+  border-radius: 8px !important;
+  background: transparent !important;
+  color: #475467 !important;
+  font: 750 13px/1.3 Inter, system-ui, sans-serif !important;
+  text-decoration: none !important;
+  cursor: pointer;
+}
+body.lum-song-ui .lum-shell :is(.lum-tabs, .lum-ae-tabs, .lum-channel-subnav) > :is(a, button):is(.active, [aria-current="page"], [aria-selected="true"]) {
+  background: var(--song-primary) !important;
+  color: #fff !important;
+  border-color: var(--song-primary) !important;
+}
+body.lum-song-ui .lum-shell :is(.lum-card, .lum-ae-head, .lum-metrics > div, .lum-channel-summary > div) {
+  box-sizing: border-box !important;
+  min-width: 0 !important;
+  background: var(--song-panel) !important;
+  color: var(--song-ink) !important;
+  border: 1px solid var(--song-border) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 4px 18px rgba(16, 24, 40, .035) !important;
+}
+body.lum-song-ui .lum-shell :is(.lum-card, .lum-ae-head) {
+  padding: 20px !important;
+  margin-bottom: 14px !important;
+}
+body.lum-song-ui .lum-shell .lum-ae-head {
+  background: #fff !important;
+  gap: 16px !important;
+}
+body.lum-song-ui .lum-shell :is(.lum-card-head h2, .lum-card h2) {
+  font-size: 18px !important;
+  line-height: 1.4 !important;
+  font-weight: 750 !important;
+  color: var(--song-ink) !important;
+}
+body.lum-song-ui .lum-shell .lum-ae-head h2 {
+  font-size: 24px !important;
+  line-height: 1.25 !important;
+  font-weight: 750 !important;
+}
+body.lum-song-ui .lum-shell :is(p, .lum-note, .lum-card-head p, .lum-ae-head p, .lum-empty, .lum-details summary) {
+  font-size: 13px !important;
+  line-height: 1.6 !important;
+  color: var(--song-muted) !important;
+}
+body.lum-song-ui .lum-shell :is(.lum-field > span, label, .lum-eyebrow) {
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+}
+body.lum-song-ui .lum-shell :is(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea) {
+  box-sizing: border-box !important;
+  min-height: 44px !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  padding: 10px 12px !important;
+  border: 1px solid #d0d5dd !important;
+  border-radius: 8px !important;
+  background: #fff !important;
+  color: var(--song-ink) !important;
+  font: 400 14px/1.5 Inter, system-ui, sans-serif !important;
+}
+body.lum-song-ui .lum-shell :is(.lum-button, button:not([disabled])) {
+  box-sizing: border-box !important;
+  min-height: 44px !important;
+  padding: 10px 14px !important;
+  border-radius: 8px !important;
+  font-size: 13px !important;
+  line-height: 1.3 !important;
+  white-space: normal !important;
+}
+body.lum-song-ui .lum-shell :is(.lum-button.primary, button.primary) {
+  background: var(--song-primary) !important;
+  border-color: var(--song-primary) !important;
+  color: white !important;
+}
+body.lum-song-ui .lum-shell :is(.lum-badge, .lum-health, .lum-state) {
+  font-size: 11px !important;
+  line-height: 1.4 !important;
+}
+body.lum-song-ui .lum-shell :is(.lum-table-wrap, .lum-channel-table-wrap) {
+  max-width: 100% !important;
+  overflow-x: auto !important;
+}
+body.lum-song-ui .lum-shell :is(.lum-table, .lum-channel-table) th {
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+  padding: 11px 10px !important;
+}
+body.lum-song-ui .lum-shell :is(.lum-table, .lum-channel-table) td {
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+  padding: 11px 10px !important;
+}
+body.lum-song-ui :is(a, button, input, select, textarea, summary):focus-visible {
+  outline: 3px solid var(--song-primary) !important;
+  outline-offset: 3px !important;
+}
+@media (max-width: 760px) {
+  body.lum-song-ui .app-main {
+    width: calc(100% - 28px) !important;
+    margin-bottom: 24px !important;
+  }
+  body.lum-song-ui .lum-shell :is(.lum-card, .lum-ae-head) {
+    padding: 16px !important;
+  }
+  body.lum-song-ui .lum-shell .lum-ae-head {
+    flex-wrap: wrap !important;
+  }
+  body.lum-song-ui .lum-shell :is(.lum-tabs, .lum-ae-tabs, .lum-channel-subnav) {
+    padding: 5px !important;
+  }
+  body.lum-song-ui .lum-shell :is(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea) {
+    font-size: 16px !important;
+  }
+}
