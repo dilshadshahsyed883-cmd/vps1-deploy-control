@@ -5,6 +5,7 @@
 const SHORT_UPLOAD_DB='short-maker-resume-v1',SHORT_CHUNK_SIZE=4*1024*1024;
 const progressInfo=document.getElementById('progressDetail');
 const progressTrack=document.getElementById('progressTrack');
+const discardUpload=document.getElementById('discardUpload');
 let trackedShortJob=null, activeShortUpload=null;
 
 function showShortProgress(uploadPercent,renderPercent,stage){
@@ -109,7 +110,7 @@ async function pollShortJob(id){
  }
 }
 async function shortResumeInternal(meta){
- render.disabled=true;
+ render.disabled=true;discardUpload.hidden=true;
  if(!meta.job_id){
   statusEl.textContent='Creating resumable upload job on VPS...';
   const begun=await shortJson(await fetch('api/upload-sessions',{
@@ -164,7 +165,7 @@ async function shortResumeInternal(meta){
  }
  statusEl.textContent='All source files uploaded. Queuing VPS render...';
  await shortJson(await fetch('api/upload-sessions/'+meta.job_id+'/finalize',{method:'POST'}),'Could not finalize job');
- await shortDBClear();
+ await shortDBClear();discardUpload.hidden=true;
  images.value='';audio.value='';selectedAudioFiles.length=0;
  imageCount.textContent='0 images selected';renderSelectedAudio();
  render.disabled=false;outputs.replaceChildren();
@@ -214,6 +215,8 @@ form.addEventListener('submit',async event=>{
  catch(error){
   render.disabled=false;
   statusEl.textContent='Upload paused: '+error.message+' — click Start Rendering to retry.';
+  discardUpload.hidden=false;
+  discardUpload.hidden=false;
  }
 });
 (async()=>{
@@ -221,6 +224,7 @@ form.addEventListener('submit',async event=>{
   const pending=await shortDBRead('meta','active');
   if(pending){
    statusEl.textContent='Recovering interrupted file upload...';
+   discardUpload.hidden=false;
    await shortResume(pending);
   }else{
    const lastJob=sessionStorage.getItem('shortMakerLastJob');
@@ -231,3 +235,21 @@ form.addEventListener('submit',async event=>{
   statusEl.textContent='Upload paused: '+error.message+' — click Start Rendering to retry.';
  }
 })();
+
+discardUpload.addEventListener('click',async()=>{
+ if(activeShortUpload)return alert('Upload is active. Discard is available once it pauses.');
+ if(!confirm('Discard this incomplete upload and delete its staged VPS files?'))return;
+ try{
+  const meta=await shortDBRead('meta','active');
+  if(meta?.job_id){
+   const r=await fetch('api/upload-sessions/'+meta.job_id,{method:'DELETE'});
+   if(!r.ok&&r.status!==404)await shortJson(r,'Could not discard upload');
+  }
+  await shortDBClear();
+  discardUpload.hidden=true;render.disabled=false;trackedShortJob=null;
+  sessionStorage.removeItem('shortMakerLastJob');
+  showShortProgress(0,0,'upload');
+  statusEl.textContent='Incomplete upload discarded. Select files for a new job.';
+  loadQueue();
+ }catch(error){statusEl.textContent='Discard failed: '+error.message;}
+});
