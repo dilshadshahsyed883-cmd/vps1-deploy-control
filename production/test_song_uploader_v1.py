@@ -107,6 +107,53 @@ class SongUploaderContracts(unittest.TestCase):
         self.assertIn('data-ae-panel-target="profiles"', ui)
         self.assertIn('data-ae-panel-target="queue"', ui)
 
+    def test_song_thumbnail_incomplete_never_archives_sources(self):
+        """Exercise the actual reconciliation function without provider or filesystem access."""
+        worker = (LUM / "lum_engine/auto_engine_v6_worker.py").read_text()
+        tree = ast.parse(worker)
+        fn = next(node for node in tree.body
+                  if isinstance(node, ast.FunctionDef) and node.name == "reconcile_completed")
+        ns = {"Database": object, "V6Store": object,
+              "clean": lambda value: str(value or "").strip()}
+        exec(compile(ast.Module(body=[fn], type_ignores=[]), "<song-reconcile>", "exec"), ns)
+
+        class Db:
+            def __init__(self, stage):
+                self.stage = stage
+
+            def get_video(self, video_id):
+                assert video_id == 73
+                return {"status": "UPLOADED", "youtube_video_id": "verified-id",
+                        "thumbnail_stage_state": self.stage}
+
+        class Store:
+            def __init__(self):
+                self.states = []
+
+            def job_source(self, video_id):
+                return {"filename": "safe.mp4", "source_folder_id": "unmodified"}
+
+            def channel_job_meta(self, video_id):
+                return {"strict_thumbnail": 1, "thumbnail_filename": "safe.jpg"}
+
+            def set_job_state(self, video_id, state, **kwargs):
+                self.states.append((video_id, state, kwargs))
+
+        for stage in ("", "PENDING", "WARNING", "SKIPPED", "FAILED"):
+            with self.subTest(thumbnail_stage=stage):
+                store = Store()
+                ns["reconcile_completed"](Db(stage), store, 73)
+                self.assertEqual(len(store.states), 1)
+                self.assertEqual(store.states[0][:2], (73, "POST_UPLOAD_REVIEW"))
+                self.assertIn("sources retained", store.states[0][2]["error"])
+
+        # The worker fallback cannot call reconciliation for a channel job
+        # whose thumbnail stage has not been accepted by _channel_result_handled.
+        fallback = worker.split('if channel_meta and _channel_result_handled(db,store,vid):', 1)[1]
+        fallback = fallback.split('elif clean(row.get("status")).upper()=="FAILED":', 1)[0]
+        self.assertIn('if channel_meta:', fallback)
+        self.assertIn('Thumbnail publishing status pending; sources retained.', fallback)
+
     def test_song_studio_authenticated_link_and_no_auto_enable(self):
         scene = (SCENE / "app.py").read_text()
         shell = (SCENE / "static/vps1_native_site_shell.js").read_text()
