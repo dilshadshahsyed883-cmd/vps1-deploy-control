@@ -91,11 +91,28 @@ export function mount(root, context = {}) {
     text('gc-last-result', audit
       ? (audit.deleted_count ?? 0) + ' obsolete release(s); ' + (audit.skipped_count ?? 0) + ' skipped'
       : 'No readable audit record. This does not mean cleanup never ran.');
+    const skipLabels = {
+      'deployment-active': 'Deployment lock active',
+      'control-verification-blocked': 'Control verification blocked',
+      'service-inactive': 'Service inactive',
+      'process-in-use-or-unverifiable': 'Runtime in use / verification unavailable',
+      'revalidation-changed': 'Eligibility changed',
+      'revalidation-or-unknown': 'Revalidation / unknown'
+    };
+    const counts = audit?.skip_reason_counts;
+    const summary = counts && typeof counts === 'object' && !Array.isArray(counts)
+      ? Object.entries(skipLabels).filter(([key]) => Number.isSafeInteger(counts[key]) && counts[key] > 0)
+          .map(([key, label]) => label + ': ' + counts[key]).join(' · ')
+      : '';
+    text('gc-skip-reasons', !audit ? 'No verified audit available.'
+      : summary ? 'Why skipped: ' + summary
+      : audit.skipped_count > 0 ? 'Skip reasons unavailable for this run; protections remain active.'
+      : 'No skipped candidates.');
     text('gc-last-freed', audit && Number.isFinite(audit.measured_freed_bytes)
       ? bytes(audit.measured_freed_bytes) : 'Unavailable');
     text('gc-eligible', info && Number.isFinite(info.eligible_bytes) ? bytes(info.eligible_bytes) : 'Not measured');
     text('gc-eligible-detail', info && Number.isFinite(info.eligible_bytes)
-      ? 'Last verified deployment-only scan: ' + presentTime(info.eligible_measured_at) + '. Amount may change after new releases.'
+      ? 'Read-only candidate estimate (' + (Number.isSafeInteger(info.eligible_candidate_count) ? info.eligible_candidate_count + ' items, ' : '') + 'measured ' + presentTime(info.eligible_measured_at) + '). Not a promise of deletable space; live checks can skip candidates.'
       : 'No privileged inventory available from this read-only web service; do not interpret as 0 B.');
   }
 
@@ -113,7 +130,7 @@ export function mount(root, context = {}) {
       text('reclaim-value', data.deployment_cleanup &&
         Number.isFinite(data.deployment_cleanup.eligible_bytes)
         ? bytes(data.deployment_cleanup.eligible_bytes) : 'Not measured');
-      text('reclaim-detail', 'GitHub deployment artifacts only; project data is excluded');
+      text('reclaim-detail', 'Read-only estimate; final deletion requires live rechecks. Project data excluded.');
     } catch (_) {
       renderCleanupStatus(null);
       text('gc-checked', 'Status unavailable');
