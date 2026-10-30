@@ -119,6 +119,10 @@ def browser_test():
             assert max(b['x'] for b in rails)-min(b['x'] for b in rails)<2,(width,rails)
             assert max(b['width'] for b in rails)-min(b['width'] for b in rails)<2,(width,rails)
             # Actual link navigation, refresh and history through independent documents.
+            # The mobile sidebar is an off-canvas drawer; users must open it
+            # before selecting Short Studio. This also exercises drawer behavior.
+            if width < 761:
+                page.locator('.vps1-native-toggle').click()
             page.locator('nav[aria-label="Applications"] a[href="/short-maker"]').click()
             # Native navigation may complete asynchronously; never reload the previous page.
             page.wait_for_url('**/short-maker/', timeout=10000)
