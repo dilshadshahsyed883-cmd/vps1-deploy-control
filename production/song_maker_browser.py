@@ -71,18 +71,23 @@ def main():
                                     ), (width,label,item.inner_text(),'tab is clipped')
                             assert page.locator('.sm h1').evaluate(
                                 '(el) => getComputedStyle(el).color') == 'rgb(16, 24, 40)'
-                        for tab in ('pairs','queue','output','input'):
+                        for tab in ('pairs','queue','preferences','input'):
                             page.locator(f'[data-tab="{tab}"]').click()
                             assert page.locator('#'+tab).is_visible()
                         assert page.locator('nav[aria-label="Song Studio"] a[href="/song-studio/song-maker/"]').count()==1
                     page.locator('input[name="image"]').set_input_files(root/'image.png')
                     page.locator('input[name="audio"]').set_input_files(root/'Voice name.wav')
-                    page.locator('#manual select[name="resolution"]').select_option('720p')
+                    page.locator('[data-tab="preferences"]').click()
+                    page.locator('#exportSettings select[name="resolution"]').select_option('720p')
+                    page.get_by_role('button', name='Save Export Settings').click()
+                    page.wait_for_function("document.querySelector('#notice').textContent.includes('Export settings saved')")
+                    page.locator('[data-tab="input"]').click()
+                    assert page.locator('#syncNow').is_enabled()
                     page.locator('#manual button').click()
                     page.wait_for_function("document.querySelector('#jobs').textContent.includes('Ready to Upload') || document.querySelector('#jobs').textContent.includes('Waiting for Drive')",timeout=60000)
                     page.reload()
                     assert page.locator('#queue').is_visible()
-                    page.locator('[data-tab="output"]').click()
+                    page.locator('[data-tab="queue"]').click()
                     page.wait_for_selector('video')
                     with page.expect_download() as info:page.get_by_text('Download MP4',exact=True).click()
                     assert info.value.suggested_filename=='Voice name.mp4'

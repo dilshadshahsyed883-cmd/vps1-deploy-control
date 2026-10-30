@@ -4,8 +4,8 @@
 (() => {
   'use strict';
 
-  const KEY = window.location.pathname.startsWith('/short-uploader/')
-    ? 'lum.shortstudio.main.tab' : 'lum.main.tab';
+  const SONG_URL = /^\/song-uploader(?:\/|$)/.test(window.location.pathname);
+  const KEY = SONG_URL ? 'lum.song.main.tab' : window.location.pathname.startsWith('/short-uploader') ? 'lum.shortstudio.main.tab' : 'lum.main.tab';
   const VALID = new Set([
     'upload','authentication',
     'dashboard','channels','sheets','auto_engine',
@@ -44,6 +44,9 @@
   }
 
   function gotoSavedIfOuterReset() {
+    // Canonical Song URL always defaults to Auto Engine; never restore
+    // another application's previous dashboard tab over its direct entrypoint.
+    if (SONG_URL) { if (currentTab()) save(currentTab()); return; }
     const now = currentTab();
     const wanted = saved();
 

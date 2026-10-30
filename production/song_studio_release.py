@@ -127,11 +127,12 @@ def patch_scene_payloads(original, source):
     reviewed = source[key].decode()
     prior = reviewed
     reverse_pairs = [["  const legacySidebar = !!(script && script.dataset && script.dataset.unifySidebar === \"1\");","  const legacySidebar = !!(script && script.dataset && script.dataset.unifySidebar === \"1\");\n  // Preserve previously shared Voice Studio audio links via the canonical Song Studio page.\n  if (app === \"voice\" && /^\\/voice-studio\\/app\\/?$/.test(window.location?.pathname || \"\") && window.location?.hash === \"#vs-audio\" && typeof window.location.replace === \"function\") {\n    window.location.replace(\"/audio-downloader/\");\n    return;\n  }"],["    if (/^\\/(song-studio|song-maker|song-uploader)(\\/|$)/.test(pathname)) return \"song\";","    if (/^\\/audio-downloader\\/?$/.test(pathname)) return \"song\";\n    if (/^\\/(song-studio|song-maker|song-uploader)(\\/|$)/.test(pathname)) return \"song\";"],["app === \"voice\" && window.location?.hash === \"#vs-audio\" ? \"song\" : \"voice\";","app === \"voice\" && (window.location?.hash === \"#vs-audio\" || /^\\/audio-downloader\\/?$/.test(window.location?.pathname || \"\")) ? \"song\" : \"voice\";"],["      voiceLink.addEventListener(\"click\", (event) => {\n","      voiceLink.addEventListener(\"click\", (event) => {\n        if (/^\\/audio-downloader\\/?$/.test(window.location?.pathname || \"\")) return;\n"],["      songLink.addEventListener(\"click\", event => {\n","      songLink.addEventListener(\"click\", event => {\n        // Voice Studio to Song Studio always navigates to its independent URL.\n        if (/^\\/voice-studio\\//.test(window.location?.pathname || \"\")) return;\n"],["addLink(tabs, \"Audio Downloader\", \"/song-studio/audio-downloader/\", app === \"voice\");","addLink(tabs, \"Audio Downloader\", \"/audio-downloader/\", app === \"voice\");"],["    if(engineHash&&location.hash!==engineHash)history.replaceState(null,'',engineHash);","    if (/^\\/audio-downloader\\/?$/.test(location.pathname)) {\n      if (document.documentElement.dataset.vsEngine === \"audio-downloader\" && location.hash)\n        history.replaceState(null, \"\", \"/audio-downloader/\");\n    } else if(engineHash&&location.hash!==engineHash)history.replaceState(null,'',engineHash);"],["      const id={'#vs-kokoro':'vsEngineKokoro','#vs-edge':'vsEngineEdge','#vs-audio':'vsEngineAudio'}[initialEngineHash];","      const targetHash = /^\\/audio-downloader\\/?$/.test(location.pathname) ? '#vs-audio' : initialEngineHash;\n      const id={'#vs-kokoro':'vsEngineKokoro','#vs-edge':'vsEngineEdge','#vs-audio':'vsEngineAudio'}[targetHash];"]]
-    for old, new in reverse_pairs:
-        require(prior.count(new) == 1, 'reviewed canonical URL shell marker drift')
-        prior = prior.replace(new, old, 1)
-    require(original[key] == source[key] or original[key] == prior.encode(),
-            'shared shell drift; reconcile before overlay')
+    if original[key] != source[key]:
+        for old, new in reverse_pairs:
+            require(prior.count(new) == 1, 'shared shell drift; reconcile before overlay')
+            prior = prior.replace(new, old, 1)
+        require(original[key] == prior.encode(),
+                'shared shell drift; reconcile before overlay')
     css = original['part01/static/vps1_native_site_shell.css'].decode()
     reviewed_css = source['part01/static/vps1_native_site_shell.css'].decode()
     css_start = reviewed_css.index('/* Audio Downloader keeps its existing engine')

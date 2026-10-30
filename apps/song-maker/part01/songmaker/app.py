@@ -84,8 +84,13 @@ def create_app(store=None):
     @app.get('/song-maker/api/state')
     def state(user=Depends(principal)):
         settings = store.record('settings', user['owner']) or default_settings()
+        exports = store.record('exports', user['owner']) or {
+            'resolution': settings.get('resolution', '1080p'),
+            'fit': settings.get('fit', 'fit')}
         return {'jobs': [public(j) for j in store.jobs(user['owner'])], 'settings': settings,
-                'sync': store.record('sync', user['owner']), 'admin': user['admin']}
+                'export': exports, 'sync_access': True,
+                'sync': store.record('sync', user['owner']), 'admin': user['admin'],
+                'queue_paused': store.paused(user['owner']), 'drive_retry_after': store.drive_after()}
 
     @app.get('/song-maker/api/profiles')
     def profiles(user=Depends(principal)):
@@ -111,8 +116,12 @@ def create_app(store=None):
                          resolution=data.get('resolution', '1080p'), fit=data.get('fit', 'fit'))
             if clean['resolution'] not in FORMATS or clean['fit'] not in {'fit', 'blur'}:
                 raise ValueError('Unsupported render options')
+            interval = int(data.get('sync_interval', 300))
+            if not 60 <= interval <= 3600:
+                raise ValueError('Sync interval must be between 60 and 3600 seconds')
+            clean['sync_interval'] = interval
             Drive(clean)
-        except (ValueError, KeyError) as exc:
+        except (ValueError, KeyError, TypeError) as exc:
             raise HTTPException(422, str(exc))
         # Each Drive profile settings row is owned by the authenticated administrator.
         # Shared server credentials never grant another user access to that owner's files/jobs.
@@ -120,19 +129,30 @@ def create_app(store=None):
         store.record('settings', '__default__', {**clean, 'auto_sync': False})
         return {'saved': True}
 
+    @app.post('/song-maker/api/export')
+    async def save_export(request: Request, user=Depends(principal)):
+        # Personal output presets never change credentials or other users' jobs.
+        data = await request.json()
+        resolution, fit = data.get('resolution'), data.get('fit')
+        if resolution not in FORMATS or fit not in {'fit', 'blur'}:
+            raise HTTPException(422, 'Unsupported export settings')
+        store.record('exports', user['owner'], {'resolution': resolution, 'fit': fit})
+        return {'saved': True}
+
     @app.post('/song-maker/api/sync')
     def sync(user=Depends(principal)):
-        if not user['admin']:
-            raise HTTPException(403, 'Administrator required')
-        settings = store.record('settings', user['owner']) or default_settings()
+        # Scene's trusted workspace SSO has already authenticated/authorized this
+        # user. Nonadmins may scan ONLY the fixed approved input/output defaults;
+        # arbitrary remote/folder config and rclone credentials remain admin-only.
+        settings = ((store.record('settings', user['owner']) or default_settings())
+                    if user['admin'] else default_settings())
         settings['sync_requested'] = True
         store.record('settings', user['owner'], settings)
         return {'queued': True}
 
     @app.post('/song-maker/api/pairs/select')
     async def select_pair(request: Request, user=Depends(principal)):
-        if not user['admin']:
-            raise HTTPException(403, 'Administrator required')
+        # Resolve conflicts strictly from this user's own saved sync snapshot.
         data = await request.json()
         snapshot = store.record('sync', user['owner'])
         matches = [p for p in snapshot.get('pairs', []) if p['key'] == data.get('key')]
@@ -143,12 +163,19 @@ def create_app(store=None):
         audio = [x for x in group['audio'] if x.get('ID') == data.get('audio_id')]
         if len(images) != 1 or len(audio) != 1:
             raise HTTPException(409, 'Select exactly one image and one audio')
-        job = enqueue_pair(store, user['owner'], store.record('settings', user['owner']), images[0], audio[0])
+        settings = store.record('settings', user['owner']) or default_settings()
+        export = store.record('exports', user['owner'])
+        settings.update({key: export[key] for key in ('resolution', 'fit') if key in export})
+        job = enqueue_pair(store, user['owner'], settings, images[0], audio[0])
         return public(job)
 
     @app.post('/song-maker/api/jobs')
     async def submit(request: Request, image: UploadFile = File(...), audio: UploadFile = File(...),
-                     resolution: str = Form('1080p'), fit: str = Form('fit'), user=Depends(principal)):
+                     resolution: str = Form(''), fit: str = Form(''), user=Depends(principal)):
+        exports = store.record('exports', user['owner'])
+        settings = store.record('settings', user['owner']) or default_settings()
+        resolution = resolution or exports.get('resolution', settings.get('resolution', '1080p'))
+        fit = fit or exports.get('fit', settings.get('fit', 'fit'))
         form = await request.form()
         if len(form.getlist('image')) != 1 or len(form.getlist('audio')) != 1:
             raise HTTPException(422, 'Exactly one image and one audio required')
@@ -198,6 +225,12 @@ def create_app(store=None):
             if staging.exists():
                 shutil.rmtree(staging)
 
+    @app.post('/song-maker/api/queue/{command}')
+    def queue_control(command: str, user=Depends(principal)):
+        if command not in {'pause', 'resume'}:
+            raise HTTPException(404, 'Unknown queue control')
+        return {'paused': store.paused(user['owner'], command == 'pause')}
+
     @app.post('/song-maker/api/jobs/{job_id}/{action}')
     def action(job_id: str, action: str, user=Depends(principal)):
         job = owned(job_id, user)
@@ -212,7 +245,7 @@ def create_app(store=None):
             # the render lane to complete the safe /used move (without rerender).
             archived = not archive_eligible(job) or job.get('archive_status') == 'Archived'
             store.update(job_id, stage='Ready to Upload' if job.get('valid') and archived else 'Queued',
-                         cancel=0, error='', drive_status='Pending')
+                         cancel=0, error='', drive_status='Pending', next_retry_at=None, retry_lane='')
         elif action == 'delete':
             if job['lane'] or job['stage'] not in TERMINAL:
                 raise HTTPException(409, 'Cancel the job and wait for the worker before deleting')

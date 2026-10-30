@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import re
 import time
-from .media import fingerprint, pairs, run, digest, output_name
+from .media import fingerprint, pairs, run, digest, output_name, Cancelled
 
 CONFIG = os.environ.get('RCLONE_CONFIG', '/home/ubuntu/.config/masterctl/rclone.conf')
 DEFAULT_INPUT = 'Song Studio/Audio downloader'
@@ -18,7 +18,7 @@ def default_settings():
                                     os.environ.get('AUDIO_DOWNLOADER_DRIVE_REMOTE', 'gdrive')),
             'image_folder': DEFAULT_INPUT, 'audio_folder': DEFAULT_INPUT,
             'output_folder': DEFAULT_OUTPUT, 'auto_sync': False,
-            'resolution': '1080p', 'fit': 'fit'}
+            'resolution': '1080p', 'fit': 'fit', 'sync_interval': 300}
 
 
 def folder_ref(value):
@@ -49,7 +49,8 @@ class Drive:
 
     def call(self, args, folder=None, timeout=300):
         command = ['rclone', *args, '--config', CONFIG, '--contimeout', '20s', '--timeout', '60s',
-                   '--retries', '2', '--low-level-retries', '2']
+                   '--retries', '2', '--low-level-retries', '2',
+                   '--tpslimit', '1', '--tpslimit-burst', '1']
         if folder:
             folder = folder_ref(folder)
             if '/' in folder:
@@ -60,11 +61,30 @@ class Drive:
                            if value.startswith(prefix) else value for value in command]
             else:
                 command += ['--drive-root-folder-id', folder]
-        try:
-            return run(command, self.cancelled, timeout=timeout)
-        except RuntimeError:
-            # rclone diagnostics may contain private paths/URLs. Never persist raw stderr.
-            raise RuntimeError('Drive operation failed; check the selected profile and folder access') from None
+        for attempt in range(3):
+            try:
+                return run(command, self.cancelled, timeout=timeout)
+            except RuntimeError as exc:
+                # Persist only a provider reason from an explicit allowlist,
+                # never paths, tokens, URLs or raw rclone stderr.
+                error = str(exc).lower()
+                reasons = ('storageQuotaExceeded', 'dailyLimitExceeded', 'downloadQuotaExceeded',
+                           'userRateLimitExceeded', 'rateLimitExceeded', 'quotaExceeded',
+                           'invalid_grant', 'permission denied', 'read-only file system',
+                           'directory not found', 'object not found', 'unknown flag', '429', 'rate limit')
+                reason = next((r for r in reasons if r.lower() in error), 'unclassified')
+                temporary = reason in {'userRateLimitExceeded', 'rateLimitExceeded',
+                                       'quotaExceeded', '429', 'rate limit'}
+                # Re-read metadata after a quiet window. Mutations are never
+                # replayed here; their persisted reservations/receipts own recovery.
+                if args[0] == 'lsjson' and temporary and attempt < 2:
+                    for _ in range((10, 30)[attempt]):
+                        if self.cancelled():
+                            raise Cancelled('Cancelled during Drive rate-limit backoff')
+                        time.sleep(1)
+                    continue
+                raise RuntimeError('Drive operation failed (' + reason +
+                                   '); check profile, folder access or provider quota') from None
 
     def listing(self, folder):
         return json.loads(self.call(['lsjson', self.remote+':', '--files-only', '--hash'], folder))
@@ -83,12 +103,19 @@ class Drive:
             raise ValueError('Remote output identity ambiguous or missing')
         return value
 
+    def lookup(self, folder, name):
+        # Literal rclone filter: provider still supplies identity/hash metadata,
+        # but unrelated folder entries are not returned or hashed.
+        escaped = ''.join('\\' + c if c in '\\*?[]{}' else c for c in name)
+        return json.loads(self.call(['lsjson', self.remote+':', '--files-only',
+                                     '--hash', '--include', '/' + escaped], folder))
+
     def download(self, folder, item, target):
         if '/' in item['Name'] or '\\' in item['Name'] or item['Name'] in {'.', '..'}:
             raise ValueError('Drive source name contains path separators; rename the input safely')
         # Filename transport is permitted only while unique metadata/ID still matches.
         def current():
-            candidates = [x for x in self.listing(folder) if x['Name'] == item['Name']]
+            candidates = [x for x in self.lookup(folder, item['Name']) if x['Name'] == item['Name']]
             if len(candidates) != 1 or fingerprint(candidates[0]) != fingerprint(item):
                 raise ValueError('Drive input changed or became ambiguous; sync and select the new pair')
         current()
@@ -257,11 +284,13 @@ def sync_owner(store, owner, settings, drive=None, admission_lock=None):
 
     def admit_pairs():
         nonlocal count
+        export = store.record('exports', owner)
+        job_settings = {**settings, **{key: export[key] for key in ('resolution', 'fit') if key in export}}
         for pair in results:
             if pair['stage'] != 'Matched':
                 continue
             image, sound = pair['images'][0], pair['audio'][0]
-            job = enqueue_pair(store, owner, settings, image, sound)
+            job = enqueue_pair(store, owner, job_settings, image, sound)
             pair['job_id'], pair['job_stage'] = job['id'], job['stage']
             count += 1
 

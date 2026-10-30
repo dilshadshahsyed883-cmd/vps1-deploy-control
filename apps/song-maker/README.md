@@ -51,7 +51,7 @@ unchanged. The last administrator-saved destination
 is the default for manual uploads. Each admin's Drive scan and its resulting jobs
 belong to that administrator; other users see only their own manual jobs.
 
-Automatic scan runs every 300 seconds (manual Sync remains immediate), with a persistent metadata snapshot and
+Automatic scan defaults to every 300 seconds (configurable 60–3600 seconds; manual Sync remains immediate), with a persistent metadata snapshot and
 source-version job ledger. Matching image/audio folders reuse one metadata listing per scan. rclone exposes metadata listing rather than a Drive
 change cursor here; unchanged pairs do not download again. Inputs download only
 when their queued job runs, with uniqueness, ID, size/modtime/hash checks before
@@ -116,3 +116,5 @@ Acceptance is not complete until an isolated real Drive pair is detected by the
 running sync worker, rendered, and its remote ID/size/hash independently read back.
 Health/CI alone does not establish that result. Current live configuration and
 production evidence are recorded separately in `docs/song-maker-v1-20261029.md`.
+
+Temporary provider rate limits pause Drive scans and claims for 180 seconds, then resume the same pinned job/lane automatically. The SQLite cooldown survives restarts and prevents a queued batch from hammering Drive. Manual local rendering can continue; cancel/delete and owner pause still fence retry. Storage-full and permanent daily limits remain explicit errors.

@@ -36,12 +36,18 @@ class VideoStudioGeometryContracts(unittest.TestCase):
             self.assertLess(page.index(ASSET), page.index("</head>"))
 
     def test_canonical_four_tab_navigation_and_no_legacy_alias(self):
-        for path in (SCENE / "templates/base.html", MAKER, MERGER):
+        for path in (SCENE / "templates/base.html", MERGER):
             source = path.read_text()
             for route in ("/scene-builder/", "/auto-caption-studio/",
-                          "/short-maker/", "/video-merger/"):
+                          "/video-merger/"):
                 self.assertIn('href="' + route + '"', source)
             self.assertNotIn('href="/auto-caption/studio"', source)
+
+    def test_short_maker_has_its_own_studio_navigation(self):
+        source = MAKER.read_text()
+        self.assertIn('aria-label="Short Studio"', source)
+        self.assertIn('href="/short-uploader"', source)
+        self.assertNotIn('aria-label="Video Studio"', source)
 
     def test_horizontal_and_vertical_baseline_owned_by_shared_css(self):
         css = CSS.read_text()

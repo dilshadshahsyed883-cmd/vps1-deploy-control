@@ -111,7 +111,7 @@ class SongUploaderContracts(unittest.TestCase):
         scene = (SCENE / "app.py").read_text()
         shell = (SCENE / "static/vps1_native_site_shell.js").read_text()
         self.assertIn('if studio_app == "song-uploader":', scene)
-        self.assertIn('"/local-upload-manager/modes/song/app?embedded=1&tab=dashboard"', scene)
+        self.assertIn('return RedirectResponse("/song-uploader", status_code=303)', scene)
         self.assertIn('pathname.startsWith("/local-upload-manager/modes/song/")', shell)
         config = (LUM / "lum_engine/config.py").read_text()
         self.assertIn('{"engine2", "shorts", "song", "shortstudio"} else "1"', config)

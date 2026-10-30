@@ -10,12 +10,40 @@ class SongStudioReleaseTests(unittest.TestCase):
                         source.replace(b'data-workspace="voice"', b'data-workspace="wrong"')):
             with self.assertRaises(RuntimeError): validate_template(changed)
 
+    def test_canonical_audio_uses_current_voice_service_not_legacy_proxy(self):
+        import ast, asyncio, types
+        from unittest.mock import Mock
+        class HTTPException(Exception):
+            def __init__(self, status_code, detail):
+                self.status_code, self.detail = status_code, detail
+        source = (Path(__file__).resolve().parents[1]/'apps/scene-builder/part01/app.py').read_text()
+        tree = ast.parse(source)
+        node = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == 'audio_downloader_canonical_page')
+        node.decorator_list = []
+        upstream = Mock(status_code=200, headers={'content-type':'text/html'}, content=b'reviewed html')
+        transport = types.SimpleNamespace(get=Mock(return_value=upstream))
+        auth = Mock()
+        render = Mock(return_value=b'canonical html')
+        response = Mock()
+        env = {'Request':object,'HTMLResponse':object,'HTTPException':HTTPException,
+               '_vs_asyncio':asyncio,'_vs_requests':transport,'require_login':auth,
+               '_audio_downloader_canonical_html':render,'_VSResponse':response}
+        exec(compile(ast.Module(body=[node],type_ignores=[]),'<route-test>','exec'),env)
+        request = object()
+        asyncio.run(env['audio_downloader_canonical_page'](request))
+        auth.assert_called_once_with(request)
+        transport.get.assert_called_once_with('http://127.0.0.1:8143/app',timeout=30,allow_redirects=False)
+        render.assert_called_once_with(b'reviewed html')
+        upstream.status_code = 503
+        with self.assertRaises(HTTPException):
+            asyncio.run(env['audio_downloader_canonical_page'](request))
+
     def test_canonical_audio_downloader_url_without_new_worker(self):
         root = Path(__file__).resolve().parents[1]
         scene = (root/"apps/scene-builder/part01/app.py").read_text()
         shell = (root/"apps/scene-builder/part01/static/vps1_native_site_shell.js").read_text()
         self.assertIn('@app.get("/audio-downloader/", response_class=HTMLResponse)', scene)
-        self.assertIn('require_login(request)\n    upstream = await _vps1_voice_studio_proxy(request, "app")', scene)
+        self.assertIn('_vs_requests.get, "http://127.0.0.1:8143/app", timeout=30', scene)
         self.assertIn('Audio Downloader upstream UI version mismatch', scene)
         self.assertIn('location.replace("/audio-downloader/")', shell)
         self.assertIn('if (/^\\/audio-downloader\\/?$/.test(location.pathname))', shell)
@@ -30,8 +58,13 @@ class SongStudioReleaseTests(unittest.TestCase):
                        'apps=(scene-builder voice-studio local-upload-manager song-maker)',
                         'apps=(voice-studio)', '[vps1-song-audio-selector-only]',
                         'apps=(local-upload-manager)', '[vps1-song-uploader-only]',
-                        'SONG_UPLOADER_ONLY', '[vps1-song-audio-url-only]', 'apps=(scene-builder)'):
+                        'SONG_UPLOADER_ONLY', '[vps1-song-audio-url-only]', 'apps=(scene-builder)',
+                        'SONG_MAKER_ONLY', '[vps1-song-maker-only]', 'apps=(song-maker)',
+                        'Conflicting Song Studio release selectors'):
             self.assertIn(marker,source)
+        self.assertIn('if [[ "$SONG_MAKER_ONLY" == "1" ]]; then\n            apps=(song-maker)', source)
+        self.assertIn('AUDIO_URL_ONLY + SONG_UPLOADER_ONLY + VOICE_UI_ONLY + SONG_MAKER_ONLY > 1',source)
+        self.assertIn('vps1-production-deploy install $SOURCE_SHA $app',source)
         self.assertNotIn('pull_request_target',source)
         self.assertIn('install_voice(revision)',(root/'production/runtime.py').read_text())
 
@@ -80,7 +113,7 @@ class SongStudioReleaseTests(unittest.TestCase):
         self.assertIn(b'KEEP_RENDERER_CONFIGURATION',changed['part01/app.py'])
         self.assertIn(b'KEEP_OTHER_APP_STYLE',changed['part01/static/vps1_native_site_shell.css'])
         self.assertEqual(changed['part01/app.py'].count(b'# SONG_STUDIO_NAV_V1:'),1)
-        self.assertIn(b'/modes/song/app',changed['part01/app.py'])
+        self.assertIn(b'/song-uploader',changed['part01/app.py'])
         self.assertEqual(release.patch_scene_payloads(changed,source),changed)
         original['part01/static/vps1_native_site_shell.js']=b'unreviewed live drift'
         with self.assertRaisesRegex(RuntimeError,'shared shell drift'):release.patch_scene_payloads(original,source)

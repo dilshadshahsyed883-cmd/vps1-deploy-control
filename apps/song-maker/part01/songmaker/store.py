@@ -30,6 +30,9 @@ class Store:
             CREATE INDEX IF NOT EXISTS pending ON jobs(stage, created);
             CREATE TABLE IF NOT EXISTS settings (owner TEXT PRIMARY KEY, data TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS sync (owner TEXT PRIMARY KEY, data TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS exports (owner TEXT PRIMARY KEY, data TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS queue_control (owner TEXT PRIMARY KEY, paused INTEGER NOT NULL DEFAULT 0);
+            CREATE TABLE IF NOT EXISTS drive_cooldown (id INTEGER PRIMARY KEY CHECK(id=1), retry_after REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS workers (lane TEXT PRIMARY KEY, heartbeat REAL NOT NULL);
             ''')
 
@@ -93,8 +96,16 @@ class Store:
         stage = 'Preparing Inputs' if lane == 'render' else 'Drive Uploading'
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
-            row = db.execute('SELECT * FROM jobs WHERE stage=? AND cancel=0 AND deleted=0 '
-                             'ORDER BY created,id LIMIT 1', ready).fetchone()
+            now = time.time()
+            row = db.execute("SELECT * FROM jobs WHERE (stage=? OR (stage='Waiting for Drive' "
+                             "AND json_extract(data,'$.retry_lane')=? "
+                             "AND json_extract(data,'$.next_retry_at')<=?)) "
+                             "AND cancel=0 AND deleted=0 "
+                             "AND NOT EXISTS (SELECT 1 FROM queue_control c WHERE c.owner=jobs.owner AND c.paused=1) "
+                             "AND ((?='render' AND COALESCE(json_extract(data,'$.origin'),'manual')!='drive') "
+                             "OR NOT EXISTS (SELECT 1 FROM drive_cooldown WHERE id=1 AND retry_after>?)) "
+                             "ORDER BY CASE WHEN stage='Waiting for Drive' THEN 0 ELSE 1 END,created,id LIMIT 1",
+                             (ready[0], lane, now, lane, now)).fetchone()
             if not row:
                 return None
             db.execute('UPDATE jobs SET stage=?,lane=?,updated=? WHERE id=?',
@@ -110,7 +121,7 @@ class Store:
                        "WHERE lane=?", (lane,))
 
     def record(self, table, owner, data=None):
-        if table not in ('settings', 'sync'):
+        if table not in ('settings', 'sync', 'exports'):
             raise ValueError('invalid record')
         with self.db() as db:
             if data is not None:
@@ -123,3 +134,21 @@ class Store:
         with self.db() as db:
             db.execute('INSERT INTO workers VALUES(?,?) ON CONFLICT(lane) DO UPDATE '
                        'SET heartbeat=excluded.heartbeat', (lane, time.time()))
+
+    def paused(self, owner, value=None):
+        with self.db() as db:
+            if value is not None:
+                db.execute('INSERT INTO queue_control(owner,paused) VALUES(?,?) '
+                           'ON CONFLICT(owner) DO UPDATE SET paused=excluded.paused',
+                           (owner, int(value)))
+            row = db.execute('SELECT paused FROM queue_control WHERE owner=?', (owner,)).fetchone()
+            return bool(row and row[0])
+
+    def drive_after(self, retry_after=None):
+        with self.db() as db:
+            if retry_after is not None:
+                db.execute('INSERT INTO drive_cooldown(id,retry_after) VALUES(1,?) '
+                           'ON CONFLICT(id) DO UPDATE SET retry_after=MAX(retry_after,excluded.retry_after)',
+                           (retry_after,))
+            row = db.execute('SELECT retry_after FROM drive_cooldown WHERE id=1').fetchone()
+            return row[0] if row else 0

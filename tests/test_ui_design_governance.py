@@ -37,8 +37,8 @@ class UnifiedUiGovernanceTests(unittest.TestCase):
     def test_upload_studio_duplicate_group_regression_is_blocked(self):
         modified = dict(self.sources)
         modified["shell_js"] = modified["shell_js"].replace(
-            '["Upload Studio", "/local-upload-manager", "upload"]',
-            '["Auto Uploader", "/local-upload-manager", "upload"]')
+            '["Upload Studio", "/local-upload-manager/app?embedded=1&tab=dashboard", "upload"]',
+            '["Auto Uploader", "/local-upload-manager/app?embedded=1&tab=dashboard", "upload"]')
         issues = violations(modified)
         self.assertTrue(any("combined Upload Studio" in message for message in issues), issues)
 

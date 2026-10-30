@@ -64,7 +64,8 @@ def process(store, job, lane, shutdown=lambda: False, drive_factory=Drive):
             if not output.exists():
                 store.update(job_id, stage='Rendering', duration=duration, progress=5, error='')
                 render(image, audio, output, temp, job.get('resolution', '1080p'), job.get('fit', 'fit'),
-                       cancelled, lambda seconds: store.update(job_id, progress=min(84, 5+int(seconds/duration*79))))
+                       cancelled, lambda seconds: store.update(job_id, progress=min(84, 5+int(seconds/duration*79))),
+                       metrics=lambda values: store.update(job_id, **values))
             store.update(job_id, stage='Validating MP4', progress=86)
             result = validate(output, duration, cancelled)
             if cancelled():
@@ -76,7 +77,7 @@ def process(store, job, lane, shutdown=lambda: False, drive_factory=Drive):
                              archive_status='Moving', valid=True, **result)
                 drive_factory(job['destination'], cancelled).archive_inputs(job, store)
             store.update(job_id, stage='Ready to Upload', progress=90, lane='',
-                         valid=True, **result)
+                         next_retry_at=None, retry_lane='', valid=True, **result)
         else:
             settings = (job.get('destination') or store.record('settings', job['owner'])
                         or store.record('settings', '__default__') or default_settings())
@@ -94,7 +95,8 @@ def process(store, job, lane, shutdown=lambda: False, drive_factory=Drive):
                 raise ValueError('Validated local MP4 missing or changed; no upload attempted')
             receipt = drive_factory(settings, cancelled).upload(job, store)
             # If cancel arrived after upload, persist receipt for idempotent retry/reconciliation.
-            store.update(job_id, stage='Completed', progress=100, lane='', error='', **receipt)
+            store.update(job_id, stage='Completed', progress=100, lane='', error='',
+                         next_retry_at=None, retry_lane='', **receipt)
             try:
                 cleanup(store, store.get(job_id))
             except Exception as exc:
@@ -107,6 +109,16 @@ def process(store, job, lane, shutdown=lambda: False, drive_factory=Drive):
     except Exception as exc:
         archiving = (lane == 'render' and
                      store.get(job_id).get('stage') == 'Archiving Inputs')
+        temporary = any(str(exc).startswith('Drive operation failed (' + reason + ')')
+                        for reason in ('userRateLimitExceeded', 'rateLimitExceeded', 'quotaExceeded', '429', 'rate limit'))
+        if temporary:
+            retry_at = store.drive_after(time.time() + 180)
+            store.update(job_id, stage='Waiting for Drive', lane='', error=str(exc),
+                         next_retry_at=retry_at, retry_lane=lane,
+                         drive_retry_count=int(store.get(job_id).get('drive_retry_count', 0)) + 1,
+                         drive_status='Rate limited - automatic retry scheduled')
+            logging.warning('Song Maker Drive cooldown scheduled for %s', job_id)
+            return
         stage = ('Needs Attention' if archiving or isinstance(exc, ValueError)
                  else 'Waiting for Drive' if lane == 'upload' else 'Failed')
         update = {'stage': stage, 'lane': '', 'error': str(exc)[-2000:],
@@ -133,11 +145,10 @@ def main():
                 with store.db() as db:
                     owners = [(r['owner'], json.loads(r['data'])) for r in db.execute('SELECT * FROM settings')]
                 for owner, settings in owners:
-                    if owner == '__default__':
+                    if owner == '__default__' or store.drive_after() > time.time():
                         continue
                     previous = store.record('sync', owner)
-                    # Five-minute automatic scan reduces provider polling 80%; manual Sync stays immediate.
-                    due = settings.get('sync_requested') or (settings.get('auto_sync') and time.time()-previous.get('last_sync', 0) >= 300)
+                    due = settings.get('sync_requested') or (settings.get('auto_sync') and time.time()-previous.get('last_sync', 0) >= settings.get('sync_interval', 300))
                     if due:
                         settings.pop('sync_requested', None)
                         store.record('settings', owner, settings)

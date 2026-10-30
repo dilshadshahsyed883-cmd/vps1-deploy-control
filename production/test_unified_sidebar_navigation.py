@@ -41,22 +41,25 @@ class UniversalSidebarContracts(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertIn("vps1_native_site_shell.js", path.read_text(encoding="utf-8"))
 
-    def test_one_registry_for_four_primary_sidebar_destinations(self):
+    def test_one_registry_for_three_primary_sidebar_destinations(self):
         src = SHELL_JS.read_text(encoding="utf-8")
         links = (
             '["Dashboard", "/", "dashboard"]',
-            '["Upload Studio", "/local-upload-manager", "upload"]',
-            '["Video Studio", "/scene-builder/", "video"]',
-            '["Voice Studio", "/voice-studio/app#vps1-production", "voice"]',
+            '["Song Studio", "/song-studio/", "song"]',
+            '["Experiment Studio", "/experiment-studio/", "experiment"]',
         )
         for marker in links:
             self.assertEqual(src.count(marker), 1, marker)
         self.assertIn("addPrimaryLinks(navigation, current)", src)
-        self.assertIn("const voiceLink = primaryLinks.voice;", src)
+        self.assertIn("const voiceLink = secondLevel?.links.voice;", src)
+        for forbidden in ('["Upload Studio", "/local-upload-manager", "upload"]',
+                          '["Video Studio", "/scene-builder/", "video"]',
+                          '["Voice Studio", "/voice-studio/app#vps1-production", "voice"]'):
+            self.assertNotIn(forbidden, src.split("const PRIMARY_NAV =", 1)[1].split("]);", 1)[0])
         self.assertIn("const songLink = primaryLinks.song;", src)
         self.assertIn("installLegacySidebar()", src)
         self.assertIn("const isCanonical =", src)
-        self.assertNotIn('["Auto Script",', src)
+        self.assertNotIn('["Auto Script",', src.split("const PRIMARY_NAV =", 1)[1].split("]);", 1)[0])
 
     def test_experiment_studio_menu_and_subtab_are_canonical(self):
         js = SHELL_JS.read_text(encoding="utf-8")
@@ -68,7 +71,7 @@ class UniversalSidebarContracts(unittest.TestCase):
         self.assertIn('href="/experiment-studio/antidetect-browser/"', template)
         self.assertIn('href="/experiment-studio/self-media-library/"', template)
         self.assertIn('href="/experiment-studio/auto-script/"', template)
-        self.assertIn("page in ['experiment_studio','auto_script']", template)
+        self.assertIn("page in ['experiment_studio','auto_script','local_upload_manager'", template)
         self.assertEqual(template.count('aria-label="Experiment Studio"'), 1)
         routes = (SCENE / "app.py").read_text(encoding="utf-8")
         self.assertIn('@app.get("/experiment-studio/self-media-library/")', routes)
@@ -92,7 +95,8 @@ class UniversalSidebarContracts(unittest.TestCase):
         css = SHELL_CSS.read_text(encoding="utf-8")
         slot = (SCENE / "templates/song_studio_placeholder.html").read_text(encoding="utf-8")
         self.assertIn('["Song Studio", "/song-studio/", "song"]', src)
-        self.assertIn('window.location?.hash === "#vs-audio" || /^\\/audio-downloader', src)
+        self.assertIn('window.location?.hash === "#vs-audio" ||', src)
+        self.assertIn('^\\/audio-downloader\\/?$/.test(window.location?.pathname', src)
         self.assertIn('tabs.setAttribute("aria-label", "Song Studio")', src)
         for name in ("Audio Downloader", "Song Maker", "Song Uploader"):
             self.assertIn(f'addLink(tabs, "{name}"', src)
@@ -110,7 +114,7 @@ class UniversalSidebarContracts(unittest.TestCase):
         self.assertIn('@app.get("/song-studio/audio-downloader/")', scene)
         self.assertIn('RedirectResponse("/audio-downloader/", status_code=303)', scene)
         self.assertIn('@app.get("/audio-downloader/", response_class=HTMLResponse)', scene)
-        self.assertIn('_audio_downloader_canonical_html(upstream.body)', scene)
+        self.assertIn('_audio_downloader_canonical_html(upstream.content)', scene)
         self.assertIn('addLink(tabs, "Audio Downloader", "/audio-downloader/"', src)
         self.assertIn('@app.get("/song-studio/{studio_app}/", response_class=HTMLResponse)', scene)
         self.assertIn('names = {"song-uploader": "Song Uploader"}', scene)
@@ -121,12 +125,14 @@ class UniversalSidebarContracts(unittest.TestCase):
     def test_library_uses_native_experiment_shell_with_five_independent_inner_tabs(self):
         source = SHELL_JS.read_text(encoding="utf-8")
         self.assertIn('["acs", "voice", "uploader", "stream", "library", "song", "song-uploader", "short-uploader"]', source)
-        self.assertIn('app === "library" ? "experiment"', source)
+        self.assertIn('app === "library"', source)
         self.assertIn('experiment-studio|self-media-library', source)
-        self.assertIn('if (app === "library")', source)
-        self.assertIn('addLink(tabs, "Antidetect Browser"', source)
-        self.assertIn('addLink(tabs, "Self Media Library", "/self-media-library/", true)', source)
-        self.assertIn('addLink(tabs, "Auto Script", "/experiment-studio/auto-script/", false)', source)
+        self.assertIn('["acs", "voice", "uploader", "stream", "library"].includes(app)', source)
+        for label in ("Antidetect Browser", "Self Media Library", "Auto Script",
+                      "Video Studio", "Voice Studio", "Upload Studio"):
+            self.assertIn(f'["{label}",', source)
+        self.assertIn("const createExperimentTabs =", source)
+        self.assertIn("attachInnerTabs(tabs)", source)
         html = (ROOT / "apps/self-media-library/part01/static/index.html").read_text(encoding="utf-8")
         self.assertIn('data-workspace="library"', html)
         self.assertIn('aria-label="Self Media Library"', html)

@@ -21,7 +21,7 @@ Auth remains on the Nginx server. No app's HTML/CSS/JavaScript is replaced.
 Apps without a configured web service appear in the shared navigation but
 display a "Route pending" panel instead of a broken iframe. Configured routes
 are labeled **runtime not verified**, never falsely shown as healthy.
-Auto Script is OFFLINE and not registered in navigation.
+In this historical fresh-rebuild candidate shell, Auto Script is excluded from the candidate navigation. The independently activated production Auto Script is ONLINE per owner as of 29 Oct 2026 and available through the authenticated Experiment Studio > Auto Script navigation (merged PRs #314/#315); do not use this candidate-only registry as a live-status report.
 
 ## Future changes
 
@@ -77,7 +77,7 @@ Pending routes are non-clickable. Invalid registry entries fail closed.
 Shell assets are emitted to a new immutable per-attempt directory, so a failed
 Nginx cutover can restore the previous Nginx config **and** its original shell
 assets. This does not touch running jobs, stored media, OAuth, app databases
-or Auto Script (OFFLINE). Offline CI covers native links, geometry, and
+or Auto Script (excluded from this legacy rebuild, currently ONLINE). Offline CI covers native links, geometry, and
 verification transition.
 
 Deferred app-specific work: remove historical broad !important selectors,

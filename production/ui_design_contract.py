@@ -28,7 +28,6 @@ SOURCE_FILES = {
 VIDEO_ROUTES = (
     ("/scene-builder/", "Scene Builder"),
     ("/auto-caption-studio/", "Auto Caption Studio"),
-    ("/short-maker/", "Short Maker"),
     ("/video-merger/", "Video Merger"),
 )
 
@@ -73,7 +72,7 @@ def violations(source: dict[str, str]) -> list[str]:
             "mobile top baseline missing")
     require("shell_js", 'if (window.self !== window.top) return;',
             "do not inject duplicate nav into a nested document")
-    require("shell_js", '["Upload Studio", "/local-upload-manager", "upload"]',
+    require("shell_js", '["Upload Studio", "/local-upload-manager/app?embedded=1&tab=dashboard", "upload"]',
             "one combined Upload Studio sidebar entry missing")
     require("shell_js", 'addLink(tabs, "Auto Uploader"',
             "Auto Uploader primary tab missing")

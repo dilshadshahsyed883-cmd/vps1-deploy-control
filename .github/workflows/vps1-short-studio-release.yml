@@ -4,11 +4,11 @@ on:
     branches: [main]
 permissions:
   contents: read
-concurrency:
-  group: vps1-production-applications
-  cancel-in-progress: false
 jobs:
   deploy:
+    concurrency:
+      group: vps1-production-applications
+      cancel-in-progress: false
     if: >-
       github.ref == 'refs/heads/main' &&
       github.actor == 'dilshadshahsyed883-cmd' &&

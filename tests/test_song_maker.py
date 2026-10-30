@@ -41,6 +41,133 @@ class SongMakerTests(unittest.TestCase):
         self.client = TestClient(create_app(self.store))
         self.headers = {'X-Auth-User': 'alice', 'X-Is-Admin': '1', 'X-Song-Maker': '1'}
 
+    def test_pause_is_durable_owner_scoped_and_does_not_cancel_active(self):
+        first = self.store.enqueue('alice', {'n': 1}, {'local_name': 'one.mp4'})
+        self.assertEqual(self.client.post('/song-maker/api/queue/pause', headers=self.headers).status_code, 200)
+        self.assertIsNone(self.store.claim('render'))
+        self.assertTrue(Store(self.root).paused('alice'))
+        other = self.store.enqueue('bob', {'n': 2}, {'local_name': 'two.mp4'})
+        self.assertEqual(self.store.claim('render')['id'], other['id'])
+        self.assertEqual(self.store.get(first['id'])['cancel'], 0)
+        self.client.post('/song-maker/api/queue/resume', headers=self.headers)
+        self.assertEqual(self.store.claim('render')['id'], first['id'])
+        self.assertEqual(self.client.get('/song-maker/api/state', headers=self.headers).json()['queue_paused'], False)
+
+    def test_shared_input_scan_is_one_listing_and_respects_selected_interval(self):
+        from songmaker.drive import default_settings
+        settings = default_settings()
+        class Counting:
+            calls = []
+            def listing(self, folder):
+                self.calls.append(folder)
+                return []
+        drive = Counting()
+        sync_owner(self.store, 'alice', settings, drive)
+        self.assertEqual(len(drive.calls), 1)
+        self.assertEqual(self.client.post('/song-maker/api/settings', headers=self.headers,
+            json={**settings, 'sync_interval': 300}).status_code, 200)
+        self.assertEqual(self.client.post('/song-maker/api/settings', headers=self.headers,
+            json={**settings, 'sync_interval': 1}).status_code, 422)
+        # Authenticated non-admin members may scan the fixed defaults, never
+        # change the configured Drive remote/folder or scan interval.
+        self.assertEqual(self.client.post('/song-maker/api/sync',
+            headers={**self.headers, 'X-Is-Admin': '0'}).status_code, 200)
+        self.assertEqual(self.store.record('settings','alice')['image_folder'],
+                         default_settings()['image_folder'])
+
+    def test_drive_lookup_filters_names_and_retains_hash_metadata(self):
+        with patch('songmaker.drive.run', return_value='[]') as execute:
+            Drive({'remote': 'gdrive'}).lookup('imageFolder', 'song [1]*.jpg')
+            args = execute.call_args.args[0]
+            self.assertIn('--hash', args)
+            self.assertIn('--include', args)
+            self.assertIn(r'/song \[1\]\*.jpg', args)
+
+    def test_ffmpeg_performance_is_measured_from_process_output(self):
+        values = []
+        run([sys.executable, '-u', '-c',
+             'import time; print("frame=25\\nfps=42.5\\nspeed=1.7x\\nout_time_us=1000000", flush=True); time.sleep(1)'],
+             metrics=values.append)
+        self.assertTrue(any(v.get('render_fps') == 42.5 and v.get('render_speed') == 1.7 for v in values), values)
+
+    def test_drive_rate_limit_backoff_is_read_only_and_redacts_private_errors(self):
+        drive = Drive({'remote': 'gdrive'})
+        secret = 'https://private.example/token-secret userRateLimitExceeded'
+        with patch('songmaker.drive.run', side_effect=[RuntimeError(secret), '[]']) as execute, \
+             patch('songmaker.drive.time.sleep'):
+            self.assertEqual(drive.listing('imageFolder'), [])
+            self.assertEqual(execute.call_count, 2)
+            self.assertIn('--tpslimit', execute.call_args.args[0])
+            self.assertIn('--tpslimit-burst', execute.call_args.args[0])
+        for operation in (['moveto', 'gdrive:a', 'gdrive:b', '--ignore-existing'],
+                          ['copyto', 'a', 'gdrive:b', '--ignore-existing']):
+            with patch('songmaker.drive.run', side_effect=RuntimeError(secret)) as execute:
+                with self.assertRaisesRegex(RuntimeError, 'userRateLimitExceeded') as caught:
+                    drive.call(operation)
+                self.assertNotIn('token-secret', str(caught.exception))
+                self.assertEqual(execute.call_count, 1)  # no blind mutation replay
+        with patch('songmaker.drive.run', side_effect=RuntimeError('storageQuotaExceeded')) as execute:
+            with self.assertRaisesRegex(RuntimeError, 'storageQuotaExceeded'):
+                drive.listing('imageFolder')
+            self.assertEqual(execute.call_count, 1)  # a full Drive is not a transient rate limit
+        with patch('songmaker.drive.run', side_effect=RuntimeError(secret)) as execute, \
+             patch('songmaker.drive.time.sleep'):
+            with self.assertRaises(RuntimeError):
+                drive.listing('imageFolder')
+            self.assertEqual(execute.call_count, 3)  # bounded metadata retry
+        with patch('songmaker.drive.run', side_effect=RuntimeError(secret)):
+            with self.assertRaises(Cancelled):
+                Drive({'remote':'gdrive'}, lambda: True).listing('imageFolder')
+
+    def test_drive_cooldown_is_durable_and_keeps_local_rendering_available(self):
+        first = self.store.enqueue('alice', {'drive':1}, {'origin':'drive','local_name':'drive.mp4'})
+        manual = self.store.enqueue('bob', {'manual':1}, {'origin':'manual','local_name':'local.mp4'})
+        self.store.drive_after(280)
+        self.store.drive_after(200)  # another lane cannot shorten an existing cooldown
+        self.assertEqual(Store(self.root).drive_after(), 280)
+        with patch('songmaker.store.time.time', return_value=100):
+            self.assertEqual(self.store.claim('render')['id'], manual['id'])
+            self.assertIsNone(self.store.claim('render'))
+        with patch('songmaker.store.time.time', return_value=281):
+            self.assertEqual(self.store.claim('render')['id'], first['id'])
+
+    def test_provider_limit_automatically_resumes_saved_upload_after_restart(self):
+        job = self.submit()
+        process(self.store, self.store.claim('render'), 'render')
+        class Limited:
+            def __init__(self, *args): pass
+            def upload(self, *args):
+                raise RuntimeError('Drive operation failed (rateLimitExceeded); provider quota')
+        with patch('songmaker.worker.time.time', return_value=100):
+            process(self.store, self.store.claim('upload'), 'upload', drive_factory=Limited)
+            waiting = self.store.get(job['id'])
+            self.assertEqual(waiting['stage'], 'Waiting for Drive')
+            self.assertEqual(waiting['next_retry_at'], 280)
+            self.assertEqual(waiting['retry_lane'], 'upload')
+            self.assertEqual(waiting['drive_retry_count'], 1)
+            self.assertIsNone(self.store.claim('upload'))
+        restarted = Store(self.root)
+        output = self.root/'outputs'/job['id']/waiting['local_name']
+        before = digest(output)
+        class Good:
+            def __init__(self, *args): pass
+            def upload(self, *args): return {'remote_id':'verified-qa','verified_at':281,'drive_status':'Verified'}
+        with patch('songmaker.worker.time.time', return_value=281):
+            claim = restarted.claim('upload')
+            self.assertEqual(claim['id'], job['id'])
+            process(restarted, claim, 'upload', drive_factory=Good)
+        complete = restarted.get(job['id'])
+        self.assertEqual(complete['stage'], 'Completed')
+        self.assertIsNone(complete['next_retry_at'])
+        self.assertEqual(digest(output), before)
+
+    def test_cancelled_provider_retry_cannot_be_claimed_when_due(self):
+        job = self.store.enqueue('alice', {'retry':1}, {'origin':'drive','local_name':'test.mp4'})
+        self.store.update(job['id'], stage='Waiting for Drive', retry_lane='render', next_retry_at=100)
+        self.assertEqual(self.client.post('/song-maker/api/jobs/'+job['id']+'/cancel',headers=self.headers).status_code,200)
+        with patch('songmaker.store.time.time', return_value=101):
+            self.assertIsNone(self.store.claim('render'))
+
     def test_song_studio_shared_drive_defaults_and_explicit_overrides(self):
         from songmaker.drive import DEFAULT_INPUT, DEFAULT_OUTPUT, folder_ref, default_settings
         self.assertEqual(DEFAULT_INPUT, 'Song Studio/Audio downloader')
@@ -430,6 +557,50 @@ class SongMakerTests(unittest.TestCase):
              files={'image':('x.jpg',b'bad'),'audio':('x.wav',b'bad')})
         self.assertEqual(result.status_code,422)
         self.assertEqual(self.store.jobs('alice'),[])
+
+
+    def test_sso_user_can_request_only_approved_default_drive_sync(self):
+        from songmaker.drive import default_settings
+        user={'X-Auth-User':'bob','X-Song-Maker':'1'}
+        initial=self.client.get('/song-maker/api/state',headers=user)
+        self.assertEqual(initial.status_code,200)
+        self.assertTrue(initial.json()['sync_access'])
+        self.assertFalse(initial.json()['admin'])
+        result=self.client.post('/song-maker/api/sync',headers=user)
+        self.assertEqual(result.status_code,200,result.text)
+        self.assertTrue(self.store.record('settings','bob')['sync_requested'])
+        self.assertEqual(self.store.record('settings','bob')['image_folder'],default_settings()['image_folder'])
+        self.assertEqual(self.store.record('settings','bob')['output_folder'],default_settings()['output_folder'])
+        self.assertEqual(self.client.post('/song-maker/api/settings',headers=user,
+            json={**default_settings(),'image_folder':'unexpectedRemoteFolder'}).status_code,403)
+        self.assertEqual(self.client.get('/song-maker/api/state',headers=user).json()['jobs'],[])
+        self.assertEqual(self.client.post('/song-maker/api/sync').status_code,401)
+
+    def test_export_preset_is_private_and_applies_to_manual_and_drive_jobs(self):
+        config={'resolution':'9:16','fit':'blur'}
+        saved=self.client.post('/song-maker/api/export',headers=self.headers,json=config)
+        self.assertEqual(saved.status_code,200,saved.text)
+        state=self.client.get('/song-maker/api/state',headers=self.headers).json()
+        self.assertEqual(state['export'],config)
+        self.assertEqual(self.client.post('/song-maker/api/export',headers=self.headers,
+            json={'resolution':'invalid','fit':'fit'}).status_code,422)
+        image,audio=self.media()
+        result=self.client.post('/song-maker/api/jobs',headers=self.headers,
+            files={'image':('image.png',image.read_bytes(),'image/png'),
+                   'audio':('Track.wav',audio.read_bytes(),'audio/wav')})
+        self.assertEqual(result.status_code,200,result.text)
+        self.assertEqual(result.json()['resolution'],'9:16')
+        self.assertEqual(result.json()['fit'],'blur')
+        from songmaker.drive import default_settings
+        class DriveFixture:
+            def listing(_,folder):
+                return [self.item('New.jpg','image-1'),self.item('New.mp3','audio-1')]
+        sync_owner(self.store,'alice',default_settings(),DriveFixture())
+        new=next(j for j in self.store.jobs('alice') if j.get('origin')=='drive')
+        self.assertEqual(new['resolution'],'9:16')
+        self.assertEqual(new['fit'],'blur')
+        guest={'X-Auth-User':'bob','X-Song-Maker':'1'}
+        self.assertNotEqual(self.client.get('/song-maker/api/state',headers=guest).json()['export'],config)
 
 
 if __name__=='__main__':unittest.main()

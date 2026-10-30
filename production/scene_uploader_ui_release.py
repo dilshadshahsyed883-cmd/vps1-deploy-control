@@ -88,7 +88,8 @@ def source_is_valid() -> None:
     require('href="/auto-caption-studio/"' in base and
             'href="/short-maker"' in base and
             'href="/video-merger/"' in base and
-            'href="/local-upload-manager"' in base and
+            'href="/local-upload-manager/app?embedded=1&amp;tab=dashboard"' in base and
+            'href="/experiment-studio/"' in base and
             'href="/auto-script"' not in base,
             "original Scene navigation or Video Studio subtabs regressed")
     require('href="/auto-caption-studio/"' in acs

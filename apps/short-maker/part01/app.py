@@ -628,17 +628,16 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
  <div class="brand"><div class="logo">S</div><div><strong>Scene Builder</strong><small>Team Studio</small></div></div>
  <nav>
   <a href="/">Dashboard</a>
-  <a href="/local-upload-manager">Upload Studio</a>
-  <a href="/scene-builder/">Video Studio</a>
+  <a href="/song-studio/">Song Studio</a>
   <a class="active" href="/short-maker" aria-current="page">Short Studio</a>
-  <a href="/voice-studio/app#vps1-production">Voice Studio</a>
+  <a href="/experiment-studio/">Experiment Studio</a>
 
 <!-- Auto Script stays OFFLINE -->
  </nav>
  <div class="server"><span></span> VPS Connected</div>
 </aside>
 <main>
-<nav class="vps1-native-video-tabs vps1-native-short-tabs" aria-label="Short Studio"><a class="active" aria-current="page" href="/short-maker">Short Maker</a><a href="/short-uploader">Short Uploader</a></nav>
+<nav data-video-studio-subnav="1" class="vps1-native-video-tabs vps1-native-short-tabs" aria-label="Short Studio"><a class="active" aria-current="page" href="/short-maker">Short Maker</a><a href="/short-uploader">Short Uploader</a></nav>
 
 <header><h1>Short Maker</h1><p>Every render becomes a queue job. Keep adding new jobs while one job renders.</p></header>
 <div class="sm-tabs"><button id="makerTabBtn" class="active" type="button">Maker</button><button id="queueTabBtn" type="button">Queue <span id="queueTotal"></span></button></div>
