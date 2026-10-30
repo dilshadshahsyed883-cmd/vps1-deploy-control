@@ -635,7 +635,7 @@
       {% endif %}
     </section>
 
-    {% if engine_instance != 'shortstudio' %}
+    {% if engine_instance not in ['song','shortstudio'] %}
     <section class="lum-card">
       <div class="lum-card-head">
         <div>
@@ -664,8 +664,8 @@
 
     <section class="lum-card">
       <div class="lum-card-head">
-        <div><h2>Saved Sheet Sources</h2>{% if engine_instance != 'shortstudio' %}<p>Select a source to edit it or run a manual update.</p>{% endif %}</div>
-        {% if engine_instance == 'shortstudio' %}
+        <div><h2>Saved Sheet Sources</h2>{% if engine_instance not in ['song','shortstudio'] %}<p>Select a source to edit it or run a manual update.</p>{% endif %}</div>
+        {% if engine_instance in ['song','shortstudio'] %}
         <div class="lum-short-sheet-header-actions">
           <span class="lum-badge">{{ sheet_sources|length }} source{{ '' if sheet_sources|length == 1 else 's' }}</span>
           <form method="post" action="{{ base_path }}/actions/sheets/sync-all" data-lum-soft-form>
