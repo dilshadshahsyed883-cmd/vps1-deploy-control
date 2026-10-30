@@ -227,6 +227,10 @@ class StorageGCTests(unittest.TestCase):
             item = root / rev
             (item / ".git").mkdir(parents=True)
             (item / ".git/HEAD").write_text(rev + "\n")
+            (item / ".git/config").write_text(
+                '[remote "origin"]\n'
+                '    url = https://github.com/dilshadshahsyed883-cmd/vps1-deploy-control.git\n'
+            )
             (item / "source.py").write_text("application source")
             stamp = self.now - (96 - index) * 3600
             os.utime(item, (stamp, stamp))
@@ -272,6 +276,20 @@ class StorageGCTests(unittest.TestCase):
         self.execute()
         self.assertTrue((root / revisions[0]).exists())
         self.assertTrue((root / revisions[1]).is_symlink())
+
+    def test_control_gc_refuses_wrong_origin_and_git_alternates(self):
+        root, revisions = self.populate_control_checkouts()
+        (root / revisions[0] / ".git/config").write_text(
+            '[remote "origin"]\n    url = https://example.com/untrusted.git\n')
+        info = root / revisions[1] / ".git/objects/info"
+        info.mkdir(parents=True)
+        (info / "alternates").write_text("/other/repository/objects\n")
+        plan = gc.control_release_inventory(self.root, now=self.now, unit_dir=self.unit_dir)
+        self.assertEqual(sorted(x["revision"] for x in plan["candidates"]),
+                         revisions[2:4])
+        self.execute()
+        self.assertTrue((root / revisions[0]).exists())
+        self.assertTrue((root / revisions[1]).exists())
 
     def test_control_gc_age_grace_is_stricter_than_app_gc(self):
         root, revisions = self.populate_control_checkouts()
