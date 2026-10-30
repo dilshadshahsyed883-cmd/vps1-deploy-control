@@ -422,5 +422,5 @@ body.lum-embedded .lum-primary-workspaces + .lum-tabs-shell{margin-top:0}
 .lum-short-inline-schedule{display:flex;flex-direction:column;gap:6px;min-width:245px;max-width:310px}
 .lum-short-inline-schedule .lum-short-schedule-slots{grid-template-columns:repeat(2,minmax(105px,1fr))}
 .lum-short-inline-schedule-bottom{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px}
-.lum-short-auto-toggle{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;white-space:nowrap}
+.lum-shell[data-engine-instance="shortstudio"] label.lum-short-auto-toggle{display:inline-flex!important;align-items:center;gap:5px;font-size:11px;font-weight:700;white-space:nowrap!important;margin:0!important}
 .lum-short-inline-schedule small{font-size:10px;line-height:1.4;color:var(--lum-muted,#64748b)}
