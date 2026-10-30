@@ -46,7 +46,7 @@ class SongMakerHandoffTests(unittest.TestCase):
             output.setnchannels(1)
             output.setsampwidth(2)
             output.setframerate(8000)
-            output.writeframes(b'\\0\\0' * 8000)
+            output.writeframes(bytes(16000))
         return stream.getvalue()
 
     def submit(self, handoff=False, owner='alice'):
