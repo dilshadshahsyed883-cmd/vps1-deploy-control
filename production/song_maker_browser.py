@@ -124,7 +124,15 @@ def main():
                     # Local folder workflow is distinct from Drive Sync and
                     # uses the same real single-pair submission endpoint.
                     page.locator('[data-tab="input"]').click()
-                    page.locator('#batchFolder').set_input_files(str(batch_folder))
+                    folder_input = page.locator('#batchFolder')
+                    assert folder_input.get_attribute('webkitdirectory') is not None
+                    # Playwright's CI file chooser cannot reliably drive the
+                    # operating-system directory picker. Simulate the FileList
+                    # delivered by that picker, while asserting the real UI
+                    # keeps its directory-select attribute.
+                    folder_input.evaluate("(el) => {el.removeAttribute('webkitdirectory'); el.removeAttribute('directory');}")
+                    batch_files = [str(x) for x in sorted(batch_folder.iterdir())]
+                    folder_input.set_input_files(batch_files)
                     page.wait_for_function("document.querySelector('#batchSummary').textContent.includes('2 matched pairs')")
                     assert '1 unmatched' in page.locator('#batchSummary').inner_text()
                     assert '1 conflicts' in page.locator('#batchSummary').inner_text()
@@ -140,7 +148,8 @@ def main():
                     # Safe duplicate submission: the backend keeps a single job
                     # per authenticated owner/content/filename pair.
                     page.locator('[data-tab="input"]').click()
-                    page.locator('#batchFolder').set_input_files(str(batch_folder))
+                    folder_input.set_input_files([])
+                    folder_input.set_input_files(batch_files)
                     page.locator('#batchAdd').click()
                     page.wait_for_function("document.querySelector('#batchSummary').textContent.includes('2 queued')",timeout=30000)
                     jobs = page.evaluate("fetch('/song-maker/api/state').then(x => x.json()).then(x => x.jobs)")
