@@ -1,4 +1,4 @@
-"""Song Uploader must use Kokoro UI geometry without affecting other uploaders."""
+"""Song and Short Studio uploaders share approved Kokoro geometry."""
 from pathlib import Path
 import unittest
 
@@ -8,12 +8,26 @@ CSS = ROOT / "apps/local-upload-manager/part01/static/song_uploader_kokoro_ui.cs
 
 
 class SongUploaderKokoroParityTests(unittest.TestCase):
-    def test_only_song_instance_loads_dedicated_ui(self):
+    def test_only_studio_instances_load_dedicated_ui(self):
         source = TEMPLATE.read_text()
-        self.assertIn("{% if engine_instance == 'song' %}", source)
+        self.assertIn("{% if engine_instance in ['song', 'shortstudio'] %}", source)
         self.assertIn("song_uploader_kokoro_ui.css", source)
         self.assertIn("lum-song-ui", source)
         self.assertIn("data-workspace=\"{{ 'song-uploader' if engine_instance == 'song' else 'uploader' }}\"", source)
+
+    def test_rendered_short_and_song_reuse_style_without_changing_workspace(self):
+        from jinja2 import Environment
+        template = Environment().from_string(TEMPLATE.read_text())
+        for mode in ('song', 'shortstudio', 'engine1', 'engine2', 'shorts'):
+            with self.subTest(mode=mode):
+                page = template.render(engine_instance=mode, embedded_view=True,
+                    base_path='/short-uploader' if mode == 'shortstudio' else '/uploader')
+                styled = mode in {'song', 'shortstudio'}
+                self.assertEqual('song_uploader_kokoro_ui.css' in page, styled)
+                self.assertEqual('lum-song-ui' in page, styled)
+                if mode == 'shortstudio':
+                    self.assertIn('data-workspace="short-uploader"', page)
+                    self.assertIn('<title>Short Uploader</title>', page)
 
     def test_kokoro_scale_and_mobile_behavior(self):
         css = CSS.read_text()
