@@ -1150,6 +1150,27 @@ def auto_v6_profile_delete(request: Request,csrf_token: str=Form(...),profile_id
         return redirect(f"/app?tab=auto_engine&auto_profile_id={int(profile_id)}",error=str(exc))
 
 
+@app.post(route("/actions/auto-v6/songmaker/import"))
+def import_songmaker_local(request: Request, csrf_token: str=Form(...),
+                           profile_id: int=Form(...), job_id: str=Form(...)):
+    # Only the isolated Song Uploader process may accept this handoff.
+    if os.getenv("LUM_ENGINE_INSTANCE") != "song" or not SUITE_AUTH_ENABLED:
+        raise HTTPException(404, "Song Maker local import is available only in Song Uploader")
+    user = current_user(request)
+    require_csrf(request, csrf_token)
+    owner = str(user.get("username") or "")
+    if not owner or not secrets.compare_digest(owner, str(request.headers.get("x-auth-user") or "")):
+        raise HTTPException(403, "Song Maker and Song Uploader user mismatch")
+    try:
+        from .songmaker_local import import_job
+        result = import_job(v6_store, int(profile_id), owner, job_id)
+        return V6JSONResponse({"ok": True, **result})
+    except ValueError as exc:
+        return V6JSONResponse({"ok": False, "error": str(exc)}, status_code=409)
+    except Exception:
+        return V6JSONResponse({"ok": False, "error": "Song Maker local import unavailable; no queue was modified"}, status_code=503)
+
+
 @app.post(route("/actions/auto-v6/sync-scan"))
 def auto_v6_sync_scan(request: Request,csrf_token: str=Form(...),profile_id: int=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
