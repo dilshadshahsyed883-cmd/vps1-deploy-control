@@ -35,6 +35,9 @@ NEW_ASSETS = (
     b'<link rel="stylesheet" href="/&#115;tatic/vps1_native_site_shell.css?v=20261020-upload-studio-v1">\n'
     b'<script src="/&#115;tatic/vps1_native_site_shell.js?v=20261020-upload-studio-v1" data-workspace="voice" defer></script>'
 )
+# The approved Song Studio shell was upgraded on 29 October. Keep the older
+# approved asset signature for backwards compatibility with live releases.
+SONG_STUDIO_ASSETS = NEW_ASSETS.replace(b"20261020-upload-studio-v1", b"20261029-song-studio-v1")
 PREVIOUS_ASSETS = (
     b'<link rel="stylesheet" href="/&#115;tatic/vps1_native_site_shell.css?v=20261019-voice-nav-v2">\n'
     b'<script src="/&#115;tatic/vps1_native_site_shell.js?v=20261019-voice-nav-v2" data-workspace="voice" defer></script>'
@@ -53,6 +56,14 @@ def require(ok: bool, why: str) -> None:
 def patch_template(payload: bytes) -> bytes:
     """Only relocate two trusted asset links; preserve all other Voice markup."""
     require(payload.count(TITLE) == 1, "existing Voice template title changed")
+    # The current Song Studio Voice HTML can use the approved newer shared shell.
+    if (payload.count(SONG_STUDIO_ASSETS) == 1 and
+            payload.count(NEW_ASSETS) == 0 and payload.count(OLD_ASSETS) == 0 and
+            payload.count(PREVIOUS_ASSETS) == 0):
+        require(payload.count(b'id="vsEngineOmni"') == 1 and
+                payload.count(b'id="vsEngineKokoro"') == 1,
+                "Song Studio shell controls invalid")
+        return payload
     # The current production release may already carry the latest asset pair.
     # Treat that state as idempotent and preserve the template byte-for-byte.
     if (payload.count(NEW_ASSETS) == 1 and
@@ -67,6 +78,8 @@ def patch_template(payload: bytes) -> bytes:
                 payload.count(b'id="vsEngineKokoro"') == 1,
                 "current Voice sidebar assets or engine controls invalid")
         return payload
+    require(payload.count(SONG_STUDIO_ASSETS) == 0,
+            "unexpected duplicated or mixed Song Studio shell assets")
     # The last approved Voice sidebar-only release already moved assets above
     # the large inline stylesheet. Upgrade that exact version in place without
     # touching engine controls, worker services or the rest of the HTML.
@@ -633,7 +646,8 @@ def verify_runtime() -> None:
                 "local Voice document cache/revision headers absent")
         require(response.status == 200 and "html" in response.headers.get("Content-Type", "").lower(),
                 "Voice web UI HTTP response unavailable")
-        require(RESPONSIVE_ID in body and NEW_ASSETS in body and NEW_LIMITS in body and
+        require(RESPONSIVE_ID in body and (NEW_ASSETS in body or SONG_STUDIO_ASSETS in body) and
+                NEW_LIMITS in body and
                 OLD_LIMITS not in body and b'id="vsEngineOmni"' in body,
                 "Voice web UI template guard is not live")
     require(body.count(SONG_AUDIO_DESKTOP_URL) == 1 and
@@ -656,7 +670,8 @@ def verify_runtime() -> None:
     cookie = scene_cookie()
     code, kind, html = https_get("/voice-studio/app", cookie)
     require(code == 200 and "html" in kind.lower()
-            and b"vps1_native_site_shell.js?v=20261020-upload-studio-v1" in html
+            and (b"vps1_native_site_shell.js?v=20261020-upload-studio-v1" in html or
+                 b"vps1_native_site_shell.js?v=20261029-song-studio-v1" in html)
             and RESPONSIVE_ID in html and NEW_LIMITS in html and OLD_LIMITS not in html,
             "authenticated public Voice page template guard not updated")
     full_html = read_full_authenticated_voice_html(cookie)
@@ -722,7 +737,8 @@ def install(revision: str) -> None:
     require(source.is_file() and not source.is_symlink(),
             "trusted Voice template source missing")
     source_html = source.read_bytes()
-    require(NEW_ASSETS in source_html and source_html.count(NEW_LIMITS) == 1,
+    require((NEW_ASSETS in source_html or SONG_STUDIO_ASSETS in source_html) and
+            source_html.count(NEW_LIMITS) == 1,
             "approved GitHub Voice template markers missing")
     original_html = (previous / PAGE).read_bytes()
     patched_html = patch_template(original_html)
