@@ -1624,6 +1624,32 @@ async def auto_v6_profile_schedules_save(request: Request):
     return redirect(f"/app?tab=auto_engine{suffix}",message=f"Profile schedules updated for {updated} profile(s).")
 
 
+@app.post(route("/actions/auto-v6/job/network-action"))
+async def auto_v6_job_network_action(request: Request):
+    user=current_user(request); require_heavy(user)
+    form=await request.form(); require_csrf(request,str(form.get("csrf_token") or ""))
+    vid=int(str(form.get("video_id") or "0"))
+    action=str(form.get("action") or "").strip().lower()
+    if action not in {"retry","cancel"}:
+        return redirect("/app?tab=auto_engine",error="Unknown network queue action.")
+    row=db.get_video(vid) if vid>0 else None
+    if not row or not row.get("auto_engine_profile_id"):
+        return redirect("/app?tab=auto_engine",error="Auto Engine queue job not found.")
+    _v6_profile(int(row["auto_engine_profile_id"]),request)
+    ok,message=db.resolve_waiting_network_job(vid,action)
+    if not ok:
+        return redirect("/app?tab=auto_engine",error=f"Job #{vid}: {message}")
+    # Only update the mapped job, never a whole channel or unrelated queue.
+    with v6_store.connect() as con:
+        con.execute(
+            "UPDATE job_sources SET state=?,last_error='',updated_at=CURRENT_TIMESTAMP WHERE video_id=?",
+            ("QUEUED" if action=="retry" else "CANCELLED",vid),
+        )
+    if action=="retry":
+        v6_store.set_engine(running=True,pause_after_current=False)
+    return redirect("/app?tab=auto_engine",message=f"Job #{vid}: {message}")
+
+
 @app.post(route("/actions/auto-v6/retry-failed"))
 async def auto_v6_retry_failed(request: Request):
     user=current_user(request); require_heavy(user)

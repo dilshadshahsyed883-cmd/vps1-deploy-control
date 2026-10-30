@@ -432,3 +432,8 @@ body.lum-embedded .lum-primary-workspaces + .lum-tabs-shell{margin-top:0}
 .lum-shell[data-engine-instance="shortstudio"] .lum-ae-time-separator{padding:0 3px;opacity:.5}
 .lum-shell[data-engine-instance="shortstudio"] .lum-ae-profile-schedule-settings{margin:12px 0}
 .lum-shell[data-engine-instance="shortstudio"] .lum-ae-profile-schedule-settings .lum-ae-schedule-control{box-sizing:border-box}
+
+/* Network-wait queue recovery is visible beside status even in wide tables. */
+.lum-ae-queue .lum-ae-network-actions{display:flex;flex-wrap:nowrap;gap:5px;margin-top:7px;align-items:center}
+.lum-ae-queue .lum-ae-network-actions form{display:inline-flex!important;margin:0!important}
+.lum-ae-queue .lum-ae-network-actions .lum-button{font-size:10px!important;min-height:27px!important;padding:4px 9px!important}

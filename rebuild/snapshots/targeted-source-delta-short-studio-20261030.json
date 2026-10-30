@@ -1,12 +1,12 @@
 {
   "source": "SHORT_STUDIO_PROFILE_SCOPED_CLAIM_DELTA_20261030",
-  "scope": "part01 Short Uploader atomic claim filter only; historical Agent1 manifest retained unchanged",
+  "scope": "part01 Short Uploader atomic claim plus review-safe network-wait recovery; historical Agent1 manifest unchanged",
   "entries": [
     {
       "path": "apps/local-upload-manager/part01/desktop_core/modules/db/queue_repository.py",
       "historical_sha256": "b4f03d7456f8f9c3f7fe14d1f425bf0420774ada90b6c8435ad45ac7822ddd59",
-      "current_sha256": "e0931fe915fd515cbea59cbe5c66ff455e6a14edcfd30623721315906c2f6ebd",
-      "reason": "Atomic eligible-profile claim filter prevents Start on one Short Uploader profile from draining other profile queues."
+      "current_sha256": "bbffddba0a1ac73472675ca5e72adb3b28a629fa0ee38de0af1180f635eaa679",
+      "reason": "Preserves atomic eligible-profile claims; adds guarded WAITING_NETWORK retry/cancel only before remote media transfer with retained permanent receipts."
     }
   ]
 }
