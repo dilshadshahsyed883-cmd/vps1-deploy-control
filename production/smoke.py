@@ -142,7 +142,10 @@ def smoke_isolated_uploader_pages(state):
                             def handle_data(self, data):
                                 if self.rail and data.strip(): self.labels.append(data.strip())
                         tabs = Tabs(); tabs.feed(page.text)
-                        assert tabs.labels == ["Dashboard", "Channels", "Sheets Sync", "Auto Engine", "Logs"], tabs.labels
+                        expected_tabs = (["Auto Engine", "Channels", "Sheets Sync", "Dashboard", "Logs"]
+                                         if mode == "song" else
+                                         ["Dashboard", "Channels", "Sheets Sync", "Auto Engine", "Logs"])
+                        assert tabs.labels == expected_tabs, tabs.labels
                         expected_workspace = 'song-uploader' if mode == 'song' else 'short-uploader'
                         assert f'data-workspace="{expected_workspace}"' in page.text
                         for tab in ("dashboard", "channels", "sheets", "logs"):
