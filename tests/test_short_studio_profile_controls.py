@@ -201,6 +201,41 @@ class ShortProfileControlTests(unittest.TestCase):
         self.assertIn("Short Uploader should not show thumbnail rotation library",installer)
         self.assertIn("[vps1-shortstudio-profile-controls]",WORKFLOW.read_text())
 
+    def test_short_profiles_compact_action_row_preserves_scheduler_and_dropdown(self):
+        """Only Short Uploader removes verbose manager; no scheduler state mutation."""
+        source = TEMPLATE.read_text()
+        css = (PART/"static/local_upload_manager.css").read_text()
+        start = source.index('<section class="lum-card lum-ae-profile-manager" data-ae-panel="profiles" hidden>')
+        end = source.index('<section class="lum-card lum-ae-automation-controls"', start)
+        section = source[start:end]
+        context = dict(engine_instance='shortstudio', base_path='/short-uploader',
+                       csrf='offline-token', p=dict(id=2, category_name='Hania Asif', enabled=True),
+                       ae=dict(engine=dict(scheduler_armed=True),
+                               profiles=[dict(id=2,category_name='Hania Asif',enabled=True)]))
+        rendered = Environment().from_string(section).render(**context)
+        self.assertEqual(rendered.count('id="lum-ae-profile-select"'), 1)
+        self.assertEqual(rendered.count('data-ae-profile-dirty'), 1)
+        self.assertIn('class="lum-short-profile-toolbar"', rendered)
+        self.assertIn('form="lum-ae-profile-form"', rendered)
+        self.assertIn('form="lum-ae-delete-profile"', rendered)
+        self.assertIn('name="action" value="disarm_scheduler"', rendered)
+        self.assertIn('Disarm Scheduled Uploads', rendered)
+        self.assertNotIn('Manage Schedules', rendered)
+        self.assertNotIn('Pause Profile', rendered)
+        self.assertNotIn('Turn Profile Off', rendered)
+        self.assertNotIn('All saved profiles', rendered)
+        self.assertNotIn('Indexed assets', rendered)
+        self.assertNotIn('Editing ·', rendered)
+        self.assertNotIn('Next run:', rendered)
+        context['ae']['engine']['scheduler_armed'] = False
+        unarmed = Environment().from_string(section).render(**context)
+        self.assertIn('name="action" value="arm_scheduler"', unarmed)
+        self.assertIn('Arm Scheduled Uploads', unarmed)
+        self.assertIn('lum-short-profile-toolbar', css)
+        self.assertIn('flex-wrap:nowrap', css)
+        self.assertIn('profile-row=20261030-v1', (PART/"templates/base.html").read_text())
+
+
 
 if __name__=="__main__":
     unittest.main()
