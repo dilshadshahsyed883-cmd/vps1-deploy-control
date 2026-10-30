@@ -195,6 +195,31 @@ class AudioProxyTests(unittest.TestCase):
         self.assertEqual(updates[0][1]['title'], 'Test Title _BaW_jenozKc')
         self.assertEqual(updates[-1][0], 'delivered')
 
+    def test_download_failure_never_schedules_upload_retry(self):
+        job = self.job()
+        with self.m.db() as con:
+            con.execute("""INSERT INTO jobs(job_id,batch_id,video_id,url,project,folder,format,
+                quality,auto_upload,keep_metadata,status,created_at,updated_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""", (job['job_id'], 'batch', job['video_id'],
+                job['url'], '', '', 'mp3', 192, 1, 0, 'downloading', self.m.utc(), self.m.utc()))
+        self.m._schedule_upload_retry(job['job_id'], self.m.download_failure("Sign in to confirm you're not a bot"))
+        with self.m.db() as con:
+            saved = con.execute('SELECT * FROM jobs WHERE job_id=?', (job['job_id'],)).fetchone()
+        self.assertEqual(saved['status'], 'failed')
+        self.assertEqual(saved['progress_stage'], 'download failed')
+        self.assertIsNone(saved['next_retry_at'])
+        self.assertEqual(saved['upload_retry_count'], 0)
+        self.assertNotIn('Configure fresh private YouTube cookies', saved['error'])
+
+    def test_windows_audio_only_selector_preserved_in_cli(self):
+        def execute(args, **kw):
+            self.assertEqual(args[args.index('--format') + 1], 'bestaudio[ext=m4a]/bestaudio/best')
+            source = Path(kw['cwd']) / 'test.mp3'
+            source.write_bytes(b'ID3' + b'x'*2048)
+            return subprocess.CompletedProcess(args, 0, str(source) + '\n', '')
+        with patch.object(self.m, 'deps', return_value={'ytdlp': '/fake/yt-dlp', 'ffmpeg': '/fake/ffmpeg'}), patch.object(self.m.subprocess, 'run', side_effect=execute), patch.object(self.m, '_update'):
+            self.m.run_job(self.job())
+
     def test_invalid_queued_video_id_cannot_escape_job_folder(self):
         job = self.job()
         job['video_id'] = '../BAD'
@@ -346,6 +371,16 @@ class AudioReleaseFenceTests(unittest.TestCase):
             self.assertEqual(command[4], str(exe))
             self.assertEqual(start.call_args.kwargs['env']['PATH'], tmp)
             self.assertEqual(output['result'], 'YOUTUBE_PROVIDER_CHALLENGE')
+    def test_restore_smoke_rejects_auth_failure_even_if_process_exits_zero(self):
+        from production import audio_downloader_release as release
+        class Process:
+            returncode = 0
+            def communicate(self, timeout):
+                return ('{"result":"YOUTUBE_AUTH_REQUIRED","audio":"NOT_VERIFIED"}\n', '')
+        with patch.object(release.subprocess, 'Popen', return_value=Process()), patch.object(release, 'event'):
+            with self.assertRaisesRegex(RuntimeError, 'same-ID real MP3'):
+                release.restore_smoke(ROOT, {'PATH': '/fake/bin'})
+
     def test_disabled_live_proxy_smoke_reports_not_verified_without_external_download(self):
         """Missing active proxy may not fail the installation or pretend YouTube works."""
         import production.audio_downloader_smoke as qa

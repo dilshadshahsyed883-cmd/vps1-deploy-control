@@ -109,6 +109,13 @@ async function check() {
     await controls[0].callback();
     assert.ok(calls.some(x=>x.url===apiRoot+'/jobs/'+job.job_id+'/'+(job.status==='queued'?'cancel':'retry') && x.method==='POST'));
   }
+  function contents(node){return [node.textContent,...node.children.map(contents)].join(' ');}
+  const authFailed = {...failed, auto_upload:true, error:'YOUTUBE_AUTH_REQUIRED: blocked'};
+  const downloadText = contents(audio.jobTable([authFailed],1));
+  assert.ok(downloadText.includes('Download failed · upload not started'));
+  assert.ok(!downloadText.includes('Upload failed · manual Retry'));
+  const driveFailed = {...failed,auto_upload:true,error:'Google Drive upload failed (AUTH_REQUIRED)'};
+  assert.ok(contents(audio.jobTable([driveFailed],1)).includes('Upload failed · manual Retry'));
   const proxy = runScript('audio-downloader-proxy-v1','request,load');
   calls.length = 0;
   await proxy.load();

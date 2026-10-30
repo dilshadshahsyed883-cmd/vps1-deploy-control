@@ -580,7 +580,7 @@ def _schedule_upload_retry(jid: str, error: Exception) -> None:
                     progress_stage='retry scheduled')
             return
     _update(jid, 'failed', error=_safe_proxy_error(str(error))[:420],
-            next_retry_at=None, progress_stage='manual retry required')
+            next_retry_at=None, progress_stage='download failed' if isinstance(error, DownloadFailure) else 'manual retry required')
 
 
 def resume_upload(job: dict) -> None:
@@ -612,7 +612,7 @@ def run_job(job: dict):
     out_template = str(folder / '%(title).70s [%(id)s].%(ext)s')
     args = command + ['--no-playlist', '--no-warnings', '--no-cache-dir',
             '--no-overwrites', '--restrict-filenames', '--max-filesize', '120M',
-            '--format', 'bestaudio/best', '--ffmpeg-location', state['ffmpeg'],
+            '--format', 'bestaudio[ext=m4a]/bestaudio/best', '--ffmpeg-location', state['ffmpeg'],
             '--extract-audio', '--audio-format', audio_format, '--audio-quality', str(job['quality']) + 'K',
             '--print', 'after_move:filepath', '-o', out_template]
     if state.get('progress_streaming'):
@@ -1133,7 +1133,7 @@ def download_failure(error):
     if 'yt-dlp-ejs' in value and any(k in value for k in ('missing', 'not installed', 'not available', 'failed')):
         return DownloadFailure('EJS_COMPONENT_MISSING', 'YouTube EJS challenge solver components are unavailable in the Audio Downloader Python environment.')
     if any(x in value for x in ("not a bot", 'confirm your age', 'login required', 'sign in', 'cookies are no longer valid')):
-        return DownloadFailure('YOUTUBE_AUTH_REQUIRED', 'YouTube requires an authorized session or challenge verification. Proxy connectivity does not prove download access. Configure fresh private YouTube cookies; no automatic retry or bypass guarantee.')
+        return DownloadFailure('YOUTUBE_AUTH_REQUIRED', 'YouTube requires an authorized session or challenge verification. Proxy connectivity does not prove download access. Check the selected proxy/direct route and downloader runtime; an authorized session may be needed for restricted content. No automatic retry.')
     if 'po token' in value or 'proof of origin' in value:
         return DownloadFailure('YOUTUBE_PROVIDER_CHALLENGE', 'YouTube requires additional provider verification. Cookies/proxy alone may not suffice; no automatic retry.')
     if '407' in value or 'proxy authentication' in value:
