@@ -1073,6 +1073,11 @@ class QueueRepository(BaseRepository):
                 """
                 SELECT * FROM videos
                 WHERE status IN ('CLAIMED','UPLOADING','THUMBNAIL_UPLOADING','WAITING_NETWORK')
+                  AND NOT (
+                      status='WAITING_NETWORK'
+                      AND (error_message LIKE 'AUTO_PROXY_WAIT|%'
+                           OR error_message LIKE 'AUTO_NETWORK_WAIT|%')
+                  )
                 ORDER BY id
                 """
             ).fetchall()

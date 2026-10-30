@@ -895,6 +895,13 @@ def main():
     check_host(args.revision)
     with deployment_lock():
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        # Network fairness and missed slot grace: Short Uploader-only overlay.
+        if '[vps1-shortstudio-network-fairness]' in intent:
+            if args.action != 'install' or args.apps != ['local-upload-manager']:
+                raise RuntimeError('Short Uploader network fix requires isolated release lane')
+            from production.short_uploader_group_release import install as install_network_fix
+            install_network_fix(args.revision, network_only=True)
+            return
         # Scoped, transactional Short Uploader template change. Never enter
         # the shared LUM installer or restart Song/Engine 1/Engine 2 workers.
         if '[vps1-shortstudio-intro-only]' in intent:
