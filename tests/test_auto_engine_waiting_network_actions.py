@@ -153,6 +153,8 @@ class WaitingNetworkQueueActions(unittest.TestCase):
         js = SCRIPT.read_text()
         self.assertIn("const visible=new Set(boxes.map(cb=>Number(cb.value)))", js)
         self.assertIn("if(!visible.has(id))qSelected.delete(id)", js)
+        self.assertIn("panes.find(node=>node.querySelector('.lum-ae-queue'))", js)
+        self.assertIn("const fresh=queueLivePanel(doc)", js)
         routes = ROUTES.read_text()
         self.assertIn('/actions/auto-v6/job/network-action', routes)
         self.assertIn("_v6_profile(int(row[\"auto_engine_profile_id\"]),request)", routes)
