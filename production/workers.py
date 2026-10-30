@@ -74,6 +74,26 @@ def prepare_mode_roots() -> None:
         marker.chmod(0o600)
 
 
+def prepare_short_studio_shared_root() -> Path:
+    """Provision the shared MP4 handoff path before sandboxed uploader workers start.
+
+    The existing Short Maker state and any videos are never moved, cleared,
+    reowned or chmodded. A symlink/non-directory fails closed.
+    """
+    maker_state = DATA / "short-maker"
+    shared = maker_state / "vps_short_folders"
+    for directory in (maker_state, shared):
+        if directory.is_symlink():
+            raise RuntimeError("Short Studio shared folder symlink denied")
+        if directory.exists():
+            if not directory.is_dir():
+                raise RuntimeError("Short Studio shared folder path is not a directory")
+        else:
+            directory.mkdir(mode=0o700)
+            os.chown(directory, 1000, 1000)
+    return shared
+
+
 def mode_exec(key: str, python: Path, entry: str) -> str:
     # /usr/bin/env wins over the parent EnvironmentFile values for this ExecStart.
     mode = "engine2" if key.startswith("lum-engine2-") else (
@@ -89,6 +109,7 @@ def mode_exec(key: str, python: Path, entry: str) -> str:
         f"LUM_GOOGLE_OAUTH_ROOT={root / 'secure'}",
         f"LUM_BASE_PATH={'/short-uploader' if mode == 'shortstudio' else '/local-upload-manager/modes/' + mode}",
         f"LUM_ENGINE_INSTANCE={mode}",
+        *([f"SHORT_STUDIO_VPS_FOLDER_ROOT={DATA / 'short-maker' / 'vps_short_folders'}"] if mode == "shortstudio" else []),
         "LUM_SUITE_AUTH=1",
     ]
     return "/usr/bin/env " + " ".join(params) + f" {python} {entry}"
@@ -131,7 +152,9 @@ def unit(app, revision, key, part, entry):
     python = BASE / 'venvs' / app / revision / 'bin/python'
     # Only the isolated Short Uploader worker may delete verified Short Maker
     # MP4s. Keep the shared data path excluded from every other service.
-    shortstudio_mp4_write = f' -{DATA}/short-maker/vps_short_folders' if key == 'lum-shortstudio-worker' else ''
+    # The path exists before starting workers; do not use a silently optional
+    # ReadWritePaths bind, which could allow upload but prevent verified deletion.
+    shortstudio_mp4_write = f' {DATA}/short-maker/vps_short_folders' if key == 'lum-shortstudio-worker' else ''
     dependency = 'Wants' if app == 'voice-studio' and key in ('edge-worker', 'kokoro-worker') else 'Requires'
     return f'''[Unit]
 Description=VPS1 {key}
@@ -235,6 +258,7 @@ def install(app, revision):
         return
     if app == 'local-upload-manager':
         prepare_mode_roots()
+        prepare_short_studio_shared_root()
     if app == 'voice-studio':
         prepare_kokoro(revision)
     for key, part, entry in SPECS[app]:
