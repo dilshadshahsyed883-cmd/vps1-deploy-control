@@ -176,5 +176,50 @@ class DriveUploadSchedulingTests(unittest.TestCase):
         self.assertEqual(len([x for x in attempts if x.endswith(".jpg")]), 2)
 
 
+    def test_streamed_download_and_drive_progress_persists_without_saving_logs(self):
+        self.create_job(status="downloading")
+        class Process:
+            returncode = 0
+            def __init__(self, lines):
+                self.stdout = iter(lines)
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def wait(self, timeout=None):
+                return 0
+        with patch.object(self.m.subprocess, "Popen",
+                          return_value=Process(["AD_PROGRESS: 10.0%\\n", "AD_PROGRESS: 73.4%\\n",
+                                                "AD_PROGRESS: 100.0%\\n"])):
+            result = self.m._run_tracked(["yt-dlp"], jid=self.jid, phase="download")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self.job()["download_percent"], 99)
+        self.assertNotIn("AD_PROGRESS", str(self.job()))
+        with patch.object(self.m.subprocess, "Popen",
+                          return_value=Process(["Transferred: 1 MiB / 10 MiB, 10%, 2 MiB/s\\n",
+                                                "Transferred: 10 MiB / 10 MiB, 100%, 2 MiB/s\\n"])):
+            self.m._run_tracked(["rclone"], jid=self.jid, phase="upload")
+        self.assertEqual(self.job()["upload_percent"], 99)
+
+    def test_manual_failed_upload_reuses_preserved_local_file(self):
+        self.create_job(status="failed")
+        response = self.m.job_action(self.jid, "retry")
+        self.assertTrue(response["ok"])
+        self.assertEqual(self.job()["status"], "upload_retry")
+        self.assertTrue(self.local.exists())
+        claimed = self.m._claim()
+        self.assertTrue(claimed["_resume_upload"])
+
+    def test_progress_contract_is_additive_and_survives_restart(self):
+        self.create_job(status="downloading")
+        self.m._update(self.jid, "uploading", download_percent=100, upload_percent=72,
+                       progress_stage="uploading audio")
+        row = self.m.sanitized_row(self.m.row_for(self.jid))
+        self.assertEqual((row["download_percent"], row["upload_percent"]), (100, 72))
+        self.assertEqual(row["progress_stage"], "uploading audio")
+        self.m.init_storage()
+        self.assertEqual(self.job()["upload_percent"], 72)
+
+
 if __name__ == "__main__":
     unittest.main()

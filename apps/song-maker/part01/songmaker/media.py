@@ -14,6 +14,8 @@ from PIL import Image, ImageFilter, ImageOps
 IMAGES = {'.jpg', '.jpeg', '.png', '.webp'}
 AUDIO = {'.mp3', '.wav', '.m4a'}
 FORMATS = {'1080p': (1920, 1080), '720p': (1280, 720), '9:16': (1080, 1920)}
+# Bounded H.264 quality presets; default preserves existing CRF 20 renders.
+QUALITIES = {'high': 18, 'balanced': 20, 'compact': 23}
 
 
 class Cancelled(Exception):
@@ -144,8 +146,8 @@ def validate(path, duration, cancelled=lambda: False):
     return {'duration': duration, 'size': Path(path).stat().st_size, 'md5': digest(path, 'md5')}
 
 
-def render(image, audio, output, temporary, resolution='1080p', fit='fit', cancelled=lambda: False, progress=None, metrics=None):
-    if resolution not in FORMATS or fit not in {'fit', 'blur'}:
+def render(image, audio, output, temporary, resolution='1080p', fit='fit', cancelled=lambda: False, progress=None, metrics=None, quality='balanced'):
+    if resolution not in FORMATS or fit not in {'fit', 'blur'} or quality not in QUALITIES:
         raise ValueError('Unsupported output options')
     duration = audio_duration(audio)
     width, height = FORMATS[resolution]
@@ -160,7 +162,7 @@ def render(image, audio, output, temporary, resolution='1080p', fit='fit', cance
     run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-loop', '1',
          '-framerate', '25', '-i', str(temporary / 'frame.png'), '-i', str(audio),
          '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'libx264', '-preset', 'veryfast',
-         '-tune', 'stillimage', '-crf', '20', '-threads', '2', '-pix_fmt', 'yuv420p',
+         '-tune', 'stillimage', '-crf', str(QUALITIES[quality]), '-threads', '2', '-pix_fmt', 'yuv420p',
          '-c:a', 'aac', '-b:a', '192k', '-t', str(duration), '-shortest',
          '-movflags', '+faststart', '-progress', 'pipe:1', str(partial)],
         cancelled, progress, max(120, duration*8), metrics=metrics)

@@ -577,13 +577,15 @@ class SongMakerTests(unittest.TestCase):
         self.assertEqual(self.client.post('/song-maker/api/sync').status_code,401)
 
     def test_export_preset_is_private_and_applies_to_manual_and_drive_jobs(self):
-        config={'resolution':'9:16','fit':'blur'}
+        config={'resolution':'9:16','fit':'blur','quality':'high'}
         saved=self.client.post('/song-maker/api/export',headers=self.headers,json=config)
         self.assertEqual(saved.status_code,200,saved.text)
         state=self.client.get('/song-maker/api/state',headers=self.headers).json()
         self.assertEqual(state['export'],config)
         self.assertEqual(self.client.post('/song-maker/api/export',headers=self.headers,
-            json={'resolution':'invalid','fit':'fit'}).status_code,422)
+            json={'resolution':'invalid','fit':'fit','quality':'balanced'}).status_code,422)
+        self.assertEqual(self.client.post('/song-maker/api/export',headers=self.headers,
+            json={'resolution':'1080p','fit':'fit','quality':'lossless'}).status_code,422)
         image,audio=self.media()
         result=self.client.post('/song-maker/api/jobs',headers=self.headers,
             files={'image':('image.png',image.read_bytes(),'image/png'),
@@ -591,6 +593,7 @@ class SongMakerTests(unittest.TestCase):
         self.assertEqual(result.status_code,200,result.text)
         self.assertEqual(result.json()['resolution'],'9:16')
         self.assertEqual(result.json()['fit'],'blur')
+        self.assertEqual(result.json()['quality'],'high')
         from songmaker.drive import default_settings
         class DriveFixture:
             def listing(_,folder):
@@ -599,8 +602,31 @@ class SongMakerTests(unittest.TestCase):
         new=next(j for j in self.store.jobs('alice') if j.get('origin')=='drive')
         self.assertEqual(new['resolution'],'9:16')
         self.assertEqual(new['fit'],'blur')
+        self.assertEqual(new['quality'],'high')
         guest={'X-Auth-User':'bob','X-Song-Maker':'1'}
         self.assertNotEqual(self.client.get('/song-maker/api/state',headers=guest).json()['export'],config)
+
+
+    def test_export_quality_presets_map_to_safe_crf_and_default_is_backward_compatible(self):
+        from songmaker.media import QUALITIES, render
+        self.assertEqual(QUALITIES, {'high':18,'balanced':20,'compact':23})
+        guest={'X-Auth-User':'new-user','X-Song-Maker':'1'}
+        self.assertEqual(self.client.get('/song-maker/api/state',headers=guest).json()['export']['quality'],'balanced')
+        image, audio = self.media()
+        temp = self.root / 'quality-test'
+        temp.mkdir()
+        output = self.root / 'quality-high.mp4'
+        commands=[]
+        def fake_ffmpeg(args,*unused,**kwargs):
+            commands.append(args)
+            (temp/'partial.mp4').write_bytes(b'test-encoded-output')
+            return ''
+        with patch('songmaker.media.audio_duration',return_value=1.0), patch('songmaker.media.run',side_effect=fake_ffmpeg):
+            self.assertEqual(render(image,audio,output,temp,resolution='720p',quality='high'),1.0)
+            self.assertEqual(commands[0][commands[0].index('-crf')+1],'18')
+            with self.assertRaises(ValueError):
+                render(image,audio,self.root/'bad.mp4',temp,quality='invalid')
+        self.assertTrue(output.exists())
 
 
 if __name__=='__main__':unittest.main()

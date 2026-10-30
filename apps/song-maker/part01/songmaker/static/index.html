@@ -1,6 +1,6 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Song Maker · Song Studio</title>
-<link rel="stylesheet" href="/static/vps1_native_site_shell.css?v=song-maker-v1"><link rel="stylesheet" href="/song-maker/assets/style.css?v=song-studio-controls-20261030">
-<script defer src="/static/vps1_native_site_shell.js?v=song-maker-v1" data-workspace="song"></script><script defer src="/song-maker/assets/app.js?v=song-maker-scoped-sync-20261030"></script></head>
+<link rel="stylesheet" href="/static/vps1_native_site_shell.css?v=song-maker-v1"><link rel="stylesheet" href="/song-maker/assets/style.css?v=song-maker-kokoro-width-20261030">
+<script defer src="/static/vps1_native_site_shell.js?v=song-maker-v1" data-workspace="song"></script><script defer src="/song-maker/assets/app.js?v=song-maker-quality-queue-20261030"></script></head>
 <body><main class="sm"><header><p class="eyebrow">SONG STUDIO</p><h1>Song Maker</h1><p>One image. One audio file. Your finished video.</p></header>
 <nav class="tabs" aria-label="Song Maker tabs"><button data-tab="input" aria-selected="true">Input &amp; Drive Sync</button><button data-tab="pairs">Pair Matching</button><button data-tab="queue">Queue</button><button data-tab="preferences">Settings</button></nav>
 <p id="notice" role="status" aria-live="polite"></p>
@@ -12,6 +12,7 @@
 <div class="card"><h2>Export settings</h2><form id="exportSettings">
 <label>Output resolution<select name="resolution"><option value="1080p">1080p · 16:9</option><option value="720p">720p · 16:9</option><option value="9:16">1080p · 9:16</option></select></label>
 <label>Image fit<select name="fit"><option value="fit">Fit · black background</option><option value="blur">Blur background</option></select></label>
+<label>Video quality<select name="quality"><option value="high">High · best detail (larger file)</option><option value="balanced">Balanced · recommended</option><option value="compact">Compact · smaller file</option></select></label>
 <p class="muted">Applies only to new manual and Drive-matched projects.</p>
 <button type="submit" class="primary">Save Export Settings</button></form></div>
 <div class="card"><h2>Drive settings</h2><div id="adminSettings" hidden><form id="settings"><label>Existing Drive profile<select name="remote" required></select></label><label>Images folder ID or path<input name="image_folder" placeholder="Song Studio/Audio downloader" required></label><label>Audio folder ID or path<input name="audio_folder" placeholder="Song Studio/Audio downloader" required></label><label>Output folder ID or path<input name="output_folder" placeholder="Song Studio/song maker" required></label><p class="muted">By default, images and audio share Song Studio/Audio downloader; MP4s go to Song Studio/song maker. Existing folder IDs and credentials remain supported.</p><label><input name="auto_sync" type="checkbox"> Automatically scan Drive</label><label>Scan interval (seconds)<input name="sync_interval" type="number" min="60" max="3600" value="300" required></label><button>Save settings</button></form></div><p id="settingsAccess" class="muted"></p></div></div></section>
