@@ -2213,8 +2213,12 @@ def _channel_queue_valid_rows(pc_db: Any, store: V6Store, profile: Dict[str,Any]
             "auto_engine_profile_name":clean(channel.get("channel_name")) or clean(profile.get("category_name")) or "Auto Engine",
             "auto_engine_after_upload_action":"keep",
         }
-        metadata_sheet_url=clean(profile.get("metadata_sheet_url_or_id"))
-        metadata_sheet_gid=clean(profile.get("metadata_sheet_gid")) or (extract_gid(metadata_sheet_url,fallback="") if metadata_sheet_url else "")
+        # Manual metadata never writes back to a historical Sheet, even if the
+        # profile retains that Sheet connection for switching back later.
+        use_manual_metadata=clean(store.channel_binding(pid).get("metadata_source"))=="manual"
+        metadata_sheet_url="" if use_manual_metadata else clean(profile.get("metadata_sheet_url_or_id"))
+        metadata_sheet_gid="" if use_manual_metadata else (clean(profile.get("metadata_sheet_gid")) or
+                             (extract_gid(metadata_sheet_url,fallback="") if metadata_sheet_url else ""))
         try:
             vid=int(pc_db.add_video(payload))
         except DuplicateUploadError:
