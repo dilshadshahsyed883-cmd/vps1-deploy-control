@@ -30,6 +30,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_song_uploader_modes_settings.py' -v
       - name: Verify Song Uploader source switching and manual metadata safety
         run: python -m unittest discover -s tests -p 'test_song_uploader_manual_metadata.py' -v
+      - name: Verify Song Uploader minimal Auto Engine stays song-only
+        run: python -m unittest discover -s tests -p 'test_song_uploader_minimal_ui.py' -v
       - name: Verify Short Maker VPS folder handoff and safe cleanup regressions
         run: python -m unittest discover -s tests -p 'test_short_studio_folder_handoff.py' -v
       - name: Forbid changed credentials and activation
