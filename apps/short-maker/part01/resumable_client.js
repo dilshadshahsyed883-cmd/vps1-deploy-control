@@ -84,7 +84,7 @@ function uploadRatio(uploaded,total){return total?Math.min(100,Math.floor(100*up
 async function pollShortJob(id){
  if(trackedShortJob!==id)return;
  try{
-  const state=await shortJson(await fetch('api/jobs/'+encodeURIComponent(id),{cache:'no-store'}),'Status check failed');
+  const state=await shortJson(await fetch('/short-maker/api/jobs/'+encodeURIComponent(id),{cache:'no-store'}),'Status check failed');
   const uploading=state.status==='uploading';
   showShortProgress(uploading?Number(state.upload_progress||state.progress||0):100,uploading?0:Number(state.progress||0),uploading?'upload':'render');
   statusEl.textContent=state.message||state.status||'Working...';
@@ -113,7 +113,7 @@ async function shortResumeInternal(meta){
  render.disabled=true;discardUpload.hidden=true;
  if(!meta.job_id){
   statusEl.textContent='Creating resumable upload job on VPS...';
-  const begun=await shortJson(await fetch('api/upload-sessions',{
+  const begun=await shortJson(await fetch('/short-maker/api/upload-sessions',{
    method:'POST',headers:{'Content-Type':'application/json'},
    body:JSON.stringify({config:meta.config,files:meta.files})
   }),'Could not create upload job');
@@ -122,7 +122,7 @@ async function shortResumeInternal(meta){
  }
  trackedShortJob=meta.job_id;
  sessionStorage.setItem('shortMakerLastJob',meta.job_id);
- const status=await shortJson(await fetch('api/upload-sessions/'+meta.job_id,{cache:'no-store'}),'Could not read upload status');
+ const status=await shortJson(await fetch('/short-maker/api/upload-sessions/'+meta.job_id,{cache:'no-store'}),'Could not read upload status');
  if(status.status!=='uploading'){
   await shortDBClear();
   render.disabled=false;pollShortJob(meta.job_id);loadQueue();return;
@@ -142,11 +142,11 @@ async function shortResumeInternal(meta){
    }
    while(offset<fileInfo.size){
     const chunk=file.slice(offset,Math.min(offset+SHORT_CHUNK_SIZE,fileInfo.size));
-    const response=await fetch('api/upload-sessions/'+meta.job_id+'/files/'+kind+'/'+i,{
+    const response=await fetch('/short-maker/api/upload-sessions/'+meta.job_id+'/files/'+kind+'/'+i,{
      method:'PUT',headers:{'X-Upload-Offset':String(offset)},body:chunk
     });
     if(response.status===409){
-     const fresh=await shortJson(await fetch('api/upload-sessions/'+meta.job_id,{cache:'no-store'}),'Could not reconcile upload');
+     const fresh=await shortJson(await fetch('/short-maker/api/upload-sessions/'+meta.job_id,{cache:'no-store'}),'Could not reconcile upload');
      const newOffset=Number(fresh.files[kind][i].uploaded||0);
      if(newOffset===offset)throw Error('Upload conflict. Press Start Rendering to retry.');
      offset=newOffset;sent=Number(fresh.uploaded_bytes||0);
@@ -164,7 +164,7 @@ async function shortResumeInternal(meta){
   }
  }
  statusEl.textContent='All source files uploaded. Queuing VPS render...';
- await shortJson(await fetch('api/upload-sessions/'+meta.job_id+'/finalize',{method:'POST'}),'Could not finalize job');
+ await shortJson(await fetch('/short-maker/api/upload-sessions/'+meta.job_id+'/finalize',{method:'POST'}),'Could not finalize job');
  await shortDBClear();discardUpload.hidden=true;
  images.value='';audio.value='';selectedAudioFiles.length=0;
  imageCount.textContent='0 images selected';renderSelectedAudio();
@@ -242,7 +242,7 @@ discardUpload.addEventListener('click',async()=>{
  try{
   const meta=await shortDBRead('meta','active');
   if(meta?.job_id){
-   const r=await fetch('api/upload-sessions/'+meta.job_id,{method:'DELETE'});
+   const r=await fetch('/short-maker/api/upload-sessions/'+meta.job_id,{method:'DELETE'});
    if(!r.ok&&r.status!==404)await shortJson(r,'Could not discard upload');
   }
   await shortDBClear();
