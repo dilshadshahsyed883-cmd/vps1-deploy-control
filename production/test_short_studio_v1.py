@@ -219,6 +219,43 @@ class ShortStudioV1(unittest.TestCase):
                 (clients / "alias").symlink_to(sessions)
                 self.assertFalse(runtime.shortstudio_rolled_back_empty(root.parent, unit_dir=units))
 
+    def test_dual_auth_bootstrap_preserved_and_real_credentials_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "state/lum-shortstudio"
+            units = Path(td) / "units"
+            units.mkdir()
+            root.mkdir(parents=True)
+            (root / ".vps1-independent-engine").write_text("shortstudio\n")
+            secure = root / "secure"
+            tokens = secure / "tokens/web_oauth"
+            tokens.mkdir(parents=True)
+            oauth = secure / "google_oauth_web_state.sqlite3"
+            with sqlite3.connect(oauth) as db:
+                db.execute("CREATE TABLE pending_oauth (state TEXT PRIMARY KEY, channel_db_id INTEGER NOT NULL, requested_by TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, expires_at TEXT NOT NULL)")
+            before = oauth.read_bytes()
+            with patch.object(runtime.socket, "socket") as sock:
+                sock.return_value.__enter__.return_value.connect_ex.return_value = 111
+                self.assertTrue(runtime.shortstudio_rolled_back_empty(root.parent, unit_dir=units))
+                self.assertEqual(oauth.read_bytes(), before)
+                for path in (tokens / "channel.json", secure / "google_oauth_web_client.json",
+                             secure / "tokens/unknown.json"):
+                    path.write_text("private")
+                    self.assertFalse(runtime.shortstudio_rolled_back_empty(root.parent, unit_dir=units))
+                    self.assertEqual(path.read_text(), "private")
+                    path.unlink()
+                tokens.rmdir()
+                tokens.symlink_to(units, target_is_directory=True)
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(root.parent, unit_dir=units))
+                tokens.unlink()
+                tokens.mkdir()
+                with sqlite3.connect(oauth) as db:
+                    db.execute("INSERT INTO pending_oauth VALUES('private',1,'owner','now','later')")
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(root.parent, unit_dir=units))
+                with sqlite3.connect(oauth) as db:
+                    db.execute("DELETE FROM pending_oauth")
+                    db.execute("CREATE TABLE unknown_credentials (secret TEXT)")
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(root.parent, unit_dir=units))
+
     def test_first_install_rejects_live_listener_and_armed_scheduler(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "state/lum-shortstudio"

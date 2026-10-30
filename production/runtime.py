@@ -345,7 +345,8 @@ def shortstudio_rolled_back_empty(state: Path, *, unit_dir: Path = Path("/etc/sy
     # install, even when the worker is stopped or a job is merely queued.
     databases = (
         (root / "core/data/uploader.db",
-         ("videos", "channels", "auto_engine_profiles", "accounts")),
+         ("videos", "channels", "auto_engine_profiles", "accounts",
+          "channel_auth_connections", "channel_auth_preferences")),
         (root / "auto_engine_v6/auto_engine_v6.sqlite3",
          ("profile_sources", "drive_videos", "thumbnails", "job_sources",
           "upload_records", "script_history", "missed_alarms")),
@@ -368,18 +369,37 @@ def shortstudio_rolled_back_empty(state: Path, *, unit_dir: Path = Path("/etc/sy
                     "SELECT running, scheduler_armed FROM engine_state").fetchall()
                 if len(rows) != 1 or any(int(v) != 0 for v in rows[0]):
                     return False
-    # ensure_dirs() creates empty oauth_clients/ and oauth_sessions/ below
-    # secure/ on first startup. Those two empty *directories* are scaffolding,
-    # not authenticated user state. Any file, unknown entry, symlink, or content
-    # inside either one is real/unknown state and must keep the idle fence.
+    # Both ensure_dirs() and DualAuthConnections._ensure_secure_store() run
+    # before any authorization. Accept only their exact unused scaffolding.
+    # Do not delete or overwrite even empty OAuth state during recovery.
     secure = root / "secure"
     if secure.is_symlink() or (secure.exists() and not secure.is_dir()):
         return False
     if secure.exists():
         for child in secure.iterdir():
-            if (child.name not in {"oauth_clients", "oauth_sessions"}
-                    or child.is_symlink() or not child.is_dir()
-                    or any(child.iterdir())):
+            if child.is_symlink():
+                return False
+            if child.name in {"oauth_clients", "oauth_sessions"}:
+                if not child.is_dir() or any(child.iterdir()):
+                    return False
+            elif child.name == "tokens":
+                if not child.is_dir():
+                    return False
+                for token_dir in child.iterdir():
+                    if (token_dir.name != "web_oauth" or token_dir.is_symlink()
+                            or not token_dir.is_dir() or any(token_dir.iterdir())):
+                        return False
+            elif child.name == "google_oauth_web_state.sqlite3":
+                if not child.is_file():
+                    return False
+                with sqlite3.connect(child.as_uri() + "?mode=ro", uri=True, timeout=3) as conn:
+                    conn.execute("PRAGMA query_only=ON")
+                    tables = {row[0] for row in conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table'")}
+                    if tables != {"pending_oauth"} or conn.execute(
+                            "SELECT 1 FROM pending_oauth LIMIT 1").fetchone():
+                        return False
+            else:
                 return False
     for relative in ("auto_engine_v6/staging", "auto_engine_v6/thumbnails",
                      "auto_engine_v6/thumbnail_trash", "auto_engine_v6/reports"):
