@@ -40,8 +40,10 @@
 
   // No whole-file reads in JavaScript. The browser streams each multipart pair
   // while XHR reports real transmitted bytes, not estimated server progress.
-  function uploadPair(image, audio, onProgress, onRequest) {
+  function uploadPair(image, audio, onProgress, onRequest, destinationFolder) {
+    const selectedFolder=destinationFolder===undefined?(window.songMakerFolderSelection?.()||''):destinationFolder;
     const data = new FormData();
+    data.append('song_folder_id',selectedFolder);
     data.append('image', image, image.name);
     data.append('audio', audio, audio.name);
     return new Promise((resolve, reject) => {
@@ -150,6 +152,10 @@
 
   async function submit(target) {
     if (running || !target.length) return;
+    let destination;
+    try{destination=window.songMakerFolderSelection?.()||'';}catch(error){summary.textContent=error.message;return;}
+    // Each pair retains its original destination across network failure/retry.
+    for(const pair of target)if(pair.destinationFolder===undefined)pair.destinationFolder=destination;
     running = true;
     aborted = false;
     buttons();
@@ -172,7 +178,7 @@
           sizeText(finishedBytes + currentBytes) + ' / ' + sizeText(total) + ' transferred/processed';
       };
       try {
-        const job = await uploadPair(pair.images[0], pair.audio[0], update, xhr => { currentRequest = xhr; });
+        const job = await uploadPair(pair.images[0], pair.audio[0], update, xhr => { currentRequest = xhr; },pair.destinationFolder);
         pair.state = 'Queued';
         pair.jobId = job.id;
         pair.bar.value = 100;

@@ -3,6 +3,48 @@ const $=id=>document.getElementById(id);let state={},busy=false;const selected=n
 const el=(tag,text)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n;};
 const notice=text=>$('notice').textContent=text;
 async function api(path,options={}){const r=await fetch('/song-maker/api/'+path,{credentials:'same-origin',...options,headers:{'X-Song-Maker':'1',...options.headers}});let data=await r.json();if(!r.ok)throw Error(data.detail||'Request failed');return data;}
+let pcFoldersReady=false,pcFolderEdited=false,pcFolderVersion=0,pcFolderWrites=Promise.resolve();
+function setPCFolder(value){
+ const select=$('pcSongFolder');
+ if(value&&![...select.options].some(o=>o.value===value))select.add(new Option('Saved folder unavailable',value));
+ select.value=value;
+}
+window.songMakerFolderSelection=()=>{
+ if(!pcFoldersReady)throw Error('Wait for the VPS folder setting to load, then retry.');
+ return $('pcSongFolder').value;
+};
+async function loadPCFolders(restoreSaved=false){
+ const version=pcFolderVersion,previous=$('pcSongFolder').value;
+ try{
+  const folders=await api('folders');
+  const saved=restoreSaved?await api('manual-folder'):null;
+  const select=$('pcSongFolder'),value=(restoreSaved&&!pcFolderEdited&&version===pcFolderVersion)?String(saved.song_folder_id||''):select.value||previous;
+  select.replaceChildren(new Option('Use saved delivery setting',''));
+  for(const folder of folders.folders||[])select.add(new Option(folder.name,folder.id));
+  setPCFolder(value);select.disabled=false;pcFoldersReady=true;
+  $('pcFolderStatus').textContent=value?'Selected VPS folder retained for your account.':'Uses your existing export delivery setting.';
+ }catch(e){$('pcFolderStatus').textContent='Folder settings unavailable: '+e.message;}
+}
+function savePCFolder(){
+ pcFolderEdited=true;const version=++pcFolderVersion,value=$('pcSongFolder').value;
+ $('pcFolderStatus').textContent='Saving folder selection…';
+ pcFolderWrites=pcFolderWrites.catch(()=>{}).then(()=>api('manual-folder',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({song_folder_id:value})})).then(()=>{
+  if(version===pcFolderVersion)$('pcFolderStatus').textContent='Folder selection saved for your account.';
+ }).catch(e=>{if(version===pcFolderVersion)$('pcFolderStatus').textContent='Selection not saved: '+e.message;});
+ return pcFolderWrites;
+}
+$('pcSongFolder').onchange=savePCFolder;
+$('pcRefreshFolders').onclick=()=>loadPCFolders(!pcFoldersReady);
+$('pcCreateFolder').onclick=async()=>{
+ const name=prompt('VPS folder name');if(!name)return;
+ const button=$('pcCreateFolder');button.disabled=true;
+ try{
+  const folder=await api('folders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+  await loadPCFolders();if(!pcFoldersReady)throw Error('Refresh folders before selecting the new folder.');
+  setPCFolder(folder.id);await savePCFolder();
+ }catch(e){notice(e.message);}finally{button.disabled=false;}
+};
+loadPCFolders(true);
 function tab(name){if(!['input','pairs','queue','preferences'].includes(name))name='queue';for(const section of ['input','pairs','queue','preferences'])$(section).hidden=section!==name;document.querySelectorAll('[data-tab]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.tab===name)));sessionStorage.setItem('song-maker-tab',name);}
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>tab(b.dataset.tab));tab(sessionStorage.getItem('song-maker-tab')||'input');
 function settingsTab(name){if(!['export','video'].includes(name))name='export';$('settingsExportPanel').hidden=name!=='export';$('settingsVideoPanel').hidden=name!=='video';document.querySelectorAll('[data-settings-tab]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.settingsTab===name)));sessionStorage.setItem('song-maker-settings-tab',name);}

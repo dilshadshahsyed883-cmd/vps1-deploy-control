@@ -29,6 +29,7 @@ class Store:
               UNIQUE(owner, source_key));
             CREATE INDEX IF NOT EXISTS pending ON jobs(stage, created);
             CREATE TABLE IF NOT EXISTS settings (owner TEXT PRIMARY KEY, data TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS intake (owner TEXT PRIMARY KEY, data TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS sync (owner TEXT PRIMARY KEY, data TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS exports (owner TEXT PRIMARY KEY, data TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS queue_control (owner TEXT PRIMARY KEY, paused INTEGER NOT NULL DEFAULT 0);
@@ -121,7 +122,7 @@ class Store:
                        "WHERE lane=?", (lane,))
 
     def record(self, table, owner, data=None):
-        if table not in ('settings', 'sync', 'exports'):
+        if table not in ('settings', 'sync', 'exports', 'intake'):
             raise ValueError('invalid record')
         with self.db() as db:
             if data is not None:
