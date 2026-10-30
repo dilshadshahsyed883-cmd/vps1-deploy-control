@@ -262,6 +262,37 @@ class ShortStudioV1(unittest.TestCase):
         self.assertIn('shortstudio_recovery="PRESERVED_SECURE_IDLE_PROVEN"', source)
         self.assertIn('modes += (("shortstudio", 8019', source)
 
+    def test_preserved_recovery_keeps_historical_reports_without_modification(self):
+        with tempfile.TemporaryDirectory() as td:
+            state=Path(td)/"state"
+            root=state/"lum-shortstudio"
+            units=Path(td)/"units"
+            units.mkdir()
+            root.mkdir(parents=True)
+            (root/".vps1-independent-engine").write_text("shortstudio\n")
+            reports=root/"reports"/"history"
+            reports.mkdir(parents=True)
+            receipt=reports/"previous.json"
+            receipt.write_text('{"status":"historical","private":"PRESERVE_ME"}')
+            secure=root/"secure"
+            secure.mkdir()
+            (secure/"existing-private-key.json").write_text("PRESERVE_ME")
+            with patch.object(runtime.socket, "socket") as sock:
+                sock.return_value.__enter__.return_value.connect_ex.return_value=111
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(state,unit_dir=units))
+                self.assertTrue(runtime.shortstudio_rolled_back_empty(
+                    state,unit_dir=units,preserve_secure=True))
+                self.assertIn("PRESERVE_ME",receipt.read_text())
+                self.assertEqual((secure/"existing-private-key.json").read_text(),"PRESERVE_ME")
+                (reports/"symlink").symlink_to(receipt)
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(
+                    state,unit_dir=units,preserve_secure=True))
+                (reports/"symlink").unlink()
+                (root/"staging").mkdir()
+                (root/"staging"/"video.mp4").write_bytes(b"not-idle")
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(
+                    state,unit_dir=units,preserve_secure=True))
+
     def test_first_install_rejects_live_listener_and_armed_scheduler(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "state/lum-shortstudio"
