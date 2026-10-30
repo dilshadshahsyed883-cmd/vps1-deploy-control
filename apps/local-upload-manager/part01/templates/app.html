@@ -958,7 +958,7 @@
                 {% if engine_instance in ['shortstudio','song'] and not pr.channel_db_id %}
                 <span class="lum-ae-saved-times" aria-label="Saved schedule times in PKT" title="Edit times in Profiles">
                   {% if pr.schedule_times %}{% for slot in pr.schedule_times.split(',') %}{% set parts = slot.strip().split(':') %}{% set hour = parts[0]|int %}{{ '%02d'|format((hour % 12) or 12) }}:{{ parts[1] }} {{ 'PM' if hour >= 12 else 'AM' }}{% if not loop.last %}<span class="lum-ae-time-separator"> · </span>{% endif %}{% endfor %}{% else %}—{% endif %}
-                </span>{% if not pr.schedule_enabled %}<small>Schedule OFF</small>{% endif %}
+                </span>{% if engine_instance == 'song' and not pr.schedule_enabled %}<small>Schedule OFF</small>{% endif %}
                 {% elif pr.channel_db_id %}Per-video schedule
                 {% else %}{{ (pr.schedule_times or 'Not configured')|replace(',', ', ') }}{% if not pr.schedule_enabled %}<small>Schedule OFF</small>{% endif %}{% endif %}
               </td>
