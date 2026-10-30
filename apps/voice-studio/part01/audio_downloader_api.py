@@ -89,7 +89,10 @@ def init_storage() -> None:
         for name, sql_type in (('download_thumbnail', 'INTEGER NOT NULL DEFAULT 0'),
                                ('local_thumbnail', 'TEXT'), ('thumbnail_drive_path', 'TEXT'),
                                ('thumbnail_drive_url', 'TEXT'), ('next_retry_at', 'TEXT'),
-                               ('upload_retry_count', 'INTEGER NOT NULL DEFAULT 0')):
+                               ('upload_retry_count', 'INTEGER NOT NULL DEFAULT 0'),
+                               ('download_percent', 'INTEGER NOT NULL DEFAULT 0'),
+                               ('upload_percent', 'INTEGER NOT NULL DEFAULT 0'),
+                               ('progress_stage', 'TEXT')):
             if name not in columns:
                 con.execute(f'ALTER TABLE jobs ADD COLUMN {name} {sql_type}')
         con.execute('''CREATE TABLE IF NOT EXISTS audio_upload_pacing (
@@ -178,6 +181,8 @@ def sanitized_row(row: sqlite3.Row) -> dict:
     data['audio_url'] = ('/tts/api/audio-downloader/jobs/' + data['job_id'] + '/audio') if row['local_file'] and Path(row['local_file']).is_file() else None
     data['auto_upload'] = bool(data['auto_upload'])
     data['keep_metadata'] = bool(data['keep_metadata'])
+    data['download_percent'] = max(0, min(100, int(data.get('download_percent') or 0)))
+    data['upload_percent'] = max(0, min(100, int(data.get('upload_percent') or 0)))
     return data
 
 
@@ -189,7 +194,7 @@ def deps() -> dict:
     ffmpeg = shutil.which('ffmpeg')
     rclone = shutil.which('rclone')
     drive_cfg = Path(RCLONE_CONFIG).is_file()
-    return {'ytdlp': ytdlp, 'ytdlp_command': command, 'ffmpeg': ffmpeg, 'rclone': rclone, 'drive_configured': drive_cfg, 'ready': bool(command and ffmpeg), 'upload_ready': bool(rclone and drive_cfg)}
+    return {'ytdlp': ytdlp, 'ytdlp_command': command, 'ffmpeg': ffmpeg, 'rclone': rclone, 'drive_configured': drive_cfg, 'ready': bool(command and ffmpeg), 'upload_ready': bool(rclone and drive_cfg), 'progress_streaming': True}
 
 
 @router.get('/status')
@@ -226,10 +231,21 @@ def enqueue(payload: BatchRequest):
     batch_id = 'ADB-' + uuid.uuid4().hex[:12].upper()
     created = utc()
     jobs = []
+    existing_jobs = []
     with db() as con:
         con.execute('BEGIN IMMEDIATE')
         try:
+            seen = set()
             for video, url in ids:
+                if (video, payload.format) in seen:
+                    continue
+                seen.add((video, payload.format))
+                existing = con.execute("""SELECT job_id FROM jobs WHERE video_id=? AND format=?
+                    AND status IN ('queued','downloading','downloaded','uploading','upload_retry','delivered','completed')
+                    ORDER BY created_at DESC LIMIT 1""", (video, payload.format)).fetchone()
+                if existing:
+                    existing_jobs.append(existing['job_id'])
+                    continue
                 jid = 'ADJ-' + uuid.uuid4().hex[:16].upper()
                 con.execute('''INSERT INTO jobs(job_id,batch_id,video_id,url,project,folder,format,quality,
                     auto_upload,keep_metadata,download_thumbnail,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
@@ -240,7 +256,8 @@ def enqueue(payload: BatchRequest):
         except BaseException:
             con.execute('ROLLBACK')
             raise
-    return {'batch_id': batch_id, 'created': len(jobs), 'job_ids': jobs}
+    return {'batch_id': batch_id, 'created': len(jobs), 'job_ids': jobs,
+            'skipped_duplicates': len(ids) - len(jobs), 'existing_job_ids': existing_jobs}
 
 
 @router.get('/jobs')
@@ -276,7 +293,13 @@ def job_action(job_id: str, action: Literal['cancel', 'retry']):
         if action == 'cancel' and row['status'] in ('queued', 'upload_retry'):
             con.execute("UPDATE jobs SET status='cancelled',next_retry_at=NULL,updated_at=? WHERE job_id=? AND status IN ('queued','upload_retry')", (utc(), job_id))
         elif action == 'retry' and row['status'] in ('failed', 'cancelled'):
-            con.execute("UPDATE jobs SET status='queued',error=NULL,next_retry_at=NULL,upload_retry_count=0,started_at=NULL,completed_at=NULL,updated_at=? WHERE job_id=? AND status IN ('failed','cancelled')", (utc(), job_id))
+            local = Path(row['local_file']) if row['local_file'] else None
+            expected = (JOBS / job_id / (row['video_id'] + '.' + row['format'])).resolve()
+            resume = bool(row['auto_upload'] and local and local.resolve() == expected and local.is_file())
+            if resume:
+                con.execute("UPDATE jobs SET status='upload_retry',error=NULL,next_retry_at=?,updated_at=?,progress_stage='retry scheduled' WHERE job_id=? AND status IN ('failed','cancelled')", (utc(), utc(), job_id))
+            else:
+                con.execute("UPDATE jobs SET status='queued',error=NULL,next_retry_at=NULL,upload_retry_count=0,started_at=NULL,completed_at=NULL,updated_at=?,download_percent=0,upload_percent=0,progress_stage=NULL WHERE job_id=? AND status IN ('failed','cancelled')", (utc(), job_id))
         else:
             raise HTTPException(409, 'Action not available for this job status')
     return {'job_id': job_id, 'action': action, 'ok': True}
@@ -313,7 +336,7 @@ def download_thumbnail(job_id: str):
 def _update(jid: str, new_state: str, **kwargs):
     columns = ['status=?', 'updated_at=?']
     values: list = [new_state, utc()]
-    for key in ('title', 'local_file', 'local_thumbnail', 'drive_path', 'drive_url', 'thumbnail_drive_path', 'thumbnail_drive_url', 'error', 'started_at', 'completed_at', 'next_retry_at', 'upload_retry_count'):
+    for key in ('title', 'local_file', 'local_thumbnail', 'drive_path', 'drive_url', 'thumbnail_drive_path', 'thumbnail_drive_url', 'error', 'started_at', 'completed_at', 'next_retry_at', 'upload_retry_count', 'download_percent', 'upload_percent', 'progress_stage'):
         if key in kwargs:
             columns.append(key + '=?')
             values.append(kwargs[key])
@@ -417,6 +440,42 @@ def verified_drive_public_link(remote: str, local_path=None, expected_format='mp
     return canonical
 
 
+def _run_tracked(command: list[str], *, jid: str, phase: str, cwd=None, env=None, timeout: int = 1500):
+    """Stream sanitized percent only. No raw provider output or credentials enter SQLite."""
+    pattern = (re.compile(r'AD_PROGRESS:\\s*(\\d+(?:\\.\\d+)?)%') if phase == 'download'
+               else re.compile(r'Transferred:.*?(\\d+(?:\\.\\d+)?)%'))
+    collected: list[str] = []
+    highest = -1
+    with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                          text=True, bufsize=1, cwd=cwd, env=env) as proc:
+        def consume():
+            nonlocal highest
+            for line in proc.stdout:
+                collected.append(line)
+                if len(collected) > 250:
+                    del collected[:len(collected) - 250]
+                match = pattern.search(line)
+                if not match:
+                    continue
+                percent = max(0, min(99, int(float(match.group(1)))))
+                if percent > highest:
+                    highest = percent
+                    _update(jid, 'downloading' if phase == 'download' else 'uploading',
+                            **{'download_percent' if phase == 'download' else 'upload_percent': percent})
+        reader = threading.Thread(target=consume, daemon=True)
+        reader.start()
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            raise
+        finally:
+            reader.join(timeout=10)
+        output = ''.join(collected)
+        return subprocess.CompletedProcess(command, proc.returncode, output, output)
+
+
 def _wait_for_audio_upload_slot() -> None:
     """Persisted across restarts; the next audio starts after the previous verified upload."""
     while True:
@@ -447,7 +506,8 @@ def _schedule_upload_retry(jid: str, error: Exception) -> None:
         if local and local.resolve() == expected and local.is_file():
             _update(jid, 'upload_retry', error=_safe_proxy_error(str(error))[:420],
                     next_retry_at=utc_after(UPLOAD_RETRY_SECONDS),
-                    upload_retry_count=int(row['upload_retry_count']) + 1)
+                    upload_retry_count=int(row['upload_retry_count']) + 1,
+                    progress_stage='retry scheduled')
             return
     _update(jid, 'failed', error=_safe_proxy_error(str(error))[:420], next_retry_at=None)
 
@@ -479,11 +539,14 @@ def run_job(job: dict):
     audio_format = job['format']
     want_thumbnail = bool(job.get('download_thumbnail', False))
     out_template = str(folder / '%(title).70s [%(id)s].%(ext)s')
-    args = command + ['--no-playlist', '--no-warnings', '--no-progress', '--no-cache-dir',
+    args = command + ['--no-playlist', '--no-warnings', '--no-cache-dir',
             '--no-overwrites', '--restrict-filenames', '--max-filesize', '120M',
             '--format', 'bestaudio/best', '--ffmpeg-location', state['ffmpeg'],
             '--extract-audio', '--audio-format', audio_format, '--audio-quality', str(job['quality']) + 'K',
             '--print', 'after_move:filepath', '-o', out_template]
+    if state.get('progress_streaming'):
+        args.extend(['--newline', '--progress', '--progress-template',
+                     'download:AD_PROGRESS:%(progress._percent_str)s'])
     if want_thumbnail:
         args.extend(['--write-thumbnail', '--convert-thumbnails', 'jpg'])
     if job['keep_metadata']:
@@ -492,8 +555,13 @@ def run_job(job: dict):
     # Use the same private proxy/session snapshot for audio and thumbnail extraction.
     with youtube_execution() as (options, environment):
         try:
-            p = subprocess.run(command + options + args[len(command):], capture_output=True,
-                               text=True, timeout=1800, cwd=str(folder), check=False, env=environment)
+            full_command = command + options + args[len(command):]
+            if state.get('progress_streaming'):
+                p = _run_tracked(full_command, jid=jid, phase='download', timeout=1800,
+                                 cwd=str(folder), env=environment)
+            else:
+                p = subprocess.run(full_command, capture_output=True,
+                                   text=True, timeout=1800, cwd=str(folder), check=False, env=environment)
         except subprocess.TimeoutExpired:
             raise DownloadFailure('DOWNLOAD_TIMEOUT', 'YouTube download timed out; retry manually after checking the provider.') from None
         if p.returncode:
@@ -526,7 +594,7 @@ def run_job(job: dict):
             if handle.read(3) != b'\xff\xd8\xff':
                 raise RuntimeError('Downloaded thumbnail is not JPEG')
 
-    _update(jid, 'downloaded', title=safe, local_file=str(final),
+    _update(jid, 'downloaded', title=safe, download_percent=100, progress_stage='downloaded', local_file=str(final),
             local_thumbnail=str(thumbnail) if thumbnail else None)
     if not job['auto_upload']:
         _update(jid, 'completed', completed_at=utc())
@@ -538,7 +606,7 @@ def upload_downloaded(job: dict, final: Path, thumbnail: Path | None, state: dic
     jid = job['job_id']
     if not state.get('upload_ready'):
         raise RuntimeError('Google Drive connection unavailable')
-    _update(jid, 'uploading')
+    _update(jid, 'uploading', progress_stage='uploading audio')
 
     # Existing flat destination, immutable filename, and QA nonce segregation.
     base = f'{DRIVE_REMOTE}:{DRIVE_BASE}/'
@@ -550,12 +618,20 @@ def upload_downloaded(job: dict, final: Path, thumbnail: Path | None, state: dic
         cmd = [state['rclone'], '--config', RCLONE_CONFIG, 'copyto', str(source), destination,
                '--immutable', '--retries', '2', '--low-level-retries', '2', '--timeout', '5m',
                '--contimeout', '30s']
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=1500, check=False)
+        if state.get('progress_streaming'):
+            cmd.extend(['--stats', '2s', '--stats-one-line', '--stats-log-level', 'NOTICE'])
+            _update(jid, 'uploading', upload_percent=0,
+                    progress_stage='uploading thumbnail' if fmt == 'jpg' else 'uploading audio')
+            result = _run_tracked(cmd, jid=jid, phase='upload', timeout=1500)
+        else:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=1500, check=False)
         if result.returncode:
             raise RuntimeError('Google Drive upload failed; automatic retry scheduled')
         # Avoid a duplicate remote metadata query: the authoritative verifier
         # checks remote size/MD5, public link and anonymous file bytes.
-        return verified_drive_public_link(destination, source, fmt)
+        link = verified_drive_public_link(destination, source, fmt)
+        _update(jid, 'uploading', upload_percent=100, progress_stage='verified thumbnail' if fmt == 'jpg' else 'verified audio')
+        return link
 
     # An audio already verified in a previous attempt is never uploaded twice.
     if job.get('drive_path') == remote and job.get('drive_url'):
@@ -574,7 +650,8 @@ def upload_downloaded(job: dict, final: Path, thumbnail: Path | None, state: dic
             _update(jid, 'uploading', thumbnail_drive_path=thumb_remote, thumbnail_drive_url=thumb_public_url)
     _update(jid, 'delivered', drive_path=remote, drive_url=public_url,
             thumbnail_drive_path=thumb_remote, thumbnail_drive_url=thumb_public_url,
-            completed_at=utc(), next_retry_at=None, error=None)
+            completed_at=utc(), next_retry_at=None, error=None,
+             download_percent=100, upload_percent=100, progress_stage='delivered')
     # Delete local files only after BOTH uploads pass size, hash and public-byte checks.
     for local in (final, thumbnail):
         if local is None:
