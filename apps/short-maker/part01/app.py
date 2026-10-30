@@ -736,6 +736,14 @@ button.secondary{background:#f0efff;color:#4d4fc7}button.danger{background:#fff0
 @media(max-width:600px){.drive-link-row{align-items:stretch}.drive-link-row button{padding:8px}}
 
 
+/* Independent upload and VPS render progress stages */
+.sm-stage-progress{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:10px}
+.sm-stage-label{display:flex;justify-content:space-between;gap:10px;margin-bottom:7px;font-weight:750;color:var(--text);font-size:12px}
+.sm-stage-label strong{font-variant-numeric:tabular-nums}
+.sm-stage-progress .progress{margin:0}
+.sm-render-progress span{background:#16a078}
+@media(max-width:540px){.sm-stage-progress{grid-template-columns:1fr;gap:12px}}
+
 /* SHORT_MAKER_COMPACT_BATCH_MODAL_V1 — Queue-only presentation; renderer untouched. */
 .queue-table{min-width:760px}
 .queue-table td{max-width:270px}
@@ -870,8 +878,11 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
  <h2>Render</h2>
  <button id="render" class="render" type="submit">Start Rendering</button>
  <button id="discardUpload" class="secondary" type="button" hidden style="margin-top:10px">Discard paused upload</button>
- <div class="progress" id="progressTrack" role="progressbar" aria-label="Upload progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="bar"></span></div>
- <div id="progressDetail" class="status" aria-live="polite">Upload: 0% · Rendering: 0%</div>
+ <div class="sm-stage-progress">
+  <div><div class="sm-stage-label"><span>Upload</span><strong id="uploadPctLabel">0%</strong></div><div class="progress" id="progressTrack" role="progressbar" aria-label="Upload progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="bar"></span></div></div>
+  <div><div class="sm-stage-label"><span>Rendering</span><strong id="renderPctLabel">0%</strong></div><div class="progress sm-render-progress" id="renderProgressTrack" role="progressbar" aria-label="Rendering progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="renderProgressBar"></span></div></div>
+ </div>
+ <div id="progressDetail" class="status" aria-live="polite">Ready to upload</div>
  <div id="status" class="status">Ready.</div>
  <div id="outputs" class="outputs"></div>
 </section>
