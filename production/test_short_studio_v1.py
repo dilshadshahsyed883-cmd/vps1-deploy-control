@@ -156,7 +156,7 @@ class ShortStudioV1(unittest.TestCase):
             root = state / "lum-shortstudio"
             root.mkdir(parents=True)
             units.mkdir()
-            (root / ".vps1-independent-engine").write_text("shortstudio\\n")
+            (root / ".vps1-independent-engine").write_text("shortstudio\n")
             core = root / "core/data/uploader.db"
             v6 = root / "auto_engine_v6/auto_engine_v6.sqlite3"
             core.parent.mkdir(parents=True)
@@ -198,7 +198,7 @@ class ShortStudioV1(unittest.TestCase):
             root.mkdir(parents=True)
             units = Path(td) / "units"
             units.mkdir()
-            (root / ".vps1-independent-engine").write_text("shortstudio\\n")
+            (root / ".vps1-independent-engine").write_text("shortstudio\n")
             dbfile = root / "auto_engine_v6/auto_engine_v6.sqlite3"
             dbfile.parent.mkdir(parents=True)
             with sqlite3.connect(dbfile) as db:
