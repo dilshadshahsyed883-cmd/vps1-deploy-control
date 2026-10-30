@@ -383,6 +383,38 @@ class AudioReleaseFenceTests(unittest.TestCase):
             self.assertEqual(command[4], str(exe))
             self.assertEqual(start.call_args.kwargs['env']['PATH'], tmp)
             self.assertEqual(output['result'], 'YOUTUBE_PROVIDER_CHALLENGE')
+    def test_reference_api_uses_windows_defaults_and_reports_download_error(self):
+        import production.audio_downloader_restore_smoke as qa
+        from types import SimpleNamespace
+        from contextlib import contextmanager
+        class DownloadError(RuntimeError):
+            pass
+        class Module:
+            def init_storage(self): pass
+            def _write_proxy_config(self, config): pass
+            def _selected_proxy(self, config): return None
+            def deps(self): return {'ffmpeg': '/usr/bin/ffmpeg'}
+            def download_failure(self, error):
+                class Failure:
+                    code = 'YOUTUBE_AUTH_REQUIRED'
+                return Failure()
+            def _safe_proxy_error(self, error): return 'sanitized provider failure'
+            @contextmanager
+            def youtube_execution(self): yield [], {}
+        class Downloader:
+            def __init__(self, options):
+                assert options['ignoreerrors'] is False
+                assert options['format'] == 'bestaudio[ext=m4a]/bestaudio/best'
+                assert options['proxy'] == ''
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def extract_info(self, *args, **kwargs):
+                raise DownloadError("Sign in to confirm you're not a bot")
+        with tempfile.TemporaryDirectory() as tmp, patch.object(qa, 'load', return_value=Module()), patch.dict('sys.modules', {'yt_dlp': SimpleNamespace(YoutubeDL=Downloader)}):
+            result = qa.api_reference(ROOT, Path(tmp), {'enabled': False})
+        self.assertEqual(result['result'], 'YOUTUBE_AUTH_REQUIRED')
+        self.assertEqual(result['exception'], 'DownloadError')
+
     def test_error_label_overlay_preserves_deployed_engine_bytes(self):
         from production.audio_downloader_release import error_label_overlay
         original = (ROOT / 'apps/voice-studio/part01/audio_downloader_api.py').read_bytes()
