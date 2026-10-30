@@ -69,6 +69,11 @@ def browser_test():
         if path == '/short-maker/resumable_client.js':
             js = (ROOT/'apps/short-maker/part01/resumable_client.js').read_text(encoding='utf-8')
             return r.fulfill(content_type='application/javascript', body=js)
+        if path == '/short-maker/api/jobs':
+            outputs=[{'name':f'Ronaldo {i:03d} b38632.mp4','url':f'outputs/0123456789abcdef/Ronaldo%20{i:03d}%20b38632.mp4','local_available':True} for i in range(1,151)]
+            job={'job_id':'0123456789abcdef','status':'completed','progress':100,'created_at':'2026-10-30T08:00:00+00:00','message':'Completed 150 video(s) · available to Short Uploader',
+                 'delivery_status':'short_uploader','short_vps_folder':'Ronaldo','outputs':outputs,'config':{'output_count':150,'short_vps_folder':'Ronaldo'}}
+            return r.fulfill(content_type='application/json',body=json.dumps({'jobs':[job],'counts':{'completed':1}}))
         if path in pages:return r.fulfill(content_type='text/html',body=pages[path])
         if path.startswith('/static/'):
             file=scene/'static'/path.removeprefix('/static/')
@@ -119,6 +124,19 @@ def browser_test():
                     assert not page.locator('#uploadToDrive').is_checked()
                     page.locator('#uploadToDrive').check()
                     assert not page.locator('#availableToUploader').is_checked()
+                    if width == 1280:
+                        page.locator('#queueTabBtn').click()
+                        page.locator('[data-short-job-details]').first.wait_for()
+                        assert page.locator('#queueRows a').count() == 0, 'Batch links leaked into queue row'
+                        assert page.locator('#queueRows tr').first.bounding_box()['height'] < 120, 'Batch row is too tall'
+                        page.locator('[data-short-job-details]').first.click()
+                        assert page.locator('#shortJobModal').is_visible(), 'Details popup did not open'
+                        assert page.locator('#shortJobOutputList [role="listitem"]').count() == 150
+                        assert page.locator('#shortJobOutputList a').count() == 150
+                        assert page.locator('#copyShortJobNames').is_visible()
+                        page.keyboard.press('Escape')
+                        assert page.locator('#shortJobModal').is_hidden(), 'Escape did not close modal'
+                        page.locator('#makerTabBtn').click()
                     page.locator('#makerTabBtn').click()
                     assert page.locator('#shortVpsFolder').is_visible()
                     assert page.locator('#render').is_visible()
