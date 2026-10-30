@@ -55,6 +55,14 @@ class SongAutomationGroupSummaryTests(unittest.TestCase):
         self.assertIn("&lt;script&gt;bad&lt;/script&gt;",html)
         self.assertNotIn("<script>bad</script>",html)
 
+    def test_song_release_health_uses_true_internal_route(self):
+        # The isolated Song service binds LUM_BASE_PATH=/local-upload-manager/modes/song;
+        # /song-uploader is public Nginx routing and redirects on port 8018.
+        source = (ROOT / "production/song_uploader_group_summary_release.py").read_text()
+        self.assertIn("http://127.0.0.1:8018/local-upload-manager/modes/song/health", source)
+        self.assertNotIn("http://127.0.0.1:8018/song-uploader/health", source)
+        self.assertIn("https_get('/song-uploader/app?tab=auto_engine&new_profile=1'", source)
+
     def test_engine1_remains_legacy_table(self):
         html = self.render([dict(id=3,enabled=1,category_name="Channel",
             bound_channel_name="Channel",bound_channel_id="UC123",
