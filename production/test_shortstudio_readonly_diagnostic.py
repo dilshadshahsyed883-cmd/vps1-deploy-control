@@ -46,6 +46,20 @@ class DiagnosticTests(unittest.TestCase):
             self.assertNotIn("private-file-name",str(report))
             self.assertNotIn("actual-private-token",str(report))
             self.assertNotIn("TOP_SECRET_DO_NOT_EMIT",str(report))
+    def test_secure_tree_scan_only_emits_type_counts(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)
+            (root/"oauth_clients").mkdir()
+            (root/"private_filename.txt").write_text("PRIVATE_VALUE")
+            out=diag.secure_tree_types(root)
+            self.assertEqual(out["symlinks"],0)
+            self.assertEqual(out["special"],0)
+            self.assertEqual(out["entries"],2)
+            self.assertNotIn("private_filename",str(out))
+            self.assertNotIn("PRIVATE_VALUE",str(out))
+            (root/"oauth_clients"/"link").symlink_to(root/"private_filename.txt")
+            self.assertEqual(diag.secure_tree_types(root)["symlinks"],1)
+
     def test_output_has_fixed_shape_and_no_mutation(self):
         with tempfile.TemporaryDirectory() as tmp:
             state=Path(tmp)/"state"
