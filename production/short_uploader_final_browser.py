@@ -35,7 +35,7 @@ def main():
             page.goto('https://fixture.test/fixture')
             grid=page.locator('[data-short-profile-grid]')
             cols=grid.evaluate("e=>getComputedStyle(e).gridTemplateColumns.split(' ').length")
-            assert cols==(2 if width>760 else 1),(width,cols)
+            assert cols==(2 if width>760 else 1),(width,cols,grid.evaluate('e=>({html:e.outerHTML.slice(0,200),parent:e.closest(".lum-shell").outerHTML.slice(0,150),rules:[...document.styleSheets].map(s=>({href:s.href,count:s.cssRules.length,short:[...s.cssRules].filter(r=>r.cssText.includes(".lum-short-profile-grid")).map(r=>r.cssText)}))})'))
             slots=page.locator('[data-short-profile-schedule] input[type=time]')
             assert slots.count()==1
             assert slots.first.input_value()=='06:00'
