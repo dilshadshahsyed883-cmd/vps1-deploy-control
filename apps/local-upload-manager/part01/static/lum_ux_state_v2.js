@@ -7,9 +7,24 @@
 (() => {
   'use strict';
 
-  const SHORT_STUDIO = window.location.pathname.startsWith('/short-uploader/');
-  const TAB_KEY = SHORT_STUDIO ? 'lum.shortstudio.main.tab' : 'lum.main.tab';
-  const ROUTE_KEY = SHORT_STUDIO ? 'lum.shortstudio.route' : 'lum.route';
+  // SONG_UPLOADER_ROUTE_STATE_ISOLATION_V1: A saved Upload Studio route must
+  // never cause the canonical Song Uploader to navigate to Engine 1.
+  const CURRENT_PATH = window.location.pathname;
+  const SONG_STUDIO = /^\/song-uploader(?:\/|$)/.test(CURRENT_PATH);
+  const SHORT_STUDIO = /^\/short-uploader(?:\/|$)/.test(CURRENT_PATH);
+  const ISOLATED_MODE = /^\/local-upload-manager\/modes\/(engine2|shorts|song)\/app$/.exec(CURRENT_PATH);
+  const ROOT_PATH = SONG_STUDIO ? '/song-uploader'
+    : SHORT_STUDIO ? '/short-uploader'
+    : ISOLATED_MODE ? '/local-upload-manager/modes/' + ISOLATED_MODE[1]
+    : '/local-upload-manager';
+  // Keep the existing Short Studio storage names literal for its parity
+  // contract, while giving Song and each uploader mode independent keys.
+  const TAB_KEY = SONG_STUDIO ? 'lum.song.main.tab'
+    : SHORT_STUDIO ? 'lum.shortstudio.main.tab'
+    : ISOLATED_MODE ? 'lum.' + ISOLATED_MODE[1] + '.main.tab' : 'lum.main.tab';
+  const ROUTE_KEY = SONG_STUDIO ? 'lum.song.route'
+    : SHORT_STUDIO ? 'lum.shortstudio.route'
+    : ISOLATED_MODE ? 'lum.' + ISOLATED_MODE[1] + '.route' : 'lum.route';
   const VALID_TABS = new Set([
     'upload','authentication','dashboard','channels','sheets','auto_engine',
     'add_video','bulk_import','queue','logs'
@@ -47,7 +62,12 @@
   function sanitizedRoute(raw) {
     try {
       const u = new URL(raw || '', window.location.origin);
-      if (u.origin !== window.location.origin || !u.pathname.endsWith('/app')) return '';
+      // Only routes of THIS studio can be restored; reject same-origin routes
+      // from Upload Studio, Short Studio or other isolated uploader engines.
+      const owned = u.pathname === ROOT_PATH + '/app'
+        || (SONG_STUDIO && (u.pathname === ROOT_PATH || u.pathname === ROOT_PATH + '/'))
+        || (SHORT_STUDIO && u.pathname === ROOT_PATH);
+      if (u.origin !== window.location.origin || !owned) return '';
       const out = new URL(u.pathname, window.location.origin);
       const tab = u.searchParams.get('tab') || '';
       if (VALID_TABS.has(tab)) out.searchParams.set('tab', tab);
@@ -107,6 +127,13 @@
     if (!actual) { notifyParent(); return; }
 
     const requested = requestedTab();
+    // Direct Song Uploader entrypoint always opens its native Auto Engine tab.
+    // Do not restore *any* previous app route on this canonical URL, even
+    // from Song's own history. Explicit ?tab= links still take precedence.
+    if (SONG_STUDIO && !requested) {
+      saveActualState();
+      return;
+    }
     const savedTab = safeGet(TAB_KEY);
     const savedRoute = sanitizedRoute(safeGet(ROUTE_KEY));
 
