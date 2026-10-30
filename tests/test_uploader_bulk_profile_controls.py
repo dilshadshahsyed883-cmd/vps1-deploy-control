@@ -31,10 +31,13 @@ class UploaderProfileBulkToolbarTests(unittest.TestCase):
         for instance in ("song", "shortstudio"):
             with self.subTest(instance=instance):
                 html = self.render(instance)
-                positions = [html.index(">" + label + "<") for label in LABELS]
+                expected = LABELS if instance == "song" else tuple(label for label in LABELS if label != "Profile Schedules")
+                positions = [html.index(">" + label + "<") for label in expected]
                 self.assertEqual(positions, sorted(positions))
                 self.assertLess(positions[-1], html.index('class="lum-table-wrap lum-ae-automation-profiles-wrap"'))
-                self.assertEqual(html.count('data-ae-open-schedules'), 1)
+                self.assertEqual(html.count('data-ae-open-schedules'), 1 if instance == "song" else 0)
+                if instance == "shortstudio":
+                    self.assertNotIn(">Profile Schedules<", html)
                 self.assertIn('data-ae-preview-all', html)
                 self.assertIn('data-ae-jump-start-all', html)
                 self.assertIn('/actions/auto-v6/generate-all', html)
