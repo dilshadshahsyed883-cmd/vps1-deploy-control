@@ -242,7 +242,7 @@ class DriveUploadSchedulingTests(unittest.TestCase):
             self.assertIn('copyto', args)
             self.assertIn('--immutable', args)
             return subprocess.CompletedProcess(args, 1, '', 'failed: immutable file already exists')
-        with patch.object(self.m, 'subprocess') as subprocess_mock, \\
+        with patch.object(self.m, 'subprocess') as subprocess_mock, \
              patch.object(self.m, 'verified_drive_public_link',
                           return_value='https://drive.google.com/file/d/123456789012/view?usp=sharing') as verify:
             subprocess_mock.run.side_effect = copy_exists
@@ -257,7 +257,7 @@ class DriveUploadSchedulingTests(unittest.TestCase):
         state = {'upload_ready': True, 'rclone': '/fake/rclone', 'progress_streaming': False}
         def copy_exists(args, **kwargs):
             return subprocess.CompletedProcess(args, 1, '', 'immutable file already exists')
-        with patch.object(self.m, 'subprocess') as subprocess_mock, \\
+        with patch.object(self.m, 'subprocess') as subprocess_mock, \
              patch.object(self.m, 'verified_drive_public_link',
                           side_effect=RuntimeError('Google Drive content hash mismatch')):
             subprocess_mock.run.side_effect = copy_exists
