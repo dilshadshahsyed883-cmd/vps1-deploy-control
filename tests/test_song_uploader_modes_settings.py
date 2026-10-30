@@ -13,12 +13,12 @@ BACKEND = ROOT / "apps/local-upload-manager/part01/lum_engine/standalone_app.py"
 POLICY = ROOT / "apps/scene-builder/part01/precutover_policy.py"
 
 class SongUploaderSettingsContract(TestCase):
-    def test_dashboard_omits_bulk_toggle_only_for_song(self):
+    def test_dashboard_omits_bulk_toggle_for_song_and_shortstudio(self):
         source = TEMPLATE.read_text(encoding="utf-8")
         start = source.index('<div class="lum-grid lum-two">', source.index("{% elif tab == 'dashboard' %}"))
         end = source.index("{{ reports_panel() }}", start)
         fragment = Environment(autoescape=True).from_string(source[start:end])
-        for instance, expected_bulk in (("song", False), ("engine1", True), ("shortstudio", True)):
+        for instance, expected_bulk in (("song", False), ("engine1", True), ("shortstudio", False)):
             data = {
                 "engine_instance": instance,
                 "base_path": "/local-upload-manager",

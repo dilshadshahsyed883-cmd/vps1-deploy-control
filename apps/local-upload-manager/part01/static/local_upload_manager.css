@@ -466,3 +466,9 @@ body.lum-embedded .lum-primary-workspaces + .lum-tabs-shell{margin-top:0}
 .lum-shell[data-engine-instance="shortstudio"] .lum-short-sheet-header-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
 .lum-shell[data-engine-instance="shortstudio"] .lum-short-sheet-header-actions form{margin:0}
 @media(max-width:760px){.lum-shell[data-engine-instance="shortstudio"] .lum-short-sheet-header-actions{width:100%;justify-content:flex-start}.lum-shell[data-engine-instance="shortstudio"] .lum-short-sheet-header-actions form{flex:1 1 auto}.lum-shell[data-engine-instance="shortstudio"] .lum-short-sheet-header-actions button{width:100%}}
+
+/* Override shared Kokoro navigation sizing only inside Short Uploader. */
+@media(max-width:760px){
+  body.lum-song-ui .lum-shell[data-engine-instance="shortstudio"] .lum-short-engine-tabbar>.lum-ae-tabs-primary{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;width:100%!important;gap:2px!important;padding:4px!important;overflow:visible!important}
+  body.lum-song-ui .lum-shell[data-engine-instance="shortstudio"] .lum-short-engine-tabbar>.lum-ae-tabs-primary>button{width:100%!important;min-width:0!important;padding:7px 2px!important;font-size:10px!important;white-space:nowrap!important}
+}
