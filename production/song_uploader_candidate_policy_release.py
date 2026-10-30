@@ -5,6 +5,7 @@ OAuth, channel state, workers, scheduler, and Scene render worker remain untouch
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -145,6 +146,18 @@ def install(revision: str) -> None:
         require(destination.is_file() and not destination.is_symlink(), "policy symlink drift")
         destination.write_text(patched, encoding="utf-8")
         destination.chmod(0o644)
+        # Keep the immutable candidate's declared file hashes consistent.
+        manifest_path = target / "_scene_candidate_manifest.json"
+        require(manifest_path.is_file() and not manifest_path.is_symlink(),
+                "candidate source manifest missing")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        require(manifest.get("app") == "scene-builder"
+                and POLICY_REL in manifest.get("files", {}),
+                "candidate policy missing from manifest")
+        manifest["revision"] = revision
+        manifest["overlay"] = "song-uploader-candidate-post-only"
+        manifest["files"][POLICY_REL] = hashlib.sha256(destination.read_bytes()).hexdigest()
+        atomic_json(manifest_path, manifest, 0o644)
         journal.mkdir(parents=True, mode=0o700)
         atomic_json(journal / "state.json", {
             "revision": revision, "old": str(old), "new": str(target),
