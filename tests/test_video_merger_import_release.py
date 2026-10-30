@@ -15,8 +15,24 @@ class Release(unittest.TestCase):
             root=Path(directory);base=root/'host';repo=root/'repo';units=root/'units';units.mkdir()
             old=base/'releases/video-merger/old';(old/'part01/templates').mkdir(parents=True)
             (old/'part01/app.py').write_text('old = True')
-            old_html=('''<button class="btn secondary mini" onclick="renameLibrary('${x.id}')"'''
-                      + '\\nfunction renderProxy(){' + '\\n<!-- active parallel UI -->')
+            # Realistic pre-Queue anchors; independent Library markup remains intact.
+            controls=('fname','librarySelect','urlVideos','aspect','quality','resolution',
+                      'fit','uploadDrive','addCopyrightFolder','folder','queueMergeButton')
+            fields=''.join('<input id="'+control+'">' for control in controls)
+            baseline=('''<style>/* unchanged live CSS */</style>
+  <div class="tabs"><button>Merge</button></div>
+  <div id="tab-merge">'''+fields+'''</div>
+  <div id="tab-library">
+  <button class="btn secondary mini" onclick="renameLibrary('${x.id}')">Rename</button>
+  <div id="tab-proxy">Production proxy kept</div>
+function showTab(tab){old}
+function queueMerge(){old}
+function activeStatus(s){old}
+function renderQueue(){old}
+async function del(id){old}
+function renderProxy(){old}
+''')
+            old_html=baseline+'\n<!-- active parallel UI -->'
             (old/'part01/templates/index.html').write_text(old_html)
             canonical=(Path(__file__).resolve().parents[1]/'apps/video-merger/part01/templates/index.html').read_text()
             canonical_path=repo/'apps/video-merger/part01/templates/index.html'
@@ -38,6 +54,8 @@ class Release(unittest.TestCase):
                              'username':'owner','password':'secret'}]}))
             cfg.chmod(0o600)
             def command(args,**kw):
+                if args[:2]==['git','show']:
+                    return baseline
                 if args[:3]==['python3','-m','venv']:
                     path=Path(args[3]);(path/'bin').mkdir(parents=True);(path/'bin/python').touch()
                 if failure=='smoke' and 'production.video_merger_import_smoke' in args:raise RuntimeError('source failure')
@@ -48,7 +66,7 @@ class Release(unittest.TestCase):
                  patch.object(release,'install_js'),patch.object(release,'live_paths',return_value=(root/'data/video-merger/video-merger',root/'config/proxy_profiles.json')), \
                  patch.object(release,'run',side_effect=command) as commands,patch.object(release,'http_check',side_effect=checks), \
                  patch('production.route_uploader_scene_https.scene_cookie',return_value='cookie'), \
-                 patch('production.route_uploader_scene_https.https_get',return_value=(200,'text/html',b'page')):
+                 patch('production.route_uploader_scene_https.https_get',return_value=(200,'text/html',b'VIDEO_MERGER_TWO_COLUMN_QUEUE_V2 id="tab-queue" class="vm-merge-layout"')):
                 if failure:
                     with self.assertRaises(RuntimeError):release.install('a'*40)
                     self.assertEqual(pointer.resolve(),old);self.assertEqual(unit.read_text(),original)
