@@ -41,17 +41,35 @@ class ShortMakerHTTPResumeTests(unittest.TestCase):
                                        "output_count": "2", "fps": "30", "crf": "20",
                                        "short_vps_folder": "Default", "input_mode": "upload",
                                        "available_to_short_uploader": True, "upload_to_drive": False},
-                            "files": {"images": [{"name": "test.png", "size": len(picture)}], "audio": []}
+                            "files": {"images": [{"name": "test.png", "size": len(picture)}], "audio": []},
+                            "client_request_id": "123e4567-e89b-42d3-a456-426614174000",
                         }
                         begun = client.post("/api/upload-sessions", json=payload)
                         self.assertEqual(begun.status_code, 200, begun.text)
                         job_id = begun.json()["job_id"]
+                        # A lost POST response or duplicate browser tab returns
+                        # the exact same server job instead of allocating another.
+                        again = client.post("/api/upload-sessions", json=payload)
+                        self.assertEqual(again.status_code, 200, again.text)
+                        self.assertEqual(again.json()["job_id"], job_id)
+                        self.assertTrue(again.json()["resumed"])
+                        conflicting = client.post("/api/upload-sessions", json={
+                            **payload,
+                            "files": {"images": [{"name": "different.png", "size": len(picture)}], "audio": []},
+                        })
+                        self.assertEqual(conflicting.status_code, 409, conflicting.text)
+                        self.assertEqual(client.post("/api/upload-sessions", json={
+                            **payload, "client_request_id": "invalid-id",
+                        }).status_code, 400)
                         half = len(picture) // 2
                         first = client.put(f"/api/upload-sessions/{job_id}/files/images/0",
                                            headers={"x-upload-offset": "0"}, content=picture[:half])
                         self.assertEqual(first.status_code, 200, first.text)
                         # Force an in-memory state loss as after a service restart.
                         maker.jobs.clear()
+                        retry_after_restart = client.post("/api/upload-sessions", json=payload)
+                        self.assertEqual(retry_after_restart.status_code, 200, retry_after_restart.text)
+                        self.assertEqual(retry_after_restart.json()["job_id"], job_id)
                         progress = client.get(f"/api/upload-sessions/{job_id}")
                         self.assertEqual(progress.status_code, 200)
                         self.assertEqual(progress.json()["files"]["images"][0]["uploaded"], half)
@@ -69,6 +87,9 @@ class ShortMakerHTTPResumeTests(unittest.TestCase):
                         self.assertEqual(finished.status_code, 200, finished.text)
                         self.assertEqual(finished.json()["status"], "queued")
                         self.assertEqual(client.post(f"/api/upload-sessions/{job_id}/finalize").status_code, 200)
+                        after_final = client.post("/api/upload-sessions", json=payload)
+                        self.assertEqual(after_final.json()["job_id"], job_id)
+                        self.assertEqual(after_final.json()["status"], "queued")
                         self.assertEqual(enqueue.call_count, 1)
                         recorded = maker.get_state(job_id)
                         self.assertEqual(recorded["status"], "queued")
