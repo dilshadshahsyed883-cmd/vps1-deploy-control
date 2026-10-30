@@ -818,6 +818,17 @@ def main():
             from production.shortstudio_readonly_diagnostic import report
             report(DATA / 'local-upload-manager')
             return  # Deliberately no application install, service stop, or gateway refresh.
+        if '[vps1-shortstudio-scene-overlay-only]' in intent:
+            if args.action != 'install' or args.apps != ['local-upload-manager']:
+                raise RuntimeError("Short Studio Scene overlay requires LUM-only install lane")
+            # One-off UI-only activation: do NOT restart LUM workers, databases
+            # or other applications. Scene candidate uses immutable staging,
+            # pinned dependency preflight, authenticated readback and rollback.
+            from production.scene_uploader_ui_release import activate
+            activate(args.revision)
+            event(shortstudio_scene_ui="PASS", mode="OVERLAY_ONLY",
+                  lum_workers="UNCHANGED", user_data="PRESERVED")
+            return
         # One protected-main release, one specific Scene job. Never enter normal
         # install/rollback or restart a service during a cancellation request.
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
