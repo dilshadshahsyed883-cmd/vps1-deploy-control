@@ -30,7 +30,7 @@ class ShortMakerQueueDetailsTests(unittest.TestCase):
     def test_modal_contains_accessible_and_scrollable_outputs(self):
         for marker in ('id="shortJobModal"', 'aria-modal="true"',
                        'aria-labelledby="shortJobTitle"', 'id="shortJobSummary"',
-                       'id="shortJobOutputList"', 'role="list"', 'role="listitem"',
+                       'id="shortJobOutputList"', 'role="list"', "row.setAttribute('role','listitem')",
                        'id="copyShortJobNames"', 'id="closeShortJobModal"',
                        ".short-job-overlay[hidden]{display:none!important}",
                        ".short-job-output-list{overflow:auto",
