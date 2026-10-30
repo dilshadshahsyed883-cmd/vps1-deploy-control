@@ -66,7 +66,7 @@ class ShortStudioFolderHandoffTests(unittest.TestCase):
             folder.mkdir()
             source = folder / "video123.mp4"
             source.write_bytes(b"first file")
-            pattern = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,63}\\Z")
+            pattern = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,63}\Z")
             g = helpers(ENGINE, {"shortstudio_folder_path", "shortstudio_source_path", "shortstudio_file_id"}, {
                 "SHORT_STUDIO_ROOT": root, "SHORT_FOLDER_PREFIX": "shortstudio-local:",
                 "SHORT_FOLDER_PATTERN": pattern, "Path": Path, "hashlib": hashlib,
