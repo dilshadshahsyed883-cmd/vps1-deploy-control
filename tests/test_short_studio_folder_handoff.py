@@ -103,7 +103,7 @@ class ShortStudioFolderHandoffTests(unittest.TestCase):
                 "Path": Path, "re": re, "sqlite3": sqlite3, "uuid": uuid,
             })
             first = g["reserve_short_output_names"]("Aina Asif", 3)
-            self.assertRegex(first[0], r"^Aina Asif 001_[0-9a-f]{6}\\.mp4$")
+            self.assertRegex(first[0], r"^Aina Asif 001_[0-9a-f]{6}\.mp4$")
             tag1 = first[0].rsplit("_", 1)[1]
             self.assertEqual(first, [
                 "Aina Asif 001_" + tag1, "Aina Asif 002_" + tag1,
@@ -112,7 +112,7 @@ class ShortStudioFolderHandoffTests(unittest.TestCase):
             # No output yet exists on disk: a queued concurrent batch still
             # must get new numbers and a different six-character tag.
             second = g["reserve_short_output_names"]("Aina Asif", 2)
-            self.assertRegex(second[0], r"^Aina Asif 004_[0-9a-f]{6}\\.mp4$")
+            self.assertRegex(second[0], r"^Aina Asif 004_[0-9a-f]{6}\.mp4$")
             self.assertEqual(second[1][:14], "Aina Asif 005_")
             self.assertNotEqual(tag1, second[0].rsplit("_", 1)[1])
             folder.joinpath("Aina Asif 020_abc123.mp4").write_bytes(b"existing")
