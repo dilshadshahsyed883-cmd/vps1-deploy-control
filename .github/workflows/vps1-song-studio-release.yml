@@ -34,6 +34,7 @@ jobs:
         env:
           PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
           SOURCE_SHA: ${{ github.sha }}
+          RELEASE_INTENT: ${{ github.event.head_commit.message }}
           # Explicit UI-only release avoids restarting unrelated Song Studio apps.
           VOICE_UI_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-song-audio-selector-only]') && '1' || '0' }}
           SONG_UPLOADER_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-song-uploader-only]') && '1' || '0' }}
@@ -76,15 +77,43 @@ jobs:
           else
             apps=(scene-builder voice-studio local-upload-manager song-maker)
           fi
-          for app in "${apps[@]}"; do
-            echo "SONG_STUDIO_RELEASE_START=$app"
+          run_single_app_release() {
             timeout 2100s ssh -T -p 22 -i "$scratch/identity" \
               -o UserKnownHostsFile="$scratch/known_hosts" \
               -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
               -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=20 \
               -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
               vps1deploy@100.87.55.92 \
-              "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA $app"
+              "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA $1"
+          }
+          for app in "${apps[@]}"; do
+            echo "SONG_STUDIO_RELEASE_START=$app"
+            if [[ "$RELEASE_INTENT" == *'[vps1-song-sync-toolbar-idle-retry]'* && "$app" == "local-upload-manager" ]]; then
+              # Retry only explicitly proven busy states; never interrupt uploads.
+              for attempt in {1..30}; do
+                code=0
+                output="$(run_single_app_release "$app" 2>&1)" || code=$?
+                if (( code == 0 )); then
+                  printf '%s\n' "$output"
+                  break
+                fi
+                if [[ "$output" == *"SONG_GROUP_SUMMARY_RELEASE_BLOCKED: upload in progress"* ||
+                      "$output" == *"SONG_GROUP_SUMMARY_RELEASE_BLOCKED: web upload in progress"* ||
+                      "$output" == *"BlockingIOError: [Errno 11] Resource temporarily unavailable"* ]]; then
+                  echo "Song uploader busy: existing upload preserved; guarded retry $attempt/30"
+                  if (( attempt == 30 )); then
+                    echo "Song UI release remains blocked until uploader is idle"
+                    exit 1
+                  fi
+                  sleep 30
+                else
+                  printf '%s\n' "$output"
+                  exit "$code"
+                fi
+              done
+            else
+              run_single_app_release "$app"
+            fi
             echo "SONG_STUDIO_RELEASE_PASS=$app"
           done
           echo 'AUTO_SCRIPT=OFFLINE'
