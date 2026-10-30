@@ -88,6 +88,25 @@ class CopyrightStudioContract(unittest.TestCase):
         self.assertNotIn('aria-label="Video Studio"', video)
         self.assertIn("PREFIX = '/video-merger'", (MERGER / "app.py").read_text())
 
+    def test_guarded_authorized_ssh_lane_and_route_rollback(self):
+        from pathlib import Path
+        runtime = (ROOT / "production/runtime.py").read_text()
+        helper = (ROOT / "production/remote_deploy.py").read_text()
+        route = (ROOT / "production/copyright_studio_release.py").read_text()
+        workflow = (ROOT / ".github/workflows/vps1-copyright-studio-release.yml").read_text()
+        self.assertIn("args.apps == ['local-upload-manager']", runtime)
+        self.assertIn("install_app(target, args.revision)", runtime)
+        self.assertIn("rollback_installed_route(args.revision)", runtime)
+        self.assertIn("def rollback_installed_route(revision):", route)
+        self.assertIn('hashlib.sha256(previous.encode()).hexdigest()', route)
+        self.assertNotIn("'copyright-uploader', 'short-maker'", helper)
+        self.assertIn("target=local-upload-manager", workflow)
+        self.assertIn("remote rollback", workflow)
+        self.assertIn("completed+=(", workflow)
+        self.assertIn("AUTO_SCRIPT=OFFLINE", workflow)
+        # No reusable arbitrary-code / arbitrary-shell SSH escape hatch.
+        self.assertNotIn("StrictHostKeyChecking=no", workflow)
+
     def test_sqlite_durable_queue_owner_and_duplicate_guard(self):
         code = """
 import json
