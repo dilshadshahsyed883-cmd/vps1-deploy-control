@@ -31,7 +31,7 @@ from production.route_auto_caption_scene_https import ROUTE as ACS_ROUTE, add_ro
 from production.route_uploader_scene_https import ROUTE as UPLOADER_ROUTE, add_route as add_uploader_route
 
 DOMAIN = "app.scenebuilder.online"
-APPS = tuple(a for a in CATALOG if a != "scene-builder")
+APPS = tuple(a for a in CATALOG if a not in {"scene-builder", "copyright-uploader"})
 SNIPPET_DIR = Path("/etc/nginx/snippets")
 TRANSACTIONS = BASE / "transactions/nginx-route-only"
 INCLUDE_MARKER = " location = /internal/runtime-ready { return 404; }"
