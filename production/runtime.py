@@ -826,6 +826,17 @@ def main():
             from production.shortstudio_readonly_diagnostic import report
             report(DATA / 'local-upload-manager')
             return  # Deliberately no application install, service stop, or gateway refresh.
+        # Exact one-off route-only correction for the owner's original LUM URL.
+        # Never install/restart uploader services, rewrite OAuth/DB or touch queues.
+        # Existing Scene-session Nginx publisher validates both identity and the
+        # exact legacy Engine 1 URL and transactionally restores the site on failure.
+        if '[vps1-lum-legacy-route-only]' in intent:
+            if args.action != 'install' or args.apps != ['local-upload-manager']:
+                raise RuntimeError("legacy LUM route release requires local-upload-manager-only install lane")
+            from production.route_uploader_scene_https import deploy as activate_lum_legacy_route
+            activate_lum_legacy_route(args.revision)
+            event(lum_legacy_route="ENGINE1_VERIFIED", uploader_service_mutations="NONE")
+            return
         # One protected-main release, one specific Scene job. Never enter normal
         # install/rollback or restart a service during a cancellation request.
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
