@@ -268,7 +268,7 @@ class ShortAutomationGroupSummaryTests(unittest.TestCase):
         self.assertIn('Per-video schedule',html)
         self.assertNotIn('09:00',html)
     def test_other_uploaders_retain_their_existing_columns_and_values(self):
-        for instance in ('song','engine1','engine2','shorts'):
+        for instance in ('engine1','engine2','shorts'):
             with self.subTest(instance=instance):
                 html=self.render(instance,[dict(id=3,enabled=1,category_name='Old',
                     bound_channel_name='Channel',bound_channel_id='UC123',sync_interval_minutes=15)])

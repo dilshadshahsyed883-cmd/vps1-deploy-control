@@ -24,12 +24,21 @@ class SongUploaderMinimalUITests(unittest.TestCase):
         Environment().parse(self.app)
 
     def test_song_tabs_follow_requested_order(self):
-        song_branch = self.app.split("{% if engine_instance == 'song' %}", 1)[1]
-        for left,right in (("dashboard","auto_engine"),("auto_engine","channels"),("channels","sheets")):
-            self.assertLess(song_branch.index("tab="+left),song_branch.index("tab="+right))
-        self.assertIn("tab=sheets", song_branch)
-        self.assertIn("tab=dashboard", song_branch)
-        self.assertIn("{% else %}", song_branch)
+        song_branch = self.app.split("{% if engine_instance == 'song' %}", 1)[1].split("{% else %}", 1)[0]
+        expected = (
+            ("dashboard", "Dashboard"),
+            ("channels", "Channels"),
+            ("sheets", "Sheets Sync"),
+            ("auto_engine", "Auto Engine"),
+        )
+        positions = []
+        for tab, label in expected:
+            anchor = f'href="{{{{ base_path }}}}/app?tab={tab}">{label}</a>'
+            self.assertIn(anchor, song_branch)
+            positions.append(song_branch.index(anchor))
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn('tab==\'logs\'', self.app)
+        self.assertIn(">Logs</a>", self.app)
 
     def test_intro_is_removed_only_for_song_not_other_uploaders(self):
         start = self.app.index("{% elif tab == 'auto_engine' %}")
