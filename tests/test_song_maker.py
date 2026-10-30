@@ -41,6 +41,51 @@ class SongMakerTests(unittest.TestCase):
         self.client = TestClient(create_app(self.store))
         self.headers = {'X-Auth-User': 'alice', 'X-Is-Admin': '1', 'X-Song-Maker': '1'}
 
+    def test_pause_is_durable_owner_scoped_and_does_not_cancel_active(self):
+        first = self.store.enqueue('alice', {'n': 1}, {'local_name': 'one.mp4'})
+        self.assertEqual(self.client.post('/song-maker/api/queue/pause', headers=self.headers).status_code, 200)
+        self.assertIsNone(self.store.claim('render'))
+        self.assertTrue(Store(self.root).paused('alice'))
+        other = self.store.enqueue('bob', {'n': 2}, {'local_name': 'two.mp4'})
+        self.assertEqual(self.store.claim('render')['id'], other['id'])
+        self.assertEqual(self.store.get(first['id'])['cancel'], 0)
+        self.client.post('/song-maker/api/queue/resume', headers=self.headers)
+        self.assertEqual(self.store.claim('render')['id'], first['id'])
+        self.assertEqual(self.client.get('/song-maker/api/state', headers=self.headers).json()['queue_paused'], False)
+
+    def test_shared_input_scan_is_one_listing_and_respects_selected_interval(self):
+        from songmaker.drive import default_settings
+        settings = default_settings()
+        class Counting:
+            calls = []
+            def listing(self, folder):
+                self.calls.append(folder)
+                return []
+        drive = Counting()
+        sync_owner(self.store, 'alice', settings, drive)
+        self.assertEqual(len(drive.calls), 1)
+        self.assertEqual(self.client.post('/song-maker/api/settings', headers=self.headers,
+            json={**settings, 'sync_interval': 300}).status_code, 200)
+        self.assertEqual(self.client.post('/song-maker/api/settings', headers=self.headers,
+            json={**settings, 'sync_interval': 1}).status_code, 422)
+        self.assertEqual(self.client.post('/song-maker/api/sync',
+            headers={**self.headers, 'X-Is-Admin': '0'}).status_code, 403)
+
+    def test_drive_lookup_filters_names_and_retains_hash_metadata(self):
+        with patch('songmaker.drive.run', return_value='[]') as execute:
+            Drive({'remote': 'gdrive'}).lookup('imageFolder', 'song [1]*.jpg')
+            args = execute.call_args.args[0]
+            self.assertIn('--hash', args)
+            self.assertIn('--include', args)
+            self.assertIn(r'/song \[1\]\*.jpg', args)
+
+    def test_ffmpeg_performance_is_measured_from_process_output(self):
+        values = []
+        run([sys.executable, '-u', '-c',
+             'import time; print("frame=25\\nfps=42.5\\nspeed=1.7x\\nout_time_us=1000000", flush=True); time.sleep(1)'],
+             metrics=values.append)
+        self.assertTrue(any(v.get('render_fps') == 42.5 and v.get('render_speed') == 1.7 for v in values), values)
+
     def test_song_studio_shared_drive_defaults_and_explicit_overrides(self):
         from songmaker.drive import DEFAULT_INPUT, DEFAULT_OUTPUT, folder_ref, default_settings
         self.assertEqual(DEFAULT_INPUT, 'Song Studio/Audio downloader')

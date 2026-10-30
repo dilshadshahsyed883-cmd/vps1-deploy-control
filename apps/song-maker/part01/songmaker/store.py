@@ -30,6 +30,7 @@ class Store:
             CREATE INDEX IF NOT EXISTS pending ON jobs(stage, created);
             CREATE TABLE IF NOT EXISTS settings (owner TEXT PRIMARY KEY, data TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS sync (owner TEXT PRIMARY KEY, data TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS queue_control (owner TEXT PRIMARY KEY, paused INTEGER NOT NULL DEFAULT 0);
             CREATE TABLE IF NOT EXISTS workers (lane TEXT PRIMARY KEY, heartbeat REAL NOT NULL);
             ''')
 
@@ -94,6 +95,7 @@ class Store:
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
             row = db.execute('SELECT * FROM jobs WHERE stage=? AND cancel=0 AND deleted=0 '
+                             'AND NOT EXISTS (SELECT 1 FROM queue_control c WHERE c.owner=jobs.owner AND c.paused=1) '
                              'ORDER BY created,id LIMIT 1', ready).fetchone()
             if not row:
                 return None
@@ -123,3 +125,12 @@ class Store:
         with self.db() as db:
             db.execute('INSERT INTO workers VALUES(?,?) ON CONFLICT(lane) DO UPDATE '
                        'SET heartbeat=excluded.heartbeat', (lane, time.time()))
+
+    def paused(self, owner, value=None):
+        with self.db() as db:
+            if value is not None:
+                db.execute('INSERT INTO queue_control(owner,paused) VALUES(?,?) '
+                           'ON CONFLICT(owner) DO UPDATE SET paused=excluded.paused',
+                           (owner, int(value)))
+            row = db.execute('SELECT paused FROM queue_control WHERE owner=?', (owner,)).fetchone()
+            return bool(row and row[0])

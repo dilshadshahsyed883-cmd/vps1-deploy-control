@@ -51,7 +51,7 @@ unchanged. The last administrator-saved destination
 is the default for manual uploads. Each admin's Drive scan and its resulting jobs
 belong to that administrator; other users see only their own manual jobs.
 
-Automatic scan runs every 300 seconds (manual Sync remains immediate), with a persistent metadata snapshot and
+Automatic scan defaults to every 300 seconds (configurable 60–3600 seconds; manual Sync remains immediate), with a persistent metadata snapshot and
 source-version job ledger. Matching image/audio folders reuse one metadata listing per scan. rclone exposes metadata listing rather than a Drive
 change cursor here; unchanged pairs do not download again. Inputs download only
 when their queued job runs, with uniqueness, ID, size/modtime/hash checks before
