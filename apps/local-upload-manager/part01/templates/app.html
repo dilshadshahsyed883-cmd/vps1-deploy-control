@@ -1051,7 +1051,11 @@
             <label class="lum-field"><span>After verified upload</span><select name="after_upload_action"><option value="move_uploaded" {% if not p or not group_profile or p.after_upload_action == 'move_uploaded' %}selected{% endif %}>Move to uploaded</option>{% if short_group %}<option value="delete" {% if p and p.after_upload_action == 'delete' %}selected{% endif %}>Delete VPS source after verified upload</option>{% endif %}<option value="keep" {% if group_profile and p and p.after_upload_action == 'keep' %}selected{% endif %}>Keep source</option></select></label>
             {% if not short_group %}<label class="lum-switch"><span><strong>Rotate thumbnails</strong><small>Cycle through saved thumbnails</small></span><input type="checkbox" name="thumbnail_rotation" value="1" {% if not p or not group_profile or p.thumbnail_rotation %}checked{% endif %}></label>
             {% endif %}<input type="hidden" name="thumbnail_source_mode" value="drive">
+            {% if short_group %}
+            <label class="lum-switch"><span><strong>Enable profile schedule</strong><small>Starts only after you arm Scheduled Uploads.</small></span><input type="hidden" name="schedule_enabled" value="0"><input type="checkbox" name="schedule_enabled" value="1" {% if p and p.schedule_enabled %}checked{% endif %}></label>
+            {% else %}
             <input type="hidden" name="schedule_enabled" value="{{ '1' if group_profile and p and p.schedule_enabled else '0' }}">
+            {% endif %}
             <p class="lum-note" style="grid-column:1/-1">Group membership comes from Channels → Groups. Scheduling is not armed automatically by saving a profile.</p>
           </div>
           {% endif %}

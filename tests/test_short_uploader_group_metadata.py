@@ -75,7 +75,7 @@ class ShortGroupTests(unittest.TestCase):
         self.form=dict(category_name='Test',channel_group_id='7',metadata_source='manual',
                        manual_title='Short {video_stem}',manual_description='Saved',manual_category_id='24',
                        short_vps_folder='Test',daily_upload_count=2,upload_scope='per_channel',work_mode='auto',
-                       schedule_times='09:00,14:00',enabled='1',schedule_enabled='1')
+                       schedule_times='09:00,14:00',enabled='1',schedule_enabled='0')
     def save(self,form=None,pid=None):return self.ns['save_short_group_profile'](self.pc,self.store,form or self.form,pid)
     def test_group_only_validation_and_legacy_channel_preserved(self):
         for changes in ({'channel_group_id':''},{'channel_group_id':'999'},{'channel_db_id':'1'},{'profile_kind':'channel'}):
@@ -125,6 +125,14 @@ class ShortGroupTests(unittest.TestCase):
         ctx=self.ns['profile_context'](self.pc,self.store,pid)
         self.assertEqual(ctx['selected']['manual_title'],'Short {video_stem}')
         self.assertEqual(ctx['selected']['metadata_source'],'manual')
+
+    def test_profile_schedule_requires_explicit_opt_in_and_does_not_arm_engine(self):
+        pid=self.save()
+        self.assertEqual(self.pc.profiles[pid]['schedule_enabled'],'0')
+        self.save({**self.form,'schedule_enabled':'1'},pid)
+        self.assertEqual(self.pc.profiles[pid]['schedule_enabled'],'1')
+        self.save({**self.form,'schedule_enabled':'0'},pid)
+        self.assertEqual(self.pc.profiles[pid]['schedule_enabled'],'0')
 
     def test_sheet_mode_keeps_existing_metadata_reader(self):
         self.ns['extract_gid']=lambda *a,**kw:''
