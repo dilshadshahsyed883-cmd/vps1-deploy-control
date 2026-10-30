@@ -250,7 +250,7 @@ class ShortGroupTests(unittest.TestCase):
     def test_redundant_auto_engine_header_removed_from_short_uploader(self):
         source=TEMPLATE.read_text()
         start=source.index('    <section class="lum-ae-head">')
-        begin=source.rfind("{% if engine_instance != 'shortstudio' %}",0,start)
+        begin=source.rfind("{% if engine_instance not in ['song','shortstudio'] %}",0,start)
         tabs=source.index('    <nav class="lum-ae-tabs lum-ae-tabs-primary" aria-label="Auto Engine workspace">',start)
         header=source[begin:tabs]
         self.assertIn('class="lum-ae-head"',header)
@@ -291,7 +291,7 @@ class ShortGroupTests(unittest.TestCase):
         self.assertIn('@media(max-width:760px)',css)
         legacy=template.render(**{**context,'engine_instance':'song'})
         self.assertNotIn('data-short-profile-grid',legacy)
-        self.assertNotIn('name="privacy_status"',legacy)
+        self.assertIn('name="privacy_status"',legacy)  # Song group receives its own saved visibility choice.
 
     def test_new_group_template_and_legacy_profile_edit(self):
         source=TEMPLATE.read_text();start=source.index('    <form id="lum-ae-profile-form"');end=source.index('</form>',start)+len('</form>')
