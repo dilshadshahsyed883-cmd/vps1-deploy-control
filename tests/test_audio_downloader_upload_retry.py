@@ -221,5 +221,56 @@ class DriveUploadSchedulingTests(unittest.TestCase):
         self.assertEqual(self.job()["upload_percent"], 72)
 
 
+    def test_provider_errors_are_categorized_without_exposing_raw_logs(self):
+        cases = {
+            'Error: userRateLimitExceeded 403 secret=abc': 'RATE_LIMITED',
+            'Error: storageQuotaExceeded': 'STORAGE_FULL',
+            'Error: invalid_grant oauth_secret': 'AUTH_REQUIRED',
+            'Error: immutable file already exists': 'DESTINATION_EXISTS',
+            'Error: insufficientFilePermissions': 'PERMISSION_DENIED',
+            'Error: connection reset by peer': 'NETWORK_FAILURE',
+            'some unrecognized private error': 'TRANSFER_FAILED',
+        }
+        for raw, expected in cases.items():
+            self.assertEqual(self.m._drive_copy_failure_code(raw), expected)
+            self.assertNotIn('secret', self.m._drive_copy_failure_code(raw).lower())
+
+    def test_existing_immutable_remote_is_reconciled_only_after_full_verification(self):
+        self.create_job(status='downloaded')
+        state = {'upload_ready': True, 'rclone': '/fake/rclone', 'progress_streaming': False}
+        def copy_exists(args, **kwargs):
+            self.assertIn('copyto', args)
+            self.assertIn('--immutable', args)
+            return subprocess.CompletedProcess(args, 1, '', 'failed: immutable file already exists')
+        with patch.object(self.m.subprocess, 'run') as run_mock, \
+             patch.object(self.m, 'verified_drive_public_link',
+                          return_value='https://drive.google.com/file/d/123456789012/view?usp=sharing') as verify:
+            run_mock.side_effect = copy_exists
+            self.m.upload_downloaded(self.job(), self.local, None, state)
+        verify.assert_called_once()
+        self.assertEqual(self.job()['status'], 'delivered')
+        self.assertTrue(self.job()['drive_url'])
+        self.assertFalse(self.local.exists())
+
+    def test_immutable_conflict_mismatch_never_marks_delivered_or_deletes_audio(self):
+        self.create_job(status='downloaded')
+        state = {'upload_ready': True, 'rclone': '/fake/rclone', 'progress_streaming': False}
+        def copy_exists(args, **kwargs):
+            return subprocess.CompletedProcess(args, 1, '', 'immutable file already exists')
+        with patch.object(self.m.subprocess, 'run') as run_mock, \
+             patch.object(self.m, 'verified_drive_public_link',
+                          side_effect=RuntimeError('Google Drive content hash mismatch')):
+            run_mock.side_effect = copy_exists
+            with self.assertRaisesRegex(RuntimeError, 'DESTINATION_CONFLICT_UNVERIFIED'):
+                self.m.upload_downloaded(self.job(), self.local, None, state)
+        self.assertTrue(self.local.exists())
+        self.assertNotEqual(self.job()['status'], 'delivered')
+        self.m._schedule_upload_retry(self.jid, RuntimeError(
+            'Google Drive upload failed (DESTINATION_CONFLICT_UNVERIFIED); automatic retry scheduled'))
+        self.assertEqual(self.job()['status'], 'upload_retry')
+        self.assertEqual(self.job()['upload_retry_count'], 1)
+        self.assertTrue(self.local.exists())
+
+
 if __name__ == "__main__":
     unittest.main()
