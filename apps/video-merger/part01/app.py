@@ -1131,12 +1131,16 @@ def add_job(payload, owner=''):
     WORKER_WAKE.set(); return jid,filename
 
 def delete_job(jid, owner=''):
-    j=get_job(jid)
-    if not j: raise KeyError('Job not found')
-    if j.get('owner_username') and str(j['owner_username']).lower()!=str(owner).lower():
-        raise ValueError('This job does not belong to the current account')
-    if j['status'] not in ('waiting','complete','failed','cancelled'): raise ValueError('Active job cannot be deleted')
-    with DB_LOCK, db() as c: c.execute('DELETE FROM jobs WHERE id=?',(jid,))
+    # Status verification and deletion share one lock with the worker claim.
+    # Deletion must never remove a job after it was claimed for processing.
+    with DB_LOCK, db() as c:
+        j=c.execute('SELECT id,status,owner_username FROM jobs WHERE id=?',(jid,)).fetchone()
+        if not j: raise KeyError('Job not found')
+        if j['owner_username'] and str(j['owner_username']).lower()!=str(owner).lower():
+            raise ValueError('This job does not belong to the current account')
+        if j['status'] not in ('waiting','complete','failed','cancelled'):
+            raise ValueError('Active job cannot be deleted')
+        c.execute('DELETE FROM jobs WHERE id=? AND status=?',(jid,j['status']))
     if j['status']!='complete': shutil.rmtree(WORK/jid, ignore_errors=True)
     # Preserve completed media even when a history row is removed; cleanup is a separate explicit action.
 
@@ -1182,9 +1186,9 @@ def retry_job(jid, owner=''):
     return new_id,j['filename']
 
 
-def move_job(jid,direction):
+def move_job(jid,direction,owner=''):
     with DB_LOCK, db() as c:
-        rows=c.execute("SELECT id,order_idx FROM jobs WHERE status='waiting' ORDER BY order_idx,created_at").fetchall()
+        rows=c.execute("SELECT id,order_idx FROM jobs WHERE status='waiting' AND (owner_username='' OR lower(owner_username)=lower(?)) ORDER BY order_idx,created_at",(owner,)).fetchall()
         ids=[r['id'] for r in rows]
         if jid not in ids: raise ValueError('Only waiting jobs can be reordered')
         i=ids.index(jid); j=i+(-1 if direction=='up' else 1)
@@ -1291,7 +1295,7 @@ class Handler(BaseHTTPRequestHandler):
             m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/delete',p)
             if m: delete_job(m.group(1),(self.headers.get('X-Auth-User') or '').strip()); return self.send_json(200,{'ok':True})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/move',p)
-            if m: move_job(m.group(1),payload.get('direction')); return self.send_json(200,{'ok':True})
+            if m: move_job(m.group(1),payload.get('direction'),(self.headers.get('X-Auth-User') or '').strip()); return self.send_json(200,{'ok':True})
             if p==PREFIX+'/api/queue/pause': set_setting('paused','1'); return self.send_json(200,{'ok':True})
             if p==PREFIX+'/api/queue/resume': set_setting('paused','0'); WORKER_WAKE.set(); return self.send_json(200,{'ok':True})
             if p==PREFIX+'/api/folders': return self.send_json(201,{'ok':True,'folder':create_folder(payload.get('name',''))})
