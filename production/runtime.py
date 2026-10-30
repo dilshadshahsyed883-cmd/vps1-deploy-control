@@ -957,6 +957,17 @@ def main():
             from production.shortstudio_readonly_diagnostic import report
             report(DATA / 'local-upload-manager')
             return  # Deliberately no application install, service stop, or gateway refresh.
+        if '[vps1-copyright-studio-release]' in intent and args.apps == ['scene-builder']:
+            from production.copyright_scene_nav_release import install as scene_nav_install, rollback as scene_nav_rollback
+            if args.action == 'install':
+                scene_nav_install(args.revision)
+            elif args.action == 'rollback':
+                scene_nav_rollback(args.revision)
+            elif args.action == 'status':
+                event(app='scene-builder',copyright_nav='SCOPED_WEB_ONLY')
+            else:
+                raise RuntimeError('Unsupported Copyright Scene nav action')
+            return
         # Exact one-off route-only correction for the owner's original LUM URL.
         # Never install/restart uploader services, rewrite OAuth/DB or touch queues.
         # Existing Scene-session Nginx publisher validates both identity and the
