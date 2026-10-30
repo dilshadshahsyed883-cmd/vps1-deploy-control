@@ -53,7 +53,8 @@ class ShortProfileControlTests(unittest.TestCase):
         self.assertIn('/actions/sheets/sync',short)
         self.assertIn('Save Sheet Source',short)
         song=Environment().from_string(section).render(engine_instance='song',**ctx)
-        self.assertIn('<h2>Manual Update</h2>',song)
+        self.assertNotIn('<h2>Manual Update</h2>',song)
+        self.assertIn('lum-short-sheet-header-actions',song)
         self.assertEqual(song.count('>Update All Enabled Sheets</button>'),1)
 
     def test_bulk_import_not_available_to_short_uploader(self):
