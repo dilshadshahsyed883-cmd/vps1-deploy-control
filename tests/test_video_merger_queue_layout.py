@@ -172,32 +172,32 @@ class VideoMergerReleaseOverlayTests(unittest.TestCase):
                     "resolution", "fit", "uploadDrive", "addCopyrightFolder",
                     "folder", "queueMergeButton")
         fields = "".join('<input id="' + name + '">' for name in controls)
-        baseline_panel = ('  <div class="tabs">Original tabs</div>\\n'
-                          '  <div id="tab-merge">' + fields + '</div>\\n')
-        new_panel = ('  <div class="tabs">Merge Queue Library Proxy</div>\\n'
-                     '  <div id="tab-merge" class="vm-merge-layout">' + fields + '</div>\\n'
-                     '  <div id="tab-queue"><div id="queue"></div></div>\\n')
+        baseline_panel = ('  <div class="tabs">Original tabs</div>\n'
+                          '  <div id="tab-merge">' + fields + '</div>\n')
+        new_panel = ('  <div class="tabs">Merge Queue Library Proxy</div>\n'
+                     '  <div id="tab-merge" class="vm-merge-layout">' + fields + '</div>\n'
+                     '  <div id="tab-queue"><div id="queue"></div></div>\n')
         original_js = (
-            "function showTab(tab){old}\\n"
-            "function queueMerge(){old}\\n"
-            "function activeStatus(s){old}\\n"
-            "function renderQueue(){old}\\n"
-            "async function del(id){keep}\\n"
+            "function showTab(tab){old}\n"
+            "function queueMerge(){old}\n"
+            "function activeStatus(s){old}\n"
+            "function renderQueue(){old}\n"
+            "async function del(id){keep}\n"
         )
         revised_js = (
-            "function showTab(tab){new}\\n"
-            "function queueMerge(){new}\\n"
-            "function activeStatus(s){new}\\n"
-            "function renderQueue(){new}\\n"
-            "async function cancelJob(id){cancel}\\n"
-            "async function retryJob(id){retry}\\n"
-            "async function del(id){keep}\\n"
+            "function showTab(tab){new}\n"
+            "function queueMerge(){new}\n"
+            "function activeStatus(s){new}\n"
+            "function renderQueue(){new}\n"
+            "async function cancelJob(id){cancel}\n"
+            "async function retryJob(id){retry}\n"
+            "async function del(id){keep}\n"
         )
-        stable_tail = ('  <div id="tab-library">Production Library preserved</div>\\n'
-                       '  <div id="tab-proxy">Production Proxy preserved</div>\\n')
-        before = '<style>Existing CSS\\n</style>\\n' + baseline_panel + stable_tail + original_js
-        after = ('<style>Existing CSS\\n/* VIDEO_MERGER_TWO_COLUMN_QUEUE_V2 */\\n'
-                 'New CSS\\n</style>\\n' + new_panel + stable_tail + revised_js)
+        stable_tail = ('  <div id="tab-library">Production Library preserved</div>\n'
+                       '  <div id="tab-proxy">Production Proxy preserved</div>\n')
+        before = '<style>Existing CSS\n</style>\n' + baseline_panel + stable_tail + original_js
+        after = ('<style>Existing CSS\n/* VIDEO_MERGER_TWO_COLUMN_QUEUE_V2 */\n'
+                 'New CSS\n</style>\n' + new_panel + stable_tail + revised_js)
         return before, after
 
     def test_release_overlay_preserves_unrelated_live_html(self):
