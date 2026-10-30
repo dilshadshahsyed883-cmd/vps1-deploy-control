@@ -9,6 +9,8 @@ const origin = 'https://app.scenebuilder.online';
 const apiRoot = '/voice-studio/tts/api/audio-downloader';
 const calls = [];
 const nodes = new Map();
+const localOptions = new Map();
+let serverOptions = null;
 function makeElement(tag='div') {
   return {
     tag, children: [], style: {}, dataset: {}, classList: {toggle(){}, add(){}, remove(){}},
@@ -16,7 +18,9 @@ function makeElement(tag='div') {
     append(...xs) { this.children.push(...xs); },
     appendChild(x) { this.children.push(x); },
     replaceChildren(...xs) { this.children = [...xs]; },
-    addEventListener() {}, setAttribute() {}, remove() {}, click() {},
+    addEventListener(event, callback) { (this.listeners ||= {})[event] = callback; },
+    fire(event) { return this.listeners?.[event]?.({preventDefault(){},stopPropagation(){}}); },
+    setAttribute() {}, remove() {}, click() {},
   };
 }
 function getElementById(id) {
@@ -37,6 +41,13 @@ async function fetch(url, options={}) {
   if (path === apiRoot + '/jobs' && (options.method || 'GET') === 'POST') response = {created:1,batch_id:'TEST'};
   else if (path === apiRoot + '/jobs') response = {jobs:[]};
   else if (path === apiRoot + '/status') response = {ready:true,worker:true,upload_ready:true,queue:{}};
+  else if (path === apiRoot + '/preferences' && (options.method || 'GET') === 'GET') {
+    response = {saved:!!serverOptions,preferences:serverOptions};
+  }
+  else if (path === apiRoot + '/preferences' && options.method === 'PUT') {
+    serverOptions = JSON.parse(options.body);
+    response = {saved:true,preferences:serverOptions};
+  }
   else if (path === apiRoot + '/proxy') response = {profiles:[],enabled:false,origin:'independent'};
   else if (path === apiRoot + '/proxy/profiles') response = {profiles:[],enabled:false};
   else throw new Error('Browser generated unexpected URL: ' + url);
@@ -45,6 +56,7 @@ async function fetch(url, options={}) {
 const context = vm.createContext({
   document, location, window, history:{replaceState(){}}, fetch, URL, FormData,
   setInterval(){return 1}, clearInterval(){}, setTimeout(){}, console, confirm(){return true},
+  localStorage:{getItem(k){return localOptions.get(k)||null},setItem(k,v){localOptions.set(k,v)}},
 });
 function getScript(id) {
   const start = '<script id="' + id + '">';
@@ -73,7 +85,7 @@ function runScript(id, exports) {
   return context.__browserProbe;
 }
 async function check() {
-  const audio = runScript('audio-downloader-v1-js','loadJobs,loadStatus,submit,jobTable');
+  const audio = runScript('audio-downloader-v1-js','loadJobs,loadStatus,submit,jobTable,boot,applyDownloadPreferences,downloadPreferences,saveDownloadPreferences,loadDownloadPreferences');
   calls.length = 0;
   await audio.loadJobs();
   assert.deepEqual(calls.map(x=>x.url),[apiRoot+'/jobs?limit=200'],'Queue/History fetch must resolve once');
@@ -116,6 +128,43 @@ async function check() {
   assert.ok(!downloadText.includes('Upload failed · manual Retry'));
   const driveFailed = {...failed,auto_upload:true,error:'Google Drive upload failed (AUTH_REQUIRED)'};
   assert.ok(contents(audio.jobTable([driveFailed],1)).includes('Upload failed · manual Retry'));
+  // Persist all user-selectable fields, restoring them after a fresh page script.
+  audio.applyDownloadPreferences({format:'wav',quality:256,auto_upload:false,
+    download_thumbnail:true,auto_song_maker:true,keep_metadata:true});
+  await audio.saveDownloadPreferences();
+  assert.equal(serverOptions.auto_song_maker,true);
+  assert.equal(serverOptions.auto_upload,false);
+  assert.equal(serverOptions.format,'wav');
+  await audio.loadStatus();
+  await audio.loadJobs();
+  const reloaded = runScript('audio-downloader-v1-js','loadDownloadPreferences,downloadPreferences,boot,saveDownloadPreferences');
+  // Simulate real HTML defaults on refresh before preferences hydrate.
+  getElementById('vsaSongMaker').checked=false;
+  getElementById('vsaUpload').checked=true;
+  getElementById('vsaThumbnail').checked=false;
+  getElementById('vsaMetadata').checked=false;
+  getElementById('vsaFormat').value='mp3';
+  getElementById('vsaQuality').value='192';
+  await reloaded.loadDownloadPreferences();
+  assert.equal(JSON.stringify(reloaded.downloadPreferences()),JSON.stringify(serverOptions),
+    'page refresh must restore the persisted selection rather than HTML defaults');
+  // The actual user toggle handler enforces the dependency, and autosaves.
+  location.hash = '';
+  reloaded.boot();
+  getElementById('vsaUpload').checked=true;
+  getElementById('vsaUpload').fire('change');
+  assert.equal(getElementById('vsaSongMaker').checked,false,
+    'manually enabling Drive upload disables conflicting Song Maker auto queue');
+  await reloaded.saveDownloadPreferences();
+  assert.equal(serverOptions.auto_song_maker,false);
+  getElementById('vsaSongMaker').checked=true;
+  getElementById('vsaSongMaker').fire('change');
+  assert.equal(getElementById('vsaUpload').checked,false);
+  assert.equal(getElementById('vsaThumbnail').checked,true);
+  await reloaded.saveDownloadPreferences();
+  assert.equal(serverOptions.auto_song_maker,true);
+  assert.equal(serverOptions.download_thumbnail,true);
+  assert.equal(serverOptions.auto_upload,false);
   const proxy = runScript('audio-downloader-proxy-v1','request,load');
   calls.length = 0;
   await proxy.load();
@@ -123,6 +172,6 @@ async function check() {
   calls.length = 0;
   await proxy.request('/profiles');
   assert.deepEqual(calls.map(x=>x.url),[apiRoot+'/proxy/profiles']);
-  console.log('PASS: actual post-Nginx Queue, History, Status, Submit, Cancel, Retry, Proxy browser paths');
+  console.log('PASS: Audio saved preferences, refresh, manual toggle dependencies, and authenticated browser paths');
 }
 check().catch(e=>{console.error(e.stack||e);process.exitCode=1});
