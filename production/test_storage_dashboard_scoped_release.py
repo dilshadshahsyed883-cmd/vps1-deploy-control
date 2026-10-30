@@ -34,7 +34,7 @@ class StorageDashboardRelease(unittest.TestCase):
         self.assertIn("method:\u0027GET\u0027", js)
         self.assertNotIn("method:\u0027POST\u0027", js)
         self.assertIn("renderCleanupStatus", js)
-        self.assertIn("storage_manager.js?v=20261020-active-gc-dashboard-v2", template)
+        self.assertIn("storage_manager.js?v=20261030-gc-audit-v3", template)
 
     def test_service_health_and_process_cards_removed_entirely(self):
         template = (SCENE / "templates/storage_manager.html").read_text()
