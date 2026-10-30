@@ -3,6 +3,7 @@ import html
 import hashlib
 import os
 import random
+import sqlite3
 import re
 import shutil
 import subprocess
@@ -94,12 +95,12 @@ def short_vps_folder_names() -> list[str]:
     )
 
 
-def publish_short_to_vps(path: Path, folder_name: str, job_id: str) -> str:
+def publish_short_to_vps(path: Path, folder_name: str, job_id: str, strict: bool = False) -> str:
     folder = short_vps_folder(folder_name)
     if not folder.is_dir():
         raise RuntimeError("Chosen VPS folder was deleted. Select an existing folder.")
     final = folder / path.name
-    if final.exists() or final.is_symlink():
+    if (final.exists() or final.is_symlink()) and not strict:
         final = folder / f"{path.stem}_{job_id[:8]}{path.suffix}"
     if final.exists() or final.is_symlink():
         raise RuntimeError("Output filename already exists in VPS folder.")
@@ -108,10 +109,78 @@ def publish_short_to_vps(path: Path, folder_name: str, job_id: str) -> str:
         shutil.copyfile(path, tmp)
         if tmp.stat().st_size != path.stat().st_size or not tmp.stat().st_size:
             raise RuntimeError("VPS output copy failed validation.")
-        os.replace(tmp, final)
+        # Atomic no-clobber publish; never overwrite another job/worker.
+        os.link(tmp, final)
     finally:
         tmp.unlink(missing_ok=True)
     return final.name
+
+
+def reserve_short_output_names(folder_name: str, count: int) -> list[str]:
+    """Reserve strictly increasing per-folder output numbers across batches.
+
+    SQLite's write transaction serializes submissions; numbering survives
+    restarts and Short Uploader deletion, including Drive-only deliveries.
+    """
+    folder = short_vps_folder(folder_name)
+    if not folder.is_dir():
+        raise ValueError("Selected VPS folder does not exist.")
+    if count < 1 or count > 999:
+        raise ValueError("Output count must be 1–999.")
+    DATA_ROOT.mkdir(parents=True, exist_ok=True)
+    database = DATA_ROOT / "short_output_sequences.sqlite3"
+    if database.is_symlink():
+        raise ValueError("Unsafe output naming database.")
+    with sqlite3.connect(database, timeout=30) as con:
+        con.execute("BEGIN IMMEDIATE")
+        con.execute("""CREATE TABLE IF NOT EXISTS short_output_sequences (
+            folder_name TEXT PRIMARY KEY,
+            last_number INTEGER NOT NULL,
+            last_tag TEXT NOT NULL
+        )""")
+        con.execute("""CREATE TABLE IF NOT EXISTS short_output_batches (
+            folder_name TEXT NOT NULL,
+            tag TEXT NOT NULL,
+            PRIMARY KEY(folder_name,tag)
+        )""")
+        row = con.execute(
+            "SELECT last_number,last_tag FROM short_output_sequences WHERE folder_name=?",
+            (folder_name,),
+        ).fetchone()
+        highest, last_tag = (int(row[0]), str(row[1])) if row else (0, "")
+        used_tags = set()
+        pattern = re.compile(
+            rf"^{re.escape(folder_name)}[ _](\d{{3,}})(?:_([a-f0-9]{{6}}))?\.mp4$",
+            re.IGNORECASE,
+        )
+        for entry in folder.iterdir():
+            if entry.is_symlink() or not entry.is_file():
+                continue
+            match = pattern.fullmatch(entry.name)
+            if match:
+                highest = max(highest, int(match.group(1)))
+                if match.group(2):
+                    used_tags.add(match.group(2).lower())
+        # Persist all batch tags, not just the last one. Deleted/published
+        # batches must never free a tag for reuse.
+        while True:
+            tag = uuid.uuid4().hex[:6]
+            if tag == last_tag or tag in used_tags:
+                continue
+            try:
+                con.execute("INSERT INTO short_output_batches(folder_name,tag) VALUES(?,?)",
+                            (folder_name, tag))
+                break
+            except sqlite3.IntegrityError:
+                continue
+        names = [f"{folder_name} {index:03d}_{tag}.mp4"
+                 for index in range(highest + 1, highest + count + 1)]
+        con.execute("""INSERT INTO short_output_sequences(folder_name,last_number,last_tag)
+                       VALUES(?,?,?)
+                       ON CONFLICT(folder_name) DO UPDATE SET
+                       last_number=excluded.last_number,last_tag=excluded.last_tag""",
+                    (folder_name, highest + count, tag))
+    return names
 
 
 def state_path(job_id: str) -> Path:
@@ -527,7 +596,8 @@ def render_job(job_id: str, cfg: dict):
                     "-i", str(concat), "-c", "copy", str(joined)
                 ])
 
-                final_name = output_name(cfg["base_name"], out_idx, count)
+                reserved_names = cfg.get("output_names") or []
+                final_name = reserved_names[out_idx - 1] if len(reserved_names) == count else output_name(cfg["base_name"], out_idx, count)
                 final_path = out_dir / final_name
                 if combined_audio:
                     set_state(job_id, message=f"Video {out_idx}/{count} · adding audio")
@@ -555,14 +625,17 @@ def render_job(job_id: str, cfg: dict):
                 })
 
         folder_name=cfg.get("short_vps_folder") or ""
-        if folder_name:
+        if cfg.get("available_to_short_uploader", not cfg.get("upload_to_drive", True)):
+            if not folder_name:
+                raise RuntimeError("Short Uploader destination requires a VPS folder.")
             for item in created:
                 item["short_vps_folder"] = folder_name
                 item["short_vps_filename"] = publish_short_to_vps(
-                    Path(item["local_path"]), folder_name, job_id
+                    Path(item["local_path"]), folder_name, job_id,
+                    strict=bool(cfg.get("output_names")),
                 )
             set_state(job_id, short_vps_folder=folder_name,
-                      message=f"Saved {len(created)} video(s) to VPS folder {folder_name}")
+                      message=f"Saved {len(created)} video(s) to Short Uploader folder {folder_name}")
         if cfg.get("upload_to_drive", True):
             created=deliver_outputs(job_id,created,cfg,job_dir)
             final_message=f"Completed {len(created)} video(s) · Drive verified"
@@ -571,8 +644,8 @@ def render_job(job_id: str, cfg: dict):
         else:
             for row in created:
                 row.pop("local_path",None)
-            set_state(job_id,delivery_status="local_only",drive_verified=False,local_cleaned=False)
-            final_message=f"Completed {len(created)} video(s) · local output"
+            set_state(job_id,delivery_status="short_uploader",drive_verified=False,local_cleaned=False)
+            final_message=f"Completed {len(created)} video(s) · available to Short Uploader"
 
         set_state(
             job_id, status="completed", progress=100,
@@ -702,6 +775,14 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
 </div>
 <form id="form">
 <section id="makerPanel">
+<section class="panel" aria-label="Short Maker output folder">
+ <h2>VPS Output Folder</h2>
+ <div class="two">
+  <div class="field"><label for="shortVpsFolder">Folder</label><select id="shortVpsFolder" name="short_vps_folder"><option value="Default">Default</option></select></div>
+  <div class="field"><label>Manage folders</label><div class="queue-actions"><button type="button" class="secondary" id="createShortFolder">+ Create</button><button type="button" class="danger" id="deleteShortFolder">Delete empty folder</button></div></div>
+ </div>
+ <div class="hint" id="shortFolderMessage">Automatic names: Folder 001_abcdef.mp4, Folder 002_abcdef.mp4. Every batch uses a different tag.</div>
+</section>
 <div class="grid">
  <div>
   <section class="panel">
@@ -764,23 +845,17 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
 <section id="settingsPanel" role="tabpanel" aria-labelledby="settingsTabBtn" hidden>
 <section class="panel">
  <h2>Output</h2>
- <div class="two">
-  <div class="field"><label>Base filename</label><input name="base_name" value="short_video.mp4"></div>
-  <div class="field"><label>Resolution</label><input value="1080 × 1920 (9:16)" disabled></div>
- </div>
+ <input type="hidden" name="base_name" value="short_video.mp4">
+ <div class="field"><label>Aspect ratio / resolution</label><input value="9:16 · 1080 × 1920 (vertical)" readonly aria-label="Output aspect ratio and resolution"></div>
  <div class="drive-delivery">
-  <h3>Short Studio · VPS Output Folder</h3>
-  <div class="hint">Every rendered MP4 is copied here for Short Uploader. Google Drive upload remains independent.</div>
-  <div class="two">
-   <div class="field"><label for="shortVpsFolder">VPS folder</label><select id="shortVpsFolder" name="short_vps_folder"><option value="Default">Default</option></select></div>
-   <div class="field"><label>Manage VPS folders</label><div class="queue-actions"><button type="button" class="secondary" id="createShortFolder">+ Create</button><button type="button" class="danger" id="deleteShortFolder">Delete empty folder</button></div></div>
+  <h3>Output destination</h3>
+  <div class="hint">Choose one destination. Short Uploader is selected by default.</div>
+  <label class="checkline"><input id="availableToUploader" name="available_to_short_uploader" type="checkbox" checked> <b>Available to Short Uploader</b></label>
+  <label class="checkline"><input id="uploadToDrive" name="upload_to_drive" type="checkbox"> <b>Upload final output(s) to Google Drive</b></label>
+  <div id="driveDeliveryOptions" hidden>
+   <div class="field"><label>Drive output folder</label><input id="driveOutputPath" name="drive_output_path" value="gdrive:Short_Maker/Outputs"></div>
+   <label class="checkline"><input id="verifiedClean" name="verified_clean" type="checkbox" checked disabled> <b>Drive verified clean</b> — delete this job's local inputs/outputs only after every final MP4 matches Drive size + MD5.</label>
   </div>
-  <div class="hint" id="shortFolderMessage">Folders with videos cannot be deleted. Uploaded shorts are removed by Short Uploader only after YouTube verification.</div>
- </div>
- <div class="drive-delivery">
-  <label class="checkline"><input id="uploadToDrive" name="upload_to_drive" type="checkbox" checked> <b>Upload final output(s) to Google Drive</b></label>
-  <div class="field"><label>Drive output folder</label><input id="driveOutputPath" name="drive_output_path" value="gdrive:Short_Maker/Outputs"></div>
-  <label class="checkline"><input id="verifiedClean" name="verified_clean" type="checkbox" checked disabled> <b>Drive verified clean</b> — delete this job's local input/output only after every final MP4 matches Drive size + MD5.</label>
  </div>
 </section>
 </section>
@@ -804,6 +879,17 @@ const driveInputRows=document.getElementById('driveInputRows'),driveLinkCount=do
 const selectedAudioFiles=[];
 const shortFolderSelect=document.getElementById('shortVpsFolder');
 const shortFolderMessage=document.getElementById('shortFolderMessage');
+const uploaderDestination=document.getElementById('availableToUploader');
+const driveDestination=document.getElementById('uploadToDrive');
+const driveDeliveryOptions=document.getElementById('driveDeliveryOptions');
+function selectOutputDestination(destination){
+ uploaderDestination.checked=destination==='uploader';
+ driveDestination.checked=destination==='drive';
+ driveDeliveryOptions.hidden=destination!=='drive';
+}
+uploaderDestination.addEventListener('change',()=>selectOutputDestination('uploader'));
+driveDestination.addEventListener('change',()=>selectOutputDestination('drive'));
+selectOutputDestination('uploader');
 async function loadShortFolders(preferred){
  const r=await fetch('api/vps-folders',{cache:'no-store'});
  const data=await r.json();if(!r.ok)throw new Error(data.detail||'Could not list VPS folders');
@@ -939,7 +1025,8 @@ form.addEventListener('submit',async e=>{
  ['video_duration','image_duration','output_count','order','fit','motion','fps','crf','base_name','input_mode','drive_output_path'].forEach(k=>fd.append(k,form.elements[k].value));
  fd.append('drive_input_path',inputMode.value==='drive'?(paths[0]||''):'');
  fd.append('drive_input_paths_json',inputMode.value==='drive'?JSON.stringify(paths):'');
- fd.append('upload_to_drive',document.getElementById('uploadToDrive').checked?'true':'false');
+ fd.append('available_to_short_uploader',uploaderDestination.checked?'true':'false');
+ fd.append('upload_to_drive',driveDestination.checked?'true':'false');
  fd.append('verified_clean',document.getElementById('verifiedClean').checked?'true':'false');
  fd.append('short_vps_folder',shortFolderSelect.value);
  try{
@@ -1082,13 +1169,21 @@ async def create_job(
     input_mode: str = Form("upload"),
     drive_input_path: str = Form(""),
     drive_input_paths_json: str = Form(""),
-    upload_to_drive: bool = Form(True),
+    upload_to_drive: bool = Form(False),
+    available_to_short_uploader: bool | None = Form(None),
     drive_output_path: str = Form(DEFAULT_DRIVE_OUTPUT),
     verified_clean: bool = Form(True),
     short_vps_folder_name: str = Form("", alias="short_vps_folder"),
 ):
     input_mode=input_mode if input_mode in ("upload","drive") else "upload"
+    # Backward-compatible API inference; explicit checkbox states must be exclusive.
+    if available_to_short_uploader is None:
+        available_to_short_uploader = not upload_to_drive
+    if bool(upload_to_drive) == bool(available_to_short_uploader):
+        raise HTTPException(status_code=400, detail="Select exactly one output destination.")
+    short_vps_folder_name = short_vps_folder_name or SHORT_VPS_DEFAULT
     try:
+        short_vps_folder_names()  # Ensure protected default folder exists.
         short_target = short_vps_folder(short_vps_folder_name) if short_vps_folder_name else None
         if short_target is not None and not short_target.is_dir():
             raise ValueError("Selected VPS folder does not exist.")
@@ -1142,6 +1237,11 @@ async def create_job(
             shutil.copyfileobj(upload.file, f)
         audio_paths.append(str(target))
 
+    try:
+        reserved_names = reserve_short_output_names(short_vps_folder_name, output_count)
+    except (ValueError, OSError, sqlite3.Error) as exc:
+        raise HTTPException(status_code=400, detail="Output naming reservation failed: " + str(exc))
+
     cfg = {
         "images": image_paths,
         "audio": audio_paths,
@@ -1153,11 +1253,14 @@ async def create_job(
         "motion": motion if motion in ("random", "zoom_in", "zoom_out", "pan_lr", "pan_rl", "none") else "random",
         "fps": fps,
         "crf": crf,
-        "base_name": safe_name(base_name),
+        "base_name": safe_name(base_name),  # Legacy job compatibility.
+        "output_names": reserved_names,
+        "batch_tag": reserved_names[0].rsplit("_", 1)[-1].removesuffix(".mp4"),
         "input_mode": input_mode,
         "drive_input_path": drive_input_path,
         "drive_input_paths": drive_input_paths,
         "upload_to_drive": bool(upload_to_drive),
+        "available_to_short_uploader": bool(available_to_short_uploader),
         "drive_output_path": drive_output_path,
         "verified_clean": bool(verified_clean),
         "short_vps_folder": short_vps_folder_name,
@@ -1168,7 +1271,7 @@ async def create_job(
             "job_id": job_id, "status": "queued", "progress": 0,
             "created_at": utc_now(),
             "message": "Queued", "outputs": [],
-            "delivery_status": "waiting_render" if upload_to_drive else "local_only",
+            "delivery_status": "waiting_render" if upload_to_drive else "short_uploader",
             "drive_verified": False,
             "local_cleaned": False,
             "config": {k: v for k, v in cfg.items() if k not in ("images", "audio")}

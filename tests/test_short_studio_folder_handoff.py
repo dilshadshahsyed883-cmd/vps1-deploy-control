@@ -3,6 +3,7 @@ import ast
 import hashlib
 import os
 import re
+import sqlite3
 import shutil
 import tempfile
 import unittest
@@ -62,18 +63,85 @@ class ShortStudioFolderHandoffTests(unittest.TestCase):
         self.assertIn('id="render"', maker_section)
         self.assertIn('id="bar"', maker_section)
         self.assertIn('id="status"', maker_section)
-        for control in ('name="base_name"', 'id="shortVpsFolder"',
-                        'id="createShortFolder"', 'id="deleteShortFolder"',
+        for control in ('id="shortVpsFolder"', 'id="createShortFolder"',
+                        'id="deleteShortFolder"', 'id="shortFolderMessage"'):
+            with self.subTest(control=control):
+                self.assertIn(control, maker_section)
+                self.assertNotIn(control, settings_section)
+        self.assertLess(maker_section.index('id="shortVpsFolder"'),
+                        maker_section.index('<h2>Images</h2>'))
+        for control in ('name="base_name"', 'id="availableToUploader"',
                         'id="uploadToDrive"', 'id="driveOutputPath"',
                         'id="verifiedClean"'):
             with self.subTest(control=control):
                 self.assertIn(control, settings_section)
                 self.assertNotIn(control, maker_section)
+        self.assertIn('value="9:16 · 1080 × 1920 (vertical)"', settings_section)
+        self.assertIn('id="availableToUploader" name="available_to_short_uploader" type="checkbox" checked', settings_section)
+        self.assertIn('id="uploadToDrive" name="upload_to_drive" type="checkbox">', settings_section)
+        self.assertIn("selectOutputDestination('uploader')", html)
+        self.assertIn("selectOutputDestination('drive')", html)
+        self.assertIn("fd.append('available_to_short_uploader',uploaderDestination.checked", html)
+        self.assertIn('Select exactly one output destination.', src)
+        self.assertIn('if cfg.get("available_to_short_uploader",', src)
+        self.assertIn('strict=bool(cfg.get("output_names"))', src)
+        self.assertIn('"output_names": reserved_names', src)
+        self.assertIn('available_to_short_uploader: bool | None = Form(None)', src)
         self.assertNotIn('id="render"', settings_section)
         self.assertIn("settingsTabBtn.onclick=()=>showShortTab('settings')", html)
         self.assertIn("panels[key].hidden=!active", html)
         self.assertIn("['video_duration','image_duration','output_count'", html)
         self.assertIn("fd.append('short_vps_folder',shortFolderSelect.value)", html)
+
+    def test_folder_numbering_with_shared_batch_tag_is_durable(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "shorts"
+            folder = root / "Aina Asif"
+            folder.mkdir(parents=True)
+            g = helpers(MAKER, {"short_vps_folder", "reserve_short_output_names"}, {
+                "SHORT_VPS_ROOT": root, "DATA_ROOT": Path(td) / "data",
+                "Path": Path, "re": re, "sqlite3": sqlite3, "uuid": uuid,
+            })
+            first = g["reserve_short_output_names"]("Aina Asif", 3)
+            self.assertRegex(first[0], r"^Aina Asif 001_[0-9a-f]{6}\.mp4$")
+            tag1 = first[0].rsplit("_", 1)[1]
+            self.assertEqual(first, [
+                "Aina Asif 001_" + tag1, "Aina Asif 002_" + tag1,
+                "Aina Asif 003_" + tag1,
+            ])
+            # No output yet exists on disk: a queued concurrent batch still
+            # must get new numbers and a different six-character tag.
+            second = g["reserve_short_output_names"]("Aina Asif", 2)
+            self.assertRegex(second[0], r"^Aina Asif 004_[0-9a-f]{6}\.mp4$")
+            self.assertEqual(second[1][:14], "Aina Asif 005_")
+            self.assertNotEqual(tag1, second[0].rsplit("_", 1)[1])
+            folder.joinpath("Aina Asif 020_abc123.mp4").write_bytes(b"existing")
+            third = g["reserve_short_output_names"]("Aina Asif", 1)
+            self.assertTrue(third[0].startswith("Aina Asif 021_"))
+            # Delete-after-upload must never reset numbering.
+            folder.joinpath("Aina Asif 020_abc123.mp4").unlink()
+            fourth = g["reserve_short_output_names"]("Aina Asif", 1)
+            self.assertTrue(fourth[0].startswith("Aina Asif 022_"))
+            other = root / "Channel B"
+            other.mkdir()
+            self.assertTrue(g["reserve_short_output_names"]("Channel B", 1)[0].startswith("Channel B 001_"))
+
+    def test_batch_filenames_never_overwrite_published_vps_files(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "folders"
+            folder = root / "Channel A"
+            folder.mkdir(parents=True)
+            local = Path(td) / "Channel A 001_abcdef.mp4"
+            local.write_bytes(b"new bytes")
+            existing = folder / local.name
+            existing.write_bytes(b"original bytes")
+            g = helpers(MAKER, {"short_vps_folder", "publish_short_to_vps"}, {
+                "SHORT_VPS_ROOT": root, "Path": Path, "re": re,
+                "shutil": shutil, "uuid": uuid, "os": os,
+            })
+            with self.assertRaisesRegex(RuntimeError, "Output filename already exists"):
+                g["publish_short_to_vps"](local, "Channel A", "any", strict=True)
+            self.assertEqual(existing.read_bytes(), b"original bytes")
 
     def test_legacy_maker_submit_does_not_shadow_folder_validator(self):
         # The posted Form name and the folder resolver must not share a local name.
