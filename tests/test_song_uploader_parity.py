@@ -32,7 +32,7 @@ class SongParity(unittest.TestCase):
         self.assertIn("data-ae-open-schedules>Manage Schedules", APP)
         self.assertIn('data-short-profile-action="start"', APP)
         self.assertIn('data-ae-panel-target="queue"', APP)
-        self.assertIn("data-song-group-channel-count", APP)
+        self.assertIn('group-channel-count="{{ pr.id }}"', APP)
         self.assertIn('value="songfolder"', APP)
         self.assertIn("Preserve existing visibility (Sheets / Private)", APP)
 
