@@ -17,6 +17,7 @@ FILES=(
     "templates/app.html",
     "templates/base.html",
     "static/local_upload_manager.css",
+    "static/song_uploader_kokoro_ui.css",
     "lum_engine/auto_engine_v6.py",
     "lum_engine/auto_engine_v6_scheduler.py",
     "lum_engine/auto_engine_v6_worker.py",
@@ -122,7 +123,7 @@ def verify_live():
     required_controls=(
         'song-profile-privacy-status',
         'lum-short-engine-status',
-        '20261030-parity-v1',
+        '20261030-status-cards-v2',
         'data-ae-panel-target="automation"',
         'data-ae-panel-target="profiles"',
         'data-ae-panel-target="queue"',
@@ -133,6 +134,12 @@ def verify_live():
             'Sync Channel</button>' not in html and
             'data-ae-sync-scan' not in html,
             'individual sync UI persists or global sync is duplicated')
+    # Authenticated, read-only acceptance: report each component's displayed
+    # state independently. Never infer a healthy worker from Engine RUNNING.
+    for component, choices in (('WORKER', ('Idle','Processing','Error','Offline')),
+                               ('SCHEDULER', ('Waiting','Paused','Processing','Error','Offline'))):
+        label=next((v for v in choices if '>'+component.title()+' '+v+'</span>' in html), 'Unknown')
+        print(f'SONG_RUNTIME_{component}_STATUS={label.upper()}',flush=True)
     anonymous_status, _, anonymous_body = https_get('/song-uploader/app')
     # The public Scene SSO gate may redirect unauthenticated users to login
     # rather than return FastAPI's 401; it must never serve protected app HTML.

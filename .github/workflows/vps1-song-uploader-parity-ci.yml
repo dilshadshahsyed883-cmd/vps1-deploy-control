@@ -31,6 +31,7 @@ jobs:
       - name: Song parity and regression coverage
         run: |
           python -m unittest discover -s tests -p 'test_song_uploader_parity.py' -v
+          python -m unittest discover -s tests -p 'test_song_uploader_component_mobile.py' -v
           python -m unittest discover -s tests -p 'test_song_uploader_release_network_idle.py' -v
           python -m unittest discover -s tests -p 'test_song_uploader_group_summary.py' -v
           python -m unittest discover -s tests -p 'test_song_uploader_group_profile_restore.py' -v

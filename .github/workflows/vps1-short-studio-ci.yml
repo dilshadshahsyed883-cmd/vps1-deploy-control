@@ -62,6 +62,8 @@ jobs:
           python -m playwright install --with-deps chromium
       - name: Verify Short Uploader at five desktop and mobile widths
         run: python -m production.short_uploader_final_browser
+      - name: Verify Song Uploader responsive cards and independent badges at six widths
+        run: python -m production.song_uploader_status_mobile_browser
       - name: Short Studio profile Start/Pause and per-video schedule regression
         run: python -m unittest discover -s tests -p 'test_short_studio_profile_controls.py' -v
       - name: Forbid changed credentials and activation

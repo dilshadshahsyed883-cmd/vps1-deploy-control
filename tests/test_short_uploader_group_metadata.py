@@ -241,7 +241,7 @@ class ShortGroupTests(unittest.TestCase):
         for label in ('Worker {{ ae.scheduler_ui.worker_status }}',
                       'Scheduler {{ ae.scheduler_ui.scheduler_status }}',
                       "Engine {{ 'RUNNING' if ae.engine.running else 'STOPPED' }}"):
-            self.assertIn(label,source[badges:badges+750])
+            self.assertIn(label,source[badges:badges+1500])
         styles=(ROOT/'apps/local-upload-manager/part01/static/local_upload_manager.css').read_text()
         self.assertIn('.lum-short-engine-tabbar{display:flex;',styles)
         self.assertIn('.lum-short-engine-status{display:flex;',styles)
