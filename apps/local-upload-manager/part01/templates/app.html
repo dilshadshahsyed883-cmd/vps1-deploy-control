@@ -822,14 +822,14 @@
         {% endif %}
       </div>
 
-      <div class="lum-ae-profile-manager-secondary">
+      {% if engine_instance not in ['song', 'shortstudio'] %}<div class="lum-ae-profile-manager-secondary">
         {% if p and p.channel_db_id %}
-        <button type="button" class="lum-button secondary tiny" data-ae-sync-scan data-profile-id="{{ p.id }}" data-csrf="{{ csrf }}">Sync Channel</button>
+        {% if engine_instance not in ['song', 'shortstudio'] %}<button type="button" class="lum-button secondary tiny" data-ae-sync-scan data-profile-id="{{ p.id }}" data-csrf="{{ csrf }}">Sync Channel</button>{% endif %}
         {% else %}
         {% if engine_instance not in ['song', 'shortstudio'] %}<button class="lum-button secondary tiny" type="button" data-ae-open-schedules>Manage Legacy Profile Schedules</button>{% endif %}
-        {% if p %}<button type="button" class="lum-button secondary tiny" data-ae-sync-scan data-profile-id="{{ p.id }}" data-csrf="{{ csrf }}">Sync & Scan Sources</button>{% endif %}
+        {% if p and engine_instance not in ['song', 'shortstudio'] %}<button type="button" class="lum-button secondary tiny" data-ae-sync-scan data-profile-id="{{ p.id }}" data-csrf="{{ csrf }}">Sync & Scan Sources</button>{% endif %}
         {% endif %}
-      </div>
+      </div>{% endif %}
 
       <details class="lum-ae-profile-browser" {% if ae.profiles|length <= 8 %}open{% endif %}>
         <summary><span>All saved profiles</span><strong>{{ ae.profiles|length }}</strong></summary>
@@ -863,11 +863,13 @@
 
     <section class="lum-card lum-ae-automation-controls" data-ae-panel="automation">
       <div class="lum-card-head"><div><h2>Automation</h2>{% if engine_instance != 'song' %}<p>Run profile automation from one table. Row actions target one profile; Start All remains global.</p>{% endif %}</div><span class="lum-badge">{{ ae.profiles|length }} profiles</span></div>
-<div class="lum-ae-pc-row lum-ae-profile-quick-controls lum-ae-global-actions">
+{% if engine_instance not in ['song', 'shortstudio'] %}
+      <div class="lum-ae-pc-row lum-ae-profile-quick-controls lum-ae-global-actions">
         <form method="post" action="{{ base_path }}/actions/auto-v6/sync-all" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button primary" type="submit">Sync All Channels</button></form>
         {% if p %}<button class="lum-button secondary" type="button" data-ae-sync-scan data-profile-id="{{ p.id }}" data-csrf="{{ csrf }}">Sync Channel</button>{% endif %}
         {% if engine_instance not in ['song', 'shortstudio'] %}<span class="lum-ae-auto-sync-note">Auto-sync defaults to every 15 minutes per channel and can be changed in the channel profile.</span>{% endif %}
       </div>
+      {% endif %}
 
       <div id="lum-ae-generation-status" class="lum-ae-generation-status" data-state="idle" hidden role="status" aria-live="polite">
         <span class="lum-ae-generation-spinner" aria-hidden="true"></span>
@@ -884,6 +886,10 @@
         <button class="lum-button secondary" type="button" data-ae-preview-all>Preview Next Jobs</button>
         <button class="lum-button secondary" type="button" data-ae-open-schedules>Profile Schedules</button>
         <button class="lum-button secondary" type="button" data-ae-jump-start-all>Start All Profiles</button>
+        <form method="post" action="{{ base_path }}/actions/auto-v6/sync-all" data-lum-soft-form>
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <button class="lum-button primary" type="submit">Sync All Channels</button>
+        </form>
       </div>
       <div id="lum-ae-bulk-preview" class="lum-ae-result" role="status" aria-live="polite" hidden></div>
       {% endif %}
@@ -916,7 +922,7 @@
               <td>{{ 'PAUSED' if pr.channel_paused else 'READY' }}</td>
               <td class="lum-ae-actions-cell">
                 <div class="lum-ae-row-actions" aria-label="Actions for {{ pr.category_name }}">
-                  <button class="lum-button primary tiny" type="button" data-ae-sync-scan data-profile-id="{{ pr.id }}" data-csrf="{{ csrf }}" data-ae-result-target="lum-ae-preview-result">Sync Channel</button>
+                  {% if engine_instance not in ['song', 'shortstudio'] %}<button class="lum-button primary tiny" type="button" data-ae-sync-scan data-profile-id="{{ pr.id }}" data-csrf="{{ csrf }}" data-ae-result-target="lum-ae-preview-result">Sync Channel</button>{% endif %}
                   <a class="lum-button secondary tiny" href="{{ base_path }}/app?tab=auto_engine&auto_profile_id={{ pr.id }}" data-lum-soft-link>Edit</a>
                   <form id="lum-ae-generate-profile-{{ pr.id }}" method="post" action="{{ base_path }}/actions/auto-v6/generate" data-lum-soft-form hidden>
                     <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ pr.id }}"><input type="hidden" name="confirmation" value="">
@@ -969,7 +975,7 @@
                     const reply=await fetch('/song-uploader/actions/auto-v6/songmaker/import',{method:'POST',credentials:'same-origin',body});
                     const result=await reply.json();
                     if(!reply.ok||!result.ok)throw Error(result.error||'Local import could not be completed');
-                    status.textContent=result.status==='already_imported'?'Already imported to this channel':'Local import ready · Run Sync Channel to validate matching media and metadata';
+                    status.textContent=result.status==='already_imported'?'Already imported to this channel':'Local import ready · Run Sync All Channels to validate matching media and metadata';
                   }catch(error){status.textContent=error.message;button.disabled=false;}
                 };
                 row.append(document.createTextNode(' · Channel: '),picker,button,status);
@@ -1152,14 +1158,14 @@
           {% endif %}
           {% if engine_instance != 'shortstudio' %}<div class="lum-note" data-song-sheet-note {% if engine_instance == 'song' and song_manual %}hidden{% endif %}><strong>Required before queue:</strong> Video ID, title, Upload Enabled, schedule, one matching video{% if engine_instance not in ['shorts', 'shortstudio'] %} and one matching thumbnail{% endif %}. Description and tags may be blank. Duplicate Sheet IDs use the first row.</div>{% endif %}
           <label class="lum-field"><span>Notes</span><textarea name="notes" rows="2">{{ p.notes if p else '' }}</textarea></label>
-          {% if p %}<div class="lum-actions"><button type="button" class="lum-button primary" data-ae-sync-scan data-profile-id="{{ p.id }}" data-csrf="{{ csrf }}">Sync Channel</button><div id="lum-ae-preflight-result" class="lum-ae-result"></div></div>{% endif %}
+          {% if p and engine_instance not in ['song', 'shortstudio'] %}<div class="lum-actions"><button type="button" class="lum-button primary" data-ae-sync-scan data-profile-id="{{ p.id }}" data-csrf="{{ csrf }}">Sync Channel</button><div id="lum-ae-preflight-result" class="lum-ae-result"></div></div>{% endif %}
         </section>
 
         {% if p and p.channel_db_id %}
         <section class="lum-card">
           <div class="lum-card-head"><div><h2>Latest Sync Validation</h2><p>Validation errors stay inside Auto Engine and are never written to the Sheet.</p></div><span class="lum-badge">{{ ae.metadata_rows|length }} rows</span></div>
           <div class="lum-table-wrap"><table class="lum-table"><thead><tr><th>Row</th><th>Video ID</th><th>Title</th><th>Video</th><th>Thumbnail</th><th>Schedule</th><th>State</th><th>Error</th></tr></thead><tbody>
-          {% for r in ae.metadata_rows %}<tr><td>{{ r.row_number }}</td><td><code>{{ r.video_key or '—' }}</code></td><td>{{ r.title or '—' }}</td><td>{{ r.video_filename or '—' }}</td><td>{{ r.thumbnail_filename or '—' }}</td><td>{{ r.schedule_at or 'Unscheduled' }}</td><td><span class="lum-state s-{{ (r.state or '')|lower }}">{{ r.state }}</span></td><td>{{ r.error_message or '—' }}</td></tr>{% else %}<tr><td colspan="8"><div class="lum-empty">Run Sync Channel to validate metadata and ID-matched assets.</div></td></tr>{% endfor %}
+          {% for r in ae.metadata_rows %}<tr><td>{{ r.row_number }}</td><td><code>{{ r.video_key or '—' }}</code></td><td>{{ r.title or '—' }}</td><td>{{ r.video_filename or '—' }}</td><td>{{ r.thumbnail_filename or '—' }}</td><td>{{ r.schedule_at or 'Unscheduled' }}</td><td><span class="lum-state s-{{ (r.state or '')|lower }}">{{ r.state }}</span></td><td>{{ r.error_message or '—' }}</td></tr>{% else %}<tr><td colspan="8"><div class="lum-empty">{{ 'Run Sync All Channels from Automation' if engine_instance in ['song', 'shortstudio'] else 'Run Sync Channel' }} to validate metadata and ID-matched assets.</div></td></tr>{% endfor %}
           </tbody></table></div>
         </section>
         {% endif %}
