@@ -734,9 +734,9 @@
     {% set src = ae.source if ae else {} %}
     <section class="lum-ae-head">
       <div>
-        {% if engine_instance != 'song' %}<div class="lum-eyebrow">Channel-based · Video ID source of truth</div>{% endif %}
+        {% if engine_instance == 'shortstudio' %}<div class="lum-eyebrow">Group automation</div>{% elif engine_instance != 'song' %}<div class="lum-eyebrow">Channel-based · Video ID source of truth</div>{% endif %}
         <h2>Auto Engine</h2>
-        {% if engine_instance != 'song' %}<p>Channel-based Video-ID automation. Each Sheet row is matched to the same-ID video and thumbnail before it can enter the upload queue.</p>{% endif %}
+        {% if engine_instance not in ['song', 'shortstudio'] %}<p>Channel-based Video-ID automation. Each Sheet row is matched to the same-ID video and thumbnail before it can enter the upload queue.</p>{% endif %}
       </div>
       <div class="lum-ae-head-actions">
         <div class="lum-ae-health" aria-label="Auto Engine runtime status">
@@ -866,7 +866,7 @@
 <div class="lum-ae-pc-row lum-ae-profile-quick-controls lum-ae-global-actions">
         <form method="post" action="{{ base_path }}/actions/auto-v6/sync-all" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button primary" type="submit">Sync All Channels</button></form>
         {% if p %}<button class="lum-button secondary" type="button" data-ae-sync-scan data-profile-id="{{ p.id }}" data-csrf="{{ csrf }}">Sync Channel</button>{% endif %}
-        {% if engine_instance != 'song' %}<span class="lum-ae-auto-sync-note">Auto-sync defaults to every 15 minutes per channel and can be changed in the channel profile.</span>{% endif %}
+        {% if engine_instance not in ['song', 'shortstudio'] %}<span class="lum-ae-auto-sync-note">Auto-sync defaults to every 15 minutes per channel and can be changed in the channel profile.</span>{% endif %}
       </div>
 
       <div id="lum-ae-generation-status" class="lum-ae-generation-status" data-state="idle" hidden role="status" aria-live="polite">
@@ -875,19 +875,31 @@
       </div>
 
       <div class="lum-table-wrap lum-ae-automation-profiles-wrap">
-        <table class="lum-table lum-ae-automation-profiles">
+        <table class="lum-table lum-ae-automation-profiles" {% if engine_instance == 'shortstudio' %}data-short-group-summary{% endif %}>
+          {% if engine_instance == 'shortstudio' %}
+          <thead><tr><th>ID</th><th>ON/OFF</th><th>Profile</th><th>Group Name</th><th>Channels</th><th>Videos</th><th>Schedule (PKT)</th><th>State</th><th>Actions</th></tr></thead>
+          {% else %}
           <thead><tr><th>ID</th><th>ON/OFF</th><th>Channel</th><th>Channel ID</th><th>Videos</th><th>Thumbnails</th><th>Auto Sync</th><th>Last Sync</th><th>State</th><th>Actions</th></tr></thead>
+          {% endif %}
           <tbody>
           {% for pr in ae.profiles %}
             <tr data-ae-profile-row="{{ pr.id }}">
               <td>{{ pr.id }}</td>
               <td><span class="lum-health {{ 'ok' if pr.enabled else 'warn' }}">{{ 'ON' if pr.enabled else 'OFF' }}</span></td>
+              {% if engine_instance == 'shortstudio' %}
+              <td>{{ pr.category_name }}</td>
+              <td>{{ pr.group_name or ('Single channel' if pr.channel_db_id else 'No group selected') }}</td>
+              <td data-short-group-channel-count="{{ pr.id }}">{{ 1 if pr.channel_db_id else (pr.group_channel_count or 0)|int }}</td>
+              <td data-ae-profile-videos="{{ pr.id }}">{{ pr.v6_video_count or 0 }}</td>
+              <td data-short-profile-schedule="{{ pr.id }}">{% if pr.channel_db_id %}Per-video schedule{% else %}{{ (pr.schedule_times or 'Not configured')|replace(',', ', ') }}{% if not pr.schedule_enabled %}<small>Schedule OFF</small>{% endif %}{% endif %}</td>
+              {% else %}
               <td>{{ pr.bound_channel_name or pr.category_name }}</td>
               <td><code>{{ pr.bound_channel_id or 'Legacy' }}</code></td>
               <td data-ae-profile-videos="{{ pr.id }}">{{ pr.v6_video_count or 0 }}</td>
               <td data-ae-profile-thumbs="{{ pr.id }}">{{ pr.v6_thumb_count or 0 }}</td>
               <td>{{ pr.sync_interval_minutes or 15 }} min</td>
               <td>{{ pr.last_sync_at or '—' }}</td>
+              {% endif %}
               <td>{{ 'PAUSED' if pr.channel_paused else 'READY' }}</td>
               <td class="lum-ae-actions-cell">
                 <div class="lum-ae-row-actions" aria-label="Actions for {{ pr.category_name }}">
@@ -899,7 +911,7 @@
                 </div>
               </td>
             </tr>
-          {% else %}<tr><td colspan="10"><div class="lum-empty">No saved Auto Engine channel profiles yet.</div></td></tr>{% endfor %}
+          {% else %}<tr><td colspan="{{ 9 if engine_instance == 'shortstudio' else 10 }}"><div class="lum-empty">{{ 'No saved group profiles yet.' if engine_instance == 'shortstudio' else 'No saved Auto Engine channel profiles yet.' }}</div></td></tr>{% endfor %}
           </tbody>
         </table>
       </div>
@@ -1221,4 +1233,5 @@
 </div>
 <script src="{{ base_path }}/static/local_upload_manager.js?v=20260821-v2.1"></script>
 {% endblock %}
+
 
