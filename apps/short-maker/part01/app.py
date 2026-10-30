@@ -736,6 +736,14 @@ button.secondary{background:#f0efff;color:#4d4fc7}button.danger{background:#fff0
 @media(max-width:600px){.drive-link-row{align-items:stretch}.drive-link-row button{padding:8px}}
 
 
+/* Independent upload and VPS render progress stages */
+.sm-stage-progress{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:10px}
+.sm-stage-label{display:flex;justify-content:space-between;gap:10px;margin-bottom:7px;font-weight:750;color:var(--text);font-size:12px}
+.sm-stage-label strong{font-variant-numeric:tabular-nums}
+.sm-stage-progress .progress{margin:0}
+.sm-render-progress span{background:#16a078}
+@media(max-width:540px){.sm-stage-progress{grid-template-columns:1fr;gap:12px}}
+
 /* SHORT_MAKER_COMPACT_BATCH_MODAL_V1 — Queue-only presentation; renderer untouched. */
 .queue-table{min-width:760px}
 .queue-table td{max-width:270px}
@@ -870,8 +878,11 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
  <h2>Render</h2>
  <button id="render" class="render" type="submit">Start Rendering</button>
  <button id="discardUpload" class="secondary" type="button" hidden style="margin-top:10px">Discard paused upload</button>
- <div class="progress" id="progressTrack" role="progressbar" aria-label="Upload progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="bar"></span></div>
- <div id="progressDetail" class="status" aria-live="polite">Upload: 0% · Rendering: 0%</div>
+ <div class="sm-stage-progress">
+  <div><div class="sm-stage-label"><span>Upload</span><strong id="uploadPctLabel">0%</strong></div><div class="progress" id="progressTrack" role="progressbar" aria-label="Upload progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="bar"></span></div></div>
+  <div><div class="sm-stage-label"><span>Rendering</span><strong id="renderPctLabel">0%</strong></div><div class="progress sm-render-progress" id="renderProgressTrack" role="progressbar" aria-label="Rendering progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="renderProgressBar"></span></div></div>
+ </div>
+ <div id="progressDetail" class="status" aria-live="polite">Ready to upload</div>
  <div id="status" class="status">Ready.</div>
  <div id="outputs" class="outputs"></div>
 </section>
@@ -1631,6 +1642,20 @@ def upload_config(payload: dict) -> dict:
     }
 
 
+@contextmanager
+def upload_create_lock():
+    """Hold one short interprocess lock while allocating an upload session."""
+    lock = JOBS_ROOT / ".resumable-create.lock"
+    if lock.is_symlink():
+        raise HTTPException(status_code=400, detail="Unsafe upload session lock.")
+    with lock.open("a+b") as file:
+        fcntl.flock(file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(file.fileno(), fcntl.LOCK_UN)
+
+
 @app.post("/api/upload-sessions")
 async def begin_resumable_upload(request: Request):
     try:
@@ -1671,18 +1696,47 @@ async def begin_resumable_upload(request: Request):
         raise HTTPException(status_code=400, detail="Select at least one image.")
     if cfg["input_mode"] == "drive" and manifest_files["images"]:
         raise HTTPException(status_code=400, detail="Drive input cannot include PC images.")
-    job_id = uuid.uuid4().hex[:16]
-    root = JOBS_ROOT / job_id
-    for kind in ("images", "audio"):
-        (root / "input" / kind).mkdir(parents=True, exist_ok=True)
-    manifest = {"owner": request.headers.get("x-auth-user", "").strip(),
-                "config": cfg, "files": manifest_files, "created_at": utc_now()}
-    upload_manifest_path(job_id).write_text(json.dumps(manifest), encoding="utf-8")
-    set_state(job_id, status="uploading", progress=0, upload_progress=0,
-              created_at=utc_now(), message="Uploading PC files (resumable)",
-              outputs=[], config=cfg, delivery_status="waiting_upload",
-              drive_verified=False, local_cleaned=False)
-    return {"job_id": job_id, "status": "uploading"}
+    request_id = str(payload.get("client_request_id") or "").strip()
+    if request_id and not re.fullmatch(r"[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}", request_id):
+        raise HTTPException(status_code=400, detail="Invalid upload request ID.")
+    owner = request.headers.get("x-auth-user", "").strip()
+    with upload_create_lock():
+        job_id = (hashlib.sha256((owner + ":" + request_id).encode("utf-8")).hexdigest()[:16]
+                  if request_id else uuid.uuid4().hex[:16])
+        root = JOBS_ROOT / job_id
+        manifest_path = upload_manifest_path(job_id)
+        if manifest_path.is_file():
+            try:
+                previous = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                raise HTTPException(status_code=409, detail="Existing upload session is unreadable.")
+            if (not request_id or previous.get("owner") != owner or
+                previous.get("client_request_id") != request_id or
+                previous.get("config") != cfg or previous.get("files") != manifest_files):
+                raise HTTPException(status_code=409, detail="Upload request ID has conflicting contents.")
+            try:
+                current = get_state(job_id)
+            except HTTPException as exc:
+                if exc.status_code != 404:
+                    raise
+                set_state(job_id, status="uploading", progress=0, upload_progress=0,
+                          created_at=previous.get("created_at") or utc_now(),
+                          message="Resuming PC file upload", outputs=[], config=cfg,
+                          delivery_status="waiting_upload", drive_verified=False, local_cleaned=False)
+                current = get_state(job_id)
+            return {"job_id": job_id, "status": current.get("status"), "resumed": True}
+        if root.exists() and any(root.iterdir()):
+            raise HTTPException(status_code=409, detail="Session collision; existing data preserved.")
+        for kind in ("images", "audio"):
+            (root / "input" / kind).mkdir(parents=True, exist_ok=True)
+        manifest = {"owner": owner, "client_request_id": request_id,
+                    "config": cfg, "files": manifest_files, "created_at": utc_now()}
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        set_state(job_id, status="uploading", progress=0, upload_progress=0,
+                  created_at=manifest["created_at"], message="Uploading PC files (resumable)",
+                  outputs=[], config=cfg, delivery_status="waiting_upload",
+                  drive_verified=False, local_cleaned=False)
+        return {"job_id": job_id, "status": "uploading", "resumed": False}
 
 
 @app.get("/api/upload-sessions/{job_id}")
