@@ -79,6 +79,13 @@ class SongAutomationGroupSummaryTests(unittest.TestCase):
         self.assertIn("b'lum-ae-automation-profiles' not in anonymous_body", source)
         self.assertNotIn("https_get('/song-uploader/app')[0]==401", source)
 
+    def test_guarded_song_release_requires_global_sync_toolbar(self):
+        source = (ROOT / "production/song_uploader_group_summary_release.py").read_text()
+        self.assertIn("global sync is not on the bulk-action row", source)
+        self.assertIn("individual sync UI persists or global sync is duplicated", source)
+        self.assertIn("'data-ae-sync-scan' not in html", source)
+        self.assertIn("html.count('>Sync All Channels</button>')==1", source)
+
     def test_engine1_remains_legacy_table(self):
         html = self.render([dict(id=3,enabled=1,category_name="Channel",
             bound_channel_name="Channel",bound_channel_id="UC123",
