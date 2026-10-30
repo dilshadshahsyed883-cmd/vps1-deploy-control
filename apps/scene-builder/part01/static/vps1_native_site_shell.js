@@ -294,7 +294,10 @@
     toggle.after(backdrop);
     // Render hierarchy: Experiment Studio > Studio > original app controls.
     // Keep independent app URLs and all existing backends untouched.
-    const secondLevel = ["acs", "voice", "uploader", "stream", "library"].includes(app)
+    const isSongAudio = app === "voice" &&
+      (/^\/audio-downloader\/?$/.test(window.location?.pathname || "") ||
+       document.body.classList.contains("vs-audio-active"));
+    const secondLevel = !isSongAudio && ["acs", "voice", "uploader", "stream", "library"].includes(app)
       ? createExperimentTabs(false, app === "library" ? "library" :
           app === "acs" ? "video" : app === "voice" ? "voice" : "upload")
       : null;
@@ -362,7 +365,7 @@
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) refreshIdentity();
     });
-    if (app === "voice" || app === "song" || app === "song-uploader") {
+    if (isSongAudio || app === "song" || app === "song-uploader") {
       const tabs = node("nav", "vps1-native-video-tabs vps1-native-song-tabs");
       tabs.dataset.vps1Component = "studio-tabs";
       tabs.setAttribute("aria-label", "Song Studio");
