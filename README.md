@@ -11,13 +11,13 @@ This repository is **PUBLIC** and contains the GitHub-controlled source, build a
 - Durable host-wide SQLite deployment-intent queue with FIFO, idempotence, fencing/recovery and **synthetic** failure/rollback tests. This is not an installed production executor.
 - Security scans for public-source hygiene and fetched reachable Git history, plus required offline CI checks.
 
-**Auto Script is intentionally OFFLINE.** Its source is retained for separate work; [draft PR #6](https://github.com/dilshadshahsyed883-cmd/vps1-deploy-control/pull/6) must not be merged or used to enable its legacy SSH production workflow as part of the ten-app migration.
+**Auto Script status (29 October 2026): ONLINE, confirmed by the owner.** The scoped activation was introduced in merged [PR #314](https://github.com/dilshadshahsyed883-cmd/vps1-deploy-control/pull/314) on 25 October 2026; Experiment Studio navigation was added in merged [PR #315](https://github.com/dilshadshahsyed883-cmd/vps1-deploy-control/pull/315). The older `offline` flags in the *fresh-rebuild* contract refer only to exclusion from that migration, not the live runtime. Preserve the existing Auto Script scheduler, queues, SQLite and activation during unrelated releases; do not re-enable legacy SSH workflows. See [current status and scope](docs/AUTO_SCRIPT_STATUS_20261029.md). Independent live health proof is not part of this documentation update.
 
 ## Authoritative configuration
 
 | Source | Meaning |
 | --- | --- |
-| `rebuild/groups.json` | Ten active targets, Auto Script OFFLINE, all fresh-install / production / automatic migration switches disabled |
+| `rebuild/groups.json` | Ten active fresh-rebuild targets; Auto Script excluded from fresh rebuild (runtime is ONLINE), with global migration switches disabled |
 | `rebuild/deploy-contracts.json` | Per-app runtime ownership, services, workers, migrations and health; currently **not runtime verified** |
 | `rebuild/install-profiles.json` | **Proposed** service ports / dependencies, not verified live VPS ports |
 | `infrastructure/registry/apps.json` | Confirmed live Nginx route registry; currently **empty** |

@@ -159,7 +159,7 @@ for (const workspace of ["uploader", "voice", "acs"]) {
   });
 }
 
-test("Self Media Library uses exactly one Experiment Studio parent and three subtabs", async () => {
+test("Self Media Library uses one Experiment Studio parent and all six second-level tabs", async () => {
   const h=boot("library",{authenticated:true,is_admin:false,username:"editor"});
   await h.tick();
   const nav=all(h.body).find(e=>e.tag==="nav"&&e.attrs["aria-label"]==="Applications");
@@ -168,8 +168,8 @@ test("Self Media Library uses exactly one Experiment Studio parent and three sub
   assert.equal(nav.children.filter(e=>e.textContent==="Self Media Library").length,0);
   const tabs=all(h.body).find(e=>e.className==="vps1-native-experiment-tabs");
   assert.ok(tabs);
-  assert.deepEqual(tabs.children.map(e=>e.textContent),["Antidetect Browser","Self Media Library","Auto Script"]);
-  assert.deepEqual(tabs.children.map(e=>e.href),["/experiment-studio/antidetect-browser/","/self-media-library/","/experiment-studio/auto-script/"]);
+  assert.deepEqual(tabs.children.map(e=>e.textContent),["Antidetect Browser","Self Media Library","Auto Script","Video Studio","Voice Studio","Upload Studio"]);
+  assert.deepEqual(tabs.children.map(e=>e.href),["/experiment-studio/antidetect-browser/","/self-media-library/","/experiment-studio/auto-script/","/scene-builder/","/voice-studio/app#vps1-production","/local-upload-manager/app?embedded=1&tab=dashboard"]);
   assert.equal(tabs.children.filter(e=>e.attrs["aria-current"]==="page").length,1);
   assert.equal(h.links().filter(e=>e.href==="/admin").length,0);
 });
@@ -198,12 +198,18 @@ test("other workspaces link directly to Voice Studio without interception", asyn
 });
 
 for (const workspace of ["uploader","stream","voice","acs"]) {
-  test(`${workspace}: one Upload Studio sidebar entry and native app subtabs`, async () => {
+  test(`${workspace}: Upload Studio is only a second-level Experiment tab`, async () => {
     const h=boot(workspace,{authenticated:true,is_admin:false,username:"editor"});
     await h.tick();
     const nav=all(h.body).find(e=>e.tag==="nav"&&e.attrs["aria-label"]==="Applications");
     assert.ok(nav);
-    assert.equal(nav.children.filter(e=>e.href==="/local-upload-manager"&&e.textContent==="Upload Studio").length,1);
+    assert.equal(nav.children.filter(e=>["Upload Studio","Video Studio","Voice Studio"].includes(e.textContent)).length,0);
+    assert.equal(nav.children.filter(e=>e.href==="/experiment-studio/"&&e.textContent==="Experiment Studio").length,1);
+    const experiment=all(h.body).find(e=>e.className==="vps1-native-experiment-tabs");
+    assert.ok(experiment);
+    assert.deepEqual(experiment.children.map(e=>e.textContent),["Antidetect Browser","Self Media Library","Auto Script","Video Studio","Voice Studio","Upload Studio"]);
+    const selected=workspace==="acs"?"Video Studio":workspace==="voice"?"Voice Studio":"Upload Studio";
+    assert.equal(experiment.children.filter(e=>e.attrs["aria-current"]==="page"&&e.textContent===selected).length,1);
     assert.equal(nav.children.filter(e=>e.textContent==="Auto Uploader"||e.textContent==="Auto Stream").length,0);
     const tabs=all(h.body).find(e=>e.className==="vps1-native-upload-tabs");
     assert.equal(!!tabs,workspace==="uploader"||workspace==="stream");

@@ -1,7 +1,7 @@
 /* LUM_FULL_AUTO_ENGINE_V6_1_UI */
 (() => {
   'use strict';
-  const AE_KEY=window.location.pathname.startsWith('/local-upload-manager/modes/')
+  const AE_KEY=window.location.pathname.startsWith('/short-uploader') ? 'lum.auto.v6.panel.shortstudio' : window.location.pathname.startsWith('/song-uploader') ? 'lum.auto.v6.panel.song' : window.location.pathname.startsWith('/local-upload-manager/modes/')
     ? 'lum.auto.v6.panel.'+window.location.pathname.split('/')[3]
     : 'lum.auto.v6.panel';
   const panels=['automation','profiles','queue','records'];

@@ -20,7 +20,6 @@ VIDEO_CSS = SCENE / "static/vps1_video_studio_geometry.css"
 JS = SCENE / "static/vps1_native_site_shell.js"
 VIDEOS = {
     "scene-builder": SCENE / "templates/base.html",
-    "short-maker": ROOT / "apps/short-maker/part01/app.py",
     "video-merger": ROOT / "apps/video-merger/part01/templates/index.html",
     "auto-caption-studio": None,  # Native tabs are constructed by actual JS.
 }
@@ -39,6 +38,16 @@ def extract_video_nav(path: Path) -> str:
     return re.sub(r'{[%{][\s\S]*?[}%]}', '', match.group(0))
 
 
+def extract_experiment_nav() -> str:
+    """Render the actual second-level rail in independent fixture pages."""
+    source = (SCENE / "templates/base.html").read_text(encoding="utf-8")
+    match = re.search(r'<nav class="vps1-experiment-tabs" aria-label="Experiment Studio">.*?</nav>',
+                      source, flags=re.S)
+    if not match:
+        raise ValueError("Scene Experiment Studio second-level navigation missing")
+    return re.sub(r'{[%{].*?[}%]}', '', match.group(0), flags=re.S)
+
+
 def page_html(app: str) -> str:
     if app in VIDEOS and VIDEOS[app]:
         nav = extract_video_nav(VIDEOS[app])
@@ -47,7 +56,7 @@ def page_html(app: str) -> str:
             'content="width=device-width,initial-scale=1"></head>'
             '<body><aside id="app-sidebar" class="sidebar">'
             '<nav aria-label="Applications"><a>Video Studio</a></nav></aside>'
-            f'<main>{nav}<section data-fixture-content="1"></section></main>'
+            f'<main>{extract_experiment_nav()}{nav}<section data-fixture-content="1"></section></main>'
             '</body></html>'
         )
     # Independently routed apps retain their own DOM and native shell JS.
@@ -189,6 +198,12 @@ def verify_song_navigation(browser, shell_js: str, shell_css: str) -> list[str]:
         if canonical_html.count(old) != count:
             raise RuntimeError("canonical URL fixture differs from reviewed Voice HTML")
         canonical_html = canonical_html.replace(old, new)
+    from jinja2 import ChainableUndefined, Environment, FileSystemLoader
+    scene_env = Environment(loader=FileSystemLoader(SCENE / "templates"),
+                            undefined=ChainableUndefined)
+    experiment_html = scene_env.get_template("base.html").render(
+        request={"session": {"is_admin": False, "app_access": "all"}},
+        page="experiment_studio", username="fixture")
     context = browser.new_context(viewport={"width": 1440, "height": 900})
     errors = []
     origin = "https://app.scenebuilder.online"
@@ -201,6 +216,8 @@ def verify_song_navigation(browser, shell_js: str, shell_css: str) -> list[str]:
                 route.fulfill(content_type="text/html", body='<script>location.replace("/audio-downloader/")</script>')
             elif url.split("?", 1)[0] == origin + "/audio-downloader/":
                 route.fulfill(content_type="text/html", body=canonical_html)
+            elif url.split("?", 1)[0] == origin + "/experiment-studio/":
+                route.fulfill(content_type="text/html", body=experiment_html)
             elif "/static/vps1_native_site_shell.js" in url:
                 route.fulfill(content_type="application/javascript", body=shell_js)
             elif "/static/vps1_native_site_shell.css" in url:
@@ -216,7 +233,7 @@ def verify_song_navigation(browser, shell_js: str, shell_css: str) -> list[str]:
             errors.append("song-studio: canonical URL changed unexpectedly")
         page.locator('.vps1-native-song-tabs').wait_for(state="visible")
         song = page.locator('#vps1-native-site-sidebar nav a[href="/song-studio/"]')
-        voice = page.locator('#vps1-native-site-sidebar nav a[href*="#vps1-production"]')
+        experiment = page.locator('#vps1-native-site-sidebar nav a[href="/experiment-studio/"]')
         if song.get_attribute("aria-current") != "page":
             errors.append("song-studio: initial Audio Downloader selection missing")
         if page.locator('.vs-engine-selector').is_visible():
@@ -228,8 +245,11 @@ def verify_song_navigation(browser, shell_js: str, shell_css: str) -> list[str]:
         if page.locator('.vps1-native-song-tabs a').all_text_contents() != [
                 "Audio Downloader", "Song Maker", "Song Uploader"]:
             errors.append("song-studio: independent app tabs missing")
-        voice.click()
+        experiment.click()
+        page.wait_for_url(origin + "/experiment-studio/")
+        page.locator('nav[aria-label="Experiment Studio"] a[href^="/voice-studio/app"]').click()
         page.wait_for_url(origin + "/voice-studio/app#vps1-production")
+        voice = page.locator('nav[aria-label="Experiment Studio"] a[href^="/voice-studio/app"]')
         page.wait_for_function("!document.body.classList.contains('vs-audio-active')")
         if not page.locator('.vs-engine-selector').is_visible():
             errors.append("voice-studio: Voice engine tabs missing after switching back")
@@ -305,7 +325,7 @@ def run(screenshots: Path | None) -> int:
                             page.add_style_tag(content="body{margin:0}")
                             page.add_style_tag(content=shell_css)
                             page.add_style_tag(content=geometry_css)
-                            if app in ("scene-builder", "short-maker", "video-merger"):
+                            if app in ("scene-builder", "video-merger"):
                                 # Run the actual unifier, not only a mock legacy sidebar.
                                 page.evaluate(
                                     """(source) => {
@@ -316,8 +336,7 @@ def run(screenshots: Path | None) -> int:
                                     }""",
                                     native_js)
                                 names = page.locator("#app-sidebar > nav > a").all_text_contents()
-                                if names != ["Dashboard", "Upload Studio", "Video Studio",
-                                             "Voice Studio", "Song Studio", "Experiment Studio"]:
+                                if names != ["Dashboard", "Song Studio", "Short Studio", "Experiment Studio"]:
                                     errors.append(f"{width}px {app}: sidebar drift {names!r}")
                             if app in NATIVE:
                                 workspace = {"auto-caption-studio": "acs",
@@ -360,11 +379,20 @@ def run(screenshots: Path | None) -> int:
                                 continue
                             if rect["height"] < 62 - TOLERANCE_PX:
                                 errors.append(f"{width}px {app}: rail height={rect['height']}")
+                            # Every third-level rail must follow, not overlap, Experiment Studio.
+                            outer = page.locator('nav[aria-label="Experiment Studio"]')
+                            if outer.count() != 1:
+                                errors.append(f"{width}px {app}: Experiment Studio level missing")
+                            else:
+                                outer_rect = outer.bounding_box()
+                                if (not outer_rect or
+                                        rect["y"] < outer_rect["y"] + outer_rect["height"]):
+                                    errors.append(f"{width}px {app}: overlapping Studio levels")
                             if app in VIDEOS:
                                 destinations = nav.locator("a").evaluate_all(
                                     "links => links.map(link => link.getAttribute('href'))")
                                 expected = ["/scene-builder/", "/auto-caption-studio/",
-                                            "/short-maker/", "/video-merger/"]
+                                            "/video-merger/"]
                                 if destinations != expected:
                                     errors.append(f"{width}px {app}: Video destinations {destinations!r}")
                             else:
@@ -396,17 +424,26 @@ def run(screenshots: Path | None) -> int:
                             errors.append(f"{width}px {app}: {type(exc).__name__}: {exc}")
                         finally:
                             page.close()
-                    if len(rails) != 6:
-                        errors.append(f"{width}px missing one of six Studio group rails")
+                    if len(rails) != 5:
+                        errors.append(f"{width}px missing one of five Studio group rails")
                     else:
                         base = rails["scene-builder"]
                         for app, rect in rails.items():
-                            for axis in ("x", "y"):
-                                if abs(rect[axis] - base[axis]) > TOLERANCE_PX:
+                            if abs(rect["x"] - base["x"]) > TOLERANCE_PX:
+                                errors.append(
+                                    f"{width}px {app}: x={rect['x']:.1f} "
+                                    f"vs Scene={base['x']:.1f} (limit {TOLERANCE_PX})")
+                        # Vertical alignment within each third-level Studio, not
+                        # between unrelated legacy and independent wrappers.
+                        for group in (("scene-builder", "video-merger", "auto-caption-studio"),
+                                      ("auto-uploader", "auto-stream")):
+                            reference = rails[group[0]]
+                            for name in group[1:]:
+                                if abs(rails[name]["y"] - reference["y"]) > TOLERANCE_PX:
                                     errors.append(
-                                        f"{width}px {app}: {axis}={rect[axis]:.1f} "
-                                        f"vs Scene={base[axis]:.1f} (limit {TOLERANCE_PX})")
-                        for name in ("short-maker", "video-merger", "auto-caption-studio"):
+                                        f"{width}px {name}: Studio rail y drift "
+                                        f"{rails[name]['y']:.1f} vs {reference['y']:.1f}")
+                        for name in ("video-merger", "auto-caption-studio"):
                             ratio = changed_pixel_ratio(
                                 screenshots_in_memory["scene-builder"],
                                 screenshots_in_memory[name])

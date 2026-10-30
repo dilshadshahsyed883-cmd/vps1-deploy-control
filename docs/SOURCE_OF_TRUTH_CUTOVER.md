@@ -11,7 +11,7 @@ production. Existing Drive Bridge and snapshot/cutover safeguards remain in forc
 - Runtime secrets, user uploads, databases, queues, media, model caches and
   ongoing jobs are persistent VPS data, never Git content.
 - A merge changing only apps/<registered-app>/ can produce exactly that active
-  app's immutable source artifact; Auto Script is OFFLINE.
+  app's immutable source artifact; Auto Script was excluded from this legacy cutover lane. Its independent runtime is ONLINE per owner as of 29 Oct 2026.
 - Registry, shell, dependency, build-tool, workflows, unknown scripts and
   staging-tool changes require shared-impact review. Unregistered apps and
   unknown changed paths fail closed; docs/tests are explicitly exempted.
@@ -58,7 +58,7 @@ The additional variable `VPS1_STAGING_DRIFT_WATCH_APPROVED=yes` is required.
 It runs the trusted GitHub-checkout validator via SSH stdin without
 copying the script to the VPS. It checks the stored release digests,
 active commit SHA, unexpected files and symlink escapes; unstaged apps
-are not reported as successful. Auto Script remains offline.
+are not reported as successful. Auto Script remains excluded from this historical cutover flow, but its separate existing production app is ONLINE per owner (29 Oct 2026).
 Local metadata can itself be tampered with: this is local integrity
 monitoring, not independent GitHub artifact attestation or production monitoring.
 

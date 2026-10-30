@@ -8,7 +8,7 @@ Requested navigation:
 - Subtab uses the shared responsive design tokens; no new backend services.
 - The landing route redirects to the first subtab, and the subtab renders an honest UI-only workspace.
 - Antidetect browser/profile engine is **not installed or active**. Never claim profile, proxy, fingerprint, or automation functions are working yet.
-- No modifications to other studio queues, sessions, OAuth, storage, or Auto Script (stays OFFLINE).
+- Historical 20 October scope: no modifications to other studio queues, sessions, OAuth, storage, or Auto Script. Current status supersedes this earlier offline-era note: Auto Script ONLINE per owner on 29 October; activation PR #314 and navigation PR #315 merged.
 
 Offline checks:
 `python3 -m unittest production.test_unified_sidebar_navigation -v`
@@ -34,3 +34,17 @@ Deployment must use the existing guarded GitHub → Tailscale release path; prod
 - The existing Auto Script UI uses the Experiment Studio shared header/sidebar and highlights Auto Script in its subtab rail. SML's independent native rail links to the same route; the SML HTML cache-busts only the shared navigation script.
 - Existing data, channels, queue, credentials, auth and scheduler are not modified by this navigation work. Two independent apps (Scene and SML) are the only guarded release targets, with SML idle preflight and app-specific rollback.
 - Release on protected main only with `[vps1-experiment-auto-script-nav]` and confirm public JS/readback and authenticated UI status. Offline tests exercise native and legacy shell navigation.
+
+## Nested Video, Voice and Upload Studio navigation (2026-10-30)
+
+Owner-approved navigation hierarchy:
+- **Primary sidebar:** Dashboard, Song Studio, Experiment Studio; Admin remains conditional on a verified administrator session. Video Studio, Voice Studio, and Upload Studio are **not** primary sidebar entries.
+- **Experiment Studio second-level rail:** Antidetect Browser, Self Media Library, Auto Script, Video Studio, Voice Studio, Upload Studio.
+- **Third-level rails:** Video Studio retains Scene Builder, Auto Caption Studio, Short Maker, Video Merger and their app-local tabs; Voice Studio retains its existing voice engines/queue controls; Upload Studio retains Auto Uploader, Auto Stream and their app-local tabs.
+- Existing direct URLs, browser bookmarks, sessions, API endpoints, upload/download queues, media, Drive connections and worker processes are unchanged. Independent apps do not become iframes or new worker instances. Song Studio stays separate.
+- Scene, Short Maker, and Video Merger initial HTML no longer renders the three retired sidebar links; native Voice, ACS, Stream, Uploader and SML obtain the same shared Experiment rail from the canonical JavaScript.
+- The Experiment second-level tab has explicit active state and scrollable mobile layout. The app-level rail immediately follows it rather than introducing a second 72px mobile top gap.
+
+Validation must cover all affected native and legacy pages, role-based Admin visibility, same-document Voice switching, all six Experiment second-level tabs, and unchanged sub-app routes.
+
+**Production policy:** code on a feature branch or PR is not a live deployment. Deploy only after protected-main checks and authorized guarded Tailscale app-scoped staging/readback/rollback. Do not turn on, stop or restart Auto Script as part of this UI-only move.

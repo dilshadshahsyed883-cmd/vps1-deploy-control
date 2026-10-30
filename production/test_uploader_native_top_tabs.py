@@ -25,7 +25,8 @@ class NativeUploaderTopTabs(unittest.TestCase):
         self.assertIn("{% if not embedded_view %}\n  <section class=\"lum-statusbar\">",html)
         self.assertIn("('engine1', 'Engine 1')",html)
         self.assertIn("('engine2', 'Engine 2')",html)
-        self.assertIn("('shorts', 'Short Uploader')",html)
+        self.assertNotIn("('shorts', 'Short Uploader')",html)
+        self.assertIn("Short Uploader · Auto Engine",html)
         self.assertNotIn("['engine1', 'engine2', 'shorts', 'short_stream']",html)
 
     def test_every_mode_is_native_and_full_width_no_nested_document(self):

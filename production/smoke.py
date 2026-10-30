@@ -49,7 +49,8 @@ def smoke_isolated_uploader_pages(state):
     import httpx
     source = REPO / "apps" / "local-upload-manager" / "part01"
     checked = {}
-    for mode, leaf in (("engine2", "lum2"), ("shorts", "lum3"), ("song", "lum-song")):
+    for mode, leaf in (("engine2", "lum2"), ("shorts", "lum3"), ("song", "lum-song"),
+                       ("shortstudio", "lum-shortstudio")):
         root = state / leaf
         root.mkdir(parents=True, exist_ok=True)
         env = {
@@ -59,7 +60,7 @@ def smoke_isolated_uploader_pages(state):
             "YOUTUBE_UPLOAD_MANAGER_DATA_DIR": str(root / "core"),
             "LUM_AUTO_ENGINE_V6_ROOT": str(root / "auto_engine_v6"),
             "LUM_GOOGLE_OAUTH_ROOT": str(root / "secure"),
-            "LUM_BASE_PATH": f"/local-upload-manager/modes/{mode}",
+            "LUM_BASE_PATH": "/short-uploader" if mode == "shortstudio" else f"/local-upload-manager/modes/{mode}",
             "LUM_ENGINE_INSTANCE": mode,
             "LUM_SUITE_AUTH": "1",
             "FRESH_WEBSITE_SMOKE_TEST": "1",
@@ -89,7 +90,7 @@ def smoke_isolated_uploader_pages(state):
                         "X-Is-Admin": "0",
                     },
                 ) as client:
-                    base = f"/local-upload-manager/modes/{mode}"
+                    base = "/short-uploader" if mode == "shortstudio" else f"/local-upload-manager/modes/{mode}"
                     deadline = time.monotonic() + 35
                     while time.monotonic() < deadline:
                         if proc.poll() is not None:
@@ -117,9 +118,9 @@ def smoke_isolated_uploader_pages(state):
                             "text/html" not in page.headers.get("content-type", "") or
                             "Auto Engine" not in page.text or expected not in page.text or
                             f'data-engine-instance="{mode}"' not in page.text or
-                            page.text.count('aria-label="Auto Uploader modes"') != (0 if mode == 'song' else 1) or
+                            page.text.count('aria-label="Auto Uploader modes"') != (0 if mode in ('song', 'shortstudio') else 1) or
                             page.text.count('aria-label="Auto Uploader workspace"') != 1 or
-                            ("lum-primary-workspaces" not in page.text and mode != "song") or
+                            ("lum-primary-workspaces" not in page.text and mode not in ("song", "shortstudio")) or
                             "vps1_native_site_shell.js" not in page.text or
                             "<iframe" in page.text.lower() or
                             "Internal Server Error" in page.text):
@@ -128,7 +129,7 @@ def smoke_isolated_uploader_pages(state):
                             f"{mode} embedded UI HTTP {page.status_code}: " +
                             log.read()[-4000:]
                         )
-                    if mode == "song":
+                    if mode in ("song", "shortstudio"):
                         from html.parser import HTMLParser
                         class Tabs(HTMLParser):
                             def __init__(self):
@@ -142,7 +143,8 @@ def smoke_isolated_uploader_pages(state):
                                 if self.rail and data.strip(): self.labels.append(data.strip())
                         tabs = Tabs(); tabs.feed(page.text)
                         assert tabs.labels == ["Dashboard", "Channels", "Sheets Sync", "Auto Engine", "Logs"], tabs.labels
-                        assert 'data-workspace="song-uploader"' in page.text
+                        expected_workspace = 'song-uploader' if mode == 'song' else 'short-uploader'
+                        assert f'data-workspace="{expected_workspace}"' in page.text
                         for tab in ("dashboard", "channels", "sheets", "logs"):
                             assert client.get(base + "/app?embedded=1&tab=" + tab).status_code == 200
                     checked[mode] = "NATIVE_HTML_200_NO_IFRAME"

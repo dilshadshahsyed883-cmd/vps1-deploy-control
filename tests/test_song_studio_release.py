@@ -113,7 +113,7 @@ class SongStudioReleaseTests(unittest.TestCase):
         self.assertIn(b'KEEP_RENDERER_CONFIGURATION',changed['part01/app.py'])
         self.assertIn(b'KEEP_OTHER_APP_STYLE',changed['part01/static/vps1_native_site_shell.css'])
         self.assertEqual(changed['part01/app.py'].count(b'# SONG_STUDIO_NAV_V1:'),1)
-        self.assertIn(b'/modes/song/app',changed['part01/app.py'])
+        self.assertIn(b'/song-uploader',changed['part01/app.py'])
         self.assertEqual(release.patch_scene_payloads(changed,source),changed)
         original['part01/static/vps1_native_site_shell.js']=b'unreviewed live drift'
         with self.assertRaisesRegex(RuntimeError,'shared shell drift'):release.patch_scene_payloads(original,source)

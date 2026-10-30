@@ -40,7 +40,8 @@ class CanonicalNavigationTests(unittest.TestCase):
         self.assertIn('RedirectResponse("/auto-caption-studio/", status_code=303)',self.scene)
         self.assertIn('"/auto-caption-studio/", true',self.shell)
         self.assertIn('href="/auto-caption-studio/"',self.base)
-        self.assertIn('href="/short-maker/"',self.base)
+        self.assertIn('href="/short-maker"',self.base)
+        self.assertIn('["Short Studio", "/short-maker", "short"]', self.shell)
         self.assertIn('href="/video-merger/"',self.base)
 
 if __name__=="__main__":

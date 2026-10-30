@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ 'Song Uploader' if engine_instance == 'song' else 'Auto Uploader' }}{% endblock %}
+{% block title %}{{ 'Short Uploader' if engine_instance == 'shortstudio' else ('Song Uploader' if engine_instance == 'song' else 'Auto Uploader') }}{% endblock %}
 {% block subtitle %}Main web integrated{% endblock %}
 {% block content %}
 <div class="lum-shell" data-mode="{{ mode }}" data-engine-instance="{{ engine_instance }}" data-ui-patch="LUM_AUTOMATION_QUEUE_STICKY_UI_V1">
@@ -8,7 +8,7 @@
 
 
 
-  {% if (tab != 'auto_stream' or engine_instance == 'engine1') and engine_instance != 'song' %}
+  {% if (tab != 'auto_stream' or engine_instance == 'engine1') and engine_instance not in ['song', 'shortstudio'] %}
   <nav class="lum-primary-workspaces" aria-label="Auto Uploader main subtabs">
     <a class="{{ 'active' if tab != 'auto_stream' else '' }}" href="{{ base_path }}/app?tab=dashboard" aria-current="{{ 'page' if tab != 'auto_stream' else 'false' }}">Auto Uploader</a>
     <a class="{{ 'active' if tab == 'auto_stream' else '' }}" href="/auto-stream/" aria-current="{{ 'page' if tab == 'auto_stream' else 'false' }}">Auto Stream</a>
@@ -17,7 +17,7 @@
   {% if not embedded_view %}
   <section class="lum-statusbar">
     <div class="lum-status-primary">
-      <div class="lum-status-left"><strong>{{ 'Song Uploader' if engine_instance == 'song' else 'Auto Uploader' }}</strong><span class="lum-badge good">{{ 'Main web connected' if suite_auth else 'Standalone online' }}</span>{% if suite_auth %}<span class="lum-badge brand">Shared login</span>{% else %}<span class="lum-badge brand">Standalone auth</span>{% endif %}</div>
+      <div class="lum-status-left"><strong>{{ 'Short Uploader' if engine_instance == 'shortstudio' else ('Song Uploader' if engine_instance == 'song' else 'Auto Uploader') }}</strong><span class="lum-badge good">{{ 'Main web connected' if suite_auth else 'Standalone online' }}</span>{% if suite_auth %}<span class="lum-badge brand">Shared login</span>{% else %}<span class="lum-badge brand">Standalone auth</span>{% endif %}</div>
 
     </div>
     <div class="lum-status-meta"><span>Serial uploader</span><strong>1 active</strong><span>Verified cleanup</span><strong>{{ 'ON' if health.verified_cleanup else 'OFF' }}</strong></div>
@@ -30,7 +30,7 @@
       <a class="{{ 'active' if tab=='channels' else '' }}" href="{{ base_path }}/app?tab=channels">Channels</a>
       <a class="{{ 'active' if tab=='sheets' else '' }}" href="{{ base_path }}/app?tab=sheets">Sheets Sync</a>
       <a class="{{ 'active' if tab=='auto_engine' else '' }}" href="{{ base_path }}/app?tab=auto_engine">Auto Engine</a>
-      {% if engine_instance != 'song' %}
+      {% if engine_instance not in ['song', 'shortstudio'] %}
       <a class="{{ 'active' if tab=='add_video' else '' }}" href="{{ base_path }}/app?tab=add_video">Add Video</a>
       <a class="{{ 'active' if tab=='bulk_import' else '' }}" href="{{ base_path }}/app?tab=bulk_import">Bulk Import</a>
       <a class="{{ 'active' if tab=='queue' else '' }}" href="{{ base_path }}/app?tab=queue">Queue</a>
@@ -53,7 +53,7 @@
       <div class="lum-row"><label class="lum-field"><span>Privacy</span><select name="privacy_status"><option value="private">Private</option><option value="unlisted">Unlisted</option><option value="public">Public</option></select></label><label class="lum-field"><span>Category ID</span><input name="category_id" value="22"></label></div>
       <label class="lum-check"><input type="checkbox" name="made_for_kids" value="on"> Made for Kids</label>
     </section>
-    {% if engine_instance != 'shorts' %}
+    {% if engine_instance not in ['shorts', 'shortstudio'] %}
     <section class="lum-card">
       <div class="lum-card-head"><div><h2>Thumbnail {{ '(required)' if engine_instance in ['engine2', 'song'] else '' }}</h2><p>JPG/PNG, maximum 2 MB.</p></div></div>
       <div class="lum-thumb" id="lum-thumb-preview"><span>16:9 thumbnail preview</span></div>
@@ -694,12 +694,12 @@
 {% elif tab == 'auto_engine' %}
     <section class="lum-card">
       <div class="lum-card-head">
-        <div><h2>{{ 'Song Uploader · Short Uploader Auto Engine' if engine_instance == 'song' else 'Auto Uploader · Three Modes' }}</h2>
-          <p>{% if engine_instance == 'song' %}Short Uploader Auto Engine workflow: channel-based Video ID matching, Sheets, schedules, queue and records. Matching JPG/PNG thumbnails are required for Song Uploader.{% else %}Three independent upload modes. Auto Stream is a separate main subtab. Switching modes never starts a job.{% endif %}</p></div>
+        <div><h2>{{ 'Short Uploader · Auto Engine' if engine_instance == 'shortstudio' else ('Song Uploader · Short Uploader Auto Engine' if engine_instance == 'song' else 'Auto Uploader · Two Modes') }}</h2>
+          <p>{% if engine_instance == 'shortstudio' %}Short Uploader workflow copied from Upload Studio: channel Video ID matching, Sheets, schedules, queue and records. No thumbnail required.{% elif engine_instance == 'song' %}Short Uploader Auto Engine workflow: channel-based Video ID matching, Sheets, schedules, queue and records. Matching JPG/PNG thumbnails are required for Song Uploader.{% else %}Engine 1 and Engine 2 remain here. Short Uploader is now in Short Studio. Switching modes never starts a job.{% endif %}</p></div>
       </div>
-      {% if engine_instance != "song" %}
+      {% if engine_instance not in ['song', 'shortstudio'] %}
       <nav class="lum-ae-tabs lum-ae-tabs-primary" aria-label="Auto Uploader modes">
-        {% for key, label in [('engine1', 'Engine 1'), ('engine2', 'Engine 2'), ('shorts', 'Short Uploader')] %}
+        {% for key, label in [('engine1', 'Engine 1'), ('engine2', 'Engine 2')] %}
         {% set active_engine = engine_instance == key %}
         <a class="lum-button {{ 'primary' if active_engine else 'secondary' }}"
            href="{% if key == 'engine1' %}/local-upload-manager/app?embedded=1&tab=auto_engine&auto_mode=engine1{% else %}/local-upload-manager/modes/{{ key }}/app?embedded=1&tab=auto_engine{% endif %}"
@@ -708,9 +708,9 @@
       </nav>
       {% endif %}
       {% if engine_instance != 'engine1' %}
-      <p class="lum-note" role="status"><strong>{{ 'Song Uploader · Short Uploader Auto Engine' if engine_instance == 'song' else ('Engine 2' if engine_instance == 'engine2' else 'Short Uploader') }}</strong> — independent uploader workspace, data and queue. Automatic publishing remains disabled until configured.</p>
+      <p class="lum-note" role="status"><strong>{{ 'Short Uploader' if engine_instance == 'shortstudio' else ('Song Uploader · Short Uploader Auto Engine' if engine_instance == 'song' else ('Engine 2' if engine_instance == 'engine2' else 'Short Uploader')) }}</strong> — independent uploader workspace, data and queue. Automatic publishing remains disabled until configured.</p>
       {% endif %}
-      {% if engine_instance != "song" %}<p class="lum-note">Engine 1 uses the original uploader. Engine 2 runs in parallel with a required thumbnail; Short Uploader uses the same upload workflow without a thumbnail. Existing channels, records, schedules and settings are untouched.</p>{% endif %}
+      {% if engine_instance not in ['song', 'shortstudio'] %}<p class="lum-note">Engine 1 uses the original uploader. Engine 2 runs in parallel with a required thumbnail. Short Uploader has moved to Short Studio. Existing channels, records, schedules and settings are untouched.</p>{% endif %}
       {% if mode_registry.cross_mode_record_collisions %}
         <div class="lum-alert error">Cross-mode receipt collision(s) detected: {{ mode_registry.cross_mode_record_collisions }}. Do not activate additional upload workers before reconciling these identities.</div>
       {% endif %}
@@ -951,14 +951,14 @@
           <div class="lum-card-head"><div><h2>Channel Resources</h2><p>Video ID is matched case-insensitively anywhere in the video and thumbnail filenames. Extra filename text is allowed.</p></div></div>
           <div class="lum-grid lum-two">
             <label class="lum-field"><span>Video Drive Folder URL / ID</span><input name="drive_video_folder" required value="{{ src.drive_video_folder_url or src.drive_video_folder_id or '' }}" placeholder="https://drive.google.com/drive/folders/..."></label>
-            {% if engine_instance != 'shorts' %}
+            {% if engine_instance not in ['shorts', 'shortstudio'] %}
             <label class="lum-field"><span>Thumbnail Drive Folder URL / ID (required)</span><input name="drive_thumbnail_folder" required value="{{ src.drive_thumbnail_folder_url or src.drive_thumbnail_folder_id or '' }}" placeholder="https://drive.google.com/drive/folders/..."></label>
             {% endif %}
             <label class="lum-field"><span>Metadata Google Sheet URL / ID</span><input name="metadata_sheet_url_or_id" required value="{{ p.metadata_sheet_url_or_id if p else '' }}" placeholder="Google Sheet URL or ID"></label>
             <label class="lum-field"><span>Metadata Sub-sheet / Tab</span><input name="metadata_sheet_tab" value="{{ p.metadata_sheet_tab if p else '' }}" placeholder="Channel Metadata"></label>
             <label class="lum-field"><span>Exact GID</span><input name="metadata_sheet_gid" value="{{ p.metadata_sheet_gid if p else '' }}" placeholder="Optional when exact tab name is used"></label>
           </div>
-          <div class="lum-note"><strong>Required before queue:</strong> Video ID, title, Upload Enabled, schedule, one matching video{% if engine_instance != 'shorts' %} and one matching thumbnail{% endif %}. Description and tags may be blank. Duplicate Sheet IDs use the first row.</div>
+          <div class="lum-note"><strong>Required before queue:</strong> Video ID, title, Upload Enabled, schedule, one matching video{% if engine_instance not in ['shorts', 'shortstudio'] %} and one matching thumbnail{% endif %}. Description and tags may be blank. Duplicate Sheet IDs use the first row.</div>
           <label class="lum-field"><span>Notes</span><textarea name="notes" rows="2">{{ p.notes if p else '' }}</textarea></label>
           {% if p %}<div class="lum-actions"><button type="button" class="lum-button primary" data-ae-sync-scan data-profile-id="{{ p.id }}" data-csrf="{{ csrf }}">Sync Channel</button><div id="lum-ae-preflight-result" class="lum-ae-result"></div></div>{% endif %}
         </section>

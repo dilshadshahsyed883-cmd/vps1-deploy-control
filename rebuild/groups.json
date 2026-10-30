@@ -17,7 +17,7 @@
       ],
       "parallel_owner": true,
       "deployment_mode": "offline",
-      "skip_reason": "User excluded Auto Script from the fresh rebuild; preserve source only"
+      "skip_reason": "Fresh-rebuild exclusion only: Auto Script is ONLINE in the existing Scene runtime as of owner confirmation on 29 Oct 2026; do not reinstall or toggle it via the legacy fresh-rebuild flow"
     },
     {
       "id": "script-work",

@@ -64,6 +64,8 @@ def browser_test():
     def route(r):
         path=r.request.url.split('http://video.test',1)[-1].split('?')[0]
         if r.request.method!='GET':writes.append((path,r.request.method))
+        if path=='/short-maker':path='/short-maker/'
+        if path == '/short-maker':return r.fulfill(status=308,headers={'Location':'/short-maker/'},body='')
         if path in pages:return r.fulfill(content_type='text/html',body=pages[path])
         if path.startswith('/static/'):
             file=scene/'static'/path.removeprefix('/static/')
@@ -87,7 +89,13 @@ def browser_test():
                 page.evaluate('document.fonts.ready')
                 box=rail.bounding_box();rails.append(box)
                 assert page.evaluate('document.documentElement.scrollWidth<=innerWidth'),(width,path,'overflow')
-                assert abs(box['y']-(72 if width<761 else 26))<2,(width,path,box)
+                outer=page.locator('nav[aria-label="Experiment Studio"]')
+                if outer.count():
+                    outer_box=outer.bounding_box()
+                    assert abs(outer_box['y']-(72 if width<761 else 26))<2,(width,path,outer_box)
+                    assert box['y']>=outer_box['y']+outer_box['height'],(width,path,'overlapping navigation')
+                else:
+                    assert abs(box['y']-(72 if width<761 else 26))<2,(width,path,box)
                 assert abs(box['height']-62)<2,(width,path,box)
                 main=page.locator('.workspace' if 'caption' in path else 'main')
                 if width<761:
@@ -111,9 +119,13 @@ def browser_test():
             assert max(b['x'] for b in rails)-min(b['x'] for b in rails)<2,(width,rails)
             assert max(b['width'] for b in rails)-min(b['width'] for b in rails)<2,(width,rails)
             # Actual link navigation, refresh and history through independent documents.
-            page.locator('nav[aria-label="Video Studio"] a[href="/short-maker/"]').click()
+            # The mobile sidebar is an off-canvas drawer; users must open it
+            # before selecting Short Studio. This also exercises drawer behavior.
+            if width < 761:
+                page.locator('.vps1-native-toggle').click()
+            page.locator('nav[aria-label="Applications"] a[href="/short-maker"]').click()
             # Native navigation may complete asynchronously; never reload the previous page.
-            page.wait_for_url('**/short-maker/', timeout=10000)
+            page.wait_for_url('**/short-maker', timeout=10000)
             page.reload()
             actual_title=page.locator('title').text_content()
             assert actual_title=='Short Maker',(width,page.url,actual_title)

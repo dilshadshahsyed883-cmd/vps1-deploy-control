@@ -6,7 +6,7 @@ def thumbnail_required_for_mode() -> bool:
     Only the original Short Uploader omits thumbnails; the isolated Song
     Uploader enforces a matched thumbnail for each channel Video ID.
     """
-    return os.environ.get("LUM_ENGINE_INSTANCE", "engine1").strip().lower() != "shorts"
+    return os.environ.get("LUM_ENGINE_INSTANCE", "engine1").strip().lower() not in {"shorts", "shortstudio"}
 
 
 import csv

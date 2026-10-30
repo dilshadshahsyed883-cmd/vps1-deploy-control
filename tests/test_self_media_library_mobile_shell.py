@@ -57,9 +57,9 @@ class SharedShellMobile(unittest.TestCase):
                       "min-width:0!important"):
             self.assertIn(token,css,token)
         self.assertIn(".vps1-native-experiment-tabs",scene)
-        self.assertIn('if (app === "library")',js)
+        self.assertIn('app === "library" ? "library"',js)
         self.assertIn('"Experiment Studio", "/experiment-studio/"',js)
-        self.assertIn('addLink(tabs, "Self Media Library", "/self-media-library/", true)',js)
+        self.assertIn('["Self Media Library", "/self-media-library/", "library"]',js)
         self.assertIn('--vps1-sidebar-width:214px',scene)
         source=(SML/"static/index.html").read_text()
         self.assertNotIn('<aside class="sidebar">',source)

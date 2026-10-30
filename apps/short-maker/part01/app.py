@@ -628,16 +628,16 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
  <div class="brand"><div class="logo">S</div><div><strong>Scene Builder</strong><small>Team Studio</small></div></div>
  <nav>
   <a href="/">Dashboard</a>
-  <a href="/local-upload-manager">Upload Studio</a>
-  <a class="active" href="/scene-builder/" aria-current="page">Video Studio</a>
-  <a href="/voice-studio/app#vps1-production">Voice Studio</a>
+  <a href="/song-studio/">Song Studio</a>
+  <a class="active" href="/short-maker" aria-current="page">Short Studio</a>
+  <a href="/experiment-studio/">Experiment Studio</a>
 
 <!-- Auto Script stays OFFLINE -->
  </nav>
  <div class="server"><span></span> VPS Connected</div>
 </aside>
 <main>
-<nav data-video-studio-subnav="1" aria-label="Video Studio" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;margin:0 0 18px;background:#f8faff;border:1px solid #dfe5ef;border-radius:11px;box-shadow:0 2px 8px rgba(28,44,78,.03)"><a href="/scene-builder/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;background:#fff;color:#34415b">Scene Builder</a><a href="/auto-caption-studio/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;background:#fff;color:#34415b">Auto Caption Studio</a><a href="/short-maker/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;background:#315edb;color:#fff;border-color:#315edb" aria-current="page">Short Maker</a><a href="/video-merger/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;background:#fff;color:#34415b">Video Merger</a></nav>
+<nav data-video-studio-subnav="1" class="vps1-native-video-tabs vps1-native-short-tabs" aria-label="Short Studio"><a class="active" aria-current="page" href="/short-maker">Short Maker</a><a href="/short-uploader">Short Uploader</a></nav>
 
 <header><h1>Short Maker</h1><p>Every render becomes a queue job. Keep adding new jobs while one job renders.</p></header>
 <div class="sm-tabs"><button id="makerTabBtn" class="active" type="button">Maker</button><button id="queueTabBtn" type="button">Queue <span id="queueTotal"></span></button></div>

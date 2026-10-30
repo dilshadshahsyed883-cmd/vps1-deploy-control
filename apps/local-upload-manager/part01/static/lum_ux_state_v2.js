@@ -7,8 +7,9 @@
 (() => {
   'use strict';
 
-  const TAB_KEY = 'lum.main.tab';
-  const ROUTE_KEY = 'lum.route';
+  const SHORT_STUDIO = window.location.pathname.startsWith('/short-uploader/');
+  const TAB_KEY = SHORT_STUDIO ? 'lum.shortstudio.main.tab' : 'lum.main.tab';
+  const ROUTE_KEY = SHORT_STUDIO ? 'lum.shortstudio.route' : 'lum.route';
   const VALID_TABS = new Set([
     'upload','authentication','dashboard','channels','sheets','auto_engine',
     'add_video','bulk_import','queue','logs'

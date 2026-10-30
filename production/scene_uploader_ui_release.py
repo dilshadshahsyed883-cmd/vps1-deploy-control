@@ -86,9 +86,10 @@ def source_is_valid() -> None:
     app = (SOURCE / "app.py").read_text()
     wrapper = (SOURCE / "templates/video_studio_embed.html").read_text()
     require('href="/auto-caption-studio/"' in base and
-            'href="/short-maker/"' in base and
+            'href="/short-maker"' in base and
             'href="/video-merger/"' in base and
-            'href="/local-upload-manager"' in base and
+            'href="/local-upload-manager/app?embedded=1&amp;tab=dashboard"' in base and
+            'href="/experiment-studio/"' in base and
             'href="/auto-script"' not in base,
             "original Scene navigation or Video Studio subtabs regressed")
     require('href="/auto-caption-studio/"' in acs
@@ -115,7 +116,6 @@ def verify_video_studio() -> None:
     route_destinations = {
         "/local-upload-manager": "/local-upload-manager/app?embedded=1&tab=dashboard",
         "/auto-caption/studio": "/auto-caption-studio/",
-        "/video-studio/short-maker": "/short-maker/",
         "/video-studio/video-merger": "/video-merger/",
         "/voice-studio": "/voice-studio/app",
     }
@@ -140,7 +140,7 @@ def verify_video_studio() -> None:
             (b'data-page="queue"', b'data-page="upload"', b'data-page="voice"',
              b'id="acs-native-live"', b'vps1_native_site_shell.js',
              b"const API='/auto-caption-studio/api/web-flow'"),
-        "/short-maker/": (b'id="makerTabBtn"', b'data-video-studio-subnav',
+        "/short-maker/": (b'id="makerTabBtn"', b'aria-label="Short Studio"',
                            b'data-vps1-server-identity="1"', b'class="vps1-server-admin"'),
         "/video-merger/": (b'id="tab-merge"', b'data-video-studio-subnav',
                            b'data-vps1-server-identity="1"', b'class="vps1-server-admin"'),

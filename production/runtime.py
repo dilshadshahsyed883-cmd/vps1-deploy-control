@@ -335,6 +335,9 @@ def require_lum_release_idle(state: Path) -> None:
     if ((state / "lum-song/core/data/uploader.db").exists() or
             Path("/etc/systemd/system/vps1-production-lum-song-web.service").exists()):
         modes += (("song", 8018, "/local-upload-manager/modes/song/health", "lum-song"),)
+    if ((state / "lum-shortstudio/core/data/uploader.db").exists() or
+            Path("/etc/systemd/system/vps1-production-lum-shortstudio-web.service").exists()):
+        modes += (("shortstudio", 8019, "/short-uploader/health", "lum-shortstudio"),)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     in_flight = ("CLAIMED", "UPLOADING", "THUMBNAIL_UPLOADING",
                  "PROCESSING", "IN_PROGRESS", "WAITING_NETWORK")
@@ -384,6 +387,23 @@ def require_sml_idle(state):
             if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone():
                 if c.execute('SELECT 1 FROM '+table+' WHERE '+where+' LIMIT 1').fetchone():
                     raise RuntimeError('SML_RELEASE_BLOCKED: active '+table+' work; retry after completion')
+
+
+def require_short_maker_idle(state):
+    """Never interrupt an existing Short Maker render during navigation migration."""
+    jobs = state / "jobs"
+    if not jobs.is_dir():
+        return
+    for item in jobs.glob("*/state.json"):
+        if item.is_symlink() or not item.is_file():
+            raise RuntimeError("Short Maker state ownership drift")
+        try:
+            record = json.loads(item.read_text())
+        except (ValueError, OSError) as exc:
+            raise RuntimeError("Unreadable Short Maker job state blocks release") from exc
+        status = str(record.get("status") or "").lower().strip()
+        if status not in {"completed", "failed", "cancelled", "canceled"}:
+            raise RuntimeError("Short Maker has an unfinished job; preserving live render")
 
 
 def install_app(app, revision):
@@ -580,6 +600,11 @@ def install_app(app, revision):
     # Never interrupt an upload in any of the three independently running engines.
     if app == 'local-upload-manager' and active:
         require_lum_release_idle(state)
+    if app == 'short-maker' and active:
+        require_short_maker_idle(state)
+    if app == 'video-merger' and active:
+        from production.video_template_release import idle as require_video_merger_idle
+        require_video_merger_idle('video-merger')
     if app == 'voice-studio' and active:
         require_voice_release_idle(state)
     # Only the app being replaced is stopped. Other apps and all agents stay up.
@@ -589,6 +614,7 @@ def install_app(app, revision):
         run(['systemctl', 'stop', unit_name], quiet=True)
     workers.stop(app)
     changed = False
+    short_studio_route_receipt = None
     try:
         backups = backup_databases(state, journal / 'sqlite-backup')
         changed = True
@@ -611,13 +637,23 @@ def install_app(app, revision):
             install_browser()
         if shutil.disk_usage('/').free < 5_000_000_000:
             raise RuntimeError('operational disk reserve breached')
+        if app == 'local-upload-manager':
+            intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+            if '[vps1-short-studio-release]' in intent:
+                from production.short_studio_release import install_route
+                short_studio_route_receipt = install_route(revision)
         atomic_json(record, {'revision': revision, 'unit': unit_name, 'previous': previous,
                              'transaction': str(journal), 'status': 'ACTIVE'})
         event(app=app, result='PASS_SERVICE_HEALTH', revision=revision, port=CATALOG[app]['port'],
               sqlite_backups=len(backups), health=health, rollback=str(journal))
     except BaseException:
-        if changed or active:
-            restore(app, previous)
+        try:
+            if short_studio_route_receipt is not None:
+                from production.short_studio_release import restore_route
+                restore_route(short_studio_route_receipt)
+        finally:
+            if changed or active:
+                restore(app, previous)
         raise
 
 

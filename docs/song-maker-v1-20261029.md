@@ -2,7 +2,7 @@
 
 Status: implemented locally; protected PR/CI and live acceptance pending.
 Repository: `dilshadshahsyed883-cmd/vps1-deploy-control`.
-VPS_1 / Agent 1 locked. Auto Script OFFLINE. No production mutation.
+VPS_1 / Agent 1 locked. Auto Script ONLINE per 29 October owner correction; preserve its existing worker, scheduler, jobs and data. No production mutation by this Song Maker source change.
 
 ## Existing-system audit
 

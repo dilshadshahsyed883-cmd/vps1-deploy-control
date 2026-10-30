@@ -36,9 +36,9 @@ class SceneUploaderReleaseTests(unittest.TestCase):
             if base == self.source:
                 (base / "templates/base.html").write_text(
                     '<a href="/auto-caption-studio/"></a>'
-                    '<a href="/short-maker/"></a>'
+                    '<a href="/short-maker"></a>'
                     '<a href="/video-merger/"></a>'
-                    '<a href="/local-upload-manager"></a>')
+                    '<a href="/local-upload-manager/app?embedded=1&amp;tab=dashboard"></a><a href="/experiment-studio/"></a>')
                 (base / "templates/acs_studio_shell.html").write_text(
                     '<a href="/auto-caption-studio/">ACS</a>')
                 (base / "templates/video_studio_embed.html").write_text(

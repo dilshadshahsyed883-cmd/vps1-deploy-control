@@ -86,7 +86,7 @@ from .auto_engine_v6 import (
     sync_channel_profile as v6_sync_channel_profile, resume_channel_profile as v6_resume_channel_profile,
 )
 
-app = FastAPI(title="Auto Uploader", version=BUILD, docs_url=None, redoc_url=None)
+app = FastAPI(title="Short Uploader" if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio" else "Auto Uploader", version=BUILD, docs_url=None, redoc_url=None)
 v6_store = V6Store()
 app.mount(route("/static"), StaticFiles(directory=str(STATIC_ROOT)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATE_ROOT))
@@ -359,10 +359,10 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
     user = current_user(request)
     if SUITE_AUTH_ENABLED and embedded:
         request.session["lum_embedded"] = "1"
-    embedded_view = SUITE_AUTH_ENABLED and str(request.session.get("lum_embedded") or "") == "1"
+    embedded_view = (SUITE_AUTH_ENABLED and str(request.session.get("lum_embedded") or "") == "1") or os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio"
     mode = "heavy"
     allowed = {"dashboard", "channels", "sheets", "auto_engine", "add_video", "bulk_import", "queue", "logs", "auto_stream"}
-    if os.getenv("LUM_ENGINE_INSTANCE", "engine1") == "song":
+    if os.getenv("LUM_ENGINE_INSTANCE", "engine1") in {"song", "shortstudio"}:
         allowed = {"dashboard", "channels", "sheets", "auto_engine", "logs"}
     default_tab = "dashboard"
     selected = tab if tab in allowed else default_tab
@@ -381,7 +381,7 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
     except ValueError:
         raise HTTPException(status_code=400, detail="Unknown uploader mode")
     engine_instance = os.getenv("LUM_ENGINE_INSTANCE", "engine1")
-    if engine_instance in {"engine2", "shorts", "song"}:
+    if engine_instance in {"engine2", "shorts", "song", "shortstudio"}:
         # Independent uploaders cannot access Auto Stream.
         if selected == "auto_stream":
             raise HTTPException(404, "Auto Stream is not an uploader engine")
@@ -627,7 +627,7 @@ async def add_video(
             raise ValueError("Engine 2 requires a JPG/PNG thumbnail before queue admission.")
         if upload_instance == "song" and not has_thumbnail:
             raise ValueError("Song Uploader requires a JPG/PNG thumbnail before queue admission.")
-        if upload_instance == "shorts" and has_thumbnail:
+        if upload_instance in {"shorts", "shortstudio"} and has_thumbnail:
             raise ValueError("Short Uploader does not use thumbnails.")
         if thumbnail and thumbnail.filename:
             suffix = Path(thumbnail.filename).suffix.lower()

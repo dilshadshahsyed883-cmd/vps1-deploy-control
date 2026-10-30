@@ -54,10 +54,10 @@ class ExperimentNavigation(unittest.TestCase):
 
     def test_experiment_shell_links_current_media_application(self):
         script=(SCENE/"static/vps1_native_site_shell.js").read_text()
-        self.assertIn('app === "library" ? "experiment"',script)
-        self.assertIn('if (app === "library")',script)
-        self.assertIn('addLink(tabs, "Self Media Library", "/self-media-library/", true)',script)
-        self.assertIn('addLink(tabs, "Auto Script", "/experiment-studio/auto-script/", false)',script)
+        self.assertIn('app === "library" ? "library"',script)
+        self.assertIn('["acs", "voice", "uploader", "stream", "library"].includes(app)',script)
+        self.assertIn('["Self Media Library", "/self-media-library/", "library"]',script)
+        self.assertIn('["Auto Script", "/experiment-studio/auto-script/", "auto-script"]',script)
         css=(SCENE/"static/vps1_native_site_shell.css").read_text()
         for selector in (".vps1-native-experiment-tabs","body.vps1-native-library .app-shell",
                          "body.vps1-native-library .sml-control-rail"):

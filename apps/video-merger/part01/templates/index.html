@@ -42,9 +42,8 @@
   <div class="brand"><div class="logo">S</div><div><strong>Scene Builder</strong><small>Team Studio</small></div></div>
   <nav aria-label="Applications">
     <a href="/">Dashboard</a>
-    <a href="/local-upload-manager">Upload Studio</a>
-    <a class="active" href="/scene-builder/" aria-current="page">Video Studio</a>
-    <a href="/voice-studio/app#vps1-production">Voice Studio</a>
+    <a href="/song-studio/">Song Studio</a>
+    <a class="active" href="/experiment-studio/" aria-current="page">Experiment Studio</a>
 
 <!-- Auto Script stays OFFLINE -->
     <!-- Admin appears only after verified Scene session role -->
@@ -53,7 +52,8 @@
   <div class="server-dot"><span></span> VPS Connected</div>
 </aside>
 <main class="vm-shell-main">
-<nav data-video-studio-subnav="1" aria-label="Video Studio" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;margin:0 0 18px;background:#f8faff;border:1px solid #dfe5ef;border-radius:11px;box-shadow:0 2px 8px rgba(28,44,78,.03)"><a href="/scene-builder/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;background:#fff;color:#34415b">Scene Builder</a><a href="/auto-caption-studio/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;background:#fff;color:#34415b">Auto Caption Studio</a><a href="/short-maker/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;background:#fff;color:#34415b">Short Maker</a><a href="/video-merger/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;background:#315edb;color:#fff;border-color:#315edb" aria-current="page">Video Merger</a></nav>
+<nav class="vps1-experiment-tabs" aria-label="Experiment Studio"><a href="/experiment-studio/antidetect-browser/">Antidetect Browser</a><a href="/experiment-studio/self-media-library/">Self Media Library</a><a href="/experiment-studio/auto-script/">Auto Script</a><a class="active" aria-current="page" href="/scene-builder/">Video Studio</a><a href="/voice-studio/app#vps1-production">Voice Studio</a><a href="/local-upload-manager/app?embedded=1&amp;tab=dashboard">Upload Studio</a></nav>
+<nav data-video-studio-subnav="1" aria-label="Video Studio" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;margin:0 0 18px;background:#f8faff;border:1px solid #dfe5ef;border-radius:11px;box-shadow:0 2px 8px rgba(28,44,78,.03)"><a href="/scene-builder/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;background:#fff;color:#34415b">Scene Builder</a><a href="/auto-caption-studio/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;background:#fff;color:#34415b">Auto Caption Studio</a><a href="/video-merger/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;background:#315edb;color:#fff;border-color:#315edb" aria-current="page">Video Merger</a></nav>
 
 <div class="vm-app"><div class="vm-container">
   <div class="vm-page-head"><div><h1>Video Merger</h1><p>Merge a reusable Library video with new sources and save verified output directly to Google Drive.</p></div><button class="btn secondary" onclick="newMerge()">+ New Merge</button></div>

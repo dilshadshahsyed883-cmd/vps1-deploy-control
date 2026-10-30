@@ -1,10 +1,7 @@
-# Fresh VPS rebuild — 10 active applications, Auto Script OFFLINE
+# Historical fresh VPS rebuild — 10 migration targets, Auto Script excluded (current runtime ONLINE)
 
 The application registry retains eleven historical names, but **only ten are deployment targets**.
-**Auto Script is intentionally OFFLINE by user request**: do not install, start, schedule,
-route, test as a functional gate, or include it in cutover. Its existing sanitized source
-is preserved in `apps/auto-script/` for future separately authorized work. Do not delete
-or change any currently running Auto Script production service as part of this GitHub-only work.
+**Auto Script was excluded from this legacy fresh-rebuild workflow by the earlier owner instruction**: do not install, start, schedule, route, or re-create it **through this rebuild flow**. This is not the current runtime status: Auto Script is already ONLINE per owner on 29 Oct 2026 after the scoped activation (PR #314). Preserve existing production Auto Script services, scheduler, jobs, SQLite, auth and credentials. The rebuild exclusion protects against accidental replacement.
 
 The existing VPS_1 production must remain unchanged while the OVH Cloud snapshot is
 being saved. No reboot, production deployment, database import, or cutover is authorized.
@@ -32,4 +29,4 @@ artifact integrity checks do not imply external services are configured.
 5. Defer external OAuth, YouTube publishing and other unavailable credentials without calling
    the affected external integration PASS.
 
-Auto Script must remain OFFLINE unless the user explicitly changes its deployment state.
+Auto Script must remain excluded from this legacy fresh-rebuild deployment unless separately authorized. Its independently existing runtime is ONLINE per owner on 29 Oct 2026.
