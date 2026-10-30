@@ -371,6 +371,54 @@ class SongMakerTests(unittest.TestCase):
         self.assertFalse(calls)
         self.assertEqual(len(files[DEFAULT_INPUT]), 2)
 
+    def test_music_overlay_export_validation_and_job_snapshot(self):
+        from songmaker.media import OVERLAYS, video_filter
+        state = self.client.get('/song-maker/api/state', headers=self.headers).json()
+        self.assertFalse(state['export']['overlay_enabled'])
+        self.assertEqual(video_filter(), 'loop=loop=-1:size=1:start=0')
+        for preset in OVERLAYS:
+            self.assertNotEqual(video_filter(True, preset, 65), video_filter())
+            self.assertEqual(video_filter(False, preset, 65), video_filter())
+        body = {'resolution': '720p', 'fit': 'fit', 'quality': 'balanced',
+                'overlay_enabled': True, 'overlay_preset': 'rhythm_pulse',
+                'overlay_strength': 65, 'overlay_speed': 'fast'}
+        self.assertEqual(self.client.post('/song-maker/api/export', headers=self.headers,
+                                          json=body).status_code, 200)
+        self.assertEqual(self.client.get('/song-maker/api/state',
+                                        headers=self.headers).json()['export']['overlay_preset'], 'rhythm_pulse')
+        for invalid in ({'overlay_preset': 'movie=bad'}, {'overlay_strength': 101},
+                        {'overlay_enabled': 'true'}, {'overlay_speed': 'invalid'}):
+            resp = self.client.post('/song-maker/api/export', headers=self.headers,
+                                    json={**body, **invalid})
+            self.assertEqual(resp.status_code, 422, resp.text)
+        job = self.submit()
+        self.assertTrue(job['overlay_enabled'])
+        self.assertEqual(job['overlay_preset'], 'rhythm_pulse')
+        self.assertEqual(job['overlay_strength'], 65)
+        self.assertEqual(job['overlay_speed'], 'fast')
+        body['overlay_enabled'] = False
+        self.client.post('/song-maker/api/export', headers=self.headers, json=body)
+        self.assertTrue(self.store.get(job['id'])['overlay_enabled'])  # immutable queue snapshot
+        from songmaker.drive import default_settings
+        saved = default_settings()
+        saved.update(body)
+        pair = self.item('sample.jpg', 'img-overlay')
+        audio = self.item('sample.mp3', 'aud-overlay')
+        synced = sync_owner(self.store, 'alice', saved,
+                            drive=type('Fake', (), {'listing': lambda _, folder: [pair, audio]})())
+        self.assertEqual(synced['matched'], 1)
+        self.assertFalse([j for j in self.store.jobs('alice') if j['origin']=='drive'][0]['overlay_enabled'])
+
+    def test_music_overlays_render_in_ffmpeg(self):
+        from songmaker.media import OVERLAYS, video_filter
+        for preset in sorted(OVERLAYS):
+            with self.subTest(preset=preset):
+                subprocess.run(['ffmpeg', '-hide_banner', '-v', 'error', '-f', 'lavfi',
+                                '-i', 'color=c=blue:s=160x90:r=25:d=0.2', '-vf',
+                                video_filter(True, preset, 50, 'normal'),
+                                '-frames:v', '3', '-f', 'null', '-'],
+                               check=True, timeout=20)
+
     def item(self, name, identity='id', version=1):
         return {'Name': name, 'ID': identity, 'Size': version, 'ModTime': str(version), 'Hashes': {}}
 
@@ -609,7 +657,8 @@ class SongMakerTests(unittest.TestCase):
         saved=self.client.post('/song-maker/api/export',headers=self.headers,json=config)
         self.assertEqual(saved.status_code,200,saved.text)
         state=self.client.get('/song-maker/api/state',headers=self.headers).json()
-        self.assertEqual(state['export'],config)
+        self.assertEqual({key: state['export'][key] for key in config}, config)
+        self.assertFalse(state['export']['overlay_enabled'])
         self.assertEqual(self.client.post('/song-maker/api/export',headers=self.headers,
             json={'resolution':'invalid','fit':'fit','quality':'balanced'}).status_code,422)
         self.assertEqual(self.client.post('/song-maker/api/export',headers=self.headers,

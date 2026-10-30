@@ -66,7 +66,11 @@ def process(store, job, lane, shutdown=lambda: False, drive_factory=Drive):
                 render(image, audio, output, temp, job.get('resolution', '1080p'), job.get('fit', 'fit'),
                        cancelled, lambda seconds: store.update(job_id, progress=min(84, 5+int(seconds/duration*79))),
                        metrics=lambda values: store.update(job_id, **values),
-                       quality=job.get('quality', 'balanced'))
+                       quality=job.get('quality', 'balanced'),
+                        overlay_enabled=job.get('overlay_enabled', False),
+                        overlay_preset=job.get('overlay_preset', 'light_leaks'),
+                        overlay_strength=job.get('overlay_strength', 35),
+                        overlay_speed=job.get('overlay_speed', 'normal'))
             store.update(job_id, stage='Validating MP4', progress=86)
             result = validate(output, duration, cancelled)
             if cancelled():
