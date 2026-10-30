@@ -75,6 +75,7 @@ class SceneUploaderReleaseTests(unittest.TestCase):
             patch.object(ui, "active", return_value=True),
             patch.object(ui, "healthy", return_value=True),
             patch.object(ui, "restart", return_value=None),
+            patch.object(ui, "preflight_scene_proxy_dependency", return_value=None),
             patch.object(ui, "verify_video_studio", return_value=None),
             patch.object(ui.os, "geteuid", return_value=0),
             patch.object(ui.socket, "gethostname", return_value="vps-01a23801"),
@@ -99,6 +100,26 @@ class SceneUploaderReleaseTests(unittest.TestCase):
         saved = json.loads((self.transactions / self.sha / "release.json").read_text())
         self.assertEqual(saved["status"], "ACTIVE")
         self.assertEqual(saved["modified_files"], list(ui.FILES))
+
+    def test_failure_to_install_scene_proxy_dependency_does_not_switch_pointer(self):
+        # Missing pinned httpx should stop before the immutable UI pointer flip.
+        with patch.object(ui, "preflight_scene_proxy_dependency",
+                          side_effect=RuntimeError("httpx dependency missing")):
+            with self.assertRaisesRegex(RuntimeError, "httpx dependency missing"):
+                ui.activate(self.sha)
+        self.assertEqual(self.current.resolve(), self.old)
+        self.assertFalse((self.transactions / self.sha).exists())
+
+    def test_song_uploader_alias_is_atomic_with_app_import(self):
+        self.assertIn("song_uploader_alias.py", ui.FILES)
+        self.assertIn("song_uploader_alias.py", ui.NEW_FILES)
+        with patch.object(ui, "publish_route"):
+            ui.activate(self.sha)
+        result = self.current.resolve()
+        self.assertTrue((result / "part01/song_uploader_alias.py").is_file())
+        self.assertEqual((result / "part01/song_uploader_alias.py").read_bytes(),
+                         (self.source / "song_uploader_alias.py").read_bytes())
+        self.assertFalse((self.old / "part01/song_uploader_alias.py").exists())
 
     def test_failed_website_publication_restores_old_pointer(self):
         with patch.object(ui, "publish_route", side_effect=RuntimeError("HTTPS verify failed")):
