@@ -124,9 +124,9 @@ class UniversalSidebarContracts(unittest.TestCase):
     def test_library_uses_native_experiment_shell_with_five_independent_inner_tabs(self):
         source = SHELL_JS.read_text(encoding="utf-8")
         self.assertIn('["acs", "voice", "uploader", "stream", "library", "song", "song-uploader"]', source)
-        self.assertIn('app === "library" ? "experiment"', source)
+        self.assertIn('app === "library" ? "library"', source)
         self.assertIn('experiment-studio|self-media-library', source)
-        self.assertIn('if (app === "library")', source)
+        self.assertIn('["acs", "voice", "uploader", "stream", "library"].includes(app)', source)
         for label in ("Antidetect Browser", "Self Media Library", "Auto Script",
                       "Video Studio", "Voice Studio", "Upload Studio"):
             self.assertIn(f'["{label}",', source)
