@@ -465,6 +465,7 @@ body.vs-kokoro-active #vsOmniHeader,body.vs-edge-active #vsOmniHeader,body.vs-au
           <label class="vsa-option"><input id="vsaThumbnail" type="checkbox"><span><strong>Download thumbnail</strong><small>Save VideoID.jpg alongside VideoID.mp3 or VideoID.wav</small></span></label>
           <label class="vsa-option"><input id="vsaSongMaker" type="checkbox"><span><strong>Auto-add to Song Maker Queue</strong><small>Download audio and thumbnail locally, then add them directly to Song Maker's render queue. Drive auto-upload is switched OFF.</small></span></label>
           <label class="vsa-option"><input id="vsaMetadata" type="checkbox"><span><strong>Keep metadata</strong><small>Preserve title and metadata when available</small></span></label>
+          <p class="vsa-note" id="vsaPrefsStatus" role="status" aria-live="polite">Loading saved download settings…</p>
         </div>
         <div class="vsa-card"><h2>Downloader runtime</h2><div class="vsa-stats"><div><small>WORKER</small><strong id="vsaWorker">Checking</strong></div><div><small>DRIVE</small><strong id="vsaDriveState">Checking</strong></div><div><small>QUEUE</small><strong id="vsaCount">0 jobs</strong></div><div><small>OUTPUT</small><strong id="vsaOutput">MP3</strong></div></div><p class="vsa-note">Downloads run in a separate queue and never consume OmniVoice, Kokoro or Edge jobs.</p></div>
       </div>
@@ -2163,6 +2164,8 @@ const $ = id => document.getElementById(id);
 // AUDIO_DOWNLOADER_BROWSER_ROUTE_CONTRACT_V2: preserve the authenticated Voice Studio Nginx prefix.
 const root = (location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/audio-downloader';
 let selected='downloader', active=false, tick=null, countdownTick=null, lastStatus=null;
+const AUDIO_PREFS_KEY='vps1.audio-downloader.options.v1';
+let preferencesEdited=false, preferencesVersion=0, preferencesWrites=Promise.resolve();
 const api = async (url,options={}) => {
   const res=await fetch(url,{credentials:'same-origin',cache:'no-store',headers:{'accept':'application/json',...(options.body&&!(options.body instanceof FormData)?{'content-type':'application/json'}:{})},...options});
   const type=String(res.headers.get('content-type')||'').toLowerCase();
@@ -2176,6 +2179,52 @@ const msg=(text,type='')=>{const el=$('vsaMessage');el.textContent=text;el.class
 function retryCountdown(iso){const seconds=Math.max(0,Math.ceil((Date.parse(iso)-Date.now())/1000));return seconds?('Retry in '+Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0')):'Retry due now';}
 function updateRetryCountdowns(){document.querySelectorAll('.vsa-retry-countdown').forEach(el=>{el.textContent=retryCountdown(el.dataset.retryAt);});}
 function drivePath(){$('vsaDrivePath').textContent=$('vsaSongMaker').checked?'Direct to Song Maker Queue · Drive input upload OFF':'Google Drive / Song Studio / Audio downloader';$('vsaOutput').textContent=$('vsaFormat').value.toUpperCase();}
+function downloadPreferences(){return {format:$('vsaFormat').value,quality:Number($('vsaQuality').value),auto_upload:$('vsaUpload').checked,download_thumbnail:$('vsaThumbnail').checked,auto_song_maker:$('vsaSongMaker').checked,keep_metadata:$('vsaMetadata').checked};}
+function applyDownloadPreferences(p){
+ if(!p||typeof p!=='object')return;
+ $('vsaFormat').value=p.format==='wav'?'wav':'mp3';
+ $('vsaQuality').value=[128,192,256].includes(Number(p.quality))?String(p.quality):'192';
+ $('vsaSongMaker').checked=p.auto_song_maker===true;
+ $('vsaUpload').checked=!$('vsaSongMaker').checked&&p.auto_upload===true;
+ $('vsaThumbnail').checked=$('vsaSongMaker').checked||p.download_thumbnail===true;
+ $('vsaMetadata').checked=p.keep_metadata===true;
+ drivePath();
+}
+function readLocalPreferences(){try{return JSON.parse(localStorage.getItem(AUDIO_PREFS_KEY)||'null');}catch(_){return null;}}
+function writeLocalPreferences(p){try{localStorage.setItem(AUDIO_PREFS_KEY,JSON.stringify(p));}catch(_){}}
+function preferenceMessage(message){$('vsaPrefsStatus').textContent=message;}
+function saveDownloadPreferences(){
+ preferencesEdited=true;
+ const version=++preferencesVersion, snapshot=downloadPreferences();
+ writeLocalPreferences(snapshot);
+ preferenceMessage('Saving download settings…');
+ // Serialize rapid manual changes so an older server write cannot replace newer choices.
+ preferencesWrites=preferencesWrites.catch(()=>{}).then(async()=>{
+   await api(root+'/'+'preferences',{method:'PUT',body:JSON.stringify(snapshot)});
+   if(version===preferencesVersion)preferenceMessage('Download settings saved for your account.');
+ }).catch(e=>{
+   if(version===preferencesVersion)preferenceMessage('Server save unavailable: saved in this browser only. '+e.message);
+ });
+ return preferencesWrites;
+}
+async function loadDownloadPreferences(){
+ const fallback=readLocalPreferences();
+ try{
+   const result=await api(root+'/'+'preferences');
+   if(preferencesEdited)return;
+   if(result.saved){
+     applyDownloadPreferences(result.preferences);
+     writeLocalPreferences(downloadPreferences());
+     preferenceMessage('Download settings saved for your account.');
+   }else{
+     preferenceMessage('Choose your download options; changes save automatically.');
+   }
+ }catch(e){
+   if(preferencesEdited)return;
+   if(fallback)applyDownloadPreferences(fallback);
+   preferenceMessage('Server settings unavailable'+(fallback?'; using saved browser options.':'.')+' '+e.message);
+ }
+}
 function tab(name){selected=name;for(const id of ['downloader','drive','queue','history','proxy']){$('vsa'+id[0].toUpperCase()+id.slice(1)).hidden=id!==name;}document.querySelectorAll('[data-vsa-section]').forEach(x=>x.setAttribute('aria-selected',String(x.dataset.vsaSection===name)));if(name==='queue'||name==='history')loadJobs();if(name==='drive')loadStatus();if(name==='proxy'&&typeof window.vsaProxyLoad==='function')window.vsaProxyLoad();}
 function choose(on){active=on;document.body.classList.toggle('vs-audio-active',on);$('vsAudioWorkspace').hidden=!on;$('vsEngineAudio').setAttribute('aria-selected',String(on));if(on){document.body.classList.remove('vs-edge-active','vs-kokoro-active');$('vsEdgeWorkspace').hidden=true;$('vsKokoroWorkspace').hidden=true;for(const id of ['vsEngineOmni','vsEngineKokoro','vsEngineEdge'])$(id).setAttribute('aria-selected','false');document.documentElement.dataset.vsEngine='audio-downloader';history.replaceState(null,'','#vs-audio');tab('downloader');loadStatus();loadJobs();if(!tick)tick=setInterval(()=>{if(active){loadStatus();loadJobs();}},6000);if(!countdownTick)countdownTick=setInterval(updateRetryCountdowns,1000);}else{if(tick){clearInterval(tick);tick=null;}if(countdownTick){clearInterval(countdownTick);countdownTick=null;}}window.dispatchEvent(new Event("vps1:voice-engine-changed"));}
 function make(tag,text,klass){const node=document.createElement(tag);if(text!=null)node.textContent=String(text);if(klass)node.className=klass;return node;}
@@ -2266,12 +2315,13 @@ function boot(){if(!$('vsEngineAudio')||!$('vsAudioWorkspace'))return;
  // Capture before legacy listeners switch engines, then let them handle their own state.
  for(const id of ['vsEngineOmni','vsEngineKokoro','vsEngineEdge'])$(id).addEventListener('click',()=>{if(active)choose(false);},true);
  document.querySelectorAll('[data-vsa-section]').forEach(b=>b.addEventListener('click',()=>tab(b.dataset.vsaSection)));
- for(const id of ['vsaFormat'])$(id).addEventListener('input',drivePath);
- $('vsaSongMaker').addEventListener('change',()=>{if($('vsaSongMaker').checked){$('vsaUpload').checked=false;$('vsaThumbnail').checked=true;}drivePath();});
- for(const id of ['vsaUpload','vsaThumbnail'])$(id).addEventListener('change',()=>{if($('vsaUpload').checked||!$('vsaThumbnail').checked)$('vsaSongMaker').checked=false;drivePath();});
+ for(const id of ['vsaFormat','vsaQuality'])$(id).addEventListener('change',()=>{drivePath();saveDownloadPreferences();});
+ $('vsaSongMaker').addEventListener('change',()=>{if($('vsaSongMaker').checked){$('vsaUpload').checked=false;$('vsaThumbnail').checked=true;}drivePath();saveDownloadPreferences();});
+ for(const id of ['vsaUpload','vsaThumbnail'])$(id).addEventListener('change',()=>{if($('vsaUpload').checked||!$('vsaThumbnail').checked)$('vsaSongMaker').checked=false;drivePath();saveDownloadPreferences();});
+ $('vsaMetadata').addEventListener('change',saveDownloadPreferences);
  $('vsaSubmit').addEventListener('click',submit);$('vsaClear').addEventListener('click',()=>{$('vsaLinks').value='';msg('Links cleared.');});
  for(const id of ['vsaRefreshMain','vsaRefreshQueue','vsaRefreshHistory'])$(id).addEventListener('click',loadJobs);
- drivePath();if(location.hash==='#vs-audio')choose(true);}
+ drivePath();loadDownloadPreferences();if(location.hash==='#vs-audio')choose(true);}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
 })();
 
