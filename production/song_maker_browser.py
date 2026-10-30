@@ -63,7 +63,13 @@ def main():
                             "(el) => getComputedStyle(el).color") == 'rgb(16, 24, 40)'
                         assert page.locator('.sm .card').first.evaluate(
                             "(el) => getComputedStyle(el).backgroundColor") == 'rgb(255, 255, 255)'
-                        active_color = page.locator('.sm .tabs [aria-selected="true"]').evaluate(
+                        # The shared Kokoro shell animates active-pill background on tab changes.
+                        # Wait for the actual final computed style before asserting the theme.
+                        page.wait_for_function("""() => {
+                            const el=document.querySelector('.sm nav[aria-label="Song Maker tabs"] [data-tab][aria-selected="true"]');
+                            return el && getComputedStyle(el).backgroundColor === 'rgb(99, 85, 223)';
+                        }""", timeout=6000)
+                        active_color = page.locator('.sm nav[aria-label="Song Maker tabs"] [data-tab][aria-selected="true"]').evaluate(
                             "(el) => ({color:getComputedStyle(el).backgroundColor, markup:el.outerHTML, brand:getComputedStyle(document.querySelector('.sm')).getPropertyValue('--sm-brand'), sheets:[...document.styleSheets].map(x=>x.href)})")
                         assert active_color['color'] == 'rgb(99, 85, 223)', (width, active_color)
                         assert page.locator('.sm input[name="image"]').evaluate(
@@ -100,6 +106,15 @@ def main():
                         for tab in ('pairs','queue','preferences','input'):
                             page.locator(f'[data-tab="{tab}"]').click()
                             assert page.locator('#'+tab).is_visible()
+                        # Export and Video are independent, accessible Settings sub-tabs.
+                        page.locator('[data-tab="preferences"]').click()
+                        page.locator('[data-settings-tab="video"]').click()
+                        assert page.locator('#settingsVideoPanel').is_visible()
+                        assert page.locator('#settingsExportPanel').is_hidden()
+                        assert page.locator('input[name="overlay_enabled"]').count() == 1
+                        page.locator('[data-settings-tab="export"]').click()
+                        assert page.locator('#settingsExportPanel').is_visible()
+                        assert page.locator('#settingsVideoPanel').is_hidden()
                         assert page.locator('nav[aria-label="Song Studio"] a[href="/song-studio/song-maker/"]').count()==1
                     page.locator('input[name="image"]').set_input_files(root/'image.png')
                     page.locator('input[name="audio"]').set_input_files(root/'Voice name.wav')
@@ -107,6 +122,14 @@ def main():
                     page.locator('#exportSettings select[name="resolution"]').select_option('720p')
                     page.get_by_role('button', name='Save Export Settings').click()
                     page.wait_for_function("document.querySelector('#notice').textContent.includes('Export settings saved')")
+                    page.locator('[data-settings-tab="video"]').click()
+                    page.get_by_role('button', name='Save Video Settings').click()
+                    page.wait_for_function("document.querySelector('#notice').textContent.includes('Video settings saved')")
+                    saved = page.evaluate("fetch('/song-maker/api/state').then(r=>r.json()).then(s=>s.export)")
+                    assert saved['resolution'] == '720p', saved
+                    assert saved['overlay_enabled'] is False, saved
+                    page.locator('[data-settings-tab="export"]').click()
+                    assert page.locator('#exportSettings select[name="resolution"]').input_value() == '720p'
                     page.locator('[data-tab="input"]').click()
                     assert page.locator('#syncNow').is_enabled()
                     page.locator('#manual button').click()
