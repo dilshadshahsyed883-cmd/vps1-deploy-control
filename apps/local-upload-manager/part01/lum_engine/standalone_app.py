@@ -458,14 +458,19 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         _queue = auto_v6.get("queue") or []
         _active_states = {"processing", "uploading", "running", "active", "claimed", "in_progress"}
         _worker_processing = any(str((_row.get("status") if hasattr(_row, "get") else "") or "").strip().lower() in _active_states for _row in _queue)
-        _last_error = str(_engine.get("last_error") or "").strip()
+        # Independent service health: engine.last_error is an older shared
+        # message and must never mark both worker and scheduler as failed.
+        _worker_error = str(_engine.get("last_worker_error") or "").strip()
+        _scheduler_error = str(_engine.get("last_scheduler_error") or "").strip()
         _worker_service = str(auto_v6.get("worker_service") or "").lower()
         _scheduler_service = str(auto_v6.get("scheduler_service") or "").lower()
-        _worker_status = "Offline" if _worker_service != "active" else ("Error" if _last_error else ("Processing" if _worker_processing else "Idle"))
-        _scheduler_status = "Offline" if _scheduler_service != "active" else ("Error" if _last_error else ("Waiting" if _armed else "Paused"))
+        _worker_status = "Offline" if _worker_service != "active" else ("Error" if _worker_error else ("Processing" if _worker_processing else "Idle"))
+        _scheduler_status = "Offline" if _scheduler_service != "active" else ("Error" if _scheduler_error else ("Waiting" if _armed else "Paused"))
         auto_v6["scheduler_ui"] = {
             "worker_status": _worker_status,
             "scheduler_status": _scheduler_status,
+            "worker_note": "Worker reported an error; check Logs." if _worker_error else "",
+            "scheduler_note": "Scheduler reported an error; check Logs." if _scheduler_error else "",
             "ready_profiles": len(_ready),
             "next_run": (min(_next).strftime("%a %d %b · %H:%M PKT") if _armed and _next else "No eligible schedule"),
         }
