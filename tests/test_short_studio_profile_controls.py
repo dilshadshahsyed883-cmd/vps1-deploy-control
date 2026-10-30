@@ -49,7 +49,7 @@ class ShortProfileControlTests(unittest.TestCase):
         self.assertIn("input.type='time'", javascript)
         self.assertIn("countFor(host)", javascript)
         self.assertIn("field.setCustomValidity(", javascript)
-        self.assertIn("Choose a separate Pakistan Time", template)
+        self.assertIn("One PKT time per video per channel", template)
         ns={"re":re, "clean":lambda x:str(x or "").strip(), "Any":Any, "List":List}
         parse = load_function(ENGINE, "parse_schedule_times", ns)
         self.assertEqual(parse("09:00,12:15,16:30,21:45"), ["09:00","12:15","16:30","21:45"])
