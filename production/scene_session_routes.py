@@ -14,7 +14,7 @@ from production import gateway
 from production.runtime import CATALOG
 from production.route_uploader_scene_https import scene_cookie
 
-APP_IDS = frozenset(CATALOG) - {"scene-builder", "local-upload-manager"}
+APP_IDS = frozenset(CATALOG) - {"scene-builder", "local-upload-manager", "copyright-uploader"}
 AUTH_PREFIX = "/_vps1_sso_"
 
 

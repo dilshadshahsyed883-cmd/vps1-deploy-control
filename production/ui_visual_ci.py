@@ -56,7 +56,7 @@ def page_html(app: str) -> str:
             'content="width=device-width,initial-scale=1"></head>'
             '<body><aside id="app-sidebar" class="sidebar">'
             '<nav aria-label="Applications"><a>Video Studio</a></nav></aside>'
-            f'<main>{extract_experiment_nav()}{nav}<section data-fixture-content="1"></section></main>'
+            f'<main>{extract_experiment_nav() if app != "video-merger" else ""}{nav}<section data-fixture-content="1"></section></main>'
             '</body></html>'
         )
     # Independently routed apps retain their own DOM and native shell JS.
@@ -339,7 +339,7 @@ def run(screenshots: Path | None) -> int:
                                     }""",
                                     native_js)
                                 names = page.locator("#app-sidebar > nav > a").all_text_contents()
-                                if names != ["Dashboard", "Song Studio", "Short Studio", "Experiment Studio"]:
+                                if names != ["Dashboard", "Song Studio", "Short Studio", "Copyright Studio", "Experiment Studio"]:
                                     errors.append(f"{width}px {app}: sidebar drift {names!r}")
                             if app in NATIVE:
                                 workspace = {"auto-caption-studio": "acs",
@@ -382,9 +382,16 @@ def run(screenshots: Path | None) -> int:
                                 continue
                             if rect["height"] < 62 - TOLERANCE_PX:
                                 errors.append(f"{width}px {app}: rail height={rect['height']}")
-                            # Every third-level rail must follow, not overlap, Experiment Studio.
+                            # Copyright Studio is a NEW primary workspace; its
+                            # merger rail is not a third-level Experiment tab.
                             outer = page.locator('nav[aria-label="Experiment Studio"]')
-                            if outer.count() != 1:
+                            if app == "video-merger":
+                                if outer.count():
+                                    errors.append(f"{width}px {app}: old Experiment parent still visible")
+                                top = 72 if width < 761 else 26
+                                if abs(rect["y"] - top) > TOLERANCE_PX:
+                                    errors.append(f"{width}px {app}: Copyright rail top={rect['y']}")
+                            elif outer.count() != 1:
                                 errors.append(f"{width}px {app}: Experiment Studio level missing")
                             else:
                                 outer_rect = outer.bounding_box()
@@ -394,10 +401,12 @@ def run(screenshots: Path | None) -> int:
                             if app in VIDEOS:
                                 destinations = nav.locator("a").evaluate_all(
                                     "links => links.map(link => link.getAttribute('href'))")
-                                expected = ["/scene-builder/", "/auto-caption-studio/",
-                                            "/video-merger/"]
-                                if destinations != expected:
-                                    errors.append(f"{width}px {app}: Video destinations {destinations!r}")
+                                expected = (["/video-merger/", "/copyright-uploader/app?tab=add_video"]
+                                            if app == "video-merger" else
+                                            ["/scene-builder/", "/auto-caption-studio/"])
+                                label = "Copyright Studio" if app == "video-merger" else "Video Studio"
+                                if destinations != expected or nav.get_attribute("aria-label") != label:
+                                    errors.append(f"{width}px {app}: {label} destinations {destinations!r}")
                             else:
                                 if nav.locator("a").count() != 2:
                                     errors.append(f"{width}px {app}: not two Upload tabs")
@@ -438,7 +447,7 @@ def run(screenshots: Path | None) -> int:
                                     f"vs Scene={base['x']:.1f} (limit {TOLERANCE_PX})")
                         # Vertical alignment within each third-level Studio, not
                         # between unrelated legacy and independent wrappers.
-                        for group in (("scene-builder", "video-merger", "auto-caption-studio"),
+                        for group in (("scene-builder", "auto-caption-studio"),
                                       ("auto-uploader", "auto-stream")):
                             reference = rails[group[0]]
                             for name in group[1:]:
@@ -446,7 +455,10 @@ def run(screenshots: Path | None) -> int:
                                     errors.append(
                                         f"{width}px {name}: Studio rail y drift "
                                         f"{rails[name]['y']:.1f} vs {reference['y']:.1f}")
-                        for name in ("video-merger", "auto-caption-studio"):
+                        # Only compare tabs belonging to the SAME studio:
+                        # merger's 2-item Copyright rail intentionally differs
+                        # from the Scene Builder + Auto Caption Video Studio rail.
+                        for name in ("auto-caption-studio",):
                             ratio = changed_pixel_ratio(
                                 screenshots_in_memory["scene-builder"],
                                 screenshots_in_memory[name])

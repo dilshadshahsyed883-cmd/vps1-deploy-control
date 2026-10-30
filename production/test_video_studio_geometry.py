@@ -24,8 +24,9 @@ class VideoStudioGeometryContracts(unittest.TestCase):
                              ("maker", maker), ("merger", merger)):
             with self.subTest(app=path):
                 self.assertEqual(source.count(ASSET), 1)
-                self.assertIn('data-video-studio-subnav="1"' if path != "acs"
-                              else 'data-workspace="acs"', source)
+                self.assertIn('data-workspace="acs"' if path == "acs"
+                              else 'aria-label="Copyright Studio"' if path == "merger"
+                              else 'data-video-studio-subnav="1"', source)
         for page in (scene, acs, maker, merger):
             self.assertLess(page.index("vps1_native_site_shell.css"),
                             page.index(ASSET))
@@ -36,12 +37,17 @@ class VideoStudioGeometryContracts(unittest.TestCase):
             self.assertLess(page.index(ASSET), page.index("</head>"))
 
     def test_canonical_four_tab_navigation_and_no_legacy_alias(self):
-        for path in (SCENE / "templates/base.html", MERGER):
-            source = path.read_text()
-            for route in ("/scene-builder/", "/auto-caption-studio/",
-                          "/video-merger/"):
-                self.assertIn('href="' + route + '"', source)
-            self.assertNotIn('href="/auto-caption/studio"', source)
+        scene = (SCENE / "templates/base.html").read_text()
+        merger = MERGER.read_text()
+        for route in ("/scene-builder/", "/auto-caption-studio/"):
+            self.assertIn('href="' + route + '"', scene)
+        self.assertIn('aria-label="Video Studio"', scene)
+        self.assertNotIn('>Video Merger</a>', scene)
+        self.assertIn('aria-label="Copyright Studio"', merger)
+        self.assertIn('href="/video-merger/"', merger)
+        self.assertIn('href="/copyright-uploader/app?tab=add_video"', merger)
+        self.assertNotIn('aria-label="Video Studio"', merger)
+        self.assertNotIn('href="/auto-caption/studio"', scene)
 
     def test_short_maker_has_its_own_studio_navigation(self):
         source = MAKER.read_text()

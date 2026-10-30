@@ -128,7 +128,7 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
 
 <link rel="stylesheet" href="/static/vps1_native_site_shell.css?v=20261020-sidebar-stable-v4&song=20261029">
 <link rel="stylesheet" href="/static/vps1_video_studio_geometry.css?v=20261020-geometry-v1&layout=video-v2">
-<script defer src="/static/vps1_native_site_shell.js?v=20261020-sidebar-stable-v4&shell-contract=2-canonical&nav=auto-script-v1&song=20261029" data-unify-sidebar="1"></script>
+<script defer src="/static/vps1_native_site_shell.js?v=20261020-sidebar-stable-v4&shell-contract=2-canonical&nav=auto-script-v1&song=20261029&copyright=20261030" data-unify-sidebar="1"></script>
 {% if page in ['queue','settings','audit_media','scene_media_library'] %}<link rel="stylesheet" href="/static/scene_builder_kokoro_parity_20261020.css?v=1">{% endif %}
 </head>
 <body{% if page in ['queue','settings','audit_media'] and (request.query_params|default({})).get('acs_audio_embed') != '1' %} data-scene-ui="sml-compact"{% endif %} class="{% if page=='dashboard' %}dashboard-page{% endif %}{% if page in ['queue','settings','audit_media','scene_media_library'] %} vps1-scene-parity{% endif %}">
@@ -144,6 +144,7 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
 
 <a class="{% if page=='song_studio' %}active{% endif %}" href="/song-studio/">Song Studio</a>
 <a class="{% if page=='short_studio' %}active{% endif %}" href="/short-maker">Short Studio</a>
+<a href="/video-merger/">Copyright Studio</a>
 <a class="{% if page in ['experiment_studio','auto_script','local_upload_manager','voice_studio','queue','settings','audit_media','scene_media_library','auto_caption_studio','auto_caption_live','video_studio_embedded'] %}active{% endif %}" href="/experiment-studio/">Experiment Studio</a>
 <!-- Auto Script is an Experiment Studio subtab; activation remains separately guarded. -->
 
@@ -185,7 +186,7 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
   <a {% if page=='voice_studio' %}class="active" aria-current="page"{% endif %} href="/voice-studio/app#vps1-production">Voice Studio</a>
   <a {% if page=='local_upload_manager' %}class="active" aria-current="page"{% endif %} href="/local-upload-manager/app?embedded=1&amp;tab=dashboard">Upload Studio</a>
 </nav>{% endif %}
-{% if page in ['queue','settings','audit_media','scene_media_library','auto_caption_studio','auto_caption_live','video_studio_embedded'] %}<nav data-video-studio-subnav="1" aria-label="Video Studio" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;margin:0 0 18px;background:#f8faff;border:1px solid #dfe5ef;border-radius:11px;box-shadow:0 2px 8px rgba(28,44,78,.03)"><a href="/scene-builder/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;{% if page in ['queue','settings','audit_media'] %}background:#315edb;color:#fff;border-color:#315edb{% else %}background:#fff;color:#34415b{% endif %}">Scene Builder</a><a href="/auto-caption-studio/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;{% if page in ['auto_caption_studio','auto_caption_live'] %}background:#315edb;color:#fff;border-color:#315edb{% else %}background:#fff;color:#34415b{% endif %}">Auto Caption Studio</a><a href="/video-merger/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;{% if studio_app == 'video-merger' %}background:#315edb;color:#fff;border-color:#315edb{% else %}background:#fff;color:#34415b{% endif %}">Video Merger</a></nav>{% endif %}
+{% if page in ['queue','settings','audit_media','scene_media_library','auto_caption_studio','auto_caption_live','video_studio_embedded'] %}<nav data-video-studio-subnav="1" aria-label="Video Studio" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;margin:0 0 18px;background:#f8faff;border:1px solid #dfe5ef;border-radius:11px;box-shadow:0 2px 8px rgba(28,44,78,.03)"><a href="/scene-builder/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;{% if page in ['queue','settings','audit_media'] %}background:#315edb;color:#fff;border-color:#315edb{% else %}background:#fff;color:#34415b{% endif %}">Scene Builder</a><a href="/auto-caption-studio/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;{% if page in ['auto_caption_studio','auto_caption_live'] %}background:#315edb;color:#fff;border-color:#315edb{% else %}background:#fff;color:#34415b{% endif %}">Auto Caption Studio</a></nav>{% endif %}
 
 {% if page in ['queue','settings','audit_media','scene_media_library'] %}
 <header class="scene-workspace-header">

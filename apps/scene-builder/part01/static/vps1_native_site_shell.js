@@ -9,7 +9,7 @@
     window.location.replace("/audio-downloader/");
     return;
   }
-  if (!legacySidebar && !["acs", "voice", "uploader", "stream", "library", "song", "song-uploader", "short-uploader"].includes(app)) return;
+  if (!legacySidebar && !["acs", "voice", "uploader", "stream", "library", "song", "song-uploader", "short-uploader", "copyright-uploader"].includes(app)) return;
   // During staggered releases an old Scene shell may still embed this document.
   // Never render a second navigation in that legacy framing context.
   if (window.self !== window.top) return;
@@ -33,13 +33,15 @@
     ["Dashboard", "/", "dashboard"],
     ["Song Studio", "/song-studio/", "song"],
     ["Short Studio", "/short-maker", "short"],
+    ["Copyright Studio", "/video-merger/", "copyright"],
     ["Experiment Studio", "/experiment-studio/", "experiment"]
   ]);
   const activeKeyForPath = (pathname) => {
     if (pathname.startsWith("/local-upload-manager/modes/song/")) return "song";
     if (/^\/(short-maker|short-uploader|short-studio)(\/|$)/.test(pathname)) return "short";
+    if (/^\/(video-merger|copyright-uploader|copyright-studio)(\/|$)/.test(pathname)) return "copyright";
     if (/^\/(local-upload-manager|auto-stream)(\/|$)/.test(pathname)) return "experiment";
-    if (/^\/(scene-builder|video-studio|auto-caption-studio|video-merger|queue|settings|audit-media)(\/|$)/.test(pathname)) return "experiment";
+    if (/^\/(scene-builder|video-studio|auto-caption-studio|queue|settings|audit-media)(\/|$)/.test(pathname)) return "experiment";
     if (/^\/audio-downloader\/?$/.test(pathname)) return "song";
     if (/^\/(song-studio|song-maker|song-uploader)(\/|$)/.test(pathname)) return "song";
     if (/^\/voice-studio(\/|$)/.test(pathname)) return window.location.hash === "#vs-audio" ? "song" : "experiment";
@@ -66,7 +68,7 @@
     ["Upload Studio", "/local-upload-manager/app?embedded=1&tab=dashboard", "upload"]
   ]);
   const experimentSection = pathname => {
-    if (/^\/(scene-builder|video-studio|auto-caption-studio|short-maker|video-merger|queue|settings|audit-media)(\/|$)/.test(pathname)) return "video";
+    if (/^\/(scene-builder|video-studio|auto-caption-studio|short-maker|queue|settings|audit-media)(\/|$)/.test(pathname)) return "video";
     if (/^\/(local-upload-manager|auto-stream)(\/|$)/.test(pathname)) return "upload";
     if (/^\/voice-studio(\/|$)/.test(pathname)) return "voice";
     if (/^\/self-media-library(\/|$)/.test(pathname)) return "library";
@@ -230,7 +232,7 @@
     const navigation = node("nav");
     navigation.setAttribute("aria-label", "Applications");
     // Native pages and legacy Video Studio documents use the same menu.
-    const current = app === "short-uploader" ? "short" : (app === "song" || app === "song-uploader") ? "song" :
+    const current = app === "copyright-uploader" ? "copyright" : app === "short-uploader" ? "short" : (app === "song" || app === "song-uploader") ? "song" :
       (app === "voice" && (window.location?.hash === "#vs-audio" ||
         /^\/audio-downloader\/?$/.test(window.location?.pathname || ""))) ? "song" : "experiment";
     const primaryLinks = addPrimaryLinks(navigation, current);
@@ -385,6 +387,14 @@
       addLink(tabs, "Short Uploader", "/short-uploader", true);
       toggle.after(tabs);
     }
+    if (app === "copyright-uploader") {
+      const tabs = node("nav", "vps1-native-video-tabs vps1-native-copyright-tabs");
+      tabs.dataset.vps1Component = "studio-tabs";
+      tabs.setAttribute("aria-label", "Copyright Studio");
+      addLink(tabs, "Video Merger", "/video-merger/", false);
+      addLink(tabs, "Copyright Uploader", "/copyright-uploader/app?tab=add_video", true);
+      toggle.after(tabs);
+    }
     if (app === "acs") {
       const tabs = node("nav", "vps1-native-video-tabs");
       tabs.dataset.vps1Component = "studio-tabs";
@@ -392,7 +402,6 @@
       addLink(tabs, "Scene Builder", "/scene-builder/", false);
       if (app === "acs") addLink(tabs, "Auto Caption Studio", "/auto-caption-studio/", true);
       else addLink(tabs, "Auto Caption Studio", "/auto-caption-studio/", false);
-      addLink(tabs, "Video Merger", "/video-merger/", false);
       attachInnerTabs(tabs);
       alignVideoTabs();
     }

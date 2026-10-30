@@ -61,7 +61,10 @@ def managed_groups():
     return [x["id"] for x in builder.config()["groups"] if not x["parallel_owner"] and x.get("deployment_mode") != "offline"]
 
 def sources(app):
-    if app not in managed_groups():raise ValueError("parallel-owned or unknown source")
+    # Copyright Studio is a new independent production app, deliberately not
+    # added to the historical fixed 11-group rebuild inventory.
+    if app != "copyright-uploader" and app not in managed_groups():
+        raise ValueError("parallel-owned or unknown source")
     src=ROOT/"apps"/app
     if not src.is_dir():raise ValueError("missing source "+app)
     out=[]
@@ -71,7 +74,7 @@ def sources(app):
         # mutable SQLite database directory. Only the exact LUM repository
         # code package is exempt; actual .db/.sqlite files are never imported.
         lum_db_code = (
-            app == "local-upload-manager"
+            app in {"local-upload-manager", "copyright-uploader"}
             and len(rel.parts) >= 5
             and rel.parts[0] in ("part01", "part02", "part03")
             and rel.parts[1:4] == ("desktop_core", "modules", "db")
