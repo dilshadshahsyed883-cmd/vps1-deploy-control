@@ -51,6 +51,9 @@ CATALOG = {
     'local-upload-manager': dict(port=8015, module='lum_engine.standalone_app:app',
                                  health='/local-upload-manager/health', ui='/local-upload-manager/app',
                                  requirements='part01/requirements.txt'),
+    'copyright-uploader': dict(port=8020, module='lum_engine.standalone_app:app',
+                               health='/copyright-uploader/health', ui='/copyright-uploader/app?tab=add_video',
+                               requirements='part01/requirements.txt'),
 }
 
 
@@ -149,6 +152,17 @@ def environment(app, state):
         env.update(AUTO_CAPTION_APP_ROOT=str(state / 'acs'),
                    AUTO_CAPTION_DB_PATH=str(state / 'acs/data/database/auto_caption.db'),
                    AUTO_CAPTION_CODE_ROOT=str(BASE / 'current' / app / 'part01'))
+    elif app == 'copyright-uploader':
+        env.update(LUM_DATA_DIR=str(state / 'lum-copyright'),
+                   YOUTUBE_UPLOAD_MANAGER_DATA_DIR=str(state / 'lum-copyright/core'),
+                   LUM_AUTO_ENGINE_V6_ROOT=str(state / 'lum-copyright/auto_engine_v6'),
+                   LUM_GOOGLE_OAUTH_ROOT=str(state / 'lum-copyright/secure'),
+                   LUM_SESSION_SECRET=secrets.token_urlsafe(48),
+                   LUM_BASE_PATH='/copyright-uploader',
+                   LUM_ENGINE_INSTANCE='copyright',
+                   COPYRIGHT_MEDIA_ROOT=str(DATA / 'video-merger/video-merger/copyright_handoff'),
+                   LUM_SUITE_AUTH='1', LUM_SUITE_LOGIN_URL='/',
+                   LUM_COOKIE_SECURE='0')
     elif app == 'local-upload-manager':
         env.update(LUM_DATA_DIR=str(state / 'lum1'),
                    YOUTUBE_UPLOAD_MANAGER_DATA_DIR=str(state / 'lum1/core'),
@@ -778,6 +792,7 @@ def install_app(app, revision):
     workers.stop(app)
     changed = False
     short_studio_route_receipt = None
+    copyright_studio_route_receipt = None
     try:
         backups = backup_databases(state, journal / 'sqlite-backup')
         changed = True
@@ -800,6 +815,9 @@ def install_app(app, revision):
             install_browser()
         if shutil.disk_usage('/').free < 5_000_000_000:
             raise RuntimeError('operational disk reserve breached')
+        if app == 'copyright-uploader':
+            from production.copyright_studio_release import install_route
+            copyright_studio_route_receipt = install_route(revision)
         if app == 'local-upload-manager':
             intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
             if '[vps1-short-studio-release]' in intent:
@@ -811,6 +829,9 @@ def install_app(app, revision):
               sqlite_backups=len(backups), health=health, rollback=str(journal))
     except BaseException:
         try:
+            if copyright_studio_route_receipt is not None:
+                from production.copyright_studio_release import restore_route
+                restore_route(copyright_studio_route_receipt)
             if short_studio_route_receipt is not None:
                 from production.short_studio_release import restore_route
                 restore_route(short_studio_route_receipt)
