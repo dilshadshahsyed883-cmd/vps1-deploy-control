@@ -839,6 +839,7 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
 <section class="panel" aria-label="Render controls">
  <h2>Render</h2>
  <button id="render" class="render" type="submit">Start Rendering</button>
+ <button id="discardUpload" class="secondary" type="button" hidden style="margin-top:10px">Discard paused upload</button>
  <div class="progress" id="progressTrack" role="progressbar" aria-label="Upload progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="bar"></span></div>
  <div id="progressDetail" class="status" aria-live="polite">Upload: 0% · Rendering: 0%</div>
  <div id="status" class="status">Ready.</div>
@@ -1580,3 +1581,16 @@ def finalize_resumable_upload(job_id: str, request: Request):
 def resumable_client_script():
     return FileResponse(Path(__file__).with_name("resumable_client.js"), media_type="application/javascript",
                         headers={"Cache-Control": "no-store"})
+
+
+@app.delete("/api/upload-sessions/{job_id}")
+def discard_resumable_upload(job_id: str, request: Request):
+    # Explicit user action only. Never delete a queued/running/completed render.
+    upload_manifest(job_id, request)
+    with upload_session_lock(job_id):
+        if get_state(job_id).get("status") != "uploading":
+            raise HTTPException(status_code=409, detail="This job is already queued or rendering.")
+        shutil.rmtree(JOBS_ROOT / job_id)
+        with jobs_lock:
+            jobs.pop(job_id, None)
+    return {"ok": True, "job_id": job_id}
