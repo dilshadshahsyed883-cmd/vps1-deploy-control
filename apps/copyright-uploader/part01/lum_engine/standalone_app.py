@@ -682,6 +682,16 @@ def action_report_health(request: Request, csrf_token: str = Form(...)):
         return redirect("/app", error=f"Health report failed: {exc}")
 
 
+@app.get(route("/api/copyright/folder-videos"))
+def copyright_folder_videos(request: Request):
+    user = current_user(request)
+    if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+        raise HTTPException(404, "Not found")
+    videos = copyright_folder_files(str(user["username"]))
+    return JSONResponse({"ok": True, "files": videos, "count": len(videos)},
+                        headers={"Cache-Control": "no-store, private"})
+
+
 @app.post(route("/actions/copyright/profile"))
 async def copyright_add_profile(
     request: Request, csrf_token: str = Form(...), profile_name: str = Form(...),
