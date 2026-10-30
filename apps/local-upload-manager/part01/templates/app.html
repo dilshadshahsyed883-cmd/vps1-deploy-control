@@ -699,7 +699,7 @@
       {% endif %}
     </section>
 {% elif tab == 'auto_engine' %}
-    {% if engine_instance != 'song' %}
+    {% if engine_instance not in ['song', 'shortstudio'] %}
     <section class="lum-card">
       <div class="lum-card-head">
         <div><h2>{{ 'Short Uploader · Auto Engine' if engine_instance == 'shortstudio' else ('Song Uploader · Short Uploader Auto Engine' if engine_instance == 'song' else 'Auto Uploader · Two Modes') }}</h2>
@@ -724,7 +724,7 @@
       {% endif %}
     </section>
     {% endif %}
-    {% if engine_instance == 'song' and mode_registry.cross_mode_record_collisions %}
+    {% if engine_instance in ['song', 'shortstudio'] and mode_registry.cross_mode_record_collisions %}
       <div class="lum-alert error">Cross-mode receipt collision(s) detected: {{ mode_registry.cross_mode_record_collisions }}. Do not activate additional upload workers before reconciling these identities.</div>
     {% endif %}
 
