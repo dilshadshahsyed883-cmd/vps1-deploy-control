@@ -532,6 +532,7 @@ class V6Store:
                 last_worker_heartbeat TEXT,
                 last_scheduler_heartbeat TEXT,
                 last_error TEXT,
+                manual_profile_ids TEXT DEFAULT NULL,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             """)
@@ -546,6 +547,8 @@ class V6Store:
                 con.execute("ALTER TABLE engine_state ADD COLUMN scheduler_armed INTEGER NOT NULL DEFAULT 0")
             if "concurrency" not in cols:
                 con.execute("ALTER TABLE engine_state ADD COLUMN concurrency INTEGER NOT NULL DEFAULT 1")
+            if "manual_profile_ids" not in cols:
+                con.execute("ALTER TABLE engine_state ADD COLUMN manual_profile_ids TEXT DEFAULT NULL")
             con.execute("INSERT OR IGNORE INTO engine_state(singleton,running,pause_after_current,scheduler_armed,concurrency) VALUES(1,0,0,0,1)")
 
     def source(self, profile_id:int) -> Dict[str,Any]:
@@ -603,6 +606,14 @@ class V6Store:
     def engine(self) -> Dict[str,Any]:
         with self.connect() as con:
             return dict(con.execute("SELECT * FROM engine_state WHERE singleton=1").fetchone())
+
+    def set_manual_profile_ids(self, profile_ids: Optional[List[int]]) -> None:
+        """None allows all enabled profiles; an empty list allows none.
+        Short Studio uses this to keep a one-profile Start from draining another profile's queue.
+        """
+        value=None if profile_ids is None else ",".join(str(int(pid)) for pid in sorted(set(profile_ids)) if int(pid)>0)
+        with self.connect() as con:
+            con.execute("UPDATE engine_state SET manual_profile_ids=?,updated_at=CURRENT_TIMESTAMP WHERE singleton=1",(value,))
 
     def set_scheduler_armed(self, armed: bool) -> None:
         with self.connect() as con:
@@ -1159,6 +1170,10 @@ def save_profile_from_form(pc_db:Any, store:V6Store, form:Dict[str,Any], profile
         "missed_schedule_policy":clean(form.get("missed_schedule_policy")) or "run_missed_today",
         "notes":clean(form.get("notes")),
     }
+    if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio" and mode=="auto" and schedule_enabled:
+        count=len(parse_schedule_times(form.get("schedule_times")))
+        if count != data["daily_upload_count"]:
+            raise ValueError(f"Choose {data['daily_upload_count']} distinct PKT schedule times, one per daily video; currently {count}.")
     pid=int(pc_db.save_auto_engine_profile(data,profile_id))
     # Update thumbnail folder now that permanent profile ID exists.
     d=store.profile_thumb_dir(pid,data["category_name"])
