@@ -31,19 +31,16 @@
   // Never expose Admin from static markup or a client-stored role.
   const PRIMARY_NAV = Object.freeze([
     ["Dashboard", "/", "dashboard"],
-    ["Upload Studio", "/local-upload-manager", "upload"],
-    ["Video Studio", "/scene-builder/", "video"],
-    ["Voice Studio", "/voice-studio/app#vps1-production", "voice"],
     ["Song Studio", "/song-studio/", "song"],
     ["Experiment Studio", "/experiment-studio/", "experiment"]
   ]);
   const activeKeyForPath = (pathname) => {
     if (pathname.startsWith("/local-upload-manager/modes/song/")) return "song";
-    if (/^\/(local-upload-manager|auto-stream)(\/|$)/.test(pathname)) return "upload";
-    if (/^\/(scene-builder|video-studio|auto-caption-studio|short-maker|video-merger|queue|settings|audit-media)(\/|$)/.test(pathname)) return "video";
+    if (/^\/(local-upload-manager|auto-stream)(\/|$)/.test(pathname)) return "experiment";
+    if (/^\/(scene-builder|video-studio|auto-caption-studio|short-maker|video-merger|queue|settings|audit-media)(\/|$)/.test(pathname)) return "experiment";
     if (/^\/audio-downloader\/?$/.test(pathname)) return "song";
     if (/^\/(song-studio|song-maker|song-uploader)(\/|$)/.test(pathname)) return "song";
-    if (/^\/voice-studio(\/|$)/.test(pathname)) return window.location.hash === "#vs-audio" ? "song" : "voice";
+    if (/^\/voice-studio(\/|$)/.test(pathname)) return window.location.hash === "#vs-audio" ? "song" : "experiment";
     if (/^\/(experiment-studio|self-media-library|auto-script)(\/|$)/.test(pathname)) return "experiment";
     if (/^\/(admin|storage-manager|user-management)(\/|$)/.test(pathname)) return "admin";
     if (pathname === "/" || pathname === "/dashboard") return "dashboard";
@@ -55,6 +52,33 @@
       links[key] = addLink(navigation, label, href, current === key);
     }
     return links;
+  };
+  // The only top-level workspace for these three studios is Experiment Studio.
+  // Their existing native app controls remain a third-level rail, not a new page.
+  const EXPERIMENT_NAV = Object.freeze([
+    ["Antidetect Browser", "/experiment-studio/antidetect-browser/", "antidetect"],
+    ["Self Media Library", "/self-media-library/", "library"],
+    ["Auto Script", "/experiment-studio/auto-script/", "auto-script"],
+    ["Video Studio", "/scene-builder/", "video"],
+    ["Voice Studio", "/voice-studio/app#vps1-production", "voice"],
+    ["Upload Studio", "/local-upload-manager/app?embedded=1&tab=dashboard", "upload"]
+  ]);
+  const experimentSection = pathname => {
+    if (/^\/(scene-builder|video-studio|auto-caption-studio|short-maker|video-merger|queue|settings|audit-media)(\/|$)/.test(pathname)) return "video";
+    if (/^\/(local-upload-manager|auto-stream)(\/|$)/.test(pathname)) return "upload";
+    if (/^\/voice-studio(\/|$)/.test(pathname)) return "voice";
+    if (/^\/self-media-library(\/|$)/.test(pathname)) return "library";
+    if (/^\/auto-script(\/|$)/.test(pathname)) return "auto-script";
+    return "antidetect";
+  };
+  const createExperimentTabs = (isLegacy, selected) => {
+    const tabs = node("nav", isLegacy ? "vps1-experiment-tabs" : "vps1-native-experiment-tabs");
+    tabs.dataset.vps1Component = "studio-tabs";
+    tabs.setAttribute("aria-label", "Experiment Studio");
+    const links = {};
+    for (const [label, href, key] of EXPERIMENT_NAV)
+      links[key] = addLink(tabs, label, href, selected === key);
+    return {tabs, links};
   };
   function alignVideoTabs() {
     const rail = document.querySelector?.('nav[aria-label="Video Studio"]');
@@ -112,6 +136,12 @@
     } else {
       navigation.replaceChildren();
       addPrimaryLinks(navigation, current);
+    }
+    // Short Maker and Video Merger are independent legacy documents. Render
+    // the same second-level rail there; Scene templates already render it.
+    if (current === "experiment" && !document.querySelector('nav[aria-label="Experiment Studio"]')) {
+      const main = document.querySelector("main");
+      if (main) main.prepend(createExperimentTabs(true, experimentSection(window.location.pathname)).tabs);
     }
     let account = sidebar.querySelector(":scope > .sidebar-account");
     if (!account) {
@@ -198,55 +228,10 @@
     const navigation = node("nav");
     navigation.setAttribute("aria-label", "Applications");
     // Native pages and legacy Video Studio documents use the same menu.
-    const current = app === "uploader" || app === "stream" ? "upload" :
-      (app === "song" || app === "song-uploader") ? "song" : app === "acs" ? "video" : app === "library" ? "experiment" :
-      app === "voice" && (window.location?.hash === "#vs-audio" || /^\/audio-downloader\/?$/.test(window.location?.pathname || "")) ? "song" : "voice";
+    const current = (app === "song" || app === "song-uploader") ? "song" :
+      (app === "voice" && (window.location?.hash === "#vs-audio" ||
+        /^\/audio-downloader\/?$/.test(window.location?.pathname || ""))) ? "song" : "experiment";
     const primaryLinks = addPrimaryLinks(navigation, current);
-    const voiceLink = primaryLinks.voice;
-    const songLink = primaryLinks.song;
-    const selectVoiceOrSong = () => {
-      if (app !== "voice") return;
-      const inSong = document.body.classList.contains("vs-audio-active");
-      for (const [link, selected] of [[voiceLink, !inSong], [songLink, inSong]]) {
-        link.classList.toggle("active", selected);
-        if (selected) link.setAttribute("aria-current", "page");
-        else link.removeAttribute("aria-current");
-      }
-    };
-    if (app === "voice") {
-      // A click on the already-open Voice Studio must not reload its large
-      // document or restart voice engines, queues, and ongoing audio previews.
-      // Keyboard/modifier navigation and uninitialized UI fall back to href.
-      voiceLink.addEventListener("click", (event) => {
-        if (/^\/audio-downloader\/?$/.test(window.location?.pathname || "")) return;
-        if (event.defaultPrevented || (event.button !== undefined && event.button !== 0) ||
-            event.ctrlKey || event.metaKey || event.shiftKey || event.altKey ||
-            typeof window.vps1VoiceStudioTab !== "function") return;
-        event.preventDefault();
-        if (document.body.classList.contains("vs-audio-active")) {
-          document.getElementById("vsEngineOmni")?.click();
-        }
-        window.vps1VoiceStudioTab("production");
-        selectVoiceOrSong();
-      });
-    }
-
-    if (app === "voice") {
-      songLink.addEventListener("click", event => {
-        // Voice Studio to Song Studio always navigates to its independent URL.
-        if (/^\/voice-studio\//.test(window.location?.pathname || "")) return;
-        if (event.defaultPrevented || (event.button !== undefined && event.button !== 0) ||
-            event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-        const audioEngine = document.getElementById("vsEngineAudio");
-        if (!audioEngine) return;
-        event.preventDefault();
-        audioEngine.click();
-        selectVoiceOrSong();
-      });
-      window.addEventListener("vps1:voice-engine-changed", selectVoiceOrSong);
-      window.addEventListener("hashchange", selectVoiceOrSong);
-    }
-
     // All native app screens use the live Scene session role; no local-app
     // guessing or browser-stored role flags. Admin stays hidden until verified.
     let adminLink = null;
@@ -307,6 +292,54 @@
     const backdrop = node("div", "vps1-native-nav-backdrop");
     backdrop.setAttribute("aria-hidden", "true");
     toggle.after(backdrop);
+    // Render hierarchy: Experiment Studio > Studio > original app controls.
+    // Keep independent app URLs and all existing backends untouched.
+    const secondLevel = ["acs", "voice", "uploader", "stream", "library"].includes(app)
+      ? createExperimentTabs(false, app === "library" ? "library" :
+          app === "acs" ? "video" : app === "voice" ? "voice" : "upload")
+      : null;
+    if (secondLevel) toggle.after(secondLevel.tabs);
+    const attachInnerTabs = tabs => (secondLevel ? secondLevel.tabs : toggle).after(tabs);
+    const voiceLink = secondLevel?.links.voice;
+    const songLink = primaryLinks.song;
+    const experimentLink = primaryLinks.experiment;
+    const selectVoiceOrSong = () => {
+      if (app !== "voice") return;
+      const inSong = document.body.classList.contains("vs-audio-active");
+      for (const [link, selected] of [[voiceLink, !inSong], [songLink, inSong], [experimentLink, !inSong]]) {
+        if (!link) continue;
+        link.classList.toggle("active", selected);
+        if (selected) link.setAttribute("aria-current", "page");
+        else link.removeAttribute("aria-current");
+      }
+    };
+    if (app === "voice" && voiceLink) {
+      // Re-selecting an already-open Voice Studio does not reload voice queues.
+      voiceLink.addEventListener("click", event => {
+        if (/^\/audio-downloader\/?$/.test(window.location?.pathname || "")) return;
+        if (event.defaultPrevented || (event.button !== undefined && event.button !== 0) ||
+            event.ctrlKey || event.metaKey || event.shiftKey || event.altKey ||
+            typeof window.vps1VoiceStudioTab !== "function") return;
+        event.preventDefault();
+        if (document.body.classList.contains("vs-audio-active"))
+          document.getElementById("vsEngineOmni")?.click();
+        window.vps1VoiceStudioTab("production");
+        selectVoiceOrSong();
+      });
+      songLink.addEventListener("click", event => {
+        if (/^\/voice-studio\//.test(window.location?.pathname || "")) return;
+        if (event.defaultPrevented || (event.button !== undefined && event.button !== 0) ||
+            event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+        const audioEngine = document.getElementById("vsEngineAudio");
+        if (!audioEngine) return;
+        event.preventDefault();
+        audioEngine.click();
+        selectVoiceOrSong();
+      });
+      window.addEventListener("vps1:voice-engine-changed", selectVoiceOrSong);
+      window.addEventListener("hashchange", selectVoiceOrSong);
+    }
+
     let menuOpen = false;
     const setMenuOpen = open => {
       menuOpen = Boolean(open);
@@ -336,7 +369,7 @@
       addLink(tabs, "Audio Downloader", "/audio-downloader/", app === "voice");
       addLink(tabs, "Song Maker", "/song-studio/song-maker/", app === "song");
       addLink(tabs, "Song Uploader", "/song-studio/song-uploader/", app === "song-uploader");
-      toggle.after(tabs);
+      attachInnerTabs(tabs);
       selectVoiceOrSong();
     }
     if (app === "acs") {
@@ -348,28 +381,18 @@
       else addLink(tabs, "Auto Caption Studio", "/auto-caption-studio/", false);
       addLink(tabs, "Short Maker", "/short-maker/", false);
       addLink(tabs, "Video Merger", "/video-merger/", false);
-      toggle.after(tabs);
+      attachInnerTabs(tabs);
       alignVideoTabs();
     }
 
-    if (app === "library") {
-      const tabs = node("nav", "vps1-native-experiment-tabs");
-      tabs.dataset.vps1Component = "studio-tabs";
-      tabs.setAttribute("aria-label", "Experiment Studio");
-      addLink(tabs, "Antidetect Browser", "/experiment-studio/antidetect-browser/", false);
-      addLink(tabs, "Self Media Library", "/self-media-library/", true);
-      addLink(tabs, "Auto Script", "/experiment-studio/auto-script/", false);
-      // Use the canonical independent application URL, without an iframe.
-      toggle.after(tabs);
-    }
     if (app === "uploader" || app === "stream") {
       const tabs = node("nav", "vps1-native-upload-tabs");
       tabs.dataset.vps1Component = "studio-tabs";
       tabs.setAttribute("aria-label", "Upload Studio");
       addLink(tabs, "Auto Uploader", "/local-upload-manager/app?embedded=1&tab=dashboard", app === "uploader");
       addLink(tabs, "Auto Stream", "/auto-stream/", app === "stream");
-      // Native uploader and stream tabs mount before either app's own header.
-      toggle.after(tabs);
+      // Upload Studio applications remain the third level under Experiment.
+      attachInnerTabs(tabs);
     }
   }
   if (document.readyState === "loading")
