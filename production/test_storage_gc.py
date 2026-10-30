@@ -376,7 +376,7 @@ class StorageGCTests(unittest.TestCase):
             ], "free_before_bytes": 1_000_000,
             "free_after_bytes": 1_000_000
         }
-        (state / "deployment-gc-history.jsonl").write_text(json.dumps(old) + "\\n")
+        (state / "deployment-gc-history.jsonl").write_text(json.dumps(old) + "\n")
         with patch.object(gc, "execute", return_value={"inventory": {
                 "candidates": [], "control": {"candidates": []},
                 "estimated_bytes": 12345}}):
