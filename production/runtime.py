@@ -389,6 +389,23 @@ def require_sml_idle(state):
                     raise RuntimeError('SML_RELEASE_BLOCKED: active '+table+' work; retry after completion')
 
 
+def require_short_maker_idle(state):
+    """Never interrupt an existing Short Maker render during navigation migration."""
+    jobs = state / "jobs"
+    if not jobs.is_dir():
+        return
+    for item in jobs.glob("*/state.json"):
+        if item.is_symlink() or not item.is_file():
+            raise RuntimeError("Short Maker state ownership drift")
+        try:
+            record = json.loads(item.read_text())
+        except (ValueError, OSError) as exc:
+            raise RuntimeError("Unreadable Short Maker job state blocks release") from exc
+        status = str(record.get("status") or "").lower().strip()
+        if status not in {"completed", "failed", "cancelled", "canceled"}:
+            raise RuntimeError("Short Maker has an unfinished job; preserving live render")
+
+
 def install_app(app, revision):
     if app not in CATALOG:
         raise ValueError('app is not owned by this installer')
@@ -583,6 +600,8 @@ def install_app(app, revision):
     # Never interrupt an upload in any of the three independently running engines.
     if app == 'local-upload-manager' and active:
         require_lum_release_idle(state)
+    if app == 'short-maker' and active:
+        require_short_maker_idle(state)
     if app == 'voice-studio' and active:
         require_voice_release_idle(state)
     # Only the app being replaced is stopped. Other apps and all agents stay up.
