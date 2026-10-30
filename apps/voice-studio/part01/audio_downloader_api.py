@@ -100,27 +100,37 @@ def init_storage() -> None:
         )''')
 
 
+class DriveUploadFailure(RuntimeError):
+    """Known, sanitized Google Drive failure. Only confirmed API rate limits auto-retry."""
+    def __init__(self, code: str):
+        self.code = code
+        behavior = 'automatic retry scheduled' if code == 'RATE_LIMITED' else 'manual retry required'
+        super().__init__(f'Google Drive upload failed ({code}); {behavior}')
+
+
+def _confirmed_rate_limit_error(error: str | None) -> bool:
+    # Recognize only our sanitized persisted error marker, never arbitrary provider prose.
+    return bool(error and error.startswith('Google Drive upload failed (RATE_LIMITED);'))
+
+
 def recover_interrupted_jobs() -> None:
-    # Only on startup: keep completed downloads and their verified Drive receipts.
-    # Failed/in-flight uploads resume from local media without touching YouTube.
+    # Startup recovery is conservative: an interruption is not proof of API rate limiting.
+    # Preserve local media, verified receipts, and manual retries; never re-download automatically.
     with db() as con:
         con.execute('BEGIN IMMEDIATE')
-        # Old terminal Drive failures with a preserved local audio also qualify.
-        rows = con.execute("""SELECT job_id,local_file,video_id,format,auto_upload,status FROM jobs
-            WHERE status IN ('downloading','downloaded','uploading')
-               OR (status='failed' AND auto_upload=1 AND local_file IS NOT NULL)""").fetchall()
-        for row in rows:
-            local = Path(row['local_file']) if row['local_file'] else None
-            expected = (JOBS / row['job_id'] / (row['video_id'] + '.' + row['format'])).resolve()
-            if (row['auto_upload'] and row['status'] != 'downloading' and local
-                    and local.resolve() == expected and local.is_file()):
-                con.execute("""UPDATE jobs SET status='upload_retry',next_retry_at=?,
-                    error='Upload interrupted; automatic retry scheduled',updated_at=?
-                    WHERE job_id=?""", (utc_after(UPLOAD_RETRY_SECONDS), utc(), row['job_id']))
-            elif row['status'] != 'failed':
-                con.execute("""UPDATE jobs SET status='failed',next_retry_at=NULL,
-                    error='Interrupted or local audio unavailable; retry manually',updated_at=?
-                    WHERE job_id=?""", (utc(), row['job_id']))
+        for row in con.execute("""SELECT job_id,error,progress_stage FROM jobs
+                                  WHERE status='upload_retry'""").fetchall():
+            if (row['progress_stage'] == 'manual retry requested'
+                    or _confirmed_rate_limit_error(row['error'])):
+                continue
+            # Retire legacy 68+ retry loops from unknown/verification errors.
+            con.execute("""UPDATE jobs SET status='failed',next_retry_at=NULL,
+                           progress_stage='manual retry required',updated_at=?
+                           WHERE job_id=? AND status='upload_retry'""", (utc(), row['job_id']))
+        con.execute("""UPDATE jobs SET status='failed',next_retry_at=NULL,
+                       error='Job interrupted; retry manually using saved local audio',
+                       progress_stage='manual retry required',updated_at=?
+                       WHERE status IN ('downloading','downloaded','uploading')""", (utc(),))
         con.execute('COMMIT')
 
 
@@ -208,7 +218,7 @@ def status():
             'formats': ['mp3', 'wav'], 'quality': [128, 192, 256],
             'download_contract': 'explicit-proxy-private-session-v2',
             'proxy': proxy_runtime_status(), 'youtube_session': cookie_status(),
-            'retry_policy': 'upload-only automatic retry every 180s; 60s between verified audio uploads',
+            'retry_policy': 'only confirmed Drive API rate limits retry every 180s; other failures require manual Retry; 60s between verified audio uploads',
             'upload_gap_seconds': UPLOAD_GAP_SECONDS, 'upload_retry_seconds': UPLOAD_RETRY_SECONDS,
             'queue': {v['status']: v['n'] for v in q}, 'worker': bool(_worker and _worker.is_alive())}
 
@@ -297,7 +307,7 @@ def job_action(job_id: str, action: Literal['cancel', 'retry']):
             expected = (JOBS / job_id / (row['video_id'] + '.' + row['format'])).resolve()
             resume = bool(row['auto_upload'] and local and local.resolve() == expected and local.is_file())
             if resume:
-                con.execute("UPDATE jobs SET status='upload_retry',error=NULL,next_retry_at=?,updated_at=?,progress_stage='retry scheduled' WHERE job_id=? AND status IN ('failed','cancelled')", (utc(), utc(), job_id))
+                con.execute("UPDATE jobs SET status='upload_retry',error=NULL,next_retry_at=?,updated_at=?,progress_stage='manual retry requested' WHERE job_id=? AND status IN ('failed','cancelled')", (utc(), utc(), job_id))
             else:
                 con.execute("UPDATE jobs SET status='queued',error=NULL,next_retry_at=NULL,upload_retry_count=0,started_at=NULL,completed_at=NULL,updated_at=?,download_percent=0,upload_percent=0,progress_stage=NULL WHERE job_id=? AND status IN ('failed','cancelled')", (utc(), job_id))
         else:
@@ -350,7 +360,10 @@ def _claim():
         con.execute('BEGIN IMMEDIATE')
         # Due uploads get priority over fresh YouTube downloads.
         row = con.execute("""SELECT * FROM jobs
-            WHERE (status='upload_retry' AND next_retry_at<=?) OR status='queued'
+            WHERE (status='upload_retry' AND next_retry_at<=?
+                   AND (progress_stage='manual retry requested'
+                        OR error GLOB 'Google Drive upload failed (RATE_LIMITED);*'))
+               OR status='queued'
             ORDER BY CASE WHEN status='upload_retry' THEN 0 ELSE 1 END,
                 CASE WHEN status='upload_retry' THEN next_retry_at ELSE created_at END,job_id
             LIMIT 1""", (utc(),)).fetchone()
@@ -372,6 +385,7 @@ def verified_drive_public_link(remote: str, local_path=None, expected_format='mp
     import hashlib
     import urllib.parse
     import urllib.request
+    import urllib.error
     if not isinstance(remote, str) or not remote.startswith(DRIVE_REMOTE + ':' + DRIVE_BASE + '/'):
         raise RuntimeError('Unexpected Google Drive path')
     if any(x in remote for x in ('..', '\\', '\n', '\r')):
@@ -382,6 +396,8 @@ def verified_drive_public_link(remote: str, local_path=None, expected_format='mp
     cmd = [tool, '--config', RCLONE_CONFIG]
     probe = subprocess.run(cmd + ['lsjson', '--stat', '--hash', remote], capture_output=True, text=True, timeout=120, check=False)
     if probe.returncode:
+        if _drive_copy_failure_code(probe.stderr or probe.stdout or '') == 'RATE_LIMITED':
+            raise DriveUploadFailure('RATE_LIMITED')
         raise RuntimeError('Google Drive size/hash verification unavailable')
     try:
         stat = json.loads(probe.stdout)
@@ -398,6 +414,8 @@ def verified_drive_public_link(remote: str, local_path=None, expected_format='mp
         if not remote_md5:
             hashes = subprocess.run(cmd + ['md5sum', remote], capture_output=True, text=True, timeout=120, check=False)
             if hashes.returncode:
+                if _drive_copy_failure_code(hashes.stderr or hashes.stdout or '') == 'RATE_LIMITED':
+                    raise DriveUploadFailure('RATE_LIMITED')
                 raise RuntimeError('Google Drive MD5 unavailable, keep local file')
             remote_md5 = hashes.stdout.strip().split()[0].lower()
         local_md5 = hashlib.md5()
@@ -408,6 +426,8 @@ def verified_drive_public_link(remote: str, local_path=None, expected_format='mp
             raise RuntimeError('Google Drive content hash mismatch, keep local file')
     link = subprocess.run(cmd + ['link', remote], capture_output=True, text=True, timeout=120, check=False)
     if link.returncode:
+        if _drive_copy_failure_code(link.stderr or link.stdout or '') == 'RATE_LIMITED':
+            raise DriveUploadFailure('RATE_LIMITED')
         raise RuntimeError('Google Drive anyone-with-link permission failed')
     provided = (link.stdout.strip().splitlines() or [''])[-1].strip()
     parts = urllib.parse.urlsplit(provided)
@@ -425,6 +445,10 @@ def verified_drive_public_link(remote: str, local_path=None, expected_format='mp
         with urllib.request.urlopen(req, timeout=35) as resp:
             mime = resp.headers.get('Content-Type','').split(';')[0].lower().strip()
             header = resp.read(64)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 429:
+            raise DriveUploadFailure('RATE_LIMITED') from None
+        raise RuntimeError('Google Drive anonymous audio download not verified') from None
     except Exception as exc:
         raise RuntimeError('Google Drive anonymous audio download not verified') from exc
     audio_magic = header.startswith(b'ID3') or (header[:1] == b'\xff' and len(header)>1 and (header[1] & 0xe0)==0xe0)
@@ -497,19 +521,22 @@ def _record_audio_upload() -> None:
 
 
 def _schedule_upload_retry(jid: str, error: Exception) -> None:
-    # Never re-download an audio file after a Drive-only failure.
+    # Auto-retry ONLY confirmed provider API rate limits; all other failures are manual.
+    # In either case the downloaded MP3 and its immutable Drive receipts remain intact.
     with db() as con:
         row = con.execute('SELECT * FROM jobs WHERE job_id=?', (jid,)).fetchone()
     if row and row['status'] in ('uploading', 'downloaded'):
         local = Path(row['local_file']) if row['local_file'] else None
         expected = (JOBS / jid / (row['video_id'] + '.' + row['format'])).resolve()
-        if local and local.resolve() == expected and local.is_file():
-            _update(jid, 'upload_retry', error=_safe_proxy_error(str(error))[:420],
+        if (isinstance(error, DriveUploadFailure) and error.code == 'RATE_LIMITED'
+                and local and local.resolve() == expected and local.is_file()):
+            _update(jid, 'upload_retry', error=str(error)[:420],
                     next_retry_at=utc_after(UPLOAD_RETRY_SECONDS),
                     upload_retry_count=int(row['upload_retry_count']) + 1,
                     progress_stage='retry scheduled')
             return
-    _update(jid, 'failed', error=_safe_proxy_error(str(error))[:420], next_retry_at=None)
+    _update(jid, 'failed', error=_safe_proxy_error(str(error))[:420],
+            next_retry_at=None, progress_stage='manual retry required')
 
 
 def resume_upload(job: dict) -> None:
@@ -639,7 +666,7 @@ def upload_downloaded(job: dict, final: Path, thumbnail: Path | None, state: dic
 
     def upload_file(source: Path, destination: str, fmt: str) -> str:
         cmd = [state['rclone'], '--config', RCLONE_CONFIG, 'copyto', str(source), destination,
-               '--immutable', '--retries', '2', '--low-level-retries', '2', '--timeout', '5m',
+               '--immutable', '--retries', '1', '--low-level-retries', '1', '--timeout', '5m',
                '--contimeout', '30s']
         try:
             if state.get('progress_streaming'):
@@ -650,7 +677,7 @@ def upload_downloaded(job: dict, final: Path, thumbnail: Path | None, state: dic
             else:
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=1500, check=False)
         except subprocess.TimeoutExpired:
-            raise RuntimeError('Google Drive upload failed (NETWORK_TIMEOUT); automatic retry scheduled') from None
+            raise DriveUploadFailure('NETWORK_TIMEOUT') from None
         if result.returncode:
             code = _drive_copy_failure_code(result.stderr or result.stdout or '')
             if code == 'DESTINATION_EXISTS':
@@ -659,14 +686,14 @@ def upload_downloaded(job: dict, final: Path, thumbnail: Path | None, state: dic
                 # never overwrite an immutable destination or trust its name alone.
                 try:
                     link = verified_drive_public_link(destination, source, fmt)
+                except DriveUploadFailure:
+                    raise
                 except (RuntimeError, subprocess.TimeoutExpired, OSError, ValueError):
-                    raise RuntimeError(
-                        'Google Drive upload failed (DESTINATION_CONFLICT_UNVERIFIED); '
-                        'automatic retry scheduled') from None
+                    raise DriveUploadFailure('DESTINATION_CONFLICT_UNVERIFIED') from None
                 _update(jid, 'uploading', upload_percent=100,
                         progress_stage='verified thumbnail' if fmt == 'jpg' else 'verified audio')
                 return link
-            raise RuntimeError(f'Google Drive upload failed ({code}); automatic retry scheduled')
+            raise DriveUploadFailure(code)
         # Avoid a duplicate remote metadata query: the authoritative verifier
         # checks remote size/MD5, public link and anonymous file bytes.
         link = verified_drive_public_link(destination, source, fmt)
