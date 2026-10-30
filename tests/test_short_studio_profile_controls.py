@@ -34,6 +34,39 @@ def load_function(path, name, namespace):
 
 
 class ShortProfileControlTests(unittest.TestCase):
+    def test_shortstudio_sheets_compact_toolbar_retains_sync_actions(self):
+        source=TEMPLATE.read_text()
+        start=source.index("{% elif tab == 'sheets' %}")
+        end=source.index("{% elif tab == 'auto_engine' %}",start)
+        section=source[start:end].split("\n",1)[1]
+        ctx=dict(base_path='/short-uploader',csrf='offline',selected_sheet_source=None,
+                 sheet_sources=[dict(id=1,sheet_name='Source',sheet_url_or_id='sheet-url',
+                                     enabled=True,last_sync_at=None,last_sync_status=None)],
+                 stats=dict(settings=dict(sheets_sync_enabled='1')))
+        short=Environment().from_string(section).render(engine_instance='shortstudio',**ctx)
+        self.assertNotIn('PC-app Sheets engine connected',short)
+        self.assertNotIn('<h2>Manual Update</h2>',short)
+        self.assertNotIn('Same PC synchronization behavior',short)
+        self.assertIn('<summary>Sheet format</summary>',short)
+        self.assertEqual(short.count('>Update All Enabled Sheets</button>'),1)
+        self.assertIn('/actions/sheets/sync-all',short)
+        self.assertIn('/actions/sheets/sync',short)
+        self.assertIn('Save Sheet Source',short)
+        song=Environment().from_string(section).render(engine_instance='song',**ctx)
+        self.assertIn('<h2>Manual Update</h2>',song)
+        self.assertEqual(song.count('>Update All Enabled Sheets</button>'),1)
+
+    def test_bulk_import_not_available_to_short_uploader(self):
+        template=TEMPLATE.read_text()
+        routes=ROUTES.read_text()
+        self.assertIn("{% if engine_instance not in ['song', 'shortstudio'] %}",template)
+        self.assertIn("tab=='bulk_import'",template)
+        self.assertIn("{% elif tab == 'bulk_import' and engine_instance not in ['song', 'shortstudio'] %}",template)
+        self.assertIn('allowed = {"dashboard", "channels", "sheets", "auto_engine", "logs"}',routes)
+        # Existing Auto Uploader/other instances retain their Bulk Import UI.
+        self.assertIn('<h2>Bulk Import</h2>',template)
+        Environment().parse(template)
+
     def test_thumbnail_library_is_hidden_in_short_but_available_to_song(self):
         source = TEMPLATE.read_text()
         self.assertIn("engine_instance != 'shortstudio' and not (p and p.channel_db_id)", source)
@@ -49,7 +82,7 @@ class ShortProfileControlTests(unittest.TestCase):
         self.assertIn("input.type='time'", javascript)
         self.assertIn("countFor(host)", javascript)
         self.assertIn("field.setCustomValidity(", javascript)
-        self.assertIn("Choose a separate Pakistan Time", template)
+        self.assertIn("One PKT time per video per channel", template)
         ns={"re":re, "clean":lambda x:str(x or "").strip(), "Any":Any, "List":List}
         parse = load_function(ENGINE, "parse_schedule_times", ns)
         self.assertEqual(parse("09:00,12:15,16:30,21:45"), ["09:00","12:15","16:30","21:45"])
@@ -129,6 +162,8 @@ class ShortProfileControlTests(unittest.TestCase):
         self.assertIn('data-short-profile-action="start"',automation)
         self.assertIn('data-short-schedule-slots data-short-profile-schedule',html)
         self.assertIn('data-ae-open-schedules>Manage Schedules</button>',html)
+        self.assertIn('data-ae-open-schedules>Profile Schedules</button>',html)
+        self.assertIn('id="short-profile-privacy-status"',html)
         self.assertIn('>Pause Profile</button>',html)
         self.assertIn("data-short-schedule-slots",js)
         self.assertIn('"/actions/auto-v6/profile-schedule/save"',ROUTES.read_text())

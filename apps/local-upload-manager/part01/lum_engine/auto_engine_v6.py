@@ -1197,8 +1197,10 @@ def target_channels(pc_db:Any, profile:Dict[str,Any]) -> List[Dict[str,Any]]:
 def category_metadata(profile:Dict[str,Any]) -> Tuple[Dict[str,Any],str]:
     settings=profile.get("_short_group_metadata") or {}
     if settings.get("metadata_source")=="manual":
+        privacy=(clean(settings.get("privacy_status") or "public").lower()
+                 if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio" else "private")
         return {"title":settings.get("manual_title"), "description":settings.get("manual_description"),
-                "category_id":settings.get("manual_category_id") or "22", "privacy_status":"private"}, "Manual website metadata"
+                "category_id":settings.get("manual_category_id") or "22", "privacy_status":privacy}, "Manual website metadata"
     sheet=clean(profile.get("metadata_sheet_url_or_id")); tab=clean(profile.get("metadata_sheet_tab"))
     gid=clean(profile.get("metadata_sheet_gid")) or (extract_gid(sheet,fallback="") if sheet else "")
     if not sheet: raise ValueError("Metadata Sheet URL / ID is required.")
@@ -1213,7 +1215,12 @@ def category_metadata(profile:Dict[str,Any]) -> Tuple[Dict[str,Any],str]:
         raise ValueError("Metadata tab is missing required title/video_title column.")
     title=clean(first.get("title") or first.get("video_title"))
     if not title: raise ValueError("The first metadata row has an empty title.")
-    privacy=clean(first.get("visibility") or first.get("privacy_status") or first.get("privacy") or "private").lower()
+    # In Short Uploader, the saved profile privacy always wins over a Sheet's
+    # visibility column. Other uploader modes retain their existing rules.
+    if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio":
+        privacy=clean(settings.get("privacy_status") or "public").lower()
+    else:
+        privacy=clean(first.get("visibility") or first.get("privacy_status") or first.get("privacy") or "private").lower()
     if privacy not in {"private","public","unlisted"}: raise ValueError("Visibility must be private, public, or unlisted.")
     first["privacy_status"]=privacy
     first["category_id"]=clean(first.get("youtube_category") or first.get("category_id") or first.get("category") or "22") or "22"
@@ -2003,7 +2010,7 @@ def short_group_metadata(store: V6Store, profile_id: int, settings: Dict[str, An
             con.execute("INSERT INTO short_group_metadata VALUES (?,?) ON CONFLICT(profile_id) DO UPDATE SET settings_json=excluded.settings_json",
                         (int(profile_id), json.dumps(settings)))
         row=con.execute("SELECT settings_json FROM short_group_metadata WHERE profile_id=?", (int(profile_id),)).fetchone()
-        return json.loads(row[0]) if row else {"metadata_source":"sheet"}
+        return json.loads(row[0]) if row else {"metadata_source":"sheet","privacy_status":"public"}
 
 
 def save_short_group_profile(pc_db: Any, store: V6Store, form: Dict[str, Any], profile_id: int|None=None) -> int:
@@ -2021,11 +2028,14 @@ def save_short_group_profile(pc_db: Any, store: V6Store, form: Dict[str, Any], p
         raise ValueError("Enter group profile name.")
     saved=short_group_metadata(store, int(profile_id)) if profile_id else {}
     settings=dict(saved)
-    for key in ("metadata_source", "manual_title", "manual_description", "manual_category_id"):
+    for key in ("metadata_source", "manual_title", "manual_description", "manual_category_id", "privacy_status"):
         if key in form:
-            settings[key]=clean(form[key])
-    settings.setdefault("metadata_source", "sheet")
+            settings[key]=clean(form[key]).lower() if key=="privacy_status" else clean(form[key])
+    settings.setdefault("metadata_source", "manual" if not profile_id else "sheet")
     settings.setdefault("manual_category_id", "22")
+    settings.setdefault("privacy_status", "public")
+    if settings["privacy_status"] not in {"public","unlisted","private"}:
+        raise ValueError("Choose Public, Unlisted, or Private video visibility.")
     source=settings["metadata_source"]
     if source not in {"sheet", "manual"}:
         raise ValueError("Select Google Sheets or Manual Metadata.")
@@ -2037,6 +2047,15 @@ def save_short_group_profile(pc_db: Any, store: V6Store, form: Dict[str, Any], p
         if settings["manual_category_id"] not in {"1","2","10","15","17","19","20","22","23","24","25","26","27","28","29"}:
             raise ValueError("Choose a valid YouTube category.")
     fields=dict(form)
+    if not profile_id:
+        # Only newly created Short Uploader groups receive owner defaults.
+        # Explicit user selections override every value here.
+        for key,value in {
+            "enabled":"1", "daily_upload_count":"1", "schedule_times":"06:00",
+            "upload_scope":"per_channel", "work_mode":"auto",
+            "after_upload_action":"delete", "schedule_enabled":"1",
+        }.items():
+            fields.setdefault(key,value)
     for key in ("metadata_sheet_url_or_id", "metadata_sheet_tab", "metadata_sheet_gid"):
         if key not in fields:
             fields[key]=(original or {}).get(key, "")
@@ -2049,7 +2068,7 @@ def save_short_group_profile(pc_db: Any, store: V6Store, form: Dict[str, Any], p
     elif not clean(form.get("drive_video_folder")):
         raise ValueError("Choose a Short Maker VPS folder or Google Drive folder.")
     # Explicit profile opt-in never changes the global scheduler arm state.
-    fields["schedule_enabled"]="1" if clean(form.get("schedule_enabled")).lower() in {"1","true","on","yes"} else "0"
+    fields["schedule_enabled"]="1" if clean(fields.get("schedule_enabled")).lower() in {"1","true","on","yes"} else "0"
     pid=_CHANNEL_LEGACY_SAVE_PROFILE(pc_db, store, fields, profile_id)
     short_group_metadata(store, pid, settings)
     return pid
