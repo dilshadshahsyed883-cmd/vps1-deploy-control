@@ -47,7 +47,7 @@ class SongAutomationGroupSummaryTests(unittest.TestCase):
             group_channel_count=0,enabled=1,schedule_times="18:00",schedule_enabled=0)])
         self.assertIn('data-song-group-channel-count="8">0</td>', html)
         self.assertIn('Schedule OFF', html)
-        self.assertIn('18:00', html)
+        self.assertIn('06:00 PM', html)
         self.assertNotIn('15 min', html)
 
     def test_legacy_individual_is_not_silently_converted(self):
