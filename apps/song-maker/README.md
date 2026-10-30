@@ -21,7 +21,7 @@ uncropped foreground. No captions, effects, animation or separate compression pa
 * Dedicated `inputs`, `temp`, `outputs`, `staging`, `logs`, `state` directories;
   `state/jobs.sqlite3` holds WAL-persistent jobs, settings, sync snapshots and
   worker heartbeats. No existing application's DB or queue is opened by the app.
-* Render progress comes from FFmpeg timestamps; upload is stage-based progress,
+* Render progress comes from FFmpeg timestamps; Queue estimates remaining render time from encoded duration and measured speed. Personal video-quality presets (high CRF 18, balanced CRF 20, compact CRF 23) apply only to new jobs; upload is stage-based progress,
   not fabricated byte-transfer percentages. ffprobe plus complete error-failing
   decode validate stream codecs/durations before a video is downloadable.
 
