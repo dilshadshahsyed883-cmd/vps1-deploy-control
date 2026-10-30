@@ -477,4 +477,48 @@ class SongMakerTests(unittest.TestCase):
         self.assertEqual(self.store.jobs('alice'),[])
 
 
+    def test_sso_user_can_request_only_approved_default_drive_sync(self):
+        from songmaker.drive import default_settings
+        user={'X-Auth-User':'bob','X-Song-Maker':'1'}
+        initial=self.client.get('/song-maker/api/state',headers=user)
+        self.assertEqual(initial.status_code,200)
+        self.assertTrue(initial.json()['sync_access'])
+        self.assertFalse(initial.json()['admin'])
+        result=self.client.post('/song-maker/api/sync',headers=user)
+        self.assertEqual(result.status_code,200,result.text)
+        self.assertTrue(self.store.record('settings','bob')['sync_requested'])
+        self.assertEqual(self.store.record('settings','bob')['image_folder'],default_settings()['image_folder'])
+        self.assertEqual(self.store.record('settings','bob')['output_folder'],default_settings()['output_folder'])
+        self.assertEqual(self.client.post('/song-maker/api/settings',headers=user,
+            json={**default_settings(),'image_folder':'unexpectedRemoteFolder'}).status_code,403)
+        self.assertEqual(self.client.get('/song-maker/api/state',headers=user).json()['jobs'],[])
+        self.assertEqual(self.client.post('/song-maker/api/sync').status_code,401)
+
+    def test_export_preset_is_private_and_applies_to_manual_and_drive_jobs(self):
+        config={'resolution':'9:16','fit':'blur'}
+        saved=self.client.post('/song-maker/api/export',headers=self.headers,json=config)
+        self.assertEqual(saved.status_code,200,saved.text)
+        state=self.client.get('/song-maker/api/state',headers=self.headers).json()
+        self.assertEqual(state['export'],config)
+        self.assertEqual(self.client.post('/song-maker/api/export',headers=self.headers,
+            json={'resolution':'invalid','fit':'fit'}).status_code,422)
+        image,audio=self.media()
+        result=self.client.post('/song-maker/api/jobs',headers=self.headers,
+            files={'image':('image.png',image.read_bytes(),'image/png'),
+                   'audio':('Track.wav',audio.read_bytes(),'audio/wav')})
+        self.assertEqual(result.status_code,200,result.text)
+        self.assertEqual(result.json()['resolution'],'9:16')
+        self.assertEqual(result.json()['fit'],'blur')
+        from songmaker.drive import default_settings
+        class DriveFixture:
+            def listing(_,folder):
+                return [self.item('New.jpg','image-1'),self.item('New.mp3','audio-1')]
+        sync_owner(self.store,'alice',default_settings(),DriveFixture())
+        new=next(j for j in self.store.jobs('alice') if j.get('origin')=='drive')
+        self.assertEqual(new['resolution'],'9:16')
+        self.assertEqual(new['fit'],'blur')
+        guest={'X-Auth-User':'bob','X-Song-Maker':'1'}
+        self.assertNotEqual(self.client.get('/song-maker/api/state',headers=guest).json()['export'],config)
+
+
 if __name__=='__main__':unittest.main()
