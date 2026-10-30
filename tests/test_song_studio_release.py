@@ -38,6 +38,46 @@ class SongStudioReleaseTests(unittest.TestCase):
         with self.assertRaises(HTTPException):
             asyncio.run(env['audio_downloader_canonical_page'](request))
 
+    def test_canonical_route_accepts_saved_preferences_ui_and_previous_bootstrap(self):
+        # Execute the *real* gateway HTML transformer against the committed
+        # Voice template. The prior fixture duplicated this logic, and drift
+        # caused the canonical URL to return HTTP 502 after UI preferences.
+        import ast
+        class HTTPException(Exception):
+            def __init__(self, status_code, detail):
+                self.status_code, self.detail = status_code, detail
+        root = Path(__file__).resolve().parents[1]
+        scene = (root/'apps/scene-builder/part01/app.py').read_text()
+        tree = ast.parse(scene)
+        transform = next(n for n in tree.body
+            if isinstance(n, ast.FunctionDef) and n.name == '_audio_downloader_canonical_html')
+        env = {'HTTPException': HTTPException}
+        exec(compile(ast.Module(body=[transform], type_ignores=[]),
+                     '<canonical-audio-regression>', 'exec'), env)
+        render = env['_audio_downloader_canonical_html']
+        source = (root/'apps/voice-studio/part01/templates/voice_studio.html').read_bytes()
+        self.assertEqual(source.count(b"if(location.hash==='#vs-audio')choose(true);"), 1)
+        for variant in (source, source.replace(
+            b"drivePath();loadDownloadPreferences();if(location.hash==='#vs-audio')choose(true);",
+            b"drivePath();if(location.hash==='#vs-audio')choose(true);", 1)):
+            with self.subTest(saved_preferences_loader=b'loadDownloadPreferences' in variant):
+                page = render(variant)
+                self.assertIn(b"<title>Audio Downloader \\xc2\\xb7 Song Studio</title>", page)
+                self.assertIn(
+                    b"if(location.pathname==='/audio-downloader/' || location.hash==='#vs-audio')choose(true);",
+                    page)
+                self.assertNotIn(b"if(location.hash==='#vs-audio')choose(true);", page)
+                self.assertIn(b"'/voice-studio/tts/api/audio-downloader'", page)
+                self.assertIn(b'id="audio-downloader-v1-js"', page)
+                self.assertIn(b'id="vsaSongMaker"', page)
+        # Unknown/missing and duplicated route bootstrap remain fail-closed.
+        for bad in (source.replace(b"if(location.hash==='#vs-audio')choose(true);",
+                                   b"if(false)choose(true);", 1),
+                    source + b"if(location.hash==='#vs-audio')choose(true);"):
+            with self.assertRaises(HTTPException) as error:
+                render(bad)
+            self.assertEqual(error.exception.status_code, 502)
+
     def test_canonical_audio_downloader_url_without_new_worker(self):
         root = Path(__file__).resolve().parents[1]
         scene = (root/"apps/scene-builder/part01/app.py").read_text()
