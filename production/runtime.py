@@ -403,10 +403,23 @@ def shortstudio_rolled_back_empty(state: Path, *, unit_dir: Path = Path("/etc/sy
                 if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='projects'").fetchone():
                     if conn.execute("SELECT 1 FROM projects LIMIT 1").fetchone():
                         return False
-        for relative in ("staging", "thumbnails", "reports"):
+        for relative in ("staging", "thumbnails"):
             p = root / relative
             if p.is_symlink() or (p.exists() and (not p.is_dir() or any(p.iterdir()))):
                 return False
+        # Previous failed installs retain diagnostic/history reports. Reports
+        # are not queued source media or work claims and must be preserved.
+        # Validate file types without opening, moving, rewriting, or deleting.
+        reports = root / "reports"
+        if reports.is_symlink() or (reports.exists() and not reports.is_dir()):
+            return False
+        if reports.exists():
+            count = 0
+            for item in reports.rglob("*"):
+                count += 1
+                if (count > 10000 or item.is_symlink()
+                        or not (item.is_file() or item.is_dir())):
+                    return False
     for relative in ("auto_engine_v6/staging", "auto_engine_v6/thumbnails",
                      "auto_engine_v6/thumbnail_trash", "auto_engine_v6/reports"):
         directory = root / relative
