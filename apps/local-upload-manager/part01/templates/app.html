@@ -958,7 +958,7 @@
                 {% if engine_instance in ['shortstudio','song'] and not pr.channel_db_id %}
                 <span class="lum-ae-saved-times" aria-label="Saved schedule times in PKT" title="Edit times in Profiles">
                   {% if pr.schedule_times %}{% for slot in pr.schedule_times.split(',') %}{% set parts = slot.strip().split(':') %}{% set hour = parts[0]|int %}{{ '%02d'|format((hour % 12) or 12) }}:{{ parts[1] }} {{ 'PM' if hour >= 12 else 'AM' }}{% if not loop.last %}<span class="lum-ae-time-separator"> · </span>{% endif %}{% endfor %}{% else %}—{% endif %}
-                </span>
+                </span>{% if not pr.schedule_enabled %}<small>Schedule OFF</small>{% endif %}
                 {% elif pr.channel_db_id %}Per-video schedule
                 {% else %}{{ (pr.schedule_times or 'Not configured')|replace(',', ', ') }}{% if not pr.schedule_enabled %}<small>Schedule OFF</small>{% endif %}{% endif %}
               </td>
@@ -1088,7 +1088,7 @@
         <div class="lum-table-wrap"><table class="lum-table lum-ae-schedule-manager"><thead><tr><th>Profile</th><th>Schedule</th><th>Time(s) (PKT)</th></tr></thead><tbody>
         {% for pr in ae.profiles %}<tr><td><strong>{{ pr.category_name }}</strong></td><td><input type="hidden" name="schedule_enabled_{{ pr.id }}" value="0"><label class="lum-switch compact"><span>{{ 'ON' if pr.schedule_enabled else 'OFF' }}</span><input type="checkbox" name="schedule_enabled_{{ pr.id }}" value="1" {% if pr.schedule_enabled %}checked{% endif %}></label></td><td>{% if engine_instance in ['shortstudio','song'] and not pr.channel_db_id %}
           <input type="hidden" name="schedule_times_{{ pr.id }}" data-short-schedule-csv value="{{ pr.schedule_times or '' }}">
-          <span class="lum-short-schedule-slots" data-short-schedule-slots data-short-count="{{ pr.daily_upload_count or 1 }}" data-short-schedule-enabled="schedule_enabled_{{ pr.id }}"></span>
+          <span class="lum-short-schedule-slots" data-short-schedule-slots data-short-count="{{ pr.daily_upload_count or 4 }}" data-short-schedule-enabled="schedule_enabled_{{ pr.id }}"></span>
           {% else %}<input name="schedule_times_{{ pr.id }}" value="{{ pr.schedule_times or '09:00' }}" placeholder="09:00,14:00">{% endif %}</td></tr>{% else %}<tr><td colspan="3"><div class="lum-empty">No saved profiles.</div></td></tr>{% endfor %}
         </tbody></table></div>
         <div class="lum-ae-dialog-actions"><button type="button" class="lum-button secondary" data-ae-close-schedules>Cancel</button><button type="submit" class="lum-button primary">Save Changes</button></div>
