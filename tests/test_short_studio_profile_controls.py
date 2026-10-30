@@ -107,6 +107,43 @@ class ShortProfileControlTests(unittest.TestCase):
             with connect() as con:
                 self.assertEqual(con.execute("SELECT status FROM videos WHERE id=1").fetchone()[0],"QUEUED")
 
+    def test_automation_actions_not_hidden_by_legacy_css(self):
+        css=(PART/"static/local_upload_manager.css").read_text()
+        html=TEMPLATE.read_text()
+        self.assertIn(".lum-ae-row-actions form{display:none!important}",css)
+        self.assertIn('form[data-short-profile-action]',css)
+        self.assertIn("display:inline-flex!important",css.split('form[data-short-profile-action]',1)[1][:140])
+        self.assertIn('form[hidden]{display:none!important}',css)
+        self.assertIn('data-short-profile-action="start"',html)
+        self.assertIn('data-short-profile-action="pause"',html)
+        self.assertIn('action="{{ base_path }}/actions/auto-v6/start-profile"',html)
+
+    def test_inline_four_time_editor_is_directly_on_automation_table(self):
+        html=TEMPLATE.read_text()
+        js=JAVASCRIPT.read_text()
+        self.assertIn('data-short-inline-schedule',html)
+        self.assertIn('name="schedule_times" data-short-schedule-csv',html)
+        self.assertIn('data-short-schedule-enabled="schedule_enabled"',html)
+        self.assertIn('name="schedule_enabled" value="1"',html)
+        self.assertIn('data-short-count="{{ pr.daily_upload_count or 4 }}"',html)
+        self.assertIn('>Save Times</button>',html)
+        self.assertIn("data-short-schedule-slots",js)
+        self.assertIn('"/actions/auto-v6/profile-schedule/save"',ROUTES.read_text())
+
+    def test_inline_schedule_route_requires_exact_slot_count_and_ownership(self):
+        source=ROUTES.read_text()
+        start=source.index('def auto_v6_profile_schedule_save(')
+        end=source.index('@app.post(route("/actions/auto-v6/profile-schedules/save"))',start)
+        body=source[start:end]
+        self.assertIn('_v6_profile(pid,request)',body)
+        self.assertIn('require_csrf(request,csrf_token); require_heavy(user)',body)
+        self.assertIn("len(parsed)!=expected",body)
+        self.assertIn('data["work_mode"]="auto"',body)
+        self.assertIn('db.save_auto_engine_profile(data,pid)',body)
+        self.assertNotIn('set_engine(',body)
+        self.assertNotIn('set_scheduler_armed(',body)
+        self.assertIn('if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio"',source)
+
     def test_guarded_release_copies_all_changed_short_uploader_files(self):
         installer=INSTALLER.read_text()
         for part in ("auto_engine_v6.py","standalone_app.py","auto_engine_v6_worker.py",
