@@ -45,6 +45,15 @@ class CopyrightStudioContract(unittest.TestCase):
         copyright_nav = template.split("{% if engine_instance == 'copyright' %}",1)[1].split("{% elif engine_instance == 'song' %}",1)[0]
         self.assertNotIn("Auto Engine", copyright_nav)
 
+    def test_sso_route_is_independent_of_legacy_sso_generator(self):
+        from production import scene_session_routes, nginx_route_only
+        from production import copyright_studio_release
+        self.assertNotIn("copyright-uploader", scene_session_routes.APP_IDS)
+        self.assertNotIn("copyright-uploader", nginx_route_only.APPS)
+        self.assertIn("auth_request /_scene_uploader_auth;", copyright_studio_release.ROUTE)
+        self.assertIn("proxy_pass http://127.0.0.1:8020;", copyright_studio_release.ROUTE)
+        self.assertIn("proxy_set_header X-Auth-User $scene_lum_user;", copyright_studio_release.ROUTE)
+
     def test_automation_guard_and_separate_storage(self):
         app = (COPY / "lum_engine/standalone_app.py").read_text()
         self.assertIn('path.startswith(route("/actions/auto-v6/"))', app)
