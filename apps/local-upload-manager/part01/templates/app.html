@@ -715,6 +715,32 @@
         <div class="lum-alert error">Cross-mode receipt collision(s) detected: {{ mode_registry.cross_mode_record_collisions }}. Do not activate additional upload workers before reconciling these identities.</div>
       {% endif %}
     </section>
+    {% if engine_instance == 'song' %}
+    <section class="lum-card" aria-label="Song Maker local outputs">
+      <div class="lum-card-head"><div><h2>Song Maker · Local Outputs</h2><p>Videos sent directly from Song Maker without a Google Drive upload. MP4 and matching thumbnail stay on VPS until deleted in Song Maker.</p></div></div>
+      <div id="songMakerLocalOutputList" role="status">Loading available videos…</div>
+      <script>
+      (function(){
+        const area=document.getElementById('songMakerLocalOutputList');
+        fetch('/song-maker/api/uploader/outputs',{credentials:'same-origin'})
+          .then(response=>{if(!response.ok)throw Error('Sign in to Song Studio to view local outputs');return response.json()})
+          .then(data=>{
+            area.replaceChildren();
+            const videos=Array.isArray(data.outputs)?data.outputs:[];
+            if(!videos.length){area.textContent='No local Song Maker videos available yet.';return;}
+            for(const item of videos){
+              const row=document.createElement('div');row.className='lum-note';
+              const name=document.createElement('strong');name.textContent=item.name;
+              const size=document.createElement('small');size.textContent=' · '+(item.size/1048576).toFixed(1)+' MB · ';
+              const video=document.createElement('a');video.href=item.video_url;video.textContent='View MP4';
+              const thumb=document.createElement('a');thumb.href=item.thumbnail_url;thumb.textContent=' · View Thumbnail';
+              row.append(name,size,video,thumb);area.append(row);
+            }
+          }).catch(error=>{area.textContent=error.message;});
+      })();
+      </script>
+    </section>
+    {% endif %}
     {% if auto_mode == 'engine1' %}
     {% set ae = auto_v6 %}
     {% set p = ae.selected if ae else None %}

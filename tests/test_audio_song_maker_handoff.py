@@ -130,6 +130,7 @@ class AudioSongMakerAutoQueueTests(unittest.TestCase):
         self.assertEqual((connection.method, connection.path), ("POST", "/song-maker/api/jobs"))
         self.assertEqual(connection.headers["X-Auth-User"], "alice")
         self.assertEqual(connection.headers["X-Song-Maker"], "1")
+        self.assertEqual(connection.headers["X-Audio-Downloader-Handoff"], "1")
         self.assertEqual(int(connection.headers["Content-Length"]), len(connection.data))
         self.assertIn(('filename="' + VIDEO + '.jpg"').encode(), connection.data)
         self.assertIn(('filename="' + VIDEO + '.mp3"').encode(), connection.data)
