@@ -31,6 +31,7 @@ jobs:
         env:
           PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
           SOURCE_SHA: ${{ github.sha }}
+          COPYRIGHT_UI_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-copyright-uploader-ui]') }}
         run: |
           set -Eeuo pipefail
           set +x
@@ -80,7 +81,11 @@ jobs:
           trap on_failure ERR
           # Ordered: isolated uploader first, Video Merger only when idle,
           # navigation-only Scene web release last. No automatic uploads.
-          for app in copyright-uploader video-merger scene-builder; do
+          release_apps=(copyright-uploader video-merger scene-builder)
+          if [[ "$COPYRIGHT_UI_ONLY" == 'true' ]]; then
+            release_apps=(copyright-uploader)
+          fi
+          for app in "${release_apps[@]}"; do
             target="$app"
             if [[ "$app" == "copyright-uploader" ]]; then target=local-upload-manager; fi
             echo "COPYRIGHT_STUDIO_INSTALL_START=$app"
