@@ -29,7 +29,7 @@ def command(*args):
 
 def health():
     opener=request.build_opener(request.ProxyHandler({}))
-    with opener.open('http://127.0.0.1:8018/song-uploader/health',timeout=5) as response:
+    with opener.open('http://127.0.0.1:8018/local-upload-manager/modes/song/health',timeout=5) as response:
         result=json.load(response)
     require(result.get('ok') is True and result.get('engine_instance')=='song', 'Song Uploader identity mismatch')
     return result
