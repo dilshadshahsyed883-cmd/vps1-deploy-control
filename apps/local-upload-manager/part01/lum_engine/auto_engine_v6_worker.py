@@ -249,7 +249,16 @@ def reconcile_completed(db:Database, store:V6Store, video_id:int) -> None:
     action=clean(source.get("desired_after_success") or "move_uploaded")
     try:
         destination=""
-        if channel_meta:
+        if clean(source.get("source_folder_id"))=="songmaker-local":
+            # The verified source is a local copy. Never issue Drive moves or deletes.
+            destination="SONG_MAKER_LOCAL_ORIGINAL_RETAINED"
+            set_channel_job_post_state(store,video_id,"COMPLETE")
+            with store.connect() as con:
+                con.execute("UPDATE drive_videos SET present=0 WHERE profile_id=? AND drive_file_id=?",
+                            (int(source["profile_id"]),clean(source["drive_file_id"])))
+                con.execute("UPDATE drive_thumbnails SET present=0 WHERE profile_id=? AND drive_file_id=?",
+                            (int(source["profile_id"]),clean(source["drive_file_id"])))
+        elif channel_meta:
             month=datetime.now(timezone.utc).strftime("%Y-%m")
             video_destination=drive_move_uploaded_month(clean(source["source_folder_id"]),clean(source["filename"]),clean(source["drive_file_id"]),month)
             thumb_destination=""
@@ -300,6 +309,8 @@ def download_for_claim(db:Database,store:V6Store,video_id:int,worker_id:str) -> 
     target=Path(clean(source["staging_path"]))
     if target.is_file() and target.stat().st_size>0:
         return target
+    if clean(source.get("source_folder_id"))=="songmaker-local":
+        raise RuntimeError("Local Song Maker MP4 missing; Drive fallback is forbidden")
     target.parent.mkdir(parents=True,exist_ok=True)
     free=os.statvfs(str(target.parent))
     free_bytes=free.f_bavail*free.f_frsize
