@@ -344,6 +344,52 @@ class StorageGCTests(unittest.TestCase):
                       outcome["skipped"])
         self.assertTrue(item.exists())
 
+    def test_skip_reason_summary_is_bounded_and_redacts_identifiers(self):
+        skipped = [
+            "control:deployment-active",
+            "control/" + "a" * 40 + ":process-in-use",
+            "short-maker/" + "b" * 40 + ":service-inactive",
+            "control/" + "c" * 40 + ":no-longer-eligible",
+            "short-maker/" + "d" * 40,
+        ]
+        summary = gc.summarize_skip_reasons(skipped)
+        self.assertEqual(sum(summary.values()), len(skipped))
+        self.assertEqual(summary["deployment-active"], 1)
+        self.assertEqual(summary["process-in-use-or-unverifiable"], 1)
+        self.assertEqual(summary["service-inactive"], 1)
+        self.assertEqual(summary["revalidation-changed"], 1)
+        self.assertEqual(summary["revalidation-or-unknown"], 1)
+        self.assertNotIn("a" * 40, json.dumps(summary))
+        self.assertNotIn("short-maker", json.dumps(summary))
+        self.assertEqual(gc.summarize_skip_reasons(None), {})
+
+    def test_legacy_audit_status_includes_redacted_skip_reasons(self):
+        from unittest.mock import patch
+        state = Path(self.workspace.name) / "private"
+        state.mkdir()
+        status = Path(self.workspace.name) / "public" / "status.json"
+        old = {
+            "mode": "apply", "timestamp": 1792456676,
+            "deleted": [], "skipped": [
+                "control/" + "b" * 40 + ":process-in-use",
+                "control/" + "a" * 40 + ":no-longer-eligible"
+            ], "free_before_bytes": 1_000_000,
+            "free_after_bytes": 1_000_000
+        }
+        (state / "deployment-gc-history.jsonl").write_text(json.dumps(old) + "\\n")
+        with patch.object(gc, "execute", return_value={"inventory": {
+                "candidates": [], "control": {"candidates": []},
+                "estimated_bytes": 12345}}):
+            payload = gc.publish_readonly_status(
+                state=state, destination=status, test_mode=True)
+        self.assertEqual(payload["last_cleanup"]["skipped_count"], 2)
+        self.assertEqual(payload["last_cleanup"]["skip_reason_counts"], {
+            "process-in-use-or-unverifiable": 1, "revalidation-changed": 1})
+        self.assertEqual(payload["eligible_candidate_count"], 0)
+        exported = status.read_text()
+        self.assertNotIn("control/", exported)
+        self.assertNotIn("b" * 40, exported)
+
     def test_explicit_apply_refuses_nonproduction_path(self):
         with self.assertRaises(RuntimeError):
             gc.execute(root=self.root, apply=True, unit_dir=self.unit_dir)
