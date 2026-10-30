@@ -9,6 +9,7 @@ on:
       - 'tests/test_audio_downloader_proxy.py'
       - 'tests/test_audio_downloader_thumbnail.py'
       - 'tests/test_audio_downloader_upload_retry.py'
+      - 'tests/test_audio_song_maker_handoff.py'
       - 'production/runtime.py'
       - '.github/workflows/vps1-audio-thumbnail-release.yml'
       - 'production/audio_downloader*.py'
@@ -37,6 +38,8 @@ jobs:
         run: python -m unittest discover -s tests -p test_audio_downloader_proxy.py -v
       - name: Thumbnail pairing, Drive integrity and browser checkbox regression
         run: python -m unittest discover -s tests -p test_audio_downloader_thumbnail.py -v
+      - name: Auto-add completed media pairs to Song Maker queue contract
+        run: python -m unittest discover -s tests -p test_audio_song_maker_handoff.py -v
       - name: Drive pacing, automatic retries and interrupted upload recovery
         run: python -m unittest discover -s tests -p test_audio_downloader_upload_retry.py -v
       - name: Check isolated Audio Downloader JavaScript syntax
