@@ -145,7 +145,7 @@ def reserve_short_output_names(folder_name: str, count: int) -> list[str]:
         highest, last_tag = (int(row[0]), str(row[1])) if row else (0, "")
         used_tags = set()
         pattern = re.compile(
-            rf"^{re.escape(folder_name)}[ _](\\d{{3,}})(?:_([a-f0-9]{{6}}))?\\.mp4$",
+            rf"^{re.escape(folder_name)}[ _](\d{{3,}})(?:_([a-f0-9]{{6}}))?\.mp4$",
             re.IGNORECASE,
         )
         for entry in folder.iterdir():
@@ -761,6 +761,14 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
 </div>
 <form id="form">
 <section id="makerPanel">
+<section class="panel" aria-label="Short Maker output folder">
+ <h2>VPS Output Folder</h2>
+ <div class="two">
+  <div class="field"><label for="shortVpsFolder">Folder</label><select id="shortVpsFolder" name="short_vps_folder"><option value="Default">Default</option></select></div>
+  <div class="field"><label>Manage folders</label><div class="queue-actions"><button type="button" class="secondary" id="createShortFolder">+ Create</button><button type="button" class="danger" id="deleteShortFolder">Delete empty folder</button></div></div>
+ </div>
+ <div class="hint" id="shortFolderMessage">Automatic names: Folder 001_abcdef.mp4, Folder 002_abcdef.mp4. Every batch uses a different tag.</div>
+</section>
 <div class="grid">
  <div>
   <section class="panel">
@@ -823,23 +831,17 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
 <section id="settingsPanel" role="tabpanel" aria-labelledby="settingsTabBtn" hidden>
 <section class="panel">
  <h2>Output</h2>
- <div class="two">
-  <div class="field"><label>Base filename</label><input name="base_name" value="short_video.mp4"></div>
-  <div class="field"><label>Resolution</label><input value="1080 × 1920 (9:16)" disabled></div>
- </div>
+ <input type="hidden" name="base_name" value="short_video.mp4">
+ <div class="field"><label>Aspect ratio / resolution</label><input value="9:16 · 1080 × 1920 (vertical)" readonly aria-label="Output aspect ratio and resolution"></div>
  <div class="drive-delivery">
-  <h3>Short Studio · VPS Output Folder</h3>
-  <div class="hint">Every rendered MP4 is copied here for Short Uploader. Google Drive upload remains independent.</div>
-  <div class="two">
-   <div class="field"><label for="shortVpsFolder">VPS folder</label><select id="shortVpsFolder" name="short_vps_folder"><option value="Default">Default</option></select></div>
-   <div class="field"><label>Manage VPS folders</label><div class="queue-actions"><button type="button" class="secondary" id="createShortFolder">+ Create</button><button type="button" class="danger" id="deleteShortFolder">Delete empty folder</button></div></div>
+  <h3>Output destination</h3>
+  <div class="hint">Choose one destination. Short Uploader is selected by default.</div>
+  <label class="checkline"><input id="availableToUploader" name="available_to_short_uploader" type="checkbox" checked> <b>Available to Short Uploader</b></label>
+  <label class="checkline"><input id="uploadToDrive" name="upload_to_drive" type="checkbox"> <b>Upload final output(s) to Google Drive</b></label>
+  <div id="driveDeliveryOptions" hidden>
+   <div class="field"><label>Drive output folder</label><input id="driveOutputPath" name="drive_output_path" value="gdrive:Short_Maker/Outputs"></div>
+   <label class="checkline"><input id="verifiedClean" name="verified_clean" type="checkbox" checked disabled> <b>Drive verified clean</b> — delete this job's local inputs/outputs only after every final MP4 matches Drive size + MD5.</label>
   </div>
-  <div class="hint" id="shortFolderMessage">Folders with videos cannot be deleted. Uploaded shorts are removed by Short Uploader only after YouTube verification.</div>
- </div>
- <div class="drive-delivery">
-  <label class="checkline"><input id="uploadToDrive" name="upload_to_drive" type="checkbox" checked> <b>Upload final output(s) to Google Drive</b></label>
-  <div class="field"><label>Drive output folder</label><input id="driveOutputPath" name="drive_output_path" value="gdrive:Short_Maker/Outputs"></div>
-  <label class="checkline"><input id="verifiedClean" name="verified_clean" type="checkbox" checked disabled> <b>Drive verified clean</b> — delete this job's local input/output only after every final MP4 matches Drive size + MD5.</label>
  </div>
 </section>
 </section>
@@ -863,6 +865,17 @@ const driveInputRows=document.getElementById('driveInputRows'),driveLinkCount=do
 const selectedAudioFiles=[];
 const shortFolderSelect=document.getElementById('shortVpsFolder');
 const shortFolderMessage=document.getElementById('shortFolderMessage');
+const uploaderDestination=document.getElementById('availableToUploader');
+const driveDestination=document.getElementById('uploadToDrive');
+const driveDeliveryOptions=document.getElementById('driveDeliveryOptions');
+function selectOutputDestination(destination){
+ uploaderDestination.checked=destination==='uploader';
+ driveDestination.checked=destination==='drive';
+ driveDeliveryOptions.hidden=destination!=='drive';
+}
+uploaderDestination.addEventListener('change',()=>selectOutputDestination('uploader'));
+driveDestination.addEventListener('change',()=>selectOutputDestination('drive'));
+selectOutputDestination('uploader');
 async function loadShortFolders(preferred){
  const r=await fetch('api/vps-folders',{cache:'no-store'});
  const data=await r.json();if(!r.ok)throw new Error(data.detail||'Could not list VPS folders');
@@ -998,7 +1011,8 @@ form.addEventListener('submit',async e=>{
  ['video_duration','image_duration','output_count','order','fit','motion','fps','crf','base_name','input_mode','drive_output_path'].forEach(k=>fd.append(k,form.elements[k].value));
  fd.append('drive_input_path',inputMode.value==='drive'?(paths[0]||''):'');
  fd.append('drive_input_paths_json',inputMode.value==='drive'?JSON.stringify(paths):'');
- fd.append('upload_to_drive',document.getElementById('uploadToDrive').checked?'true':'false');
+ fd.append('available_to_short_uploader',uploaderDestination.checked?'true':'false');
+ fd.append('upload_to_drive',driveDestination.checked?'true':'false');
  fd.append('verified_clean',document.getElementById('verifiedClean').checked?'true':'false');
  fd.append('short_vps_folder',shortFolderSelect.value);
  try{
