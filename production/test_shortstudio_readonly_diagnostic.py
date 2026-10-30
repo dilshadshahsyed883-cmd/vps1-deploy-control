@@ -27,6 +27,25 @@ class DiagnosticTests(unittest.TestCase):
             link.symlink_to(target)
             self.assertEqual(diag.sqlite_summary(link,("channels",))["reason"],"symlink")
             self.assertEqual(diag.folder_summary(link)["reason"],"symlink")
+    def test_secure_structure_shows_only_counts_and_expected_directory_names(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)
+            clients=root/"oauth_clients"
+            sessions=root/"oauth_sessions"
+            clients.mkdir()
+            sessions.mkdir()
+            report=diag.secure_structure(root)
+            self.assertEqual(report["unexpected_count"],0)
+            self.assertFalse(report["expected"]["oauth_clients"]["nonempty"])
+            (clients/"actual-private-token.json").write_text("TOP_SECRET_DO_NOT_EMIT")
+            (root/"private-file-name.txt").write_text("TOP_SECRET_DO_NOT_EMIT")
+            report=diag.secure_structure(root)
+            self.assertTrue(report["expected"]["oauth_clients"]["nonempty"])
+            self.assertEqual(report["unexpected_count"],1)
+            self.assertEqual(report["unexpected_files"],1)
+            self.assertNotIn("private-file-name",str(report))
+            self.assertNotIn("actual-private-token",str(report))
+            self.assertNotIn("TOP_SECRET_DO_NOT_EMIT",str(report))
     def test_output_has_fixed_shape_and_no_mutation(self):
         with tempfile.TemporaryDirectory() as tmp:
             state=Path(tmp)/"state"

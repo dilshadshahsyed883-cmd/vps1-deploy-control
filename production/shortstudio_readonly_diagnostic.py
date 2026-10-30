@@ -63,6 +63,34 @@ def folder_summary(path: Path) -> dict:
     except OSError:
         return {"present":True,"safe":False,"reason":"unreadable"}
 
+def secure_structure(path: Path) -> dict:
+    """Only known scaffold names and aggregate unknown counts; never file names."""
+    if path.is_symlink(): return {"safe":False,"reason":"symlink"}
+    if not path.exists(): return {"present":False}
+    if not path.is_dir(): return {"safe":False,"reason":"not_dir"}
+    names=("oauth_clients","oauth_sessions")
+    try:
+        children=list(path.iterdir())
+        other=[p for p in children if p.name not in names]
+        expected={}
+        for name in names:
+            p=path/name
+            if not p.exists() and not p.is_symlink():
+                expected[name]={"present":False}
+            elif p.is_symlink():
+                expected[name]={"present":True,"type":"symlink"}
+            elif p.is_dir():
+                expected[name]={"present":True,"type":"dir","nonempty":any(p.iterdir())}
+            else:
+                expected[name]={"present":True,"type":"file"}
+        return {"present":True,"entries":len(children),"expected":expected,
+                "unexpected_count":len(other),
+                "unexpected_dirs":sum(p.is_dir() and not p.is_symlink() for p in other),
+                "unexpected_files":sum(p.is_file() and not p.is_symlink() for p in other),
+                "unexpected_symlinks":sum(p.is_symlink() for p in other)}
+    except OSError:
+        return {"present":True,"safe":False,"reason":"unreadable"}
+
 def collect(state: Path, *, unit_dir: Path = Path("/etc/systemd/system")) -> dict:
     from production.runtime import shortstudio_rolled_back_empty
     root = state / "lum-shortstudio"
@@ -78,6 +106,7 @@ def collect(state: Path, *, unit_dir: Path = Path("/etc/systemd/system")) -> dic
         "owner_marker_valid": owned,
         "units": {name:unit_metadata(unit_dir,name) for name in ("web","worker","scheduler")},
         "port_8019": port_8019(),
+        "secure_structure": secure_structure(root/"secure"),
         "core_db": sqlite_summary(root/"core/data/uploader.db",
             ("videos","channels","auto_engine_profiles","accounts")),
         "v6_db": sqlite_summary(root/"auto_engine_v6/auto_engine_v6.sqlite3",
