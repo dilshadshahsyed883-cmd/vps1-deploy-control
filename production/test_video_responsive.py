@@ -128,7 +128,8 @@ def browser_test():
                         page.locator('#queueTabBtn').click()
                         page.locator('[data-short-job-details]').first.wait_for()
                         assert page.locator('#queueRows a').count() == 0, 'Batch links leaked into queue row'
-                        assert page.locator('#queueRows tr').first.bounding_box()['height'] < 120, 'Batch row is too tall'
+                        assert 'Ronaldo 001' not in page.locator('#queueRows').inner_text(), 'Batch filenames leaked into queue row'
+                        assert '150 videos' in page.locator('#queueRows').inner_text(), 'Batch output summary missing'
                         page.locator('[data-short-job-details]').first.click()
                         assert page.locator('#shortJobModal').is_visible(), 'Details popup did not open'
                         assert page.locator('#shortJobOutputList [role="listitem"]').count() == 150
