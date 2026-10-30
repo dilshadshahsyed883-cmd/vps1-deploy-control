@@ -62,7 +62,7 @@ class SongStudioReleaseTests(unittest.TestCase):
             b"drivePath();if(location.hash==='#vs-audio')choose(true);", 1)):
             with self.subTest(saved_preferences_loader=b'loadDownloadPreferences' in variant):
                 page = render(variant)
-                self.assertIn(b"<title>Audio Downloader \\xc2\\xb7 Song Studio</title>", page)
+                self.assertIn(b"<title>Audio Downloader \xc2\xb7 Song Studio</title>", page)
                 self.assertIn(
                     b"if(location.pathname==='/audio-downloader/' || location.hash==='#vs-audio')choose(true);",
                     page)
