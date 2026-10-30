@@ -534,7 +534,17 @@ def main() -> None:
                 time.sleep(2); continue
 
             db.activate_due_scheduled_jobs(auto_engine_only=True)
-            claimed=db.claim_available_jobs(worker_id,1,auto_engine_only=True,lease_seconds=900)
+            claim_scope={}
+            if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio":
+                # A paused profile cannot be claimed even when it has older queued jobs.
+                # Manual Start scopes the worker to just the requested profile(s).
+                enabled={int(p["id"]) for p in db.list_auto_engine_profiles() if int(p.get("enabled") or 0)==1}
+                manual=state.get("manual_profile_ids")
+                if manual is not None:
+                    selected={int(x) for x in str(manual).split(",") if x.strip().isdigit()}
+                    enabled.intersection_update(selected)
+                claim_scope["allowed_auto_engine_profile_ids"]=sorted(enabled)
+            claimed=db.claim_available_jobs(worker_id,1,auto_engine_only=True,lease_seconds=900,**claim_scope)
             if not claimed:
                 time.sleep(2); continue
             process_one(db,store,claimed[0],worker_id)
