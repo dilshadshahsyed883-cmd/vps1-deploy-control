@@ -38,6 +38,10 @@ NEW_ASSETS = (
 # The approved Song Studio shell was upgraded on 29 October. Keep the older
 # approved asset signature for backwards compatibility with live releases.
 SONG_STUDIO_ASSETS = NEW_ASSETS.replace(b"20261020-upload-studio-v1", b"20261029-song-studio-v1")
+COPYRIGHT_STUDIO_ASSETS = SONG_STUDIO_ASSETS.replace(
+    b'vps1_native_site_shell.js?v=20261029-song-studio-v1"',
+    b'vps1_native_site_shell.js?v=20261029-song-studio-v1&copyright-nav=20261030-v3"',
+)
 PREVIOUS_ASSETS = (
     b'<link rel="stylesheet" href="/&#115;tatic/vps1_native_site_shell.css?v=20261019-voice-nav-v2">\n'
     b'<script src="/&#115;tatic/vps1_native_site_shell.js?v=20261019-voice-nav-v2" data-workspace="voice" defer></script>'
@@ -56,6 +60,16 @@ def require(ok: bool, why: str) -> None:
 def patch_template(payload: bytes) -> bytes:
     """Only relocate two trusted asset links; preserve all other Voice markup."""
     require(payload.count(TITLE) == 1, "existing Voice template title changed")
+    # Admit exactly one approved pair; reject mixed versions or duplicate links.
+    asset_pairs = (OLD_ASSETS, NEW_ASSETS, PREVIOUS_ASSETS,
+                   SONG_STUDIO_ASSETS, COPYRIGHT_STUDIO_ASSETS)
+    require(sum(payload.count(pair) for pair in asset_pairs) == 1,
+            "unexpected duplicated or mixed Voice shell assets")
+    if payload.count(COPYRIGHT_STUDIO_ASSETS) == 1:
+        require(payload.count(b'id="vsEngineOmni"') == 1 and
+                payload.count(b'id="vsEngineKokoro"') == 1,
+                "Copyright Studio shell controls invalid")
+        return payload
     # The current Song Studio Voice HTML can use the approved newer shared shell.
     if (payload.count(SONG_STUDIO_ASSETS) == 1 and
             payload.count(NEW_ASSETS) == 0 and payload.count(OLD_ASSETS) == 0 and
