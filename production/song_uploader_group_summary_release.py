@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from urllib import request
 
-from production.runtime import BASE, DATA, REPO, atomic_json, backup_databases
+from production.runtime import BASE, DATA, REPO, atomic_json, backup_databases, lum_parked_network_idle
 
 FILES=(
     "templates/app.html",
@@ -48,8 +48,27 @@ def idle():
     db=STATE/'core/data/uploader.db'
     require(db.is_file() and not db.is_symlink(),'Song Uploader database unavailable')
     with sqlite3.connect(db.as_uri()+'?mode=ro',uri=True,timeout=3) as con:
-        busy=con.execute("SELECT 1 FROM videos WHERE UPPER(status) IN ('CLAIMED','UPLOADING','THUMBNAIL_UPLOADING','PROCESSING','IN_PROGRESS','WAITING_NETWORK') LIMIT 1").fetchone()
-    require(not busy,'upload in progress')
+        con.execute("PRAGMA query_only=ON")
+        # Only proven pre-media, unclaimed network waits are parked. Never
+        # ignore a claimed, transmitting or remotely ambiguous upload.
+        busy_states=('CLAIMED','UPLOADING','THUMBNAIL_UPLOADING','PROCESSING','IN_PROGRESS')
+        busy=con.execute(
+            "SELECT UPPER(status), COUNT(*) FROM videos WHERE UPPER(status) IN ("
+            + ",".join("?" for _ in busy_states) + ") GROUP BY UPPER(status)",
+            busy_states,
+        ).fetchall()
+        if busy:
+            aggregate=", ".join(f"{state}={count}" for state,count in busy)
+            require(False,'upload in progress ('+aggregate+')')
+        try:
+            parked=lum_parked_network_idle(con)
+        except (RuntimeError, ValueError, TypeError, sqlite3.Error) as exc:
+            raise RuntimeError(
+                'SONG_GROUP_SUMMARY_RELEASE_BLOCKED: network wait is not proven idle ('
+                +type(exc).__name__+')'
+            ) from exc
+        if parked:
+            print(f'SONG_PARKED_PRE_MEDIA_NETWORK_WAITS={parked} SAFE_IDLE_PROOF=PASS',flush=True)
 
 
 def verify_live():
