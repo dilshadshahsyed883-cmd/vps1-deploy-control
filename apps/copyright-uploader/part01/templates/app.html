@@ -44,7 +44,7 @@
       <a class="{{ 'active' if tab=='sheets' else '' }}" href="{{ base_path }}/app?tab=sheets">Sheets Sync</a>
       <a class="{{ 'active' if tab=='auto_engine' else '' }}" href="{{ base_path }}/app?tab=auto_engine">Auto Engine</a>
       {% endif %}
-      {% if engine_instance not in ['song', 'shortstudio'] %}
+      {% if engine_instance not in ['song', 'shortstudio', 'copyright'] %}
       <a class="{{ 'active' if tab=='add_video' else '' }}" href="{{ base_path }}/app?tab=add_video">Add Video</a>
       <a class="{{ 'active' if tab=='bulk_import' else '' }}" href="{{ base_path }}/app?tab=bulk_import">Bulk Import</a>
       <a class="{{ 'active' if tab=='queue' else '' }}" href="{{ base_path }}/app?tab=queue">Queue</a>
