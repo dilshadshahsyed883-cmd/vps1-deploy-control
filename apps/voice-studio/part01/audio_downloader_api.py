@@ -218,7 +218,8 @@ def status():
             'formats': ['mp3', 'wav'], 'quality': [128, 192, 256],
             'download_contract': 'explicit-proxy-private-session-v2',
             'proxy': proxy_runtime_status(), 'youtube_session': cookie_status(),
-            'retry_policy': 'only confirmed Drive API rate limits retry every 180s; other failures require manual Retry; 60s between verified audio uploads',
+            'retry_policy': 'only confirmed Drive API rate limits retry every 180s; other failures require manual Retry; 60s between successful audio transfers',
+            'upload_policy': 'one copyto per audio/thumbnail; no post-upload Drive probes; local files retained',
             'upload_gap_seconds': UPLOAD_GAP_SECONDS, 'upload_retry_seconds': UPLOAD_RETRY_SECONDS,
             'queue': {v['status']: v['n'] for v in q}, 'worker': bool(_worker and _worker.is_alive())}
 
@@ -664,7 +665,15 @@ def upload_downloaded(job: dict, final: Path, thumbnail: Path | None, state: dic
         base += safe_folder(job['folder']) + '/' + safe_folder(job['project']) + '/'
     remote = base + final.name
 
-    def upload_file(source: Path, destination: str, fmt: str) -> str:
+    def upload_file(source: Path, destination: str, fmt: str) -> None:
+        """Only one explicit rclone transfer per file; do not probe Drive afterwards.
+
+        rclone may perform multiple underlying Google API calls itself. A zero
+        exit status means the transfer command succeeded, NOT that remote MD5,
+        public permissions, or anonymous downloads have been verified.
+        """
+        if not source.is_file() or source.stat().st_size < 1024:
+            raise DriveUploadFailure('LOCAL_FILE_UNAVAILABLE')
         cmd = [state['rclone'], '--config', RCLONE_CONFIG, 'copyto', str(source), destination,
                '--immutable', '--retries', '1', '--low-level-retries', '1', '--timeout', '5m',
                '--contimeout', '30s']
@@ -680,55 +689,41 @@ def upload_downloaded(job: dict, final: Path, thumbnail: Path | None, state: dic
             raise DriveUploadFailure('NETWORK_TIMEOUT') from None
         if result.returncode:
             code = _drive_copy_failure_code(result.stderr or result.stdout or '')
+            # Without remote probes, an immutable conflict cannot be declared
+            # successful. Preserve both local assets for manual reconciliation.
             if code == 'DESTINATION_EXISTS':
-                # An earlier copy may have completed before the verifier failed.
-                # Reconcile only by checking exact bytes AND anonymous public access;
-                # never overwrite an immutable destination or trust its name alone.
-                try:
-                    link = verified_drive_public_link(destination, source, fmt)
-                except DriveUploadFailure:
-                    raise
-                except (RuntimeError, subprocess.TimeoutExpired, OSError, ValueError):
-                    raise DriveUploadFailure('DESTINATION_CONFLICT_UNVERIFIED') from None
-                _update(jid, 'uploading', upload_percent=100,
-                        progress_stage='verified thumbnail' if fmt == 'jpg' else 'verified audio')
-                return link
+                raise DriveUploadFailure('DESTINATION_CONFLICT_UNVERIFIED')
             raise DriveUploadFailure(code)
-        # Avoid a duplicate remote metadata query: the authoritative verifier
-        # checks remote size/MD5, public link and anonymous file bytes.
-        link = verified_drive_public_link(destination, source, fmt)
-        _update(jid, 'uploading', upload_percent=100, progress_stage='verified thumbnail' if fmt == 'jpg' else 'verified audio')
-        return link
+        _update(jid, 'uploading', upload_percent=100,
+                progress_stage='uploaded thumbnail (not independently verified)'
+                if fmt == 'jpg' else 'uploaded audio (not independently verified)')
 
-    # An audio already verified in a previous attempt is never uploaded twice.
-    if job.get('drive_path') == remote and job.get('drive_url'):
-        public_url = job['drive_url']
+    # Persist the successful copyto receipt before attempting the thumbnail.
+    # It prevents the next retry from sending the audio a second time.
+    if job.get('drive_path') == remote:
+        public_url = job.get('drive_url')
     else:
         _wait_for_audio_upload_slot()
-        public_url = upload_file(final, remote, job['format'])
+        upload_file(final, remote, job['format'])
         _record_audio_upload()
-        _update(jid, 'uploading', drive_path=remote, drive_url=public_url)
+        public_url = None  # No extra Drive permission/link request.
+        _update(jid, 'uploading', drive_path=remote, drive_url=None)
     thumb_remote = base + thumbnail.name if thumbnail else None
-    if thumbnail and job.get('thumbnail_drive_path') == thumb_remote and job.get('thumbnail_drive_url'):
-        thumb_public_url = job['thumbnail_drive_url']
+    if thumbnail and job.get('thumbnail_drive_path') == thumb_remote:
+        thumb_public_url = job.get('thumbnail_drive_url')
     else:
-        thumb_public_url = upload_file(thumbnail, thumb_remote, 'jpg') if thumbnail else None
         if thumbnail:
-            _update(jid, 'uploading', thumbnail_drive_path=thumb_remote, thumbnail_drive_url=thumb_public_url)
+            upload_file(thumbnail, thumb_remote, 'jpg')
+            # The receipt is persisted only after a successful copyto command.
+            _update(jid, 'uploading', thumbnail_drive_path=thumb_remote, thumbnail_drive_url=None)
+        thumb_public_url = None
     _update(jid, 'delivered', drive_path=remote, drive_url=public_url,
             thumbnail_drive_path=thumb_remote, thumbnail_drive_url=thumb_public_url,
             completed_at=utc(), next_retry_at=None, error=None,
-             download_percent=100, upload_percent=100, progress_stage='delivered')
-    # Delete local files only after BOTH uploads pass size, hash and public-byte checks.
-    for local in (final, thumbnail):
-        if local is None:
-            continue
-        try:
-            if local.is_file() and local.resolve().parent == (JOBS / jid).resolve():
-                local.unlink()
-                _update(jid, 'delivered', **{'local_thumbnail' if local == thumbnail else 'local_file': None})
-        except OSError:
-            pass
+            download_percent=100, upload_percent=100,
+            progress_stage='uploaded (not independently verified)')
+    # No independent Drive check has run. Keep local audio/thumbnail as the
+    # recoverable originals; never delete them based only on copyto exit 0.
 
 
 def worker_loop():
