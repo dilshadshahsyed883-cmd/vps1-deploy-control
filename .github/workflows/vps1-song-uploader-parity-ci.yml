@@ -4,12 +4,18 @@ on:
     paths:
       - 'apps/local-upload-manager/**'
       - 'tests/test_song_uploader_*'
+      - 'tests/test_song_worker_readonly_diagnostic.py'
+      - 'production/song_uploader_worker_readonly_diagnostic.py'
+      - 'production/runtime.py'
       - '.github/workflows/vps1-song-uploader-parity-ci.yml'
   push:
     branches: [main]
     paths:
       - 'apps/local-upload-manager/**'
       - 'tests/test_song_uploader_*'
+      - 'tests/test_song_worker_readonly_diagnostic.py'
+      - 'production/song_uploader_worker_readonly_diagnostic.py'
+      - 'production/runtime.py'
       - '.github/workflows/vps1-song-uploader-parity-ci.yml'
 permissions:
   contents: read
@@ -31,6 +37,7 @@ jobs:
       - name: Song parity and regression coverage
         run: |
           python -m unittest discover -s tests -p 'test_song_uploader_parity.py' -v
+          python -m unittest discover -s tests -p 'test_song_worker_readonly_diagnostic.py' -v
           python -m unittest discover -s tests -p 'test_song_uploader_component_mobile.py' -v
           python -m unittest discover -s tests -p 'test_song_uploader_release_network_idle.py' -v
           python -m unittest discover -s tests -p 'test_song_uploader_group_summary.py' -v
