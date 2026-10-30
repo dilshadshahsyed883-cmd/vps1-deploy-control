@@ -83,6 +83,31 @@ class SongMakerTests(unittest.TestCase):
             self.assertIn('--include', args)
             self.assertIn(r'/song \[1\]\*.jpg', args)
 
+    def test_static_song_uses_sparse_png_decoding_but_keeps_25fps_full_audio(self):
+        image, audio = self.media(duration=2.24)
+        temporary = self.root / 'static_render_temp'
+        temporary.mkdir()
+        output = self.root / 'static_song.mp4'
+        with patch('songmaker.media.run', wraps=run) as execute:
+            duration = render(image, audio, output, temporary, resolution='720p',
+                              quality='balanced')
+        commands = [call.args[0] for call in execute.call_args_list]
+        ffmpeg = next(cmd for cmd in commands if isinstance(cmd, list)
+                      and '-loop' in cmd and '-c:v' in cmd)
+        self.assertEqual(ffmpeg[ffmpeg.index('-framerate') + 1], '1')
+        self.assertEqual(ffmpeg[ffmpeg.index('-r') + 1], '25')
+        self.assertEqual(ffmpeg[ffmpeg.index('-b:a') + 1], '192k')
+        self.assertEqual(ffmpeg[ffmpeg.index('-crf') + 1], '20')
+        self.assertEqual(ffmpeg[ffmpeg.index('-threads') + 1], '4')
+        self.assertTrue(output.exists())
+        self.assertGreater(validate(output, duration)['size'], 1000)
+        video = json.loads(subprocess.check_output([
+            'ffprobe', '-v', 'error', '-select_streams', 'v:0',
+            '-show_entries', 'stream=avg_frame_rate,nb_frames',
+            '-of', 'json', str(output)], text=True))['streams'][0]
+        self.assertEqual(video['avg_frame_rate'], '25/1')
+        self.assertLessEqual(abs(int(video['nb_frames']) - round(duration * 25)), 1)
+
     def test_ffmpeg_performance_is_measured_from_process_output(self):
         values = []
         run([sys.executable, '-u', '-c',
