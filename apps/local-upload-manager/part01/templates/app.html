@@ -792,6 +792,28 @@
     {% endif %}
 
     <section class="lum-card lum-ae-profile-manager" data-ae-panel="profiles" hidden>
+      {% if engine_instance == 'shortstudio' %}
+      {# Short Uploader only: one compact row; the settings form below still owns persistence. #}
+      <div class="lum-short-profile-toolbar" role="group" aria-label="Short Uploader profile controls">
+        <label class="lum-short-profile-picker">
+          <span class="lum-short-visually-hidden">Current profile</span>
+          <select id="lum-ae-profile-select" aria-label="Current profile" data-current-profile="{{ p.id if p else '' }}">
+            <option value="">+ Create new profile</option>
+            {% for item in ae.profiles %}<option value="{{ item.id }}" {% if p and item.id==p.id %}selected{% endif %}>#{{ item.id }} · {{ item.category_name }} · {{ 'ON' if item.enabled else 'OFF' }}</option>{% endfor %}
+          </select>
+        </label>
+        <span class="lum-badge warn" data-ae-profile-dirty hidden>Unsaved changes</span>
+        <a class="lum-button secondary" href="{{ base_path }}/app?tab=auto_engine&new_profile=1" data-lum-soft-link data-ae-profile-nav>+ New Profile</a>
+        <button class="lum-button primary" type="submit" form="lum-ae-profile-form">{{ 'Save Changes' if p else 'Create Profile' }}</button>
+        {% if p %}<button class="lum-button danger" type="submit" form="lum-ae-delete-profile">Delete Profile</button>{% endif %}
+        <form method="post" action="{{ base_path }}/actions/auto-v6/engine" data-lum-soft-form>
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <input type="hidden" name="action" value="{{ 'disarm_scheduler' if ae.engine.scheduler_armed else 'arm_scheduler' }}">
+          <button class="lum-button {{ 'secondary' if ae.engine.scheduler_armed else 'primary' }} lum-ae-schedule-toggle" type="submit">{{ 'Disarm Scheduled Uploads' if ae.engine.scheduler_armed else 'Arm Scheduled Uploads' }}</button>
+        </form>
+        <span class="lum-short-scheduler-state {{ 'armed' if ae.engine.scheduler_armed else 'disarmed' }}" role="status">{{ 'Armed' if ae.engine.scheduler_armed else 'Disarmed' }}</span>
+      </div>
+      {% else %}
       <div class="lum-ae-profile-manager-top">
         <div class="lum-ae-profile-manager-heading">
           <div class="lum-eyebrow">Profile management</div>
@@ -908,6 +930,7 @@
           {% else %}<div class="lum-empty">No profiles yet. Create your first profile above.</div>{% endfor %}
         </div>
       </details>
+      {% endif %}
     </section>
 
     <section class="lum-card lum-ae-automation-controls" data-ae-panel="automation">
