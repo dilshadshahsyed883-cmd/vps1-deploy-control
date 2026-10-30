@@ -69,8 +69,8 @@ def import_job(store: V6Store, profile_id: int, owner: str, job_id: str) -> dict
         raise ValueError("Select a valid Song Maker project")
     if not owner or len(owner) > 160 or any(ord(char) < 32 for char in owner):
         raise ValueError("Authenticated Song Maker owner required")
-    if int(profile_id) <= 0 or not store.is_channel_profile(int(profile_id)):
-        raise ValueError("Choose a bound Song Uploader channel profile")
+    if int(profile_id) <= 0 or not (store.is_channel_profile(int(profile_id)) or store.group_settings(int(profile_id)).get("video_source_mode")=="songmaker"):
+        raise ValueError("Choose a saved Song Uploader profile")
     if not os.environ.get("LUM_SUITE_AUTH", "").lower() in {"1", "true", "yes", "on"}:
         raise ValueError("Song Maker imports require trusted Scene SSO")
     # Retrieve only this authenticated owner's completed, validated outputs.

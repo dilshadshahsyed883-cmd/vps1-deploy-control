@@ -23,9 +23,10 @@ class SongUploaderMinimalUITests(unittest.TestCase):
     def test_jinja_template_parses(self):
         Environment().parse(self.app)
 
-    def test_auto_engine_is_first_song_tab_but_legacy_tabs_remain(self):
+    def test_song_tabs_follow_requested_order(self):
         song_branch = self.app.split("{% if engine_instance == 'song' %}", 1)[1]
-        self.assertLess(song_branch.index("tab=auto_engine"), song_branch.index("tab=channels"))
+        for left,right in (("dashboard","auto_engine"),("auto_engine","channels"),("channels","sheets")):
+            self.assertLess(song_branch.index("tab="+left),song_branch.index("tab="+right))
         self.assertIn("tab=sheets", song_branch)
         self.assertIn("tab=dashboard", song_branch)
         self.assertIn("{% else %}", song_branch)

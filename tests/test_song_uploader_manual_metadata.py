@@ -93,6 +93,7 @@ class SongUploaderManualMetadataTests(unittest.TestCase):
     def test_form_save_writes_manual_metadata_and_songmaker_source(self):
         class PC:
             payload = None
+            def get_auto_engine_profile(self, pid): return {"id":pid}
             def save_auto_engine_profile(self, data, pid):
                 self.payload = data
                 return 11
@@ -102,6 +103,7 @@ class SongUploaderManualMetadataTests(unittest.TestCase):
             source = None
             binding = None
             def channel_binding_for_channel(self, cid): return {}
+            def channel_binding(self, pid): return {"channel_db_id":8}
             def save_source(self, pid, **kw): self.source = kw
             def save_channel_binding(self, pid, cid, **kw): self.binding = kw
         pc, store = PC(), Store()
@@ -120,7 +122,7 @@ class SongUploaderManualMetadataTests(unittest.TestCase):
                 "video_source_mode": "songmaker", "metadata_source": "manual",
                 "manual_title": "My Song {video_stem}", "manual_description": "Saved description",
                 "manual_category_id": "10", "manual_upload_date": "2026-11-01",
-                "manual_upload_time": "09:30", "enabled": "1"}, None)
+                "manual_upload_time": "09:30", "enabled": "1"}, 11)
         self.assertEqual(result, 11)
         self.assertTrue(store.source["songmaker_enabled"])
         self.assertEqual(store.binding["metadata_source"], "manual")

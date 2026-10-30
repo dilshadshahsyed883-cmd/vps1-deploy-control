@@ -1142,6 +1142,8 @@ def auto_v6_profile_delete(request: Request,csrf_token: str=Form(...),profile_id
         pid=int(profile_id)
         is_channel=v6_store.is_channel_profile(pid)
         db.delete_auto_engine_profile(pid)
+        with v6_store.connect() as con:
+            con.execute("DELETE FROM song_group_settings WHERE profile_id=?",(pid,))
         if is_channel:
             with v6_store.connect() as con:
                 con.execute("DELETE FROM channel_metadata_rows WHERE profile_id=?",(pid,))
@@ -1193,10 +1195,17 @@ def auto_v6_sync_all(request: Request,csrf_token: str=Form(...)):
     created=0; synced=0; errors=[]
     for profile in db.list_auto_engine_profiles():
         pid=int(profile.get("id") or 0)
-        if not v6_store.is_channel_profile(pid) or int(profile.get("enabled") or 0)!=1:
+        if int(profile.get("enabled") or 0)!=1:
             continue
         try:
-            result=v6_sync_channel_profile(db,v6_store,profile,queue_valid=True)
+            if v6_store.is_channel_profile(pid):
+                result=v6_sync_channel_profile(db,v6_store,profile,queue_valid=True)
+            elif os.environ.get("LUM_ENGINE_INSTANCE")=="song":
+                result=v6_preflight_profile(db,v6_store,profile)
+                if not result.get("ok"):
+                    raise ValueError("; ".join(result.get("errors") or ["Source validation failed"]))
+            else:
+                continue
             created+=int(result.get("created") or 0); synced+=1
         except Exception as exc:
             errors.append(f"{profile.get('category_name') or pid}: {exc}")

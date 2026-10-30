@@ -268,29 +268,9 @@
 
   function updateSongProfileKind(){
     const form=document.getElementById('lum-ae-profile-form');
-    const kind=form?.querySelector('#lum-ae-profile-kind');
-    if(!kind)return;
-    const group=kind.value==='group';
-    form.querySelectorAll('[data-ae-group-choice],[data-ae-group-fields]').forEach(n=>{n.hidden=!group;});
-    form.querySelectorAll('[data-ae-single-choice]').forEach(n=>{n.hidden=group;});
+    if(!form)return;
     const groupSelect=form.querySelector('#lum-ae-profile-group');
-    const channelSelect=form.querySelector('select[name="channel_db_id"]');
-    const name=form.querySelector('input[name="category_name"]');
-    const sheet=form.querySelector('input[name="metadata_sheet_tab"]');
-    if(groupSelect){groupSelect.required=group;groupSelect.disabled=!group;}
-    if(channelSelect){channelSelect.required=!group;channelSelect.disabled=group;}
-    if(name)name.required=group;
-    if(sheet)sheet.required=group;
-    const videoSource=form.querySelector('#song-profile-video-source');
-    const metadataSource=form.querySelector('#song-profile-metadata-source');
-    if(group){
-      if(videoSource)videoSource.value='drive';
-      if(metadataSource)metadataSource.value='sheet';
-      videoSource?.dispatchEvent(new Event('change',{bubbles:true}));
-    }
-    if(videoSource)videoSource.disabled=group;
-    if(metadataSource)metadataSource.disabled=group;
-    form.querySelectorAll('[data-ae-song-modes]').forEach(n=>{n.hidden=group;});
+    if(!groupSelect)return;
     const preview=form.querySelector('#lum-ae-group-preview');
     if(preview&&groupSelect){
       const n=Number(groupSelect.selectedOptions?.[0]?.dataset?.count||0);
@@ -362,6 +342,8 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout
     flip('[data-song-drive-field]',useDrive,'drive_video_folder');
     form.querySelectorAll('[data-song-drive-field] input[name="drive_thumbnail_folder"]').forEach(x=>x.required=useDrive);
     flip('[data-song-sheet-field]',useSheet,'metadata_sheet_url_or_id');
+    const tab=form.querySelector('input[name="metadata_sheet_tab"]');
+    if(tab)tab.required=useSheet&&!!form.querySelector('#lum-ae-profile-group');
     flip('[data-song-manual-fields]',!useSheet,'manual_title');
     form.querySelectorAll('[data-song-sheet-note]').forEach(el=>el.hidden=!useSheet);
   }

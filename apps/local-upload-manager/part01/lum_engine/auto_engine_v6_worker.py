@@ -286,7 +286,7 @@ def reconcile_completed(db:Database, store:V6Store, video_id:int) -> None:
                             (int(source["profile_id"]),clean(source["drive_file_id"])))
                 con.execute("UPDATE drive_thumbnails SET present=0 WHERE profile_id=? AND drive_file_id=?",
                             (int(source["profile_id"]),clean(source["drive_file_id"])))
-        elif channel_meta:
+        elif channel_meta and action!="keep":
             month=datetime.now(timezone.utc).strftime("%Y-%m")
             video_destination=drive_move_uploaded_month(clean(source["source_folder_id"]),clean(source["filename"]),clean(source["drive_file_id"]),month)
             thumb_destination=""
@@ -301,6 +301,7 @@ def reconcile_completed(db:Database, store:V6Store, video_id:int) -> None:
             destination="DELETED_FROM_DRIVE"
         elif action=="keep":
             destination="SOURCE_KEPT"
+            if channel_meta: set_channel_job_post_state(store,video_id,"COMPLETE")
         else:
             raise ValueError(f"Unknown after-success action: {action}")
         store.set_job_state(video_id,"COMPLETE",destination=destination,remote_verified=True)

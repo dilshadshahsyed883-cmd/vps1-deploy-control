@@ -65,6 +65,8 @@ class LocalSongMakerImportTests(unittest.TestCase):
                 self.test = test
             def is_channel_profile(self, profile_id):
                 return profile_id == 3
+            def group_settings(self, profile_id):
+                return {"video_source_mode":"songmaker"} if profile_id==4 else {}
             def connect(self):
                 return self.test.connect()
         self.store = Store(self)
@@ -88,6 +90,13 @@ class LocalSongMakerImportTests(unittest.TestCase):
         conn = sqlite3.connect(self.database)
         conn.row_factory = sqlite3.Row
         return conn
+
+    def test_group_profile_imports_exact_original_pair(self):
+        result=self.module.import_job(self.store,4,"alice",JOB)
+        self.assertEqual(result["status"],"imported")
+        with self.connect() as con:
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM drive_videos WHERE profile_id=4").fetchone()[0],1)
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM drive_thumbnails WHERE profile_id=4").fetchone()[0],1)
 
     def test_import_uses_owner_scoped_local_media_and_is_idempotent(self):
         first = self.module.import_job(self.store, 3, "alice", JOB)

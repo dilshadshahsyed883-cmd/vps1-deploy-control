@@ -556,6 +556,17 @@ class V6Store:
                 "drive_thumbnail_folder_id":"","drive_thumbnail_folder_url":"","thumbnail_source_mode":"pc_drive","short_folder_name":""
             }
 
+    def group_settings(self, profile_id:int) -> Dict[str,Any]:
+        with self.connect() as con:
+            row=con.execute("SELECT settings_json FROM song_group_settings WHERE profile_id=?", (int(profile_id),)).fetchone()
+        return json.loads(row[0]) if row else {}
+
+    def save_group_settings(self, profile_id:int, settings:Dict[str,Any]) -> None:
+        with self.connect() as con:
+            con.execute("INSERT INTO song_group_settings(profile_id,settings_json) VALUES(?,?) "
+                        "ON CONFLICT(profile_id) DO UPDATE SET settings_json=excluded.settings_json",
+                        (int(profile_id),json.dumps(settings)))
+
     def save_source(self, profile_id:int, *, video_folder:str="", thumb_folder:str="", thumb_mode:str="pc_drive", short_folder:str="", songmaker_enabled:Optional[bool]=None) -> None:
         if short_folder:
             folder = shortstudio_folder_path(short_folder)
@@ -1223,9 +1234,15 @@ def planner(pc_db:Any, store:V6Store, profile:Dict[str,Any], *, max_jobs_overrid
         store.scan_drive_videos(pid)
     except Exception as exc:
         raise ValueError(f"Drive video source sync failed: {exc}") from exc
+    song_group=os.environ.get("LUM_ENGINE_INSTANCE")=="song"
+    settings=store.group_settings(pid) if song_group else {}
+    matched_thumbs=[]
+    if song_group:
+        store.scan_drive_thumbnails(pid)
+        matched_thumbs=store.drive_thumbnails(pid)
     thumb_mode=clean(source.get("thumbnail_source_mode") or "pc_drive")
     thumb_folder=clean(source.get("drive_thumbnail_folder_id"))
-    if thumbnail_required_for_mode() and thumb_mode in {"drive","pc_drive"} and thumb_folder:
+    if not song_group and thumbnail_required_for_mode() and thumb_mode in {"drive","pc_drive"} and thumb_folder:
         try:
             store.sync_drive_thumbnails(pid,clean(profile.get("category_name")))
         except Exception as exc:
@@ -1239,8 +1256,13 @@ def planner(pc_db:Any, store:V6Store, profile:Dict[str,Any], *, max_jobs_overrid
     if not channels: raise ValueError("No eligible ACTIVE channel with verified UC ID and valid token.")
     thumbs=[t for t in store.thumbs(pid) if t["status"]=="ACTIVE"]
     blocked=[]
-    if thumbnail_required_for_mode() and not thumbs: blocked.append("No ACTIVE thumbnail is available.")
-    meta,note=category_metadata(profile)
+    if not song_group and thumbnail_required_for_mode() and not thumbs: blocked.append("No ACTIVE thumbnail is available.")
+    if song_group and settings.get("metadata_source")=="manual":
+        meta={"title":settings.get("manual_title"),"description":settings.get("manual_description"),
+              "category_id":settings.get("manual_category_id") or "10","privacy_status":"private"}
+        note="Manual metadata saved on website. Group schedule applies."
+    else:
+        meta,note=category_metadata(profile)
     daily=max(1,int(profile.get("daily_upload_count") or 1))
     scope=clean(profile.get("upload_scope") or "per_channel")
     target=daily*len(channels) if scope=="per_channel" else daily
@@ -1275,12 +1297,24 @@ def planner(pc_db:Any, store:V6Store, profile:Dict[str,Any], *, max_jobs_overrid
             duplicate_count+=1; continue
         m=metadata_for_job(meta,v["filename"],vi,profile,ch,preview=preview_only)
         thumb=(thumbs[(cursor+vi)%len(thumbs)] if bool(profile.get("thumbnail_rotation",1)) else thumbs[0]) if thumbs and thumbnail_required_for_mode() else None
+        matched={}
+        if song_group:
+            key=Path(clean(v["filename"])).stem
+            candidates=[t for t in matched_thumbs if (clean(t.get("drive_file_id"))==fid
+                        if source.get("local_songmaker_enabled") else _channel_norm_key(key) in _channel_norm_key(t.get("filename")))]
+            if len(candidates)!=1:
+                blocked.append(f"{v['filename']}: expected one original matching thumbnail.")
+                continue
+            matched=candidates[0]
+            thumb_path=STAGING_ROOT/f"profile_{pid:04d}"/f"drive_{safe_slug(fid,'file')}"/"thumbnail"/clean(matched["filename"])
+            thumb={"id":None,"stored_path":str(thumb_path),"original_filename":matched["filename"]}
         selected.append({
             "slot":slot,"channel_db_id":cid,"channel_id":channel_uc,"channel_name":clean(ch.get("channel_name")),
             "drive_video_id":int(v["id"]),"drive_file_id":fid,"filename":clean(v["filename"]),
             "normalized_filename":clean(v["normalized_filename"]),"script_key":clean(v["script_key"]),
             "size_bytes":int(v.get("size_bytes") or 0),"source_folder_id":clean(v["source_folder_id"]),
-            "thumbnail_asset_id":int(thumb["id"]) if thumb else None,
+            "thumbnail_asset_id":int(thumb["id"]) if thumb and thumb.get("id") else None,
+            "matched_thumbnail":matched,
             "thumbnail_path":clean(thumb["stored_path"]) if thumb else "",
             "thumbnail_filename":clean(thumb["original_filename"]) if thumb else "",
             **m,
@@ -1295,7 +1329,7 @@ def planner(pc_db:Any, store:V6Store, profile:Dict[str,Any], *, max_jobs_overrid
     return {
         "jobs":selected,"target_jobs":target,"duplicates_blocked":duplicate_count,
         "blocked":blocked,"ready":not blocked and len(selected)>0,"metadata_note":note,
-        "eligible_channels":len(channels),"available_videos":len(videos),"active_thumbnails":len(thumbs),
+        "eligible_channels":len(channels),"available_videos":len(videos),"active_thumbnails":len(matched_thumbs) if song_group else len(thumbs),
     }
 
 
@@ -1339,6 +1373,20 @@ def generate_queue(pc_db:Any, store:V6Store, profile:Dict[str,Any], *, run_key:s
                 thumb_id=job["thumbnail_asset_id"],staging_path=staging_path,
                 after_success=clean(profile.get("after_upload_action") or "move_uploaded"),
             )
+            if job.get("matched_thumbnail"):
+                t=job["matched_thumbnail"]
+                try:
+                    with store.connect() as con:
+                        con.execute("""INSERT INTO channel_job_meta(
+                            video_id,profile_id,metadata_video_key,metadata_row_number,
+                            thumbnail_drive_file_id,thumbnail_source_folder_id,thumbnail_filename,strict_thumbnail,
+                            snapshot_title,snapshot_description,snapshot_tags,snapshot_privacy,post_upload_state)
+                            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            (vid,pid,job["drive_file_id"],0,t["drive_file_id"],t["source_folder_id"],t["filename"],1,
+                             job["title"],job["description"],job["tags"],job["privacy_status"],"QUEUED"))
+                except Exception:
+                    pc_db.delete_auto_engine_jobs([vid])
+                    raise
             created.append(vid)
         if created and bool(profile.get("thumbnail_rotation",1)):
             pc_db.advance_auto_engine_thumbnail_cursor(pid,len(created))
@@ -1367,7 +1415,7 @@ def preflight_profile(pc_db:Any,store:V6Store,profile:Dict[str,Any]) -> Dict[str
     except Exception as exc: result["errors"].append(f"Drive video source: {exc}")
     try:
         src=store.source(int(profile["id"]))
-        if clean(src.get("drive_thumbnail_folder_id")) and clean(src.get("thumbnail_source_mode")) in {"drive","pc_drive"}:
+        if os.environ.get("LUM_ENGINE_INSTANCE")!="song" and clean(src.get("drive_thumbnail_folder_id")) and clean(src.get("thumbnail_source_mode")) in {"drive","pc_drive"}:
             result["thumbnail_sync"]=store.sync_drive_thumbnails(int(profile["id"]),clean(profile.get("category_name")))
     except Exception as exc: result["warnings"].append(f"Drive thumbnail sync: {exc}")
     try:
@@ -1621,6 +1669,9 @@ def _channel_init_schema(self: V6Store) -> None:
     _CHANNEL_LEGACY_INIT_SCHEMA(self)
     with self.connect() as con:
         con.executescript("""
+        CREATE TABLE IF NOT EXISTS song_group_settings(
+            profile_id INTEGER PRIMARY KEY, settings_json TEXT NOT NULL DEFAULT '{}'
+        );
         CREATE TABLE IF NOT EXISTS channel_profile_bindings(
             profile_id INTEGER PRIMARY KEY,
             channel_db_id INTEGER NOT NULL UNIQUE,
@@ -1885,6 +1936,25 @@ def _channel_get_channel(pc_db: Any, channel_db_id: int) -> Optional[Dict[str, A
     return None
 
 
+def _song_source_settings(form: Dict[str,Any]) -> Dict[str,Any]:
+    video=clean(form.get("video_source_mode")) or "drive"
+    meta=clean(form.get("metadata_source")) or "sheet"
+    if video not in {"drive","songmaker"} or meta not in {"sheet","manual"}:
+        raise ValueError("Choose a valid video and metadata source.")
+    settings={key:clean(form.get(key)) for key in
+              ("manual_title","manual_description","manual_category_id")}
+    settings.update(video_source_mode=video,metadata_source=meta)
+    settings["manual_category_id"]=settings["manual_category_id"] or "10"
+    if meta=="manual":
+        if not settings["manual_title"] or len(settings["manual_title"])>100:
+            raise ValueError("Manual title is required and must be at most 100 characters.")
+        if len(settings["manual_description"])>5000:
+            raise ValueError("Manual description cannot exceed 5000 characters.")
+        if settings["manual_category_id"] not in {"1","2","10","15","17","19","20","22","23","24","25","26","27","28","29"}:
+            raise ValueError("Choose a valid YouTube category.")
+    return settings
+
+
 def save_profile_from_form(pc_db: Any, store: V6Store, form: Dict[str, Any], profile_id: int|None=None) -> int:
     raw_channel=clean(form.get("channel_db_id"))
     # Restore group-based profiles for Song Uploader without affecting per-channel
@@ -1910,13 +1980,23 @@ def save_profile_from_form(pc_db: Any, store: V6Store, form: Dict[str, Any], pro
                     raise ValueError("Selected channel group no longer exists.")
                 if not pc_db.list_channel_group_members(int(group_id)):
                     raise ValueError("Selected group has no channels.")
-            if clean(form.get("video_source_mode")) not in {"", "drive"} or clean(form.get("metadata_source")) not in {"", "sheet"}:
-                raise ValueError("Group profiles use shared Drive sources and Google Sheet metadata.")
+            settings=_song_source_settings(form)
             if not clean(form.get("category_name")):
                 raise ValueError("Enter group profile name.")
-            if not clean(form.get("metadata_sheet_tab")):
+            if settings["metadata_source"]=="sheet" and not clean(form.get("metadata_sheet_tab")):
                 raise ValueError("Group profile needs a metadata Sheet tab.")
-            return _CHANNEL_LEGACY_SAVE_PROFILE(pc_db, store, form, profile_id)
+            if settings["metadata_source"]=="sheet" and not clean(form.get("metadata_sheet_url_or_id")):
+                raise ValueError("Metadata Sheet URL / ID is required.")
+            if settings["video_source_mode"]=="drive" and (not clean(form.get("drive_video_folder")) or not clean(form.get("drive_thumbnail_folder"))):
+                raise ValueError("Select video and thumbnail Drive folders.")
+            pid=_CHANNEL_LEGACY_SAVE_PROFILE(pc_db, store, form, profile_id)
+            store.save_source(pid,video_folder=clean(form.get("drive_video_folder")),
+                              thumb_folder=clean(form.get("drive_thumbnail_folder")),thumb_mode="drive",
+                              songmaker_enabled=settings["video_source_mode"]=="songmaker")
+            store.save_group_settings(pid,settings)
+            return pid
+        if not profile_id:
+            raise ValueError("New Song Uploader profiles require a channel group.")
         if kind == "channel" and not raw_channel:
             raise ValueError("Select a channel for this profile.")
         if profile_id and not bound:
@@ -2359,6 +2439,8 @@ def profile_context(pc_db: Any, store: V6Store, profile_id:int=0) -> Dict[str,An
                        "manual_category_id":clean(b.get("manual_category_id")) or "10",
                        "manual_upload_date":clean(b.get("manual_upload_date")),
                        "manual_upload_time":clean(b.get("manual_upload_time"))})
+        elif os.environ.get("LUM_ENGINE_INSTANCE")=="song":
+            pr.update(store.group_settings(pid))
         profiles.append(pr)
     ctx["profiles"]=profiles
     selected=ctx.get("selected")
