@@ -1559,8 +1559,8 @@ def auto_v6_profile_schedule_save(request: Request,csrf_token: str=Form(...),pro
                                  schedule_times: str=Form(""),schedule_enabled: str=Form("0")):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
     pid=int(profile_id)
-    if os.environ.get("LUM_ENGINE_INSTANCE")!="shortstudio":
-        return redirect("/app?tab=auto_engine",error="Inline scheduling is Short Uploader only.")
+    if os.environ.get("LUM_ENGINE_INSTANCE") not in {"shortstudio","song"}:
+        return redirect("/app?tab=auto_engine",error="Inline scheduling is for Song/Short groups only.")
     try:
         profile=_v6_profile(pid,request)
         if profile.get("channel_db_id"):
@@ -1604,7 +1604,7 @@ async def auto_v6_profile_schedules_save(request: Request):
             raw_enabled=str(form.get(f"schedule_enabled_{pid}") or "0").lower()
             raw_times=str(form.get(f"schedule_times_{pid}") or profile.get("schedule_times") or "09:00")
             parsed_times=v6_parse_schedule_times(raw_times)
-            if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio" and not profile.get("channel_db_id") and raw_enabled in {"1","true","on","yes"}:
+            if os.environ.get("LUM_ENGINE_INSTANCE") in {"shortstudio","song"} and not profile.get("channel_db_id") and raw_enabled in {"1","true","on","yes"}:
                 expected=max(1,int(profile.get("daily_upload_count") or 1))
                 if len(parsed_times)!=expected:
                     raise ValueError(f"Choose {expected} distinct PKT times (currently {len(parsed_times)}).")
@@ -1612,7 +1612,7 @@ async def auto_v6_profile_schedules_save(request: Request):
             data=dict(profile)
             data["schedule_enabled"]=raw_enabled in {"1","true","on","yes"}
             data["schedule_times"]=times
-            if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio" and not profile.get("channel_db_id") and data["schedule_enabled"]:
+            if os.environ.get("LUM_ENGINE_INSTANCE") in {"shortstudio","song"} and not profile.get("channel_db_id") and data["schedule_enabled"]:
                 data["work_mode"]="auto"
             db.save_auto_engine_profile(data,pid)
             updated+=1
