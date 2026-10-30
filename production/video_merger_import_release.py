@@ -120,49 +120,70 @@ def overlay_failed_import_retry_ui(live, source):
 
 
 def overlay_queue_layout_ui(live, source, baseline):
-    """Deploy only reviewed Queue/layout changes, retaining unrelated live UI overlays.
+    """Apply only reviewed Merge/Queue changes; preserve live Library, Proxy and shell."""
+    marker = '/* VIDEO_MERGER_TWO_COLUMN_QUEUE_V2'
+    require(source.count(marker) == 1, 'Queue UI marker missing or duplicated')
+    require(baseline.count(marker) == 0, 'Queue baseline already contains patch')
+    require(live.count(marker) == 0, 'Queue patch already installed')
 
-    Baseline comes from the first parent of the exact merged release commit.
-    A changed live anchor blocks deployment rather than silently deleting
-    independent modifications to the current production page.
-    """
-    marker='/* VIDEO_MERGER_TWO_COLUMN_QUEUE_V2'
-    require(source.count(marker)==1, 'Queue UI marker missing or duplicated')
-    require(baseline.count(marker)==0, 'Queue UI baseline already contains patch')
-    require(live.count(marker)==0, 'Queue UI already active; refuse redundant overlay')
-
-    def block(page, start_token, end_token):
-        require(page.count(start_token)==1 and page.count(end_token)==1,
+    def block(page, first, last):
+        require(page.count(first) == 1 and page.count(last) == 1,
                 'Video Merger layout anchor drift')
-        start=page.index(start_token)
-        end=page.index(end_token,start)
-        require(end>start, 'Video Merger layout anchor order changed')
+        start = page.index(first)
+        end = page.index(last, start)
+        require(end > start, 'Video Merger layout anchor order changed')
         return page[start:end]
 
-    # Keep Live Library, Proxy Settings, account identity and shell untouched.
-    start='  <div class="tabs"'
-    end='  <div id="tab-library"'
-    old_panel=block(baseline,start,end)
-    new_panel=block(source,start,end)
-    require(live.count(old_panel)==1, 'Active Merge panel drift; refusing overwrite')
-    for control in ('fname','librarySelect','urlVideos','aspect','quality','resolution',
-                    'fit','uploadDrive','addCopyrightFolder','folder','queueMergeButton'):
-        require(old_panel.count('id="'+control+'"')==1 and
-                new_panel.count('id="'+control+'"')==1,
-                'Merge UI control drift: '+control)
+    # No changes to Library, Proxy, native shell or identity.
+    start = '  <div class="tabs"'
+    end = '  <div id="tab-library"'
+    old_panel = block(baseline, start, end)
+    new_panel = block(source, start, end)
+    require(live.count(old_panel) == 1, 'Active Merge panel drift; refusing overwrite')
+    for control in ('fname', 'librarySelect', 'urlVideos', 'aspect', 'quality',
+                    'resolution', 'fit', 'uploadDrive', 'addCopyrightFolder',
+                    'folder', 'queueMergeButton'):
+        token = 'id="' + control + '"'
+        require(old_panel.count(token) == 1 and new_panel.count(token) == 1,
+                'Merge control drift: ' + control)
     require('id="tab-queue"' in new_panel and 'id="queue"' in new_panel,
             'Queue panel missing')
-    live=live.replace(old_panel,new_panel,1)
+    live = live.replace(old_panel, new_panel, 1)
 
-    # Append scoped CSS only. Active CSS changes elsewhere are preserved.
-    style_end='</style>'
-    require(source.count(style_end)==1 and live.count(style_end)==1,
+    style_end = '</style>'
+    require(source.count(style_end) == 1 and live.count(style_end) == 1,
             'Merger style boundary drift')
-    css=block(source,marker,style_end)
-    live=live.replace(style_end,css+style_end,1)
+    css = block(source, marker, style_end)
+    live = live.replace(style_end, css + style_end, 1)
 
     def js_line(page, name):
-        pattern=r'(?m)^'+re.escape(name)+r'.*
+        lines = [line for line in page.splitlines() if line.startswith(name)]
+        require(len(lines) == 1, 'Merger JS anchor drift: ' + name)
+        return lines[0]
+
+    for name in ('function showTab(tab)', 'function queueMerge()',
+                 'function activeStatus(s)', 'function renderQueue()'):
+        old = js_line(baseline, name)
+        new = js_line(source, name)
+        require(old != new, 'Expected Queue JS change missing: ' + name)
+        require(live.count(old) == 1, 'Active Queue JS drift: ' + name)
+        live = live.replace(old, new, 1)
+
+    anchor = 'async function del(id){'
+    callback_start = 'async function cancelJob(id){'
+    require(source.count(callback_start) == 1 and source.count(anchor) == 1,
+            'Queue callbacks missing')
+    require(live.count(anchor) == 1 and callback_start not in live,
+            'Active Queue actions drift')
+    callbacks = block(source, callback_start, anchor)
+    require('async function retryJob(id)' in callbacks, 'Retry callback missing')
+    live = live.replace(anchor, callbacks + anchor, 1)
+    require(live.count(marker) == 1 and live.count('id="tab-queue"') == 1,
+            'Queue UI verification failed')
+    return live
+
+
+def install(revision):
     require(re.fullmatch('[a-f0-9]{40}',revision),'invalid revision')
     app='video-merger'
     unit_name='vps1-production-video-merger.service'
@@ -251,134 +272,8 @@ def overlay_queue_layout_ui(live, source, baseline):
         require(code==200 and 'html' in kind.lower(),'authenticated UI readback failed')
         if 'VIDEO_MERGER_TWO_COLUMN_QUEUE_V2' in source_html:
             require(b'VIDEO_MERGER_TWO_COLUMN_QUEUE_V2' in page and
-                    b'id="tab-queue"' in page and
-                    b'class="vm-merge-layout"' in page,
+                    b'id="tab-queue"' in page and b'class="vm-merge-layout"' in page,
                     'authenticated Queue/two-column UI readback failed')
-        atomic_json(journal/'result.json',{'status':'ACTIVE','youtube':'PASS','drive':'PASS','data':'PRESERVED'})
-        event(app=app,result='PASS_VIDEO_MERGER_IMPORTS',revision=revision,data='PRESERVED',proxy_activation='ENABLED' if proxy_changed else 'UNCHANGED',rollback=str(journal))
-    except BaseException:
-        if changed:
-            atomic_link(current,previous)
-            unit.write_text(previous_unit)
-            run(['systemctl','daemon-reload'],quiet=True)
-        if proxy_changed:
-            swap_proxy(activation,activation['before'])
-            event(app=app,proxy_activation='ROLLED_BACK',secrets_logged=False)
-        if changed:
-            run(['systemctl','restart',unit_name],timeout=90,quiet=True)
-            http_check(app)
-            event(app=app,rollback='PASS_VIDEO_MERGER_IMPORTS')
-        raise
-
-        found=re.findall(pattern,page)
-        require(len(found)==1,'Merger script anchor drift: '+name)
-        return found[0]
-
-    for name in ('function showTab(tab)', 'function queueMerge()', 'function activeStatus(s)',
-                 'function renderQueue()'):
-        old=js_line(baseline,name)
-        new=js_line(source,name)
-        require(old!=new,'Expected Queue script change missing: '+name)
-        require(live.count(old)==1,'Active Queue script drift: '+name)
-        live=live.replace(old,new,1)
-
-    anchor='async function del(id){'
-    new_start='async function cancelJob(id){'
-    require(source.count(new_start)==1 and source.count(anchor)==1,
-            'Queue cancel / retry script missing')
-    require(live.count(anchor)==1 and new_start not in live,
-            'Active Queue actions drift')
-    callbacks=block(source,new_start,anchor)
-    require('async function retryJob(id)' in callbacks,'Queue retry handler missing')
-    live=live.replace(anchor,callbacks+anchor,1)
-    require(live.count(marker)==1 and live.count('id="tab-queue"')==1,
-            'Queue UI overlay verification failed')
-    return live
-
-
-def install(revision):
-    require(re.fullmatch('[a-f0-9]{40}',revision),'invalid revision')
-    app='video-merger'
-    unit_name='vps1-production-video-merger.service'
-    unit=SYSTEMD/unit_name
-    previous_unit=unit.read_text()
-    current=BASE/'current'/app
-    previous=current.resolve(strict=True)
-    require(current.is_symlink() and previous.is_relative_to(BASE/'releases'/app),'unowned release')
-    state,proxy_config=live_paths(DATA/app/'video-merger')
-    http_check(app)
-    idle_database(state)
-    match=re.search(r'^ExecStart=(\S+/bin/python)\s+app.py\s*$',previous_unit,re.M)
-    require(match is not None,'unexpected Video Merger service command')
-    old_python=Path(match.group(1))
-    require(old_python.is_file() and old_python.is_relative_to(BASE/'venvs'/app),'unowned Python')
-    event(app=app,preflight='PASS',service_python=str(old_python),legacy_path_used=False)
-    venv=BASE/'venvs'/app/(revision+'-imports')
-    target=BASE/'releases'/app/(revision+'-imports')
-    require(not venv.exists() and not target.exists(),'immutable candidate already exists')
-    run(['python3','-m','venv',venv],quiet=True)
-    python=venv/'bin/python'
-    run([python,'-m','pip','install','--disable-pip-version-check','--no-cache-dir',
-         'yt-dlp[default]==2026.8.19','gdown==5.2.0','requests==2.32.3'],timeout=900,quiet=True)
-    run([python,'-m','yt_dlp','--version'],quiet=True)
-    run([python,'-m','gdown','--version'],quiet=True)
-    install_js(venv)
-    # Source is overlaid on the actual active release, retaining parallel UI work.
-    shutil.copytree(previous,target,symlinks=True)
-    name='part01/app.py'
-    require(not (target/name).is_symlink(),'linked app source')
-    source=(REPO/'apps'/app/name).read_bytes()
-    compile(source,name,'exec')
-    (target/name).write_bytes(source)
-    # Patch only the two canonical retry anchors; preserve current active HTML/CSS/shell.
-    template='part01/templates/index.html'
-    live_template=target/template
-    source_html=(REPO/'apps'/app/template).read_text(encoding='utf-8')
-    patched=overlay_failed_import_retry_ui(live_template.read_text(encoding='utf-8'),source_html)
-    live_template.write_text(patched,encoding='utf-8')
-    manifest=json.loads((target/'_production_manifest.json').read_text())
-    require(manifest.get('app')==app,'wrong manifest owner')
-    manifest.update(revision=revision,import_overlay=str(previous))
-    manifest['files'][name]=hashlib.sha256(source).hexdigest()
-    manifest['files'][template]=hashlib.sha256(patched.encode('utf-8')).hexdigest()
-    atomic_json(target/'_production_manifest.json',manifest,0o644)
-    activation=planned_proxy_activation(proxy_config)
-    # Both real-source downloads happen in a temporary directory. Existing Drive
-    # files and SQLite records are only read. Fail before any live mutation.
-    run(['/usr/sbin/runuser','-u','ubuntu','--',python,'-m','production.video_merger_import_smoke',
-         '--source',target/name,'--state',state,'--proxy-config',proxy_config],cwd=REPO,timeout=1800,quiet=False)
-    if activation:
-        require(proxy_config.read_bytes()==activation['before'],
-                'saved proxy changed during read-only candidate; refuse switch')
-    journal=BASE/'transactions/video-merger-imports'/revision
-    journal.mkdir(parents=True,exist_ok=False)
-    atomic_json(journal/'previous.json',{'current':str(previous),'unit':previous_unit})
-    new_unit=previous_unit.replace(str(old_python),str(python))
-    new_unit=new_unit.replace(str(old_python.parent)+':',str(python.parent)+':')
-    changed=False
-    proxy_changed=False
-    try:
-        http_check(app)
-        idle_database(state)
-        if activation:
-            require(proxy_config.read_bytes()==activation['before'],
-                    'saved proxy changed after candidate; no activation')
-            (journal/'proxy-before.json').write_bytes(activation['before'])
-            (journal/'proxy-before.json').chmod(0o600)
-            # Protected host-wide deploy lock and idle fence are held; do not
-            # change any profile data or unrelated apps.
-            swap_proxy(activation,activation['after'])
-            proxy_changed=True
-            event(app=app,proxy_activation='SAVED_PROFILE_CANARY_PASS_ENABLED',secrets_logged=False)
-        changed=True
-        atomic_link(current,target)
-        unit.write_text(new_unit)
-        run(['systemctl','daemon-reload'],quiet=True)
-        run(['systemctl','restart',unit_name],timeout=90,quiet=True)
-        http_check(app)
-        from production.route_uploader_scene_https import https_get, scene_cookie
-        code,kind,page=https_get('/video-merger/',scene_cookie())
-        require(code==200 and 'html' in kind.lower(),'authenticated UI readback failed')
         atomic_json(journal/'result.json',{'status':'ACTIVE','youtube':'PASS','drive':'PASS','data':'PRESERVED'})
         event(app=app,result='PASS_VIDEO_MERGER_IMPORTS',revision=revision,data='PRESERVED',proxy_activation='ENABLED' if proxy_changed else 'UNCHANGED',rollback=str(journal))
     except BaseException:
