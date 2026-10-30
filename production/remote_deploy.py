@@ -43,6 +43,9 @@ def main():
     elif selected == 'song-maker':
         if operation not in {'install', 'rollback'}:
             raise ValueError('Song Maker requires dedicated release operation')
+    elif selected == 'copyright-uploader':
+        if operation not in {'install', 'rollback'}:
+            raise ValueError('Copyright Uploader requires its independent release operation')
     elif selected != 'all' and selected not in APPS:
         raise ValueError('application not allowed')
     if operation.startswith('nginx-route-') and selected in {'all', 'scene-builder'}:
@@ -87,6 +90,14 @@ def main():
                         'import sys; from production.song_maker_release import main; main(sys.argv[1],sys.argv[2])',
                         operation, revision], cwd=checkout, check=True)
         return
+    if selected == 'copyright-uploader':
+        # New independent application. Do not extend the fixed historical
+        # multi-app gateway inventory; the app owns its authenticated Nginx
+        # prefix and its own immutable SQLite/worker process.
+        subprocess.run(['/usr/bin/python3', '-m', 'production.runtime', operation,
+                        '--revision', revision, '--apps', selected],
+                       cwd=checkout, check=True)
+        return
     if operation.startswith('nginx-route-'):
         # No application restart, gateway reconstruction, queue or database touch.
         subprocess.run(['/usr/bin/python3', '-m', 'production.nginx_route_only',
@@ -99,6 +110,13 @@ def main():
     # Changing its engines must not republish Nginx or other applications.
     if selected == 'local-upload-manager' and operation == 'install':
         return
+    if operation == 'install' and selected in {'video-merger', 'scene-builder'}:
+        # Copyright Studio's merger is already on the existing HTTPS route,
+        # and the Scene change is a web-only navigation overlay. Do not run
+        # the historic generic gateway generator over the custom auth route.
+        commit_message = command(['git','log','-1','--format=%B'],cwd=checkout)
+        if '[vps1-copyright-studio-release]' in commit_message:
+            return
     # Keep every still-active app in the gateway when updating one app.
     active = [app for app in APPS if subprocess.run(
         ['systemctl', 'is-active', '--quiet', f'vps1-production-{app}.service']).returncode == 0]
