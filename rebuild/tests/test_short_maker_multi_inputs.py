@@ -92,8 +92,9 @@ class ShortMakerMultiInputTests(unittest.TestCase):
         self.assertIn('id="addDriveLink"', self.source)
         self.assertIn('id="addAudioBtn"', self.source)
         self.assertIn("const selectedAudioFiles=[];", self.source)
-        self.assertIn("selectedAudioFiles.forEach(f=>fd.append('audio'", self.source)
-        self.assertIn("fd.append('drive_input_paths_json'", self.source)
+        client = (SOURCE.parent / 'resumable_client.js').read_text(encoding='utf-8')
+        self.assertIn('selectedAudioFiles.forEach((file,index)=>', client)
+        self.assertIn('cfg.drive_input_paths_json=', client)
 
 
 if __name__ == "__main__":

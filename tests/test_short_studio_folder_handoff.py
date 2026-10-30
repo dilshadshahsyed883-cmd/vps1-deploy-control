@@ -81,7 +81,9 @@ class ShortStudioFolderHandoffTests(unittest.TestCase):
         self.assertIn('id="uploadToDrive" name="upload_to_drive" type="checkbox">', settings_section)
         self.assertIn("selectOutputDestination('uploader')", html)
         self.assertIn("selectOutputDestination('drive')", html)
-        self.assertIn("fd.append('available_to_short_uploader',uploaderDestination.checked", html)
+        self.assertIn('src="/short-maker/resumable_client.js"', html)
+        client = (ROOT / 'apps/short-maker/part01/resumable_client.js').read_text(encoding='utf-8')
+        self.assertIn('cfg.available_to_short_uploader=uploaderDestination.checked', client)
         self.assertIn('Select exactly one output destination.', src)
         self.assertIn('if cfg.get("available_to_short_uploader",', src)
         self.assertIn('strict=bool(cfg.get("output_names"))', src)
@@ -90,8 +92,8 @@ class ShortStudioFolderHandoffTests(unittest.TestCase):
         self.assertNotIn('id="render"', settings_section)
         self.assertIn("settingsTabBtn.onclick=()=>showShortTab('settings')", html)
         self.assertIn("panels[key].hidden=!active", html)
-        self.assertIn("['video_duration','image_duration','output_count'", html)
-        self.assertIn("fd.append('short_vps_folder',shortFolderSelect.value)", html)
+        self.assertIn("['video_duration','image_duration','output_count'", client)
+        self.assertIn("cfg.short_vps_folder=shortFolderSelect.value", client)
 
     def test_folder_numbering_with_shared_batch_tag_is_durable(self):
         with tempfile.TemporaryDirectory() as td:

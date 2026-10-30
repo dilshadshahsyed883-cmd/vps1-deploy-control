@@ -18,7 +18,7 @@ class VideoOverlayTests(unittest.TestCase):
         self.assertEqual(patch_assets(updated),updated)
         with self.assertRaises(RuntimeError):patch_assets(b'unknown')
     def test_active_or_unknown_jobs_block_restart(self):
-        for status in ('queued','running','processing','importing','unknown'):
+        for status in ('queued','running','processing','importing','uploading','unknown'):
             with self.subTest(status=status),patch('production.video_template_release.read_json',return_value={'jobs':[{'status':status}]}):
                 with self.assertRaises(RuntimeError):idle('short-maker')
         with patch('production.video_template_release.read_json',return_value={'jobs':[],'library':[{'status':'importing'}]}):
@@ -66,6 +66,9 @@ def browser_test():
         if r.request.method!='GET':writes.append((path,r.request.method))
         if path=='/short-maker':path='/short-maker/'
         if path == '/short-maker':return r.fulfill(status=308,headers={'Location':'/short-maker/'},body='')
+        if path == '/short-maker/resumable_client.js':
+            js = (ROOT/'apps/short-maker/part01/resumable_client.js').read_text(encoding='utf-8')
+            return r.fulfill(content_type='application/javascript', body=js)
         if path in pages:return r.fulfill(content_type='text/html',body=pages[path])
         if path.startswith('/static/'):
             file=scene/'static'/path.removeprefix('/static/')
