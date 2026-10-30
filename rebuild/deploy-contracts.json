@@ -251,6 +251,30 @@
         "unit": "apps/vps-storage-manager/candidate/vps1-storage-candidate.service",
         "verified_on_vps": false
       }
+    },
+    "copyright-uploader": {
+      "dependencies": [
+        "scene-builder"
+      ],
+      "services": [
+        {
+          "part": "part01",
+          "module": "lum_engine.standalone_app:app",
+          "port": 8020,
+          "requirements": "requirements.txt"
+        }
+      ],
+      "workers": [],
+      "migrations": {
+        "automatic": false,
+        "strategy": "isolated SQLite with transactional rollback"
+      },
+      "health": {
+        "readiness": "manual queue and authenticated app checks",
+        "enabled": true
+      },
+      "runtime_verified": false,
+      "pending": "Independent initial release validation"
     }
   }
 }
