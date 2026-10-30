@@ -443,6 +443,61 @@ def shortstudio_rolled_back_empty(state: Path, *, unit_dir: Path = Path("/etc/sy
     return True
 
 
+def lum_parked_network_idle(conn: sqlite3.Connection) -> int:
+    """Allow release only for proven parked, pre-upload Auto Engine network waits.
+
+    WAITING_NETWORK is not by itself evidence of active media upload. A row is
+    safe only if it has no claim, remote/resumable identity, sent media bytes or
+    unsafe ledger state. Fail closed on unknown/legacy schemas and any doubt.
+    """
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        "SELECT * FROM videos WHERE UPPER(status)='WAITING_NETWORK' LIMIT 1001"
+    ).fetchall()
+    if not rows:
+        return 0
+    if len(rows) > 1000:
+        raise RuntimeError("Too many network waits to prove release idle")
+    required = {
+        "auto_engine_profile_id", "claim_worker_id", "recovery_state",
+        "youtube_video_id", "youtube_url", "resumable_uri",
+        "media_stage_state", "pipeline_stage", "upload_bytes_confirmed",
+        "progress", "channel_db_id", "upload_fingerprint",
+    }
+    columns = {str(c[1]) for c in conn.execute("PRAGMA table_info(videos)")}
+    if not required.issubset(columns):
+        raise RuntimeError("Network wait schema lacks idle proof columns")
+    ledger_table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='upload_ledger'"
+    ).fetchone()
+    for row in rows:
+        if not row["auto_engine_profile_id"] or str(row["claim_worker_id"] or "").strip():
+            raise RuntimeError("Network wait still belongs to a worker or non-Auto Engine job")
+        if str(row["recovery_state"] or "").upper() not in {"", "NONE"}:
+            raise RuntimeError("Network wait has unresolved recovery evidence")
+        if any(str(row[k] or "").strip() for k in ("youtube_video_id", "youtube_url", "resumable_uri")):
+            raise RuntimeError("Network wait has remote/resumable upload identity")
+        if int(row["upload_bytes_confirmed"] or 0) or int(row["progress"] or 0):
+            raise RuntimeError("Network wait has upload progress")
+        if str(row["media_stage_state"] or "PENDING").upper() != "PENDING":
+            raise RuntimeError("Network wait media stage already began")
+        if str(row["pipeline_stage"] or "PENDING").upper() not in {"PENDING", "PREPARE"}:
+            raise RuntimeError("Network wait pipeline already advanced")
+        fingerprint = str(row["upload_fingerprint"] or "").strip()
+        if fingerprint:
+            if not ledger_table:
+                raise RuntimeError("Network wait ledger unavailable")
+            ledger = conn.execute(
+                "SELECT state FROM upload_ledger WHERE channel_db_id=? AND upload_fingerprint=?",
+                (int(row["channel_db_id"] or 0), fingerprint),
+            ).fetchone()
+            if not ledger:
+                raise RuntimeError("Network wait ledger entry missing")
+            if str(ledger["state"] or "").upper() not in {"RESERVED", "CLAIMED", "FAILED_SAFE", "CANCELLED"}:
+                raise RuntimeError("Network wait ledger has possible remote upload evidence")
+    return len(rows)
+
+
 def require_lum_release_idle(state: Path) -> None:
     """Fail closed before restarting any uploader web/worker process.
 
@@ -493,7 +548,7 @@ def require_lum_release_idle(state: Path) -> None:
                 modes += (("shortstudio", 8019, "/short-uploader/health", "lum-shortstudio"),)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     in_flight = ("CLAIMED", "UPLOADING", "THUMBNAIL_UPLOADING",
-                 "PROCESSING", "IN_PROGRESS", "WAITING_NETWORK")
+                 "PROCESSING", "IN_PROGRESS")
     for mode, port, route, leaf in modes:
         try:
             with opener.open(f"http://127.0.0.1:{port}{route}", timeout=3) as response:
@@ -521,6 +576,10 @@ def require_lum_release_idle(state: Path) -> None:
                         ).fetchone()
                         if matches:
                             raise RuntimeError("in-flight SQLite upload")
+                        parked = lum_parked_network_idle(conn)
+                        if parked:
+                            event(app="local-upload-manager", mode=mode,
+                                  safe_pre_media_network_waits=parked)
         except (OSError, ValueError, TypeError, sqlite3.Error, RuntimeError) as exc:
             raise RuntimeError(
                 "LUM_RELEASE_BLOCKED: uploader " + mode +
