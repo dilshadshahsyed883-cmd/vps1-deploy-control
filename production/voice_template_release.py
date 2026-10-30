@@ -78,6 +78,8 @@ def patch_template(payload: bytes) -> bytes:
                 payload.count(b'id="vsEngineKokoro"') == 1,
                 "current Voice sidebar assets or engine controls invalid")
         return payload
+    require(payload.count(SONG_STUDIO_ASSETS) == 0,
+            "unexpected duplicated or mixed Song Studio shell assets")
     # The last approved Voice sidebar-only release already moved assets above
     # the large inline stylesheet. Upgrade that exact version in place without
     # touching engine controls, worker services or the rest of the HTML.
