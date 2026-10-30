@@ -1846,7 +1846,36 @@ def _channel_get_channel(pc_db: Any, channel_db_id: int) -> Optional[Dict[str, A
 
 def save_profile_from_form(pc_db: Any, store: V6Store, form: Dict[str, Any], profile_id: int|None=None) -> int:
     raw_channel=clean(form.get("channel_db_id"))
-    # Existing legacy profiles remain editable with the old form if no channel was supplied.
+    # Restore group-based profiles for Song Uploader without affecting per-channel
+    # Video-ID bindings or the other independent uploader instances.
+    if os.environ.get("LUM_ENGINE_INSTANCE") == "song":
+        kind=clean(form.get("profile_kind")).lower()
+        if kind not in {"", "channel", "group"}:
+            raise ValueError("Invalid profile type.")
+        original=pc_db.get_auto_engine_profile(int(profile_id)) if profile_id else None
+        if profile_id and not original:
+            raise ValueError("Profile no longer exists.")
+        bound=bool(store.channel_binding(int(profile_id))) if profile_id else False
+        if kind == "group" or (not kind and not raw_channel):
+            if bound or raw_channel:
+                raise ValueError("Channel profile cannot be converted to group; create another profile.")
+            group_id=clean(form.get("channel_group_id"))
+            if not group_id and not (original and not original.get("channel_group_id")):
+                raise ValueError("Select a channel group.")
+            if group_id:
+                if not group_id.isdigit() or int(group_id)<=0:
+                    raise ValueError("Invalid channel group.")
+                if not any(int(g.get("id") or 0)==int(group_id) for g in pc_db.list_channel_groups()):
+                    raise ValueError("Selected channel group no longer exists.")
+                if not pc_db.list_channel_group_members(int(group_id)):
+                    raise ValueError("Selected group has no channels.")
+            if not clean(form.get("category_name")):
+                raise ValueError("Enter group profile name.")
+            if not clean(form.get("metadata_sheet_tab")):
+                raise ValueError("Group profile needs a metadata Sheet tab.")
+            return _CHANNEL_LEGACY_SAVE_PROFILE(pc_db, store, form, profile_id)
+        if profile_id and not bound:
+            raise ValueError("Group profile cannot be converted to channel; create another profile.")
     if not raw_channel:
         return _CHANNEL_LEGACY_SAVE_PROFILE(pc_db, store, form, profile_id)
     if not raw_channel.isdigit() or int(raw_channel)<=0:
