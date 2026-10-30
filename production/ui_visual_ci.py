@@ -20,7 +20,6 @@ VIDEO_CSS = SCENE / "static/vps1_video_studio_geometry.css"
 JS = SCENE / "static/vps1_native_site_shell.js"
 VIDEOS = {
     "scene-builder": SCENE / "templates/base.html",
-    "short-maker": ROOT / "apps/short-maker/part01/app.py",
     "video-merger": ROOT / "apps/video-merger/part01/templates/index.html",
     "auto-caption-studio": None,  # Native tabs are constructed by actual JS.
 }
@@ -305,7 +304,7 @@ def run(screenshots: Path | None) -> int:
                             page.add_style_tag(content="body{margin:0}")
                             page.add_style_tag(content=shell_css)
                             page.add_style_tag(content=geometry_css)
-                            if app in ("scene-builder", "short-maker", "video-merger"):
+                            if app in ("scene-builder", "video-merger"):
                                 # Run the actual unifier, not only a mock legacy sidebar.
                                 page.evaluate(
                                     """(source) => {
@@ -317,7 +316,7 @@ def run(screenshots: Path | None) -> int:
                                     native_js)
                                 names = page.locator("#app-sidebar > nav > a").all_text_contents()
                                 if names != ["Dashboard", "Upload Studio", "Video Studio",
-                                             "Voice Studio", "Song Studio", "Experiment Studio"]:
+                                             "Voice Studio", "Song Studio", "Short Studio", "Experiment Studio"]:
                                     errors.append(f"{width}px {app}: sidebar drift {names!r}")
                             if app in NATIVE:
                                 workspace = {"auto-caption-studio": "acs",
@@ -364,7 +363,7 @@ def run(screenshots: Path | None) -> int:
                                 destinations = nav.locator("a").evaluate_all(
                                     "links => links.map(link => link.getAttribute('href'))")
                                 expected = ["/scene-builder/", "/auto-caption-studio/",
-                                            "/short-maker/", "/video-merger/"]
+                                            "/video-merger/"]
                                 if destinations != expected:
                                     errors.append(f"{width}px {app}: Video destinations {destinations!r}")
                             else:
@@ -396,8 +395,8 @@ def run(screenshots: Path | None) -> int:
                             errors.append(f"{width}px {app}: {type(exc).__name__}: {exc}")
                         finally:
                             page.close()
-                    if len(rails) != 6:
-                        errors.append(f"{width}px missing one of six Studio group rails")
+                    if len(rails) != 5:
+                        errors.append(f"{width}px missing one of five Studio group rails")
                     else:
                         base = rails["scene-builder"]
                         for app, rect in rails.items():
@@ -406,7 +405,7 @@ def run(screenshots: Path | None) -> int:
                                     errors.append(
                                         f"{width}px {app}: {axis}={rect[axis]:.1f} "
                                         f"vs Scene={base[axis]:.1f} (limit {TOLERANCE_PX})")
-                        for name in ("short-maker", "video-merger", "auto-caption-studio"):
+                        for name in ("video-merger", "auto-caption-studio"):
                             ratio = changed_pixel_ratio(
                                 screenshots_in_memory["scene-builder"],
                                 screenshots_in_memory[name])
