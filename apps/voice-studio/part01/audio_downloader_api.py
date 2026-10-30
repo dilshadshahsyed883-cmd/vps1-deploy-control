@@ -110,6 +110,13 @@ def init_storage() -> None:
         con.execute('''CREATE TABLE IF NOT EXISTS audio_upload_pacing (
             id INTEGER PRIMARY KEY CHECK (id=1), next_upload_at TEXT NOT NULL
         )''')
+        # Owner-scoped download defaults; never infer these from queued jobs.
+        con.execute('''CREATE TABLE IF NOT EXISTS audio_preferences (
+            owner TEXT PRIMARY KEY, format TEXT NOT NULL,
+            quality INTEGER NOT NULL, auto_upload INTEGER NOT NULL,
+            keep_metadata INTEGER NOT NULL, download_thumbnail INTEGER NOT NULL,
+            auto_song_maker INTEGER NOT NULL, updated_at TEXT NOT NULL
+        )''')
 
 
 class DriveUploadFailure(RuntimeError):
@@ -182,6 +189,15 @@ def safe_folder(s: str, default='Untitled', maxlen=65) -> str:
     return value or default
 
 
+class AudioPreferences(BaseModel):
+    format: Literal['mp3', 'wav'] = 'mp3'
+    quality: Literal[128, 192, 256] = 192
+    auto_upload: bool = True
+    keep_metadata: bool = False
+    download_thumbnail: bool = False
+    auto_song_maker: bool = False
+
+
 class BatchRequest(BaseModel):
     links: list[str] = Field(min_length=1, max_length=30)
     format: Literal['mp3', 'wav'] = 'mp3'
@@ -240,6 +256,51 @@ def status():
             'upload_gap_seconds': UPLOAD_GAP_SECONDS, 'thumbnail_gap_seconds': THUMBNAIL_GAP_SECONDS,
             'upload_retry_seconds': UPLOAD_RETRY_SECONDS,
             'queue': {v['status']: v['n'] for v in q}, 'worker': bool(_worker and _worker.is_alive())}
+
+
+def _preferences_owner(request: Request) -> str:
+    # The authenticated reverse proxy injects this identity, as for Song Maker.
+    owner = request.headers.get('x-auth-user', '').strip()
+    if not owner or len(owner) > 160 or any(char in owner for char in '\r\n'):
+        raise HTTPException(403, 'Authenticated Audio Downloader user required to save settings')
+    return owner
+
+
+@router.get('/preferences')
+def get_preferences(request: Request):
+    owner = _preferences_owner(request)
+    init_storage()
+    with db() as con:
+        row = con.execute('SELECT * FROM audio_preferences WHERE owner=?', (owner,)).fetchone()
+    if row is None:
+        return {'saved': False, 'preferences': AudioPreferences().model_dump()}
+    return {'saved': True, 'preferences': {
+        'format': row['format'], 'quality': row['quality'],
+        'auto_upload': bool(row['auto_upload']),
+        'keep_metadata': bool(row['keep_metadata']),
+        'download_thumbnail': bool(row['download_thumbnail']),
+        'auto_song_maker': bool(row['auto_song_maker'])}}
+
+
+@router.put('/preferences')
+def save_preferences(payload: AudioPreferences, request: Request):
+    owner = _preferences_owner(request)
+    if payload.auto_song_maker and (payload.auto_upload or not payload.download_thumbnail):
+        raise HTTPException(422, 'Song Maker auto-queue requires thumbnail ON and Drive auto-upload OFF')
+    init_storage()
+    with db() as con:
+        con.execute('''INSERT INTO audio_preferences
+            (owner,format,quality,auto_upload,keep_metadata,download_thumbnail,auto_song_maker,updated_at)
+            VALUES(?,?,?,?,?,?,?,?)
+            ON CONFLICT(owner) DO UPDATE SET
+            format=excluded.format,quality=excluded.quality,
+            auto_upload=excluded.auto_upload,keep_metadata=excluded.keep_metadata,
+            download_thumbnail=excluded.download_thumbnail,
+            auto_song_maker=excluded.auto_song_maker,updated_at=excluded.updated_at''',
+            (owner, payload.format, payload.quality, int(payload.auto_upload),
+             int(payload.keep_metadata), int(payload.download_thumbnail),
+             int(payload.auto_song_maker), utc()))
+    return {'saved': True, 'preferences': payload.model_dump()}
 
 
 @router.post('/jobs', status_code=201)
