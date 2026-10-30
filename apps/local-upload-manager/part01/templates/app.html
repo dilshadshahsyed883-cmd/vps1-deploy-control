@@ -587,15 +587,15 @@
       <div class="lum-card-head">
         <div>
           <h2>Sheets Sync</h2>
-          {% if engine_instance != 'song' %}<p>PC-app Sheets engine connected to the web. Inventory uses the FIRST worksheet tab only; saved token/history state remains protected.</p>{% endif %}
+          {% if engine_instance not in ['song','shortstudio'] %}<p>PC-app Sheets engine connected to the web. Inventory uses the FIRST worksheet tab only; saved token/history state remains protected.</p>{% endif %}
         </div>
         <span class="lum-badge {{ 'good' if stats.settings.sheets_sync_enabled=='1' else 'warn' }}">{{ 'Sync Enabled' if stats.settings.sheets_sync_enabled=='1' else 'Sync Mode OFF' }}</span>
       </div>
 
-      {% if engine_instance == 'song' %}<details class="lum-note"><summary>Sheet format</summary>{% else %}<div class="lum-note">{% endif %}
+      {% if engine_instance in ['song','shortstudio'] %}<details class="lum-note lum-sheet-format-help"><summary>Sheet format</summary>{% else %}<div class="lum-note">{% endif %}
         Expected first-tab headers: Sr, ip, Browser Profile, Channel Name's, Channel Link's, Gmail's, Password's, Backup code's, Back Up Key's, Group, Status, Notes.
         Multiple groups in one cell may be separated by comma, semicolon, or |. Removed rows disappear from current inventory while saved tokens/history are retained.
-      {% if engine_instance == 'song' %}</details>{% else %}</div>{% endif %}
+      {% if engine_instance in ['song','shortstudio'] %}</details>{% else %}</div>{% endif %}
 
       <form method="post" action="{{ base_path }}/actions/sheets/save" data-lum-soft-form class="lum-sheet-source-form">
         <input type="hidden" name="csrf_token" value="{{ csrf }}">
@@ -635,6 +635,7 @@
       {% endif %}
     </section>
 
+    {% if engine_instance != 'shortstudio' %}
     <section class="lum-card">
       <div class="lum-card-head">
         <div>
@@ -659,11 +660,22 @@
       <div class="lum-note">Sheet sources can still be saved/edited. Turn on <strong>Sheets Sync</strong> in Dashboard before running Update Selected / Update All.</div>
       {% endif %}
     </section>
+    {% endif %}
 
     <section class="lum-card">
       <div class="lum-card-head">
-        <div><h2>Saved Sheet Sources</h2><p>Select a source to edit it or run a manual update.</p></div>
+        <div><h2>Saved Sheet Sources</h2>{% if engine_instance != 'shortstudio' %}<p>Select a source to edit it or run a manual update.</p>{% endif %}</div>
+        {% if engine_instance == 'shortstudio' %}
+        <div class="lum-short-sheet-header-actions">
+          <span class="lum-badge">{{ sheet_sources|length }} source{{ '' if sheet_sources|length == 1 else 's' }}</span>
+          <form method="post" action="{{ base_path }}/actions/sheets/sync-all" data-lum-soft-form>
+            <input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <button class="lum-button secondary" type="submit" {% if stats.settings.sheets_sync_enabled!='1' or not sheet_sources %}disabled{% endif %}>Update All Enabled Sheets</button>
+          </form>
+        </div>
+        {% else %}
         <span class="lum-badge">{{ sheet_sources|length }} source{{ '' if sheet_sources|length == 1 else 's' }}</span>
+        {% endif %}
       </div>
       {% if sheet_sources %}
       <div class="lum-table-wrap">

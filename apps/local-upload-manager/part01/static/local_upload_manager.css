@@ -459,3 +459,10 @@ body.lum-embedded .lum-primary-workspaces + .lum-tabs-shell{margin-top:0}
 .lum-shell[data-engine-instance="shortstudio"] .lum-short-engine-status{display:flex;flex:0 0 auto;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;padding:4px 0}
 .lum-shell[data-engine-instance="shortstudio"] .lum-short-engine-status .lum-health{font-size:10px;padding:6px 9px;white-space:nowrap}
 @media(max-width:760px){.lum-shell[data-engine-instance="shortstudio"] .lum-short-engine-tabbar{top:52px;gap:5px}.lum-shell[data-engine-instance="shortstudio"] .lum-short-engine-tabbar>.lum-ae-tabs-primary{flex:1 1 100%;width:100%!important}.lum-shell[data-engine-instance="shortstudio"] .lum-short-engine-status{justify-content:flex-start;flex:1 1 100%;padding:2px 4px 6px}}
+
+/* Short Studio Sheets Sync: compact help, no separate update card. */
+.lum-shell[data-engine-instance="shortstudio"] .lum-sheet-format-help{margin:0 0 10px;padding:7px 10px;font-size:11px}
+.lum-shell[data-engine-instance="shortstudio"] .lum-sheet-format-help summary{cursor:pointer;font-weight:700}
+.lum-shell[data-engine-instance="shortstudio"] .lum-short-sheet-header-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+.lum-shell[data-engine-instance="shortstudio"] .lum-short-sheet-header-actions form{margin:0}
+@media(max-width:760px){.lum-shell[data-engine-instance="shortstudio"] .lum-short-sheet-header-actions{width:100%;justify-content:flex-start}.lum-shell[data-engine-instance="shortstudio"] .lum-short-sheet-header-actions form{flex:1 1 auto}.lum-shell[data-engine-instance="shortstudio"] .lum-short-sheet-header-actions button{width:100%}}

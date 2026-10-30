@@ -34,6 +34,28 @@ def load_function(path, name, namespace):
 
 
 class ShortProfileControlTests(unittest.TestCase):
+    def test_shortstudio_sheets_compact_toolbar_retains_sync_actions(self):
+        source=TEMPLATE.read_text()
+        start=source.index("{% elif tab == 'sheets' %}")
+        end=source.index("{% elif tab == 'auto_engine' %}",start)
+        section=source[start:end].split("\n",1)[1]
+        ctx=dict(base_path='/short-uploader',csrf='offline',selected_sheet_source=None,
+                 sheet_sources=[dict(id=1,sheet_name='Source',sheet_url_or_id='sheet-url',
+                                     enabled=True,last_sync_at=None,last_sync_status=None)],
+                 stats=dict(settings=dict(sheets_sync_enabled='1')))
+        short=Environment().from_string(section).render(engine_instance='shortstudio',**ctx)
+        self.assertNotIn('PC-app Sheets engine connected',short)
+        self.assertNotIn('<h2>Manual Update</h2>',short)
+        self.assertNotIn('Same PC synchronization behavior',short)
+        self.assertIn('<summary>Sheet format</summary>',short)
+        self.assertEqual(short.count('>Update All Enabled Sheets</button>'),1)
+        self.assertIn('/actions/sheets/sync-all',short)
+        self.assertIn('/actions/sheets/sync',short)
+        self.assertIn('Save Sheet Source',short)
+        song=Environment().from_string(section).render(engine_instance='song',**ctx)
+        self.assertIn('<h2>Manual Update</h2>',song)
+        self.assertEqual(song.count('>Update All Enabled Sheets</button>'),1)
+
     def test_bulk_import_not_available_to_short_uploader(self):
         template=TEMPLATE.read_text()
         routes=ROUTES.read_text()
