@@ -1091,6 +1091,7 @@
           {% set short_group = engine_instance == 'shortstudio' and (not p or not p.channel_db_id) %}
           {% set group_profile = short_group or (engine_instance == 'song' and (not p or not p.channel_db_id)) %}
           {% if short_group %}
+          <div class="lum-grid lum-three lum-short-profile-grid" data-short-profile-grid>
           <input type="hidden" name="profile_kind" value="group">
           <label class="lum-field lum-short-compact-selector"><span>Channel Group</span><select name="channel_group_id" required><option value="">Select a group…</option>{% for group in ae.groups or [] %}<option value="{{ group.id }}" {% if p and p.channel_group_id|int == group.id|int %}selected{% endif %}>{{ group.group_name }} · {{ group.channel_count }} channels</option>{% endfor %}</select></label>
           {% endif %}
@@ -1107,7 +1108,7 @@
           <p class="lum-note">{{ p.bound_channel_name }} · Existing channel profile</p>
           {% endif %}
           {% endif %}
-          <div class="lum-grid lum-three">
+          {% if not short_group %}<div class="lum-grid lum-three">{% endif %}
             <label class="lum-field"><span>Profile Name</span><input name="category_name" value="{{ p.category_name if p else '' }}" placeholder="Profile name" {% if group_profile %}required{% endif %}></label>
              {% if short_group %}
              <label class="lum-field lum-short-compact-selector"><span>Video Visibility</span>
@@ -1129,11 +1130,11 @@
             {% endif %}
           </div>
           {% if engine_instance == 'song' or short_group %}
-          <div class="lum-grid lum-three lum-ae-group-schedule" data-ae-group-fields {% if not group_profile %}hidden{% endif %}>
-            <label class="lum-field"><span>Videos per channel / day</span><input name="daily_upload_count" type="number" min="1" max="100" value="{{ p.daily_upload_count if p and group_profile else 4 }}"></label>
+          <div class="lum-grid lum-three lum-ae-group-schedule{% if short_group %} lum-short-profile-grid{% endif %}" data-ae-group-fields {% if not group_profile %}hidden{% endif %}>
+            <label class="lum-field"><span>Videos per channel / day</span><input name="daily_upload_count" type="number" min="1" max="100" value="{{ p.daily_upload_count if p and group_profile else (1 if short_group else 4) }}"></label>
             {% if short_group %}
             <label class="lum-field"><span>Daily video schedule · PKT</span>
-              <input type="hidden" name="schedule_times" data-short-schedule-csv value="{{ p.schedule_times if p and group_profile else '' }}">
+              <input type="hidden" name="schedule_times" data-short-schedule-csv value="{{ p.schedule_times if p and group_profile else '06:00' }}">
               <span class="lum-short-schedule-slots" data-short-schedule-slots data-short-profile-schedule></span>
               <small>One PKT time per video per channel · {{ p.daily_upload_count if p and group_profile else 1 }} video{{ '' if p and group_profile and p.daily_upload_count|int == 1 else 's' }} per day.</small>
             </label>
@@ -1141,15 +1142,15 @@
             <label class="lum-field"><span>Schedule time(s) PKT (HH:MM)</span><input name="schedule_times" value="{{ p.schedule_times if p and group_profile else '09:00' }}" placeholder="09:00,14:00"></label>
             {% endif %}
             <label class="lum-field"><span>Upload quota</span><select name="upload_scope"><option value="per_channel" {% if not p or not group_profile or p.upload_scope == 'per_channel' %}selected{% endif %}>Per channel</option><option value="total_category" {% if group_profile and p and p.upload_scope == 'total_category' %}selected{% endif %}>Total for group</option></select></label>
-            <label class="lum-field"><span>Work mode</span><select name="work_mode"><option value="manual_review" {% if not p or not group_profile or p.work_mode == 'manual_review' %}selected{% endif %}>Review before queue</option><option value="manual" {% if group_profile and p and p.work_mode == 'manual' %}selected{% endif %}>Manual only</option><option value="auto" {% if group_profile and p and p.work_mode == 'auto' %}selected{% endif %}>Automatic</option></select></label>
-            <label class="lum-field"><span>After verified upload</span><select name="after_upload_action"><option value="move_uploaded" {% if not p or not group_profile or p.after_upload_action == 'move_uploaded' %}selected{% endif %}>Move to uploaded</option>{% if short_group %}<option value="delete" {% if p and p.after_upload_action == 'delete' %}selected{% endif %}>Delete VPS source after verified upload</option>{% endif %}<option value="keep" {% if group_profile and p and p.after_upload_action == 'keep' %}selected{% endif %}>Keep source</option></select></label>
+            <label class="lum-field"><span>Work mode</span><select name="work_mode"><option value="manual_review" {% if (not short_group and (not p or not group_profile)) or (p and p.work_mode == 'manual_review') %}selected{% endif %}>Review before queue</option><option value="manual" {% if group_profile and p and p.work_mode == 'manual' %}selected{% endif %}>Manual only</option><option value="auto" {% if (short_group and not p) or (group_profile and p and p.work_mode == 'auto') %}selected{% endif %}>Automatic</option></select></label>
+            <label class="lum-field"><span>After verified upload</span><select name="after_upload_action"><option value="move_uploaded" {% if (not short_group and (not p or not group_profile)) or (p and p.after_upload_action == 'move_uploaded') %}selected{% endif %}>Move to uploaded</option>{% if short_group %}<option value="delete" {% if not p or p.after_upload_action == 'delete' %}selected{% endif %}>Delete VPS source after verified upload</option>{% endif %}<option value="keep" {% if group_profile and p and p.after_upload_action == 'keep' %}selected{% endif %}>Keep source</option></select></label>
             <input type="hidden" name="thumbnail_source_mode" value="drive">
             {% if short_group %}
-            <label class="lum-switch"><span><strong>Enable profile schedule</strong><small>Starts only after you arm Scheduled Uploads.</small></span><input type="hidden" name="schedule_enabled" value="0"><input type="checkbox" name="schedule_enabled" value="1" {% if p and p.schedule_enabled %}checked{% endif %}></label>
+            <label class="lum-switch"><span><strong>Enable profile schedule</strong><small>Starts only after you arm Scheduled Uploads.</small></span><input type="hidden" name="schedule_enabled" value="0"><input type="checkbox" name="schedule_enabled" value="1" {% if not p or p.schedule_enabled %}checked{% endif %}></label>
             {% else %}
             <input type="hidden" name="schedule_enabled" value="{{ '1' if group_profile and p and p.schedule_enabled else '0' }}">
             {% endif %}
-            <p class="lum-note" style="grid-column:1/-1">Group membership comes from Channels → Groups. Scheduling is not armed automatically by saving a profile.</p>
+            <p class="lum-note" style="grid-column:1/-1">Group membership comes from Channels → Groups. Saving does not start uploads or arm the global scheduler.</p>
           </div>
           {% endif %}
           {% if p and p.channel_paused %}<div class="lum-note"><strong>Channel paused:</strong> {{ p.channel_pause_reason or 'Manual Resume required.' }} <button class="lum-button secondary tiny" type="submit" form="lum-ae-resume-channel-profile">Resume Channel</button></div>{% endif %}
@@ -1158,7 +1159,7 @@
         <section class="lum-card">
           <div class="lum-card-head"><div><h2>Channel Resources</h2>{% if engine_instance != 'shortstudio' %}<p>Video ID is matched case-insensitively anywhere in the video and thumbnail filenames. Extra filename text is allowed.</p>{% endif %}</div></div>
           {% if short_group %}
-          {% set short_manual = p and p.metadata_source == 'manual' %}
+          {% set short_manual = not p or p.metadata_source == 'manual' %}
           {# Visibility is alongside Profile Name above the scheduling fields. #}
           <label class="lum-field lum-short-compact-selector"><span>Metadata Source</span><select name="metadata_source" id="short-profile-metadata-source">
             <option value="sheet" {% if not short_manual %}selected{% endif %}>Google Sheets Sync (Existing)</option>
