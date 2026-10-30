@@ -1002,7 +1002,10 @@
         <section class="lum-card">
           <div class="lum-card-head"><div><h2>Channel Resources</h2><p>Video ID is matched case-insensitively anywhere in the video and thumbnail filenames. Extra filename text is allowed.</p></div></div>
           <div class="lum-grid lum-two">
-            <label class="lum-field"><span>Video Drive Folder URL / ID</span><input name="drive_video_folder" required value="{{ src.drive_video_folder_url or src.drive_video_folder_id or '' }}" placeholder="https://drive.google.com/drive/folders/..."></label>
+            {% if engine_instance == 'shortstudio' %}
+            <label class="lum-field"><span>Short Maker VPS Folder</span><select name="short_vps_folder" aria-label="Short Maker VPS folder"><option value="">Use Google Drive source instead</option>{% for folder in ae.short_folders or [] %}<option value="{{ folder }}" {% if src.short_folder_name == folder %}selected{% endif %}>{{ folder }}</option>{% endfor %}</select><small>Rendered MP4s appear here automatically. Match their filename to the Sheet Video ID. After verified YouTube upload, the VPS source is deleted safely.</small></label>
+            {% endif %}
+            <label class="lum-field"><span>Video Drive Folder URL / ID{% if engine_instance == 'shortstudio' %} (alternative){% endif %}</span><input name="drive_video_folder" {% if engine_instance != 'shortstudio' %}required{% endif %} value="{{ src.drive_video_folder_url or src.drive_video_folder_id or '' }}" placeholder="https://drive.google.com/drive/folders/..."></label>
             {% if engine_instance not in ['shorts', 'shortstudio'] %}
             <label class="lum-field"><span>Thumbnail Drive Folder URL / ID (required)</span><input name="drive_thumbnail_folder" required value="{{ src.drive_thumbnail_folder_url or src.drive_thumbnail_folder_id or '' }}" placeholder="https://drive.google.com/drive/folders/..."></label>
             {% endif %}

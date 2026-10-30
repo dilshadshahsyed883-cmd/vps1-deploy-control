@@ -29,6 +29,8 @@ APP_TITLE = "Short Maker"
 DATA_ROOT = Path(os.environ.get("SHORT_MAKER_DATA", "/var/lib/short-maker"))
 JOBS_ROOT = DATA_ROOT / "jobs"
 JOBS_ROOT.mkdir(parents=True, exist_ok=True)
+SHORT_VPS_ROOT = Path(os.environ.get("SHORT_STUDIO_VPS_FOLDER_ROOT", str(DATA_ROOT / "vps_short_folders")))
+SHORT_VPS_DEFAULT = "Default"
 FFMPEG = shutil.which("ffmpeg") or "/usr/bin/ffmpeg"
 RCLONE = shutil.which("rclone") or "/usr/bin/rclone"
 RCLONE_CONFIG = "/home/ubuntu/.config/masterctl/rclone.conf"
@@ -66,6 +68,50 @@ def safe_name(name: str) -> str:
     base = Path(name or "file").name
     base = re.sub(r"[^A-Za-z0-9._ -]+", "_", base).strip(" .")
     return base[:180] or "file"
+
+
+def short_vps_folder(name: str) -> Path:
+    """Only direct named children of the shared Short Studio root are allowed."""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,63}", name or ""):
+        raise ValueError("Use a folder name (1–64 letters, numbers, spaces, _ or -).")
+    if SHORT_VPS_ROOT.is_symlink():
+        raise ValueError("Shared VPS root cannot be a symlink.")
+    path = SHORT_VPS_ROOT / name
+    if path.is_symlink():
+        raise ValueError("VPS folder symlinks are not allowed.")
+    return path
+
+
+def short_vps_folder_names() -> list[str]:
+    SHORT_VPS_ROOT.mkdir(parents=True, exist_ok=True)
+    default = short_vps_folder(SHORT_VPS_DEFAULT)
+    default.mkdir(exist_ok=True)
+    return sorted(
+        (p.name for p in SHORT_VPS_ROOT.iterdir()
+         if p.is_dir() and not p.is_symlink()
+         and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,63}", p.name)),
+        key=str.casefold,
+    )
+
+
+def publish_short_to_vps(path: Path, folder_name: str, job_id: str) -> str:
+    folder = short_vps_folder(folder_name)
+    if not folder.is_dir():
+        raise RuntimeError("Chosen VPS folder was deleted. Select an existing folder.")
+    final = folder / path.name
+    if final.exists() or final.is_symlink():
+        final = folder / f"{path.stem}_{job_id[:8]}{path.suffix}"
+    if final.exists() or final.is_symlink():
+        raise RuntimeError("Output filename already exists in VPS folder.")
+    tmp = folder / f".{uuid.uuid4().hex}.partial"
+    try:
+        shutil.copyfile(path, tmp)
+        if tmp.stat().st_size != path.stat().st_size or not tmp.stat().st_size:
+            raise RuntimeError("VPS output copy failed validation.")
+        os.replace(tmp, final)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return final.name
 
 
 def state_path(job_id: str) -> Path:
@@ -508,6 +554,15 @@ def render_job(job_id: str, cfg: dict):
                     "drive_verified": False,
                 })
 
+        folder_name=cfg.get("short_vps_folder") or ""
+        if folder_name:
+            for item in created:
+                item["short_vps_folder"] = folder_name
+                item["short_vps_filename"] = publish_short_to_vps(
+                    Path(item["local_path"]), folder_name, job_id
+                )
+            set_state(job_id, short_vps_folder=folder_name,
+                      message=f"Saved {len(created)} video(s) to VPS folder {folder_name}")
         if cfg.get("upload_to_drive", True):
             created=deliver_outputs(job_id,created,cfg,job_dir)
             final_message=f"Completed {len(created)} video(s) · Drive verified"
@@ -701,6 +756,15 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
   <div class="field"><label>Resolution</label><input value="1080 × 1920 (9:16)" disabled></div>
  </div>
  <div class="drive-delivery">
+  <h3>Short Studio · VPS Output Folder</h3>
+  <div class="hint">Every rendered MP4 is copied here for Short Uploader. Google Drive upload remains independent.</div>
+  <div class="two">
+   <div class="field"><label for="shortVpsFolder">VPS folder</label><select id="shortVpsFolder" name="short_vps_folder"><option value="Default">Default</option></select></div>
+   <div class="field"><label>Manage VPS folders</label><div class="queue-actions"><button type="button" class="secondary" id="createShortFolder">+ Create</button><button type="button" class="danger" id="deleteShortFolder">Delete empty folder</button></div></div>
+  </div>
+  <div class="hint" id="shortFolderMessage">Folders with videos cannot be deleted. Uploaded shorts are removed by Short Uploader only after YouTube verification.</div>
+ </div>
+ <div class="drive-delivery">
   <label class="checkline"><input id="uploadToDrive" name="upload_to_drive" type="checkbox" checked> <b>Upload final output(s) to Google Drive</b></label>
   <div class="field"><label>Drive output folder</label><input id="driveOutputPath" name="drive_output_path" value="gdrive:Short_Maker/Outputs"></div>
   <label class="checkline"><input id="verifiedClean" name="verified_clean" type="checkbox" checked disabled> <b>Drive verified clean</b> — delete this job's local input/output only after every final MP4 matches Drive size + MD5.</label>
@@ -730,6 +794,36 @@ const form=document.getElementById('form'), images=document.getElementById('imag
 const imageCount=document.getElementById('imageCount'),audioCount=document.getElementById('audioCount'),statusEl=document.getElementById('status'),bar=document.getElementById('bar'),outputs=document.getElementById('outputs'),render=document.getElementById('render');
 const driveInputRows=document.getElementById('driveInputRows'),driveLinkCount=document.getElementById('driveLinkCount'),songList=document.getElementById('songList');
 const selectedAudioFiles=[];
+const shortFolderSelect=document.getElementById('shortVpsFolder');
+const shortFolderMessage=document.getElementById('shortFolderMessage');
+async function loadShortFolders(preferred){
+ const r=await fetch('api/vps-folders',{cache:'no-store'});
+ const data=await r.json();if(!r.ok)throw new Error(data.detail||'Could not list VPS folders');
+ const chosen=preferred||shortFolderSelect.value||'Default';
+ shortFolderSelect.replaceChildren();
+ (data.folders||[]).forEach(name=>{const opt=document.createElement('option');opt.value=name;opt.textContent=name;shortFolderSelect.appendChild(opt);});
+ if((data.folders||[]).includes(chosen))shortFolderSelect.value=chosen;
+}
+document.getElementById('createShortFolder').onclick=async()=>{
+ const name=prompt('New VPS folder name (letters, digits, spaces, _ or -):');
+ if(name===null)return;
+ try{
+ const r=await fetch('api/vps-folders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name.trim()})});
+ const data=await r.json();if(!r.ok)throw new Error(data.detail||'Create failed');
+ await loadShortFolders(name.trim());shortFolderMessage.textContent='Folder created: '+name.trim();
+ }catch(e){shortFolderMessage.textContent='Folder error: '+e.message;}
+};
+document.getElementById('deleteShortFolder').onclick=async()=>{
+ const name=shortFolderSelect.value;
+ if(!name||!confirm('Delete EMPTY VPS folder '+name+'? Videos cannot be deleted here.'))return;
+ try{
+ const r=await fetch('api/vps-folders/'+encodeURIComponent(name),{method:'DELETE'});
+ const data=await r.json();if(!r.ok)throw new Error(data.detail||'Delete failed');
+ await loadShortFolders('Default');shortFolderMessage.textContent='Deleted empty folder '+name;
+ }catch(e){shortFolderMessage.textContent='Folder error: '+e.message;}
+};
+loadShortFolders().catch(e=>{shortFolderMessage.textContent='Folder error: '+e.message;});
+
 images.addEventListener('change',()=>imageCount.textContent=images.files.length+' image(s) selected');
 function syncInputMode(){const d=inputMode.value==='drive';localImageBox.hidden=d;driveImageBox.hidden=!d;}
 inputMode.addEventListener('change',syncInputMode);syncInputMode();
@@ -784,7 +878,7 @@ async function poll(id){
   bar.style.width=`${Number(s.progress||0)}%`; statusEl.textContent=s.message||s.status||'Working...';
   if(s.status==='completed'){
    render.disabled=false; outputs.innerHTML='';
-   (s.outputs||[]).forEach(o=>{const a=document.createElement('a');a.href=o.url;a.innerHTML=`<span>${o.name}</span><span>Download</span>`;outputs.appendChild(a);});
+   (s.outputs||[]).filter(o=>o.local_available&&o.url).forEach(o=>{const a=document.createElement('a');a.href=o.url;a.innerHTML=`<span>${o.name}</span><span>Download</span>`;outputs.appendChild(a);});
    return;
   }
   if(s.status==='failed'){render.disabled=false;statusEl.textContent=`Failed: ${s.error||s.message||'Unknown error'}`;return;}
@@ -826,6 +920,7 @@ form.addEventListener('submit',async e=>{
  fd.append('drive_input_paths_json',inputMode.value==='drive'?JSON.stringify(paths):'');
  fd.append('upload_to_drive',document.getElementById('uploadToDrive').checked?'true':'false');
  fd.append('verified_clean',document.getElementById('verifiedClean').checked?'true':'false');
+ fd.append('short_vps_folder',shortFolderSelect.value);
  try{
   const r=await fetch('api/jobs',{method:'POST',body:fd});
   const data=await r.json(); if(!r.ok)throw new Error(data.detail||'Submission failed');
@@ -914,6 +1009,42 @@ def home(request: Request):
     )
 
 
+@app.get("/api/vps-folders")
+def list_short_vps_folders():
+    return {"folders": short_vps_folder_names()}
+
+
+@app.post("/api/vps-folders")
+async def create_short_vps_folder(request: Request):
+    payload = await request.json()
+    try:
+        name = str(payload.get("name") or "").strip()
+        folder = short_vps_folder(name)
+        SHORT_VPS_ROOT.mkdir(parents=True, exist_ok=True)
+        folder.mkdir(exist_ok=False)
+    except FileExistsError:
+        raise HTTPException(status_code=409, detail="Folder already exists.")
+    except (ValueError, OSError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True, "name": name}
+
+
+@app.delete("/api/vps-folders/{folder_name}")
+def delete_short_vps_folder(folder_name: str):
+    try:
+        if folder_name == SHORT_VPS_DEFAULT:
+            raise ValueError("Default folder is protected.")
+        folder = short_vps_folder(folder_name)
+        if not folder.is_dir():
+            raise HTTPException(status_code=404, detail="Folder not found.")
+        folder.rmdir()  # Fails safely if any video, hidden file or worker temp exists.
+    except OSError:
+        raise HTTPException(status_code=409, detail="Folder is not empty or is in use.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True, "name": folder_name}
+
+
 @app.post("/api/jobs")
 async def create_job(
     images: List[UploadFile] = File(default=[]),
@@ -933,8 +1064,15 @@ async def create_job(
     upload_to_drive: bool = Form(True),
     drive_output_path: str = Form(DEFAULT_DRIVE_OUTPUT),
     verified_clean: bool = Form(True),
+    short_vps_folder_name: str = Form("", alias="short_vps_folder"),
 ):
     input_mode=input_mode if input_mode in ("upload","drive") else "upload"
+    try:
+        short_target = short_vps_folder(short_vps_folder_name) if short_vps_folder_name else None
+        if short_target is not None and not short_target.is_dir():
+            raise ValueError("Selected VPS folder does not exist.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     if input_mode=="upload" and not images:
         raise HTTPException(status_code=400, detail="At least one uploaded image is required.")
     drive_input_paths = []
@@ -1001,6 +1139,7 @@ async def create_job(
         "upload_to_drive": bool(upload_to_drive),
         "drive_output_path": drive_output_path,
         "verified_clean": bool(verified_clean),
+        "short_vps_folder": short_vps_folder_name,
     }
 
     with jobs_lock:

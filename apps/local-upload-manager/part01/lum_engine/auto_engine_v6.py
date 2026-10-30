@@ -49,6 +49,50 @@ THUMB_ROOT = DATA_ROOT / "thumbnails"
 TRASH_ROOT = DATA_ROOT / "thumbnail_trash"
 STAGING_ROOT = DATA_ROOT / "staging"
 REPORT_ROOT = DATA_ROOT / "reports"
+SHORT_STUDIO_ROOT = Path(os.environ.get("SHORT_STUDIO_VPS_FOLDER_ROOT", "/var/lib/fresh-website/short-maker/vps_short_folders"))
+SHORT_FOLDER_PREFIX = "shortstudio-local:"
+SHORT_FOLDER_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,63}\Z")
+
+
+def shortstudio_folder_path(name: str) -> Path:
+    if not SHORT_FOLDER_PATTERN.fullmatch(name or ""):
+        raise ValueError("Choose a valid Short Maker VPS folder.")
+    if SHORT_STUDIO_ROOT.is_symlink():
+        raise ValueError("Shared Short Studio root cannot be a symlink.")
+    path = SHORT_STUDIO_ROOT / name
+    if path.is_symlink():
+        raise ValueError("VPS folder symlinks are prohibited.")
+    return path
+
+
+def shortstudio_list_folders() -> List[str]:
+    if not SHORT_STUDIO_ROOT.is_dir() or SHORT_STUDIO_ROOT.is_symlink():
+        return []
+    return sorted((p.name for p in SHORT_STUDIO_ROOT.iterdir()
+                   if SHORT_FOLDER_PATTERN.fullmatch(p.name)
+                   and p.is_dir() and not p.is_symlink()), key=str.casefold)
+
+
+def shortstudio_source_path(folder_id: str, filename: str) -> Path:
+    if not folder_id.startswith(SHORT_FOLDER_PREFIX):
+        raise ValueError("Not a Short Studio local source.")
+    folder = shortstudio_folder_path(folder_id[len(SHORT_FOLDER_PREFIX):])
+    if Path(filename).name != filename or not filename.lower().endswith(".mp4"):
+        raise ValueError("Invalid Short Studio filename.")
+    path = folder / filename
+    if path.is_symlink() or not path.is_file():
+        raise FileNotFoundError("Short Maker local MP4 is missing or unsafe.")
+    return path
+
+
+def shortstudio_file_id(folder_id: str, path: Path) -> str:
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("Unsafe Short Studio source.")
+    stat = path.stat()
+    fingerprint = f"{folder_id}|{path.name}|{stat.st_size}|{stat.st_mtime_ns}"
+    return "shortstudio:" + hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()[:40]
+
+
 
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
 THUMB_EXTS = {".jpg", ".jpeg", ".png"}
@@ -353,6 +397,7 @@ class V6Store:
                 drive_thumbnail_folder_url TEXT NOT NULL DEFAULT '',
                 thumbnail_source_mode TEXT NOT NULL DEFAULT 'pc_drive',
                 local_songmaker_enabled INTEGER NOT NULL DEFAULT 0,
+                short_folder_name TEXT NOT NULL DEFAULT '',
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS drive_videos(
@@ -490,6 +535,11 @@ class V6Store:
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             """)
+            # Additive Short Studio source migration. Existing Drive sources and
+            # job reservations are preserved without rewriting historic rows.
+            source_columns = {str(r[1]) for r in con.execute("PRAGMA table_info(profile_sources)").fetchall()}
+            if "short_folder_name" not in source_columns:
+                con.execute("ALTER TABLE profile_sources ADD COLUMN short_folder_name TEXT NOT NULL DEFAULT ''")
             # V6.1.1 migration ordering: add legacy columns before INSERT references them.
             cols={str(r[1]) for r in con.execute("PRAGMA table_info(engine_state)").fetchall()}
             if "scheduler_armed" not in cols:
@@ -503,18 +553,22 @@ class V6Store:
             row=con.execute("SELECT * FROM profile_sources WHERE profile_id=?",(int(profile_id),)).fetchone()
             return dict(row) if row else {
                 "profile_id":int(profile_id),"drive_video_folder_id":"","drive_video_folder_url":"",
-                "drive_thumbnail_folder_id":"","drive_thumbnail_folder_url":"","thumbnail_source_mode":"pc_drive"
+                "drive_thumbnail_folder_id":"","drive_thumbnail_folder_url":"","thumbnail_source_mode":"pc_drive","short_folder_name":""
             }
 
-    def save_source(self, profile_id:int, *, video_folder:str="", thumb_folder:str="", thumb_mode:str="pc_drive") -> None:
+    def save_source(self, profile_id:int, *, video_folder:str="", thumb_folder:str="", thumb_mode:str="pc_drive", short_folder:str="") -> None:
+        if short_folder:
+            folder = shortstudio_folder_path(short_folder)
+            if not folder.is_dir():
+                raise ValueError("Short Maker VPS folder does not exist.")
         vf=extract_drive_folder_id(video_folder) if clean(video_folder) else ""
         tf=extract_drive_folder_id(thumb_folder) if clean(thumb_folder) else ""
         mode=thumb_mode if thumb_mode in {"pc","drive","pc_drive"} else "pc_drive"
         with self.connect() as con:
             con.execute("""
             INSERT INTO profile_sources(profile_id,drive_video_folder_id,drive_video_folder_url,
-                drive_thumbnail_folder_id,drive_thumbnail_folder_url,thumbnail_source_mode,updated_at)
-            VALUES(?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                drive_thumbnail_folder_id,drive_thumbnail_folder_url,thumbnail_source_mode,short_folder_name,updated_at)
+            VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
             ON CONFLICT(profile_id) DO UPDATE SET
                 drive_video_folder_id=excluded.drive_video_folder_id,
                 drive_video_folder_url=excluded.drive_video_folder_url,
@@ -522,8 +576,9 @@ class V6Store:
                 drive_thumbnail_folder_url=excluded.drive_thumbnail_folder_url,
                 thumbnail_source_mode=excluded.thumbnail_source_mode,
                 local_songmaker_enabled=0,
+                short_folder_name=excluded.short_folder_name,
                 updated_at=CURRENT_TIMESTAMP
-            """,(int(profile_id),vf,clean(video_folder),tf,clean(thumb_folder),mode))
+            """,(int(profile_id),vf,clean(video_folder),tf,clean(thumb_folder),mode,short_folder))
 
     def set_engine(self, running:Optional[bool]=None, pause_after_current:Optional[bool]=None, error:str|None=None) -> None:
         parts=["updated_at=CURRENT_TIMESTAMP"]; params=[]
@@ -556,6 +611,8 @@ class V6Store:
     def scan_drive_videos(self, profile_id:int) -> Dict[str,Any]:
         src=self.source(profile_id)
         folder_id=clean(src.get("drive_video_folder_id"))
+        if os.environ.get("LUM_ENGINE_INSTANCE") == "shortstudio" and clean(src.get("short_folder_name")):
+            return self.scan_shortstudio_local(profile_id, clean(src["short_folder_name"]))
         if self.source(profile_id).get("local_songmaker_enabled"):
             return self.scan_songmaker_local(profile_id, thumbnail=False)
         if not folder_id:
@@ -600,6 +657,38 @@ class V6Store:
                 seen.append(fid)
         return {"videos":len(files),"folder_id":folder_id,"duplicates":0}
 
+    def scan_shortstudio_local(self, profile_id: int, folder_name: str) -> Dict[str,Any]:
+        """Index only regular MP4s within a selected Short Maker folder."""
+        folder = shortstudio_folder_path(folder_name)
+        if not folder.is_dir():
+            raise ValueError("Short Maker VPS folder is unavailable.")
+        source_id = SHORT_FOLDER_PREFIX + folder_name
+        files = sorted((p for p in folder.iterdir()
+                        if p.suffix.lower() == ".mp4" and p.is_file()
+                        and not p.is_symlink() and p.stat().st_size > 0),
+                       key=lambda p: p.name.casefold())
+        if len({p.name.casefold() for p in files}) != len(files):
+            raise ValueError("VPS folder contains duplicate case-insensitive MP4 names.")
+        with self.connect() as con:
+            con.execute("UPDATE drive_videos SET present=0 WHERE profile_id=?", (int(profile_id),))
+            for path in files:
+                stat = path.stat()
+                fid = shortstudio_file_id(source_id, path)
+                con.execute("""
+                INSERT INTO drive_videos(profile_id,drive_file_id,filename,normalized_filename,script_key,
+                    size_bytes,modified_at,source_folder_id,present,last_seen_at)
+                VALUES(?,?,?,?,?,?,?,?,1,CURRENT_TIMESTAMP)
+                ON CONFLICT(profile_id,drive_file_id) DO UPDATE SET
+                    filename=excluded.filename,normalized_filename=excluded.normalized_filename,
+                    script_key=excluded.script_key,size_bytes=excluded.size_bytes,
+                    modified_at=excluded.modified_at,source_folder_id=excluded.source_folder_id,
+                    present=1,last_seen_at=CURRENT_TIMESTAMP
+                """, (int(profile_id),fid,path.name,normalize_filename(path.name),
+                      script_key_from_filename(path.name),stat.st_size,
+                      str(stat.st_mtime_ns),source_id))
+        return {"videos":len(files),"folder_id":source_id,"duplicates":0}
+
+
     def scan_songmaker_local(self, profile_id:int, *, thumbnail:bool=False) -> Dict[str,Any]:
         """Recheck local media availability without ever contacting Google Drive."""
         table="drive_thumbnails" if thumbnail else "drive_videos"
@@ -620,10 +709,14 @@ class V6Store:
         q="SELECT * FROM drive_videos WHERE profile_id=?"
         params=[int(profile_id)]
         if present_only: q+=" AND present=1"
-        if self.source(profile_id).get("local_songmaker_enabled"):
+        source=self.source(profile_id)
+        if os.environ.get("LUM_ENGINE_INSTANCE") == "shortstudio" and clean(source.get("short_folder_name")):
+            q+=" AND source_folder_id=?"
+            params.append(SHORT_FOLDER_PREFIX+clean(source["short_folder_name"]))
+        elif source.get("local_songmaker_enabled"):
             q+=" AND source_folder_id='songmaker-local'"
         else:
-            q+=" AND source_folder_id<>'songmaker-local'"
+            q+=" AND source_folder_id<>'songmaker-local' AND source_folder_id NOT LIKE 'shortstudio-local:%'"
         q+=" ORDER BY normalized_filename,id"
         with self.connect() as con:
             return [dict(r) for r in con.execute(q,params).fetchall()]
@@ -1802,6 +1895,7 @@ def save_profile_from_form(pc_db: Any, store: V6Store, form: Dict[str, Any], pro
             video_folder=clean(form.get("drive_video_folder")),
             thumb_folder=clean(form.get("drive_thumbnail_folder")),
             thumb_mode="drive",
+            short_folder=clean(form.get("short_vps_folder")) if os.environ.get("LUM_ENGINE_INSTANCE") == "shortstudio" else "",
         )
         store.save_channel_binding(
             pid,channel_db_id,
