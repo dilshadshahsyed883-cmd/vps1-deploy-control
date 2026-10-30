@@ -368,9 +368,21 @@ def shortstudio_rolled_back_empty(state: Path, *, unit_dir: Path = Path("/etc/sy
                     "SELECT running, scheduler_armed FROM engine_state").fetchall()
                 if len(rows) != 1 or any(int(v) != 0 for v in rows[0]):
                     return False
-    for relative in ("secure", "auto_engine_v6/staging",
-                     "auto_engine_v6/thumbnails", "auto_engine_v6/thumbnail_trash",
-                     "auto_engine_v6/reports"):
+    # ensure_dirs() creates empty oauth_clients/ and oauth_sessions/ below
+    # secure/ on first startup. Those two empty *directories* are scaffolding,
+    # not authenticated user state. Any file, unknown entry, symlink, or content
+    # inside either one is real/unknown state and must keep the idle fence.
+    secure = root / "secure"
+    if secure.is_symlink() or (secure.exists() and not secure.is_dir()):
+        return False
+    if secure.exists():
+        for child in secure.iterdir():
+            if (child.name not in {"oauth_clients", "oauth_sessions"}
+                    or child.is_symlink() or not child.is_dir()
+                    or any(child.iterdir())):
+                return False
+    for relative in ("auto_engine_v6/staging", "auto_engine_v6/thumbnails",
+                     "auto_engine_v6/thumbnail_trash", "auto_engine_v6/reports"):
         directory = root / relative
         if directory.is_symlink() or (directory.exists() and
                 (not directory.is_dir() or any(directory.iterdir()))):
