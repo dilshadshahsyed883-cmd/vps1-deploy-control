@@ -1874,6 +1874,8 @@ def save_profile_from_form(pc_db: Any, store: V6Store, form: Dict[str, Any], pro
             if not clean(form.get("metadata_sheet_tab")):
                 raise ValueError("Group profile needs a metadata Sheet tab.")
             return _CHANNEL_LEGACY_SAVE_PROFILE(pc_db, store, form, profile_id)
+        if kind == "channel" and not raw_channel:
+            raise ValueError("Select a channel for this profile.")
         if profile_id and not bound:
             raise ValueError("Group profile cannot be converted to channel; create another profile.")
     if not raw_channel:
