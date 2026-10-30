@@ -12,8 +12,11 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+try:
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+except ImportError:
+    raise unittest.SkipTest('FastAPI/httpx available in isolated Audio Downloader CI only')
 
 SOURCE = Path(__file__).resolve().parents[1]
 MODULE = SOURCE / "apps/voice-studio/part01/audio_downloader_api.py"
