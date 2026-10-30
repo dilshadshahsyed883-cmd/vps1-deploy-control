@@ -52,6 +52,14 @@
       "parallel_owner": false
     },
     {
+      "id": "copyright-uploader",
+      "lock": "copyright-uploader",
+      "needs": [
+        "scene-builder"
+      ],
+      "parallel_owner": false
+    },
+    {
       "id": "short-stream",
       "lock": "media-shared",
       "needs": [
