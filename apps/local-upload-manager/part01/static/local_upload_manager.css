@@ -437,3 +437,9 @@ body.lum-embedded .lum-primary-workspaces + .lum-tabs-shell{margin-top:0}
 .lum-ae-queue .lum-ae-network-actions{display:flex;flex-wrap:nowrap;gap:5px;margin-top:7px;align-items:center}
 .lum-ae-queue .lum-ae-network-actions form{display:inline-flex!important;margin:0!important}
 .lum-ae-queue .lum-ae-network-actions .lum-button{font-size:10px!important;min-height:27px!important;padding:4px 9px!important}
+
+/* Short Uploader profile selectors: keep controls compact and scannable. */
+.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-compact-selector{width:100%;max-width:380px;min-width:0}
+.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-compact-selector select{width:100%;max-width:380px;min-width:0;min-height:37px;padding:7px 11px;font-size:13px}
+.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-compact-selector>small{display:block;margin-top:4px;font-size:11px;line-height:1.45;color:var(--lum-muted,#64748b)}
+@media(max-width:760px){.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-compact-selector,.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-compact-selector select{max-width:100%}}

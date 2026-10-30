@@ -129,6 +129,8 @@ class ShortProfileControlTests(unittest.TestCase):
         self.assertIn('data-short-profile-action="start"',automation)
         self.assertIn('data-short-schedule-slots data-short-profile-schedule',html)
         self.assertIn('data-ae-open-schedules>Manage Schedules</button>',html)
+        self.assertIn('data-ae-open-schedules>Profile Schedules</button>',html)
+        self.assertIn('id="short-profile-privacy-status"',html)
         self.assertIn('>Pause Profile</button>',html)
         self.assertIn("data-short-schedule-slots",js)
         self.assertIn('"/actions/auto-v6/profile-schedule/save"',ROUTES.read_text())
