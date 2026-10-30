@@ -33,6 +33,9 @@ async function del(id){old}
 function renderProxy(){old}
 ''')
             old_html=baseline+'\n<!-- active parallel UI -->'
+            reviewed=repo/'production/video_merger_pre_queue_baseline.txt'
+            reviewed.parent.mkdir(parents=True,exist_ok=True)
+            reviewed.write_text(baseline)
             (old/'part01/templates/index.html').write_text(old_html)
             canonical=(Path(__file__).resolve().parents[1]/'apps/video-merger/part01/templates/index.html').read_text()
             canonical_path=repo/'apps/video-merger/part01/templates/index.html'
@@ -142,6 +145,7 @@ function renderProxy(){old}
         self.assertNotIn('vps1-voice-template-only',workflow)
         self.assertIn('install $SOURCE_SHA video-merger',workflow)
         self.assertIn('StrictHostKeyChecking=yes',workflow)
+        self.assertTrue((root/'production/video_merger_pre_queue_baseline.txt').is_file())
         compile((root/'production/video_merger_import_smoke.py').read_text(),'smoke','exec')
     def test_failure_before_promotion_preserves_live_service(self):self.exercise('smoke')
     def test_failed_health_rolls_back_pointer_and_python(self):self.exercise('health')
