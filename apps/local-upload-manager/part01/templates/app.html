@@ -875,7 +875,7 @@
       </div>
 
       {% if engine_instance in ['song', 'shortstudio'] %}
-      <div class="lum-ae-planner-actions lum-ae-bulk-profile-controls" aria-label="Auto Engine profile controls">
+      <div class="lum-ae-pc-row lum-ae-planner-actions lum-ae-bulk-profile-controls" style="margin:12px 0 10px" aria-label="Auto Engine profile controls">
         <form method="post" action="{{ base_path }}/actions/auto-v6/generate-all" data-lum-soft-form data-confirm="Generate queue jobs for all enabled profiles? This does not start the upload engine.">
           <input type="hidden" name="csrf_token" value="{{ csrf }}">
           <input type="hidden" name="confirmation" value="GENERATE ALL">
