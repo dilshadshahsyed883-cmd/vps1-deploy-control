@@ -308,6 +308,31 @@ def stage_source(app, revision):
     return release
 
 
+def ensure_video_merger_venv_pointer(media: Path, venv: Path, managed_root: Path | None = None) -> str:
+    """Never overwrite an existing managed Video Merger interpreter symlink.
+
+    Old runtime installs can leave a dangling but owned symlink after GC. Python
+    runs from its explicit immutable release interpreter, so the compatibility
+    pointer does not have to be replaced during staging. Unowned links or real
+    directories fail closed rather than risking deletion of production files.
+    """
+    managed = (managed_root or BASE / 'venvs/video-merger').resolve(strict=False)
+    new_target = venv.resolve(strict=False)
+    if not new_target.is_relative_to(managed) or new_target == managed:
+        raise RuntimeError('Video Merger candidate venv escaped managed releases')
+    pointer = media / 'venv'
+    if pointer.is_symlink():
+        previous_target = pointer.resolve(strict=False)
+        if (previous_target == managed or
+                not previous_target.is_relative_to(managed)):
+            raise RuntimeError('Unowned Video Merger venv symlink: preserve and block')
+        return 'PRESERVED_EXISTING'
+    if pointer.exists():
+        raise RuntimeError('Unmanaged Video Merger venv path: preserve and block')
+    pointer.symlink_to(venv)
+    return 'CREATED'
+
+
 def restore(app, previous):
     unit_name = f'vps1-production-{app}.service'
     unit = Path('/etc/systemd/system') / unit_name
@@ -832,8 +857,8 @@ def install_app(app, revision):
         media = state / 'video-merger'
         media.mkdir(exist_ok=True)
         os.chown(media, 1000, 1000)
-        if not (media / 'venv').exists():
-            (media / 'venv').symlink_to(venv)
+        state_of_pointer = ensure_video_merger_venv_pointer(media, venv)
+        event(app='video-merger', venv_pointer=state_of_pointer, original='PRESERVED')
     journal = BASE / 'transactions' / app / (revision + '-' + str(time.time_ns()))
     journal.mkdir(parents=True)
     atomic_json(journal / 'previous.json', previous)
