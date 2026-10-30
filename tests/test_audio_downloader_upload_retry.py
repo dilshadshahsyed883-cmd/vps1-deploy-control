@@ -72,7 +72,7 @@ class DriveUploadSchedulingTests(unittest.TestCase):
     def test_failed_upload_is_retried_after_three_minutes_without_redownloading(self):
         self.create_job()
         before = datetime.now(timezone.utc)
-        self.m._schedule_upload_retry(self.jid, RuntimeError("temporary Drive failure"))
+        self.m._schedule_upload_retry(self.jid, self.m.DriveUploadFailure("RATE_LIMITED"))
         data = self.job()
         self.assertEqual(data["status"], "upload_retry")
         self.assertEqual(data["upload_retry_count"], 1)
@@ -89,26 +89,30 @@ class DriveUploadSchedulingTests(unittest.TestCase):
         with patch.object(self.m, "deps", return_value={"upload_ready": False}):
             with self.assertRaisesRegex(RuntimeError, "connection unavailable"):
                 self.m.resume_upload(claimed)
-        self.m._schedule_upload_retry(self.jid, RuntimeError("Drive offline"))
+        self.m._schedule_upload_retry(self.jid, self.m.DriveUploadFailure("RATE_LIMITED"))
         self.assertEqual(self.job()["upload_retry_count"], 2)
         self.assertTrue(self.local.is_file())
 
     def test_recover_interrupted_upload_but_not_interrupted_youtube_download(self):
         self.create_job()
         self.m.recover_interrupted_jobs()
-        self.assertEqual(self.job()["status"], "upload_retry")
-        self.assertTrue(self.job()["next_retry_at"])
+        self.assertEqual(self.job()["status"], "failed")
+        self.assertIsNone(self.job()["next_retry_at"])
         self.assertTrue(self.local.exists())
         with self.m.db() as con:
             con.execute("UPDATE jobs SET status='downloading' WHERE job_id=?", (self.jid,))
         self.m.recover_interrupted_jobs()
         self.assertEqual(self.job()["status"], "failed")
 
-    def test_preexisting_failed_drive_upload_is_automatically_recovered(self):
+    def test_preexisting_failed_drive_upload_remains_manual_after_restart(self):
         self.create_job(status="failed")
+        with self.m.db() as con:
+            con.execute("UPDATE jobs SET error=? WHERE job_id=?",
+                        ("Drive anonymous access returned unexpected content type", self.jid))
         self.m.recover_interrupted_jobs()
-        self.assertEqual(self.job()["status"], "upload_retry")
-        self.assertIsNotNone(self.job()["next_retry_at"])
+        self.assertEqual(self.job()["status"], "failed")
+        self.assertIsNone(self.job()["next_retry_at"])
+        self.assertIn("unexpected content type", self.job()["error"])
         self.assertTrue(self.local.exists())
 
     def test_successful_audio_sets_60_second_pacing_and_waits_before_next(self):
@@ -142,7 +146,7 @@ class DriveUploadSchedulingTests(unittest.TestCase):
                 attempts.append(dest)
                 if dest.endswith(".jpg") and fail_thumb_once[0]:
                     fail_thumb_once[0] = False
-                    return subprocess.CompletedProcess(args, 1, "", "transient")
+                    return subprocess.CompletedProcess(args, 1, "", "userRateLimitExceeded (403)")
                 return subprocess.CompletedProcess(args, 0, "", "")
             if "lsjson" in args:
                 dest = args[-1]
@@ -156,7 +160,7 @@ class DriveUploadSchedulingTests(unittest.TestCase):
                           return_value="https://drive.google.com/file/d/123456789012/view?usp=sharing"):
             with self.assertRaisesRegex(RuntimeError, "automatic retry"):
                 self.m.resume_upload(self.job())
-            self.m._schedule_upload_retry(self.jid, RuntimeError("temporary"))
+            self.m._schedule_upload_retry(self.jid, self.m.DriveUploadFailure("RATE_LIMITED"))
             row = self.job()
             self.assertEqual(row["status"], "upload_retry")
             self.assertTrue(row["drive_path"].endswith(".mp3"))
@@ -265,8 +269,136 @@ class DriveUploadSchedulingTests(unittest.TestCase):
                 self.m.upload_downloaded(self.job(), self.local, None, state)
         self.assertTrue(self.local.exists())
         self.assertNotEqual(self.job()['status'], 'delivered')
-        self.m._schedule_upload_retry(self.jid, RuntimeError(
-            'Google Drive upload failed (DESTINATION_CONFLICT_UNVERIFIED); automatic retry scheduled'))
+        self.m._schedule_upload_retry(self.jid, self.m.DriveUploadFailure('DESTINATION_CONFLICT_UNVERIFIED'))
+        self.assertEqual(self.job()['status'], 'failed')
+        self.assertIsNone(self.job()['next_retry_at'])
+        self.assertEqual(self.job()['upload_retry_count'], 0)
+        self.assertTrue(self.local.exists())
+
+
+    def test_only_confirmed_api_limits_schedule_retry_other_errors_are_terminal(self):
+        self.create_job()
+        problems = [
+            RuntimeError('Drive anonymous access returned unexpected content type'),
+            RuntimeError('Google Drive content hash mismatch'),
+            RuntimeError('Google Drive anonymous audio download not verified'),
+            self.m.DriveUploadFailure('AUTH_REQUIRED'),
+            self.m.DriveUploadFailure('PERMISSION_DENIED'),
+            self.m.DriveUploadFailure('STORAGE_FULL'),
+            self.m.DriveUploadFailure('NETWORK_TIMEOUT'),
+            self.m.DriveUploadFailure('NETWORK_FAILURE'),
+            self.m.DriveUploadFailure('TRANSFER_FAILED'),
+            self.m.DriveUploadFailure('DESTINATION_CONFLICT_UNVERIFIED'),
+        ]
+        for problem in problems:
+            with self.subTest(problem=str(problem)):
+                with self.m.db() as con:
+                    con.execute("UPDATE jobs SET status='uploading',next_retry_at=NULL WHERE job_id=?", (self.jid,))
+                self.m._schedule_upload_retry(self.jid, problem)
+                data = self.job()
+                self.assertEqual(data['status'], 'failed')
+                self.assertIsNone(data['next_retry_at'])
+                self.assertEqual(data['upload_retry_count'], 0)
+                self.assertTrue(self.local.exists())
+                self.assertEqual(data['progress_stage'], 'manual retry required')
+
+    def test_legacy_non_limit_retry_jobs_stop_after_restart(self):
+        self.create_job(status='upload_retry')
+        with self.m.db() as con:
+            con.execute("""UPDATE jobs SET next_retry_at=?,upload_retry_count=70,error=?
+                           WHERE job_id=?""", (self.m.utc_after(-1),
+                               'Drive anonymous access returned unexpected content type', self.jid))
+        self.m.recover_interrupted_jobs()
+        self.assertEqual(self.job()['status'], 'failed')
+        self.assertEqual(self.job()['upload_retry_count'], 70)
+        self.assertIsNone(self.job()['next_retry_at'])
+        self.assertIsNone(self.m._claim())
+        self.assertTrue(self.local.exists())
+
+    def test_existing_rate_limit_retry_survives_restart(self):
+        self.create_job(status='upload_retry')
+        with self.m.db() as con:
+            con.execute("""UPDATE jobs SET next_retry_at=?,error=?
+                           WHERE job_id=?""", (self.m.utc_after(-1),
+                               str(self.m.DriveUploadFailure('RATE_LIMITED')), self.jid))
+        self.m.recover_interrupted_jobs()
+        self.assertEqual(self.job()['status'], 'upload_retry')
+        self.assertTrue(self.m._claim()['_resume_upload'])
+
+    def test_manual_retry_survives_restart_without_automatic_retry(self):
+        self.create_job(status='failed')
+        self.m.job_action(self.jid, 'retry')
+        self.assertEqual(self.job()['progress_stage'], 'manual retry requested')
+        self.m.recover_interrupted_jobs()
+        self.assertEqual(self.job()['status'], 'upload_retry')
+        self.assertTrue(self.m._claim()['_resume_upload'])
+
+    def test_rclone_non_limit_errors_are_manual_and_retry_internal_attempts_disabled(self):
+        self.create_job(status='downloaded')
+        state = {'upload_ready': True, 'rclone': '/fake/rclone', 'progress_streaming': False}
+        calls = []
+        def transfer(args, **kwargs):
+            calls.append(args)
+            return subprocess.CompletedProcess(args, 1, '', 'insufficientFilePermissions')
+        with patch.object(self.m.subprocess, 'run', side_effect=transfer):
+            with self.assertRaisesRegex(self.m.DriveUploadFailure, 'PERMISSION_DENIED') as raised:
+                self.m.upload_downloaded(self.job(), self.local, None, state)
+        self.assertEqual(calls[0][calls[0].index('--retries')+1], '1')
+        self.assertEqual(calls[0][calls[0].index('--low-level-retries')+1], '1')
+        self.m._schedule_upload_retry(self.jid, raised.exception)
+        self.assertEqual(self.job()['status'], 'failed')
+        self.assertTrue(self.local.exists())
+
+    def test_content_type_verification_error_does_not_automatically_retry(self):
+        import hashlib
+        import urllib.request
+        self.create_job(status='uploading')
+        remote = 'gdrive:Song Studio/Audio downloader/' + VIDEO + '.mp3'
+        def drive(args, **kwargs):
+            if 'lsjson' in args:
+                return subprocess.CompletedProcess(args, 0, json.dumps({
+                    'Size': len(MP3), 'Hashes': {'MD5': hashlib.md5(MP3).hexdigest()}}), '')
+            if 'link' in args:
+                return subprocess.CompletedProcess(args, 0,
+                    'https://drive.google.com/file/d/123456789012/view', '')
+            self.fail('unexpected Drive command')
+        class BadResponse:
+            headers = {'Content-Type': 'text/html'}
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+            def read(self, limit): return b'<html>not-audio</html>'
+        with patch.object(self.m, 'deps', return_value={'rclone':'/fake/rclone'}), \
+             patch.object(self.m.subprocess, 'run', side_effect=drive), \
+             patch.object(urllib.request, 'urlopen', return_value=BadResponse()):
+            with self.assertRaisesRegex(RuntimeError, 'unexpected content type') as raised:
+                self.m.verified_drive_public_link(remote, self.local, 'mp3')
+        self.m._schedule_upload_retry(self.jid, raised.exception)
+        self.assertEqual(self.job()['status'], 'failed')
+        self.assertIsNone(self.job()['next_retry_at'])
+        self.assertTrue(self.local.exists())
+
+    def test_verified_drive_api_rate_limit_429_can_automatically_retry(self):
+        import urllib.request
+        import urllib.error
+        import hashlib
+        self.create_job(status='uploading')
+        remote = 'gdrive:Song Studio/Audio downloader/' + VIDEO + '.mp3'
+        def drive(args, **kwargs):
+            if 'lsjson' in args:
+                return subprocess.CompletedProcess(args, 0, json.dumps({
+                    'Size': len(MP3), 'Hashes': {'MD5': hashlib.md5(MP3).hexdigest()}}), '')
+            if 'link' in args:
+                return subprocess.CompletedProcess(args, 0,
+                    'https://drive.google.com/file/d/123456789012/view', '')
+            self.fail('unexpected Drive command')
+        with patch.object(self.m, 'deps', return_value={'rclone':'/fake/rclone'}), \
+             patch.object(self.m.subprocess, 'run', side_effect=drive), \
+             patch.object(urllib.request, 'urlopen',
+                          side_effect=urllib.error.HTTPError('https://drive.google.com', 429,
+                                                               'Rate Limited', {}, None)):
+            with self.assertRaisesRegex(self.m.DriveUploadFailure, 'RATE_LIMITED') as raised:
+                self.m.verified_drive_public_link(remote, self.local, 'mp3')
+        self.m._schedule_upload_retry(self.jid, raised.exception)
         self.assertEqual(self.job()['status'], 'upload_retry')
         self.assertEqual(self.job()['upload_retry_count'], 1)
         self.assertTrue(self.local.exists())
