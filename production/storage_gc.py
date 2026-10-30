@@ -133,8 +133,19 @@ def inventory(root: Path = BASE, now: float | None = None, unit_dir: Path | None
         try:
             active = link.resolve(strict=True)
             active_rev = active.name
-            if active.parent != releases.resolve(strict=True) or record.get("revision") != active_rev:
-                raise ValueError("pointer/manifest mismatch")
+            if active.parent != releases.resolve(strict=True) or not REVISION.fullmatch(active_rev):
+                raise ValueError("current pointer outside known release")
+            recorded_rev = record.get("revision")
+            if not isinstance(recorded_rev, str) or not REVISION.fullmatch(recorded_rev):
+                raise ValueError("invalid recorded revision")
+            mismatch = recorded_rev != active_rev
+            if mismatch:
+                # Separate release lanes can promote a web-only pointer while
+                # the running service still uses the recorded Python revision.
+                # Neither source of truth is rewritten by storage cleanup.
+                recorded_release = releases / recorded_rev
+                if recorded_release.is_symlink() or not recorded_release.is_dir():
+                    raise ValueError("unverifiable recorded release")
             prev_value = (record.get("previous") or {}).get("current")
             previous = Path(prev_value).resolve(strict=True) if isinstance(prev_value, str) and prev_value else None
             if previous and previous.parent != releases.resolve(strict=True):
@@ -153,7 +164,7 @@ def inventory(root: Path = BASE, now: float | None = None, unit_dir: Path | None
             key=lambda p: (-p.stat().st_mtime, p.name),
         )
         # Keep active, recorded prior release, and one additional recent fallback.
-        protect = {active_rev} | ({previous.name} if previous else set()) | ref_names
+        protect = {active_rev, recorded_rev} | ({previous.name} if previous else set()) | ref_names
         fallback = next((p.name for p in entries if p.name not in protect), None)
         if fallback:
             protect.add(fallback)
@@ -169,15 +180,28 @@ def inventory(root: Path = BASE, now: float | None = None, unit_dir: Path | None
             if not _safe_directory(item, releases):
                 results["excluded"].append({"app": app, "revision": name, "reason": "unsafe release tree"})
                 continue
-            paths = [item]
-            if venv.exists():
-                if not _safe_directory(venv, venvs) or venv.stat().st_mtime > deadline:
-                    results["excluded"].append({"app": app, "revision": name, "reason": "unsafe or recently used venv"})
+            if mismatch:
+                # A pointer/manifest disagreement is not permission to delete
+                # source releases. Reclaim only unused *paired* virtualenvs
+                # after protecting both known revisions, rollback and units.
+                if not venv.is_dir() or not _safe_directory(venv, venvs) or venv.stat().st_mtime > deadline:
+                    results["excluded"].append({"app": app, "revision": name,
+                                                 "reason": "unpaired, unsafe or recent venv"})
                     continue
-                paths.append(venv)
+                paths = [venv]
+                scope = "venv-only-pointer-mismatch"
+            else:
+                paths = [item]
+                if venv.exists():
+                    if not _safe_directory(venv, venvs) or venv.stat().st_mtime > deadline:
+                        results["excluded"].append({"app": app, "revision": name, "reason": "unsafe or recently used venv"})
+                        continue
+                    paths.append(venv)
+                scope = "paired-release"
             count = sum(_allocated_bytes(path) for path in paths)
             results["candidates"].append({"app": app, "revision": name,
-                                          "paths": [str(p) for p in paths], "bytes": count})
+                                          "scope": scope, "paths": [str(p) for p in paths],
+                                          "bytes": count})
             results["estimated_bytes"] += count
     return results
 
@@ -190,19 +214,30 @@ def _runtime_in_use(paths: list[Path], proc_root: Path = Path("/proc")) -> bool:
             if not pid.name.isdigit():
                 continue
             try:
-                arguments = (pid / "cmdline").read_bytes().replace(b"\\x00", b" ")
-                if any(os.fsencode(target) in arguments for target in targets):
-                    return True
+                # Check argv, environment, loaded libraries and file handles.
+                # If any process introspection fails, do not delete.
+                for name in ("cmdline", "environ", "maps"):
+                    content = (pid / name).read_bytes()
+                    if any(os.fsencode(target) in content for target in targets):
+                        return True
                 for name in ("cwd", "exe"):
-                    with contextlib.suppress(OSError):
+                    with contextlib.suppress(FileNotFoundError):
                         linked = (pid / name).resolve(strict=True)
                         if any(linked == Path(target) or linked.is_relative_to(Path(target))
                                for target in targets):
                             return True
+                for fd in (pid / "fd").iterdir():
+                    with contextlib.suppress(FileNotFoundError):
+                        linked = fd.resolve(strict=True)
+                        if any(linked == Path(target) or linked.is_relative_to(Path(target))
+                               for target in targets):
+                            return True
             except FileNotFoundError:
-                continue  # Process exited while /proc was traversed.
-            except PermissionError:
-                return True  # Unknown owner/process state: protect the candidate.
+                if pid.exists():
+                    return True  # Existing PID with missing proc data is unsafe.
+                continue  # PID vanished while /proc was traversed.
+            except OSError:
+                return True  # Unreadable process state: protect the candidate.
         return False
     except OSError:
         return True

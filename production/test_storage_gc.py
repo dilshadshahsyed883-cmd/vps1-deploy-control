@@ -132,6 +132,93 @@ class StorageGCTests(unittest.TestCase):
         self.assertTrue(any("process-in-use" in value for value in result["skipped"]))
         self.assertTrue((self.root / "releases" / self.app / self.revisions[3]).exists())
 
+    def test_verified_dual_revision_mismatch_reclaims_only_old_venv(self):
+        # Web-only/current pointer and the recorded active Python environment
+        # are independently protected. Never modify either manifest or pointer.
+        self.manifest.write_text(json.dumps({
+            "status": "ACTIVE", "revision": self.revisions[1],
+            "previous": {"current": str(self.root / "releases" / self.app / self.revisions[1])},
+        }))
+        plan = self.inventory()
+        self.assertEqual([(c["revision"], c["scope"]) for c in plan["candidates"]],
+                         [(self.revisions[3], "venv-only-pointer-mismatch")])
+        self.assertEqual(plan["candidates"][0]["paths"],
+                         [str(self.root / "venvs" / self.app / self.revisions[3])])
+        result = self.execute()
+        self.assertEqual(result["outcome"]["deleted"],
+                         [self.app + "/" + self.revisions[3]])
+        for rev in self.revisions:
+            self.assertTrue((self.root / "releases" / self.app / rev).is_dir())
+        for rev in self.revisions[:3]:
+            self.assertTrue((self.root / "venvs" / self.app / rev).is_dir())
+        self.assertFalse((self.root / "venvs" / self.app / self.revisions[3]).exists())
+        self.assertEqual(json.loads(self.manifest.read_text())["revision"], self.revisions[1])
+        self.assertEqual(self.current.resolve().name, self.revisions[0])
+
+    def test_mismatch_refuses_unverifiable_recorded_release(self):
+        self.manifest.write_text(json.dumps({
+            "status": "ACTIVE", "revision": "a" * 40,
+        }))
+        self.assertEqual(self.inventory()["candidates"], [])
+
+    def test_mismatch_preserves_unit_references_even_when_old(self):
+        self.manifest.write_text(json.dumps({
+            "status": "ACTIVE", "revision": self.revisions[1],
+        }))
+        (self.unit_dir / "vps1-production-short-maker.service").write_text(
+            "ExecStart=" + str(self.root / "venvs" / self.app / self.revisions[3]) +
+            "/bin/python\\n"
+        )
+        self.assertEqual(self.inventory()["candidates"], [])
+
+    def test_mismatch_rechecks_manifest_before_apply(self):
+        self.manifest.write_text(json.dumps({
+            "status": "ACTIVE", "revision": self.revisions[1],
+        }))
+        plan = self.inventory()
+        self.assertEqual(len(plan["candidates"]), 1)
+        self.manifest.write_text(json.dumps({
+            "status": "ACTIVE", "revision": self.revisions[3],
+        }))
+        from unittest.mock import patch
+        with patch.object(gc.subprocess, "run") as run, \
+             patch.object(gc, "_runtime_in_use", return_value=False):
+            run.return_value.returncode = 0
+            outcome = gc.apply_plan(self.root, plan, now=self.now,
+                                    unit_dir=self.unit_dir, test_mode=False)
+        self.assertFalse(outcome["deleted"])
+        self.assertTrue((self.root / "venvs" / self.app / self.revisions[3]).exists())
+
+    def test_process_environment_reference_blocks_removal(self):
+        proc = Path(self.workspace.name) / "proc"
+        pid = proc / "1234"
+        pid.mkdir(parents=True)
+        (pid / "cmdline").write_bytes(b"python\\0server.py\\0")
+        (pid / "environ").write_bytes(
+            b"PYTHONPATH=" + os.fsencode(self.root / "venvs" / self.app / self.revisions[3]))
+        (pid / "maps").write_bytes(b"")
+        (pid / "fd").mkdir()
+        target = self.root / "venvs" / self.app / self.revisions[3]
+        self.assertTrue(gc._runtime_in_use([target], proc_root=proc))
+
+    def test_process_file_descriptor_reference_blocks_removal(self):
+        proc = Path(self.workspace.name) / "proc"
+        pid = proc / "1234"
+        pid.mkdir(parents=True)
+        for name in ("cmdline", "environ", "maps"):
+            (pid / name).write_bytes(b"")
+        (pid / "fd").mkdir()
+        target = self.root / "venvs" / self.app / self.revisions[3]
+        (pid / "fd" / "0").symlink_to(target / "interpreter")
+        self.assertTrue(gc._runtime_in_use([target], proc_root=proc))
+
+    def test_unreadable_process_state_fails_closed(self):
+        proc = Path(self.workspace.name) / "proc"
+        pid = proc / "1234"
+        pid.mkdir(parents=True)
+        target = self.root / "venvs" / self.app / self.revisions[3]
+        self.assertTrue(gc._runtime_in_use([target], proc_root=proc))
+
     def test_explicit_apply_refuses_nonproduction_path(self):
         with self.assertRaises(RuntimeError):
             gc.execute(root=self.root, apply=True, unit_dir=self.unit_dir)
