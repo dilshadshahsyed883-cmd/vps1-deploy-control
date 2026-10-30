@@ -147,6 +147,15 @@ body.vs-edge-active .enginebar, body.vs-edge-active section.page,body.vs-edge-ac
 </style>
 
 
+<style id="song-audio-desktop-download-20261030">
+/* Only the Song Audio desktop download control. */
+#vsAudioWorkspace .vsa-heading-actions{display:flex;justify-content:flex-end;align-items:center;gap:10px;flex-wrap:wrap}
+#vsAudioWorkspace .vsa-desktop-download{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:10px 14px;border-radius:9px;background:#635bdf;color:#fff;text-decoration:none;font:750 12px system-ui,sans-serif;white-space:nowrap}
+#vsAudioWorkspace .vsa-desktop-download:hover{background:#5247d1;color:#fff}
+#vsAudioWorkspace .vsa-desktop-download:focus-visible{outline:3px solid #b7b1fc;outline-offset:2px}
+@media(max-width:640px){#vsAudioWorkspace .vsa-heading-actions{justify-content:flex-start}}
+</style>
+
 <style id="audio-downloader-v1-css">
 /* AUDIO_DOWNLOADER_TAB_V1 styles: isolated from all existing engines */
 body.vs-audio-active .enginebar,body.vs-audio-active section.page,body.vs-audio-active #vsKokoroWorkspace,body.vs-audio-active #vsEdgeWorkspace{display:none!important}
@@ -417,7 +426,15 @@ body.vs-kokoro-active #vsOmniHeader,body.vs-edge-active #vsOmniHeader,body.vs-au
 <section id="vsAudioWorkspace" hidden aria-label="Audio Downloader">
   <div class="vsa-heading">
     <div><div class="vsa-overline">SONG STUDIO · AUDIO EXTRACTION</div><h1>Audio Downloader</h1><p>Download audio from YouTube video links and upload directly to Google Drive.</p></div>
-    <span class="vsa-badge" id="vsaReady">Checking downloader…</span>
+    <!-- SONG_AUDIO_DESKTOP_DOWNLOAD_V1 -->
+    <div class="vsa-heading-actions">
+      <a id="vsaDesktopAppDownload" class="vsa-desktop-download"
+         href="https://github.com/dilshadshahsyed883-cmd/Rajudesktop/releases/download/song-audio-downloader-run-3/SongAudioDownloader.exe"
+         target="_blank" rel="noopener noreferrer"
+         aria-label="Download Song Audio Downloader desktop app for Windows">&#8595; Download Desktop App (.exe)</a>
+      <span class="vsa-badge" id="vsaReady">Checking downloader…</span>
+    </div>
+    <!-- /SONG_AUDIO_DESKTOP_DOWNLOAD_V1 -->
   </div>
   <nav class="vsa-tabs" role="tablist" aria-label="Audio Downloader sections">
     <button type="button" data-vsa-section="downloader" aria-selected="true">Downloader</button>
