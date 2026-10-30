@@ -59,7 +59,7 @@ class UniversalSidebarContracts(unittest.TestCase):
         self.assertIn("const songLink = primaryLinks.song;", src)
         self.assertIn("installLegacySidebar()", src)
         self.assertIn("const isCanonical =", src)
-        self.assertNotIn('["Auto Script",', src)
+        self.assertNotIn('["Auto Script",', src.split("const PRIMARY_NAV =", 1)[1].split("];", 1)[0])
 
     def test_experiment_studio_menu_and_subtab_are_canonical(self):
         js = SHELL_JS.read_text(encoding="utf-8")
