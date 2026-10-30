@@ -408,8 +408,8 @@ def process_one(db:Database,store:V6Store,item:dict,worker_id:str) -> None:
             return
         row=db.get_video(vid) or {}
         if clean(row.get("status")).upper() in {"UPLOADED","PUBLISHED"} and clean(row.get("youtube_video_id")):
-            if channel_meta:
-                # Channel jobs must pass thumbnail completion handling first.
+            if channel_meta and int(channel_meta.get("strict_thumbnail") or 0):
+                # Thumbnail-required Song jobs must pass publishing first.
                 # A pending/unknown stage may not fall through to Drive archiving.
                 store.set_job_state(vid,"POST_UPLOAD_REVIEW",
                                     error="Thumbnail publishing status pending; sources retained.")
