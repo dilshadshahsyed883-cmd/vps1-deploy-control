@@ -87,12 +87,14 @@ class ShortGroupTests(unittest.TestCase):
     def test_persistent_settings_switching_retains_both_sources_without_arming(self):
         pid=self.save()
         self.assertEqual(self.pc.profiles[pid]['schedule_enabled'],'0')
+        self.assertEqual(self.ns['short_group_metadata'](self.store,pid)['privacy_status'],'public')
         sheet={**self.form,'metadata_source':'sheet','metadata_sheet_url_or_id':'sheet-id','metadata_sheet_tab':'Tab','metadata_sheet_gid':'12'}
         self.save(sheet,pid)
         # Simulate a process restart, and a partial mode change that omits inactive fields.
         reopened=Store(self.root)
         saved=self.ns['short_group_metadata'](reopened,pid)
         self.assertEqual(saved['manual_title'],'Short {video_stem}')
+        self.assertEqual(saved['privacy_status'],'public')
         self.save({k:v for k,v in self.form.items() if not k.startswith('manual_')},pid)
         self.assertEqual(self.pc.profiles[pid]['metadata_sheet_gid'],'12')
         self.assertEqual(self.ns['short_group_metadata'](reopened,pid)['metadata_source'],'manual')
@@ -106,6 +108,7 @@ class ShortGroupTests(unittest.TestCase):
         self.assertEqual([j['channel_db_id'] for j in plan['jobs']],[1,1,2,2])
         self.assertEqual(plan['jobs'][0]['title'],'Short short 1')
         self.assertTrue(all(j['category_id']=='24' for j in plan['jobs']))
+        self.assertTrue(all(j['privacy_status']=='public' for j in plan['jobs']))
         self.assertGreater(plan['duplicates_blocked'],0)
         self.assertEqual(len({j['drive_file_id'] for j in plan['jobs']}),4)
         load_functions(['generate_queue'],self.ns,first=True)
@@ -115,6 +118,7 @@ class ShortGroupTests(unittest.TestCase):
         again=self.ns['generate_queue'](self.pc,self.store,profile,run_key='slot-1')
         self.assertTrue(again['already_claimed']);self.assertEqual(len(self.pc.jobs),4)
         self.assertTrue(all('metadata_sheet_url' not in j for j in self.pc.jobs))
+        self.assertTrue(all(j['privacy_status']=='public' for j in self.pc.jobs))
         self.assertTrue(all(j['source_folder_id']=='shortstudio-local:Test' for j in [r['drive_video'] for r in self.store.reserved]))
     def test_saved_metadata_is_loaded_into_profile_editor(self):
         pid=self.save()
@@ -125,6 +129,7 @@ class ShortGroupTests(unittest.TestCase):
         ctx=self.ns['profile_context'](self.pc,self.store,pid)
         self.assertEqual(ctx['selected']['manual_title'],'Short {video_stem}')
         self.assertEqual(ctx['selected']['metadata_source'],'manual')
+        self.assertEqual(ctx['selected']['privacy_status'],'public')
 
     def test_profile_schedule_requires_explicit_opt_in_and_does_not_arm_engine(self):
         pid=self.save()
@@ -169,6 +174,29 @@ class ShortGroupTests(unittest.TestCase):
         self.ns['fetch_sheet_csv_tab']=lambda *a,**kw:self.fail('GID must win')
         meta,_=self.ns['category_metadata']({'metadata_sheet_url_or_id':'id','metadata_sheet_tab':'Tab','metadata_sheet_gid':'12'})
         self.assertEqual(meta['title'],'Sheet title');self.assertEqual(calls,[('id','12')])
+    def test_visibility_is_profile_scoped_persistent_and_applies_to_all_metadata_sources(self):
+        pid=self.save({**self.form,'privacy_status':'unlisted'})
+        saved=self.ns['short_group_metadata'](self.store,pid)
+        self.assertEqual(saved['privacy_status'],'unlisted')
+        self.store.saved_source={'short_folder_name':'Test'}
+        load_functions(['planner'],self.ns,first=True)
+        plan=self.ns['planner'](self.pc,self.store,self.pc.profiles[pid],preview_only=False)
+        self.assertTrue(all(j['privacy_status']=='unlisted' for j in plan['jobs']))
+        # Sheet visibility must not override the selected Short Uploader profile.
+        self.ns['extract_gid']=lambda *a,**kw:'12'
+        self.ns['fetch_sheet_csv_gid']=lambda *a,**kw:[{'title':'Sheet title','privacy_status':'private'}]
+        sheet_profile={'metadata_sheet_url_or_id':'sheet-id','metadata_sheet_tab':'Tab',
+                      'metadata_sheet_gid':'12','_short_group_metadata':{**saved,'metadata_source':'sheet'}}
+        metadata,_=self.ns['category_metadata'](sheet_profile)
+        self.assertEqual(metadata['privacy_status'],'unlisted')
+        self.save({**self.form,'privacy_status':'private'},pid)
+        self.assertEqual(self.ns['short_group_metadata'](Store(self.root),pid)['privacy_status'],'private')
+        self.assertEqual(self.ns['category_metadata']({
+            '_short_group_metadata':self.ns['short_group_metadata'](self.store,pid)})[0]['privacy_status'],'private')
+        for invalid in ('scheduled','friends',''):
+            with self.subTest(invalid=invalid),self.assertRaises(ValueError):
+                self.save({**self.form,'privacy_status':invalid},pid)
+
     def test_new_group_template_and_legacy_profile_edit(self):
         source=TEMPLATE.read_text();start=source.index('    <form id="lum-ae-profile-form"');end=source.index('</form>',start)+len('</form>')
         template=Environment().from_string(source[start:end])
@@ -176,9 +204,14 @@ class ShortGroupTests(unittest.TestCase):
                   ae=SimpleNamespace(groups=[dict(id=7,group_name='Test',channel_count=2)],short_folders=['Test']))
         html=template.render(**data)
         self.assertNotIn('Profile Type',html);self.assertNotIn('name="channel_db_id"',html)
-        for field in ('channel_group_id','short_vps_folder','drive_video_folder','metadata_source','manual_title','schedule_enabled','daily_upload_count','schedule_times','upload_scope','work_mode'):
+        for field in ('channel_group_id','short_vps_folder','drive_video_folder','metadata_source','manual_title','privacy_status','schedule_enabled','daily_upload_count','schedule_times','upload_scope','work_mode'):
             self.assertIn('name="'+field+'"',html)
         self.assertNotIn('manual_upload_date',html) # Existing group alarm scheduler owns times.
+        self.assertIn('id="short-profile-privacy-status"',html)
+        self.assertIn('lum-short-compact-selector',html)
+        self.assertEqual(html.count('name="privacy_status"'),1)
+        self.assertLess(html.index('name="privacy_status"'),html.index('name="daily_upload_count"'))
+        self.assertIn('<option value="public" selected>',html)
         old=template.render(**{**data,'p':dict(id=3,channel_db_id=1,enabled=True),'ae':SimpleNamespace(all_channels=[dict(id=1,channel_id='UC1')],short_folders=[])})
         self.assertIn('name="channel_db_id"',old);self.assertNotIn('short-profile-metadata-source',old)
     def test_group_save_keeps_short_folder_and_scheduling_uses_existing_lane(self):
@@ -267,7 +300,11 @@ class ShortAutomationGroupSummaryTests(unittest.TestCase):
         self.assertEqual(html.count('>Sync All Channels</button>'),1)
         self.assertEqual(html.count('/actions/auto-v6/sync-all'),1)
         toolbar=html.split('lum-ae-bulk-profile-controls',1)[1].split('</div>',1)[0]
-        self.assertIn('Generate Queue Now',toolbar)
+        self.assertIn('Profile Schedules',toolbar)
+        self.assertNotIn('Generate Queue Now',toolbar)
+        self.assertNotIn('/actions/auto-v6/generate-all',toolbar)
+        self.assertEqual(toolbar.count('data-ae-open-schedules'),1)
+        self.assertLess(toolbar.index('Profile Schedules'),toolbar.index('Preview Next Jobs'))
         self.assertIn('Start All Profiles',toolbar)
         self.assertIn('Sync All Channels',toolbar)
         self.assertLess(toolbar.index('Start All Profiles'),toolbar.index('Sync All Channels'))
@@ -288,6 +325,20 @@ class ShortAutomationGroupSummaryTests(unittest.TestCase):
         self.assertIn('data-short-group-channel-count="1">1</td>',html)
         self.assertIn('Per-video schedule',html)
         self.assertNotIn('09:00',html)
+    def test_schedule_dialog_and_song_manual_generate_are_preserved(self):
+        template=TEMPLATE.read_text()
+        self.assertIn('id="lum-ae-schedules-dialog"',template)
+        self.assertIn('/actions/auto-v6/profile-schedules/save',template)
+        self.assertIn('name="schedule_times_{{ pr.id }}"',template)
+        self.assertIn('data-short-schedule-slots data-short-count=',template)
+        self.assertIn('data-ae-open-schedules>Manage Schedules</button>',template)
+        song=self.render(instance='song',profiles=[dict(id=3,category_name='Song',group_name='Song',
+                group_channel_count=2,enabled=1,schedule_times='08:00',schedule_enabled=1)])
+        row=song.split('lum-ae-bulk-profile-controls',1)[1].split('</div>',1)[0]
+        self.assertIn('Generate Queue Now',row)
+        self.assertIn('/actions/auto-v6/generate-all',row)
+        self.assertIn('Profile Schedules',row)
+
     def test_other_uploaders_retain_their_existing_columns_and_values(self):
         for instance in ('engine1','engine2','shorts'):
             with self.subTest(instance=instance):

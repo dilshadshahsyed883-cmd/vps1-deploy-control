@@ -904,11 +904,15 @@
 
       {% if engine_instance in ['song', 'shortstudio'] %}
       <div class="lum-ae-pc-row lum-ae-planner-actions lum-ae-bulk-profile-controls" style="margin:12px 0 10px" aria-label="Auto Engine profile controls">
+        {% if engine_instance == 'shortstudio' %}
+        <button class="lum-button secondary" type="button" data-ae-open-schedules>Profile Schedules</button>
+        {% else %}
         <form method="post" action="{{ base_path }}/actions/auto-v6/generate-all" data-lum-soft-form data-confirm="Generate queue jobs for all enabled profiles? This does not start the upload engine.">
           <input type="hidden" name="csrf_token" value="{{ csrf }}">
           <input type="hidden" name="confirmation" value="GENERATE ALL">
           <button class="lum-button primary" type="submit">Generate Queue Now</button>
         </form>
+        {% endif %}
         <button class="lum-button secondary" type="button" data-ae-preview-all>Preview Next Jobs</button>
         {% if engine_instance != 'shortstudio' %}<button class="lum-button secondary" type="button" data-ae-open-schedules>Profile Schedules</button>{% endif %}
         <button class="lum-button secondary" type="button" data-ae-jump-start-all>Start All Profiles</button>
@@ -1088,7 +1092,7 @@
           {% set group_profile = short_group or (engine_instance == 'song' and (not p or not p.channel_db_id)) %}
           {% if short_group %}
           <input type="hidden" name="profile_kind" value="group">
-          <label class="lum-field"><span>Channel Group</span><select name="channel_group_id" required><option value="">Select a group…</option>{% for group in ae.groups or [] %}<option value="{{ group.id }}" {% if p and p.channel_group_id|int == group.id|int %}selected{% endif %}>{{ group.group_name }} · {{ group.channel_count }} channels</option>{% endfor %}</select></label>
+          <label class="lum-field lum-short-compact-selector"><span>Channel Group</span><select name="channel_group_id" required><option value="">Select a group…</option>{% for group in ae.groups or [] %}<option value="{{ group.id }}" {% if p and p.channel_group_id|int == group.id|int %}selected{% endif %}>{{ group.group_name }} · {{ group.channel_count }} channels</option>{% endfor %}</select></label>
           {% endif %}
           {% if engine_instance == 'song' %}
           <input type="hidden" name="profile_kind" value="{{ 'group' if group_profile else 'channel' }}">
@@ -1105,6 +1109,16 @@
           {% endif %}
           <div class="lum-grid lum-three">
             <label class="lum-field"><span>Profile Name</span><input name="category_name" value="{{ p.category_name if p else '' }}" placeholder="Profile name" {% if group_profile %}required{% endif %}></label>
+             {% if short_group %}
+             <label class="lum-field lum-short-compact-selector"><span>Video Visibility</span>
+               <select name="privacy_status" id="short-profile-privacy-status">
+                 {% for visibility, label in [('public','Public'),('unlisted','Unlisted'),('private','Private')] %}
+                 <option value="{{ visibility }}" {% if (p.privacy_status if p and p.privacy_status else 'public') == visibility %}selected{% endif %}>{{ label }}</option>
+                 {% endfor %}
+               </select>
+               <small>Public by default · saved with this profile for future uploads.</small>
+             </label>
+             {% endif %}
             {% if not short_group and engine_instance != 'song' %}
             <label class="lum-field" {% if engine_instance == 'song' %}data-ae-single-choice {% if group_profile %}hidden{% endif %}{% endif %}><span>Channel</span><select name="channel_db_id" {% if not group_profile %}required{% endif %}><option value="">Select channel…</option>{% for ch in ae.all_channels %}<option value="{{ ch.id }}" {% if p and p.channel_db_id==ch.id %}selected{% endif %}>{{ ch.channel_name or ch.channel_id }} · {{ ch.channel_id }}</option>{% endfor %}</select><small>Channels remain managed in the Channels tab.</small></label>
             {% endif %}
@@ -1145,14 +1159,15 @@
           <div class="lum-card-head"><div><h2>Channel Resources</h2>{% if engine_instance != 'shortstudio' %}<p>Video ID is matched case-insensitively anywhere in the video and thumbnail filenames. Extra filename text is allowed.</p>{% endif %}</div></div>
           {% if short_group %}
           {% set short_manual = p and p.metadata_source == 'manual' %}
-          <label class="lum-field"><span>Metadata Source</span><select name="metadata_source" id="short-profile-metadata-source">
+          {# Visibility is alongside Profile Name above the scheduling fields. #}
+          <label class="lum-field lum-short-compact-selector"><span>Metadata Source</span><select name="metadata_source" id="short-profile-metadata-source">
             <option value="sheet" {% if not short_manual %}selected{% endif %}>Google Sheets Sync (Existing)</option>
             <option value="manual" {% if short_manual %}selected{% endif %}>Manual Metadata — Save on Website</option>
           </select></label>
           <div data-short-manual-fields {% if not short_manual %}hidden{% endif %}>
             <div class="lum-grid lum-two">
               <label class="lum-field"><span>YouTube Video Title</span><input name="manual_title" maxlength="100" value="{{ p.manual_title if p else '' }}" {% if short_manual %}required{% endif %} placeholder="Title · {video_stem}"></label>
-              <label class="lum-field"><span>YouTube Category</span><select name="manual_category_id">{% for cid, label in [('22','People & Blogs'),('24','Entertainment'),('10','Music'),('27','Education'),('17','Sports'),('20','Gaming'),('25','News & Politics'),('26','Howto & Style'),('28','Science & Technology'),('1','Film & Animation'),('23','Comedy'),('2','Autos & Vehicles'),('15','Pets & Animals'),('19','Travel & Events'),('29','Nonprofits & Activism')] %}<option value="{{ cid }}" {% if p and p.manual_category_id == cid %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+              <label class="lum-field lum-short-compact-selector"><span>YouTube Category</span><select name="manual_category_id">{% for cid, label in [('22','People & Blogs'),('24','Entertainment'),('10','Music'),('27','Education'),('17','Sports'),('20','Gaming'),('25','News & Politics'),('26','Howto & Style'),('28','Science & Technology'),('1','Film & Animation'),('23','Comedy'),('2','Autos & Vehicles'),('15','Pets & Animals'),('19','Travel & Events'),('29','Nonprofits & Activism')] %}<option value="{{ cid }}" {% if p and p.manual_category_id == cid %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
               <label class="lum-field" style="grid-column:1/-1"><span>YouTube Video Description</span><textarea name="manual_description" maxlength="5000" rows="3">{{ p.manual_description if p else '' }}</textarea></label>
             </div>
           </div>
@@ -1178,7 +1193,7 @@
           {% endif %}
           <div class="lum-grid lum-two">
             {% if engine_instance == 'shortstudio' %}
-            <label class="lum-field"><span>Short Maker VPS Folder</span><select name="short_vps_folder" aria-label="Short Maker VPS folder"><option value="">Use Google Drive source instead</option>{% for folder in ae.short_folders or [] %}<option value="{{ folder }}" {% if src.short_folder_name == folder %}selected{% endif %}>{{ folder }}</option>{% endfor %}</select><small>After verified upload, the VPS source is deleted safely.</small></label>
+            <label class="lum-field lum-short-compact-selector"><span>Short Maker VPS Folder</span><select name="short_vps_folder" aria-label="Short Maker VPS folder"><option value="">Use Google Drive source instead</option>{% for folder in ae.short_folders or [] %}<option value="{{ folder }}" {% if src.short_folder_name == folder %}selected{% endif %}>{{ folder }}</option>{% endfor %}</select><small>After verified upload, the VPS source is deleted safely.</small></label>
             {% endif %}
             <label class="lum-field" {% if engine_instance == 'song' %}data-song-drive-field {% if song_local %}hidden{% endif %}{% endif %}><span>Video Drive Folder URL / ID{% if engine_instance == 'shortstudio' %} (alternative){% endif %}</span><input name="drive_video_folder" {% if engine_instance != 'shortstudio' and (engine_instance != 'song' or not song_local) %}required{% endif %} value="{{ src.drive_video_folder_url or src.drive_video_folder_id or '' }}" placeholder="https://drive.google.com/drive/folders/..."></label>
             {% if engine_instance not in ['shorts', 'shortstudio'] %}

@@ -90,6 +90,11 @@ def verify_live(*, ui_only=False):
                 b'display:inline-flex!important' in css_body,
                 'Live CSS still hides the profile Start form')
 
+    if not ui_only:
+        require('data-ae-open-schedules>Profile Schedules</button>' in html,
+                'Automation Profile Schedules button missing')
+        require('>Generate Queue Now</button>' not in html,
+                'Removed Short Uploader Generate Queue Now button is still visible')
     start=html.find('<form id="lum-ae-profile-form"')
     require(start>=0,'profile form absent')
     form=html[start:html.index('</form>',start)]
@@ -98,6 +103,10 @@ def verify_live(*, ui_only=False):
             'type="checkbox" name="schedule_enabled"' in form and
             'name="channel_db_id"' not in form and 'Profile Type' not in form,
             'live group profile form does not match release')
+    if not ui_only:
+        require('id="short-profile-privacy-status"' in form and
+                re.search(r'<option value="public"[^>]*selected',form),
+                'New Short Uploader profile does not default to Public')
     if ui_only:
         require('Group profiles, sources and upload queue.' not in html and
                 'independent uploader workspace' not in html and
