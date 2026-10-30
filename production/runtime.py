@@ -550,6 +550,10 @@ def install_app(app, revision):
         raise ValueError('app is not owned by this installer')
     if app == 'local-upload-manager':
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-song-uploader-automation-summary]' in intent:
+            from production.song_uploader_group_summary_release import install as install_song_group_summary
+            install_song_group_summary(revision)
+            return
         if '[vps1-short-uploader-group-metadata]' in intent:
             from production.short_uploader_group_release import install as install_short_groups
             install_short_groups(revision)
