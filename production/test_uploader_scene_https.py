@@ -52,6 +52,49 @@ class UploaderSceneRouteTests(unittest.TestCase):
         self.assertIn(APP_EXACT_ROUTE, updated)
         self.assertEqual(add_route(updated), (updated, False))
 
+    def test_marker_deploys_only_authenticated_nginx_route(self):
+        import sys
+        from contextlib import nullcontext
+        from unittest.mock import patch
+        from production import runtime
+
+        sha = "a" * 40
+        with patch.object(runtime, "check_host"), \
+             patch.object(runtime, "deployment_lock", return_value=nullcontext()), \
+             patch.object(runtime, "run", return_value="[vps1-lum-legacy-route-only]"), \
+             patch.object(runtime, "install_app") as installer, \
+             patch.object(runtime, "event") as receipt, \
+             patch("production.route_uploader_scene_https.deploy") as deploy, \
+             patch.object(sys, "argv", ["runtime", "install", "--revision", sha,
+                                       "--apps", "local-upload-manager"]):
+            runtime.main()
+        deploy.assert_called_once_with(sha)
+        installer.assert_not_called()
+        receipt.assert_called_once_with(lum_legacy_route="ENGINE1_VERIFIED",
+                                        uploader_service_mutations="NONE")
+
+    def test_marker_refuses_other_app_or_rollback_without_mutation(self):
+        import sys
+        from contextlib import nullcontext
+        from unittest.mock import patch
+        from production import runtime
+
+        sha = "b" * 40
+        for action, app in (("install", "voice-studio"),
+                            ("rollback", "local-upload-manager")):
+            with self.subTest(action=action, app=app), \
+                 patch.object(runtime, "check_host"), \
+                 patch.object(runtime, "deployment_lock", return_value=nullcontext()), \
+                 patch.object(runtime, "run", return_value="[vps1-lum-legacy-route-only]"), \
+                 patch.object(runtime, "install_app") as installer, \
+                 patch("production.route_uploader_scene_https.deploy") as deploy, \
+                 patch.object(sys, "argv", ["runtime", action, "--revision", sha,
+                                           "--apps", app]):
+                with self.assertRaisesRegex(RuntimeError, "requires local-upload-manager-only"):
+                    runtime.main()
+                deploy.assert_not_called()
+                installer.assert_not_called()
+
     def test_identity_from_scene_auth_not_visitor_headers(self):
         for snippet in (
             "location = /_scene_uploader_auth {",
