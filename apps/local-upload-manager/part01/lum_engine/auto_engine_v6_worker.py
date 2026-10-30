@@ -620,7 +620,7 @@ def main() -> None:
 
             db.activate_due_scheduled_jobs(auto_engine_only=True)
             claim_scope={}
-            if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio":
+            if os.environ.get("LUM_ENGINE_INSTANCE") in {"shortstudio","song"}:
                 # A paused profile cannot be claimed even when it has older queued jobs.
                 # Manual Start scopes the worker to just the requested profile(s).
                 enabled={int(p["id"]) for p in db.list_auto_engine_profiles() if int(p.get("enabled") or 0)==1}
