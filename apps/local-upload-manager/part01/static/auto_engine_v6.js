@@ -258,8 +258,11 @@
 
   /* LUM_QUEUE_LIVE_AUTOREFRESH_V1 */
   let queueLiveTimer=0,queueLiveBusy=false,queueLiveLast='';
-  function queueLivePanel(){
-    const p=document.querySelector('[data-ae-panel="queue"]');
+  function queueLivePanel(root=document){
+    // Two sibling panels use data-ae-panel="queue": controls and actual job rows.
+    // Poll the job table, not the first (controls-only) panel.
+    const panes=[...root.querySelectorAll('[data-ae-panel="queue"]')];
+    const p=panes.find(node=>node.querySelector('.lum-ae-queue'));
     if(!p||p.hidden||p.getAttribute('aria-hidden')==='true')return null;
     return p;
   }
@@ -285,7 +288,7 @@
       const r=await fetch(u.toString(),{credentials:'same-origin',cache:'no-store',headers:{'X-LUM-Soft-Navigation':'1'}});
       if(!r.ok)throw new Error(`HTTP ${r.status}`);
       const text=await r.text();const doc=new DOMParser().parseFromString(text,'text/html');
-      const fresh=doc.querySelector('[data-ae-panel="queue"]');if(!fresh)throw new Error('Queue panel missing in live snapshot');
+      const fresh=queueLivePanel(doc);if(!fresh)throw new Error('Queue table missing in live snapshot');
       const freshHtml=fresh.innerHTML;
       if(force||freshHtml!==queueLiveLast){
         const y=window.scrollY;
