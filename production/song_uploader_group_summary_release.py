@@ -116,11 +116,19 @@ def verify_live():
             'Sync All Channels' in toolbar and
             toolbar.index('Start All Profiles')<toolbar.index('Sync All Channels'),
             'global sync is not on the bulk-action row')
-    require('data-short-profile-action="start"' in html and
-            'song-profile-privacy-status' in html and
-            'lum-short-engine-status' in html and
-            '20261030-parity-v1' in html,
-            'Song profile parity controls missing from live HTML')
+    # An empty/new Song account has no group row and therefore no per-profile
+    # Start form yet. Verify the real new-profile controls and nested workspace;
+    # the conditional Start form remains covered by offline Jinja contract tests.
+    required_controls=(
+        'song-profile-privacy-status',
+        'lum-short-engine-status',
+        '20261030-parity-v1',
+        'data-ae-panel-target="automation"',
+        'data-ae-panel-target="profiles"',
+        'data-ae-panel-target="queue"',
+    )
+    missing=[marker for marker in required_controls if marker not in html]
+    require(not missing, 'Song profile parity controls missing from live HTML: '+', '.join(missing))
     require(html.count('>Sync All Channels</button>')==1 and
             'Sync Channel</button>' not in html and
             'data-ae-sync-scan' not in html,

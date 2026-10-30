@@ -102,6 +102,15 @@ class SongAutomationGroupSummaryTests(unittest.TestCase):
         self.assertIn("backup_databases(STATE", release)
         self.assertIn("SONG_GROUP_SUMMARY_ROLLBACK=PASS", release)
 
+    def test_live_acceptance_does_not_require_start_form_for_empty_profiles(self):
+        # Start is conditional on saved group profiles; new_profile=1 can have none.
+        release=(ROOT / "production/song_uploader_group_summary_release.py").read_text()
+        self.assertIn("required_controls=(",release)
+        self.assertIn("'song-profile-privacy-status'",release)
+        self.assertIn("'lum-short-engine-status'",release)
+        self.assertIn("missing=[marker for marker in required_controls if marker not in html]",release)
+        self.assertNotIn("require('data-short-profile-action=\\\"start\\\"' in html",release)
+
     def test_engine1_remains_legacy_table(self):
         html = self.render([dict(id=3,enabled=1,category_name="Channel",
             bound_channel_name="Channel",bound_channel_id="UC123",
