@@ -7,13 +7,18 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
-from PIL import Image
+try:
+    from fastapi.testclient import TestClient
+    from PIL import Image
+except ImportError:  # Repository-wide offline pilot intentionally omits these extras.
+    TestClient = None
+    Image = None
 
 
 SOURCE = Path(__file__).resolve().parents[1] / "apps/short-maker/part01/app.py"
 
 
+@unittest.skipUnless(TestClient is not None and Image is not None, 'requires FastAPI and Pillow')
 class ShortMakerHTTPResumeTests(unittest.TestCase):
     def test_refresh_and_duplicate_finalize_enqueue_once(self):
         with tempfile.TemporaryDirectory() as td:
