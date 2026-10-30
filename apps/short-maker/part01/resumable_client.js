@@ -5,15 +5,21 @@
 const SHORT_UPLOAD_DB='short-maker-resume-v1',SHORT_CHUNK_SIZE=4*1024*1024;
 const progressInfo=document.getElementById('progressDetail');
 const progressTrack=document.getElementById('progressTrack');
+const renderProgressTrack=document.getElementById('renderProgressTrack');
+const renderProgressBar=document.getElementById('renderProgressBar');
+const uploadPctLabel=document.getElementById('uploadPctLabel');
+const renderPctLabel=document.getElementById('renderPctLabel');
 const discardUpload=document.getElementById('discardUpload');
 let trackedShortJob=null, activeShortUpload=null;
 
 function showShortProgress(uploadPercent,renderPercent,stage){
- const pct=Math.min(100,Math.max(0,stage==='upload'?uploadPercent:renderPercent));
- bar.style.width=pct+'%';
- progressTrack.setAttribute('aria-valuenow',String(Math.round(pct)));
- progressTrack.setAttribute('aria-label',stage==='upload'?'Uploading selected files':'Rendering on VPS');
- progressInfo.textContent='Upload: '+Math.round(uploadPercent)+'% · Rendering: '+Math.round(renderPercent)+'%';
+ const up=Math.min(100,Math.max(0,Number(uploadPercent)||0));
+ const rp=Math.min(100,Math.max(0,Number(renderPercent)||0));
+ bar.style.width=up+'%';renderProgressBar.style.width=rp+'%';
+ progressTrack.setAttribute('aria-valuenow',String(Math.round(up)));
+ renderProgressTrack.setAttribute('aria-valuenow',String(Math.round(rp)));
+ uploadPctLabel.textContent=Math.round(up)+'%';renderPctLabel.textContent=Math.round(rp)+'%';
+ progressInfo.textContent=stage==='upload'?'Uploading · '+Math.round(up)+'%':'VPS rendering · '+Math.round(rp)+'%';
 }
 function shortDB(){return new Promise((resolve,reject)=>{
  const req=indexedDB.open(SHORT_UPLOAD_DB,1);
@@ -111,11 +117,15 @@ async function pollShortJob(id){
 }
 async function shortResumeInternal(meta){
  render.disabled=true;discardUpload.hidden=true;
+ if(!meta.client_request_id&&!meta.job_id){
+  meta.client_request_id=crypto.randomUUID();
+  await shortDBSave(meta,null);
+ }
  if(!meta.job_id){
   statusEl.textContent='Creating resumable upload job on VPS...';
   const begun=await shortJson(await fetch('/short-maker/api/upload-sessions',{
    method:'POST',headers:{'Content-Type':'application/json'},
-   body:JSON.stringify({config:meta.config,files:meta.files})
+   body:JSON.stringify({config:meta.config,files:meta.files,client_request_id:meta.client_request_id})
   }),'Could not create upload job');
   meta.job_id=begun.job_id;
   await shortDBSave(meta,null);
@@ -173,18 +183,28 @@ async function shortResumeInternal(meta){
  showShortProgress(100,0,'render');
  trackedShortJob=meta.job_id;pollShortJob(meta.job_id);loadQueue();
 }
-function shortResume(meta){
+function withShortUploadLock(run){
  if(activeShortUpload)return activeShortUpload;
- const run=()=>shortResumeInternal(meta);
- // Cross-tab Web Locks are advisory. The backend also serializes chunks/finalize.
  activeShortUpload=(navigator.locks&&navigator.locks.request
   ?navigator.locks.request('short-maker-one-upload',run)
   :run()).finally(()=>{activeShortUpload=null;});
  return activeShortUpload;
 }
+function shortResume(meta){
+ return withShortUploadLock(async()=>{
+  const pending=await shortDBRead('meta','active');
+  // Another tab may have already completed the upload while we waited for lock.
+  if(!pending){
+   if(meta.job_id){trackedShortJob=meta.job_id;pollShortJob(meta.job_id);}
+   return;
+  }
+  return shortResumeInternal(pending);
+ });
+}
 async function shortSubmitOrResume(){
+ return withShortUploadLock(async()=>{
  const existing=await shortDBRead('meta','active');
- if(existing)return shortResume(existing);
+ if(existing)return shortResumeInternal(existing);
  const paths=drivePaths();
  if(inputMode.value==='upload'&&!images.files.length)throw Error('Select an image folder first.');
  if(inputMode.value==='drive'&&!paths.length)throw Error('Add at least one Google Drive folder.');
@@ -200,12 +220,13 @@ async function shortSubmitOrResume(){
   files.audio.push({name:file.name,size:file.size});
   blobs.push({kind:'audio',index,blob:file});
  });
- const meta={job_id:null,files,config:shortSettings()};
+ const meta={job_id:null,client_request_id:crypto.randomUUID(),files,config:shortSettings()};
  statusEl.textContent='Saving selected files for safe resume after refresh...';
  showShortProgress(0,0,'upload');
  // Do not start network uploads if the browser cannot save source files durably.
  await shortDBSave(meta,blobs);
- return shortResume(meta);
+ return shortResumeInternal(meta);
+ });
 }
 form.addEventListener('submit',async event=>{
  event.preventDefault();
