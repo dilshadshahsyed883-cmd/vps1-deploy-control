@@ -113,6 +113,8 @@ class VPSUploadWorker:
             return
         # 1) Stage the Drive source only once. Existing valid files are reused after restart/retry.
         staging = Path(str(project.get("staging_path") or "")) if project.get("staging_path") else None
+        if (not staging or not staging.is_file() or staging.stat().st_size <= 0) and project.get("source_mode") == "local_file":
+            raise RuntimeError("Local input missing: keep original video and review before retry")
         if not staging or not staging.is_file() or staging.stat().st_size <= 0:
             self.store.update(project_id, status="DOWNLOADING", progress=0, error_message="")
             self.store.event(project_id, "Downloading Google Drive source to isolated VPS staging")
