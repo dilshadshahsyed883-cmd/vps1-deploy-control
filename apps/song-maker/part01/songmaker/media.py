@@ -159,12 +159,13 @@ def render(image, audio, output, temporary, resolution='1080p', fit='fit', cance
         frame.paste(foreground, ((width-foreground.width)//2, (height-foreground.height)//2))
         frame.save(temporary / 'frame.png')
     partial = temporary / 'partial.mp4'
-    # The image is static. Decode one PNG per second, then duplicate decoded frames
-    # into the existing 25 FPS output stream. This avoids 25 redundant PNG decodes
-    # each second without lowering video FPS, resolution, CRF, or audio bitrate.
-    run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-loop', '1',
-         '-framerate', '1', '-i', str(temporary / 'frame.png'), '-i', str(audio),
-         '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'libx264', '-preset', 'veryfast',
+    # Decode the still PNG only once, then loop the decoded frame in memory at
+    # 25 FPS. Looping the input demuxer decodes the PNG 25 times every second.
+    # Unlike sparse 1 FPS input, this preserves arbitrary fractional audio
+    # durations (e.g. 1.27s) while retaining CFR 25 FPS output.
+    run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
+         '-framerate', '25', '-i', str(temporary / 'frame.png'), '-i', str(audio),
+         '-map', '0:v:0', '-map', '1:a:0', '-vf', 'loop=loop=-1:size=1:start=0', '-c:v', 'libx264', '-preset', 'veryfast',
          '-tune', 'stillimage', '-crf', str(QUALITIES[quality]), '-threads', '4', '-pix_fmt', 'yuv420p', '-r', '25',
          '-c:a', 'aac', '-b:a', '192k', '-t', str(duration), '-shortest',
          '-movflags', '+faststart', '-progress', 'pipe:1', str(partial)],
