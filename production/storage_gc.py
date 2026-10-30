@@ -233,7 +233,9 @@ def _runtime_in_use(paths: list[Path], proc_root: Path = Path("/proc")) -> bool:
                                for target in targets):
                             return True
             except FileNotFoundError:
-                continue  # Process exited while /proc was traversed.
+                if pid.exists():
+                    return True  # Existing PID with missing proc data is unsafe.
+                continue  # PID vanished while /proc was traversed.
             except OSError:
                 return True  # Unreadable process state: protect the candidate.
         return False
