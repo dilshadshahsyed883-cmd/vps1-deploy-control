@@ -63,6 +63,25 @@ def idle():
         try:
             parked=lum_parked_network_idle(con)
         except (RuntimeError, ValueError, TypeError, sqlite3.Error) as exc:
+            # A non-mutating, aggregate-only diagnostic for safely distinguishing
+            # claimed jobs from unbound/manual waits; no IDs or secrets leave VPS.
+            try:
+                counters=con.execute("""
+                    SELECT COUNT(*),
+                           SUM(CASE WHEN TRIM(COALESCE(claim_worker_id,''))<>'' THEN 1 ELSE 0 END),
+                           SUM(CASE WHEN COALESCE(auto_engine_profile_id,0)=0 THEN 1 ELSE 0 END),
+                           SUM(CASE WHEN COALESCE(progress,0)>0 OR COALESCE(upload_bytes_confirmed,0)>0 THEN 1 ELSE 0 END),
+                           SUM(CASE WHEN TRIM(COALESCE(youtube_video_id,''))<>'' OR TRIM(COALESCE(resumable_uri,''))<>'' THEN 1 ELSE 0 END)
+                    FROM videos WHERE UPPER(status)='WAITING_NETWORK'
+                """).fetchone()
+                count,claimed,non_auto,progress,remote=(int(v or 0) for v in counters)
+                print(
+                    f'SONG_IDLE_NETWORK_DIAGNOSTIC total={count} claimed={claimed} non_auto={non_auto} '
+                    f'progress_evidence={progress} remote_identity={remote} safe_release=BLOCKED',
+                    flush=True
+                )
+            except (sqlite3.Error, ValueError, TypeError):
+                print('SONG_IDLE_NETWORK_DIAGNOSTIC=SCHEMA_UNAVAILABLE safe_release=BLOCKED',flush=True)
             raise RuntimeError(
                 'SONG_GROUP_SUMMARY_RELEASE_BLOCKED: network wait is not proven idle ('
                 +type(exc).__name__+')'
