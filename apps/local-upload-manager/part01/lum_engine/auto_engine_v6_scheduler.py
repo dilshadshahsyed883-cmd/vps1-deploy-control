@@ -11,7 +11,8 @@ from desktop_core.modules.path_utils import DB_PATH as PC_DB_PATH
 from .auto_engine_v6 import V6Store, generate_queue, parse_schedule_times, target_channels, channel_profile_scheduler_tick
 
 STOP=False
-GRACE_MINUTES=6
+GRACE_MINUTES=6  # Preserve existing Song and legacy scheduler behavior.
+SHORT_STUDIO_GRACE_MINUTES=10
 SCHEDULE_TZ=ZoneInfo("Asia/Karachi")
 
 
@@ -25,6 +26,8 @@ for s in (signal.SIGTERM,signal.SIGINT):
 
 
 def check_profile(db:Database,store:V6Store,profile:dict) -> int:
+    import os
+    shortstudio = os.environ.get('LUM_ENGINE_INSTANCE') == 'shortstudio'
     channel_result=channel_profile_scheduler_tick(db,store,profile)
     if channel_result>=0:
         return channel_result
@@ -48,18 +51,26 @@ def check_profile(db:Database,store:V6Store,profile:dict) -> int:
         alarm_dt=now.replace(hour=h,minute=m,second=0,microsecond=0)
         if alarm_dt>now:
             continue
-        delay=max(0,int((now-alarm_dt).total_seconds()//60))
+        elapsed_seconds=max(0,(now-alarm_dt).total_seconds())
+        delay=int(elapsed_seconds//60)
         run_key=f"{now.date().isoformat()} slot-{idx} {alarm}"
         if db.auto_engine_run_exists(int(profile["id"]),run_key):
             continue
-        if delay>GRACE_MINUTES and policy=="skip_missed":
+        # Short Uploader never catches up a morning alarm hours later when
+        # a profile/engine is enabled in the evening. A slot is valid only
+        # during its first ten minutes; the next opportunity is tomorrow.
+        if shortstudio and elapsed_seconds>SHORT_STUDIO_GRACE_MINUTES*60:
+            db.record_auto_engine_run(int(profile["id"]),run_key,0)
+            db.add_log(None,"INFO",f"Short Uploader missed slot skipped (>10 min): {profile.get('category_name')} {alarm}; next run tomorrow.",None)
+            continue
+        if not shortstudio and delay>GRACE_MINUTES and policy=="skip_missed":
             db.record_auto_engine_run(int(profile["id"]),run_key,0)
             db.add_log(None,"INFO",f"Skipped late Auto Engine alarm by policy: {profile.get('category_name')} {alarm}",None)
             continue
-        if delay>GRACE_MINUTES and policy=="ask":
+        if not shortstudio and delay>GRACE_MINUTES and policy=="ask":
             store.add_missed(int(profile["id"]),run_key,alarm,delay)
             continue
-        if delay<=GRACE_MINUTES or policy=="run_missed_today":
+        if (shortstudio and elapsed_seconds<=SHORT_STUDIO_GRACE_MINUTES*60) or (not shortstudio and (delay<=GRACE_MINUTES or policy=="run_missed_today")):
             try:
                 result=generate_queue(db,store,profile,run_key=run_key,max_jobs_override=per_alarm_jobs)
                 created=int(result.get("created") or 0)
