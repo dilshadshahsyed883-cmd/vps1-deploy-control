@@ -428,3 +428,80 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout
   }).observe(document.documentElement,{childList:true,subtree:true});
   applyShortMetadataSource();
 })();
+
+/* SHORT_STUDIO_DAILY_SCHEDULE_PICKERS: one PKT alarm per daily video, stored using existing CSV. */
+(() => {
+  'use strict';
+  const selectors = '[data-short-schedule-slots]';
+  const clock = /^([01]\\d|2[0-3]):[0-5]\\d$/;
+  function scheduleIsEnabled(host) {
+    if (host.hasAttribute('data-short-profile-schedule')) {
+      const form=host.closest('form');
+      return form?.querySelector('[name="work_mode"]')?.value==='auto'
+        && !!form.querySelector('[name="schedule_enabled"][type="checkbox"]')?.checked;
+    }
+    const name=host.dataset.shortScheduleEnabled;
+    const row=host.closest('tr');
+    return !!row?.querySelector('input[type="checkbox"][name="'+name+'"]')?.checked;
+  }
+  function countFor(host) {
+    const source=host.hasAttribute('data-short-profile-schedule')
+      ? host.closest('form')?.querySelector('[name="daily_upload_count"]')?.value
+      : host.dataset.shortCount;
+    return Math.max(1,Math.min(100,Number.parseInt(source||'4',10)||4));
+  }
+  function sync(host) {
+    const values=[...host.querySelectorAll('input[type="time"]')].map(x=>x.value);
+    const active=scheduleIsEnabled(host);
+    for (const field of host.querySelectorAll('input[type="time"]')) {
+      field.required=active;
+      field.setCustomValidity(field.value && values.filter(v=>v===field.value).length>1 ? 'Choose a different time for each video.' : '');
+    }
+    const hidden=host.parentElement.querySelector('[data-short-schedule-csv]');
+    if (hidden) hidden.value=values.filter(v=>clock.test(v)).join(',');
+  }
+  function build(host,refresh=false) {
+    const count=countFor(host);
+    if (!refresh && host.dataset.shortReady===String(count)) {sync(host);return;}
+    const hidden=host.parentElement.querySelector('[data-short-schedule-csv]');
+    if (!hidden) return;
+    const existing=[...host.querySelectorAll('input[type="time"]')].map(x=>x.value);
+    const saved=(existing.length?existing:(hidden.value||'').split(',')).map(x=>x.trim()).filter(Boolean);
+    const fragment=document.createDocumentFragment();
+    for(let i=0;i<count;i++){
+      const label=document.createElement('label');
+      label.className='lum-short-time-slot';
+      const title=document.createElement('span');
+      title.textContent='Video '+(i+1);
+      const input=document.createElement('input');
+      input.type='time';input.step='60';input.value=saved[i]||'';
+      input.setAttribute('aria-label','Video '+(i+1)+' upload time PKT');
+      input.addEventListener('change',()=>sync(host));
+      label.append(title,input);fragment.append(label);
+    }
+    host.replaceChildren(fragment);
+    host.dataset.shortReady=String(count);
+    sync(host);
+  }
+  function init() {
+    document.querySelectorAll(selectors).forEach(host=>build(host));
+  }
+  document.addEventListener('input',event=>{
+    if(event.target?.matches?.('[name="daily_upload_count"]')){
+      document.querySelectorAll('[data-short-profile-schedule]').forEach(host=>build(host,true));
+    }
+  });
+  document.addEventListener('change',event=>{
+    if(event.target?.matches?.('[name="schedule_enabled"],[name^="schedule_enabled_"],[name="work_mode"]')) init();
+  });
+  document.addEventListener('submit',event=>{
+    const form=event.target;
+    form?.querySelectorAll?.(selectors).forEach(host=>sync(host));
+  },true);
+  document.addEventListener('DOMContentLoaded',init);
+  window.addEventListener('pageshow',init);
+  new MutationObserver(records=>{
+    if(records.some(r=>[...r.addedNodes].some(n=>n.nodeType===1 && (n.matches?.(selectors)||n.querySelector?.(selectors)))))init();
+  }).observe(document.documentElement,{childList:true,subtree:true});
+  init();
+})();
