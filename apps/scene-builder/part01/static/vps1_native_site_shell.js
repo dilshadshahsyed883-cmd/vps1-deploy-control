@@ -335,7 +335,7 @@
       tabs.setAttribute("aria-label", "Song Studio");
       addLink(tabs, "Audio Downloader", "/audio-downloader/", app === "voice");
       addLink(tabs, "Song Maker", "/song-studio/song-maker/", app === "song");
-      addLink(tabs, "Song Uploader", "/song-studio/song-uploader/", app === "song-uploader");
+      addLink(tabs, "Song Uploader", "/song-uploader", app === "song-uploader");
       toggle.after(tabs);
       selectVoiceOrSong();
     }
