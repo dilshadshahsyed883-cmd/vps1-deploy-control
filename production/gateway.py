@@ -314,7 +314,13 @@ def main():
         install(selected)
         # Only an actual uploader release at this exact SHA may update the
         # independent Scene candidate route + Scene HTTPS uploader route.
-        if 'local-upload-manager' in args.apps and 'local-upload-manager' in selected:
+        # Short Studio's coordinated workflow installs the full Scene candidate
+        # LAST, including new Python modules and pinned proxy dependencies.
+        # The legacy partial overlay copies app.py alone and can crash the old
+        # candidate midway through an otherwise healthy Short Maker release.
+        if '[vps1-short-studio-release]' in intent:
+            print('SHORT_STUDIO_SCENE_OVERLAY=DEFERRED_TO_FULL_SCENE_INSTALL', flush=True)
+        elif 'local-upload-manager' in args.apps and 'local-upload-manager' in selected:
             record = BASE / 'control/state/local-upload-manager.json'
             state = json.loads(record.read_text()) if record.is_file() else {}
             if state.get('status') == 'ACTIVE' and state.get('revision') == args.revision:

@@ -4,6 +4,8 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
+from contextlib import nullcontext
 
 from production.gateway import (legacy_voice_publication_required, nginx_config,
                                 public_apps_for_release, public_apps_for_revision)
@@ -11,6 +13,31 @@ from production.runtime import CATALOG
 
 
 class GatewayShellContractTests(unittest.TestCase):
+    def test_short_studio_defers_partial_scene_overlay_but_keeps_gateway_checks(self):
+        from production import gateway, scene_uploader_ui_release
+        sha = 'a' * 40
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            record = base / 'control/state/local-upload-manager.json'
+            record.parent.mkdir(parents=True)
+            record.write_text(json.dumps({'status': 'ACTIVE', 'revision': sha}))
+            for intent, expected_calls in (('[vps1-short-studio-release]', 0),
+                                           ('ordinary uploader release', 1)):
+                with self.subTest(intent=intent), patch('sys.argv', [
+                    'gateway', '--revision', sha, '--apps', 'local-upload-manager', 'short-maker'
+                ]), patch.object(gateway, 'BASE', base), patch.object(
+                    gateway, 'check_host'
+                ), patch.object(gateway, 'run', return_value=intent), patch.object(
+                    gateway, 'deployment_lock', return_value=nullcontext()
+                ), patch.object(gateway, 'public_apps_for_revision', return_value=[
+                    'local-upload-manager', 'short-maker'
+                ]), patch.object(gateway, 'install') as install, patch.object(
+                    gateway, 'legacy_voice_publication_required', return_value=False
+                ), patch.object(scene_uploader_ui_release, 'activate') as overlay:
+                    gateway.main()
+                    install.assert_called_once_with(['local-upload-manager', 'short-maker'])
+                    self.assertEqual(overlay.call_count, expected_calls)
+
     def test_gateway_manifest_is_fail_closed_then_verified(self):
         from production.gateway import shell_files, mark_shell_verified
         with tempfile.TemporaryDirectory() as tmp:
