@@ -21,6 +21,8 @@ def browser_acceptance():
     # The direct Song Studio URL proxies this same Voice document but selects
     # Audio Downloader and preserves its canonical URL, even on refresh.
     canonical=voice
+    experiment=Template((ROOT/'apps/scene-builder/part01/templates/base.html').read_text()).render(
+        request={'session':{'is_admin':True,'app_access':'all'}},page='experiment_studio',username='fixture')
     for old,new,expected in (
         ("(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/audio-downloader'",
          "'/voice-studio/tts/api/audio-downloader'",1),
@@ -39,6 +41,7 @@ def browser_acceptance():
     def route(req):
         url=req.request.url; path=url.split('http://audit.test')[-1].split('?')[0]
         if path=='/voice-studio/app':return req.fulfill(content_type='text/html',body=voice)
+        if path=='/experiment-studio/':return req.fulfill(content_type='text/html',body=experiment)
         if path=='/song-studio/':return req.fulfill(content_type='text/html',body='<script>location.replace("/audio-downloader/")</script>')
         if path=='/audio-downloader/':return req.fulfill(content_type='text/html',body=canonical)
         if path.startswith('/static/'):
@@ -83,7 +86,9 @@ def browser_acceptance():
             expect(page.locator('.vs-engine-selector')).not_to_be_visible()
             if width < 761:
                 page.locator('.vps1-native-toggle').click()
-            page.locator('#vps1-native-site-sidebar nav a[href*="#vps1-production"]').click()
+            page.locator('#vps1-native-site-sidebar nav a[href="/experiment-studio/"]').click()
+            expect(page).to_have_url('http://audit.test/experiment-studio/')
+            page.locator('nav[aria-label="Experiment Studio"] a[href^="/voice-studio/app"]').click()
             expect(page.locator('.vs-engine-selector')).to_be_visible()
             expect(page.locator('#vsaProxy')).not_to_be_visible()
             page.locator('[data-vps1-tab="clone"]').click()
