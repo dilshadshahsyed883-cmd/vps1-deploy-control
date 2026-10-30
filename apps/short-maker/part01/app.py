@@ -29,7 +29,7 @@ APP_TITLE = "Short Maker"
 DATA_ROOT = Path(os.environ.get("SHORT_MAKER_DATA", "/var/lib/short-maker"))
 JOBS_ROOT = DATA_ROOT / "jobs"
 JOBS_ROOT.mkdir(parents=True, exist_ok=True)
-SHORT_VPS_ROOT = Path(os.environ.get("SHORT_STUDIO_VPS_FOLDER_ROOT", "/var/lib/short-studio/shorts"))
+SHORT_VPS_ROOT = Path(os.environ.get("SHORT_STUDIO_VPS_FOLDER_ROOT", str(DATA_ROOT / "vps_short_folders")))
 SHORT_VPS_DEFAULT = "Default"
 FFMPEG = shutil.which("ffmpeg") or "/usr/bin/ffmpeg"
 RCLONE = shutil.which("rclone") or "/usr/bin/rclone"
