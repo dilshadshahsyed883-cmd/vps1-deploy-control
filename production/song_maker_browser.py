@@ -1,6 +1,7 @@
 """Disposable real-browser/worker acceptance; NOT production login or Drive proof."""
 import json
 import os
+import shutil
 from pathlib import Path
 import socket
 import subprocess
@@ -34,6 +35,16 @@ def main():
                     processes.append(subprocess.Popen([sys.executable,'-m','songmaker.worker',lane],cwd=SOURCE,env=env,stdout=log,stderr=log))
                 Image.new('RGB',(100,200),'#2b75ba').save(root/'image.png')
                 subprocess.run(['ffmpeg','-v','error','-y','-f','lavfi','-i','sine=frequency=440:duration=1.27',str(root/'Voice name.wav')],check=True)
+                # Folder fixtures: two valid songs, one missing audio and one
+                # ambiguous image pair. Only unambiguous pairs may be uploaded.
+                batch_folder = root / 'album'
+                batch_folder.mkdir()
+                for name in ('Song A', 'Song B', 'Waiting'):
+                    shutil.copyfile(root / 'image.png', batch_folder / (name + '.png'))
+                for name in ('Song A', 'Song B', 'Conflict'):
+                    shutil.copyfile(root / 'Voice name.wav', batch_folder / (name + '.wav'))
+                shutil.copyfile(root / 'image.png', batch_folder / 'Conflict.png')
+                shutil.copyfile(root / 'image.png', batch_folder / 'Conflict.webp')
                 with sync_playwright() as p:
                     browser=p.chromium.launch()
                     context=browser.new_context(extra_http_headers={'X-Auth-User':'disposable-browser','X-Is-Admin':'1'})
@@ -110,6 +121,39 @@ def main():
                     page.get_by_text('View Details',exact=True).click()
                     assert page.locator('#details').is_visible()
                     page.locator('#closeDetails').click()
+                    # Local folder workflow is distinct from Drive Sync and
+                    # uses the same real single-pair submission endpoint.
+                    page.locator('[data-tab="input"]').click()
+                    folder_input = page.locator('#batchFolder')
+                    assert folder_input.get_attribute('webkitdirectory') is not None
+                    # Playwright's CI file chooser cannot reliably drive the
+                    # operating-system directory picker. Simulate the FileList
+                    # delivered by that picker, while asserting the real UI
+                    # keeps its directory-select attribute.
+                    folder_input.evaluate("(el) => {el.removeAttribute('webkitdirectory'); el.removeAttribute('directory');}")
+                    batch_files = [str(x) for x in sorted(batch_folder.iterdir())]
+                    folder_input.set_input_files(batch_files)
+                    page.wait_for_function("document.querySelector('#batchSummary').textContent.includes('2 matched pairs')")
+                    assert '1 unmatched' in page.locator('#batchSummary').inner_text()
+                    assert '1 conflicts' in page.locator('#batchSummary').inner_text()
+                    assert page.locator('#batchList .batchPair').count() == 4
+                    assert page.locator('#batchAdd').is_enabled()
+                    page.locator('#batchAdd').click()
+                    page.wait_for_function("document.querySelector('#batchSummary').textContent.includes('2 queued')",timeout=30000)
+                    assert page.locator('#batchOverall').evaluate('(el) => el.value') == 100
+                    assert page.locator('#batchRetry').is_disabled()
+                    assert page.locator('#batchFolder').is_enabled()
+                    page.locator('[data-tab="queue"]').click()
+                    page.wait_for_function("document.querySelector('#jobs').textContent.includes('Song A') && document.querySelector('#jobs').textContent.includes('Song B')")
+                    # Safe duplicate submission: the backend keeps a single job
+                    # per authenticated owner/content/filename pair.
+                    page.locator('[data-tab="input"]').click()
+                    folder_input.set_input_files([])
+                    folder_input.set_input_files(batch_files)
+                    page.locator('#batchAdd').click()
+                    page.wait_for_function("document.querySelector('#batchSummary').textContent.includes('2 queued')",timeout=30000)
+                    jobs = page.evaluate("fetch('/song-maker/api/state').then(x => x.json()).then(x => x.jobs)")
+                    assert len([j for j in jobs if j['project'] in ('Song A', 'Song B')]) == 2
                     browser.close()
                 print(json.dumps({'browser':'PASS','viewports':[360,390,768,1024,1440],'real_render_download':'PASS','production_auth':'NOT_TESTED','real_drive':'NOT_TESTED'}))
             finally:
