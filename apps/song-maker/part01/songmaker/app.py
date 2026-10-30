@@ -11,7 +11,7 @@ from fastapi import FastAPI, Depends, File, Form, HTTPException, Request, Upload
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from .store import Store, ACTIVE, TERMINAL
-from .media import IMAGES, AUDIO, FORMATS, QUALITIES, audio_duration, output_name, run
+from .media import IMAGES, AUDIO, FORMATS, QUALITIES, audio_duration, output_name, run, validate_overlay
 from .drive import CONFIG, Drive, folder_ref, default_settings, enqueue_pair, archive_eligible
 from .worker import capacity
 
@@ -87,6 +87,10 @@ def create_app(store=None):
         exports = {'resolution': settings.get('resolution', '1080p'),
                    'fit': settings.get('fit', 'fit'),
                    'quality': settings.get('quality', 'balanced'),
+                   'overlay_enabled': settings.get('overlay_enabled', False),
+                   'overlay_preset': settings.get('overlay_preset', 'light_leaks'),
+                   'overlay_strength': settings.get('overlay_strength', 35),
+                   'overlay_speed': settings.get('overlay_speed', 'normal'),
                    **store.record('exports', user['owner'])}
         return {'jobs': [public(j) for j in store.jobs(user['owner'])], 'settings': settings,
                 'export': exports, 'sync_access': True,
@@ -137,7 +141,14 @@ def create_app(store=None):
         resolution, fit, quality = data.get('resolution'), data.get('fit'), data.get('quality', 'balanced')
         if resolution not in FORMATS or fit not in {'fit', 'blur'} or quality not in QUALITIES:
             raise HTTPException(422, 'Unsupported export settings')
-        store.record('exports', user['owner'], {'resolution': resolution, 'fit': fit, 'quality': quality})
+        try:
+            overlays = validate_overlay(data.get('overlay_enabled', False),
+                                        data.get('overlay_preset', 'light_leaks'),
+                                        data.get('overlay_strength', 35),
+                                        data.get('overlay_speed', 'normal'))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(422, str(exc)) from None
+        store.record('exports', user['owner'], {'resolution': resolution, 'fit': fit, 'quality': quality, **overlays})
         return {'saved': True}
 
     @app.post('/song-maker/api/sync')
@@ -166,7 +177,7 @@ def create_app(store=None):
             raise HTTPException(409, 'Select exactly one image and one audio')
         settings = store.record('settings', user['owner']) or default_settings()
         export = store.record('exports', user['owner'])
-        settings.update({key: export[key] for key in ('resolution', 'fit', 'quality') if key in export})
+        settings.update({key: export[key] for key in ('resolution', 'fit', 'quality', 'overlay_enabled', 'overlay_preset', 'overlay_strength', 'overlay_speed') if key in export})
         job = enqueue_pair(store, user['owner'], settings, images[0], audio[0])
         return public(job)
 
@@ -178,6 +189,10 @@ def create_app(store=None):
         resolution = resolution or exports.get('resolution', settings.get('resolution', '1080p'))
         fit = fit or exports.get('fit', settings.get('fit', 'fit'))
         quality = quality or exports.get('quality', settings.get('quality', 'balanced'))
+        overlays = validate_overlay(exports.get('overlay_enabled', False),
+                                    exports.get('overlay_preset', 'light_leaks'),
+                                    exports.get('overlay_strength', 35),
+                                    exports.get('overlay_speed', 'normal'))
         form = await request.form()
         if len(form.getlist('image')) != 1 or len(form.getlist('audio')) != 1:
             raise HTTPException(422, 'Exactly one image and one audio required')
@@ -214,7 +229,8 @@ def create_app(store=None):
                     'project': Path(audio.filename).stem, 'image_name': image.filename, 'audio_name': audio.filename,
                     'image_ext': image_ext, 'audio_ext': audio_ext, 'duration': duration,
                     'local_name': output_name(audio.filename), 'origin': 'manual',
-                    'resolution': resolution, 'fit': fit, 'quality': quality, 'drive_status': 'Pending'})
+                    'resolution': resolution, 'fit': fit, 'quality': quality, **overlays,
+                     'drive_status': 'Pending'})
                 destination = store.root / 'inputs' / job['id']
                 if not destination.exists():
                     staging.rename(destination)
