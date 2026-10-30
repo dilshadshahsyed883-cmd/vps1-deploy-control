@@ -20,7 +20,7 @@ def main():
     writes=[]
     with sync_playwright() as p:
         # Use the installed runtime browser when running in Work Mode.
-        cached=list(Path('/root/.cache/ms-playwright').glob('chromium_headless_shell-*/chrome-linux/headless_shell'))
+        cached=list((Path.home()/'.cache/ms-playwright').glob('chromium_headless_shell-*/chrome-linux/headless_shell'))
         browser=p.chromium.launch(**({'executable_path':str(cached[-1])} if cached else {}))
         for width in (1440,1024,768,390,360):
             page=browser.new_page(viewport=dict(width=width,height=1050))
