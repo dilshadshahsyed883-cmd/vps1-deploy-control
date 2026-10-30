@@ -37,8 +37,10 @@ class CopyrightSidebarStability(unittest.TestCase):
         self.assertIn('class="lum-copyright-workspace"', base.replace(
             '<body class="{% if embedded_view %}lum-embedded{% endif %}{% if engine_instance in [\'song\', \'shortstudio\', \'copyright\'] %} lum-song-ui{% endif %}{% if engine_instance == \'copyright\' %} lum-copyright-workspace{% endif %}">',
             '<body class="lum-copyright-workspace">'))
-        for script in ("copyright_video_picker.js", "vps1_native_site_shell.js"):
-            self.assertIn(script,base if script.endswith("picker.js") else (ROOT/"apps/scene-builder/part01/static/vps1_native_site_shell.js").read_text())
+        self.assertIn("copyright_video_picker.js", base)
+        shared = (ROOT/"apps/scene-builder/part01/static/vps1_native_site_shell.js").read_text()
+        self.assertIn('["Copyright Studio", "/video-merger/", "copyright"]', shared)
+        self.assertIn('app === "copyright-uploader"', shared)
 
     def test_python_source_files_parse(self):
         for path in ("apps/copyright-uploader/part01/lum_engine/project_store.py",
