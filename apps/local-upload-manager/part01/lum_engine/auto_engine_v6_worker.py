@@ -205,6 +205,14 @@ def reconcile_completed(db:Database, store:V6Store, video_id:int) -> None:
     yid=clean(row.get("youtube_video_id"))
     if status not in {"UPLOADED","PUBLISHED"} or not yid:
         return
+    channel_meta=store.channel_job_meta(video_id)
+    if channel_meta and int(channel_meta.get("strict_thumbnail") or 0):
+        if clean(row.get("thumbnail_stage_state")).upper() != "SUCCEEDED":
+            # Never archive video or thumbnail until the required thumbnail is
+            # published, including direct recovery/retry paths.
+            store.set_job_state(video_id,"POST_UPLOAD_REVIEW",
+                                error="Required thumbnail not yet published; sources retained.")
+            return
     uploader=YouTubeUploader(db=db,worker_id=f"v6-reconcile-{os.getpid()}")
     if not source.get("remote_verified"):
         if not remote_verify(uploader,row,yid):
@@ -220,7 +228,6 @@ def reconcile_completed(db:Database, store:V6Store, video_id:int) -> None:
     emit_channel_sheet_writeback(store,video_id,"UPLOADED",youtube_url=verified_url,error="")
 
     staging=Path(clean(source.get("staging_path")))
-    channel_meta=store.channel_job_meta(video_id)
     try:
         staging.unlink(missing_ok=True)
         if channel_meta:
@@ -401,8 +408,14 @@ def process_one(db:Database,store:V6Store,item:dict,worker_id:str) -> None:
             return
         row=db.get_video(vid) or {}
         if clean(row.get("status")).upper() in {"UPLOADED","PUBLISHED"} and clean(row.get("youtube_video_id")):
-            store.set_job_state(vid,"REMOTE_VERIFYING")
-            reconcile_completed(db,store,vid)
+            if channel_meta:
+                # Channel jobs must pass thumbnail completion handling first.
+                # A pending/unknown stage may not fall through to Drive archiving.
+                store.set_job_state(vid,"POST_UPLOAD_REVIEW",
+                                    error="Thumbnail publishing status pending; sources retained.")
+            else:
+                store.set_job_state(vid,"REMOTE_VERIFYING")
+                reconcile_completed(db,store,vid)
         elif clean(row.get("status")).upper()=="FAILED":
             store.set_job_state(vid,"FAILED",error=clean(row.get("error_message")))
         elif clean(row.get("status")).upper()=="PAUSED":
