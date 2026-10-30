@@ -318,6 +318,66 @@ def restore(app, previous):
     event(app=app, rollback='PASS', data='PRESERVED')
 
 
+def shortstudio_rolled_back_empty(state: Path, *, unit_dir: Path = Path("/etc/systemd/system")) -> bool:
+    """Prove that a failed first install left *no* Short Studio owner state.
+
+    This permits a fresh isolated 8019 instance to be installed when the old
+    installer rolled back its services but retained an empty schema. Any
+    existing unit, live listener, channel, job, OAuth, media, or unfamiliar
+    database state fails closed; never use this rule for another uploader.
+    """
+    root = state / "lum-shortstudio"
+    marker = root / ".vps1-independent-engine"
+    if (root.is_symlink() or not root.is_dir() or marker.is_symlink()
+            or not marker.is_file() or marker.read_text().strip() != "shortstudio"):
+        return False
+    for suffix in ("web", "worker", "scheduler"):
+        unit = unit_dir / ("vps1-production-lum-shortstudio-" + suffix + ".service")
+        if unit.exists() or unit.is_symlink():
+            return False
+    with socket.socket() as probe:
+        probe.settimeout(0.5)
+        if probe.connect_ex(("127.0.0.1", 8019)) == 0:
+            return False
+
+    # The core and V6 databases are read only. Any row in a user-owned
+    # channel/project/media/schedule table proves this is not an empty first
+    # install, even when the worker is stopped or a job is merely queued.
+    databases = (
+        (root / "core/data/uploader.db",
+         ("videos", "channels", "auto_engine_profiles", "accounts")),
+        (root / "auto_engine_v6/auto_engine_v6.sqlite3",
+         ("profile_sources", "drive_videos", "thumbnails", "job_sources",
+          "upload_records", "script_history", "missed_alarms")),
+    )
+    for db, tables in databases:
+        if db.is_symlink() or (db.exists() and not db.is_file()):
+            return False
+        if not db.exists():
+            continue
+        with sqlite3.connect(db.as_uri() + "?mode=ro", uri=True, timeout=3) as conn:
+            conn.execute("PRAGMA query_only=ON")
+            existing = {row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+            for name in tables:
+                if name in existing and conn.execute(
+                        "SELECT 1 FROM " + name + " LIMIT 1").fetchone():
+                    return False
+            if "engine_state" in existing:
+                rows = conn.execute(
+                    "SELECT running, scheduler_armed FROM engine_state").fetchall()
+                if len(rows) != 1 or any(int(v) != 0 for v in rows[0]):
+                    return False
+    for relative in ("secure", "auto_engine_v6/staging",
+                     "auto_engine_v6/thumbnails", "auto_engine_v6/thumbnail_trash",
+                     "auto_engine_v6/reports"):
+        directory = root / relative
+        if directory.is_symlink() or (directory.exists() and
+                (not directory.is_dir() or any(directory.iterdir()))):
+            return False
+    return True
+
+
 def require_lum_release_idle(state: Path) -> None:
     """Fail closed before restarting any uploader web/worker process.
 
@@ -337,7 +397,19 @@ def require_lum_release_idle(state: Path) -> None:
         modes += (("song", 8018, "/local-upload-manager/modes/song/health", "lum-song"),)
     if ((state / "lum-shortstudio/core/data/uploader.db").exists() or
             Path("/etc/systemd/system/vps1-production-lum-shortstudio-web.service").exists()):
-        modes += (("shortstudio", 8019, "/short-uploader/health", "lum-shortstudio"),)
+        # After a failed first-install rollback, service units can be absent
+        # while an initialized but unused database remains on disk. Prove it
+        # contains zero user/channel/job/media state before skipping 8019
+        # health on this ONE unprovisioned instance.
+        try:
+            first_install = shortstudio_rolled_back_empty(state)
+        except (OSError, ValueError, TypeError, sqlite3.Error) as exc:
+            raise RuntimeError("LUM_RELEASE_BLOCKED: shortstudio empty-install proof failed (" +
+                               type(exc).__name__ + ")") from exc
+        if first_install:
+            event(app="local-upload-manager", shortstudio_first_install="EMPTY_ROLLBACK_PROVEN")
+        else:
+            modes += (("shortstudio", 8019, "/short-uploader/health", "lum-shortstudio"),)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     in_flight = ("CLAIMED", "UPLOADING", "THUMBNAIL_UPLOADING",
                  "PROCESSING", "IN_PROGRESS", "WAITING_NETWORK")

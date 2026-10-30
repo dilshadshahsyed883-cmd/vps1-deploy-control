@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import ast
 import os
+import sqlite3
+import tempfile
 from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from production import workers, short_studio_release
+from production import workers, short_studio_release, runtime
 
 ROOT = Path(__file__).resolve().parents[1]
 LUM = ROOT / "apps/local-upload-manager/part01"
@@ -146,6 +148,69 @@ class ShortStudioV1(unittest.TestCase):
             return 200, "text/html", b"Not the Short Uploader"
         with self.assertRaisesRegex(RuntimeError, "authenticated Short Uploader HTML readback failed"):
             short_studio_release.verify_https_route(get, lambda: "session=dummy", attempts=2, delay=0)
+
+    def test_recovered_first_install_requires_empty_owner_state(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            state, units = base / "state", base / "units"
+            root = state / "lum-shortstudio"
+            root.mkdir(parents=True)
+            units.mkdir()
+            (root / ".vps1-independent-engine").write_text("shortstudio\n")
+            core = root / "core/data/uploader.db"
+            v6 = root / "auto_engine_v6/auto_engine_v6.sqlite3"
+            core.parent.mkdir(parents=True)
+            v6.parent.mkdir(parents=True)
+            with sqlite3.connect(core) as db:
+                db.execute("CREATE TABLE videos (id INTEGER PRIMARY KEY)")
+                db.execute("CREATE TABLE channels (id INTEGER PRIMARY KEY)")
+            with sqlite3.connect(v6) as db:
+                db.execute("CREATE TABLE job_sources (video_id INTEGER PRIMARY KEY)")
+                db.execute("CREATE TABLE engine_state (running INTEGER, scheduler_armed INTEGER)")
+                db.execute("INSERT INTO engine_state VALUES(0,0)")
+            with patch.object(runtime.socket, "socket") as socket_ctor:
+                socket_ctor.return_value.__enter__.return_value.connect_ex.return_value = 111
+                self.assertTrue(runtime.shortstudio_rolled_back_empty(state, unit_dir=units))
+                with sqlite3.connect(core) as db:
+                    db.execute("INSERT INTO videos VALUES(1)")
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(state, unit_dir=units))
+                with sqlite3.connect(core) as db:
+                    db.execute("DELETE FROM videos")
+                    db.execute("INSERT INTO channels VALUES(1)")
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(state, unit_dir=units))
+                with sqlite3.connect(core) as db:
+                    db.execute("DELETE FROM channels")
+                with sqlite3.connect(v6) as db:
+                    db.execute("INSERT INTO job_sources VALUES(1)")
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(state, unit_dir=units))
+                with sqlite3.connect(v6) as db:
+                    db.execute("DELETE FROM job_sources")
+                (units / "vps1-production-lum-shortstudio-web.service").write_text("unit")
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(state, unit_dir=units))
+                (units / "vps1-production-lum-shortstudio-web.service").unlink()
+                (root / "secure").mkdir()
+                (root / "secure/oauth-token.json").write_text("{}")
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(state, unit_dir=units))
+
+    def test_first_install_rejects_live_listener_and_armed_scheduler(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "state/lum-shortstudio"
+            root.mkdir(parents=True)
+            units = Path(td) / "units"
+            units.mkdir()
+            (root / ".vps1-independent-engine").write_text("shortstudio\n")
+            dbfile = root / "auto_engine_v6/auto_engine_v6.sqlite3"
+            dbfile.parent.mkdir(parents=True)
+            with sqlite3.connect(dbfile) as db:
+                db.execute("CREATE TABLE engine_state (running INTEGER, scheduler_armed INTEGER)")
+                db.execute("INSERT INTO engine_state VALUES(0,1)")
+            with patch.object(runtime.socket, "socket") as sock:
+                sock.return_value.__enter__.return_value.connect_ex.return_value = 111
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(root.parent, unit_dir=units))
+                with sqlite3.connect(dbfile) as db:
+                    db.execute("UPDATE engine_state SET scheduler_armed=0")
+                sock.return_value.__enter__.return_value.connect_ex.return_value = 0
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(root.parent, unit_dir=units))
 
     def test_release_stays_in_existing_protected_path(self):
         runtime = (ROOT / "production/runtime.py").read_text()
