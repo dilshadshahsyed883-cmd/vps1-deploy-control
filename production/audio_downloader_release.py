@@ -113,6 +113,29 @@ def smoke(target, environment):
     return value
 
 
+def prepare_audio_runtime(root, environment):
+    """Stage one pinned Audio-only venv; never change shared Voice packages."""
+    runtime = root / 'runtimes/yt-dlp-2026.10.26'
+    require(not runtime.is_symlink(), 'isolated runtime cannot be a symlink')
+    if runtime.exists():
+        require((runtime / 'bin/yt-dlp').is_file(), 'incomplete isolated runtime')
+        return runtime, False
+    runner = next(p for p in (Path('/usr/sbin/runuser'), Path('/usr/bin/runuser')) if p.is_file())
+    python = Path(environment['PATH'].split(':')[0]) / 'python'
+    prefix = [str(runner), '-u', 'ubuntu', '--']
+    try:
+        run(prefix + [str(python), '-m', 'venv', str(runtime)], quiet=True, timeout=120)
+        run(prefix + [str(runtime / 'bin/python'), '-m', 'pip', 'install', '--disable-pip-version-check',
+                      '--no-cache-dir', 'yt-dlp[default]==2026.10.26'], quiet=True, timeout=360)
+        version = run(prefix + [str(runtime / 'bin/yt-dlp'), '--version'], quiet=True)
+        require(version.strip() == '2026.10.26', 'isolated yt-dlp version mismatch')
+        event(app='audio-downloader', isolated_runtime='2026.10.26', shared_packages='UNCHANGED')
+        return runtime, True
+    except BaseException:
+        shutil.rmtree(runtime, ignore_errors=True)
+        raise
+
+
 def restore_smoke(source, environment, baseline=None):
     """Strict same-ID receipt: provider/auth errors never count as a pass."""
     python = Path(environment['PATH'].split(':')[0]) / 'python'
@@ -183,7 +206,13 @@ def install(revision, *, restore_proxy=True, include_thumbnail=False, restore_do
     require(not target.exists() and not journal.exists(), 'immutable release already exists')
     if restore_download:
         require(not restore_proxy and include_thumbnail, 'restore must preserve independent workers and HTML')
-        comparison = restore_smoke(source, environment, baseline=old)
+        runtime, runtime_new = prepare_audio_runtime(root, environment)
+        try:
+            comparison = restore_smoke(source, environment, baseline=old)
+        except BaseException:
+            if runtime_new:
+                shutil.rmtree(runtime)
+            raise
         proxy_path = root / 'data/proxy_settings.json'
         before = proxy_path.read_bytes()
         require(hashlib.sha256(before).hexdigest() == comparison['config_sha256'],
@@ -261,6 +290,8 @@ def install(revision, *, restore_proxy=True, include_thumbnail=False, restore_do
         event(app='voice-studio', result=result_name, workers='PRESERVED', data='PRESERVED',
               https='PASS', sqlite_backup='PASS', proxy_restore=('VERIFIED_ROUTE_SELECTED' if restore_download else 'ENABLED') if proxy_changed else 'UNCHANGED', smoke=result, rollback=str(journal))
     except BaseException:
+        if restore_download and runtime_new:
+            shutil.rmtree(runtime, ignore_errors=True)
         if proxy_changed:
             replace_private(proxy_plan, proxy_plan['before'])
             event(app='audio-downloader', proxy_restore='ROLLED_BACK', credentials_logged=False)

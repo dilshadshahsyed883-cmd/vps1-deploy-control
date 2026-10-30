@@ -212,7 +212,9 @@ def sanitized_row(row: sqlite3.Row) -> dict:
 
 
 def deps() -> dict:
-    ytdlp = YTDLP if Path(YTDLP).is_file() and os.access(YTDLP, os.X_OK) else shutil.which('yt-dlp')
+    isolated = ROOT / 'runtimes/yt-dlp-2026.10.26/bin/yt-dlp'
+    selected = str(isolated) if isolated.is_file() and not os.environ.get('AUDIO_DOWNLOADER_YTDLP_BIN') else YTDLP
+    ytdlp = selected if Path(selected).is_file() and os.access(selected, os.X_OK) else shutil.which('yt-dlp')
     # The production Voice venv already owns yt_dlp; do not require a second app venv.
     module_ready = importlib.util.find_spec('yt_dlp') is not None
     command = [ytdlp] if ytdlp else ([sys.executable, '-m', 'yt_dlp'] if module_ready else [])

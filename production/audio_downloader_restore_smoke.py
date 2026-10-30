@@ -40,10 +40,11 @@ def receipt(path, ffmpeg):
             'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
 
 
-def worker(source, root, config, name):
+def worker(source, root, config, name, state):
     os.environ['AUDIO_DOWNLOADER_ROOT'] = str(root)
     m = load(source, name)
     m.init_storage()
+    m.deps = lambda: state
     m._write_proxy_config(config)
     # Compare unauthenticated access even when a private live session exists.
     m._cookie_bytes = lambda: None
@@ -104,9 +105,7 @@ def main(source, baseline=None):
     original = load(source, 'restore_live_dependencies')
     state = original.deps()
     command = state['ytdlp_command']
-    # Preserve the exact live binary choice when isolating the test data root.
-    if state.get('ytdlp'):
-        os.environ['AUDIO_DOWNLOADER_YTDLP_BIN'] = state['ytdlp']
+    baseline_state = load(baseline, 'restore_baseline_dependencies').deps() if baseline else state
     config_path = live_root / 'data/proxy_settings.json'
     cfg = json.loads(config_path.read_text()) if config_path.is_file() else original._proxy_blank()
     report = {'video_id': VIDEO, 'owner_jobs_mutated': False, 'cookies_used': False,
@@ -135,15 +134,14 @@ def main(source, baseline=None):
             current = Path(tmp) / route
             value = {}
             if baseline:
-                value['baseline'] = worker(baseline, current / 'baseline', config, 'baseline_' + route)
-            value['candidate'] = worker(source, current / 'candidate', config, 'candidate_' + route)
+                value['baseline'] = worker(baseline, current / 'baseline', config, 'baseline_' + route, baseline_state)
+            value['candidate'] = worker(source, current / 'candidate', config, 'candidate_' + route, state)
+            value['python_api_reference'] = api_reference(source, current / 'api', config)
             report['routes'][route] = value
         passed = [r for r in configurations if report['routes'][r]['candidate']['result'] == 'PASS']
         selected = active if active in passed else (passed[0] if passed else None)
         report['verified_route'] = selected
         if selected:
-            if baseline:
-                report['python_api_reference'] = api_reference(source, Path(tmp) / 'api', configurations[selected])
             report['result'] = 'PASS'
     print(json.dumps(report, sort_keys=True), flush=True)
     return 0 if report['result'] == 'PASS' else 1

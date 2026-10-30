@@ -211,6 +211,18 @@ class AudioProxyTests(unittest.TestCase):
         self.assertEqual(saved['upload_retry_count'], 0)
         self.assertNotIn('Configure fresh private YouTube cookies', saved['error'])
 
+    def test_isolated_runtime_preferred_without_overriding_explicit_binary(self):
+        isolated = self.m.ROOT / 'runtimes/yt-dlp-2026.10.26/bin/yt-dlp'
+        isolated.parent.mkdir(parents=True)
+        isolated.write_text('stub'); isolated.chmod(0o755)
+        with patch.dict(os.environ):
+            os.environ.pop('AUDIO_DOWNLOADER_YTDLP_BIN', None)
+            self.assertEqual(self.m.deps()['ytdlp_command'], [str(isolated)])
+        custom = self.m.ROOT / 'custom-yt-dlp'
+        custom.write_text('stub'); custom.chmod(0o755)
+        with patch.dict(os.environ, {'AUDIO_DOWNLOADER_YTDLP_BIN': str(custom)}), patch.object(self.m, 'YTDLP', str(custom)):
+            self.assertEqual(self.m.deps()['ytdlp_command'], [str(custom)])
+
     def test_windows_audio_only_selector_preserved_in_cli(self):
         def execute(args, **kw):
             self.assertEqual(args[args.index('--format') + 1], 'bestaudio[ext=m4a]/bestaudio/best')
