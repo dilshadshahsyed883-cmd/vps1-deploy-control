@@ -136,7 +136,7 @@ def prepare_audio_runtime(root, environment):
         raise
 
 
-def restore_smoke(source, environment, baseline=None):
+def restore_smoke(source, environment, baseline=None, *, allow_download_failure=False):
     """Strict same-ID receipt: provider/auth errors never count as a pass."""
     python = Path(environment['PATH'].split(':')[0]) / 'python'
     runner = next(p for p in (Path('/usr/sbin/runuser'), Path('/usr/bin/runuser')) if p.is_file())
@@ -156,9 +156,27 @@ def restore_smoke(source, environment, baseline=None):
     except (ValueError, IndexError):
         raise RuntimeError('Audio restore comparison missing sanitized receipt') from None
     event(app='audio-downloader', restore_comparison=report)
-    require(proc.returncode == 0 and report.get('result') == 'PASS',
-            'same-ID real MP3/thumbnail download failed on tested routes')
+    if not allow_download_failure:
+        require(proc.returncode == 0 and report.get('result') == 'PASS',
+                'same-ID real MP3/thumbnail download failed on tested routes')
+    else:
+        require(proc.returncode in (0, 1) and report.get('video_id') == 'sQ74S7cZ3Kg'
+                and isinstance(report.get('routes'), dict) and 'direct' in report['routes'],
+                'missing real download diagnostic receipt')
     return report
+
+
+def error_label_overlay(installed):
+    """Only failure-stage persistence changes; retain the deployed downloader engine."""
+    old = b"next_retry_at=None, progress_stage='manual retry required')"
+    new = b"next_retry_at=None, progress_stage='download failed' if isinstance(error, DownloadFailure) else 'manual retry required')"
+    if new in installed:
+        require(installed.count(new) == 1, 'duplicate failure-stage anchor')
+        return installed
+    require(installed.count(old) == 1, 'deployed failure-stage ownership drift')
+    updated = installed.replace(old, new, 1)
+    return updated.replace(b'Configure fresh private YouTube cookies; no automatic retry or bypass guarantee.',
+                           b'Check the selected proxy/direct route and downloader runtime; an authorized session may be needed for restricted content. No automatic retry.', 1)
 
 
 def audio_thumbnail_overlay(installed: bytes, source: bytes) -> bytes:
@@ -183,7 +201,7 @@ def audio_thumbnail_overlay(installed: bytes, source: bytes) -> bytes:
     return updated
 
 
-def install(revision, *, restore_proxy=True, include_thumbnail=False, restore_download=False):
+def install(revision, *, restore_proxy=True, include_thumbnail=False, restore_download=False, diagnostic_only=False):
     require(not (restore_proxy and include_thumbnail), 'thumbnail overlay cannot restore proxy')
     require(len(revision) == 40 and all(c in '0123456789abcdef' for c in revision), 'invalid SHA')
     require(CURRENT.is_symlink(), 'unmanaged current Voice release')
@@ -197,10 +215,11 @@ def install(revision, *, restore_proxy=True, include_thumbnail=False, restore_do
     old = previous / MODULE
     source = REPO / 'apps/voice-studio' / MODULE
     require(old.is_file() and not old.is_symlink() and not source.is_symlink(), 'untrusted Audio module')
-    payload = source.read_bytes()
+    require(not (restore_download and diagnostic_only), 'conflicting release modes')
+    payload = error_label_overlay(old.read_bytes()) if diagnostic_only else source.read_bytes()
     ast.parse(payload)
     require(b'def youtube_execution' in payload, 'reviewed proxy implementation missing')
-    kind = 'audio-restore-only' if restore_download else ('audio-thumbnail-only' if include_thumbnail else ('audio-proxy-only' if restore_proxy else 'audio-filename-only'))
+    kind = 'audio-error-label-only' if diagnostic_only else 'audio-restore-only' if restore_download else ('audio-thumbnail-only' if include_thumbnail else ('audio-proxy-only' if restore_proxy else 'audio-filename-only'))
     target = RELEASES / (revision + '-' + kind)
     journal = BASE / 'transactions' / kind / revision
     require(not target.exists() and not journal.exists(), 'immutable release already exists')
@@ -279,14 +298,16 @@ def install(revision, *, restore_proxy=True, include_thumbnail=False, restore_do
         run(['systemctl', 'start', UNIT], quiet=True, timeout=60)
         http_check('voice-studio')
         verify()
-        if restore_download:
+        if diagnostic_only:
+            result = restore_smoke(target / MODULE, environment, allow_download_failure=True)
+        elif restore_download:
             result = restore_smoke(target / MODULE, environment)
             route = 'selected_proxy' if json.loads((root / 'data/proxy_settings.json').read_text()).get('enabled') else 'direct'
             require(result['routes'][route]['candidate']['result'] == 'PASS', 'active deployed route download failed')
         else:
             result = smoke(target, environment)
         atomic_json(journal / 'result.json', {'state': 'ACTIVE', 'revision': revision, 'smoke': result})
-        result_name = 'PASS_AUDIO_RESTORE_ONLY' if restore_download else 'PASS_AUDIO_THUMBNAIL_ONLY' if include_thumbnail else ('PASS_AUDIO_PROXY_ONLY' if restore_proxy else 'PASS_AUDIO_FILENAME_ONLY')
+        result_name = 'PASS_AUDIO_ERROR_LABEL_ONLY' if diagnostic_only else 'PASS_AUDIO_RESTORE_ONLY' if restore_download else 'PASS_AUDIO_THUMBNAIL_ONLY' if include_thumbnail else ('PASS_AUDIO_PROXY_ONLY' if restore_proxy else 'PASS_AUDIO_FILENAME_ONLY')
         event(app='voice-studio', result=result_name, workers='PRESERVED', data='PRESERVED',
               https='PASS', sqlite_backup='PASS', proxy_restore=('VERIFIED_ROUTE_SELECTED' if restore_download else 'ENABLED') if proxy_changed else 'UNCHANGED', smoke=result, rollback=str(journal))
     except BaseException:

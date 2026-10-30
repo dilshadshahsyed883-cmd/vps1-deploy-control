@@ -383,6 +383,17 @@ class AudioReleaseFenceTests(unittest.TestCase):
             self.assertEqual(command[4], str(exe))
             self.assertEqual(start.call_args.kwargs['env']['PATH'], tmp)
             self.assertEqual(output['result'], 'YOUTUBE_PROVIDER_CHALLENGE')
+    def test_error_label_overlay_preserves_deployed_engine_bytes(self):
+        from production.audio_downloader_release import error_label_overlay
+        original = (ROOT / 'apps/voice-studio/part01/audio_downloader_api.py').read_bytes()
+        new = b"next_retry_at=None, progress_stage='download failed' if isinstance(error, DownloadFailure) else 'manual retry required')"
+        old = b"next_retry_at=None, progress_stage='manual retry required')"
+        installed = original.replace(new, old)
+        self.assertEqual(error_label_overlay(installed), original)
+        self.assertEqual(error_label_overlay(original), original)
+        with self.assertRaisesRegex(RuntimeError, 'ownership drift'):
+            error_label_overlay(b'unknown source')
+
     def test_restore_smoke_rejects_auth_failure_even_if_process_exits_zero(self):
         from production import audio_downloader_release as release
         class Process:
