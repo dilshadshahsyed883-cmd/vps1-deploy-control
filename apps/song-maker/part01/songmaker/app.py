@@ -11,7 +11,7 @@ from fastapi import FastAPI, Depends, File, Form, HTTPException, Request, Upload
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from .store import Store, ACTIVE, TERMINAL
-from .media import IMAGES, AUDIO, FORMATS, audio_duration, output_name, run
+from .media import IMAGES, AUDIO, FORMATS, QUALITIES, audio_duration, output_name, run
 from .drive import CONFIG, Drive, folder_ref, default_settings, enqueue_pair, archive_eligible
 from .worker import capacity
 
@@ -84,9 +84,10 @@ def create_app(store=None):
     @app.get('/song-maker/api/state')
     def state(user=Depends(principal)):
         settings = store.record('settings', user['owner']) or default_settings()
-        exports = store.record('exports', user['owner']) or {
-            'resolution': settings.get('resolution', '1080p'),
-            'fit': settings.get('fit', 'fit')}
+        exports = {'resolution': settings.get('resolution', '1080p'),
+                   'fit': settings.get('fit', 'fit'),
+                   'quality': settings.get('quality', 'balanced'),
+                   **store.record('exports', user['owner'])}
         return {'jobs': [public(j) for j in store.jobs(user['owner'])], 'settings': settings,
                 'export': exports, 'sync_access': True,
                 'sync': store.record('sync', user['owner']), 'admin': user['admin'],
@@ -133,10 +134,10 @@ def create_app(store=None):
     async def save_export(request: Request, user=Depends(principal)):
         # Personal output presets never change credentials or other users' jobs.
         data = await request.json()
-        resolution, fit = data.get('resolution'), data.get('fit')
-        if resolution not in FORMATS or fit not in {'fit', 'blur'}:
+        resolution, fit, quality = data.get('resolution'), data.get('fit'), data.get('quality', 'balanced')
+        if resolution not in FORMATS or fit not in {'fit', 'blur'} or quality not in QUALITIES:
             raise HTTPException(422, 'Unsupported export settings')
-        store.record('exports', user['owner'], {'resolution': resolution, 'fit': fit})
+        store.record('exports', user['owner'], {'resolution': resolution, 'fit': fit, 'quality': quality})
         return {'saved': True}
 
     @app.post('/song-maker/api/sync')
@@ -165,22 +166,23 @@ def create_app(store=None):
             raise HTTPException(409, 'Select exactly one image and one audio')
         settings = store.record('settings', user['owner']) or default_settings()
         export = store.record('exports', user['owner'])
-        settings.update({key: export[key] for key in ('resolution', 'fit') if key in export})
+        settings.update({key: export[key] for key in ('resolution', 'fit', 'quality') if key in export})
         job = enqueue_pair(store, user['owner'], settings, images[0], audio[0])
         return public(job)
 
     @app.post('/song-maker/api/jobs')
     async def submit(request: Request, image: UploadFile = File(...), audio: UploadFile = File(...),
-                     resolution: str = Form(''), fit: str = Form(''), user=Depends(principal)):
+                     resolution: str = Form(''), fit: str = Form(''), quality: str = Form(''), user=Depends(principal)):
         exports = store.record('exports', user['owner'])
         settings = store.record('settings', user['owner']) or default_settings()
         resolution = resolution or exports.get('resolution', settings.get('resolution', '1080p'))
         fit = fit or exports.get('fit', settings.get('fit', 'fit'))
+        quality = quality or exports.get('quality', settings.get('quality', 'balanced'))
         form = await request.form()
         if len(form.getlist('image')) != 1 or len(form.getlist('audio')) != 1:
             raise HTTPException(422, 'Exactly one image and one audio required')
         image_ext, audio_ext = Path(image.filename or '').suffix.lower(), Path(audio.filename or '').suffix.lower()
-        if image_ext not in IMAGES or audio_ext not in AUDIO or resolution not in FORMATS or fit not in {'fit', 'blur'}:
+        if image_ext not in IMAGES or audio_ext not in AUDIO or resolution not in FORMATS or fit not in {'fit', 'blur'} or quality not in QUALITIES:
             raise HTTPException(422, 'Select one supported image, one audio file and valid render options')
         capacity(store.root, 512*1024*1024)
         token = uuid.uuid4().hex
@@ -212,7 +214,7 @@ def create_app(store=None):
                     'project': Path(audio.filename).stem, 'image_name': image.filename, 'audio_name': audio.filename,
                     'image_ext': image_ext, 'audio_ext': audio_ext, 'duration': duration,
                     'local_name': output_name(audio.filename), 'origin': 'manual',
-                    'resolution': resolution, 'fit': fit, 'drive_status': 'Pending'})
+                    'resolution': resolution, 'fit': fit, 'quality': quality, 'drive_status': 'Pending'})
                 destination = store.root / 'inputs' / job['id']
                 if not destination.exists():
                     staging.rename(destination)
