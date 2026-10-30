@@ -826,7 +826,7 @@
         {% if p and p.channel_db_id %}
         <button type="button" class="lum-button secondary tiny" data-ae-sync-scan data-profile-id="{{ p.id }}" data-csrf="{{ csrf }}">Sync Channel</button>
         {% else %}
-        <button class="lum-button secondary tiny" type="button" data-ae-open-schedules>Manage Legacy Profile Schedules</button>
+        {% if engine_instance not in ['song', 'shortstudio'] %}<button class="lum-button secondary tiny" type="button" data-ae-open-schedules>Manage Legacy Profile Schedules</button>{% endif %}
         {% if p %}<button type="button" class="lum-button secondary tiny" data-ae-sync-scan data-profile-id="{{ p.id }}" data-csrf="{{ csrf }}">Sync & Scan Sources</button>{% endif %}
         {% endif %}
       </div>
@@ -874,6 +874,19 @@
         <div><strong data-ae-generation-title>Ready</strong><span data-ae-generation-detail></span></div>
       </div>
 
+      {% if engine_instance in ['song', 'shortstudio'] %}
+      <div class="lum-ae-pc-row lum-ae-planner-actions lum-ae-bulk-profile-controls" style="margin:12px 0 10px" aria-label="Auto Engine profile controls">
+        <form method="post" action="{{ base_path }}/actions/auto-v6/generate-all" data-lum-soft-form data-confirm="Generate queue jobs for all enabled profiles? This does not start the upload engine.">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <input type="hidden" name="confirmation" value="GENERATE ALL">
+          <button class="lum-button primary" type="submit">Generate Queue Now</button>
+        </form>
+        <button class="lum-button secondary" type="button" data-ae-preview-all>Preview Next Jobs</button>
+        <button class="lum-button secondary" type="button" data-ae-open-schedules>Profile Schedules</button>
+        <button class="lum-button secondary" type="button" data-ae-jump-start-all>Start All Profiles</button>
+      </div>
+      <div id="lum-ae-bulk-preview" class="lum-ae-result" role="status" aria-live="polite" hidden></div>
+      {% endif %}
       <div class="lum-table-wrap lum-ae-automation-profiles-wrap">
         <table class="lum-table lum-ae-automation-profiles" {% if engine_instance == 'shortstudio' %}data-short-group-summary{% elif engine_instance == 'song' %}data-song-group-summary{% endif %}>
           {% if engine_instance in ['shortstudio', 'song'] %}
