@@ -128,6 +128,17 @@
         "unit": "apps/vps-storage-manager/candidate/vps1-storage-candidate.service",
         "verified_on_vps": false
       }
+    },
+    "copyright-uploader": {
+      "services": [
+        {
+          "part": "part01",
+          "module": "lum_engine.standalone_app:app",
+          "port": 8020,
+          "requirements": "requirements.txt"
+        }
+      ],
+      "pending": "Manual uploader. No Auto Engine, scheduler or automatic scanning."
     }
   }
 }
