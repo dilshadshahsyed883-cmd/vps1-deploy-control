@@ -167,6 +167,9 @@ def smoke(app):
         env = {**os.environ, **environment(app, state), 'FRESH_WEBSITE_SMOKE_TEST': '1'}
         # Test data never points at a production path or a Drive credential.
         env['RCLONE_CONFIG'] = str(state / 'absent-rclone.conf')
+        if app == 'copyright-uploader':
+            # Disposable empty source root: smoke must never enumerate live user media.
+            env['COPYRIGHT_MEDIA_ROOT'] = str(state / 'copyright_handoff')
         env['PATH'] = str(Path(sys.executable).parent) + os.pathsep + os.environ.get('PATH', '')
         if app == 'scene-builder':
             env.update(PYTHONPATH=str(REPO), WEB_USERNAME='runtime-test', WEB_ACCESS_KEY='runtime-test-only')
