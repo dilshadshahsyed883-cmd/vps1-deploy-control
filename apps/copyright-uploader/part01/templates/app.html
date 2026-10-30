@@ -8,7 +8,7 @@
 
 
 
-  {% if (tab != 'auto_stream' or engine_instance == 'engine1') and engine_instance not in ['song', 'shortstudio'] %}
+  {% if (tab != 'auto_stream' or engine_instance == 'engine1') and engine_instance not in ['song', 'shortstudio', 'copyright'] %}
   <nav class="lum-primary-workspaces" aria-label="Auto Uploader main subtabs">
     <a class="{{ 'active' if tab != 'auto_stream' else '' }}" href="{{ base_path }}/app?tab=dashboard" aria-current="{{ 'page' if tab != 'auto_stream' else 'false' }}">Auto Uploader</a>
     <a class="{{ 'active' if tab == 'auto_stream' else '' }}" href="/auto-stream/" aria-current="{{ 'page' if tab == 'auto_stream' else 'false' }}">Auto Stream</a>
