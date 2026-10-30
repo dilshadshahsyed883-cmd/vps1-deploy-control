@@ -240,7 +240,7 @@ class ShortStudioFolderHandoffTests(unittest.TestCase):
         self.assertIn('DATA_ROOT / "vps_short_folders"', maker)
         self.assertIn('"/var/lib/fresh-website/short-maker/vps_short_folders"', engine)
         workflow = (ROOT / ".github/workflows/vps1-short-studio-release.yml").read_text(encoding="utf-8")
-        self.assertIn("for app in local-upload-manager short-maker; do", workflow)
+        self.assertIn("apps=(local-upload-manager short-maker)", workflow)
         self.assertNotIn("for app in local-upload-manager short-maker video-merger scene-builder", workflow)
         self.assertIn("AUTO_SCRIPT=OFFLINE", workflow)
 
