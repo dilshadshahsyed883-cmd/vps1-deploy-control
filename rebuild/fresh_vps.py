@@ -71,7 +71,7 @@ def sources(app):
         # mutable SQLite database directory. Only the exact LUM repository
         # code package is exempt; actual .db/.sqlite files are never imported.
         lum_db_code = (
-            app == "local-upload-manager"
+            app in {"local-upload-manager", "copyright-uploader"}
             and len(rel.parts) >= 5
             and rel.parts[0] in ("part01", "part02", "part03")
             and rel.parts[1:4] == ("desktop_core", "modules", "db")
