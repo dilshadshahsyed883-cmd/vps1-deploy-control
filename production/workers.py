@@ -129,6 +129,9 @@ def restore(saved):
 
 def unit(app, revision, key, part, entry):
     python = BASE / 'venvs' / app / revision / 'bin/python'
+    # Only the isolated Short Uploader worker may delete verified Short Maker
+    # MP4s. Keep the shared data path excluded from every other service.
+    shortstudio_mp4_write = f' -{DATA}/short-maker/vps_short_folders' if key == 'lum-shortstudio-worker' else ''
     dependency = 'Wants' if app == 'voice-studio' and key in ('edge-worker', 'kokoro-worker') else 'Requires'
     return f'''[Unit]
 Description=VPS1 {key}
@@ -155,7 +158,7 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=read-only
 PrivateTmp=yes
-ReadWritePaths={DATA}/{app} -/home/ubuntu/.config/masterctl
+ReadWritePaths={DATA}/{app} -/home/ubuntu/.config/masterctl{shortstudio_mp4_write}
 [Install]
 WantedBy=multi-user.target
 '''
