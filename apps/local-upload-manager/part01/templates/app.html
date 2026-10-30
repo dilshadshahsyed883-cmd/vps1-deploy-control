@@ -921,7 +921,7 @@
                     <label class="lum-short-auto-toggle"><input type="checkbox" name="schedule_enabled" value="1" {% if pr.schedule_enabled and pr.work_mode == 'auto' %}checked{% endif %}> Automatic schedule</label>
                     <button type="submit" class="lum-button secondary tiny">Save Times</button>
                   </div>
-                  <small>PKT · {{ pr.daily_upload_count or 4 }} videos/channel/day{% if not ae.engine.scheduler_armed %} · Global schedule DISARMED{% endif %}</small>
+                  <small>Saved: {{ (pr.schedule_times or 'Not configured')|replace(',', ', ') }} · {{ pr.daily_upload_count or 4 }} videos/channel/day · {% if not pr.schedule_enabled or pr.work_mode != 'auto' %}Schedule OFF{% else %}Schedule ON{% endif %}{% if not (ae.engine is defined and ae.engine.scheduler_armed) %} · Global schedule DISARMED{% endif %}</small>
                 </form>
                 {% elif pr.channel_db_id %}Per-video schedule
                 {% else %}{{ (pr.schedule_times or 'Not configured')|replace(',', ', ') }}{% if not pr.schedule_enabled %}<small>Schedule OFF</small>{% endif %}{% endif %}
