@@ -23,7 +23,7 @@ UNIT_DIR=Path('/etc/systemd/system')
 # Co-deploy the already merged Short Uploader UI (#493) and queue actions
 # (#497) alongside network fairness (#496). These are copies into only the
 # isolated Short Studio release; no Song/legacy uploader unit is touched.
-NETWORK_ONLY_FILES=FILES
+NETWORK_ONLY_FILES=FILES+('lum_engine/auto_engine_v6_scheduler.py',)
 
 
 def require(condition, detail):

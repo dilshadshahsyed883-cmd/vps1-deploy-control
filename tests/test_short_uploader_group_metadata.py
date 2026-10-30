@@ -228,7 +228,7 @@ class ShortGroupReleaseTests(unittest.TestCase):
                         self.assertIn('/old/venv/bin/python',text)
     def test_network_release_includes_existing_ui_and_retry_actions(self):
         from production import short_uploader_group_release as release
-        self.assertEqual(release.NETWORK_ONLY_FILES,release.FILES)
+        self.assertEqual(set(release.NETWORK_ONLY_FILES),set(release.FILES)|{'lum_engine/auto_engine_v6_scheduler.py'})
         self.assertIn('lum_engine/auto_engine_v6_worker.py',release.NETWORK_ONLY_FILES)
         self.assertIn('lum_engine/auto_engine_v6_scheduler.py',release.NETWORK_ONLY_FILES)
         self.assertIn('desktop_core/modules/db/queue_repository.py',release.NETWORK_ONLY_FILES)
