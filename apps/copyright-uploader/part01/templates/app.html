@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ 'Short Uploader' if engine_instance == 'shortstudio' else ('Song Uploader' if engine_instance == 'song' else 'Auto Uploader') }}{% endblock %}
+{% block title %}Copyright Uploader{% endblock %}
 {% block subtitle %}Main web integrated{% endblock %}
 {% block content %}
 <div class="lum-shell" data-mode="{{ mode }}" data-engine-instance="{{ engine_instance }}" data-ui-patch="LUM_AUTOMATION_QUEUE_STICKY_UI_V1">
@@ -26,7 +26,14 @@
   {% if tab != 'auto_stream' %}
   <div class="lum-tabs-shell" data-lum-sticky-tabs>
 <nav class="lum-tabs" aria-label="Auto Uploader workspace">
-      {% if engine_instance == 'song' %}
+      {% if engine_instance == 'copyright' %}
+      <a class="{{ 'active' if tab=='dashboard' else '' }}" href="{{ base_path }}/app?tab=dashboard">Dashboard</a>
+      <a class="{{ 'active' if tab=='channels' else '' }}" href="{{ base_path }}/app?tab=channels">Channels</a>
+      <a class="{{ 'active' if tab=='sheets' else '' }}" href="{{ base_path }}/app?tab=sheets">Sheets Sync</a>
+      <a class="{{ 'active' if tab=='profiles' else '' }}" href="{{ base_path }}/app?tab=profiles">Profiles</a>
+      <a class="{{ 'active' if tab=='add_video' else '' }}" href="{{ base_path }}/app?tab=add_video">Add Video</a>
+      <a class="{{ 'active' if tab=='queue' else '' }}" href="{{ base_path }}/app?tab=queue">Queue</a>
+      {% elif engine_instance == 'song' %}
       <a class="{{ 'active' if tab=='dashboard' else '' }}" href="{{ base_path }}/app?tab=dashboard">Dashboard</a>
       <a class="{{ 'active' if tab=='channels' else '' }}" href="{{ base_path }}/app?tab=channels">Channels</a>
       <a class="{{ 'active' if tab=='sheets' else '' }}" href="{{ base_path }}/app?tab=sheets">Sheets Sync</a>
@@ -48,6 +55,65 @@
   {% endif %}
 
   {% macro upload_form(simple=False) %}
+  {% if engine_instance == 'copyright' %}
+  <form class="lum-grid lum-upload-grid" method="post" action="{{ base_path }}/actions/add-video" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <section class="lum-card lum-span-2">
+      <div class="lum-card-head"><div><h2>Add Video</h2><p>Submit one video to the durable manual Copyright Uploader queue. No automatic scanning or Auto Engine.</p></div><span class="lum-badge brand">Manual queue</span></div>
+      <label class="lum-field"><span>Source</span><select name="source_mode" id="copyright-source-mode">
+        <option value="drive_link">Google Drive video link</option>
+        <option value="pc_upload">Upload video from PC</option>
+        <option value="folder">Copyright Uploader folder / Video Merger output</option>
+      </select></label>
+      <div id="copyright-drive-source"><label class="lum-field"><span>Google Drive video URL</span><input name="drive_url" type="url" placeholder="https://drive.google.com/file/d/.../view"></label></div>
+      <div id="copyright-pc-source" hidden><label class="lum-field"><span>PC video (MP4 / MOV / MKV)</span><input name="video_file" type="file" accept=".mp4,.mkv,.mov,video/mp4,video/quicktime"></label></div>
+      <div id="copyright-folder-source" hidden><label class="lum-field"><span>Available files in your Copyright Uploader folder</span>
+        <select name="folder_file"><option value="">Select a verified merged video</option>
+        {% for item in copyright_files %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+        </select></label><p class="lum-note">Only completed files assigned to this account are selectable. Originals are kept after upload.</p></div>
+    </section>
+    <section class="lum-card">
+      <h2>Upload Destination</h2>
+      <label class="lum-field"><span>Upload Profile (optional)</span><select name="profile_id"><option value="0">No profile</option>{% for p in copyright_profiles %}<option value="{{ p.id }}">{{ p.profile_name }} · {{ p.group_name or 'No group' }}</option>{% endfor %}</select></label>
+      <label class="lum-field"><span>YouTube Channel</span><select name="channel_db_id" required>
+        <option value="">Select connected channel</option>{% for ch in channels %}<option value="{{ ch.id }}">{{ ch.channel_name or ch.channel_id }} · {{ ch.token_status }}</option>{% endfor %}
+      </select></label>
+      <label class="lum-field"><span>Visibility</span><select name="privacy_status"><option value="private">Private</option><option value="unlisted">Unlisted</option><option value="public">Public</option></select></label>
+      <label class="lum-field"><span>Schedule (PKT) — optional</span><input name="app_upload_at" type="datetime-local"><small>Blank means upload when the manual queue slot is available.</small></label>
+      <label class="lum-field"><span>Thumbnail — optional</span><input name="thumbnail" type="file" accept="image/png,image/jpeg"></label>
+    </section>
+    <section class="lum-card">
+      <h2>Video Metadata</h2>
+      <label class="lum-field"><span>Title</span><input name="title" maxlength="100" required placeholder="Video title"></label>
+      <label class="lum-field"><span>Description</span><textarea name="description" maxlength="5000" rows="5"></textarea></label>
+      <label class="lum-field"><span>Tags</span><input name="tags" placeholder="tag1, tag2"></label>
+      <div class="lum-row"><label class="lum-field"><span>Category ID</span><input name="category_id" value="22"></label><label class="lum-field"><span>Playlist ID</span><input name="playlist_id" placeholder="Optional"></label></div>
+      <label class="lum-check"><input type="checkbox" name="made_for_kids" value="on"> Made for Kids</label>
+    </section>
+    <section class="lum-card lum-span-2 lum-submit-card">
+      <div><strong>Durable queue</strong><p>Account-scoped isolated staging → one YouTube upload → remote verification → staged-copy cleanup. Video Merger output and Drive originals stay protected.</p></div>
+      <button class="lum-button primary" type="submit">+ Add Video to Queue</button>
+    </section>
+  </form>
+  <script>
+  (() => {
+    const mode = document.getElementById('copyright-source-mode');
+    if (!mode) return;
+    const fields = {drive_link: document.getElementById('copyright-drive-source'),
+      pc_upload: document.getElementById('copyright-pc-source'),
+      folder: document.getElementById('copyright-folder-source')};
+    function select() {
+      for (const [name, area] of Object.entries(fields)) {
+        area.hidden = name !== mode.value;
+        for (const input of area.querySelectorAll('input, select'))
+          input.required = name === mode.value;
+      }
+    }
+    mode.addEventListener('change', select);
+    select();
+  })();
+  </script>
+  {% else %}
   <form class="lum-grid lum-upload-grid" data-lum-upload-form method="post" action="{{ base_path }}/actions/add-video" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
     <section class="lum-card lum-span-2">
@@ -348,6 +414,7 @@
 })();
 </script>
 
+  {% endif %}
   {% endmacro %}
 
   {% macro reports_panel() %}
@@ -697,6 +764,23 @@
       {% else %}
         <div class="lum-empty">No Google Sheet source saved yet.</div>
       {% endif %}
+    </section>
+{% elif tab == 'profiles' and engine_instance == 'copyright' %}
+    <section class="lum-card">
+      <div class="lum-card-head"><div><h2>Copyright Upload Profiles</h2><p>Manual upload profiles. Selecting a profile never starts automatic uploads.</p></div><span class="lum-badge">{{ copyright_profiles|length }} profiles</span></div>
+      <div class="lum-table-wrap"><table class="lum-table"><thead><tr><th>Name</th><th>Group</th><th>Metadata Source</th></tr></thead><tbody>
+      {% for p in copyright_profiles %}<tr><td>{{ p.profile_name }}</td><td>{{ p.group_name or '—' }}</td><td>{{ 'Google Sheets' if p.metadata_source=='sheets' else 'Manual' }}</td></tr>
+      {% else %}<tr><td colspan="3"><div class="lum-empty">No profiles yet.</div></td></tr>{% endfor %}</tbody></table></div>
+    </section>
+    <section class="lum-card">
+      <h2>New Profile</h2>
+      <form class="lum-grid" method="post" action="{{ base_path }}/actions/copyright/profile">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <label class="lum-field"><span>Profile Name</span><input name="profile_name" maxlength="100" required></label>
+        <label class="lum-field"><span>Channel Group Name</span><input name="group_name" maxlength="120" placeholder="Optional"></label>
+        <label class="lum-field"><span>Metadata Source</span><select name="metadata_source"><option value="manual">Manual metadata on website</option><option value="sheets">Google Sheets</option></select></label>
+        <div><button class="lum-button primary" type="submit">Save Profile</button></div>
+      </form>
     </section>
 {% elif tab == 'auto_engine' %}
     {% if engine_instance not in ['song', 'shortstudio'] %}
@@ -1285,7 +1369,7 @@
   {% elif tab == 'queue' %}
     <section class="lum-card"><div class="lum-card-head"><div><h2>Queue</h2><p>Crash-safe desktop upload states wrapped by Drive staging, remote verification and verified cleanup.</p></div><div class="lum-actions"><form method="post" action="{{ base_path }}/actions/pause-after-current"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button" type="submit">Pause After Current</button></form><form method="post" action="{{ base_path }}/actions/stop-current"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button danger" type="submit">Safe Stop Current</button></form><form method="post" action="{{ base_path }}/actions/resume"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button primary" type="submit">Resume</button></form></div></div>{{ queue_table(False) }}</section>
   {% elif tab == 'logs' %}
-    <section class="lum-card"><div class="lum-card-head"><div><h2>Logs</h2><p>Auto Uploader events only.</p></div></div><div class="lum-log">{% for e in logs %}<div><time>{{ e.created_at }}</time><b class="l-{{ e.level|lower }}">{{ e.level }}</b><span>{% if e.project_id %}#{{ e.project_id }} · {% endif %}{{ e.message }}</span></div>{% else %}<div>No logs yet.</div>{% endfor %}</div></section>
+    <section class="lum-card"><div class="lum-card-head"><div><h2>Logs</h2><p>Copyright Uploader events only.</p></div></div><div class="lum-log">{% for e in logs %}<div><time>{{ e.created_at }}</time><b class="l-{{ e.level|lower }}">{{ e.level }}</b><span>{% if e.project_id %}#{{ e.project_id }} · {% endif %}{{ e.message }}</span></div>{% else %}<div>No logs yet.</div>{% endfor %}</div></section>
   {% endif %}
 </div>
 <script src="{{ base_path }}/static/local_upload_manager.js?v=20260821-v2.1"></script>
