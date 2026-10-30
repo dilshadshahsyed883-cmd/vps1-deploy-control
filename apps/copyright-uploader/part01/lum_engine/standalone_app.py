@@ -22,6 +22,7 @@ from .config import (
 from .oauth_web import complete_oauth, list_clients, save_client_json, save_shared_client_json, start_oauth
 from .project_store import ProjectStore
 from .copyright_handoff import available_videos, owner_root
+from .copyright_ui import schedule_pkt
 from .four_modes import registry as four_mode_registry, validate_mode as validate_auto_mode
 from .mode_gateway import forward as forward_engine_request, MODE_PORTS as ENGINE_PORTS
 from .reports import generate_health_report, list_reports, report_path
@@ -95,6 +96,7 @@ v6_store = V6Store()
 app.mount(route("/static"), StaticFiles(directory=str(STATIC_ROOT)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATE_ROOT))
 templates.env.globals["base_path"] = BASE_PATH
+templates.env.filters["schedule_pkt"] = schedule_pkt
 
 COPYRIGHT_MEDIA_ROOT = Path(os.environ.get("COPYRIGHT_MEDIA_ROOT", str(DATA_ROOT / "copyright_handoff")))
 COPYRIGHT_MAX_VIDEO = 12 * 1024 * 1024 * 1024
