@@ -257,5 +257,30 @@ class AudioDownloaderWorkerSafeReleaseTests(unittest.TestCase):
             release.audio_browser_route_overlay(original, source)
 
 
+    def test_duplicate_submissions_and_duplicate_links_are_idempotent(self):
+        self.module.BatchRequest.model_rebuild(_types_namespace=vars(self.module))
+        payload = self.module.BatchRequest(
+            links=['https://youtu.be/BaW_jenozKc'] * 2,
+            permission_confirmed=True)
+        with patch.object(self.module, 'deps', return_value={'ready': True, 'upload_ready': True}):
+            first = self.module.enqueue(payload)
+            second = self.module.enqueue(payload)
+        self.assertEqual(first['created'], 1)
+        self.assertEqual(first['skipped_duplicates'], 1)
+        self.assertEqual(second['created'], 0)
+        self.assertEqual(second['skipped_duplicates'], 2)
+        self.assertEqual(second['existing_job_ids'], first['job_ids'])
+        with self.module.db() as con:
+            self.assertEqual(con.execute('SELECT COUNT(*) FROM jobs').fetchone()[0], 1)
+
+    def test_song_studio_audio_hides_voice_selector_and_exposes_live_queue(self):
+        html = (ROOT / 'apps/voice-studio/part01/templates/voice_studio.html').read_text()
+        self.assertIn('body.vs-audio-active .vs-engine-selector{display:none!important}', html)
+        self.assertIn('updateRetryCountdowns', html)
+        self.assertIn('vsa-progress', html)
+        self.assertIn('job.download_percent', html)
+        self.assertIn('job.upload_percent', html)
+
+
 if __name__ == "__main__":
     unittest.main()
