@@ -318,3 +318,8 @@ body.lum-song-ui [data-ae-group-choice][hidden],
 body.lum-song-ui [data-ae-single-choice][hidden],
 body.lum-song-ui [data-ae-group-fields][hidden],
 body.lum-song-ui [data-ae-song-modes][hidden] {display:none !important;}
+
+
+/* Short Uploader source controls must override the shared label display rule. */
+body.lum-song-ui .lum-shell[data-engine-instance="shortstudio"] [data-short-sheet-field][hidden],
+body.lum-song-ui .lum-shell[data-engine-instance="shortstudio"] [data-short-manual-fields][hidden] {display:none !important;}
