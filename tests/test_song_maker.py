@@ -225,6 +225,49 @@ class SongMakerTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 folder_ref(unsafe)
 
+    def test_audio_downloader_auto_queue_is_exact_owner_scoped_and_idempotent(self):
+        from songmaker.drive import DEFAULT_INPUT
+        data = {'video_id': 'BaW_jenozKc', 'format': 'mp3'}
+        listing = [self.item('BaW_jenozKc.jpg', 'image-id'),
+                   self.item('BaW_jenozKc.mp3', 'audio-id'),
+                   self.item('Another_123.jpg', 'other-id')]
+        with patch('songmaker.app.Drive') as factory:
+            factory.return_value.listing.return_value = listing
+            first = self.client.post('/song-maker/api/auto-queue',
+                                     headers=self.headers, json=data)
+            self.assertEqual(first.status_code, 200, first.text)
+            second = self.client.post('/song-maker/api/auto-queue',
+                                      headers=self.headers, json=data)
+            self.assertEqual(second.status_code, 200, second.text)
+            self.assertEqual(first.json()['job_id'], second.json()['job_id'])
+            self.assertEqual(len(self.store.jobs('alice')), 1)
+            factory.return_value.listing.assert_called_with(DEFAULT_INPUT)
+            self.assertEqual(first.json()['stage'], 'Queued')
+            other = {'X-Auth-User': 'bob', 'X-Song-Maker': '1'}
+            self.assertEqual(self.client.post('/song-maker/api/auto-queue',
+                                              headers=other, json=data).status_code, 200)
+            self.assertEqual(len(self.store.jobs('bob')), 1)
+            self.assertNotEqual(self.store.jobs('alice')[0]['id'], self.store.jobs('bob')[0]['id'])
+            self.assertEqual(self.client.post('/song-maker/api/auto-queue',
+                                              json=data).status_code, 401)
+            self.assertEqual(self.client.post('/song-maker/api/auto-queue',
+                                              headers={'X-Auth-User': 'alice'}, json=data).status_code, 403)
+
+    def test_audio_downloader_auto_queue_rejects_unmatched_and_unsafe_input(self):
+        data = {'video_id': 'BaW_jenozKc', 'format': 'mp3'}
+        with patch('songmaker.app.Drive') as factory:
+            factory.return_value.listing.return_value = [self.item('BaW_jenozKc.mp3')]
+            response = self.client.post('/song-maker/api/auto-queue',
+                                        headers=self.headers, json=data)
+            self.assertEqual(response.status_code, 409, response.text)
+            self.assertEqual(self.store.jobs('alice'), [])
+            factory.return_value.listing.assert_called_once()
+            for bad in [{'video_id': '../unsafe', 'format': 'mp3'},
+                        {'video_id': 'BaW_jenozKc', 'format': 'exe'}]:
+                self.assertEqual(self.client.post('/song-maker/api/auto-queue',
+                                                  headers=self.headers, json=bad).status_code, 422)
+        self.assertEqual(self.store.jobs('alice'), [])
+
     def test_named_drive_transport_and_same_folder_media_pairing(self):
         from songmaker.drive import DEFAULT_INPUT, default_settings
         settings = default_settings()
