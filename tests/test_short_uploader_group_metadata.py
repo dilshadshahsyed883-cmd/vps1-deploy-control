@@ -148,7 +148,7 @@ class ShortGroupTests(unittest.TestCase):
         self.store.set_engine=lambda **kw:None
         def generate(db,store,profile,**kw):
             calls.append(kw);runs.add(kw['run_key']);return {'created':kw['max_jobs_override']}
-        ns=dict(Database=PC,V6Store=Store,datetime=Clock,SCHEDULE_TZ=ZoneInfo('Asia/Karachi'),GRACE_MINUTES=6,
+        ns=dict(Database=PC,V6Store=Store,datetime=Clock,SCHEDULE_TZ=ZoneInfo('Asia/Karachi'),GRACE_MINUTES=6,SHORT_STUDIO_GRACE_MINUTES=10,
                 channel_profile_scheduler_tick=lambda *a:-1,parse_schedule_times=lambda s:s.split(','),
                 target_channels=lambda *a:[{'id':1},{'id':2}],generate_queue=generate)
         exec(compile(ast.Module(body=[fn],type_ignores=[]),str(scheduler),'exec'),ns)
@@ -226,6 +226,16 @@ class ShortGroupReleaseTests(unittest.TestCase):
                         self.assertIn('a'*40+'-short-group-metadata/part01',text)
                         self.assertIn('Environment=KEEP=1',text)
                         self.assertIn('/old/venv/bin/python',text)
+    def test_network_release_includes_existing_ui_and_retry_actions(self):
+        from production import short_uploader_group_release as release
+        self.assertEqual(set(release.NETWORK_ONLY_FILES),set(release.FILES)|{'lum_engine/auto_engine_v6_scheduler.py'})
+        self.assertIn('lum_engine/auto_engine_v6_worker.py',release.NETWORK_ONLY_FILES)
+        self.assertIn('lum_engine/auto_engine_v6_scheduler.py',release.NETWORK_ONLY_FILES)
+        self.assertIn('desktop_core/modules/db/queue_repository.py',release.NETWORK_ONLY_FILES)
+        self.assertIn('lum_engine/standalone_app.py',release.NETWORK_ONLY_FILES)
+        self.assertIn('static/auto_engine_v6.js',release.NETWORK_ONLY_FILES)
+        self.assertIn('templates/app.html',release.NETWORK_ONLY_FILES)
+
     def test_busy_upload_blocks_scoped_release(self):
         from production import short_uploader_group_release as release
         with tempfile.TemporaryDirectory() as td:
@@ -303,9 +313,9 @@ class ShortUploaderIntroOnlyReleaseTests(unittest.TestCase):
         self.assertIn("if '[vps1-shortstudio-intro-only]' in intent:",runtime)
         self.assertIn("args.apps != ['local-upload-manager']",runtime)
         self.assertIn('install_shortstudio_ui(args.revision, ui_only=True)',runtime)
-        self.assertIn('for relative in (("templates/app.html",) if ui_only else FILES):',overlay)
-        self.assertIn("journal=BASE/'transactions'/('short-uploader-ui-intro' if ui_only else",overlay)
-        self.assertIn('if ui_only:verify_live(ui_only=True)',overlay)
+        self.assertIn('for relative in (NETWORK_ONLY_FILES if network_only else ("templates/app.html",) if ui_only else FILES):',overlay)
+        self.assertIn("'short-uploader-network-fairness' if network_only else",overlay)
+        self.assertIn('elif ui_only:verify_live(ui_only=True)',overlay)
         self.assertIn("apps=(local-upload-manager)",workflow)
         self.assertIn('for app in "${apps[@]}"; do',workflow)
         self.assertIn("AUTO_SCRIPT=OFFLINE",workflow)

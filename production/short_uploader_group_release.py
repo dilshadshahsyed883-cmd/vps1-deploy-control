@@ -20,6 +20,10 @@ FILES=("lum_engine/auto_engine_v6.py", "lum_engine/standalone_app.py",
 UNITS=tuple(f"vps1-production-lum-shortstudio-{kind}.service" for kind in ("scheduler","worker","web"))
 STATE=DATA/'local-upload-manager/lum-shortstudio'
 UNIT_DIR=Path('/etc/systemd/system')
+# Co-deploy the already merged Short Uploader UI (#493) and queue actions
+# (#497) alongside network fairness (#496). These are copies into only the
+# isolated Short Studio release; no Song/legacy uploader unit is touched.
+NETWORK_ONLY_FILES=FILES+('lum_engine/auto_engine_v6_scheduler.py',)
 
 
 def require(condition, detail):
@@ -38,13 +42,21 @@ def health():
     return result
 
 
-def idle():
+def idle(*, allow_waiting_network=False):
     require(health().get('active_project_id') in (None,'',0), 'web upload in progress')
     db=STATE/'core/data/uploader.db'
     require(db.is_file() and not db.is_symlink(),'Short Uploader database unavailable')
     with sqlite3.connect(db.as_uri()+'?mode=ro',uri=True,timeout=3) as con:
-        busy=con.execute("SELECT 1 FROM videos WHERE UPPER(status) IN ('CLAIMED','UPLOADING','THUMBNAIL_UPLOADING','PROCESSING','IN_PROGRESS','WAITING_NETWORK') LIMIT 1").fetchone()
-    require(not busy,'upload in progress')
+        statuses="'CLAIMED','UPLOADING','THUMBNAIL_UPLOADING','PROCESSING','IN_PROGRESS'"
+        if not allow_waiting_network:
+            statuses+=",'WAITING_NETWORK'"
+        busy=con.execute(f"SELECT 1 FROM videos WHERE UPPER(status) IN ({statuses}) LIMIT 1").fetchone()
+        require(not busy,'upload in progress')
+        if allow_waiting_network:
+            # Reuse runtime's strict proof; do not interrupt a claimed
+            # network wait or an ambiguous/resumable media upload.
+            from production.runtime import lum_parked_network_idle
+            lum_parked_network_idle(con)
 
 
 def verify_live(*, ui_only=False):
@@ -95,10 +107,11 @@ def verify_live(*, ui_only=False):
     print('SHORT_UPLOADER_LIVE=PASS AUTH=PASS GROUP_FORM=PASS GROUP_SUMMARY=PASS NO_UPLOAD_OR_ARM_ACTIONS',flush=True)
 
 
-def install(revision, *, ui_only=False):
+def install(revision, *, ui_only=False, network_only=False):
+    require(not (ui_only and network_only), 'release modes are exclusive')
     require(re.fullmatch('[a-f0-9]{40}',revision),'invalid revision')
     require(shutil.disk_usage('/').free>=5_000_000_000,'disk reserve')
-    idle()
+    idle(allow_waiting_network=True) if network_only else idle()
     previous={}
     old_dirs=set()
     for name in UNITS:
@@ -113,13 +126,13 @@ def install(revision, *, ui_only=False):
         active=subprocess.run(['systemctl','is-active','--quiet',name],capture_output=True,timeout=10).returncode==0
         previous[name]={'text':text,'active':active}
     require(len(old_dirs)==1,'Short Uploader units use different releases')
-    suffix='-short-ui-intro' if ui_only else '-short-group-metadata'
+    suffix=('-short-network-fairness' if network_only else '-short-ui-intro' if ui_only else '-short-group-metadata')
     target=BASE/'releases/local-upload-manager'/(revision+suffix)
-    journal=BASE/'transactions'/('short-uploader-ui-intro' if ui_only else 'short-uploader-group-metadata')/revision
+    journal=BASE/'transactions'/('short-uploader-network-fairness' if network_only else 'short-uploader-ui-intro' if ui_only else 'short-uploader-group-metadata')/revision
     require(not target.exists() and not target.is_symlink() and not journal.exists(),'immutable release already exists')
     shutil.copytree(next(iter(old_dirs)).parent,target,symlinks=True)
     hashes={}
-    for relative in (("templates/app.html",) if ui_only else FILES):
+    for relative in (NETWORK_ONLY_FILES if network_only else ("templates/app.html",) if ui_only else FILES):
         src=REPO/'apps/local-upload-manager/part01'/relative
         dst=target/'part01'/relative
         require(src.is_file() and not src.is_symlink() and dst.is_file() and not dst.is_symlink(),'source file drift')
@@ -129,7 +142,7 @@ def install(revision, *, ui_only=False):
     atomic_json(journal/'previous.json',previous)
     changed=False
     try:
-        idle()
+        idle(allow_waiting_network=True) if network_only else idle()
         # Stop only the isolated Short Uploader; keep every other engine and app running.
         changed=True
         for name in UNITS:
@@ -141,7 +154,12 @@ def install(revision, *, ui_only=False):
         command('systemctl','daemon-reload')
         for name in reversed(UNITS):
             if previous[name]['active']:command('systemctl','start',name)
-        if ui_only:verify_live(ui_only=True)
+        if network_only:
+            # Confirm the combined #493/#497/#496 HTML is served over the
+            # authenticated route before committing the immutable release.
+            verify_live()
+            print('SHORT_NETWORK_RELEASE=PASS HEALTH=PASS UI=PASS OTHER_UPLOADERS=UNTOUCHED',flush=True)
+        elif ui_only:verify_live(ui_only=True)
         else:verify_live()
         atomic_json(journal/'state.json',dict(status='ACTIVE',revision=revision,source=str(target),files=hashes,
                                            sqlite_backups=len(backups),scheduler='PRESERVED',auto_script='UNTOUCHED'))

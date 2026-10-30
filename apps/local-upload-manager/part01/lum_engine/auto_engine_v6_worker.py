@@ -34,6 +34,7 @@ for s in (signal.SIGTERM, signal.SIGINT):
 
 # LUM_AUTO_PROXY_COOLDOWN_V1
 PROXY_WAIT_PREFIX="AUTO_PROXY_WAIT|"
+NETWORK_WAIT_PREFIX="AUTO_NETWORK_WAIT|"
 PROXY_RETRY_SECONDS=(120,300,600)
 
 
@@ -164,9 +165,89 @@ def retry_proxy_waits(db:Database,store:V6Store) -> None:
             except Exception: pass
 
 
+def _network_marker(video_id:int,attempt:int,retry_at:datetime) -> str:
+    return f"{NETWORK_WAIT_PREFIX}{int(video_id)}|{max(1,int(attempt))}|{retry_at.astimezone(timezone.utc).isoformat(timespec='seconds')}"
+
+
+def _parse_network_marker(value:str):
+    raw=clean(value)
+    if not raw.startswith(NETWORK_WAIT_PREFIX):
+        return None
+    try:
+        prefix,video_id,attempt,retry_at=raw.split("|",3)
+        when=datetime.fromisoformat(retry_at.replace("Z","+00:00"))
+        if when.tzinfo is None:
+            when=when.replace(tzinfo=timezone.utc)
+        return int(video_id),int(attempt),when
+    except (ValueError,TypeError,OverflowError):
+        return None
+
+
+def retry_network_waits(db:Database,store:V6Store) -> None:
+    """Requeue only the affected Short Uploader job after connectivity recovers."""
+    if os.environ.get("LUM_ENGINE_INSTANCE")!="shortstudio":
+        return
+    now=datetime.now(timezone.utc)
+    for row in _auto_jobs(db):
+        if clean(row.get("status")).upper()!="WAITING_NETWORK":
+            continue
+        vid=int(row["id"])
+        marker=_parse_network_marker(row.get("error_message"))
+        if not marker or marker[0]!=vid or marker[2]>now:
+            continue
+        cfg=AutoEngineYouTubeUploader._proxy_config_from_video(row)
+        if AutoEngineYouTubeUploader.internet_available(cfg,timeout=6,max_urls=1):
+            _sql_update_video_ids([vid],status=UploadStatus.QUEUED.value,error_message="")
+            store.set_job_state(vid,"QUEUED",error="")
+            db.add_log(vid,"INFO","Network recovered; Short Uploader job returned to queue.",0)
+        else:
+            attempt=marker[1]+1
+            next_at=now+timedelta(seconds=_proxy_delay(attempt))
+            _sql_update_video_ids([vid],status=UploadStatus.WAITING_NETWORK.value,
+                                  error_message=_network_marker(vid,attempt,next_at))
+            store.set_job_state(vid,"WAITING_NETWORK",error="Connection unavailable; retry scheduled.")
+
+
 class AutoEngineYouTubeUploader(YouTubeUploader):
+    def _build_youtube_service_with_network_wait(self,*args,**kwargs):
+        # During authentication no media insert has started, even when the
+        # pipeline's MEDIA checkpoint has already been set to RUNNING.
+        self._building_service=True
+        try:
+            return super()._build_youtube_service_with_network_wait(*args,**kwargs)
+        finally:
+            self._building_service=False
+
     def _wait_for_connection(self,video_id,proxy_config,progress,reason,stop_check,progress_callback):
         cfg=proxy_config or {}
+        if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio":
+            row=self.db.get_video(int(video_id)) or {}
+            if row.get("auto_engine_profile_id"):
+                # Never monopolize the only Short Uploader slot with a long
+                # internet/proxy wait. Only auto-resume with durable proof:
+                # no upload started yet, a saved resumable session, or a
+                # recorded YouTube ID. Unknown mid-upload state needs review.
+                safe=bool(getattr(self,"_building_service",False)
+                          or clean(row.get("resumable_uri"))
+                          or clean(row.get("youtube_video_id")))
+                if safe:
+                    host=clean(cfg.get("proxy_host"));port=clean(cfg.get("proxy_port"))
+                    key=_proxy_group_key(cfg.get("proxy_username")) or (f"{host}:{port}" if host and port else "")
+                    proxy_isolated=bool(key and host and port and
+                                        self.internet_available(None,timeout=6,max_urls=1))
+                    retry_at=datetime.now(timezone.utc)+timedelta(seconds=_proxy_delay(1))
+                    marker=(_proxy_marker(key,1,retry_at) if proxy_isolated else
+                            _network_marker(int(video_id),1,retry_at))
+                    self.db.update_video_status(int(video_id),status=UploadStatus.WAITING_NETWORK,
+                                                progress=int(progress or 0),error_message=marker)
+                    self.db.add_log(int(video_id),"WARNING",
+                                    "Connection unavailable; job deferred so other channels can upload.",int(progress or 0))
+                    raise UploadStopped(marker)
+                # Do not restart a possibly created remote upload without a
+                # resumable token/remote ID. This job is manually reviewable;
+                # other channels still move forward.
+                raise UploadStopped("REVIEW_REQUIRED: Network interrupted an ambiguous upload without a durable resumable checkpoint. Verify YouTube Studio before resuming.")
+
         host=clean(cfg.get("proxy_host")); port=clean(cfg.get("proxy_port"))
         key=_proxy_group_key(cfg.get("proxy_username")) or (f"{host}:{port}" if host and port else "")
         if key and host and port and int(progress or 0)<=0:
@@ -495,6 +576,9 @@ def process_one(db:Database,store:V6Store,item:dict,worker_id:str) -> None:
             if parsed:
                 key,attempt,retry_at=parsed
                 park_proxy_group(db,store,key,attempt,retry_at)
+            elif (marker:=_parse_network_marker(err)) and marker[0]==vid:
+                _sql_update_video_ids([vid],status=UploadStatus.WAITING_NETWORK.value,error_message=err)
+                store.set_job_state(vid,"WAITING_NETWORK",error="Network unavailable; automatic retry scheduled.")
             else:
                 store.set_job_state(vid,"PAUSED",error=err)
     except Exception as exc:
@@ -526,6 +610,7 @@ def main() -> None:
             recover_channel_jobs(db,store)
             retry_post_actions(db,store)
             retry_proxy_waits(db,store)
+            retry_network_waits(db,store)
             state=store.engine()
             if not int(state.get("running") or 0):
                 time.sleep(2); continue
