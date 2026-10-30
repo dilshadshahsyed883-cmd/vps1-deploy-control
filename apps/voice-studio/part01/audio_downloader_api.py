@@ -246,10 +246,10 @@ def enqueue(payload: BatchRequest, request: Request = None):
         raise HTTPException(422, 'Confirm you have permission to download the content')
     if not deps()['ready']:
         raise HTTPException(503, 'Downloader unavailable: yt-dlp or FFmpeg not installed')
-    if payload.auto_upload and not deps()['upload_ready']:
-        raise HTTPException(503, 'Google Drive upload is not configured')
     if payload.auto_song_maker and (payload.auto_upload or not payload.download_thumbnail):
         raise HTTPException(422, 'Song Maker auto-queue requires thumbnail and Drive auto-upload OFF')
+    if payload.auto_upload and not deps()['upload_ready']:
+        raise HTTPException(503, 'Google Drive upload is not configured')
     owner = request.headers.get('x-auth-user', '').strip() if request is not None else ''
     if payload.auto_song_maker and (not owner or len(owner) > 160 or '\\n' in owner or '\\r' in owner):
         raise HTTPException(403, 'Authenticated Song Maker user required for auto-queue')
