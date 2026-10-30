@@ -659,6 +659,7 @@ def deployment_cleanup_status() -> dict[str, Any]:
 
     public = _public_deployment_gc_status()
     eligible_bytes = None
+    eligible_candidate_count = None
     eligible_measured_at = None
     if public is not None:
         raw_cleanup = public.get("last_cleanup")
@@ -674,6 +675,27 @@ def deployment_cleanup_status() -> dict[str, Any]:
                     "skipped_count": skipped if type(skipped) is int and skipped >= 0 else None,
                     "measured_freed_bytes": freed if type(freed) is int and freed >= 0 else None,
                 }
+        # Only copy aggregate, allowlisted counts from the root-owned public file.
+        # Names and paths from private audit records must never enter the API.
+        if last_cleanup is not None and isinstance(raw_cleanup, dict):
+            stamp = raw_cleanup.get("timestamp")
+            expected = (datetime.fromtimestamp(stamp, timezone.utc).isoformat()
+                        if type(stamp) is int and 0 < stamp < 4_102_444_800 else None)
+            reasons = raw_cleanup.get("skip_reason_counts")
+            allowed = {"deployment-active", "control-verification-blocked",
+                       "service-inactive", "process-in-use-or-unverifiable",
+                       "revalidation-changed", "revalidation-or-unknown"}
+            skipped_total = last_cleanup.get("skipped_count")
+            if (expected == last_cleanup.get("timestamp") and
+                    isinstance(reasons, dict) and len(reasons) <= len(allowed) and
+                    all(key in allowed and type(count) is int and 0 <= count <= 1_000_000
+                        for key, count in reasons.items()) and
+                    type(skipped_total) is int and sum(reasons.values()) == skipped_total):
+                last_cleanup["skip_reason_counts"] = reasons
+            candidate_count = raw_cleanup.get("candidate_count")
+            if (expected == last_cleanup.get("timestamp") and
+                    type(candidate_count) is int and 0 <= candidate_count <= 1_000_000):
+                last_cleanup["candidate_count"] = candidate_count
         eligible = public.get("eligible_bytes")
         measured = public.get("eligible_measured_at")
         generated = public.get("generated_at")
@@ -681,6 +703,9 @@ def deployment_cleanup_status() -> dict[str, Any]:
                 and type(generated) is int and measured <= generated
                 and 0 <= time.time() - measured <= 30 * 86400):
             eligible_bytes = eligible
+            count = public.get("eligible_candidate_count")
+            if type(count) is int and 0 <= count <= 1_000_000:
+                eligible_candidate_count = count
             eligible_measured_at = datetime.fromtimestamp(measured, timezone.utc).isoformat()
 
     active = states["is-active"] == "active"
@@ -697,6 +722,7 @@ def deployment_cleanup_status() -> dict[str, Any]:
         "next_run_at": next_run_at,
         "last_cleanup": last_cleanup,
         "eligible_bytes": eligible_bytes,
+        "eligible_candidate_count": eligible_candidate_count,
         "eligible_measured_at": eligible_measured_at,
         "scope": "unreferenced GitHub releases and isolated virtual environments only",
         "media_cleanup": "owned independently by each application after verified Drive delivery",
