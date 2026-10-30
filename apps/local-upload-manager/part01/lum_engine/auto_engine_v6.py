@@ -2210,6 +2210,8 @@ def download_channel_thumbnail_for_job(store: V6Store, video_id: int) -> str:
         raise RuntimeError("Matched thumbnail must be JPG/JPEG/PNG.")
     try:
         if not target.is_file():
+            if folder=="songmaker-local":
+                raise RuntimeError("Local Song Maker thumbnail missing; Drive fallback is forbidden")
             drive_download(folder,name,target)
         if not target.is_file() or not 0 < target.stat().st_size <= 2 * 1024 * 1024:
             raise RuntimeError("Matched thumbnail is missing, empty or exceeds 2 MB.")
