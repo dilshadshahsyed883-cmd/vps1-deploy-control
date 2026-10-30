@@ -744,6 +744,7 @@
           <span class="lum-health {{ 'ok' if ae.scheduler_ui.scheduler_status in ['Waiting','Processing'] else 'warn' }}">Scheduler {{ ae.scheduler_ui.scheduler_status }}</span>
           <span class="lum-health {{ 'ok' if ae.engine.running else 'warn' }}">Engine {{ 'RUNNING' if ae.engine.running else 'STOPPED' }}</span>
         </div>
+{% if engine_instance != 'shortstudio' %}
         <div class="lum-ae-schedule-control {{ 'armed' if ae.engine.scheduler_armed else 'disarmed' }}">
           <div class="lum-ae-schedule-control-copy">
             <span>Scheduled Uploads</span>
@@ -756,6 +757,7 @@
             <button class="lum-button {{ 'secondary' if ae.engine.scheduler_armed else 'primary' }} lum-ae-schedule-toggle" type="submit">{{ 'Disarm Scheduled Uploads' if ae.engine.scheduler_armed else 'Arm Scheduled Uploads' }}</button>
           </form>
         </div>
+{% endif %}
       </div>
     </section>
 
@@ -780,6 +782,7 @@
         </div>
         <div class="lum-ae-profile-manager-actions">
           <span class="lum-badge warn" data-ae-profile-dirty hidden>Unsaved changes</span>
+          {% if engine_instance == 'shortstudio' %}<button class="lum-button secondary" type="button" data-ae-open-schedules>Manage Schedules</button>{% endif %}
           <a class="lum-button secondary" href="{{ base_path }}/app?tab=auto_engine&new_profile=1" data-lum-soft-link data-ae-profile-nav>+ New Profile</a>
           <button class="lum-button primary" type="submit" form="lum-ae-profile-form">{{ 'Save Changes' if p else 'Create Profile' }}</button>
           {% if p %}
@@ -787,10 +790,33 @@
             <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ p.id }}"><input type="hidden" name="enabled" value="{{ 0 if p.enabled else 1 }}">
             <button class="lum-button secondary" type="submit">{{ 'Turn Profile Off' if p.enabled else 'Turn Profile On' }}</button>
           </form>
+          {% if engine_instance == 'shortstudio' and not p.channel_db_id and p.enabled %}
+          <form method="post" action="{{ base_path }}/actions/auto-v6/pause-profile" data-lum-soft-form data-confirm="Pause this profile? Its current upload will finish safely.">
+            <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ p.id }}">
+            <button type="submit" class="lum-button secondary">Pause Profile</button>
+          </form>
+          {% endif %}
           <button class="lum-button danger" type="submit" form="lum-ae-delete-profile">Delete Profile</button>
           {% endif %}
         </div>
       </div>
+
+      {% if engine_instance == 'shortstudio' %}
+      <div class="lum-ae-profile-schedule-settings">
+        <div class="lum-ae-schedule-control {{ 'armed' if ae.engine.scheduler_armed else 'disarmed' }}">
+          <div class="lum-ae-schedule-control-copy">
+            <span>Scheduled Uploads</span>
+            <strong>{{ 'ARMED' if ae.engine.scheduler_armed else 'DISARMED' }}</strong>
+            {% if engine_instance != 'song' or ae.engine.scheduler_armed %}<small>{% if ae.engine.scheduler_armed %}Next run: {{ ae.scheduler_ui.next_run }} · {{ ae.scheduler_ui.ready_profiles }} profile(s) ready{% else %}Automatic scheduled uploads are paused{% endif %}</small>{% endif %}
+          </div>
+          <form method="post" action="{{ base_path }}/actions/auto-v6/engine" data-lum-soft-form>
+            <input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <input type="hidden" name="action" value="{{ 'disarm_scheduler' if ae.engine.scheduler_armed else 'arm_scheduler' }}">
+            <button class="lum-button {{ 'secondary' if ae.engine.scheduler_armed else 'primary' }} lum-ae-schedule-toggle" type="submit">{{ 'Disarm Scheduled Uploads' if ae.engine.scheduler_armed else 'Arm Scheduled Uploads' }}</button>
+          </form>
+        </div>
+      </div>
+      {% endif %}
 
       <div class="lum-ae-profile-manager-workspace">
         <label class="lum-field lum-ae-profile-select-field"><span>Current profile</span>
@@ -862,7 +888,7 @@
     </section>
 
     <section class="lum-card lum-ae-automation-controls" data-ae-panel="automation">
-      <div class="lum-card-head"><div><h2>Automation</h2>{% if engine_instance != 'song' %}<p>Run profile automation from one table. Row actions target one profile; Start All remains global.</p>{% endif %}</div><span class="lum-badge">{{ ae.profiles|length }} profiles</span></div>
+      <div class="lum-card-head"><div><h2>Automation</h2>{% if engine_instance not in ['song', 'shortstudio'] %}<p>Run profile automation from one table. Row actions target one profile; Start All remains global.</p>{% endif %}</div><span class="lum-badge">{{ ae.profiles|length }} profiles</span></div>
 {% if engine_instance not in ['song', 'shortstudio'] %}
       <div class="lum-ae-pc-row lum-ae-profile-quick-controls lum-ae-global-actions">
         <form method="post" action="{{ base_path }}/actions/auto-v6/sync-all" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button primary" type="submit">Sync All Channels</button></form>
@@ -884,7 +910,7 @@
           <button class="lum-button primary" type="submit">Generate Queue Now</button>
         </form>
         <button class="lum-button secondary" type="button" data-ae-preview-all>Preview Next Jobs</button>
-        <button class="lum-button secondary" type="button" data-ae-open-schedules>Profile Schedules</button>
+        {% if engine_instance != 'shortstudio' %}<button class="lum-button secondary" type="button" data-ae-open-schedules>Profile Schedules</button>{% endif %}
         <button class="lum-button secondary" type="button" data-ae-jump-start-all>Start All Profiles</button>
         <form method="post" action="{{ base_path }}/actions/auto-v6/sync-all" data-lum-soft-form>
           <input type="hidden" name="csrf_token" value="{{ csrf }}">
@@ -912,17 +938,9 @@
               <td data-ae-profile-videos="{{ pr.id }}">{{ pr.v6_video_count or 0 }}</td>
               <td data-{{ 'song' if engine_instance == 'song' else 'short' }}-profile-schedule="{{ pr.id }}">
                 {% if engine_instance == 'shortstudio' and not pr.channel_db_id %}
-                <form class="lum-short-inline-schedule" data-short-inline-schedule method="post" action="{{ base_path }}/actions/auto-v6/profile-schedule/save" data-lum-soft-form>
-                  <input type="hidden" name="csrf_token" value="{{ csrf }}">
-                  <input type="hidden" name="profile_id" value="{{ pr.id }}">
-                  <input type="hidden" name="schedule_times" data-short-schedule-csv value="{{ pr.schedule_times or '' }}">
-                  <div class="lum-short-schedule-slots" data-short-schedule-slots data-short-count="{{ pr.daily_upload_count or 4 }}" data-short-schedule-enabled="schedule_enabled"></div>
-                  <div class="lum-short-inline-schedule-bottom">
-                    <label class="lum-short-auto-toggle"><input type="checkbox" name="schedule_enabled" value="1" {% if pr.schedule_enabled and pr.work_mode == 'auto' %}checked{% endif %}> Automatic schedule</label>
-                    <button type="submit" class="lum-button secondary tiny">Save Times</button>
-                  </div>
-                  <small>Saved: {{ (pr.schedule_times or 'Not configured')|replace(',', ', ') }} · {{ pr.daily_upload_count or 4 }} videos/channel/day · {% if not pr.schedule_enabled or pr.work_mode != 'auto' %}Schedule OFF{% else %}Schedule ON{% endif %}{% if not (ae.engine is defined and ae.engine.scheduler_armed) %} · Global schedule DISARMED{% endif %}</small>
-                </form>
+                <span class="lum-ae-saved-times" aria-label="Saved schedule times in PKT" title="Edit times in Profiles">
+                  {% if pr.schedule_times %}{% for slot in pr.schedule_times.split(',') %}{% set parts = slot.strip().split(':') %}{% set hour = parts[0]|int %}{{ '%02d'|format((hour % 12) or 12) }}:{{ parts[1] }} {{ 'PM' if hour >= 12 else 'AM' }}{% if not loop.last %}<span class="lum-ae-time-separator"> · </span>{% endif %}{% endfor %}{% else %}—{% endif %}
+                </span>
                 {% elif pr.channel_db_id %}Per-video schedule
                 {% else %}{{ (pr.schedule_times or 'Not configured')|replace(',', ', ') }}{% if not pr.schedule_enabled %}<small>Schedule OFF</small>{% endif %}{% endif %}
               </td>
@@ -941,16 +959,10 @@
                   {% if engine_instance == 'shortstudio' and not pr.channel_db_id %}
                   <form method="post" data-short-profile-action="start" action="{{ base_path }}/actions/auto-v6/start-profile" data-lum-soft-form data-confirm="Start only this Short Uploader profile? Other profiles will not be started by this action.">
                     <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ pr.id }}">
-                    <button class="lum-button primary tiny" type="submit">{{ 'Start' if pr.enabled else 'Resume' }}</button>
-                  </form>
-                  {% if pr.enabled %}
-                  <form method="post" data-short-profile-action="pause" action="{{ base_path }}/actions/auto-v6/pause-profile" data-lum-soft-form data-confirm="Pause this profile? Its currently running upload will finish safely.">
-                    <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ pr.id }}">
-                    <button class="lum-button secondary tiny" type="submit">Pause</button>
+                    <button class="lum-button primary tiny" type="submit">Start</button>
                   </form>
                   {% endif %}
-                  {% endif %}
-                  <a class="lum-button secondary tiny" href="{{ base_path }}/app?tab=auto_engine&auto_profile_id={{ pr.id }}" data-lum-soft-link>Edit</a>
+                  {% if engine_instance != 'shortstudio' %}<a class="lum-button secondary tiny" href="{{ base_path }}/app?tab=auto_engine&auto_profile_id={{ pr.id }}" data-lum-soft-link>Edit</a>{% endif %}
                   <form id="lum-ae-generate-profile-{{ pr.id }}" method="post" action="{{ base_path }}/actions/auto-v6/generate" data-lum-soft-form hidden>
                     <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ pr.id }}"><input type="hidden" name="confirmation" value="">
                   </form>
@@ -1258,9 +1270,24 @@
       <section class="lum-card">
         <div class="lum-card-head"><div><h2>Auto Engine Queue</h2><p>Queued jobs are immutable Sheet snapshots. Upload Now may reprioritize a scheduled job; queued title/description edits do not write back to the Sheet.</p></div><div><span class="lum-badge">{{ ae.queue|length }} rows</span> <strong data-ae-queue-count>0 selected</strong></div></div>
         <div class="lum-table-wrap"><table class="lum-table lum-ae-queue"><thead><tr><th>☑</th><th>Job</th><th>Video ID</th><th>Status</th><th>Channel</th><th>Video</th><th>Thumbnail</th><th>Title</th><th>Schedule</th><th>YouTube</th><th>Error / Post State</th><th>Actions</th></tr></thead><tbody>
-        {% for q in ae.queue %}<tr><td><input type="checkbox" class="lum-ae-queue-select" value="{{ q.id }}"></td><td>{{ q.id }}</td><td><code>{{ q.metadata_video_key or 'Legacy' }}</code></td><td><span class="lum-state s-{{ (q.status or '')|lower }}">{{ q.status }}</span></td><td>{{ q.channel_name }}</td><td><span class="lum-ellipsis" title="{{ q.drive_file_id or '' }}">{{ q.source_filename or q.original_filename or q.local_video_path }}</span></td><td>{{ q.thumbnail_filename or '—' }}</td><td><span class="lum-ellipsis" title="{{ q.title|e }}">{{ q.title }}</span></td><td>{{ q.app_upload_at or 'Now / queued' }}</td><td>{% if q.youtube_url %}<a href="{{ q.youtube_url }}" target="_blank" rel="noopener">Open</a>{% else %}—{% endif %}</td><td><span class="lum-ellipsis" title="{{ q.error_message or q.post_upload_state or '' }}">{{ q.error_message or q.post_upload_state or q.v6_state or '—' }}</span></td><td>{% if q.channel_job %}<form method="post" action="{{ base_path }}/actions/auto-v6/job/upload-now" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="video_id" value="{{ q.id }}"><button class="lum-button secondary tiny" type="submit">Upload Now</button></form><details><summary>Edit</summary><form method="post" action="{{ base_path }}/actions/auto-v6/job/edit" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="video_id" value="{{ q.id }}"><input name="title" value="{{ q.title|e }}" maxlength="100" required><textarea name="description" rows="2">{{ q.description }}</textarea><button class="lum-button secondary tiny" type="submit">Save Job Only</button></form></details>{% else %}Legacy{% endif %}</td></tr>{% else %}<tr><td colspan="12"><div class="lum-empty">No Auto Engine queue rows.</div></td></tr>{% endfor %}
+        {% for q in ae.queue %}<tr><td><input type="checkbox" class="lum-ae-queue-select" value="{{ q.id }}"></td><td>{{ q.id }}</td><td><code>{{ q.metadata_video_key or 'Legacy' }}</code></td><td><span class="lum-state s-{{ (q.status or '')|lower }}">{{ q.status }}</span>
+          {% if (q.status or '')|upper == 'WAITING_NETWORK' %}
+          <div class="lum-ae-network-actions" aria-label="Network recovery for job {{ q.id }}">
+            <form method="post" action="{{ base_path }}/actions/auto-v6/job/network-action" data-lum-soft-form>
+              <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="video_id" value="{{ q.id }}"><input type="hidden" name="action" value="retry">
+              <button class="lum-button secondary tiny" type="submit">Retry</button>
+            </form>
+            <form method="post" action="{{ base_path }}/actions/auto-v6/job/network-action" data-lum-soft-form data-confirm="Cancel this WAITING_NETWORK job? Only a proven pre-upload wait can be cancelled. Source media will be retained.">
+              <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="video_id" value="{{ q.id }}"><input type="hidden" name="action" value="cancel">
+              <button class="lum-button danger tiny" type="submit">Cancel</button>
+            </form>
+          </div>
+          {% endif %}
+        </td><td>{{ q.channel_name }}</td><td><span class="lum-ellipsis" title="{{ q.drive_file_id or '' }}">{{ q.source_filename or q.original_filename or q.local_video_path }}</span></td><td>{{ q.thumbnail_filename or '—' }}</td><td><span class="lum-ellipsis" title="{{ q.title|e }}">{{ q.title }}</span></td><td>{{ q.app_upload_at or 'Now / queued' }}</td><td>{% if q.youtube_url %}<a href="{{ q.youtube_url }}" target="_blank" rel="noopener">Open</a>{% else %}—{% endif %}</td><td><span class="lum-ellipsis" title="{{ q.error_message or q.post_upload_state or '' }}">{{ q.error_message or q.post_upload_state or q.v6_state or '—' }}</span></td><td>{% if q.channel_job %}<form method="post" action="{{ base_path }}/actions/auto-v6/job/upload-now" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="video_id" value="{{ q.id }}"><button class="lum-button secondary tiny" type="submit">Upload Now</button></form><details><summary>Edit</summary><form method="post" action="{{ base_path }}/actions/auto-v6/job/edit" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="video_id" value="{{ q.id }}"><input name="title" value="{{ q.title|e }}" maxlength="100" required><textarea name="description" rows="2">{{ q.description }}</textarea><button class="lum-button secondary tiny" type="submit">Save Job Only</button></form></details>{% else %}Legacy{% endif %}</td></tr>{% else %}<tr><td colspan="12"><div class="lum-empty">No Auto Engine queue rows.</div></td></tr>{% endfor %}
         </tbody></table></div>
+        {% if ae.queue|selectattr('recovery_state','equalto','REVIEW_REQUIRED')|list %}
         <div class="lum-ae-recovery"><form method="post" action="{{ base_path }}/actions/auto-v6/recovery-clear" data-lum-soft-form data-ae-queue-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><label class="lum-field"><span>Recovery Review escape hatch</span><input name="confirmation" placeholder="Type I CHECKED YOUTUBE after checking Studio"></label><button class="lum-button danger" type="submit">Authorize Fresh Retry for Selected Review Jobs</button></form></div>
+        {% endif %}
       </section>
     </div>
 

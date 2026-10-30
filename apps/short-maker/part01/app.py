@@ -735,6 +735,44 @@ button.secondary{background:#f0efff;color:#4d4fc7}button.danger{background:#fff0
 .song-item button{padding:7px 10px;flex-shrink:0}
 @media(max-width:600px){.drive-link-row{align-items:stretch}.drive-link-row button{padding:8px}}
 
+
+/* Independent upload and VPS render progress stages */
+.sm-stage-progress{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:10px}
+.sm-stage-label{display:flex;justify-content:space-between;gap:10px;margin-bottom:7px;font-weight:750;color:var(--text);font-size:12px}
+.sm-stage-label strong{font-variant-numeric:tabular-nums}
+.sm-stage-progress .progress{margin:0}
+.sm-render-progress span{background:#16a078}
+@media(max-width:540px){.sm-stage-progress{grid-template-columns:1fr;gap:12px}}
+
+/* SHORT_MAKER_COMPACT_BATCH_MODAL_V1 — Queue-only presentation; renderer untouched. */
+.queue-table{min-width:760px}
+.queue-table td{max-width:270px}
+.queue-output-count{font-weight:800;color:var(--text);white-space:nowrap}
+.queue-output-destination{max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:12px}
+.queue-row-actions{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.queue-row-actions button{white-space:nowrap;padding:8px 10px}
+.short-job-overlay{position:fixed;inset:0;z-index:2200;background:rgba(15,23,42,.58);display:flex;align-items:center;justify-content:center;padding:18px}
+.short-job-overlay[hidden]{display:none!important}
+.short-job-dialog{width:min(760px,100%);max-height:min(88vh,880px);background:#fff;border:1px solid #dfe5f0;border-radius:18px;box-shadow:0 24px 70px rgba(15,23,42,.22);display:flex;flex-direction:column;overflow:hidden;outline:none}
+.short-job-header{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;padding:19px 22px;border-bottom:1px solid #e7eaf1}
+.short-job-header h2{font-size:20px;margin:2px 0 0}
+.short-job-eyebrow{font-size:12px;color:#68758b;font-weight:800;letter-spacing:.04em;text-transform:uppercase}
+.short-job-header button{padding:5px 12px;background:#f0f3f9;color:#293246;font-size:21px}
+.short-job-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:18px 22px;border-bottom:1px solid #e7eaf1}
+.short-job-summary>div{min-width:0}
+.short-job-summary span{font-size:11px;color:#738098;font-weight:750;display:block;margin-bottom:3px}
+.short-job-summary strong{font-size:13px;display:block;overflow-wrap:anywhere;font-weight:700}
+.short-job-output-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 22px 12px}
+.short-job-output-head h3{font-size:14px;margin:0}
+.short-job-output-head button{padding:8px 11px}
+.short-job-output-list{overflow:auto;min-height:50px;padding:0 22px 20px;overscroll-behavior:contain}
+.short-job-output-row{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid #e6eaf2;border-radius:9px;margin-bottom:7px;padding:10px 12px;font-size:13px;min-width:0}
+.short-job-output-row span{overflow-wrap:anywhere;min-width:0}
+.short-job-output-row a{font-size:12px;font-weight:800;white-space:nowrap;flex-shrink:0}
+.short-job-empty{padding:22px 10px;text-align:center;color:#738098}
+body.short-job-modal-open{overflow:hidden}
+@media(max-width:600px){.short-job-overlay{padding:8px}.short-job-dialog{max-height:94dvh;border-radius:12px}.short-job-header{padding:14px}.short-job-summary{grid-template-columns:repeat(2,minmax(0,1fr));padding:14px;gap:10px}.short-job-output-head{padding:12px 14px}.short-job-output-list{padding:0 14px 14px}.queue-table{min-width:730px}}
+
 /* VIDEO_STUDIO_UI_UNIFIED_V1 */
 main{max-width:none!important;padding:26px 34px 42px!important}
 main>[data-video-studio-subnav="1"],main>header,main>.sm-tabs,main>form,main>#queuePanel{width:100%!important;max-width:1400px!important;margin-left:auto!important;margin-right:auto!important;box-sizing:border-box!important}
@@ -840,8 +878,11 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
  <h2>Render</h2>
  <button id="render" class="render" type="submit">Start Rendering</button>
  <button id="discardUpload" class="secondary" type="button" hidden style="margin-top:10px">Discard paused upload</button>
- <div class="progress" id="progressTrack" role="progressbar" aria-label="Upload progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="bar"></span></div>
- <div id="progressDetail" class="status" aria-live="polite">Upload: 0% · Rendering: 0%</div>
+ <div class="sm-stage-progress">
+  <div><div class="sm-stage-label"><span>Upload</span><strong id="uploadPctLabel">0%</strong></div><div class="progress" id="progressTrack" role="progressbar" aria-label="Upload progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="bar"></span></div></div>
+  <div><div class="sm-stage-label"><span>Rendering</span><strong id="renderPctLabel">0%</strong></div><div class="progress sm-render-progress" id="renderProgressTrack" role="progressbar" aria-label="Rendering progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="renderProgressBar"></span></div></div>
+ </div>
+ <div id="progressDetail" class="status" aria-live="polite">Ready to upload</div>
  <div id="status" class="status">Ready.</div>
  <div id="outputs" class="outputs"></div>
 </section>
@@ -876,6 +917,14 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
   <div class="queue-pager"><button id="prevPage" class="secondary" type="button">Previous</button><span id="pageInfo">Page 1</span><button id="nextPage" class="secondary" type="button">Next</button></div>
 </section>
 </section>
+<div id="shortJobModal" class="short-job-overlay" hidden>
+ <section class="short-job-dialog" role="dialog" aria-modal="true" aria-labelledby="shortJobTitle" tabindex="-1">
+  <div class="short-job-header"><div><div class="short-job-eyebrow">Short Maker · Batch details</div><h2 id="shortJobTitle">Job details</h2></div><button id="closeShortJobModal" type="button" aria-label="Close job details">×</button></div>
+  <div id="shortJobSummary" class="short-job-summary"></div>
+  <div class="short-job-output-head"><h3>Output videos <span id="shortJobOutputCount">0</span></h3><button id="copyShortJobNames" class="secondary" type="button">Copy filenames</button></div>
+  <div id="shortJobOutputList" class="short-job-output-list" role="list" tabindex="0" aria-label="Output video filenames and download links"></div>
+ </section>
+</div>
 </main>
 <script>
 const form=document.getElementById('form'), images=document.getElementById('images'), audio=document.getElementById('audio'),inputMode=document.getElementById('inputMode'),localImageBox=document.getElementById('localImageBox'),driveImageBox=document.getElementById('driveImageBox');
@@ -1003,14 +1052,171 @@ queueTabBtn.onclick=()=>showShortTab('queue');
 settingsTabBtn.onclick=()=>showShortTab('settings');
 document.getElementById('newJobBtn').onclick=()=>showShortTab('maker');
 function escQ(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-function renderQueue(){
- const pages=Math.max(1,Math.ceil(queueItems.length/queuePageSize));if(queuePage>pages)queuePage=pages;
- const rows=queueItems.slice((queuePage-1)*queuePageSize,queuePage*queuePageSize);const body=document.getElementById('queueRows');
- document.getElementById('pageInfo').textContent=`Page ${queuePage} of ${pages}`;document.getElementById('prevPage').disabled=queuePage<=1;document.getElementById('nextPage').disabled=queuePage>=pages;
- if(!rows.length){body.innerHTML='<tr><td colspan="6">No jobs yet.</td></tr>';return;}
- body.innerHTML=rows.map(j=>{const st=String(j.status||'unknown'),p=Math.max(0,Math.min(100,Number(j.progress||0))),outs=(j.outputs||[]).map(o=>o.local_available&&o.url?`<a href="${escQ(o.url)}">${escQ(o.name)}</a>`:`<span class="driveok" title="${escQ(o.drive_path||'')}">Drive ✓ ${escQ(o.name)}</span>`).join(' · '),terminal=st==='completed'||st==='failed';return `<tr><td><b>${escQ((j.job_id||'').slice(0,8))}</b></td><td><span class="qbadge ${escQ(st)}">${escQ(st)}</span></td><td><div class="qbar"><span style="width:${p}%"></span></div><small>${p.toFixed(0)}%</small></td><td><div class="qmsg" title="${escQ(j.message||'')}">${escQ(j.message||'')}</div><div class="drivewait">${escQ(j.delivery_status||'')}</div></td><td>${outs||'—'}</td><td>${terminal?`<button class="danger" type="button" onclick="deleteQueueJob('${escQ(j.job_id)}')">Delete</button>`:'—'}</td></tr>`;}).join('');
+// SHORT_MAKER_COMPACT_BATCH_MODAL_V1
+const shortJobModal=document.getElementById('shortJobModal');
+const shortJobDialog=shortJobModal.querySelector('[role="dialog"]');
+const shortJobSummary=document.getElementById('shortJobSummary');
+const shortJobOutputList=document.getElementById('shortJobOutputList');
+const closeShortJobButton=document.getElementById('closeShortJobModal');
+const copyShortJobButton=document.getElementById('copyShortJobNames');
+let shortJobDetailId=null,shortJobReturnFocus=null,shortJobOutputSignature='';
+function shortJobDestination(j){
+ const cfg=j.config||{};
+ if(j.drive_folder)return 'Google Drive · '+j.drive_folder;
+ if(j.delivery_status==='verified'||j.delivery_status==='verified_cleaned'||cfg.upload_to_drive)return 'Google Drive'+(cfg.drive_output_path?' · '+cfg.drive_output_path:'');
+ const folder=j.short_vps_folder||cfg.short_vps_folder;
+ return 'Short Uploader'+(folder?' · '+folder:'');
 }
-async function loadQueue(){try{const r=await fetch('api/jobs',{cache:'no-store'}),d=await r.json();queueItems=d.jobs||[];const c=d.counts||{};mUploading.textContent=c.uploading||0;mQueued.textContent=c.queued||0;mRunning.textContent=c.running||0;mCompleted.textContent=c.completed||0;mFailed.textContent=c.failed||0;queueTotal.textContent=`(${queueItems.length})`;renderQueue();}catch(e){}}
+function shortJobDate(value){
+ if(!value)return 'Not recorded';
+ const d=new Date(value);
+ if(!Number.isFinite(d.getTime()))return String(value);
+ return d.toLocaleString('en-PK',{dateStyle:'medium',timeStyle:'short',timeZone:'Asia/Karachi'});
+}
+function shortJobField(label,value){
+ const field=document.createElement('div'),title=document.createElement('span'),content=document.createElement('strong');
+ title.textContent=label;content.textContent=String(value==null?'—':value);
+ field.append(title,content);return field;
+}
+function shortJobDownloadHref(value){
+ if(typeof value!=='string'||!(/^(outputs\/|\/short-maker\/outputs\/)/).test(value))return null;
+ try{
+  const link=new URL(value,location.origin+'/short-maker/');
+  if(link.origin!==location.origin||!link.pathname.startsWith('/short-maker/outputs/'))return null;
+  return link.href;
+ }catch(e){return null;}
+}
+function renderShortJobDetails(j){
+ document.getElementById('shortJobTitle').textContent='Job '+String(j.job_id||'').slice(0,8);
+ const outputs=Array.isArray(j.outputs)?j.outputs:[];
+ const progress=Math.max(0,Math.min(100,Number(j.progress||0)));
+ shortJobSummary.replaceChildren(
+  shortJobField('Job ID',j.job_id||'—'),
+  shortJobField('Status',j.status||'Unknown'),
+  shortJobField('Progress',Math.round(progress)+'%'),
+  shortJobField('Output count',outputs.length+(Number(j.config&&j.config.output_count)>outputs.length?' / '+j.config.output_count:'')),
+  shortJobField('Created (PKT)',shortJobDate(j.created_at)),
+  shortJobField('Completed (PKT)',shortJobDate(j.completed_at)),
+  shortJobField('Destination',shortJobDestination(j)),
+  shortJobField('Current step',j.message||'—'),
+  shortJobField('Delivery',j.delivery_status||'—')
+ );
+ document.getElementById('shortJobOutputCount').textContent='('+outputs.length+')';
+ copyShortJobButton.disabled=!outputs.length;
+ // Avoid recreating hundreds of rows on the queue's 2-second status refresh.
+ const signature=JSON.stringify(outputs.map(o=>[o.name,o.url,o.local_available,o.drive_path]));
+ if(signature===shortJobOutputSignature)return;
+ shortJobOutputSignature=signature;
+ const previousScroll=shortJobOutputList.scrollTop;
+ const fragment=document.createDocumentFragment();
+ if(!outputs.length){
+  const empty=document.createElement('div');empty.className='short-job-empty';
+  empty.textContent='No completed outputs yet. This view updates while the job runs.';
+  fragment.appendChild(empty);
+ }else{
+  for(const [i,o] of outputs.entries()){
+   const row=document.createElement('div'),name=document.createElement('span');
+   row.className='short-job-output-row';row.setAttribute('role','listitem');
+   name.textContent=(i+1)+'. '+String(o.name||'Video');
+   row.appendChild(name);
+   const href=o.local_available&&o.url?shortJobDownloadHref(o.url):null;
+   if(href){
+    const link=document.createElement('a');link.href=href;link.textContent='Download';link.setAttribute('download','');
+    row.appendChild(link);
+   }else{
+    const status=document.createElement('span');
+    status.className='drivewait';status.textContent=o.drive_verified||o.drive_path?'Drive verified':'Stored in destination';
+    row.appendChild(status);
+   }
+   fragment.appendChild(row);
+  }
+ }
+ shortJobOutputList.replaceChildren(fragment);
+ shortJobOutputList.scrollTop=previousScroll;
+}
+function openShortJobDetails(id,trigger){
+ const job=queueItems.find(j=>String(j.job_id)===String(id));
+ if(!job)return;
+ shortJobReturnFocus=trigger||document.activeElement;
+ shortJobDetailId=String(id);shortJobOutputSignature='';
+ renderShortJobDetails(job);
+ shortJobModal.hidden=false;
+ document.body.classList.add('short-job-modal-open');
+ closeShortJobButton.focus();
+}
+function closeShortJobDetails(){
+ if(shortJobModal.hidden)return;
+ shortJobModal.hidden=true;document.body.classList.remove('short-job-modal-open');
+ shortJobDetailId=null;shortJobOutputSignature='';
+ if(shortJobReturnFocus&&shortJobReturnFocus.isConnected)shortJobReturnFocus.focus();
+ else document.getElementById('queueTabBtn').focus();
+ shortJobReturnFocus=null;
+}
+function refreshShortJobDetails(){
+ if(!shortJobDetailId||shortJobModal.hidden)return;
+ const job=queueItems.find(j=>String(j.job_id)===shortJobDetailId);
+ if(job)renderShortJobDetails(job);else closeShortJobDetails();
+}
+document.getElementById('queueRows').addEventListener('click',event=>{
+ const detail=event.target.closest('[data-short-job-details]');
+ if(detail){openShortJobDetails(detail.getAttribute('data-short-job-details'),detail);return;}
+ const deletion=event.target.closest('[data-short-job-delete]');
+ if(deletion)deleteQueueJob(deletion.getAttribute('data-short-job-delete'));
+});
+closeShortJobButton.addEventListener('click',closeShortJobDetails);
+shortJobModal.addEventListener('click',event=>{if(event.target===shortJobModal)closeShortJobDetails();});
+document.addEventListener('keydown',event=>{
+ if(shortJobModal.hidden)return;
+ if(event.key==='Escape'){event.preventDefault();closeShortJobDetails();return;}
+ if(event.key!=='Tab')return;
+ const focusables=Array.from(shortJobDialog.querySelectorAll('button:not([disabled]),a[href], [tabindex="0"]'));
+ if(!focusables.length)return;
+ const first=focusables[0],last=focusables[focusables.length-1];
+ if(event.shiftKey&&(document.activeElement===first||!shortJobDialog.contains(document.activeElement))){
+  event.preventDefault();last.focus();
+ }else if(!event.shiftKey&&(document.activeElement===last||!shortJobDialog.contains(document.activeElement))){
+  event.preventDefault();first.focus();
+ }
+});
+copyShortJobButton.addEventListener('click',async()=>{
+ const job=queueItems.find(j=>String(j.job_id)===shortJobDetailId);
+ if(!job)return;
+ const filenames=(job.outputs||[]).map(o=>String(o.name||'')).filter(Boolean).join('\n');
+ if(!filenames)return;
+ try{
+  await navigator.clipboard.writeText(filenames);
+  copyShortJobButton.textContent='Copied';
+  setTimeout(()=>{copyShortJobButton.textContent='Copy filenames';},1700);
+ }catch(e){copyShortJobButton.textContent='Copy unavailable';}
+});
+function renderQueue(){
+ const pages=Math.max(1,Math.ceil(queueItems.length/queuePageSize));
+ if(queuePage>pages)queuePage=pages;
+ const rows=queueItems.slice((queuePage-1)*queuePageSize,queuePage*queuePageSize);
+ const body=document.getElementById('queueRows');
+ document.getElementById('pageInfo').textContent='Page '+queuePage+' of '+pages;
+ document.getElementById('prevPage').disabled=queuePage<=1;
+ document.getElementById('nextPage').disabled=queuePage>=pages;
+ if(!rows.length){body.innerHTML='<tr><td colspan="6">No jobs yet.</td></tr>';return;}
+ body.innerHTML=rows.map(j=>{
+  const st=String(j.status||'unknown'),p=Math.max(0,Math.min(100,Number(j.progress||0)));
+  const count=Array.isArray(j.outputs)?j.outputs.length:0;
+  const expected=Math.max(0,Number(j.config&&j.config.output_count||0));
+  const countText=count?count+' video'+(count===1?'':'s'):expected?expected+' planned':'No outputs yet';
+  const terminal=st==='completed'||st==='failed';
+  const id=escQ(String(j.job_id||''));
+  const dest=shortJobDestination(j);
+  return '<tr><td><b>'+escQ(String(j.job_id||'').slice(0,8))+'</b></td>'+
+   '<td><span class="qbadge '+escQ(st)+'">'+escQ(st)+'</span></td>'+
+   '<td><div class="qbar"><span style="width:'+p+'%"></span></div><small>'+p.toFixed(0)+'%</small></td>'+
+   '<td><div class="qmsg" title="'+escQ(j.message||'')+'">'+escQ(j.message||'')+'</div></td>'+
+   '<td><div class="queue-output-count">'+escQ(countText)+'</div><div class="queue-output-destination" title="'+escQ(dest)+'">'+escQ(dest)+'</div></td>'+
+   '<td><div class="queue-row-actions"><button type="button" class="secondary" data-short-job-details="'+id+'">View Details</button>'+
+   (terminal?'<button type="button" class="danger" data-short-job-delete="'+id+'">Delete</button>':'')+'</div></td></tr>';
+ }).join('');
+}
+
+async function loadQueue(){try{const r=await fetch('api/jobs',{cache:'no-store'}),d=await r.json();queueItems=d.jobs||[];const c=d.counts||{};mUploading.textContent=c.uploading||0;mQueued.textContent=c.queued||0;mRunning.textContent=c.running||0;mCompleted.textContent=c.completed||0;mFailed.textContent=c.failed||0;queueTotal.textContent=`(${queueItems.length})`;renderQueue();refreshShortJobDetails();}catch(e){}}
 async function deleteQueueJob(id){if(!confirm('Delete this completed/failed job and its local files?'))return;const r=await fetch(`api/jobs/${id}`,{method:'DELETE'});if(!r.ok){const d=await r.json();alert(d.detail||'Delete failed');}loadQueue();}
 async function clearQueueStatus(st){if(!confirm(`Clear all ${st} jobs?`))return;await fetch(`api/jobs/clear/${st}`,{method:'POST'});queuePage=1;loadQueue();}
 document.getElementById('clearDoneBtn').onclick=()=>clearQueueStatus('completed');document.getElementById('clearFailedBtn').onclick=()=>clearQueueStatus('failed');
@@ -1436,6 +1642,20 @@ def upload_config(payload: dict) -> dict:
     }
 
 
+@contextmanager
+def upload_create_lock():
+    """Hold one short interprocess lock while allocating an upload session."""
+    lock = JOBS_ROOT / ".resumable-create.lock"
+    if lock.is_symlink():
+        raise HTTPException(status_code=400, detail="Unsafe upload session lock.")
+    with lock.open("a+b") as file:
+        fcntl.flock(file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(file.fileno(), fcntl.LOCK_UN)
+
+
 @app.post("/api/upload-sessions")
 async def begin_resumable_upload(request: Request):
     try:
@@ -1476,18 +1696,47 @@ async def begin_resumable_upload(request: Request):
         raise HTTPException(status_code=400, detail="Select at least one image.")
     if cfg["input_mode"] == "drive" and manifest_files["images"]:
         raise HTTPException(status_code=400, detail="Drive input cannot include PC images.")
-    job_id = uuid.uuid4().hex[:16]
-    root = JOBS_ROOT / job_id
-    for kind in ("images", "audio"):
-        (root / "input" / kind).mkdir(parents=True, exist_ok=True)
-    manifest = {"owner": request.headers.get("x-auth-user", "").strip(),
-                "config": cfg, "files": manifest_files, "created_at": utc_now()}
-    upload_manifest_path(job_id).write_text(json.dumps(manifest), encoding="utf-8")
-    set_state(job_id, status="uploading", progress=0, upload_progress=0,
-              created_at=utc_now(), message="Uploading PC files (resumable)",
-              outputs=[], config=cfg, delivery_status="waiting_upload",
-              drive_verified=False, local_cleaned=False)
-    return {"job_id": job_id, "status": "uploading"}
+    request_id = str(payload.get("client_request_id") or "").strip()
+    if request_id and not re.fullmatch(r"[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}", request_id):
+        raise HTTPException(status_code=400, detail="Invalid upload request ID.")
+    owner = request.headers.get("x-auth-user", "").strip()
+    with upload_create_lock():
+        job_id = (hashlib.sha256((owner + ":" + request_id).encode("utf-8")).hexdigest()[:16]
+                  if request_id else uuid.uuid4().hex[:16])
+        root = JOBS_ROOT / job_id
+        manifest_path = upload_manifest_path(job_id)
+        if manifest_path.is_file():
+            try:
+                previous = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                raise HTTPException(status_code=409, detail="Existing upload session is unreadable.")
+            if (not request_id or previous.get("owner") != owner or
+                previous.get("client_request_id") != request_id or
+                previous.get("config") != cfg or previous.get("files") != manifest_files):
+                raise HTTPException(status_code=409, detail="Upload request ID has conflicting contents.")
+            try:
+                current = get_state(job_id)
+            except HTTPException as exc:
+                if exc.status_code != 404:
+                    raise
+                set_state(job_id, status="uploading", progress=0, upload_progress=0,
+                          created_at=previous.get("created_at") or utc_now(),
+                          message="Resuming PC file upload", outputs=[], config=cfg,
+                          delivery_status="waiting_upload", drive_verified=False, local_cleaned=False)
+                current = get_state(job_id)
+            return {"job_id": job_id, "status": current.get("status"), "resumed": True}
+        if root.exists() and any(root.iterdir()):
+            raise HTTPException(status_code=409, detail="Session collision; existing data preserved.")
+        for kind in ("images", "audio"):
+            (root / "input" / kind).mkdir(parents=True, exist_ok=True)
+        manifest = {"owner": owner, "client_request_id": request_id,
+                    "config": cfg, "files": manifest_files, "created_at": utc_now()}
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        set_state(job_id, status="uploading", progress=0, upload_progress=0,
+                  created_at=manifest["created_at"], message="Uploading PC files (resumable)",
+                  outputs=[], config=cfg, delivery_status="waiting_upload",
+                  drive_verified=False, local_cleaned=False)
+        return {"job_id": job_id, "status": "uploading", "resumed": False}
 
 
 @app.get("/api/upload-sessions/{job_id}")

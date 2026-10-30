@@ -84,6 +84,11 @@ class ShortMakerResumeTests(unittest.TestCase):
         app = SERVER.read_text(encoding="utf-8")
         js = CLIENT.read_text(encoding="utf-8")
         self.assertIn('id="progressDetail"', app)
+        for marker in ('id="renderProgressTrack"', 'id="renderProgressBar"',
+                       'id="uploadPctLabel"', 'id="renderPctLabel"',
+                       'client_request_id', 'with upload_create_lock():'):
+            self.assertIn(marker, app)
+        self.assertIn('previous.get("client_request_id") != request_id', app)
         self.assertIn('id="mUploading"', app)
         self.assertIn('src="/short-maker/resumable_client.js"', app)
         self.assertIn('status="uploading"', app)
@@ -93,7 +98,8 @@ class ShortMakerResumeTests(unittest.TestCase):
         for fragment in ("indexedDB.open(", "navigator.locks", "SHORT_CHUNK_SIZE",
                          "file.slice(offset", "meta.job_id", "shortDBSave(meta,blobs)",
                          "shortDBRead('meta','active')", "uploaded_bytes", "'/finalize'",
-                         "pollShortJob"):
+                         "pollShortJob", "crypto.randomUUID()", "withShortUploadLock(",
+                         "renderProgressBar.style.width", "client_request_id:meta.client_request_id"):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, js)
 

@@ -49,7 +49,14 @@
   }
 
   function updateQ(){
-    document.querySelectorAll('.lum-ae-queue-select').forEach(cb=>cb.checked=qSelected.has(Number(cb.value)));
+    const boxes=[...document.querySelectorAll('.lum-ae-queue-select')];
+    // The queue is live-replaced every two seconds: forget ids no longer on screen.
+    // Otherwise a single visible job can misleadingly show "17 selected".
+    if(boxes.length || document.querySelector('.lum-ae-queue')){
+      const visible=new Set(boxes.map(cb=>Number(cb.value)));
+      for(const id of qSelected)if(!visible.has(id))qSelected.delete(id);
+    }
+    boxes.forEach(cb=>cb.checked=qSelected.has(Number(cb.value)));
     document.querySelectorAll('[data-ae-queue-count]').forEach(el=>el.textContent=`${qSelected.size} selected`);
   }
   function updateT(){
@@ -251,9 +258,12 @@
 
   /* LUM_QUEUE_LIVE_AUTOREFRESH_V1 */
   let queueLiveTimer=0,queueLiveBusy=false,queueLiveLast='';
-  function queueLivePanel(){
-    const p=document.querySelector('[data-ae-panel="queue"]');
-    if(!p||p.hidden||p.getAttribute('aria-hidden')==='true')return null;
+  function queueLivePanel(root=document){
+    // Two sibling panels use data-ae-panel="queue": controls and actual job rows.
+    // Poll the job table, not the first (controls-only) panel.
+    const panes=[...root.querySelectorAll('[data-ae-panel="queue"]')];
+    const p=panes.find(node=>node.querySelector('.lum-ae-queue'));
+    if(!p||(root===document && (p.hidden||p.getAttribute('aria-hidden')==='true')))return null;
     return p;
   }
   function queueLiveBadge(panel,state='live'){
@@ -278,7 +288,7 @@
       const r=await fetch(u.toString(),{credentials:'same-origin',cache:'no-store',headers:{'X-LUM-Soft-Navigation':'1'}});
       if(!r.ok)throw new Error(`HTTP ${r.status}`);
       const text=await r.text();const doc=new DOMParser().parseFromString(text,'text/html');
-      const fresh=doc.querySelector('[data-ae-panel="queue"]');if(!fresh)throw new Error('Queue panel missing in live snapshot');
+      const fresh=queueLivePanel(doc);if(!fresh)throw new Error('Queue table missing in live snapshot');
       const freshHtml=fresh.innerHTML;
       if(force||freshHtml!==queueLiveLast){
         const y=window.scrollY;
