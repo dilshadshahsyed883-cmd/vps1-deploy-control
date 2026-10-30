@@ -234,6 +234,17 @@ def smoke(app):
                     if projects.status_code != 200:
                         raise RuntimeError('authenticated ACS project API unavailable')
                     result['project_api'] = 'PASS'
+                if app == 'copyright-uploader':
+                    html = ui.text
+                    if ('Copyright Uploader' not in html or 'Add Video' not in html or
+                            'Queue' not in html or 'Auto Engine</a>' in html or
+                            'data-engine-instance="copyright"' not in html):
+                        raise RuntimeError('Copyright Uploader manual UI isolation failed')
+                    if not response.json().get('worker_alive'):
+                        raise RuntimeError('Copyright Uploader durable queue worker is offline')
+                    if client.get('/copyright-uploader/app?tab=profiles').status_code != 200:
+                        raise RuntimeError('Copyright profile tab is not ready')
+                    result['manual_queue'] = 'PASS_NO_AUTO_ENGINE'
                 if app == 'local-upload-manager':
                     # Exercise the real authenticated Auto Engine screen using only
                     # isolated temporary state. No queue, schedule or upload POST.
