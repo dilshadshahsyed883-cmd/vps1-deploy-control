@@ -51,6 +51,11 @@ class ShortStudioV1(unittest.TestCase):
         self.assertNotIn("/lum3/", cmd)
         self.assertNotIn("/lum-song/", cmd)
         self.assertNotIn("/lum1/", cmd)
+        for filename, key in (("auto_engine_v6.js", "lum.auto.v6.panel.shortstudio"),
+                              ("channels_subtabs_v5_1.js", "lum.shortstudio.channel.panel"),
+                              ("navigation_state_v1.js", "lum.shortstudio.main.tab"),
+                              ("lum_ux_state_v2.js", "lum.shortstudio.route")):
+            self.assertIn(key, (LUM / "static" / filename).read_text())
 
     def test_new_engine_is_off_until_configured_and_thumbnail_free(self):
         config = (LUM / "lum_engine/config.py").read_text()
