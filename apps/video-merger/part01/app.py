@@ -963,8 +963,19 @@ def retain_verified_output(src, job_id, filename):
         raise RuntimeError('Unsafe local output directory')
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     destination = directory / safe_component(filename)
-    if destination.is_symlink() or destination.exists():
+    if destination.is_symlink():
         raise RuntimeError('Local output collision')
+    if destination.exists():
+        import hashlib
+        def digest(path):
+            h = hashlib.sha256()
+            with path.open('rb') as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b''):
+                    h.update(chunk)
+            return h.hexdigest()
+        if destination.stat().st_size != src.stat().st_size or digest(destination) != digest(src):
+            raise RuntimeError('Different verified output already retained for this job')
+        return destination
     if shutil.disk_usage(directory).free < MIN_FREE_BYTES:
         raise RuntimeError('Operational free-space reserve is too low')
     temp = directory / ('.' + uuid.uuid4().hex + '.partial')
@@ -990,8 +1001,19 @@ def deliver_copyright_folder(local, owner, job_id):
         raise RuntimeError('Unsafe account handoff folder')
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
     destination = folder / (job_id + '__' + local.name)
-    if destination.is_symlink() or destination.exists():
+    if destination.is_symlink():
         raise RuntimeError('Handoff collision')
+    if destination.exists():
+        import hashlib
+        def digest(path):
+            h = hashlib.sha256()
+            with path.open('rb') as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b''):
+                    h.update(chunk)
+            return h.hexdigest()
+        if destination.stat().st_size != local.stat().st_size or digest(destination) != digest(local):
+            raise RuntimeError('Handoff destination contains different media')
+        return destination
     if shutil.disk_usage(folder).free < MIN_FREE_BYTES:
         raise RuntimeError('Operational free-space reserve is too low')
     temp = folder / ('.' + uuid.uuid4().hex + '.partial')
@@ -1097,9 +1119,11 @@ def add_job(payload, owner=''):
                    int(drive_enabled),int(copyright_enabled),owner))
     WORKER_WAKE.set(); return jid,filename
 
-def delete_job(jid):
+def delete_job(jid, owner=''):
     j=get_job(jid)
     if not j: raise KeyError('Job not found')
+    if j.get('owner_username') and str(j['owner_username']).lower()!=str(owner).lower():
+        raise ValueError('This job does not belong to the current account')
     if j['status'] not in ('waiting','complete','failed'): raise ValueError('Active job cannot be deleted')
     with DB_LOCK, db() as c: c.execute('DELETE FROM jobs WHERE id=?',(jid,))
     if j['status']!='complete': shutil.rmtree(WORK/jid, ignore_errors=True)
@@ -1156,6 +1180,29 @@ class Handler(BaseHTTPRequestHandler):
                         '<a class="vps1-server-admin" href="/admin">Admin</a>\\n'+marker,1)
                 return self.send_bytes(200,page.encode('utf-8'),'text/html; charset=utf-8')
             if p==PREFIX+'/health': return self.send_json(200,{'ok':True,'app':APP_NAME,'release':RELEASE_ID,'paused':setting('paused','0')=='1'})
+            m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/download',p)
+            if m:
+                job=get_job(m.group(1))
+                owner=(self.headers.get('X-Auth-User') or '').strip()
+                if not job or not owner or str(job.get('owner_username') or '').lower()!=owner.lower():
+                    return self.send_json(404,{'ok':False,'error':'Output not found'})
+                path = LOCAL_OUTPUT_ROOT / job['id'] / job['filename']
+                if (not path.is_file() or path.is_symlink() or
+                        path.resolve().parent != (LOCAL_OUTPUT_ROOT / job['id']).resolve() or
+                        str(path) != str(job.get('local_path') or '')):
+                    return self.send_json(404,{'ok':False,'error':'Verified output unavailable'})
+                self.send_response(200)
+                self.send_header('Content-Type','video/mp4')
+                self.send_header('Content-Disposition',"attachment; filename*=UTF-8''"+urllib.parse.quote(job['filename']))
+                self.send_header('Content-Length',str(path.stat().st_size))
+                self.send_header('X-Content-Type-Options','nosniff')
+                self.end_headers()
+                with path.open('rb') as handle:
+                    while True:
+                        chunk=handle.read(1024 * 1024)
+                        if not chunk: break
+                        self.wfile.write(chunk)
+                return
             if p==PREFIX+'/api/state':
                 return self.send_json(200,{'ok':True,'jobs':list_jobs((self.headers.get('X-Auth-User') or '').strip()),'folders':list_folders(),'paused':setting('paused','0')=='1','output_root':OUTPUT_ROOT,'library':list_library_items(),'proxy':public_proxy_state()})
             return self.send_json(404,{'ok':False,'error':'Not found'})
@@ -1183,7 +1230,7 @@ class Handler(BaseHTTPRequestHandler):
             if p==PREFIX+'/api/proxy/toggle': set_proxy_enabled(bool(payload.get('enabled'))); return self.send_json(200,{'ok':True})
             if p==PREFIX+'/api/proxy/test': return self.send_json(200,{'ok':True,**test_proxy_profile((payload.get('id') or '').strip())})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/delete',p)
-            if m: delete_job(m.group(1)); return self.send_json(200,{'ok':True})
+            if m: delete_job(m.group(1),(self.headers.get('X-Auth-User') or '').strip()); return self.send_json(200,{'ok':True})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/move',p)
             if m: move_job(m.group(1),payload.get('direction')); return self.send_json(200,{'ok':True})
             if p==PREFIX+'/api/queue/pause': set_setting('paused','1'); return self.send_json(200,{'ok':True})
