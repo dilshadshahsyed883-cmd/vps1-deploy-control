@@ -756,6 +756,15 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
   <div class="field"><label>Resolution</label><input value="1080 × 1920 (9:16)" disabled></div>
  </div>
  <div class="drive-delivery">
+  <h3>Short Studio · VPS Output Folder</h3>
+  <div class="hint">Every rendered MP4 is copied here for Short Uploader. Google Drive upload remains independent.</div>
+  <div class="two">
+   <div class="field"><label for="shortVpsFolder">VPS folder</label><select id="shortVpsFolder" name="short_vps_folder"><option value="Default">Default</option></select></div>
+   <div class="field"><label>Manage VPS folders</label><div class="queue-actions"><button type="button" class="secondary" id="createShortFolder">+ Create</button><button type="button" class="danger" id="deleteShortFolder">Delete empty folder</button></div></div>
+  </div>
+  <div class="hint" id="shortFolderMessage">Folders with videos cannot be deleted. Uploaded shorts are removed by Short Uploader only after YouTube verification.</div>
+ </div>
+ <div class="drive-delivery">
   <label class="checkline"><input id="uploadToDrive" name="upload_to_drive" type="checkbox" checked> <b>Upload final output(s) to Google Drive</b></label>
   <div class="field"><label>Drive output folder</label><input id="driveOutputPath" name="drive_output_path" value="gdrive:Short_Maker/Outputs"></div>
   <label class="checkline"><input id="verifiedClean" name="verified_clean" type="checkbox" checked disabled> <b>Drive verified clean</b> — delete this job's local input/output only after every final MP4 matches Drive size + MD5.</label>
@@ -785,6 +794,36 @@ const form=document.getElementById('form'), images=document.getElementById('imag
 const imageCount=document.getElementById('imageCount'),audioCount=document.getElementById('audioCount'),statusEl=document.getElementById('status'),bar=document.getElementById('bar'),outputs=document.getElementById('outputs'),render=document.getElementById('render');
 const driveInputRows=document.getElementById('driveInputRows'),driveLinkCount=document.getElementById('driveLinkCount'),songList=document.getElementById('songList');
 const selectedAudioFiles=[];
+const shortFolderSelect=document.getElementById('shortVpsFolder');
+const shortFolderMessage=document.getElementById('shortFolderMessage');
+async function loadShortFolders(preferred){
+ const r=await fetch('api/vps-folders',{cache:'no-store'});
+ const data=await r.json();if(!r.ok)throw new Error(data.detail||'Could not list VPS folders');
+ const chosen=preferred||shortFolderSelect.value||'Default';
+ shortFolderSelect.replaceChildren();
+ (data.folders||[]).forEach(name=>{const opt=document.createElement('option');opt.value=name;opt.textContent=name;shortFolderSelect.appendChild(opt);});
+ if((data.folders||[]).includes(chosen))shortFolderSelect.value=chosen;
+}
+document.getElementById('createShortFolder').onclick=async()=>{
+ const name=prompt('New VPS folder name (letters, digits, spaces, _ or -):');
+ if(name===null)return;
+ try{
+ const r=await fetch('api/vps-folders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name.trim()})});
+ const data=await r.json();if(!r.ok)throw new Error(data.detail||'Create failed');
+ await loadShortFolders(name.trim());shortFolderMessage.textContent='Folder created: '+name.trim();
+ }catch(e){shortFolderMessage.textContent='Folder error: '+e.message;}
+};
+document.getElementById('deleteShortFolder').onclick=async()=>{
+ const name=shortFolderSelect.value;
+ if(!name||!confirm('Delete EMPTY VPS folder '+name+'? Videos cannot be deleted here.'))return;
+ try{
+ const r=await fetch('api/vps-folders/'+encodeURIComponent(name),{method:'DELETE'});
+ const data=await r.json();if(!r.ok)throw new Error(data.detail||'Delete failed');
+ await loadShortFolders('Default');shortFolderMessage.textContent='Deleted empty folder '+name;
+ }catch(e){shortFolderMessage.textContent='Folder error: '+e.message;}
+};
+loadShortFolders().catch(e=>{shortFolderMessage.textContent='Folder error: '+e.message;});
+
 images.addEventListener('change',()=>imageCount.textContent=images.files.length+' image(s) selected');
 function syncInputMode(){const d=inputMode.value==='drive';localImageBox.hidden=d;driveImageBox.hidden=!d;}
 inputMode.addEventListener('change',syncInputMode);syncInputMode();
@@ -839,7 +878,7 @@ async function poll(id){
   bar.style.width=`${Number(s.progress||0)}%`; statusEl.textContent=s.message||s.status||'Working...';
   if(s.status==='completed'){
    render.disabled=false; outputs.innerHTML='';
-   (s.outputs||[]).forEach(o=>{const a=document.createElement('a');a.href=o.url;a.innerHTML=`<span>${o.name}</span><span>Download</span>`;outputs.appendChild(a);});
+   (s.outputs||[]).filter(o=>o.local_available&&o.url).forEach(o=>{const a=document.createElement('a');a.href=o.url;a.innerHTML=`<span>${o.name}</span><span>Download</span>`;outputs.appendChild(a);});
    return;
   }
   if(s.status==='failed'){render.disabled=false;statusEl.textContent=`Failed: ${s.error||s.message||'Unknown error'}`;return;}
@@ -881,6 +920,7 @@ form.addEventListener('submit',async e=>{
  fd.append('drive_input_paths_json',inputMode.value==='drive'?JSON.stringify(paths):'');
  fd.append('upload_to_drive',document.getElementById('uploadToDrive').checked?'true':'false');
  fd.append('verified_clean',document.getElementById('verifiedClean').checked?'true':'false');
+ fd.append('short_vps_folder',shortFolderSelect.value);
  try{
   const r=await fetch('api/jobs',{method:'POST',body:fd});
   const data=await r.json(); if(!r.ok)throw new Error(data.detail||'Submission failed');
