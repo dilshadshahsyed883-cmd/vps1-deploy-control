@@ -67,6 +67,14 @@ def verify_live(*, ui_only=False):
                 'Short Studio individual PKT time selectors missing')
         require('<h2>Thumbnail Library' not in html,
                 'Short Uploader should not show thumbnail rotation library')
+        require('data-short-inline-schedule' in html or 'No saved group profiles yet.' in html,
+                'Short Uploader Automation inline PKT schedule is missing')
+        require('data-short-profile-action="start"' in html or 'No saved group profiles yet.' in html,
+                'Short Uploader individual Start form is missing from live HTML')
+        css_status,_,css_body=https_get('/short-uploader/static/local_upload_manager.css',cookie)
+        require(css_status==200 and b'form[data-short-profile-action]' in css_body and
+                b'display:inline-flex!important' in css_body,
+                'Live CSS still hides profile Start/Pause forms')
 
     start=html.find('<form id="lum-ae-profile-form"')
     require(start>=0,'profile form absent')

@@ -408,3 +408,19 @@ body.lum-embedded .lum-primary-workspaces + .lum-tabs-shell{margin-top:0}
 .lum-short-time-slot input[type="time"]{width:100%;min-width:0;min-height:38px;padding:7px 9px;border:1px solid #cbd5e1;border-radius:8px}
 .lum-ae-schedule-manager .lum-short-schedule-slots{min-width:250px}
 @media(max-width:600px){.lum-short-schedule-slots{grid-template-columns:1fr}}
+
+/* SHORT_STUDIO_AUTOMATION_ACTIONS_VISIBLE_V2
+ * Legacy UI hid every form in the Automation row; explicitly display only
+ * the new Short Uploader Start/Pause actions and leave the hidden generator hidden.
+ */
+.lum-shell[data-engine-instance="shortstudio"] .lum-ae-row-actions form[data-short-profile-action]{
+  display:inline-flex!important;align-items:center!important;margin:0!important;
+}
+.lum-shell[data-engine-instance="shortstudio"] .lum-ae-row-actions form[hidden]{display:none!important}
+.lum-shell[data-engine-instance="shortstudio"] .lum-ae-row-actions{gap:5px!important;flex-wrap:wrap;min-width:180px}
+.lum-shell[data-engine-instance="shortstudio"] .lum-ae-automation-profiles{min-width:1410px!important}
+.lum-short-inline-schedule{display:flex;flex-direction:column;gap:6px;min-width:245px;max-width:310px}
+.lum-short-inline-schedule .lum-short-schedule-slots{grid-template-columns:repeat(2,minmax(105px,1fr))}
+.lum-short-inline-schedule-bottom{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px}
+.lum-shell[data-engine-instance="shortstudio"] label.lum-short-auto-toggle{display:inline-flex!important;align-items:center;gap:5px;font-size:11px;font-weight:700;white-space:nowrap!important;margin:0!important}
+.lum-short-inline-schedule small{font-size:10px;line-height:1.4;color:var(--lum-muted,#64748b)}
