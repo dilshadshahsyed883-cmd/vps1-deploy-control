@@ -113,6 +113,31 @@ def smoke(target, environment):
     return value
 
 
+def restore_smoke(source, environment, baseline=None):
+    """Strict same-ID receipt: provider/auth errors never count as a pass."""
+    python = Path(environment['PATH'].split(':')[0]) / 'python'
+    runner = next(p for p in (Path('/usr/sbin/runuser'), Path('/usr/bin/runuser')) if p.is_file())
+    command = [str(runner), '-u', 'ubuntu', '--', str(python),
+               str(REPO / 'production/audio_downloader_restore_smoke.py'), str(source)]
+    if baseline:
+        command.append(str(baseline))
+    proc = subprocess.Popen(command, env=environment, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, start_new_session=True)
+    try:
+        out, _ = proc.communicate(timeout=900)
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL); proc.communicate()
+        raise RuntimeError('Audio restore comparison timed out; no download PASS') from None
+    try:
+        report = json.loads(out.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        raise RuntimeError('Audio restore comparison missing sanitized receipt') from None
+    event(app='audio-downloader', restore_comparison=report)
+    require(proc.returncode == 0 and report.get('result') == 'PASS',
+            'same-ID real MP3/thumbnail download failed on tested routes')
+    return report
+
+
 def audio_thumbnail_overlay(installed: bytes, source: bytes) -> bytes:
     """Copy ONLY Audio Downloader markup and controller, retaining other Voice UIs."""
     regions = (
@@ -135,7 +160,7 @@ def audio_thumbnail_overlay(installed: bytes, source: bytes) -> bytes:
     return updated
 
 
-def install(revision, *, restore_proxy=True, include_thumbnail=False):
+def install(revision, *, restore_proxy=True, include_thumbnail=False, restore_download=False):
     require(not (restore_proxy and include_thumbnail), 'thumbnail overlay cannot restore proxy')
     require(len(revision) == 40 and all(c in '0123456789abcdef' for c in revision), 'invalid SHA')
     require(CURRENT.is_symlink(), 'unmanaged current Voice release')
@@ -152,10 +177,25 @@ def install(revision, *, restore_proxy=True, include_thumbnail=False):
     payload = source.read_bytes()
     ast.parse(payload)
     require(b'def youtube_execution' in payload, 'reviewed proxy implementation missing')
-    kind = 'audio-thumbnail-only' if include_thumbnail else ('audio-proxy-only' if restore_proxy else 'audio-filename-only')
+    kind = 'audio-restore-only' if restore_download else ('audio-thumbnail-only' if include_thumbnail else ('audio-proxy-only' if restore_proxy else 'audio-filename-only'))
     target = RELEASES / (revision + '-' + kind)
     journal = BASE / 'transactions' / kind / revision
     require(not target.exists() and not journal.exists(), 'immutable release already exists')
+    if restore_download:
+        require(not restore_proxy and include_thumbnail, 'restore must preserve independent workers and HTML')
+        comparison = restore_smoke(source, environment, baseline=old)
+        proxy_path = root / 'data/proxy_settings.json'
+        before = proxy_path.read_bytes()
+        require(hashlib.sha256(before).hexdigest() == comparison['config_sha256'],
+                'proxy changed during controlled comparison')
+        cfg = json.loads(before)
+        enabled = comparison['verified_route'] == 'selected_proxy'
+        if cfg.get('enabled') != enabled:
+            cfg['enabled'] = enabled
+            st = proxy_path.stat()
+            proxy_plan = {'path': proxy_path, 'before': before,
+                          'after': (json.dumps(cfg) + '\n').encode(),
+                          'uid': st.st_uid, 'gid': st.st_gid}
     # Transactional idle fence closes the enqueue/claim race before web shutdown.
     fence = lock_idle(root / 'data/jobs.sqlite3')
     switched = False
@@ -182,7 +222,7 @@ def install(revision, *, restore_proxy=True, include_thumbnail=False):
             (journal / 'proxy-before.json').chmod(0o600)
             replace_private(proxy_plan, proxy_plan['after'])
             proxy_changed = True
-            event(app='audio-downloader', proxy_restore='CANARY_PASS_ENABLED', credentials_logged=False)
+            event(app='audio-downloader', proxy_restore='VERIFIED_ROUTE_SELECTED' if restore_download else 'CANARY_PASS_ENABLED', credentials_logged=False)
         deno_new = ensure_audio_js(environment) if restore_proxy else False
         shutil.copytree(previous, target, symlinks=True)
         (target / MODULE).write_bytes(payload)
@@ -210,11 +250,16 @@ def install(revision, *, restore_proxy=True, include_thumbnail=False):
         run(['systemctl', 'start', UNIT], quiet=True, timeout=60)
         http_check('voice-studio')
         verify()
-        result = smoke(target, environment)
+        if restore_download:
+            result = restore_smoke(target / MODULE, environment)
+            route = 'selected_proxy' if json.loads((root / 'data/proxy_settings.json').read_text()).get('enabled') else 'direct'
+            require(result['routes'][route]['candidate']['result'] == 'PASS', 'active deployed route download failed')
+        else:
+            result = smoke(target, environment)
         atomic_json(journal / 'result.json', {'state': 'ACTIVE', 'revision': revision, 'smoke': result})
-        result_name = 'PASS_AUDIO_THUMBNAIL_ONLY' if include_thumbnail else ('PASS_AUDIO_PROXY_ONLY' if restore_proxy else 'PASS_AUDIO_FILENAME_ONLY')
+        result_name = 'PASS_AUDIO_RESTORE_ONLY' if restore_download else 'PASS_AUDIO_THUMBNAIL_ONLY' if include_thumbnail else ('PASS_AUDIO_PROXY_ONLY' if restore_proxy else 'PASS_AUDIO_FILENAME_ONLY')
         event(app='voice-studio', result=result_name, workers='PRESERVED', data='PRESERVED',
-              https='PASS', sqlite_backup='PASS', proxy_restore='ENABLED' if proxy_changed else 'UNCHANGED', smoke=result, rollback=str(journal))
+              https='PASS', sqlite_backup='PASS', proxy_restore=('VERIFIED_ROUTE_SELECTED' if restore_download else 'ENABLED') if proxy_changed else 'UNCHANGED', smoke=result, rollback=str(journal))
     except BaseException:
         if proxy_changed:
             replace_private(proxy_plan, proxy_plan['before'])

@@ -13,6 +13,7 @@ on:
       - 'production/runtime.py'
       - '.github/workflows/vps1-audio-thumbnail-release.yml'
       - 'production/audio_downloader*.py'
+      - '.github/workflows/vps1-audio-restore-release.yml'
       - '.github/workflows/vps1-audio-proxy-release.yml'
       - 'tests/audio_downloader_browser_urls.test.cjs'
       - '.github/workflows/vps1-audio-downloader-queue-history-ci.yml'
