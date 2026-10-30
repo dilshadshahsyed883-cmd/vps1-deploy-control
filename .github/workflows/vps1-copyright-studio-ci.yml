@@ -18,6 +18,10 @@ jobs:
           python -m py_compile apps/video-merger/part01/app.py apps/copyright-uploader/part01/lum_engine/standalone_app.py apps/copyright-uploader/part01/lum_engine/project_store.py apps/copyright-uploader/part01/lum_engine/worker.py production/copyright_studio_release.py production/copyright_scene_nav_release.py production/runtime.py production/smoke.py
           node --check apps/scene-builder/part01/static/vps1_native_site_shell.js
           node --check apps/copyright-uploader/part01/static/lum_ux_state_v2.js
+      - name: Full isolated Copyright Uploader runtime dependencies
+        run: python -m pip install -r apps/copyright-uploader/part01/requirements.txt
+      - name: Disposable authenticated health and manual UI smoke (no uploads)
+        run: python -m production.smoke --app copyright-uploader
       - name: Durable queue and isolated studio offline regressions
         run: python -m unittest discover -s tests -p 'test_copyright_studio_v2.py' -v
       - name: Existing Studio navigation regression
