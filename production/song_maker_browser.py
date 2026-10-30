@@ -63,6 +63,12 @@ def main():
                             "(el) => getComputedStyle(el).color") == 'rgb(16, 24, 40)'
                         assert page.locator('.sm .card').first.evaluate(
                             "(el) => getComputedStyle(el).backgroundColor") == 'rgb(255, 255, 255)'
+                        # The shared Kokoro shell animates active-pill background on tab changes.
+                        # Wait for the actual final computed style before asserting the theme.
+                        page.wait_for_function("""() => {
+                            const el=document.querySelector('.sm nav[aria-label="Song Maker tabs"] [data-tab][aria-selected="true"]');
+                            return el && getComputedStyle(el).backgroundColor === 'rgb(99, 85, 223)';
+                        }""", timeout=6000)
                         active_color = page.locator('.sm nav[aria-label="Song Maker tabs"] [data-tab][aria-selected="true"]').evaluate(
                             "(el) => ({color:getComputedStyle(el).backgroundColor, markup:el.outerHTML, brand:getComputedStyle(document.querySelector('.sm')).getPropertyValue('--sm-brand'), sheets:[...document.styleSheets].map(x=>x.href)})")
                         assert active_color['color'] == 'rgb(99, 85, 223)', (width, active_color)
