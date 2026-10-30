@@ -170,3 +170,8 @@ body.lum-song-ui :is(a, button, input, select, textarea, summary):focus-visible 
     font-size: 16px !important;
   }
 }
+
+/* Group profile chooser: override the universal label display rule on hidden fields. */
+body.lum-song-ui [data-ae-group-choice][hidden],
+body.lum-song-ui [data-ae-single-choice][hidden],
+body.lum-song-ui [data-ae-group-fields][hidden] { display:none !important; }
