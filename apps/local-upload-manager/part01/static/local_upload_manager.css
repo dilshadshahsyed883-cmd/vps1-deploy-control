@@ -443,3 +443,12 @@ body.lum-embedded .lum-primary-workspaces + .lum-tabs-shell{margin-top:0}
 .lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-compact-selector select{width:100%;max-width:380px;min-width:0;min-height:37px;padding:7px 11px;font-size:13px}
 .lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-compact-selector>small{display:block;margin-top:4px;font-size:11px;line-height:1.45;color:var(--lum-muted,#64748b)}
 @media(max-width:760px){.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-compact-selector,.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-compact-selector select{max-width:100%}}
+
+/* Short Uploader group profiles: two controls per row on desktop, one on mobile. */
+.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-profile-grid{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;column-gap:18px;row-gap:12px;align-items:start}
+.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-profile-grid>.lum-field{width:100%;max-width:none;margin:0}
+.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-profile-grid>.lum-field>input,.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-profile-grid>.lum-field>select{width:100%;max-width:none}
+.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-profile-grid>.lum-switch{min-height:62px;padding:10px 12px;border:1px solid var(--lum-line);border-radius:9px;background:var(--lum-soft);margin:0;align-self:stretch}
+.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-profile-grid>.lum-short-compact-selector{max-width:none}
+.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-profile-grid .lum-short-schedule-slots{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+@media(max-width:760px){.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-profile-grid{grid-template-columns:minmax(0,1fr)!important}.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-profile-grid .lum-short-schedule-slots{grid-template-columns:minmax(0,1fr)}}

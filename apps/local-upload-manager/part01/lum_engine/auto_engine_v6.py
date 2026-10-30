@@ -2031,7 +2031,7 @@ def save_short_group_profile(pc_db: Any, store: V6Store, form: Dict[str, Any], p
     for key in ("metadata_source", "manual_title", "manual_description", "manual_category_id", "privacy_status"):
         if key in form:
             settings[key]=clean(form[key]).lower() if key=="privacy_status" else clean(form[key])
-    settings.setdefault("metadata_source", "sheet")
+    settings.setdefault("metadata_source", "manual" if not profile_id else "sheet")
     settings.setdefault("manual_category_id", "22")
     settings.setdefault("privacy_status", "public")
     if settings["privacy_status"] not in {"public","unlisted","private"}:
@@ -2047,6 +2047,15 @@ def save_short_group_profile(pc_db: Any, store: V6Store, form: Dict[str, Any], p
         if settings["manual_category_id"] not in {"1","2","10","15","17","19","20","22","23","24","25","26","27","28","29"}:
             raise ValueError("Choose a valid YouTube category.")
     fields=dict(form)
+    if not profile_id:
+        # Only newly created Short Uploader groups receive owner defaults.
+        # Explicit user selections override every value here.
+        for key,value in {
+            "enabled":"1", "daily_upload_count":"1", "schedule_times":"06:00",
+            "upload_scope":"per_channel", "work_mode":"auto",
+            "after_upload_action":"delete", "schedule_enabled":"1",
+        }.items():
+            fields.setdefault(key,value)
     for key in ("metadata_sheet_url_or_id", "metadata_sheet_tab", "metadata_sheet_gid"):
         if key not in fields:
             fields[key]=(original or {}).get(key, "")
@@ -2059,7 +2068,7 @@ def save_short_group_profile(pc_db: Any, store: V6Store, form: Dict[str, Any], p
     elif not clean(form.get("drive_video_folder")):
         raise ValueError("Choose a Short Maker VPS folder or Google Drive folder.")
     # Explicit profile opt-in never changes the global scheduler arm state.
-    fields["schedule_enabled"]="1" if clean(form.get("schedule_enabled")).lower() in {"1","true","on","yes"} else "0"
+    fields["schedule_enabled"]="1" if clean(fields.get("schedule_enabled")).lower() in {"1","true","on","yes"} else "0"
     pid=_CHANNEL_LEGACY_SAVE_PROFILE(pc_db, store, fields, profile_id)
     short_group_metadata(store, pid, settings)
     return pid

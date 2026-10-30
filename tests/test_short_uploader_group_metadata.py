@@ -197,6 +197,69 @@ class ShortGroupTests(unittest.TestCase):
             with self.subTest(invalid=invalid),self.assertRaises(ValueError):
                 self.save({**self.form,'privacy_status':invalid},pid)
 
+    def test_new_short_group_approved_defaults_and_existing_edits(self):
+        # When a field is omitted on first creation, the server chooses the
+        # requested defaults; an existing saved profile is never rewritten.
+        minimal=dict(category_name='New',channel_group_id='7',
+                     short_vps_folder='Test',manual_title='Test {video_stem}')
+        pid=self.save(minimal)
+        profile=self.pc.profiles[pid]
+        settings=self.ns['short_group_metadata'](self.store,pid)
+        self.assertEqual(settings['metadata_source'],'manual')
+        self.assertEqual(settings['privacy_status'],'public')
+        for field, expected in (
+            ('enabled','1'),('daily_upload_count','1'),
+            ('schedule_times','06:00'),('upload_scope','per_channel'),
+            ('work_mode','auto'),('after_upload_action','delete'),
+            ('schedule_enabled','1')):
+            self.assertEqual(profile[field],expected,field)
+        # Editing with explicit alternatives must retain each chosen value.
+        edited={**self.form,'daily_upload_count':'2',
+                'schedule_times':'09:00,14:00','enabled':'0',
+                'upload_scope':'total_category','work_mode':'manual_review',
+                'after_upload_action':'keep','schedule_enabled':'0',
+                'metadata_source':'sheet','metadata_sheet_url_or_id':'sheet-id',
+                'metadata_sheet_tab':'Tab'}
+        self.save(edited,pid)
+        profile=self.pc.profiles[pid]
+        self.assertEqual(profile['daily_upload_count'],'2')
+        self.assertEqual(profile['schedule_times'],'09:00,14:00')
+        self.assertEqual(profile['work_mode'],'manual_review')
+        self.assertEqual(profile['after_upload_action'],'keep')
+        self.assertEqual(profile['schedule_enabled'],'0')
+        self.assertEqual(profile['enabled'],'0')
+        self.assertEqual(self.ns['short_group_metadata'](self.store,pid)['metadata_source'],'sheet')
+
+    def test_short_group_form_uses_two_fields_per_row_and_selected_defaults(self):
+        source=TEMPLATE.read_text()
+        start=source.index('    <form id="lum-ae-profile-form"')
+        end=source.index('</form>',start)+len('</form>')
+        template=Environment().from_string(source[start:end])
+        context=dict(engine_instance='shortstudio',p=None,src={},csrf='test',
+                     base_path='/short-uploader',
+                     ae=SimpleNamespace(groups=[dict(id=7,group_name='Test',channel_count=2)],
+                                        short_folders=['Test']))
+        html=template.render(**context)
+        self.assertEqual(html.count('data-short-profile-grid'),1)
+        self.assertEqual(html.count('class="lum-short-profile-grid"'),0)
+        self.assertEqual(html.count('lum-short-profile-grid'),2)
+        self.assertLess(html.index('name="channel_group_id"'),html.index('name="category_name"'))
+        self.assertIn('name="daily_upload_count" type="number" min="1" max="100" value="1"',html)
+        self.assertIn('name="schedule_times" data-short-schedule-csv value="06:00"',html)
+        self.assertIn('<option value="auto" selected>',html)
+        self.assertIn('<option value="delete" selected>',html)
+        self.assertIn('name="schedule_enabled" value="1" checked',html)
+        self.assertIn('<option value="manual" selected>Manual Metadata',html)
+        self.assertIn('<option value="per_channel" selected>',html)
+        self.assertIn('<option value="public" selected>',html)
+        self.assertIn('name="enabled" value="1" checked',html)
+        css=(ROOT/'apps/local-upload-manager/part01/static/local_upload_manager.css').read_text()
+        self.assertIn('.lum-short-profile-grid{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important',css)
+        self.assertIn('@media(max-width:760px)',css)
+        legacy=template.render(**{**context,'engine_instance':'song'})
+        self.assertNotIn('data-short-profile-grid',legacy)
+        self.assertNotIn('name="privacy_status"',legacy)
+
     def test_new_group_template_and_legacy_profile_edit(self):
         source=TEMPLATE.read_text();start=source.index('    <form id="lum-ae-profile-form"');end=source.index('</form>',start)+len('</form>')
         template=Environment().from_string(source[start:end])

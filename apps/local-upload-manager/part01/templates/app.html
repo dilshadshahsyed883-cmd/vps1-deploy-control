@@ -1135,7 +1135,7 @@
             <label class="lum-field"><span>Daily video schedule · PKT</span>
               <input type="hidden" name="schedule_times" data-short-schedule-csv value="{{ p.schedule_times if p and group_profile else '' }}">
               <span class="lum-short-schedule-slots" data-short-schedule-slots data-short-profile-schedule></span>
-              <small>Choose a separate Pakistan Time for every video per channel (4 videos = 4 slots).</small>
+              <small>One PKT time per video per channel · {{ p.daily_upload_count if p and group_profile else 1 }} video{{ '' if p and group_profile and p.daily_upload_count|int == 1 else 's' }} per day.</small>
             </label>
             {% else %}
             <label class="lum-field"><span>Schedule time(s) PKT (HH:MM)</span><input name="schedule_times" value="{{ p.schedule_times if p and group_profile else '09:00' }}" placeholder="09:00,14:00"></label>
