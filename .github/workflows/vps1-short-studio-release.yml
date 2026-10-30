@@ -45,10 +45,11 @@ jobs:
           actual="$(ssh-keygen -lf "$scratch/public" -E sha256 | awk '{print $2}')"
           test "$actual" = 'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
           printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
-          # Only these existing host allowlisted app installers; no custom shell
-          # or new root operation. LUM installs the isolated 8019 service and
-          # guards the Nginx route before Short Maker/Scene UI promotion.
-          for app in local-upload-manager short-maker video-merger scene-builder; do
+          # Restrict the deployment to the two Short Studio owners only.
+          # LUM provisions isolated Short Uploader/8019 and its guarded HTTPS route.
+          # Short Maker owns rendering and the shared VPS folder source.
+          # Do not redeploy unrelated Video Merger or Scene Builder services.
+          for app in local-upload-manager short-maker; do
             echo "SHORT_STUDIO_RELEASE_START=$app"
             timeout 2100s ssh -T -p 22 -i "$scratch/identity" \
               -o UserKnownHostsFile="$scratch/known_hosts" \
