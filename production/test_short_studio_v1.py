@@ -199,7 +199,7 @@ class ShortStudioV1(unittest.TestCase):
             units = Path(td) / "units"
             root.mkdir(parents=True)
             units.mkdir()
-            (root / ".vps1-independent-engine").write_text("shortstudio\\n")
+            (root / ".vps1-independent-engine").write_text("shortstudio\n")
             clients = root / "secure/oauth_clients"
             sessions = root / "secure/oauth_sessions"
             clients.mkdir(parents=True)
