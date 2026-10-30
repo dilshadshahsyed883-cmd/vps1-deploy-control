@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from urllib import request
 
@@ -93,6 +94,51 @@ def verify_local():
           "independent Short Uploader identity not ready")
 
 
+# Nginx reload returns before old worker processes have drained. An immediate
+# anonymous 404 during cutover is not evidence of public access, but it must
+# converge to *exactly* 401. Never accept 200/3xx/403 as successful anonymous
+# protection, and never grant access to a non-authenticated request.
+TRANSIENT_HTTP = frozenset((404, 502, 503))
+
+
+def verify_https_route(https_get, scene_cookie, *, attempts=12, delay=0.6):
+    """Fail-closed bounded HTTPS readback after Nginx graceful reload."""
+    guard(1 <= attempts <= 30 and 0 <= delay <= 5,
+          "invalid HTTPS convergence bounds")
+    latest = None
+    for index in range(attempts):
+        app_status = https_get("/short-uploader/app")[0]
+        health_status = https_get("/short-uploader/health")[0]
+        latest = (app_status, health_status)
+        guard(all(code == 401 or code in TRANSIENT_HTTP for code in latest),
+              f"anonymous Short Uploader access: app={app_status}, health={health_status}")
+        if latest == (401, 401):
+            break
+        if index + 1 < attempts:
+            time.sleep(delay)
+    else:
+        guard(False, f"anonymous Short Uploader auth never converged: app={latest[0]}, health={latest[1]}")
+
+    cookie = scene_cookie()
+    for index in range(attempts):
+        status, content_type, html = https_get(
+            "/short-uploader/app?tab=auto_engine", cookie)
+        if (status == 200 and "html" in content_type.lower()
+                and b"Short Uploader" in html and b"Auto Engine" in html):
+            break
+        guard(status in TRANSIENT_HTTP,
+              f"authenticated Short Uploader HTML readback failed: status={status}")
+        if index + 1 < attempts:
+            time.sleep(delay)
+    else:
+        guard(False, f"authenticated Short Uploader route never converged: status={status}")
+
+    status, _, _ = https_get("/short-uploader")
+    guard(status == 308, f"Short Uploader canonical redirect missing: status={status}")
+    status, _, _ = https_get("/_scene_uploader_auth", cookie)
+    guard(status == 404, "internal uploader auth endpoint exposed")
+
+
 def install_route(revision):
     """Return the previous content only when this transaction changed Nginx."""
     guard(SITE.is_file() and ENABLED.is_symlink() and ENABLED.resolve() == SITE,
@@ -112,15 +158,9 @@ def install_route(revision):
         write_site(after)
         command("nginx", "-t")
         command("systemctl", "reload", "nginx")
-        # Routes must never be public without a Scene session.
+        # Allow Nginx old-worker drain, never relax authentication.
         from production.route_uploader_scene_https import https_get, scene_cookie
-        for path in ("/short-uploader/app", "/short-uploader/health"):
-            guard(https_get(path)[0] == 401, "anonymous Short Uploader access")
-        cookie = scene_cookie()
-        code, ct, html = https_get("/short-uploader/app?tab=auto_engine", cookie)
-        guard(code == 200 and "html" in ct.lower() and
-              b"Short Uploader" in html and b"Auto Engine" in html,
-              "authenticated Short Uploader HTML readback failed")
+        verify_https_route(https_get, scene_cookie)
         (tx / "receipt.json").write_text(json.dumps({
             "revision": revision, "before_sha": hashlib.sha256(before.encode()).hexdigest(),
             "after_sha": hashlib.sha256(after.encode()).hexdigest(),
