@@ -250,7 +250,7 @@ class ShortGroupTests(unittest.TestCase):
     def test_redundant_auto_engine_header_removed_from_short_uploader(self):
         source=TEMPLATE.read_text()
         start=source.index('    <section class="lum-ae-head">')
-        begin=source.rfind("{% if engine_instance != 'shortstudio' %}",0,start)
+        begin=source.rfind("{% if engine_instance not in ['song','shortstudio'] %}",0,start)
         tabs=source.index('    <nav class="lum-ae-tabs lum-ae-tabs-primary" aria-label="Auto Engine workspace">',start)
         header=source[begin:tabs]
         self.assertIn('class="lum-ae-head"',header)
@@ -291,7 +291,7 @@ class ShortGroupTests(unittest.TestCase):
         self.assertIn('@media(max-width:760px)',css)
         legacy=template.render(**{**context,'engine_instance':'song'})
         self.assertNotIn('data-short-profile-grid',legacy)
-        self.assertNotIn('name="privacy_status"',legacy)
+        self.assertIn('name="privacy_status"',legacy)  # Song group receives its own saved visibility choice.
 
     def test_new_group_template_and_legacy_profile_edit(self):
         source=TEMPLATE.read_text();start=source.index('    <form id="lum-ae-profile-form"');end=source.index('</form>',start)+len('</form>')
@@ -421,7 +421,7 @@ class ShortAutomationGroupSummaryTests(unittest.TestCase):
         self.assertIn('data-short-group-channel-count="1">1</td>',html)
         self.assertIn('Per-video schedule',html)
         self.assertNotIn('09:00',html)
-    def test_schedule_dialog_and_song_manual_generate_are_preserved(self):
+    def test_schedule_dialog_and_song_compact_controls_are_preserved(self):
         template=TEMPLATE.read_text()
         self.assertIn('id="lum-ae-schedules-dialog"',template)
         self.assertIn('/actions/auto-v6/profile-schedules/save',template)
@@ -431,8 +431,8 @@ class ShortAutomationGroupSummaryTests(unittest.TestCase):
         song=self.render(instance='song',profiles=[dict(id=3,category_name='Song',group_name='Song',
                 group_channel_count=2,enabled=1,schedule_times='08:00',schedule_enabled=1)])
         row=song.split('lum-ae-bulk-profile-controls',1)[1].split('</div>',1)[0]
-        self.assertIn('Generate Queue Now',row)
-        self.assertIn('/actions/auto-v6/generate-all',row)
+        self.assertNotIn('Generate Queue Now',row)
+        self.assertNotIn('/actions/auto-v6/generate-all',row)
         self.assertIn('Profile Schedules',row)
 
     def test_other_uploaders_retain_their_existing_columns_and_values(self):

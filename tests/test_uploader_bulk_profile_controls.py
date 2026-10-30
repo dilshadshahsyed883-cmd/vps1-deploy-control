@@ -31,19 +31,14 @@ class UploaderProfileBulkToolbarTests(unittest.TestCase):
         for instance in ("song", "shortstudio"):
             with self.subTest(instance=instance):
                 html = self.render(instance)
-                expected = LABELS if instance == "song" else ("Profile Schedules", "Preview Next Jobs", "Start All Profiles")
+                expected = ("Profile Schedules", "Preview Next Jobs", "Start All Profiles")
                 positions = [html.index(">" + label + "<") for label in expected]
                 self.assertEqual(positions, sorted(positions))
                 self.assertLess(positions[-1], html.index('class="lum-table-wrap lum-ae-automation-profiles-wrap"'))
                 self.assertEqual(html.count('data-ae-open-schedules'), 1)
-                if instance == "shortstudio":
-                    self.assertNotIn(">Generate Queue Now<", html)
-                    self.assertNotIn('/actions/auto-v6/generate-all', html)
-                    self.assertNotIn('name="confirmation" value="GENERATE ALL"', html)
-                else:
-                    self.assertIn('>Generate Queue Now<',html)
-                    self.assertIn('/actions/auto-v6/generate-all', html)
-                    self.assertIn('name="confirmation" value="GENERATE ALL"', html)
+                self.assertNotIn(">Generate Queue Now<", html)
+                self.assertNotIn('/actions/auto-v6/generate-all', html)
+                self.assertNotIn('name="confirmation" value="GENERATE ALL"', html)
                 self.assertIn('data-ae-preview-all', html)
                 self.assertIn('data-ae-jump-start-all', html)
  

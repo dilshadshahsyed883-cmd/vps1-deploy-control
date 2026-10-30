@@ -185,7 +185,7 @@ def _parse_network_marker(value:str):
 
 def retry_network_waits(db:Database,store:V6Store) -> None:
     """Requeue only the affected Short Uploader job after connectivity recovers."""
-    if os.environ.get("LUM_ENGINE_INSTANCE")!="shortstudio":
+    if os.environ.get("LUM_ENGINE_INSTANCE") not in {"shortstudio","song"}:
         return
     now=datetime.now(timezone.utc)
     for row in _auto_jobs(db):
@@ -199,7 +199,7 @@ def retry_network_waits(db:Database,store:V6Store) -> None:
         if AutoEngineYouTubeUploader.internet_available(cfg,timeout=6,max_urls=1):
             _sql_update_video_ids([vid],status=UploadStatus.QUEUED.value,error_message="")
             store.set_job_state(vid,"QUEUED",error="")
-            db.add_log(vid,"INFO","Network recovered; Short Uploader job returned to queue.",0)
+            db.add_log(vid,"INFO","Network recovered; uploader job returned to queue.",0)
         else:
             attempt=marker[1]+1
             next_at=now+timedelta(seconds=_proxy_delay(attempt))
@@ -220,7 +220,7 @@ class AutoEngineYouTubeUploader(YouTubeUploader):
 
     def _wait_for_connection(self,video_id,proxy_config,progress,reason,stop_check,progress_callback):
         cfg=proxy_config or {}
-        if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio":
+        if os.environ.get("LUM_ENGINE_INSTANCE") in {"shortstudio","song"}:
             row=self.db.get_video(int(video_id)) or {}
             if row.get("auto_engine_profile_id"):
                 # Never monopolize the only Short Uploader slot with a long
@@ -620,7 +620,7 @@ def main() -> None:
 
             db.activate_due_scheduled_jobs(auto_engine_only=True)
             claim_scope={}
-            if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio":
+            if os.environ.get("LUM_ENGINE_INSTANCE") in {"shortstudio","song"}:
                 # A paused profile cannot be claimed even when it has older queued jobs.
                 # Manual Start scopes the worker to just the requested profile(s).
                 enabled={int(p["id"]) for p in db.list_auto_engine_profiles() if int(p.get("enabled") or 0)==1}

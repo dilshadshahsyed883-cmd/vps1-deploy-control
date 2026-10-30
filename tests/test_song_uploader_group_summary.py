@@ -26,14 +26,15 @@ class SongAutomationGroupSummaryTests(unittest.TestCase):
         for item in ('data-song-group-summary', '<th>Group Name</th>',
                      '<th>Channels</th>', '<th>Schedule (PKT)</th>',
                      'Music Group', 'data-song-group-channel-count="7">12</td>',
-                     '09:00, 14:30', 'auto_profile_id=7'):
+                     '09:00 AM', '02:30 PM', 'data-short-profile-action="start"'):
             self.assertIn(item, html)
         self.assertNotIn('data-ae-sync-scan',html)
         self.assertNotIn('Sync Channel</button>',html)
         self.assertEqual(html.count('>Sync All Channels</button>'),1)
         self.assertEqual(html.count('/actions/auto-v6/sync-all'),1)
         toolbar=html.split('lum-ae-bulk-profile-controls',1)[1].split('</div>',1)[0]
-        self.assertIn('Generate Queue Now',toolbar)
+        self.assertNotIn('Generate Queue Now',toolbar)
+        self.assertIn('Profile Schedules',toolbar)
         self.assertIn('Start All Profiles',toolbar)
         self.assertIn('Sync All Channels',toolbar)
         self.assertLess(toolbar.index('Start All Profiles'),toolbar.index('Sync All Channels'))
@@ -46,7 +47,7 @@ class SongAutomationGroupSummaryTests(unittest.TestCase):
             group_channel_count=0,enabled=1,schedule_times="18:00",schedule_enabled=0)])
         self.assertIn('data-song-group-channel-count="8">0</td>', html)
         self.assertIn('Schedule OFF', html)
-        self.assertIn('18:00', html)
+        self.assertIn('06:00 PM', html)
         self.assertNotIn('15 min', html)
 
     def test_legacy_individual_is_not_silently_converted(self):

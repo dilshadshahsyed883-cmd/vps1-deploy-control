@@ -12,7 +12,7 @@ def main():
     source=(PART/'templates/app.html').read_text()
     a=source.index('    <form id="lum-ae-profile-form"');b=source.index('</form>',a)+7
     form=source[a:b].replace('data-ae-panel="profiles" hidden','data-ae-panel="profiles"')
-    start=source.index('    {% if engine_instance == \'shortstudio\' %}<div class="lum-short-engine-tabbar">')
+    start=source.index('    {% if engine_instance in [\'shortstudio\',\'song\'] %}<div class="lum-short-engine-tabbar">')
     nav=source[start:source.index('    <section class="lum-card lum-ae-profile-manager"',start)]
     body='<div class="lum-shell" data-engine-instance="shortstudio">'+nav+form+'</div>'
     template='{% extends "base.html" %}{% block content %}'+body+'{% endblock %}'

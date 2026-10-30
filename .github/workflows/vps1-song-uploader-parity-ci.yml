@@ -1,0 +1,43 @@
+name: Song Uploader parity contract gate
+on:
+  pull_request:
+    paths:
+      - 'apps/local-upload-manager/**'
+      - 'tests/test_song_uploader_*'
+      - '.github/workflows/vps1-song-uploader-parity-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/local-upload-manager/**'
+      - 'tests/test_song_uploader_*'
+      - '.github/workflows/vps1-song-uploader-parity-ci.yml'
+permissions:
+  contents: read
+jobs:
+  song-parity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Offline test prerequisites
+        run: python -m pip install 'jinja2==3.1.6' 'httpx==0.28.1'
+      - name: Python and JavaScript compile
+        run: |
+          python -m py_compile apps/local-upload-manager/part01/lum_engine/auto_engine_v6.py apps/local-upload-manager/part01/lum_engine/auto_engine_v6_worker.py apps/local-upload-manager/part01/lum_engine/auto_engine_v6_scheduler.py apps/local-upload-manager/part01/lum_engine/standalone_app.py
+          node --check apps/local-upload-manager/part01/static/auto_engine_v6.js
+      - name: Song parity and regression coverage
+        run: |
+          python -m unittest discover -s tests -p 'test_song_uploader_parity.py' -v
+          python -m unittest discover -s tests -p 'test_song_uploader_group_summary.py' -v
+          python -m unittest discover -s tests -p 'test_song_uploader_group_profile_restore.py' -v
+          python -m unittest discover -s tests -p 'test_song_uploader_manual_metadata.py' -v
+          python -m unittest discover -s tests -p 'test_song_uploader_minimal_ui.py' -v
+          python -m unittest discover -s tests -p 'test_song_uploader_modes_settings.py' -v
+          python -m unittest discover -s tests -p 'test_short_studio_profile_controls.py' -v
+      - name: No accidental other-app deployment
+        run: |
+          grep -q 'AUTO_SCRIPT=OFFLINE' .github/workflows/vps1-song-studio-release.yml
+          grep -q "apps=(local-upload-manager)" .github/workflows/vps1-song-studio-release.yml

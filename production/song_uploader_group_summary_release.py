@@ -13,7 +13,15 @@ from urllib import request
 
 from production.runtime import BASE, DATA, REPO, atomic_json, backup_databases
 
-FILES=("templates/app.html",)
+FILES=(
+    "templates/app.html",
+    "templates/base.html",
+    "static/local_upload_manager.css",
+    "lum_engine/auto_engine_v6.py",
+    "lum_engine/auto_engine_v6_scheduler.py",
+    "lum_engine/auto_engine_v6_worker.py",
+    "lum_engine/standalone_app.py",
+)
 UNITS=tuple(f"vps1-production-lum-song-{kind}.service" for kind in ("scheduler","worker","web"))
 STATE=DATA/'local-upload-manager/lum-song'
 UNIT_DIR=Path('/etc/systemd/system')
@@ -64,11 +72,17 @@ def verify_live():
     toolbar_marker='lum-ae-bulk-profile-controls'
     require(html.count(toolbar_marker)==1, 'Song bulk toolbar missing')
     toolbar=html.split(toolbar_marker,1)[1].split('</div>',1)[0]
-    require('Generate Queue Now' in toolbar and
+    require('Profile Schedules' in toolbar and
+            'Generate Queue Now' not in toolbar and
             'Start All Profiles' in toolbar and
             'Sync All Channels' in toolbar and
             toolbar.index('Start All Profiles')<toolbar.index('Sync All Channels'),
             'global sync is not on the bulk-action row')
+    require('data-short-profile-action="start"' in html and
+            'song-profile-privacy-status' in html and
+            'lum-short-engine-status' in html and
+            '20261030-parity-v1' in html,
+            'Song profile parity controls missing from live HTML')
     require(html.count('>Sync All Channels</button>')==1 and
             'Sync Channel</button>' not in html and
             'data-ae-sync-scan' not in html,
@@ -80,7 +94,7 @@ def verify_live():
             b'data-song-group-summary' not in anonymous_body and
             b'lum-ae-automation-profiles' not in anonymous_body,
             f'anonymous route protection failed (status {anonymous_status})')
-    print('SONG_UPLOADER_LIVE=PASS AUTH=PASS GROUP_SUMMARY=PASS NO_UPLOAD_OR_ARM_ACTIONS',flush=True)
+    print('SONG_UPLOADER_LIVE=PASS AUTH=PASS PROFILES=PASS SCHEDULES=PASS NO_UPLOAD_OR_ARM_ACTIONS',flush=True)
 
 
 def install(revision):

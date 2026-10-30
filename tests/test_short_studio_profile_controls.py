@@ -53,7 +53,8 @@ class ShortProfileControlTests(unittest.TestCase):
         self.assertIn('/actions/sheets/sync',short)
         self.assertIn('Save Sheet Source',short)
         song=Environment().from_string(section).render(engine_instance='song',**ctx)
-        self.assertIn('<h2>Manual Update</h2>',song)
+        self.assertNotIn('<h2>Manual Update</h2>',song)
+        self.assertIn('lum-short-sheet-header-actions',song)
         self.assertEqual(song.count('>Update All Enabled Sheets</button>'),1)
 
     def test_bulk_import_not_available_to_short_uploader(self):
@@ -106,7 +107,7 @@ class ShortProfileControlTests(unittest.TestCase):
         self.assertIn('allowed_auto_engine_profile_ids',repo)
         self.assertIn('manual_profile_ids TEXT DEFAULT NULL',engine)
         self.assertIn('v6_store.set_manual_profile_ids(None)',routes)
-        self.assertIn("os.environ.get(\"LUM_ENGINE_INSTANCE\")==\"shortstudio\"",worker)
+        self.assertIn('os.environ.get("LUM_ENGINE_INSTANCE") in {"shortstudio","song"}',worker)
 
     def test_allowed_profile_filter_claims_only_selected_queue(self):
         tree=ast.parse(REPO.read_text())
@@ -163,7 +164,7 @@ class ShortProfileControlTests(unittest.TestCase):
         self.assertIn('data-short-schedule-slots data-short-profile-schedule',html)
         self.assertIn('data-ae-open-schedules>Manage Schedules</button>',html)
         self.assertIn('data-ae-open-schedules>Profile Schedules</button>',html)
-        self.assertIn('id="short-profile-privacy-status"',html)
+        self.assertIn("'short-profile-privacy-status' if short_group else 'song-profile-privacy-status'",html)
         self.assertIn('>Pause Profile</button>',html)
         self.assertIn("data-short-schedule-slots",js)
         self.assertIn('"/actions/auto-v6/profile-schedule/save"',ROUTES.read_text())
@@ -180,7 +181,7 @@ class ShortProfileControlTests(unittest.TestCase):
         self.assertIn('db.save_auto_engine_profile(data,pid)',body)
         self.assertNotIn('set_engine(',body)
         self.assertNotIn('set_scheduler_armed(',body)
-        self.assertIn('if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio"',source)
+        self.assertIn('if os.environ.get("LUM_ENGINE_INSTANCE") not in {"shortstudio","song"}',source)
 
     def test_short_static_asset_cache_isolated_and_live_checked(self):
         base=(PART/"templates/base.html").read_text()

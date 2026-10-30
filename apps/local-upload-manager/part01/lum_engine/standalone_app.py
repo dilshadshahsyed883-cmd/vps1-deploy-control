@@ -1409,14 +1409,14 @@ def auto_v6_preview_all(request: Request):
     return V6JSONResponse({"ok":True,"profiles":summaries,"eligible_jobs":total})
 
 
-# Profile-level controls are Short Uploader only. The worker respects the
+# Profile-level controls are for Song/Short groups. The worker respects the
 # manual run scope so Start one cannot lease another profile's queued videos.
 @app.post(route("/actions/auto-v6/start-profile"))
 def auto_v6_start_profile(request: Request,csrf_token: str=Form(...),profile_id: int=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
     pid=int(profile_id)
-    if os.environ.get("LUM_ENGINE_INSTANCE")!="shortstudio":
-        return redirect("/app?tab=auto_engine",error="Individual Start is only available in Short Uploader.")
+    if os.environ.get("LUM_ENGINE_INSTANCE") not in {"shortstudio","song"}:
+        return redirect("/app?tab=auto_engine",error="Individual Start is only available in Song/Short Uploader.")
     previously_enabled=None
     try:
         profile=_v6_profile(pid,request)
@@ -1447,8 +1447,8 @@ def auto_v6_start_profile(request: Request,csrf_token: str=Form(...),profile_id:
 def auto_v6_pause_profile(request: Request,csrf_token: str=Form(...),profile_id: int=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
     pid=int(profile_id)
-    if os.environ.get("LUM_ENGINE_INSTANCE")!="shortstudio":
-        return redirect("/app?tab=auto_engine",error="Individual Pause is only available in Short Uploader.")
+    if os.environ.get("LUM_ENGINE_INSTANCE") not in {"shortstudio","song"}:
+        return redirect("/app?tab=auto_engine",error="Individual Pause is only available in Song/Short Uploader.")
     try:
         profile=_v6_profile(pid,request)
         if profile.get("channel_db_id"):
@@ -1480,7 +1480,7 @@ def auto_v6_start_all(request: Request,csrf_token: str=Form(...),confirmation: s
             v6_mark_schedule_skipped_today(db,profile)
         except Exception as exc:
             skipped.append(f"{profile.get('category_name')}: {exc}")
-    v6_store.set_manual_profile_ids(None) if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio" else None
+    v6_store.set_manual_profile_ids(None) if os.environ.get("LUM_ENGINE_INSTANCE") in {"shortstudio","song"} else None
     if created: v6_store.set_engine(running=True,pause_after_current=False)
     text=f"Start All created {created} job(s)."
     if skipped: text+=f" {len(skipped)} profile(s) skipped: "+"; ".join(skipped[:3])
@@ -1492,7 +1492,7 @@ def auto_v6_engine(request: Request,csrf_token: str=Form(...),action: str=Form(.
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
     act=str(action or "").strip().lower()
     if act in {"start","resume"}:
-        if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio": v6_store.set_manual_profile_ids(None)
+        if os.environ.get("LUM_ENGINE_INSTANCE") in {"shortstudio","song"}: v6_store.set_manual_profile_ids(None)
         v6_store.set_engine(running=True,pause_after_current=False,error="")
     elif act=="pause_after_current": v6_store.set_engine(running=True,pause_after_current=True)
     elif act=="stop": v6_store.set_engine(running=False,pause_after_current=False)
@@ -1524,7 +1524,7 @@ def auto_v6_engine(request: Request,csrf_token: str=Form(...),action: str=Form(.
             detail=(" " + "; ".join(invalid[:3])) if invalid else ""
             db.add_log(None,"WARN","Scheduled Uploads ARM blocked: no enabled automatic profile has both a valid schedule and eligible channels."+detail,None)
             return redirect("/app?tab=auto_engine",error="Cannot arm automation: configure at least one enabled channel Auto Engine profile with an eligible channel, or a valid legacy scheduled profile." )
-        if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio": v6_store.set_manual_profile_ids(None)
+        if os.environ.get("LUM_ENGINE_INSTANCE") in {"shortstudio","song"}: v6_store.set_manual_profile_ids(None)
         v6_store.set_scheduler_armed(True)
         db.add_log(None,"INFO",f"Scheduled Uploads ARMED from web control. Ready profiles: {len(ready)}.",None)
         return redirect("/app?tab=auto_engine",message=f"Auto Sync & Scheduled Uploads ARMED. {len(ready)} profile(s) ready.")
@@ -1559,8 +1559,8 @@ def auto_v6_profile_schedule_save(request: Request,csrf_token: str=Form(...),pro
                                  schedule_times: str=Form(""),schedule_enabled: str=Form("0")):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
     pid=int(profile_id)
-    if os.environ.get("LUM_ENGINE_INSTANCE")!="shortstudio":
-        return redirect("/app?tab=auto_engine",error="Inline scheduling is Short Uploader only.")
+    if os.environ.get("LUM_ENGINE_INSTANCE") not in {"shortstudio","song"}:
+        return redirect("/app?tab=auto_engine",error="Inline scheduling is for Song/Short groups only.")
     try:
         profile=_v6_profile(pid,request)
         if profile.get("channel_db_id"):
@@ -1604,7 +1604,7 @@ async def auto_v6_profile_schedules_save(request: Request):
             raw_enabled=str(form.get(f"schedule_enabled_{pid}") or "0").lower()
             raw_times=str(form.get(f"schedule_times_{pid}") or profile.get("schedule_times") or "09:00")
             parsed_times=v6_parse_schedule_times(raw_times)
-            if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio" and not profile.get("channel_db_id") and raw_enabled in {"1","true","on","yes"}:
+            if os.environ.get("LUM_ENGINE_INSTANCE") in {"shortstudio","song"} and not profile.get("channel_db_id") and raw_enabled in {"1","true","on","yes"}:
                 expected=max(1,int(profile.get("daily_upload_count") or 1))
                 if len(parsed_times)!=expected:
                     raise ValueError(f"Choose {expected} distinct PKT times (currently {len(parsed_times)}).")
@@ -1612,7 +1612,7 @@ async def auto_v6_profile_schedules_save(request: Request):
             data=dict(profile)
             data["schedule_enabled"]=raw_enabled in {"1","true","on","yes"}
             data["schedule_times"]=times
-            if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio" and not profile.get("channel_db_id") and data["schedule_enabled"]:
+            if os.environ.get("LUM_ENGINE_INSTANCE") in {"shortstudio","song"} and not profile.get("channel_db_id") and data["schedule_enabled"]:
                 data["work_mode"]="auto"
             db.save_auto_engine_profile(data,pid)
             updated+=1
