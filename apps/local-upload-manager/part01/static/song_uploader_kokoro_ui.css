@@ -312,3 +312,9 @@ body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-song-import-body .
     padding: 11px 13px;
   }
 }
+
+/* Song group profile fields respect the hidden attribute. */
+body.lum-song-ui [data-ae-group-choice][hidden],
+body.lum-song-ui [data-ae-single-choice][hidden],
+body.lum-song-ui [data-ae-group-fields][hidden],
+body.lum-song-ui [data-ae-song-modes][hidden] {display:none !important;}

@@ -204,6 +204,7 @@
   },true);
 
   document.addEventListener('change',e=>{
+    if(e.target?.id==='lum-ae-profile-kind'||e.target?.id==='lum-ae-profile-group'){updateSongProfileKind();return;}
     if(e.target?.id==='lum-ae-profile-select'){
       const id=e.target.value;softGoto(`${basePath()}/app?tab=auto_engine${id?`&auto_profile_id=${encodeURIComponent(id)}`:''}`);return;
     }
@@ -265,7 +266,40 @@
     if(p)setTimeout(()=>refreshQueueLive(true),250);
   }
 
-  function init(){restorePanel();renderAlarms();updateQ();updateT();startQueueLivePolling();}
+  function updateSongProfileKind(){
+    const form=document.getElementById('lum-ae-profile-form');
+    const kind=form?.querySelector('#lum-ae-profile-kind');
+    if(!kind)return;
+    const group=kind.value==='group';
+    form.querySelectorAll('[data-ae-group-choice],[data-ae-group-fields]').forEach(n=>{n.hidden=!group;});
+    form.querySelectorAll('[data-ae-single-choice]').forEach(n=>{n.hidden=group;});
+    const groupSelect=form.querySelector('#lum-ae-profile-group');
+    const channelSelect=form.querySelector('select[name="channel_db_id"]');
+    const name=form.querySelector('input[name="category_name"]');
+    const sheet=form.querySelector('input[name="metadata_sheet_tab"]');
+    if(groupSelect){groupSelect.required=group;groupSelect.disabled=!group;}
+    if(channelSelect){channelSelect.required=!group;channelSelect.disabled=group;}
+    if(name)name.required=group;
+    if(sheet)sheet.required=group;
+    const videoSource=form.querySelector('#song-profile-video-source');
+    const metadataSource=form.querySelector('#song-profile-metadata-source');
+    if(group){
+      if(videoSource)videoSource.value='drive';
+      if(metadataSource)metadataSource.value='sheet';
+      videoSource?.dispatchEvent(new Event('change',{bubbles:true}));
+    }
+    if(videoSource)videoSource.disabled=group;
+    if(metadataSource)metadataSource.disabled=group;
+    form.querySelectorAll('[data-ae-song-modes]').forEach(n=>{n.hidden=group;});
+    const preview=form.querySelector('#lum-ae-group-preview');
+    if(preview&&groupSelect){
+      const n=Number(groupSelect.selectedOptions?.[0]?.dataset?.count||0);
+      preview.textContent=groupSelect.value
+        ? `${n} group member(s). All eligible ACTIVE members with a valid token will be included.`
+        : 'Select a group; its eligible ACTIVE members will be included.';
+    }
+  }
+  function init(){restorePanel();renderAlarms();updateQ();updateT();updateSongProfileKind();startQueueLivePolling();}
   document.addEventListener('DOMContentLoaded',init,{once:true});
   window.addEventListener('pageshow',init);
   const observer=new MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes){if(n instanceof Element && (n.matches?.('.lum-shell')||n.querySelector?.('[data-ae-panel]'))){queueMicrotask(init);return;}}});
