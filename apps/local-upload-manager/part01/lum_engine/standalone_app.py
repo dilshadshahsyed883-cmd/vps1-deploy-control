@@ -1552,6 +1552,42 @@ def auto_v6_concurrency(
         return redirect("/app?tab=auto_engine",error=str(exc))
 
 
+# Short Uploader inline schedule editor: persist exactly one profile and never
+# start workers or change the global scheduler as a side-effect of saving.
+@app.post(route("/actions/auto-v6/profile-schedule/save"))
+def auto_v6_profile_schedule_save(request: Request,csrf_token: str=Form(...),profile_id: int=Form(...),
+                                 schedule_times: str=Form(""),schedule_enabled: str=Form("0")):
+    user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
+    pid=int(profile_id)
+    if os.environ.get("LUM_ENGINE_INSTANCE")!="shortstudio":
+        return redirect("/app?tab=auto_engine",error="Inline scheduling is Short Uploader only.")
+    try:
+        profile=_v6_profile(pid,request)
+        if profile.get("channel_db_id"):
+            raise ValueError("Use the existing channel Video-ID schedule editor.")
+        expected=max(1,min(100,int(profile.get("daily_upload_count") or 1)))
+        raw=str(schedule_times or "").strip()
+        # Empty or partial input is not a valid replacement for a saved daily schedule.
+        if not raw or len([value for value in raw.split(",") if value.strip()])!=expected:
+            raise ValueError(f"Choose all {expected} PKT video times before saving.")
+        parsed=v6_parse_schedule_times(raw)
+        if len(parsed)!=expected:
+            raise ValueError(f"Choose {expected} distinct PKT video times; duplicates are not allowed.")
+        armed=str(schedule_enabled or "").strip().lower() in {"1","true","on","yes"}
+        data=dict(profile)
+        data["schedule_times"]=",".join(parsed)
+        data["schedule_enabled"]=armed
+        # Explicitly checking 'Automatic schedule' enables the automatic work
+        # mode for this profile. Otherwise preserve the current work mode.
+        if armed: data["work_mode"]="auto"
+        db.save_auto_engine_profile(data,pid)
+        mode="ON" if armed else "OFF"
+        note=" Global Arm Scheduled Uploads is still required." if armed and not int(v6_store.engine().get("scheduler_armed") or 0) else ""
+        return redirect(f"/app?tab=auto_engine&auto_profile_id={pid}",message=f"Profile #{pid}: {expected} PKT times saved; automatic schedule {mode}.{note}")
+    except Exception as exc:
+        return redirect(f"/app?tab=auto_engine&auto_profile_id={pid}",error=str(exc))
+
+
 @app.post(route("/actions/auto-v6/profile-schedules/save"))
 async def auto_v6_profile_schedules_save(request: Request):
     user=current_user(request); require_heavy(user)
@@ -1576,6 +1612,8 @@ async def auto_v6_profile_schedules_save(request: Request):
             data=dict(profile)
             data["schedule_enabled"]=raw_enabled in {"1","true","on","yes"}
             data["schedule_times"]=times
+            if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio" and not profile.get("channel_db_id") and data["schedule_enabled"]:
+                data["work_mode"]="auto"
             db.save_auto_engine_profile(data,pid)
             updated+=1
         except Exception as exc:
