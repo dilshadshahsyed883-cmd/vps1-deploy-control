@@ -11,23 +11,27 @@
   // never cause the canonical Song Uploader to navigate to Engine 1.
   const CURRENT_PATH = window.location.pathname;
   const SONG_STUDIO = /^\/song-uploader(?:\/|$)/.test(CURRENT_PATH);
+  const COPYRIGHT_STUDIO = /^\/copyright-uploader(?:\/|$)/.test(CURRENT_PATH);
   const SHORT_STUDIO = /^\/short-uploader(?:\/|$)/.test(CURRENT_PATH);
   const ISOLATED_MODE = /^\/local-upload-manager\/modes\/(engine2|shorts|song)\/app$/.exec(CURRENT_PATH);
-  const ROOT_PATH = SONG_STUDIO ? '/song-uploader'
+  const ROOT_PATH = COPYRIGHT_STUDIO ? '/copyright-uploader'
+    : SONG_STUDIO ? '/song-uploader'
     : SHORT_STUDIO ? '/short-uploader'
     : ISOLATED_MODE ? '/local-upload-manager/modes/' + ISOLATED_MODE[1]
     : '/local-upload-manager';
   // Keep the existing Short Studio storage names literal for its parity
   // contract, while giving Song and each uploader mode independent keys.
-  const TAB_KEY = SONG_STUDIO ? 'lum.song.main.tab'
+  const TAB_KEY = COPYRIGHT_STUDIO ? 'lum.copyright.main.tab'
+    : SONG_STUDIO ? 'lum.song.main.tab'
     : SHORT_STUDIO ? 'lum.shortstudio.main.tab'
     : ISOLATED_MODE ? 'lum.' + ISOLATED_MODE[1] + '.main.tab' : 'lum.main.tab';
-  const ROUTE_KEY = SONG_STUDIO ? 'lum.song.route'
+  const ROUTE_KEY = COPYRIGHT_STUDIO ? 'lum.copyright.route'
+    : SONG_STUDIO ? 'lum.song.route'
     : SHORT_STUDIO ? 'lum.shortstudio.route'
     : ISOLATED_MODE ? 'lum.' + ISOLATED_MODE[1] + '.route' : 'lum.route';
   const VALID_TABS = new Set([
     'upload','authentication','dashboard','channels','sheets','auto_engine',
-    'add_video','bulk_import','queue','logs'
+    'add_video','profiles','bulk_import','queue','logs'
   ]);
 
   const safeGet = key => { try { return localStorage.getItem(key) || ''; } catch (_) { return ''; } };
