@@ -26,7 +26,7 @@ class Release(unittest.TestCase):
   <button class="btn secondary mini" onclick="renameLibrary('${x.id}')">Rename</button>
   <div id="tab-proxy">Production proxy kept</div>
 function showTab(tab){old}
-function queueMerge(){old}
+async function queueMerge(){old}
 function activeStatus(s){old}
 function renderQueue(){old}
 async function del(id){old}
