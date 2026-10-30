@@ -148,23 +148,17 @@ class DriveUploadSchedulingTests(unittest.TestCase):
                     fail_thumb_once[0] = False
                     return subprocess.CompletedProcess(args, 1, "", "userRateLimitExceeded (403)")
                 return subprocess.CompletedProcess(args, 0, "", "")
-            if "lsjson" in args:
-                dest = args[-1]
-                return subprocess.CompletedProcess(args, 0,
-                    json.dumps({"Size": len(JPG) if dest.endswith(".jpg") else len(MP3)}), "")
             self.fail("Unexpected command: " + repr(args))
         state = {"upload_ready": True, "rclone": "/fake/rclone"}
         with patch.object(self.m, "deps", return_value=state), \
-             patch.object(self.m.subprocess, "run", side_effect=subprocess_run), \
-             patch.object(self.m, "verified_drive_public_link",
-                          return_value="https://drive.google.com/file/d/123456789012/view?usp=sharing"):
+             patch.object(self.m.subprocess, "run", side_effect=subprocess_run):
             with self.assertRaisesRegex(RuntimeError, "automatic retry"):
                 self.m.resume_upload(self.job())
             self.m._schedule_upload_retry(self.jid, self.m.DriveUploadFailure("RATE_LIMITED"))
             row = self.job()
             self.assertEqual(row["status"], "upload_retry")
             self.assertTrue(row["drive_path"].endswith(".mp3"))
-            self.assertTrue(row["drive_url"])
+            self.assertIsNone(row["drive_url"])
             self.assertTrue(self.local.exists())
             with self.m.db() as con:
                 con.execute("UPDATE jobs SET next_retry_at=? WHERE job_id=?",
@@ -174,8 +168,8 @@ class DriveUploadSchedulingTests(unittest.TestCase):
         self.assertEqual(self.job()["status"], "delivered")
         self.assertEqual(self.job()["upload_retry_count"], 1)
         self.assertIsNone(self.job()["next_retry_at"])
-        self.assertFalse(self.local.exists())
-        self.assertFalse(thumbnail.exists())
+        self.assertTrue(self.local.exists())
+        self.assertTrue(thumbnail.exists())
         self.assertEqual(len([x for x in attempts if x.endswith(".mp3")]), 1)
         self.assertEqual(len([x for x in attempts if x.endswith(".jpg")]), 2)
 
@@ -239,37 +233,68 @@ class DriveUploadSchedulingTests(unittest.TestCase):
             self.assertEqual(self.m._drive_copy_failure_code(raw), expected)
             self.assertNotIn('secret', self.m._drive_copy_failure_code(raw).lower())
 
-    def test_existing_immutable_remote_is_reconciled_only_after_full_verification(self):
-        self.create_job(status='downloaded')
+    def test_two_upload_operations_only_and_no_remote_probes(self):
+        self.create_job(status='downloaded', thumbnail=True)
+        thumbnail = self.local_dir / (VIDEO + ".jpg")
+        thumbnail.write_bytes(JPG)
+        commands = []
+        def upload(args, **kwargs):
+            self.assertIn('copyto', args, 'No lsjson/md5sum/link/permission verification')
+            commands.append(args)
+            return subprocess.CompletedProcess(args, 0, '', '')
         state = {'upload_ready': True, 'rclone': '/fake/rclone', 'progress_streaming': False}
-        def copy_exists(args, **kwargs):
-            self.assertIn('copyto', args)
-            self.assertIn('--immutable', args)
-            return subprocess.CompletedProcess(args, 1, '', 'failed: immutable file already exists')
-        with patch.object(self.m.subprocess, 'run') as run_mock, \
+        with patch.object(self.m.subprocess, 'run', side_effect=upload), \
              patch.object(self.m, 'verified_drive_public_link',
-                          return_value='https://drive.google.com/file/d/123456789012/view?usp=sharing') as verify:
-            run_mock.side_effect = copy_exists
-            self.m.upload_downloaded(self.job(), self.local, None, state)
-        verify.assert_called_once()
-        self.assertEqual(self.job()['status'], 'delivered')
-        self.assertTrue(self.job()['drive_url'])
-        self.assertFalse(self.local.exists())
+                          side_effect=AssertionError('Remote verification must not run')):
+            self.m.upload_downloaded(self.job(), self.local, thumbnail, state)
+        self.assertEqual(len(commands), 2)
+        self.assertEqual([c[c.index('copyto') + 2].split('.')[-1] for c in commands], ['mp3', 'jpg'])
+        row = self.job()
+        self.assertEqual(row['status'], 'delivered')
+        self.assertIsNone(row['drive_url'])
+        self.assertIsNone(row['thumbnail_drive_url'])
+        self.assertTrue(row['drive_path'].endswith('.mp3'))
+        self.assertTrue(row['thumbnail_drive_path'].endswith('.jpg'))
+        self.assertIn('not independently verified', row['progress_stage'])
+        self.assertTrue(self.local.exists())
+        self.assertTrue(thumbnail.exists())
 
-    def test_immutable_conflict_mismatch_never_marks_delivered_or_deletes_audio(self):
+    def test_audio_only_uses_one_copy_operation(self):
         self.create_job(status='downloaded')
         state = {'upload_ready': True, 'rclone': '/fake/rclone', 'progress_streaming': False}
-        def copy_exists(args, **kwargs):
-            return subprocess.CompletedProcess(args, 1, '', 'immutable file already exists')
-        with patch.object(self.m.subprocess, 'run') as run_mock, \
+        with patch.object(self.m.subprocess, 'run',
+                          return_value=subprocess.CompletedProcess(['rclone'], 0, '', '')) as run, \
              patch.object(self.m, 'verified_drive_public_link',
-                          side_effect=RuntimeError('Google Drive content hash mismatch')):
-            run_mock.side_effect = copy_exists
-            with self.assertRaisesRegex(RuntimeError, 'DESTINATION_CONFLICT_UNVERIFIED'):
+                          side_effect=AssertionError('No extra Drive probes')):
+            self.m.upload_downloaded(self.job(), self.local, None, state)
+        self.assertEqual(run.call_count, 1)
+        self.assertIn('copyto', run.call_args.args[0])
+        self.assertTrue(self.local.exists())
+        self.assertEqual(self.job()['status'], 'delivered')
+
+    def test_immutable_conflict_never_runs_probe_or_claims_delivery(self):
+        self.create_job(status='downloaded')
+        state = {'upload_ready': True, 'rclone': '/fake/rclone', 'progress_streaming': False}
+        with patch.object(self.m.subprocess, 'run',
+                          return_value=subprocess.CompletedProcess(['rclone'], 1, '',
+                                                                  'immutable file already exists')) as run, \
+             patch.object(self.m, 'verified_drive_public_link',
+                          side_effect=AssertionError('No extra Drive probes')):
+            with self.assertRaisesRegex(self.m.DriveUploadFailure, 'DESTINATION_CONFLICT_UNVERIFIED'):
                 self.m.upload_downloaded(self.job(), self.local, None, state)
+        self.assertEqual(run.call_count, 1)
         self.assertTrue(self.local.exists())
         self.assertNotEqual(self.job()['status'], 'delivered')
-        self.m._schedule_upload_retry(self.jid, self.m.DriveUploadFailure('DESTINATION_CONFLICT_UNVERIFIED'))
+
+    def test_immutable_conflict_requires_manual_retry_without_deleting_audio(self):
+        self.create_job(status='downloaded')
+        state = {'upload_ready': True, 'rclone': '/fake/rclone', 'progress_streaming': False}
+        with patch.object(self.m.subprocess, 'run',
+                          return_value=subprocess.CompletedProcess(['rclone'], 1, '',
+                                                                  'immutable file already exists')):
+            with self.assertRaises(self.m.DriveUploadFailure) as raised:
+                self.m.upload_downloaded(self.job(), self.local, None, state)
+        self.m._schedule_upload_retry(self.jid, raised.exception)
         self.assertEqual(self.job()['status'], 'failed')
         self.assertIsNone(self.job()['next_retry_at'])
         self.assertEqual(self.job()['upload_retry_count'], 0)
