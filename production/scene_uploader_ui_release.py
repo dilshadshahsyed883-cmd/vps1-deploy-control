@@ -37,11 +37,13 @@ FILES = (
     "static/vps1_native_site_shell.js",
     "static/vps1_native_site_shell.css",
     "app.py",
+    "song_uploader_alias.py",
 )
 # A new wrapper did not exist in older Scene releases; all other files did.
 NEW_FILES = frozenset({"templates/video_studio_embed.html",
                        "static/vps1_native_site_shell.js",
-                       "static/vps1_native_site_shell.css"})
+                       "static/vps1_native_site_shell.css",
+                       "song_uploader_alias.py"})
 
 
 def require(ok: bool, why: str) -> None:
@@ -107,6 +109,16 @@ def source_is_valid() -> None:
     require("vps1-native-site-sidebar" in native and "iframe" in native,
             "native website shell source missing")
 
+
+
+def preflight_scene_proxy_dependency() -> None:
+    """Probe/install the existing approved pinned httpx dependency before UI flip.
+
+    The Scene candidate imports httpx at app-module load. This install is
+    scoped to its existing pinned venv; if it fails the pointer stays intact.
+    """
+    from production.scene_candidate_release import _ensure_song_uploader_dependency
+    _ensure_song_uploader_dependency()
 
 
 def verify_video_studio() -> None:
@@ -187,6 +199,7 @@ def activate(revision: str) -> None:
     require(old.is_relative_to(RELEASES) and old.is_dir(), "Scene candidate release not owned")
     require(active() and healthy(), "Scene candidate unavailable")
     source_is_valid()
+    preflight_scene_proxy_dependency()
     for relative in FILES:
         if relative not in NEW_FILES:
             require((old / "part01" / relative).is_file(), "old Scene source missing: " + relative)
