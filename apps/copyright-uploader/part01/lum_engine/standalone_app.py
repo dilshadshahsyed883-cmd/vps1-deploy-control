@@ -21,6 +21,7 @@ from .config import (
 )
 from .oauth_web import complete_oauth, list_clients, save_client_json, save_shared_client_json, start_oauth
 from .project_store import ProjectStore
+from .copyright_handoff import available_videos, owner_root
 from .four_modes import registry as four_mode_registry, validate_mode as validate_auto_mode
 from .mode_gateway import forward as forward_engine_request, MODE_PORTS as ENGINE_PORTS
 from .reports import generate_health_report, list_reports, report_path
@@ -100,18 +101,12 @@ COPYRIGHT_MAX_VIDEO = 12 * 1024 * 1024 * 1024
 COPYRIGHT_MIN_FREE = 5 * 1024 * 1024 * 1024
 
 def copyright_owner_root(owner: str) -> Path:
-    key = hashlib.sha256(owner.strip().lower().encode("utf-8")).hexdigest()[:32]
-    return COPYRIGHT_MEDIA_ROOT / key
+    return owner_root(owner)
+
 
 def copyright_folder_files(owner: str) -> list[str]:
-    folder = copyright_owner_root(owner)
-    if folder.is_symlink() or not folder.is_dir():
-        return []
-    return sorted(
-        [p.name for p in folder.iterdir()
-         if not p.is_symlink() and p.is_file() and p.suffix.lower() in {".mp4", ".mkv", ".mov"}
-         and p.stat().st_size > 0], key=str.lower
-    )[:500]
+    return available_videos(owner, store.claimed_folder_files(owner))
+
 
 async def copyright_stage_file(video: UploadFile, ext: str) -> tuple[str, int, str]:
     if ext not in {".mp4", ".mkv", ".mov"}:
@@ -687,6 +682,16 @@ def action_report_health(request: Request, csrf_token: str = Form(...)):
         return redirect("/app", error=f"Health report failed: {exc}")
 
 
+@app.get(route("/api/copyright/folder-videos"))
+def copyright_folder_videos(request: Request):
+    user = current_user(request)
+    if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+        raise HTTPException(404, "Not found")
+    videos = copyright_folder_files(str(user["username"]))
+    return JSONResponse({"ok": True, "files": videos, "count": len(videos)},
+                        headers={"Cache-Control": "no-store, private"})
+
+
 @app.post(route("/actions/copyright/profile"))
 async def copyright_add_profile(
     request: Request, csrf_token: str = Form(...), profile_name: str = Form(...),
@@ -776,6 +781,7 @@ async def add_video(
             "drive_url": drive_url, "thumbnail_path": thumb_path,
             "staging_path": owned_staging, "source_file_name": source_original,
             "source_file_size": source_size, "source_fingerprint": fingerprint,
+            "source_origin": source_mode,
             "title": title, "description": description, "tags": tags, "category_id": category_id,
             "privacy_status": privacy_status, "app_upload_at": app_upload_at_utc,
             "made_for_kids": str(made_for_kids).lower() in {"1", "true", "on", "yes"},
