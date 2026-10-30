@@ -26,10 +26,17 @@
   {% if tab != 'auto_stream' %}
   <div class="lum-tabs-shell" data-lum-sticky-tabs>
 <nav class="lum-tabs" aria-label="Auto Uploader workspace">
+      {% if engine_instance == 'song' %}
+      <a class="{{ 'active' if tab=='auto_engine' else '' }}" href="{{ base_path }}/app?tab=auto_engine">Auto Engine</a>
+      <a class="{{ 'active' if tab=='channels' else '' }}" href="{{ base_path }}/app?tab=channels">Channels</a>
+      <a class="{{ 'active' if tab=='sheets' else '' }}" href="{{ base_path }}/app?tab=sheets">Sheets Sync</a>
+      <a class="{{ 'active' if tab=='dashboard' else '' }}" href="{{ base_path }}/app?tab=dashboard">Dashboard</a>
+      {% else %}
       <a class="{{ 'active' if tab=='dashboard' else '' }}" href="{{ base_path }}/app?tab=dashboard">Dashboard</a>
       <a class="{{ 'active' if tab=='channels' else '' }}" href="{{ base_path }}/app?tab=channels">Channels</a>
       <a class="{{ 'active' if tab=='sheets' else '' }}" href="{{ base_path }}/app?tab=sheets">Sheets Sync</a>
       <a class="{{ 'active' if tab=='auto_engine' else '' }}" href="{{ base_path }}/app?tab=auto_engine">Auto Engine</a>
+      {% endif %}
       {% if engine_instance not in ['song', 'shortstudio'] %}
       <a class="{{ 'active' if tab=='add_video' else '' }}" href="{{ base_path }}/app?tab=add_video">Add Video</a>
       <a class="{{ 'active' if tab=='bulk_import' else '' }}" href="{{ base_path }}/app?tab=bulk_import">Bulk Import</a>
@@ -692,6 +699,7 @@
       {% endif %}
     </section>
 {% elif tab == 'auto_engine' %}
+    {% if engine_instance != 'song' %}
     <section class="lum-card">
       <div class="lum-card-head">
         <div><h2>{{ 'Short Uploader · Auto Engine' if engine_instance == 'shortstudio' else ('Song Uploader · Short Uploader Auto Engine' if engine_instance == 'song' else 'Auto Uploader · Two Modes') }}</h2>
@@ -715,67 +723,20 @@
         <div class="lum-alert error">Cross-mode receipt collision(s) detected: {{ mode_registry.cross_mode_record_collisions }}. Do not activate additional upload workers before reconciling these identities.</div>
       {% endif %}
     </section>
-    {% if engine_instance == 'song' %}
-    <section class="lum-card" aria-label="Song Maker local outputs">
-      <div class="lum-card-head"><div><h2>Song Maker · Local Outputs</h2><p>Choose a channel profile and import the validated MP4 + thumbnail locally. Saved website metadata or existing Sheet matching and scheduling run through the Auto Engine. No Google Drive media upload or automatic YouTube publishing.</p></div></div>
-      <div id="songMakerLocalOutputList" role="status">Loading available videos…</div>
-      <script>
-      (function(){
-        const area=document.getElementById('songMakerLocalOutputList');
-        const profiles=[
-          {% for pr in auto_v6.profiles or [] %}
-          {% if pr.channel_db_id %}{id:{{ pr.id|int }},name:{{ (pr.bound_channel_name or pr.category_name or ('Profile ' ~ pr.id))|tojson }}},{% endif %}
-          {% endfor %}
-        ];
-        const csrfToken={{ csrf|tojson }};
-        fetch('/song-maker/api/uploader/outputs',{credentials:'same-origin'})
-          .then(response=>{if(!response.ok)throw Error('Sign in to Song Studio to view local outputs');return response.json()})
-          .then(data=>{
-            area.replaceChildren();
-            const videos=Array.isArray(data.outputs)?data.outputs:[];
-            if(!videos.length){area.textContent='No local Song Maker videos available yet.';return;}
-            for(const item of videos){
-              const row=document.createElement('div');row.className='lum-note';
-              const name=document.createElement('strong');name.textContent=item.name;
-              const size=document.createElement('small');size.textContent=' · '+(item.size/1048576).toFixed(1)+' MB · ';
-              const video=document.createElement('a');video.href=item.video_url;video.textContent='View MP4';
-              const thumb=document.createElement('a');thumb.href=item.thumbnail_url;thumb.textContent=' · View Thumbnail';
-              row.append(name,size,video,thumb);
-              if(profiles.length){
-                const picker=document.createElement('select');picker.setAttribute('aria-label','Choose channel profile for '+item.name);
-                for(const profile of profiles){const option=document.createElement('option');option.value=profile.id;option.textContent=profile.name;picker.append(option);}
-                const button=document.createElement('button');button.type='button';button.className='lum-button secondary tiny';button.textContent='Import to Song Uploader';
-                const status=document.createElement('small');status.setAttribute('role','status');
-                button.onclick=async()=>{
-                  button.disabled=true;status.textContent='Importing locally…';
-                  try{
-                    const body=new URLSearchParams({csrf_token:csrfToken,profile_id:picker.value,job_id:item.id});
-                    const reply=await fetch('/song-uploader/actions/auto-v6/songmaker/import',{method:'POST',credentials:'same-origin',body});
-                    const result=await reply.json();
-                    if(!reply.ok||!result.ok)throw Error(result.error||'Local import could not be completed');
-                    status.textContent=result.status==='already_imported'?'Already imported to this channel':'Local import ready · Run Sync Channel to validate matching media and metadata';
-                  }catch(error){status.textContent=error.message;button.disabled=false;}
-                };
-                row.append(document.createTextNode(' · Channel: '),picker,button,status);
-              }else{
-                row.append(document.createTextNode(' · Configure a channel profile before importing.'));
-              }
-              area.append(row);
-            }
-          }).catch(error=>{area.textContent=error.message;});
-      })();
-      </script>
-    </section>
     {% endif %}
+    {% if engine_instance == 'song' and mode_registry.cross_mode_record_collisions %}
+      <div class="lum-alert error">Cross-mode receipt collision(s) detected: {{ mode_registry.cross_mode_record_collisions }}. Do not activate additional upload workers before reconciling these identities.</div>
+    {% endif %}
+
     {% if auto_mode == 'engine1' %}
     {% set ae = auto_v6 %}
     {% set p = ae.selected if ae else None %}
     {% set src = ae.source if ae else {} %}
     <section class="lum-ae-head">
       <div>
-        <div class="lum-eyebrow">Channel-based · Video ID source of truth</div>
+        {% if engine_instance != 'song' %}<div class="lum-eyebrow">Channel-based · Video ID source of truth</div>{% endif %}
         <h2>Auto Engine</h2>
-        <p>Channel-based Video-ID automation. Each Sheet row is matched to the same-ID video and thumbnail before it can enter the upload queue.</p>
+        {% if engine_instance != 'song' %}<p>Channel-based Video-ID automation. Each Sheet row is matched to the same-ID video and thumbnail before it can enter the upload queue.</p>{% endif %}
       </div>
       <div class="lum-ae-head-actions">
         <div class="lum-ae-health" aria-label="Auto Engine runtime status">
@@ -787,7 +748,7 @@
           <div class="lum-ae-schedule-control-copy">
             <span>Scheduled Uploads</span>
             <strong>{{ 'ARMED' if ae.engine.scheduler_armed else 'DISARMED' }}</strong>
-            <small>{% if ae.engine.scheduler_armed %}Next run: {{ ae.scheduler_ui.next_run }} · {{ ae.scheduler_ui.ready_profiles }} profile(s) ready{% else %}Automatic scheduled uploads are paused{% endif %}</small>
+            {% if engine_instance != 'song' or ae.engine.scheduler_armed %}<small>{% if ae.engine.scheduler_armed %}Next run: {{ ae.scheduler_ui.next_run }} · {{ ae.scheduler_ui.ready_profiles }} profile(s) ready{% else %}Automatic scheduled uploads are paused{% endif %}</small>{% endif %}
           </div>
           <form method="post" action="{{ base_path }}/actions/auto-v6/engine" data-lum-soft-form>
             <input type="hidden" name="csrf_token" value="{{ csrf }}">
@@ -901,11 +862,11 @@
     </section>
 
     <section class="lum-card lum-ae-automation-controls" data-ae-panel="automation">
-      <div class="lum-card-head"><div><h2>Automation</h2><p>Run profile automation from one table. Row actions target one profile; Start All remains global.</p></div><span class="lum-badge">{{ ae.profiles|length }} profiles</span></div>
+      <div class="lum-card-head"><div><h2>Automation</h2>{% if engine_instance != 'song' %}<p>Run profile automation from one table. Row actions target one profile; Start All remains global.</p>{% endif %}</div><span class="lum-badge">{{ ae.profiles|length }} profiles</span></div>
 <div class="lum-ae-pc-row lum-ae-profile-quick-controls lum-ae-global-actions">
         <form method="post" action="{{ base_path }}/actions/auto-v6/sync-all" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button primary" type="submit">Sync All Channels</button></form>
         {% if p %}<button class="lum-button secondary" type="button" data-ae-sync-scan data-profile-id="{{ p.id }}" data-csrf="{{ csrf }}">Sync Channel</button>{% endif %}
-        <span class="lum-ae-auto-sync-note">Auto-sync defaults to every 15 minutes per channel and can be changed in the channel profile.</span>
+        {% if engine_instance != 'song' %}<span class="lum-ae-auto-sync-note">Auto-sync defaults to every 15 minutes per channel and can be changed in the channel profile.</span>{% endif %}
       </div>
 
       <div id="lum-ae-generation-status" class="lum-ae-generation-status" data-state="idle" hidden role="status" aria-live="polite">
@@ -944,8 +905,63 @@
       </div>
     </section>
 
+    {% if engine_instance == 'song' %}
+    <details class="lum-card lum-song-import-details" data-ae-panel="automation" aria-label="Import videos from Song Maker">
+      <summary>Import from Song Maker <span>MP4 + original thumbnail</span></summary>
+      <div class="lum-song-import-body">
+        <div id="songMakerLocalOutputList" role="status">Loading available videos…</div>
+      <script>
+      (function(){
+        const area=document.getElementById('songMakerLocalOutputList');
+        const profiles=[
+          {% for pr in auto_v6.profiles or [] %}
+          {% if pr.channel_db_id %}{id:{{ pr.id|int }},name:{{ (pr.bound_channel_name or pr.category_name or ('Profile ' ~ pr.id))|tojson }}},{% endif %}
+          {% endfor %}
+        ];
+        const csrfToken={{ csrf|tojson }};
+        fetch('/song-maker/api/uploader/outputs',{credentials:'same-origin'})
+          .then(response=>{if(!response.ok)throw Error('Sign in to Song Studio to view local outputs');return response.json()})
+          .then(data=>{
+            area.replaceChildren();
+            const videos=Array.isArray(data.outputs)?data.outputs:[];
+            if(!videos.length){area.textContent='No local Song Maker videos available yet.';return;}
+            for(const item of videos){
+              const row=document.createElement('div');row.className='lum-note';
+              const name=document.createElement('strong');name.textContent=item.name;
+              const size=document.createElement('small');size.textContent=' · '+(item.size/1048576).toFixed(1)+' MB · ';
+              const video=document.createElement('a');video.href=item.video_url;video.textContent='View MP4';
+              const thumb=document.createElement('a');thumb.href=item.thumbnail_url;thumb.textContent=' · View Thumbnail';
+              row.append(name,size,video,thumb);
+              if(profiles.length){
+                const picker=document.createElement('select');picker.setAttribute('aria-label','Choose channel profile for '+item.name);
+                for(const profile of profiles){const option=document.createElement('option');option.value=profile.id;option.textContent=profile.name;picker.append(option);}
+                const button=document.createElement('button');button.type='button';button.className='lum-button secondary tiny';button.textContent='Import to Song Uploader';
+                const status=document.createElement('small');status.setAttribute('role','status');
+                button.onclick=async()=>{
+                  button.disabled=true;status.textContent='Importing locally…';
+                  try{
+                    const body=new URLSearchParams({csrf_token:csrfToken,profile_id:picker.value,job_id:item.id});
+                    const reply=await fetch('/song-uploader/actions/auto-v6/songmaker/import',{method:'POST',credentials:'same-origin',body});
+                    const result=await reply.json();
+                    if(!reply.ok||!result.ok)throw Error(result.error||'Local import could not be completed');
+                    status.textContent=result.status==='already_imported'?'Already imported to this channel':'Local import ready · Run Sync Channel to validate matching media and metadata';
+                  }catch(error){status.textContent=error.message;button.disabled=false;}
+                };
+                row.append(document.createTextNode(' · Channel: '),picker,button,status);
+              }else{
+                row.append(document.createTextNode(' · Configure a channel profile before importing.'));
+              }
+              area.append(row);
+            }
+          }).catch(error=>{area.textContent=error.message;});
+      })();
+      </script>
+      </div>
+    </details>
+    {% endif %}
+
     <section class="lum-card lum-ae-automation-planner" data-ae-panel="automation">
-      <div class="lum-card-head"><div><h2>Preflight</h2><p>Validation only. Generate, Preview and Start controls are kept once in the Automation card above.</p></div></div>
+      <div class="lum-card-head"><div><h2>Preflight</h2>{% if engine_instance != 'song' %}<p>Validation only. Generate, Preview and Start controls are kept once in the Automation card above.</p>{% endif %}</div></div>
       <div class="lum-ae-planner-actions">
         {% if p %}<button class="lum-button secondary" type="button" data-ae-preflight data-profile-id="{{ p.id }}" data-csrf="{{ csrf }}">Selected Profile Preflight</button>{% endif %}
         <button class="lum-button secondary" type="button" data-ae-queue-preflight data-csrf="{{ csrf }}">Queue Preflight</button>
@@ -958,7 +974,7 @@
     </section>
 
     <section class="lum-card lum-ae-pc-controls" data-ae-panel="queue" hidden>
-      <div class="lum-card-head"><div><h2>Queue Controls</h2><p>Start, stop, retry, recover and manage the live upload queue from one place. Upload safety and duplicate protections remain unchanged.</p></div><span class="lum-badge">PC CONTROL PARITY</span></div>
+      <div class="lum-card-head"><div><h2>Queue Controls</h2>{% if engine_instance != 'song' %}<p>Start, stop, retry, recover and manage the live upload queue from one place. Upload safety and duplicate protections remain unchanged.</p>{% endif %}</div>{% if engine_instance != 'song' %}<span class="lum-badge">PC CONTROL PARITY</span>{% endif %}</div>
       <div class="lum-ae-pc-row lum-ae-pc-main">
         <form method="post" action="{{ base_path }}/actions/auto-v6/engine" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="start"><button class="lum-button primary" type="submit">Start / Resume Engine</button></form>
         <form method="post" action="{{ base_path }}/actions/auto-v6/engine" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="pause_after_current"><button class="lum-button secondary" type="submit">Pause After Current</button></form>
