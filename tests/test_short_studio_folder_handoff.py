@@ -6,8 +6,11 @@ import re
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 import uuid
 from pathlib import Path
+
+from production import workers
 
 ROOT = Path(__file__).resolve().parents[1]
 MAKER = ROOT / "apps/short-maker/part01/app.py"
@@ -88,6 +91,49 @@ class ShortStudioFolderHandoffTests(unittest.TestCase):
             source.symlink_to(Path(td) / "external.mp4")
             with self.assertRaises(FileNotFoundError):
                 g["shortstudio_source_path"](source_id, source.name)
+
+    def test_deployment_shares_exact_path_without_mutating_existing_files(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            root = base / "short-maker" / "vps_short_folders"
+            with patch.object(workers, "DATA", base), patch.object(workers.os, "chown"):
+                self.assertEqual(workers.prepare_short_studio_shared_root(), root)
+                self.assertTrue(root.is_dir())
+                existing = root / "keep.mp4"
+                existing.write_bytes(b"do not touch user MP4")
+                self.assertEqual(workers.prepare_short_studio_shared_root(), root)
+                self.assertEqual(existing.read_bytes(), b"do not touch user MP4")
+                existing.unlink()
+                root.rmdir()
+                root.symlink_to(base, target_is_directory=True)
+                with self.assertRaisesRegex(RuntimeError, "symlink denied"):
+                    workers.prepare_short_studio_shared_root()
+
+    def test_scoped_release_and_sandbox_write_path(self):
+        with patch.object(workers, "DATA", Path("/var/lib/fresh-website")):
+            uploader = workers.mode_exec("lum-shortstudio-worker",
+                                          Path("/venv/bin/python"), "-m lum_engine.auto_engine_v6_worker")
+            self.assertIn(
+                "SHORT_STUDIO_VPS_FOLDER_ROOT=/var/lib/fresh-website/short-maker/vps_short_folders",
+                uploader)
+            worker_unit = workers.unit("local-upload-manager", "a" * 40,
+                                       "lum-shortstudio-worker", "part01",
+                                       "-m lum_engine.auto_engine_v6_worker")
+            web_unit = workers.unit("local-upload-manager", "a" * 40,
+                                    "lum-shortstudio-web", "part01",
+                                    "-m uvicorn lum_engine.standalone_app:app")
+            self.assertIn("ReadWritePaths=/var/lib/fresh-website/local-upload-manager "
+                          "-/home/ubuntu/.config/masterctl "
+                          "/var/lib/fresh-website/short-maker/vps_short_folders", worker_unit)
+            self.assertNotIn("short-maker/vps_short_folders", web_unit.split("ReadWritePaths=")[1])
+        maker = MAKER.read_text(encoding="utf-8")
+        engine = ENGINE.read_text(encoding="utf-8")
+        self.assertIn('DATA_ROOT / "vps_short_folders"', maker)
+        self.assertIn('"/var/lib/fresh-website/short-maker/vps_short_folders"', engine)
+        workflow = (ROOT / ".github/workflows/vps1-short-studio-release.yml").read_text(encoding="utf-8")
+        self.assertIn("for app in local-upload-manager short-maker; do", workflow)
+        self.assertNotIn("for app in local-upload-manager short-maker video-merger scene-builder", workflow)
+        self.assertIn("AUTO_SCRIPT=OFFLINE", workflow)
 
     def test_preserves_drive_fallback_and_publication_guards(self):
         engine = ENGINE.read_text(encoding="utf-8")
