@@ -65,12 +65,21 @@
         <option value="pc_upload">Upload video from PC</option>
         <option value="folder">Copyright Uploader folder / Video Merger output</option>
       </select></label>
-      <div id="copyright-drive-source"><label class="lum-field"><span>Google Drive video URL</span><input name="drive_url" type="url" placeholder="https://drive.google.com/file/d/.../view"></label></div>
-      <div id="copyright-pc-source" hidden><label class="lum-field"><span>PC video (MP4 / MOV / MKV)</span><input name="video_file" type="file" accept=".mp4,.mkv,.mov,video/mp4,video/quicktime"></label></div>
-      <div id="copyright-folder-source" hidden><label class="lum-field"><span>Available files in your Copyright Uploader folder</span>
-        <select name="folder_file"><option value="">Select a verified merged video</option>
-        {% for item in copyright_files %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
-        </select></label><p class="lum-note">Only completed files assigned to this account are selectable. Originals are kept after upload.</p></div>
+      <div id="copyright-drive-source" class="copyright-source-panel"><label class="lum-field"><span>Google Drive video URL</span><input name="drive_url" type="url" placeholder="https://drive.google.com/file/d/.../view"></label></div>
+      <div id="copyright-pc-source" class="copyright-source-panel" hidden><label class="lum-field"><span>PC video (MP4 / MOV / MKV)</span><input name="video_file" type="file" accept=".mp4,.mkv,.mov,video/mp4,video/quicktime"></label></div>
+      <div id="copyright-folder-source" class="copyright-source-panel" hidden>
+        <label class="lum-field"><span>Select Video from VPS Folder</span>
+          <select name="folder_file" id="copyright-folder-file" disabled>
+            <option value="">Select a video from VPS folder</option>
+            {% for item in copyright_files %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+          </select>
+        </label>
+        <div class="lum-row" style="align-items:center;gap:12px;flex-wrap:wrap">
+          <button class="lum-button" type="button" id="copyright-folder-refresh">Refresh Videos</button>
+          <span id="copyright-folder-summary" role="status">{{ copyright_files|length }} available videos · Queued videos hidden</span>
+        </div>
+        <p class="lum-note">Select a video produced by Video Merger. The selected video disappears from this dropdown as soon as it is added to Queue.</p>
+      </div>
     </section>
     <section class="lum-card">
       <h2>Upload Destination</h2>
@@ -91,28 +100,11 @@
       <label class="lum-check"><input type="checkbox" name="made_for_kids" value="on"> Made for Kids</label>
     </section>
     <section class="lum-card lum-span-2 lum-submit-card">
-      <div><strong>Durable queue</strong><p>Account-scoped isolated staging → one YouTube upload → remote verification → staged-copy cleanup. Video Merger output and Drive originals stay protected.</p></div>
+      <div><strong>Verified upload cleanup</strong><p>After YouTube verifies the upload, this uploader deletes the selected VPS handoff video and temporary staged copy. Failed or paused uploads keep their files for safe retry. Google Drive sources are never deleted.</p></div>
       <button class="lum-button primary" type="submit">+ Add Video to Queue</button>
     </section>
   </form>
-  <script>
-  (() => {
-    const mode = document.getElementById('copyright-source-mode');
-    if (!mode) return;
-    const fields = {drive_link: document.getElementById('copyright-drive-source'),
-      pc_upload: document.getElementById('copyright-pc-source'),
-      folder: document.getElementById('copyright-folder-source')};
-    function select() {
-      for (const [name, area] of Object.entries(fields)) {
-        area.hidden = name !== mode.value;
-        for (const input of area.querySelectorAll('input, select'))
-          input.required = name === mode.value;
-      }
-    }
-    mode.addEventListener('change', select);
-    select();
-  })();
-  </script>
+  {# Selector runs from copyright_video_picker.js. This form must not depend on inline scripts. #}
   {% else %}
   <form class="lum-grid lum-upload-grid" data-lum-upload-form method="post" action="{{ base_path }}/actions/add-video" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
