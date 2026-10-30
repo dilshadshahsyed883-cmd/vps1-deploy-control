@@ -237,6 +237,22 @@ class ShortStudioV1(unittest.TestCase):
                 sock.return_value.__enter__.return_value.connect_ex.return_value = 111
                 self.assertTrue(runtime.shortstudio_rolled_back_empty(root.parent, unit_dir=units))
                 self.assertEqual(oauth.read_bytes(), before)
+                reports = root / "reports"
+                reports.mkdir()
+                health = reports / "LUM_HEALTH_20261030T050000Z.txt"
+                health.write_text("startup health report")
+                self.assertTrue(runtime.shortstudio_rolled_back_empty(root.parent, unit_dir=units))
+                self.assertEqual(health.read_text(), "startup health report")
+                (reports / "unknown.txt").write_text("unknown")
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(root.parent, unit_dir=units))
+                (reports / "unknown.txt").unlink()
+                with sqlite3.connect(root / "projects.sqlite3") as db:
+                    db.execute("CREATE TABLE projects (id INTEGER PRIMARY KEY)")
+                    db.execute("INSERT INTO projects VALUES(1)")
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(root.parent, unit_dir=units))
+                with sqlite3.connect(root / "projects.sqlite3") as db:
+                    db.execute("DELETE FROM projects")
+                self.assertTrue(runtime.shortstudio_rolled_back_empty(root.parent, unit_dir=units))
                 for path in (tokens / "channel.json", secure / "google_oauth_web_client.json",
                              secure / "tokens/unknown.json"):
                     path.write_text("private")
@@ -255,6 +271,48 @@ class ShortStudioV1(unittest.TestCase):
                     db.execute("DELETE FROM pending_oauth")
                     db.execute("CREATE TABLE unknown_credentials (secret TEXT)")
                 self.assertFalse(runtime.shortstudio_rolled_back_empty(root.parent, unit_dir=units))
+    def test_preserved_secure_recovery_never_drops_jobs_or_oauth(self):
+        with tempfile.TemporaryDirectory() as td:
+            state = Path(td) / "state"
+            root = state / "lum-shortstudio"
+            units = Path(td) / "units"
+            root.mkdir(parents=True)
+            units.mkdir()
+            (root / ".vps1-independent-engine").write_text("shortstudio\n")
+            tokens = root / "secure/oauth_clients"
+            tokens.mkdir(parents=True)
+            (tokens / "existing.json").write_text("DO_NOT_MODIFY_SECRET")
+            (root / "secure/user_state.bin").write_bytes(b"DO_NOT_MODIFY_SECRET")
+            with patch.object(runtime.socket, "socket") as sock:
+                sock.return_value.__enter__.return_value.connect_ex.return_value = 111
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(state, unit_dir=units))
+                self.assertTrue(runtime.shortstudio_rolled_back_empty(
+                    state, unit_dir=units, preserve_secure=True))
+                self.assertEqual((tokens / "existing.json").read_text(), "DO_NOT_MODIFY_SECRET")
+                db = root / "projects.sqlite3"
+                with sqlite3.connect(db) as con:
+                    con.execute("CREATE TABLE projects (id INTEGER PRIMARY KEY)")
+                    con.execute("INSERT INTO projects VALUES(1)")
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(
+                    state, unit_dir=units, preserve_secure=True))
+                with sqlite3.connect(db) as con:
+                    con.execute("DELETE FROM projects")
+                self.assertTrue(runtime.shortstudio_rolled_back_empty(
+                    state, unit_dir=units, preserve_secure=True))
+                (tokens / "link").symlink_to(db)
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(
+                    state, unit_dir=units, preserve_secure=True))
+                (tokens / "link").unlink()
+                (root / "staging").mkdir()
+                (root / "staging/video.mp4").write_bytes(b"mock")
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(
+                    state, unit_dir=units, preserve_secure=True))
+
+    def test_preserved_secure_recovery_requires_explicit_main_marker(self):
+        source=(ROOT/"production/runtime.py").read_text()
+        self.assertIn("'[vps1-shortstudio-preserved-recovery]' in intent", source)
+        self.assertIn('shortstudio_recovery="PRESERVED_SECURE_IDLE_PROVEN"', source)
+        self.assertIn('modes += (("shortstudio", 8019', source)
 
     def test_first_install_rejects_live_listener_and_armed_scheduler(self):
         with tempfile.TemporaryDirectory() as td:
