@@ -80,6 +80,7 @@ def init_db():
           copyright_enabled INTEGER NOT NULL DEFAULT 0,
           owner_username TEXT NOT NULL DEFAULT '',
           local_path TEXT NOT NULL DEFAULT '',
+          retry_of TEXT NOT NULL DEFAULT '',
           created_at TEXT NOT NULL, updated_at TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY, v TEXT NOT NULL);
@@ -99,6 +100,7 @@ def init_db():
             ("copyright_enabled", "INTEGER NOT NULL DEFAULT 0"),
             ("owner_username", "TEXT NOT NULL DEFAULT ''"),
             ("local_path", "TEXT NOT NULL DEFAULT ''"),
+            ("retry_of", "TEXT NOT NULL DEFAULT ''"),
         ):
             if name not in existing:
                 c.execute(f"ALTER TABLE jobs ADD COLUMN {name} {kind}")
@@ -723,7 +725,7 @@ def library_name_exists(name, exclude_id=''):
 
 def library_in_use(item_id):
     with DB_LOCK, db() as c:
-        rows=c.execute("SELECT videos_json FROM jobs WHERE status NOT IN ('complete','failed')").fetchall()
+        rows=c.execute("SELECT videos_json FROM jobs WHERE status NOT IN ('complete','failed','cancelled')").fetchall()
     for r in rows:
         try:
             if any(isinstance(v,dict) and v.get('kind')=='library' and v.get('library_id')==item_id for v in json.loads(r['videos_json'])): return True
@@ -1078,9 +1080,16 @@ def process_job(j):
         update_job(jid,'failed',100,'Failed',error=scrub_proxy_error(e))
 
 def next_waiting():
+    # Atomically claim a waiting job before the worker leaves the DB lock.
+    # Otherwise a user can cancel/delete a row after SELECT but before work starts.
     with DB_LOCK, db() as c:
         r=c.execute("SELECT * FROM jobs WHERE status='waiting' ORDER BY order_idx, created_at LIMIT 1").fetchone()
-        return dict(r) if r else None
+        if not r: return None
+        c.execute("UPDATE jobs SET status='processing', message='Starting job', updated_at=? WHERE id=? AND status='waiting'",
+                  (utcnow(), r['id']))
+        claimed=dict(r)
+        claimed['status']='processing'
+        return claimed
 
 def worker():
     while not STOP_EVENT.is_set():
@@ -1126,10 +1135,52 @@ def delete_job(jid, owner=''):
     if not j: raise KeyError('Job not found')
     if j.get('owner_username') and str(j['owner_username']).lower()!=str(owner).lower():
         raise ValueError('This job does not belong to the current account')
-    if j['status'] not in ('waiting','complete','failed'): raise ValueError('Active job cannot be deleted')
+    if j['status'] not in ('waiting','complete','failed','cancelled'): raise ValueError('Active job cannot be deleted')
     with DB_LOCK, db() as c: c.execute('DELETE FROM jobs WHERE id=?',(jid,))
     if j['status']!='complete': shutil.rmtree(WORK/jid, ignore_errors=True)
     # Preserve completed media even when a history row is removed; cleanup is a separate explicit action.
+
+
+def cancel_job(jid, owner=''):
+    """Cancel only a still-waiting job; preserve its history and all source/output files."""
+    with DB_LOCK, db() as c:
+        j=c.execute('SELECT id,status,owner_username FROM jobs WHERE id=?',(jid,)).fetchone()
+        if not j: raise KeyError('Job not found')
+        if j['owner_username'] and str(j['owner_username']).lower()!=str(owner).lower():
+            raise ValueError('This job does not belong to the current account')
+        if j['status']!='waiting': raise ValueError('Only waiting jobs can be cancelled')
+        c.execute("UPDATE jobs SET status='cancelled', progress=0, message='Cancelled before processing', updated_at=? WHERE id=? AND status='waiting'",
+                  (utcnow(),jid))
+
+
+def retry_job(jid, owner=''):
+    """Idempotently retry a failed job as a new queued ID; never overwrite the failed record.
+
+    A distinct work directory preserves the original verified output if the previous
+    attempt failed after local retention or an optional destination delivery.
+    """
+    with DB_LOCK, db() as c:
+        j=c.execute('SELECT * FROM jobs WHERE id=?',(jid,)).fetchone()
+        if not j: raise KeyError('Job not found')
+        if j['owner_username'] and str(j['owner_username']).lower()!=str(owner).lower():
+            raise ValueError('This job does not belong to the current account')
+        if j['status']!='failed': raise ValueError('Only failed jobs can be retried')
+        previous=c.execute('SELECT id,filename FROM jobs WHERE retry_of=? ORDER BY created_at LIMIT 1',(jid,)).fetchone()
+        if previous:
+            return previous['id'],previous['filename']
+        new_id=uuid.uuid4().hex[:12]
+        now=utcnow()
+        maxord=c.execute('SELECT COALESCE(MAX(order_idx),0) AS maxord FROM jobs').fetchone()['maxord']
+        c.execute("""INSERT INTO jobs(id,name,videos_json,aspect,quality,fit_mode,folder,filename,
+                  status,progress,message,error,drive_url,drive_id,order_idx,
+                  drive_enabled,copyright_enabled,owner_username,local_path,retry_of,created_at,updated_at)
+                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                  (new_id,j['name'],j['videos_json'],j['aspect'],j['quality'],j['fit_mode'],
+                   j['folder'],j['filename'],'waiting',0,'Retry queued','', '', '',int(maxord)+10,
+                   j['drive_enabled'],j['copyright_enabled'],j['owner_username'],'',jid,now,now))
+    WORKER_WAKE.set()
+    return new_id,j['filename']
+
 
 def move_job(jid,direction):
     with DB_LOCK, db() as c:
@@ -1231,6 +1282,12 @@ class Handler(BaseHTTPRequestHandler):
             if p==PREFIX+'/api/proxy/active': set_active_proxy((payload.get('id') or '').strip()); return self.send_json(200,{'ok':True})
             if p==PREFIX+'/api/proxy/toggle': set_proxy_enabled(bool(payload.get('enabled'))); return self.send_json(200,{'ok':True})
             if p==PREFIX+'/api/proxy/test': return self.send_json(200,{'ok':True,**test_proxy_profile((payload.get('id') or '').strip())})
+            m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/cancel',p)
+            if m: cancel_job(m.group(1),(self.headers.get('X-Auth-User') or '').strip()); return self.send_json(200,{'ok':True})
+            m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/retry',p)
+            if m:
+                retry_id,filename=retry_job(m.group(1),(self.headers.get('X-Auth-User') or '').strip())
+                return self.send_json(202,{'ok':True,'id':retry_id,'filename':filename})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/delete',p)
             if m: delete_job(m.group(1),(self.headers.get('X-Auth-User') or '').strip()); return self.send_json(200,{'ok':True})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/move',p)
