@@ -41,8 +41,8 @@ class SongUploaderContracts(unittest.TestCase):
 
     def test_only_five_main_tabs_and_four_engine_panels(self):
         template = (LUM / "templates/app.html").read_text()
-        self.assertIn("if engine_instance != 'song'", template)
-        self.assertIn('engine_instance != "song"', template)
+        self.assertIn("engine_instance not in ['song', 'shortstudio']", template)
+        self.assertIn("engine_instance not in ['song', 'shortstudio']", template)
         self.assertIn('"dashboard", "channels", "sheets", "auto_engine", "logs"',
                       (LUM / "lum_engine/standalone_app.py").read_text())
         for panel in ("automation", "profiles", "queue", "records"):
@@ -60,11 +60,12 @@ class SongUploaderContracts(unittest.TestCase):
 
     def test_unchanged_three_modes_for_original_auto_uploader(self):
         template = (LUM / "templates/app.html").read_text()
-        for name in ("engine1", "engine2", "shorts"):
+        for name in ("engine1", "engine2"):
             self.assertIn("('" + name + "', '", template)
+        self.assertNotIn("('shorts', 'Short Uploader')", template)
         self.assertIn('aria-label="Auto Uploader modes"', template)
-        self.assertIn('engine_instance != "song"', template)
-        self.assertIn("if engine_instance in {'engine2', 'shorts', 'song'}",
+        self.assertIn("engine_instance not in ['song', 'shortstudio']", template)
+        self.assertIn("if engine_instance in {'engine2', 'shorts', 'song', 'shortstudio'}",
                       (LUM / "lum_engine/standalone_app.py").read_text().replace('"', "'"))
 
     def test_thumbnail_required_at_ui_api_and_preflight(self):
@@ -74,7 +75,7 @@ class SongUploaderContracts(unittest.TestCase):
         self.assertIn('upload_instance == "song" and not has_thumbnail', source)
         self.assertIn('== "song" and not thumb_raw', preflight)
         self.assertIn("['engine2', 'song']", template)
-        self.assertIn('!= "shorts"', (LUM / "lum_engine/auto_engine_v6.py").read_text())
+        self.assertIn('not in {"shorts", "shortstudio"}', (LUM / "lum_engine/auto_engine_v6.py").read_text())
 
 
     def test_song_reuses_short_uploader_channel_workflow_without_sharing_data(self):
@@ -102,7 +103,7 @@ class SongUploaderContracts(unittest.TestCase):
         self.assertIn("strict_thumbnail", queue_worker)
         ui = (LUM / "templates/app.html").read_text()
         self.assertIn("Thumbnail Drive Folder URL / ID (required)", ui)
-        self.assertIn("engine_instance != 'shorts'", ui)
+        self.assertIn("engine_instance not in ['shorts', 'shortstudio']", ui)
         self.assertIn('data-ae-panel-target="profiles"', ui)
         self.assertIn('data-ae-panel-target="queue"', ui)
 
@@ -113,7 +114,7 @@ class SongUploaderContracts(unittest.TestCase):
         self.assertIn('"/local-upload-manager/modes/song/app?embedded=1&tab=dashboard"', scene)
         self.assertIn('pathname.startsWith("/local-upload-manager/modes/song/")', shell)
         config = (LUM / "lum_engine/config.py").read_text()
-        self.assertIn('{"engine2", "shorts", "song"} else "1"', config)
+        self.assertIn('{"engine2", "shorts", "song", "shortstudio"} else "1"', config)
         for path in (SCENE / "app.py", LUM / "lum_engine/standalone_app.py",
                      LUM / "desktop_core/modules/preflight.py", ROOT / "production/workers.py"):
             ast.parse(path.read_text(), filename=str(path))
