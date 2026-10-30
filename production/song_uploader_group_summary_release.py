@@ -59,7 +59,13 @@ def verify_live():
     require('data-song-group-summary' in html and '<th>Group Name</th>' in html and
             '<th>Channels</th>' in html and '<th>Schedule (PKT)</th>' in html,
             'live automation group summary is missing')
-    require(https_get('/song-uploader/app')[0]==401,'anonymous route protection failed')
+    anonymous_status, _, anonymous_body = https_get('/song-uploader/app')
+    # The public Scene SSO gate may redirect unauthenticated users to login
+    # rather than return FastAPI's 401; it must never serve protected app HTML.
+    require(anonymous_status in (302, 303, 401, 403) and
+            b'data-song-group-summary' not in anonymous_body and
+            b'lum-ae-automation-profiles' not in anonymous_body,
+            f'anonymous route protection failed (status {anonymous_status})')
     print('SONG_UPLOADER_LIVE=PASS AUTH=PASS GROUP_SUMMARY=PASS NO_UPLOAD_OR_ARM_ACTIONS',flush=True)
 
 
