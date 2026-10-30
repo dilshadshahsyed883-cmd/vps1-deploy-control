@@ -25,7 +25,8 @@ class ThreeModeSplitTests(TestCase):
         self.assertIn('href="/auto-stream/"', ui)
         self.assertIn("('engine1', 'Engine 1')", ui)
         self.assertIn("('engine2', 'Engine 2')", ui)
-        self.assertIn("('shorts', 'Short Uploader')", ui)
+        self.assertNotIn("('shorts', 'Short Uploader')", ui)
+        self.assertIn("Short Uploader has moved to Short Studio", ui)
         self.assertNotIn("<iframe", ui)
         self.assertNotIn("['engine1', 'engine2', 'shorts', 'short_stream']", ui)
         self.assertIn("No stream is started or changed by opening this tab", ui)
@@ -68,7 +69,7 @@ class ThreeModeSplitTests(TestCase):
     def test_http_and_pipeline_enforce_engine2_and_shorts(self):
         server = (ROOT / "lum_engine/standalone_app.py").read_text()
         self.assertIn('upload_instance == "engine2" and not has_thumbnail', server)
-        self.assertIn('upload_instance == "shorts" and has_thumbnail', server)
+        self.assertIn('upload_instance in {"shorts", "shortstudio"} and has_thumbnail', server)
         preflight = (ROOT / "desktop_core/modules/preflight.py").read_text()
         self.assertIn('== "engine2" and not thumb_raw', preflight)
         for path in (
