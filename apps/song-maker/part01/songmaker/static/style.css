@@ -8,7 +8,10 @@ body{margin:0;background:#f5f7fb;color:#101828}
   --sm-line:#e4e7ec;--sm-input-line:#d0d5dd;--sm-brand:#6355df;
   --sm-brand-hover:#5148c8;--sm-brand-soft:#efedff;
   --sm-shadow:0 6px 20px rgba(16,24,40,.035);
-  box-sizing:border-box;max-width:1400px;margin:0 auto;padding:26px 34px 42px;
+  /* Match Kokoro/shared Studio rail's width and outer gutter exactly.
+     Do not double-inset the page with inner 34px horizontal padding. */
+  box-sizing:border-box;width:calc(100% - 2 * var(--vps1-ui-content-gutter,34px));
+  max-width:var(--vps1-ui-content-max,1400px);margin:0 auto;padding:26px 0 42px;
   color:var(--sm-text);font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
 }
 .sm *{box-sizing:border-box;min-width:0}
@@ -128,7 +131,7 @@ body{margin:0;background:#f5f7fb;color:#101828}
     text-align:center!important;overflow-wrap:break-word;
     font-size:11px!important;line-height:1.25!important;
   }
-  .sm{padding:18px 14px 32px}
+  .sm{width:calc(100% - 2 * var(--vps1-ui-content-gutter,14px));padding:18px 0 32px}
   .sm .card{padding:15px}
   .sm .tabs{
     display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
