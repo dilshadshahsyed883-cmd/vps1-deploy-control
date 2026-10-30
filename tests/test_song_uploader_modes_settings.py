@@ -76,6 +76,23 @@ class SongUploaderSettingsContract(TestCase):
         exec(compile(tree, str(POLICY), "exec"), namespace)
         allowed = namespace["mutation_allowed"]
         self.assertTrue(allowed("POST", "/song-uploader/actions/settings", False))
+        self.assertTrue(allowed("POST", "/song-uploader/actions/auto-v6/engine", False))
+        self.assertFalse(allowed("DELETE", "/song-uploader/actions/auto-v6/engine", False))
         self.assertFalse(allowed("PUT", "/song-uploader/actions/settings", False))
         self.assertFalse(allowed("POST", "/song-maker/api/queue", False))
         self.assertFalse(allowed("POST", "/song-uploader-evil/actions/settings", False))
+
+    def test_targeted_overlay_preserves_every_other_scene_policy(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "song_uploader_candidate_policy_release",
+            ROOT / "production/song_uploader_candidate_policy_release.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        old = 'def mutation_allowed(method, path, editing_enabled):\n    if not editing_enabled:\n        return False\n    return False\n'
+        patched = module.patch_song_alias(old)
+        self.assertIn('path.startswith("/song-uploader/")', patched)
+        self.assertEqual(module.patch_song_alias(patched), patched)
+        self.assertTrue(module.policy_allows_code(patched))
+        self.assertIn("if not editing_enabled", patched)
+        self.assertNotIn("/song-maker/api/queue", patched)
