@@ -20,8 +20,10 @@ FILES=("lum_engine/auto_engine_v6.py", "lum_engine/standalone_app.py",
 UNITS=tuple(f"vps1-production-lum-shortstudio-{kind}.service" for kind in ("scheduler","worker","web"))
 STATE=DATA/'local-upload-manager/lum-shortstudio'
 UNIT_DIR=Path('/etc/systemd/system')
-NETWORK_ONLY_FILES=('lum_engine/auto_engine_v6_worker.py', 'lum_engine/auto_engine_v6_scheduler.py',
-                    'desktop_core/modules/db/queue_repository.py')
+# Co-deploy the already merged Short Uploader UI (#493) and queue actions
+# (#497) alongside network fairness (#496). These are copies into only the
+# isolated Short Studio release; no Song/legacy uploader unit is touched.
+NETWORK_ONLY_FILES=FILES
 
 
 def require(condition, detail):
@@ -153,8 +155,10 @@ def install(revision, *, ui_only=False, network_only=False):
         for name in reversed(UNITS):
             if previous[name]['active']:command('systemctl','start',name)
         if network_only:
-            require(health().get('engine_instance')=='shortstudio','Short Uploader health not restored')
-            print('SHORT_NETWORK_RELEASE=PASS HEALTH=PASS OTHER_UPLOADERS=UNTOUCHED',flush=True)
+            # Confirm the combined #493/#497/#496 HTML is served over the
+            # authenticated route before committing the immutable release.
+            verify_live()
+            print('SHORT_NETWORK_RELEASE=PASS HEALTH=PASS UI=PASS OTHER_UPLOADERS=UNTOUCHED',flush=True)
         elif ui_only:verify_live(ui_only=True)
         else:verify_live()
         atomic_json(journal/'state.json',dict(status='ACTIVE',revision=revision,source=str(target),files=hashes,

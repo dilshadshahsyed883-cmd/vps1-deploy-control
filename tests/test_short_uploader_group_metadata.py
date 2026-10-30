@@ -226,6 +226,16 @@ class ShortGroupReleaseTests(unittest.TestCase):
                         self.assertIn('a'*40+'-short-group-metadata/part01',text)
                         self.assertIn('Environment=KEEP=1',text)
                         self.assertIn('/old/venv/bin/python',text)
+    def test_network_release_includes_existing_ui_and_retry_actions(self):
+        from production import short_uploader_group_release as release
+        self.assertEqual(release.NETWORK_ONLY_FILES,release.FILES)
+        self.assertIn('lum_engine/auto_engine_v6_worker.py',release.NETWORK_ONLY_FILES)
+        self.assertIn('lum_engine/auto_engine_v6_scheduler.py',release.NETWORK_ONLY_FILES)
+        self.assertIn('desktop_core/modules/db/queue_repository.py',release.NETWORK_ONLY_FILES)
+        self.assertIn('lum_engine/standalone_app.py',release.NETWORK_ONLY_FILES)
+        self.assertIn('static/auto_engine_v6.js',release.NETWORK_ONLY_FILES)
+        self.assertIn('templates/app.html',release.NETWORK_ONLY_FILES)
+
     def test_busy_upload_blocks_scoped_release(self):
         from production import short_uploader_group_release as release
         with tempfile.TemporaryDirectory() as td:
