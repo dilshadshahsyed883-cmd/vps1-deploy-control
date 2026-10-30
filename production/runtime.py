@@ -744,6 +744,13 @@ def main():
     args = parser.parse_args()
     check_host(args.revision)
     with deployment_lock():
+        intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-shortstudio-readonly-diagnose]' in intent:
+            if args.action != 'install' or args.apps != ['local-upload-manager']:
+                raise RuntimeError("Short Studio read-only diagnosis is local-upload-manager scoped")
+            from production.shortstudio_readonly_diagnostic import report
+            report(DATA / 'local-upload-manager')
+            return  # Deliberately no application install, service stop, or gateway refresh.
         # One protected-main release, one specific Scene job. Never enter normal
         # install/rollback or restart a service during a cancellation request.
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
