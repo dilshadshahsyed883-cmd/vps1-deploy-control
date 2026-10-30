@@ -20,7 +20,9 @@ jobs:
         run: |
           python -m py_compile production/workers.py production/runtime.py production/short_studio_release.py production/test_short_studio_v1.py apps/short-maker/part01/app.py apps/scene-builder/part01/app.py apps/local-upload-manager/part01/lum_engine/standalone_app.py apps/local-upload-manager/part01/lum_engine/auto_engine_v6.py
       - name: Verify native Studio JavaScript syntax
-        run: node --check apps/scene-builder/part01/static/vps1_native_site_shell.js
+        run: |
+          node --check apps/scene-builder/part01/static/vps1_native_site_shell.js
+          for file in apps/local-upload-manager/part01/static/{auto_engine_v6,channels_subtabs_v5_1,navigation_state_v1,lum_ux_state_v2}.js; do node --check "$file"; done
       - name: Offline Shorts, Song and Scene regression contracts
         run: |
           python -m unittest -v production.test_short_studio_v1 production.test_song_uploader_v1 production.test_uploader_three_mode_split production.test_unified_sidebar_navigation production.test_scene_video_studio_shell
