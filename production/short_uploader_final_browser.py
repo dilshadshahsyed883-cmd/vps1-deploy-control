@@ -14,7 +14,7 @@ def main():
     form=source[a:b].replace('data-ae-panel="profiles" hidden','data-ae-panel="profiles"')
     start=source.index('    {% if engine_instance == \'shortstudio\' %}<div class="lum-short-engine-tabbar">')
     nav=source[start:source.index('    <section class="lum-card lum-ae-profile-manager"',start)]
-    body='<div class="lum-shell" data-engine-instance="shortstudio">'+nav+form+'</div><script src="/short-uploader/static/auto_engine_v6.js"></script>'
+    body='<div class="lum-shell" data-engine-instance="shortstudio">'+nav+form+'</div>'
     template='{% extends "base.html" %}{% block content %}'+body+'{% endblock %}'
     ae=SimpleNamespace(groups=[dict(id=7,group_name='Test',channel_count=2)],short_folders=['Test'],scheduler_ui=SimpleNamespace(worker_status='Idle',scheduler_status='Waiting'),engine=SimpleNamespace(running=True))
     env=Environment(loader=FileSystemLoader(PART/'templates'))
@@ -33,9 +33,10 @@ def main():
         for width in (1440,1024,768,390,360):
             page=browser.new_page(viewport=dict(width=width,height=1000));page.route('**/*',route)
             page.goto('https://fixture.test/fixture')
+            page.locator('[data-ae-panel-target=profiles]').click()
             grid=page.locator('[data-short-profile-grid]')
             cols=grid.evaluate("e=>getComputedStyle(e).gridTemplateColumns.split(' ').length")
-            assert cols==(2 if width>760 else 1),(width,cols,grid.evaluate('e=>({html:e.outerHTML.slice(0,200),parent:e.closest(".lum-shell").outerHTML.slice(0,150),rules:[...document.styleSheets].map(s=>({href:s.href,count:s.cssRules.length,short:[...s.cssRules].filter(r=>r.cssText.includes(".lum-short-profile-grid")).map(r=>r.cssText)}))})'))
+            assert cols==(2 if width>760 else 1),(width,cols)
             slots=page.locator('[data-short-profile-schedule] input[type=time]')
             assert slots.count()==1
             assert slots.first.input_value()=='06:00'
