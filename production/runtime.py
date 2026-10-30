@@ -335,6 +335,9 @@ def require_lum_release_idle(state: Path) -> None:
     if ((state / "lum-song/core/data/uploader.db").exists() or
             Path("/etc/systemd/system/vps1-production-lum-song-web.service").exists()):
         modes += (("song", 8018, "/local-upload-manager/modes/song/health", "lum-song"),)
+    if ((state / "lum-shortstudio/core/data/uploader.db").exists() or
+            Path("/etc/systemd/system/vps1-production-lum-shortstudio-web.service").exists()):
+        modes += (("shortstudio", 8019, "/short-uploader/health", "lum-shortstudio"),)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     in_flight = ("CLAIMED", "UPLOADING", "THUMBNAIL_UPLOADING",
                  "PROCESSING", "IN_PROGRESS", "WAITING_NETWORK")
