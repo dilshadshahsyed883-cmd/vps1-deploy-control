@@ -124,7 +124,7 @@ class ShortStudioV1(unittest.TestCase):
         self.assertIn(("/_scene_uploader_auth", True), calls)
 
     def test_https_reload_rejects_public_or_invalid_auth(self):
-        for unsafe in (200, 302, 303, 403):
+        for unsafe in (200, 301, 302, 307, 403):
             with self.subTest(status=unsafe):
                 def get(path, cookie=""):
                     if path == "/short-uploader/app":
@@ -133,6 +133,35 @@ class ShortStudioV1(unittest.TestCase):
 
                 with self.assertRaisesRegex(RuntimeError, "anonymous Short Uploader access"):
                     short_studio_release.verify_https_route(get, lambda: "session=dummy", attempts=2, delay=0)
+
+    def test_https_reload_tolerates_only_transient_303_before_401(self):
+        statuses = iter((303,303,303,401,401,401))
+        requests=[]
+        def get(path, cookie=""):
+            requests.append((path, bool(cookie)))
+            if path in ("/short-uploader/app", "/short-uploader/health"):
+                return next(statuses), "text/html", b""
+            if path == "/short-uploader/app?tab=auto_engine":
+                return 200, "text/html", b"Short Uploader Auto Engine"
+            if path == "/short-uploader":
+                return 308, "", b""
+            if path == "/_scene_uploader_auth":
+                return 404, "", b""
+            raise AssertionError(path)
+        with patch.object(short_studio_release.time, "sleep") as sleep:
+            short_studio_release.verify_https_route(
+                get, lambda: "session=dummy", attempts=4, delay=0.1)
+        self.assertEqual(sleep.call_count, 2)
+        self.assertIn(("/short-uploader/app?tab=auto_engine", True), requests)
+
+    def test_https_reload_persistent_303_is_never_accepted(self):
+        def get(path, cookie=""):
+            return 303, "text/html", b""
+        with patch.object(short_studio_release.time, "sleep") as sleep:
+            with self.assertRaisesRegex(RuntimeError, "auth never converged"):
+                short_studio_release.verify_https_route(
+                    get, lambda: "session=dummy", attempts=3, delay=0.1)
+        self.assertEqual(sleep.call_count, 2)
 
     def test_https_reload_fails_closed_if_stale_404_never_converges(self):
         def get(path, cookie=""):
@@ -261,6 +290,37 @@ class ShortStudioV1(unittest.TestCase):
         self.assertIn("'[vps1-shortstudio-preserved-recovery]' in intent", source)
         self.assertIn('shortstudio_recovery="PRESERVED_SECURE_IDLE_PROVEN"', source)
         self.assertIn('modes += (("shortstudio", 8019', source)
+
+    def test_preserved_recovery_keeps_historical_reports_without_modification(self):
+        with tempfile.TemporaryDirectory() as td:
+            state=Path(td)/"state"
+            root=state/"lum-shortstudio"
+            units=Path(td)/"units"
+            units.mkdir()
+            root.mkdir(parents=True)
+            (root/".vps1-independent-engine").write_text("shortstudio\n")
+            reports=root/"reports"/"history"
+            reports.mkdir(parents=True)
+            receipt=reports/"previous.json"
+            receipt.write_text('{"status":"historical","private":"PRESERVE_ME"}')
+            secure=root/"secure"
+            secure.mkdir()
+            (secure/"existing-private-key.json").write_text("PRESERVE_ME")
+            with patch.object(runtime.socket, "socket") as sock:
+                sock.return_value.__enter__.return_value.connect_ex.return_value=111
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(state,unit_dir=units))
+                self.assertTrue(runtime.shortstudio_rolled_back_empty(
+                    state,unit_dir=units,preserve_secure=True))
+                self.assertIn("PRESERVE_ME",receipt.read_text())
+                self.assertEqual((secure/"existing-private-key.json").read_text(),"PRESERVE_ME")
+                (reports/"symlink").symlink_to(receipt)
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(
+                    state,unit_dir=units,preserve_secure=True))
+                (reports/"symlink").unlink()
+                (root/"staging").mkdir()
+                (root/"staging"/"video.mp4").write_bytes(b"not-idle")
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(
+                    state,unit_dir=units,preserve_secure=True))
 
     def test_first_install_rejects_live_listener_and_armed_scheduler(self):
         with tempfile.TemporaryDirectory() as td:

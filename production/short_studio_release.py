@@ -94,14 +94,15 @@ def verify_local():
           "independent Short Uploader identity not ready")
 
 
-# Nginx reload returns before old worker processes have drained. An immediate
-# anonymous 404 during cutover is not evidence of public access, but it must
-# converge to *exactly* 401. Never accept 200/3xx/403 as successful anonymous
-# protection, and never grant access to a non-authenticated request.
-TRANSIENT_HTTP = frozenset((404, 502, 503))
+# Nginx graceful reload can briefly leave old Scene-route workers serving
+# new requests. They return 303 to Scene login, or 404, until the new
+# authenticated exact Short Studio route takes ownership. Those statuses are
+# transient ONLY: final anonymous app + health MUST both be exactly 401.
+# Never treat a redirect, 200, 403, or unknown status as successful protection.
+TRANSIENT_HTTP = frozenset((303, 404, 502, 503))
 
 
-def verify_https_route(https_get, scene_cookie, *, attempts=12, delay=0.6):
+def verify_https_route(https_get, scene_cookie, *, attempts=24, delay=0.6):
     """Fail-closed bounded HTTPS readback after Nginx graceful reload."""
     guard(1 <= attempts <= 30 and 0 <= delay <= 5,
           "invalid HTTPS convergence bounds")
