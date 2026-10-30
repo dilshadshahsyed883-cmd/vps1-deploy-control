@@ -193,7 +193,8 @@ def create_app(store=None):
     async def submit(request: Request, image: UploadFile = File(...), audio: UploadFile = File(...),
                      resolution: str = Form(''), fit: str = Form(''), quality: str = Form(''), user=Depends(principal)):
         exports = store.record('exports', user['owner'])
-        if (request.headers.get('x-audio-downloader-handoff') == '1'
+        downloader_handoff = request.headers.get('x-audio-downloader-handoff') == '1'
+        if (downloader_handoff
                 and not exports.get('auto_input_from_audio_downloader', False)):
             raise HTTPException(409, 'Enable Auto Input from Audio Downloader in Song Maker Settings')
         settings = store.record('settings', user['owner']) or default_settings()
@@ -210,6 +211,9 @@ def create_app(store=None):
         image_ext, audio_ext = Path(image.filename or '').suffix.lower(), Path(audio.filename or '').suffix.lower()
         if image_ext not in IMAGES or audio_ext not in AUDIO or resolution not in FORMATS or fit not in {'fit', 'blur'} or quality not in QUALITIES:
             raise HTTPException(422, 'Select one supported image, one audio file and valid render options')
+        if downloader_handoff and (image_ext != '.jpg'
+                or Path(image.filename).stem != Path(audio.filename).stem):
+            raise HTTPException(422, 'Audio Downloader handoff requires the original matching Video ID JPEG')
         capacity(store.root, 512*1024*1024)
         token = uuid.uuid4().hex
         staging = store.root / 'staging' / token
@@ -232,7 +236,9 @@ def create_app(store=None):
             with Image.open(staging / ('image'+image_ext)) as check:
                 check.verify()
             duration = audio_duration(staging / ('audio'+audio_ext))
-            source = dict(hashes, image_name=image.filename, audio_name=audio.filename)
+            # Provenance is part of idempotency: a manual upload must not claim a downloader job.
+            source = dict(hashes, image_name=image.filename, audio_name=audio.filename,
+                          downloader_handoff=downloader_handoff)
             # Lock publishing inputs with API requests so workers can never claim a half-published job.
             with (store.root / 'state/submission.lock').open('a') as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX)
@@ -240,6 +246,7 @@ def create_app(store=None):
                     'project': Path(audio.filename).stem, 'image_name': image.filename, 'audio_name': audio.filename,
                     'image_ext': image_ext, 'audio_ext': audio_ext, 'duration': duration,
                     'local_name': output_name(audio.filename), 'origin': 'manual',
+                    'audio_downloader_handoff': downloader_handoff,
                     'resolution': resolution, 'fit': fit, 'quality': quality, **overlays,
                      'send_to_song_uploader': bool(exports.get('send_to_song_uploader', False)),
                      'drive_status': 'Pending'})

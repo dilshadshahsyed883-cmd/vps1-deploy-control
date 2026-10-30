@@ -21,6 +21,6 @@ PrivateDevices=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
-ReadWritePaths=/srv/fresh-website/releases /srv/fresh-website/venvs /var/lib/vps-storage-manager /run/lock
+ReadWritePaths=/srv/fresh-website/releases /srv/fresh-website/venvs /srv/fresh-website/control/releases /var/lib/vps-storage-manager /run/lock
 StandardOutput=journal
 StandardError=journal

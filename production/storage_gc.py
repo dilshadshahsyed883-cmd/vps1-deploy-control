@@ -22,6 +22,9 @@ BASE = Path("/srv/fresh-website")
 STATE = Path("/var/lib/vps-storage-manager")
 PUBLIC_STATUS = Path("/var/lib/vps1-storage-gc-public/status.json")
 DEPLOY_LOCK = Path("/run/lock/vps1-production.lock")
+CONTROL_DEPLOY_LOCK = Path("/run/lock/vps1-production-control.lock")
+CONTROL_GRACE_HOURS = 48
+CONTROL_KEEP_LATEST = 12
 MIN_AGE_HOURS = 12
 MIN_FREE_BYTES = 5_000_000_000
 MAX_HISTORY = 120
@@ -280,6 +283,168 @@ def apply_plan(root: Path, plan: dict[str, Any], *, now: float | None = None,
     return {"deleted": deleted, "skipped": skipped, "estimated_removed_bytes": freed}
 
 
+
+def control_release_inventory(root: Path = BASE, *, now: float | None = None,
+                              unit_dir: Path | None = None,
+                              target_revision: str | None = None) -> dict[str, Any]:
+    """Strictly scoped inventory of obsolete git control checkouts.
+
+    These are distinct from each app's immutable release, Python environment,
+    queues and databases. Only a checked-out detached SHA may be considered.
+    The current/main checkout, systemd/manifest references and newest twelve
+    checkouts are protected independently. This never mutates Git state.
+    """
+    now = time.time() if now is None else now
+    unit_dir = Path("/etc/systemd/system") if unit_dir is None else unit_dir
+    checkout_root = root / "control/releases"
+    result: dict[str, Any] = {
+        "policy": "control-git-checkout-retention-v1",
+        "grace_hours": CONTROL_GRACE_HOURS, "keep_latest": CONTROL_KEEP_LATEST,
+        "candidates": [], "protected": [], "excluded": [],
+        "estimated_bytes": 0,
+    }
+    if not checkout_root.exists():
+        result["excluded"].append({"reason": "no control checkouts directory"})
+        return result
+    if checkout_root.is_symlink() or not checkout_root.is_dir():
+        result["blocked"] = "unsafe control checkout root"
+        return result
+    try:
+        state_root = root / "control/state"
+        if state_root.is_symlink() or not state_root.is_dir():
+            raise ValueError("missing or unsafe deployment state")
+        protected: set[str] = set()
+        # A runtime revision, even when its main pointer disagrees, must remain
+        # available for an operator-initiated rollback.
+        for state in state_root.glob("*.json"):
+            if state.is_symlink() or not state.is_file() or state.stat().st_size > 262144:
+                raise ValueError("unreadable deployment state")
+            raw = state.read_text(encoding="utf-8")
+            json.loads(raw)
+            protected.update(re.findall(r"\b[a-f0-9]{40}\b", raw))
+        # Root-owned unit references are authoritative for independently
+        # installed services, including those with no app manifest.
+        for unit in unit_dir.glob("vps1-*.service"):
+            if unit.is_symlink() or not unit.is_file() or unit.stat().st_size > 262144:
+                raise ValueError("unsafe service reference")
+            raw = unit.read_text(encoding="utf-8")
+            prefix = re.escape(str(checkout_root) + "/")
+            protected.update(re.findall(prefix + r"([a-f0-9]{40})(?:/|\b)", raw))
+        current_root = root / "current"
+        if current_root.is_symlink() or not current_root.is_dir():
+            raise ValueError("unsafe runtime pointers")
+        for item in current_root.iterdir():
+            if not item.is_symlink():
+                continue
+            target = item.resolve(strict=True)
+            if target.is_relative_to(checkout_root.resolve(strict=True)):
+                relative = target.relative_to(checkout_root.resolve(strict=True))
+                if relative.parts and re.fullmatch(r"[a-f0-9]{40}", relative.parts[0]):
+                    protected.add(relative.parts[0])
+                else:
+                    raise ValueError("unrecognized pointer inside control checkouts")
+        checkouts = [
+            item for item in checkout_root.iterdir()
+            if item.is_dir() and not item.is_symlink() and
+            re.fullmatch(r"[a-f0-9]{40}", item.name)
+        ]
+        checkouts.sort(key=lambda item: (-item.stat().st_mtime, item.name))
+        protected.update(item.name for item in checkouts[:CONTROL_KEEP_LATEST])
+        deadline = now - CONTROL_GRACE_HOURS * 3600
+        for item in checkouts:
+            name = item.name
+            if target_revision is not None and name != target_revision:
+                continue
+            if name in protected:
+                result["protected"].append(name)
+                continue
+            if item.stat().st_mtime > deadline:
+                result["excluded"].append({"revision": name, "reason": "within 48h grace"})
+                continue
+            git = item / ".git"
+            head = git / "HEAD"
+            config = git / "config"
+            try:
+                if (git.is_symlink() or not git.is_dir() or
+                        head.is_symlink() or not head.is_file() or
+                        head.stat().st_size > 100 or
+                        head.read_text(encoding="ascii").strip() != name or
+                        config.is_symlink() or not config.is_file() or
+                        config.stat().st_size > 16384 or
+                        "url = https://github.com/dilshadshahsyed883-cmd/vps1-deploy-control.git"
+                        not in config.read_text(encoding="utf-8") or
+                        (git / "objects/info/alternates").exists() or
+                        (root == BASE and item.stat().st_uid != 0) or
+                        not _safe_directory(item, checkout_root)):
+                    raise ValueError("not a verified detached git checkout")
+            except (OSError, UnicodeError, ValueError):
+                result["excluded"].append({"revision": name, "reason": "unverified checkout"})
+                continue
+            size = _allocated_bytes(item)
+            result["candidates"].append({"revision": name, "paths": [str(item)],
+                                         "bytes": size})
+            result["estimated_bytes"] += size
+        # Non-SHA and symlink entries are always excluded, never deleted.
+        for item in checkout_root.iterdir():
+            if not re.fullmatch(r"[a-f0-9]{40}", item.name) or item.is_symlink():
+                result["excluded"].append({"revision": item.name,
+                                           "reason": "nonstandard control entry"})
+    except (OSError, UnicodeError, ValueError, TypeError) as exc:
+        # If any authoritative reference cannot be read, no control cleanup.
+        result["blocked"] = "control reference verification failed: " + type(exc).__name__
+        result["candidates"] = []
+        result["estimated_bytes"] = 0
+    return result
+
+
+@contextlib.contextmanager
+def control_checkout_lock(*, test_mode: bool = False):
+    """Share remote_deploy's lock, always acquired before the app deploy lock.
+
+    The install workflow itself holds this lock; a dry-run must not try to
+    reacquire it. If a deployment is running, the timer skips control pruning.
+    """
+    if test_mode:
+        yield True
+        return
+    with CONTROL_DEPLOY_LOCK.open("a") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+        else:
+            yield True
+
+
+def apply_control_release_plan(root: Path, plan: dict[str, Any], *,
+                               now: float | None = None,
+                               unit_dir: Path | None = None,
+                               test_mode: bool = False) -> dict[str, Any]:
+    """Apply only after holding both deployment locks, with revalidation."""
+    output: dict[str, Any] = {"deleted": [], "skipped": [], "estimated_removed_bytes": 0}
+    if plan.get("blocked"):
+        output["skipped"].append("control:blocked")
+        return output
+    for candidate in plan["candidates"]:
+        rev = candidate["revision"]
+        fresh = control_release_inventory(root, now=now, unit_dir=unit_dir,
+                                          target_revision=rev)
+        current = {x["revision"]: x for x in fresh["candidates"]}
+        if fresh.get("blocked") or rev not in current or current[rev]["paths"] != candidate["paths"]:
+            output["skipped"].append("control/" + rev + ":no-longer-eligible")
+            continue
+        paths = [Path(p) for p in candidate["paths"]]
+        if not test_mode and _runtime_in_use(paths):
+            output["skipped"].append("control/" + rev + ":process-in-use")
+            continue
+        for path in paths:
+            if not _safe_directory(path, root / "control/releases"):
+                raise RuntimeError("control checkout changed during cleanup")
+            output["estimated_removed_bytes"] += _allocated_bytes(path)
+            shutil.rmtree(path)
+        output["deleted"].append("control/" + rev)
+    return output
+
 def prune_disposable_caches(now: float | None = None) -> dict[str, Any]:
     """Only unused aged Docker build cache and age-verified pip downloads."""
     now = time.time() if now is None else now
@@ -347,24 +512,40 @@ def execute(root: Path = BASE, *, apply: bool = False, state: Path = STATE,
             test_mode: bool = False) -> dict[str, Any]:
     if apply and not test_mode and (root != BASE or os.geteuid() != 0):
         raise RuntimeError("apply requires approved production root and root identity")
-    # Lock even dry-run in production so reports reflect a consistent pointer state.
+    # Control lock before the app deployment lock matches remote_deploy's
+    # ordering. During installer dry-runs the control lock is intentionally
+    # *not* acquired: the installer already holds it.
     lock = root / ".storage-gc-test.lock" if test_mode else DEPLOY_LOCK
-    with host_lock(lock):
-        before = shutil.disk_usage(root).free
-        plan = inventory(root, now=now, unit_dir=unit_dir)
-        result: dict[str, Any] = {
-            "mode": "apply" if apply else "dry-run", "inventory": plan,
-            "free_before_bytes": before, "free_after_bytes": before,
-        }
-        if apply:
-            if plan.get("blocked"):
-                raise RuntimeError(plan["blocked"])
-            if not test_mode and before < MIN_FREE_BYTES:
-                raise RuntimeError("low-space incident: manual recovery required")
-            result["outcome"] = apply_plan(root, plan, now=now, unit_dir=unit_dir, test_mode=test_mode)
-            if not test_mode:
-                result["cache"] = prune_disposable_caches(now=now)
-            result["free_after_bytes"] = shutil.disk_usage(root).free
+    controller = control_checkout_lock(test_mode=test_mode) if apply else contextlib.nullcontext(False)
+    with controller as can_prune_control:
+        with host_lock(lock):
+            before = shutil.disk_usage(root).free
+            plan = inventory(root, now=now, unit_dir=unit_dir)
+            control_plan = control_release_inventory(root, now=now, unit_dir=unit_dir)
+            plan["control"] = control_plan
+            plan["estimated_bytes"] += control_plan["estimated_bytes"]
+            result: dict[str, Any] = {
+                "mode": "apply" if apply else "dry-run", "inventory": plan,
+                "free_before_bytes": before, "free_after_bytes": before,
+            }
+            if apply:
+                if plan.get("blocked"):
+                    raise RuntimeError(plan["blocked"])
+                if not test_mode and before < MIN_FREE_BYTES:
+                    raise RuntimeError("low-space incident: manual recovery required")
+                result["outcome"] = apply_plan(root, plan, now=now, unit_dir=unit_dir, test_mode=test_mode)
+                if can_prune_control and not control_plan.get("blocked"):
+                    control_outcome = apply_control_release_plan(
+                        root, control_plan, now=now, unit_dir=unit_dir, test_mode=test_mode)
+                    result["outcome"]["deleted"] += control_outcome["deleted"]
+                    result["outcome"]["skipped"] += control_outcome["skipped"]
+                    result["outcome"]["estimated_removed_bytes"] += control_outcome["estimated_removed_bytes"]
+                else:
+                    result["outcome"]["skipped"].append(
+                        "control:deployment-active" if not can_prune_control else "control:blocked")
+                if not test_mode:
+                    result["cache"] = prune_disposable_caches(now=now)
+                result["free_after_bytes"] = shutil.disk_usage(root).free
         if apply and not test_mode:
             _record_audit(state, {
                 "timestamp": int(time.time()), "mode": "apply", "policy": plan["policy"],

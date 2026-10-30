@@ -40,6 +40,11 @@ class SongMakerHandoffTests(unittest.TestCase):
         Image.new('RGB', (300, 180), (50, 80, 120)).save(stream, 'PNG')
         return stream.getvalue()
 
+    def jpeg_thumbnail(self):
+        stream = io.BytesIO()
+        Image.new('RGB', (300, 180), (50, 80, 120)).save(stream, 'JPEG', quality=91)
+        return stream.getvalue()
+
     def audio(self):
         stream = io.BytesIO()
         with wave.open(stream, 'wb') as output:
@@ -53,7 +58,8 @@ class SongMakerHandoffTests(unittest.TestCase):
         return self.client.post('/song-maker/api/jobs', headers={
             **self.headers, 'X-Auth-User': owner,
             **({'X-Audio-Downloader-Handoff': '1'} if handoff else {})
-        }, files={'image': ('video_id.png', self.image(), 'image/png'),
+        }, files={'image': ('video_id.jpg', self.jpeg_thumbnail(), 'image/jpeg') if handoff
+                            else ('video_id.png', self.image(), 'image/png'),
                   'audio': ('video_id.wav', self.audio(), 'audio/wav')})
 
     def test_opt_in_input_gate_is_owner_scoped(self):
@@ -107,6 +113,38 @@ class SongMakerHandoffTests(unittest.TestCase):
         bob = {**self.headers, 'X-Auth-User': 'bob'}
         self.assertEqual(self.client.get('/song-maker/api/uploader/outputs', headers=bob).json()['outputs'], [])
         self.assertEqual(self.client.get(rows[0]['thumbnail_url'], headers=bob).status_code, 404)
+
+    def test_downloader_thumbnail_reaches_uploader_without_reencoding(self):
+        flags = {**self.defaults, 'auto_input_from_audio_downloader': True,
+                 'send_to_song_uploader': True}
+        self.assertEqual(self.client.post('/song-maker/api/export', headers=self.headers,
+                                         json=flags).status_code, 200)
+        response = self.submit(handoff=True)
+        self.assertEqual(response.status_code, 200, response.text)
+        job = self.store.get(response.json()['id'])
+        self.assertTrue(job['audio_downloader_handoff'])
+        original = self.jpeg_thumbnail()
+        output = self.store.root / 'outputs' / job['id'] / job['local_name']
+
+        def fake_render(_image, _audio, output_path, *_a, **_k):
+            output_path.write_bytes(b'validated MP4 stand-in')
+
+        def fake_validate(path, _duration, _cancelled):
+            return {'size': path.stat().st_size, 'md5': digest(path, 'md5')}
+
+        with (patch('songmaker.worker.render', side_effect=fake_render),
+              patch('songmaker.worker.validate', side_effect=fake_validate)):
+            process(self.store, job, 'render',
+                    drive_factory=lambda *_a, **_k: self.fail('Drive cannot be called'))
+        self.assertEqual(self.store.get(job['id'])['stage'], 'Completed')
+        thumbnail = output.with_suffix('.jpg')
+        self.assertEqual(thumbnail.read_bytes(), original)
+        with Image.open(thumbnail) as check:
+            self.assertEqual(check.size, (300, 180))  # no resize to 1280x720
+        served = self.client.get('/song-maker/api/uploader/' + job['id'] + '/thumbnail',
+                                 headers=self.headers)
+        self.assertEqual(served.status_code, 200)
+        self.assertEqual(served.content, original)
 
     def test_drive_mode_is_default_and_job_setting_is_snapshotted(self):
         response = self.submit()
