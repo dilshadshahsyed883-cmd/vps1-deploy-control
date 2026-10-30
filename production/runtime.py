@@ -592,6 +592,7 @@ def install_app(app, revision):
         run(['systemctl', 'stop', unit_name], quiet=True)
     workers.stop(app)
     changed = False
+    short_studio_route_receipt = None
     try:
         backups = backup_databases(state, journal / 'sqlite-backup')
         changed = True
@@ -614,11 +615,19 @@ def install_app(app, revision):
             install_browser()
         if shutil.disk_usage('/').free < 5_000_000_000:
             raise RuntimeError('operational disk reserve breached')
+        if app == 'local-upload-manager':
+            intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+            if '[vps1-short-studio-release]' in intent:
+                from production.short_studio_release import install_route
+                short_studio_route_receipt = install_route(revision)
         atomic_json(record, {'revision': revision, 'unit': unit_name, 'previous': previous,
                              'transaction': str(journal), 'status': 'ACTIVE'})
         event(app=app, result='PASS_SERVICE_HEALTH', revision=revision, port=CATALOG[app]['port'],
               sqlite_backups=len(backups), health=health, rollback=str(journal))
     except BaseException:
+        if short_studio_route_receipt is not None:
+            from production.short_studio_release import restore_route
+            restore_route(short_studio_route_receipt)
         if changed or active:
             restore(app, previous)
         raise
