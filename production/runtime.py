@@ -318,7 +318,7 @@ def restore(app, previous):
     event(app=app, rollback='PASS', data='PRESERVED')
 
 
-def shortstudio_rolled_back_empty(state: Path, *, unit_dir: Path = Path("/etc/systemd/system")) -> bool:
+def shortstudio_rolled_back_empty(state: Path, *, unit_dir: Path = Path("/etc/systemd/system"), preserve_secure: bool = False) -> bool:
     """Prove that a failed first install left *no* Short Studio owner state.
 
     This permits a fresh isolated 8019 instance to be installed when the old
@@ -376,10 +376,36 @@ def shortstudio_rolled_back_empty(state: Path, *, unit_dir: Path = Path("/etc/sy
     if secure.is_symlink() or (secure.exists() and not secure.is_dir()):
         return False
     if secure.exists():
-        for child in secure.iterdir():
-            if (child.name not in {"oauth_clients", "oauth_sessions"}
-                    or child.is_symlink() or not child.is_dir()
-                    or any(child.iterdir())):
+        if preserve_secure:
+            # Owner's OAuth/session artifacts are opaque; PRESERVE them.
+            # Inspect only filesystem type, never names or content. Reject
+            # links, special files and unbounded trees.
+            count = 0
+            for child in secure.rglob("*"):
+                count += 1
+                if (count > 512 or child.is_symlink()
+                        or not (child.is_dir() or child.is_file())):
+                    return False
+        else:
+            for child in secure.iterdir():
+                if (child.name not in {"oauth_clients", "oauth_sessions"}
+                        or child.is_symlink() or not child.is_dir()
+                        or any(child.iterdir())):
+                    return False
+    if preserve_secure:
+        # Existing project tasks must not be resumed/restarted implicitly.
+        projects = root / "projects.sqlite3"
+        if projects.is_symlink() or (projects.exists() and not projects.is_file()):
+            return False
+        if projects.exists():
+            with sqlite3.connect(projects.as_uri() + "?mode=ro", uri=True, timeout=3) as conn:
+                conn.execute("PRAGMA query_only=ON")
+                if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='projects'").fetchone():
+                    if conn.execute("SELECT 1 FROM projects LIMIT 1").fetchone():
+                        return False
+        for relative in ("staging", "thumbnails", "reports"):
+            p = root / relative
+            if p.is_symlink() or (p.exists() and (not p.is_dir() or any(p.iterdir()))):
                 return False
     for relative in ("auto_engine_v6/staging", "auto_engine_v6/thumbnails",
                      "auto_engine_v6/thumbnail_trash", "auto_engine_v6/reports"):
@@ -421,7 +447,23 @@ def require_lum_release_idle(state: Path) -> None:
         if first_install:
             event(app="local-upload-manager", shortstudio_first_install="EMPTY_ROLLBACK_PROVEN")
         else:
-            modes += (("shortstudio", 8019, "/short-uploader/health", "lum-shortstudio"),)
+            # A separate one-off recovery intent may reuse *preserved* OAuth
+            # material only after stricter job/scheduler/media/port/unit
+            # checks. This never becomes the default LUM release policy.
+            intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+            retained_idle = False
+            if '[vps1-shortstudio-preserved-recovery]' in intent:
+                try:
+                    retained_idle = shortstudio_rolled_back_empty(state, preserve_secure=True)
+                except (OSError, ValueError, TypeError, sqlite3.Error) as exc:
+                    raise RuntimeError(
+                        "LUM_RELEASE_BLOCKED: shortstudio preserved-state proof failed ("
+                        + type(exc).__name__ + ")") from exc
+            if retained_idle:
+                event(app="local-upload-manager",
+                      shortstudio_recovery="PRESERVED_SECURE_IDLE_PROVEN")
+            else:
+                modes += (("shortstudio", 8019, "/short-uploader/health", "lum-shortstudio"),)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     in_flight = ("CLAIMED", "UPLOADING", "THUMBNAIL_UPLOADING",
                  "PROCESSING", "IN_PROGRESS", "WAITING_NETWORK")
