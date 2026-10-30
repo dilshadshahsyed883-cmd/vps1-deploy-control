@@ -91,6 +91,8 @@ def create_app(store=None):
                    'overlay_preset': settings.get('overlay_preset', 'light_leaks'),
                    'overlay_strength': settings.get('overlay_strength', 35),
                    'overlay_speed': settings.get('overlay_speed', 'normal'),
+                   'auto_input_from_audio_downloader': False,
+                   'send_to_song_uploader': False,
                    **store.record('exports', user['owner'])}
         return {'jobs': [public(j) for j in store.jobs(user['owner'])], 'settings': settings,
                 'export': exports, 'sync_access': True,
@@ -148,7 +150,13 @@ def create_app(store=None):
                                         data.get('overlay_speed', 'normal'))
         except (TypeError, ValueError) as exc:
             raise HTTPException(422, str(exc)) from None
-        store.record('exports', user['owner'], {'resolution': resolution, 'fit': fit, 'quality': quality, **overlays})
+        for option in ('auto_input_from_audio_downloader', 'send_to_song_uploader'):
+            if type(data.get(option, False)) is not bool:
+                raise HTTPException(422, option + ' must be a checkbox value')
+        store.record('exports', user['owner'], {
+            'resolution': resolution, 'fit': fit, 'quality': quality, **overlays,
+            'auto_input_from_audio_downloader': data.get('auto_input_from_audio_downloader', False),
+            'send_to_song_uploader': data.get('send_to_song_uploader', False)})
         return {'saved': True}
 
     @app.post('/song-maker/api/sync')
@@ -177,7 +185,7 @@ def create_app(store=None):
             raise HTTPException(409, 'Select exactly one image and one audio')
         settings = store.record('settings', user['owner']) or default_settings()
         export = store.record('exports', user['owner'])
-        settings.update({key: export[key] for key in ('resolution', 'fit', 'quality', 'overlay_enabled', 'overlay_preset', 'overlay_strength', 'overlay_speed') if key in export})
+        settings.update({key: export[key] for key in ('resolution', 'fit', 'quality', 'overlay_enabled', 'overlay_preset', 'overlay_strength', 'overlay_speed', 'send_to_song_uploader') if key in export})
         job = enqueue_pair(store, user['owner'], settings, images[0], audio[0])
         return public(job)
 
@@ -185,6 +193,9 @@ def create_app(store=None):
     async def submit(request: Request, image: UploadFile = File(...), audio: UploadFile = File(...),
                      resolution: str = Form(''), fit: str = Form(''), quality: str = Form(''), user=Depends(principal)):
         exports = store.record('exports', user['owner'])
+        if (request.headers.get('x-audio-downloader-handoff') == '1'
+                and not exports.get('auto_input_from_audio_downloader', False)):
+            raise HTTPException(409, 'Enable Auto Input from Audio Downloader in Song Maker Settings')
         settings = store.record('settings', user['owner']) or default_settings()
         resolution = resolution or exports.get('resolution', settings.get('resolution', '1080p'))
         fit = fit or exports.get('fit', settings.get('fit', 'fit'))
@@ -230,6 +241,7 @@ def create_app(store=None):
                     'image_ext': image_ext, 'audio_ext': audio_ext, 'duration': duration,
                     'local_name': output_name(audio.filename), 'origin': 'manual',
                     'resolution': resolution, 'fit': fit, 'quality': quality, **overlays,
+                     'send_to_song_uploader': bool(exports.get('send_to_song_uploader', False)),
                      'drive_status': 'Pending'})
                 destination = store.root / 'inputs' / job['id']
                 if not destination.exists():
@@ -262,7 +274,7 @@ def create_app(store=None):
             # A rendered Drive job that has not archived its input must resume
             # the render lane to complete the safe /used move (without rerender).
             archived = not archive_eligible(job) or job.get('archive_status') == 'Archived'
-            store.update(job_id, stage='Ready to Upload' if job.get('valid') and archived else 'Queued',
+            store.update(job_id, stage='Ready to Upload' if job.get('valid') and archived and not job.get('send_to_song_uploader') else 'Queued',
                          cancel=0, error='', drive_status='Pending', next_retry_at=None, retry_lane='')
         elif action == 'delete':
             if job['lane'] or job['stage'] not in TERMINAL:
@@ -276,6 +288,36 @@ def create_app(store=None):
         else:
             raise HTTPException(404, 'Unknown action')
         return {'ok': True}
+
+    @app.get('/song-maker/api/uploader/outputs')
+    def uploader_outputs(user=Depends(principal)):
+        # Owner-scoped SSO library; return no absolute filesystem paths.
+        ready = []
+        for job in store.jobs(user['owner']):
+            if not (job.get('send_to_song_uploader') and job['stage'] == 'Completed'
+                    and job.get('valid')):
+                continue
+            folder = store.root / 'outputs' / job['id']
+            video = folder / job['local_name']
+            thumb_name = Path(job['local_name']).stem + '.jpg'
+            if not video.is_file() or not (folder / thumb_name).is_file():
+                continue
+            ready.append({'id': job['id'], 'name': job['local_name'],
+                          'size': video.stat().st_size, 'created': job['created'],
+                          'video_url': '/song-maker/api/jobs/' + job['id'] + '/video',
+                          'thumbnail_url': '/song-maker/api/uploader/' + job['id'] + '/thumbnail'})
+        return {'outputs': ready}
+
+    @app.get('/song-maker/api/uploader/{job_id}/thumbnail')
+    def uploader_thumbnail(job_id: str, user=Depends(principal)):
+        job = owned(job_id, user)
+        if not job.get('send_to_song_uploader') or job['stage'] != 'Completed':
+            raise HTTPException(404, 'Local uploader thumbnail unavailable')
+        name = Path(job['local_name']).stem + '.jpg'
+        path = store.root / 'outputs' / job_id / name
+        if not path.is_file():
+            raise HTTPException(404, 'Local uploader thumbnail unavailable')
+        return FileResponse(path, media_type='image/jpeg', filename=name)
 
     @app.get('/song-maker/api/jobs/{job_id}/video')
     def video(job_id: str, download: bool = False, user=Depends(principal)):
