@@ -138,6 +138,11 @@ def reserve_short_output_names(folder_name: str, count: int) -> list[str]:
             last_number INTEGER NOT NULL,
             last_tag TEXT NOT NULL
         )""")
+        con.execute("""CREATE TABLE IF NOT EXISTS short_output_batches (
+            folder_name TEXT NOT NULL,
+            tag TEXT NOT NULL,
+            PRIMARY KEY(folder_name,tag)
+        )""")
         row = con.execute(
             "SELECT last_number,last_tag FROM short_output_sequences WHERE folder_name=?",
             (folder_name,),
@@ -156,9 +161,18 @@ def reserve_short_output_names(folder_name: str, count: int) -> list[str]:
                 highest = max(highest, int(match.group(1)))
                 if match.group(2):
                     used_tags.add(match.group(2).lower())
-        tag = uuid.uuid4().hex[:6]
-        while tag == last_tag or tag in used_tags:
+        # Persist all batch tags, not just the last one. Deleted/published
+        # batches must never free a tag for reuse.
+        while True:
             tag = uuid.uuid4().hex[:6]
+            if tag == last_tag or tag in used_tags:
+                continue
+            try:
+                con.execute("INSERT INTO short_output_batches(folder_name,tag) VALUES(?,?)",
+                            (folder_name, tag))
+                break
+            except sqlite3.IntegrityError:
+                continue
         names = [f"{folder_name} {index:03d}_{tag}.mp4"
                  for index in range(highest + 1, highest + count + 1)]
         con.execute("""INSERT INTO short_output_sequences(folder_name,last_number,last_tag)
