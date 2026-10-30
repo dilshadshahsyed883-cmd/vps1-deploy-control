@@ -3,6 +3,7 @@ import importlib.util
 import io
 import json
 import os
+import sys
 from pathlib import Path
 import tempfile
 import unittest
@@ -26,7 +27,10 @@ class AutoSongMakerHandoffTests(unittest.TestCase):
         self.addCleanup(env.stop)
         spec = importlib.util.spec_from_file_location("audio_songmaker_handoff_test", MODULE)
         self.m = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = self.m
+        self.addCleanup(lambda: sys.modules.pop(spec.name, None))
         spec.loader.exec_module(self.m)
+        self.m.BatchRequest.model_rebuild(_types_namespace=vars(self.m))
         self.m.init_storage()
         app = FastAPI()
         app.include_router(self.m.router)
