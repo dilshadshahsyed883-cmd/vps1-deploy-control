@@ -5,6 +5,7 @@ on:
     paths:
       - 'apps/local-upload-manager/**'
       - 'production/test_uploader_engine2_shorts_parity.py'
+      - 'production/test_songmaker_local_uploader.py'
       - 'production/test_uploader_three_mode_split.py'
       - '.github/workflows/vps1-engine2-shorts-parity-ci.yml'
   workflow_dispatch:
@@ -31,9 +32,11 @@ jobs:
           python -m py_compile apps/local-upload-manager/part01/lum_engine/auto_engine_v6.py
           python -m py_compile apps/local-upload-manager/part01/lum_engine/auto_engine_v6_worker.py
           python -m py_compile apps/local-upload-manager/part01/lum_engine/standalone_app.py
+          python -m py_compile apps/local-upload-manager/part01/lum_engine/songmaker_local.py
       - name: Offline parity and mode-isolation regression tests
         run: |
           python -m unittest \
+            production.test_songmaker_local_uploader \
             production.test_uploader_engine2_shorts_parity \
             production.test_uploader_three_mode_split \
             production.test_uploader_four_modes -v

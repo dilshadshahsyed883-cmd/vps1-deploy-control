@@ -717,11 +717,17 @@
     </section>
     {% if engine_instance == 'song' %}
     <section class="lum-card" aria-label="Song Maker local outputs">
-      <div class="lum-card-head"><div><h2>Song Maker · Local Outputs</h2><p>Videos sent directly from Song Maker without a Google Drive upload. MP4 and matching thumbnail stay on VPS until deleted in Song Maker.</p></div></div>
+      <div class="lum-card-head"><div><h2>Song Maker · Local Outputs</h2><p>Choose a channel profile and import the validated MP4 + thumbnail locally. Video-ID Sheet matching and scheduling run through the existing Auto Engine. No Google Drive media upload or automatic YouTube publishing.</p></div></div>
       <div id="songMakerLocalOutputList" role="status">Loading available videos…</div>
       <script>
       (function(){
         const area=document.getElementById('songMakerLocalOutputList');
+        const profiles=[
+          {% for pr in auto_v6.profiles or [] %}
+          {% if pr.channel_db_id %}{id:{{ pr.id|int }},name:{{ (pr.bound_channel_name or pr.category_name or ('Profile ' ~ pr.id))|tojson }}},{% endif %}
+          {% endfor %}
+        ];
+        const csrfToken={{ csrf|tojson }};
         fetch('/song-maker/api/uploader/outputs',{credentials:'same-origin'})
           .then(response=>{if(!response.ok)throw Error('Sign in to Song Studio to view local outputs');return response.json()})
           .then(data=>{
@@ -734,7 +740,27 @@
               const size=document.createElement('small');size.textContent=' · '+(item.size/1048576).toFixed(1)+' MB · ';
               const video=document.createElement('a');video.href=item.video_url;video.textContent='View MP4';
               const thumb=document.createElement('a');thumb.href=item.thumbnail_url;thumb.textContent=' · View Thumbnail';
-              row.append(name,size,video,thumb);area.append(row);
+              row.append(name,size,video,thumb);
+              if(profiles.length){
+                const picker=document.createElement('select');picker.setAttribute('aria-label','Choose channel profile for '+item.name);
+                for(const profile of profiles){const option=document.createElement('option');option.value=profile.id;option.textContent=profile.name;picker.append(option);}
+                const button=document.createElement('button');button.type='button';button.className='lum-button secondary tiny';button.textContent='Import to Song Uploader';
+                const status=document.createElement('small');status.setAttribute('role','status');
+                button.onclick=async()=>{
+                  button.disabled=true;status.textContent='Importing locally…';
+                  try{
+                    const body=new URLSearchParams({csrf_token:csrfToken,profile_id:picker.value,job_id:item.id});
+                    const reply=await fetch('/song-uploader/actions/auto-v6/songmaker/import',{method:'POST',credentials:'same-origin',body});
+                    const result=await reply.json();
+                    if(!reply.ok||!result.ok)throw Error(result.error||'Local import could not be completed');
+                    status.textContent=result.status==='already_imported'?'Already imported to this channel':'Local import ready · Run Sync Channel for Sheet matching and schedule';
+                  }catch(error){status.textContent=error.message;button.disabled=false;}
+                };
+                row.append(document.createTextNode(' · Channel: '),picker,button,status);
+              }else{
+                row.append(document.createTextNode(' · Configure a channel profile before importing.'));
+              }
+              area.append(row);
             }
           }).catch(error=>{area.textContent=error.message;});
       })();
