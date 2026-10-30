@@ -3,7 +3,6 @@ import fcntl
 import asyncio
 import hashlib
 import json
-import re
 from pathlib import Path
 import shutil
 import time
@@ -13,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from .store import Store, ACTIVE, TERMINAL
 from .media import IMAGES, AUDIO, FORMATS, QUALITIES, audio_duration, output_name, run
-from .drive import CONFIG, Drive, folder_ref, default_settings, enqueue_pair, archive_eligible, DEFAULT_INPUT
+from .drive import CONFIG, Drive, folder_ref, default_settings, enqueue_pair, archive_eligible
 from .worker import capacity
 
 
@@ -151,48 +150,6 @@ def create_app(store=None):
         settings['sync_requested'] = True
         store.record('settings', user['owner'], settings)
         return {'queued': True}
-
-    @app.post('/song-maker/api/auto-queue')
-    async def auto_queue_from_downloader(request: Request, user=Depends(principal)):
-        """Admit only an exact YouTube Video ID audio+image pair after Drive delivery.
-
-        This is also a user-authenticated browser endpoint; the Downloader can
-        call it over the loopback web service using the already-authenticated
-        owner from the initiating request. The producer never writes our DB.
-        """
-        data = await request.json()
-        if not isinstance(data, dict):
-            raise HTTPException(422, 'Invalid auto-queue request')
-        video_id, audio_format = data.get('video_id'), data.get('format')
-        if not isinstance(video_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{11}', video_id):
-            raise HTTPException(422, 'Invalid Video ID')
-        if audio_format not in ('mp3', 'wav'):
-            raise HTTPException(422, 'Unsupported audio format')
-        # Always use the canonical Audio Downloader input, never a client-supplied
-        # Drive folder, profile or path. Preserve the owner's saved export preset.
-        settings = {**(store.record('settings', user['owner']) or default_settings())}
-        settings.update(remote=default_settings()['remote'],
-                        image_folder=DEFAULT_INPUT, audio_folder=DEFAULT_INPUT)
-        if settings.get('output_folder') == DEFAULT_INPUT:
-            settings['output_folder'] = default_settings()['output_folder']
-        export = store.record('exports', user['owner'])
-        settings.update({key: export[key] for key in ('resolution', 'fit', 'quality') if key in export})
-        # Single folder listing instead of per-file searches or verification
-        # probes. Never queue a partially uploaded or ambiguous pair.
-        try:
-            files = Drive(settings).listing(DEFAULT_INPUT)
-            image = [f for f in files if f.get('Name') == video_id + '.jpg']
-            audio = [f for f in files if f.get('Name') == video_id + '.' + audio_format]
-            if len(image) != 1 or len(audio) != 1:
-                raise HTTPException(409, 'Matching audio and thumbnail are not yet available on Drive')
-            with (store.root / 'state/submission.lock').open('a') as lock:
-                fcntl.flock(lock, fcntl.LOCK_EX)
-                job = enqueue_pair(store, user['owner'], settings, image[0], audio[0])
-        except HTTPException:
-            raise
-        except (ValueError, RuntimeError, KeyError, TypeError):
-            raise HTTPException(503, 'Song Maker Drive pairing temporarily unavailable') from None
-        return {'job_id': job['id'], 'stage': job['stage']}
 
     @app.post('/song-maker/api/pairs/select')
     async def select_pair(request: Request, user=Depends(principal)):
