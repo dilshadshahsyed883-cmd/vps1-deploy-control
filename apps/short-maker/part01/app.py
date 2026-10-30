@@ -1064,11 +1064,11 @@ async def create_job(
     upload_to_drive: bool = Form(True),
     drive_output_path: str = Form(DEFAULT_DRIVE_OUTPUT),
     verified_clean: bool = Form(True),
-    short_vps_folder: str = Form(SHORT_VPS_DEFAULT),
+    short_vps_folder_name: str = Form("", alias="short_vps_folder"),
 ):
     input_mode=input_mode if input_mode in ("upload","drive") else "upload"
     try:
-        short_target = short_vps_folder(short_vps_folder) if short_vps_folder else None
+        short_target = short_vps_folder(short_vps_folder_name) if short_vps_folder_name else None
         if short_target is not None and not short_target.is_dir():
             raise ValueError("Selected VPS folder does not exist.")
     except ValueError as exc:
@@ -1139,7 +1139,7 @@ async def create_job(
         "upload_to_drive": bool(upload_to_drive),
         "drive_output_path": drive_output_path,
         "verified_clean": bool(verified_clean),
-        "short_vps_folder": short_vps_folder,
+        "short_vps_folder": short_vps_folder_name,
     }
 
     with jobs_lock:
