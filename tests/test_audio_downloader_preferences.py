@@ -43,7 +43,7 @@ class AudioPreferencesTests(unittest.TestCase):
     def snapshot(self, **changes):
         result = {"format": "wav", "quality": 256, "auto_upload": False,
                   "keep_metadata": True, "download_thumbnail": True,
-                  "auto_song_maker": True}
+                  "auto_song_maker": True,"song_folder_id":""}
         result.update(changes)
         return result
 

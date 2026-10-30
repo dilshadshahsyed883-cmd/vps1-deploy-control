@@ -842,6 +842,12 @@ def main():
         # Never install/restart uploader services, rewrite OAuth/DB or touch queues.
         # Existing Scene-session Nginx publisher validates both identity and the
         # exact legacy Engine 1 URL and transactionally restores the site on failure.
+        if '[vps1-song-folder-flow]' in intent:
+            if args.action != 'install' or args.apps != ['local-upload-manager']:
+                raise RuntimeError('Song folder workflow requires the single serialized LUM release lane')
+            from production.song_folder_release import install as install_song_folders
+            install_song_folders(args.revision)
+            return
         if '[vps1-lum-legacy-route-only]' in intent:
             if args.action != 'install' or args.apps != ['local-upload-manager']:
                 raise RuntimeError("legacy LUM route release requires local-upload-manager-only install lane")

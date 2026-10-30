@@ -201,7 +201,7 @@ def audio_thumbnail_overlay(installed: bytes, source: bytes) -> bytes:
     return updated
 
 
-def install(revision, *, restore_proxy=True, include_thumbnail=False, restore_download=False, diagnostic_only=False):
+def install(revision, *, restore_proxy=True, include_thumbnail=False, restore_download=False, diagnostic_only=False, song_folders=False):
     require(not (restore_proxy and include_thumbnail), 'thumbnail overlay cannot restore proxy')
     require(len(revision) == 40 and all(c in '0123456789abcdef' for c in revision), 'invalid SHA')
     require(CURRENT.is_symlink(), 'unmanaged current Voice release')
@@ -217,9 +217,14 @@ def install(revision, *, restore_proxy=True, include_thumbnail=False, restore_do
     require(old.is_file() and not old.is_symlink() and not source.is_symlink(), 'untrusted Audio module')
     require(not (restore_download and diagnostic_only), 'conflicting release modes')
     payload = error_label_overlay(old.read_bytes()) if diagnostic_only else source.read_bytes()
+    if song_folders:
+        require(not restore_proxy and include_thumbnail and not restore_download and not diagnostic_only,'folder overlay scope conflict')
+        from production.song_folder_release import audio_overlay
+        payload=audio_overlay(old.read_bytes(),source.read_bytes())
     ast.parse(payload)
     require(b'def youtube_execution' in payload, 'reviewed proxy implementation missing')
     kind = 'audio-error-label-only' if diagnostic_only else 'audio-restore-only' if restore_download else ('audio-thumbnail-only' if include_thumbnail else ('audio-proxy-only' if restore_proxy else 'audio-filename-only'))
+    if song_folders: kind='song-folder-audio'
     target = RELEASES / (revision + '-' + kind)
     journal = BASE / 'transactions' / kind / revision
     require(not target.exists() and not journal.exists(), 'immutable release already exists')
@@ -298,7 +303,10 @@ def install(revision, *, restore_proxy=True, include_thumbnail=False, restore_do
         run(['systemctl', 'start', UNIT], quiet=True, timeout=60)
         http_check('voice-studio')
         verify()
-        if diagnostic_only:
+        if song_folders:
+            from production.song_folder_release import verify as verify_folders
+            result=verify_folders()
+        elif diagnostic_only:
             result = restore_smoke(target / MODULE, environment, allow_download_failure=True)
         elif restore_download:
             result = restore_smoke(target / MODULE, environment)

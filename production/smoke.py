@@ -142,7 +142,7 @@ def smoke_isolated_uploader_pages(state):
                             def handle_data(self, data):
                                 if self.rail and data.strip(): self.labels.append(data.strip())
                         tabs = Tabs(); tabs.feed(page.text)
-                        expected_tabs = (["Auto Engine", "Channels", "Sheets Sync", "Dashboard", "Logs"]
+                        expected_tabs = (["Dashboard", "Auto Engine", "Channels", "Sheet Sync", "Logs"]
                                          if mode == "song" else
                                          ["Dashboard", "Channels", "Sheets Sync", "Auto Engine", "Logs"])
                         assert tabs.labels == expected_tabs, tabs.labels

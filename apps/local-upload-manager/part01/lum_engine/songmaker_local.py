@@ -6,6 +6,7 @@ The existing Song Uploader profile/sheet matching and scheduler remain authorita
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import http.client
 import json
 import os
@@ -64,21 +65,25 @@ def _get(owner: str, path: str, target: Path | None = None, maximum: int = 10485
         conn.close()
 
 
-def import_job(store: V6Store, profile_id: int, owner: str, job_id: str) -> dict:
+def import_job(store: V6Store, profile_id: int, owner: str, job_id: str, expected_folder:str="") -> dict:
     if not JOB_ID.fullmatch(job_id or ""):
         raise ValueError("Select a valid Song Maker project")
     if not owner or len(owner) > 160 or any(ord(char) < 32 for char in owner):
         raise ValueError("Authenticated Song Maker owner required")
-    if int(profile_id) <= 0 or not store.is_channel_profile(int(profile_id)):
-        raise ValueError("Choose a bound Song Uploader channel profile")
+    if int(profile_id) <= 0 or not (store.is_channel_profile(int(profile_id)) or store.group_settings(int(profile_id)).get("video_source_mode") in {"songmaker","songfolder"}):
+        raise ValueError("Choose a saved Song Uploader profile")
+    saved_owner=store.group_settings(int(profile_id)).get("song_folder_owner")
+    if saved_owner and saved_owner!=owner: raise ValueError("Folder profile belongs to another account")
     if not os.environ.get("LUM_SUITE_AUTH", "").lower() in {"1", "true", "yes", "on"}:
         raise ValueError("Song Maker imports require trusted Scene SSO")
     # Retrieve only this authenticated owner's completed, validated outputs.
-    catalog = _get(owner, "/song-maker/api/uploader/outputs")
+    catalog = _get(owner, "/song-maker/api/folders/"+expected_folder+"/outputs" if expected_folder else "/song-maker/api/uploader/outputs")
     found = [x for x in catalog.get("outputs", []) if x.get("id") == job_id]
     if len(found) != 1:
         raise ValueError("Song Maker output is not available for this owner")
     item = found[0]
+    folder_id=str(item.get("folder_id") or "")
+    if expected_folder and folder_id!=expected_folder: raise ValueError("Song Maker folder identity mismatch")
     name = str(item.get("name") or "")
     if (len(name) > 180 or name in {"", ".", ".."} or
             "/" in name or "\\\\" in name or
@@ -112,6 +117,9 @@ def import_job(store: V6Store, profile_id: int, owner: str, job_id: str) -> dict
             if duplicate:
                 return {"status": "already_imported", "profile_id": int(profile_id),
                         "name": name, "video_id": identity}
+        consumer="song-uploader:profile:"+str(int(profile_id))
+        if folder_id:
+            transfer(owner,folder_id,job_id,'reserve',{'consumer':consumer})
         required = int(item.get("size") or 0)
         if required <= 0 or required > MAX_VIDEO_BYTES:
             raise ValueError("Invalid Song Maker video size")
@@ -124,6 +132,12 @@ def import_job(store: V6Store, profile_id: int, owner: str, job_id: str) -> dict
                 raise ValueError("Song Maker MP4 size changed; retry import")
             thumb_size = _get(owner, f"/song-maker/api/uploader/{job_id}/thumbnail",
                               thumbnail, MAX_THUMB_BYTES)
+            for path,key in ((video,'video_sha256'),(thumbnail,'thumbnail_sha256')):
+                if item.get(key):
+                    h=hashlib.sha256()
+                    with path.open('rb') as stream:
+                        for block in iter(lambda:stream.read(1024*1024),b''): h.update(block)
+                    if h.hexdigest()!=item[key]: raise ValueError('Original folder media hash mismatch')
             width, height = _image_dimensions(thumbnail)
             if width < 120 or height < 68:
                 raise ValueError("Song Maker thumbnail dimensions are too small")
@@ -141,6 +155,9 @@ def import_job(store: V6Store, profile_id: int, owner: str, job_id: str) -> dict
                     VALUES(?,?,?,?,?,?,1)
                     """, (int(profile_id),identity,thumbnail_name,normalize_filename(thumbnail_name),
                           thumb_size,LOCAL_SOURCE))
+                if folder_id:
+                    con.execute("INSERT INTO song_folder_imports VALUES(?,?,?,?,?,?) ON CONFLICT(profile_id,drive_file_id) DO NOTHING",
+                                (int(profile_id),identity,owner,folder_id,job_id,consumer))
                 con.execute("""
                     INSERT INTO profile_sources(profile_id,local_songmaker_enabled)
                     VALUES(?,1)
@@ -154,3 +171,41 @@ def import_job(store: V6Store, profile_id: int, owner: str, job_id: str) -> dict
             raise
     return {"status": "imported", "profile_id": int(profile_id), "name": name,
             "video_id": identity, "ready_for_sheet_matching": True}
+
+
+def folder_selection(owner:str,folder_id:str) -> dict:
+    if not owner or not re.fullmatch(r'[0-9a-f]{32}',folder_id):
+        raise ValueError('Select your Song Maker VPS folder')
+    item=_get(owner,'/song-maker/api/folders/'+folder_id)
+    if item.get('id')!=folder_id: raise ValueError('Folder is unavailable for this account')
+    return {'song_folder_id':folder_id,'song_folder_owner':owner,'song_folder_name':str(item.get('name') or '')}
+
+
+def sync_folder(store:V6Store,profile_id:int,settings:dict):
+    owner=settings['song_folder_owner'];fid=settings['song_folder_id']
+    folder_selection(owner,fid)
+    catalog=_get(owner,'/song-maker/api/folders/'+fid+'/outputs')
+    for item in catalog.get('outputs',[]):
+        import_job(store,profile_id,owner,str(item.get('id') or ''),expected_folder=fid)
+
+
+def transfer(owner:str,fid:str,jid:str,action:str,body:dict):
+    if not JOB_ID.fullmatch(fid) or not JOB_ID.fullmatch(jid) or action not in {'reserve','consume'}:
+        raise ValueError('Invalid folder transfer identity')
+    connection=http.client.HTTPConnection(HOST,PORT,timeout=60)
+    try:
+        connection.request('POST',f'/internal/song-folders/{fid}/{jid}/{action}',json.dumps(body),
+                           {'Content-Type':'application/json','X-Auth-User':owner,'X-Song-Maker':'1'})
+        response=connection.getresponse();payload=response.read(32768)
+        if response.status!=200: raise ValueError('Canonical folder transfer is unavailable; media retained')
+        return json.loads(payload)
+    finally: connection.close()
+
+
+def finish_folder_source(store:V6Store,source:dict,youtube_id:str):
+    with store.connect() as con:
+        row=con.execute('SELECT * FROM song_folder_imports WHERE profile_id=? AND drive_file_id=?',
+                        (int(source['profile_id']),source['drive_file_id'])).fetchone()
+    if row:
+        transfer(row['owner'],row['folder_id'],row['song_job_id'],'consume',
+                 {'consumer':row['consumer'],'youtube_id':youtube_id})
