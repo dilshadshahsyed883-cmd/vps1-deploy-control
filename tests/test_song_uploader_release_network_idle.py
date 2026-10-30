@@ -1,6 +1,7 @@
 """Song-only guarded release: prove truly parked network waits without interrupting uploads."""
 from __future__ import annotations
 
+import io
 import sqlite3
 import tempfile
 import unittest
@@ -108,6 +109,16 @@ class SongReleaseParkedNetworkProofTests(unittest.TestCase):
             db.execute("INSERT INTO upload_ledger VALUES (?,?,?)",(7,"sha-safe","UPLOADED"))
         with self.assertRaisesRegex(RuntimeError,"not proven idle"):
             self.idle()
+
+    def test_ambiguous_wait_reports_only_aggregate_evidence(self):
+        self.job(claim_worker_id="private-worker-secret")
+        output=io.StringIO()
+        with patch("sys.stdout",output), self.assertRaisesRegex(RuntimeError,"not proven idle"):
+            self.idle()
+        summary=output.getvalue()
+        self.assertIn("SONG_IDLE_NETWORK_DIAGNOSTIC total=1 claimed=1 non_auto=0",summary)
+        self.assertIn("safe_release=BLOCKED",summary)
+        self.assertNotIn("private-worker-secret",summary)
 
     def test_web_upload_guard_is_kept(self):
         with self.assertRaisesRegex(RuntimeError,"web upload in progress"):
