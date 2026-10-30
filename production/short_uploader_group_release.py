@@ -122,7 +122,8 @@ def install(revision, *, ui_only=False):
         command('systemctl','daemon-reload')
         for name in reversed(UNITS):
             if previous[name]['active']:command('systemctl','start',name)
-        verify_live(ui_only=ui_only)
+        if ui_only:verify_live(ui_only=True)
+        else:verify_live()
         atomic_json(journal/'state.json',dict(status='ACTIVE',revision=revision,source=str(target),files=hashes,
                                            sqlite_backups=len(backups),scheduler='PRESERVED',auto_script='UNTOUCHED'))
         print('SHORT_GROUP_RELEASE=PASS OTHER_ENGINES=UNTOUCHED ROLLBACK=READY',flush=True)
