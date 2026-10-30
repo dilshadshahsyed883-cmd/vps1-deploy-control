@@ -27,7 +27,7 @@ for s in (signal.SIGTERM,signal.SIGINT):
 
 def check_profile(db:Database,store:V6Store,profile:dict) -> int:
     import os
-    shortstudio = os.environ.get('LUM_ENGINE_INSTANCE') == 'shortstudio'
+    shortstudio = os.environ.get('LUM_ENGINE_INSTANCE') in {'shortstudio','song'}  # Group-profile 10-minute window
     channel_result=channel_profile_scheduler_tick(db,store,profile)
     if channel_result>=0:
         return channel_result
@@ -61,7 +61,7 @@ def check_profile(db:Database,store:V6Store,profile:dict) -> int:
         # during its first ten minutes; the next opportunity is tomorrow.
         if shortstudio and elapsed_seconds>SHORT_STUDIO_GRACE_MINUTES*60:
             db.record_auto_engine_run(int(profile["id"]),run_key,0)
-            db.add_log(None,"INFO",f"Short Uploader missed slot skipped (>10 min): {profile.get('category_name')} {alarm}; next run tomorrow.",None)
+            db.add_log(None,"INFO",f"{os.environ.get('LUM_ENGINE_INSTANCE', 'Uploader')} missed slot skipped (>10 min): {profile.get('category_name')} {alarm}; next run tomorrow.",None)
             continue
         if not shortstudio and delay>GRACE_MINUTES and policy=="skip_missed":
             db.record_auto_engine_run(int(profile["id"]),run_key,0)
