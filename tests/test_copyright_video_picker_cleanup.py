@@ -86,9 +86,7 @@ assert handoff.available_videos(owner,set()) != []
 print(json.dumps({"owner":True,"queued_hidden":True,"duplicate_block":True,
  "verified_cleanup":True,"cancel_releases":True}))
 """
-        # Correctly invoke no network calls or YouTube processing.
-        program = program.replace(
-            'assert handoff.delete_verified_source(owner,file.name,"0"*64) is not False if False else True\n', '')
+        # Runs against disposable SQLite and isolated owner folder without YouTube access.
         with tempfile.TemporaryDirectory() as location:
             env = {**os.environ, "LUM_DATA_DIR": location,
                    "YOUTUBE_UPLOAD_MANAGER_DATA_DIR": str(Path(location) / "core"),
