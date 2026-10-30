@@ -285,7 +285,7 @@ def sync_owner(store, owner, settings, drive=None, admission_lock=None):
     def admit_pairs():
         nonlocal count
         export = store.record('exports', owner)
-        job_settings = {**settings, **{key: export[key] for key in ('resolution', 'fit', 'quality') if key in export}}
+        job_settings = {**settings, **{key: export[key] for key in ('resolution', 'fit', 'quality', 'send_to_song_uploader') if key in export}}
         for pair in results:
             if pair['stage'] != 'Matched':
                 continue
@@ -314,5 +314,7 @@ def enqueue_pair(store, owner, settings, image, sound):
         'project': Path(sound['Name']).stem, 'image_name': image['Name'], 'audio_name': sound['Name'],
         'local_name': output_name(sound['Name']), 'source': source, 'destination': settings,
         'resolution': settings.get('resolution', '1080p'), 'fit': settings.get('fit', 'fit'),
-        'quality': settings.get('quality', 'balanced'), 'drive_status': 'Pending', 'origin': 'drive'})
+        'quality': settings.get('quality', 'balanced'),
+         'send_to_song_uploader': bool(settings.get('send_to_song_uploader', False)),
+         'drive_status': 'Pending', 'origin': 'drive'})
     return job
