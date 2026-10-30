@@ -30,9 +30,10 @@ def selected_function(name, *, method=False):
     assert matches, name
     fn = matches[-1]
     fn.decorator_list = []
-    code = compile(ast.Module(body=[ast.ImportFrom(
+    module = ast.Module(body=[ast.ImportFrom(
         module="__future__", names=[ast.alias(name="annotations")], level=0), fn],
-        type_ignores=[]), str(BACKEND), "exec")
+        type_ignores=[])
+    code = compile(ast.fix_missing_locations(module), str(BACKEND), "exec")
     return code
 
 
