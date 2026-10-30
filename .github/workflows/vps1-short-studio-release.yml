@@ -31,6 +31,7 @@ jobs:
         env:
           PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
           SOURCE_SHA: ${{ github.sha }}
+          RELEASE_INTENT: ${{ github.event.head_commit.message }}
         run: |
           set -Eeuo pipefail
           set +x
@@ -49,7 +50,13 @@ jobs:
           # LUM provisions isolated Short Uploader/8019 and its guarded HTTPS route.
           # Short Maker owns rendering and the shared VPS folder source.
           # Do not redeploy unrelated Video Merger or Scene Builder services.
-          for app in local-upload-manager short-maker; do
+          apps=(local-upload-manager short-maker)
+          # UI-only intent uses the existing isolated Short Uploader installer;
+          # it does not restart Song Uploader, Short Maker or any sibling worker.
+          if [[ "$RELEASE_INTENT" == *'[vps1-shortstudio-intro-only]'* ]]; then
+            apps=(local-upload-manager)
+          fi
+          for app in "${apps[@]}"; do
             echo "SHORT_STUDIO_RELEASE_START=$app"
             timeout 2100s ssh -T -p 22 -i "$scratch/identity" \
               -o UserKnownHostsFile="$scratch/known_hosts" \
