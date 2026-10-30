@@ -1170,7 +1170,7 @@ def save_profile_from_form(pc_db:Any, store:V6Store, form:Dict[str,Any], profile
         "missed_schedule_policy":clean(form.get("missed_schedule_policy")) or "run_missed_today",
         "notes":clean(form.get("notes")),
     }
-    if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio" and mode=="auto" and schedule_enabled:
+    if os.environ.get("LUM_ENGINE_INSTANCE") in {"shortstudio","song"} and mode=="auto" and schedule_enabled and not clean(form.get("channel_db_id")):
         count=len(parse_schedule_times(form.get("schedule_times")))
         if count != data["daily_upload_count"]:
             raise ValueError(f"Choose {data['daily_upload_count']} distinct PKT schedule times, one per daily video; currently {count}.")
@@ -1296,10 +1296,12 @@ def planner(pc_db:Any, store:V6Store, profile:Dict[str,Any], *, max_jobs_overrid
     if not song_group and thumbnail_required_for_mode() and not thumbs: blocked.append("No ACTIVE thumbnail is available.")
     if song_group and settings.get("metadata_source")=="manual":
         meta={"title":settings.get("manual_title"),"description":settings.get("manual_description"),
-              "category_id":settings.get("manual_category_id") or "10","privacy_status":"private"}
+              "category_id":settings.get("manual_category_id") or "10","privacy_status":settings.get("privacy_status") or "private"}
         note="Manual metadata saved on website. Group schedule applies."
     else:
         meta,note=category_metadata(profile)
+    if song_group and settings.get("privacy_status"):
+        meta["privacy_status"]=settings["privacy_status"]
     daily=max(1,int(profile.get("daily_upload_count") or 1))
     scope=clean(profile.get("upload_scope") or "per_channel")
     target=daily*len(channels) if scope=="per_channel" else daily
@@ -1988,6 +1990,11 @@ def _song_source_settings(form: Dict[str,Any]) -> Dict[str,Any]:
     settings={key:clean(form.get(key)) for key in
               ("manual_title","manual_description","manual_category_id")}
     settings.update(video_source_mode=video,metadata_source=meta)
+    # Older Song profiles without an explicit privacy setting retain Sheet/private behavior.
+    privacy=clean(form.get("privacy_status") or "inherit").lower()
+    if privacy not in {"public","unlisted","private","inherit"}:
+        raise ValueError("Choose Public, Unlisted or Private video visibility.")
+    if privacy!="inherit": settings["privacy_status"]=privacy
     if video=="songfolder":
         from .songmaker_local import folder_selection
         settings.update(folder_selection(clean(form.get("_song_owner")),clean(form.get("song_folder_id"))))
@@ -2118,7 +2125,12 @@ def save_profile_from_form(pc_db: Any, store: V6Store, form: Dict[str, Any], pro
                 raise ValueError("Metadata Sheet URL / ID is required.")
             if settings["video_source_mode"]=="drive" and (not clean(form.get("drive_video_folder")) or not clean(form.get("drive_thumbnail_folder"))):
                 raise ValueError("Select video and thumbnail Drive folders.")
-            pid=_CHANNEL_LEGACY_SAVE_PROFILE(pc_db, store, form, profile_id)
+            fields=dict(form)
+            if not profile_id:
+                for key,value in {"enabled":"1","daily_upload_count":"1","schedule_times":"06:00",
+                                  "upload_scope":"per_channel","work_mode":"auto","schedule_enabled":"1"}.items():
+                    fields.setdefault(key,value)
+            pid=_CHANNEL_LEGACY_SAVE_PROFILE(pc_db, store, fields, profile_id)
             store.save_source(pid,video_folder=clean(form.get("drive_video_folder")),
                               thumb_folder=clean(form.get("drive_thumbnail_folder")),thumb_mode="drive",
                               songmaker_enabled=settings["video_source_mode"] in {"songmaker","songfolder"})
