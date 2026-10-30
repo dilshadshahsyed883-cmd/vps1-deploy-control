@@ -83,7 +83,7 @@ class SongMakerTests(unittest.TestCase):
             self.assertIn('--include', args)
             self.assertIn(r'/song \[1\]\*.jpg', args)
 
-    def test_static_song_uses_sparse_png_decoding_but_keeps_25fps_full_audio(self):
+    def test_static_song_loops_decoded_png_but_keeps_25fps_full_audio(self):
         image, audio = self.media(duration=2.24)
         temporary = self.root / 'static_render_temp'
         temporary.mkdir()
@@ -93,8 +93,11 @@ class SongMakerTests(unittest.TestCase):
                               quality='balanced')
         commands = [call.args[0] for call in execute.call_args_list]
         ffmpeg = next(cmd for cmd in commands if isinstance(cmd, list)
-                      and '-loop' in cmd and '-c:v' in cmd)
-        self.assertEqual(ffmpeg[ffmpeg.index('-framerate') + 1], '1')
+                      and '-vf' in cmd and '-c:v' in cmd)
+        self.assertNotIn('-loop', ffmpeg)  # no repeated image demux/decode
+        self.assertEqual(ffmpeg[ffmpeg.index('-framerate') + 1], '25')
+        self.assertEqual(ffmpeg[ffmpeg.index('-vf') + 1],
+                         'loop=loop=-1:size=1:start=0')
         self.assertEqual(ffmpeg[ffmpeg.index('-r') + 1], '25')
         self.assertEqual(ffmpeg[ffmpeg.index('-b:a') + 1], '192k')
         self.assertEqual(ffmpeg[ffmpeg.index('-crf') + 1], '20')
