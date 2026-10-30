@@ -158,6 +158,35 @@
     const qpf=e.target.closest('[data-ae-queue-preflight]');if(qpf){setPanel('queue',true);qpf.disabled=true;try{const data=await postJson(`${basePath()}/actions/auto-v6/queue-preflight`,{csrf_token:qpf.dataset.csrf});renderResult(data,'lum-ae-queue-preflight-result');document.getElementById('lum-ae-queue-preflight-result')?.scrollIntoView({behavior:'smooth',block:'center'});}finally{qpf.disabled=false;}return;}
     const gp=e.target.closest('[data-ae-global-preflight]');if(gp){setPanel('queue',true);gp.disabled=true;try{const data=await postJson(`${basePath()}/actions/auto-v6/queue-preflight`,{csrf_token:gp.dataset.csrf});renderResult(data,'lum-ae-queue-preflight-result');document.getElementById('lum-ae-queue-preflight-result')?.scrollIntoView({behavior:'smooth',block:'center'});}finally{gp.disabled=false;}return;}
     const pv=e.target.closest('[data-ae-preview]');if(pv){if(!pv.dataset.profileId)return;setPanel('automation',true);pv.disabled=true;try{const r=await fetch(`${basePath()}/actions/auto-v6/preview?profile_id=${encodeURIComponent(pv.dataset.profileId)}`,{credentials:'same-origin'});const data=await r.json();updateProfileCounts(pv.dataset.profileId,data);renderPreview(data);document.getElementById('lum-ae-preview-result')?.scrollIntoView({behavior:'smooth',block:'center'});}finally{pv.disabled=false;}return;}
+    const previewAll=e.target.closest('[data-ae-preview-all]');if(previewAll){
+      e.preventDefault();
+      const output=document.getElementById('lum-ae-bulk-preview');if(!output)return;
+      previewAll.disabled=true;output.hidden=false;output.replaceChildren();
+      const status=document.createElement('strong');status.textContent='Checking next jobs for enabled profiles…';output.append(status);
+      try{
+        const res=await fetch(basePath()+'/actions/auto-v6/preview-all',{credentials:'same-origin',headers:{Accept:'application/json'}});
+        const data=await res.json();
+        if(!res.ok||!data.ok)throw Error(data.error||'Could not preview upcoming jobs.');
+        const profiles=Array.isArray(data.profiles)?data.profiles:[];
+        status.textContent=Number(data.eligible_jobs||0)+' eligible next job(s) across '+profiles.length+' enabled profile(s). No queue jobs were created.';
+        const list=document.createElement('ul');
+        for(const item of profiles){
+          const row=document.createElement('li');
+          const count=Number(item.eligible_jobs||0);
+          const blocked=(Array.isArray(item.blocked)?item.blocked:[]).map(v=>String(v)).filter(Boolean).slice(0,2);
+          row.textContent=String(item.name||'Profile')+': '+count+' eligible'+(item.ready?' · ready':' · needs attention');
+          if(blocked.length)row.append(document.createTextNode(' — '+blocked.join(' | ')));
+          else if(Array.isArray(item.next)&&item.next.length){
+            const examples=item.next.map(job=>[job.video,job.channel].filter(Boolean).join(' → ')).join(' · ');
+            if(examples)row.append(document.createTextNode(' — '+examples));
+          }
+          list.append(row);
+        }
+        if(profiles.length)output.append(list);
+      }catch(err){status.textContent=String(err?.message||err||'Preview failed');}
+      finally{previewAll.disabled=false;}
+      return;
+    }
     const schedules=e.target.closest('[data-ae-open-schedules]');if(schedules){const dlg=document.getElementById('lum-ae-schedules-dialog');if(dlg){if(typeof dlg.showModal==='function')dlg.showModal();else dlg.setAttribute('open','');}return;}
     if(e.target.closest('[data-ae-close-schedules]')){const dlg=document.getElementById('lum-ae-schedules-dialog');if(dlg){if(typeof dlg.close==='function')dlg.close();else dlg.removeAttribute('open');}return;}
     const rowGenerate=e.target.closest('[data-ae-row-generate]');if(rowGenerate){
