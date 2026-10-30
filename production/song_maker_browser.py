@@ -58,6 +58,21 @@ def main():
                         assert page.locator('.sm input[name="image"]').evaluate(
                             "(el) => getComputedStyle(el).backgroundColor") == 'rgb(255, 255, 255)'
                         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'),f'page overflow at {width}'
+                        # Canonical Kokoro shell geometry: application header, inner
+                        # tabs and cards share the Song Studio outer rail edges.
+                        # This catches a 34px double-gutter regression at all widths.
+                        alignment = page.evaluate('''() => {
+                            const rail=document.querySelector('nav[aria-label="Song Studio"]');
+                            const main=document.querySelector('main.sm');
+                            const tabs=document.querySelector('main.sm nav.tabs');
+                            const r=rail.getBoundingClientRect();
+                            const m=main.getBoundingClientRect();
+                            const t=tabs.getBoundingClientRect();
+                            return {rail:[r.left,r.right],main:[m.left,m.right],tabs:[t.left,t.right]};
+                        }''')
+                        for section in ('main','tabs'):
+                            for edge in (0,1):
+                                assert abs(alignment[section][edge]-alignment['rail'][edge]) <= 2, (width,section,edge,alignment)
                         if width <= 390:
                             # No clipped Song Studio destinations or workspace buttons on phones.
                             for label in ('Song Studio','Song Maker tabs'):
