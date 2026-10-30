@@ -352,6 +352,7 @@ class V6Store:
                 drive_thumbnail_folder_id TEXT NOT NULL DEFAULT '',
                 drive_thumbnail_folder_url TEXT NOT NULL DEFAULT '',
                 thumbnail_source_mode TEXT NOT NULL DEFAULT 'pc_drive',
+                local_songmaker_enabled INTEGER NOT NULL DEFAULT 0,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS drive_videos(
@@ -520,6 +521,7 @@ class V6Store:
                 drive_thumbnail_folder_id=excluded.drive_thumbnail_folder_id,
                 drive_thumbnail_folder_url=excluded.drive_thumbnail_folder_url,
                 thumbnail_source_mode=excluded.thumbnail_source_mode,
+                local_songmaker_enabled=0,
                 updated_at=CURRENT_TIMESTAMP
             """,(int(profile_id),vf,clean(video_folder),tf,clean(thumb_folder),mode))
 
@@ -554,6 +556,8 @@ class V6Store:
     def scan_drive_videos(self, profile_id:int) -> Dict[str,Any]:
         src=self.source(profile_id)
         folder_id=clean(src.get("drive_video_folder_id"))
+        if self.source(profile_id).get("local_songmaker_enabled"):
+            return self.scan_songmaker_local(profile_id, thumbnail=False)
         if not folder_id:
             raise ValueError("Google Drive Video Folder is required.")
         rows=drive_lsjson(folder_id)
@@ -572,7 +576,7 @@ class V6Store:
             raise ValueError("Drive source contains duplicate filenames. Rename them first: "+", ".join(duplicates[:8]))
         seen=[]
         with self.connect() as con:
-            con.execute("UPDATE drive_videos SET present=0 WHERE profile_id=?",(int(profile_id),))
+            con.execute("UPDATE drive_videos SET present=0 WHERE profile_id=? AND source_folder_id<>'songmaker-local'",(int(profile_id),))
             for r in files:
                 name=clean(r.get("Name") or r.get("Path"))
                 fid=clean(r.get("ID") or r.get("Id") or r.get("id"))
@@ -596,10 +600,30 @@ class V6Store:
                 seen.append(fid)
         return {"videos":len(files),"folder_id":folder_id,"duplicates":0}
 
+    def scan_songmaker_local(self, profile_id:int, *, thumbnail:bool=False) -> Dict[str,Any]:
+        """Recheck local media availability without ever contacting Google Drive."""
+        table="drive_thumbnails" if thumbnail else "drive_videos"
+        total=0
+        with self.connect() as con:
+            rows=con.execute("SELECT id,drive_file_id,filename FROM "+table+
+                             " WHERE profile_id=? AND source_folder_id='songmaker-local'",
+                             (int(profile_id),)).fetchall()
+            for row in rows:
+                folder=STAGING_ROOT/f"profile_{int(profile_id):04d}"/("drive_"+safe_slug(row["drive_file_id"],"file"))
+                path=(folder/"thumbnail"/row["filename"]) if thumbnail else (folder/row["filename"])
+                valid=path.is_file() and not path.is_symlink() and path.stat().st_size>0
+                con.execute("UPDATE "+table+" SET present=? WHERE id=?", (int(valid),int(row["id"])))
+                total+=int(valid)
+        return {"thumbnails" if thumbnail else "videos":total,"folder_id":"songmaker-local"}
+
     def drive_videos(self, profile_id:int, present_only:bool=True) -> List[Dict[str,Any]]:
         q="SELECT * FROM drive_videos WHERE profile_id=?"
         params=[int(profile_id)]
         if present_only: q+=" AND present=1"
+        if self.source(profile_id).get("local_songmaker_enabled"):
+            q+=" AND source_folder_id='songmaker-local'"
+        else:
+            q+=" AND source_folder_id<>'songmaker-local'"
         q+=" ORDER BY normalized_filename,id"
         with self.connect() as con:
             return [dict(r) for r in con.execute(q,params).fetchall()]
@@ -1098,7 +1122,7 @@ def planner(pc_db:Any, store:V6Store, profile:Dict[str,Any], *, max_jobs_overrid
     pid=int(profile.get("id") or 0)
     if not pid: raise ValueError("Saved Auto Engine profile is required.")
     source=store.source(pid)
-    if not clean(source.get("drive_video_folder_id")): raise ValueError("Google Drive Video Folder is required.")
+    if not clean(source.get("drive_video_folder_id")) and not source.get('local_songmaker_enabled'): raise ValueError("Google Drive Video Folder is required.")
     # Always plan against the current Drive inventory. This covers Preview, manual Generate,
     # Start All, scheduler alarms and missed-alarm runs because they all pass through planner().
     try:
@@ -1575,6 +1599,9 @@ def _channel_init_schema(self: V6Store) -> None:
             con.execute("ALTER TABLE channel_job_meta ADD COLUMN metadata_sheet_url TEXT NOT NULL DEFAULT ''")
         if "metadata_sheet_gid" not in job_cols:
             con.execute("ALTER TABLE channel_job_meta ADD COLUMN metadata_sheet_gid TEXT NOT NULL DEFAULT ''")
+        source_cols={str(r[1]) for r in con.execute("PRAGMA table_info(profile_sources)").fetchall()}
+        if "local_songmaker_enabled" not in source_cols:
+            con.execute("ALTER TABLE profile_sources ADD COLUMN local_songmaker_enabled INTEGER NOT NULL DEFAULT 0")
 
 
 def _channel_binding(self: V6Store, profile_id: int) -> Dict[str, Any]:
@@ -1644,6 +1671,8 @@ def _channel_mark_synced(self: V6Store, profile_id: int) -> None:
 def _channel_scan_thumbnails(self: V6Store, profile_id: int) -> Dict[str, Any]:
     src = self.source(profile_id)
     folder_id = clean(src.get("drive_thumbnail_folder_id"))
+    if src.get("local_songmaker_enabled"):
+        return self.scan_songmaker_local(profile_id, thumbnail=True)
     if not folder_id:
         raise ValueError("Google Drive Thumbnail Folder is required.")
     rows = drive_lsjson(folder_id)
@@ -1656,7 +1685,7 @@ def _channel_scan_thumbnails(self: V6Store, profile_id: int) -> Dict[str, Any]:
             continue
         files.append(r)
     with self.connect() as con:
-        con.execute("UPDATE drive_thumbnails SET present=0 WHERE profile_id=?", (int(profile_id),))
+        con.execute("UPDATE drive_thumbnails SET present=0 WHERE profile_id=? AND source_folder_id<>'songmaker-local'", (int(profile_id),))
         for r in files:
             name=clean(r.get("Name") or r.get("Path"))
             fid=clean(r.get("ID") or r.get("Id") or r.get("id"))
@@ -1675,7 +1704,11 @@ def _channel_scan_thumbnails(self: V6Store, profile_id: int) -> Dict[str, Any]:
 
 def _channel_drive_thumbnails(self: V6Store, profile_id: int) -> List[Dict[str, Any]]:
     with self.connect() as con:
-        return [dict(r) for r in con.execute("SELECT * FROM drive_thumbnails WHERE profile_id=? AND present=1 ORDER BY normalized_filename,id", (int(profile_id),)).fetchall()]
+        local=bool(self.source(profile_id).get("local_songmaker_enabled"))
+        filter_clause="source_folder_id='songmaker-local'" if local else "source_folder_id<>'songmaker-local'"
+        return [dict(r) for r in con.execute(
+            "SELECT * FROM drive_thumbnails WHERE profile_id=? AND present=1 AND "+filter_clause+" ORDER BY normalized_filename,id",
+            (int(profile_id),)).fetchall()]
 
 
 def _channel_metadata_rows(self: V6Store, profile_id: int) -> List[Dict[str, Any]]:
