@@ -171,6 +171,11 @@ body.lum-song-ui :is(a, button, input, select, textarea, summary):focus-visible 
   }
 }
 
+/* Group profile chooser: override the universal label display rule on hidden fields. */
+body.lum-song-ui [data-ae-group-choice][hidden],
+body.lum-song-ui [data-ae-single-choice][hidden],
+body.lum-song-ui [data-ae-group-fields][hidden] { display:none !important; }
+
 /* Manual metadata/source chooser must hide inactive inputs even with Kokoro field layouts. */
 body.lum-song-ui .lum-shell [data-song-drive-field][hidden],
 body.lum-song-ui .lum-shell [data-song-sheet-field][hidden],
@@ -178,3 +183,5 @@ body.lum-song-ui .lum-shell [data-song-manual-fields][hidden],
 body.lum-song-ui .lum-shell [data-song-sheet-note][hidden] {
   display: none !important;
 }
+
+body.lum-song-ui [data-ae-song-modes][hidden] {display:none !important;}
