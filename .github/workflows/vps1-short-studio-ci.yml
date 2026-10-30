@@ -1,0 +1,33 @@
+name: VPS1 Short Studio copy and isolation gate
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install offline test dependencies
+        run: python -m pip install 'jinja2==3.1.6' 'httpx==0.28.1'
+      - name: Compile changed Python source
+        run: |
+          python -m py_compile production/workers.py production/runtime.py production/short_studio_release.py production/test_short_studio_v1.py apps/short-maker/part01/app.py apps/scene-builder/part01/app.py apps/local-upload-manager/part01/lum_engine/standalone_app.py apps/local-upload-manager/part01/lum_engine/auto_engine_v6.py
+      - name: Verify native Studio JavaScript syntax
+        run: node --check apps/scene-builder/part01/static/vps1_native_site_shell.js
+      - name: Offline Shorts, Song and Scene regression contracts
+        run: |
+          python -m unittest -v production.test_short_studio_v1 production.test_song_uploader_v1 production.test_uploader_three_mode_split production.test_unified_sidebar_navigation production.test_scene_video_studio_shell
+      - name: Forbid changed credentials and activation
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ! grep -R 'LUM_ENGINE_INSTANCE=shortstudio.*engine_enabled=1' production apps
+          grep -q '"shortstudio"' production/workers.py
+          grep -q 'AUTO_SCRIPT=OFFLINE' .github/workflows/vps1-short-studio-release.yml
