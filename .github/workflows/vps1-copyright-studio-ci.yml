@@ -29,6 +29,13 @@ jobs:
           python -m unittest discover -s tests -p 'test_copyright_video_picker_cleanup.py' -v
           python -m unittest discover -s tests -p 'test_copyright_sidebar_consistency.py' -v
           node --check apps/copyright-uploader/part01/static/copyright_video_picker.js
+      - name: Copyright compact UI and isolated release regressions
+        run: python -m unittest discover -s tests -p 'test_copyright_uploader_ui.py' -v
+      - name: Rendered responsive workspace and interaction checks (no uploads)
+        run: |
+          python -m pip install 'playwright==1.56.0'
+          python -m playwright install --with-deps chromium
+          python -m production.copyright_uploader_browser
       - name: Existing Studio navigation regression
         run: python -m unittest -v production.test_canonical_studio_navigation production.test_unified_sidebar_navigation
       - name: No Copyright Auto Engine scheduler

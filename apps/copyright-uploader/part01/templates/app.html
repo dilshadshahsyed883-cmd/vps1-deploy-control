@@ -25,7 +25,7 @@
   {% endif %}
   {% if tab != 'auto_stream' %}
   <div class="lum-tabs-shell" data-lum-sticky-tabs>
-<nav class="lum-tabs" aria-label="Auto Uploader workspace">
+<nav class="lum-tabs" aria-label="Copyright Uploader workspace">
       {% if engine_instance == 'copyright' %}
       <a class="{{ 'active' if tab=='dashboard' else '' }}" href="{{ base_path }}/app?tab=dashboard">Dashboard</a>
       <a class="{{ 'active' if tab=='channels' else '' }}" href="{{ base_path }}/app?tab=channels">Channels</a>
@@ -50,16 +50,22 @@
       <a class="{{ 'active' if tab=='queue' else '' }}" href="{{ base_path }}/app?tab=queue">Queue</a>
       {% endif %}
       <a class="{{ 'active' if tab=='logs' else '' }}" href="{{ base_path }}/app?tab=logs">Logs</a>
+      {% if engine_instance == 'copyright' %}
+      <div class="copyright-runtime" role="status" aria-label="Uploader status">
+        <span class="lum-badge {{ 'good' if health.worker_alive else 'warn' }}">Worker {{ 'Online' if health.worker_alive else 'Offline' }}</span>
+        <span class="lum-badge {{ 'good' if stats.engine_enabled and stats.settings.pause_after_current != '1' else 'warn' }}">Queue {{ 'Paused' if not stats.engine_enabled else ('Pausing' if stats.settings.pause_after_current == '1' else 'Ready') }}</span>
+      </div>
+      {% endif %}
   </nav>
 </div>
   {% endif %}
 
   {% macro upload_form(simple=False) %}
   {% if engine_instance == 'copyright' %}
-  <form class="lum-grid lum-upload-grid" method="post" action="{{ base_path }}/actions/add-video" enctype="multipart/form-data">
+  <form class="lum-grid lum-upload-grid copyright-upload" data-copyright-upload method="post" action="{{ base_path }}/actions/add-video" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
-    <section class="lum-card lum-span-2">
-      <div class="lum-card-head"><div><h2>Add Video</h2><p>Submit one video to the durable manual Copyright Uploader queue. No automatic scanning or Auto Engine.</p></div><span class="lum-badge brand">Manual queue</span></div>
+    <section class="lum-card lum-span-2 copyright-source-card">
+      <div class="lum-card-head"><div><h2>Add Video</h2><p>Choose a source, then set the destination and video details.</p></div><span class="lum-badge brand">Manual queue</span></div>
       <label class="lum-field"><span>Source</span><select name="source_mode" id="copyright-source-mode">
         <option value="drive_link">Google Drive video link</option>
         <option value="pc_upload">Upload video from PC</option>
@@ -78,17 +84,19 @@
           <button class="lum-button" type="button" id="copyright-folder-refresh">Refresh Videos</button>
           <span id="copyright-folder-summary" role="status">{{ copyright_files|length }} available videos · Queued videos hidden</span>
         </div>
-        <p class="lum-note">Select a video produced by Video Merger. The selected video disappears from this dropdown as soon as it is added to Queue.</p>
+        <p class="lum-note">Queued videos are hidden until released.</p>
       </div>
     </section>
     <section class="lum-card">
       <h2>Upload Destination</h2>
-      <label class="lum-field"><span>Upload Profile (optional)</span><select name="profile_id"><option value="0">No profile</option>{% for p in copyright_profiles %}<option value="{{ p.id }}">{{ p.profile_name }} · {{ p.group_name or 'No group' }}</option>{% endfor %}</select></label>
+      <label class="lum-field"><span>Upload Profile (optional)</span><select name="profile_id" id="copyright-upload-profile"><option value="0">No profile</option>{% for p in copyright_profiles %}<option value="{{ p.id }}">{{ p.profile_name }} · {{ p.group_name or 'No group' }}</option>{% endfor %}</select></label>
       <label class="lum-field"><span>YouTube Channel</span><select name="channel_db_id" required>
         <option value="">Select connected channel</option>{% for ch in channels %}<option value="{{ ch.id }}">{{ ch.channel_name or ch.channel_id }} · {{ ch.token_status }}</option>{% endfor %}
       </select></label>
-      <label class="lum-field"><span>Visibility</span><select name="privacy_status"><option value="private">Private</option><option value="unlisted">Unlisted</option><option value="public">Public</option></select></label>
-      <label class="lum-field"><span>Schedule (PKT) — optional</span><input name="app_upload_at" type="datetime-local"><small>Blank means upload when the manual queue slot is available.</small></label>
+      <div class="copyright-field-pair">
+      <label class="lum-field"><span>Visibility</span><select name="privacy_status"><option value="public">Public</option><option value="unlisted">Unlisted</option><option value="private">Private</option></select></label>
+      <label class="lum-field"><span>Schedule (PKT) — optional</span><input name="app_upload_at" type="datetime-local"><small>Blank = next available queue slot.</small></label>
+      </div>
       <label class="lum-field"><span>Thumbnail — optional</span><input name="thumbnail" type="file" accept="image/png,image/jpeg"></label>
     </section>
     <section class="lum-card">
@@ -100,7 +108,7 @@
       <label class="lum-check"><input type="checkbox" name="made_for_kids" value="on"> Made for Kids</label>
     </section>
     <section class="lum-card lum-span-2 lum-submit-card">
-      <div><strong>Verified upload cleanup</strong><p>After YouTube verifies the upload, this uploader deletes the selected VPS handoff video and temporary staged copy. Failed or paused uploads keep their files for safe retry. Google Drive sources are never deleted.</p></div>
+      <div><strong>Verified upload cleanup</strong><p>VPS video copies are deleted after YouTube verification. Failed uploads keep files for retry; Drive originals are retained.</p></div>
       <button class="lum-button primary" type="submit">+ Add Video to Queue</button>
     </section>
   </form>
@@ -426,6 +434,8 @@
       <p class="lum-note">Stream logic and controls will be finalized separately. No stream is started or changed by opening this tab.</p>
       <a class="lum-button secondary" href="/short-stream/">Open existing Auto Stream app</a>
     </section>
+  {% elif tab == 'dashboard' and engine_instance == 'copyright' %}
+    {% include "copyright_dashboard.html" %}
   {% elif tab == 'dashboard' %}
     <div class="lum-metrics"><div><span>Total projects</span><strong>{{ stats.counts.TOTAL or 0 }}</strong></div><div><span>Waiting</span><strong>{{ stats.counts.WAITING or 0 }}</strong></div><div><span>Active</span><strong>{{ stats.counts.ACTIVE or 0 }}</strong></div><div><span>Completed</span><strong>{{ stats.counts.COMPLETED or 0 }}</strong></div><div><span>Channels</span><strong>{{ stats.channels or 0 }}</strong></div></div>
     <div class="lum-grid lum-two"><section class="lum-card"><div class="lum-card-head"><div><h2>Serial engine</h2><p>Current production contract.</p></div><span class="lum-badge {{ 'good' if stats.engine_enabled else 'warn' }}">{{ 'Running' if stats.engine_enabled else 'Paused' }}</span></div><dl class="lum-kv"><div><dt>Concurrent uploads</dt><dd>1 · safety locked</dd></div><div><dt>Remote verification</dt><dd>Required</dd></div><div><dt>Drive source deletion</dt><dd>Protected / OFF</dd></div><div><dt>VPS cleanup</dt><dd>After verified upload</dd></div></dl></section><section class="lum-card"><div class="lum-card-head"><div><h2>{{ 'Uploader modes' if engine_instance == 'song' else 'Future modes' }}</h2><p>{{ 'Song Uploader settings; schedules remain separately controlled.' if engine_instance == 'song' else 'Capabilities remain retained rather than removed.' }}</p></div></div><form method="post" action="{{ base_path }}/actions/settings"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label class="lum-switch"><span><strong>Sheets Sync</strong><small>Desktop-compatible source inventory mode</small></span><input type="hidden" name="sheets_sync_enabled" value="0"><input type="checkbox" name="sheets_sync_enabled" value="1" {% if stats.settings.sheets_sync_enabled=='1' %}checked{% endif %}></label><label class="lum-switch"><span><strong>Auto Engine</strong><small>Preserved; OFF for current single-upload workflow</small></span><input type="hidden" name="auto_engine_enabled" value="0"><input type="checkbox" name="auto_engine_enabled" value="1" {% if stats.settings.auto_engine_enabled=='1' %}checked{% endif %}></label>{% if engine_instance != 'song' %}<label class="lum-switch"><span><strong>Bulk Import</strong><small>Preserved; OFF for current single-upload workflow</small></span><input type="hidden" name="bulk_import_enabled" value="0"><input type="checkbox" name="bulk_import_enabled" value="1" {% if stats.settings.bulk_import_enabled=='1' %}checked{% endif %}></label>{% endif %}<input type="hidden" name="delete_staged_after_verified" value="1"><button class="lum-button" type="submit">Save modes</button></form></section></div>
@@ -759,19 +769,19 @@
     </section>
 {% elif tab == 'profiles' and engine_instance == 'copyright' %}
     <section class="lum-card">
-      <div class="lum-card-head"><div><h2>Copyright Upload Profiles</h2><p>Manual upload profiles. Selecting a profile never starts automatic uploads.</p></div><span class="lum-badge">{{ copyright_profiles|length }} profiles</span></div>
-      <div class="lum-table-wrap"><table class="lum-table"><thead><tr><th>Name</th><th>Group</th><th>Metadata Source</th></tr></thead><tbody>
-      {% for p in copyright_profiles %}<tr><td>{{ p.profile_name }}</td><td>{{ p.group_name or '—' }}</td><td>{{ 'Google Sheets' if p.metadata_source=='sheets' else 'Manual' }}</td></tr>
-      {% else %}<tr><td colspan="3"><div class="lum-empty">No profiles yet.</div></td></tr>{% endfor %}</tbody></table></div>
+      <div class="lum-card-head"><h2>Upload Profiles</h2><div class="lum-actions"><span class="lum-badge">{{ copyright_profiles|length }} saved</span><a class="lum-button primary" href="#copyright-new-profile">New Profile</a></div></div>
+      <div class="lum-table-wrap"><table class="lum-table"><thead><tr><th>Name</th><th>Group</th><th>Metadata Source</th><th>Action</th></tr></thead><tbody>
+      {% for p in copyright_profiles %}<tr><td><strong>{{ p.profile_name }}</strong></td><td>{{ p.group_name or '—' }}</td><td>{{ 'Google Sheets' if p.metadata_source=='sheets' else 'Manual' }}</td><td><a class="lum-button tiny" href="{{ base_path }}/app?tab=add_video&amp;profile_id={{ p.id }}">Add Video</a></td></tr>
+      {% else %}<tr><td colspan="4"><div class="lum-empty">No profiles yet. Create a profile below to organize uploads.</div></td></tr>{% endfor %}</tbody></table></div>
     </section>
-    <section class="lum-card">
+    <section class="lum-card" id="copyright-new-profile">
       <h2>New Profile</h2>
-      <form class="lum-grid" method="post" action="{{ base_path }}/actions/copyright/profile">
+      <form class="copyright-profile-grid" method="post" action="{{ base_path }}/actions/copyright/profile">
         <input type="hidden" name="csrf_token" value="{{ csrf }}">
         <label class="lum-field"><span>Profile Name</span><input name="profile_name" maxlength="100" required></label>
-        <label class="lum-field"><span>Channel Group Name</span><input name="group_name" maxlength="120" placeholder="Optional"></label>
+        <label class="lum-field"><span>Channel Group</span><input name="group_name" maxlength="120" placeholder="Optional"></label>
         <label class="lum-field"><span>Metadata Source</span><select name="metadata_source"><option value="manual">Manual metadata on website</option><option value="sheets">Google Sheets</option></select></label>
-        <div><button class="lum-button primary" type="submit">Save Profile</button></div>
+        <div class="copyright-profile-submit"><button class="lum-button primary" type="submit">Save Profile</button></div>
       </form>
     </section>
 {% elif tab == 'auto_engine' %}
@@ -1358,6 +1368,8 @@
     {{ upload_form(False) }}
   {% elif tab == 'bulk_import' %}
     <section class="lum-card"><div class="lum-card-head"><div><h2>Bulk Import</h2><p>Desktop feature retained behind a mode toggle. Current production remains single-project submission.</p></div><span class="lum-badge {{ 'good' if stats.settings.bulk_import_enabled=='1' else 'warn' }}">{{ 'Enabled' if stats.settings.bulk_import_enabled=='1' else 'Mode OFF' }}</span></div><div class="lum-disabled-grid"><label class="lum-field"><span>Import source</span><input disabled placeholder="Future bulk source"></label><label class="lum-field"><span>Target group</span><select disabled><option>Select group</option></select></label><button class="lum-button" disabled>Preview Import</button><button class="lum-button primary" disabled>Add to Queue</button></div><div class="lum-note">Bulk items will be expanded into independent single-video VPS projects rather than creating a second upload engine.</div></section>
+  {% elif tab == 'queue' and engine_instance == 'copyright' %}
+    {% include "copyright_queue.html" %}
   {% elif tab == 'queue' %}
     <section class="lum-card"><div class="lum-card-head"><div><h2>Queue</h2><p>Crash-safe desktop upload states wrapped by Drive staging, remote verification and verified cleanup.</p></div><div class="lum-actions"><form method="post" action="{{ base_path }}/actions/pause-after-current"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button" type="submit">Pause After Current</button></form><form method="post" action="{{ base_path }}/actions/stop-current"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button danger" type="submit">Safe Stop Current</button></form><form method="post" action="{{ base_path }}/actions/resume"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button primary" type="submit">Resume</button></form></div></div>{{ queue_table(False) }}</section>
   {% elif tab == 'logs' %}
