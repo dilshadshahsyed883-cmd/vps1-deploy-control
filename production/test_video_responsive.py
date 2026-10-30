@@ -125,7 +125,7 @@ def browser_test():
                 page.locator('.vps1-native-toggle').click()
             page.locator('nav[aria-label="Applications"] a[href="/short-maker"]').click()
             # Native navigation may complete asynchronously; never reload the previous page.
-            page.wait_for_url('**/short-maker/', timeout=10000)
+            page.wait_for_url('**/short-maker', timeout=10000)
             page.reload()
             actual_title=page.locator('title').text_content()
             assert actual_title=='Short Maker',(width,page.url,actual_title)
