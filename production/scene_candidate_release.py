@@ -142,6 +142,26 @@ def _ensure_experiment_browser_dependency() -> None:
             raise RuntimeError("Scene browser Playwright dependency unavailable")
 
 
+def _ensure_song_uploader_dependency() -> None:
+    """Probe the pinned async proxy library before enabling the canonical route.
+
+    This is a Scene-only dependency; no LUM worker, scheduler, store or service
+    changes are permitted. A failed probe/install stops before the pointer flip.
+    """
+    from production.runtime import run
+    python = Path("/srv/fresh-website/venvs/scene-builder/bin/python")
+    if not python.is_file():
+        raise RuntimeError("Scene candidate Python environment missing")
+    probe = [str(python), "-c", "import httpx; assert httpx.__version__ == '0.28.1'"]
+    if subprocess.run(probe, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                      timeout=12).returncode:
+        run([str(python), "-m", "pip", "install", "--disable-pip-version-check",
+             "--no-cache-dir", "httpx==0.28.1"], timeout=360, quiet=True)
+        if subprocess.run(probe, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                          timeout=12).returncode:
+            raise RuntimeError("Scene Song Uploader proxy dependency unavailable")
+
+
 def _candidate_storage_token() -> str | None:
     """Read only the existing root-owned candidate credential; never emit it."""
     if not STORAGE_CANDIDATE_ENV.is_file() or STORAGE_CANDIDATE_ENV.is_symlink():
@@ -390,6 +410,8 @@ def install(revision: str) -> None:
     target = _stage(revision)
     if (target / "part01/experiment_browser.py").is_file():
         _ensure_experiment_browser_dependency()
+    if (target / "part01/song_uploader_alias.py").is_file():
+        _ensure_song_uploader_dependency()
     from production.runtime import run as _run
     merge_message = _run(["git", "log", "-1", "--format=%B"], cwd=Path(__file__).resolve().parents[1], quiet=True)
     enable_auto_script = "[vps1-auto-script-online]" in merge_message
