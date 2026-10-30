@@ -17,10 +17,14 @@
     : SHORT_STUDIO ? '/short-uploader'
     : ISOLATED_MODE ? '/local-upload-manager/modes/' + ISOLATED_MODE[1]
     : '/local-upload-manager';
-  const STORAGE_PREFIX = SONG_STUDIO ? 'lum.song' : SHORT_STUDIO ? 'lum.shortstudio'
-    : ISOLATED_MODE ? 'lum.' + ISOLATED_MODE[1] : 'lum';
-  const TAB_KEY = STORAGE_PREFIX + '.main.tab';
-  const ROUTE_KEY = STORAGE_PREFIX + '.route';
+  // Keep the existing Short Studio storage names literal for its parity
+  // contract, while giving Song and each uploader mode independent keys.
+  const TAB_KEY = SONG_STUDIO ? 'lum.song.main.tab'
+    : SHORT_STUDIO ? 'lum.shortstudio.main.tab'
+    : ISOLATED_MODE ? 'lum.' + ISOLATED_MODE[1] + '.main.tab' : 'lum.main.tab';
+  const ROUTE_KEY = SONG_STUDIO ? 'lum.song.route'
+    : SHORT_STUDIO ? 'lum.shortstudio.route'
+    : ISOLATED_MODE ? 'lum.' + ISOLATED_MODE[1] + '.route' : 'lum.route';
   const VALID_TABS = new Set([
     'upload','authentication','dashboard','channels','sheets','auto_engine',
     'add_video','bulk_import','queue','logs'
