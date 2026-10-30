@@ -1483,7 +1483,7 @@ async def begin_resumable_upload(request: Request):
     manifest = {"owner": request.headers.get("x-auth-user", "").strip(),
                 "config": cfg, "files": manifest_files, "created_at": utc_now()}
     upload_manifest_path(job_id).write_text(json.dumps(manifest), encoding="utf-8")
-    set_state(job_id, job_id=job_id, status="uploading", progress=0, upload_progress=0,
+    set_state(job_id, status="uploading", progress=0, upload_progress=0,
               created_at=utc_now(), message="Uploading PC files (resumable)",
               outputs=[], config=cfg, delivery_status="waiting_upload",
               drive_verified=False, local_cleaned=False)
