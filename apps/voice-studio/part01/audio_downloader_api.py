@@ -261,7 +261,7 @@ def status():
 def _preferences_owner(request: Request) -> str:
     # The authenticated reverse proxy injects this identity, as for Song Maker.
     owner = request.headers.get('x-auth-user', '').strip()
-    if not owner or len(owner) > 160 or any(char in owner for char in '\\r\\n'):
+    if not owner or len(owner) > 160 or any(char in owner for char in '\r\n'):
         raise HTTPException(403, 'Authenticated Audio Downloader user required to save settings')
     return owner
 
