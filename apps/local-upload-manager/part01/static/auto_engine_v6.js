@@ -379,3 +379,28 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout
   }
   applySongProfileSources();
 })();
+
+
+/* SHORT_GROUP_METADATA_SOURCES_V1 */
+(() => {
+  function applyShortMetadataSource() {
+    const source=document.getElementById('short-profile-metadata-source');
+    if(!source)return;
+    const form=source.closest('form'), manual=source.value==='manual';
+    form.querySelectorAll('[data-short-manual-fields]').forEach(el=>{
+      el.hidden=!manual;
+      el.querySelector('[name="manual_title"]').required=manual;
+    });
+    form.querySelectorAll('[data-short-sheet-field]').forEach(el=>{
+      el.hidden=manual;
+      el.querySelectorAll('[name="metadata_sheet_url_or_id"],[name="metadata_sheet_tab"]').forEach(input=>input.required=!manual);
+    });
+  }
+  document.addEventListener('change',e=>{if(e.target.id==='short-profile-metadata-source')applyShortMetadataSource();});
+  document.addEventListener('DOMContentLoaded',applyShortMetadataSource);
+  window.addEventListener('pageshow',applyShortMetadataSource);
+  new MutationObserver(records=>{
+    if(records.some(r=>[...r.addedNodes].some(n=>n.nodeType===1 && (n.id==='lum-ae-profile-form'||n.querySelector?.('#lum-ae-profile-form')))))applyShortMetadataSource();
+  }).observe(document.documentElement,{childList:true,subtree:true});
+  applyShortMetadataSource();
+})();

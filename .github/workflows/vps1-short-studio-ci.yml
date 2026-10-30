@@ -18,7 +18,7 @@ jobs:
         run: python -m pip install 'jinja2==3.1.6' 'httpx==0.28.1'
       - name: Compile changed Python source
         run: |
-          python -m py_compile production/workers.py production/runtime.py production/short_studio_release.py production/shortstudio_readonly_diagnostic.py production/test_short_studio_v1.py production/test_shortstudio_readonly_diagnostic.py apps/short-maker/part01/app.py apps/scene-builder/part01/app.py apps/local-upload-manager/part01/lum_engine/standalone_app.py apps/local-upload-manager/part01/lum_engine/auto_engine_v6.py
+          python -m py_compile production/short_uploader_group_release.py production/workers.py production/runtime.py production/short_studio_release.py production/shortstudio_readonly_diagnostic.py production/test_short_studio_v1.py production/test_shortstudio_readonly_diagnostic.py apps/short-maker/part01/app.py apps/scene-builder/part01/app.py apps/local-upload-manager/part01/lum_engine/standalone_app.py apps/local-upload-manager/part01/lum_engine/auto_engine_v6.py
       - name: Verify native Studio JavaScript syntax
         run: |
           node --check apps/scene-builder/part01/static/vps1_native_site_shell.js
@@ -36,6 +36,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_song_uploader_minimal_ui.py' -v
       - name: Verify Short Maker VPS folder handoff and safe cleanup regressions
         run: python -m unittest discover -s tests -p 'test_short_studio_folder_handoff.py' -v
+      - name: Short Uploader group metadata and queue regressions
+        run: python -m unittest discover -s tests -p 'test_short_uploader_group_metadata.py' -v
       - name: Forbid changed credentials and activation
         shell: bash
         run: |
@@ -43,3 +45,4 @@ jobs:
           ! grep -R 'LUM_ENGINE_INSTANCE=shortstudio.*engine_enabled=1' production apps
           grep -q '"shortstudio"' production/workers.py
           grep -q 'AUTO_SCRIPT=OFFLINE' .github/workflows/vps1-short-studio-release.yml
+

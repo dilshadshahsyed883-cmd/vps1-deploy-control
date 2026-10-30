@@ -1149,6 +1149,7 @@ def save_profile_from_form(pc_db:Any, store:V6Store, form:Dict[str,Any], profile
         video_folder=clean(form.get("drive_video_folder")),
         thumb_folder=clean(form.get("drive_thumbnail_folder")),
         thumb_mode=clean(form.get("thumbnail_source_mode")) or "pc_drive",
+        **({"short_folder":clean(form.get("short_vps_folder"))} if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio" else {}),
     )
     return pid
 
@@ -1160,6 +1161,10 @@ def target_channels(pc_db:Any, profile:Dict[str,Any]) -> List[Dict[str,Any]]:
 
 
 def category_metadata(profile:Dict[str,Any]) -> Tuple[Dict[str,Any],str]:
+    settings=profile.get("_short_group_metadata") or {}
+    if settings.get("metadata_source")=="manual":
+        return {"title":settings.get("manual_title"), "description":settings.get("manual_description"),
+                "category_id":settings.get("manual_category_id") or "22", "privacy_status":"private"}, "Manual website metadata"
     sheet=clean(profile.get("metadata_sheet_url_or_id")); tab=clean(profile.get("metadata_sheet_tab"))
     gid=clean(profile.get("metadata_sheet_gid")) or (extract_gid(sheet,fallback="") if sheet else "")
     if not sheet: raise ValueError("Metadata Sheet URL / ID is required.")
@@ -1216,7 +1221,7 @@ def planner(pc_db:Any, store:V6Store, profile:Dict[str,Any], *, max_jobs_overrid
     pid=int(profile.get("id") or 0)
     if not pid: raise ValueError("Saved Auto Engine profile is required.")
     source=store.source(pid)
-    if not clean(source.get("drive_video_folder_id")) and not source.get('local_songmaker_enabled'): raise ValueError("Google Drive Video Folder is required.")
+    if not clean(source.get("drive_video_folder_id")) and not source.get('local_songmaker_enabled') and not (os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio" and clean(source.get("short_folder_name"))): raise ValueError("Google Drive Video Folder is required.")
     # Always plan against the current Drive inventory. This covers Preview, manual Generate,
     # Start All, scheduler alarms and missed-alarm runs because they all pass through planner().
     try:
@@ -1240,6 +1245,8 @@ def planner(pc_db:Any, store:V6Store, profile:Dict[str,Any], *, max_jobs_overrid
     thumbs=[t for t in store.thumbs(pid) if t["status"]=="ACTIVE"]
     blocked=[]
     if thumbnail_required_for_mode() and not thumbs: blocked.append("No ACTIVE thumbnail is available.")
+    if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio":
+        profile={**profile, "_short_group_metadata":short_group_metadata(store, pid)}
     meta,note=category_metadata(profile)
     daily=max(1,int(profile.get("daily_upload_count") or 1))
     scope=clean(profile.get("upload_scope") or "per_channel")
@@ -1885,7 +1892,73 @@ def _channel_get_channel(pc_db: Any, channel_db_id: int) -> Optional[Dict[str, A
     return None
 
 
+def short_group_metadata(store: V6Store, profile_id: int, settings: Dict[str, Any]|None=None) -> Dict[str, Any]:
+    """Additive profile settings; channel bindings and historical jobs stay intact."""
+    with store.connect() as con:
+        con.execute("CREATE TABLE IF NOT EXISTS short_group_metadata (profile_id INTEGER PRIMARY KEY, settings_json TEXT NOT NULL)")
+        if settings is not None:
+            con.execute("INSERT INTO short_group_metadata VALUES (?,?) ON CONFLICT(profile_id) DO UPDATE SET settings_json=excluded.settings_json",
+                        (int(profile_id), json.dumps(settings)))
+        row=con.execute("SELECT settings_json FROM short_group_metadata WHERE profile_id=?", (int(profile_id),)).fetchone()
+        return json.loads(row[0]) if row else {"metadata_source":"sheet"}
+
+
+def save_short_group_profile(pc_db: Any, store: V6Store, form: Dict[str, Any], profile_id: int|None=None) -> int:
+    original=pc_db.get_auto_engine_profile(int(profile_id)) if profile_id else None
+    if profile_id and not original:
+        raise ValueError("Profile no longer exists.")
+    if clean(form.get("channel_db_id")) or clean(form.get("profile_kind")) not in {"", "group"}:
+        raise ValueError("New Short Uploader profiles require a channel group.")
+    group=clean(form.get("channel_group_id"))
+    if not group.isdigit() or not any(int(g["id"])==int(group) for g in pc_db.list_channel_groups()):
+        raise ValueError("Select a valid channel group.")
+    if not pc_db.list_channel_group_members(int(group)):
+        raise ValueError("Selected group has no channels.")
+    if not clean(form.get("category_name")):
+        raise ValueError("Enter group profile name.")
+    saved=short_group_metadata(store, int(profile_id)) if profile_id else {}
+    settings=dict(saved)
+    for key in ("metadata_source", "manual_title", "manual_description", "manual_category_id"):
+        if key in form:
+            settings[key]=clean(form[key])
+    settings.setdefault("metadata_source", "sheet")
+    settings.setdefault("manual_category_id", "22")
+    source=settings["metadata_source"]
+    if source not in {"sheet", "manual"}:
+        raise ValueError("Select Google Sheets or Manual Metadata.")
+    if source=="manual":
+        if not settings.get("manual_title") or len(settings["manual_title"])>100:
+            raise ValueError("Manual title is required and must be at most 100 characters.")
+        if len(settings.get("manual_description", ""))>5000:
+            raise ValueError("Manual description cannot exceed 5000 characters.")
+        if settings["manual_category_id"] not in {"1","2","10","15","17","19","20","22","23","24","25","26","27","28","29"}:
+            raise ValueError("Choose a valid YouTube category.")
+    fields=dict(form)
+    for key in ("metadata_sheet_url_or_id", "metadata_sheet_tab", "metadata_sheet_gid"):
+        if key not in fields:
+            fields[key]=(original or {}).get(key, "")
+    if source=="sheet" and (not clean(fields.get("metadata_sheet_url_or_id")) or not clean(fields.get("metadata_sheet_tab"))):
+        raise ValueError("Google Sheet URL and metadata tab are required.")
+    folder=clean(form.get("short_vps_folder"))
+    if folder:
+        if not shortstudio_folder_path(folder).is_dir():
+            raise ValueError("Short Maker VPS folder does not exist.")
+    elif not clean(form.get("drive_video_folder")):
+        raise ValueError("Choose a Short Maker VPS folder or Google Drive folder.")
+    # Saving a profile never arms an existing or new schedule.
+    fields["schedule_enabled"]="1" if original and int(original.get("schedule_enabled") or 0)==1 else "0"
+    pid=_CHANNEL_LEGACY_SAVE_PROFILE(pc_db, store, fields, profile_id)
+    short_group_metadata(store, pid, settings)
+    return pid
+
+
 def save_profile_from_form(pc_db: Any, store: V6Store, form: Dict[str, Any], profile_id: int|None=None) -> int:
+    if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio":
+        binding=store.channel_binding(int(profile_id)) if profile_id else {}
+        if not binding:
+            return save_short_group_profile(pc_db, store, form, profile_id)
+        if clean(form.get("channel_db_id"))!=str(binding["channel_db_id"]):
+            raise ValueError("Existing channel profile must keep its channel; create a new group profile.")
     raw_channel=clean(form.get("channel_db_id"))
     # Restore group-based profiles for Song Uploader without affecting per-channel
     # Video-ID bindings or the other independent uploader instances.
@@ -2359,6 +2432,8 @@ def profile_context(pc_db: Any, store: V6Store, profile_id:int=0) -> Dict[str,An
                        "manual_category_id":clean(b.get("manual_category_id")) or "10",
                        "manual_upload_date":clean(b.get("manual_upload_date")),
                        "manual_upload_time":clean(b.get("manual_upload_time"))})
+        if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio" and not b:
+            pr.update(short_group_metadata(store, pid))
         profiles.append(pr)
     ctx["profiles"]=profiles
     selected=ctx.get("selected")
@@ -2522,3 +2597,4 @@ def queue_preflight(pc_db: Any, store: V6Store) -> Dict[str,Any]:
     errors=sum(1 for x in filtered if clean(x.get("severity")).upper()=="ERROR")
     warnings=sum(1 for x in filtered if clean(x.get("severity")).upper()=="WARNING")
     return {**base,"ok":errors==0,"errors":errors,"warnings":warnings,"issues":filtered}
+

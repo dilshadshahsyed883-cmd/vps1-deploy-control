@@ -548,6 +548,12 @@ def require_short_maker_idle(state):
 def install_app(app, revision):
     if app not in CATALOG:
         raise ValueError('app is not owned by this installer')
+    if app == 'local-upload-manager':
+        intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-short-uploader-group-metadata]' in intent:
+            from production.short_uploader_group_release import install as install_short_groups
+            install_short_groups(revision)
+            return
     if app == 'video-merger':
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
         if '[vps1-video-merger-import-release]' in intent:
@@ -888,3 +894,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
