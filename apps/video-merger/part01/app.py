@@ -1064,12 +1064,14 @@ def process_job(j):
         retained = retain_verified_output(out, jid, j['filename'])
         update_local_path(jid,j['filename'])
         fid,url = '',''
-        if int(j.get('drive_enabled',1)):
-            update_job(jid,'uploading',92,'Uploading to Google Drive')
-            fid,url=upload_drive(retained,j['folder'],j['filename'])
+        # Handoff is independent from Drive; a Drive outage must never prevent
+        # a verified MP4 from being made available for manual uploader selection.
         if int(j.get('copyright_enabled',0)):
-            update_job(jid,'uploading',96,'Adding to Copyright Uploader folder')
+            update_job(jid,'uploading',91,'Adding to Copyright Uploader folder')
             deliver_copyright_folder(retained,j.get('owner_username',''),jid)
+        if int(j.get('drive_enabled',1)):
+            update_job(jid,'uploading',96,'Uploading to Google Drive')
+            fid,url=upload_drive(retained,j['folder'],j['filename'])
         update_job(jid,'complete',100,f'Complete · {dur:.1f}s',drive_id=fid,drive_url=url,error='')
         shutil.rmtree(ws,ignore_errors=True)
     except Exception as e:
