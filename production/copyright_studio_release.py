@@ -188,3 +188,30 @@ def restore_route(receipt):
     write_site(receipt["before"])
     command("nginx", "-t")
     command("systemctl", "reload", "nginx")
+
+def rollback_installed_route(revision):
+    """Recover only this revision's authenticated Nginx route from its proven receipt.
+
+    Exact hash compare prevents a later unrelated site edit from being lost.
+    Existing route owners have no receipt and must remain unchanged.
+    """
+    guard(len(revision)==40 and all(ch in '0123456789abcdef' for ch in revision),
+          "invalid rollback revision")
+    tx=Path("/srv/fresh-website/transactions/copyright-studio-route")/revision
+    receipt_path=tx/"receipt.json"
+    before_path=tx/"before.conf"
+    if not receipt_path.is_file() and not before_path.exists():
+        return False
+    guard(receipt_path.is_file() and before_path.is_file(),
+          "partial route rollback transaction")
+    values=json.loads(receipt_path.read_text())
+    previous=before_path.read_text()
+    guard(values.get("revision")==revision and
+          hashlib.sha256(previous.encode()).hexdigest()==values.get("before_sha") and
+          values.get("auth")=="PASS" and values.get("html")=="PASS",
+          "route rollback receipt verification failed")
+    restore_route({"before":previous,"after_sha":values.get("after_sha")})
+    (tx/"rolled_back.json").write_text(json.dumps({
+        "revision":revision,"route":"RESTORED","before_sha":values["before_sha"],
+    },sort_keys=True))
+    return True
