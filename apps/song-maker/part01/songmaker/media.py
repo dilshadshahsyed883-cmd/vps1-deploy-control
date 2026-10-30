@@ -16,6 +16,45 @@ AUDIO = {'.mp3', '.wav', '.m4a'}
 FORMATS = {'1080p': (1920, 1080), '720p': (1280, 720), '9:16': (1080, 1920)}
 # Bounded H.264 quality presets; default preserves existing CRF 20 renders.
 QUALITIES = {'high': 18, 'balanced': 20, 'compact': 23}
+# Built-in, media-free music-video treatments. OFF retains the existing fast render path.
+OVERLAYS = {'light_leaks', 'neon_purple', 'dream_glow', 'film_grain',
+            'cinematic_vignette', 'rhythm_pulse'}
+OVERLAY_SPEEDS = {'slow': 4.0, 'normal': 2.4, 'fast': 1.4}
+
+
+def validate_overlay(enabled=False, preset='light_leaks', strength=35, speed='normal'):
+    """Strict limits; never interpolate untrusted values into an FFmpeg expression."""
+    if (type(enabled) is not bool or preset not in OVERLAYS or
+            type(strength) is not int or not 0 <= strength <= 100 or
+            speed not in OVERLAY_SPEEDS):
+        raise ValueError('Unsupported overlay options')
+    return {'overlay_enabled': enabled, 'overlay_preset': preset,
+            'overlay_strength': strength, 'overlay_speed': speed}
+
+
+def video_filter(enabled=False, preset='light_leaks', strength=35, speed='normal'):
+    validate_overlay(enabled, preset, strength, speed)
+    base = 'loop=loop=-1:size=1:start=0'
+    if not enabled or not strength:
+        return base
+    power = strength / 100.0
+    if preset == 'light_leaks':
+        effect = (f'colorbalance=rs={.22*power:.4f}:gs={.07*power:.4f}:bs={-.12*power:.4f},'
+                  f'eq=brightness={.035*power:.4f}:saturation={1+.20*power:.4f}')
+    elif preset == 'neon_purple':
+        effect = (f'colorbalance=rs={.16*power:.4f}:gs={-.07*power:.4f}:bs={.23*power:.4f},'
+                  f'eq=saturation={1+.48*power:.4f}')
+    elif preset == 'dream_glow':
+        effect = (f'gblur=sigma={.2+1.5*power:.3f}:steps=1,'
+                  f'eq=brightness={.025*power:.4f}:contrast={1-.08*power:.4f}')
+    elif preset == 'film_grain':
+        effect = f'noise=alls={max(1, round(25*power))}:allf=t+u'
+    elif preset == 'cinematic_vignette':
+        effect = f'vignette=PI/{13-9*power:.3f}'
+    else:  # rhythm_pulse: frame-timed luminance without external assets.
+        effect = (f"eq=brightness='{.055*power:.4f}*sin(2*PI*t/{OVERLAY_SPEEDS[speed]:.2f})'"
+                  f':eval=frame:saturation={1+.12*power:.4f}')
+    return base + ',' + effect
 
 
 class Cancelled(Exception):
@@ -146,9 +185,10 @@ def validate(path, duration, cancelled=lambda: False):
     return {'duration': duration, 'size': Path(path).stat().st_size, 'md5': digest(path, 'md5')}
 
 
-def render(image, audio, output, temporary, resolution='1080p', fit='fit', cancelled=lambda: False, progress=None, metrics=None, quality='balanced'):
+def render(image, audio, output, temporary, resolution='1080p', fit='fit', cancelled=lambda: False, progress=None, metrics=None, quality='balanced', overlay_enabled=False, overlay_preset='light_leaks', overlay_strength=35, overlay_speed='normal'):
     if resolution not in FORMATS or fit not in {'fit', 'blur'} or quality not in QUALITIES:
         raise ValueError('Unsupported output options')
+    filters = video_filter(overlay_enabled, overlay_preset, overlay_strength, overlay_speed)
     duration = audio_duration(audio)
     width, height = FORMATS[resolution]
     with Image.open(image) as source:
@@ -165,7 +205,7 @@ def render(image, audio, output, temporary, resolution='1080p', fit='fit', cance
     # durations (e.g. 1.27s) while retaining CFR 25 FPS output.
     run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
          '-framerate', '25', '-i', str(temporary / 'frame.png'), '-i', str(audio),
-         '-map', '0:v:0', '-map', '1:a:0', '-vf', 'loop=loop=-1:size=1:start=0', '-c:v', 'libx264', '-preset', 'veryfast',
+         '-map', '0:v:0', '-map', '1:a:0', '-vf', filters, '-c:v', 'libx264', '-preset', 'veryfast',
          '-tune', 'stillimage', '-crf', str(QUALITIES[quality]), '-threads', '4', '-pix_fmt', 'yuv420p', '-r', '25',
          '-c:a', 'aac', '-b:a', '192k', '-t', str(duration), '-shortest',
          '-movflags', '+faststart', '-progress', 'pipe:1', str(partial)],
