@@ -34,6 +34,17 @@ def load_function(path, name, namespace):
 
 
 class ShortProfileControlTests(unittest.TestCase):
+    def test_bulk_import_not_available_to_short_uploader(self):
+        template=TEMPLATE.read_text()
+        routes=ROUTES.read_text()
+        self.assertIn("{% if engine_instance not in ['song', 'shortstudio'] %}",template)
+        self.assertIn("tab=='bulk_import'",template)
+        self.assertIn("{% elif tab == 'bulk_import' and engine_instance not in ['song', 'shortstudio'] %}",template)
+        self.assertIn('allowed = {"dashboard", "channels", "sheets", "auto_engine", "logs"}',routes)
+        # Existing Auto Uploader/other instances retain their Bulk Import UI.
+        self.assertIn('<h2>Bulk Import</h2>',template)
+        Environment().parse(template)
+
     def test_thumbnail_library_is_hidden_in_short_but_available_to_song(self):
         source = TEMPLATE.read_text()
         self.assertIn("engine_instance != 'shortstudio' and not (p and p.channel_db_id)", source)
