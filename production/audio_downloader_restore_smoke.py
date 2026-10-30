@@ -79,8 +79,14 @@ def api_reference(source, root, config):
     import yt_dlp
     try:
         with m.youtube_execution() as (options, _):
-            # parse_options only loads the private explicit route/runtime snapshot.
-            opts = yt_dlp.parse_options(options).ydl_opts
+            # Use Python API defaults, as Windows does. CLI parse_options defaults
+            # ignoreerrors='only_download', which can hide extraction failures.
+            profile = m._selected_proxy(config)
+            opts = {'proxy': m._proxy_url(profile) if profile else '',
+                    'ignoreerrors': False, 'socket_timeout': 20}
+            deno = Path(sys.executable).parent / 'deno'
+            if deno.is_file():
+                opts['js_runtimes'] = {'deno': {'path': str(deno)}}
             opts.update(format='bestaudio[ext=m4a]/bestaudio/best',
                         outtmpl=str(root / '%(id)s.%(ext)s'), noplaylist=True,
                         continuedl=True, overwrites=False, quiet=True,
@@ -94,7 +100,8 @@ def api_reference(source, root, config):
                 def error(self, *args): pass
             opts['logger'] = Silent()
             with yt_dlp.YoutubeDL(opts) as ydl:
-                ydl.extract_info('https://www.youtube.com/watch?v=' + VIDEO, download=True)
+                if not ydl.extract_info('https://www.youtube.com/watch?v=' + VIDEO, download=True):
+                    raise RuntimeError('Reference API did not return a video')
         return receipt(root / (VIDEO + '.mp3'), m.deps()['ffmpeg'])
     except Exception as exc:
         return {'result': m.download_failure(exc).code, 'exception': type(exc).__name__,
