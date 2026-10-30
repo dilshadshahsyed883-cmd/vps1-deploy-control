@@ -442,8 +442,8 @@ def verified_drive_public_link(remote: str, local_path=None, expected_format='mp
 
 def _run_tracked(command: list[str], *, jid: str, phase: str, cwd=None, env=None, timeout: int = 1500):
     """Stream sanitized percent only. No raw provider output or credentials enter SQLite."""
-    pattern = (re.compile(r'AD_PROGRESS:\\s*(\\d+(?:\\.\\d+)?)%') if phase == 'download'
-               else re.compile(r'Transferred:.*?(\\d+(?:\\.\\d+)?)%'))
+    pattern = (re.compile(r'AD_PROGRESS:\s*(\d+(?:\.\d+)?)%') if phase == 'download'
+               else re.compile(r'Transferred:.*?(\d+(?:\.\d+)?)%'))
     collected: list[str] = []
     highest = -1
     with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
