@@ -1629,12 +1629,18 @@ def auto_v6_missed_skip(request: Request,csrf_token: str=Form(...),missed_id: in
 @app.post(route("/actions/settings"))
 def save_settings(request: Request, csrf_token: str = Form(...), sheets_sync_enabled: str = Form("0"), auto_engine_enabled: str = Form("0"), bulk_import_enabled: str = Form("0"), delete_staged_after_verified: str = Form("1")):
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
-    for key, value in {
+    settings = {
         "sheets_sync_enabled": sheets_sync_enabled,
         "auto_engine_enabled": auto_engine_enabled,
-        "bulk_import_enabled": bulk_import_enabled,
         "delete_staged_after_verified": delete_staged_after_verified,
-    }.items():
+    }
+    # Bulk Import is not a Song Uploader mode. Ignore stale or forged form
+    # values without changing the other isolated uploader instances.
+    if os.getenv("LUM_ENGINE_INSTANCE", "engine1") == "song":
+        settings["bulk_import_enabled"] = "0"
+    else:
+        settings["bulk_import_enabled"] = bulk_import_enabled
+    for key, value in settings.items():
         store.set_setting(key, "1" if str(value).lower() in {"1", "true", "on", "yes"} else "0")
     store.set_setting("max_active_uploads", "1")
     store.set_setting("remote_verification_enabled", "1")
