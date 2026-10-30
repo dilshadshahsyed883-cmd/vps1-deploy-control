@@ -46,9 +46,9 @@ def main():
                 rail=page.locator('[data-video-studio-subnav],.vps1-native-video-tabs').first
                 box=rail.bounding_box();assert abs(box['height']-62)<2,(path,width,box)
                 if path=='/short-maker/':
-                    field=page.locator('input[name="base_name"]');field.fill('retained-draft.mp4')
+                    field=page.locator('input[name="image_duration"]');field.fill('4.5')
                     page.locator('#queueTabBtn').click();expect(page.locator('#queuePanel')).to_be_visible();geometry('maker queue')
-                    page.locator('#makerTabBtn').click();expect(field).to_have_value('retained-draft.mp4')
+                    page.locator('#makerTabBtn').click();expect(field).to_have_value('4.5')
                     row=page.locator('#makerPanel .panel').first
                 elif path=='/video-merger/':
                     page.locator('[name="filenameMode"][value="manual"]').check();page.locator('#fname').fill('retained-name')
