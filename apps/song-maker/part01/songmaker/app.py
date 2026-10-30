@@ -195,6 +195,20 @@ def create_app(store=None):
     def folder_list(user=Depends(principal)):
         return {'folders':folders.list(user['owner'])}
 
+    @app.get('/song-maker/api/manual-folder')
+    def manual_folder(user=Depends(principal)):
+        return {'song_folder_id':store.record('intake',user['owner']).get('song_folder_id','')}
+
+    @app.put('/song-maker/api/manual-folder')
+    async def save_manual_folder(request:Request,user=Depends(principal)):
+        data=await request.json()
+        folder_id=str(data.get('song_folder_id') or '')
+        if folder_id:
+            try: folders.get(user['owner'],folder_id)
+            except ValueError as exc: raise HTTPException(422,str(exc))
+        store.record('intake',user['owner'],{'song_folder_id':folder_id})
+        return {'song_folder_id':folder_id}
+
     @app.get('/song-maker/api/folders/{folder_id}')
     def folder_get(folder_id:str,user=Depends(principal)):
         try: return folders.get(user['owner'],folder_id)
@@ -233,7 +247,6 @@ def create_app(store=None):
         exports = store.record('exports', user['owner'])
         downloader_handoff = request.headers.get('x-audio-downloader-handoff') == '1'
         if song_folder_id:
-            if not downloader_handoff: raise HTTPException(422,'Folders require the original Audio Downloader pair')
             try: folders.get(user['owner'],song_folder_id)
             except ValueError as exc: raise HTTPException(422,str(exc))
         if (downloader_handoff and not song_folder_id

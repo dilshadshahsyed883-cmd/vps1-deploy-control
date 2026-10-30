@@ -164,6 +164,20 @@ def verify():
             'media_drive_e2e':'NOT_VERIFIED_BY_HEALTH'}
 
 
+def verify_pc_folder_controls():
+    cookie=scene_cookie()
+    code,_,body=https_get('/song-maker/',cookie)
+    require(code==200 and all(marker in body for marker in
+            (b'id="pcSongFolder"',b'id="pcCreateFolder"',b'id="pcRefreshFolders"')),
+            'PC folder controls are not live')
+    for path,key in (('/song-maker/api/manual-folder','song_folder_id'),('/song-maker/api/folders','folders')):
+        code,kind,body=https_get(path,cookie)
+        require(code==200 and 'json' in kind.lower() and key in json.loads(body),
+                'PC folder selection/registry readback failed')
+    print('SONG_MAKER_PC_FOLDERS_READBACK=PASS',flush=True)
+    return {'pc_folder_controls':'PASS','shared_registry':'PASS','selection_persistence_api':'PASS'}
+
+
 def restore(previous):
     # Caller holds host deployment lock; restore only exact scoped preimages.
     for lane in LANES:subprocess.run(['systemctl','stop',unit_name(lane)],capture_output=True)
@@ -291,6 +305,8 @@ def update_existing(revision):
         for lane in LANES:
             run(['systemctl','start',unit_name(lane)],quiet=True)
         evidence=verify()
+        if '[vps1-song-maker-pc-folders]' in run(['git','log','-1','--format=%B'],cwd=REPO,quiet=True):
+            evidence.update(verify_pc_folder_controls())
         atomic_json(journal/'result.json',
                     {'revision':revision,'kind':'update','state':'LIVE_HEALTH_VERIFIED',
                      'evidence':evidence})

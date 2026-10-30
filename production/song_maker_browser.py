@@ -55,6 +55,7 @@ def main():
                         page.set_viewport_size({'width':width,'height':950})
                         page.goto(f'http://127.0.0.1:{port}/song-maker/')
                         page.wait_for_selector('#vps1-native-site-sidebar')
+                        page.locator('[data-tab="input"]').click()
                         assert page.locator('#vps1-native-site-sidebar').count()==1
                         assert page.locator('iframe').count()==0
                         # Theme contract: parity with light Audio Downloader / Song Uploader.
@@ -74,6 +75,8 @@ def main():
                         assert active_color['color'] == 'rgb(99, 85, 223)', (width, active_color)
                         assert page.locator('.sm input[name="image"]').evaluate(
                             "(el) => getComputedStyle(el).backgroundColor") == 'rgb(255, 255, 255)'
+                        assert page.locator('#pcFolderCard').is_visible()
+                        assert page.locator('#pcCreateFolder').is_visible()
                         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'),f'page overflow at {width}'
                         # Canonical Kokoro shell geometry: application header, inner
                         # tabs and cards share the Song Studio outer rail edges.
@@ -144,6 +147,24 @@ def main():
                     page.get_by_text('View Details',exact=True).click()
                     assert page.locator('#details').is_visible()
                     page.locator('#closeDetails').click()
+                    # PC files share the canonical VPS folder registry. Create,
+                    # persist, render and reload the selected destination.
+                    page.locator('[data-tab="input"]').click()
+                    page.once('dialog',lambda dialog:dialog.accept('PC Browser Music'))
+                    page.locator('#pcCreateFolder').click()
+                    page.wait_for_function("document.querySelector('#pcFolderStatus').textContent.includes('selection saved')")
+                    pc_folder=page.locator('#pcSongFolder').input_value()
+                    assert pc_folder
+                    page.reload()
+                    page.wait_for_function("!document.querySelector('#pcSongFolder').disabled")
+                    assert page.locator('#pcSongFolder').input_value()==pc_folder
+                    page.locator('input[name="image"]').set_input_files(root/'image.png')
+                    page.locator('input[name="audio"]').set_input_files(root/'Voice name.wav')
+                    page.locator('#manual button').click()
+                    page.wait_for_function("""async () => {
+                        const state=await fetch('/song-maker/api/state').then(r=>r.json());
+                        return state.jobs.some(j=>j.song_folder_id && j.stage==='Completed');
+                    }""",timeout=60000)
                     # Local folder workflow is distinct from Drive Sync and
                     # uses the same real single-pair submission endpoint.
                     page.locator('[data-tab="input"]').click()
@@ -177,6 +198,9 @@ def main():
                     page.wait_for_function("document.querySelector('#batchSummary').textContent.includes('2 queued')",timeout=30000)
                     jobs = page.evaluate("fetch('/song-maker/api/state').then(x => x.json()).then(x => x.jobs)")
                     assert len([j for j in jobs if j['project'] in ('Song A', 'Song B')]) == 2
+                    assert all(j['song_folder_id']==pc_folder for j in jobs if j['project'] in ('Song A','Song B'))
+                    folders=page.evaluate("fetch('/song-maker/api/folders').then(r=>r.json()).then(r=>r.folders)")
+                    assert any(f['id']==pc_folder and f['name']=='PC Browser Music' for f in folders)
                     browser.close()
                 print(json.dumps({'browser':'PASS','viewports':[360,390,768,1024,1440],'real_render_download':'PASS','production_auth':'NOT_TESTED','real_drive':'NOT_TESTED'}))
             finally:
