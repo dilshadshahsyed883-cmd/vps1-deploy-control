@@ -1,5 +1,5 @@
 // Regression: execute the actual inline Audio Downloader scripts AFTER emulated
-// production Nginx sub_filter. Covers Queue, History, submit/status and proxy.
+// production Nginx sub_filter. Covers the consolidated Queue, submit/status and proxy.
 'use strict';
 const fs = require('node:fs');
 const vm = require('node:vm');
@@ -11,6 +11,7 @@ const calls = [];
 const nodes = new Map();
 const localOptions = new Map();
 let serverOptions = null;
+let queueJobs = [];
 function makeElement(tag='div') {
   return {
     tag, children: [], style: {}, dataset: {}, classList: {toggle(){}, add(){}, remove(){}},
@@ -39,7 +40,7 @@ async function fetch(url, options={}) {
   const path = new URL(url, origin).pathname;
   let response;
   if (path === apiRoot + '/jobs' && (options.method || 'GET') === 'POST') response = {created:1,batch_id:'TEST'};
-  else if (path === apiRoot + '/jobs') response = {jobs:[]};
+  else if (path === apiRoot + '/jobs') response = {jobs:queueJobs};
   else if (path === apiRoot + '/status') response = {ready:true,worker:true,upload_ready:true,queue:{}};
   else if (path === apiRoot + '/preferences' && (options.method || 'GET') === 'GET') {
     response = {saved:!!serverOptions,preferences:serverOptions};
@@ -85,10 +86,33 @@ function runScript(id, exports) {
   return context.__browserProbe;
 }
 async function check() {
-  const audio = runScript('audio-downloader-v1-js','loadJobs,loadStatus,submit,jobTable,boot,applyDownloadPreferences,downloadPreferences,saveDownloadPreferences,loadDownloadPreferences');
+  const audio = runScript('audio-downloader-v1-js','loadJobs,loadStatus,submit,jobTable,tab,boot,applyDownloadPreferences,downloadPreferences,saveDownloadPreferences,loadDownloadPreferences');
   calls.length = 0;
   await audio.loadJobs();
-  assert.deepEqual(calls.map(x=>x.url),[apiRoot+'/jobs?limit=200'],'Queue/History fetch must resolve once');
+  assert.deepEqual(calls.map(x=>x.url),[apiRoot+'/jobs?limit=200'],'Queue fetch must resolve once');
+  for (const retired of ['data-vsa-section="drive"','data-vsa-section="history"','id="vsaRecent"','id="vsaHistory"','id="vsaDrive"','vsaHistoryRows','vsaDriveSummary']) {
+    assert.ok(!text.includes(retired), 'retired UI must not remain: '+retired);
+  }
+  assert.deepEqual((text.match(/data-vsa-section="[^"]+"/g)||[]),[
+    'data-vsa-section="downloader"','data-vsa-section="queue"','data-vsa-section="proxy"']);
+  audio.tab('queue');
+  assert.equal(getElementById('vsaQueue').hidden,false);
+  assert.equal(getElementById('vsaDownloader').hidden,true);
+  audio.tab('proxy');
+  assert.equal(getElementById('vsaProxy').hidden,false);
+  audio.tab('downloader');
+  assert.equal(getElementById('vsaDownloader').hidden,false);
+  assert.equal(getElementById('vsaQueue').hidden,true);
+  // Completed, failed and queued jobs are all rendered in the single Queue page.
+  queueJobs=[
+    {job_id:'ADJ-CCCCCCCCCCCCCCCC',video_id:'ABCDEFGHIJK',status:'completed',format:'mp3',created_at:'2026-10-30T05:00:00Z',auto_upload:false},
+    {job_id:'ADJ-DDDDDDDDDDDDDDDD',video_id:'ABCDEFGHIJK',status:'failed',format:'mp3',created_at:'2026-10-30T05:01:00Z',auto_upload:true},
+    {job_id:'ADJ-EEEEEEEEEEEEEEEE',video_id:'ABCDEFGHIJK',status:'queued',format:'mp3',created_at:'2026-10-30T05:02:00Z',auto_upload:false}
+  ];
+  await audio.loadJobs();
+  const rendered=getElementById('vsaQueueRows').children[0];
+  assert.equal(rendered.children[0].children[1].children.length,3,'Queue must show current and terminal jobs together');
+  queueJobs=[];
   calls.length = 0;
   await audio.loadStatus();
   assert.deepEqual(calls.map(x=>x.url),[apiRoot+'/status'],'status route must resolve once');
@@ -172,6 +196,6 @@ async function check() {
   calls.length = 0;
   await proxy.request('/profiles');
   assert.deepEqual(calls.map(x=>x.url),[apiRoot+'/proxy/profiles']);
-  console.log('PASS: Audio saved preferences, refresh, manual toggle dependencies, and authenticated browser paths');
+  console.log('PASS: three-tab Audio UI, consolidated Queue history, saved preferences and authenticated browser paths');
 }
 check().catch(e=>{console.error(e.stack||e);process.exitCode=1});
