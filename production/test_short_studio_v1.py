@@ -96,6 +96,57 @@ class ShortStudioV1(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "drift"):
             short_studio_release.apply_route("server {\n" + ANCHOR + "\n}")
 
+    def test_https_reload_converges_without_dropping_auth(self):
+        calls = []
+        statuses = iter((404, 404, 401, 404, 401, 401))
+        authorized = iter(((404, "text/plain", b""), (200, "text/html", b"Short Uploader | Auto Engine")))
+
+        def get(path, cookie=""):
+            calls.append((path, bool(cookie)))
+            if path in ("/short-uploader/app", "/short-uploader/health"):
+                return next(statuses), "application/json", b""
+            if path == "/short-uploader/app?tab=auto_engine":
+                self.assertEqual(cookie, "session=dummy")
+                return next(authorized)
+            if path == "/short-uploader":
+                return 308, "", b""
+            if path == "/_scene_uploader_auth":
+                return 404, "", b""
+            raise AssertionError(path)
+
+        with patch.object(short_studio_release.time, "sleep") as sleep:
+            short_studio_release.verify_https_route(
+                get, lambda: "session=dummy", attempts=4, delay=0.01)
+        self.assertEqual(sleep.call_count, 3)
+        self.assertIn(("/short-uploader", False), calls)
+        self.assertIn(("/_scene_uploader_auth", True), calls)
+
+    def test_https_reload_rejects_public_or_invalid_auth(self):
+        for unsafe in (200, 302, 303, 403):
+            with self.subTest(status=unsafe):
+                def get(path, cookie=""):
+                    if path == "/short-uploader/app":
+                        return unsafe, "text/html", b""
+                    return 401, "text/plain", b""
+
+                with self.assertRaisesRegex(RuntimeError, "anonymous Short Uploader access"):
+                    short_studio_release.verify_https_route(get, lambda: "session=dummy", attempts=2, delay=0)
+
+    def test_https_reload_fails_closed_if_stale_404_never_converges(self):
+        def get(path, cookie=""):
+            return 404, "application/json", b'{"detail":"Not Found"}'
+        with patch.object(short_studio_release.time, "sleep"):
+            with self.assertRaisesRegex(RuntimeError, "auth never converged"):
+                short_studio_release.verify_https_route(get, lambda: "session=dummy", attempts=3, delay=0)
+
+    def test_https_reload_fails_if_authenticated_html_missing(self):
+        def get(path, cookie=""):
+            if not cookie:
+                return 401, "", b""
+            return 200, "text/html", b"Not the Short Uploader"
+        with self.assertRaisesRegex(RuntimeError, "authenticated Short Uploader HTML readback failed"):
+            short_studio_release.verify_https_route(get, lambda: "session=dummy", attempts=2, delay=0)
+
     def test_release_stays_in_existing_protected_path(self):
         runtime = (ROOT / "production/runtime.py").read_text()
         self.assertIn("install_route(revision)", runtime)
@@ -103,7 +154,7 @@ class ShortStudioV1(unittest.TestCase):
         self.assertIn('("shortstudio", 8019, "/short-uploader/health", "lum-shortstudio")', runtime)
         self.assertIn("require_lum_release_idle(state)", runtime)
         source = (ROOT / "production/short_studio_release.py").read_text()
-        self.assertIn('guard(https_get(path)[0] == 401', source)
+        self.assertIn('verify_https_route(https_get, scene_cookie)', source)
         self.assertIn('authenticated Short Uploader HTML readback failed', source)
         self.assertIn('if before == after:', source)
 
