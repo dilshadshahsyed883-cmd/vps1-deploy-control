@@ -717,9 +717,9 @@ button{border:0;border-radius:10px;padding:11px 15px;background:var(--accent);co
 .sm-tabs button{flex:1;background:transparent;color:#596579}.sm-tabs button.active{background:#fff;color:#2457d6;box-shadow:0 3px 10px rgba(31,45,74,.11)}
 .queue-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:14px}.queue-head h2{margin:0}.queue-actions{display:flex;gap:8px;flex-wrap:wrap}
 button.secondary{background:#f0efff;color:#4d4fc7}button.danger{background:#fff0f2;color:#dc4c64}
-.queue-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}.queue-metrics>div{border:1px solid var(--line);border-radius:12px;padding:14px}.queue-metrics b{display:block;font-size:24px}.queue-metrics span{color:var(--muted);font-weight:700}
+.queue-metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px}.queue-metrics>div{border:1px solid var(--line);border-radius:12px;padding:14px}.queue-metrics b{display:block;font-size:24px}.queue-metrics span{color:var(--muted);font-weight:700}
 .queue-table-wrap{overflow:auto}.queue-table{width:100%;border-collapse:collapse;min-width:900px}.queue-table th,.queue-table td{text-align:left;padding:11px;border-bottom:1px solid var(--line);vertical-align:middle}.queue-table th{font-size:12px;color:var(--muted)}
-.qbadge{display:inline-block;padding:5px 8px;border-radius:20px;font-size:11px;font-weight:900;background:#eef0f5}.qbadge.queued{background:#efefff;color:#5354d9}.qbadge.running{background:#fff3de;color:#a86400}.qbadge.completed{background:#e7f8f0;color:#11734c}.qbadge.failed{background:#ffecef;color:#b9344c}
+.qbadge{display:inline-block;padding:5px 8px;border-radius:20px;font-size:11px;font-weight:900;background:#eef0f5}.qbadge.uploading{background:#e7f1ff;color:#2463b0}.qbadge.queued{background:#efefff;color:#5354d9}.qbadge.running{background:#fff3de;color:#a86400}.qbadge.completed{background:#e7f8f0;color:#11734c}.qbadge.failed{background:#ffecef;color:#b9344c}
 .qbar{width:140px;height:7px;background:#edf0f5;border-radius:20px;overflow:hidden}.qbar span{display:block;height:100%;background:var(--accent)}.qmsg{max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted);font-size:12px}
 .queue-pager{display:flex;justify-content:flex-end;align-items:center;gap:9px;margin-top:13px}.queue-pager span{color:var(--muted);font-weight:700}
 .drive-delivery{margin:14px 0;padding:14px;border:1px solid var(--line);border-radius:12px;background:#fafbfe}.checkline{display:block;margin:7px 0;color:var(--text)}.checkline input{width:auto;margin-right:6px}.driveok{color:var(--good);font-weight:800}.drivewait{color:var(--muted);font-size:12px}
@@ -839,7 +839,8 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
 <section class="panel" aria-label="Render controls">
  <h2>Render</h2>
  <button id="render" class="render" type="submit">Start Rendering</button>
- <div class="progress"><span id="bar"></span></div>
+ <div class="progress" id="progressTrack" role="progressbar" aria-label="Upload progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="bar"></span></div>
+ <div id="progressDetail" class="status" aria-live="polite">Upload: 0% · Rendering: 0%</div>
  <div id="status" class="status">Ready.</div>
  <div id="outputs" class="outputs"></div>
 </section>
@@ -867,6 +868,7 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
   <div class="queue-head"><div><h2>Render Queue</h2><div class="hint">One render runs at a time. New jobs wait automatically.</div></div>
   <div class="queue-actions"><button id="newJobBtn" type="button">+ New Job</button><button id="clearDoneBtn" class="secondary" type="button">Clear completed</button><button id="clearFailedBtn" class="danger" type="button">Clear failed</button></div></div>
   <div class="queue-metrics">
+    <div><b id="mUploading">0</b><span>Uploading</span></div>
     <div><b id="mQueued">0</b><span>Queued</span></div><div><b id="mRunning">0</b><span>Running</span></div><div><b id="mCompleted">0</b><span>Completed</span></div><div><b id="mFailed">0</b><span>Failed</span></div>
   </div>
   <div class="queue-table-wrap"><table class="queue-table"><thead><tr><th>Job</th><th>Status</th><th>Progress</th><th>Message</th><th>Outputs</th><th>Action</th></tr></thead><tbody id="queueRows"><tr><td colspan="6">Loading…</td></tr></tbody></table></div>
@@ -1007,42 +1009,18 @@ function renderQueue(){
  if(!rows.length){body.innerHTML='<tr><td colspan="6">No jobs yet.</td></tr>';return;}
  body.innerHTML=rows.map(j=>{const st=String(j.status||'unknown'),p=Math.max(0,Math.min(100,Number(j.progress||0))),outs=(j.outputs||[]).map(o=>o.local_available&&o.url?`<a href="${escQ(o.url)}">${escQ(o.name)}</a>`:`<span class="driveok" title="${escQ(o.drive_path||'')}">Drive ✓ ${escQ(o.name)}</span>`).join(' · '),terminal=st==='completed'||st==='failed';return `<tr><td><b>${escQ((j.job_id||'').slice(0,8))}</b></td><td><span class="qbadge ${escQ(st)}">${escQ(st)}</span></td><td><div class="qbar"><span style="width:${p}%"></span></div><small>${p.toFixed(0)}%</small></td><td><div class="qmsg" title="${escQ(j.message||'')}">${escQ(j.message||'')}</div><div class="drivewait">${escQ(j.delivery_status||'')}</div></td><td>${outs||'—'}</td><td>${terminal?`<button class="danger" type="button" onclick="deleteQueueJob('${escQ(j.job_id)}')">Delete</button>`:'—'}</td></tr>`;}).join('');
 }
-async function loadQueue(){try{const r=await fetch('api/jobs',{cache:'no-store'}),d=await r.json();queueItems=d.jobs||[];const c=d.counts||{};mQueued.textContent=c.queued||0;mRunning.textContent=c.running||0;mCompleted.textContent=c.completed||0;mFailed.textContent=c.failed||0;queueTotal.textContent=`(${queueItems.length})`;renderQueue();}catch(e){}}
+async function loadQueue(){try{const r=await fetch('api/jobs',{cache:'no-store'}),d=await r.json();queueItems=d.jobs||[];const c=d.counts||{};mUploading.textContent=c.uploading||0;mQueued.textContent=c.queued||0;mRunning.textContent=c.running||0;mCompleted.textContent=c.completed||0;mFailed.textContent=c.failed||0;queueTotal.textContent=`(${queueItems.length})`;renderQueue();}catch(e){}}
 async function deleteQueueJob(id){if(!confirm('Delete this completed/failed job and its local files?'))return;const r=await fetch(`api/jobs/${id}`,{method:'DELETE'});if(!r.ok){const d=await r.json();alert(d.detail||'Delete failed');}loadQueue();}
 async function clearQueueStatus(st){if(!confirm(`Clear all ${st} jobs?`))return;await fetch(`api/jobs/clear/${st}`,{method:'POST'});queuePage=1;loadQueue();}
 document.getElementById('clearDoneBtn').onclick=()=>clearQueueStatus('completed');document.getElementById('clearFailedBtn').onclick=()=>clearQueueStatus('failed');
 document.getElementById('prevPage').onclick=()=>{if(queuePage>1){queuePage--;renderQueue();}};document.getElementById('nextPage').onclick=()=>{const pages=Math.max(1,Math.ceil(queueItems.length/queuePageSize));if(queuePage<pages){queuePage++;renderQueue();}};
 loadQueue();setInterval(loadQueue,2000);
 
-form.addEventListener('submit',async e=>{
- e.preventDefault();
- const paths=drivePaths();
- if(inputMode.value==='upload'&&!images.files.length){alert('Select an image folder first.');return;}
- if(inputMode.value==='drive'&&!paths.length){alert('Add at least one Google Drive folder link.');return;}
- if(inputMode.value==='drive'&&new Set(paths).size!==paths.length){alert('Remove duplicate Google Drive folder links.');return;}
- render.disabled=true;outputs.innerHTML='';bar.style.width='0%';statusEl.textContent='Uploading files...';
- const fd=new FormData();
- if(inputMode.value==='upload')Array.from(images.files).forEach(f=>fd.append('images',f,f.webkitRelativePath||f.name));
- selectedAudioFiles.forEach(f=>fd.append('audio',f,f.name));
- ['video_duration','image_duration','output_count','order','fit','motion','fps','crf','base_name','input_mode','drive_output_path'].forEach(k=>fd.append(k,form.elements[k].value));
- fd.append('drive_input_path',inputMode.value==='drive'?(paths[0]||''):'');
- fd.append('drive_input_paths_json',inputMode.value==='drive'?JSON.stringify(paths):'');
- fd.append('available_to_short_uploader',uploaderDestination.checked?'true':'false');
- fd.append('upload_to_drive',driveDestination.checked?'true':'false');
- fd.append('verified_clean',document.getElementById('verifiedClean').checked?'true':'false');
- fd.append('short_vps_folder',shortFolderSelect.value);
- try{
-  const r=await fetch('api/jobs',{method:'POST',body:fd});
-  const data=await r.json(); if(!r.ok)throw new Error(data.detail||'Submission failed');
-  render.disabled=false;images.value='';audio.value='';selectedAudioFiles.length=0;
-  imageCount.textContent='0 images selected';renderSelectedAudio();
-  statusEl.textContent='Job '+data.job_id.slice(0,8)+' queued. Ready for another job.';
-  bar.style.width='0%';outputs.innerHTML='';loadQueue();
- }catch(err){render.disabled=false;statusEl.textContent='Failed: '+err.message;}
-});
+// The refresh-safe uploader is loaded from resumable_client.js.
 
 
 </script>
+<script src="resumable_client.js"></script>
 <script>
 (() => {
   const toggle=document.querySelector(".vps1-video-mobile-menu");
@@ -1287,7 +1265,7 @@ async def create_job(
 @app.get("/api/jobs")
 def list_jobs():
     items=load_job_states()
-    counts={"queued":0,"running":0,"completed":0,"failed":0}
+    counts={"uploading":0,"queued":0,"running":0,"completed":0,"failed":0}
     for item in items:
         st=str(item.get("status") or "unknown")
         if st in counts:
@@ -1594,3 +1572,9 @@ def finalize_resumable_upload(job_id: str, request: Request):
                   config={k: v for k, v in cfg.items() if k not in ("images", "audio")})
         executor.submit(render_job, job_id, cfg)
         return {"job_id": job_id, "status": "queued"}
+
+
+@app.get("/resumable_client.js")
+def resumable_client_script():
+    return FileResponse(Path(__file__).with_name("resumable_client.js"), media_type="application/javascript",
+                        headers={"Cache-Control": "no-store"})
