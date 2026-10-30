@@ -602,6 +602,9 @@ def install_app(app, revision):
         require_lum_release_idle(state)
     if app == 'short-maker' and active:
         require_short_maker_idle(state)
+    if app == 'video-merger' and active:
+        from production.video_template_release import idle as require_video_merger_idle
+        require_video_merger_idle('video-merger')
     if app == 'voice-studio' and active:
         require_voice_release_idle(state)
     # Only the app being replaced is stopped. Other apps and all agents stay up.
@@ -644,11 +647,13 @@ def install_app(app, revision):
         event(app=app, result='PASS_SERVICE_HEALTH', revision=revision, port=CATALOG[app]['port'],
               sqlite_backups=len(backups), health=health, rollback=str(journal))
     except BaseException:
-        if short_studio_route_receipt is not None:
-            from production.short_studio_release import restore_route
-            restore_route(short_studio_route_receipt)
-        if changed or active:
-            restore(app, previous)
+        try:
+            if short_studio_route_receipt is not None:
+                from production.short_studio_release import restore_route
+                restore_route(short_studio_route_receipt)
+        finally:
+            if changed or active:
+                restore(app, previous)
         raise
 
 
