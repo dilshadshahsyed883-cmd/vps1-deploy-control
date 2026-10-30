@@ -107,17 +107,21 @@ def browser_test():
                     field=page.locator('main input:not([type=checkbox]):not([type=radio])').first
                     assert field.bounding_box()['height']>=44
                 if path=='/short-maker/':
-                    # Output preferences now live in the third Settings tab.
-                    field=page.locator('input[name="base_name"]')
-                    if field.count():
-                        page.locator('#settingsTabBtn').click()
-                        assert field.is_visible()
-                        field.fill('retained-draft.mp4')
-                        page.locator('#makerTabBtn').click()
-                        assert not field.is_visible()
-                        assert page.locator('#render').is_visible()
-                        page.locator('#settingsTabBtn').click()
-                        assert field.input_value()=='retained-draft.mp4'
+                    # Folder naming is automatic. Delivery choices stay exclusive
+                    # when switching between Maker and Settings.
+                    assert page.locator('#shortVpsFolder').is_visible()
+                    page.locator('#settingsTabBtn').click()
+                    assert page.locator('input[aria-label="Output aspect ratio and resolution"]').is_visible()
+                    assert page.locator('#availableToUploader').is_checked()
+                    assert not page.locator('#uploadToDrive').is_checked()
+                    page.locator('#uploadToDrive').check()
+                    assert not page.locator('#availableToUploader').is_checked()
+                    page.locator('#makerTabBtn').click()
+                    assert page.locator('#shortVpsFolder').is_visible()
+                    assert page.locator('#render').is_visible()
+                    page.locator('#settingsTabBtn').click()
+                    assert page.locator('#uploadToDrive').is_checked()
+                    assert not page.locator('#availableToUploader').is_checked()
                 if width==390:
                     qa=ROOT.parent/'qa';qa.mkdir(exist_ok=True)
                     page.screenshot(path=str(qa/('video-'+path.strip('/')+'-390.png')),full_page=True)
