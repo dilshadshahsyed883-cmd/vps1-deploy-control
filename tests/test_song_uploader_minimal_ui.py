@@ -40,13 +40,27 @@ class SongUploaderMinimalUITests(unittest.TestCase):
         self.assertIn('tab==\'logs\'', self.app)
         self.assertIn(">Logs</a>", self.app)
 
-    def test_intro_is_removed_only_for_song_not_other_uploaders(self):
+    def test_intro_is_hidden_for_song_and_short_but_other_modes_keep_it(self):
         start = self.app.index("{% elif tab == 'auto_engine' %}")
-        prefix = self.app[start:start + 550]
-        self.assertIn("{% if engine_instance != 'song' %}", prefix)
-        self.assertIn("Short Uploader · Auto Engine", prefix)
-        self.assertIn("mode_registry.cross_mode_record_collisions", self.app)
-        self.assertIn("engine_instance == 'song' and mode_registry.cross_mode_record_collisions", self.app)
+        end = self.app.index("{% if auto_mode == 'engine1' %}", start)
+        intro = self.app[start:end]
+        self.assertIn("{% if engine_instance not in ['song', 'shortstudio'] %}", intro)
+        self.assertIn("engine_instance in ['song', 'shortstudio'] and mode_registry.cross_mode_record_collisions", intro)
+        template = Environment().from_string(intro.replace("{% elif tab == 'auto_engine' %}", "", 1))
+        for instance in ("song", "shortstudio"):
+            with self.subTest(instance=instance):
+                html = template.render(engine_instance=instance, mode_registry={"cross_mode_record_collisions": 0})
+                self.assertNotIn("independent uploader workspace", html)
+                self.assertNotIn("Short Uploader · Auto Engine", html)
+                self.assertNotIn('<section class="lum-card">', html)
+        for instance in ("engine1", "engine2"):
+            with self.subTest(instance=instance):
+                html = template.render(engine_instance=instance, mode_registry={"cross_mode_record_collisions": 0})
+                self.assertIn("Auto Uploader · Two Modes", html)
+                self.assertIn('<section class="lum-card">', html)
+        html = template.render(engine_instance="shortstudio", mode_registry={"cross_mode_record_collisions": 2})
+        self.assertIn("Cross-mode receipt collision(s) detected: 2", html)
+        self.assertNotIn('<section class="lum-card">', html)
 
     def test_song_maker_import_stays_functional_and_collapsible(self):
         self.assertEqual(self.app.count('id="songMakerLocalOutputList"'), 1)
