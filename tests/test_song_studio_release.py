@@ -13,7 +13,9 @@ class SongStudioReleaseTests(unittest.TestCase):
     def test_canonical_audio_uses_current_voice_service_not_legacy_proxy(self):
         import ast, asyncio, types
         from unittest.mock import Mock
-        from fastapi import HTTPException
+        class HTTPException(Exception):
+            def __init__(self, status_code, detail):
+                self.status_code, self.detail = status_code, detail
         source = (Path(__file__).resolve().parents[1]/'apps/scene-builder/part01/app.py').read_text()
         tree = ast.parse(source)
         node = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == 'audio_downloader_canonical_page')
