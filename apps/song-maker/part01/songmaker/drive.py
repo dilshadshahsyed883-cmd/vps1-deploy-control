@@ -18,7 +18,7 @@ def default_settings():
                                     os.environ.get('AUDIO_DOWNLOADER_DRIVE_REMOTE', 'gdrive')),
             'image_folder': DEFAULT_INPUT, 'audio_folder': DEFAULT_INPUT,
             'output_folder': DEFAULT_OUTPUT, 'auto_sync': False,
-            'resolution': '1080p', 'fit': 'fit'}
+            'resolution': '1080p', 'fit': 'fit', 'sync_interval': 300}
 
 
 def folder_ref(value):
@@ -83,12 +83,19 @@ class Drive:
             raise ValueError('Remote output identity ambiguous or missing')
         return value
 
+    def lookup(self, folder, name):
+        # Literal rclone filter: provider still supplies identity/hash metadata,
+        # but unrelated folder entries are not returned or hashed.
+        escaped = ''.join('\\' + c if c in '\\*?[]{}' else c for c in name)
+        return json.loads(self.call(['lsjson', self.remote+':', '--files-only',
+                                     '--hash', '--include', '/' + escaped], folder))
+
     def download(self, folder, item, target):
         if '/' in item['Name'] or '\\' in item['Name'] or item['Name'] in {'.', '..'}:
             raise ValueError('Drive source name contains path separators; rename the input safely')
         # Filename transport is permitted only while unique metadata/ID still matches.
         def current():
-            candidates = [x for x in self.listing(folder) if x['Name'] == item['Name']]
+            candidates = [x for x in self.lookup(folder, item['Name']) if x['Name'] == item['Name']]
             if len(candidates) != 1 or fingerprint(candidates[0]) != fingerprint(item):
                 raise ValueError('Drive input changed or became ambiguous; sync and select the new pair')
         current()

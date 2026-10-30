@@ -85,7 +85,8 @@ def create_app(store=None):
     def state(user=Depends(principal)):
         settings = store.record('settings', user['owner']) or default_settings()
         return {'jobs': [public(j) for j in store.jobs(user['owner'])], 'settings': settings,
-                'sync': store.record('sync', user['owner']), 'admin': user['admin']}
+                'sync': store.record('sync', user['owner']), 'admin': user['admin'],
+                'queue_paused': store.paused(user['owner'])}
 
     @app.get('/song-maker/api/profiles')
     def profiles(user=Depends(principal)):
@@ -111,8 +112,12 @@ def create_app(store=None):
                          resolution=data.get('resolution', '1080p'), fit=data.get('fit', 'fit'))
             if clean['resolution'] not in FORMATS or clean['fit'] not in {'fit', 'blur'}:
                 raise ValueError('Unsupported render options')
+            interval = int(data.get('sync_interval', 300))
+            if not 60 <= interval <= 3600:
+                raise ValueError('Sync interval must be between 60 and 3600 seconds')
+            clean['sync_interval'] = interval
             Drive(clean)
-        except (ValueError, KeyError) as exc:
+        except (ValueError, KeyError, TypeError) as exc:
             raise HTTPException(422, str(exc))
         # Each Drive profile settings row is owned by the authenticated administrator.
         # Shared server credentials never grant another user access to that owner's files/jobs.
@@ -197,6 +202,12 @@ def create_app(store=None):
         finally:
             if staging.exists():
                 shutil.rmtree(staging)
+
+    @app.post('/song-maker/api/queue/{command}')
+    def queue_control(command: str, user=Depends(principal)):
+        if command not in {'pause', 'resume'}:
+            raise HTTPException(404, 'Unknown queue control')
+        return {'paused': store.paused(user['owner'], command == 'pause')}
 
     @app.post('/song-maker/api/jobs/{job_id}/{action}')
     def action(job_id: str, action: str, user=Depends(principal)):
