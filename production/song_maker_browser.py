@@ -77,7 +77,12 @@ def main():
                         assert page.locator('nav[aria-label="Song Studio"] a[href="/song-studio/song-maker/"]').count()==1
                     page.locator('input[name="image"]').set_input_files(root/'image.png')
                     page.locator('input[name="audio"]').set_input_files(root/'Voice name.wav')
-                    page.locator('#manual select[name="resolution"]').select_option('720p')
+                    page.locator('[data-tab="preferences"]').click()
+                    page.locator('#exportSettings select[name="resolution"]').select_option('720p')
+                    page.get_by_role('button', name='Save Export Settings').click()
+                    page.wait_for_function("document.querySelector('#notice').textContent.includes('Export settings saved')")
+                    page.locator('[data-tab="input"]').click()
+                    assert page.locator('#syncNow').is_enabled()
                     page.locator('#manual button').click()
                     page.wait_for_function("document.querySelector('#jobs').textContent.includes('Ready to Upload') || document.querySelector('#jobs').textContent.includes('Waiting for Drive')",timeout=60000)
                     page.reload()
