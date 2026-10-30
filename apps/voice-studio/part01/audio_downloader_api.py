@@ -218,7 +218,7 @@ def status():
             'formats': ['mp3', 'wav'], 'quality': [128, 192, 256],
             'download_contract': 'explicit-proxy-private-session-v2',
             'proxy': proxy_runtime_status(), 'youtube_session': cookie_status(),
-            'retry_policy': 'upload-only automatic retry every 180s; 60s between verified audio uploads',
+            'retry_policy': 'only confirmed Drive API rate limits retry every 180s; other failures require manual Retry; 60s between verified audio uploads',
             'upload_gap_seconds': UPLOAD_GAP_SECONDS, 'upload_retry_seconds': UPLOAD_RETRY_SECONDS,
             'queue': {v['status']: v['n'] for v in q}, 'worker': bool(_worker and _worker.is_alive())}
 
@@ -362,7 +362,7 @@ def _claim():
         row = con.execute("""SELECT * FROM jobs
             WHERE (status='upload_retry' AND next_retry_at<=?
                    AND (progress_stage='manual retry requested'
-                        OR error LIKE 'Google Drive upload failed (RATE_LIMITED);%'))
+                        OR error GLOB 'Google Drive upload failed (RATE_LIMITED);*'))
                OR status='queued'
             ORDER BY CASE WHEN status='upload_retry' THEN 0 ELSE 1 END,
                 CASE WHEN status='upload_retry' THEN next_retry_at ELSE created_at END,job_id
