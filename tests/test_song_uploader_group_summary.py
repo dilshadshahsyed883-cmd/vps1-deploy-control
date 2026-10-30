@@ -86,6 +86,21 @@ class SongAutomationGroupSummaryTests(unittest.TestCase):
         self.assertIn("'data-ae-sync-scan' not in html", source)
         self.assertIn("html.count('>Sync All Channels</button>')==1", source)
 
+    def test_bounded_song_toolbar_release_never_bypasses_upload_guard(self):
+        workflow = (ROOT / ".github/workflows/vps1-song-studio-release.yml").read_text()
+        self.assertIn("[vps1-song-sync-toolbar-idle-retry]", workflow)
+        self.assertIn("SONG_GROUP_SUMMARY_RELEASE_BLOCKED: upload in progress", workflow)
+        self.assertIn("BlockingIOError: [Errno 11] Resource temporarily unavailable", workflow)
+        self.assertIn("for attempt in {1..30}; do", workflow)
+        self.assertIn("Song UI release remains blocked until uploader is idle", workflow)
+        self.assertIn('exit "$code"', workflow)
+        self.assertIn("AUTO_SCRIPT=OFFLINE", workflow)
+        release = (ROOT / "production/song_uploader_group_summary_release.py").read_text()
+        self.assertIn("    idle()", release)
+        self.assertIn("        idle()", release)
+        self.assertIn("backup_databases(STATE", release)
+        self.assertIn("SONG_GROUP_SUMMARY_ROLLBACK=PASS", release)
+
     def test_engine1_remains_legacy_table(self):
         html = self.render([dict(id=3,enabled=1,category_name="Channel",
             bound_channel_name="Channel",bound_channel_id="UC123",
