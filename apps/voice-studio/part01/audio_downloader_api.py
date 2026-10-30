@@ -602,6 +602,29 @@ def run_job(job: dict):
     upload_downloaded(job, final, thumbnail, state)
 
 
+def _drive_copy_failure_code(output: str) -> str:
+    """Return a stable, non-sensitive reason; never expose raw rclone output in job state."""
+    detail = (output or '').lower()
+    if any(x in detail for x in ('storagequotaexceeded', 'storage quota exceeded', 'insufficient storage')):
+        return 'STORAGE_FULL'
+    if any(x in detail for x in ('ratelimitexceeded', 'user rate limit', 'rate limit', 'too many requests',
+                                   'dailylimitexceeded', 'daily limit', 'http 429', ' 429 ')):
+        return 'RATE_LIMITED'
+    if any(x in detail for x in ('invalid_grant', 'invalid credentials', 'token has been expired',
+                                   'token expired', 'oauth2: cannot fetch token', 'unauthorized', 'http 401')):
+        return 'AUTH_REQUIRED'
+    if any(x in detail for x in ('immutable', 'already exists', 'file exists', 'destination exists',
+                                   'cannot overwrite', "can't overwrite")):
+        return 'DESTINATION_EXISTS'
+    if any(x in detail for x in ('insufficientfilepermissions', 'permission denied', 'insufficient permissions',
+                                   'access denied', 'http 403', 'forbidden')):
+        return 'PERMISSION_DENIED'
+    if any(x in detail for x in ('timeout', 'timed out', 'connection reset', 'connection refused',
+                                   'no such host', 'temporary failure', 'network unreachable')):
+        return 'NETWORK_FAILURE'
+    return 'TRANSFER_FAILED'
+
+
 def upload_downloaded(job: dict, final: Path, thumbnail: Path | None, state: dict) -> None:
     jid = job['job_id']
     if not state.get('upload_ready'):
@@ -618,15 +641,32 @@ def upload_downloaded(job: dict, final: Path, thumbnail: Path | None, state: dic
         cmd = [state['rclone'], '--config', RCLONE_CONFIG, 'copyto', str(source), destination,
                '--immutable', '--retries', '2', '--low-level-retries', '2', '--timeout', '5m',
                '--contimeout', '30s']
-        if state.get('progress_streaming'):
-            cmd.extend(['--stats', '2s', '--stats-one-line', '--stats-log-level', 'NOTICE'])
-            _update(jid, 'uploading', upload_percent=0,
-                    progress_stage='uploading thumbnail' if fmt == 'jpg' else 'uploading audio')
-            result = _run_tracked(cmd, jid=jid, phase='upload', timeout=1500)
-        else:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=1500, check=False)
+        try:
+            if state.get('progress_streaming'):
+                cmd.extend(['--stats', '2s', '--stats-one-line', '--stats-log-level', 'NOTICE'])
+                _update(jid, 'uploading', upload_percent=0,
+                        progress_stage='uploading thumbnail' if fmt == 'jpg' else 'uploading audio')
+                result = _run_tracked(cmd, jid=jid, phase='upload', timeout=1500)
+            else:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=1500, check=False)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError('Google Drive upload failed (NETWORK_TIMEOUT); automatic retry scheduled') from None
         if result.returncode:
-            raise RuntimeError('Google Drive upload failed; automatic retry scheduled')
+            code = _drive_copy_failure_code(result.stderr or result.stdout or '')
+            if code == 'DESTINATION_EXISTS':
+                # An earlier copy may have completed before the verifier failed.
+                # Reconcile only by checking exact bytes AND anonymous public access;
+                # never overwrite an immutable destination or trust its name alone.
+                try:
+                    link = verified_drive_public_link(destination, source, fmt)
+                except (RuntimeError, subprocess.TimeoutExpired, OSError, ValueError):
+                    raise RuntimeError(
+                        'Google Drive upload failed (DESTINATION_CONFLICT_UNVERIFIED); '
+                        'automatic retry scheduled') from None
+                _update(jid, 'uploading', upload_percent=100,
+                        progress_stage='verified thumbnail' if fmt == 'jpg' else 'verified audio')
+                return link
+            raise RuntimeError(f'Google Drive upload failed ({code}); automatic retry scheduled')
         # Avoid a duplicate remote metadata query: the authoritative verifier
         # checks remote size/MD5, public link and anonymous file bytes.
         link = verified_drive_public_link(destination, source, fmt)
