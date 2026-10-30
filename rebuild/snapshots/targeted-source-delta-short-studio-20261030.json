@@ -1,0 +1,12 @@
+{
+  "source": "SHORT_STUDIO_PROFILE_SCOPED_CLAIM_DELTA_20261030",
+  "scope": "part01 Short Uploader atomic claim filter only; historical Agent1 manifest retained unchanged",
+  "entries": [
+    {
+      "path": "apps/local-upload-manager/part01/desktop_core/modules/db/queue_repository.py",
+      "historical_sha256": "b4f03d7456f8f9c3f7fe14d1f425bf0420774ada90b6c8435ad45ac7822ddd59",
+      "current_sha256": "e0931fe915fd515cbea59cbe5c66ff455e6a14edcfd30623721315906c2f6ebd",
+      "reason": "Atomic eligible-profile claim filter prevents Start on one Short Uploader profile from draining other profile queues."
+    }
+  ]
+}
