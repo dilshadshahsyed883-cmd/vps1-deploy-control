@@ -104,7 +104,9 @@ def init_storage() -> None:
                                ('song_maker_owner', 'TEXT'),
                                ('song_maker_status', "TEXT NOT NULL DEFAULT 'off'"),
                                ('song_maker_job_id', 'TEXT'),
-                               ('song_maker_next_retry_at', 'TEXT')):
+                               ('song_maker_next_retry_at', 'TEXT'),
+                               ('song_folder_id', "TEXT NOT NULL DEFAULT ''"),
+                               ('song_folder_name', "TEXT NOT NULL DEFAULT ''")):
             if name not in columns:
                 con.execute(f'ALTER TABLE jobs ADD COLUMN {name} {sql_type}')
         con.execute('''CREATE TABLE IF NOT EXISTS audio_upload_pacing (
@@ -117,6 +119,9 @@ def init_storage() -> None:
             keep_metadata INTEGER NOT NULL, download_thumbnail INTEGER NOT NULL,
             auto_song_maker INTEGER NOT NULL, updated_at TEXT NOT NULL
         )''')
+        pref_cols={row[1] for row in con.execute('PRAGMA table_info(audio_preferences)')}
+        if 'song_folder_id' not in pref_cols:
+            con.execute("ALTER TABLE audio_preferences ADD COLUMN song_folder_id TEXT NOT NULL DEFAULT ''")
 
 
 class DriveUploadFailure(RuntimeError):
@@ -196,6 +201,7 @@ class AudioPreferences(BaseModel):
     keep_metadata: bool = False
     download_thumbnail: bool = False
     auto_song_maker: bool = False
+    song_folder_id: str = Field(default="",max_length=32)
 
 
 class BatchRequest(BaseModel):
@@ -206,7 +212,9 @@ class BatchRequest(BaseModel):
     keep_metadata: bool = False
     download_thumbnail: bool = False
     auto_song_maker: bool = False
+    song_folder_id: str = Field(default="",max_length=32)
     permission_confirmed: bool = False
+    folder_confirmed: bool = False
 
 
 def sanitized_row(row: sqlite3.Row) -> dict:
@@ -266,6 +274,20 @@ def _preferences_owner(request: Request) -> str:
     return owner
 
 
+def _song_folder(owner:str,folder_id:str) -> dict:
+    if not re.fullmatch(r'[0-9a-f]{32}',folder_id):
+        raise HTTPException(422,'Select a VPS folder for Song Maker')
+    connection=http.client.HTTPConnection(SONG_MAKER_HOST,SONG_MAKER_PORT,timeout=20)
+    try:
+        connection.request('GET','/song-maker/api/folders/'+folder_id,headers={'X-Auth-User':owner})
+        response=connection.getresponse();body=response.read(16384)
+        if response.status!=200: raise HTTPException(422,'Selected VPS folder is unavailable for your account')
+        data=json.loads(body)
+        if data.get('id')!=folder_id: raise HTTPException(422,'Folder identity mismatch')
+        return data
+    finally: connection.close()
+
+
 @router.get('/preferences')
 def get_preferences(request: Request):
     owner = _preferences_owner(request)
@@ -279,7 +301,7 @@ def get_preferences(request: Request):
         'auto_upload': bool(row['auto_upload']),
         'keep_metadata': bool(row['keep_metadata']),
         'download_thumbnail': bool(row['download_thumbnail']),
-        'auto_song_maker': bool(row['auto_song_maker'])}}
+        'auto_song_maker': bool(row['auto_song_maker']), 'song_folder_id':row['song_folder_id']}}
 
 
 @router.put('/preferences')
@@ -288,18 +310,24 @@ def save_preferences(payload: AudioPreferences, request: Request):
     if payload.auto_song_maker and (payload.auto_upload or not payload.download_thumbnail):
         raise HTTPException(422, 'Song Maker auto-queue requires thumbnail ON and Drive auto-upload OFF')
     init_storage()
+    if 'song_folder_id' not in payload.model_fields_set:
+        with db() as con:
+            previous=con.execute('SELECT song_folder_id FROM audio_preferences WHERE owner=?',(owner,)).fetchone()
+        if previous: payload=payload.model_copy(update={'song_folder_id':previous[0]})
+    elif payload.song_folder_id:
+        _song_folder(owner,payload.song_folder_id)
     with db() as con:
         con.execute('''INSERT INTO audio_preferences
-            (owner,format,quality,auto_upload,keep_metadata,download_thumbnail,auto_song_maker,updated_at)
-            VALUES(?,?,?,?,?,?,?,?)
+            (owner,format,quality,auto_upload,keep_metadata,download_thumbnail,auto_song_maker,updated_at,song_folder_id)
+            VALUES(?,?,?,?,?,?,?,?,?)
             ON CONFLICT(owner) DO UPDATE SET
             format=excluded.format,quality=excluded.quality,
             auto_upload=excluded.auto_upload,keep_metadata=excluded.keep_metadata,
             download_thumbnail=excluded.download_thumbnail,
-            auto_song_maker=excluded.auto_song_maker,updated_at=excluded.updated_at''',
+            auto_song_maker=excluded.auto_song_maker,updated_at=excluded.updated_at,song_folder_id=excluded.song_folder_id''',
             (owner, payload.format, payload.quality, int(payload.auto_upload),
              int(payload.keep_metadata), int(payload.download_thumbnail),
-             int(payload.auto_song_maker), utc()))
+             int(payload.auto_song_maker), utc(),payload.song_folder_id))
     return {'saved': True, 'preferences': payload.model_dump()}
 
 
@@ -314,8 +342,12 @@ def enqueue(payload: BatchRequest, request: Request = None):
     if payload.auto_upload and not deps()['upload_ready']:
         raise HTTPException(503, 'Google Drive upload is not configured')
     owner = request.headers.get('x-auth-user', '').strip() if request is not None else ''
-    if payload.auto_song_maker and (not owner or len(owner) > 160 or '\\n' in owner or '\\r' in owner):
+    if payload.auto_song_maker and (not owner or len(owner) > 160 or any(ord(c)<32 for c in owner)):
         raise HTTPException(403, 'Authenticated Song Maker user required for auto-queue')
+    folder_snapshot={}
+    if payload.auto_song_maker:
+        if not payload.folder_confirmed: raise HTTPException(422,'Confirm the destination folder before starting')
+        folder_snapshot=_song_folder(owner,payload.song_folder_id)
     ids: list[tuple[str, str]] = []
     try:
         for link in payload.links:
@@ -337,17 +369,19 @@ def enqueue(payload: BatchRequest, request: Request = None):
                 seen.add((video, payload.format))
                 existing = con.execute("""SELECT job_id FROM jobs WHERE video_id=? AND format=?
                     AND status IN ('queued','downloading','downloaded','uploading','upload_retry','delivered','completed')
-                    ORDER BY created_at DESC LIMIT 1""", (video, payload.format)).fetchone()
+                    AND (?=0 OR (song_maker_owner=? AND song_folder_id=? AND auto_song_maker=1))
+                    ORDER BY created_at DESC LIMIT 1""", (video, payload.format,int(payload.auto_song_maker),owner,payload.song_folder_id)).fetchone()
                 if existing:
                     existing_jobs.append(existing['job_id'])
                     continue
                 jid = 'ADJ-' + uuid.uuid4().hex[:16].upper()
                 con.execute('''INSERT INTO jobs(job_id,batch_id,video_id,url,project,folder,format,quality,
-                    auto_upload,keep_metadata,download_thumbnail,auto_song_maker,song_maker_owner,song_maker_status,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                    auto_upload,keep_metadata,download_thumbnail,auto_song_maker,song_maker_owner,song_maker_status,status,created_at,updated_at,song_folder_id,song_folder_name) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                     (jid, batch_id, video, url, '', '', payload.format, payload.quality,
                      int(payload.auto_upload), int(payload.keep_metadata), int(payload.download_thumbnail),
                      int(payload.auto_song_maker), owner if payload.auto_song_maker else None,
-                     'pending' if payload.auto_song_maker else 'off', 'queued', created, created))
+                     'pending' if payload.auto_song_maker else 'off', 'queued', created, created,
+                     folder_snapshot.get('id',''),folder_snapshot.get('name','')))
                 jobs.append(jid)
             con.execute('COMMIT')
         except BaseException:
@@ -358,34 +392,35 @@ def enqueue(payload: BatchRequest, request: Request = None):
 
 
 @router.get('/jobs')
-def list_jobs(limit: int = 100):
+def list_jobs(limit: int = 100, request: Request = None):
     init_storage()
     limit = max(1, min(limit, 200))
     with db() as con:
         rows = con.execute('SELECT * FROM jobs ORDER BY created_at DESC,job_id DESC LIMIT ?', (limit,)).fetchall()
-    return {'jobs': [sanitized_row(row) for row in rows]}
+    owner=request.headers.get('x-auth-user','').strip() if request is not None else ''
+    return {'jobs': [sanitized_row(row) for row in rows if not row['song_folder_id'] or row['song_maker_owner']==owner]}
 
 
-def row_for(jid: str):
+def row_for(jid: str, request: Request = None):
     if not JOB_ID.fullmatch(jid):
         raise HTTPException(404, 'Unknown audio job')
     with db() as con:
         row = con.execute('SELECT * FROM jobs WHERE job_id=?', (jid,)).fetchone()
-    if row is None:
+    if row is None or (request is not None and row['song_folder_id'] and row['song_maker_owner']!=request.headers.get('x-auth-user','').strip()):
         raise HTTPException(404, 'Unknown audio job')
     return row
 
 
 @router.get('/jobs/{job_id}')
-def get_job(job_id: str):
+def get_job(job_id: str, request: Request = None):
     init_storage()
-    return sanitized_row(row_for(job_id))
+    return sanitized_row(row_for(job_id,request))
 
 
 @router.post('/jobs/{job_id}/{action}')
-def job_action(job_id: str, action: Literal['cancel', 'retry']):
+def job_action(job_id: str, action: Literal['cancel', 'retry'], request: Request = None):
     init_storage()
-    row = row_for(job_id)
+    row = row_for(job_id,request)
     with db() as con:
         if action == 'cancel' and row['status'] in ('queued', 'upload_retry'):
             con.execute("UPDATE jobs SET status='cancelled',next_retry_at=NULL,updated_at=? WHERE job_id=? AND status IN ('queued','upload_retry')", (utc(), job_id))
@@ -403,9 +438,9 @@ def job_action(job_id: str, action: Literal['cancel', 'retry']):
 
 
 @router.get('/jobs/{job_id}/audio')
-def download_audio(job_id: str):
+def download_audio(job_id: str, request: Request = None):
     init_storage()
-    row = row_for(job_id)
+    row = row_for(job_id,request)
     local = row['local_file']
     if not local:
         raise HTTPException(404, 'Audio not ready')
@@ -417,9 +452,9 @@ def download_audio(job_id: str):
 
 
 @router.get('/jobs/{job_id}/thumbnail')
-def download_thumbnail(job_id: str):
+def download_thumbnail(job_id: str, request: Request = None):
     init_storage()
-    row = row_for(job_id)
+    row = row_for(job_id,request)
     local = row['local_thumbnail']
     if not local or not row['download_thumbnail']:
         raise HTTPException(404, 'Thumbnail not ready')
@@ -875,7 +910,10 @@ def _post_local_pair_to_song_maker(row: sqlite3.Row) -> str:
                   f'Content-Disposition: form-data; name="{key}"; filename="{name}"\r\n'
                   f'Content-Type: {mime}\r\n\r\n').encode('ascii')
         parts.append((prefix, path))
-    ending = f'--{boundary}--\r\n'.encode('ascii')
+    folder_field=b''
+    if row['song_folder_id']:
+        folder_field=(f'--{boundary}\r\nContent-Disposition: form-data; name="song_folder_id"\r\n\r\n'+row['song_folder_id']+'\r\n').encode('ascii')
+    ending = folder_field + f'--{boundary}--\r\n'.encode('ascii')
     length = sum(len(prefix) + path.stat().st_size + 2 for prefix, path in parts) + len(ending)
     connection = http.client.HTTPConnection(SONG_MAKER_HOST, SONG_MAKER_PORT, timeout=180)
     try:

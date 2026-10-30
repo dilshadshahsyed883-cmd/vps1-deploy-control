@@ -10,6 +10,7 @@ import time
 from .store import Store
 from .media import Cancelled, render, validate, audio_duration, digest
 from .drive import Drive, sync_owner, default_settings, archive_eligible
+from .folders import Folders
 from PIL import Image, ImageOps
 
 
@@ -131,6 +132,8 @@ def process(store, job, lane, shutdown=lambda: False, drive_factory=Drive):
                     preserve_downloader_thumbnail(image, thumb)
                 else:
                     uploader_thumbnail(image, thumb)
+                if job.get('song_folder_id'):
+                    Folders(store).publish(job,output,thumb)
                 store.update(job_id, stage='Completed', progress=100, lane='',
                              next_retry_at=None, retry_lane='', valid=True, **result,
                              drive_status='Skipped · Song Uploader local output',

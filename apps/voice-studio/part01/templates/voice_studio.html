@@ -478,6 +478,9 @@ body.vs-kokoro-active #vsOmniHeader,body.vs-edge-active #vsOmniHeader,body.vs-au
           <label class="vsa-option"><input type="checkbox" checked disabled><span><strong>Extract audio only</strong><small>Video files are not retained</small></span></label>
           <label class="vsa-option"><input id="vsaThumbnail" type="checkbox"><span><strong>Download thumbnail</strong><small>Save VideoID.jpg alongside VideoID.mp3 or VideoID.wav</small></span></label>
           <label class="vsa-option"><input id="vsaSongMaker" type="checkbox"><span><strong>Auto-add to Song Maker Queue</strong><small>Download audio and thumbnail locally, then add them directly to Song Maker's render queue. Drive auto-upload is switched OFF.</small></span></label>
+          <label class="vsa-option"><span><strong>VPS Folder</strong><select id="vsaSongFolder" aria-label="Song Maker destination folder"><option value="">Select folder…</option></select><button id="vsaCreateSongFolder" type="button" class="vsa-secondary">+ Create Folder</button></span></label>
+          <dialog id="vsaFolderConfirm" aria-labelledby="vsaFolderConfirmTitle"><h3 id="vsaFolderConfirmTitle">Confirm destination</h3><p>Destination Folder: <strong id="vsaFolderConfirmName"></strong></p><p>Audio + Thumbnail → Song Maker Queue</p><p>Rendered MP4 → Same <strong id="vsaFolderRenderName"></strong> Folder</p><p>Google Drive input upload: OFF</p><button id="vsaFolderConfirmStart" type="button">Confirm &amp; Start</button><button id="vsaFolderConfirmCancel" type="button">Cancel</button></dialog>
+
           <label class="vsa-option"><input id="vsaMetadata" type="checkbox"><span><strong>Keep metadata</strong><small>Preserve title and metadata when available</small></span></label>
           <p class="vsa-note" id="vsaPrefsStatus" role="status" aria-live="polite">Loading saved download settings…</p>
         </div>
@@ -2190,7 +2193,7 @@ const msg=(text,type='')=>{const el=$('vsaMessage');el.textContent=text;el.class
 function retryCountdown(iso){const seconds=Math.max(0,Math.ceil((Date.parse(iso)-Date.now())/1000));return seconds?('Retry in '+Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0')):'Retry due now';}
 function updateRetryCountdowns(){document.querySelectorAll('.vsa-retry-countdown').forEach(el=>{el.textContent=retryCountdown(el.dataset.retryAt);});}
 function drivePath(){$('vsaDrivePath').textContent=$('vsaSongMaker').checked?'Direct to Song Maker Queue · Drive input upload OFF':'Google Drive / Song Studio / Audio downloader';$('vsaOutput').textContent=$('vsaFormat').value.toUpperCase();}
-function downloadPreferences(){return {format:$('vsaFormat').value,quality:Number($('vsaQuality').value),auto_upload:$('vsaUpload').checked,download_thumbnail:$('vsaThumbnail').checked,auto_song_maker:$('vsaSongMaker').checked,keep_metadata:$('vsaMetadata').checked};}
+function downloadPreferences(){return {format:$('vsaFormat').value,quality:Number($('vsaQuality').value),auto_upload:$('vsaUpload').checked,download_thumbnail:$('vsaThumbnail').checked,auto_song_maker:$('vsaSongMaker').checked,song_folder_id:$('vsaSongFolder').value,keep_metadata:$('vsaMetadata').checked};}
 function applyDownloadPreferences(p){
  if(!p||typeof p!=='object')return;
  $('vsaFormat').value=p.format==='wav'?'wav':'mp3';
@@ -2199,6 +2202,9 @@ function applyDownloadPreferences(p){
  $('vsaUpload').checked=!$('vsaSongMaker').checked&&p.auto_upload===true;
  $('vsaThumbnail').checked=$('vsaSongMaker').checked||p.download_thumbnail===true;
  $('vsaMetadata').checked=p.keep_metadata===true;
+ const savedFolder=String(p.song_folder_id||'');
+ if(savedFolder&&![...$('vsaSongFolder').options].some(o=>o.value===savedFolder))$('vsaSongFolder').add(new Option('Saved folder unavailable',savedFolder));
+ $('vsaSongFolder').value=savedFolder;
  drivePath();
 }
 function readLocalPreferences(){try{return JSON.parse(localStorage.getItem(AUDIO_PREFS_KEY)||'null');}catch(_){return null;}}
@@ -2318,21 +2324,60 @@ function jobTable(jobs,limit){const wrap=make('div',null,'vsa-tablewrap'),table=
  }
  if(['queued','upload_retry'].includes(job.status))actions.append(button('Cancel',()=>api(root+'/'+'jobs/'+encodeURIComponent(job.job_id)+'/'+'cancel',{method:'POST'})));if(['failed','cancelled'].includes(job.status))actions.append(button('Retry',()=>api(root+'/'+'jobs/'+encodeURIComponent(job.job_id)+'/'+'retry',{method:'POST'})));row.append(actions);body.append(row);}
  if(!jobs.length){const empty=make('tr'),td=make('td','No audio jobs yet.');td.colSpan=6;empty.append(td);body.append(empty);}table.append(body);wrap.append(table);return wrap;}
-async function loadStatus(){try{const s=await api(root+'/'+'status');lastStatus=s;$('vsaReady').textContent=s.ready?'Downloader ready':'Downloader unavailable';$('vsaReady').classList.toggle('ready',!!s.ready);$('vsaWorker').textContent=s.worker?'Online':'Offline';$('vsaDriveState').textContent=s.upload_ready?'Connected':'Unavailable';$('vsaCount').textContent=Object.values(s.queue||{}).reduce((a,n)=>a+Number(n||0),0)+' jobs';$('vsaSubmit').disabled=!s.ready;}catch(e){$('vsaReady').textContent='Downloader offline';$('vsaReady').classList.remove('ready');$('vsaWorker').textContent='Offline';$('vsaSubmit').disabled=true;}}
+async function loadStatus(){try{const s=await api(root+'/'+'status');lastStatus=s;$('vsaReady').textContent=s.ready?'Downloader ready':'Downloader unavailable';$('vsaReady').classList.toggle('ready',!!s.ready);$('vsaWorker').textContent=s.worker?'Online':'Offline';$('vsaDriveState').textContent=s.upload_ready?'Connected':'Unavailable';$('vsaCount').textContent=Object.values(s.queue||{}).reduce((a,n)=>a+Number(n||0),0)+' jobs';$('vsaSubmit').disabled=!s.ready||submitting;}catch(e){$('vsaReady').textContent='Downloader offline';$('vsaReady').classList.remove('ready');$('vsaWorker').textContent='Offline';$('vsaSubmit').disabled=true;}}
 async function loadJobs(){try{const r=await api(root+'/'+'jobs?limit=200');if(!Array.isArray(r.jobs))throw new Error('Invalid queue API response: jobs list missing');$('vsaQueueRows').replaceChildren(jobTable(r.jobs,200));}catch(e){$('vsaQueueRows').textContent='Queue unavailable: '+e.message;}}
-async function submit(){const btn=$('vsaSubmit');try{const links=$('vsaLinks').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);if(!links.length||links.length>30)throw new Error('Provide 1–30 YouTube video links.');if(!$('vsaPermission').checked)throw new Error('Confirm you have permission to download these videos.');btn.disabled=true;msg('Submitting audio download jobs…');const data=await api(root+'/'+'jobs',{method:'POST',body:JSON.stringify({links,format:$('vsaFormat').value,quality:Number($('vsaQuality').value),auto_upload:$('vsaUpload').checked,keep_metadata:$('vsaMetadata').checked,download_thumbnail:$('vsaThumbnail').checked,auto_song_maker:$('vsaSongMaker').checked,permission_confirmed:$('vsaPermission').checked})});msg(data.created+' new audio job(s) queued'+(data.skipped_duplicates?' · '+data.skipped_duplicates+' duplicate link(s) skipped':'')+'. Batch '+data.batch_id,'ok');$('vsaLinks').value='';$('vsaPermission').checked=false;await loadJobs();tab('queue');}catch(e){msg(e.message,'error')}finally{btn.disabled=!(lastStatus&&lastStatus.ready);}}
+let submitting=false;
+async function loadSongFolders(){
+ const data=await api('/song-maker/api/folders');
+ const select=$('vsaSongFolder'),previous=select.value;
+ select.replaceChildren(new Option('Select folder…',''));
+ for(const folder of data.folders||[])select.add(new Option(folder.name,folder.id));
+ select.value=previous;
+}
+function confirmSongFolder(name){
+ const dialog=$('vsaFolderConfirm');
+ $('vsaFolderConfirmName').textContent=name;$('vsaFolderRenderName').textContent=name;
+ return new Promise(resolve=>{
+   let confirmed=false;
+   $('vsaFolderConfirmStart').onclick=()=>{confirmed=true;dialog.close();};
+   $('vsaFolderConfirmCancel').onclick=()=>dialog.close();
+   dialog.addEventListener('close',()=>resolve(confirmed),{once:true});dialog.showModal();
+ });
+}
+async function submit(){
+ const btn=$('vsaSubmit');if(submitting)return;submitting=true;btn.disabled=true;
+ try{
+   const links=$('vsaLinks').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+   if(!links.length||links.length>30)throw new Error('Provide 1–30 YouTube video links.');
+   if(!$('vsaPermission').checked)throw new Error('Confirm you have permission to download these videos.');
+   const snapshot={links,...downloadPreferences(),permission_confirmed:true,folder_confirmed:false};
+   if(snapshot.auto_song_maker){
+     if(!snapshot.song_folder_id)throw new Error('Select a VPS destination folder.');
+     const name=$('vsaSongFolder').selectedOptions[0].textContent;
+     if(!await confirmSongFolder(name))return;
+     snapshot.folder_confirmed=true;snapshot.auto_upload=false;snapshot.download_thumbnail=true;
+   }
+   msg('Submitting audio download jobs…');
+   const data=await api(root+'/'+'jobs',{method:'POST',body:JSON.stringify(snapshot)});
+   msg(data.created+' new audio job(s) queued'+(data.skipped_duplicates?' · '+data.skipped_duplicates+' duplicate link(s) skipped':'')+'. Batch '+data.batch_id,'ok');
+   $('vsaLinks').value='';$('vsaPermission').checked=false;await loadJobs();tab('queue');
+ }catch(e){msg(e.message,'error')}finally{submitting=false;btn.disabled=!(lastStatus&&lastStatus.ready);}
+}
+
 function boot(){if(!$('vsEngineAudio')||!$('vsAudioWorkspace'))return;
  $('vsEngineAudio').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();choose(true);},true);
  // Capture before legacy listeners switch engines, then let them handle their own state.
  for(const id of ['vsEngineOmni','vsEngineKokoro','vsEngineEdge'])$(id).addEventListener('click',()=>{if(active)choose(false);},true);
  document.querySelectorAll('[data-vsa-section]').forEach(b=>b.addEventListener('click',()=>tab(b.dataset.vsaSection)));
  for(const id of ['vsaFormat','vsaQuality'])$(id).addEventListener('change',()=>{drivePath();saveDownloadPreferences();});
+ $('vsaSongFolder').addEventListener('change',saveDownloadPreferences);
+ $('vsaCreateSongFolder').addEventListener('click',async()=>{try{const name=prompt('Folder name');if(!name)return;const folder=await api('/song-maker/api/folders',{method:'POST',headers:{'content-type':'application/json','X-Song-Maker':'1'},body:JSON.stringify({name})});await loadSongFolders();$('vsaSongFolder').value=folder.id;saveDownloadPreferences();}catch(e){msg(e.message,'error');}});
  $('vsaSongMaker').addEventListener('change',()=>{if($('vsaSongMaker').checked){$('vsaUpload').checked=false;$('vsaThumbnail').checked=true;}drivePath();saveDownloadPreferences();});
  for(const id of ['vsaUpload','vsaThumbnail'])$(id).addEventListener('change',()=>{if($('vsaUpload').checked||!$('vsaThumbnail').checked)$('vsaSongMaker').checked=false;drivePath();saveDownloadPreferences();});
  $('vsaMetadata').addEventListener('change',saveDownloadPreferences);
  $('vsaSubmit').addEventListener('click',submit);$('vsaClear').addEventListener('click',()=>{$('vsaLinks').value='';msg('Links cleared.');});
  $('vsaRefreshQueue').addEventListener('click',loadJobs);
- drivePath();loadDownloadPreferences();if(location.hash==='#vs-audio')choose(true);}
+ drivePath();loadSongFolders().then(loadDownloadPreferences).catch(e=>{loadDownloadPreferences();msg(e.message,'error');});if(location.hash==='#vs-audio')choose(true);}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
 })();
 

@@ -268,29 +268,9 @@
 
   function updateSongProfileKind(){
     const form=document.getElementById('lum-ae-profile-form');
-    const kind=form?.querySelector('#lum-ae-profile-kind');
-    if(!kind)return;
-    const group=kind.value==='group';
-    form.querySelectorAll('[data-ae-group-choice],[data-ae-group-fields]').forEach(n=>{n.hidden=!group;});
-    form.querySelectorAll('[data-ae-single-choice]').forEach(n=>{n.hidden=group;});
+    if(!form)return;
     const groupSelect=form.querySelector('#lum-ae-profile-group');
-    const channelSelect=form.querySelector('select[name="channel_db_id"]');
-    const name=form.querySelector('input[name="category_name"]');
-    const sheet=form.querySelector('input[name="metadata_sheet_tab"]');
-    if(groupSelect){groupSelect.required=group;groupSelect.disabled=!group;}
-    if(channelSelect){channelSelect.required=!group;channelSelect.disabled=group;}
-    if(name)name.required=group;
-    if(sheet)sheet.required=group;
-    const videoSource=form.querySelector('#song-profile-video-source');
-    const metadataSource=form.querySelector('#song-profile-metadata-source');
-    if(group){
-      if(videoSource)videoSource.value='drive';
-      if(metadataSource)metadataSource.value='sheet';
-      videoSource?.dispatchEvent(new Event('change',{bubbles:true}));
-    }
-    if(videoSource)videoSource.disabled=group;
-    if(metadataSource)metadataSource.disabled=group;
-    form.querySelectorAll('[data-ae-song-modes]').forEach(n=>{n.hidden=group;});
+    if(!groupSelect)return;
     const preview=form.querySelector('#lum-ae-group-preview');
     if(preview&&groupSelect){
       const n=Number(groupSelect.selectedOptions?.[0]?.dataset?.count||0);
@@ -351,6 +331,7 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout
     const meta=form.querySelector('#song-profile-metadata-source');
     if(!video||!meta) return;
     const useDrive=video.value==='drive', useSheet=meta.value==='sheet';
+    const useFolder=video.value==='songfolder';
     const flip=(selector,show,requiredName)=>{
       form.querySelectorAll(selector).forEach(el=>{
         el.hidden=!show;
@@ -359,9 +340,23 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout
         });
       });
     };
+    flip('[data-song-folder-field]',useFolder,'song_folder_id');
     flip('[data-song-drive-field]',useDrive,'drive_video_folder');
+    const folders=form.querySelector('#song-profile-folder');
+    if(folders&&!folders.dataset.loading){
+      folders.dataset.loading='1';
+      fetch('/song-maker/api/folders',{credentials:'same-origin',cache:'no-store'}).then(async r=>{if(!r.ok)throw Error('Folder registry unavailable');return r.json();}).then(data=>{
+        if(!folders.isConnected)return;const saved=folders.value||folders.dataset.savedFolder||'';
+        folders.replaceChildren(new Option('Select folder…',''));
+        for(const item of data.folders||[])folders.add(new Option(item.name,item.id));
+        if(saved&&![...folders.options].some(o=>o.value===saved))folders.add(new Option('Saved folder unavailable',saved));
+        folders.value=saved;
+      }).catch(e=>{const status=form.querySelector('[data-song-folder-status]');if(status)status.textContent=e.message;});
+    }
     form.querySelectorAll('[data-song-drive-field] input[name="drive_thumbnail_folder"]').forEach(x=>x.required=useDrive);
     flip('[data-song-sheet-field]',useSheet,'metadata_sheet_url_or_id');
+    const tab=form.querySelector('input[name="metadata_sheet_tab"]');
+    if(tab)tab.required=useSheet&&!!form.querySelector('#lum-ae-profile-group');
     flip('[data-song-manual-fields]',!useSheet,'manual_title');
     form.querySelectorAll('[data-song-sheet-note]').forEach(el=>el.hidden=!useSheet);
   }

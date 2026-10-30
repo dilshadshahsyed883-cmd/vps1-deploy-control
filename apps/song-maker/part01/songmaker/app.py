@@ -14,10 +14,12 @@ from .store import Store, ACTIVE, TERMINAL
 from .media import IMAGES, AUDIO, FORMATS, QUALITIES, audio_duration, output_name, run, validate_overlay
 from .drive import CONFIG, Drive, folder_ref, default_settings, enqueue_pair, archive_eligible
 from .worker import capacity
+from .folders import Folders
 
 
 def create_app(store=None):
     store = store or Store()
+    folders = Folders(store)
     app = FastAPI(title='Song Maker', version='1.0.0')
     assets = Path(__file__).parent / 'static'
     app.mount('/song-maker/assets', StaticFiles(directory=assets), name='assets')
@@ -189,12 +191,52 @@ def create_app(store=None):
         job = enqueue_pair(store, user['owner'], settings, images[0], audio[0])
         return public(job)
 
+    @app.get('/song-maker/api/folders')
+    def folder_list(user=Depends(principal)):
+        return {'folders':folders.list(user['owner'])}
+
+    @app.get('/song-maker/api/folders/{folder_id}')
+    def folder_get(folder_id:str,user=Depends(principal)):
+        try: return folders.get(user['owner'],folder_id)
+        except ValueError as exc: raise HTTPException(404,str(exc))
+
+    @app.post('/song-maker/api/folders')
+    async def folder_create(request:Request,user=Depends(principal)):
+        try: return folders.create(user['owner'],(await request.json()).get('name'))
+        except ValueError as exc: raise HTTPException(422,str(exc))
+
+    @app.get('/song-maker/api/folders/{folder_id}/outputs')
+    def folder_outputs(folder_id:str,user=Depends(principal)):
+        try: return {'outputs':folders.outputs(user['owner'],folder_id)}
+        except ValueError as exc: raise HTTPException(404,str(exc))
+
+    def internal_user(request:Request):
+        # Outside the public /song-maker/ Nginx prefix. Never accept proxied browser requests.
+        if (not request.client or request.client.host not in {'127.0.0.1','::1'}
+                or request.headers.get('origin') or request.headers.get('x-forwarded-for')):
+            raise HTTPException(403,'Internal Song Studio transport required')
+        return principal(request)
+
+    @app.post('/internal/song-folders/{folder_id}/{job_id}/{action}')
+    async def folder_transfer(folder_id:str,job_id:str,action:str,request:Request,user=Depends(internal_user)):
+        body=await request.json()
+        try:
+            if action=='reserve': return folders.reserve(user['owner'],folder_id,job_id,str(body.get('consumer') or ''))
+            if action=='consume': return folders.finish(user['owner'],folder_id,job_id,
+                str(body.get('consumer') or ''),str(body.get('youtube_id') or ''))
+            raise HTTPException(404,'Unknown transfer action')
+        except ValueError as exc: raise HTTPException(409,str(exc))
+
     @app.post('/song-maker/api/jobs')
     async def submit(request: Request, image: UploadFile = File(...), audio: UploadFile = File(...),
-                     resolution: str = Form(''), fit: str = Form(''), quality: str = Form(''), user=Depends(principal)):
+                     resolution: str = Form(''), fit: str = Form(''), quality: str = Form(''), song_folder_id: str = Form(''), user=Depends(principal)):
         exports = store.record('exports', user['owner'])
         downloader_handoff = request.headers.get('x-audio-downloader-handoff') == '1'
-        if (downloader_handoff
+        if song_folder_id:
+            if not downloader_handoff: raise HTTPException(422,'Folders require the original Audio Downloader pair')
+            try: folders.get(user['owner'],song_folder_id)
+            except ValueError as exc: raise HTTPException(422,str(exc))
+        if (downloader_handoff and not song_folder_id
                 and not exports.get('auto_input_from_audio_downloader', False)):
             raise HTTPException(409, 'Enable Auto Input from Audio Downloader in Song Maker Settings')
         settings = store.record('settings', user['owner']) or default_settings()
@@ -238,7 +280,7 @@ def create_app(store=None):
             duration = audio_duration(staging / ('audio'+audio_ext))
             # Provenance is part of idempotency: a manual upload must not claim a downloader job.
             source = dict(hashes, image_name=image.filename, audio_name=audio.filename,
-                          downloader_handoff=downloader_handoff)
+                          downloader_handoff=downloader_handoff, song_folder_id=song_folder_id)
             # Lock publishing inputs with API requests so workers can never claim a half-published job.
             with (store.root / 'state/submission.lock').open('a') as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX)
@@ -247,8 +289,9 @@ def create_app(store=None):
                     'image_ext': image_ext, 'audio_ext': audio_ext, 'duration': duration,
                     'local_name': output_name(audio.filename), 'origin': 'manual',
                     'audio_downloader_handoff': downloader_handoff,
+                    'song_folder_id': song_folder_id,
                     'resolution': resolution, 'fit': fit, 'quality': quality, **overlays,
-                     'send_to_song_uploader': bool(exports.get('send_to_song_uploader', False)),
+                     'send_to_song_uploader': bool(song_folder_id) or bool(exports.get('send_to_song_uploader', False)),
                      'drive_status': 'Pending'})
                 destination = store.root / 'inputs' / job['id']
                 if not destination.exists():
@@ -284,6 +327,10 @@ def create_app(store=None):
             store.update(job_id, stage='Ready to Upload' if job.get('valid') and archived and not job.get('send_to_song_uploader') else 'Queued',
                          cancel=0, error='', drive_status='Pending', next_retry_at=None, retry_lane='')
         elif action == 'delete':
+            if job.get('song_folder_id'):
+                with store.db() as db:
+                    pending=db.execute('SELECT 1 FROM song_folder_media WHERE job_id=? AND consumed=0',(job_id,)).fetchone()
+                if pending: raise HTTPException(409,'Folder media is retained until dependent uploads finish')
             if job['lane'] or job['stage'] not in TERMINAL:
                 raise HTTPException(409, 'Cancel the job and wait for the worker before deleting')
             # Tombstone preserves pair idempotency, removes owned local files only.
@@ -309,7 +356,7 @@ def create_app(store=None):
             thumb_name = Path(job['local_name']).stem + '.jpg'
             if not video.is_file() or not (folder / thumb_name).is_file():
                 continue
-            ready.append({'id': job['id'], 'name': job['local_name'],
+            ready.append({'id': job['id'], 'folder_id':job.get('song_folder_id',''), 'name': job['local_name'],
                           'size': video.stat().st_size, 'created': job['created'],
                           'video_url': '/song-maker/api/jobs/' + job['id'] + '/video',
                           'thumbnail_url': '/song-maker/api/uploader/' + job['id'] + '/thumbnail'})

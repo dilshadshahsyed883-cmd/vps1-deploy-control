@@ -228,6 +228,15 @@ def reconcile_completed(db:Database, store:V6Store, video_id:int) -> None:
     verified_url=clean(row.get("youtube_url")) or f"https://www.youtube.com/watch?v={yid}"
     emit_channel_sheet_writeback(store,video_id,"UPLOADED",youtube_url=verified_url,error="")
 
+    if clean(source.get("source_folder_id"))=="songmaker-local":
+        try:
+            from .songmaker_local import finish_folder_source
+            finish_folder_source(store,source,yid)
+        except Exception as exc:
+            store.set_job_state(video_id,"FOLDER_CLEANUP_PENDING",error=str(exc),remote_verified=True)
+            with store.connect() as con:
+                con.execute("UPDATE upload_records SET final_state='FOLDER_CLEANUP_PENDING' WHERE video_id=?",(int(video_id),))
+            return
     staging=Path(clean(source.get("staging_path")))
     try:
         staging.unlink(missing_ok=True)
@@ -286,7 +295,7 @@ def reconcile_completed(db:Database, store:V6Store, video_id:int) -> None:
                             (int(source["profile_id"]),clean(source["drive_file_id"])))
                 con.execute("UPDATE drive_thumbnails SET present=0 WHERE profile_id=? AND drive_file_id=?",
                             (int(source["profile_id"]),clean(source["drive_file_id"])))
-        elif channel_meta:
+        elif channel_meta and action!="keep":
             month=datetime.now(timezone.utc).strftime("%Y-%m")
             video_destination=drive_move_uploaded_month(clean(source["source_folder_id"]),clean(source["filename"]),clean(source["drive_file_id"]),month)
             thumb_destination=""
@@ -301,6 +310,7 @@ def reconcile_completed(db:Database, store:V6Store, video_id:int) -> None:
             destination="DELETED_FROM_DRIVE"
         elif action=="keep":
             destination="SOURCE_KEPT"
+            if channel_meta: set_channel_job_post_state(store,video_id,"COMPLETE")
         else:
             raise ValueError(f"Unknown after-success action: {action}")
         store.set_job_state(video_id,"COMPLETE",destination=destination,remote_verified=True)
@@ -320,7 +330,7 @@ def retry_post_actions(db:Database,store:V6Store) -> None:
     with store.connect() as con:
         rows=con.execute("""
         SELECT video_id FROM job_sources
-        WHERE state IN ('REMOTE_VERIFY_PENDING','REMOTE_VERIFIED','LOCAL_CLEANUP_PENDING','DRIVE_MOVE_PENDING')
+        WHERE state IN ('REMOTE_VERIFY_PENDING','REMOTE_VERIFIED','LOCAL_CLEANUP_PENDING','DRIVE_MOVE_PENDING','FOLDER_CLEANUP_PENDING')
         ORDER BY updated_at,video_id
         LIMIT 25
         """).fetchall()

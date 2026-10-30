@@ -76,6 +76,7 @@ class AudioSongMakerAutoQueueTests(unittest.TestCase):
         spec.loader.exec_module(self.m)
         self.m.BatchRequest.model_rebuild(_types_namespace=vars(self.m))
         self.m.init_storage()
+        p=patch.object(self.m,"_song_folder",return_value={"id":"f"*32,"name":"Ronaldo"});p.start();self.addCleanup(p.stop)
         app = FastAPI()
         app.include_router(self.m.router)
         self.client = TestClient(app)
@@ -88,6 +89,7 @@ class AudioSongMakerAutoQueueTests(unittest.TestCase):
                 "links": ["https://youtu.be/" + VIDEO],
                 "permission_confirmed": True, "download_thumbnail": thumbnail,
                 "auto_upload": auto_upload, "auto_song_maker": auto_song_maker,
+                "song_folder_id":"f"*32,"folder_confirmed":True,
             })
 
     def downloaded(self, jid):
@@ -106,7 +108,7 @@ class AudioSongMakerAutoQueueTests(unittest.TestCase):
         self.assertEqual(self.submit(auto_song_maker=True, owner="").status_code, 403)
         allowed = self.submit()
         self.assertEqual(allowed.status_code, 201, allowed.text)
-        job = self.client.get("/tts/api/audio-downloader/jobs/" + allowed.json()["job_ids"][0]).json()
+        job = self.client.get("/tts/api/audio-downloader/jobs/" + allowed.json()["job_ids"][0],headers={"X-Auth-User":"alice"}).json()
         self.assertTrue(job["auto_song_maker"])
         self.assertFalse(job["auto_upload"])
         self.assertTrue(job["download_thumbnail"])
@@ -136,7 +138,7 @@ class AudioSongMakerAutoQueueTests(unittest.TestCase):
         self.assertIn(('filename="' + VIDEO + '.mp3"').encode(), connection.data)
         self.assertIn(JPG, connection.data)
         self.assertIn(MP3, connection.data)
-        job = self.client.get("/tts/api/audio-downloader/jobs/" + jid).json()
+        job = self.client.get("/tts/api/audio-downloader/jobs/" + jid,headers={"X-Auth-User":"alice"}).json()
         self.assertEqual(job["status"], "completed")
         self.assertEqual(job["song_maker_status"], "queued")
         self.assertEqual(job["song_maker_job_id"], "a" * 32)
@@ -147,7 +149,7 @@ class AudioSongMakerAutoQueueTests(unittest.TestCase):
         self.downloaded(jid)
         with patch.object(self.m.http.client, "HTTPConnection", side_effect=ConnectionError):
             self.m._handoff_song_maker(jid)
-        row = self.client.get("/tts/api/audio-downloader/jobs/" + jid).json()
+        row = self.client.get("/tts/api/audio-downloader/jobs/" + jid,headers={"X-Auth-User":"alice"}).json()
         self.assertEqual(row["status"], "completed")
         self.assertEqual(row["song_maker_status"], "pending")
         self.assertIsNone(row["drive_path"])

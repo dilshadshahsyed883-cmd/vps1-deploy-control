@@ -27,10 +27,10 @@
   <div class="lum-tabs-shell" data-lum-sticky-tabs>
 <nav class="lum-tabs" aria-label="Auto Uploader workspace">
       {% if engine_instance == 'song' %}
+      <a class="{{ 'active' if tab=='dashboard' else '' }}" href="{{ base_path }}/app?tab=dashboard">Dashboard</a>
       <a class="{{ 'active' if tab=='auto_engine' else '' }}" href="{{ base_path }}/app?tab=auto_engine">Auto Engine</a>
       <a class="{{ 'active' if tab=='channels' else '' }}" href="{{ base_path }}/app?tab=channels">Channels</a>
-      <a class="{{ 'active' if tab=='sheets' else '' }}" href="{{ base_path }}/app?tab=sheets">Sheets Sync</a>
-      <a class="{{ 'active' if tab=='dashboard' else '' }}" href="{{ base_path }}/app?tab=dashboard">Dashboard</a>
+      <a class="{{ 'active' if tab=='sheets' else '' }}" href="{{ base_path }}/app?tab=sheets">Sheet Sync</a>
       {% else %}
       <a class="{{ 'active' if tab=='dashboard' else '' }}" href="{{ base_path }}/app?tab=dashboard">Dashboard</a>
       <a class="{{ 'active' if tab=='channels' else '' }}" href="{{ base_path }}/app?tab=channels">Channels</a>
@@ -587,15 +587,15 @@
       <div class="lum-card-head">
         <div>
           <h2>Sheets Sync</h2>
-          <p>PC-app Sheets engine connected to the web. Inventory uses the FIRST worksheet tab only; saved token/history state remains protected.</p>
+          {% if engine_instance != 'song' %}<p>PC-app Sheets engine connected to the web. Inventory uses the FIRST worksheet tab only; saved token/history state remains protected.</p>{% endif %}
         </div>
         <span class="lum-badge {{ 'good' if stats.settings.sheets_sync_enabled=='1' else 'warn' }}">{{ 'Sync Enabled' if stats.settings.sheets_sync_enabled=='1' else 'Sync Mode OFF' }}</span>
       </div>
 
-      <div class="lum-note">
+      {% if engine_instance == 'song' %}<details class="lum-note"><summary>Sheet format</summary>{% else %}<div class="lum-note">{% endif %}
         Expected first-tab headers: Sr, ip, Browser Profile, Channel Name's, Channel Link's, Gmail's, Password's, Backup code's, Back Up Key's, Group, Status, Notes.
         Multiple groups in one cell may be separated by comma, semicolon, or |. Removed rows disappear from current inventory while saved tokens/history are retained.
-      </div>
+      {% if engine_instance == 'song' %}</details>{% else %}</div>{% endif %}
 
       <form method="post" action="{{ base_path }}/actions/sheets/save" data-lum-soft-form class="lum-sheet-source-form">
         <input type="hidden" name="csrf_token" value="{{ csrf }}">
@@ -915,7 +915,7 @@
         const area=document.getElementById('songMakerLocalOutputList');
         const profiles=[
           {% for pr in auto_v6.profiles or [] %}
-          {% if pr.channel_db_id %}{id:{{ pr.id|int }},name:{{ (pr.bound_channel_name or pr.category_name or ('Profile ' ~ pr.id))|tojson }}},{% endif %}
+          {% if pr.channel_db_id or pr.video_source_mode == 'songmaker' %}{id:{{ pr.id|int }},name:{{ (pr.bound_channel_name or pr.category_name or ('Profile ' ~ pr.id))|tojson }}},{% endif %}
           {% endfor %}
         ];
         const csrfToken={{ csrf|tojson }};
@@ -1010,30 +1010,29 @@
       <input type="hidden" name="profile_id" value="{{ p.id if p else '' }}">
       <div data-ae-panel="profiles" hidden>
         <section class="lum-card">
-          <div class="lum-card-head"><div><h2>{{ 'Group Profile' if engine_instance == 'shortstudio' and (not p or not p.channel_db_id) else ('Channel / Group Profile' if engine_instance == 'song' else 'Channel Profile') }}</h2><p>{% if engine_instance == 'shortstudio' %}{% elif engine_instance == 'song' %}Group-based channel selection is supported alongside the existing one-channel Video-ID workflow.{% else %}One Auto Engine profile maps to exactly one channel.{% endif %}</p></div></div>
+          <div class="lum-card-head"><div><h2>{{ 'Group · Multiple Channels' if engine_instance == 'song' and (not p or not p.channel_db_id) else ('Group Profile' if engine_instance == 'shortstudio' and (not p or not p.channel_db_id) else 'Channel Profile') }}</h2></div></div>
           {% set short_group = engine_instance == 'shortstudio' and (not p or not p.channel_db_id) %}
-          {% set group_profile = short_group or (engine_instance == 'song' and p and not p.channel_db_id) %}
+          {% set group_profile = short_group or (engine_instance == 'song' and (not p or not p.channel_db_id)) %}
           {% if short_group %}
           <input type="hidden" name="profile_kind" value="group">
           <label class="lum-field"><span>Channel Group</span><select name="channel_group_id" required><option value="">Select a group…</option>{% for group in ae.groups or [] %}<option value="{{ group.id }}" {% if p and p.channel_group_id|int == group.id|int %}selected{% endif %}>{{ group.group_name }} · {{ group.channel_count }} channels</option>{% endfor %}</select></label>
           {% endif %}
           {% if engine_instance == 'song' %}
-          <div class="lum-grid lum-two lum-ae-profile-kind">
-            <label class="lum-field"><span>Profile Type</span><select id="lum-ae-profile-kind" name="profile_kind" {% if p %}disabled{% endif %}>
-              <option value="channel" {% if not group_profile %}selected{% endif %}>Single channel · Video-ID workflow</option>
-              <option value="group" {% if group_profile %}selected{% endif %}>Group · Multiple channels</option>
-            </select>{% if p %}<input type="hidden" name="profile_kind" value="{{ 'group' if group_profile else 'channel' }}">{% endif %}
-            <small>{% if p %}Create a new profile to change the type; existing records stay intact.{% else %}Group profile uses the preserved group/category queue engine.{% endif %}</small></label>
-            <label class="lum-field" data-ae-group-choice {% if not group_profile %}hidden{% endif %}><span>Channel Group</span>
-              <select id="lum-ae-profile-group" name="channel_group_id" {% if group_profile %}required{% endif %}><option value="">Select a group…</option>
-                {% for group in ae.groups or [] %}<option value="{{ group.id }}" data-count="{{ group.channel_count }}" {% if group_profile and p and p.channel_group_id|int == group.id|int %}selected{% endif %}>{{ group.group_name }} · {{ group.channel_count }} channels</option>{% endfor %}
-              </select><small id="lum-ae-group-preview" aria-live="polite">All eligible ACTIVE channels in the selected group are included. Invalid/missing tokens are excluded.</small>
-            </label>
-          </div>
+          <input type="hidden" name="profile_kind" value="{{ 'group' if group_profile else 'channel' }}">
+          {% if group_profile %}
+          <label class="lum-field" data-ae-group-choice><span>Channel Group</span>
+            <select id="lum-ae-profile-group" name="channel_group_id" required><option value="">Select a group…</option>
+              {% for group in ae.groups or [] %}<option value="{{ group.id }}" data-count="{{ group.channel_count }}" {% if p and p.channel_group_id|int == group.id|int %}selected{% endif %}>{{ group.group_name }} · {{ group.channel_count }} channels</option>{% endfor %}
+            </select><small id="lum-ae-group-preview" aria-live="polite">Eligible channels are included automatically.</small>
+          </label>
+          {% else %}
+          <input type="hidden" name="channel_db_id" value="{{ p.channel_db_id }}">
+          <p class="lum-note">{{ p.bound_channel_name }} · Existing channel profile</p>
+          {% endif %}
           {% endif %}
           <div class="lum-grid lum-three">
-            <label class="lum-field"><span>Profile Name</span><input name="category_name" value="{{ p.category_name if p else '' }}" placeholder="Defaults to channel name" {% if group_profile %}required{% endif %}></label>
-            {% if not short_group %}
+            <label class="lum-field"><span>Profile Name</span><input name="category_name" value="{{ p.category_name if p else '' }}" placeholder="Profile name" {% if group_profile %}required{% endif %}></label>
+            {% if not short_group and engine_instance != 'song' %}
             <label class="lum-field" {% if engine_instance == 'song' %}data-ae-single-choice {% if group_profile %}hidden{% endif %}{% endif %}><span>Channel</span><select name="channel_db_id" {% if not group_profile %}required{% endif %}><option value="">Select channel…</option>{% for ch in ae.all_channels %}<option value="{{ ch.id }}" {% if p and p.channel_db_id==ch.id %}selected{% endif %}>{{ ch.channel_name or ch.channel_id }} · {{ ch.channel_id }}</option>{% endfor %}</select><small>Channels remain managed in the Channels tab.</small></label>
             {% endif %}
             <label class="lum-switch"><span><strong>Profile enabled</strong><small>OFF prevents automatic sync/queue creation.</small></span><input type="hidden" name="enabled" value="0"><input type="checkbox" name="enabled" value="1" {% if not p or p.enabled %}checked{% endif %}></label>
@@ -1049,8 +1048,7 @@
             <label class="lum-field"><span>Upload quota</span><select name="upload_scope"><option value="per_channel" {% if not p or not group_profile or p.upload_scope == 'per_channel' %}selected{% endif %}>Per channel</option><option value="total_category" {% if group_profile and p and p.upload_scope == 'total_category' %}selected{% endif %}>Total for group</option></select></label>
             <label class="lum-field"><span>Work mode</span><select name="work_mode"><option value="manual_review" {% if not p or not group_profile or p.work_mode == 'manual_review' %}selected{% endif %}>Review before queue</option><option value="manual" {% if group_profile and p and p.work_mode == 'manual' %}selected{% endif %}>Manual only</option><option value="auto" {% if group_profile and p and p.work_mode == 'auto' %}selected{% endif %}>Automatic</option></select></label>
             <label class="lum-field"><span>After verified upload</span><select name="after_upload_action"><option value="move_uploaded" {% if not p or not group_profile or p.after_upload_action == 'move_uploaded' %}selected{% endif %}>Move to uploaded</option>{% if short_group %}<option value="delete" {% if p and p.after_upload_action == 'delete' %}selected{% endif %}>Delete VPS source after verified upload</option>{% endif %}<option value="keep" {% if group_profile and p and p.after_upload_action == 'keep' %}selected{% endif %}>Keep source</option></select></label>
-            {% if not short_group %}<label class="lum-switch"><span><strong>Rotate thumbnails</strong><small>Cycle through saved thumbnails</small></span><input type="checkbox" name="thumbnail_rotation" value="1" {% if not p or not group_profile or p.thumbnail_rotation %}checked{% endif %}></label>
-            {% endif %}<input type="hidden" name="thumbnail_source_mode" value="drive">
+            <input type="hidden" name="thumbnail_source_mode" value="drive">
             {% if short_group %}
             <label class="lum-switch"><span><strong>Enable profile schedule</strong><small>Starts only after you arm Scheduled Uploads.</small></span><input type="hidden" name="schedule_enabled" value="0"><input type="checkbox" name="schedule_enabled" value="1" {% if p and p.schedule_enabled %}checked{% endif %}></label>
             {% else %}
@@ -1080,17 +1078,22 @@
           {% endif %}
           {% if engine_instance == 'song' %}
           {% set song_local = (not p or src.local_songmaker_enabled) %}
+          {% set song_folder = p and p.video_source_mode == 'songfolder' %}
           {% set song_manual = (not p or p.metadata_source == 'manual') %}
           <div class="lum-grid lum-two" data-ae-song-modes>
             <label class="lum-field"><span>Video Source</span><select name="video_source_mode" id="song-profile-video-source">
-              <option value="drive" {% if not song_local %}selected{% endif %}>Google Drive Folders (Existing)</option>
-              <option value="songmaker" {% if song_local %}selected{% endif %}>Videos from Song Maker (New)</option>
+              <option value="drive" {% if not song_local %}selected{% endif %}>Google Drive</option>
+              <option value="songmaker" {% if song_local and not song_folder %}selected{% endif %}>Song Maker local import</option>
+              <option value="songfolder" {% if song_folder %}selected{% endif %}>Song Maker VPS Folder</option>
             </select><small>Completed Song Maker MP4 and original Audio Downloader thumbnail are imported together.</small></label>
             <label class="lum-field"><span>Metadata Source</span><select name="metadata_source" id="song-profile-metadata-source">
-              <option value="sheet" {% if not song_manual %}selected{% endif %}>Google Sheet Sync (Existing)</option>
-              <option value="manual" {% if song_manual %}selected{% endif %}>Manual Metadata — Save on Website</option>
+              <option value="sheet" {% if not song_manual %}selected{% endif %}>Google Sheets</option>
+              <option value="manual" {% if song_manual %}selected{% endif %}>Manual on Website</option>
             </select><small>Manual Title, Description and Category are saved with the profile.</small></label>
           </div>
+          {% endif %}
+          {% if engine_instance == 'song' %}
+          <label class="lum-field" data-song-folder-field {% if not song_folder %}hidden{% endif %}><span>Song Maker VPS Folder</span><select name="song_folder_id" id="song-profile-folder" data-saved-folder="{{ p.song_folder_id if p else '' }}"><option value="">Select folder…</option>{% if song_folder %}<option value="{{ p.song_folder_id }}" selected>{{ p.song_folder_name }}</option>{% endif %}</select><small data-song-folder-status></small></label>
           {% endif %}
           <div class="lum-grid lum-two">
             {% if engine_instance == 'shortstudio' %}
@@ -1101,7 +1104,7 @@
             <label class="lum-field" {% if engine_instance == 'song' %}data-song-drive-field {% if song_local %}hidden{% endif %}{% endif %}><span>Thumbnail Drive Folder URL / ID (required)</span><input name="drive_thumbnail_folder" {% if engine_instance != 'song' or not song_local %}required{% endif %} value="{{ src.drive_thumbnail_folder_url or src.drive_thumbnail_folder_id or '' }}" placeholder="https://drive.google.com/drive/folders/..."></label>
             {% endif %}
             <label class="lum-field" {% if short_group %}data-short-sheet-field {% if short_manual %}hidden{% endif %}{% endif %} {% if engine_instance == 'song' %}data-song-sheet-field {% if song_manual %}hidden{% endif %}{% endif %}><span>Metadata Google Sheet URL / ID</span><input name="metadata_sheet_url_or_id" {% if (engine_instance != 'song' or not song_manual) and (not short_group or not short_manual) %}required{% endif %} value="{{ p.metadata_sheet_url_or_id if p else '' }}" placeholder="Google Sheet URL or ID"></label>
-            <label class="lum-field" {% if short_group %}data-short-sheet-field {% if short_manual %}hidden{% endif %}{% endif %} {% if engine_instance == 'song' %}data-song-sheet-field {% if song_manual %}hidden{% endif %}{% endif %}><span>Metadata Sub-sheet / Tab</span><input name="metadata_sheet_tab" value="{{ p.metadata_sheet_tab if p else '' }}" placeholder="Channel Metadata" {% if (engine_instance == 'song' and group_profile) or (short_group and not short_manual) %}required{% endif %}></label>
+            <label class="lum-field" {% if short_group %}data-short-sheet-field {% if short_manual %}hidden{% endif %}{% endif %} {% if engine_instance == 'song' %}data-song-sheet-field {% if song_manual %}hidden{% endif %}{% endif %}><span>Metadata Sub-sheet / Tab</span><input name="metadata_sheet_tab" value="{{ p.metadata_sheet_tab if p else '' }}" placeholder="Channel Metadata" {% if (engine_instance == 'song' and group_profile and not song_manual) or (short_group and not short_manual) %}required{% endif %}></label>
             <label class="lum-field" {% if short_group %}data-short-sheet-field {% if short_manual %}hidden{% endif %}{% endif %} {% if engine_instance == 'song' %}data-song-sheet-field {% if song_manual %}hidden{% endif %}{% endif %}><span>Exact GID</span><input name="metadata_sheet_gid" value="{{ p.metadata_sheet_gid if p else '' }}" placeholder="Optional when exact tab name is used"></label>
           </div>
           {% if engine_instance == 'song' %}
@@ -1114,10 +1117,12 @@
                 {% endfor %}
               </select></label>
               <label class="lum-field" style="grid-column:1/-1"><span>YouTube Video Description</span><textarea name="manual_description" maxlength="5000" rows="5" placeholder="Saved description">{{ p.manual_description if p else '' }}</textarea></label>
+              {% if p and p.channel_db_id %}
               <label class="lum-field"><span>Upload Date (optional)</span><input type="date" name="manual_upload_date" value="{{ p.manual_upload_date if p else '' }}"></label>
               <label class="lum-field"><span>Upload Time (optional)</span><input type="time" name="manual_upload_time" value="{{ p.manual_upload_time if p else '' }}"></label>
+              {% endif %}
             </div>
-            <div class="lum-note">Manual metadata is saved with this channel profile. Both date and time are needed for queue creation; otherwise videos remain UNSCHEDULED. The original matching thumbnail is mandatory. No Sheet sync or Sheet writeback in this mode.</div>
+            <div class="lum-note">{% if p and p.channel_db_id %}Set an upload date and time to queue videos.{% else %}Uses the group schedule.{% endif %} Original matching thumbnail required.</div>
           </div>
           {% endif %}
           {% if engine_instance != 'shortstudio' %}<div class="lum-note" data-song-sheet-note {% if engine_instance == 'song' and song_manual %}hidden{% endif %}><strong>Required before queue:</strong> Video ID, title, Upload Enabled, schedule, one matching video{% if engine_instance not in ['shorts', 'shortstudio'] %} and one matching thumbnail{% endif %}. Description and tags may be blank. Duplicate Sheet IDs use the first row.</div>{% endif %}

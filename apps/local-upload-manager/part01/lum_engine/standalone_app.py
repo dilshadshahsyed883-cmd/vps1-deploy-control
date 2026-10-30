@@ -409,7 +409,7 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         if selected == "auto_engine" and engine_instance == "engine1"
         else {}
     )
-    auto_v6 = v6_profile_context(db, v6_store, int(auto_profile_id or 0)) if selected == "auto_engine" and selected_auto_mode == "engine1" else {}
+    auto_v6 = v6_profile_context(db, v6_store, int(auto_profile_id or 0),owner=str(user.get("username") or "")) if selected == "auto_engine" and selected_auto_mode == "engine1" else {}
     if selected == "auto_engine" and auto_v6:
         auto_v6["short_folders"] = v6_shortstudio_list_folders() if engine_instance == "shortstudio" else []
         # LUM_SCHEDULER_CONTROL_LIVE_V1: runtime-only presentation state.
@@ -1102,10 +1102,13 @@ def _v6_selected_ids(form, key: str = "video_ids"):
         return [int(value)] if str(value or "").isdigit() else []
 
 
-def _v6_profile(profile_id: int):
+def _v6_profile(profile_id: int,request: Request=None):
     profile=db.get_auto_engine_profile(int(profile_id))
     if not profile:
         raise ValueError("Auto Engine profile not found.")
+    owner=v6_store.group_settings(int(profile_id)).get("song_folder_owner")
+    if owner and (request is None or owner!=str(current_user(request).get("username") or "")):
+        raise ValueError("This folder profile belongs to another account.")
     return profile
 
 
@@ -1116,7 +1119,8 @@ async def auto_v6_profile_save(request: Request):
     try:
         raw=str(form.get("profile_id") or "").strip()
         pid=int(raw) if raw.isdigit() else None
-        saved=v6_save_profile_from_form(db,v6_store,dict(form),pid)
+        fields=dict(form); fields["_song_owner"]=str(user.get("username") or "")
+        saved=v6_save_profile_from_form(db,v6_store,fields,pid)
         return redirect(f"/app?tab=auto_engine&auto_profile_id={saved}",message=f"Auto Engine profile #{saved} saved.")
     except Exception as exc:
         return redirect("/app?tab=auto_engine",error=str(exc))
@@ -1126,6 +1130,7 @@ async def auto_v6_profile_save(request: Request):
 def auto_v6_profile_toggle(request: Request,csrf_token: str=Form(...),profile_id: int=Form(...),enabled: str=Form("0")):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
     try:
+        _v6_profile(profile_id,request)
         state=str(enabled).lower() in {"1","true","on","yes"}
         db.set_auto_engine_profile_enabled(int(profile_id),state)
         return redirect(f"/app?tab=auto_engine&auto_profile_id={int(profile_id)}",message=f"Profile {'enabled' if state else 'disabled'}.")
@@ -1140,8 +1145,11 @@ def auto_v6_profile_delete(request: Request,csrf_token: str=Form(...),profile_id
         nonterminal=[j for j in db.list_auto_engine_jobs(limit=5000) if int(j.get("auto_engine_profile_id") or 0)==int(profile_id) and str(j.get("status") or "").upper() not in {"UPLOADED","PUBLISHED","FAILED","CANCELLED"}]
         if nonterminal: raise ValueError("Profile still has queued/running/review jobs. Finish or safely remove those jobs before deleting the profile.")
         pid=int(profile_id)
+        _v6_profile(pid,request)
         is_channel=v6_store.is_channel_profile(pid)
         db.delete_auto_engine_profile(pid)
+        with v6_store.connect() as con:
+            con.execute("DELETE FROM song_group_settings WHERE profile_id=?",(pid,))
         if is_channel:
             with v6_store.connect() as con:
                 con.execute("DELETE FROM channel_metadata_rows WHERE profile_id=?",(pid,))
@@ -1177,7 +1185,7 @@ def import_songmaker_local(request: Request, csrf_token: str=Form(...),
 def auto_v6_sync_scan(request: Request,csrf_token: str=Form(...),profile_id: int=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
     try:
-        profile=_v6_profile(profile_id)
+        profile=_v6_profile(profile_id,request)
         if v6_store.is_channel_profile(int(profile_id)):
             result=v6_sync_channel_profile(db,v6_store,profile,queue_valid=True)
         else:
@@ -1192,11 +1200,20 @@ def auto_v6_sync_all(request: Request,csrf_token: str=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
     created=0; synced=0; errors=[]
     for profile in db.list_auto_engine_profiles():
+        folder_owner=v6_store.group_settings(int(profile.get("id") or 0)).get("song_folder_owner")
+        if folder_owner and folder_owner!=str(user.get("username") or ""): continue
         pid=int(profile.get("id") or 0)
-        if not v6_store.is_channel_profile(pid) or int(profile.get("enabled") or 0)!=1:
+        if int(profile.get("enabled") or 0)!=1:
             continue
         try:
-            result=v6_sync_channel_profile(db,v6_store,profile,queue_valid=True)
+            if v6_store.is_channel_profile(pid):
+                result=v6_sync_channel_profile(db,v6_store,profile,queue_valid=True)
+            elif os.environ.get("LUM_ENGINE_INSTANCE")=="song":
+                result=v6_preflight_profile(db,v6_store,profile)
+                if not result.get("ok"):
+                    raise ValueError("; ".join(result.get("errors") or ["Source validation failed"]))
+            else:
+                continue
             created+=int(result.get("created") or 0); synced+=1
         except Exception as exc:
             errors.append(f"{profile.get('category_name') or pid}: {exc}")
@@ -1210,6 +1227,7 @@ def auto_v6_sync_all(request: Request,csrf_token: str=Form(...)):
 def auto_v6_profile_resume(request: Request,csrf_token: str=Form(...),profile_id: int=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
     pid=int(profile_id)
+    _v6_profile(pid,request)
     v6_resume_channel_profile(v6_store,pid)
     with db.connect() as con:
         con.execute("UPDATE videos SET status='QUEUED',error_message='',updated_at=CURRENT_TIMESTAMP WHERE auto_engine_profile_id=? AND status='PAUSED'",(pid,))
@@ -1220,6 +1238,7 @@ def auto_v6_profile_resume(request: Request,csrf_token: str=Form(...),profile_id
 def auto_v6_job_upload_now(request: Request,csrf_token: str=Form(...),video_id: int=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
     vid=int(video_id); meta=v6_store.channel_job_meta(vid)
+    if meta: _v6_profile(int(meta["profile_id"]),request)
     if not meta:
         return redirect("/app?tab=auto_engine",error="Upload Now is available only for channel Video-ID Auto Engine jobs.")
     with db.connect() as con:
@@ -1241,6 +1260,7 @@ async def auto_v6_job_edit(request: Request):
     vid=int(str(form.get("video_id") or "0")); meta=v6_store.channel_job_meta(vid)
     if not meta:
         return redirect("/app?tab=auto_engine",error="Queued job edit is available only for channel Video-ID jobs.")
+    _v6_profile(int(meta["profile_id"]),request)
     title=str(form.get("title") or "").strip(); description=str(form.get("description") or "")
     if not title: return redirect("/app?tab=auto_engine",error="Title cannot be empty.")
     if len(title)>100: return redirect("/app?tab=auto_engine",error="Title cannot exceed 100 characters.")
@@ -1267,7 +1287,7 @@ def auto_v6_queue_preflight(request: Request,csrf_token: str=Form(...)):
 def auto_v6_preview(request: Request,profile_id: int):
     current_user(request); require_heavy(current_user(request))
     try:
-        result=v6_planner(db,v6_store,_v6_profile(profile_id),preview_only=True)
+        result=v6_planner(db,v6_store,_v6_profile(profile_id,request),preview_only=True)
         return V6JSONResponse(result)
     except Exception as exc:
         return V6JSONResponse({"ready":False,"jobs":[],"blocked":[str(exc)]},status_code=400)
@@ -1278,7 +1298,7 @@ def auto_v6_generate(request: Request,csrf_token: str=Form(...),profile_id: int=
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
     try:
         if str(confirmation).strip()!="GENERATE": raise ValueError('Type GENERATE exactly to create real queue jobs.')
-        profile=_v6_profile(profile_id)
+        profile=_v6_profile(profile_id,request)
         result=v6_generate_queue(db,v6_store,profile)
         v6_mark_schedule_skipped_today(db,profile)
         if int(result.get("created") or 0) and str(profile.get("work_mode") or "") == "auto":
@@ -1296,7 +1316,7 @@ def auto_v6_generate_json(request: Request,csrf_token: str=Form(...),profile_id:
     try:
         if str(confirmation).strip()!="GENERATE":
             raise ValueError("Generate confirmation is invalid.")
-        profile=_v6_profile(pid)
+        profile=_v6_profile(pid,request)
         result=v6_generate_queue(db,v6_store,profile)
         v6_mark_schedule_skipped_today(db,profile)
         created=int(result.get("created") or 0)
@@ -1334,6 +1354,8 @@ def auto_v6_start_all(request: Request,csrf_token: str=Form(...),confirmation: s
         return redirect("/app?tab=auto_engine",error='Type START ALL exactly.')
     created=0; skipped=[]
     for profile in db.list_auto_engine_profiles():
+        folder_owner=v6_store.group_settings(int(profile.get("id") or 0)).get("song_folder_owner")
+        if folder_owner and folder_owner!=str(user.get("username") or ""): continue
         if int(profile.get("enabled") or 0)!=1: continue
         try:
             result=v6_generate_queue(db,v6_store,profile)
@@ -1357,6 +1379,8 @@ def auto_v6_engine(request: Request,csrf_token: str=Form(...),action: str=Form(.
     elif act=="arm_scheduler":
         ready=[]; invalid=[]
         for profile in db.list_auto_engine_profiles():
+            folder_owner=v6_store.group_settings(int(profile.get("id") or 0)).get("song_folder_owner")
+            if folder_owner and folder_owner!=str(user.get("username") or ""): continue
             try:
                 if int(profile.get("enabled") or 0)!=1 or str(profile.get("work_mode") or "").strip().lower()!="auto":
                     continue
@@ -1416,6 +1440,8 @@ async def auto_v6_profile_schedules_save(request: Request):
     current_raw=str(form.get("current_profile_id") or "0")
     current_profile_id=int(current_raw) if current_raw.isdigit() else 0
     for profile in db.list_auto_engine_profiles():
+        folder_owner=v6_store.group_settings(int(profile.get("id") or 0)).get("song_folder_owner")
+        if folder_owner and folder_owner!=str(user.get("username") or ""): continue
         pid=int(profile.get("id") or 0)
         try:
             raw_enabled=str(form.get(f"schedule_enabled_{pid}") or "0").lower()
@@ -1439,6 +1465,9 @@ async def auto_v6_retry_failed(request: Request):
     user=current_user(request); require_heavy(user)
     form=await request.form(); require_csrf(request,str(form.get("csrf_token") or ""))
     ids=_v6_selected_ids(form)
+    for selected_id in ids:
+        source=v6_store.job_source(selected_id)
+        if source: _v6_profile(int(source["profile_id"]),request)
     candidates=[j for j in db.list_auto_engine_jobs(limit=5000) if str(j.get("status") or "")=="FAILED" and str(j.get("recovery_state") or "")!="REVIEW_REQUIRED"]
     if ids: candidates=[j for j in candidates if int(j.get("id") or 0) in ids]
     safe=[]; blocked=0
@@ -1472,6 +1501,9 @@ async def auto_v6_remove_selected(request: Request):
     user=current_user(request); require_heavy(user)
     form=await request.form(); require_csrf(request,str(form.get("csrf_token") or ""))
     ids=_v6_selected_ids(form)
+    for selected_id in ids:
+        source=v6_store.job_source(selected_id)
+        if source: _v6_profile(int(source["profile_id"]),request)
     count=db.delete_auto_engine_jobs(ids)
     with v6_store.connect() as con:
         for vid in ids:
@@ -1487,6 +1519,9 @@ async def auto_v6_recovery_clear(request: Request):
     if str(form.get("confirmation") or "").strip()!="I CHECKED YOUTUBE":
         return redirect("/app?tab=auto_engine",error='Type I CHECKED YOUTUBE exactly after checking YouTube Studio.')
     ids=_v6_selected_ids(form)
+    for selected_id in ids:
+        source=v6_store.job_source(selected_id)
+        if source: _v6_profile(int(source["profile_id"]),request)
     count=db.resolve_recovery_review(ids)
     with v6_store.connect() as con:
         for vid in ids:
@@ -1497,7 +1532,7 @@ async def auto_v6_recovery_clear(request: Request):
 @app.post(route("/actions/auto-v6/thumbnails/upload"))
 async def auto_v6_thumbnail_upload(request: Request,csrf_token: str=Form(...),profile_id: int=Form(...),files: list[UploadFile]=File(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
-    profile=_v6_profile(profile_id); installed=duplicates=invalid=0; errors=[]
+    profile=_v6_profile(profile_id,request); installed=duplicates=invalid=0; errors=[]
     source=v6_store.source(int(profile_id))
     if str(source.get("thumbnail_source_mode") or "pc_drive") == "drive":
         return redirect(f"/app?tab=auto_engine&auto_profile_id={int(profile_id)}",error="This profile is Drive-only for thumbnails. Change Thumbnail Source Mode to PC or PC + Drive before uploading from PC.")
@@ -1517,7 +1552,7 @@ async def auto_v6_thumbnail_upload(request: Request,csrf_token: str=Form(...),pr
 def auto_v6_thumbnail_sync_drive(request: Request,csrf_token: str=Form(...),profile_id: int=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
     try:
-        p=_v6_profile(profile_id); source=v6_store.source(int(profile_id))
+        p=_v6_profile(profile_id,request); source=v6_store.source(int(profile_id))
         if str(source.get("thumbnail_source_mode") or "pc_drive") == "pc":
             raise ValueError("This profile is PC-upload-only for thumbnails. Change Thumbnail Source Mode to Drive or PC + Drive before syncing Drive thumbnails.")
         result=v6_store.sync_drive_thumbnails(int(profile_id),str(p.get("category_name") or ""))
@@ -1543,7 +1578,7 @@ async def auto_v6_thumbnail_move(request: Request):
     form=await request.form(); require_csrf(request,str(form.get("csrf_token") or ""))
     ids=_v6_selected_ids(form,"asset_ids"); target_id=int(form.get("target_profile_id") or 0)
     try:
-        target=_v6_profile(target_id); moved,blocked,duplicates=v6_store.move_thumbs(ids,target_id,str(target.get("category_name") or ""),db)
+        target=_v6_profile(target_id,request); moved,blocked,duplicates=v6_store.move_thumbs(ids,target_id,str(target.get("category_name") or ""),db)
         return redirect(f"/app?tab=auto_engine&auto_profile_id={target_id}",message=f"Moved {moved} thumbnail(s) to {target.get('category_name')} · live-job protected {len(blocked)} · duplicates skipped {len(duplicates)}.")
     except Exception as exc: return redirect("/app?tab=auto_engine",error=str(exc))
 
@@ -1607,7 +1642,7 @@ def auto_v6_missed_run(request: Request,csrf_token: str=Form(...),missed_id: int
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
     with v6_store.connect() as con: row=con.execute("SELECT * FROM missed_alarms WHERE id=? AND state='REVIEW_REQUIRED'",(int(missed_id),)).fetchone()
     if not row: return redirect("/app?tab=auto_engine",error="Missed alarm review item not found.")
-    item=dict(row); profile=_v6_profile(int(item["profile_id"])); channels=v6_target_channels(db,profile)
+    item=dict(row); profile=_v6_profile(int(item["profile_id"]),request); channels=v6_target_channels(db,profile)
     max_jobs=len(channels) if str(profile.get("upload_scope") or "per_channel")=="per_channel" else 1
     try:
         result=v6_generate_queue(db,v6_store,profile,run_key=str(item["run_key"]),max_jobs_override=max_jobs)
