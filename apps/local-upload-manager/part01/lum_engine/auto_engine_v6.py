@@ -49,7 +49,7 @@ THUMB_ROOT = DATA_ROOT / "thumbnails"
 TRASH_ROOT = DATA_ROOT / "thumbnail_trash"
 STAGING_ROOT = DATA_ROOT / "staging"
 REPORT_ROOT = DATA_ROOT / "reports"
-SHORT_STUDIO_ROOT = Path(os.environ.get("SHORT_STUDIO_VPS_FOLDER_ROOT", "/var/lib/short-studio/shorts"))
+SHORT_STUDIO_ROOT = Path(os.environ.get("SHORT_STUDIO_VPS_FOLDER_ROOT", "/var/lib/short-maker/vps_short_folders"))
 SHORT_FOLDER_PREFIX = "shortstudio-local:"
 SHORT_FOLDER_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,63}\Z")
 
