@@ -85,7 +85,7 @@ class CopyrightStudioContract(unittest.TestCase):
         self.assertIn('tabs.setAttribute("aria-label", "Copyright Studio")', scene)
         self.assertIn('aria-label="Copyright Studio"', video)
         self.assertIn('href="/video-merger/"', video)
-        self.assertNotIn('<nav data-video-studio-subnav="1"', video)
+        self.assertNotIn('aria-label="Video Studio"', video)
         self.assertIn("PREFIX = '/video-merger'", (MERGER / "app.py").read_text())
 
     def test_sqlite_durable_queue_owner_and_duplicate_guard(self):
