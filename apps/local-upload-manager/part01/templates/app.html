@@ -732,6 +732,7 @@
     {% set ae = auto_v6 %}
     {% set p = ae.selected if ae else None %}
     {% set src = ae.source if ae else {} %}
+    {% if engine_instance != 'shortstudio' %}
     <section class="lum-ae-head">
       <div>
         {% if engine_instance == 'shortstudio' %}<div class="lum-eyebrow">Group automation</div>{% elif engine_instance != 'song' %}<div class="lum-eyebrow">Channel-based · Video ID source of truth</div>{% endif %}
@@ -760,6 +761,7 @@
 {% endif %}
       </div>
     </section>
+    {% endif %}
 
     <nav class="lum-ae-tabs lum-ae-tabs-primary" aria-label="Auto Engine workspace">
       <button type="button" class="active" data-ae-panel-target="automation">Automation</button>

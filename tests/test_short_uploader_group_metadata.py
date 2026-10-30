@@ -230,6 +230,22 @@ class ShortGroupTests(unittest.TestCase):
         self.assertEqual(profile['enabled'],'0')
         self.assertEqual(self.ns['short_group_metadata'](self.store,pid)['metadata_source'],'sheet')
 
+    def test_redundant_auto_engine_header_removed_from_short_uploader(self):
+        source=TEMPLATE.read_text()
+        start=source.index('    <section class="lum-ae-head">')
+        begin=source.rfind("{% if engine_instance != 'shortstudio' %}",0,start)
+        tabs=source.index('    <nav class="lum-ae-tabs lum-ae-tabs-primary" aria-label="Auto Engine workspace">',start)
+        header=source[begin:tabs]
+        self.assertIn('class="lum-ae-head"',header)
+        self.assertIn('Worker {{ ae.scheduler_ui.worker_status }}',header)
+        self.assertIn('Scheduler {{ ae.scheduler_ui.scheduler_status }}',header)
+        self.assertIn('{% endif %}',header)
+        self.assertLess(header.index('</section>'),header.rindex('{% endif %}'))
+        self.assertIn('data-ae-panel-target="automation"',source[tabs:])
+        self.assertIn('data-ae-panel-target="profiles"',source[tabs:])
+        self.assertIn('data-ae-panel-target="queue"',source[tabs:])
+        self.assertIn('data-ae-panel-target="records"',source[tabs:])
+
     def test_short_group_form_uses_two_fields_per_row_and_selected_defaults(self):
         source=TEMPLATE.read_text()
         start=source.index('    <form id="lum-ae-profile-form"')
