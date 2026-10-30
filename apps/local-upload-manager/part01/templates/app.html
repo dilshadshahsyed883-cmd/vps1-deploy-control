@@ -787,7 +787,7 @@
         <span class="lum-health {{ 'ok' if ae.scheduler_ui.worker_status in ['Idle','Processing'] else 'warn' }}" title="{{ ae.scheduler_ui.worker_note or ('Service offline' if ae.scheduler_ui.worker_status == 'Offline' else 'Worker status') }}">Worker {{ ae.scheduler_ui.worker_status }}</span>
         <span class="lum-health {{ 'ok' if ae.scheduler_ui.scheduler_status in ['Waiting','Processing'] else ('warn' if ae.scheduler_ui.scheduler_status in ['Error','Offline'] else '') }}" title="{{ ae.scheduler_ui.scheduler_note or ('Service offline' if ae.scheduler_ui.scheduler_status == 'Offline' else 'Scheduler status') }}">Scheduler {{ ae.scheduler_ui.scheduler_status }}</span>
         <span class="lum-health {{ 'ok' if ae.engine.running else 'warn' }}" title="Engine control setting; inspect worker and scheduler independently">Engine {{ 'RUNNING' if ae.engine.running else 'STOPPED' }}</span>
-        {% if engine_instance == 'song' and (ae.scheduler_ui.worker_status in ['Error','Offline'] or ae.scheduler_ui.scheduler_status in ['Error','Offline']) %}
+        {% if engine_instance == 'song' %}
         <a class="lum-song-status-logs" href="{{ base_path }}/app?tab=logs" data-lum-soft-link>View Logs</a>
         {% endif %>
       </div>
