@@ -861,6 +861,29 @@ def main():
     check_host(args.revision)
     with deployment_lock():
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        # Trusted VPS root helper supports the existing local-upload-manager
+        # lane, not a new app name. Dispatch only this explicitly SHA-pinned
+        # Copyright intent to an entirely separate catalog/service/SQLite.
+        # No code path below can touch the existing LUM mode workers.
+        if '[vps1-copyright-studio-release]' in intent and args.apps == ['local-upload-manager']:
+            target='copyright-uploader'
+            if args.action == 'install':
+                install_app(target, args.revision)
+            elif args.action == 'status':
+                event(app=target, health=http_check(target))
+            elif args.action == 'rollback':
+                record_path=BASE/'control/state'/ (target + '.json')
+                if not record_path.is_file():
+                    raise RuntimeError('Copyright rollback record not found')
+                receipt=json.loads(record_path.read_text())
+                if receipt.get('revision')!=args.revision:
+                    raise RuntimeError('Copyright rollback revision changed')
+                from production.copyright_studio_release import rollback_installed_route
+                rollback_installed_route(args.revision)
+                restore(target, receipt['previous'])
+            else:
+                raise RuntimeError('Unsupported Copyright operation')
+            return
         # Scoped, transactional Short Uploader template change. Never enter
         # the shared LUM installer or restart Song/Engine 1/Engine 2 workers.
         if '[vps1-shortstudio-intro-only]' in intent:
