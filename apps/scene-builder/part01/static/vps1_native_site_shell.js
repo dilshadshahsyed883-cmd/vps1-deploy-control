@@ -310,7 +310,7 @@
     const experimentLink = primaryLinks.experiment;
     const selectVoiceOrSong = () => {
       if (app !== "voice") return;
-      const inSong = document.body.classList.contains("vs-audio-active");
+      const inSong = isSongAudio || document.body.classList.contains("vs-audio-active");
       for (const [link, selected] of [[voiceLink, !inSong], [songLink, inSong], [experimentLink, !inSong]]) {
         if (!link) continue;
         link.classList.toggle("active", selected);
