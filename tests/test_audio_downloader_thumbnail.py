@@ -122,41 +122,43 @@ class AudioThumbnailTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "thumbnail unavailable"):
                 self.m.run_job(self.job(thumb=True))
 
-    def test_drive_pair_is_verified_and_immutable_before_local_cleanup(self):
-        copies, verified, redundant_stats = [], [], []
+    def test_audio_then_thumbnail_only_two_copyto_commands_and_local_retention(self):
+        copies = []
         def execute(args, **kw):
             if args[0] == "/fake/yt-dlp":
                 return self.fake_download(args, **kw)
-            if "copyto" in args:
-                copies.append(args)
-                return subprocess.CompletedProcess(args, 0, "", "")
-            if "lsjson" in args:
-                redundant_stats.append(args)
-                remote = args[-1]
-                size = len(JPG) if remote.endswith(".jpg") else len(MP3)
-                return subprocess.CompletedProcess(args, 0, json.dumps({"Size": size}), "")
-            self.fail("Unexpected process: " + repr(args))
-        def verify(remote, local, fmt):
-            verified.append((remote, Path(local).name, fmt))
-            self.assertTrue(Path(local).exists())
-            return "https://drive.google.com/file/d/123456789012/view?usp=sharing"
-        updates = []
+            self.assertIn("copyto", args, "No Drive probe/link/hash/permission call")
+            copies.append(args)
+            return subprocess.CompletedProcess(args, 0, "", "")
+        job = self.job(thumb=True, upload=True)
+        with self.m.db() as con:
+            con.execute("""INSERT INTO jobs
+                (job_id,batch_id,video_id,url,project,folder,format,quality,
+                 auto_upload,keep_metadata,download_thumbnail,status,created_at,updated_at)
+                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (job["job_id"], "ADB-TEST", VIDEO, job["url"], job["project"], job["folder"],
+                 "mp3", 192, 1, 0, 1, "downloading", self.m.utc(), self.m.utc()))
         state = {"ytdlp": "/fake/yt-dlp", "ffmpeg": "/fake/ffmpeg",
                  "rclone": "/fake/rclone", "upload_ready": True}
         with patch.object(self.m, "deps", return_value=state), \
              patch.object(self.m.subprocess, "run", side_effect=execute), \
-             patch.object(self.m, "verified_drive_public_link", side_effect=verify), \
-             patch.object(self.m, "_update", side_effect=lambda jid, st, **kw: updates.append((st, kw))):
-            self.m.run_job(self.job(thumb=True, upload=True))
+             patch.object(self.m, "_wait_for_thumbnail_upload") as wait, \
+             patch.object(self.m, "verified_drive_public_link",
+                          side_effect=AssertionError("No extra Drive verification")):
+            self.m.run_job(job)
+        wait.assert_called_once_with(job["job_id"])
         self.assertEqual([args[args.index("copyto") + 2] for args in copies], [
             "gdrive:Song Studio/Audio downloader/" + VIDEO + ".mp3",
             "gdrive:Song Studio/Audio downloader/" + VIDEO + ".jpg"])
         self.assertTrue(all("--immutable" in args for args in copies))
-        self.assertEqual(redundant_stats, [])  # Only the authoritative verifier queries Drive.
-        self.assertEqual([x[2] for x in verified], ["mp3", "jpg"])
-        self.assertEqual(next(st for st, kw in updates if st == "delivered"), "delivered")
-        self.assertEqual(next(kw for st, kw in updates if st == "delivered" and "thumbnail_drive_path" in kw)["thumbnail_drive_path"], "gdrive:Song Studio/Audio downloader/" + VIDEO + ".jpg")
-        self.assertFalse((self.m.JOBS / self.job()["job_id"] / (VIDEO + ".jpg")).exists())
+        with self.m.db() as con:
+            row = con.execute("SELECT * FROM jobs WHERE job_id=?", (job["job_id"],)).fetchone()
+        self.assertEqual(row["status"], "delivered")
+        self.assertTrue(row["thumbnail_drive_path"].endswith(".jpg"))
+        self.assertIsNone(row["drive_url"])
+        self.assertIsNone(row["thumbnail_drive_url"])
+        self.assertTrue((self.m.JOBS / job["job_id"] / (VIDEO + ".mp3")).exists())
+        self.assertTrue((self.m.JOBS / job["job_id"] / (VIDEO + ".jpg")).exists())
 
     def test_qa_upload_stays_nonce_scoped_for_safe_cleanup(self):
         job = self.job(folder="__Audio_Proxy_QA__", project="C96CA984DDF24F5D", upload=True)
