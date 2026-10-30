@@ -1020,7 +1020,7 @@ loadQueue();setInterval(loadQueue,2000);
 
 
 </script>
-<script src="resumable_client.js"></script>
+<script src="/short-maker/resumable_client.js"></script>
 <script>
 (() => {
   const toggle=document.querySelector(".vps1-video-mobile-menu");
