@@ -85,7 +85,7 @@ class ShortMakerResumeTests(unittest.TestCase):
         js = CLIENT.read_text(encoding="utf-8")
         self.assertIn('id="progressDetail"', app)
         self.assertIn('id="mUploading"', app)
-        self.assertIn('src="resumable_client.js"', app)
+        self.assertIn('src="/short-maker/resumable_client.js"', app)
         self.assertIn('status="uploading"', app)
         self.assertIn('if state.get("status") != "uploading":', app)
         self.assertIn('with upload_session_lock(job_id):', app)
