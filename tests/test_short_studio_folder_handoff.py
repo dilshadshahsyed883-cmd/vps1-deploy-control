@@ -139,7 +139,7 @@ class ShortStudioFolderHandoffTests(unittest.TestCase):
                 "SHORT_VPS_ROOT": root, "Path": Path, "re": re,
                 "shutil": shutil, "uuid": uuid, "os": os,
             })
-            with self.assertRaises(FileExistsError):
+            with self.assertRaisesRegex(RuntimeError, "Output filename already exists"):
                 g["publish_short_to_vps"](local, "Channel A", "any", strict=True)
             self.assertEqual(existing.read_bytes(), b"original bytes")
 
