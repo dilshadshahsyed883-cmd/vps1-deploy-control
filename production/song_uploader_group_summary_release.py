@@ -59,6 +59,20 @@ def verify_live():
     require('data-song-group-summary' in html and '<th>Group Name</th>' in html and
             '<th>Channels</th>' in html and '<th>Schedule (PKT)</th>' in html,
             'live automation group summary is missing')
+    # Verify the UI-only release, not merely service health: global sync
+    # must be on the planner row, with no single-profile sync buttons.
+    toolbar_marker='lum-ae-bulk-profile-controls'
+    require(html.count(toolbar_marker)==1, 'Song bulk toolbar missing')
+    toolbar=html.split(toolbar_marker,1)[1].split('</div>',1)[0]
+    require('Generate Queue Now' in toolbar and
+            'Start All Profiles' in toolbar and
+            'Sync All Channels' in toolbar and
+            toolbar.index('Start All Profiles')<toolbar.index('Sync All Channels'),
+            'global sync is not on the bulk-action row')
+    require(html.count('>Sync All Channels</button>')==1 and
+            'Sync Channel</button>' not in html and
+            'data-ae-sync-scan' not in html,
+            'individual sync UI persists or global sync is duplicated')
     anonymous_status, _, anonymous_body = https_get('/song-uploader/app')
     # The public Scene SSO gate may redirect unauthenticated users to login
     # rather than return FastAPI's 401; it must never serve protected app HTML.
