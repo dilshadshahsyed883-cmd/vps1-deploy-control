@@ -1464,7 +1464,7 @@ async def begin_resumable_upload(request: Request):
                 raise HTTPException(status_code=400, detail="Invalid file size.")
             if size < 1 or size > UPLOAD_FILE_LIMIT:
                 raise HTTPException(status_code=400, detail="File size outside supported range.")
-            if kind == "images" and not is_image(Path(name)):
+            if kind == "images" and Path(name).suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".jfif", ".heic", ".heif"):
                 raise HTTPException(status_code=400, detail="Unsupported image: " + name)
             grand_total += size
             clean_files.append({"name": name, "size": size})
@@ -1560,6 +1560,8 @@ def finalize_resumable_upload(job_id: str, request: Request):
                         for i, entry in enumerate(manifest["files"]["audio"])]
         if any(not Path(p).is_file() for p in cfg["images"] + cfg["audio"]):
             raise HTTPException(status_code=409, detail="Some uploaded files are missing.")
+        if any(not is_image(Path(p)) for p in cfg["images"]):
+            raise HTTPException(status_code=400, detail="Some image files are not valid images.")
         try:
             names = reserve_short_output_names(cfg["short_vps_folder"], cfg["output_count"])
         except (ValueError, OSError, sqlite3.Error) as exc:
