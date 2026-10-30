@@ -220,9 +220,9 @@ class AutoCleanReadOnlyView(unittest.TestCase):
                 }
             }
         }
-        with tempfile.TemporaryDirectory() as tmp, \\
-             patch.object(module, "STATE_ROOT", Path(tmp)), \\
-             patch.object(module, "_public_deployment_gc_status", return_value=public), \\
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(module, "STATE_ROOT", Path(tmp)), \
+             patch.object(module, "_public_deployment_gc_status", return_value=public), \
              patch.object(module, "run", side_effect=OSError("systemd unavailable")):
             result = module.deployment_cleanup_status()
             self.assertEqual(result["eligible_candidate_count"], 229)
@@ -235,6 +235,12 @@ class AutoCleanReadOnlyView(unittest.TestCase):
             public["last_cleanup"]["skip_reason_counts"] = {
                 "process-in-use-or-unverifiable": 2}
             public["last_cleanup"]["timestamp"] = now - 600
+            original = {
+                "mode": "apply", "timestamp": now - 300,
+                "free_before_bytes": 1000, "free_after_bytes": 1000,
+                "deleted": [], "skipped": ["control:deployment-active"]}
+            (Path(tmp) / "deployment-gc-history.jsonl").write_text(
+                json.dumps(original) + "\n")
             stale = module.deployment_cleanup_status()
             self.assertNotIn("skip_reason_counts", stale["last_cleanup"])
 
