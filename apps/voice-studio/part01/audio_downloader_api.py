@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import importlib.util
+import http.client
 import shlex
 import stat
 import sys
@@ -23,7 +24,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from typing import Literal
@@ -43,6 +44,10 @@ _worker: threading.Thread | None = None
 UPLOAD_GAP_SECONDS = 60
 THUMBNAIL_GAP_SECONDS = 30
 UPLOAD_RETRY_SECONDS = 180
+SONG_MAKER_HOST = '127.0.0.1'
+SONG_MAKER_PORT = 8150
+SONG_MAKER_INGEST_PATH = '/song-maker/api/jobs'
+SONG_MAKER_RETRY_SECONDS = 60
 
 
 def utc() -> str:
@@ -94,7 +99,12 @@ def init_storage() -> None:
                                ('download_percent', 'INTEGER NOT NULL DEFAULT 0'),
                                ('upload_percent', 'INTEGER NOT NULL DEFAULT 0'),
                                ('progress_stage', 'TEXT'),
-                               ('thumbnail_upload_after', 'TEXT')):
+                               ('thumbnail_upload_after', 'TEXT'),
+                               ('auto_song_maker', 'INTEGER NOT NULL DEFAULT 0'),
+                               ('song_maker_owner', 'TEXT'),
+                               ('song_maker_status', "TEXT NOT NULL DEFAULT 'off'"),
+                               ('song_maker_job_id', 'TEXT'),
+                               ('song_maker_next_retry_at', 'TEXT')):
             if name not in columns:
                 con.execute(f'ALTER TABLE jobs ADD COLUMN {name} {sql_type}')
         con.execute('''CREATE TABLE IF NOT EXISTS audio_upload_pacing (
@@ -179,6 +189,7 @@ class BatchRequest(BaseModel):
     auto_upload: bool = True
     keep_metadata: bool = False
     download_thumbnail: bool = False
+    auto_song_maker: bool = False
     permission_confirmed: bool = False
 
 
@@ -186,7 +197,9 @@ def sanitized_row(row: sqlite3.Row) -> dict:
     data = dict(row)
     data.pop('local_file', None)
     data.pop('local_thumbnail', None)
+    data.pop('song_maker_owner', None)
     data['download_thumbnail'] = bool(data['download_thumbnail'])
+    data['auto_song_maker'] = bool(data.get('auto_song_maker'))
     data['thumbnail_url'] = ('/tts/api/audio-downloader/jobs/' + data['job_id'] + '/thumbnail') if row['local_thumbnail'] and Path(row['local_thumbnail']).is_file() else None
     data['thumbnail_drive_url'] = data.get('thumbnail_drive_url') if data['status'] == 'delivered' else None
     data['drive_url'] = data.get('drive_url') if data.get('status') == 'delivered' else None
@@ -228,13 +241,18 @@ def status():
 
 
 @router.post('/jobs', status_code=201)
-def enqueue(payload: BatchRequest):
+def enqueue(payload: BatchRequest, request: Request = None):
     if not payload.permission_confirmed:
         raise HTTPException(422, 'Confirm you have permission to download the content')
     if not deps()['ready']:
         raise HTTPException(503, 'Downloader unavailable: yt-dlp or FFmpeg not installed')
+    if payload.auto_song_maker and (payload.auto_upload or not payload.download_thumbnail):
+        raise HTTPException(422, 'Song Maker auto-queue requires thumbnail and Drive auto-upload OFF')
     if payload.auto_upload and not deps()['upload_ready']:
         raise HTTPException(503, 'Google Drive upload is not configured')
+    owner = request.headers.get('x-auth-user', '').strip() if request is not None else ''
+    if payload.auto_song_maker and (not owner or len(owner) > 160 or '\\n' in owner or '\\r' in owner):
+        raise HTTPException(403, 'Authenticated Song Maker user required for auto-queue')
     ids: list[tuple[str, str]] = []
     try:
         for link in payload.links:
@@ -262,9 +280,11 @@ def enqueue(payload: BatchRequest):
                     continue
                 jid = 'ADJ-' + uuid.uuid4().hex[:16].upper()
                 con.execute('''INSERT INTO jobs(job_id,batch_id,video_id,url,project,folder,format,quality,
-                    auto_upload,keep_metadata,download_thumbnail,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                    auto_upload,keep_metadata,download_thumbnail,auto_song_maker,song_maker_owner,song_maker_status,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                     (jid, batch_id, video, url, '', '', payload.format, payload.quality,
-                     int(payload.auto_upload), int(payload.keep_metadata), int(payload.download_thumbnail), 'queued', created, created))
+                     int(payload.auto_upload), int(payload.keep_metadata), int(payload.download_thumbnail),
+                     int(payload.auto_song_maker), owner if payload.auto_song_maker else None,
+                     'pending' if payload.auto_song_maker else 'off', 'queued', created, created))
                 jobs.append(jid)
             con.execute('COMMIT')
         except BaseException:
@@ -760,6 +780,108 @@ def upload_downloaded(job: dict, final: Path, thumbnail: Path | None, state: dic
     # recoverable originals; never delete them based only on copyto exit 0.
 
 
+def _post_local_pair_to_song_maker(row: sqlite3.Row) -> str:
+    """Stream the saved local audio + thumbnail into Song Maker's existing API.
+
+    No Google Drive operations occur for the source pair. Streaming avoids
+    buffering up to 150 MB of audio in the Audio Downloader worker memory.
+    """
+    jid, video, fmt = row['job_id'], row['video_id'], row['format']
+    if not JOB_ID.fullmatch(jid) or not VIDEO_ID.fullmatch(video) or fmt not in ('mp3', 'wav'):
+        raise ValueError('Unsafe Song Maker source identity')
+    folder = (JOBS / jid).resolve()
+    audio, image = folder / (video + '.' + fmt), folder / (video + '.jpg')
+    if (not row['local_file'] or Path(row['local_file']).resolve() != audio.resolve()
+            or not row['local_thumbnail'] or Path(row['local_thumbnail']).resolve() != image.resolve()
+            or folder not in audio.resolve().parents or folder not in image.resolve().parents):
+        raise ValueError('Unexpected local Song Maker input path')
+    if (not audio.is_file() or not image.is_file()
+            or not 1024 < audio.stat().st_size <= 150 * 1024 * 1024
+            or not 1024 < image.stat().st_size <= 20 * 1024 * 1024):
+        raise ValueError('Local Song Maker media missing or invalid')
+    owner = row['song_maker_owner']
+    if not owner or any(c in owner for c in '\r\n') or len(owner) > 160:
+        raise ValueError('Invalid Song Maker owner')
+    boundary = 'audio-song-' + uuid.uuid4().hex
+    parts = []
+    for key, name, mime, path in (
+        ('image', image.name, 'image/jpeg', image),
+        ('audio', audio.name, 'audio/mpeg' if fmt == 'mp3' else 'audio/wav', audio),
+    ):
+        prefix = (f'--{boundary}\r\n'
+                  f'Content-Disposition: form-data; name="{key}"; filename="{name}"\r\n'
+                  f'Content-Type: {mime}\r\n\r\n').encode('ascii')
+        parts.append((prefix, path))
+    ending = f'--{boundary}--\r\n'.encode('ascii')
+    length = sum(len(prefix) + path.stat().st_size + 2 for prefix, path in parts) + len(ending)
+    connection = http.client.HTTPConnection(SONG_MAKER_HOST, SONG_MAKER_PORT, timeout=180)
+    try:
+        connection.putrequest('POST', SONG_MAKER_INGEST_PATH)
+        connection.putheader('Content-Type', 'multipart/form-data; boundary=' + boundary)
+        connection.putheader('Content-Length', str(length))
+        connection.putheader('X-Auth-User', owner)
+        connection.putheader('X-Song-Maker', '1')
+        connection.endheaders()
+        for prefix, path in parts:
+            connection.send(prefix)
+            with path.open('rb') as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                    connection.send(chunk)
+            connection.send(b'\r\n')
+        connection.send(ending)
+        response = connection.getresponse()
+        payload = response.read(32768)
+        if response.status not in (200, 201):
+            raise RuntimeError('Song Maker queue admission unavailable')
+        receipt = json.loads(payload)
+        song_id = receipt.get('id')
+        if not isinstance(song_id, str) or not re.fullmatch(r'[0-9a-f]{32}', song_id):
+            raise ValueError('Song Maker queue acknowledgement missing')
+        return song_id
+    finally:
+        connection.close()
+
+
+def _handoff_song_maker(jid: str) -> None:
+    """Queue local pair exactly once; retry admission without YouTube or Drive."""
+    with db() as con:
+        con.execute('BEGIN IMMEDIATE')
+        row = con.execute('SELECT * FROM jobs WHERE job_id=?', (jid,)).fetchone()
+        if (not row or row['status'] != 'completed' or not row['auto_song_maker']
+                or row['auto_upload'] or not row['download_thumbnail']
+                or row['song_maker_status'] == 'queued'
+                or not row['song_maker_owner'] or not row['local_thumbnail'] or not row['local_file']):
+            con.execute('COMMIT')
+            return
+        due = row['song_maker_next_retry_at']
+        if due and datetime.fromisoformat(due) > datetime.now(timezone.utc):
+            con.execute('COMMIT')
+            return
+        con.execute("""UPDATE jobs SET song_maker_status='sending',song_maker_next_retry_at=?
+                       WHERE job_id=?""", (utc_after(SONG_MAKER_RETRY_SECONDS), jid))
+        con.execute('COMMIT')
+    try:
+        song_id = _post_local_pair_to_song_maker(row)
+    except Exception:
+        with db() as con:
+            con.execute("""UPDATE jobs SET song_maker_status='pending'
+                           WHERE job_id=? AND song_maker_status='sending'""", (jid,))
+        return
+    with db() as con:
+        con.execute("""UPDATE jobs SET song_maker_status='queued',song_maker_job_id=?,
+                       song_maker_next_retry_at=NULL WHERE job_id=?""", (song_id, jid))
+
+
+def _due_song_maker_handoff() -> str | None:
+    with db() as con:
+        row = con.execute("""SELECT job_id FROM jobs WHERE status='completed'
+            AND auto_song_maker=1 AND auto_upload=0
+            AND song_maker_status IN ('pending','sending')
+            AND (song_maker_next_retry_at IS NULL OR song_maker_next_retry_at<=?)
+            ORDER BY completed_at,job_id LIMIT 1""", (utc(),)).fetchone()
+    return row['job_id'] if row else None
+
+
 def worker_loop():
     while True:
         try:
@@ -770,10 +892,15 @@ def worker_loop():
                         resume_upload(item)
                     else:
                         run_job(item)
+                    _handoff_song_maker(item['job_id'])
                 except Exception as exc:
                     _schedule_upload_retry(item['job_id'], exc)
             else:
-                time.sleep(3)
+                due = _due_song_maker_handoff()
+                if due:
+                    _handoff_song_maker(due)
+                else:
+                    time.sleep(3)
         except Exception:
             time.sleep(5)
 
