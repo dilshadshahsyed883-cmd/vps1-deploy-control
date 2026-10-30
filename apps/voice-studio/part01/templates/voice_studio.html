@@ -4,6 +4,22 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Voice Studio · VPS1</title>
+<!-- Select the standalone Audio Downloader before any workspace can paint. -->
+<script id="audio-downloader-first-paint">
+if (/^\/audio-downloader\/?$/.test(location.pathname)) {
+  document.documentElement.dataset.audioDownloaderRoute = 'true';
+  document.documentElement.dataset.vsEngine = 'audio-downloader';
+}
+</script>
+<style id="audio-downloader-first-paint-css">
+html[data-audio-downloader-route="true"] .vs-engine-selector,
+html[data-audio-downloader-route="true"] #vsOmniHeader,
+html[data-audio-downloader-route="true"] .enginebar,
+html[data-audio-downloader-route="true"] section.page,
+html[data-audio-downloader-route="true"] #vsKokoroWorkspace,
+html[data-audio-downloader-route="true"] #vsEdgeWorkspace{display:none!important}
+html[data-audio-downloader-route="true"] #vsAudioWorkspace{display:block!important}
+</style>
 <!-- Load the shared Scene sidebar before the large Voice inline stylesheet.
      The native script runs deferred, after markup is available. -->
 <link rel="stylesheet" href="/&#115;tatic/vps1_native_site_shell.css?v=20261029-song-studio-v1">
