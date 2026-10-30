@@ -17,6 +17,7 @@ FILES=(
     "templates/app.html",
     "templates/base.html",
     "static/local_upload_manager.css",
+    "static/song_uploader_kokoro_ui.css",
     "lum_engine/auto_engine_v6.py",
     "lum_engine/auto_engine_v6_scheduler.py",
     "lum_engine/auto_engine_v6_worker.py",
@@ -122,7 +123,7 @@ def verify_live():
     required_controls=(
         'song-profile-privacy-status',
         'lum-short-engine-status',
-        '20261030-parity-v1',
+        '20261030-status-cards-v2',
         'data-ae-panel-target="automation"',
         'data-ae-panel-target="profiles"',
         'data-ae-panel-target="queue"',
