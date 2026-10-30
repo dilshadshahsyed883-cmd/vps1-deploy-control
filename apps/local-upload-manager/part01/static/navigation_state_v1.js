@@ -4,7 +4,8 @@
 (() => {
   'use strict';
 
-  const KEY = 'lum.main.tab';
+  const KEY = window.location.pathname.startsWith('/short-uploader/')
+    ? 'lum.shortstudio.main.tab' : 'lum.main.tab';
   const VALID = new Set([
     'upload','authentication',
     'dashboard','channels','sheets','auto_engine',
