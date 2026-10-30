@@ -216,7 +216,6 @@ form.addEventListener('submit',async event=>{
   render.disabled=false;
   statusEl.textContent='Upload paused: '+error.message+' — click Start Rendering to retry.';
   discardUpload.hidden=false;
-  discardUpload.hidden=false;
  }
 });
 (async()=>{
@@ -233,6 +232,7 @@ form.addEventListener('submit',async event=>{
  }catch(error){
   render.disabled=false;
   statusEl.textContent='Upload paused: '+error.message+' — click Start Rendering to retry.';
+  discardUpload.hidden=false;
  }
 })();
 
