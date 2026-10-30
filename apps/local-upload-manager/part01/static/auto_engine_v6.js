@@ -49,7 +49,14 @@
   }
 
   function updateQ(){
-    document.querySelectorAll('.lum-ae-queue-select').forEach(cb=>cb.checked=qSelected.has(Number(cb.value)));
+    const boxes=[...document.querySelectorAll('.lum-ae-queue-select')];
+    // The queue is live-replaced every two seconds: forget ids no longer on screen.
+    // Otherwise a single visible job can misleadingly show "17 selected".
+    if(boxes.length || document.querySelector('.lum-ae-queue')){
+      const visible=new Set(boxes.map(cb=>Number(cb.value)));
+      for(const id of qSelected)if(!visible.has(id))qSelected.delete(id);
+    }
+    boxes.forEach(cb=>cb.checked=qSelected.has(Number(cb.value)));
     document.querySelectorAll('[data-ae-queue-count]').forEach(el=>el.textContent=`${qSelected.size} selected`);
   }
   function updateT(){
