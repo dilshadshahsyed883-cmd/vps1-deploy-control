@@ -145,6 +145,45 @@ class SceneUploaderReleaseTests(unittest.TestCase):
         publish.assert_not_called()
         self.assertEqual(self.current.resolve(), self.old)
 
+    def test_scene_overlay_only_marker_skips_lum_install_and_gateway_rebuild(self):
+        import contextlib
+        import sys
+        from production import runtime
+        args = ["runtime", "install", "--revision", self.sha,
+                "--apps", "local-upload-manager"]
+        with patch.object(runtime, "check_host"), \
+             patch.object(runtime, "deployment_lock", return_value=contextlib.nullcontext()), \
+             patch.object(runtime, "run",
+                          return_value="[vps1-shortstudio-scene-overlay-only]"), \
+             patch.object(runtime, "install_app",
+                          side_effect=AssertionError("must not install LUM")) as install, \
+             patch.object(runtime, "event") as event, \
+             patch.object(ui, "activate") as activate, \
+             patch.object(sys, "argv", args):
+            runtime.main()
+        activate.assert_called_once_with(self.sha)
+        install.assert_not_called()
+        self.assertEqual(event.call_args.kwargs["shortstudio_scene_ui"], "PASS")
+
+    def test_scene_overlay_only_marker_denies_other_app_or_rollback(self):
+        import contextlib
+        import sys
+        from production import runtime
+        for args in (["runtime", "install", "--revision", self.sha,
+                      "--apps", "scene-builder"],
+                     ["runtime", "rollback", "--revision", self.sha,
+                      "--apps", "local-upload-manager"]):
+            with self.subTest(args=args):
+                with patch.object(runtime, "check_host"), \
+                     patch.object(runtime, "deployment_lock", return_value=contextlib.nullcontext()), \
+                     patch.object(runtime, "run",
+                                  return_value="[vps1-shortstudio-scene-overlay-only]"), \
+                     patch.object(ui, "activate") as activate, \
+                     patch.object(sys, "argv", args):
+                    with self.assertRaisesRegex(RuntimeError, "requires LUM-only install lane"):
+                        runtime.main()
+                activate.assert_not_called()
+
     def test_github_trigger_is_single_app_not_all(self):
         workflow = (Path(__file__).parent.parent /
                     ".github/workflows/vps1-production.yml").read_text()
