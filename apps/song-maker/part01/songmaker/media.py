@@ -66,23 +66,36 @@ def digest(path, algorithm='sha256'):
     return h.hexdigest()
 
 
-def run(command, cancelled=lambda: False, progress=None, timeout=7200):
+def run(command, cancelled=lambda: False, progress=None, timeout=7200, metrics=None):
     # Temporary files avoid pipe deadlocks and unbounded in-memory FFmpeg logs.
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
         proc = subprocess.Popen(command, stdout=out, stderr=err, start_new_session=True)
         start = time.monotonic()
+        last_report = -1.0
         try:
             while proc.poll() is None:
                 if cancelled():
                     raise Cancelled('Cancelled by user or worker shutdown')
                 if time.monotonic()-start > timeout:
                     raise RuntimeError('External process timed out')
-                if progress:
+                if (progress or metrics) and time.monotonic()-last_report >= .75:
+                    last_report = time.monotonic()
                     pos = os.fstat(out.fileno()).st_size
                     chunk = os.pread(out.fileno(), 4096, max(0, pos-4096)).decode('utf-8', errors='replace')
                     times = re.findall(r'out_time_us=(\d+)', chunk)
-                    if times:
+                    if times and progress:
                         progress(int(times[-1])/1_000_000)
+                    if metrics:
+                        values = {'render_elapsed': round(time.monotonic()-start, 1)}
+                        for field, pattern in [('render_fps', r'fps=([0-9.]+)'),
+                                               ('render_speed', r'speed=([0-9.]+)x'),
+                                               ('render_frame', r'frame=(\d+)')]:
+                            matches = re.findall(pattern, chunk)
+                            if matches:
+                                values[field] = float(matches[-1])
+                        if times:
+                            values['render_seconds'] = int(times[-1])/1_000_000
+                        metrics(values)
                 time.sleep(.15)
             out.seek(0)
             stdout = out.read().decode('utf-8', errors='replace')
@@ -131,7 +144,7 @@ def validate(path, duration, cancelled=lambda: False):
     return {'duration': duration, 'size': Path(path).stat().st_size, 'md5': digest(path, 'md5')}
 
 
-def render(image, audio, output, temporary, resolution='1080p', fit='fit', cancelled=lambda: False, progress=None):
+def render(image, audio, output, temporary, resolution='1080p', fit='fit', cancelled=lambda: False, progress=None, metrics=None):
     if resolution not in FORMATS or fit not in {'fit', 'blur'}:
         raise ValueError('Unsupported output options')
     duration = audio_duration(audio)
@@ -150,7 +163,7 @@ def render(image, audio, output, temporary, resolution='1080p', fit='fit', cance
          '-tune', 'stillimage', '-crf', '20', '-threads', '2', '-pix_fmt', 'yuv420p',
          '-c:a', 'aac', '-b:a', '192k', '-t', str(duration), '-shortest',
          '-movflags', '+faststart', '-progress', 'pipe:1', str(partial)],
-        cancelled, progress, max(120, duration*8))
+        cancelled, progress, max(120, duration*8), metrics=metrics)
     if output.exists():
         raise RuntimeError('Local output collision')
     partial.replace(output)
