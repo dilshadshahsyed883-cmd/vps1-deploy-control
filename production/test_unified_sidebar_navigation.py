@@ -95,7 +95,8 @@ class UniversalSidebarContracts(unittest.TestCase):
         css = SHELL_CSS.read_text(encoding="utf-8")
         slot = (SCENE / "templates/song_studio_placeholder.html").read_text(encoding="utf-8")
         self.assertIn('["Song Studio", "/song-studio/", "song"]', src)
-        self.assertIn('window.location?.hash === "#vs-audio" || /^\\/audio-downloader', src)
+        self.assertIn('window.location?.hash === "#vs-audio" ||', src)
+        self.assertIn('^\\/audio-downloader\\/?$/.test(window.location?.pathname', src)
         self.assertIn('tabs.setAttribute("aria-label", "Song Studio")', src)
         for name in ("Audio Downloader", "Song Maker", "Song Uploader"):
             self.assertIn(f'addLink(tabs, "{name}"', src)
