@@ -919,10 +919,22 @@
               <td>{{ pr.sync_interval_minutes or 15 }} min</td>
               <td>{{ pr.last_sync_at or '—' }}</td>
               {% endif %}
-              <td>{{ 'PAUSED' if pr.channel_paused else 'READY' }}</td>
+              <td>{% if engine_instance == 'shortstudio' and not pr.enabled %}PAUSED{% elif pr.channel_paused %}PAUSED{% else %}READY{% endif %}</td>
               <td class="lum-ae-actions-cell">
                 <div class="lum-ae-row-actions" aria-label="Actions for {{ pr.category_name }}">
                   {% if engine_instance not in ['song', 'shortstudio'] %}<button class="lum-button primary tiny" type="button" data-ae-sync-scan data-profile-id="{{ pr.id }}" data-csrf="{{ csrf }}" data-ae-result-target="lum-ae-preview-result">Sync Channel</button>{% endif %}
+                  {% if engine_instance == 'shortstudio' and not pr.channel_db_id %}
+                  <form method="post" action="{{ base_path }}/actions/auto-v6/start-profile" data-lum-soft-form data-confirm="Start only this Short Uploader profile? Other profiles will not be started by this action.">
+                    <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ pr.id }}">
+                    <button class="lum-button primary tiny" type="submit">{{ 'Start' if pr.enabled else 'Resume' }}</button>
+                  </form>
+                  {% if pr.enabled %}
+                  <form method="post" action="{{ base_path }}/actions/auto-v6/pause-profile" data-lum-soft-form data-confirm="Pause this profile? Its currently running upload will finish safely.">
+                    <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ pr.id }}">
+                    <button class="lum-button secondary tiny" type="submit">Pause</button>
+                  </form>
+                  {% endif %}
+                  {% endif %}
                   <a class="lum-button secondary tiny" href="{{ base_path }}/app?tab=auto_engine&auto_profile_id={{ pr.id }}" data-lum-soft-link>Edit</a>
                   <form id="lum-ae-generate-profile-{{ pr.id }}" method="post" action="{{ base_path }}/actions/auto-v6/generate" data-lum-soft-form hidden>
                     <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ pr.id }}"><input type="hidden" name="confirmation" value="">
@@ -1029,7 +1041,10 @@
         <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="current_profile_id" value="{{ p.id if p else 0 }}">
         <div class="lum-card-head"><div><h2>Profile Schedules</h2><p>Edit schedule ON/OFF and Pakistan Time (PKT) alarm times for all saved profiles from one place.</p></div><button type="button" class="lum-button secondary tiny" data-ae-close-schedules>Close</button></div>
         <div class="lum-table-wrap"><table class="lum-table lum-ae-schedule-manager"><thead><tr><th>Profile</th><th>Schedule</th><th>Time(s) (PKT)</th></tr></thead><tbody>
-        {% for pr in ae.profiles %}<tr><td><strong>{{ pr.category_name }}</strong></td><td><input type="hidden" name="schedule_enabled_{{ pr.id }}" value="0"><label class="lum-switch compact"><span>{{ 'ON' if pr.schedule_enabled else 'OFF' }}</span><input type="checkbox" name="schedule_enabled_{{ pr.id }}" value="1" {% if pr.schedule_enabled %}checked{% endif %}></label></td><td><input name="schedule_times_{{ pr.id }}" value="{{ pr.schedule_times or '09:00' }}" placeholder="09:00,14:00"></td></tr>{% else %}<tr><td colspan="3"><div class="lum-empty">No saved profiles.</div></td></tr>{% endfor %}
+        {% for pr in ae.profiles %}<tr><td><strong>{{ pr.category_name }}</strong></td><td><input type="hidden" name="schedule_enabled_{{ pr.id }}" value="0"><label class="lum-switch compact"><span>{{ 'ON' if pr.schedule_enabled else 'OFF' }}</span><input type="checkbox" name="schedule_enabled_{{ pr.id }}" value="1" {% if pr.schedule_enabled %}checked{% endif %}></label></td><td>{% if engine_instance == 'shortstudio' and not pr.channel_db_id %}
+          <input type="hidden" name="schedule_times_{{ pr.id }}" data-short-schedule-csv value="{{ pr.schedule_times or '' }}">
+          <span class="lum-short-schedule-slots" data-short-schedule-slots data-short-count="{{ pr.daily_upload_count or 4 }}" data-short-schedule-enabled="schedule_enabled_{{ pr.id }}"></span>
+          {% else %}<input name="schedule_times_{{ pr.id }}" value="{{ pr.schedule_times or '09:00' }}" placeholder="09:00,14:00">{% endif %}</td></tr>{% else %}<tr><td colspan="3"><div class="lum-empty">No saved profiles.</div></td></tr>{% endfor %}
         </tbody></table></div>
         <div class="lum-ae-dialog-actions"><button type="button" class="lum-button secondary" data-ae-close-schedules>Cancel</button><button type="submit" class="lum-button primary">Save Changes</button></div>
       </form>
@@ -1075,7 +1090,15 @@
           {% if engine_instance == 'song' or short_group %}
           <div class="lum-grid lum-three lum-ae-group-schedule" data-ae-group-fields {% if not group_profile %}hidden{% endif %}>
             <label class="lum-field"><span>Videos per channel / day</span><input name="daily_upload_count" type="number" min="1" max="100" value="{{ p.daily_upload_count if p and group_profile else 4 }}"></label>
+            {% if short_group %}
+            <label class="lum-field"><span>Daily video schedule · PKT</span>
+              <input type="hidden" name="schedule_times" data-short-schedule-csv value="{{ p.schedule_times if p and group_profile else '' }}">
+              <span class="lum-short-schedule-slots" data-short-schedule-slots data-short-profile-schedule></span>
+              <small>Choose a separate Pakistan Time for every video per channel (4 videos = 4 slots).</small>
+            </label>
+            {% else %}
             <label class="lum-field"><span>Schedule time(s) PKT (HH:MM)</span><input name="schedule_times" value="{{ p.schedule_times if p and group_profile else '09:00' }}" placeholder="09:00,14:00"></label>
+            {% endif %}
             <label class="lum-field"><span>Upload quota</span><select name="upload_scope"><option value="per_channel" {% if not p or not group_profile or p.upload_scope == 'per_channel' %}selected{% endif %}>Per channel</option><option value="total_category" {% if group_profile and p and p.upload_scope == 'total_category' %}selected{% endif %}>Total for group</option></select></label>
             <label class="lum-field"><span>Work mode</span><select name="work_mode"><option value="manual_review" {% if not p or not group_profile or p.work_mode == 'manual_review' %}selected{% endif %}>Review before queue</option><option value="manual" {% if group_profile and p and p.work_mode == 'manual' %}selected{% endif %}>Manual only</option><option value="auto" {% if group_profile and p and p.work_mode == 'auto' %}selected{% endif %}>Automatic</option></select></label>
             <label class="lum-field"><span>After verified upload</span><select name="after_upload_action"><option value="move_uploaded" {% if not p or not group_profile or p.after_upload_action == 'move_uploaded' %}selected{% endif %}>Move to uploaded</option>{% if short_group %}<option value="delete" {% if p and p.after_upload_action == 'delete' %}selected{% endif %}>Delete VPS source after verified upload</option>{% endif %}<option value="keep" {% if group_profile and p and p.after_upload_action == 'keep' %}selected{% endif %}>Keep source</option></select></label>
@@ -1180,7 +1203,7 @@
     <form id="lum-ae-delete-profile" method="post" action="{{ base_path }}/actions/auto-v6/profile/delete" data-lum-soft-form data-confirm="Delete the selected Auto Engine profile? Existing queue jobs are protected; permanent thumbnail/upload history is retained for recovery."><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ p.id }}"></form>
     {% endif %}
 
-    {% if not (p and p.channel_db_id) %}
+    {% if engine_instance != 'shortstudio' and not (p and p.channel_db_id) %}
     <div data-ae-panel="profiles" hidden>
       <section class="lum-card">
         <div class="lum-card-head"><div><h2>Thumbnail Library{% if p %} · {{ p.category_name }}{% endif %}</h2><p>Permanent VPS assets. PC and Drive thumbnails share the same rotation library.</p></div>{% if p %}<span class="lum-badge">{{ ae.thumbnails|selectattr('status','equalto','ACTIVE')|list|length }} active · {{ ae.thumbnails|length }} stored</span>{% endif %}</div>

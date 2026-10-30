@@ -131,6 +131,13 @@ class RepositorySourceOfTruthContract(unittest.TestCase):
 
     def test_targeted_lum_source_hashes(self):
         capture = document("rebuild/snapshots/targeted-source-manifest.json")
+        # Keep the historical Agent1 snapshot immutable. Audit each approved,
+        # exact SHA256 delta separately instead of rewriting old evidence.
+        updates = document("rebuild/snapshots/targeted-source-delta-short-studio-20261030.json")
+        self.assertEqual(updates["source"], "SHORT_STUDIO_PROFILE_SCOPED_CLAIM_DELTA_20261030")
+        self.assertEqual(len(updates["entries"]), 1)
+        deltas = {entry["path"]: entry for entry in updates["entries"]}
+        self.assertEqual(len(deltas), len(updates["entries"]))
         self.assertEqual(capture["runtime_imported"], False)
         self.assertEqual(capture["source"], "AGENT1_TARGETED_LUM_DB_PYTHON")
         self.assertEqual(len(capture["modules"]), 24)
@@ -144,8 +151,16 @@ class RepositorySourceOfTruthContract(unittest.TestCase):
             self.assertRegex(entry["sha256"], HEX256)
             source = ROOT / relative
             self.assertTrue(source.is_file(), relative)
+            if relative in deltas:
+                delta = deltas.pop(relative)
+                self.assertEqual(entry["sha256"], delta["historical_sha256"], relative)
+                self.assertRegex(delta["current_sha256"], HEX256)
+                expected_hash = delta["current_sha256"]
+            else:
+                expected_hash = entry["sha256"]
             self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(),
-                             entry["sha256"], relative)
+                             expected_hash, relative)
+        self.assertFalse(deltas, "Unrecognized targeted source delta")
 
     def test_auto_script_source_manifest_hashes(self):
         capture = document("apps/auto-script/SOURCE_SHA256.json")

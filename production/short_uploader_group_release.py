@@ -13,7 +13,10 @@ from urllib import request
 
 from production.runtime import BASE, DATA, REPO, atomic_json, backup_databases
 
-FILES=("lum_engine/auto_engine_v6.py", "templates/app.html", "templates/base.html", "static/auto_engine_v6.js", "static/song_uploader_kokoro_ui.css")
+FILES=("lum_engine/auto_engine_v6.py", "lum_engine/standalone_app.py",
+       "lum_engine/auto_engine_v6_worker.py", "desktop_core/modules/db/queue_repository.py",
+       "templates/app.html", "templates/base.html", "static/auto_engine_v6.js",
+       "static/local_upload_manager.css", "static/song_uploader_kokoro_ui.css")
 UNITS=tuple(f"vps1-production-lum-shortstudio-{kind}.service" for kind in ("scheduler","worker","web"))
 STATE=DATA/'local-upload-manager/lum-shortstudio'
 UNIT_DIR=Path('/etc/systemd/system')
@@ -59,6 +62,12 @@ def verify_live(*, ui_only=False):
     require('data-short-group-summary' in html and '<th>Group Name</th>' in html and
             '<th>Channels</th>' in html and '<th>Schedule (PKT)</th>' in html,
             'live automation group summary is missing')
+    if not ui_only:
+        require('data-short-schedule-slots' in html,
+                'Short Studio individual PKT time selectors missing')
+        require('<h2>Thumbnail Library' not in html,
+                'Short Uploader should not show thumbnail rotation library')
+
     start=html.find('<form id="lum-ae-profile-form"')
     require(start>=0,'profile form absent')
     form=html[start:html.index('</form>',start)]

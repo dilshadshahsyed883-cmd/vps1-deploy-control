@@ -401,3 +401,10 @@ body.lum-embedded .lum-primary-workspaces a{min-height:43px;padding:10px 22px;fo
 body.lum-embedded .lum-primary-workspaces a.active{background:#4f46e5;border-color:#4f46e5;color:#fff}
 body.lum-embedded .lum-primary-workspaces + .lum-tabs-shell{margin-top:0}
 @media(max-width:760px){body.lum-embedded .lum-primary-workspaces a{flex:1;justify-content:center;min-width:125px}}
+
+/* Short Uploader: one accessible PKT picker per daily video. */
+.lum-short-schedule-slots{display:grid;grid-template-columns:repeat(2,minmax(120px,1fr));gap:8px;margin-top:6px}
+.lum-short-time-slot{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:12px;font-weight:600}
+.lum-short-time-slot input[type="time"]{width:100%;min-width:0;min-height:38px;padding:7px 9px;border:1px solid #cbd5e1;border-radius:8px}
+.lum-ae-schedule-manager .lum-short-schedule-slots{min-width:250px}
+@media(max-width:600px){.lum-short-schedule-slots{grid-template-columns:1fr}}

@@ -428,6 +428,7 @@ class QueueRepository(BaseRepository):
         exclude_auto_engine: bool = False,
         recovery_only: bool = False,
         lease_seconds: int = 600,
+        allowed_auto_engine_profile_ids: Optional[Iterable[int]] = None,
     ) -> List[Dict[str, Any]]:
         """Atomically lease upload jobs to one worker.
 
@@ -493,6 +494,15 @@ class QueueRepository(BaseRepository):
                 query += " AND auto_engine_profile_id IS NOT NULL"
             elif exclude_auto_engine:
                 query += " AND auto_engine_profile_id IS NULL"
+            if allowed_auto_engine_profile_ids is not None:
+                # Applies only to explicitly scoped Short Studio worker claims.
+                # Empty is fail-closed: no disabled or other-profile job can be leased.
+                allowed = sorted({int(pid) for pid in allowed_auto_engine_profile_ids if int(pid)>0})
+                if allowed:
+                    query += " AND auto_engine_profile_id IN (" + ",".join("?" for _ in allowed) + ")"
+                    params.extend(allowed)
+                else:
+                    query += " AND 1=0"
             if recovery_only:
                 query += " AND recovery_state='AUTO_RESUME'"
             query += " ORDER BY COALESCE(NULLIF(app_upload_at,''), created_at) ASC, normalized_filename ASC, id ASC"

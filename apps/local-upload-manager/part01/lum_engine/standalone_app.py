@@ -1409,6 +1409,61 @@ def auto_v6_preview_all(request: Request):
     return V6JSONResponse({"ok":True,"profiles":summaries,"eligible_jobs":total})
 
 
+# Profile-level controls are Short Uploader only. The worker respects the
+# manual run scope so Start one cannot lease another profile's queued videos.
+@app.post(route("/actions/auto-v6/start-profile"))
+def auto_v6_start_profile(request: Request,csrf_token: str=Form(...),profile_id: int=Form(...)):
+    user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
+    pid=int(profile_id)
+    if os.environ.get("LUM_ENGINE_INSTANCE")!="shortstudio":
+        return redirect("/app?tab=auto_engine",error="Individual Start is only available in Short Uploader.")
+    previously_enabled=None
+    try:
+        profile=_v6_profile(pid,request)
+        if profile.get("channel_db_id"):
+            raise ValueError("Use the legacy channel profile controls for this profile.")
+        previously_enabled=bool(int(profile.get("enabled") or 0))
+        if not previously_enabled:
+            db.set_auto_engine_profile_enabled(pid,True)
+            profile=_v6_profile(pid,request)
+        result=v6_generate_queue(db,v6_store,profile)
+        count=int(result.get("created") or 0)
+        if count:
+            v6_mark_schedule_skipped_today(db,profile)
+        current=v6_store.engine().get("manual_profile_ids")
+        active={int(value) for value in str(current or "").split(",") if value.strip().isdigit()} if current is not None else set()
+        active.add(pid)
+        v6_store.set_manual_profile_ids(sorted(active))
+        v6_store.set_engine(running=True,pause_after_current=False,error="")
+        return redirect(f"/app?tab=auto_engine&auto_profile_id={pid}",message=f"Started profile #{pid} only: {count} new job(s), {int(result.get('duplicates_blocked') or 0)} duplicate(s) blocked. Other queued profiles remain untouched.")
+    except Exception as exc:
+        if previously_enabled is False:
+            try: db.set_auto_engine_profile_enabled(pid,False)
+            except Exception: pass
+        return redirect(f"/app?tab=auto_engine&auto_profile_id={pid}",error=str(exc))
+
+
+@app.post(route("/actions/auto-v6/pause-profile"))
+def auto_v6_pause_profile(request: Request,csrf_token: str=Form(...),profile_id: int=Form(...)):
+    user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
+    pid=int(profile_id)
+    if os.environ.get("LUM_ENGINE_INSTANCE")!="shortstudio":
+        return redirect("/app?tab=auto_engine",error="Individual Pause is only available in Short Uploader.")
+    try:
+        profile=_v6_profile(pid,request)
+        if profile.get("channel_db_id"):
+            raise ValueError("Use the legacy channel profile controls for this profile.")
+        db.set_auto_engine_profile_enabled(pid,False)
+        current=v6_store.engine().get("manual_profile_ids")
+        if current is not None:
+            active={int(value) for value in str(current or "").split(",") if value.strip().isdigit()}
+            active.discard(pid)
+            v6_store.set_manual_profile_ids(sorted(active))
+        return redirect(f"/app?tab=auto_engine&auto_profile_id={pid}",message=f"Paused profile #{pid}. Pending jobs are retained; any in-flight upload is allowed to finish.")
+    except Exception as exc:
+        return redirect(f"/app?tab=auto_engine&auto_profile_id={pid}",error=str(exc))
+
+
 @app.post(route("/actions/auto-v6/start-all"))
 def auto_v6_start_all(request: Request,csrf_token: str=Form(...),confirmation: str=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
@@ -1425,6 +1480,7 @@ def auto_v6_start_all(request: Request,csrf_token: str=Form(...),confirmation: s
             v6_mark_schedule_skipped_today(db,profile)
         except Exception as exc:
             skipped.append(f"{profile.get('category_name')}: {exc}")
+    v6_store.set_manual_profile_ids(None) if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio" else None
     if created: v6_store.set_engine(running=True,pause_after_current=False)
     text=f"Start All created {created} job(s)."
     if skipped: text+=f" {len(skipped)} profile(s) skipped: "+"; ".join(skipped[:3])
@@ -1435,7 +1491,9 @@ def auto_v6_start_all(request: Request,csrf_token: str=Form(...),confirmation: s
 def auto_v6_engine(request: Request,csrf_token: str=Form(...),action: str=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
     act=str(action or "").strip().lower()
-    if act in {"start","resume"}: v6_store.set_engine(running=True,pause_after_current=False,error="")
+    if act in {"start","resume"}:
+        if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio": v6_store.set_manual_profile_ids(None)
+        v6_store.set_engine(running=True,pause_after_current=False,error="")
     elif act=="pause_after_current": v6_store.set_engine(running=True,pause_after_current=True)
     elif act=="stop": v6_store.set_engine(running=False,pause_after_current=False)
     elif act=="arm_scheduler":
@@ -1466,6 +1524,7 @@ def auto_v6_engine(request: Request,csrf_token: str=Form(...),action: str=Form(.
             detail=(" " + "; ".join(invalid[:3])) if invalid else ""
             db.add_log(None,"WARN","Scheduled Uploads ARM blocked: no enabled automatic profile has both a valid schedule and eligible channels."+detail,None)
             return redirect("/app?tab=auto_engine",error="Cannot arm automation: configure at least one enabled channel Auto Engine profile with an eligible channel, or a valid legacy scheduled profile." )
+        if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio": v6_store.set_manual_profile_ids(None)
         v6_store.set_scheduler_armed(True)
         db.add_log(None,"INFO",f"Scheduled Uploads ARMED from web control. Ready profiles: {len(ready)}.",None)
         return redirect("/app?tab=auto_engine",message=f"Auto Sync & Scheduled Uploads ARMED. {len(ready)} profile(s) ready.")
@@ -1508,7 +1567,12 @@ async def auto_v6_profile_schedules_save(request: Request):
         try:
             raw_enabled=str(form.get(f"schedule_enabled_{pid}") or "0").lower()
             raw_times=str(form.get(f"schedule_times_{pid}") or profile.get("schedule_times") or "09:00")
-            times=",".join(v6_parse_schedule_times(raw_times))
+            parsed_times=v6_parse_schedule_times(raw_times)
+            if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio" and not profile.get("channel_db_id") and raw_enabled in {"1","true","on","yes"}:
+                expected=max(1,int(profile.get("daily_upload_count") or 1))
+                if len(parsed_times)!=expected:
+                    raise ValueError(f"Choose {expected} distinct PKT times (currently {len(parsed_times)}).")
+            times=",".join(parsed_times)
             data=dict(profile)
             data["schedule_enabled"]=raw_enabled in {"1","true","on","yes"}
             data["schedule_times"]=times
