@@ -1945,8 +1945,8 @@ def save_short_group_profile(pc_db: Any, store: V6Store, form: Dict[str, Any], p
             raise ValueError("Short Maker VPS folder does not exist.")
     elif not clean(form.get("drive_video_folder")):
         raise ValueError("Choose a Short Maker VPS folder or Google Drive folder.")
-    # Saving a profile never arms an existing or new schedule.
-    fields["schedule_enabled"]="1" if original and int(original.get("schedule_enabled") or 0)==1 else "0"
+    # Explicit profile opt-in never changes the global scheduler arm state.
+    fields["schedule_enabled"]="1" if clean(form.get("schedule_enabled")).lower() in {"1","true","on","yes"} else "0"
     pid=_CHANNEL_LEGACY_SAVE_PROFILE(pc_db, store, fields, profile_id)
     short_group_metadata(store, pid, settings)
     return pid

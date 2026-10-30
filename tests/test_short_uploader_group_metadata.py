@@ -75,7 +75,7 @@ class ShortGroupTests(unittest.TestCase):
         self.form=dict(category_name='Test',channel_group_id='7',metadata_source='manual',
                        manual_title='Short {video_stem}',manual_description='Saved',manual_category_id='24',
                        short_vps_folder='Test',daily_upload_count=2,upload_scope='per_channel',work_mode='auto',
-                       schedule_times='09:00,14:00',enabled='1',schedule_enabled='1')
+                       schedule_times='09:00,14:00',enabled='1',schedule_enabled='0')
     def save(self,form=None,pid=None):return self.ns['save_short_group_profile'](self.pc,self.store,form or self.form,pid)
     def test_group_only_validation_and_legacy_channel_preserved(self):
         for changes in ({'channel_group_id':''},{'channel_group_id':'999'},{'channel_db_id':'1'},{'profile_kind':'channel'}):
@@ -126,6 +126,42 @@ class ShortGroupTests(unittest.TestCase):
         self.assertEqual(ctx['selected']['manual_title'],'Short {video_stem}')
         self.assertEqual(ctx['selected']['metadata_source'],'manual')
 
+    def test_profile_schedule_requires_explicit_opt_in_and_does_not_arm_engine(self):
+        pid=self.save()
+        self.assertEqual(self.pc.profiles[pid]['schedule_enabled'],'0')
+        self.save({**self.form,'schedule_enabled':'1'},pid)
+        self.assertEqual(self.pc.profiles[pid]['schedule_enabled'],'1')
+        self.save({**self.form,'schedule_enabled':'0'},pid)
+        self.assertEqual(self.pc.profiles[pid]['schedule_enabled'],'0')
+
+    def test_group_scheduler_honors_opt_in_channel_count_and_alarm_idempotency(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        scheduler=ROOT/'apps/local-upload-manager/part01/lum_engine/auto_engine_v6_scheduler.py'
+        fn=next(n for n in ast.parse(scheduler.read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='check_profile')
+        class Clock:
+            @staticmethod
+            def now(tz):return datetime(2026,10,30,9,0,tzinfo=tz)
+        runs=set();calls=[]
+        self.pc.auto_engine_run_exists=lambda pid,key:key in runs
+        self.pc.add_log=lambda *args:None
+        self.store.set_engine=lambda **kw:None
+        def generate(db,store,profile,**kw):
+            calls.append(kw);runs.add(kw['run_key']);return {'created':kw['max_jobs_override']}
+        ns=dict(Database=PC,V6Store=Store,datetime=Clock,SCHEDULE_TZ=ZoneInfo('Asia/Karachi'),GRACE_MINUTES=6,
+                channel_profile_scheduler_tick=lambda *a:-1,parse_schedule_times=lambda s:s.split(','),
+                target_channels=lambda *a:[{'id':1},{'id':2}],generate_queue=generate)
+        exec(compile(ast.Module(body=[fn],type_ignores=[]),str(scheduler),'exec'),ns)
+        profile=dict(id=1,category_name='Group',enabled=1,work_mode='auto',schedule_enabled=0,
+                     schedule_times='09:00',daily_upload_count=4,upload_scope='per_channel',missed_schedule_policy='run_missed_today')
+        self.assertEqual(ns['check_profile'](self.pc,self.store,profile),0)
+        self.assertFalse(calls)
+        profile['schedule_enabled']=1
+        self.assertEqual(ns['check_profile'](self.pc,self.store,profile),2)
+        self.assertEqual(calls[0]['max_jobs_override'],2)
+        self.assertEqual(ns['check_profile'](self.pc,self.store,profile),0)
+        self.assertEqual(len(calls),1)
+
     def test_sheet_mode_keeps_existing_metadata_reader(self):
         self.ns['extract_gid']=lambda *a,**kw:''
         calls=[]
@@ -140,7 +176,7 @@ class ShortGroupTests(unittest.TestCase):
                   ae=SimpleNamespace(groups=[dict(id=7,group_name='Test',channel_count=2)],short_folders=['Test']))
         html=template.render(**data)
         self.assertNotIn('Profile Type',html);self.assertNotIn('name="channel_db_id"',html)
-        for field in ('channel_group_id','short_vps_folder','drive_video_folder','metadata_source','manual_title','daily_upload_count','schedule_times','upload_scope','work_mode'):
+        for field in ('channel_group_id','short_vps_folder','drive_video_folder','metadata_source','manual_title','schedule_enabled','daily_upload_count','schedule_times','upload_scope','work_mode'):
             self.assertIn('name="'+field+'"',html)
         self.assertNotIn('manual_upload_date',html) # Existing group alarm scheduler owns times.
         old=template.render(**{**data,'p':dict(id=3,channel_db_id=1,enabled=True),'ae':SimpleNamespace(all_channels=[dict(id=1,channel_id='UC1')],short_folders=[])})

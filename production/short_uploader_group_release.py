@@ -61,6 +61,7 @@ def verify_live():
     form=html[start:html.index('</form>',start)]
     require('short-profile-metadata-source' in form and 'name="channel_group_id"' in form and
             'name="short_vps_folder"' in form and 'name="manual_title"' in form and
+            'type="checkbox" name="schedule_enabled"' in form and
             'name="channel_db_id"' not in form and 'Profile Type' not in form,
             'live group profile form does not match release')
     require(https_get('/short-uploader/app')[0]==401,'anonymous route protection failed')
