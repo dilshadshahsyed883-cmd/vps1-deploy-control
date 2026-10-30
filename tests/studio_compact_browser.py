@@ -23,6 +23,9 @@ def main():
         req=handle.request;path=urlsplit(req.url).path
         if req.method!='GET':writes.append((path,req.method))
         if path in pages:return handle.fulfill(content_type='text/html',body=pages[path])
+        if path == '/short-maker/resumable_client.js':
+            script=(ROOT/'apps/short-maker/part01/resumable_client.js').read_text()
+            return handle.fulfill(content_type='application/javascript',body=script)
         if path.startswith('/static/'):
             file=STATIC/path.removeprefix('/static/')
             if file.is_file():return handle.fulfill(content_type='text/css' if file.suffix=='.css' else 'application/javascript',body=file.read_text())
