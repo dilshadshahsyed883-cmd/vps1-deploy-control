@@ -187,14 +187,14 @@ class VideoMergerReleaseOverlayTests(unittest.TestCase):
                      '  <div id="tab-queue"><div id="queue"></div></div>\n')
         original_js = (
             "function showTab(tab){old}\n"
-            "function queueMerge(){old}\n"
+            "async function queueMerge(){old}\n"
             "function activeStatus(s){old}\n"
             "function renderQueue(){old}\n"
             "async function del(id){keep}\n"
         )
         revised_js = (
             "function showTab(tab){new}\n"
-            "function queueMerge(){new}\n"
+            "async function queueMerge(){new}\n"
             "function activeStatus(s){new}\n"
             "function renderQueue(){new}\n"
             "async function cancelJob(id){cancel}\n"
