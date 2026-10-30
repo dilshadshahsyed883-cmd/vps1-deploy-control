@@ -433,7 +433,7 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout
 (() => {
   'use strict';
   const selectors = '[data-short-schedule-slots]';
-  const clock = /^([01]\\d|2[0-3]):[0-5]\\d$/;
+  const clock = /^([01]\d|2[0-3]):[0-5]\d$/;
   function scheduleIsEnabled(host) {
     if (host.hasAttribute('data-short-profile-schedule')) {
       const form=host.closest('form');
