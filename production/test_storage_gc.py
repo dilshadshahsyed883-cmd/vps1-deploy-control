@@ -219,6 +219,112 @@ class StorageGCTests(unittest.TestCase):
         target = self.root / "venvs" / self.app / self.revisions[3]
         self.assertTrue(gc._runtime_in_use([target], proc_root=proc))
 
+    def populate_control_checkouts(self):
+        root = self.root / "control/releases"
+        root.mkdir(parents=True)
+        revisions = ["%040x" % i for i in range(100, 116)]
+        for rev in revisions:
+            item = root / rev
+            (item / ".git").mkdir(parents=True)
+            (item / ".git/HEAD").write_text(rev + "\n")
+            (item / "source.py").write_text("application source")
+            self.set_old(item)
+        return root, revisions
+
+    def test_control_gc_preserves_latest_12_and_reclaims_only_detached_old_checkouts(self):
+        root, revisions = self.populate_control_checkouts()
+        expected = revisions[:4]
+        plan = gc.control_release_inventory(self.root, now=self.now, unit_dir=self.unit_dir)
+        self.assertFalse(plan.get("blocked"))
+        self.assertEqual(sorted(x["revision"] for x in plan["candidates"]), expected)
+        self.assertEqual(len(plan["protected"]), 12)
+        result = self.execute()
+        self.assertEqual(sorted(x.split("/")[-1] for x in result["outcome"]["deleted"]
+                                if x.startswith("control/")), expected)
+        for rev in revisions[4:]:
+            self.assertTrue((root / rev / ".git/HEAD").is_file())
+        self.assertTrue(self.current.resolve().is_dir())
+
+    def test_control_gc_preserves_manifest_and_unit_refs(self):
+        root, revisions = self.populate_control_checkouts()
+        old = revisions[0]
+        content = json.loads(self.manifest.read_text())
+        content["operator_previous_sha"] = old
+        self.manifest.write_text(json.dumps(content))
+        (self.unit_dir / "vps1-control-reference.service").write_text(
+            "WorkingDirectory=" + str(root / revisions[1]) + "\n"
+        )
+        plan = gc.control_release_inventory(self.root, now=self.now, unit_dir=self.unit_dir)
+        self.assertEqual(sorted(x["revision"] for x in plan["candidates"]),
+                         revisions[2:4])
+        self.assertTrue((root / old).exists())
+
+    def test_control_gc_refuses_wrong_git_head_and_symlink(self):
+        root, revisions = self.populate_control_checkouts()
+        (root / revisions[0] / ".git/HEAD").write_text("f" * 40 + "\n")
+        import shutil
+        shutil.rmtree(root / revisions[1])
+        (root / revisions[1]).symlink_to(self.root / "user-media")
+        plan = gc.control_release_inventory(self.root, now=self.now, unit_dir=self.unit_dir)
+        self.assertEqual(sorted(x["revision"] for x in plan["candidates"]),
+                         revisions[2:4])
+        self.execute()
+        self.assertTrue((root / revisions[0]).exists())
+        self.assertTrue((root / revisions[1]).is_symlink())
+
+    def test_control_gc_age_grace_is_stricter_than_app_gc(self):
+        root, revisions = self.populate_control_checkouts()
+        recent = root / revisions[0]
+        os.utime(recent, (self.now - 26 * 3600, self.now - 26 * 3600))
+        plan = gc.control_release_inventory(self.root, now=self.now, unit_dir=self.unit_dir)
+        self.assertTrue(all(x["revision"] != revisions[0] for x in plan["candidates"]))
+
+    def test_control_gc_unreadable_state_blocks_all_control_cleanup(self):
+        root, revisions = self.populate_control_checkouts()
+        (self.root / "control/state/bad.json").write_text("not-json")
+        plan = gc.control_release_inventory(self.root, now=self.now, unit_dir=self.unit_dir)
+        self.assertIn("blocked", plan)
+        self.assertEqual(plan["candidates"], [])
+        self.execute()
+        for rev in revisions:
+            self.assertTrue((root / rev).exists())
+
+    def test_control_gc_skips_when_root_deployer_owns_lock(self):
+        root, revisions = self.populate_control_checkouts()
+        from unittest.mock import patch
+        import contextlib
+
+        @contextlib.contextmanager
+        def active_deployment(*, test_mode=False):
+            yield False
+
+        with patch.object(gc, "control_checkout_lock", active_deployment):
+            result = self.execute()
+        self.assertIn("control:deployment-active", result["outcome"]["skipped"])
+        for rev in revisions:
+            self.assertTrue((root / rev).exists())
+
+    def test_control_gc_process_reference_blocks_delete(self):
+        root, revisions = self.populate_control_checkouts()
+        plan = gc.control_release_inventory(self.root, now=self.now, unit_dir=self.unit_dir)
+        from unittest.mock import patch
+        with patch.object(gc, "_runtime_in_use", return_value=True):
+            result = gc.apply_control_release_plan(
+                self.root, plan, now=self.now, unit_dir=self.unit_dir, test_mode=False)
+        self.assertEqual(result["deleted"], [])
+        self.assertTrue(all((root / rev).exists() for rev in revisions))
+
+    def test_control_gc_rechecks_eligibility_before_apply(self):
+        root, revisions = self.populate_control_checkouts()
+        plan = gc.control_release_inventory(self.root, now=self.now, unit_dir=self.unit_dir)
+        item = root / revisions[0]
+        os.utime(item, (self.now, self.now))
+        outcome = gc.apply_control_release_plan(
+            self.root, plan, now=self.now, unit_dir=self.unit_dir, test_mode=True)
+        self.assertIn("control/" + revisions[0] + ":no-longer-eligible",
+                      outcome["skipped"])
+        self.assertTrue(item.exists())
+
     def test_explicit_apply_refuses_nonproduction_path(self):
         with self.assertRaises(RuntimeError):
             gc.execute(root=self.root, apply=True, unit_dir=self.unit_dir)
