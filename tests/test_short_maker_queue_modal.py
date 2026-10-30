@@ -48,7 +48,7 @@ class ShortMakerQueueDetailsTests(unittest.TestCase):
         self.assertIn("name.textContent=", self.html)
         self.assertIn("content.textContent=", self.html)
         self.assertIn("copyShortJobButton.addEventListener('click'", self.html)
-        self.assertIn("function render_job(job_id: str, cfg: dict):", self.source)
+        self.assertIn("def render_job(job_id: str, cfg: dict):", self.source)
         self.assertIn("executor.submit(render_job, job_id, cfg)", self.source)
 
 
