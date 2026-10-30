@@ -118,6 +118,71 @@ def overlay_failed_import_retry_ui(live, source):
     return live
 
 
+
+def overlay_queue_layout_ui(live, source, baseline):
+    """Apply only reviewed Merge/Queue changes; preserve live Library, Proxy and shell."""
+    marker = '/* VIDEO_MERGER_TWO_COLUMN_QUEUE_V2'
+    require(source.count(marker) == 1, 'Queue UI marker missing or duplicated')
+    require(baseline.count(marker) == 0, 'Queue baseline already contains patch')
+    require(live.count(marker) == 0, 'Queue patch already installed')
+
+    def block(page, first, last):
+        require(page.count(first) == 1 and page.count(last) == 1,
+                'Video Merger layout anchor drift')
+        start = page.index(first)
+        end = page.index(last, start)
+        require(end > start, 'Video Merger layout anchor order changed')
+        return page[start:end]
+
+    # No changes to Library, Proxy, native shell or identity.
+    start = '  <div class="tabs"'
+    end = '  <div id="tab-library"'
+    old_panel = block(baseline, start, end)
+    new_panel = block(source, start, end)
+    require(live.count(old_panel) == 1, 'Active Merge panel drift; refusing overwrite')
+    for control in ('fname', 'librarySelect', 'urlVideos', 'aspect', 'quality',
+                    'resolution', 'fit', 'uploadDrive', 'addCopyrightFolder',
+                    'folder', 'queueMergeButton'):
+        token = 'id="' + control + '"'
+        require(old_panel.count(token) == 1 and new_panel.count(token) == 1,
+                'Merge control drift: ' + control)
+    require('id="tab-queue"' in new_panel and 'id="queue"' in new_panel,
+            'Queue panel missing')
+    live = live.replace(old_panel, new_panel, 1)
+
+    style_end = '</style>'
+    require(source.count(style_end) == 1 and live.count(style_end) == 1,
+            'Merger style boundary drift')
+    css = block(source, marker, style_end)
+    live = live.replace(style_end, css + style_end, 1)
+
+    def js_line(page, name):
+        lines = [line for line in page.splitlines() if line.startswith(name)]
+        require(len(lines) == 1, 'Merger JS anchor drift: ' + name)
+        return lines[0]
+
+    for name in ('function showTab(tab)', 'async function queueMerge()',
+                 'function activeStatus(s)', 'function renderQueue()'):
+        old = js_line(baseline, name)
+        new = js_line(source, name)
+        require(old != new, 'Expected Queue JS change missing: ' + name)
+        require(live.count(old) == 1, 'Active Queue JS drift: ' + name)
+        live = live.replace(old, new, 1)
+
+    anchor = 'async function del(id){'
+    callback_start = 'async function cancelJob(id){'
+    require(source.count(callback_start) == 1 and source.count(anchor) == 1,
+            'Queue callbacks missing')
+    require(live.count(anchor) == 1 and callback_start not in live,
+            'Active Queue actions drift')
+    callbacks = block(source, callback_start, anchor)
+    require('async function retryJob(id)' in callbacks, 'Retry callback missing')
+    live = live.replace(anchor, callbacks + anchor, 1)
+    require(live.count(marker) == 1 and live.count('id="tab-queue"') == 1,
+            'Queue UI verification failed')
+    return live
+
+
 def install(revision):
     require(re.fullmatch('[a-f0-9]{40}',revision),'invalid revision')
     app='video-merger'
@@ -157,6 +222,10 @@ def install(revision):
     live_template=target/template
     source_html=(REPO/'apps'/app/template).read_text(encoding='utf-8')
     patched=overlay_failed_import_retry_ui(live_template.read_text(encoding='utf-8'),source_html)
+    if 'VIDEO_MERGER_TWO_COLUMN_QUEUE_V2' in source_html:
+        baseline=run(['git','show',revision+'^:apps/video-merger/part01/templates/index.html'],
+                     cwd=REPO,quiet=True)
+        patched=overlay_queue_layout_ui(patched,source_html,baseline)
     live_template.write_text(patched,encoding='utf-8')
     manifest=json.loads((target/'_production_manifest.json').read_text())
     require(manifest.get('app')==app,'wrong manifest owner')
@@ -201,6 +270,10 @@ def install(revision):
         from production.route_uploader_scene_https import https_get, scene_cookie
         code,kind,page=https_get('/video-merger/',scene_cookie())
         require(code==200 and 'html' in kind.lower(),'authenticated UI readback failed')
+        if 'VIDEO_MERGER_TWO_COLUMN_QUEUE_V2' in source_html:
+            require(b'VIDEO_MERGER_TWO_COLUMN_QUEUE_V2' in page and
+                    b'id="tab-queue"' in page and b'class="vm-merge-layout"' in page,
+                    'authenticated Queue/two-column UI readback failed')
         atomic_json(journal/'result.json',{'status':'ACTIVE','youtube':'PASS','drive':'PASS','data':'PRESERVED'})
         event(app=app,result='PASS_VIDEO_MERGER_IMPORTS',revision=revision,data='PRESERVED',proxy_activation='ENABLED' if proxy_changed else 'UNCHANGED',rollback=str(journal))
     except BaseException:

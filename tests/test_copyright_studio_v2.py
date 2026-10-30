@@ -83,7 +83,7 @@ class CopyrightStudioContract(unittest.TestCase):
         self.assertIn("if int(j.get('copyright_enabled',0)):", server)
         self.assertIn("deliver_copyright_folder(retained", server)
         self.assertIn("COPYRIGHT_MEDIA_ROOT / owner_media_key(owner)", server)
-        self.assertIn("api/jobs/([A-Za-z0-9]+)/download", server)
+        self.assertIn("api/jobs/([A-Za-z0-9]+)/(download|view)", server)
         self.assertIn("copyfile", server)
         self.assertNotIn("auto_queue_copyright", server)
 
