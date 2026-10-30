@@ -4,7 +4,7 @@
 
 {% macro storage_content() %}
 {% include "admin_workspace_nav.html" %}
-<link rel="stylesheet" href="/static/storage_manager.css?v=20261020-active-gc-dashboard-v2">
+<link rel="stylesheet" href="/static/storage_manager.css?v=20261030-gc-audit-v3">
 <div id="storage-app" data-csrf="{{ storage_csrf }}">
   <section class="sm-hero">
     <div>
@@ -35,7 +35,7 @@
       <span id="disk-detail">Loading</span><div class="sm-bar"><i id="disk-bar"></i></div>
     </article>
     <article class="sm-metric sm-reclaim">
-      <div><small>RECLAIMABLE (VERIFIED)</small><strong id="reclaim-value">—</strong></div>
+      <div><small>ELIGIBLE SCAN ESTIMATE</small><strong id="reclaim-value">—</strong></div>
       <span id="reclaim-detail">No verified inventory</span>
     </article>
   </section>
@@ -62,6 +62,7 @@
         <span>Last cleanup</span>
         <strong id="gc-last-run">Unavailable</strong>
         <p id="gc-last-result">Waiting for a verified cleanup audit record.</p>
+        <p id="gc-skip-reasons">Skip reasons will appear after the verified audit is available.</p>
       </article>
       <article class="sm-auto-status-card">
         <span>Space freed in last recorded run</span>
@@ -89,4 +90,4 @@
 
 {% endblock %}
 
-{% block scripts %}<script type="module" src="/static/storage_manager.js?v=20261020-active-gc-dashboard-v2"></script>{% endblock %}
+{% block scripts %}<script type="module" src="/static/storage_manager.js?v=20261030-gc-audit-v3"></script>{% endblock %}
