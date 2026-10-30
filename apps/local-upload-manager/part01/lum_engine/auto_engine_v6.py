@@ -532,6 +532,8 @@ class V6Store:
                 last_worker_heartbeat TEXT,
                 last_scheduler_heartbeat TEXT,
                 last_error TEXT,
+                last_worker_error TEXT NOT NULL DEFAULT '',
+                last_scheduler_error TEXT NOT NULL DEFAULT '',
                 manual_profile_ids TEXT DEFAULT NULL,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
@@ -549,6 +551,13 @@ class V6Store:
                 con.execute("ALTER TABLE engine_state ADD COLUMN concurrency INTEGER NOT NULL DEFAULT 1")
             if "manual_profile_ids" not in cols:
                 con.execute("ALTER TABLE engine_state ADD COLUMN manual_profile_ids TEXT DEFAULT NULL")
+            # Distinct service errors prevent a worker exception from falsely
+            # labeling the healthy scheduler (or vice versa). Additive only;
+            # historical state, queue claims, and previous last_error retained.
+            if "last_worker_error" not in cols:
+                con.execute("ALTER TABLE engine_state ADD COLUMN last_worker_error TEXT NOT NULL DEFAULT ''")
+            if "last_scheduler_error" not in cols:
+                con.execute("ALTER TABLE engine_state ADD COLUMN last_scheduler_error TEXT NOT NULL DEFAULT ''")
             con.execute("INSERT OR IGNORE INTO engine_state(singleton,running,pause_after_current,scheduler_armed,concurrency) VALUES(1,0,0,0,1)")
 
     def source(self, profile_id:int) -> Dict[str,Any]:
@@ -626,10 +635,18 @@ class V6Store:
         return concurrency
 
     def heartbeat(self, kind:str, error:str="") -> None:
-        col="last_worker_heartbeat" if kind=="worker" else "last_scheduler_heartbeat"
+        # Only the originating service may set/clear its own error. Before
+        # this migration, last_error was shared and misreported both badges.
+        if kind not in {"worker", "scheduler"}:
+            raise ValueError("Unknown Auto Engine heartbeat source")
+        heartbeat_col = "last_worker_heartbeat" if kind=="worker" else "last_scheduler_heartbeat"
+        error_col = "last_worker_error" if kind=="worker" else "last_scheduler_error"
+        message = clean(error)[:1000]
         with self.connect() as con:
-            con.execute(f"UPDATE engine_state SET {col}=?, last_error=?, updated_at=CURRENT_TIMESTAMP WHERE singleton=1",
-                        (utcnow(),clean(error)[:1000]))
+            con.execute(
+                f"UPDATE engine_state SET {heartbeat_col}=?, {error_col}=?, updated_at=CURRENT_TIMESTAMP WHERE singleton=1",
+                (utcnow(), message),
+            )
 
     def scan_drive_videos(self, profile_id:int) -> Dict[str,Any]:
         src=self.source(profile_id)
