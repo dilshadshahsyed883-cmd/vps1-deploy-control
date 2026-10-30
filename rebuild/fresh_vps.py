@@ -86,7 +86,23 @@ def sources(app):
         if path.is_symlink():raise ValueError("source symlink "+str(rel))
         if not path.is_file() or path.suffix.lower() not in EXT:continue
         if path.suffix==".sh" and SHELL_DENY.search(path.name):continue
-        if builder.DENY_FILENAME.search(path.name) and not builder._is_lum_sensitive_named_python_helper(src,rel,path):
+        # The independent Copyright Uploader carries the same reviewed
+        # Python DPAPI source helper as Local Upload Manager. Exempt ONLY
+        # this exact module filename under its three owned source parts;
+        # unrelated "secret" names and all embedded-credential scans remain
+        # prohibited. Runtime values/credentials are never packaged.
+        copyright_code_helper = (
+            app == "copyright-uploader"
+            and len(rel.parts) == 4
+            and rel.parts[0] in ("part01", "part02", "part03")
+            and rel.parts[1:] == ("desktop_core", "modules", "secret_store.py")
+            and path.is_file()
+            and not path.is_symlink()
+        )
+        if builder.DENY_FILENAME.search(path.name) and not (
+            builder._is_lum_sensitive_named_python_helper(src,rel,path)
+            or copyright_code_helper
+        ):
             raise ValueError("secret filename "+str(rel))
         if path.stat().st_size>4_000_000:raise ValueError("oversize source")
         data=path.read_bytes()
