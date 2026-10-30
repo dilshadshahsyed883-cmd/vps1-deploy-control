@@ -83,7 +83,7 @@
     return {tabs, links};
   };
   function alignVideoTabs() {
-    const rail = document.querySelector?.('nav[aria-label="Video Studio"]');
+    const rail = document.querySelector?.('nav[aria-label="Video Studio"], nav[aria-label="Short Studio"]');
     if (!rail || rail.dataset.videoAligned) return;
     rail.dataset.videoAligned = "1";
     const current = location.pathname.replace(/\/$/, "");
