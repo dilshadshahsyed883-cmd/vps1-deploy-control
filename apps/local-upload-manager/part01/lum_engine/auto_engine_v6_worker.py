@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import signal
 import socket
 import sqlite3
@@ -16,7 +17,7 @@ from desktop_core.modules.youtube_uploader import YouTubeUploader
 from desktop_core.modules.upload_pipeline import UploadStopped
 from desktop_core.modules.upload_status import UploadStatus
 
-from .auto_engine_v6 import (STAGING_ROOT, V6Store, drive_delete_source, drive_download, drive_move_uploaded, drive_move_uploaded_month, clean, download_channel_thumbnail_for_job, set_channel_job_post_state, emit_channel_sheet_writeback)
+from .auto_engine_v6 import (STAGING_ROOT, V6Store, drive_delete_source, drive_download, drive_move_uploaded, drive_move_uploaded_month, clean, download_channel_thumbnail_for_job, set_channel_job_post_state, emit_channel_sheet_writeback, SHORT_FOLDER_PREFIX, shortstudio_source_path, shortstudio_file_id)
 
 
 STOP=False
@@ -249,7 +250,34 @@ def reconcile_completed(db:Database, store:V6Store, video_id:int) -> None:
     action=clean(source.get("desired_after_success") or "move_uploaded")
     try:
         destination=""
-        if clean(source.get("source_folder_id"))=="songmaker-local":
+        if clean(source.get("source_folder_id")).startswith(SHORT_FOLDER_PREFIX):
+            # Short Maker -> Short Uploader: delete only the exact source that
+            # was queued, after YouTube ID verification and durable history.
+            folder_id=clean(source["source_folder_id"])
+            filename=clean(source["filename"])
+            with store.connect() as con:
+                dependents=con.execute("""
+                    SELECT video_id FROM job_sources
+                    WHERE video_id<>? AND source_folder_id=? AND filename=?
+                      AND state NOT IN ('COMPLETE','CANCELLED','FAILED_SAFE','DRIVE_MOVE_PENDING')
+                """,(int(video_id),folder_id,filename)).fetchall()
+            if dependents:
+                raise RuntimeError("Other queued/failed channel jobs still need this VPS video; local cleanup deferred.")
+            try:
+                original=shortstudio_source_path(folder_id,filename)
+            except FileNotFoundError:
+                original=None
+            if original is not None:
+                if shortstudio_file_id(folder_id,original)!=clean(source["drive_file_id"]):
+                    raise RuntimeError("Source MP4 changed after queueing; refusing to delete replacement.")
+                original.unlink()
+            destination="SHORT_STUDIO_VPS_VERIFIED_DELETED"
+            with store.connect() as con:
+                con.execute("UPDATE drive_videos SET present=0 WHERE source_folder_id=? AND filename=?",
+                            (folder_id,filename))
+            if channel_meta:
+                set_channel_job_post_state(store,video_id,"COMPLETE")
+        elif clean(source.get("source_folder_id"))=="songmaker-local":
             # The verified source is a local copy. Never issue Drive moves or deletes.
             destination="SONG_MAKER_LOCAL_ORIGINAL_RETAINED"
             set_channel_job_post_state(store,video_id,"COMPLETE")
@@ -309,7 +337,29 @@ def download_for_claim(db:Database,store:V6Store,video_id:int,worker_id:str) -> 
     target=Path(clean(source["staging_path"]))
     if target.is_file() and target.stat().st_size>0:
         return target
-    if clean(source.get("source_folder_id"))=="songmaker-local":
+    folder_id=clean(source.get("source_folder_id"))
+    if folder_id.startswith(SHORT_FOLDER_PREFIX):
+        # Snapshot, never move or delete a source before verified publishing.
+        original=shortstudio_source_path(folder_id,clean(source["filename"]))
+        if shortstudio_file_id(folder_id,original)!=clean(source["drive_file_id"]):
+            raise RuntimeError("Short Maker source changed since scan; rerun Sync Channel.")
+        target.parent.mkdir(parents=True,exist_ok=True)
+        capacity=os.statvfs(str(target.parent))
+        if capacity.f_bavail*capacity.f_frsize < original.stat().st_size+1024*1024*1024:
+            raise RuntimeError("Not enough disk space for local upload snapshot plus 1 GB reserve.")
+        temporary=target.parent/f".{uuid.uuid4().hex}.part"
+        try:
+            shutil.copyfile(original,temporary)
+            if temporary.stat().st_size!=original.stat().st_size:
+                raise RuntimeError("Local Short Maker snapshot size mismatch.")
+            if shortstudio_file_id(folder_id,original)!=clean(source["drive_file_id"]):
+                raise RuntimeError("Source changed during snapshot; keeping source untouched.")
+            os.replace(temporary,target)
+        finally:
+            temporary.unlink(missing_ok=True)
+        store.set_job_state(video_id,"DOWNLOAD_VERIFIED")
+        return target
+    if folder_id=="songmaker-local":
         raise RuntimeError("Local Song Maker MP4 missing; Drive fallback is forbidden")
     target.parent.mkdir(parents=True,exist_ok=True)
     free=os.statvfs(str(target.parent))
