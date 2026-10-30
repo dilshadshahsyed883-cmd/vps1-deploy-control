@@ -56,6 +56,10 @@ def mutation_allowed(method: str, path: str, editing_enabled: bool, auto_script_
     if match and ((method == "DELETE" and match.group(1) is None)
                   or (method == "POST" and match.group(1) is not None)):
         return True
+    # Song Uploader mode settings save is a normal authenticated, CSRF-checked
+    # upstream action. The candidate guard must not block its form POST.
+    if method == "POST" and path == "/song-uploader/actions/settings":
+        return True
     # Public Song Uploader aliases are forwarded only to the existing LUM
     # song engine and are independently gated by Scene login/active account.
     # Preserve uploads/actions that already work under the legacy Nginx path.

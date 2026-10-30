@@ -26,6 +26,8 @@ jobs:
       - name: Offline Shorts, Song and Scene regression contracts
         run: |
           python -m unittest -v production.test_short_studio_v1 production.test_shortstudio_readonly_diagnostic production.test_song_uploader_v1 production.test_uploader_three_mode_split production.test_unified_sidebar_navigation production.test_scene_video_studio_shell
+      - name: Song Uploader dashboard, settings and candidate action guard regressions
+        run: python -m unittest discover -s tests -p 'test_song_uploader_modes_settings.py' -v
       - name: Verify Short Maker VPS folder handoff and safe cleanup regressions
         run: python -m unittest discover -s tests -p 'test_short_studio_folder_handoff.py' -v
       - name: Forbid changed credentials and activation
