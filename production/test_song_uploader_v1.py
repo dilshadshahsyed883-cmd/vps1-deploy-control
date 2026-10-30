@@ -151,7 +151,7 @@ class SongUploaderContracts(unittest.TestCase):
         # whose thumbnail stage has not been accepted by _channel_result_handled.
         fallback = worker.split('if channel_meta and _channel_result_handled(db,store,vid):', 1)[1]
         fallback = fallback.split('elif clean(row.get("status")).upper()=="FAILED":', 1)[0]
-        self.assertIn('if channel_meta:', fallback)
+        self.assertIn('if channel_meta and int(channel_meta.get("strict_thumbnail") or 0):', fallback)
         self.assertIn('Thumbnail publishing status pending; sources retained.', fallback)
 
     def test_song_studio_authenticated_link_and_no_auto_enable(self):
