@@ -1347,6 +1347,68 @@ def auto_v6_generate_json(request: Request,csrf_token: str=Form(...),profile_id:
         return V6JSONResponse({"ok":False,"profile_id":pid,"created":0,"errors":[str(exc)]},status_code=400)
 
 
+# Song / Short Uploader: restored group-level controls above the profiles list.
+# A queue generation is intentionally different from Start All: it does NOT
+# start the worker or arm the scheduled uploader.
+@app.post(route("/actions/auto-v6/generate-all"))
+def auto_v6_generate_all(request: Request, csrf_token: str=Form(...), confirmation: str=Form(...)):
+    user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
+    if str(confirmation).strip()!="GENERATE ALL":
+        return redirect("/app?tab=auto_engine",error="Confirm GENERATE ALL to build the queue.")
+    if os.environ.get("LUM_ENGINE_INSTANCE") not in {"song","shortstudio"}:
+        return redirect("/app?tab=auto_engine",error="This group action belongs to Song or Short Uploader.")
+    created=0; duplicates=0; checked=0; skipped=[]
+    for raw in db.list_auto_engine_profiles():
+        pid=int(raw.get("id") or 0)
+        owner=v6_store.group_settings(pid).get("song_folder_owner")
+        if owner and owner!=str(user.get("username") or ""): continue
+        if int(raw.get("enabled") or 0)!=1: continue
+        checked+=1
+        try:
+            profile=_v6_profile(pid,request)
+            result=v6_generate_queue(db,v6_store,profile)
+            count=int(result.get("created") or 0)
+            created+=count
+            duplicates+=int(result.get("duplicates_blocked") or 0)
+            if count:
+                v6_mark_schedule_skipped_today(db,profile)
+        except Exception as exc:
+            skipped.append(f"{raw.get('category_name') or pid}: {exc}")
+    message=f"Queue generation: {created} new job(s) from {checked} enabled profile(s); {duplicates} duplicate(s) blocked. Upload engine state unchanged."
+    if skipped:
+        message+=f" {len(skipped)} profile(s) skipped: "+"; ".join(skipped[:3])
+    return redirect("/app?tab=auto_engine",message=message)
+
+
+@app.get(route("/actions/auto-v6/preview-all"))
+def auto_v6_preview_all(request: Request):
+    user=current_user(request); require_heavy(user)
+    if os.environ.get("LUM_ENGINE_INSTANCE") not in {"song","shortstudio"}:
+        return V6JSONResponse({"ok":False,"error":"Group preview unavailable for this engine."},status_code=400)
+    summaries=[]; total=0
+    for raw in db.list_auto_engine_profiles():
+        pid=int(raw.get("id") or 0)
+        owner=v6_store.group_settings(pid).get("song_folder_owner")
+        if owner and owner!=str(user.get("username") or ""): continue
+        if int(raw.get("enabled") or 0)!=1: continue
+        item={"profile_id":pid,"name":str(raw.get("category_name") or f"Profile #{pid}"),
+              "ready":False,"eligible_jobs":0,"blocked":[],"next":[]}
+        try:
+            plan=v6_planner(db,v6_store,_v6_profile(pid,request),preview_only=True)
+            jobs=plan.get("jobs") or []
+            item["ready"]=bool(plan.get("ready"))
+            item["eligible_jobs"]=len(jobs)
+            item["blocked"]=[str(e) for e in (plan.get("blocked") or [])[:3]]
+            item["next"]=[{"video":str(j.get("filename") or j.get("video_key") or ""),
+                           "channel":str(j.get("channel_name") or j.get("channel_id") or "")}
+                          for j in jobs[:3]]
+            total+=len(jobs)
+        except Exception as exc:
+            item["blocked"]=[str(exc)]
+        summaries.append(item)
+    return V6JSONResponse({"ok":True,"profiles":summaries,"eligible_jobs":total})
+
+
 @app.post(route("/actions/auto-v6/start-all"))
 def auto_v6_start_all(request: Request,csrf_token: str=Form(...),confirmation: str=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
