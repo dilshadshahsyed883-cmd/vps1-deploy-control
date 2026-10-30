@@ -44,7 +44,7 @@ def idle():
     require(not busy,'upload in progress')
 
 
-def verify_live():
+def verify_live(*, ui_only=False):
     from production.route_uploader_scene_https import https_get, scene_cookie
     for _ in range(40):
         try:
@@ -67,11 +67,16 @@ def verify_live():
             'type="checkbox" name="schedule_enabled"' in form and
             'name="channel_db_id"' not in form and 'Profile Type' not in form,
             'live group profile form does not match release')
+    if ui_only:
+        require('Group profiles, sources and upload queue.' not in html and
+                'independent uploader workspace' not in html and
+                '<h2>Auto Engine</h2>' in html,
+                'Short Uploader duplicate introduction persists')
     require(https_get('/short-uploader/app')[0]==401,'anonymous route protection failed')
     print('SHORT_UPLOADER_LIVE=PASS AUTH=PASS GROUP_FORM=PASS GROUP_SUMMARY=PASS NO_UPLOAD_OR_ARM_ACTIONS',flush=True)
 
 
-def install(revision):
+def install(revision, *, ui_only=False):
     require(re.fullmatch('[a-f0-9]{40}',revision),'invalid revision')
     require(shutil.disk_usage('/').free>=5_000_000_000,'disk reserve')
     idle()
@@ -89,12 +94,13 @@ def install(revision):
         active=subprocess.run(['systemctl','is-active','--quiet',name],capture_output=True,timeout=10).returncode==0
         previous[name]={'text':text,'active':active}
     require(len(old_dirs)==1,'Short Uploader units use different releases')
-    target=BASE/'releases/local-upload-manager'/(revision+'-short-group-metadata')
-    journal=BASE/'transactions/short-uploader-group-metadata'/revision
+    suffix='-short-ui-intro' if ui_only else '-short-group-metadata'
+    target=BASE/'releases/local-upload-manager'/(revision+suffix)
+    journal=BASE/'transactions'/('short-uploader-ui-intro' if ui_only else 'short-uploader-group-metadata')/revision
     require(not target.exists() and not target.is_symlink() and not journal.exists(),'immutable release already exists')
     shutil.copytree(next(iter(old_dirs)).parent,target,symlinks=True)
     hashes={}
-    for relative in FILES:
+    for relative in (("templates/app.html",) if ui_only else FILES):
         src=REPO/'apps/local-upload-manager/part01'/relative
         dst=target/'part01'/relative
         require(src.is_file() and not src.is_symlink() and dst.is_file() and not dst.is_symlink(),'source file drift')
@@ -116,7 +122,7 @@ def install(revision):
         command('systemctl','daemon-reload')
         for name in reversed(UNITS):
             if previous[name]['active']:command('systemctl','start',name)
-        verify_live()
+        verify_live(ui_only=ui_only)
         atomic_json(journal/'state.json',dict(status='ACTIVE',revision=revision,source=str(target),files=hashes,
                                            sqlite_backups=len(backups),scheduler='PRESERVED',auto_script='UNTOUCHED'))
         print('SHORT_GROUP_RELEASE=PASS OTHER_ENGINES=UNTOUCHED ROLLBACK=READY',flush=True)
