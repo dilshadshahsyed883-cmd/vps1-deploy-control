@@ -100,7 +100,7 @@ class ShortStudioV1(unittest.TestCase):
 
     def test_https_reload_converges_without_dropping_auth(self):
         calls = []
-        statuses = iter((404, 404, 401, 404, 401, 401))
+        statuses = iter((303, 404, 401, 303, 401, 401))
         authorized = iter(((404, "text/plain", b""), (200, "text/html", b"Short Uploader | Auto Engine")))
 
         def get(path, cookie=""):
@@ -124,7 +124,7 @@ class ShortStudioV1(unittest.TestCase):
         self.assertIn(("/_scene_uploader_auth", True), calls)
 
     def test_https_reload_rejects_public_or_invalid_auth(self):
-        for unsafe in (200, 302, 303, 403):
+        for unsafe in (200, 302, 403):
             with self.subTest(status=unsafe):
                 def get(path, cookie=""):
                     if path == "/short-uploader/app":
@@ -133,6 +133,13 @@ class ShortStudioV1(unittest.TestCase):
 
                 with self.assertRaisesRegex(RuntimeError, "anonymous Short Uploader access"):
                     short_studio_release.verify_https_route(get, lambda: "session=dummy", attempts=2, delay=0)
+
+    def test_https_reload_never_accepts_persistent_login_redirect(self):
+        with self.assertRaisesRegex(RuntimeError, "auth never converged"):
+            short_studio_release.verify_https_route(
+                lambda *args: (303, "text/html", b""),
+                lambda: self.fail("must not authenticate before anonymous 401"),
+                attempts=3, delay=0)
 
     def test_https_reload_fails_closed_if_stale_404_never_converges(self):
         def get(path, cookie=""):

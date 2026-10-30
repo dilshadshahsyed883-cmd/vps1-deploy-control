@@ -95,10 +95,11 @@ def verify_local():
 
 
 # Nginx reload returns before old worker processes have drained. An immediate
-# anonymous 404 during cutover is not evidence of public access, but it must
+# anonymous 404 or old Scene login redirect is not evidence of public access, but it must
 # converge to *exactly* 401. Never accept 200/3xx/403 as successful anonymous
 # protection, and never grant access to a non-authenticated request.
 TRANSIENT_HTTP = frozenset((404, 502, 503))
+ANONYMOUS_HANDOVER_HTTP = TRANSIENT_HTTP | {303}
 
 
 def verify_https_route(https_get, scene_cookie, *, attempts=12, delay=0.6):
@@ -110,7 +111,9 @@ def verify_https_route(https_get, scene_cookie, *, attempts=12, delay=0.6):
         app_status = https_get("/short-uploader/app")[0]
         health_status = https_get("/short-uploader/health")[0]
         latest = (app_status, health_status)
-        guard(all(code == 401 or code in TRANSIENT_HTTP for code in latest),
+        # Do not follow or accept the old Scene login redirect as success.
+        # A fresh, anonymous request must settle to exactly 401 on BOTH URLs.
+        guard(all(code == 401 or code in ANONYMOUS_HANDOVER_HTTP for code in latest),
               f"anonymous Short Uploader access: app={app_status}, health={health_status}")
         if latest == (401, 401):
             break
