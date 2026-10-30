@@ -836,6 +836,14 @@ def main():
     check_host(args.revision)
     with deployment_lock():
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        # Scoped, transactional Short Uploader template change. Never enter
+        # the shared LUM installer or restart Song/Engine 1/Engine 2 workers.
+        if '[vps1-shortstudio-intro-only]' in intent:
+            if args.action != 'install' or args.apps != ['local-upload-manager']:
+                raise RuntimeError('Short Uploader UI-only release is single-instance scoped')
+            from production.short_uploader_group_release import install as install_shortstudio_ui
+            install_shortstudio_ui(args.revision, ui_only=True)
+            return
         if '[vps1-shortstudio-readonly-diagnose]' in intent:
             if args.action != 'install' or args.apps != ['local-upload-manager']:
                 raise RuntimeError("Short Studio read-only diagnosis is local-upload-manager scoped")
