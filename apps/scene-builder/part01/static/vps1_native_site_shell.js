@@ -9,7 +9,7 @@
     window.location.replace("/audio-downloader/");
     return;
   }
-  if (!legacySidebar && !["acs", "voice", "uploader", "stream", "library", "song", "song-uploader"].includes(app)) return;
+  if (!legacySidebar && !["acs", "voice", "uploader", "stream", "library", "song", "song-uploader", "short-uploader"].includes(app)) return;
   // During staggered releases an old Scene shell may still embed this document.
   // Never render a second navigation in that legacy framing context.
   if (window.self !== window.top) return;
@@ -35,12 +35,14 @@
     ["Video Studio", "/scene-builder/", "video"],
     ["Voice Studio", "/voice-studio/app#vps1-production", "voice"],
     ["Song Studio", "/song-studio/", "song"],
+    ["Short Studio", "/short-maker", "short"],
     ["Experiment Studio", "/experiment-studio/", "experiment"]
   ]);
   const activeKeyForPath = (pathname) => {
     if (pathname.startsWith("/local-upload-manager/modes/song/")) return "song";
+    if (/^\/(short-maker|short-uploader|short-studio)(\/|$)/.test(pathname)) return "short";
     if (/^\/(local-upload-manager|auto-stream)(\/|$)/.test(pathname)) return "upload";
-    if (/^\/(scene-builder|video-studio|auto-caption-studio|short-maker|video-merger|queue|settings|audit-media)(\/|$)/.test(pathname)) return "video";
+    if (/^\/(scene-builder|video-studio|auto-caption-studio|video-merger|queue|settings|audit-media)(\/|$)/.test(pathname)) return "video";
     if (/^\/audio-downloader\/?$/.test(pathname)) return "song";
     if (/^\/(song-studio|song-maker|song-uploader)(\/|$)/.test(pathname)) return "song";
     if (/^\/voice-studio(\/|$)/.test(pathname)) return window.location.hash === "#vs-audio" ? "song" : "voice";
@@ -199,7 +201,7 @@
     navigation.setAttribute("aria-label", "Applications");
     // Native pages and legacy Video Studio documents use the same menu.
     const current = app === "uploader" || app === "stream" ? "upload" :
-      (app === "song" || app === "song-uploader") ? "song" : app === "acs" ? "video" : app === "library" ? "experiment" :
+      (app === "song" || app === "song-uploader") ? "song" : app === "short-uploader" ? "short" : app === "acs" ? "video" : app === "library" ? "experiment" :
       app === "voice" && (window.location?.hash === "#vs-audio" || /^\/audio-downloader\/?$/.test(window.location?.pathname || "")) ? "song" : "voice";
     const primaryLinks = addPrimaryLinks(navigation, current);
     const voiceLink = primaryLinks.voice;
@@ -339,6 +341,14 @@
       toggle.after(tabs);
       selectVoiceOrSong();
     }
+    if (app === "short-uploader") {
+      const tabs = node("nav", "vps1-native-video-tabs vps1-native-short-tabs");
+      tabs.dataset.vps1Component = "studio-tabs";
+      tabs.setAttribute("aria-label", "Short Studio");
+      addLink(tabs, "Short Maker", "/short-maker", false);
+      addLink(tabs, "Short Uploader", "/short-uploader", true);
+      toggle.after(tabs);
+    }
     if (app === "acs") {
       const tabs = node("nav", "vps1-native-video-tabs");
       tabs.dataset.vps1Component = "studio-tabs";
@@ -346,7 +356,6 @@
       addLink(tabs, "Scene Builder", "/scene-builder/", false);
       if (app === "acs") addLink(tabs, "Auto Caption Studio", "/auto-caption-studio/", true);
       else addLink(tabs, "Auto Caption Studio", "/auto-caption-studio/", false);
-      addLink(tabs, "Short Maker", "/short-maker/", false);
       addLink(tabs, "Video Merger", "/video-merger/", false);
       toggle.after(tabs);
       alignVideoTabs();
