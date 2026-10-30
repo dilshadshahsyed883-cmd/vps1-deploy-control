@@ -14,8 +14,11 @@ MODULE = Path(__file__).resolve().parents[1] / "apps/voice-studio/part01/audio_d
 
 class AudioPreferencesTests(unittest.TestCase):
     def setUp(self):
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
+        try:
+            from fastapi import FastAPI
+            from fastapi.testclient import TestClient
+        except ImportError:
+            self.skipTest("fastapi/httpx required; exercised in Audio Downloader CI")
         self.tmp = tempfile.TemporaryDirectory()
         self.env = patch.dict(os.environ, {"AUDIO_DOWNLOADER_ROOT": self.tmp.name})
         self.env.start()
