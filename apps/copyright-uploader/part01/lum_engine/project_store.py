@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from .config import DEFAULT_SETTINGS, PROJECT_DB, ensure_dirs
+from .config import DEFAULT_SETTINGS, PROJECT_DB, STAGING_ROOT, ensure_dirs
 
 ACTIVE_STATES = {"DOWNLOADING", "SOURCE_READY", "UPLOAD_QUEUED", "UPLOADING", "VERIFYING_REMOTE", "CLEANING"}
 TERMINAL_STATES = {"COMPLETED", "CANCELLED"}
@@ -75,7 +75,23 @@ class ProjectStore:
                     source_file_size INTEGER,
                     retry_count INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    source_fingerprint TEXT NOT NULL DEFAULT ''
+                )
+            """)
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(projects)")}
+            if "source_fingerprint" not in columns:
+                conn.execute("ALTER TABLE projects ADD COLUMN source_fingerprint TEXT NOT NULL DEFAULT ''")
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_copyright_source_channel ON projects(owner_username,channel_db_id,source_fingerprint) WHERE source_fingerprint != '' AND status != 'CANCELLED'")
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS copyright_profiles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    owner_username TEXT NOT NULL,
+                    profile_name TEXT NOT NULL,
+                    group_name TEXT NOT NULL DEFAULT '',
+                    metadata_source TEXT NOT NULL DEFAULT 'manual',
+                    created_at TEXT NOT NULL,
+                    UNIQUE(owner_username, profile_name)
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_lum_projects_status ON projects(status,id)")
@@ -122,8 +138,17 @@ class ProjectStore:
         if privacy not in {"private", "public", "unlisted"}:
             raise ValueError("Invalid privacy status")
         drive_url = str(data.get("drive_url") or "").strip()
-        if not drive_url:
-            raise ValueError("Google Drive video link is required")
+        source_mode = str(data.get("source_mode") or "drive_link")
+        staging_path = str(data.get("staging_path") or "").strip()
+        if source_mode == "local_file":
+            path = Path(staging_path)
+            if not staging_path or path.is_symlink() or not path.is_file() or path.stat().st_size <= 0 or STAGING_ROOT.resolve() not in path.resolve().parents:
+                raise ValueError("Local video must be verified in isolated staging")
+        elif source_mode == "drive_link":
+            if not drive_url:
+                raise ValueError("Google Drive video link is required")
+        else:
+            raise ValueError("Unknown video source mode")
         app_upload_at = str(data.get("app_upload_at") or "").strip() or None
         scheduled = parse_time(app_upload_at)
         status = "SCHEDULED" if scheduled and scheduled > datetime.now(timezone.utc) else "QUEUED"
@@ -134,17 +159,23 @@ class ProjectStore:
             title, description, str(data.get("tags") or ""), str(data.get("category_id") or "22"), privacy,
             app_upload_at, 1 if data.get("made_for_kids") else 0, str(data.get("playlist_id") or "").strip(),
             int(data.get("channel_db_id") or 0), str(data.get("group_name") or "").strip(), status, stamp, stamp,
+            staging_path or None, str(data.get("source_file_name") or ""), int(data.get("source_file_size") or 0),
+            str(data.get("source_fingerprint") or ""),
         )
         if not values[0]:
             raise ValueError("Project owner is required")
         if values[13] <= 0:
             raise ValueError("Channel is required")
         with self.connect() as conn:
-            cur = conn.execute("""
+            try:
+                cur = conn.execute("""
                 INSERT INTO projects(owner_username,ui_mode,source_mode,drive_url,thumbnail_path,title,description,tags,
-                    category_id,privacy_status,app_upload_at,made_for_kids,playlist_id,channel_db_id,group_name,status,created_at,updated_at)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """, values)
+                    category_id,privacy_status,app_upload_at,made_for_kids,playlist_id,channel_db_id,group_name,status,created_at,updated_at,
+                    staging_path,source_file_name,source_file_size,source_fingerprint)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """, values)
+            except sqlite3.IntegrityError as exc:
+                raise ValueError("This video was already queued or uploaded to the selected channel") from exc
             project_id = int(cur.lastrowid)
             conn.execute("INSERT INTO project_events(project_id,level,message,created_at) VALUES(?,?,?,?)", (project_id,"INFO","Project accepted into VPS queue",stamp))
             return project_id
@@ -244,3 +275,30 @@ class ProjectStore:
         out["ACTIVE"] = sum(out.get(s, 0) for s in ACTIVE_STATES)
         out["WAITING"] = sum(out.get(s, 0) for s in WAITING_STATES)
         return out
+
+    def copyright_profiles(self, owner: str) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            return [dict(row) for row in conn.execute(
+                "SELECT * FROM copyright_profiles WHERE owner_username=? COLLATE NOCASE ORDER BY id DESC",
+                (owner,))]
+
+    def add_copyright_profile(self, owner: str, name: str, group: str, metadata_source: str) -> int:
+        if not name.strip() or len(name) > 100 or len(group) > 120:
+            raise ValueError("Valid profile name and group are required")
+        if metadata_source not in {"manual", "sheets"}:
+            raise ValueError("Invalid metadata source")
+        with self.connect() as conn:
+            try:
+                cur = conn.execute(
+                    "INSERT INTO copyright_profiles(owner_username,profile_name,group_name,metadata_source,created_at) VALUES(?,?,?,?,?)",
+                    (owner, name.strip(), group.strip(), metadata_source, now_iso()))
+            except sqlite3.IntegrityError as exc:
+                raise ValueError("Profile name already exists") from exc
+            return int(cur.lastrowid)
+
+    def copyright_profile(self, owner: str, profile_id: int) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM copyright_profiles WHERE id=? AND owner_username=? COLLATE NOCASE",
+                (profile_id, owner)).fetchone()
+            return dict(row) if row else None
