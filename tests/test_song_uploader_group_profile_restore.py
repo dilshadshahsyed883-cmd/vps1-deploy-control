@@ -129,6 +129,6 @@ class GroupProfileRegression(unittest.TestCase):
         self.assertNotIn('name="channel_db_id"',rendered)
         self.assertNotIn('Profile Type',rendered)
         self.assertIn('name="channel_group_id" required',rendered)
-        self.assertIn('value="4"',rendered)
+        self.assertIn('value="1"',rendered)
         script=(ROOT/'apps/local-upload-manager/part01/static/auto_engine_v6.js').read_text()
         self.assertNotIn("videoSource.value='drive'",script)
