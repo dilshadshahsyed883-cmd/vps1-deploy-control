@@ -68,8 +68,12 @@ class SongMakerTests(unittest.TestCase):
             json={**settings, 'sync_interval': 300}).status_code, 200)
         self.assertEqual(self.client.post('/song-maker/api/settings', headers=self.headers,
             json={**settings, 'sync_interval': 1}).status_code, 422)
+        # Authenticated non-admin members may scan the fixed defaults, never
+        # change the configured Drive remote/folder or scan interval.
         self.assertEqual(self.client.post('/song-maker/api/sync',
-            headers={**self.headers, 'X-Is-Admin': '0'}).status_code, 403)
+            headers={**self.headers, 'X-Is-Admin': '0'}).status_code, 200)
+        self.assertEqual(self.store.record('settings','alice')['image_folder'],
+                         default_settings()['image_folder'])
 
     def test_drive_lookup_filters_names_and_retains_hash_metadata(self):
         with patch('songmaker.drive.run', return_value='[]') as execute:
