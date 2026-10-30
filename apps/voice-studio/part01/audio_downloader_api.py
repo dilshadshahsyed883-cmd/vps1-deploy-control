@@ -22,8 +22,9 @@ from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
+from urllib import request as urllib_request
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from typing import Literal
@@ -43,6 +44,8 @@ _worker: threading.Thread | None = None
 UPLOAD_GAP_SECONDS = 60
 THUMBNAIL_GAP_SECONDS = 30
 UPLOAD_RETRY_SECONDS = 180
+SONG_MAKER_HANDOFF_URL = 'http://127.0.0.1:8150/song-maker/api/auto-queue'
+SONG_MAKER_RETRY_SECONDS = 60
 
 
 def utc() -> str:
@@ -94,7 +97,12 @@ def init_storage() -> None:
                                ('download_percent', 'INTEGER NOT NULL DEFAULT 0'),
                                ('upload_percent', 'INTEGER NOT NULL DEFAULT 0'),
                                ('progress_stage', 'TEXT'),
-                               ('thumbnail_upload_after', 'TEXT')):
+                               ('thumbnail_upload_after', 'TEXT'),
+                               ('auto_song_maker', 'INTEGER NOT NULL DEFAULT 0'),
+                               ('song_maker_owner', 'TEXT'),
+                               ('song_maker_status', "TEXT NOT NULL DEFAULT 'off'"),
+                               ('song_maker_job_id', 'TEXT'),
+                               ('song_maker_next_retry_at', 'TEXT')):
             if name not in columns:
                 con.execute(f'ALTER TABLE jobs ADD COLUMN {name} {sql_type}')
         con.execute('''CREATE TABLE IF NOT EXISTS audio_upload_pacing (
@@ -179,6 +187,7 @@ class BatchRequest(BaseModel):
     auto_upload: bool = True
     keep_metadata: bool = False
     download_thumbnail: bool = False
+    auto_song_maker: bool = False
     permission_confirmed: bool = False
 
 
@@ -186,7 +195,9 @@ def sanitized_row(row: sqlite3.Row) -> dict:
     data = dict(row)
     data.pop('local_file', None)
     data.pop('local_thumbnail', None)
+    data.pop('song_maker_owner', None)
     data['download_thumbnail'] = bool(data['download_thumbnail'])
+    data['auto_song_maker'] = bool(data.get('auto_song_maker'))
     data['thumbnail_url'] = ('/tts/api/audio-downloader/jobs/' + data['job_id'] + '/thumbnail') if row['local_thumbnail'] and Path(row['local_thumbnail']).is_file() else None
     data['thumbnail_drive_url'] = data.get('thumbnail_drive_url') if data['status'] == 'delivered' else None
     data['drive_url'] = data.get('drive_url') if data.get('status') == 'delivered' else None
@@ -228,13 +239,18 @@ def status():
 
 
 @router.post('/jobs', status_code=201)
-def enqueue(payload: BatchRequest):
+def enqueue(payload: BatchRequest, request: Request = None):
     if not payload.permission_confirmed:
         raise HTTPException(422, 'Confirm you have permission to download the content')
     if not deps()['ready']:
         raise HTTPException(503, 'Downloader unavailable: yt-dlp or FFmpeg not installed')
     if payload.auto_upload and not deps()['upload_ready']:
         raise HTTPException(503, 'Google Drive upload is not configured')
+    if payload.auto_song_maker and not (payload.auto_upload and payload.download_thumbnail):
+        raise HTTPException(422, 'Song Maker auto-queue requires both Drive upload and thumbnail')
+    owner = request.headers.get('x-auth-user', '').strip() if request is not None else ''
+    if payload.auto_song_maker and (not owner or len(owner) > 160 or '\\n' in owner or '\\r' in owner):
+        raise HTTPException(403, 'Authenticated Song Maker user required for auto-queue')
     ids: list[tuple[str, str]] = []
     try:
         for link in payload.links:
@@ -262,9 +278,11 @@ def enqueue(payload: BatchRequest):
                     continue
                 jid = 'ADJ-' + uuid.uuid4().hex[:16].upper()
                 con.execute('''INSERT INTO jobs(job_id,batch_id,video_id,url,project,folder,format,quality,
-                    auto_upload,keep_metadata,download_thumbnail,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                    auto_upload,keep_metadata,download_thumbnail,auto_song_maker,song_maker_owner,song_maker_status,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                     (jid, batch_id, video, url, '', '', payload.format, payload.quality,
-                     int(payload.auto_upload), int(payload.keep_metadata), int(payload.download_thumbnail), 'queued', created, created))
+                     int(payload.auto_upload), int(payload.keep_metadata), int(payload.download_thumbnail),
+                     int(payload.auto_song_maker), owner if payload.auto_song_maker else None,
+                     'pending' if payload.auto_song_maker else 'off', 'queued', created, created))
                 jobs.append(jid)
             con.execute('COMMIT')
         except BaseException:
@@ -760,6 +778,59 @@ def upload_downloaded(job: dict, final: Path, thumbnail: Path | None, state: dic
     # recoverable originals; never delete them based only on copyto exit 0.
 
 
+def _handoff_song_maker(jid: str) -> None:
+    """Durable, owner-scoped and idempotent handoff after both Drive copies succeeded.
+
+    Song Maker resolves exactly the named pair from Drive and owns its rendering
+    queue; a failure here cannot turn a delivered Audio Downloader job into a
+    failed/re-downloaded job. No additional Drive API call is made by this worker.
+    """
+    with db() as con:
+        con.execute('BEGIN IMMEDIATE')
+        row = con.execute('SELECT * FROM jobs WHERE job_id=?', (jid,)).fetchone()
+        if (not row or row['status'] != 'delivered' or not row['auto_song_maker']
+                or row['song_maker_status'] == 'queued'
+                or not row['song_maker_owner'] or not row['thumbnail_drive_path']
+                or not row['drive_path']):
+            con.execute('COMMIT')
+            return
+        due = row['song_maker_next_retry_at']
+        if due and datetime.fromisoformat(due) > datetime.now(timezone.utc):
+            con.execute('COMMIT')
+            return
+        con.execute("""UPDATE jobs SET song_maker_status='sending',song_maker_next_retry_at=?
+                       WHERE job_id=?""", (utc_after(SONG_MAKER_RETRY_SECONDS), jid))
+        con.execute('COMMIT')
+    payload = json.dumps({'video_id': row['video_id'], 'format': row['format']}).encode('utf-8')
+    req = urllib_request.Request(SONG_MAKER_HANDOFF_URL, data=payload, method='POST',
+        headers={'Content-Type': 'application/json', 'X-Auth-User': row['song_maker_owner'],
+                 'X-Song-Maker': '1'})
+    try:
+        with urllib_request.urlopen(req, timeout=25) as response:
+            receipt = json.loads(response.read(2048))
+        job_id = receipt.get('job_id')
+        if not isinstance(job_id, str) or not re.fullmatch(r'[0-9a-f]{32}', job_id):
+            raise ValueError('Song Maker did not acknowledge the queue item')
+    except Exception:
+        # Never expose internal auth headers, local URLs, or provider errors in job state.
+        with db() as con:
+            con.execute("""UPDATE jobs SET song_maker_status='pending'
+                           WHERE job_id=? AND song_maker_status='sending'""", (jid,))
+        return
+    with db() as con:
+        con.execute("""UPDATE jobs SET song_maker_status='queued',song_maker_job_id=?,
+                       song_maker_next_retry_at=NULL WHERE job_id=?""", (job_id, jid))
+
+
+def _due_song_maker_handoff() -> str | None:
+    with db() as con:
+        row = con.execute("""SELECT job_id FROM jobs WHERE status='delivered'
+            AND auto_song_maker=1 AND song_maker_status IN ('pending','sending')
+            AND (song_maker_next_retry_at IS NULL OR song_maker_next_retry_at<=?)
+            ORDER BY completed_at,job_id LIMIT 1""", (utc(),)).fetchone()
+    return row['job_id'] if row else None
+
+
 def worker_loop():
     while True:
         try:
@@ -770,10 +841,15 @@ def worker_loop():
                         resume_upload(item)
                     else:
                         run_job(item)
+                    _handoff_song_maker(item['job_id'])
                 except Exception as exc:
                     _schedule_upload_retry(item['job_id'], exc)
             else:
-                time.sleep(3)
+                due = _due_song_maker_handoff()
+                if due:
+                    _handoff_song_maker(due)
+                else:
+                    time.sleep(3)
         except Exception:
             time.sleep(5)
 
