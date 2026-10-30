@@ -421,7 +421,7 @@ class ShortAutomationGroupSummaryTests(unittest.TestCase):
         self.assertIn('data-short-group-channel-count="1">1</td>',html)
         self.assertIn('Per-video schedule',html)
         self.assertNotIn('09:00',html)
-    def test_schedule_dialog_and_song_manual_generate_are_preserved(self):
+    def test_schedule_dialog_and_song_compact_controls_are_preserved(self):
         template=TEMPLATE.read_text()
         self.assertIn('id="lum-ae-schedules-dialog"',template)
         self.assertIn('/actions/auto-v6/profile-schedules/save',template)
@@ -431,8 +431,8 @@ class ShortAutomationGroupSummaryTests(unittest.TestCase):
         song=self.render(instance='song',profiles=[dict(id=3,category_name='Song',group_name='Song',
                 group_channel_count=2,enabled=1,schedule_times='08:00',schedule_enabled=1)])
         row=song.split('lum-ae-bulk-profile-controls',1)[1].split('</div>',1)[0]
-        self.assertIn('Generate Queue Now',row)
-        self.assertIn('/actions/auto-v6/generate-all',row)
+        self.assertNotIn('Generate Queue Now',row)
+        self.assertNotIn('/actions/auto-v6/generate-all',row)
         self.assertIn('Profile Schedules',row)
 
     def test_other_uploaders_retain_their_existing_columns_and_values(self):
