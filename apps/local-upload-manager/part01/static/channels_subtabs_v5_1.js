@@ -4,7 +4,8 @@
 (() => {
   'use strict';
 
-  const STORAGE_KEY = 'lum.channel.panel';
+  const STORAGE_KEY = window.location.pathname.startsWith('/short-uploader/')
+    ? 'lum.shortstudio.channel.panel' : 'lum.channel.panel';
   const PANELS = ['manager', 'accounts', 'pcsync'];
 
   function normalize(panel) {
