@@ -81,7 +81,7 @@ class ShortStudioFolderHandoffTests(unittest.TestCase):
         self.assertIn('id="uploadToDrive" name="upload_to_drive" type="checkbox">', settings_section)
         self.assertIn("selectOutputDestination('uploader')", html)
         self.assertIn("selectOutputDestination('drive')", html)
-        self.assertIn('src="resumable_client.js"', html)
+        self.assertIn('src="/short-maker/resumable_client.js"', html)
         client = (ROOT / 'apps/short-maker/part01/resumable_client.js').read_text(encoding='utf-8')
         self.assertIn('cfg.available_to_short_uploader=uploaderDestination.checked', client)
         self.assertIn('Select exactly one output destination.', src)
