@@ -280,3 +280,19 @@ class ShortAutomationGroupSummaryTests(unittest.TestCase):
         html=self.render(profiles=[dict(id=1,enabled=1,category_name='Test',group_name='<script>bad</script>')])
         self.assertIn('&lt;script&gt;bad&lt;/script&gt;',html)
         self.assertNotIn('<script>bad</script>',html)
+
+
+class ShortUploaderIntroOnlyReleaseTests(unittest.TestCase):
+    def test_ui_only_release_targets_template_without_sibling_restart(self):
+        runtime=(ROOT/'production/runtime.py').read_text()
+        overlay=(ROOT/'production/short_uploader_group_release.py').read_text()
+        workflow=(ROOT/'.github/workflows/vps1-short-studio-release.yml').read_text()
+        self.assertIn("if '[vps1-shortstudio-intro-only]' in intent:",runtime)
+        self.assertIn("args.apps != ['local-upload-manager']",runtime)
+        self.assertIn('install_shortstudio_ui(args.revision, ui_only=True)',runtime)
+        self.assertIn('for relative in (("templates/app.html",) if ui_only else FILES):',overlay)
+        self.assertIn("journal=BASE/'transactions'/('short-uploader-ui-intro' if ui_only else",overlay)
+        self.assertIn('if ui_only:verify_live(ui_only=True)',overlay)
+        self.assertIn("apps=(local-upload-manager)",workflow)
+        self.assertIn('for app in "${apps[@]}"; do',workflow)
+        self.assertIn("AUTO_SCRIPT=OFFLINE",workflow)
