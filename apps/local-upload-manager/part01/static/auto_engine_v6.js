@@ -263,7 +263,7 @@
     // Poll the job table, not the first (controls-only) panel.
     const panes=[...root.querySelectorAll('[data-ae-panel="queue"]')];
     const p=panes.find(node=>node.querySelector('.lum-ae-queue'));
-    if(!p||p.hidden||p.getAttribute('aria-hidden')==='true')return null;
+    if(!p||(root===document && (p.hidden||p.getAttribute('aria-hidden')==='true')))return null;
     return p;
   }
   function queueLiveBadge(panel,state='live'){
