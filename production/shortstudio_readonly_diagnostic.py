@@ -91,6 +91,26 @@ def secure_structure(path: Path) -> dict:
     except OSError:
         return {"present":True,"safe":False,"reason":"unreadable"}
 
+def secure_tree_types(path: Path) -> dict:
+    """Bounded metadata-only recursive scan, never emit file paths/contents."""
+    result={"entries":0,"symlinks":0,"special":0,"over_limit":False}
+    if path.is_symlink():
+        result["symlinks"]=1
+        return result
+    if not path.exists() or not path.is_dir():
+        return result
+    try:
+        for child in path.rglob("*"):
+            result["entries"]+=1
+            if result["entries"]>512:
+                result["over_limit"]=True
+                break
+            if child.is_symlink(): result["symlinks"]+=1
+            elif not child.is_dir() and not child.is_file(): result["special"]+=1
+    except OSError:
+        result["unreadable"]=True
+    return result
+
 def collect(state: Path, *, unit_dir: Path = Path("/etc/systemd/system")) -> dict:
     from production.runtime import shortstudio_rolled_back_empty
     root = state / "lum-shortstudio"
@@ -107,6 +127,11 @@ def collect(state: Path, *, unit_dir: Path = Path("/etc/systemd/system")) -> dic
         "units": {name:unit_metadata(unit_dir,name) for name in ("web","worker","scheduler")},
         "port_8019": port_8019(),
         "secure_structure": secure_structure(root/"secure"),
+        "secure_tree_types": secure_tree_types(root/"secure"),
+        "projects_db": sqlite_summary(root/"projects.sqlite3",("projects",)),
+        "users_db": sqlite_summary(root/"users.sqlite3",("users",)),
+        "root_folders": {name:folder_summary(root/name) for name in
+                        ("staging","thumbnails","reports")},
         "core_db": sqlite_summary(root/"core/data/uploader.db",
             ("videos","channels","auto_engine_profiles","accounts")),
         "v6_db": sqlite_summary(root/"auto_engine_v6/auto_engine_v6.sqlite3",
@@ -116,8 +141,13 @@ def collect(state: Path, *, unit_dir: Path = Path("/etc/systemd/system")) -> dic
             ("secure","auto_engine_v6/staging","auto_engine_v6/thumbnails",
              "auto_engine_v6/thumbnail_trash","auto_engine_v6/reports")},
     }
-    try: out["empty_first_install_proven"] = bool(shortstudio_rolled_back_empty(state,unit_dir=unit_dir))
-    except (OSError,ValueError,TypeError,sqlite3.Error): out["empty_first_install_proven"] = False
+    try:
+        out["empty_first_install_proven"] = bool(shortstudio_rolled_back_empty(state,unit_dir=unit_dir))
+        out["preserved_secure_idle_proven"] = bool(shortstudio_rolled_back_empty(
+            state,unit_dir=unit_dir,preserve_secure=True))
+    except (OSError,ValueError,TypeError,sqlite3.Error):
+        out["empty_first_install_proven"] = False
+        out["preserved_secure_idle_proven"] = False
     return out
 
 def report(state: Path) -> None:
