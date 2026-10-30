@@ -223,12 +223,13 @@ class StorageGCTests(unittest.TestCase):
         root = self.root / "control/releases"
         root.mkdir(parents=True)
         revisions = ["%040x" % i for i in range(100, 116)]
-        for rev in revisions:
+        for index, rev in enumerate(revisions):
             item = root / rev
             (item / ".git").mkdir(parents=True)
             (item / ".git/HEAD").write_text(rev + "\n")
             (item / "source.py").write_text("application source")
-            self.set_old(item)
+            stamp = self.now - (96 - index) * 3600
+            os.utime(item, (stamp, stamp))
         return root, revisions
 
     def test_control_gc_preserves_latest_12_and_reclaims_only_detached_old_checkouts(self):
