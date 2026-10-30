@@ -285,7 +285,8 @@ def apply_plan(root: Path, plan: dict[str, Any], *, now: float | None = None,
 
 
 def control_release_inventory(root: Path = BASE, *, now: float | None = None,
-                              unit_dir: Path | None = None) -> dict[str, Any]:
+                              unit_dir: Path | None = None,
+                              target_revision: str | None = None) -> dict[str, Any]:
     """Strictly scoped inventory of obsolete git control checkouts.
 
     These are distinct from each app's immutable release, Python environment,
@@ -352,6 +353,8 @@ def control_release_inventory(root: Path = BASE, *, now: float | None = None,
         deadline = now - CONTROL_GRACE_HOURS * 3600
         for item in checkouts:
             name = item.name
+            if target_revision is not None and name != target_revision:
+                continue
             if name in protected:
                 result["protected"].append(name)
                 continue
@@ -360,11 +363,18 @@ def control_release_inventory(root: Path = BASE, *, now: float | None = None,
                 continue
             git = item / ".git"
             head = git / "HEAD"
+            config = git / "config"
             try:
                 if (git.is_symlink() or not git.is_dir() or
                         head.is_symlink() or not head.is_file() or
                         head.stat().st_size > 100 or
                         head.read_text(encoding="ascii").strip() != name or
+                        config.is_symlink() or not config.is_file() or
+                        config.stat().st_size > 16384 or
+                        "url = https://github.com/dilshadshahsyed883-cmd/vps1-deploy-control.git"
+                        not in config.read_text(encoding="utf-8") or
+                        (git / "objects/info/alternates").exists() or
+                        (root == BASE and item.stat().st_uid != 0) or
                         not _safe_directory(item, checkout_root)):
                     raise ValueError("not a verified detached git checkout")
             except (OSError, UnicodeError, ValueError):
@@ -417,7 +427,8 @@ def apply_control_release_plan(root: Path, plan: dict[str, Any], *,
         return output
     for candidate in plan["candidates"]:
         rev = candidate["revision"]
-        fresh = control_release_inventory(root, now=now, unit_dir=unit_dir)
+        fresh = control_release_inventory(root, now=now, unit_dir=unit_dir,
+                                          target_revision=rev)
         current = {x["revision"]: x for x in fresh["candidates"]}
         if fresh.get("blocked") or rev not in current or current[rev]["paths"] != candidate["paths"]:
             output["skipped"].append("control/" + rev + ":no-longer-eligible")
