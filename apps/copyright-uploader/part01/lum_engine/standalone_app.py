@@ -262,6 +262,14 @@ def stats_payload() -> dict[str, Any]:
 @app.middleware("http")
 async def standalone_auth(request: Request, call_next):
     path = request.url.path
+    if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" and (
+        path.startswith(route("/actions/auto-v6/")) or
+        path.startswith(route("/api/auto-v6")) or
+        path.startswith(route("/modes/")) or
+        path.startswith(route("/actions/pc-sync/")) or
+        path == route("/actions/sheets/sync-all")
+    ):
+        return JSONResponse({"detail": "Automatic uploader engine is disabled for Copyright Studio"}, status_code=404)
     if path.startswith(route("/static/")) or path == route("/health"):
         return await call_next(request)
 
