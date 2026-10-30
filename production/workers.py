@@ -31,7 +31,10 @@ SPECS = {
    ('lum-shorts-scheduler', 'part01', '-m lum_engine.auto_engine_v6_scheduler'),
    ('lum-song-web', 'part01', '-m uvicorn lum_engine.standalone_app:app --host 127.0.0.1 --port 8018'),
    ('lum-song-worker', 'part01', '-m lum_engine.auto_engine_v6_worker'),
-   ('lum-song-scheduler', 'part01', '-m lum_engine.auto_engine_v6_scheduler')],
+   ('lum-song-scheduler', 'part01', '-m lum_engine.auto_engine_v6_scheduler'),
+   ('lum-shortstudio-web', 'part01', '-m uvicorn lum_engine.standalone_app:app --host 127.0.0.1 --port 8019'),
+   ('lum-shortstudio-worker', 'part01', '-m lum_engine.auto_engine_v6_worker'),
+   ('lum-shortstudio-scheduler', 'part01', '-m lum_engine.auto_engine_v6_scheduler')],
  'voice-studio': [
    ('edge-worker', 'part03', 'edge_worker.py'),
    ('kokoro-worker', 'part02', 'kokoro_worker.py'),
@@ -41,7 +44,7 @@ SPECS = {
 
 
 # The new engines NEVER reuse Engine 1's database, OAuth directory or queue.
-MODE_ROOTS = {"engine2": "lum2", "shorts": "lum3", "song": "lum-song"}
+MODE_ROOTS = {"engine2": "lum2", "shorts": "lum3", "song": "lum-song", "shortstudio": "lum-shortstudio"}
 MODE_MARKER = ".vps1-independent-engine"
 
 
@@ -74,7 +77,7 @@ def prepare_mode_roots() -> None:
 def mode_exec(key: str, python: Path, entry: str) -> str:
     # /usr/bin/env wins over the parent EnvironmentFile values for this ExecStart.
     mode = "engine2" if key.startswith("lum-engine2-") else (
-        "shorts" if key.startswith("lum-shorts-") else ("song" if key.startswith("lum-song-") else "")
+        "shorts" if key.startswith("lum-shorts-") else ("song" if key.startswith("lum-song-") else ("shortstudio" if key.startswith("lum-shortstudio-") else ""))
     )
     if not mode:
         return f"{python} {entry}"
@@ -84,7 +87,7 @@ def mode_exec(key: str, python: Path, entry: str) -> str:
         f"YOUTUBE_UPLOAD_MANAGER_DATA_DIR={root / 'core'}",
         f"LUM_AUTO_ENGINE_V6_ROOT={root / 'auto_engine_v6'}",
         f"LUM_GOOGLE_OAUTH_ROOT={root / 'secure'}",
-        f"LUM_BASE_PATH=/local-upload-manager/modes/{mode}",
+        f"LUM_BASE_PATH={'/short-uploader' if mode == 'shortstudio' else '/local-upload-manager/modes/' + mode}",
         f"LUM_ENGINE_INSTANCE={mode}",
         "LUM_SUITE_AUTH=1",
     ]
@@ -250,8 +253,9 @@ def install(app, revision):
         # An active unit is not enough: require the correct app/engine response
         # before treating the independent mode installation as successful.
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        for mode, port in (("engine2", 8016), ("shorts", 8017), ("song", 8018)):
-            address = f"http://127.0.0.1:{port}/local-upload-manager/modes/{mode}/health"
+        for mode, port in (("engine2", 8016), ("shorts", 8017), ("song", 8018), ("shortstudio", 8019)):
+            base_path = "/short-uploader" if mode == "shortstudio" else f"/local-upload-manager/modes/{mode}"
+            address = f"http://127.0.0.1:{port}{base_path}/health"
             last = None
             for attempt in range(25):
                 try:
@@ -268,10 +272,7 @@ def install(app, revision):
                 raise RuntimeError(f"Independent {mode} health failed: {last}")
             # The health endpoint can be green while the embedded uploader
             # fails during app_page() rendering (historical false PASS).
-            page_url = (
-                f"http://127.0.0.1:{port}/local-upload-manager/modes/"
-                f"{mode}/app?embedded=1&tab=auto_engine"
-            )
+            page_url = f"http://127.0.0.1:{port}{base_path}/app?embedded=1&tab=auto_engine"
             page_request = urllib.request.Request(page_url, headers={
                 "X-Auth-User": "vps1-release-probe",
                 "X-App-Access": "lum",
