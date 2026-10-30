@@ -266,7 +266,7 @@ def verify(cookie: str, *, published: bool) -> None:
             if legacy_status == 200 and "html" in legacy_kind.lower():
                 guard(b"Auto Uploader" in legacy_html,
                       "legacy LUM URL no longer serves Auto Uploader")
-                guard(b"Song Uploader \\xc2\\xb7 Short Uploader Auto Engine" not in legacy_html,
+                guard(b"Song Uploader \xc2\xb7 Short Uploader Auto Engine" not in legacy_html,
                       "legacy LUM Engine 1 URL was routed to Song Uploader")
                 break
             guard(attempt < 11 and legacy_status in OUTER_HANDOVER_HTTP,
