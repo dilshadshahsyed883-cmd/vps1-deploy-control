@@ -18,7 +18,7 @@ class VideoOverlayTests(unittest.TestCase):
         self.assertEqual(patch_assets(updated),updated)
         with self.assertRaises(RuntimeError):patch_assets(b'unknown')
     def test_active_or_unknown_jobs_block_restart(self):
-        for status in ('queued','running','processing','importing','unknown'):
+        for status in ('queued','running','processing','importing','uploading','unknown'):
             with self.subTest(status=status),patch('production.video_template_release.read_json',return_value={'jobs':[{'status':status}]}):
                 with self.assertRaises(RuntimeError):idle('short-maker')
         with patch('production.video_template_release.read_json',return_value={'jobs':[],'library':[{'status':'importing'}]}):
