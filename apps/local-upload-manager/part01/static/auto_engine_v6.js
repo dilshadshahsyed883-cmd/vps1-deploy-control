@@ -306,3 +306,42 @@
 
 // LUM_QUEUE_LIVE_VISIBILITY_V1
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout(()=>refreshQueueLive(true),120);});
+
+/* SONG_PROFILE_MANUAL_METADATA_V1 — affects Song Uploader only, including soft navigation. */
+(() => {
+  'use strict';
+  function applySongProfileSources() {
+    const form=document.getElementById('lum-ae-profile-form');
+    if(!form) return;
+    const video=form.querySelector('#song-profile-video-source');
+    const meta=form.querySelector('#song-profile-metadata-source');
+    if(!video||!meta) return;
+    const useDrive=video.value==='drive', useSheet=meta.value==='sheet';
+    const flip=(selector,show,requiredName)=>{
+      form.querySelectorAll(selector).forEach(el=>{
+        el.hidden=!show;
+        el.querySelectorAll('input,textarea,select').forEach(input=>{
+          if(requiredName && input.name===requiredName) input.required=show;
+        });
+      });
+    };
+    flip('[data-song-drive-field]',useDrive,'drive_video_folder');
+    form.querySelectorAll('[data-song-drive-field] input[name="drive_thumbnail_folder"]').forEach(x=>x.required=useDrive);
+    flip('[data-song-sheet-field]',useSheet,'metadata_sheet_url_or_id');
+    flip('[data-song-manual-fields]',!useSheet,'manual_title');
+    form.querySelectorAll('[data-song-sheet-note]').forEach(el=>el.hidden=!useSheet);
+  }
+  document.addEventListener('change',e=>{
+    if(e.target?.matches?.('#song-profile-video-source,#song-profile-metadata-source')) applySongProfileSources();
+  });
+  document.addEventListener('DOMContentLoaded',applySongProfileSources);
+  window.addEventListener('pageshow',applySongProfileSources);
+  if(document.documentElement){
+    new MutationObserver(records=>{
+      if(records.some(rec=>[...rec.addedNodes].some(n=>n.nodeType===1 && (n.matches?.('#lum-ae-profile-form')||n.querySelector?.('#lum-ae-profile-form'))))){
+        queueMicrotask(applySongProfileSources);
+      }
+    }).observe(document.documentElement,{childList:true,subtree:true});
+  }
+  applySongProfileSources();
+})();
