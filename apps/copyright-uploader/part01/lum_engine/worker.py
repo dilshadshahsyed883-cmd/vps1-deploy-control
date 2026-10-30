@@ -5,7 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .config import THUMBNAIL_ROOT, ensure_dirs
+from .config import THUMBNAIL_ROOT, STAGING_ROOT, ensure_dirs
+from .copyright_handoff import delete_verified_source
 from .drive_source import cleanup_project_staging, stage_drive_file
 from .project_store import ProjectStore, now_iso
 from .remote_verify import verify_youtube_video
@@ -113,6 +114,11 @@ class VPSUploadWorker:
             return
         # 1) Stage the Drive source only once. Existing valid files are reused after restart/retry.
         staging = Path(str(project.get("staging_path") or "")) if project.get("staging_path") else None
+        # A verified YouTube upload must NEVER be submitted again simply
+        # because deletion failed or a worker restarted during cleanup.
+        if project.get("remote_verified_at") and project.get("youtube_video_id"):
+            self._finish_verified(project_id, project, staging)
+            return
         if (not staging or not staging.is_file() or staging.stat().st_size <= 0) and project.get("source_mode") == "local_file":
             raise RuntimeError("Local input missing: keep original video and review before retry")
         if not staging or not staging.is_file() or staging.stat().st_size <= 0:
@@ -196,22 +202,45 @@ class VPSUploadWorker:
         )
         self.store.event(project_id, f"YouTube remote verification passed: {verified['video_id']}")
 
-        # 5) Delete only the VPS staging copy after verification. Google Drive source is protected by default.
+        project = self.store.get(project_id) or project
+        self._finish_verified(project_id, project, staging)
+
+    def _finish_verified(self, project_id: int, project: dict[str, Any], staging: Path | None) -> None:
+        """Idempotent verified-only cleanup, never reupload on a cleanup retry."""
+        if not project.get("remote_verified_at") or not project.get("youtube_video_id"):
+            raise RuntimeError("Cannot delete VPS video before independent YouTube verification")
         self.store.update(project_id, status="CLEANING", progress=99)
         if self.store.setting("delete_staged_after_verified", "1") == "1":
+            # Folder sources are separate handoff copies. Never delete the
+            # protected Google Drive original or Video Merger master output.
+            if project.get("source_origin") == "folder":
+                try:
+                    deleted = delete_verified_source(
+                        str(project["owner_username"]), str(project["source_file_name"]),
+                        str(project.get("source_fingerprint") or ""),
+                    )
+                    self.store.event(project_id,
+                        "Verified Copyright Uploader folder source deleted from VPS"
+                        if deleted else "Verified Copyright folder source already absent")
+                except Exception as exc:
+                    raise RuntimeError(f"YouTube verified but Copyright folder cleanup needs retry: {exc}") from exc
             try:
-                if staging and staging.exists():
+                if staging and (staging.exists() or staging.is_symlink()):
+                    if staging.is_symlink() or STAGING_ROOT.resolve() not in staging.resolve().parents:
+                        raise RuntimeError("Staged source ownership changed")
                     staging.unlink()
                 thumb_raw = str(project.get("thumbnail_path") or "").strip()
                 if thumb_raw:
                     thumb = Path(thumb_raw)
-                    if thumb.exists() and THUMBNAIL_ROOT in thumb.resolve().parents:
+                    if thumb.exists() and not thumb.is_symlink() and THUMBNAIL_ROOT.resolve() in thumb.resolve().parents:
                         thumb.unlink()
                 cleanup_project_staging(project_id)
             except Exception as exc:
-                raise RuntimeError(f"Remote upload is verified, but VPS cleanup failed; source was kept where deletion failed: {exc}") from exc
-            if staging and staging.exists():
-                raise RuntimeError("Remote upload is verified, but staged video still exists after cleanup")
-        cleanup_at = now_iso()
-        self.store.update(project_id, status="COMPLETED", progress=100, cleanup_verified_at=cleanup_at, error_message="")
-        self.store.event(project_id, "Project completed: remote verification + VPS cleanup verification passed")
+                raise RuntimeError(
+                    f"YouTube upload verified, but VPS staged cleanup failed; retry cleanup only: {exc}"
+                ) from exc
+            if staging and (staging.exists() or staging.is_symlink()):
+                raise RuntimeError("YouTube verified, but staged video still exists")
+        self.store.update(project_id, status="COMPLETED", progress=100,
+                          cleanup_verified_at=now_iso(), error_message="")
+        self.store.event(project_id, "Project completed: remote verification + VPS cleanup verified")

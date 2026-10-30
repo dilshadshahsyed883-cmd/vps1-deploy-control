@@ -117,7 +117,13 @@ class VoiceSidebarUIOnlyTests(unittest.TestCase):
             b"vps1_native_site_shell.js?v=20261020-upload-studio-v1",
             b"vps1_native_site_shell.js?v=20261029-song-studio-v1",
         )
-        self.assertIn(song_assets, voice)
+        # Preserve the byte-exact original CSS plus script tag contract while
+        # permitting an explicit cache-busting query for Copyright navigation.
+        expected_assets = song_assets.replace(
+            b'vps1_native_site_shell.js?v=20261029-song-studio-v1"',
+            b'vps1_native_site_shell.js?v=20261029-song-studio-v1&copyright-nav=20261030-v3"',
+        )
+        self.assertIn(expected_assets, voice)
 
 
 

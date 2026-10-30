@@ -626,6 +626,48 @@ def require_sml_idle(state):
                     raise RuntimeError('SML_RELEASE_BLOCKED: active '+table+' work; retry after completion')
 
 
+def require_copyright_uploader_idle(state: Path) -> None:
+    """Protect all Copyright manual uploads and cleanup during web release.
+
+    Never stop a claimed upload, a queue handoff or a cleanup transaction.
+    Fail closed on missing/corrupt health/SQLite while a live unit is active.
+    """
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open("http://127.0.0.1:8020/copyright-uploader/health", timeout=5) as response:
+        if response.status != 200:
+            raise RuntimeError("COPYRIGHT_RELEASE_BLOCKED: health unavailable")
+        health = json.loads(response.read(8192))
+    if health.get("ok") is not True or health.get("engine_instance") != "copyright":
+        raise RuntimeError("COPYRIGHT_RELEASE_BLOCKED: wrong service identity")
+    if health.get("active_project_id") not in (None, "", 0):
+        raise RuntimeError("COPYRIGHT_RELEASE_BLOCKED: active media upload")
+    database = state / "lum-copyright/projects.sqlite3"
+    if database.is_symlink() or not database.is_file():
+        raise RuntimeError("COPYRIGHT_RELEASE_BLOCKED: project database missing or unsafe")
+    with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=5) as conn:
+        conn.execute("PRAGMA query_only=ON")
+        outstanding = conn.execute(
+            """SELECT 1 FROM projects
+               WHERE status NOT IN ('COMPLETED','CANCELLED','FAILED') LIMIT 1"""
+        ).fetchone()
+        if outstanding:
+            raise RuntimeError("COPYRIGHT_RELEASE_BLOCKED: queued/active Copyright project")
+    core = state / "lum-copyright/core/data/uploader.db"
+    if core.is_symlink():
+        raise RuntimeError("COPYRIGHT_RELEASE_BLOCKED: unsafe core DB")
+    if core.is_file():
+        with sqlite3.connect(core.as_uri() + "?mode=ro", uri=True, timeout=5) as conn:
+            conn.execute("PRAGMA query_only=ON")
+            busy = conn.execute(
+                """SELECT 1 FROM videos WHERE UPPER(status) IN
+                   ('CLAIMED','UPLOADING','THUMBNAIL_UPLOADING','PROCESSING','IN_PROGRESS',
+                    'WAITING_NETWORK','PAUSED','QUEUED') LIMIT 1"""
+            ).fetchone()
+            if busy:
+                raise RuntimeError("COPYRIGHT_RELEASE_BLOCKED: core upload queue not idle")
+    event(app="copyright-uploader", upload_idle_preflight="PASS")
+
+
 def require_short_maker_idle(state):
     """Never interrupt an existing Short Maker render during navigation migration."""
     jobs = state / "jobs"
@@ -865,6 +907,8 @@ def install_app(app, revision):
     # Never interrupt an upload in any of the three independently running engines.
     if app == 'local-upload-manager' and active:
         require_lum_release_idle(state)
+    if app == 'copyright-uploader' and active:
+        require_copyright_uploader_idle(state)
     if app == 'short-maker' and active:
         require_short_maker_idle(state)
     if app == 'video-merger' and active:

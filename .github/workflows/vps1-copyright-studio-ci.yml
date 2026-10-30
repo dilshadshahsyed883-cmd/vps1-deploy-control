@@ -24,6 +24,11 @@ jobs:
         run: python -m production.smoke --app copyright-uploader
       - name: Durable queue and isolated studio offline regressions
         run: python -m unittest discover -s tests -p 'test_copyright_studio_v2.py' -v
+      - name: Copyright folder picker, queue exclusivity, cleanup and sidebar regressions
+        run: |
+          python -m unittest discover -s tests -p 'test_copyright_video_picker_cleanup.py' -v
+          python -m unittest discover -s tests -p 'test_copyright_sidebar_consistency.py' -v
+          node --check apps/copyright-uploader/part01/static/copyright_video_picker.js
       - name: Existing Studio navigation regression
         run: python -m unittest -v production.test_canonical_studio_navigation production.test_unified_sidebar_navigation
       - name: No Copyright Auto Engine scheduler
