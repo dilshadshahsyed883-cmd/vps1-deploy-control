@@ -226,7 +226,7 @@ class ShortStudioV1(unittest.TestCase):
             units = Path(td) / "units"
             root.mkdir(parents=True)
             units.mkdir()
-            (root / ".vps1-independent-engine").write_text("shortstudio\\n")
+            (root / ".vps1-independent-engine").write_text("shortstudio\n")
             tokens = root / "secure/oauth_clients"
             tokens.mkdir(parents=True)
             (tokens / "existing.json").write_text("DO_NOT_MODIFY_SECRET")
