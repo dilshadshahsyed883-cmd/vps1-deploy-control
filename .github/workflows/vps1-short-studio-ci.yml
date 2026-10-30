@@ -23,6 +23,14 @@ jobs:
         run: |
           node --check apps/scene-builder/part01/static/vps1_native_site_shell.js
           for file in apps/local-upload-manager/part01/static/{auto_engine_v6,channels_subtabs_v5_1,navigation_state_v1,lum_ux_state_v2}.js; do node --check "$file"; done
+      - name: Verify Short Maker resumable browser JavaScript syntax
+        run: node --check apps/short-maker/part01/resumable_client.js
+      - name: Verify refresh recovery, upload offsets, and idempotent job creation
+        run: python -m unittest discover -s tests -p "test_short_maker_resume.py" -v
+      - name: Install isolated Short Maker HTTP test dependencies
+        run: python -m pip install 'fastapi==0.115.12' 'pillow==11.1.0' 'python-multipart==0.0.20'
+      - name: Verify resumable Short Maker HTTP API handles refresh and duplicate finalize
+        run: python -m unittest discover -s tests -p 'test_short_maker_resume_integration.py' -v
       - name: Offline Shorts, Song and Scene regression contracts
         run: |
           python -m unittest -v production.test_short_studio_v1 production.test_shortstudio_readonly_diagnostic production.test_song_uploader_v1 production.test_uploader_three_mode_split production.test_unified_sidebar_navigation production.test_scene_video_studio_shell

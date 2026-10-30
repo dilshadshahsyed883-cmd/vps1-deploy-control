@@ -10,6 +10,8 @@ import subprocess
 import tempfile
 import time
 import threading
+import fcntl
+from contextlib import contextmanager
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -715,9 +717,9 @@ button{border:0;border-radius:10px;padding:11px 15px;background:var(--accent);co
 .sm-tabs button{flex:1;background:transparent;color:#596579}.sm-tabs button.active{background:#fff;color:#2457d6;box-shadow:0 3px 10px rgba(31,45,74,.11)}
 .queue-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:14px}.queue-head h2{margin:0}.queue-actions{display:flex;gap:8px;flex-wrap:wrap}
 button.secondary{background:#f0efff;color:#4d4fc7}button.danger{background:#fff0f2;color:#dc4c64}
-.queue-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}.queue-metrics>div{border:1px solid var(--line);border-radius:12px;padding:14px}.queue-metrics b{display:block;font-size:24px}.queue-metrics span{color:var(--muted);font-weight:700}
+.queue-metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px}.queue-metrics>div{border:1px solid var(--line);border-radius:12px;padding:14px}.queue-metrics b{display:block;font-size:24px}.queue-metrics span{color:var(--muted);font-weight:700}
 .queue-table-wrap{overflow:auto}.queue-table{width:100%;border-collapse:collapse;min-width:900px}.queue-table th,.queue-table td{text-align:left;padding:11px;border-bottom:1px solid var(--line);vertical-align:middle}.queue-table th{font-size:12px;color:var(--muted)}
-.qbadge{display:inline-block;padding:5px 8px;border-radius:20px;font-size:11px;font-weight:900;background:#eef0f5}.qbadge.queued{background:#efefff;color:#5354d9}.qbadge.running{background:#fff3de;color:#a86400}.qbadge.completed{background:#e7f8f0;color:#11734c}.qbadge.failed{background:#ffecef;color:#b9344c}
+.qbadge{display:inline-block;padding:5px 8px;border-radius:20px;font-size:11px;font-weight:900;background:#eef0f5}.qbadge.uploading{background:#e7f1ff;color:#2463b0}.qbadge.queued{background:#efefff;color:#5354d9}.qbadge.running{background:#fff3de;color:#a86400}.qbadge.completed{background:#e7f8f0;color:#11734c}.qbadge.failed{background:#ffecef;color:#b9344c}
 .qbar{width:140px;height:7px;background:#edf0f5;border-radius:20px;overflow:hidden}.qbar span{display:block;height:100%;background:var(--accent)}.qmsg{max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted);font-size:12px}
 .queue-pager{display:flex;justify-content:flex-end;align-items:center;gap:9px;margin-top:13px}.queue-pager span{color:var(--muted);font-weight:700}
 .drive-delivery{margin:14px 0;padding:14px;border:1px solid var(--line);border-radius:12px;background:#fafbfe}.checkline{display:block;margin:7px 0;color:var(--text)}.checkline input{width:auto;margin-right:6px}.driveok{color:var(--good);font-weight:800}.drivewait{color:var(--muted);font-size:12px}
@@ -837,7 +839,9 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
 <section class="panel" aria-label="Render controls">
  <h2>Render</h2>
  <button id="render" class="render" type="submit">Start Rendering</button>
- <div class="progress"><span id="bar"></span></div>
+ <button id="discardUpload" class="secondary" type="button" hidden style="margin-top:10px">Discard paused upload</button>
+ <div class="progress" id="progressTrack" role="progressbar" aria-label="Upload progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="bar"></span></div>
+ <div id="progressDetail" class="status" aria-live="polite">Upload: 0% · Rendering: 0%</div>
  <div id="status" class="status">Ready.</div>
  <div id="outputs" class="outputs"></div>
 </section>
@@ -865,6 +869,7 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
   <div class="queue-head"><div><h2>Render Queue</h2><div class="hint">One render runs at a time. New jobs wait automatically.</div></div>
   <div class="queue-actions"><button id="newJobBtn" type="button">+ New Job</button><button id="clearDoneBtn" class="secondary" type="button">Clear completed</button><button id="clearFailedBtn" class="danger" type="button">Clear failed</button></div></div>
   <div class="queue-metrics">
+    <div><b id="mUploading">0</b><span>Uploading</span></div>
     <div><b id="mQueued">0</b><span>Queued</span></div><div><b id="mRunning">0</b><span>Running</span></div><div><b id="mCompleted">0</b><span>Completed</span></div><div><b id="mFailed">0</b><span>Failed</span></div>
   </div>
   <div class="queue-table-wrap"><table class="queue-table"><thead><tr><th>Job</th><th>Status</th><th>Progress</th><th>Message</th><th>Outputs</th><th>Action</th></tr></thead><tbody id="queueRows"><tr><td colspan="6">Loading…</td></tr></tbody></table></div>
@@ -1005,42 +1010,18 @@ function renderQueue(){
  if(!rows.length){body.innerHTML='<tr><td colspan="6">No jobs yet.</td></tr>';return;}
  body.innerHTML=rows.map(j=>{const st=String(j.status||'unknown'),p=Math.max(0,Math.min(100,Number(j.progress||0))),outs=(j.outputs||[]).map(o=>o.local_available&&o.url?`<a href="${escQ(o.url)}">${escQ(o.name)}</a>`:`<span class="driveok" title="${escQ(o.drive_path||'')}">Drive ✓ ${escQ(o.name)}</span>`).join(' · '),terminal=st==='completed'||st==='failed';return `<tr><td><b>${escQ((j.job_id||'').slice(0,8))}</b></td><td><span class="qbadge ${escQ(st)}">${escQ(st)}</span></td><td><div class="qbar"><span style="width:${p}%"></span></div><small>${p.toFixed(0)}%</small></td><td><div class="qmsg" title="${escQ(j.message||'')}">${escQ(j.message||'')}</div><div class="drivewait">${escQ(j.delivery_status||'')}</div></td><td>${outs||'—'}</td><td>${terminal?`<button class="danger" type="button" onclick="deleteQueueJob('${escQ(j.job_id)}')">Delete</button>`:'—'}</td></tr>`;}).join('');
 }
-async function loadQueue(){try{const r=await fetch('api/jobs',{cache:'no-store'}),d=await r.json();queueItems=d.jobs||[];const c=d.counts||{};mQueued.textContent=c.queued||0;mRunning.textContent=c.running||0;mCompleted.textContent=c.completed||0;mFailed.textContent=c.failed||0;queueTotal.textContent=`(${queueItems.length})`;renderQueue();}catch(e){}}
+async function loadQueue(){try{const r=await fetch('api/jobs',{cache:'no-store'}),d=await r.json();queueItems=d.jobs||[];const c=d.counts||{};mUploading.textContent=c.uploading||0;mQueued.textContent=c.queued||0;mRunning.textContent=c.running||0;mCompleted.textContent=c.completed||0;mFailed.textContent=c.failed||0;queueTotal.textContent=`(${queueItems.length})`;renderQueue();}catch(e){}}
 async function deleteQueueJob(id){if(!confirm('Delete this completed/failed job and its local files?'))return;const r=await fetch(`api/jobs/${id}`,{method:'DELETE'});if(!r.ok){const d=await r.json();alert(d.detail||'Delete failed');}loadQueue();}
 async function clearQueueStatus(st){if(!confirm(`Clear all ${st} jobs?`))return;await fetch(`api/jobs/clear/${st}`,{method:'POST'});queuePage=1;loadQueue();}
 document.getElementById('clearDoneBtn').onclick=()=>clearQueueStatus('completed');document.getElementById('clearFailedBtn').onclick=()=>clearQueueStatus('failed');
 document.getElementById('prevPage').onclick=()=>{if(queuePage>1){queuePage--;renderQueue();}};document.getElementById('nextPage').onclick=()=>{const pages=Math.max(1,Math.ceil(queueItems.length/queuePageSize));if(queuePage<pages){queuePage++;renderQueue();}};
 loadQueue();setInterval(loadQueue,2000);
 
-form.addEventListener('submit',async e=>{
- e.preventDefault();
- const paths=drivePaths();
- if(inputMode.value==='upload'&&!images.files.length){alert('Select an image folder first.');return;}
- if(inputMode.value==='drive'&&!paths.length){alert('Add at least one Google Drive folder link.');return;}
- if(inputMode.value==='drive'&&new Set(paths).size!==paths.length){alert('Remove duplicate Google Drive folder links.');return;}
- render.disabled=true;outputs.innerHTML='';bar.style.width='0%';statusEl.textContent='Uploading files...';
- const fd=new FormData();
- if(inputMode.value==='upload')Array.from(images.files).forEach(f=>fd.append('images',f,f.webkitRelativePath||f.name));
- selectedAudioFiles.forEach(f=>fd.append('audio',f,f.name));
- ['video_duration','image_duration','output_count','order','fit','motion','fps','crf','base_name','input_mode','drive_output_path'].forEach(k=>fd.append(k,form.elements[k].value));
- fd.append('drive_input_path',inputMode.value==='drive'?(paths[0]||''):'');
- fd.append('drive_input_paths_json',inputMode.value==='drive'?JSON.stringify(paths):'');
- fd.append('available_to_short_uploader',uploaderDestination.checked?'true':'false');
- fd.append('upload_to_drive',driveDestination.checked?'true':'false');
- fd.append('verified_clean',document.getElementById('verifiedClean').checked?'true':'false');
- fd.append('short_vps_folder',shortFolderSelect.value);
- try{
-  const r=await fetch('api/jobs',{method:'POST',body:fd});
-  const data=await r.json(); if(!r.ok)throw new Error(data.detail||'Submission failed');
-  render.disabled=false;images.value='';audio.value='';selectedAudioFiles.length=0;
-  imageCount.textContent='0 images selected';renderSelectedAudio();
-  statusEl.textContent='Job '+data.job_id.slice(0,8)+' queued. Ready for another job.';
-  bar.style.width='0%';outputs.innerHTML='';loadQueue();
- }catch(err){render.disabled=false;statusEl.textContent='Failed: '+err.message;}
-});
+// The refresh-safe uploader is loaded from resumable_client.js.
 
 
 </script>
+<script src="/short-maker/resumable_client.js"></script>
 <script>
 (() => {
   const toggle=document.querySelector(".vps1-video-mobile-menu");
@@ -1285,7 +1266,7 @@ async def create_job(
 @app.get("/api/jobs")
 def list_jobs():
     items=load_job_states()
-    counts={"queued":0,"running":0,"completed":0,"failed":0}
+    counts={"uploading":0,"queued":0,"running":0,"completed":0,"failed":0}
     for item in items:
         st=str(item.get("status") or "unknown")
         if st in counts:
@@ -1337,3 +1318,279 @@ def download_output(job_id: str, filename: str):
     if not target.is_file():
         raise HTTPException(status_code=404, detail="Output not found")
     return FileResponse(target, media_type="video/mp4", filename=target.name)
+
+
+# SHORT_MAKER_RESUMABLE_UPLOAD_V1
+# The old multipart /api/jobs endpoint remains available for existing clients.
+# New browser jobs are allocated before any bytes are sent; each file is appended
+# in bounded chunks and can resume from its server-recorded offset after refresh.
+UPLOAD_CHUNK_LIMIT = 8 * 1024 * 1024
+UPLOAD_FILE_LIMIT = 1024 * 1024 * 1024
+UPLOAD_TOTAL_LIMIT = 8 * 1024 * 1024 * 1024
+
+
+def upload_manifest_path(job_id: str) -> Path:
+    if not re.fullmatch(r"[0-9a-f]{16}", job_id or ""):
+        raise HTTPException(status_code=404, detail="Upload session not found.")
+    return JOBS_ROOT / job_id / "upload_manifest.json"
+
+
+def upload_manifest(job_id: str, request: Request) -> dict:
+    path = upload_manifest_path(job_id)
+    if not path.is_file() or path.is_symlink():
+        raise HTTPException(status_code=404, detail="Upload session not found.")
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        raise HTTPException(status_code=500, detail="Upload manifest is unreadable.")
+    if manifest.get("owner", "") != request.headers.get("x-auth-user", "").strip():
+        raise HTTPException(status_code=403, detail="Upload belongs to another account.")
+    return manifest
+
+
+@contextmanager
+def upload_session_lock(job_id: str):
+    # Interprocess flock protects against double finalize or concurrent chunks.
+    lock_path = upload_manifest_path(job_id).parent / ".upload.lock"
+    if lock_path.parent.is_symlink():
+        raise HTTPException(status_code=400, detail="Unsafe upload folder.")
+    with lock_path.open("a+b") as file:
+        fcntl.flock(file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(file.fileno(), fcntl.LOCK_UN)
+
+
+def upload_target(job_id: str, kind: str, index: int, entry: dict) -> Path:
+    if kind not in ("images", "audio") or index < 0:
+        raise HTTPException(status_code=400, detail="Invalid upload file.")
+    prefix = f"{index + 1:05d}" if kind == "images" else f"{index + 1:04d}"
+    return JOBS_ROOT / job_id / "input" / kind / f"{prefix}_{safe_name(entry['name'])}"
+
+
+def upload_snapshot(job_id: str, manifest: dict) -> dict:
+    result = {"images": [], "audio": []}
+    received = total = 0
+    for kind in ("images", "audio"):
+        for index, entry in enumerate(manifest["files"][kind]):
+            path = upload_target(job_id, kind, index, entry)
+            size = int(entry["size"])
+            final_size = path.stat().st_size if path.is_file() and not path.is_symlink() else 0
+            partial = path.with_name(path.name + ".part")
+            part_size = partial.stat().st_size if partial.is_file() and not partial.is_symlink() else 0
+            offset = size if final_size == size else min(size, part_size)
+            result[kind].append({"index": index, "size": size, "uploaded": offset, "name": entry["name"]})
+            received += offset
+            total += size
+    return {"files": result, "uploaded_bytes": received, "total_bytes": total,
+            "upload_progress": round(100 * received / total, 1) if total else 100}
+
+
+def upload_config(payload: dict) -> dict:
+    try:
+        duration = float(payload.get("video_duration", 16))
+        img_duration = float(payload.get("image_duration", 3))
+        count = int(payload.get("output_count", 1))
+        fps = int(payload.get("fps", 30))
+        crf = int(payload.get("crf", 20))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid render settings.")
+    if not (0 < duration <= 86400 and 0 < img_duration <= 86400):
+        raise HTTPException(status_code=400, detail="Durations must be positive.")
+    if not 1 <= count <= 999 or fps not in (24, 25, 30, 50, 60) or not 16 <= crf <= 28:
+        raise HTTPException(status_code=400, detail="Invalid output count, FPS or CRF.")
+    folder_name = str(payload.get("short_vps_folder") or SHORT_VPS_DEFAULT)
+    short_vps_folder_names()
+    try:
+        if not short_vps_folder(folder_name).is_dir():
+            raise ValueError("Selected VPS output folder no longer exists.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    to_drive = payload.get("upload_to_drive") is True
+    to_uploader = payload.get("available_to_short_uploader") is True
+    if to_drive == to_uploader:
+        raise HTTPException(status_code=400, detail="Select exactly one output destination.")
+    try:
+        drive_output = normalize_drive_path(str(payload.get("drive_output_path") or DEFAULT_DRIVE_OUTPUT)) if to_drive else DEFAULT_DRIVE_OUTPUT
+        drive_paths = parse_drive_folder_inputs(
+            str(payload.get("drive_input_path") or ""),
+            str(payload.get("drive_input_paths_json") or "")
+        ) if payload.get("input_mode") == "drive" else []
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    mode = "drive" if payload.get("input_mode") == "drive" else "upload"
+    return {
+        "video_duration": duration, "image_duration": img_duration,
+        "output_count": count,
+        "fps": fps, "crf": crf,
+        "order": payload.get("order") if payload.get("order") in ("random", "filename") else "random",
+        "fit": payload.get("fit") if payload.get("fit") in ("fill_crop", "black", "blur") else "fill_crop",
+        "motion": payload.get("motion") if payload.get("motion") in ("random", "zoom_in", "zoom_out", "pan_lr", "pan_rl", "none") else "random",
+        "base_name": safe_name(str(payload.get("base_name") or "short_video.mp4")),
+        "input_mode": mode, "drive_input_path": drive_paths[0] if drive_paths else "",
+        "drive_input_paths": drive_paths,
+        "upload_to_drive": to_drive, "available_to_short_uploader": to_uploader,
+        "drive_output_path": drive_output, "verified_clean": to_drive,
+        "short_vps_folder": folder_name,
+    }
+
+
+@app.post("/api/upload-sessions")
+async def begin_resumable_upload(request: Request):
+    try:
+        payload = await request.json()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid upload request.")
+    if not isinstance(payload, dict) or not isinstance(payload.get("files"), dict):
+        raise HTTPException(status_code=400, detail="Missing upload manifest.")
+    if not isinstance(payload.get("config"), dict):
+        raise HTTPException(status_code=400, detail="Missing render settings.")
+    cfg = upload_config(payload["config"])
+    file_groups = payload["files"]
+    manifest_files = {}
+    grand_total = 0
+    for kind in ("images", "audio"):
+        group = file_groups.get(kind, [])
+        if not isinstance(group, list) or len(group) > 5000:
+            raise HTTPException(status_code=400, detail="Too many files.")
+        clean_files = []
+        for entry in group:
+            if not isinstance(entry, dict):
+                raise HTTPException(status_code=400, detail="Invalid file metadata.")
+            name = safe_name(str(entry.get("name") or ""))
+            try:
+                size = int(entry.get("size"))
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400, detail="Invalid file size.")
+            if size < 1 or size > UPLOAD_FILE_LIMIT:
+                raise HTTPException(status_code=400, detail="File size outside supported range.")
+            if kind == "images" and Path(name).suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".jfif", ".heic", ".heif"):
+                raise HTTPException(status_code=400, detail="Unsupported image: " + name)
+            grand_total += size
+            clean_files.append({"name": name, "size": size})
+        manifest_files[kind] = clean_files
+    if grand_total > UPLOAD_TOTAL_LIMIT:
+        raise HTTPException(status_code=413, detail="Total upload exceeds 8 GiB.")
+    if cfg["input_mode"] == "upload" and not manifest_files["images"]:
+        raise HTTPException(status_code=400, detail="Select at least one image.")
+    if cfg["input_mode"] == "drive" and manifest_files["images"]:
+        raise HTTPException(status_code=400, detail="Drive input cannot include PC images.")
+    job_id = uuid.uuid4().hex[:16]
+    root = JOBS_ROOT / job_id
+    for kind in ("images", "audio"):
+        (root / "input" / kind).mkdir(parents=True, exist_ok=True)
+    manifest = {"owner": request.headers.get("x-auth-user", "").strip(),
+                "config": cfg, "files": manifest_files, "created_at": utc_now()}
+    upload_manifest_path(job_id).write_text(json.dumps(manifest), encoding="utf-8")
+    set_state(job_id, status="uploading", progress=0, upload_progress=0,
+              created_at=utc_now(), message="Uploading PC files (resumable)",
+              outputs=[], config=cfg, delivery_status="waiting_upload",
+              drive_verified=False, local_cleaned=False)
+    return {"job_id": job_id, "status": "uploading"}
+
+
+@app.get("/api/upload-sessions/{job_id}")
+def get_resumable_upload(job_id: str, request: Request):
+    manifest = upload_manifest(job_id, request)
+    state = get_state(job_id)
+    snapshot = upload_snapshot(job_id, manifest)
+    return {"job_id": job_id, "status": state.get("status"), **snapshot}
+
+
+@app.put("/api/upload-sessions/{job_id}/files/{kind}/{index}")
+async def append_resumable_chunk(job_id: str, kind: str, index: int, request: Request):
+    manifest = upload_manifest(job_id, request)
+    if kind not in ("images", "audio") or not 0 <= index < len(manifest["files"][kind]):
+        raise HTTPException(status_code=404, detail="Upload file not found.")
+    try:
+        offset = int(request.headers.get("x-upload-offset", "-1"))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid chunk offset.")
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > UPLOAD_CHUNK_LIMIT:
+            raise HTTPException(status_code=413, detail="Upload chunk exceeds 8 MiB.")
+    if not body:
+        raise HTTPException(status_code=400, detail="Empty chunk.")
+    with upload_session_lock(job_id):
+        if get_state(job_id).get("status") != "uploading":
+            raise HTTPException(status_code=409, detail="Upload is already finalized.")
+        entry = manifest["files"][kind][index]
+        target = upload_target(job_id, kind, index, entry)
+        partial = target.with_name(target.name + ".part")
+        size = int(entry["size"])
+        if target.exists():
+            if target.stat().st_size == size:
+                return {"uploaded": size, "complete": True}
+            raise HTTPException(status_code=409, detail="Uploaded file size mismatch.")
+        current = partial.stat().st_size if partial.exists() else 0
+        if offset != current or current + len(body) > size:
+            raise HTTPException(status_code=409, detail="Chunk offset mismatch; refresh status.")
+        with partial.open("ab") as dst:
+            dst.write(body)
+            dst.flush()
+            os.fsync(dst.fileno())
+        current += len(body)
+        if current == size:
+            os.replace(partial, target)
+        snapshot = upload_snapshot(job_id, manifest)
+        set_state(job_id, progress=snapshot["upload_progress"],
+                  upload_progress=snapshot["upload_progress"],
+                  message=f"Uploading PC files · {snapshot['upload_progress']}%")
+        return {"uploaded": current, "complete": current == size,
+                "upload_progress": snapshot["upload_progress"]}
+
+
+@app.post("/api/upload-sessions/{job_id}/finalize")
+def finalize_resumable_upload(job_id: str, request: Request):
+    manifest = upload_manifest(job_id, request)
+    with upload_session_lock(job_id):
+        state = get_state(job_id)
+        if state.get("status") != "uploading":
+            # Idempotent: refreshes and retries never submit a second render.
+            return {"job_id": job_id, "status": state.get("status")}
+        snapshot = upload_snapshot(job_id, manifest)
+        if snapshot["uploaded_bytes"] != snapshot["total_bytes"]:
+            raise HTTPException(status_code=409, detail="Upload incomplete; resume remaining files.")
+        cfg = dict(manifest["config"])
+        cfg["images"] = [str(upload_target(job_id, "images", i, entry))
+                         for i, entry in enumerate(manifest["files"]["images"])]
+        cfg["audio"] = [str(upload_target(job_id, "audio", i, entry))
+                        for i, entry in enumerate(manifest["files"]["audio"])]
+        if any(not Path(p).is_file() for p in cfg["images"] + cfg["audio"]):
+            raise HTTPException(status_code=409, detail="Some uploaded files are missing.")
+        if any(not is_image(Path(p)) for p in cfg["images"]):
+            raise HTTPException(status_code=400, detail="Some image files are not valid images.")
+        try:
+            names = reserve_short_output_names(cfg["short_vps_folder"], cfg["output_count"])
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            raise HTTPException(status_code=400, detail="Output reservation failed: " + str(exc))
+        cfg["output_names"] = names
+        cfg["batch_tag"] = names[0].rsplit("_", 1)[-1].removesuffix(".mp4")
+        set_state(job_id, status="queued", progress=0, upload_progress=100,
+                  message="Uploaded · queued for VPS rendering",
+                  delivery_status="waiting_render" if cfg["upload_to_drive"] else "short_uploader",
+                  config={k: v for k, v in cfg.items() if k not in ("images", "audio")})
+        executor.submit(render_job, job_id, cfg)
+        return {"job_id": job_id, "status": "queued"}
+
+
+@app.get("/resumable_client.js")
+def resumable_client_script():
+    return FileResponse(Path(__file__).with_name("resumable_client.js"), media_type="application/javascript",
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.delete("/api/upload-sessions/{job_id}")
+def discard_resumable_upload(job_id: str, request: Request):
+    # Explicit user action only. Never delete a queued/running/completed render.
+    upload_manifest(job_id, request)
+    with upload_session_lock(job_id):
+        if get_state(job_id).get("status") != "uploading":
+            raise HTTPException(status_code=409, detail="This job is already queued or rendering.")
+        shutil.rmtree(JOBS_ROOT / job_id)
+        with jobs_lock:
+            jobs.pop(job_id, None)
+    return {"ok": True, "job_id": job_id}
