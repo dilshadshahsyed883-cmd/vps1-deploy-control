@@ -44,7 +44,7 @@ class WaitingNetworkQueueActions(unittest.TestCase):
                     claim_worker_id TEXT,recovery_state TEXT,youtube_video_id TEXT,youtube_url TEXT,
                     resumable_uri TEXT,media_stage_state TEXT,pipeline_stage TEXT,
                     upload_bytes_confirmed INTEGER,channel_db_id INTEGER,upload_fingerprint TEXT,
-                    claimed_at TEXT,lease_expires_at TEXT,error_message TEXT,updated_at TEXT);
+                    claimed_at TEXT,lease_expires_at TEXT,error_message TEXT,updated_at TEXT,progress INTEGER DEFAULT 0);
                 CREATE TABLE upload_ledger(
                     channel_db_id INTEGER,upload_fingerprint TEXT,state TEXT,
                     video_id INTEGER,updated_at TEXT);
@@ -107,6 +107,32 @@ class WaitingNetworkQueueActions(unittest.TestCase):
             conn.execute("UPDATE upload_ledger SET state='AMBIGUOUS'")
         self.assertFalse(self.obj.resolve_waiting_network_job(1, "retry")[0])
         self.assertFalse(self.obj.resolve_waiting_network_job(1, "cancel")[0])
+
+    def test_guarded_deployment_allows_only_unclaimed_pre_media_network_wait(self):
+        runtime = ROOT / "production/runtime.py"
+        tree = ast.parse(runtime.read_text())
+        fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "lum_parked_network_idle")
+        scope = {"sqlite3": sqlite3}
+        exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])), str(runtime), "exec"), scope)
+        guard = scope["lum_parked_network_idle"]
+        with self.connect() as conn:
+            self.assertEqual(guard(conn), 1)
+            conn.execute("UPDATE videos SET claim_worker_id='live-worker' WHERE id=1")
+        with self.connect() as conn:
+            with self.assertRaisesRegex(RuntimeError, "worker"):
+                guard(conn)
+            conn.execute("UPDATE videos SET claim_worker_id=NULL,progress=15 WHERE id=1")
+        with self.connect() as conn:
+            with self.assertRaisesRegex(RuntimeError, "progress"):
+                guard(conn)
+            conn.execute("UPDATE videos SET progress=0 WHERE id=1")
+            conn.execute("UPDATE upload_ledger SET state='MEDIA_IN_PROGRESS'")
+        with self.connect() as conn:
+            with self.assertRaisesRegex(RuntimeError, "ledger"):
+                guard(conn)
+        source = runtime.read_text()
+        self.assertIn("parked = lum_parked_network_idle(conn)", source)
+        self.assertIn('"PROCESSING", "IN_PROGRESS")', source)
 
     def test_wrong_status_cannot_retry_or_cancel(self):
         with self.connect() as conn:
