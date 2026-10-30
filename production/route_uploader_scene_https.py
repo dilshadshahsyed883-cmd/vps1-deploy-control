@@ -39,6 +39,24 @@ TRANSACTIONS = Path("/srv/fresh-website/transactions/scene-uploader-https")
 # Only /local-upload-manager/* is handed to the isolated uploader service.
 # Nginx performs the Scene session check; client-supplied identity headers are
 # overwritten with values from the protected authorization subrequest.
+APP_EXACT_ROUTE = """ location = /local-upload-manager/app {
+    auth_request /_scene_uploader_auth;
+    auth_request_set $scene_lum_user $upstream_http_x_auth_user;
+    auth_request_set $scene_lum_access $upstream_http_x_app_access;
+    auth_request_set $scene_lum_admin $upstream_http_x_is_admin;
+    proxy_pass http://127.0.0.1:8015;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Auth-User $scene_lum_user;
+    proxy_set_header X-App-Access $scene_lum_access;
+    proxy_set_header X-Is-Admin $scene_lum_admin;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+ }
+"""
+
 ROUTE = """ # VPS1_SCENE_SESSION_UPLOADER_ROUTE_V1
  location = /local-upload-manager/ { return 308 /local-upload-manager; }
  location = /local-upload-manager {
@@ -55,7 +73,7 @@ ROUTE = """ # VPS1_SCENE_SESSION_UPLOADER_ROUTE_V1
     proxy_set_header Content-Length "";
     proxy_set_header Cookie $http_cookie;
  }
- location ^~ /local-upload-manager/ {
+""" + APP_EXACT_ROUTE + """ location ^~ /local-upload-manager/ {
     auth_request /_scene_uploader_auth;
     auth_request_set $scene_lum_user $upstream_http_x_auth_user;
     auth_request_set $scene_lum_access $upstream_http_x_app_access;
@@ -76,7 +94,8 @@ ROUTE = """ # VPS1_SCENE_SESSION_UPLOADER_ROUTE_V1
 """
 # The previous approved production route lacked only the exact slash handler.
 # Recognize precisely that old route for an app-scoped, reversible upgrade.
-LEGACY_ROUTE = ROUTE.replace(
+PREVIOUS_ROUTE = ROUTE.replace(APP_EXACT_ROUTE, "", 1)
+LEGACY_ROUTE = PREVIOUS_ROUTE.replace(
     " location = /local-upload-manager/ { return 308 /local-upload-manager; }\n", "", 1
 )
 
@@ -96,9 +115,10 @@ def add_route(original: str) -> tuple[str, bool]:
         guard(original.count(MARKER) == 1, "duplicate uploader route marker")
         if ROUTE in original:
             return original, False
-        guard(LEGACY_ROUTE in original,
-              "existing uploader route differs from this release")
-        return original.replace(LEGACY_ROUTE, ROUTE, 1), True
+        for previous in (PREVIOUS_ROUTE, LEGACY_ROUTE):
+            if previous in original:
+                return original.replace(previous, ROUTE, 1), True
+        raise RuntimeError("BLOCKED: existing uploader route differs from this release")
     guard("location = /local-upload-manager " not in original
           and "location ^~ /local-upload-manager/" not in original
           and "location = /_scene_uploader_auth" not in original,
@@ -237,6 +257,20 @@ def verify(cookie: str, *, published: bool) -> None:
                 break
             if attempt == 11:
                 raise RuntimeError("BLOCKED: uploader HTTPS session route not ready")
+            time.sleep(0.6)
+        # Verify the owner's original Engine 1 URL explicitly, without a
+        # browser/canonical Song Uploader redirect. This check is read-only.
+        for attempt in range(12):
+            legacy_status, legacy_kind, legacy_html = https_get(
+                "/local-upload-manager/app?tab=auto_engine&embedded=1", cookie)
+            if legacy_status == 200 and "html" in legacy_kind.lower():
+                guard(b"Auto Uploader" in legacy_html,
+                      "legacy LUM URL no longer serves Auto Uploader")
+                guard(b"Song Uploader \\xc2\\xb7 Short Uploader Auto Engine" not in legacy_html,
+                      "legacy LUM Engine 1 URL was routed to Song Uploader")
+                break
+            guard(attempt < 11 and legacy_status in OUTER_HANDOVER_HTTP,
+                  "legacy LUM Auto Engine URL redirected or failed")
             time.sleep(0.6)
         status, _, body = https_get("/local-upload-manager/health", cookie)
         guard(status == 200 and json.loads(body).get("ok") is True,
