@@ -287,7 +287,7 @@ def sync_owner(store, owner, settings, drive=None, admission_lock=None):
     def admit_pairs():
         nonlocal count
         export = store.record('exports', owner)
-        job_settings = {**settings, **{key: export[key] for key in ('resolution', 'fit', 'quality', 'overlay_enabled', 'overlay_preset', 'overlay_strength', 'overlay_speed') if key in export}}
+        job_settings = {**settings, **{key: export[key] for key in ('resolution', 'fit', 'quality', 'overlay_enabled', 'overlay_preset', 'overlay_strength', 'overlay_speed', 'send_to_song_uploader') if key in export}}
         for pair in results:
             if pair['stage'] != 'Matched':
                 continue
@@ -321,5 +321,6 @@ def enqueue_pair(store, owner, settings, image, sound):
          'overlay_preset': settings.get('overlay_preset', 'light_leaks'),
          'overlay_strength': settings.get('overlay_strength', 35),
          'overlay_speed': settings.get('overlay_speed', 'normal'),
+         'send_to_song_uploader': bool(settings.get('send_to_song_uploader', False)),
          'drive_status': 'Pending', 'origin': 'drive'})
     return job

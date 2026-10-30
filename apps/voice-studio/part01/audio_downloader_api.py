@@ -821,6 +821,7 @@ def _post_local_pair_to_song_maker(row: sqlite3.Row) -> str:
         connection.putheader('Content-Length', str(length))
         connection.putheader('X-Auth-User', owner)
         connection.putheader('X-Song-Maker', '1')
+        connection.putheader('X-Audio-Downloader-Handoff', '1')
         connection.endheaders()
         for prefix, path in parts:
             connection.send(prefix)

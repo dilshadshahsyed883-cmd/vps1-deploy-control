@@ -10,6 +10,7 @@ import time
 from .store import Store
 from .media import Cancelled, render, validate, audio_duration, digest
 from .drive import Drive, sync_owner, default_settings, archive_eligible
+from PIL import Image, ImageOps
 
 
 def capacity(root, required):
@@ -30,6 +31,20 @@ def cleanup(store, job):
             shutil.rmtree(folder)
     store.update(job['id'], cleaned=True)
     return True
+
+
+def uploader_thumbnail(image: Path, target: Path):
+    """Create a size-bounded 1280x720 JPEG for the uploader without Drive."""
+    with Image.open(image) as source:
+        preview = ImageOps.contain(source.convert('RGB'), (1280, 720))
+    canvas = Image.new('RGB', (1280, 720), (0, 0, 0))
+    canvas.paste(preview, ((1280 - preview.width) // 2,
+                           (720 - preview.height) // 2))
+    for quality in (85, 70, 55):
+        canvas.save(target, format='JPEG', quality=quality, optimize=True)
+        if 0 < target.stat().st_size <= 2 * 1024 * 1024:
+            return
+    raise ValueError('Song Uploader thumbnail exceeds 2 MB')
 
 
 def process(store, job, lane, shutdown=lambda: False, drive_factory=Drive):
@@ -81,8 +96,16 @@ def process(store, job, lane, shutdown=lambda: False, drive_factory=Drive):
                 store.update(job_id, stage='Archiving Inputs', progress=88,
                              archive_status='Moving', valid=True, **result)
                 drive_factory(job['destination'], cancelled).archive_inputs(job, store)
-            store.update(job_id, stage='Ready to Upload', progress=90, lane='',
-                         next_retry_at=None, retry_lane='', valid=True, **result)
+            if job.get('send_to_song_uploader'):
+                thumb = outputs / (Path(job['local_name']).stem + '.jpg')
+                uploader_thumbnail(image, thumb)
+                store.update(job_id, stage='Completed', progress=100, lane='',
+                             next_retry_at=None, retry_lane='', valid=True, **result,
+                             drive_status='Skipped · Song Uploader local output',
+                             uploader_status='Available', error='')
+            else:
+                store.update(job_id, stage='Ready to Upload', progress=90, lane='',
+                             next_retry_at=None, retry_lane='', valid=True, **result)
         else:
             settings = (job.get('destination') or store.record('settings', job['owner'])
                         or store.record('settings', '__default__') or default_settings())
