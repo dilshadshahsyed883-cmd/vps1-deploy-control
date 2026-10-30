@@ -34,6 +34,47 @@ class ShortStudioFolderHandoffTests(unittest.TestCase):
             with self.subTest(path=path.name):
                 compile(path.read_text(encoding="utf-8"), str(path), "exec")
 
+    def test_short_maker_third_settings_tab_keeps_render_on_maker(self):
+        src = MAKER.read_text(encoding="utf-8")
+        tree = ast.parse(src)
+        html = next(
+            n.value.value for n in tree.body
+            if isinstance(n, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == "HTML" for t in n.targets)
+        )
+        maker_button = html.index('id="makerTabBtn"')
+        queue_button = html.index('id="queueTabBtn"')
+        settings_button = html.index('id="settingsTabBtn"')
+        self.assertLess(maker_button, queue_button)
+        self.assertLess(queue_button, settings_button)
+        self.assertIn('role="tablist"', html)
+        form_at = html.index('<form id="form">')
+        maker_at = html.index('<section id="makerPanel">')
+        settings_at = html.index('<section id="settingsPanel"')
+        end_form_at = html.index('</form>', settings_at)
+        queue_at = html.index('<section id="queuePanel"')
+        self.assertLess(form_at, maker_at)
+        self.assertLess(maker_at, settings_at)
+        self.assertLess(settings_at, end_form_at)
+        self.assertLess(end_form_at, queue_at)
+        maker_section = html[maker_at:settings_at]
+        settings_section = html[settings_at:end_form_at]
+        self.assertIn('id="render"', maker_section)
+        self.assertIn('id="bar"', maker_section)
+        self.assertIn('id="status"', maker_section)
+        for control in ('name="base_name"', 'id="shortVpsFolder"',
+                        'id="createShortFolder"', 'id="deleteShortFolder"',
+                        'id="uploadToDrive"', 'id="driveOutputPath"',
+                        'id="verifiedClean"'):
+            with self.subTest(control=control):
+                self.assertIn(control, settings_section)
+                self.assertNotIn(control, maker_section)
+        self.assertNotIn('id="render"', settings_section)
+        self.assertIn("settingsTabBtn.onclick=()=>showShortTab('settings')", html)
+        self.assertIn("panels[key].hidden=!active", html)
+        self.assertIn("['video_duration','image_duration','output_count'", html)
+        self.assertIn("fd.append('short_vps_folder',shortFolderSelect.value)", html)
+
     def test_legacy_maker_submit_does_not_shadow_folder_validator(self):
         # The posted Form name and the folder resolver must not share a local name.
         src = MAKER.read_text(encoding="utf-8")

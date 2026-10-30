@@ -662,7 +662,7 @@ button.secondary{background:#f0efff;color:#4d4fc7}button.danger{background:#fff0
 
 /* VIDEO_STUDIO_UI_UNIFIED_V1 */
 main{max-width:none!important;padding:26px 34px 42px!important}
-main>[data-video-studio-subnav="1"],main>header,main>.sm-tabs,main>#makerPanel,main>#queuePanel{width:100%!important;max-width:1400px!important;margin-left:auto!important;margin-right:auto!important;box-sizing:border-box!important}
+main>[data-video-studio-subnav="1"],main>header,main>.sm-tabs,main>form,main>#queuePanel{width:100%!important;max-width:1400px!important;margin-left:auto!important;margin-right:auto!important;box-sizing:border-box!important}
 main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.sidebar nav a{padding:12px 14px!important;font-weight:600!important}
 .sm-tabs{display:flex!important;gap:5px!important;padding:0!important;background:transparent!important;border:0!important;border-radius:0!important;max-width:none!important;margin-bottom:18px!important}
 .sm-tabs button{flex:0 0 auto!important;background:transparent!important;color:#667085!important;padding:9px 12px!important;border:0!important;border-radius:9px!important;box-shadow:none!important;font-weight:700!important}
@@ -695,9 +695,13 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
 <nav data-video-studio-subnav="1" class="vps1-native-video-tabs vps1-native-short-tabs" aria-label="Short Studio"><a class="active" aria-current="page" href="/short-maker">Short Maker</a><a href="/short-uploader">Short Uploader</a></nav>
 
 <header><h1>Short Maker</h1><p>Every render becomes a queue job. Keep adding new jobs while one job renders.</p></header>
-<div class="sm-tabs"><button id="makerTabBtn" class="active" type="button">Maker</button><button id="queueTabBtn" type="button">Queue <span id="queueTotal"></span></button></div>
-<section id="makerPanel">
+<div class="sm-tabs" role="tablist" aria-label="Short Maker">
+ <button id="makerTabBtn" class="active" type="button" role="tab" aria-controls="makerPanel" aria-selected="true">Maker</button>
+ <button id="queueTabBtn" type="button" role="tab" aria-controls="queuePanel" aria-selected="false">Queue <span id="queueTotal"></span></button>
+ <button id="settingsTabBtn" type="button" role="tab" aria-controls="settingsPanel" aria-selected="false">Settings</button>
+</div>
 <form id="form">
+<section id="makerPanel">
 <div class="grid">
  <div>
   <section class="panel">
@@ -749,6 +753,15 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
   </section>
  </div>
 </div>
+<section class="panel" aria-label="Render controls">
+ <h2>Render</h2>
+ <button id="render" class="render" type="submit">Start Rendering</button>
+ <div class="progress"><span id="bar"></span></div>
+ <div id="status" class="status">Ready.</div>
+ <div id="outputs" class="outputs"></div>
+</section>
+</section>
+<section id="settingsPanel" role="tabpanel" aria-labelledby="settingsTabBtn" hidden>
 <section class="panel">
  <h2>Output</h2>
  <div class="two">
@@ -769,14 +782,9 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
   <div class="field"><label>Drive output folder</label><input id="driveOutputPath" name="drive_output_path" value="gdrive:Short_Maker/Outputs"></div>
   <label class="checkline"><input id="verifiedClean" name="verified_clean" type="checkbox" checked disabled> <b>Drive verified clean</b> — delete this job's local input/output only after every final MP4 matches Drive size + MD5.</label>
  </div>
- <button id="render" class="render" type="submit">Start Rendering</button>
- <div class="progress"><span id="bar"></span></div>
- <div id="status" class="status">Ready.</div>
- <div id="outputs" class="outputs"></div>
 </section>
-
+</section>
 </form>
-</section>
 <section id="queuePanel" hidden>
 <section class="panel">
   <div class="queue-head"><div><h2>Render Queue</h2><div class="hint">One render runs at a time. New jobs wait automatically.</div></div>
@@ -886,10 +894,23 @@ async function poll(id){
  }catch(e){statusEl.textContent='Status check failed; retrying...';setTimeout(()=>poll(id),2500);}
 }
 
-const makerPanel=document.getElementById('makerPanel'),queuePanel=document.getElementById('queuePanel'),makerTabBtn=document.getElementById('makerTabBtn'),queueTabBtn=document.getElementById('queueTabBtn');
+const makerPanel=document.getElementById('makerPanel'),queuePanel=document.getElementById('queuePanel'),settingsPanel=document.getElementById('settingsPanel');
+const makerTabBtn=document.getElementById('makerTabBtn'),queueTabBtn=document.getElementById('queueTabBtn'),settingsTabBtn=document.getElementById('settingsTabBtn');
 let queueItems=[],queuePage=1;const queuePageSize=20;
-function showShortTab(name){const q=name==='queue';makerPanel.hidden=q;queuePanel.hidden=!q;makerTabBtn.classList.toggle('active',!q);queueTabBtn.classList.toggle('active',q);if(q)loadQueue();}
-makerTabBtn.onclick=()=>showShortTab('maker');queueTabBtn.onclick=()=>showShortTab('queue');document.getElementById('newJobBtn').onclick=()=>showShortTab('maker');
+function showShortTab(name){
+ const panels={maker:makerPanel,queue:queuePanel,settings:settingsPanel};
+ const buttons={maker:makerTabBtn,queue:queueTabBtn,settings:settingsTabBtn};
+ for(const key of Object.keys(panels)){
+  const active=key===name;panels[key].hidden=!active;
+  buttons[key].classList.toggle('active',active);
+  buttons[key].setAttribute('aria-selected',String(active));
+ }
+ if(name==='queue')loadQueue();
+}
+makerTabBtn.onclick=()=>showShortTab('maker');
+queueTabBtn.onclick=()=>showShortTab('queue');
+settingsTabBtn.onclick=()=>showShortTab('settings');
+document.getElementById('newJobBtn').onclick=()=>showShortTab('maker');
 function escQ(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function renderQueue(){
  const pages=Math.max(1,Math.ceil(queueItems.length/queuePageSize));if(queuePage>pages)queuePage=pages;

@@ -107,10 +107,16 @@ def browser_test():
                     field=page.locator('main input:not([type=checkbox]):not([type=radio])').first
                     assert field.bounding_box()['height']>=44
                 if path=='/short-maker/':
+                    # Output preferences now live in the third Settings tab.
                     field=page.locator('input[name="base_name"]')
                     if field.count():
+                        page.locator('#settingsTabBtn').click()
+                        assert field.is_visible()
                         field.fill('retained-draft.mp4')
-                        rail.locator('a[aria-current="page"]').click()
+                        page.locator('#makerTabBtn').click()
+                        assert not field.is_visible()
+                        assert page.locator('#render').is_visible()
+                        page.locator('#settingsTabBtn').click()
                         assert field.input_value()=='retained-draft.mp4'
                 if width==390:
                     qa=ROOT.parent/'qa';qa.mkdir(exist_ok=True)
