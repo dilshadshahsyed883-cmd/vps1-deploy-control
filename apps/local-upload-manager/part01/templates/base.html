@@ -34,7 +34,7 @@ label { display: block !important; margin-bottom: var(--sb-spacing-sm) !importan
 </style>
 {% if embedded_view %}
 <link rel="stylesheet" href="/static/vps1_native_site_shell.css?v=20261020-upload-studio-v1&song=20261029">
-<script src="/static/vps1_native_site_shell.js?v=20261020-upload-studio-v1&song=20261029" data-workspace="{{ 'short-uploader' if engine_instance == 'shortstudio' else ('song-uploader' if engine_instance == 'song' else 'uploader') }}" defer></script>
+<script src="/static/vps1_native_site_shell.js?v=20261020-upload-studio-v1&song=20261029" {% if engine_instance == 'shortstudio' %}data-workspace="short-uploader"{% else %}data-workspace="{{ 'song-uploader' if engine_instance == 'song' else 'uploader' }}"{% endif %} defer></script>
 {% endif %}
 </head>
 <body class="{% if embedded_view %}lum-embedded{% endif %}">
