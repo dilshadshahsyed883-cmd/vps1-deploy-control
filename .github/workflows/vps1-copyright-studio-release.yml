@@ -45,17 +45,48 @@ jobs:
           actual="$(ssh-keygen -lf "$scratch/public" -E sha256 | awk '{print $2}')"
           test "$actual" = 'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
           printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
-          # Ordered: isolated uploader ready first, existing Video Merger only at
-          # an idle checkpoint, Scene web navigation only after both are healthy.
-          for app in copyright-uploader video-merger scene-builder; do
-            echo "COPYRIGHT_STUDIO_INSTALL_START=$app"
+          # The pinned root helper's allowlist intentionally remains unchanged.
+          # local-upload-manager is the approved SSH lane; exact commit intent
+          # dispatches to the NEW isolated copyright-uploader service only.
+          # Shared LUM/Song/Short services and queues must never restart.
+          remote() {
+            local operation="$1" target="$2"
             timeout 2100s ssh -T -p 22 -i "$scratch/identity" \
               -o UserKnownHostsFile="$scratch/known_hosts" \
               -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
               -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=20 \
               -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
               vps1deploy@100.87.55.92 \
-              "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA $app"
+              "sudo -n /usr/local/sbin/vps1-production-deploy $operation $SOURCE_SHA $target"
+          }
+          completed=()
+          on_failure() {
+            local original_exit="$?"
+            trap - ERR
+            echo "COPYRIGHT_STUDIO_GUARDED_FAILURE=ROLLBACK_STARTED"
+            for ((idx=${#completed[@]}-1; idx>=0; idx--)); do
+              local restored="${completed[$idx]}"
+              local target="$restored"
+              if [[ "$restored" == "copyright-uploader" ]]; then target=local-upload-manager; fi
+              echo "COPYRIGHT_STUDIO_ROLLBACK_START=$restored"
+              if remote rollback "$target"; then
+                echo "COPYRIGHT_STUDIO_ROLLBACK_PASS=$restored"
+              else
+                echo "::error::COPYRIGHT_STUDIO_ROLLBACK_FAILED=$restored; manual recovery required"
+              fi
+            done
+            exit "$original_exit"
+          }
+          trap on_failure ERR
+          # Ordered: isolated uploader first, Video Merger only when idle,
+          # navigation-only Scene web release last. No automatic uploads.
+          for app in copyright-uploader video-merger scene-builder; do
+            target="$app"
+            if [[ "$app" == "copyright-uploader" ]]; then target=local-upload-manager; fi
+            echo "COPYRIGHT_STUDIO_INSTALL_START=$app"
+            remote install "$target"
+            completed+=("$app")
             echo "COPYRIGHT_STUDIO_INSTALL_PASS=$app"
           done
+          trap - ERR
           echo 'AUTO_SCRIPT=OFFLINE'
