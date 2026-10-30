@@ -323,3 +323,94 @@ body.lum-song-ui [data-ae-song-modes][hidden] {display:none !important;}
 /* Short Uploader source controls must override the shared label display rule. */
 body.lum-song-ui .lum-shell[data-engine-instance="shortstudio"] [data-short-sheet-field][hidden],
 body.lum-song-ui .lum-shell[data-engine-instance="shortstudio"] [data-short-manual-fields][hidden] {display:none !important;}
+
+
+/* SONG_MOBILE_AUTOMATION_CARDS_V1 — scoped to Song Uploader only.
+   Full desktop table remains untouched. All nine fields + actions are readable
+   as a compact 2-column profile card without a sideways-scrolling table. */
+body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-song-status-logs {
+  display:inline-flex;align-items:center;font-size:11px;font-weight:750;
+  min-height:28px;padding:4px 8px;border-radius:8px;
+  color:#5645c9;text-decoration:underline;text-underline-offset:2px;
+}
+@media (max-width:760px) {
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-automation-controls>.lum-card-head {
+    display:flex!important;align-items:center!important;justify-content:space-between!important;
+    gap:8px!important;text-align:left!important;flex-wrap:nowrap!important;margin-bottom:6px!important;
+  }
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-automation-controls>.lum-card-head h2 {
+    margin:0!important;font-size:16px!important;
+  }
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-bulk-profile-controls {
+    display:flex!important;flex-wrap:nowrap!important;align-items:center!important;
+    gap:7px!important;min-width:0!important;max-width:100%!important;
+    overflow-x:auto!important;overflow-y:hidden!important;
+    overscroll-behavior-x:contain;scroll-snap-type:x proximity;
+    margin:7px 0 11px!important;padding:2px 1px 7px!important;
+  }
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-bulk-profile-controls>button,
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-bulk-profile-controls>form {
+    flex:0 0 auto!important;margin:0!important;scroll-snap-align:start;
+  }
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-bulk-profile-controls .lum-button {
+    min-height:36px!important;padding:7px 11px!important;font-size:11px!important;
+    line-height:1.2!important;white-space:nowrap!important;width:auto!important;
+  }
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-automation-profiles-wrap {
+    max-height:none!important;overflow-x:hidden!important;overflow-y:visible!important;
+    max-width:100%!important;border:0!important;
+  }
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-automation-profiles {
+    display:block!important;min-width:0!important;width:100%!important;
+    max-width:100%!important;border:0!important;
+  }
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-automation-profiles thead {
+    position:absolute!important;clip-path:inset(50%)!important;
+    height:1px!important;width:1px!important;overflow:hidden!important;
+    white-space:nowrap!important;
+  }
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-automation-profiles tbody {
+    display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:9px!important;
+  }
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-automation-profiles tbody>tr:not(.lum-ae-empty-row) {
+    display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;
+    gap:9px 12px!important;align-items:start;
+    width:100%!important;min-width:0!important;box-sizing:border-box!important;
+    border:1px solid var(--song-border,#e4e7ec)!important;
+    border-radius:11px!important;padding:11px!important;background:#fff!important;
+  }
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-automation-profiles tbody>tr:not(.lum-ae-empty-row)>td {
+    display:block!important;min-width:0!important;width:auto!important;
+    padding:0!important;border:0!important;white-space:normal!important;
+    overflow-wrap:anywhere!important;font-size:12px!important;line-height:1.45!important;
+    background:transparent!important;box-sizing:border-box!important;
+  }
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-automation-profiles td[data-mobile-label]::before {
+    content:attr(data-mobile-label);display:block;font-size:10px;font-weight:750;
+    color:var(--song-muted,#667085);text-transform:uppercase;
+    letter-spacing:.025em;margin-bottom:3px;line-height:1.3;
+  }
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-automation-profiles td:nth-child(3) {
+    grid-column:1 / -1;grid-row:1;font-size:15px!important;font-weight:750!important;
+  }
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-automation-profiles td:nth-child(1){grid-column:1;grid-row:2}
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-automation-profiles td:nth-child(2){grid-column:2;grid-row:2}
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-automation-profiles td:nth-child(4){grid-column:1/-1;grid-row:3}
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-automation-profiles td:nth-child(5){grid-column:1;grid-row:4}
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-automation-profiles td:nth-child(6){grid-column:2;grid-row:4}
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-automation-profiles td:nth-child(7){grid-column:1/-1;grid-row:5}
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-automation-profiles td:nth-child(8){grid-column:1;grid-row:6}
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-automation-profiles td:nth-child(9){grid-column:2;grid-row:6}
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-automation-profiles .lum-ae-row-actions {
+    min-width:0!important;flex-wrap:wrap!important;white-space:normal!important;gap:5px!important;
+  }
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-automation-profiles .lum-ae-saved-times {
+    display:block!important;max-width:100%!important;white-space:normal!important;
+  }
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-automation-profiles .lum-ae-empty-row {
+    display:block!important;width:100%!important;
+  }
+  body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-ae-automation-profiles .lum-ae-empty-row td {
+    display:block!important;width:100%!important;
+  }
+}
