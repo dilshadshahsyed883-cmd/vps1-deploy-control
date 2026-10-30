@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -20,7 +21,10 @@ class AudioPreferencesTests(unittest.TestCase):
         self.env.start()
         spec = importlib.util.spec_from_file_location("audio_preferences_test", MODULE)
         self.m = importlib.util.module_from_spec(spec)
+        # Dynamic test imports must be registered for Pydantic forward-reference resolution.
+        sys.modules[spec.name] = self.m
         spec.loader.exec_module(self.m)
+        self.m.AudioPreferences.model_rebuild(_types_namespace=vars(self.m))
         self.m.init_storage()
         app = FastAPI()
         app.include_router(self.m.router)
