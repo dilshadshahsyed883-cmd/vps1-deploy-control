@@ -84,7 +84,11 @@ def create_app(store=None):
     @app.get('/song-maker/api/state')
     def state(user=Depends(principal)):
         settings = store.record('settings', user['owner']) or default_settings()
+        exports = store.record('exports', user['owner']) or {
+            'resolution': settings.get('resolution', '1080p'),
+            'fit': settings.get('fit', 'fit')}
         return {'jobs': [public(j) for j in store.jobs(user['owner'])], 'settings': settings,
+                'export': exports, 'sync_access': True,
                 'sync': store.record('sync', user['owner']), 'admin': user['admin'],
                 'queue_paused': store.paused(user['owner'])}
 
@@ -125,19 +129,30 @@ def create_app(store=None):
         store.record('settings', '__default__', {**clean, 'auto_sync': False})
         return {'saved': True}
 
+    @app.post('/song-maker/api/export')
+    async def save_export(request: Request, user=Depends(principal)):
+        # Personal output presets never change credentials or other users' jobs.
+        data = await request.json()
+        resolution, fit = data.get('resolution'), data.get('fit')
+        if resolution not in FORMATS or fit not in {'fit', 'blur'}:
+            raise HTTPException(422, 'Unsupported export settings')
+        store.record('exports', user['owner'], {'resolution': resolution, 'fit': fit})
+        return {'saved': True}
+
     @app.post('/song-maker/api/sync')
     def sync(user=Depends(principal)):
-        if not user['admin']:
-            raise HTTPException(403, 'Administrator required')
-        settings = store.record('settings', user['owner']) or default_settings()
+        # Scene's trusted workspace SSO has already authenticated/authorized this
+        # user. Nonadmins may scan ONLY the fixed approved input/output defaults;
+        # arbitrary remote/folder config and rclone credentials remain admin-only.
+        settings = ((store.record('settings', user['owner']) or default_settings())
+                    if user['admin'] else default_settings())
         settings['sync_requested'] = True
         store.record('settings', user['owner'], settings)
         return {'queued': True}
 
     @app.post('/song-maker/api/pairs/select')
     async def select_pair(request: Request, user=Depends(principal)):
-        if not user['admin']:
-            raise HTTPException(403, 'Administrator required')
+        # Resolve conflicts strictly from this user's own saved sync snapshot.
         data = await request.json()
         snapshot = store.record('sync', user['owner'])
         matches = [p for p in snapshot.get('pairs', []) if p['key'] == data.get('key')]
@@ -148,12 +163,19 @@ def create_app(store=None):
         audio = [x for x in group['audio'] if x.get('ID') == data.get('audio_id')]
         if len(images) != 1 or len(audio) != 1:
             raise HTTPException(409, 'Select exactly one image and one audio')
-        job = enqueue_pair(store, user['owner'], store.record('settings', user['owner']), images[0], audio[0])
+        settings = store.record('settings', user['owner']) or default_settings()
+        export = store.record('exports', user['owner'])
+        settings.update({key: export[key] for key in ('resolution', 'fit') if key in export})
+        job = enqueue_pair(store, user['owner'], settings, images[0], audio[0])
         return public(job)
 
     @app.post('/song-maker/api/jobs')
     async def submit(request: Request, image: UploadFile = File(...), audio: UploadFile = File(...),
-                     resolution: str = Form('1080p'), fit: str = Form('fit'), user=Depends(principal)):
+                     resolution: str = Form(''), fit: str = Form(''), user=Depends(principal)):
+        exports = store.record('exports', user['owner'])
+        settings = store.record('settings', user['owner']) or default_settings()
+        resolution = resolution or exports.get('resolution', settings.get('resolution', '1080p'))
+        fit = fit or exports.get('fit', settings.get('fit', 'fit'))
         form = await request.form()
         if len(form.getlist('image')) != 1 or len(form.getlist('audio')) != 1:
             raise HTTPException(422, 'Exactly one image and one audio required')
