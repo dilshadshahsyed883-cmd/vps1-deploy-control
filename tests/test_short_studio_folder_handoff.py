@@ -31,6 +31,12 @@ class ShortStudioFolderHandoffTests(unittest.TestCase):
             with self.subTest(path=path.name):
                 compile(path.read_text(encoding="utf-8"), str(path), "exec")
 
+    def test_legacy_maker_submit_does_not_shadow_folder_validator(self):
+        # The posted Form name and the folder resolver must not share a local name.
+        src = MAKER.read_text(encoding="utf-8")
+        self.assertIn('short_vps_folder_name: str = Form("", alias="short_vps_folder")', src)
+        self.assertIn('short_target = short_vps_folder(short_vps_folder_name)', src)
+
     def test_maker_folder_isolation_and_atomic_copy(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "shorts"
