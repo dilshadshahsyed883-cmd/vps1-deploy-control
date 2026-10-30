@@ -10,6 +10,8 @@ import subprocess
 import tempfile
 import time
 import threading
+import fcntl
+from contextlib import contextmanager
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -1337,3 +1339,258 @@ def download_output(job_id: str, filename: str):
     if not target.is_file():
         raise HTTPException(status_code=404, detail="Output not found")
     return FileResponse(target, media_type="video/mp4", filename=target.name)
+
+
+# SHORT_MAKER_RESUMABLE_UPLOAD_V1
+# The old multipart /api/jobs endpoint remains available for existing clients.
+# New browser jobs are allocated before any bytes are sent; each file is appended
+# in bounded chunks and can resume from its server-recorded offset after refresh.
+UPLOAD_CHUNK_LIMIT = 8 * 1024 * 1024
+UPLOAD_FILE_LIMIT = 1024 * 1024 * 1024
+UPLOAD_TOTAL_LIMIT = 8 * 1024 * 1024 * 1024
+
+
+def upload_manifest_path(job_id: str) -> Path:
+    if not re.fullmatch(r"[0-9a-f]{16}", job_id or ""):
+        raise HTTPException(status_code=404, detail="Upload session not found.")
+    return JOBS_ROOT / job_id / "upload_manifest.json"
+
+
+def upload_manifest(job_id: str, request: Request) -> dict:
+    path = upload_manifest_path(job_id)
+    if not path.is_file() or path.is_symlink():
+        raise HTTPException(status_code=404, detail="Upload session not found.")
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        raise HTTPException(status_code=500, detail="Upload manifest is unreadable.")
+    if manifest.get("owner", "") != request.headers.get("x-auth-user", "").strip():
+        raise HTTPException(status_code=403, detail="Upload belongs to another account.")
+    return manifest
+
+
+@contextmanager
+def upload_session_lock(job_id: str):
+    # Interprocess flock protects against double finalize or concurrent chunks.
+    lock_path = upload_manifest_path(job_id).parent / ".upload.lock"
+    if lock_path.parent.is_symlink():
+        raise HTTPException(status_code=400, detail="Unsafe upload folder.")
+    with lock_path.open("a+b") as file:
+        fcntl.flock(file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(file.fileno(), fcntl.LOCK_UN)
+
+
+def upload_target(job_id: str, kind: str, index: int, entry: dict) -> Path:
+    if kind not in ("images", "audio") or index < 0:
+        raise HTTPException(status_code=400, detail="Invalid upload file.")
+    prefix = f"{index + 1:05d}" if kind == "images" else f"{index + 1:04d}"
+    return JOBS_ROOT / job_id / "input" / kind / f"{prefix}_{safe_name(entry['name'])}"
+
+
+def upload_snapshot(job_id: str, manifest: dict) -> dict:
+    result = {"images": [], "audio": []}
+    received = total = 0
+    for kind in ("images", "audio"):
+        for index, entry in enumerate(manifest["files"][kind]):
+            path = upload_target(job_id, kind, index, entry)
+            size = int(entry["size"])
+            final_size = path.stat().st_size if path.is_file() and not path.is_symlink() else 0
+            partial = path.with_name(path.name + ".part")
+            part_size = partial.stat().st_size if partial.is_file() and not partial.is_symlink() else 0
+            offset = size if final_size == size else min(size, part_size)
+            result[kind].append({"index": index, "size": size, "uploaded": offset, "name": entry["name"]})
+            received += offset
+            total += size
+    return {"files": result, "uploaded_bytes": received, "total_bytes": total,
+            "upload_progress": round(100 * received / total, 1) if total else 100}
+
+
+def upload_config(payload: dict) -> dict:
+    try:
+        duration = float(payload.get("video_duration", 16))
+        img_duration = float(payload.get("image_duration", 3))
+        count = int(payload.get("output_count", 1))
+        fps = int(payload.get("fps", 30))
+        crf = int(payload.get("crf", 20))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid render settings.")
+    if not (0 < duration <= 86400 and 0 < img_duration <= 86400):
+        raise HTTPException(status_code=400, detail="Durations must be positive.")
+    if not 1 <= count <= 999 or fps not in (24, 25, 30, 50, 60) or not 16 <= crf <= 28:
+        raise HTTPException(status_code=400, detail="Invalid output count, FPS or CRF.")
+    folder_name = str(payload.get("short_vps_folder") or SHORT_VPS_DEFAULT)
+    short_vps_folder_names()
+    try:
+        if not short_vps_folder(folder_name).is_dir():
+            raise ValueError("Selected VPS output folder no longer exists.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    to_drive = payload.get("upload_to_drive") is True
+    to_uploader = payload.get("available_to_short_uploader") is True
+    if to_drive == to_uploader:
+        raise HTTPException(status_code=400, detail="Select exactly one output destination.")
+    try:
+        drive_output = normalize_drive_path(str(payload.get("drive_output_path") or DEFAULT_DRIVE_OUTPUT)) if to_drive else DEFAULT_DRIVE_OUTPUT
+        drive_paths = parse_drive_folder_inputs(
+            str(payload.get("drive_input_path") or ""),
+            str(payload.get("drive_input_paths_json") or "")
+        ) if payload.get("input_mode") == "drive" else []
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    mode = "drive" if payload.get("input_mode") == "drive" else "upload"
+    return {
+        "video_duration": duration, "image_duration": img_duration,
+        "output_count": count,
+        "fps": fps, "crf": crf,
+        "order": payload.get("order") if payload.get("order") in ("random", "filename") else "random",
+        "fit": payload.get("fit") if payload.get("fit") in ("fill_crop", "black", "blur") else "fill_crop",
+        "motion": payload.get("motion") if payload.get("motion") in ("random", "zoom_in", "zoom_out", "pan_lr", "pan_rl", "none") else "random",
+        "base_name": safe_name(str(payload.get("base_name") or "short_video.mp4")),
+        "input_mode": mode, "drive_input_path": drive_paths[0] if drive_paths else "",
+        "drive_input_paths": drive_paths,
+        "upload_to_drive": to_drive, "available_to_short_uploader": to_uploader,
+        "drive_output_path": drive_output, "verified_clean": to_drive,
+        "short_vps_folder": folder_name,
+    }
+
+
+@app.post("/api/upload-sessions")
+async def begin_resumable_upload(request: Request):
+    try:
+        payload = await request.json()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid upload request.")
+    if not isinstance(payload, dict) or not isinstance(payload.get("files"), dict):
+        raise HTTPException(status_code=400, detail="Missing upload manifest.")
+    if not isinstance(payload.get("config"), dict):
+        raise HTTPException(status_code=400, detail="Missing render settings.")
+    cfg = upload_config(payload["config"])
+    file_groups = payload["files"]
+    manifest_files = {}
+    grand_total = 0
+    for kind in ("images", "audio"):
+        group = file_groups.get(kind, [])
+        if not isinstance(group, list) or len(group) > 5000:
+            raise HTTPException(status_code=400, detail="Too many files.")
+        clean_files = []
+        for entry in group:
+            if not isinstance(entry, dict):
+                raise HTTPException(status_code=400, detail="Invalid file metadata.")
+            name = safe_name(str(entry.get("name") or ""))
+            try:
+                size = int(entry.get("size"))
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400, detail="Invalid file size.")
+            if size < 1 or size > UPLOAD_FILE_LIMIT:
+                raise HTTPException(status_code=400, detail="File size outside supported range.")
+            if kind == "images" and not is_image(Path(name)):
+                raise HTTPException(status_code=400, detail="Unsupported image: " + name)
+            grand_total += size
+            clean_files.append({"name": name, "size": size})
+        manifest_files[kind] = clean_files
+    if grand_total > UPLOAD_TOTAL_LIMIT:
+        raise HTTPException(status_code=413, detail="Total upload exceeds 8 GiB.")
+    if cfg["input_mode"] == "upload" and not manifest_files["images"]:
+        raise HTTPException(status_code=400, detail="Select at least one image.")
+    if cfg["input_mode"] == "drive" and manifest_files["images"]:
+        raise HTTPException(status_code=400, detail="Drive input cannot include PC images.")
+    job_id = uuid.uuid4().hex[:16]
+    root = JOBS_ROOT / job_id
+    for kind in ("images", "audio"):
+        (root / "input" / kind).mkdir(parents=True, exist_ok=True)
+    manifest = {"owner": request.headers.get("x-auth-user", "").strip(),
+                "config": cfg, "files": manifest_files, "created_at": utc_now()}
+    upload_manifest_path(job_id).write_text(json.dumps(manifest), encoding="utf-8")
+    set_state(job_id, job_id=job_id, status="uploading", progress=0, upload_progress=0,
+              created_at=utc_now(), message="Uploading PC files (resumable)",
+              outputs=[], config=cfg, delivery_status="waiting_upload",
+              drive_verified=False, local_cleaned=False)
+    return {"job_id": job_id, "status": "uploading"}
+
+
+@app.get("/api/upload-sessions/{job_id}")
+def get_resumable_upload(job_id: str, request: Request):
+    manifest = upload_manifest(job_id, request)
+    state = get_state(job_id)
+    snapshot = upload_snapshot(job_id, manifest)
+    return {"job_id": job_id, "status": state.get("status"), **snapshot}
+
+
+@app.put("/api/upload-sessions/{job_id}/files/{kind}/{index}")
+async def append_resumable_chunk(job_id: str, kind: str, index: int, request: Request):
+    manifest = upload_manifest(job_id, request)
+    if kind not in ("images", "audio") or not 0 <= index < len(manifest["files"][kind]):
+        raise HTTPException(status_code=404, detail="Upload file not found.")
+    try:
+        offset = int(request.headers.get("x-upload-offset", "-1"))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid chunk offset.")
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > UPLOAD_CHUNK_LIMIT:
+            raise HTTPException(status_code=413, detail="Upload chunk exceeds 8 MiB.")
+    if not body:
+        raise HTTPException(status_code=400, detail="Empty chunk.")
+    with upload_session_lock(job_id):
+        if get_state(job_id).get("status") != "uploading":
+            raise HTTPException(status_code=409, detail="Upload is already finalized.")
+        entry = manifest["files"][kind][index]
+        target = upload_target(job_id, kind, index, entry)
+        partial = target.with_name(target.name + ".part")
+        size = int(entry["size"])
+        if target.exists():
+            if target.stat().st_size == size:
+                return {"uploaded": size, "complete": True}
+            raise HTTPException(status_code=409, detail="Uploaded file size mismatch.")
+        current = partial.stat().st_size if partial.exists() else 0
+        if offset != current or current + len(body) > size:
+            raise HTTPException(status_code=409, detail="Chunk offset mismatch; refresh status.")
+        with partial.open("ab") as dst:
+            dst.write(body)
+            dst.flush()
+            os.fsync(dst.fileno())
+        current += len(body)
+        if current == size:
+            os.replace(partial, target)
+        snapshot = upload_snapshot(job_id, manifest)
+        set_state(job_id, progress=snapshot["upload_progress"],
+                  upload_progress=snapshot["upload_progress"],
+                  message=f"Uploading PC files · {snapshot['upload_progress']}%")
+        return {"uploaded": current, "complete": current == size,
+                "upload_progress": snapshot["upload_progress"]}
+
+
+@app.post("/api/upload-sessions/{job_id}/finalize")
+def finalize_resumable_upload(job_id: str, request: Request):
+    manifest = upload_manifest(job_id, request)
+    with upload_session_lock(job_id):
+        state = get_state(job_id)
+        if state.get("status") != "uploading":
+            # Idempotent: refreshes and retries never submit a second render.
+            return {"job_id": job_id, "status": state.get("status")}
+        snapshot = upload_snapshot(job_id, manifest)
+        if snapshot["uploaded_bytes"] != snapshot["total_bytes"]:
+            raise HTTPException(status_code=409, detail="Upload incomplete; resume remaining files.")
+        cfg = dict(manifest["config"])
+        cfg["images"] = [str(upload_target(job_id, "images", i, entry))
+                         for i, entry in enumerate(manifest["files"]["images"])]
+        cfg["audio"] = [str(upload_target(job_id, "audio", i, entry))
+                        for i, entry in enumerate(manifest["files"]["audio"])]
+        if any(not Path(p).is_file() for p in cfg["images"] + cfg["audio"]):
+            raise HTTPException(status_code=409, detail="Some uploaded files are missing.")
+        try:
+            names = reserve_short_output_names(cfg["short_vps_folder"], cfg["output_count"])
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            raise HTTPException(status_code=400, detail="Output reservation failed: " + str(exc))
+        cfg["output_names"] = names
+        cfg["batch_tag"] = names[0].rsplit("_", 1)[-1].removesuffix(".mp4")
+        set_state(job_id, status="queued", progress=0, upload_progress=100,
+                  message="Uploaded · queued for VPS rendering",
+                  delivery_status="waiting_render" if cfg["upload_to_drive"] else "short_uploader",
+                  config={k: v for k, v in cfg.items() if k not in ("images", "audio")})
+        executor.submit(render_job, job_id, cfg)
+        return {"job_id": job_id, "status": "queued"}
