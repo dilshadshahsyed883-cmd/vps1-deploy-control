@@ -223,8 +223,12 @@ def install(revision):
     source_html=(REPO/'apps'/app/template).read_text(encoding='utf-8')
     patched=overlay_failed_import_retry_ui(live_template.read_text(encoding='utf-8'),source_html)
     if 'VIDEO_MERGER_TWO_COLUMN_QUEUE_V2' in source_html:
-        baseline=run(['git','show',revision+'^:apps/video-merger/part01/templates/index.html'],
-                     cwd=REPO,quiet=True)
+        # The immutable deployment checkout is shallow and has no revision^.
+        # Use the audited pre-Queue panel anchor stored in this exact Git SHA.
+        baseline_path=REPO/'production/video_merger_pre_queue_baseline.txt'
+        require(baseline_path.is_file() and not baseline_path.is_symlink(),
+                'reviewed pre-Queue UI baseline unavailable')
+        baseline=baseline_path.read_text(encoding='utf-8')
         patched=overlay_queue_layout_ui(patched,source_html,baseline)
     live_template.write_text(patched,encoding='utf-8')
     manifest=json.loads((target/'_production_manifest.json').read_text())
