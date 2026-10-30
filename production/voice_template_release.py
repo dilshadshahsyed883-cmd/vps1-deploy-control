@@ -480,6 +480,63 @@ def audio_browser_route_overlay(original: bytes, source: bytes) -> bytes:
     return original
 
 
+# SONG_AUDIO_DESKTOP_DOWNLOAD_V1: isolated, allowlisted authenticated page link.
+SONG_AUDIO_DESKTOP_URL = b"https://github.com/dilshadshahsyed883-cmd/Rajudesktop/releases/download/song-audio-downloader-run-3/SongAudioDownloader.exe"
+SONG_AUDIO_DESKTOP_STYLE = b'<style id="song-audio-desktop-download-20261030">'
+SONG_AUDIO_DESKTOP_OPEN = b'    <!-- SONG_AUDIO_DESKTOP_DOWNLOAD_V1 -->'
+SONG_AUDIO_DESKTOP_CLOSE = b'    <!-- /SONG_AUDIO_DESKTOP_DOWNLOAD_V1 -->'
+SONG_AUDIO_DESKTOP_BADGE = '    <span class="vsa-badge" id="vsaReady">Checking downloader…</span>'.encode("utf-8")
+
+
+def song_audio_desktop_download_overlay(original: bytes, source: bytes) -> bytes:
+    """Copy reviewed download markup and scoped style; leave the live Voice engines untouched."""
+    require(source.count(SONG_AUDIO_DESKTOP_OPEN) == 1 and
+            source.count(SONG_AUDIO_DESKTOP_CLOSE) == 1 and
+            source.count(SONG_AUDIO_DESKTOP_URL) == 1,
+            "Song Audio desktop link source is not approved")
+    a = source.index(SONG_AUDIO_DESKTOP_OPEN)
+    b = source.index(SONG_AUDIO_DESKTOP_CLOSE, a) + len(SONG_AUDIO_DESKTOP_CLOSE)
+    block = source[a:b]
+    require(block.count(b'id="vsaDesktopAppDownload"') == 1 and
+            block.count(SONG_AUDIO_DESKTOP_BADGE.strip()) == 1 and
+            b'rel="noopener noreferrer"' in block and
+            b'target="_blank"' in block and
+            b'<script' not in block and b'onclick=' not in block,
+            "Song Audio desktop link markup changed")
+    require(source.count(SONG_AUDIO_DESKTOP_STYLE) == 1,
+            "desktop download style missing or duplicated")
+    a = source.index(SONG_AUDIO_DESKTOP_STYLE)
+    b = source.index(b'</style>', a) + len(b'</style>')
+    css = source[a:b]
+    require(b'<script' not in css and b'url(' not in css and b'@import' not in css,
+            "desktop download CSS cannot import remote resources")
+    if SONG_AUDIO_DESKTOP_OPEN in original:
+        require(original.count(SONG_AUDIO_DESKTOP_OPEN) == 1 and
+                original.count(SONG_AUDIO_DESKTOP_CLOSE) == 1,
+                "multiple live desktop download blocks")
+        a = original.index(SONG_AUDIO_DESKTOP_OPEN)
+        b = original.index(SONG_AUDIO_DESKTOP_CLOSE, a) + len(SONG_AUDIO_DESKTOP_CLOSE)
+        original = original[:a] + block + original[b:]
+    else:
+        require(original.count(SONG_AUDIO_DESKTOP_BADGE) == 1,
+                "original downloader readiness indicator missing")
+        original = original.replace(SONG_AUDIO_DESKTOP_BADGE, block, 1)
+    if SONG_AUDIO_DESKTOP_STYLE in original:
+        require(original.count(SONG_AUDIO_DESKTOP_STYLE) == 1,
+                "multiple live desktop download style blocks")
+        a = original.index(SONG_AUDIO_DESKTOP_STYLE)
+        b = original.index(b'</style>', a) + len(b'</style>')
+        original = original[:a] + css + original[b:]
+    else:
+        anchor = b'<style id="audio-downloader-v1-css">'
+        require(original.count(anchor) == 1, "existing Audio Downloader CSS anchor missing")
+        original = original.replace(anchor, css + b'\n\n' + anchor, 1)
+    require(original.count(SONG_AUDIO_DESKTOP_URL) == 1 and
+            original.count(b'id="vsaDesktopAppDownload"') == 1,
+            "desktop download URL or button duplicated")
+    return original
+
+
 VOICE_WEB = Path("part01/vps1_omnivoice_app.py")
 WEB_CACHE_OLD = b"def studio(request:Request): return templates.TemplateResponse(request, \"voice_studio.html\", {})"
 WEB_CACHE_NEW = b"def studio(request:Request):\n    response = templates.TemplateResponse(request, \"voice_studio.html\", {})\n    response.headers[\"Cache-Control\"] = \"private, no-store, max-age=0, must-revalidate\"\n    response.headers[\"Pragma\"] = \"no-cache\"\n    response.headers[\"X-Voice-Queue-UI\"] = \"VSQ-20261020-01\"\n    return response"
@@ -579,6 +636,9 @@ def verify_runtime() -> None:
         require(RESPONSIVE_ID in body and NEW_ASSETS in body and NEW_LIMITS in body and
                 OLD_LIMITS not in body and b'id="vsEngineOmni"' in body,
                 "Voice web UI template guard is not live")
+    require(body.count(SONG_AUDIO_DESKTOP_URL) == 1 and
+            body.count(b'id="vsaDesktopAppDownload"') == 1,
+            "Song Audio desktop link missing in local page")
     verify_edge_audio_markup(body)
     verify_omni_kokoro_header(body)
     require(VOICE_UI_PARITY_ID in body and
@@ -600,6 +660,9 @@ def verify_runtime() -> None:
             and RESPONSIVE_ID in html and NEW_LIMITS in html and OLD_LIMITS not in html,
             "authenticated public Voice page template guard not updated")
     full_html = read_full_authenticated_voice_html(cookie)
+    require(full_html.count(SONG_AUDIO_DESKTOP_URL) == 1 and
+            full_html.count(b'id="vsaDesktopAppDownload"') == 1,
+            "Song Audio desktop link missing on authenticated public page")
     verify_edge_audio_markup(full_html)
     verify_omni_kokoro_header(full_html)
     require(VOICE_UI_PARITY_ID in full_html and
@@ -685,6 +748,7 @@ def install(revision: str) -> None:
     patched_html = voice_edge_audio_overlay(patched_html, source_html)
     patched_html = queue_route_overlay(patched_html, source_html)
     patched_html = audio_browser_route_overlay(patched_html, source_html)
+    patched_html = song_audio_desktop_download_overlay(patched_html, source_html)
     source_entry = REPO / "apps/voice-studio" / VOICE_WEB
     active_entry = previous / VOICE_WEB
     require(source_entry.is_file() and not source_entry.is_symlink()
