@@ -97,7 +97,8 @@ def api_reference(source, root, config):
                 ydl.extract_info('https://www.youtube.com/watch?v=' + VIDEO, download=True)
         return receipt(root / (VIDEO + '.mp3'), m.deps()['ffmpeg'])
     except Exception as exc:
-        return {'result': m.download_failure(exc).code}
+        return {'result': m.download_failure(exc).code, 'exception': type(exc).__name__,
+                'reason': m._safe_proxy_error(str(exc))}
 
 
 def main(source, baseline=None):
