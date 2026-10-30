@@ -32,7 +32,7 @@ else:
 os.environ.setdefault("YOUTUBE_UPLOAD_MANAGER_DATA_DIR", str(CORE_DATA_ROOT))
 
 DEFAULT_SETTINGS = {
-    "engine_enabled": "0" if os.getenv("LUM_ENGINE_INSTANCE", "engine1") in {"engine2", "shorts", "song"} else "1",
+    "engine_enabled": "0" if os.getenv("LUM_ENGINE_INSTANCE", "engine1") in {"engine2", "shorts", "song", "shortstudio"} else "1",
     "pause_after_current": "0",
     "delete_staged_after_verified": "1",
     "remote_verification_enabled": "1",
