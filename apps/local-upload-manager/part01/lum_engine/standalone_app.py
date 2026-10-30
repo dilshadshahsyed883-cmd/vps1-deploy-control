@@ -84,6 +84,7 @@ from .auto_engine_v6 import (
     queue_preflight as v6_queue_preflight, save_profile_from_form as v6_save_profile_from_form,
     target_channels as v6_target_channels, parse_schedule_times as v6_parse_schedule_times,
     sync_channel_profile as v6_sync_channel_profile, resume_channel_profile as v6_resume_channel_profile,
+    shortstudio_list_folders as v6_shortstudio_list_folders,
 )
 
 app = FastAPI(title="Short Uploader" if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio" else "Auto Uploader", version=BUILD, docs_url=None, redoc_url=None)
@@ -410,6 +411,7 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
     )
     auto_v6 = v6_profile_context(db, v6_store, int(auto_profile_id or 0)) if selected == "auto_engine" and selected_auto_mode == "engine1" else {}
     if selected == "auto_engine" and auto_v6:
+        auto_v6["short_folders"] = v6_shortstudio_list_folders() if engine_instance == "shortstudio" else []
         # LUM_SCHEDULER_CONTROL_LIVE_V1: runtime-only presentation state.
         # This does not mutate scheduler_armed or profile schedules.
         from datetime import datetime, timedelta
