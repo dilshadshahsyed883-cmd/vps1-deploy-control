@@ -443,3 +443,26 @@ body.lum-embedded .lum-primary-workspaces + .lum-tabs-shell{margin-top:0}
 .lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-compact-selector select{width:100%;max-width:380px;min-width:0;min-height:37px;padding:7px 11px;font-size:13px}
 .lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-compact-selector>small{display:block;margin-top:4px;font-size:11px;line-height:1.45;color:var(--lum-muted,#64748b)}
 @media(max-width:760px){.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-compact-selector,.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-compact-selector select{max-width:100%}}
+
+/* Short Uploader group profiles: two controls per row on desktop, one on mobile. */
+.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-profile-grid{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;column-gap:18px;row-gap:12px;align-items:start}
+.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-profile-grid>.lum-field{width:100%;max-width:none;margin:0}
+.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-profile-grid>.lum-field>input,.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-profile-grid>.lum-field>select{width:100%;max-width:none}
+.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-profile-grid>.lum-switch{min-height:62px;padding:10px 12px;border:1px solid var(--lum-line);border-radius:9px;background:var(--lum-soft);margin:0;align-self:stretch}
+.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-profile-grid>.lum-short-compact-selector{max-width:none}
+.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-profile-grid .lum-short-schedule-slots{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+@media(max-width:760px){.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-profile-grid{grid-template-columns:minmax(0,1fr)!important}.lum-shell[data-engine-instance="shortstudio"] #lum-ae-profile-form .lum-short-profile-grid .lum-short-schedule-slots{grid-template-columns:minmax(0,1fr)}}
+
+/* Short Uploader: runtime status sits beside Automation / Profiles / Queue / Records. */
+.lum-shell[data-engine-instance="shortstudio"] .lum-short-engine-tabbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 10px;position:sticky;top:54px;z-index:55;background:var(--lum-bg,#f6f8fc)}
+.lum-shell[data-engine-instance="shortstudio"] .lum-short-engine-tabbar>.lum-ae-tabs-primary{position:static!important;top:auto!important;flex:0 1 auto;margin:0!important;min-width:0}
+.lum-shell[data-engine-instance="shortstudio"] .lum-short-engine-status{display:flex;flex:0 0 auto;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;padding:4px 0}
+.lum-shell[data-engine-instance="shortstudio"] .lum-short-engine-status .lum-health{font-size:10px;padding:6px 9px;white-space:nowrap}
+@media(max-width:760px){.lum-shell[data-engine-instance="shortstudio"] .lum-short-engine-tabbar{top:52px;gap:5px}.lum-shell[data-engine-instance="shortstudio"] .lum-short-engine-tabbar>.lum-ae-tabs-primary{flex:1 1 100%;width:100%!important}.lum-shell[data-engine-instance="shortstudio"] .lum-short-engine-status{justify-content:flex-start;flex:1 1 100%;padding:2px 4px 6px}}
+
+/* Short Studio Sheets Sync: compact help, no separate update card. */
+.lum-shell[data-engine-instance="shortstudio"] .lum-sheet-format-help{margin:0 0 10px;padding:7px 10px;font-size:11px}
+.lum-shell[data-engine-instance="shortstudio"] .lum-sheet-format-help summary{cursor:pointer;font-weight:700}
+.lum-shell[data-engine-instance="shortstudio"] .lum-short-sheet-header-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+.lum-shell[data-engine-instance="shortstudio"] .lum-short-sheet-header-actions form{margin:0}
+@media(max-width:760px){.lum-shell[data-engine-instance="shortstudio"] .lum-short-sheet-header-actions{width:100%;justify-content:flex-start}.lum-shell[data-engine-instance="shortstudio"] .lum-short-sheet-header-actions form{flex:1 1 auto}.lum-shell[data-engine-instance="shortstudio"] .lum-short-sheet-header-actions button{width:100%}}
