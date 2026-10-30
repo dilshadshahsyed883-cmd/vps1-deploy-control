@@ -62,11 +62,12 @@ class DriveUploadSchedulingTests(unittest.TestCase):
         with self.m.db() as con:
             columns = {r[1] for r in con.execute("PRAGMA table_info(jobs)")}
             tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        self.assertTrue({"next_retry_at", "upload_retry_count"}.issubset(columns))
+        self.assertTrue({"next_retry_at", "upload_retry_count", "thumbnail_upload_after"}.issubset(columns))
         self.assertIn("audio_upload_pacing", tables)
         with patch.object(self.m, "deps", return_value={"ready": True, "upload_ready": True}):
             response = self.m.status()
         self.assertEqual(response["upload_gap_seconds"], 60)
+        self.assertEqual(response["thumbnail_gap_seconds"], 30)
         self.assertEqual(response["upload_retry_seconds"], 180)
 
     def test_failed_upload_is_retried_after_three_minutes_without_redownloading(self):
@@ -151,7 +152,8 @@ class DriveUploadSchedulingTests(unittest.TestCase):
             self.fail("Unexpected command: " + repr(args))
         state = {"upload_ready": True, "rclone": "/fake/rclone"}
         with patch.object(self.m, "deps", return_value=state), \
-             patch.object(self.m.subprocess, "run", side_effect=subprocess_run):
+             patch.object(self.m.subprocess, "run", side_effect=subprocess_run), \
+             patch.object(self.m, "_wait_for_thumbnail_upload") as delay:
             with self.assertRaisesRegex(RuntimeError, "automatic retry"):
                 self.m.resume_upload(self.job())
             self.m._schedule_upload_retry(self.jid, self.m.DriveUploadFailure("RATE_LIMITED"))
@@ -165,6 +167,7 @@ class DriveUploadSchedulingTests(unittest.TestCase):
                             (self.m.utc_after(-1), self.jid))
             claimed = self.m._claim()
             self.m.resume_upload(claimed)
+        self.assertEqual(delay.call_count, 2)
         self.assertEqual(self.job()["status"], "delivered")
         self.assertEqual(self.job()["upload_retry_count"], 1)
         self.assertIsNone(self.job()["next_retry_at"])
@@ -233,6 +236,64 @@ class DriveUploadSchedulingTests(unittest.TestCase):
             self.assertEqual(self.m._drive_copy_failure_code(raw), expected)
             self.assertNotIn('secret', self.m._drive_copy_failure_code(raw).lower())
 
+    def test_thumbnail_waits_30_seconds_after_audio_and_schedule_survives_restart(self):
+        self.create_job(status='downloaded', thumbnail=True)
+        thumbnail = self.local_dir / (VIDEO + '.jpg')
+        thumbnail.write_bytes(JPG)
+        state = {'upload_ready': True, 'rclone': '/fake/rclone', 'progress_streaming': False}
+        uploads = []
+        waits = []
+        def transfer(args, **kwargs):
+            self.assertIn('copyto', args)
+            uploads.append(args[args.index('copyto') + 2])
+            return subprocess.CompletedProcess(args, 0, '', '')
+        def advance(seconds):
+            waits.append(seconds)
+            self.assertEqual(len(uploads), 1, 'Photo started before audio-only transfer finished')
+            with self.m.db() as con:
+                due = con.execute('SELECT thumbnail_upload_after FROM jobs WHERE job_id=?',
+                                  (self.jid,)).fetchone()[0]
+                self.assertIsNotNone(due)
+                con.execute('UPDATE jobs SET thumbnail_upload_after=? WHERE job_id=?',
+                            (self.m.utc_after(-1), self.jid))
+        with patch.object(self.m.subprocess, 'run', side_effect=transfer), \
+             patch.object(self.m.time, 'sleep', side_effect=advance), \
+             patch.object(self.m, 'verified_drive_public_link',
+                          side_effect=AssertionError('No verification requests')):
+            self.m.upload_downloaded(self.job(), self.local, thumbnail, state)
+        self.assertEqual(len(uploads), 2)
+        self.assertEqual([x.split('.')[-1] for x in uploads], ['mp3', 'jpg'])
+        self.assertTrue(waits, 'Thumbnail transfer must wait for the durable 30s gap')
+        self.assertGreater(waits[0], 0)
+        self.assertIsNone(self.job()['thumbnail_upload_after'])
+
+    def test_persisted_thumbnail_schedule_blocks_resume_after_restart(self):
+        self.create_job(status='upload_retry', thumbnail=True)
+        thumbnail = self.local_dir / (VIDEO + '.jpg')
+        thumbnail.write_bytes(JPG)
+        remote = 'gdrive:Song Studio/Audio downloader/' + VIDEO + '.mp3'
+        with self.m.db() as con:
+            con.execute('UPDATE jobs SET drive_path=?,thumbnail_upload_after=? WHERE job_id=?',
+                        (remote, self.m.utc_after(30), self.jid))
+        self.m.init_storage()  # Simulate a process restarting and reopening SQLite.
+        uploads = []
+        def transfer(args, **kwargs):
+            uploads.append(args[args.index('copyto') + 2])
+            return subprocess.CompletedProcess(args, 0, '', '')
+        def advance(seconds):
+            self.assertFalse(uploads, 'Thumbnail uploaded before its wait elapsed')
+            with self.m.db() as con:
+                con.execute('UPDATE jobs SET thumbnail_upload_after=? WHERE job_id=?',
+                            (self.m.utc_after(-1), self.jid))
+        state = {'upload_ready': True, 'rclone': '/fake/rclone', 'progress_streaming': False}
+        with patch.object(self.m.subprocess, 'run', side_effect=transfer), \
+             patch.object(self.m.time, 'sleep', side_effect=advance):
+            self.m.upload_downloaded(self.job(), self.local, thumbnail, state)
+        self.assertEqual(len(uploads), 1)
+        self.assertTrue(uploads[0].endswith('.jpg'))
+        self.assertTrue(self.local.exists())
+
+
     def test_two_upload_operations_only_and_no_remote_probes(self):
         self.create_job(status='downloaded', thumbnail=True)
         thumbnail = self.local_dir / (VIDEO + ".jpg")
@@ -244,9 +305,11 @@ class DriveUploadSchedulingTests(unittest.TestCase):
             return subprocess.CompletedProcess(args, 0, '', '')
         state = {'upload_ready': True, 'rclone': '/fake/rclone', 'progress_streaming': False}
         with patch.object(self.m.subprocess, 'run', side_effect=upload), \
+             patch.object(self.m, '_wait_for_thumbnail_upload') as wait, \
              patch.object(self.m, 'verified_drive_public_link',
                           side_effect=AssertionError('Remote verification must not run')):
             self.m.upload_downloaded(self.job(), self.local, thumbnail, state)
+        wait.assert_called_once_with(self.jid)
         self.assertEqual(len(commands), 2)
         self.assertEqual([c[c.index('copyto') + 2].split('.')[-1] for c in commands], ['mp3', 'jpg'])
         row = self.job()
