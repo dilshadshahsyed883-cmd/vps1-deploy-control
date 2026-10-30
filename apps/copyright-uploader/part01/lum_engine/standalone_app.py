@@ -778,14 +778,14 @@ async def add_video(
             final = THUMBNAIL_ROOT / f"{project_id}{Path(thumb_path).suffix.lower()}"
             Path(thumb_path).replace(final)
             store.update(project_id, thumbnail_path=str(final))
-        next_tab = "upload" if user_mode(user) == "simple" else "queue"
+        next_tab = "queue"
         return redirect(f"/app?tab={next_tab}", message=f"Project #{project_id} added to VPS queue")
     except Exception as exc:
         if owned_staging:
             Path(owned_staging).unlink(missing_ok=True)
         if thumb_path:
             Path(thumb_path).unlink(missing_ok=True)
-        next_tab = "upload" if user_mode(user) == "simple" else "add_video"
+        next_tab = "add_video"
         return redirect(f"/app?tab={next_tab}", error=str(exc))
 
 
