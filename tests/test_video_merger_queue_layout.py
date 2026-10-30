@@ -53,6 +53,7 @@ class VideoMergerLayoutTests(unittest.TestCase):
         self.assertIn('showTab(\'queue\')', page)
         self.assertIn("async function cancelJob(id)", page)
         self.assertIn("async function retryJob(id)", page)
+        self.assertIn('/api/jobs/${encodeURIComponent(j.id)}/view', page)
         self.assertIn("'/api/jobs/'+id+'/cancel'", page)
         self.assertIn("'/api/jobs/'+id+'/retry'", page)
         self.assertIn("activeStatus(s){return !['waiting','complete','failed','cancelled']", page)
@@ -102,6 +103,13 @@ class VideoMergerQueueRuntimeTests(unittest.TestCase):
             "folder": "", "upload_to_drive": False,
             "add_to_copyright_folder": False,
         }, owner=owner)[0]
+
+    def test_authenticated_local_video_view_uses_existing_output_guard(self):
+        source = APP.read_text(encoding="utf-8")
+        self.assertIn("([A-Za-z0-9]+)/(download|view)", source)
+        self.assertIn('if m.group(2)=="view" else "attachment"', source)
+        self.assertIn("str(job.get('local_path') or '')", source)
+        self.assertIn("job.get('owner_username')", source)
 
     def test_cancel_waiting_persists_and_unpins_library(self):
         jid = self.queue()
