@@ -1237,7 +1237,7 @@ class Handler(BaseHTTPRequestHandler):
                         '<a class="vps1-server-admin" href="/admin">Admin</a>\\n'+marker,1)
                 return self.send_bytes(200,page.encode('utf-8'),'text/html; charset=utf-8')
             if p==PREFIX+'/health': return self.send_json(200,{'ok':True,'app':APP_NAME,'release':RELEASE_ID,'paused':setting('paused','0')=='1'})
-            m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/download',p)
+            m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/(download|view)',p)
             if m:
                 job=get_job(m.group(1))
                 owner=(self.headers.get('X-Auth-User') or '').strip()
@@ -1250,7 +1250,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json(404,{'ok':False,'error':'Verified output unavailable'})
                 self.send_response(200)
                 self.send_header('Content-Type','video/mp4')
-                self.send_header('Content-Disposition',"attachment; filename*=UTF-8''"+urllib.parse.quote(job['filename']))
+                self.send_header('Content-Disposition',("inline" if m.group(2)=="view" else "attachment")+"; filename*=UTF-8''"+urllib.parse.quote(job['filename']))
                 self.send_header('Content-Length',str(path.stat().st_size))
                 self.send_header('X-Content-Type-Options','nosniff')
                 self.end_headers()
