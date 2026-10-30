@@ -248,7 +248,7 @@ class ShortAutomationGroupSummaryTests(unittest.TestCase):
         html=self.render(profiles=[dict(id=7,category_name='Shorts',group_name='Aina Asif',
             group_channel_count=12,enabled=1,v6_video_count=8,schedule_times='09:00,14:30',schedule_enabled=1)])
         for text in ('<th>Group Name</th>','<th>Channels</th>','<th>Schedule (PKT)</th>',
-                     'Aina Asif','data-short-group-channel-count="7">12</td>','09:00, 14:30'):
+                     'Aina Asif','data-short-group-channel-count="7">12</td>','09:00 AM','02:30 PM'):
             self.assertIn(text,html)
         for text in ('<th>Channel ID</th>','<th>Thumbnails</th>','<th>Auto Sync</th>','Legacy'):
             self.assertNotIn(text,html)
@@ -261,12 +261,15 @@ class ShortAutomationGroupSummaryTests(unittest.TestCase):
         self.assertIn('Start All Profiles',toolbar)
         self.assertIn('Sync All Channels',toolbar)
         self.assertLess(toolbar.index('Start All Profiles'),toolbar.index('Sync All Channels'))
-        self.assertIn('auto_profile_id=7',html)
+        self.assertNotIn('auto_profile_id=7',html)
+        self.assertNotIn('>Pause</button>',html)
+        self.assertNotIn('>Edit</a>',html)
+        self.assertEqual(html.count('>Start</button>'),1)
     def test_zero_count_and_disabled_schedule_are_not_misrepresented(self):
         html=self.render(profiles=[dict(id=9,category_name='Empty group',group_name='Empty',
             group_channel_count=0,enabled=1,schedule_times='18:00',schedule_enabled=0)])
         self.assertIn('data-short-group-channel-count="9">0</td>',html)
-        self.assertIn('18:00',html);self.assertIn('Schedule OFF',html)
+        self.assertIn('06:00 PM',html);self.assertNotIn('Schedule OFF',html)
         self.assertNotIn('15 min',html)
     def test_legacy_single_profile_stays_readable_without_fake_group_schedule(self):
         html=self.render(profiles=[dict(id=1,category_name='Older profile',channel_db_id=4,

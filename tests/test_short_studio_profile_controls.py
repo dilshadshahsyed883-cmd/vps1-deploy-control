@@ -115,18 +115,21 @@ class ShortProfileControlTests(unittest.TestCase):
         self.assertIn("display:inline-flex!important",css.split('form[data-short-profile-action]',1)[1][:140])
         self.assertIn('form[hidden]{display:none!important}',css)
         self.assertIn('data-short-profile-action="start"',html)
-        self.assertIn('data-short-profile-action="pause"',html)
+        self.assertIn('>Pause Profile</button>',html)
         self.assertIn('action="{{ base_path }}/actions/auto-v6/start-profile"',html)
 
-    def test_inline_four_time_editor_is_directly_on_automation_table(self):
+    def test_automation_only_shows_saved_times_and_profile_owns_schedule_controls(self):
         html=TEMPLATE.read_text()
         js=JAVASCRIPT.read_text()
-        self.assertIn('data-short-inline-schedule',html)
-        self.assertIn('name="schedule_times" data-short-schedule-csv',html)
-        self.assertIn('data-short-schedule-enabled="schedule_enabled"',html)
-        self.assertIn('name="schedule_enabled" value="1"',html)
-        self.assertIn('data-short-count="{{ pr.daily_upload_count or 4 }}"',html)
-        self.assertIn('>Save Times</button>',html)
+        automation=html.split('class="lum-table lum-ae-automation-profiles"',1)[1].split('</table>',1)[0]
+        self.assertIn('class="lum-ae-saved-times"',automation)
+        self.assertNotIn('data-short-inline-schedule',automation)
+        self.assertNotIn('>Save Times</button>',automation)
+        self.assertNotIn('data-short-profile-action="pause"',automation)
+        self.assertIn('data-short-profile-action="start"',automation)
+        self.assertIn('data-short-schedule-slots data-short-profile-schedule',html)
+        self.assertIn('data-ae-open-schedules>Manage Schedules</button>',html)
+        self.assertIn('>Pause Profile</button>',html)
         self.assertIn("data-short-schedule-slots",js)
         self.assertIn('"/actions/auto-v6/profile-schedule/save"',ROUTES.read_text())
 
@@ -147,9 +150,9 @@ class ShortProfileControlTests(unittest.TestCase):
     def test_short_static_asset_cache_isolated_and_live_checked(self):
         base=(PART/"templates/base.html").read_text()
         installer=INSTALLER.read_text()
-        self.assertIn("&amp;short=20261030-actions-times-v2",base)
+        self.assertIn("&amp;short=20261030-compact-automation-v3",base)
         self.assertIn("css_status,_,css_body=https_get('/short-uploader/static/local_upload_manager.css',cookie)",installer)
-        self.assertIn("data-short-inline-schedule",installer)
+        self.assertIn("class=\"lum-ae-saved-times\"",installer)
         self.assertIn('data-short-profile-action="start"',installer)
 
     def test_guarded_release_copies_all_changed_short_uploader_files(self):
