@@ -41,6 +41,7 @@ VIDEO_ID = re.compile(r'^[a-zA-Z0-9_-]{11}$')
 JOB_ID = re.compile(r'^ADJ-[A-F0-9]{16}$')
 _worker: threading.Thread | None = None
 UPLOAD_GAP_SECONDS = 60
+THUMBNAIL_GAP_SECONDS = 30
 UPLOAD_RETRY_SECONDS = 180
 
 
@@ -92,7 +93,8 @@ def init_storage() -> None:
                                ('upload_retry_count', 'INTEGER NOT NULL DEFAULT 0'),
                                ('download_percent', 'INTEGER NOT NULL DEFAULT 0'),
                                ('upload_percent', 'INTEGER NOT NULL DEFAULT 0'),
-                               ('progress_stage', 'TEXT')):
+                               ('progress_stage', 'TEXT'),
+                               ('thumbnail_upload_after', 'TEXT')):
             if name not in columns:
                 con.execute(f'ALTER TABLE jobs ADD COLUMN {name} {sql_type}')
         con.execute('''CREATE TABLE IF NOT EXISTS audio_upload_pacing (
@@ -220,7 +222,8 @@ def status():
             'proxy': proxy_runtime_status(), 'youtube_session': cookie_status(),
             'retry_policy': 'only confirmed Drive API rate limits retry every 180s; other failures require manual Retry; 60s between successful audio transfers',
             'upload_policy': 'one copyto per audio/thumbnail; no post-upload Drive probes; local files retained',
-            'upload_gap_seconds': UPLOAD_GAP_SECONDS, 'upload_retry_seconds': UPLOAD_RETRY_SECONDS,
+            'upload_gap_seconds': UPLOAD_GAP_SECONDS, 'thumbnail_gap_seconds': THUMBNAIL_GAP_SECONDS,
+            'upload_retry_seconds': UPLOAD_RETRY_SECONDS,
             'queue': {v['status']: v['n'] for v in q}, 'worker': bool(_worker and _worker.is_alive())}
 
 
@@ -347,7 +350,7 @@ def download_thumbnail(job_id: str):
 def _update(jid: str, new_state: str, **kwargs):
     columns = ['status=?', 'updated_at=?']
     values: list = [new_state, utc()]
-    for key in ('title', 'local_file', 'local_thumbnail', 'drive_path', 'drive_url', 'thumbnail_drive_path', 'thumbnail_drive_url', 'error', 'started_at', 'completed_at', 'next_retry_at', 'upload_retry_count', 'download_percent', 'upload_percent', 'progress_stage'):
+    for key in ('title', 'local_file', 'local_thumbnail', 'drive_path', 'drive_url', 'thumbnail_drive_path', 'thumbnail_drive_url', 'error', 'started_at', 'completed_at', 'next_retry_at', 'upload_retry_count', 'download_percent', 'upload_percent', 'progress_stage', 'thumbnail_upload_after'):
         if key in kwargs:
             columns.append(key + '=?')
             values.append(kwargs[key])
@@ -519,6 +522,26 @@ def _record_audio_upload() -> None:
         con.execute("""INSERT INTO audio_upload_pacing(id,next_upload_at) VALUES(1,?)
             ON CONFLICT(id) DO UPDATE SET next_upload_at=excluded.next_upload_at""",
             (utc_after(UPLOAD_GAP_SECONDS),))
+
+
+
+def _wait_for_thumbnail_upload(jid: str) -> None:
+    """Persisted 30s gap after this job's successful audio transfer.
+
+    Waiting is local only: it performs no Google Drive API requests.
+    Read the durable timestamp each loop so restart/retry cannot bypass it.
+    """
+    while True:
+        with db() as con:
+            row = con.execute('SELECT thumbnail_upload_after FROM jobs WHERE job_id=?',
+                              (jid,)).fetchone()
+        if not row or not row['thumbnail_upload_after']:
+            raise RuntimeError('Thumbnail upload schedule missing; preserve local media')
+        remaining = (datetime.fromisoformat(row['thumbnail_upload_after']) -
+                     datetime.now(timezone.utc)).total_seconds()
+        if remaining <= 0:
+            return
+        time.sleep(min(3, remaining))
 
 
 def _schedule_upload_retry(jid: str, error: Exception) -> None:
@@ -707,15 +730,26 @@ def upload_downloaded(job: dict, final: Path, thumbnail: Path | None, state: dic
         upload_file(final, remote, job['format'])
         _record_audio_upload()
         public_url = None  # No extra Drive permission/link request.
-        _update(jid, 'uploading', drive_path=remote, drive_url=None)
+        _update(jid, 'uploading', drive_path=remote, drive_url=None,
+                thumbnail_upload_after=utc_after(THUMBNAIL_GAP_SECONDS) if thumbnail else None)
     thumb_remote = base + thumbnail.name if thumbnail else None
     if thumbnail and job.get('thumbnail_drive_path') == thumb_remote:
         thumb_public_url = job.get('thumbnail_drive_url')
     else:
         if thumbnail:
+            # Prior-version partial uploads may have no due timestamp. On first
+            # resume, set a conservative 30s schedule rather than send both at once.
+            with db() as con:
+                pending = con.execute('SELECT thumbnail_upload_after FROM jobs WHERE job_id=?',
+                                      (jid,)).fetchone()
+            if not pending or not pending['thumbnail_upload_after']:
+                _update(jid, 'uploading', thumbnail_upload_after=utc_after(THUMBNAIL_GAP_SECONDS))
+            _update(jid, 'uploading', progress_stage='waiting 30s after audio before thumbnail')
+            _wait_for_thumbnail_upload(jid)
             upload_file(thumbnail, thumb_remote, 'jpg')
             # The receipt is persisted only after a successful copyto command.
-            _update(jid, 'uploading', thumbnail_drive_path=thumb_remote, thumbnail_drive_url=None)
+            _update(jid, 'uploading', thumbnail_drive_path=thumb_remote, thumbnail_drive_url=None,
+                    thumbnail_upload_after=None)
         thumb_public_url = None
     _update(jid, 'delivered', drive_path=remote, drive_url=public_url,
             thumbnail_drive_path=thumb_remote, thumbnail_drive_url=thumb_public_url,
