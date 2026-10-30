@@ -86,8 +86,8 @@ class SongMakerHandoffTests(unittest.TestCase):
         def forbidden_drive(*_a, **_kw):
             raise AssertionError('No Drive call permitted on local output path')
 
-        with patch('songmaker.worker.render', side_effect=fake_render), \\
-             patch('songmaker.worker.validate', side_effect=fake_validate):
+        with (patch('songmaker.worker.render', side_effect=fake_render),
+             patch('songmaker.worker.validate', side_effect=fake_validate)):
             process(self.store, job, 'render', drive_factory=forbidden_drive)
 
         finished = self.store.get(job['id'])
