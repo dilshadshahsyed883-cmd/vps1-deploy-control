@@ -4900,7 +4900,6 @@ def auto_caption_live(request: Request):
 @app.get("/video-studio/{studio_app}", response_class=HTMLResponse)
 def video_studio_embedded_app(request: Request, studio_app: str):
     allowed = {
-        "short-maker": ("Short Maker", "/short-maker/"),
         "video-merger": ("Video Merger", "/video-merger/"),
     }
     if studio_app not in allowed:
