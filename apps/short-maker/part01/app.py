@@ -1631,6 +1631,20 @@ def upload_config(payload: dict) -> dict:
     }
 
 
+@contextmanager
+def upload_create_lock():
+    """Hold one short interprocess lock while allocating an upload session."""
+    lock = JOBS_ROOT / ".resumable-create.lock"
+    if lock.is_symlink():
+        raise HTTPException(status_code=400, detail="Unsafe upload session lock.")
+    with lock.open("a+b") as file:
+        fcntl.flock(file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(file.fileno(), fcntl.LOCK_UN)
+
+
 @app.post("/api/upload-sessions")
 async def begin_resumable_upload(request: Request):
     try:
@@ -1671,18 +1685,47 @@ async def begin_resumable_upload(request: Request):
         raise HTTPException(status_code=400, detail="Select at least one image.")
     if cfg["input_mode"] == "drive" and manifest_files["images"]:
         raise HTTPException(status_code=400, detail="Drive input cannot include PC images.")
-    job_id = uuid.uuid4().hex[:16]
-    root = JOBS_ROOT / job_id
-    for kind in ("images", "audio"):
-        (root / "input" / kind).mkdir(parents=True, exist_ok=True)
-    manifest = {"owner": request.headers.get("x-auth-user", "").strip(),
-                "config": cfg, "files": manifest_files, "created_at": utc_now()}
-    upload_manifest_path(job_id).write_text(json.dumps(manifest), encoding="utf-8")
-    set_state(job_id, status="uploading", progress=0, upload_progress=0,
-              created_at=utc_now(), message="Uploading PC files (resumable)",
-              outputs=[], config=cfg, delivery_status="waiting_upload",
-              drive_verified=False, local_cleaned=False)
-    return {"job_id": job_id, "status": "uploading"}
+    request_id = str(payload.get("client_request_id") or "").strip()
+    if request_id and not re.fullmatch(r"[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}", request_id):
+        raise HTTPException(status_code=400, detail="Invalid upload request ID.")
+    owner = request.headers.get("x-auth-user", "").strip()
+    with upload_create_lock():
+        job_id = (hashlib.sha256((owner + ":" + request_id).encode("utf-8")).hexdigest()[:16]
+                  if request_id else uuid.uuid4().hex[:16])
+        root = JOBS_ROOT / job_id
+        manifest_path = upload_manifest_path(job_id)
+        if manifest_path.is_file():
+            try:
+                previous = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                raise HTTPException(status_code=409, detail="Existing upload session is unreadable.")
+            if (not request_id or previous.get("owner") != owner or
+                previous.get("client_request_id") != request_id or
+                previous.get("config") != cfg or previous.get("files") != manifest_files):
+                raise HTTPException(status_code=409, detail="Upload request ID has conflicting contents.")
+            try:
+                current = get_state(job_id)
+            except HTTPException as exc:
+                if exc.status_code != 404:
+                    raise
+                set_state(job_id, status="uploading", progress=0, upload_progress=0,
+                          created_at=previous.get("created_at") or utc_now(),
+                          message="Resuming PC file upload", outputs=[], config=cfg,
+                          delivery_status="waiting_upload", drive_verified=False, local_cleaned=False)
+                current = get_state(job_id)
+            return {"job_id": job_id, "status": current.get("status"), "resumed": True}
+        if root.exists() and any(root.iterdir()):
+            raise HTTPException(status_code=409, detail="Session collision; existing data preserved.")
+        for kind in ("images", "audio"):
+            (root / "input" / kind).mkdir(parents=True, exist_ok=True)
+        manifest = {"owner": owner, "client_request_id": request_id,
+                    "config": cfg, "files": manifest_files, "created_at": utc_now()}
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        set_state(job_id, status="uploading", progress=0, upload_progress=0,
+                  created_at=manifest["created_at"], message="Uploading PC files (resumable)",
+                  outputs=[], config=cfg, delivery_status="waiting_upload",
+                  drive_verified=False, local_cleaned=False)
+        return {"job_id": job_id, "status": "uploading", "resumed": False}
 
 
 @app.get("/api/upload-sessions/{job_id}")
