@@ -252,7 +252,15 @@ class ShortAutomationGroupSummaryTests(unittest.TestCase):
             self.assertIn(text,html)
         for text in ('<th>Channel ID</th>','<th>Thumbnails</th>','<th>Auto Sync</th>','Legacy'):
             self.assertNotIn(text,html)
-        self.assertIn('data-ae-sync-scan',html)
+        self.assertNotIn('data-ae-sync-scan',html)
+        self.assertNotIn('Sync Channel</button>',html)
+        self.assertEqual(html.count('>Sync All Channels</button>'),1)
+        self.assertEqual(html.count('/actions/auto-v6/sync-all'),1)
+        toolbar=html.split('lum-ae-bulk-profile-controls',1)[1].split('</div>',1)[0]
+        self.assertIn('Generate Queue Now',toolbar)
+        self.assertIn('Start All Profiles',toolbar)
+        self.assertIn('Sync All Channels',toolbar)
+        self.assertLess(toolbar.index('Start All Profiles'),toolbar.index('Sync All Channels'))
         self.assertIn('auto_profile_id=7',html)
     def test_zero_count_and_disabled_schedule_are_not_misrepresented(self):
         html=self.render(profiles=[dict(id=9,category_name='Empty group',group_name='Empty',
@@ -275,6 +283,8 @@ class ShortAutomationGroupSummaryTests(unittest.TestCase):
                 for text in ('<th>Channel ID</th>','<th>Thumbnails</th>','<th>Auto Sync</th>','UC123','15 min'):
                     self.assertIn(text,html)
                 self.assertNotIn('data-short-group-summary',html)
+                self.assertIn('data-ae-sync-scan',html)
+                self.assertIn('Sync Channel</button>',html)
     def test_empty_table_and_escaped_group_names(self):
         self.assertIn('colspan="9"',self.render())
         html=self.render(profiles=[dict(id=1,enabled=1,category_name='Test',group_name='<script>bad</script>')])
