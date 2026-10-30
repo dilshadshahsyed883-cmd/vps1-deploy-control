@@ -717,7 +717,7 @@
     </section>
     {% if engine_instance == 'song' %}
     <section class="lum-card" aria-label="Song Maker local outputs">
-      <div class="lum-card-head"><div><h2>Song Maker · Local Outputs</h2><p>Choose a channel profile and import the validated MP4 + thumbnail locally. Video-ID Sheet matching and scheduling run through the existing Auto Engine. No Google Drive media upload or automatic YouTube publishing.</p></div></div>
+      <div class="lum-card-head"><div><h2>Song Maker · Local Outputs</h2><p>Choose a channel profile and import the validated MP4 + thumbnail locally. Saved website metadata or existing Sheet matching and scheduling run through the Auto Engine. No Google Drive media upload or automatic YouTube publishing.</p></div></div>
       <div id="songMakerLocalOutputList" role="status">Loading available videos…</div>
       <script>
       (function(){
@@ -753,7 +753,7 @@
                     const reply=await fetch('/song-uploader/actions/auto-v6/songmaker/import',{method:'POST',credentials:'same-origin',body});
                     const result=await reply.json();
                     if(!reply.ok||!result.ok)throw Error(result.error||'Local import could not be completed');
-                    status.textContent=result.status==='already_imported'?'Already imported to this channel':'Local import ready · Run Sync Channel for Sheet matching and schedule';
+                    status.textContent=result.status==='already_imported'?'Already imported to this channel':'Local import ready · Run Sync Channel to validate matching media and metadata';
                   }catch(error){status.textContent=error.message;button.disabled=false;}
                 };
                 row.append(document.createTextNode(' · Channel: '),picker,button,status);
@@ -814,7 +814,7 @@
           <p>Profile #{{ p.id }} is selected. One profile owns one channel, its video folder, thumbnail folder, metadata sub-sheet and auto-sync interval.</p>
           {% else %}
           <h2>Create a new Auto Engine profile</h2>
-          <p>Select one channel, map its Drive folders and metadata sub-sheet, then save and Sync Channel.</p>
+          <p>Select one channel, choose video and metadata sources, then save and Sync Channel.</p>
           {% endif %}
         </div>
         <div class="lum-ae-profile-manager-actions">
@@ -850,7 +850,7 @@
         </div>
         {% else %}
         <div class="lum-ae-profile-new-guide">
-          <strong>New channel profile workflow</strong><span>1. Select channel</span><span>2. Add Drive + Sheet resources</span><span>3. Save and Sync Channel</span>
+          <strong>New channel profile workflow</strong><span>1. Select channel</span><span>2. Choose video and metadata sources</span><span>3. Save and Sync Channel</span>
         </div>
         {% endif %}
       </div>
@@ -1001,19 +1001,49 @@
 
         <section class="lum-card">
           <div class="lum-card-head"><div><h2>Channel Resources</h2><p>Video ID is matched case-insensitively anywhere in the video and thumbnail filenames. Extra filename text is allowed.</p></div></div>
+          {% if engine_instance == 'song' %}
+          {% set song_local = (not p or src.local_songmaker_enabled) %}
+          {% set song_manual = (not p or p.metadata_source == 'manual') %}
+          <div class="lum-grid lum-two">
+            <label class="lum-field"><span>Video Source</span><select name="video_source_mode" id="song-profile-video-source">
+              <option value="drive" {% if not song_local %}selected{% endif %}>Google Drive Folders (Existing)</option>
+              <option value="songmaker" {% if song_local %}selected{% endif %}>Videos from Song Maker (New)</option>
+            </select><small>Completed Song Maker MP4 and original Audio Downloader thumbnail are imported together.</small></label>
+            <label class="lum-field"><span>Metadata Source</span><select name="metadata_source" id="song-profile-metadata-source">
+              <option value="sheet" {% if not song_manual %}selected{% endif %}>Google Sheet Sync (Existing)</option>
+              <option value="manual" {% if song_manual %}selected{% endif %}>Manual Metadata — Save on Website</option>
+            </select><small>Manual Title, Description and Category are saved with the profile.</small></label>
+          </div>
+          {% endif %}
           <div class="lum-grid lum-two">
             {% if engine_instance == 'shortstudio' %}
             <label class="lum-field"><span>Short Maker VPS Folder</span><select name="short_vps_folder" aria-label="Short Maker VPS folder"><option value="">Use Google Drive source instead</option>{% for folder in ae.short_folders or [] %}<option value="{{ folder }}" {% if src.short_folder_name == folder %}selected{% endif %}>{{ folder }}</option>{% endfor %}</select><small>Rendered MP4s appear here automatically. Match their filename to the Sheet Video ID. After verified YouTube upload, the VPS source is deleted safely.</small></label>
             {% endif %}
-            <label class="lum-field"><span>Video Drive Folder URL / ID{% if engine_instance == 'shortstudio' %} (alternative){% endif %}</span><input name="drive_video_folder" {% if engine_instance != 'shortstudio' %}required{% endif %} value="{{ src.drive_video_folder_url or src.drive_video_folder_id or '' }}" placeholder="https://drive.google.com/drive/folders/..."></label>
+            <label class="lum-field" {% if engine_instance == 'song' %}data-song-drive-field {% if song_local %}hidden{% endif %}{% endif %}><span>Video Drive Folder URL / ID{% if engine_instance == 'shortstudio' %} (alternative){% endif %}</span><input name="drive_video_folder" {% if engine_instance != 'shortstudio' and (engine_instance != 'song' or not song_local) %}required{% endif %} value="{{ src.drive_video_folder_url or src.drive_video_folder_id or '' }}" placeholder="https://drive.google.com/drive/folders/..."></label>
             {% if engine_instance not in ['shorts', 'shortstudio'] %}
-            <label class="lum-field"><span>Thumbnail Drive Folder URL / ID (required)</span><input name="drive_thumbnail_folder" required value="{{ src.drive_thumbnail_folder_url or src.drive_thumbnail_folder_id or '' }}" placeholder="https://drive.google.com/drive/folders/..."></label>
+            <label class="lum-field" {% if engine_instance == 'song' %}data-song-drive-field {% if song_local %}hidden{% endif %}{% endif %}><span>Thumbnail Drive Folder URL / ID (required)</span><input name="drive_thumbnail_folder" {% if engine_instance != 'song' or not song_local %}required{% endif %} value="{{ src.drive_thumbnail_folder_url or src.drive_thumbnail_folder_id or '' }}" placeholder="https://drive.google.com/drive/folders/..."></label>
             {% endif %}
-            <label class="lum-field"><span>Metadata Google Sheet URL / ID</span><input name="metadata_sheet_url_or_id" required value="{{ p.metadata_sheet_url_or_id if p else '' }}" placeholder="Google Sheet URL or ID"></label>
-            <label class="lum-field"><span>Metadata Sub-sheet / Tab</span><input name="metadata_sheet_tab" value="{{ p.metadata_sheet_tab if p else '' }}" placeholder="Channel Metadata"></label>
-            <label class="lum-field"><span>Exact GID</span><input name="metadata_sheet_gid" value="{{ p.metadata_sheet_gid if p else '' }}" placeholder="Optional when exact tab name is used"></label>
+            <label class="lum-field" {% if engine_instance == 'song' %}data-song-sheet-field {% if song_manual %}hidden{% endif %}{% endif %}><span>Metadata Google Sheet URL / ID</span><input name="metadata_sheet_url_or_id" {% if engine_instance != 'song' or not song_manual %}required{% endif %} value="{{ p.metadata_sheet_url_or_id if p else '' }}" placeholder="Google Sheet URL or ID"></label>
+            <label class="lum-field" {% if engine_instance == 'song' %}data-song-sheet-field {% if song_manual %}hidden{% endif %}{% endif %}><span>Metadata Sub-sheet / Tab</span><input name="metadata_sheet_tab" value="{{ p.metadata_sheet_tab if p else '' }}" placeholder="Channel Metadata"></label>
+            <label class="lum-field" {% if engine_instance == 'song' %}data-song-sheet-field {% if song_manual %}hidden{% endif %}{% endif %}><span>Exact GID</span><input name="metadata_sheet_gid" value="{{ p.metadata_sheet_gid if p else '' }}" placeholder="Optional when exact tab name is used"></label>
           </div>
-          <div class="lum-note"><strong>Required before queue:</strong> Video ID, title, Upload Enabled, schedule, one matching video{% if engine_instance not in ['shorts', 'shortstudio'] %} and one matching thumbnail{% endif %}. Description and tags may be blank. Duplicate Sheet IDs use the first row.</div>
+          {% if engine_instance == 'song' %}
+          <div data-song-manual-fields {% if not song_manual %}hidden{% endif %}>
+            <div class="lum-grid lum-two">
+              <label class="lum-field"><span>YouTube Video Title</span><input name="manual_title" maxlength="100" value="{{ p.manual_title if p else '' }}" {% if song_manual %}required{% endif %} placeholder="Video title, {video_stem} optional"><small>{video_stem} adds each video's filename/Video ID.</small></label>
+              <label class="lum-field"><span>YouTube Category</span><select name="manual_category_id">
+                {% for cid, label in [('10','Music'),('24','Entertainment'),('22','People & Blogs'),('27','Education'),('17','Sports'),('20','Gaming'),('25','News & Politics'),('26','Howto & Style'),('28','Science & Technology'),('1','Film & Animation'),('23','Comedy')] %}
+                <option value="{{ cid }}" {% if (p.manual_category_id if p else '10') == cid %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select></label>
+              <label class="lum-field" style="grid-column:1/-1"><span>YouTube Video Description</span><textarea name="manual_description" maxlength="5000" rows="5" placeholder="Saved description">{{ p.manual_description if p else '' }}</textarea></label>
+              <label class="lum-field"><span>Upload Date (optional)</span><input type="date" name="manual_upload_date" value="{{ p.manual_upload_date if p else '' }}"></label>
+              <label class="lum-field"><span>Upload Time (optional)</span><input type="time" name="manual_upload_time" value="{{ p.manual_upload_time if p else '' }}"></label>
+            </div>
+            <div class="lum-note">Manual metadata is saved with this channel profile. Both date and time are needed for queue creation; otherwise videos remain UNSCHEDULED. The original matching thumbnail is mandatory. No Sheet sync or Sheet writeback in this mode.</div>
+          </div>
+          {% endif %}
+          <div class="lum-note" data-song-sheet-note {% if engine_instance == 'song' and song_manual %}hidden{% endif %}><strong>Required before queue:</strong> Video ID, title, Upload Enabled, schedule, one matching video{% if engine_instance not in ['shorts', 'shortstudio'] %} and one matching thumbnail{% endif %}. Description and tags may be blank. Duplicate Sheet IDs use the first row.</div>
           <label class="lum-field"><span>Notes</span><textarea name="notes" rows="2">{{ p.notes if p else '' }}</textarea></label>
           {% if p %}<div class="lum-actions"><button type="button" class="lum-button primary" data-ae-sync-scan data-profile-id="{{ p.id }}" data-csrf="{{ csrf }}">Sync Channel</button><div id="lum-ae-preflight-result" class="lum-ae-result"></div></div>{% endif %}
         </section>

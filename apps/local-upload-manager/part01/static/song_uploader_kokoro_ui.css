@@ -170,3 +170,11 @@ body.lum-song-ui :is(a, button, input, select, textarea, summary):focus-visible 
     font-size: 16px !important;
   }
 }
+
+/* Manual metadata/source chooser must hide inactive inputs even with Kokoro field layouts. */
+body.lum-song-ui .lum-shell [data-song-drive-field][hidden],
+body.lum-song-ui .lum-shell [data-song-sheet-field][hidden],
+body.lum-song-ui .lum-shell [data-song-manual-fields][hidden],
+body.lum-song-ui .lum-shell [data-song-sheet-note][hidden] {
+  display: none !important;
+}

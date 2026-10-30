@@ -556,7 +556,7 @@ class V6Store:
                 "drive_thumbnail_folder_id":"","drive_thumbnail_folder_url":"","thumbnail_source_mode":"pc_drive","short_folder_name":""
             }
 
-    def save_source(self, profile_id:int, *, video_folder:str="", thumb_folder:str="", thumb_mode:str="pc_drive", short_folder:str="") -> None:
+    def save_source(self, profile_id:int, *, video_folder:str="", thumb_folder:str="", thumb_mode:str="pc_drive", short_folder:str="", songmaker_enabled:Optional[bool]=None) -> None:
         if short_folder:
             folder = shortstudio_folder_path(short_folder)
             if not folder.is_dir():
@@ -567,18 +567,19 @@ class V6Store:
         with self.connect() as con:
             con.execute("""
             INSERT INTO profile_sources(profile_id,drive_video_folder_id,drive_video_folder_url,
-                drive_thumbnail_folder_id,drive_thumbnail_folder_url,thumbnail_source_mode,short_folder_name,updated_at)
-            VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                drive_thumbnail_folder_id,drive_thumbnail_folder_url,thumbnail_source_mode,short_folder_name,local_songmaker_enabled,updated_at)
+            VALUES(?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
             ON CONFLICT(profile_id) DO UPDATE SET
                 drive_video_folder_id=excluded.drive_video_folder_id,
                 drive_video_folder_url=excluded.drive_video_folder_url,
                 drive_thumbnail_folder_id=excluded.drive_thumbnail_folder_id,
                 drive_thumbnail_folder_url=excluded.drive_thumbnail_folder_url,
                 thumbnail_source_mode=excluded.thumbnail_source_mode,
-                local_songmaker_enabled=0,
+                local_songmaker_enabled=CASE WHEN ? IS NULL THEN profile_sources.local_songmaker_enabled ELSE excluded.local_songmaker_enabled END,
                 short_folder_name=excluded.short_folder_name,
                 updated_at=CURRENT_TIMESTAMP
-            """,(int(profile_id),vf,clean(video_folder),tf,clean(thumb_folder),mode,short_folder))
+            """,(int(profile_id),vf,clean(video_folder),tf,clean(thumb_folder),mode,short_folder,
+                 int(bool(songmaker_enabled)), None if songmaker_enabled is None else int(bool(songmaker_enabled))))
 
     def set_engine(self, running:Optional[bool]=None, pause_after_current:Optional[bool]=None, error:str|None=None) -> None:
         parts=["updated_at=CURRENT_TIMESTAMP"]; params=[]
@@ -1576,7 +1577,27 @@ def _channel_row_value(row: Dict[str, Any], *keys: str) -> str:
     return ""
 
 
-def _channel_fetch_rows(profile: Dict[str, Any]) -> List[Dict[str, str]]:
+def _channel_fetch_rows(profile: Dict[str, Any], videos: Optional[List[Dict[str, Any]]]=None,
+                        binding: Optional[Dict[str, Any]]=None) -> List[Dict[str, str]]:
+    settings=binding or {}
+    if clean(settings.get("metadata_source"))=="manual":
+        title=clean(settings.get("manual_title"))
+        if not title:
+            raise ValueError("Manual metadata title must be saved before syncing.")
+        result=[]
+        for video in (videos or []):
+            key=Path(clean(video.get("filename"))).stem
+            if not key:
+                continue
+            result.append({
+                "video_id":key, "title":title,
+                "description":clean(settings.get("manual_description")),
+                "category_id":clean(settings.get("manual_category_id")) or "10",
+                "upload_date":clean(settings.get("manual_upload_date")),
+                "upload_time":clean(settings.get("manual_upload_time")),
+                "privacy_status":"private", "upload_enabled":"YES", "done":"YES",
+            })
+        return result
     sheet = clean(profile.get("metadata_sheet_url_or_id"))
     tab = clean(profile.get("metadata_sheet_tab"))
     gid = clean(profile.get("metadata_sheet_gid")) or (extract_gid(sheet, fallback="") if sheet else "")
@@ -1695,6 +1716,19 @@ def _channel_init_schema(self: V6Store) -> None:
         source_cols={str(r[1]) for r in con.execute("PRAGMA table_info(profile_sources)").fetchall()}
         if "local_songmaker_enabled" not in source_cols:
             con.execute("ALTER TABLE profile_sources ADD COLUMN local_songmaker_enabled INTEGER NOT NULL DEFAULT 0")
+        # Additive migration: all existing profiles continue using Google Sheets.
+        binding_cols={str(r[1]) for r in con.execute("PRAGMA table_info(channel_profile_bindings)").fetchall()}
+        additions={
+            "metadata_source":"TEXT NOT NULL DEFAULT 'sheet'",
+            "manual_title":"TEXT NOT NULL DEFAULT ''",
+            "manual_description":"TEXT NOT NULL DEFAULT ''",
+            "manual_category_id":"TEXT NOT NULL DEFAULT '10'",
+            "manual_upload_date":"TEXT NOT NULL DEFAULT ''",
+            "manual_upload_time":"TEXT NOT NULL DEFAULT ''",
+        }
+        for column, definition in additions.items():
+            if column not in binding_cols:
+                con.execute(f"ALTER TABLE channel_profile_bindings ADD COLUMN {column} {definition}")
 
 
 def _channel_binding(self: V6Store, profile_id: int) -> Dict[str, Any]:
@@ -1709,7 +1743,9 @@ def _channel_binding_for_channel(self: V6Store, channel_db_id: int) -> Dict[str,
         return dict(row) if row else {}
 
 
-def _channel_save_binding(self: V6Store, profile_id: int, channel_db_id: int, *, timezone_name: str="Asia/Karachi", sync_interval_minutes: int=15) -> None:
+def _channel_save_binding(self: V6Store, profile_id: int, channel_db_id: int, *, timezone_name: str="Asia/Karachi", sync_interval_minutes: int=15,
+                          metadata_source: str="sheet", manual_title: str="", manual_description: str="",
+                          manual_category_id: str="10", manual_upload_date: str="", manual_upload_time: str="") -> None:
     interval = max(1, min(1440, int(sync_interval_minutes or 15)))
     tz_name = clean(timezone_name) or "Asia/Karachi"
     try:
@@ -1729,6 +1765,11 @@ def _channel_save_binding(self: V6Store, profile_id: int, channel_db_id: int, *,
             sync_interval_minutes=excluded.sync_interval_minutes,
             updated_at=CURRENT_TIMESTAMP
         """, (int(profile_id), int(channel_db_id), tz_name, interval))
+        con.execute("""UPDATE channel_profile_bindings SET metadata_source=?,manual_title=?,manual_description=?,
+                       manual_category_id=?,manual_upload_date=?,manual_upload_time=?,updated_at=CURRENT_TIMESTAMP
+                       WHERE profile_id=?""",
+                    (metadata_source,manual_title,manual_description,manual_category_id,
+                     manual_upload_date,manual_upload_time,int(profile_id)))
 
 
 def _channel_set_pause(self: V6Store, profile_id: int, paused: bool, reason: str="") -> None:
@@ -1867,6 +1908,29 @@ def save_profile_from_form(pc_db: Any, store: V6Store, form: Dict[str, Any], pro
                 raise ValueError("Channel cannot be changed after this profile has queue/history jobs. Create a new channel profile instead.")
 
     profile_name=clean(form.get("category_name")) or clean(channel.get("channel_name")) or f"Channel {channel_db_id}"
+    is_song=os.environ.get("LUM_ENGINE_INSTANCE")=="song"
+    video_source=clean(form.get("video_source_mode")) or "drive"
+    if is_song and video_source not in {"drive","songmaker"}:
+        raise ValueError("Select Drive folders or Song Maker videos.")
+    metadata_source=(clean(form.get("metadata_source")) or "sheet") if is_song else "sheet"
+    if metadata_source not in {"sheet","manual"}:
+        raise ValueError("Select Google Sheet or Manual Website metadata.")
+    manual_title=clean(form.get("manual_title"))
+    manual_description=clean(form.get("manual_description"))
+    manual_category_id=clean(form.get("manual_category_id")) or "10"
+    upload_date=clean(form.get("manual_upload_date"))
+    upload_time=clean(form.get("manual_upload_time"))
+    if metadata_source=="manual":
+        if not manual_title or len(manual_title)>100:
+            raise ValueError("Manual title is required and must be at most 100 characters.")
+        if len(manual_description)>5000:
+            raise ValueError("Manual description cannot exceed 5000 characters.")
+        if manual_category_id not in {"1","2","10","15","17","19","20","22","23","24","25","26","27","28","29"}:
+            raise ValueError("Choose a valid YouTube category.")
+        if bool(upload_date)!=bool(upload_time):
+            raise ValueError("Set both manual upload date and time, or leave both blank.")
+        if upload_date:
+            _channel_schedule_at(upload_date,upload_time,clean(form.get("timezone_name")) or "Asia/Karachi")
     data={
         "category_name":profile_name,
         "video_folder":"",
@@ -1896,11 +1960,16 @@ def save_profile_from_form(pc_db: Any, store: V6Store, form: Dict[str, Any], pro
             thumb_folder=clean(form.get("drive_thumbnail_folder")),
             thumb_mode="drive",
             short_folder=clean(form.get("short_vps_folder")) if os.environ.get("LUM_ENGINE_INSTANCE") == "shortstudio" else "",
+            songmaker_enabled=(video_source=="songmaker") if is_song else None,
         )
         store.save_channel_binding(
             pid,channel_db_id,
             timezone_name=clean(form.get("timezone_name")) or "Asia/Karachi",
             sync_interval_minutes=max(1,int(form.get("sync_interval_minutes") or 15)),
+            metadata_source=metadata_source,manual_title=manual_title if metadata_source=="manual" else "",
+            manual_description=manual_description if metadata_source=="manual" else "",
+            manual_category_id=manual_category_id,manual_upload_date=upload_date if metadata_source=="manual" else "",
+            manual_upload_time=upload_time if metadata_source=="manual" else "",
         )
     except Exception:
         if created_new:
@@ -1970,7 +2039,7 @@ def _channel_validate_rows(pc_db: Any, store: V6Store, profile: Dict[str, Any]) 
         store.scan_drive_thumbnails(pid)
     videos=store.drive_videos(pid,True)
     thumbs=store.drive_thumbnails(pid) if thumbnail_required_for_mode() else []
-    rows=_channel_fetch_rows(profile)
+    rows=_channel_fetch_rows(profile,videos,binding)
     timezone_name=clean(binding.get("timezone_name")) or "Asia/Karachi"
     seen_keys=set()
     output=[]
@@ -1980,6 +2049,11 @@ def _channel_validate_rows(pc_db: Any, store: V6Store, profile: Dict[str, Any]) 
             key=_channel_row_value(row,"video_id","id","videoid")
             title=_channel_row_value(row,"title","video_title")
             desc=_channel_row_value(row,"description","desc")
+            if clean(binding.get("metadata_source"))=="manual":
+                video_name=next((clean(v.get("filename")) for v in videos
+                                 if Path(clean(v.get("filename"))).stem.casefold()==key.casefold()), key+".mp4")
+                title=apply_vars(title,video_name,row_no-2,profile,channel)
+                desc=apply_vars(desc,video_name,row_no-2,profile,channel)
             tags=_channel_row_value(row,"tags")
             seo=""
             done_raw=_channel_row_value(row,"done")
@@ -2004,8 +2078,10 @@ def _channel_validate_rows(pc_db: Any, store: V6Store, profile: Dict[str, Any]) 
                     state="DISABLED"
                 elif not source_done:
                     state="WAITING_AUTOSCRIPT"
-                elif not title:
-                    state="ERROR"; error="Missing title."
+                elif not title or len(title)>100:
+                    state="ERROR"; error="Title is empty or exceeds 100 characters."
+                elif len(desc)>5000:
+                    state="ERROR"; error="Description exceeds 5000 characters."
                 elif privacy not in {"private","public","unlisted"}:
                     state="ERROR"; error="Privacy must be private, public, or unlisted."
                 else:
@@ -2045,6 +2121,7 @@ def _channel_validate_rows(pc_db: Any, store: V6Store, profile: Dict[str, Any]) 
             """,(pid,row_no,key,title,desc,tags,seo,"YES" if source_done else "",date_text,time_text,privacy,1 if upload_enabled else 0,
                   source_status,source_url,schedule_at,state,error,vname,tname))
             output.append({"row_number":row_no,"video_key":key,"title":title,"description":desc,"tags":tags,
+                           "category_id":_channel_row_value(row,"category_id","youtube_category") or "22",
                            "seo_keywords":"","source_done":source_done,"privacy_status":privacy,"upload_enabled":upload_enabled,
                            "schedule_at":schedule_at,"state":state,"error_message":error,
                            "video_filename":vname,"thumbnail_filename":tname})
@@ -2129,15 +2206,19 @@ def _channel_queue_valid_rows(pc_db: Any, store: V6Store, profile: Dict[str,Any]
         payload={
             "local_video_path":str(staging_path),"thumbnail_path":str(thumb_path),
             "title":clean(row.get("title")),"description":clean(row.get("description")),"tags":tags,
-            "category_id":"22","privacy_status":clean(row.get("privacy_status")) or "private",
+            "category_id":clean(row.get("category_id")) or "22","privacy_status":clean(row.get("privacy_status")) or "private",
             "publish_at":None,"app_upload_at":schedule_at if initial_status=="SCHEDULED" else None,
             "made_for_kids":0,"playlist_id":"","channel_db_id":int(channel.get("id") or 0),
             "group_name":"Auto Engine","status":initial_status,"auto_engine_profile_id":pid,
             "auto_engine_profile_name":clean(channel.get("channel_name")) or clean(profile.get("category_name")) or "Auto Engine",
             "auto_engine_after_upload_action":"keep",
         }
-        metadata_sheet_url=clean(profile.get("metadata_sheet_url_or_id"))
-        metadata_sheet_gid=clean(profile.get("metadata_sheet_gid")) or (extract_gid(metadata_sheet_url,fallback="") if metadata_sheet_url else "")
+        # Manual metadata never writes back to a historical Sheet, even if the
+        # profile retains that Sheet connection for switching back later.
+        use_manual_metadata=clean(store.channel_binding(pid).get("metadata_source"))=="manual"
+        metadata_sheet_url="" if use_manual_metadata else clean(profile.get("metadata_sheet_url_or_id"))
+        metadata_sheet_gid="" if use_manual_metadata else (clean(profile.get("metadata_sheet_gid")) or
+                             (extract_gid(metadata_sheet_url,fallback="") if metadata_sheet_url else ""))
         try:
             vid=int(pc_db.add_video(payload))
         except DuplicateUploadError:
@@ -2239,7 +2320,12 @@ def profile_context(pc_db: Any, store: V6Store, profile_id:int=0) -> Dict[str,An
             pr.update({"channel_db_id":int(b.get("channel_db_id") or 0),"bound_channel_name":clean(ch.get("channel_name")),
                        "bound_channel_id":clean(ch.get("channel_id")),"timezone_name":clean(b.get("timezone_name")) or "Asia/Karachi",
                        "sync_interval_minutes":int(b.get("sync_interval_minutes") or 15),"channel_paused":int(b.get("paused") or 0),
-                       "channel_pause_reason":clean(b.get("pause_reason")),"last_sync_at":clean(b.get("last_sync_at")),"next_sync_at":clean(b.get("next_sync_at"))})
+                       "channel_pause_reason":clean(b.get("pause_reason")),"last_sync_at":clean(b.get("last_sync_at")),"next_sync_at":clean(b.get("next_sync_at")),
+                       "metadata_source":clean(b.get("metadata_source")) or "sheet",
+                       "manual_title":clean(b.get("manual_title")),"manual_description":clean(b.get("manual_description")),
+                       "manual_category_id":clean(b.get("manual_category_id")) or "10",
+                       "manual_upload_date":clean(b.get("manual_upload_date")),
+                       "manual_upload_time":clean(b.get("manual_upload_time"))})
         profiles.append(pr)
     ctx["profiles"]=profiles
     selected=ctx.get("selected")
