@@ -103,7 +103,7 @@ class SongStudioReleaseTests(unittest.TestCase):
                         'Conflicting Song Studio release selectors'):
             self.assertIn(marker,source)
         self.assertIn('if [[ "$SONG_MAKER_ONLY" == "1" ]]; then\n            apps=(song-maker)', source)
-        self.assertIn('AUDIO_URL_ONLY + SONG_UPLOADER_ONLY + VOICE_UI_ONLY + SONG_MAKER_ONLY > 1',source)
+        self.assertIn('AUDIO_URL_ONLY + SONG_UPLOADER_ONLY + VOICE_UI_ONLY + SONG_MAKER_ONLY + SONG_SETTINGS_FIX_ONLY > 1',source)
         self.assertIn('vps1-production-deploy install $SOURCE_SHA $app',source)
         self.assertNotIn('pull_request_target',source)
         self.assertIn('install_voice(revision)',(root/'production/runtime.py').read_text())
