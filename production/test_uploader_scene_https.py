@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 from production.route_uploader_scene_https import (
-    MARKER, ROUTE, LEGACY_ROUTE, PREVIOUS_ROUTE, APP_EXACT_ROUTE, add_route, retire_legacy_managed_route, verify_outer_shell,
+    MARKER, ANCHOR, ROUTE, LEGACY_ROUTE, PREVIOUS_ROUTE, APP_EXACT_ROUTE, add_route, retire_legacy_managed_route, verify_outer_shell,
 )
 from production.scene_public_https import nginx_https
 
@@ -45,9 +45,7 @@ class UploaderSceneRouteTests(unittest.TestCase):
 
     def test_current_prior_exact_uploader_route_upgrades_without_redirect(self):
         initial = nginx_https()
-        previous = initial.replace(
-            " location / {\\n    proxy_pass http://127.0.0.1:18080;",
-            PREVIOUS_ROUTE + " location / {\\n    proxy_pass http://127.0.0.1:18080;", 1)
+        previous = initial.replace(ANCHOR, PREVIOUS_ROUTE + ANCHOR, 1)
         self.assertNotEqual(initial, previous)
         updated, changed = add_route(previous)
         self.assertTrue(changed)
