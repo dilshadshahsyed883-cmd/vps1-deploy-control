@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 from production.route_uploader_scene_https import (
-    MARKER, ROUTE, LEGACY_ROUTE, add_route, retire_legacy_managed_route, verify_outer_shell,
+    MARKER, ROUTE, LEGACY_ROUTE, PREVIOUS_ROUTE, APP_EXACT_ROUTE, add_route, retire_legacy_managed_route, verify_outer_shell,
 )
 from production.scene_public_https import nginx_https
 
@@ -28,6 +28,31 @@ class UploaderSceneRouteTests(unittest.TestCase):
         self.assertIn("proxy_pass http://127.0.0.1:18080;", exact)
         self.assertNotIn("8015", exact)
         self.assertIn("location / {\n    proxy_pass http://127.0.0.1:18080;", config)
+
+    def test_exact_legacy_auto_engine_url_keeps_original_lum_engine(self):
+        # An exact-match route has priority over prefix and regex locations.
+        # This is the user's bookmarked /local-upload-manager/app?tab=auto_engine&embedded=1.
+        self.assertIn("location = /local-upload-manager/app {", ROUTE)
+        self.assertIn("proxy_pass http://127.0.0.1:8015;", APP_EXACT_ROUTE)
+        self.assertIn("auth_request /_scene_uploader_auth;", APP_EXACT_ROUTE)
+        self.assertIn("proxy_set_header X-Auth-User $scene_lum_user;", APP_EXACT_ROUTE)
+        self.assertNotIn("8018", APP_EXACT_ROUTE)
+        self.assertNotIn("/song-uploader", APP_EXACT_ROUTE)
+        app_source = (ROOT / "apps/local-upload-manager/part01/lum_engine/standalone_app.py").read_text()
+        self.assertIn('@app.get(route("/app"), response_class=HTMLResponse)', app_source)
+        self.assertIn('auto_mode: str = "engine1"', app_source)
+        self.assertIn('selected = tab if tab in allowed else default_tab', app_source)
+
+    def test_current_prior_exact_uploader_route_upgrades_without_redirect(self):
+        initial = nginx_https()
+        previous = initial.replace(
+            " location / {\\n    proxy_pass http://127.0.0.1:18080;",
+            PREVIOUS_ROUTE + " location / {\\n    proxy_pass http://127.0.0.1:18080;", 1)
+        self.assertNotEqual(initial, previous)
+        updated, changed = add_route(previous)
+        self.assertTrue(changed)
+        self.assertIn(APP_EXACT_ROUTE, updated)
+        self.assertEqual(add_route(updated), (updated, False))
 
     def test_identity_from_scene_auth_not_visitor_headers(self):
         for snippet in (
