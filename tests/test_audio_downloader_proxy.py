@@ -385,8 +385,10 @@ class AudioReleaseFenceTests(unittest.TestCase):
             self.assertEqual(output['result'], 'YOUTUBE_PROVIDER_CHALLENGE')
     def test_reference_api_uses_windows_defaults_and_reports_download_error(self):
         import production.audio_downloader_restore_smoke as qa
-        import yt_dlp
+        from types import SimpleNamespace
         from contextlib import contextmanager
+        class DownloadError(RuntimeError):
+            pass
         class Module:
             def init_storage(self): pass
             def _write_proxy_config(self, config): pass
@@ -407,8 +409,8 @@ class AudioReleaseFenceTests(unittest.TestCase):
             def __enter__(self): return self
             def __exit__(self, *args): pass
             def extract_info(self, *args, **kwargs):
-                raise yt_dlp.utils.DownloadError("Sign in to confirm you're not a bot")
-        with tempfile.TemporaryDirectory() as tmp, patch.object(qa, 'load', return_value=Module()), patch.object(yt_dlp, 'YoutubeDL', Downloader):
+                raise DownloadError("Sign in to confirm you're not a bot")
+        with tempfile.TemporaryDirectory() as tmp, patch.object(qa, 'load', return_value=Module()), patch.dict('sys.modules', {'yt_dlp': SimpleNamespace(YoutubeDL=Downloader)}):
             result = qa.api_reference(ROOT, Path(tmp), {'enabled': False})
         self.assertEqual(result['result'], 'YOUTUBE_AUTH_REQUIRED')
         self.assertEqual(result['exception'], 'DownloadError')
