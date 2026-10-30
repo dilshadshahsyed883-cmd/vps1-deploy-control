@@ -47,6 +47,35 @@ def uploader_thumbnail(image: Path, target: Path):
     raise ValueError('Song Uploader thumbnail exceeds 2 MB')
 
 
+def preserve_downloader_thumbnail(image: Path, target: Path):
+    """Use the *identical JPEG bytes* originally downloaded by Audio Downloader.
+
+    Do not resize, re-encode, change compression, or generate a replacement.
+    YouTube's 2 MB thumbnail limit is enforced rather than silently modifying
+    the original. Write atomically so a crash cannot publish a partial JPEG.
+    """
+    if image.suffix.lower() != '.jpg' or not image.is_file():
+        raise ValueError('Original Audio Downloader JPEG thumbnail unavailable')
+    if not 0 < image.stat().st_size <= 2 * 1024 * 1024:
+        raise ValueError('Original Audio Downloader thumbnail exceeds YouTube 2 MB limit')
+    with Image.open(image) as source:
+        if source.format != 'JPEG':
+            raise ValueError('Audio Downloader thumbnail is not JPEG')
+        source.verify()
+    if target.is_symlink():
+        raise ValueError('Unsafe Song Uploader thumbnail path')
+    pending = target.with_name(target.name + '.part')
+    if pending.is_symlink():
+        raise ValueError('Unsafe Song Uploader thumbnail staging path')
+    try:
+        shutil.copyfile(image, pending)
+        if digest(image, 'sha256') != digest(pending, 'sha256'):
+            raise ValueError('Audio Downloader thumbnail bytes changed during handoff')
+        pending.replace(target)
+    finally:
+        pending.unlink(missing_ok=True)
+
+
 def process(store, job, lane, shutdown=lambda: False, drive_factory=Drive):
     job_id = job['id']
     def cancelled():
@@ -98,7 +127,10 @@ def process(store, job, lane, shutdown=lambda: False, drive_factory=Drive):
                 drive_factory(job['destination'], cancelled).archive_inputs(job, store)
             if job.get('send_to_song_uploader'):
                 thumb = outputs / (Path(job['local_name']).stem + '.jpg')
-                uploader_thumbnail(image, thumb)
+                if job.get('audio_downloader_handoff'):
+                    preserve_downloader_thumbnail(image, thumb)
+                else:
+                    uploader_thumbnail(image, thumb)
                 store.update(job_id, stage='Completed', progress=100, lane='',
                              next_retry_at=None, retry_lane='', valid=True, **result,
                              drive_status='Skipped · Song Uploader local output',
