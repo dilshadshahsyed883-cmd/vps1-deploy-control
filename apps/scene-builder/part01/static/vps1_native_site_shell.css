@@ -513,6 +513,11 @@ body:not(.vs-audio-active) #vsaProxy{display:none!important}
 #vsaProxy[hidden]{display:none!important}
 body:has(#app-sidebar) #experiment-browser{width:100%!important;padding:20px!important;margin:0 auto 34px!important;border-radius:16px!important}
 body:has(#app-sidebar) .vps1-experiment-tabs{width:100%!important;margin:0 auto 18px!important}
+/* Match native Experiment -> Studio rail spacing at 360/390px.
+   Legacy Scene/Video Merger pages have an 8px extra mobile gap otherwise. */
+@media (max-width:760px) {
+  body:has(#app-sidebar) .vps1-experiment-tabs{margin-bottom:10px!important}
+}
 :is(.vps1-native-upload-tabs,.vps1-native-video-tabs,.vps1-experiment-tabs,[data-video-studio-subnav])>a:is(.active,[aria-current=page]){background:#6355df!important;border-color:#6355df!important;color:#fff!important}
 :is(body.vps1-native-uploader .app-main,body.vps1-native-stream>main,body.vps1-native-voice #vsAudioWorkspace,body:has(#app-sidebar)>main,body.vps1-native-library .main) :is(.card,.panel,.vsa-card,.sm-panel){padding:20px!important;border-radius:16px!important;min-width:0;box-sizing:border-box}
 body.vps1-native-uploader .app-main :is(p,label,.field,.hint,.muted,.small,.empty,.stat-label){font-size:13px!important;line-height:1.5!important}
