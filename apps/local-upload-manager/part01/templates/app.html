@@ -763,12 +763,21 @@
     </section>
     {% endif %}
 
+    {% if engine_instance == 'shortstudio' %}<div class="lum-short-engine-tabbar">{% endif %}
     <nav class="lum-ae-tabs lum-ae-tabs-primary" aria-label="Auto Engine workspace">
       <button type="button" class="active" data-ae-panel-target="automation">Automation</button>
       <button type="button" data-ae-panel-target="profiles">Profiles</button>
       <button type="button" data-ae-panel-target="queue">Queue</button>
       <button type="button" data-ae-panel-target="records">Records</button>
     </nav>
+    {% if engine_instance == 'shortstudio' %}
+      <div class="lum-ae-health lum-short-engine-status" aria-label="Auto Engine runtime status">
+        <span class="lum-health {{ 'ok' if ae.scheduler_ui.worker_status in ['Idle','Processing'] else 'warn' }}">Worker {{ ae.scheduler_ui.worker_status }}</span>
+        <span class="lum-health {{ 'ok' if ae.scheduler_ui.scheduler_status in ['Waiting','Processing'] else 'warn' }}">Scheduler {{ ae.scheduler_ui.scheduler_status }}</span>
+        <span class="lum-health {{ 'ok' if ae.engine.running else 'warn' }}">Engine {{ 'RUNNING' if ae.engine.running else 'STOPPED' }}</span>
+      </div>
+    </div>
+    {% endif %}
 
     <section class="lum-card lum-ae-profile-manager" data-ae-panel="profiles" hidden>
       <div class="lum-ae-profile-manager-top">

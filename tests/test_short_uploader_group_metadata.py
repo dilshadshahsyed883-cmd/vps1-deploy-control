@@ -230,6 +230,23 @@ class ShortGroupTests(unittest.TestCase):
         self.assertEqual(profile['enabled'],'0')
         self.assertEqual(self.ns['short_group_metadata'](self.store,pid)['metadata_source'],'sheet')
 
+    def test_engine_status_badges_share_shortstudio_subtab_row(self):
+        source=TEMPLATE.read_text()
+        self.assertIn('class="lum-short-engine-tabbar"',source)
+        self.assertIn('class="lum-ae-health lum-short-engine-status"',source)
+        nav=source.index('aria-label="Auto Engine workspace"')
+        badges=source.index('class="lum-ae-health lum-short-engine-status"')
+        self.assertGreater(badges,nav)
+        self.assertLess(badges,source.index('data-ae-panel="profiles"',nav))
+        for label in ('Worker {{ ae.scheduler_ui.worker_status }}',
+                      'Scheduler {{ ae.scheduler_ui.scheduler_status }}',
+                      "Engine {{ 'RUNNING' if ae.engine.running else 'STOPPED' }}"):
+            self.assertIn(label,source[badges:badges+750])
+        styles=(ROOT/'apps/local-upload-manager/part01/static/local_upload_manager.css').read_text()
+        self.assertIn('.lum-short-engine-tabbar{display:flex;',styles)
+        self.assertIn('.lum-short-engine-status{display:flex;',styles)
+        self.assertIn('flex:1 1 100%',styles)
+
     def test_redundant_auto_engine_header_removed_from_short_uploader(self):
         source=TEMPLATE.read_text()
         start=source.index('    <section class="lum-ae-head">')
