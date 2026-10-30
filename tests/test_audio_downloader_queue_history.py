@@ -153,11 +153,40 @@ class AudioDownloaderBrowserRouteContractTests(unittest.TestCase):
         self.assertIn("prefix=" + base + "+'/'+'tts/api/audio-downloader/proxy';", html)
         self.assertIn("fetch(root+endpoint.slice(('/'+'tts/api/audio-downloader').length)", html)
         self.assertIn("if(!Array.isArray(r.jobs))", html)
-        self.assertIn("const historyJobs=jobs.filter(j=>terminal.has(j.status))", html)
+        self.assertIn("$('vsaQueueRows').replaceChildren(jobTable(r.jobs,200))", html)
         self.assertIn("if(location.hash==='#vs-audio')choose(true)", html)
         self.assertIn("cache:'no-store'", html)
         self.assertNotIn("+'/tts/api/audio-downloader'", html)
         self.assertNotIn("endpoint.slice('/tts/api/audio-downloader'", html)
+
+    def test_only_downloader_queue_and_proxy_tabs_remain(self):
+        html = TEMPLATE.read_text(encoding="utf-8")
+        audio_panel = html.split('<!-- AUDIO_DOWNLOADER_TAB_V1 -->', 1)[1].split('</section>', 1)[0]
+        sections = [
+            item.split('"', 1)[0] for item in
+            audio_panel.split('data-vsa-section="')[1:]
+        ]
+        self.assertEqual(sections, ["downloader", "queue", "proxy"])
+        self.assertIn('id="vsaQueueRows"', audio_panel)
+        self.assertIn('id="vsaRefreshQueue"', audio_panel)
+        self.assertIn('id="vsaUpload"', audio_panel)
+        self.assertIn('id="vsaDrivePath"', audio_panel)
+        self.assertIn('id="vsaSongMaker"', audio_panel)
+        self.assertIn('id="vsaPrefsStatus"', audio_panel)
+        for retired in ('id="vsaDrive"', 'id="vsaHistory"', 'id="vsaRecent"',
+                        'id="vsaRefreshMain"', 'id="vsaRefreshHistory"',
+                        'id="vsaDriveSummary"', 'data-vsa-section="drive"',
+                        'data-vsa-section="history"', '<h2>Recent jobs</h2>'):
+            self.assertNotIn(retired, html)
+        self.assertIn("for(const id of ['downloader','queue','proxy'])", html)
+        self.assertIn("$('vsaQueueRows').replaceChildren(jobTable(r.jobs,200))", html)
+        self.assertNotIn("historyJobs", html)
+        self.assertNotIn("$('vsaHistoryRows')", html)
+        # Queue still includes both current and completed/failed history rows.
+        self.assertIn("['failed','cancelled'].includes(job.status)", html)
+        self.assertIn("job.status==='delivered'", html)
+        self.assertIn("job.thumbnail_url", html)
+        self.assertIn("saveDownloadPreferences()", html)
 
     def test_backend_has_durable_sqlite_and_main_routes(self):
         source = MODULE.read_text(encoding="utf-8")
