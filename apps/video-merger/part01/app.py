@@ -11,6 +11,12 @@ BASE = Path(os.environ.get('VIDEO_MERGER_ROOT', '/opt/video-merger')).expanduser
 DATA = BASE / 'data'
 WORK = BASE / 'work'
 DB_PATH = DATA / 'video_merger.db'
+LOCAL_OUTPUT_ROOT = BASE / 'verified_outputs'
+COPYRIGHT_MEDIA_ROOT = Path(os.environ.get('VIDEO_MERGER_COPYRIGHT_ROOT', str(BASE / 'copyright_handoff')))
+def owner_media_key(owner):
+    import hashlib
+    return hashlib.sha256(owner.strip().lower().encode('utf-8')).hexdigest()[:32]
+
 RCLONE = '/usr/bin/rclone'
 FFMPEG = '/usr/bin/ffmpeg'
 FFPROBE = '/usr/bin/ffprobe'
@@ -70,6 +76,10 @@ def init_db():
           progress INTEGER NOT NULL DEFAULT 0, message TEXT NOT NULL DEFAULT '',
           error TEXT NOT NULL DEFAULT '', drive_url TEXT NOT NULL DEFAULT '',
           drive_id TEXT NOT NULL DEFAULT '', order_idx INTEGER NOT NULL,
+          drive_enabled INTEGER NOT NULL DEFAULT 1,
+          copyright_enabled INTEGER NOT NULL DEFAULT 0,
+          owner_username TEXT NOT NULL DEFAULT '',
+          local_path TEXT NOT NULL DEFAULT '',
           created_at TEXT NOT NULL, updated_at TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY, v TEXT NOT NULL);
@@ -83,6 +93,15 @@ def init_db():
         );
         INSERT OR IGNORE INTO settings(k,v) VALUES('paused','0');
         ''')
+        existing = {row[1] for row in c.execute("PRAGMA table_info(jobs)")}
+        for name, kind in (
+            ("drive_enabled", "INTEGER NOT NULL DEFAULT 1"),
+            ("copyright_enabled", "INTEGER NOT NULL DEFAULT 0"),
+            ("owner_username", "TEXT NOT NULL DEFAULT ''"),
+            ("local_path", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            if name not in existing:
+                c.execute(f"ALTER TABLE jobs ADD COLUMN {name} {kind}")
         c.execute("UPDATE jobs SET status='waiting', message='Recovered after service restart', updated_at=? WHERE status IN ('downloading','trimming','preparing','merging','verifying','uploading','processing')", (utcnow(),))
         c.execute("UPDATE library_items SET status='failed', progress=100, message='Import interrupted by service restart', error='Import interrupted by service restart', updated_at=? WHERE status='importing'", (utcnow(),))
 
@@ -931,6 +950,61 @@ def update_job(jid,status=None,progress=None,message=None,error=None,drive_url=N
     with DB_LOCK, db() as c: c.execute(f'UPDATE jobs SET {", ".join(fields)} WHERE id=?',vals)
 
 
+def update_local_path(jid,filename):
+    with DB_LOCK, db() as c:
+        c.execute('UPDATE jobs SET local_path=?,updated_at=? WHERE id=?',
+                  (str(LOCAL_OUTPUT_ROOT / jid / filename), utcnow(), jid))
+
+
+def retain_verified_output(src, job_id, filename):
+    """Verified local output is durable even when both optional destinations are OFF."""
+    directory = LOCAL_OUTPUT_ROOT / job_id
+    if directory.is_symlink():
+        raise RuntimeError('Unsafe local output directory')
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    destination = directory / safe_component(filename)
+    if destination.is_symlink() or destination.exists():
+        raise RuntimeError('Local output collision')
+    if shutil.disk_usage(directory).free < MIN_FREE_BYTES:
+        raise RuntimeError('Operational free-space reserve is too low')
+    temp = directory / ('.' + uuid.uuid4().hex + '.partial')
+    try:
+        shutil.copyfile(src, temp)
+        if temp.stat().st_size != src.stat().st_size or temp.stat().st_size <= 0:
+            raise RuntimeError('Local MP4 retention size check failed')
+        os.replace(temp, destination)
+    finally:
+        temp.unlink(missing_ok=True)
+    return destination
+
+
+def deliver_copyright_folder(local, owner, job_id):
+    """Keep the verified output; add a separate account-scoped copy for manual uploader selection."""
+    if not owner.strip():
+        raise RuntimeError('Authenticated owner required for Copyright Uploader handoff')
+    if COPYRIGHT_MEDIA_ROOT.is_symlink():
+        raise RuntimeError('Unsafe handoff root')
+    COPYRIGHT_MEDIA_ROOT.mkdir(parents=True, exist_ok=True, mode=0o700)
+    folder = COPYRIGHT_MEDIA_ROOT / owner_media_key(owner)
+    if folder.is_symlink():
+        raise RuntimeError('Unsafe account handoff folder')
+    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    destination = folder / (job_id + '__' + local.name)
+    if destination.is_symlink() or destination.exists():
+        raise RuntimeError('Handoff collision')
+    if shutil.disk_usage(folder).free < MIN_FREE_BYTES:
+        raise RuntimeError('Operational free-space reserve is too low')
+    temp = folder / ('.' + uuid.uuid4().hex + '.partial')
+    try:
+        shutil.copyfile(local, temp)
+        if temp.stat().st_size != local.stat().st_size:
+            raise RuntimeError('Handoff copy verification failed')
+        os.replace(temp, destination)
+    finally:
+        temp.unlink(missing_ok=True)
+    return destination
+
+
 def update_job_filename(jid,filename):
     with DB_LOCK, db() as c: c.execute('UPDATE jobs SET filename=?, name=?, updated_at=? WHERE id=?',(filename,filename,utcnow(),jid))
 
@@ -958,15 +1032,24 @@ def process_job(j):
             update_job(jid,'trimming' if spec.get('trim_enabled') else 'preparing',prog,(f'Trimming video {i}/{len(srcs)}' if spec.get('trim_enabled') else f'Inspecting video {i}/{len(srcs)}'))
             n=ws/f'norm_{i:03d}.mp4'; normalize(p,n,w,h,j['fit_mode'],start,end,info); norms.append(n); expected_total+=selected
             update_job(jid,'preparing',55+int(15*i/total),f'Preparing video {i}/{len(srcs)}')
-        actual=unique_output_filename(j['folder'],j['filename'])
+        actual=unique_output_filename(j['folder'],j['filename']) if int(j.get('drive_enabled',1)) else j['filename']
         if actual!=j['filename']:
             update_job_filename(jid,actual); j=dict(j); j['filename']=actual
         update_job(jid,'merging',74,'Merging videos')
         concat=ws/'concat.txt'; concat.write_text(''.join("file '%s'\n"%str(p).replace("'","'\\''") for p in norms))
         out=ws/j['filename']; run([FFMPEG,'-y','-f','concat','-safe','0','-i',str(concat),'-c','copy','-movflags','+faststart',str(out)],timeout=14400)
         update_job(jid,'verifying',86,'Verifying merged output'); dur=verify_output(out,w,h,expected_total)
-        update_job(jid,'uploading',92,'Uploading to Google Drive'); fid,url=upload_drive(out,j['folder'],j['filename'])
-        update_job(jid,'complete',100,f'Complete · {dur:.1f}s',drive_id=fid,drive_url=url,error=''); shutil.rmtree(ws,ignore_errors=True)
+        retained = retain_verified_output(out, jid, j['filename'])
+        update_local_path(jid,j['filename'])
+        fid,url = '',''
+        if int(j.get('drive_enabled',1)):
+            update_job(jid,'uploading',92,'Uploading to Google Drive')
+            fid,url=upload_drive(retained,j['folder'],j['filename'])
+        if int(j.get('copyright_enabled',0)):
+            update_job(jid,'uploading',96,'Adding to Copyright Uploader folder')
+            deliver_copyright_folder(retained,j.get('owner_username',''),jid)
+        update_job(jid,'complete',100,f'Complete · {dur:.1f}s',drive_id=fid,drive_url=url,error='')
+        shutil.rmtree(ws,ignore_errors=True)
     except Exception as e:
         update_job(jid,'failed',100,'Failed',error=scrub_proxy_error(e))
 
@@ -982,15 +1065,18 @@ def worker():
         if not j: WORKER_WAKE.wait(2); WORKER_WAKE.clear(); continue
         process_job(j)
 
-def list_jobs():
+def list_jobs(owner=None):
     with DB_LOCK, db() as c:
         rows=c.execute('SELECT * FROM jobs ORDER BY order_idx, created_at').fetchall()
     out=[]
     for r in rows:
-        d=dict(r); d['videos']=json.loads(d.pop('videos_json')); out.append(d)
+        d=dict(r)
+        if d.get('owner_username') and str(d['owner_username']).lower()!=str(owner or '').lower():
+            continue
+        d['videos']=json.loads(d.pop('videos_json')); out.append(d)
     return out
 
-def add_job(payload):
+def add_job(payload, owner=''):
     videos=payload.get('videos') or []
     if not isinstance(videos,list) or len(videos)<2 or len(videos)>MAX_VIDEOS: raise ValueError(f'Use 2 to {MAX_VIDEOS} videos')
     videos=[normalize_video_spec(x,i) for i,x in enumerate(videos,1)]
@@ -1000,10 +1086,15 @@ def add_job(payload):
     if (aspect,quality) not in RES_MAP: raise ValueError('Invalid resolution selection')
     fit='fit' if payload.get('fit_mode')=='fit' else 'crop'; folder=safe_folder(payload.get('folder',''))
     filename=resolve_output_filename(payload,videos); name=filename; jid=uuid.uuid4().hex[:12]
+    drive_enabled = payload.get('upload_to_drive', True) is True
+    copyright_enabled = payload.get('add_to_copyright_folder', False) is True
+    if copyright_enabled and not owner.strip(): raise ValueError('Login required for Copyright Uploader folder delivery')
     with DB_LOCK, db() as c:
         maxord=c.execute('SELECT COALESCE(MAX(order_idx),0) m FROM jobs').fetchone()['m']; now=utcnow()
-        c.execute('''INSERT INTO jobs(id,name,videos_json,aspect,quality,fit_mode,folder,filename,status,order_idx,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
-                  (jid,name,json.dumps(videos),aspect,quality,fit,folder,filename,'waiting',int(maxord)+10,now,now))
+        c.execute('''INSERT INTO jobs(id,name,videos_json,aspect,quality,fit_mode,folder,filename,status,order_idx,created_at,updated_at,
+                  drive_enabled,copyright_enabled,owner_username) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                  (jid,name,json.dumps(videos),aspect,quality,fit,folder,filename,'waiting',int(maxord)+10,now,now,
+                   int(drive_enabled),int(copyright_enabled),owner))
     WORKER_WAKE.set(); return jid,filename
 
 def delete_job(jid):
@@ -1012,6 +1103,7 @@ def delete_job(jid):
     if j['status'] not in ('waiting','complete','failed'): raise ValueError('Active job cannot be deleted')
     with DB_LOCK, db() as c: c.execute('DELETE FROM jobs WHERE id=?',(jid,))
     if j['status']!='complete': shutil.rmtree(WORK/jid, ignore_errors=True)
+    # Preserve completed media even when a history row is removed; cleanup is a separate explicit action.
 
 def move_job(jid,direction):
     with DB_LOCK, db() as c:
@@ -1065,7 +1157,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_bytes(200,page.encode('utf-8'),'text/html; charset=utf-8')
             if p==PREFIX+'/health': return self.send_json(200,{'ok':True,'app':APP_NAME,'release':RELEASE_ID,'paused':setting('paused','0')=='1'})
             if p==PREFIX+'/api/state':
-                return self.send_json(200,{'ok':True,'jobs':list_jobs(),'folders':list_folders(),'paused':setting('paused','0')=='1','output_root':OUTPUT_ROOT,'library':list_library_items(),'proxy':public_proxy_state()})
+                return self.send_json(200,{'ok':True,'jobs':list_jobs((self.headers.get('X-Auth-User') or '').strip()),'folders':list_folders(),'paused':setting('paused','0')=='1','output_root':OUTPUT_ROOT,'library':list_library_items(),'proxy':public_proxy_state()})
             return self.send_json(404,{'ok':False,'error':'Not found'})
         except Exception as e: self.send_json(500,{'ok':False,'error':str(e)})
     def do_POST(self):
@@ -1073,7 +1165,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             payload=self.read_json()
             if p==PREFIX+'/api/jobs':
-                jid,filename=add_job(payload); return self.send_json(201,{'ok':True,'id':jid,'filename':filename})
+                jid,filename=add_job(payload,(self.headers.get('X-Auth-User') or '').strip()); return self.send_json(201,{'ok':True,'id':jid,'filename':filename})
             if p==PREFIX+'/api/source-name':
                 spec=normalize_url_spec({'url':payload.get('url','')},2); return self.send_json(200,{'ok':True,'filename':source_display_filename(spec)})
             if p==PREFIX+'/api/library': return self.send_json(202,{'ok':True,'id':create_library_item(payload)})
