@@ -45,6 +45,10 @@ def main():
             slots.nth(3).fill('19:45');slots.nth(3).dispatch_event('change')
             assert '19:45' in page.locator('[data-short-schedule-csv]').input_value()
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth'),width
+            if width<=760:
+                assert page.locator('.lum-short-engine-tabbar nav').evaluate('e=>e.scrollWidth<=e.clientWidth'),width
+                for button in page.locator('.lum-short-engine-tabbar nav button').all():
+                    assert button.evaluate('e=>e.scrollWidth<=e.clientWidth'),(width,button.inner_text())
             if width>=1024:
                 nav=page.locator('.lum-short-engine-tabbar nav').bounding_box()
                 badges=page.locator('.lum-short-engine-status').bounding_box()
