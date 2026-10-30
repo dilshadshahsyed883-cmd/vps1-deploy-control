@@ -124,7 +124,7 @@ class ShortStudioV1(unittest.TestCase):
         self.assertIn(("/_scene_uploader_auth", True), calls)
 
     def test_https_reload_rejects_public_or_invalid_auth(self):
-        for unsafe in (200, 302, 303, 403):
+        for unsafe in (200, 301, 302, 307, 403):
             with self.subTest(status=unsafe):
                 def get(path, cookie=""):
                     if path == "/short-uploader/app":
@@ -133,6 +133,35 @@ class ShortStudioV1(unittest.TestCase):
 
                 with self.assertRaisesRegex(RuntimeError, "anonymous Short Uploader access"):
                     short_studio_release.verify_https_route(get, lambda: "session=dummy", attempts=2, delay=0)
+
+    def test_https_reload_tolerates_only_transient_303_before_401(self):
+        statuses = iter((303,303,303,401,401,401))
+        requests=[]
+        def get(path, cookie=""):
+            requests.append((path, bool(cookie)))
+            if path in ("/short-uploader/app", "/short-uploader/health"):
+                return next(statuses), "text/html", b""
+            if path == "/short-uploader/app?tab=auto_engine":
+                return 200, "text/html", b"Short Uploader Auto Engine"
+            if path == "/short-uploader":
+                return 308, "", b""
+            if path == "/_scene_uploader_auth":
+                return 404, "", b""
+            raise AssertionError(path)
+        with patch.object(short_studio_release.time, "sleep") as sleep:
+            short_studio_release.verify_https_route(
+                get, lambda: "session=dummy", attempts=4, delay=0.1)
+        self.assertEqual(sleep.call_count, 2)
+        self.assertIn(("/short-uploader/app?tab=auto_engine", True), requests)
+
+    def test_https_reload_persistent_303_is_never_accepted(self):
+        def get(path, cookie=""):
+            return 303, "text/html", b""
+        with patch.object(short_studio_release.time, "sleep") as sleep:
+            with self.assertRaisesRegex(RuntimeError, "auth never converged"):
+                short_studio_release.verify_https_route(
+                    get, lambda: "session=dummy", attempts=3, delay=0.1)
+        self.assertEqual(sleep.call_count, 2)
 
     def test_https_reload_fails_closed_if_stale_404_never_converges(self):
         def get(path, cookie=""):
