@@ -155,6 +155,11 @@ class SongUploaderManualMetadataTests(unittest.TestCase):
         self.assertIn("DEFAULT 'sheet'", source)
         self.assertIn('metadata_source=="manual"', source)
         self.assertIn('"category_id":clean(row.get("category_id")) or "22"', source)
+        # Switching an existing Sheet-backed profile to Manual must not write
+        # new manual uploads back to its old, preserved Sheet URL/GID.
+        self.assertIn('use_manual_metadata=clean(store.channel_binding(pid).get("metadata_source"))=="manual"', source)
+        self.assertIn('metadata_sheet_url="" if use_manual_metadata', source)
+        self.assertIn('metadata_sheet_gid="" if use_manual_metadata', source)
         self.assertIn('if state=="READY" and not schedule_at:', source)
         self.assertIn('self.scan_songmaker_local(profile_id, thumbnail=True)', source)
         self.assertIn("strict_thumbnail", source)
