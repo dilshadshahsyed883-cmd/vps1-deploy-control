@@ -110,7 +110,7 @@ class UniversalSidebarContracts(unittest.TestCase):
         self.assertIn('@app.get("/song-studio/audio-downloader/")', scene)
         self.assertIn('RedirectResponse("/audio-downloader/", status_code=303)', scene)
         self.assertIn('@app.get("/audio-downloader/", response_class=HTMLResponse)', scene)
-        self.assertIn('_audio_downloader_canonical_html(upstream.body)', scene)
+        self.assertIn('_audio_downloader_canonical_html(upstream.content)', scene)
         self.assertIn('addLink(tabs, "Audio Downloader", "/audio-downloader/"', src)
         self.assertIn('@app.get("/song-studio/{studio_app}/", response_class=HTMLResponse)', scene)
         self.assertIn('names = {"song-uploader": "Song Uploader"}', scene)
