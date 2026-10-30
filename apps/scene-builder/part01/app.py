@@ -2027,8 +2027,8 @@ def _audio_downloader_canonical_html(payload: bytes) -> bytes:
             1,
         ),
         (
-            b"drivePath();if(location.hash==='#vs-audio')choose(true);",
-            b"drivePath();if(location.pathname==='/audio-downloader/' || location.hash==='#vs-audio')choose(true);",
+            b"if(location.hash==='#vs-audio')choose(true);",
+            b"if(location.pathname==='/audio-downloader/' || location.hash==='#vs-audio')choose(true);",
             1,
         ),
         (
