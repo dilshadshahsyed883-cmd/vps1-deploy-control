@@ -19,7 +19,7 @@ class SceneVideoStudioShell(unittest.TestCase):
                 b'<html data-page="queue" data-page="upload" data-page="voice" '
                 b'id="acs-native-live" vps1_native_site_shell.js '
                 b"const API='/auto-caption-studio/api/web-flow'",
-            "/short-maker/": (b'id="makerTabBtn" data-video-studio-subnav '
+            "/short-maker/": (b'id="makerTabBtn" aria-label="Short Studio" '
                 b'data-vps1-server-identity="1" class="vps1-server-admin" '
                 b'data-unify-sidebar="1" '
                 b'vps1_native_site_shell.js?v=20261020-experiment-v1'),
@@ -31,7 +31,7 @@ class SceneVideoStudioShell(unittest.TestCase):
         }
         def get(path, cookie):
             seen.append(path)
-            if path == "/video-studio/short-maker" and seen.count(path) == 1:
+            if path == "/video-studio/video-merger" and seen.count(path) == 1:
                 return 404, "text/html", b"retired-worker"
             if path == "/static/vps1_native_site_shell.js?v=20261020-experiment-v1":
                 return 200, "application/javascript", b"function installLegacySidebar() {}"
@@ -43,7 +43,7 @@ class SceneVideoStudioShell(unittest.TestCase):
              patch("production.route_uploader_scene_https.https_get", side_effect=get), \
              patch("production.scene_uploader_ui_release.time.sleep"):
             verify_video_studio()
-        self.assertEqual(seen.count("/video-studio/short-maker"), 2)
+        self.assertEqual(seen.count("/video-studio/video-merger"), 2)
 
     def test_native_release_fails_closed_on_denial(self):
         from production.scene_uploader_ui_release import verify_video_studio
@@ -59,8 +59,9 @@ class SceneVideoStudioShell(unittest.TestCase):
         for label in ("Dashboard", "Upload Studio", "Video Studio", "Voice Studio", "Admin"):
             self.assertIn(label, html)
         for url in ("/scene-builder/", "/auto-caption-studio/",
-                    "/short-maker/", "/video-merger/"):
+                    "/video-merger/"):
             self.assertIn('href="' + url + '"', html)
+        self.assertIn('href="/short-maker"', html)
         self.assertNotIn('href="/auto-script"', html)
 
     def test_native_documents_and_no_outer_iframe_shells(self):
@@ -198,7 +199,7 @@ class SceneVideoStudioShell(unittest.TestCase):
             '@app.get("/auto-caption/studio"', 1)[0]
         self.assertIn("require_login(request)", body)
         self.assertNotIn("require_admin(request)", body)
-        self.assertIn('"short-maker": ("Short Maker", "/short-maker/")', body)
+        self.assertNotIn('"short-maker": ("Short Maker", "/short-maker/")', body)
         self.assertIn('"video-merger": ("Video Merger", "/video-merger/")', body)
         self.assertIn("if studio_app not in allowed:", body)
         self.assertIn("return RedirectResponse(url, status_code=303)", body)
