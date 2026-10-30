@@ -657,7 +657,8 @@ class SongMakerTests(unittest.TestCase):
         saved=self.client.post('/song-maker/api/export',headers=self.headers,json=config)
         self.assertEqual(saved.status_code,200,saved.text)
         state=self.client.get('/song-maker/api/state',headers=self.headers).json()
-        self.assertEqual(state['export'],config)
+        self.assertEqual({key: state['export'][key] for key in config}, config)
+        self.assertFalse(state['export']['overlay_enabled'])
         self.assertEqual(self.client.post('/song-maker/api/export',headers=self.headers,
             json={'resolution':'invalid','fit':'fit','quality':'balanced'}).status_code,422)
         self.assertEqual(self.client.post('/song-maker/api/export',headers=self.headers,
