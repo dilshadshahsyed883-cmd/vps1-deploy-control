@@ -192,6 +192,33 @@ class ShortStudioV1(unittest.TestCase):
                 (root / "secure/oauth-token.json").write_text("{}")
                 self.assertFalse(runtime.shortstudio_rolled_back_empty(state, unit_dir=units))
 
+    def test_empty_oauth_scaffolding_is_not_user_state(self):
+        # LUM ensure_dirs() always creates these two empty directories.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "state/lum-shortstudio"
+            units = Path(td) / "units"
+            root.mkdir(parents=True)
+            units.mkdir()
+            (root / ".vps1-independent-engine").write_text("shortstudio\n")
+            clients = root / "secure/oauth_clients"
+            sessions = root / "secure/oauth_sessions"
+            clients.mkdir(parents=True)
+            sessions.mkdir(parents=True)
+            with patch.object(runtime.socket, "socket") as sock:
+                sock.return_value.__enter__.return_value.connect_ex.return_value = 111
+                self.assertTrue(runtime.shortstudio_rolled_back_empty(root.parent, unit_dir=units))
+                (clients / "token.json").write_text("private")
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(root.parent, unit_dir=units))
+                (clients / "token.json").unlink()
+                (sessions / "session.json").write_text("private")
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(root.parent, unit_dir=units))
+                (sessions / "session.json").unlink()
+                (root / "secure/unexpected.txt").write_text("unknown")
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(root.parent, unit_dir=units))
+                (root / "secure/unexpected.txt").unlink()
+                (clients / "alias").symlink_to(sessions)
+                self.assertFalse(runtime.shortstudio_rolled_back_empty(root.parent, unit_dir=units))
+
     def test_first_install_rejects_live_listener_and_armed_scheduler(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "state/lum-shortstudio"
