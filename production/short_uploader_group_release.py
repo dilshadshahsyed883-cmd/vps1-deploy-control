@@ -56,6 +56,9 @@ def verify_live():
     status,_,body=https_get('/short-uploader/app?tab=auto_engine&new_profile=1',cookie)
     require(status==200,'authenticated Short Uploader GET failed')
     html=body.decode('utf-8')
+    require('data-short-group-summary' in html and '<th>Group Name</th>' in html and
+            '<th>Channels</th>' in html and '<th>Schedule (PKT)</th>' in html,
+            'live automation group summary is missing')
     start=html.find('<form id="lum-ae-profile-form"')
     require(start>=0,'profile form absent')
     form=html[start:html.index('</form>',start)]
@@ -65,7 +68,7 @@ def verify_live():
             'name="channel_db_id"' not in form and 'Profile Type' not in form,
             'live group profile form does not match release')
     require(https_get('/short-uploader/app')[0]==401,'anonymous route protection failed')
-    print('SHORT_UPLOADER_LIVE=PASS AUTH=PASS GROUP_FORM=PASS NO_UPLOAD_OR_ARM_ACTIONS',flush=True)
+    print('SHORT_UPLOADER_LIVE=PASS AUTH=PASS GROUP_FORM=PASS GROUP_SUMMARY=PASS NO_UPLOAD_OR_ARM_ACTIONS',flush=True)
 
 
 def install(revision):
@@ -131,3 +134,4 @@ def install(revision):
             atomic_json(journal/'state.json',dict(status='ROLLED_BACK',revision=revision))
             print('SHORT_GROUP_ROLLBACK=PASS DATA=PRESERVED',flush=True)
         raise
+

@@ -234,3 +234,49 @@ class ShortGroupReleaseTests(unittest.TestCase):
                 con.execute('CREATE TABLE videos (status TEXT)');con.execute("INSERT INTO videos VALUES ('UPLOADING')")
             with patch.multiple(release,STATE=root,health=lambda:{'active_project_id':None}):
                 with self.assertRaisesRegex(RuntimeError,'upload in progress'):release.idle()
+
+
+class ShortAutomationGroupSummaryTests(unittest.TestCase):
+    def render(self, instance='shortstudio', profiles=None):
+        source=TEMPLATE.read_text()
+        start=source.index('<section class="lum-card lum-ae-automation-controls"')
+        end=source.index('</section>',start)+len('</section>')
+        return Environment(autoescape=True).from_string(source[start:end]).render(
+            engine_instance=instance, ae=SimpleNamespace(profiles=profiles or []), p=None,
+            base_path='/short-uploader', csrf='offline-test')
+    def test_group_name_channel_count_and_saved_times_are_visible(self):
+        html=self.render(profiles=[dict(id=7,category_name='Shorts',group_name='Aina Asif',
+            group_channel_count=12,enabled=1,v6_video_count=8,schedule_times='09:00,14:30',schedule_enabled=1)])
+        for text in ('<th>Group Name</th>','<th>Channels</th>','<th>Schedule (PKT)</th>',
+                     'Aina Asif','data-short-group-channel-count="7">12</td>','09:00, 14:30'):
+            self.assertIn(text,html)
+        for text in ('<th>Channel ID</th>','<th>Thumbnails</th>','<th>Auto Sync</th>','Legacy'):
+            self.assertNotIn(text,html)
+        self.assertIn('data-ae-sync-scan',html)
+        self.assertIn('auto_profile_id=7',html)
+    def test_zero_count_and_disabled_schedule_are_not_misrepresented(self):
+        html=self.render(profiles=[dict(id=9,category_name='Empty group',group_name='Empty',
+            group_channel_count=0,enabled=1,schedule_times='18:00',schedule_enabled=0)])
+        self.assertIn('data-short-group-channel-count="9">0</td>',html)
+        self.assertIn('18:00',html);self.assertIn('Schedule OFF',html)
+        self.assertNotIn('15 min',html)
+    def test_legacy_single_profile_stays_readable_without_fake_group_schedule(self):
+        html=self.render(profiles=[dict(id=1,category_name='Older profile',channel_db_id=4,
+            enabled=1,schedule_times='09:00')])
+        self.assertIn('Single channel',html)
+        self.assertIn('data-short-group-channel-count="1">1</td>',html)
+        self.assertIn('Per-video schedule',html)
+        self.assertNotIn('09:00',html)
+    def test_other_uploaders_retain_their_existing_columns_and_values(self):
+        for instance in ('song','engine1','engine2','shorts'):
+            with self.subTest(instance=instance):
+                html=self.render(instance,[dict(id=3,enabled=1,category_name='Old',
+                    bound_channel_name='Channel',bound_channel_id='UC123',sync_interval_minutes=15)])
+                for text in ('<th>Channel ID</th>','<th>Thumbnails</th>','<th>Auto Sync</th>','UC123','15 min'):
+                    self.assertIn(text,html)
+                self.assertNotIn('data-short-group-summary',html)
+    def test_empty_table_and_escaped_group_names(self):
+        self.assertIn('colspan="9"',self.render())
+        html=self.render(profiles=[dict(id=1,enabled=1,category_name='Test',group_name='<script>bad</script>')])
+        self.assertIn('&lt;script&gt;bad&lt;/script&gt;',html)
+        self.assertNotIn('<script>bad</script>',html)
