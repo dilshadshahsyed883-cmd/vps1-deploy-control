@@ -144,6 +144,14 @@ class ShortProfileControlTests(unittest.TestCase):
         self.assertNotIn('set_scheduler_armed(',body)
         self.assertIn('if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio"',source)
 
+    def test_short_static_asset_cache_isolated_and_live_checked(self):
+        base=(PART/"templates/base.html").read_text()
+        installer=INSTALLER.read_text()
+        self.assertIn("&amp;short=20261030-actions-times-v2",base)
+        self.assertIn("css_status,_,css_body=https_get('/short-uploader/static/local_upload_manager.css',cookie)",installer)
+        self.assertIn("data-short-inline-schedule",installer)
+        self.assertIn('data-short-profile-action="start"',installer)
+
     def test_guarded_release_copies_all_changed_short_uploader_files(self):
         installer=INSTALLER.read_text()
         for part in ("auto_engine_v6.py","standalone_app.py","auto_engine_v6_worker.py",
