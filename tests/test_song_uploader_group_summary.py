@@ -63,6 +63,13 @@ class SongAutomationGroupSummaryTests(unittest.TestCase):
         self.assertNotIn("http://127.0.0.1:8018/song-uploader/health", source)
         self.assertIn("https_get('/song-uploader/app?tab=auto_engine&new_profile=1'", source)
 
+    def test_auth_guard_denies_protected_content_but_accepts_sso_redirects(self):
+        source = (ROOT / "production/song_uploader_group_summary_release.py").read_text()
+        self.assertIn("anonymous_status in (302, 303, 401, 403)", source)
+        self.assertIn("b'data-song-group-summary' not in anonymous_body", source)
+        self.assertIn("b'lum-ae-automation-profiles' not in anonymous_body", source)
+        self.assertNotIn("https_get('/song-uploader/app')[0]==401", source)
+
     def test_engine1_remains_legacy_table(self):
         html = self.render([dict(id=3,enabled=1,category_name="Channel",
             bound_channel_name="Channel",bound_channel_id="UC123",
