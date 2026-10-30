@@ -90,6 +90,35 @@ class SongMakerTests(unittest.TestCase):
              metrics=values.append)
         self.assertTrue(any(v.get('render_fps') == 42.5 and v.get('render_speed') == 1.7 for v in values), values)
 
+    def test_drive_rate_limit_backoff_is_read_only_and_redacts_private_errors(self):
+        drive = Drive({'remote': 'gdrive'})
+        secret = 'https://private.example/token-secret userRateLimitExceeded'
+        with patch('songmaker.drive.run', side_effect=[RuntimeError(secret), '[]']) as execute, \
+             patch('songmaker.drive.time.sleep'):
+            self.assertEqual(drive.listing('imageFolder'), [])
+            self.assertEqual(execute.call_count, 2)
+            self.assertIn('--tpslimit', execute.call_args.args[0])
+            self.assertIn('--tpslimit-burst', execute.call_args.args[0])
+        for operation in (['moveto', 'gdrive:a', 'gdrive:b', '--ignore-existing'],
+                          ['copyto', 'a', 'gdrive:b', '--ignore-existing']):
+            with patch('songmaker.drive.run', side_effect=RuntimeError(secret)) as execute:
+                with self.assertRaisesRegex(RuntimeError, 'userRateLimitExceeded') as caught:
+                    drive.call(operation)
+                self.assertNotIn('token-secret', str(caught.exception))
+                self.assertEqual(execute.call_count, 1)  # no blind mutation replay
+        with patch('songmaker.drive.run', side_effect=RuntimeError('storageQuotaExceeded')) as execute:
+            with self.assertRaisesRegex(RuntimeError, 'storageQuotaExceeded'):
+                drive.listing('imageFolder')
+            self.assertEqual(execute.call_count, 1)  # a full Drive is not a transient rate limit
+        with patch('songmaker.drive.run', side_effect=RuntimeError(secret)) as execute, \
+             patch('songmaker.drive.time.sleep'):
+            with self.assertRaises(RuntimeError):
+                drive.listing('imageFolder')
+            self.assertEqual(execute.call_count, 3)  # bounded metadata retry
+        with patch('songmaker.drive.run', side_effect=RuntimeError(secret)):
+            with self.assertRaises(Cancelled):
+                Drive({'remote':'gdrive'}, lambda: True).listing('imageFolder')
+
     def test_song_studio_shared_drive_defaults_and_explicit_overrides(self):
         from songmaker.drive import DEFAULT_INPUT, DEFAULT_OUTPUT, folder_ref, default_settings
         self.assertEqual(DEFAULT_INPUT, 'Song Studio/Audio downloader')
