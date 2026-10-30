@@ -90,6 +90,84 @@ class SongMakerTests(unittest.TestCase):
              metrics=values.append)
         self.assertTrue(any(v.get('render_fps') == 42.5 and v.get('render_speed') == 1.7 for v in values), values)
 
+    def test_drive_rate_limit_backoff_is_read_only_and_redacts_private_errors(self):
+        drive = Drive({'remote': 'gdrive'})
+        secret = 'https://private.example/token-secret userRateLimitExceeded'
+        with patch('songmaker.drive.run', side_effect=[RuntimeError(secret), '[]']) as execute, \
+             patch('songmaker.drive.time.sleep'):
+            self.assertEqual(drive.listing('imageFolder'), [])
+            self.assertEqual(execute.call_count, 2)
+            self.assertIn('--tpslimit', execute.call_args.args[0])
+            self.assertIn('--tpslimit-burst', execute.call_args.args[0])
+        for operation in (['moveto', 'gdrive:a', 'gdrive:b', '--ignore-existing'],
+                          ['copyto', 'a', 'gdrive:b', '--ignore-existing']):
+            with patch('songmaker.drive.run', side_effect=RuntimeError(secret)) as execute:
+                with self.assertRaisesRegex(RuntimeError, 'userRateLimitExceeded') as caught:
+                    drive.call(operation)
+                self.assertNotIn('token-secret', str(caught.exception))
+                self.assertEqual(execute.call_count, 1)  # no blind mutation replay
+        with patch('songmaker.drive.run', side_effect=RuntimeError('storageQuotaExceeded')) as execute:
+            with self.assertRaisesRegex(RuntimeError, 'storageQuotaExceeded'):
+                drive.listing('imageFolder')
+            self.assertEqual(execute.call_count, 1)  # a full Drive is not a transient rate limit
+        with patch('songmaker.drive.run', side_effect=RuntimeError(secret)) as execute, \
+             patch('songmaker.drive.time.sleep'):
+            with self.assertRaises(RuntimeError):
+                drive.listing('imageFolder')
+            self.assertEqual(execute.call_count, 3)  # bounded metadata retry
+        with patch('songmaker.drive.run', side_effect=RuntimeError(secret)):
+            with self.assertRaises(Cancelled):
+                Drive({'remote':'gdrive'}, lambda: True).listing('imageFolder')
+
+    def test_drive_cooldown_is_durable_and_keeps_local_rendering_available(self):
+        first = self.store.enqueue('alice', {'drive':1}, {'origin':'drive','local_name':'drive.mp4'})
+        manual = self.store.enqueue('bob', {'manual':1}, {'origin':'manual','local_name':'local.mp4'})
+        self.store.drive_after(280)
+        self.store.drive_after(200)  # another lane cannot shorten an existing cooldown
+        self.assertEqual(Store(self.root).drive_after(), 280)
+        with patch('songmaker.store.time.time', return_value=100):
+            self.assertEqual(self.store.claim('render')['id'], manual['id'])
+            self.assertIsNone(self.store.claim('render'))
+        with patch('songmaker.store.time.time', return_value=281):
+            self.assertEqual(self.store.claim('render')['id'], first['id'])
+
+    def test_provider_limit_automatically_resumes_saved_upload_after_restart(self):
+        job = self.submit()
+        process(self.store, self.store.claim('render'), 'render')
+        class Limited:
+            def __init__(self, *args): pass
+            def upload(self, *args):
+                raise RuntimeError('Drive operation failed (rateLimitExceeded); provider quota')
+        with patch('songmaker.worker.time.time', return_value=100):
+            process(self.store, self.store.claim('upload'), 'upload', drive_factory=Limited)
+            waiting = self.store.get(job['id'])
+            self.assertEqual(waiting['stage'], 'Waiting for Drive')
+            self.assertEqual(waiting['next_retry_at'], 280)
+            self.assertEqual(waiting['retry_lane'], 'upload')
+            self.assertEqual(waiting['drive_retry_count'], 1)
+            self.assertIsNone(self.store.claim('upload'))
+        restarted = Store(self.root)
+        output = self.root/'outputs'/job['id']/waiting['local_name']
+        before = digest(output)
+        class Good:
+            def __init__(self, *args): pass
+            def upload(self, *args): return {'remote_id':'verified-qa','verified_at':281,'drive_status':'Verified'}
+        with patch('songmaker.worker.time.time', return_value=281):
+            claim = restarted.claim('upload')
+            self.assertEqual(claim['id'], job['id'])
+            process(restarted, claim, 'upload', drive_factory=Good)
+        complete = restarted.get(job['id'])
+        self.assertEqual(complete['stage'], 'Completed')
+        self.assertIsNone(complete['next_retry_at'])
+        self.assertEqual(digest(output), before)
+
+    def test_cancelled_provider_retry_cannot_be_claimed_when_due(self):
+        job = self.store.enqueue('alice', {'retry':1}, {'origin':'drive','local_name':'test.mp4'})
+        self.store.update(job['id'], stage='Waiting for Drive', retry_lane='render', next_retry_at=100)
+        self.assertEqual(self.client.post('/song-maker/api/jobs/'+job['id']+'/cancel',headers=self.headers).status_code,200)
+        with patch('songmaker.store.time.time', return_value=101):
+            self.assertIsNone(self.store.claim('render'))
+
     def test_song_studio_shared_drive_defaults_and_explicit_overrides(self):
         from songmaker.drive import DEFAULT_INPUT, DEFAULT_OUTPUT, folder_ref, default_settings
         self.assertEqual(DEFAULT_INPUT, 'Song Studio/Audio downloader')

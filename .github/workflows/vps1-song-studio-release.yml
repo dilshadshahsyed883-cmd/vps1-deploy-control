@@ -6,11 +6,12 @@ permissions:
   contents: read
 # Keep this workflow independent of complete-site workflow scheduling.
 # VPS's existing deploy helper still serializes host operations and guards rollback.
-concurrency:
-  group: vps1-production-applications
-  cancel-in-progress: false
 jobs:
   deploy:
+    # Only eligible jobs reserve host serialization; skipped workflows cannot cancel a release.
+    concurrency:
+      group: vps1-production-applications
+      cancel-in-progress: false
     if: >-
       github.ref == 'refs/heads/main' &&
       github.actor == 'dilshadshahsyed883-cmd' &&

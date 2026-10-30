@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import re
 import time
-from .media import fingerprint, pairs, run, digest, output_name
+from .media import fingerprint, pairs, run, digest, output_name, Cancelled
 
 CONFIG = os.environ.get('RCLONE_CONFIG', '/home/ubuntu/.config/masterctl/rclone.conf')
 DEFAULT_INPUT = 'Song Studio/Audio downloader'
@@ -49,7 +49,8 @@ class Drive:
 
     def call(self, args, folder=None, timeout=300):
         command = ['rclone', *args, '--config', CONFIG, '--contimeout', '20s', '--timeout', '60s',
-                   '--retries', '2', '--low-level-retries', '2']
+                   '--retries', '2', '--low-level-retries', '2',
+                   '--tpslimit', '1', '--tpslimit-burst', '1']
         if folder:
             folder = folder_ref(folder)
             if '/' in folder:
@@ -60,11 +61,30 @@ class Drive:
                            if value.startswith(prefix) else value for value in command]
             else:
                 command += ['--drive-root-folder-id', folder]
-        try:
-            return run(command, self.cancelled, timeout=timeout)
-        except RuntimeError:
-            # rclone diagnostics may contain private paths/URLs. Never persist raw stderr.
-            raise RuntimeError('Drive operation failed; check the selected profile and folder access') from None
+        for attempt in range(3):
+            try:
+                return run(command, self.cancelled, timeout=timeout)
+            except RuntimeError as exc:
+                # Persist only a provider reason from an explicit allowlist,
+                # never paths, tokens, URLs or raw rclone stderr.
+                error = str(exc).lower()
+                reasons = ('storageQuotaExceeded', 'dailyLimitExceeded', 'downloadQuotaExceeded',
+                           'userRateLimitExceeded', 'rateLimitExceeded', 'quotaExceeded',
+                           'invalid_grant', 'permission denied', 'read-only file system',
+                           'directory not found', 'object not found', 'unknown flag', '429', 'rate limit')
+                reason = next((r for r in reasons if r.lower() in error), 'unclassified')
+                temporary = reason in {'userRateLimitExceeded', 'rateLimitExceeded',
+                                       'quotaExceeded', '429', 'rate limit'}
+                # Re-read metadata after a quiet window. Mutations are never
+                # replayed here; their persisted reservations/receipts own recovery.
+                if args[0] == 'lsjson' and temporary and attempt < 2:
+                    for _ in range((10, 30)[attempt]):
+                        if self.cancelled():
+                            raise Cancelled('Cancelled during Drive rate-limit backoff')
+                        time.sleep(1)
+                    continue
+                raise RuntimeError('Drive operation failed (' + reason +
+                                   '); check profile, folder access or provider quota') from None
 
     def listing(self, folder):
         return json.loads(self.call(['lsjson', self.remote+':', '--files-only', '--hash'], folder))

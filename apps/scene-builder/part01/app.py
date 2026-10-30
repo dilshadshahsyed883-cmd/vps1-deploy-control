@@ -2050,10 +2050,16 @@ def _audio_downloader_canonical_html(payload: bytes) -> bytes:
 @app.get("/audio-downloader/", response_class=HTMLResponse)
 async def audio_downloader_canonical_page(request: Request):
     require_login(request)
-    upstream = await _vps1_voice_studio_proxy(request, "app")
+    # This independent app runs on the production Voice service (8143).
+    # The legacy Scene Voice proxy still targets the retired 8130 instance.
+    # Fetch only its HTML after Scene authentication; no credentials or body forwarded.
+    upstream = await _vs_asyncio.to_thread(
+        _vs_requests.get, "http://127.0.0.1:8143/app", timeout=30,
+        allow_redirects=False,
+    )
     if upstream.status_code != 200 or "text/html" not in upstream.headers.get("content-type", "").lower():
-        return upstream
-    html = _audio_downloader_canonical_html(upstream.body)
+        raise HTTPException(status_code=502, detail="Audio Downloader service unavailable")
+    html = _audio_downloader_canonical_html(upstream.content)
     return _VSResponse(
         content=html,
         status_code=200,

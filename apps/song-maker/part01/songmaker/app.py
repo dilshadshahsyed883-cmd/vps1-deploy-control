@@ -90,7 +90,7 @@ def create_app(store=None):
         return {'jobs': [public(j) for j in store.jobs(user['owner'])], 'settings': settings,
                 'export': exports, 'sync_access': True,
                 'sync': store.record('sync', user['owner']), 'admin': user['admin'],
-                'queue_paused': store.paused(user['owner'])}
+                'queue_paused': store.paused(user['owner']), 'drive_retry_after': store.drive_after()}
 
     @app.get('/song-maker/api/profiles')
     def profiles(user=Depends(principal)):
@@ -245,7 +245,7 @@ def create_app(store=None):
             # the render lane to complete the safe /used move (without rerender).
             archived = not archive_eligible(job) or job.get('archive_status') == 'Archived'
             store.update(job_id, stage='Ready to Upload' if job.get('valid') and archived else 'Queued',
-                         cancel=0, error='', drive_status='Pending')
+                         cancel=0, error='', drive_status='Pending', next_retry_at=None, retry_lane='')
         elif action == 'delete':
             if job['lane'] or job['stage'] not in TERMINAL:
                 raise HTTPException(409, 'Cancel the job and wait for the worker before deleting')
