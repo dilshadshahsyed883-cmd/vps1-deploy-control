@@ -37,6 +37,7 @@ jobs:
           # Explicit UI-only release avoids restarting unrelated Song Studio apps.
           VOICE_UI_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-song-audio-selector-only]') && '1' || '0' }}
           SONG_UPLOADER_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-song-uploader-only]') && '1' || '0' }}
+          SONG_MAKER_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-song-maker-only]') && '1' || '0' }}
           AUDIO_URL_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-song-audio-url-only]') && '1' || '0' }}
         run: |
           set -Eeuo pipefail
@@ -52,9 +53,16 @@ jobs:
           actual="$(ssh-keygen -lf "$scratch/public" -E sha256 | awk '{print $2}')"
           test "$actual" = 'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
           printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
+          # Only one app selector may be set; never deploy another app implicitly.
+          # The song-maker path uses its exact dedicated installer and idle fence.
+          if (( AUDIO_URL_ONLY + SONG_UPLOADER_ONLY + VOICE_UI_ONLY + SONG_MAKER_ONLY > 1 )); then
+            echo 'Conflicting Song Studio release selectors'; exit 1
+          fi
           # Serialized, app-scoped installers retain their own idle/backup/rollback
           # checks. Voice uses its template-only path from the merge intent.
-          if [[ "$AUDIO_URL_ONLY" == "1" ]]; then
+          if [[ "$SONG_MAKER_ONLY" == "1" ]]; then
+            apps=(song-maker)
+          elif [[ "$AUDIO_URL_ONLY" == "1" ]]; then
             apps=(scene-builder)
           elif [[ "$SONG_UPLOADER_ONLY" == "1" ]]; then
             apps=(local-upload-manager)

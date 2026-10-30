@@ -58,8 +58,13 @@ class SongStudioReleaseTests(unittest.TestCase):
                        'apps=(scene-builder voice-studio local-upload-manager song-maker)',
                         'apps=(voice-studio)', '[vps1-song-audio-selector-only]',
                         'apps=(local-upload-manager)', '[vps1-song-uploader-only]',
-                        'SONG_UPLOADER_ONLY', '[vps1-song-audio-url-only]', 'apps=(scene-builder)'):
+                        'SONG_UPLOADER_ONLY', '[vps1-song-audio-url-only]', 'apps=(scene-builder)',
+                        'SONG_MAKER_ONLY', '[vps1-song-maker-only]', 'apps=(song-maker)',
+                        'Conflicting Song Studio release selectors'):
             self.assertIn(marker,source)
+        self.assertIn('if [[ "$SONG_MAKER_ONLY" == "1" ]]; then\n            apps=(song-maker)', source)
+        self.assertIn('AUDIO_URL_ONLY + SONG_UPLOADER_ONLY + VOICE_UI_ONLY + SONG_MAKER_ONLY > 1',source)
+        self.assertIn('vps1-production-deploy install $SOURCE_SHA $app',source)
         self.assertNotIn('pull_request_target',source)
         self.assertIn('install_voice(revision)',(root/'production/runtime.py').read_text())
 
