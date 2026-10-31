@@ -37,3 +37,14 @@ body.lum-copyright-workspace :is(button,a,input,select,textarea,summary):focus-v
   body.lum-copyright-workspace .copyright-profile-submit { padding-bottom: 0; }
   body.lum-copyright-workspace .lum-shell .lum-submit-card { flex-wrap: wrap; gap: 12px; }
 }
+
+/* Copyright Sheets Sync: compact Short Uploader parity; sync endpoints unchanged. */
+body.lum-copyright-workspace .lum-sheet-format-help{margin:0 0 10px;padding:7px 10px;font-size:11px}
+body.lum-copyright-workspace .lum-sheet-format-help summary{cursor:pointer;font-weight:700}
+body.lum-copyright-workspace .lum-short-sheet-header-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+body.lum-copyright-workspace .lum-short-sheet-header-actions form{margin:0}
+@media(max-width:760px){
+ body.lum-copyright-workspace .lum-short-sheet-header-actions{width:100%;justify-content:flex-start}
+ body.lum-copyright-workspace .lum-short-sheet-header-actions form{flex:1 1 auto}
+ body.lum-copyright-workspace .lum-short-sheet-header-actions button{width:100%}
+}
