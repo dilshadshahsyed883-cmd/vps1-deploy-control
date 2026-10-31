@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
+from .studio_tenants import StudioTenants
 from .auth_store import UserStore
 from .config import (
     API_VERSION, BASE_PATH, BUILD, COOKIE_SECURE, DATA_ROOT, REPORTS_ROOT, SESSION_SECRET, STAGING_ROOT,
@@ -54,6 +55,7 @@ if not SESSION_SECRET:
 store = ProjectStore()
 users = UserStore()
 db = Database()
+studio_tenants = StudioTenants(db)
 auth_manager = AuthManager(db)
 worker = VPSUploadWorker(store, db)
 
@@ -63,6 +65,9 @@ from .sheets_bridge import (
     delete_sheet_source as web_delete_sheet_source,
     sync_sheet_source_by_id as web_sync_sheet_source_by_id,
     sync_all_sheet_sources as web_sync_all_sheet_sources,
+    fetch_sheet_csv as tenant_fetch_sheet_csv,
+    rows_to_sheet_rows as tenant_rows_to_sheet_rows,
+    TOKEN_DIR as tenant_token_dir,
 )
 
 # LUM_CHANNELS_PC_SYNC_V5_IMPORTS
@@ -203,9 +208,13 @@ def require_heavy(user: dict[str, Any]) -> None:
     """Compatibility hook: only the full workspace remains."""
     return None
 
-def all_channels() -> list[dict[str, Any]]:
+def all_channels(user: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     with db.connect() as conn:
         rows = [dict(r) for r in conn.execute("SELECT * FROM channels ORDER BY id DESC").fetchall()]
+    if user is not None:
+        allowed=studio_tenants.allowed_ids("channel",user)
+        if allowed is not None:
+            rows=[row for row in rows if int(row["id"]) in allowed]
     for row in rows:
         token = str(row.get("token_file_path") or "")
         row["token_status"] = token_status_label(classify_google_json(Path(token))) if token else "Missing"
@@ -243,16 +252,18 @@ def get_logs(user: dict[str, Any], limit: int = 300) -> list[dict[str, Any]]:
     return store.events(owner=owner, limit=limit)
 
 
-def stats_payload() -> dict[str, Any]:
-    channels = all_channels()
+def stats_payload(user: dict[str, Any] | None = None) -> dict[str, Any]:
+    channels = all_channels(user)
+    owner = str(user.get("username") or "") if user is not None and not int(user.get("is_admin") or 0) else None
+    counts=store.counts(owner=owner)
     return {
-        "counts": store.counts(),
+        "counts": counts,
         "channels": len(channels),
         "authenticated_channels": sum(1 for c in channels if str(c.get("token_status") or "").lower().startswith("valid")),
-        "active_project_id": worker.active_project_id,
+        "active_project_id": worker.active_project_id if user is None or int(user.get("is_admin") or 0) else None,
         "engine_enabled": store.setting("engine_enabled", "1") == "1",
         "pause_after_current": store.setting("pause_after_current", "0") == "1",
-        "settings": store.settings(),
+        "settings": store.settings() if user is None or int(user.get("is_admin") or 0) else {},
     }
 
 
@@ -291,6 +302,32 @@ async def standalone_auth(request: Request, call_next):
         }
         request.session.pop("lum_admin_mode", None)
         request.state.lum_user = user
+        # TENANT_SAFE_WRITES: no unscoped global tokens, worker or queue changes.
+        if not is_admin and request.method not in {"GET","HEAD"}:
+            allowed_exact={route("/logout"),route("/actions/add-video"),
+                route("/actions/oauth-start"),route("/actions/oauth-complete"),
+                route("/actions/google-oauth/connect"),
+                route("/actions/studio-tenant/channel-create"),
+                route("/actions/studio-tenant/group-create"),
+                route("/actions/auth-connections/test"),
+                route("/actions/auth-connections/activate"),
+                route("/actions/sheets/save"),route("/actions/sheets/delete"),
+                route("/actions/sheets/sync"),
+                route("/actions/channels/status"),route("/actions/channels/delete-manual"),
+                route("/actions/channels/rescan-tokens"),route("/actions/channels/test-connections"),
+                route("/actions/copyright/profile")}
+            allowed_prefixes=(route("/actions/retry/"),route("/actions/authorize-fresh/"),
+                route("/actions/cancel/"),route("/actions/channel-network/"))
+            if path not in allowed_exact and not path.startswith(allowed_prefixes):
+                return JSONResponse({"detail":"Global uploader operation is administrator-only"},status_code=403)
+        if (not is_admin and os.getenv("LUM_ENGINE_INSTANCE") in
+                {"song","shortstudio","copyright"} and
+                (path.startswith(route("/reports/")) or
+                 path.startswith(route("/actions/auto-v6/thumbnail/")) or
+                 path==route("/actions/auto-v6/preview-all") or
+                 path==route("/actions/auto-v6/upload-records.csv") or
+                 path==route("/api/auto-modes"))):
+            return JSONResponse({"detail":"Owner-scoped resource access required"},status_code=403)
         return await call_next(request)
 
     if users.count() == 0:
@@ -435,16 +472,40 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         allowed = {"dashboard", "channels", "sheets", "profiles", "add_video", "queue", "logs"}
     default_tab = "add_video"
     selected = tab if tab in allowed else default_tab
-    channels = all_channels()
+    channels = all_channels(user)
     projects = get_projects(user)
     logs = get_logs(user) if selected == "logs" else []
     sheet_sources = db.list_sheet_sources() if selected == "sheets" else []
     selected_sheet_source = db.get_sheet_source(int(source_id)) if selected == "sheets" and int(source_id or 0) else None
-    web_clients = list_clients()
-    channel_context = channels_page_context(db, web_clients) if selected == "channels" else {
+    permitted_sheets=studio_tenants.allowed_ids("sheet",user)
+    if permitted_sheets is not None:
+        sheet_sources=[item for item in sheet_sources if int(item["id"]) in permitted_sheets]
+        if selected_sheet_source and int(selected_sheet_source["id"]) not in permitted_sheets:
+            selected_sheet_source=None
+    permitted_channels=studio_tenants.allowed_ids("channel",user)
+    web_clients = list_clients() if permitted_channels is None else []
+    channel_context = channels_page_context(
+        db, web_clients, permitted_channels, permitted_sheets,
+        inventory_channels=channels if os.getenv("LUM_ENGINE_INSTANCE") in
+            {"song", "shortstudio", "copyright"} else None,
+    ) if selected == "channels" else {
         "rows": [], "summary": {}, "groups": [], "sheets": [], "oauth_inventory": {}
     }
-    pc_sync_history = list_sync_history() if selected == "channels" else []
+    if permitted_channels is not None:
+        permitted_groups=studio_tenants.allowed_ids("group",user)
+        channel_context["rows"]=[item for item in channel_context["rows"]
+                                 if int(item.get("id") or 0) in permitted_channels]
+        channel_context["groups"]=[item for item in channel_context["groups"]
+                                   if int(item.get("id") or 0) in permitted_groups]
+        channel_context["sheets"]=[item for item in channel_context["sheets"]
+                                   if int(item.get("id") or 0) in permitted_sheets]
+        channel_context["summary"]={"total":len(channel_context["rows"])}
+        channel_context["oauth_inventory"]={}  # Never enumerate global token files
+        web_clients=[]  # Client config belongs to the shared service, not the tenant
+    # PC Sync is a global administrator operation; its history may contain
+    # private channel identifiers and source paths from other accounts.
+    pc_sync_history = (list_sync_history() if selected == "channels" and
+                       int(user.get("is_admin") or 0) else [])
     try:
         selected_auto_mode = validate_auto_mode(auto_mode)
     except ValueError:
@@ -477,9 +538,12 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         if selected == "auto_engine" and engine_instance == "engine1"
         else {}
     )
-    auto_v6 = v6_profile_context(db, v6_store, int(auto_profile_id or 0),owner=str(user.get("username") or "")) if selected == "auto_engine" and selected_auto_mode == "engine1" else {}
+    auto_v6 = v6_profile_context(db, v6_store, int(auto_profile_id or 0),
+                                     owner="" if int(user.get("is_admin") or 0) else str(user.get("username") or "")) if selected == "auto_engine" and selected_auto_mode == "engine1" else {}
     if selected == "auto_engine" and auto_v6:
-        auto_v6["short_folders"] = v6_shortstudio_list_folders() if engine_instance == "shortstudio" else []
+        auto_v6["short_folders"] = v6_shortstudio_list_folders(
+            owner="" if int(user.get("is_admin") or 0) else str(user.get("username") or "")
+        ) if engine_instance == "shortstudio" else []
         # LUM_SCHEDULER_CONTROL_LIVE_V1: runtime-only presentation state.
         # This does not mutate scheduler_armed or profile schedules.
         from datetime import datetime, timedelta
@@ -554,7 +618,7 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         "message": message,
         "error": error,
         "health": health(),
-        "stats": stats_payload(),
+        "stats": stats_payload(user),
         "channels": channels,
         "clients": web_clients,
         "projects": projects,
@@ -726,6 +790,7 @@ async def add_video(
     source_size = 0
     try:
         upload_instance = os.getenv("LUM_ENGINE_INSTANCE", "engine1").strip().lower()
+        studio_tenants.require("channel",int(channel_db_id),user)
         if upload_instance == "copyright":
             if profile_id:
                 profile = store.copyright_profile(str(user["username"]), int(profile_id))
@@ -832,6 +897,7 @@ def oauth_start_action(
         target_id = int(target_channel_db_id or 0)
         if target_id <= 0:
             raise ValueError("Select a channel before starting Google authorization.")
+        studio_tenants.require("channel",target_id,user)
         target = db.get_channel(target_id)
         if not target:
             raise ValueError("Selected channel no longer exists. Refresh Accounts & Tokens and select it again.")
@@ -882,6 +948,7 @@ def oauth_complete_action(request: Request, csrf_token: str = Form(...), callbac
     if not session_id:
         return redirect(f"/app?tab={tab}", error="Start authentication first")
     try:
+        studio_tenants.require("channel",int(request.session.get("lum_oauth_target_channel_db_id") or 0),user)
         result = complete_oauth(db, session_id, callback_url)
         request.session.pop("lum_oauth_url", None); request.session.pop("lum_oauth_session_id", None)
         request.session.pop("lum_oauth_target_channel_db_id", None); request.session.pop("lum_oauth_target_channel_id", None); request.session.pop("lum_oauth_target_channel_name", None)
@@ -894,6 +961,7 @@ def oauth_complete_action(request: Request, csrf_token: str = Form(...), callbac
 def channel_network(channel_id: int, request: Request, csrf_token: str = Form(...), profile_name: str = Form(""), proxy_scheme: str = Form("http"), proxy_host: str = Form(""), proxy_port: str = Form(""), proxy_username: str = Form(""), proxy_password: str = Form("")):
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
+        studio_tenants.require("channel",channel_id,user)
         db.update_channel_network_profile(channel_id, browser_profile_name=profile_name, proxy_scheme=proxy_scheme, proxy_host=proxy_host, proxy_port=proxy_port, proxy_username=proxy_username, proxy_password=proxy_password)
         return redirect("/app?tab=channels", message="Channel network profile updated")
     except Exception as exc:
@@ -921,7 +989,7 @@ def retry_project(project_id: int, request: Request, csrf_token: str = Form(...)
             if str(core.get("status") or "") == "FAILED":
                 db.queue_failed_for_retry(exclude_auto_engine=True, video_ids=[core_id])
             elif str(core.get("status") or "") == "PAUSED":
-                db.resume_paused(exclude_auto_engine=True)
+                db.resume_paused(exclude_auto_engine=True,video_ids=[core_id])
         if not store.retry(project_id):
             raise ValueError("Project is not retryable")
         tab = "upload" if user_mode(user) == "simple" else "queue"
@@ -994,6 +1062,13 @@ def sheets_save(
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
         sid = int(source_id) if str(source_id or "").strip() else None
+        if sid:
+            studio_tenants.require("sheet",sid,user)
+        elif not int(user.get("is_admin") or 0):
+            existing={str(row.get("sheet_url_or_id") or "").strip()
+                      for row in db.list_sheet_sources()}
+            if str(sheet_url_or_id or "").strip() in existing:
+                raise PermissionError("Sheet already exists in another workspace")
         saved_id = web_save_sheet_source(
             db,
             source_id=sid,
@@ -1001,6 +1076,8 @@ def sheets_save(
             sheet_url_or_id=sheet_url_or_id,
             enabled=str(enabled).lower() in {"1", "true", "on", "yes"},
         )
+        if not int(user.get("is_admin") or 0):
+            studio_tenants.bind("sheet",int(saved_id),user["username"])
         return redirect(
             f"/app?tab=sheets&source_id={saved_id}",
             message="Sheet source saved.",
@@ -1020,7 +1097,11 @@ def sheets_delete(
 ):
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
-        web_delete_sheet_source(db, int(source_id))
+        studio_tenants.require("sheet",int(source_id),user)
+        if int(user.get("is_admin") or 0):
+            web_delete_sheet_source(db,int(source_id))
+        else:
+            studio_tenants.delete_owned_sheet(user["username"],int(source_id))
         return redirect(
             "/app?tab=sheets",
             message="Sheet source removed from current inventory. Saved token/history data was retained.",
@@ -1044,16 +1125,33 @@ def sheets_sync(
             f"/app?tab=sheets&source_id={int(source_id)}",
             error="Enable Sheets Sync on Dashboard before running synchronization.",
         )
-    result = web_sync_sheet_source_by_id(db, int(source_id))
-    if result.get("ok"):
+    try:
+        if int(user.get("is_admin") or 0):
+            result=web_sync_sheet_source_by_id(db,int(source_id))
+        else:
+            studio_tenants.require("sheet",int(source_id),user)
+            source=db.get_sheet_source(int(source_id))
+            if not source:
+                raise ValueError("Sheet source does not exist")
+            raw=tenant_fetch_sheet_csv(source["sheet_url_or_id"],None)
+            if not raw:
+                raise ValueError("Sheet returned zero rows; no existing records changed")
+            prepared=tenant_rows_to_sheet_rows(raw,str(tenant_token_dir))
+            result=studio_tenants.sync_owned_sheet_rows(
+                user["username"],int(source_id),prepared)
+        if result.get("ok"):
+            return redirect(
+                f"/app?tab=sheets&source_id={int(source_id)}",
+                message=f"Sheet synced · {int(result.get('rows') or 0)} row(s). "
+                        "Group memberships and existing OAuth remain unchanged.",
+            )
         return redirect(
             f"/app?tab=sheets&source_id={int(source_id)}",
-            message=f"Sheet synced · {int(result.get('rows') or 0)} row(s) · {int(result.get('groups_touched') or 0)} group(s).",
+            error=str(result.get("error") or result.get("status") or "Sheet sync failed."),
         )
-    return redirect(
-        f"/app?tab=sheets&source_id={int(source_id)}",
-        error=str(result.get("error") or result.get("status") or "Sheet sync failed."),
-    )
+    except Exception as exc:
+        return redirect(
+            f"/app?tab=sheets&source_id={int(source_id)}",error=str(exc))
 
 
 @app.post(route("/actions/sheets/sync-all"))
@@ -1085,6 +1183,105 @@ def sheets_sync_all(request: Request, csrf_token: str = Form(...)):
 
 
 
+# STUDIO_TENANT_SAFE_ONBOARDING_V1
+@app.post(route("/actions/studio-tenant/channel-create"))
+def studio_tenant_channel_create(request: Request,csrf_token: str=Form(...),
+                                 channel_id: str=Form(...),channel_name: str=Form(...),
+                                 google_account_email: str=Form("")):
+    user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
+    if os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio","copyright"}:
+        raise HTTPException(404,"Not found")
+    try:
+        cid=studio_tenants.create_channel(user["username"],channel_id,channel_name,
+                                          google_account_email)
+        return redirect("/app?tab=channels",message=f"YouTube channel #{cid} created for this account; connect Google OAuth to authorize.")
+    except Exception as exc:
+        return redirect("/app?tab=channels",error=str(exc))
+
+
+@app.post(route("/actions/studio-tenant/group-create"))
+def studio_tenant_group_create(request: Request,csrf_token: str=Form(...),
+                               group_name: str=Form(...),channel_ids: list[int]=Form([])):
+    user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
+    if os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio","copyright"}:
+        raise HTTPException(404,"Not found")
+    try:
+        gid=studio_tenants.create_group(user["username"],group_name,channel_ids)
+        return redirect("/app?tab=channels",message=f"Private channel group #{gid} created for this account.")
+    except Exception as exc:
+        return redirect("/app?tab=channels",error=str(exc))
+
+
+# STUDIO_TENANT_ASSIGNMENT_V1
+@app.post(route("/actions/studio-tenant/grant"))
+def studio_tenant_grant(
+    request: Request,
+    csrf_token: str = Form(...),
+    entity_kind: str = Form(...),
+    entity_id: int = Form(...),
+    owner_username: str = Form(...),
+):
+    """Admin explicitly assigns an idle legacy resource without touching media."""
+    user=current_user(request); require_admin(user); require_csrf(request,csrf_token)
+    try:
+        kind,entity_id=studio_tenants.identity(entity_kind,entity_id)
+        owner=studio_tenants.username(owner_username)
+        table={"channel":"channels","group":"channel_groups",
+               "profile":"auto_engine_profiles","sheet":"sheet_sources"}[kind]
+        with db.connect() as con:
+            if not con.execute(f"SELECT 1 FROM {table} WHERE id=?",(entity_id,)).fetchone():
+                raise ValueError("Resource not found in current Studio instance")
+            if kind=="channel":
+                pending=con.execute(
+                    "SELECT COUNT(*) FROM videos WHERE channel_db_id=? AND"
+                    " UPPER(status) NOT IN ('UPLOADED','PUBLISHED','FAILED','CANCELLED')",
+                    (entity_id,)).fetchone()[0]
+                groups=[int(row[0]) for row in con.execute(
+                    "SELECT group_id FROM channel_group_members WHERE channel_db_id=?",
+                    (entity_id,)).fetchall()]
+                for gid in groups:
+                    assigned=studio_tenants.owner("group",gid)
+                    if assigned and assigned!=owner:
+                        raise PermissionError("Channel belongs to a different user's group")
+            elif kind=="group":
+                pending=con.execute(
+                    "SELECT COUNT(*) FROM videos WHERE auto_engine_profile_id IN"
+                    " (SELECT id FROM auto_engine_profiles WHERE channel_group_id=?)"
+                    " AND UPPER(status) NOT IN ('UPLOADED','PUBLISHED','FAILED','CANCELLED')",
+                    (entity_id,)).fetchone()[0]
+                members=[int(row[0]) for row in con.execute(
+                    "SELECT channel_db_id FROM channel_group_members WHERE group_id=?",
+                    (entity_id,)).fetchall()]
+                if any(studio_tenants.owner("channel",cid)!=owner for cid in members):
+                    raise PermissionError("Assign all member channels to the same user first")
+            elif kind=="profile":
+                pending=con.execute(
+                    "SELECT COUNT(*) FROM videos WHERE auto_engine_profile_id=? AND"
+                    " UPPER(status) NOT IN ('UPLOADED','PUBLISHED','FAILED','CANCELLED')",
+                    (entity_id,)).fetchone()[0]
+                row=con.execute("SELECT channel_group_id FROM auto_engine_profiles WHERE id=?",
+                                (entity_id,)).fetchone()
+                if row and row[0] and studio_tenants.owner("group",int(row[0]))!=owner:
+                    raise PermissionError("Assign parent channel group to this account first")
+            else:
+                pending=con.execute(
+                    "SELECT COUNT(*) FROM videos WHERE channel_db_id IN"
+                    " (SELECT id FROM channels WHERE sheet_source_id=?) AND"
+                    " UPPER(status) NOT IN ('UPLOADED','PUBLISHED','FAILED','CANCELLED')",
+                    (entity_id,)).fetchone()[0]
+                children=[int(row[0]) for row in con.execute(
+                    "SELECT id FROM channels WHERE sheet_source_id=?", (entity_id,)).fetchall()]
+                if any(studio_tenants.owner("channel",cid)!=owner for cid in children):
+                    raise PermissionError("Assign referenced channels to this user first")
+        if pending:
+            raise PermissionError("Resource has outstanding queue jobs; assignment blocked")
+        studio_tenants.assign_by_admin(kind,entity_id,owner,user)
+        return redirect("/app?tab=channels",
+                        message=f"{kind.title()} #{entity_id} assigned to {owner}.")
+    except Exception as exc:
+        return redirect("/app?tab=channels",error=str(exc))
+
+
 # LUM_CHANNELS_PC_SYNC_V5_ROUTES
 @app.post(route("/actions/channels/status"))
 def channels_status(
@@ -1095,6 +1292,8 @@ def channels_status(
 ):
     user=current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
+        for channel_id in channel_ids:
+            studio_tenants.require("channel",channel_id,user)
         updated=set_status_bulk(db, channel_ids, status)
         return redirect("/app?tab=channels", message=f"Updated {updated} channel(s) to {str(status).upper()}.")
     except Exception as exc:
@@ -1109,6 +1308,8 @@ def channels_delete_manual(
 ):
     user=current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
+        for channel_id in channel_ids:
+            studio_tenants.require("channel",channel_id,user)
         result=delete_manual_selected(db, channel_ids)
         return redirect(
             "/app?tab=channels",
@@ -1131,6 +1332,10 @@ def channels_rescan_tokens(
 ):
     user=current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
+        if str(scope).lower()=="all_missing" and not int(user.get("is_admin") or 0):
+            raise PermissionError("Global token scan is administrator-only")
+        for channel_id in channel_ids:
+            studio_tenants.require("channel",channel_id,user)
         ids=None if str(scope).lower()=="all_missing" else channel_ids
         result=rescan_channel_tokens(db, ids)
         return redirect(
@@ -1152,6 +1357,8 @@ def channels_test_connections(
 ):
     user=current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
+        for channel_id in channel_ids:
+            studio_tenants.require("channel",channel_id,user)
         result=test_connections(db, channel_ids)
         return redirect(
             "/app?tab=channels",
@@ -1255,9 +1462,25 @@ def _v6_profile(profile_id: int,request: Request=None):
     profile=db.get_auto_engine_profile(int(profile_id))
     if not profile:
         raise ValueError("Auto Engine profile not found.")
-    owner=v6_store.group_settings(int(profile_id)).get("song_folder_owner")
-    if owner and (request is None or owner!=str(current_user(request).get("username") or "")):
-        raise ValueError("This folder profile belongs to another account.")
+    if request is None:
+        raise ValueError("Verified Studio account is required for profile changes.")
+    user=current_user(request)
+    studio_tenants.require("profile",int(profile_id),user)
+    if not int(user.get("is_admin") or 0):
+        # A profile's ACL alone does not authorize new members added to
+        # its group later. Revalidate its live target set before scheduling.
+        group_id=int(profile.get("channel_group_id") or 0)
+        if group_id:
+            studio_tenants.require("group",group_id,user)
+            with db.connect() as con:
+                members=[int(row[0]) for row in con.execute(
+                    "SELECT channel_db_id FROM channel_group_members WHERE group_id=?",
+                    (group_id,)).fetchall()]
+            for cid in members:
+                studio_tenants.require("channel",cid,user)
+        direct_channel=int(profile.get("channel_db_id") or 0)
+        if direct_channel:
+            studio_tenants.require("channel",direct_channel,user)
     return profile
 
 
@@ -1268,8 +1491,27 @@ async def auto_v6_profile_save(request: Request):
     try:
         raw=str(form.get("profile_id") or "").strip()
         pid=int(raw) if raw.isdigit() else None
+        if pid:
+            _v6_profile(pid,request)
+        group_id=str(form.get("channel_group_id") or "").strip()
+        channel_id=str(form.get("channel_db_id") or "").strip()
+        if group_id.isdigit():
+            studio_tenants.require("group",int(group_id),user)
+        if channel_id.isdigit():
+            studio_tenants.require("channel",int(channel_id),user)
+        if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio":
+            folder_name=str(form.get("short_vps_folder") or "").strip()
+            if folder_name and not int(user.get("is_admin") or 0):
+                folder=v6_shortstudio_folder_path(folder_name)
+                marker=folder/".studio_owner"
+                if (marker.is_symlink() or not marker.is_file() or
+                        marker.read_text(encoding="utf-8").strip().casefold() !=
+                        str(user["username"]).casefold()):
+                    raise PermissionError("Short Maker folder belongs to another user")
         fields=dict(form); fields["_song_owner"]=str(user.get("username") or "")
         saved=v6_save_profile_from_form(db,v6_store,fields,pid)
+        if not int(user.get("is_admin") or 0):
+            studio_tenants.bind("profile",int(saved),user["username"])
         return redirect(f"/app?tab=auto_engine&auto_profile_id={saved}",message=f"Auto Engine profile #{saved} saved.")
     except Exception as exc:
         return redirect("/app?tab=auto_engine",error=str(exc))
@@ -2014,9 +2256,17 @@ def _dual_auth_is_admin(user):
 
 @app.get(route("/actions/auth-connections/status"))
 def dual_auth_status(request: Request):
-    current_user(request)
-    payload = _dual_auth.status()
+    user=current_user(request)
+    payload=_dual_auth.status()
     payload.update(_dual_auth.inventory())
+    allowed=studio_tenants.allowed_ids("channel",user)
+    if allowed is not None:
+        payload["connections"]=[
+            row for row in payload.get("connections",[])
+            if int(row.get("channel_db_id") or 0) in allowed
+        ]
+        payload["client_id_hint"]=""
+        payload["updated_at"]=""
     return _DualAuthJSONResponse(payload)
 
 
@@ -2043,7 +2293,9 @@ async def dual_auth_google_connect(request: Request):
     form = await request.form()
     require_csrf(request, str(form.get("csrf_token") or ""))
     try:
-        url = _dual_auth.begin(int(str(form.get("channel_db_id") or "0")), user=user)
+        channel_id=int(str(form.get("channel_db_id") or "0"))
+        studio_tenants.require("channel",channel_id,user)
+        url = _dual_auth.begin(channel_id, user=user)
         return _DualAuthRedirectResponse(url=url, status_code=303)
     except Exception as exc:
         return redirect("/app?tab=authentication", error=str(exc))
@@ -2070,13 +2322,14 @@ def dual_auth_google_callback(request: Request):
 
 @app.post(route("/actions/auth-connections/test"))
 async def dual_auth_test(request: Request):
-    current_user(request)
+    user = current_user(request)
     form = await request.form()
     require_csrf(request, str(form.get("csrf_token") or ""))
     try:
+        channel_id=int(str(form.get("channel_db_id") or "0"))
+        studio_tenants.require("channel",channel_id,user)
         result = _dual_auth.test_connection(
-            int(str(form.get("channel_db_id") or "0")),
-            str(form.get("method") or ""),
+            channel_id, str(form.get("method") or ""),
         )
         return redirect("/app?tab=authentication", message=f"{result.get('channel_name') or 'Channel'}: {result.get('method')} connection is working.")
     except Exception as exc:
@@ -2085,14 +2338,14 @@ async def dual_auth_test(request: Request):
 
 @app.post(route("/actions/auth-connections/activate"))
 async def dual_auth_activate(request: Request):
-    current_user(request)
+    user = current_user(request)
     form = await request.form()
     require_csrf(request, str(form.get("csrf_token") or ""))
     try:
+        channel_id=int(str(form.get("channel_db_id") or "0"))
+        studio_tenants.require("channel",channel_id,user)
         result = _dual_auth.select_active(
-            int(str(form.get("channel_db_id") or "0")),
-            str(form.get("method") or ""),
-            verify=True,
+            channel_id, str(form.get("method") or ""), verify=True,
         )
         return redirect("/app?tab=authentication", message=f"{result.get('channel_name') or 'Channel'} now uses {result.get('method')} authentication for new jobs.")
     except Exception as exc:

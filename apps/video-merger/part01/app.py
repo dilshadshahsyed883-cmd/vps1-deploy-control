@@ -90,7 +90,8 @@ def init_db():
           status TEXT NOT NULL DEFAULT 'ready', progress INTEGER NOT NULL DEFAULT 0, message TEXT NOT NULL DEFAULT '',
           error TEXT NOT NULL DEFAULT '', duration REAL NOT NULL DEFAULT 0, size_bytes INTEGER NOT NULL DEFAULT 0,
           source_url TEXT NOT NULL DEFAULT '', trim_json TEXT NOT NULL DEFAULT '{}',
-          created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+          created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+          owner_username TEXT NOT NULL DEFAULT ''
         );
         INSERT OR IGNORE INTO settings(k,v) VALUES('paused','0');
         ''')
@@ -104,6 +105,11 @@ def init_db():
         ):
             if name not in existing:
                 c.execute(f"ALTER TABLE jobs ADD COLUMN {name} {kind}")
+        library_columns={row[1] for row in c.execute("PRAGMA table_info(library_items)")}
+        if "owner_username" not in library_columns:
+            c.execute("ALTER TABLE library_items ADD COLUMN owner_username TEXT NOT NULL DEFAULT ''")
+        # Legacy, unassigned library media is preserved for admin recovery;
+        # never speculate which current user owned it.
         c.execute("UPDATE jobs SET status='waiting', message='Recovered after service restart', updated_at=? WHERE status IN ('downloading','trimming','preparing','merging','verifying','uploading','processing')", (utcnow(),))
         c.execute("UPDATE library_items SET status='failed', progress=100, message='Import interrupted by service restart', error='Import interrupted by service restart', updated_at=? WHERE status='importing'", (utcnow(),))
 
@@ -653,12 +659,15 @@ def get_library_item(item_id):
         r=c.execute('SELECT * FROM library_items WHERE id=?',(item_id,)).fetchone()
         return dict(r) if r else None
 
-def normalize_video_spec(v, idx=0):
+def normalize_video_spec(v, idx=0, owner=None):
     if isinstance(v,dict) and v.get('kind')=='library':
         lid=(v.get('library_id') or '').strip()
         if not lid: raise ValueError(f'Video {idx}: select a Library video')
         item=get_library_item(lid)
         if not item: raise ValueError(f'Video {idx}: Library video no longer exists')
+        if owner is not None and (not str(item.get('owner_username') or '').strip() or
+               str(item['owner_username']).casefold() != str(owner).casefold()):
+            raise ValueError(f'Video {idx}: Library video belongs to another user')
         if item.get('status')!='ready': raise ValueError(f'Video {idx}: Library video is not ready')
         return {'kind':'library','library_id':lid,'name':item.get('name',''),'trim_enabled':False,'start_min':0,'start_sec':0,'end_min':None,'end_sec':None}
     return normalize_url_spec(v,idx)
@@ -732,9 +741,12 @@ def library_in_use(item_id):
         except Exception: pass
     return False
 
-def list_library_items():
+def list_library_items(owner=None):
     with DB_LOCK, db() as c:
-        rows=c.execute('SELECT * FROM library_items ORDER BY lower(name), created_at').fetchall()
+        if owner is None:
+            rows=c.execute('SELECT * FROM library_items ORDER BY lower(name), created_at').fetchall()
+        else:
+            rows=c.execute('SELECT * FROM library_items WHERE lower(owner_username)=lower(?) AND owner_username<>\'\' ORDER BY lower(name), created_at',(owner,)).fetchall()
     out=[]
     for r in rows:
         d=dict(r)
@@ -793,12 +805,15 @@ def process_library_import(item_id, source_url, trim_spec, replacing=False):
     finally:
         shutil.rmtree(ws,ignore_errors=True)
 
-def create_library_item(payload, replace_id=''):
+def create_library_item(payload, replace_id='', owner=''):
+    if not str(owner).strip():
+        raise ValueError('Authenticated account required')
     replace_id=(replace_id or '').strip(); source=validate_url(payload.get('url',''))
     trim=normalize_url_spec({'url':source,'trim_enabled':bool(payload.get('trim_enabled',False)),'start_min':payload.get('start_min'),'start_sec':payload.get('start_sec'),'end_min':payload.get('end_min'),'end_sec':payload.get('end_sec')},1)
     if replace_id:
         item=get_library_item(replace_id)
-        if not item: raise KeyError('Library video not found')
+        if not item or str(item.get('owner_username') or '').casefold()!=owner.casefold():
+            raise KeyError('Library video not found')
         if library_in_use(replace_id): raise ValueError('This Library video is currently used by a waiting or active merge')
         update_library_item(replace_id,status='importing',progress=1,message='Replacing video',error='')
         threading.Thread(target=process_library_import,args=(replace_id,source,trim,True),daemon=True).start(); return replace_id
@@ -806,8 +821,8 @@ def create_library_item(payload, replace_id=''):
     if library_name_exists(name): raise ValueError('A Library video with this name already exists')
     item_id=uuid.uuid4().hex[:12]; now=utcnow(); remote=library_remote_path(item_id)
     with DB_LOCK, db() as c:
-        c.execute('''INSERT INTO library_items(id,name,filename,remote_path,status,progress,message,source_url,trim_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)''',
-                  (item_id,name,f'{item_id}.mp4',remote,'importing',1,'Queued for import',source,json.dumps(trim),now,now))
+        c.execute('''INSERT INTO library_items(id,name,filename,remote_path,status,progress,message,source_url,trim_json,created_at,updated_at,owner_username) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
+                  (item_id,name,f'{item_id}.mp4',remote,'importing',1,'Queued for import',source,json.dumps(trim),now,now,owner))
     threading.Thread(target=process_library_import,args=(item_id,source,trim,False),daemon=True).start(); return item_id
 
 def retry_library_item(item_id):
@@ -1098,21 +1113,23 @@ def worker():
         if not j: WORKER_WAKE.wait(2); WORKER_WAKE.clear(); continue
         process_job(j)
 
-def list_jobs(owner=None):
+def list_jobs(owner=None, admin=False):
     with DB_LOCK, db() as c:
         rows=c.execute('SELECT * FROM jobs ORDER BY order_idx, created_at').fetchall()
     out=[]
     for r in rows:
         d=dict(r)
-        if d.get('owner_username') and str(d['owner_username']).lower()!=str(owner or '').lower():
+        if not admin and (not owner or not d.get('owner_username') or
+                          str(d['owner_username']).casefold()!=str(owner).casefold()):
             continue
         d['videos']=json.loads(d.pop('videos_json')); out.append(d)
     return out
 
 def add_job(payload, owner=''):
+    if not str(owner).strip(): raise ValueError('Authenticated account required')
     videos=payload.get('videos') or []
     if not isinstance(videos,list) or len(videos)<2 or len(videos)>MAX_VIDEOS: raise ValueError(f'Use 2 to {MAX_VIDEOS} videos')
-    videos=[normalize_video_spec(x,i) for i,x in enumerate(videos,1)]
+    videos=[normalize_video_spec(x,i,owner=owner) for i,x in enumerate(videos,1)]
     if videos[0].get('kind')!='library': raise ValueError('Video 1 must be selected from Library')
     if any(v.get('kind')!='url' for v in videos[1:]): raise ValueError('Video 2 and later videos must use URLs')
     aspect=payload.get('aspect','9:16'); quality=payload.get('quality','1080p')
@@ -1130,13 +1147,13 @@ def add_job(payload, owner=''):
                    int(drive_enabled),int(copyright_enabled),owner))
     WORKER_WAKE.set(); return jid,filename
 
-def delete_job(jid, owner=''):
+def delete_job(jid, owner='', admin=False):
     # Status verification and deletion share one lock with the worker claim.
     # Deletion must never remove a job after it was claimed for processing.
     with DB_LOCK, db() as c:
         j=c.execute('SELECT id,status,owner_username FROM jobs WHERE id=?',(jid,)).fetchone()
         if not j: raise KeyError('Job not found')
-        if j['owner_username'] and str(j['owner_username']).lower()!=str(owner).lower():
+        if not admin and (not owner or not j['owner_username'] or str(j['owner_username']).casefold()!=str(owner).casefold()):
             raise ValueError('This job does not belong to the current account')
         if j['status'] not in ('waiting','complete','failed','cancelled'):
             raise ValueError('Active job cannot be deleted')
@@ -1145,19 +1162,19 @@ def delete_job(jid, owner=''):
     # Preserve completed media even when a history row is removed; cleanup is a separate explicit action.
 
 
-def cancel_job(jid, owner=''):
+def cancel_job(jid, owner='', admin=False):
     """Cancel only a still-waiting job; preserve its history and all source/output files."""
     with DB_LOCK, db() as c:
         j=c.execute('SELECT id,status,owner_username FROM jobs WHERE id=?',(jid,)).fetchone()
         if not j: raise KeyError('Job not found')
-        if j['owner_username'] and str(j['owner_username']).lower()!=str(owner).lower():
+        if not admin and (not owner or not j['owner_username'] or str(j['owner_username']).casefold()!=str(owner).casefold()):
             raise ValueError('This job does not belong to the current account')
         if j['status']!='waiting': raise ValueError('Only waiting jobs can be cancelled')
         c.execute("UPDATE jobs SET status='cancelled', progress=0, message='Cancelled before processing', updated_at=? WHERE id=? AND status='waiting'",
                   (utcnow(),jid))
 
 
-def retry_job(jid, owner=''):
+def retry_job(jid, owner='', admin=False):
     """Idempotently retry a failed job as a new queued ID; never overwrite the failed record.
 
     A distinct work directory preserves the original verified output if the previous
@@ -1166,7 +1183,7 @@ def retry_job(jid, owner=''):
     with DB_LOCK, db() as c:
         j=c.execute('SELECT * FROM jobs WHERE id=?',(jid,)).fetchone()
         if not j: raise KeyError('Job not found')
-        if j['owner_username'] and str(j['owner_username']).lower()!=str(owner).lower():
+        if not admin and (not owner or not j['owner_username'] or str(j['owner_username']).casefold()!=str(owner).casefold()):
             raise ValueError('This job does not belong to the current account')
         if j['status']!='failed': raise ValueError('Only failed jobs can be retried')
         previous=c.execute('SELECT id,filename FROM jobs WHERE retry_of=? ORDER BY created_at LIMIT 1',(jid,)).fetchone()
@@ -1186,9 +1203,9 @@ def retry_job(jid, owner=''):
     return new_id,j['filename']
 
 
-def move_job(jid,direction,owner=''):
+def move_job(jid,direction,owner='',admin=False):
     with DB_LOCK, db() as c:
-        rows=c.execute("SELECT id,order_idx FROM jobs WHERE status='waiting' AND (owner_username='' OR lower(owner_username)=lower(?)) ORDER BY order_idx,created_at",(owner,)).fetchall()
+        rows=(c.execute("SELECT id,order_idx FROM jobs WHERE status='waiting' ORDER BY order_idx,created_at").fetchall() if admin else c.execute("SELECT id,order_idx FROM jobs WHERE status='waiting' AND owner_username<>'' AND lower(owner_username)=lower(?) ORDER BY order_idx,created_at",(owner,)).fetchall())
         ids=[r['id'] for r in rows]
         if jid not in ids: raise ValueError('Only waiting jobs can be reordered')
         i=ids.index(jid); j=i+(-1 if direction=='up' else 1)
@@ -1210,6 +1227,20 @@ class Handler(BaseHTTPRequestHandler):
         if n>2_000_000: raise ValueError('Request too large')
         return json.loads(self.rfile.read(n) or b'{}')
     def route(self): return urllib.parse.urlparse(self.path).path
+    def principal(self):
+        owner=(self.headers.get('X-Auth-User') or '').strip()
+        if not owner:
+            raise ValueError('Authenticated Scene account required')
+        return owner
+    def is_admin(self):
+        return self.headers.get('X-Is-Admin')=='1'
+    def require_library_owner(self, item_id):
+        item=get_library_item(item_id)
+        if not item or (not self.is_admin() and
+                (not item.get('owner_username') or
+                 item['owner_username'].casefold()!=self.principal().casefold())):
+            raise ValueError('Library item is not owned by current account')
+        return item
     def do_GET(self):
         p=self.route()
         try:
@@ -1241,7 +1272,7 @@ class Handler(BaseHTTPRequestHandler):
             if m:
                 job=get_job(m.group(1))
                 owner=(self.headers.get('X-Auth-User') or '').strip()
-                if not job or not owner or str(job.get('owner_username') or '').lower()!=owner.lower():
+                if not job or not owner or (not self.is_admin() and str(job.get('owner_username') or '').lower()!=owner.lower()):
                     return self.send_json(404,{'ok':False,'error':'Output not found'})
                 path = LOCAL_OUTPUT_ROOT / job['id'] / job['filename']
                 if (not path.is_file() or path.is_symlink() or
@@ -1261,7 +1292,7 @@ class Handler(BaseHTTPRequestHandler):
                         self.wfile.write(chunk)
                 return
             if p==PREFIX+'/api/state':
-                return self.send_json(200,{'ok':True,'jobs':list_jobs((self.headers.get('X-Auth-User') or '').strip()),'folders':list_folders(),'paused':setting('paused','0')=='1','output_root':OUTPUT_ROOT,'library':list_library_items(),'proxy':public_proxy_state()})
+                return self.send_json(200,{'ok':True,'jobs':list_jobs(self.principal(),admin=self.is_admin()),'folders':list_folders() if self.is_admin() else [],'paused':setting('paused','0')=='1','output_root':OUTPUT_ROOT,'library':list_library_items(None if self.is_admin() else self.principal()),'proxy':public_proxy_state() if self.is_admin() else {'enabled':False,'profiles':[]}})
             return self.send_json(404,{'ok':False,'error':'Not found'})
         except Exception as e: self.send_json(500,{'ok':False,'error':str(e)})
     def do_POST(self):
@@ -1269,33 +1300,45 @@ class Handler(BaseHTTPRequestHandler):
         try:
             payload=self.read_json()
             if p==PREFIX+'/api/jobs':
-                jid,filename=add_job(payload,(self.headers.get('X-Auth-User') or '').strip()); return self.send_json(201,{'ok':True,'id':jid,'filename':filename})
+                jid,filename=add_job(payload,self.principal()); return self.send_json(201,{'ok':True,'id':jid,'filename':filename})
             if p==PREFIX+'/api/source-name':
                 spec=normalize_url_spec({'url':payload.get('url','')},2); return self.send_json(200,{'ok':True,'filename':source_display_filename(spec)})
-            if p==PREFIX+'/api/library': return self.send_json(202,{'ok':True,'id':create_library_item(payload)})
+            if p==PREFIX+'/api/library': return self.send_json(202,{'ok':True,'id':create_library_item(payload,owner=self.principal())})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/library/([A-Za-z0-9]+)/retry',p)
-            if m: return self.send_json(202,{'ok':True,'id':retry_library_item(m.group(1))})
+            if m:
+                self.require_library_owner(m.group(1))
+                return self.send_json(202,{'ok':True,'id':retry_library_item(m.group(1))})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/library/([A-Za-z0-9]+)/rename',p)
-            if m: return self.send_json(200,{'ok':True,'name':rename_library_item(m.group(1),payload.get('name',''))})
+            if m:
+                self.require_library_owner(m.group(1))
+                return self.send_json(200,{'ok':True,'name':rename_library_item(m.group(1),payload.get('name',''))})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/library/([A-Za-z0-9]+)/replace',p)
-            if m: return self.send_json(202,{'ok':True,'id':create_library_item(payload,m.group(1))})
+            if m:
+                self.require_library_owner(m.group(1))
+                return self.send_json(202,{'ok':True,'id':create_library_item(payload,m.group(1),owner=self.principal())})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/library/([A-Za-z0-9]+)/delete',p)
-            if m: delete_library_item(m.group(1)); return self.send_json(200,{'ok':True})
+            if m:
+                self.require_library_owner(m.group(1))
+                delete_library_item(m.group(1)); return self.send_json(200,{'ok':True})
+            if (p.startswith(PREFIX+'/api/proxy/') or p in
+                    (PREFIX+'/api/queue/pause',PREFIX+'/api/queue/resume',
+                     PREFIX+'/api/folders',PREFIX+'/api/folders/delete')) and not self.is_admin():
+                raise ValueError('Shared global controls are administrator-only until partitioned')
             if p==PREFIX+'/api/proxy/save': return self.send_json(200,{'ok':True,'id':save_proxy_profile(payload)})
             if p==PREFIX+'/api/proxy/delete': delete_proxy_profile((payload.get('id') or '').strip()); return self.send_json(200,{'ok':True})
             if p==PREFIX+'/api/proxy/active': set_active_proxy((payload.get('id') or '').strip()); return self.send_json(200,{'ok':True})
             if p==PREFIX+'/api/proxy/toggle': set_proxy_enabled(bool(payload.get('enabled'))); return self.send_json(200,{'ok':True})
             if p==PREFIX+'/api/proxy/test': return self.send_json(200,{'ok':True,**test_proxy_profile((payload.get('id') or '').strip())})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/cancel',p)
-            if m: cancel_job(m.group(1),(self.headers.get('X-Auth-User') or '').strip()); return self.send_json(200,{'ok':True})
+            if m: cancel_job(m.group(1),self.principal(),admin=self.is_admin()); return self.send_json(200,{'ok':True})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/retry',p)
             if m:
-                retry_id,filename=retry_job(m.group(1),(self.headers.get('X-Auth-User') or '').strip())
+                retry_id,filename=retry_job(m.group(1),self.principal(),admin=self.is_admin())
                 return self.send_json(202,{'ok':True,'id':retry_id,'filename':filename})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/delete',p)
-            if m: delete_job(m.group(1),(self.headers.get('X-Auth-User') or '').strip()); return self.send_json(200,{'ok':True})
+            if m: delete_job(m.group(1),self.principal(),admin=self.is_admin()); return self.send_json(200,{'ok':True})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/move',p)
-            if m: move_job(m.group(1),payload.get('direction'),(self.headers.get('X-Auth-User') or '').strip()); return self.send_json(200,{'ok':True})
+            if m: move_job(m.group(1),payload.get('direction'),self.principal(),admin=self.is_admin()); return self.send_json(200,{'ok':True})
             if p==PREFIX+'/api/queue/pause': set_setting('paused','1'); return self.send_json(200,{'ok':True})
             if p==PREFIX+'/api/queue/resume': set_setting('paused','0'); WORKER_WAKE.set(); return self.send_json(200,{'ok':True})
             if p==PREFIX+'/api/folders': return self.send_json(201,{'ok':True,'folder':create_folder(payload.get('name',''))})

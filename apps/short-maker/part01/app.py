@@ -49,6 +49,33 @@ jobs_lock = threading.Lock()
 def utc_now():
     return datetime.now(timezone.utc).isoformat()
 
+def short_identity(request: Request):
+    """Only trusted Scene SSO headers identify the requesting workspace."""
+    owner = str(request.headers.get("x-auth-user") or "").strip()
+    if not owner:
+        raise HTTPException(status_code=401, detail="Short Studio login required.")
+    return owner, request.headers.get("x-is-admin") == "1"
+
+
+def short_state_owner(state: dict) -> str:
+    return str(state.get("owner") or "").strip()
+
+
+def short_can_access(state: dict, request: Request) -> bool:
+    owner, admin = short_identity(request)
+    # Existing pre-ownership jobs are never assigned speculatively.
+    # Admin can recover them; standard accounts only see explicit ownership.
+    return admin or (bool(short_state_owner(state)) and
+                     short_state_owner(state).casefold() == owner.casefold())
+
+
+def short_owned_state(job_id: str, request: Request) -> dict:
+    state = get_state(job_id)
+    if not short_can_access(state, request):
+        raise HTTPException(status_code=404, detail="Job not found")
+    return state
+
+
 def load_job_states():
     items=[]
     if not JOBS_ROOT.exists():
@@ -95,6 +122,40 @@ def short_vps_folder_names() -> list[str]:
          and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,63}", p.name)),
         key=str.casefold,
     )
+
+
+def short_folder_owner(name: str) -> str:
+    folder=short_vps_folder(name)
+    meta=folder/".studio_owner"
+    if meta.is_symlink():
+        raise ValueError("Unsafe ownership marker")
+    if not meta.is_file():
+        return ""  # Legacy folder: admin-only, never guess its owner.
+    return meta.read_text(encoding="utf-8").strip().casefold()
+
+
+def short_folder_owned(name: str, request: Request) -> Path:
+    owner, admin=short_identity(request)
+    folder=short_vps_folder(name)
+    if not folder.is_dir():
+        raise HTTPException(status_code=404, detail="Output folder not found")
+    if not admin and short_folder_owner(name)!=owner.casefold():
+        raise HTTPException(status_code=403, detail="Output folder belongs to another account")
+    return folder
+
+
+def short_personal_default(owner: str) -> str:
+    """Create the caller's own default without claiming the shared legacy Default."""
+    name="My_"+hashlib.sha256(owner.casefold().encode("utf-8")).hexdigest()[:12]
+    folder=short_vps_folder(name)
+    SHORT_VPS_ROOT.mkdir(parents=True, exist_ok=True)
+    try:
+        folder.mkdir(mode=0o700,exist_ok=False)
+        (folder/".studio_owner").write_text(owner.casefold(),encoding="utf-8")
+    except FileExistsError:
+        if short_folder_owner(name)!=owner.casefold():
+            raise HTTPException(status_code=409,detail="Personal folder ownership mismatch")
+    return name
 
 
 def publish_short_to_vps(path: Path, folder_name: str, job_id: str, strict: bool = False) -> str:
@@ -1306,8 +1367,12 @@ def home(request: Request):
 
 
 @app.get("/api/vps-folders")
-def list_short_vps_folders():
-    return {"folders": short_vps_folder_names()}
+def list_short_vps_folders(request: Request):
+    owner, admin=short_identity(request)
+    if not admin:
+        short_personal_default(owner)
+    return {"folders": [name for name in short_vps_folder_names()
+                        if admin or short_folder_owner(name)==owner.casefold()]}
 
 
 @app.post("/api/vps-folders")
@@ -1318,6 +1383,8 @@ async def create_short_vps_folder(request: Request):
         folder = short_vps_folder(name)
         SHORT_VPS_ROOT.mkdir(parents=True, exist_ok=True)
         folder.mkdir(exist_ok=False)
+        owner, _admin=short_identity(request)
+        (folder/".studio_owner").write_text(owner.casefold(),encoding="utf-8")
     except FileExistsError:
         raise HTTPException(status_code=409, detail="Folder already exists.")
     except (ValueError, OSError) as exc:
@@ -1326,7 +1393,12 @@ async def create_short_vps_folder(request: Request):
 
 
 @app.delete("/api/vps-folders/{folder_name}")
-def delete_short_vps_folder(folder_name: str):
+def delete_short_vps_folder(folder_name: str, request: Request):
+    _owner, admin = short_identity(request)
+    # Until global legacy folders are assigned an owner, restrict their
+    # destructive management to admin and preserve every user's media.
+    if not admin:
+        raise HTTPException(status_code=403, detail="Shared folder deletion is admin-only.")
     try:
         if folder_name == SHORT_VPS_DEFAULT:
             raise ValueError("Default folder is protected.")
@@ -1343,6 +1415,7 @@ def delete_short_vps_folder(folder_name: str):
 
 @app.post("/api/jobs")
 async def create_job(
+    request: Request,
     images: List[UploadFile] = File(default=[]),
     audio: List[UploadFile] = File(default=[]),
     video_duration: float = Form(16.0),
@@ -1363,6 +1436,9 @@ async def create_job(
     verified_clean: bool = Form(True),
     short_vps_folder_name: str = Form("", alias="short_vps_folder"),
 ):
+    owner, admin = short_identity(request)
+    if not admin and (not short_vps_folder_name or short_vps_folder_name=="Default"):
+        short_vps_folder_name=short_personal_default(owner)
     input_mode=input_mode if input_mode in ("upload","drive") else "upload"
     # Backward-compatible API inference; explicit checkbox states must be exclusive.
     if available_to_short_uploader is None:
@@ -1372,6 +1448,7 @@ async def create_job(
     short_vps_folder_name = short_vps_folder_name or SHORT_VPS_DEFAULT
     try:
         short_vps_folder_names()  # Ensure protected default folder exists.
+        short_folder_owned(short_vps_folder_name,request)
         short_target = short_vps_folder(short_vps_folder_name) if short_vps_folder_name else None
         if short_target is not None and not short_target.is_dir():
             raise ValueError("Selected VPS folder does not exist.")
@@ -1456,7 +1533,8 @@ async def create_job(
 
     with jobs_lock:
         jobs[job_id] = {
-            "job_id": job_id, "status": "queued", "progress": 0,
+            "job_id": job_id, "owner": owner,
+            "status": "queued", "progress": 0,
             "created_at": utc_now(),
             "message": "Queued", "outputs": [],
             "delivery_status": "waiting_render" if upload_to_drive else "short_uploader",
@@ -1471,8 +1549,9 @@ async def create_job(
 
 
 @app.get("/api/jobs")
-def list_jobs():
-    items=load_job_states()
+def list_jobs(request: Request):
+    items=[state for state in load_job_states()
+           if short_can_access(state, request)]
     counts={"uploading":0,"queued":0,"running":0,"completed":0,"failed":0}
     for item in items:
         st=str(item.get("status") or "unknown")
@@ -1488,8 +1567,8 @@ def list_jobs():
     }
 
 @app.delete("/api/jobs/{job_id}")
-def delete_terminal_job(job_id: str):
-    state=get_state(job_id)
+def delete_terminal_job(job_id: str, request: Request):
+    state=short_owned_state(job_id, request)
     if state.get("status") not in ("completed","failed"):
         raise HTTPException(status_code=409,detail="Only completed or failed jobs can be deleted.")
     shutil.rmtree(JOBS_ROOT / job_id,ignore_errors=True)
@@ -1498,12 +1577,13 @@ def delete_terminal_job(job_id: str):
     return {"ok":True,"job_id":job_id}
 
 @app.post("/api/jobs/clear/{status_name}")
-def clear_terminal_jobs(status_name: str):
+def clear_terminal_jobs(status_name: str, request: Request):
+    short_identity(request)
     if status_name not in ("completed","failed"):
         raise HTTPException(status_code=400,detail="Only completed or failed jobs can be cleared.")
     removed=0
     for state in load_job_states():
-        if state.get("status")!=status_name:
+        if not short_can_access(state, request) or state.get("status")!=status_name:
             continue
         job_id=str(state.get("job_id") or "")
         if not job_id:
@@ -1515,12 +1595,13 @@ def clear_terminal_jobs(status_name: str):
     return {"ok":True,"status":status_name,"removed":removed}
 
 @app.get("/api/jobs/{job_id}")
-def job_status(job_id: str):
-    return JSONResponse(get_state(job_id))
+def job_status(job_id: str, request: Request):
+    return JSONResponse(short_owned_state(job_id, request))
 
 
 @app.get("/outputs/{job_id}/{filename}")
-def download_output(job_id: str, filename: str):
+def download_output(job_id: str, filename: str, request: Request):
+    short_owned_state(job_id, request)
     target = JOBS_ROOT / job_id / "outputs" / safe_name(filename)
     if not target.is_file():
         raise HTTPException(status_code=404, detail="Output not found")
@@ -1667,7 +1748,11 @@ async def begin_resumable_upload(request: Request):
         raise HTTPException(status_code=400, detail="Missing upload manifest.")
     if not isinstance(payload.get("config"), dict):
         raise HTTPException(status_code=400, detail="Missing render settings.")
+    owner, admin=short_identity(request)
+    if not admin and str(payload["config"].get("short_vps_folder") or SHORT_VPS_DEFAULT)=="Default":
+        payload["config"]["short_vps_folder"]=short_personal_default(owner)
     cfg = upload_config(payload["config"])
+    short_folder_owned(str(cfg["short_vps_folder"]),request)
     file_groups = payload["files"]
     manifest_files = {}
     grand_total = 0
@@ -1700,7 +1785,7 @@ async def begin_resumable_upload(request: Request):
     request_id = str(payload.get("client_request_id") or "").strip()
     if request_id and not re.fullmatch(r"[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}", request_id):
         raise HTTPException(status_code=400, detail="Invalid upload request ID.")
-    owner = request.headers.get("x-auth-user", "").strip()
+    owner, _ = short_identity(request)
     with upload_create_lock():
         job_id = (hashlib.sha256((owner + ":" + request_id).encode("utf-8")).hexdigest()[:16]
                   if request_id else uuid.uuid4().hex[:16])
@@ -1722,7 +1807,7 @@ async def begin_resumable_upload(request: Request):
                     raise
                 set_state(job_id, status="uploading", progress=0, upload_progress=0,
                           created_at=previous.get("created_at") or utc_now(),
-                          message="Resuming PC file upload", outputs=[], config=cfg,
+                          owner=owner, message="Resuming PC file upload", outputs=[], config=cfg,
                           delivery_status="waiting_upload", drive_verified=False, local_cleaned=False)
                 current = get_state(job_id)
             return {"job_id": job_id, "status": current.get("status"), "resumed": True}
@@ -1734,7 +1819,8 @@ async def begin_resumable_upload(request: Request):
                     "config": cfg, "files": manifest_files, "created_at": utc_now()}
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
         set_state(job_id, status="uploading", progress=0, upload_progress=0,
-                  created_at=manifest["created_at"], message="Uploading PC files (resumable)",
+                  created_at=manifest["created_at"], owner=owner,
+                  message="Uploading PC files (resumable)",
                   outputs=[], config=cfg, delivery_status="waiting_upload",
                   drive_verified=False, local_cleaned=False)
         return {"job_id": job_id, "status": "uploading", "resumed": False}

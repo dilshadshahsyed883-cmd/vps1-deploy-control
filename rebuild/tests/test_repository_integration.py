@@ -138,6 +138,13 @@ class RepositorySourceOfTruthContract(unittest.TestCase):
         self.assertEqual(len(updates["entries"]), 1)
         deltas = {entry["path"]: entry for entry in updates["entries"]}
         self.assertEqual(len(deltas), len(updates["entries"]))
+        # An append-only second delta records the user-isolation patch without
+        # rewriting the signed-off Agent1 capture or 30 Oct Short Studio proof.
+        tenant = document("rebuild/snapshots/targeted-source-delta-tenant-isolation-20261031.json")
+        self.assertEqual(tenant["source"], "THREE_STUDIO_OWNER_SCOPED_QUEUE_RECOVERY_20261031")
+        self.assertEqual(len(tenant["entries"]), 1)
+        tenant_deltas = {entry["path"]: entry for entry in tenant["entries"]}
+        self.assertEqual(len(tenant_deltas), len(tenant["entries"]))
         self.assertEqual(capture["runtime_imported"], False)
         self.assertEqual(capture["source"], "AGENT1_TARGETED_LUM_DB_PYTHON")
         self.assertEqual(len(capture["modules"]), 24)
@@ -158,9 +165,16 @@ class RepositorySourceOfTruthContract(unittest.TestCase):
                 expected_hash = delta["current_sha256"]
             else:
                 expected_hash = entry["sha256"]
+            if relative in tenant_deltas:
+                delta = tenant_deltas.pop(relative)
+                self.assertRegex(delta["previous_sha256"], HEX256)
+                self.assertRegex(delta["current_sha256"], HEX256)
+                self.assertEqual(expected_hash, delta["previous_sha256"], relative)
+                expected_hash = delta["current_sha256"]
             self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(),
                              expected_hash, relative)
         self.assertFalse(deltas, "Unrecognized targeted source delta")
+        self.assertFalse(tenant_deltas, "Unrecognized tenant source delta")
 
     def test_auto_script_source_manifest_hashes(self):
         capture = document("apps/auto-script/SOURCE_SHA256.json")

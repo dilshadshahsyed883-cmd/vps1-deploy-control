@@ -14,9 +14,12 @@ from urllib import request
 from production.runtime import BASE, DATA, REPO, atomic_json, backup_databases
 
 FILES=("lum_engine/auto_engine_v6.py", "lum_engine/standalone_app.py",
+       "lum_engine/studio_tenants.py", "lum_engine/project_store.py",
+       "lum_engine/channels_web.py",
        "lum_engine/auto_engine_v6_worker.py", "desktop_core/modules/db/queue_repository.py",
        "templates/app.html", "templates/base.html", "static/auto_engine_v6.js",
        "static/local_upload_manager.css", "static/song_uploader_kokoro_ui.css")
+NEW_FILES=frozenset({"lum_engine/studio_tenants.py"})
 UNITS=tuple(f"vps1-production-lum-shortstudio-{kind}.service" for kind in ("scheduler","worker","web"))
 STATE=DATA/'local-upload-manager/lum-shortstudio'
 UNIT_DIR=Path('/etc/systemd/system')
@@ -185,7 +188,10 @@ def install(revision, *, ui_only=False, network_only=False):
     for relative in (NETWORK_ONLY_FILES if network_only else ("templates/app.html",) if ui_only else FILES):
         src=REPO/'apps/local-upload-manager/part01'/relative
         dst=target/'part01'/relative
-        require(src.is_file() and not src.is_symlink() and dst.is_file() and not dst.is_symlink(),'source file drift')
+        require(src.is_file() and not src.is_symlink() and not dst.is_symlink() and
+                (dst.is_file() or (relative in NEW_FILES and not dst.exists())),
+                'source file drift')
+        dst.parent.mkdir(parents=True,exist_ok=True)
         shutil.copy2(src,dst)
         hashes[relative]=hashlib.sha256(dst.read_bytes()).hexdigest()
     journal.mkdir(parents=True,mode=0o700)

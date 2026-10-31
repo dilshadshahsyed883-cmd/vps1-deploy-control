@@ -34,7 +34,7 @@ class AudioProxyTests(unittest.TestCase):
         self.config(enabled=True)
         app = FastAPI()
         app.include_router(self.m.router)
-        self.client = TestClient(app)
+        self.client = TestClient(app,headers={'X-Auth-User':'tester','X-Is-Admin':'1'})
 
     def tearDown(self):
         self.client.close()

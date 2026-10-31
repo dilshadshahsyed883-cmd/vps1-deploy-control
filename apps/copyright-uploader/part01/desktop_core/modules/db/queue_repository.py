@@ -1212,19 +1212,27 @@ class QueueRepository(BaseRepository):
             )
             return int(cur.rowcount)
 
-    def resume_paused(self, auto_engine_only: bool = False, exclude_auto_engine: bool = False) -> int:
+    def resume_paused(self, auto_engine_only: bool = False, exclude_auto_engine: bool = False,
+                      video_ids: Optional[Iterable[int]] = None) -> int:
         where = "status='PAUSED' AND recovery_state<>'REVIEW_REQUIRED'"
+        params: list[Any] = []
         if auto_engine_only:
             where += " AND auto_engine_profile_id IS NOT NULL"
         elif exclude_auto_engine:
             where += " AND auto_engine_profile_id IS NULL"
+        if video_ids is not None:
+            selected = sorted({int(value) for value in video_ids if int(value)>0})
+            if not selected:
+                return 0
+            where += " AND id IN (" + ",".join("?" for _ in selected) + ")"
+            params.extend(selected)
         with self.connect() as conn:
-            rows = conn.execute(f"SELECT id, resumable_uri FROM videos WHERE {where}").fetchall()
+            rows = conn.execute(f"SELECT id, resumable_uri FROM videos WHERE {where}",params).fetchall()
             cur = conn.execute(
                 f"""
                 UPDATE videos SET status='QUEUED', claim_worker_id=NULL, claimed_at=NULL,
                     lease_expires_at=NULL, updated_at=CURRENT_TIMESTAMP WHERE {where}
-                """
+                """,params
             )
             for row in rows:
                 self._set_ledger_state(

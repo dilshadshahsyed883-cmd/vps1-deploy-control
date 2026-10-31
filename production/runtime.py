@@ -995,6 +995,15 @@ def main():
     check_host(args.revision)
     with deployment_lock():
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        # Strictly read-only per-user Studio inventory. The existing root
+        # helper's approved local-upload-manager lane is reused; nothing is
+        # installed/restarted, and no credentials/identifiers are logged.
+        if '[vps1-studio-tenant-readonly-audit]' in intent:
+            if args.action != 'install' or args.apps != ['local-upload-manager']:
+                raise RuntimeError('Studio tenant audit requires exact approved LUM lane')
+            from production.studio_tenant_readonly_preflight import audit_all
+            event(**audit_all(DATA))
+            return
         # One reviewed Scene web overlay plus reversible uploader auth_request rules.
         if '[vps1-studio-permissions-release]' in intent:
             if args.apps != ['scene-builder']:

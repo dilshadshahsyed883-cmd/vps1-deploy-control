@@ -6,6 +6,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 
@@ -29,7 +30,7 @@ class AudioDownloaderQueueHistoryTests(unittest.TestCase):
         spec.loader.exec_module(self.module)
         app = FastAPI()
         app.include_router(self.module.router)
-        self.client = TestClient(app)
+        self.client = TestClient(app,headers={'X-Auth-User':'tester'})
         self.module.init_storage()
 
     def tearDown(self):
@@ -42,14 +43,14 @@ class AudioDownloaderQueueHistoryTests(unittest.TestCase):
             db.execute(
                 """INSERT INTO jobs
                 (job_id,batch_id,video_id,url,project,folder,format,quality,
-                auto_upload,keep_metadata,status,title,error,created_at,updated_at,completed_at)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                auto_upload,keep_metadata,status,title,error,created_at,updated_at,completed_at,owner_username)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (job_id, "ADB-TEST", "ABCDEFGHIJK",
                  "https://www.youtube.com/watch?v=ABCDEFGHIJK",
                  "Test", "Test Folder", "mp3", 192, 0, 0,
                  status, "Authorized test clip", error,
                  "2026-10-20T10:00:00+00:00", "2026-10-20T10:00:00+00:00",
-                 "2026-10-20T10:00:00+00:00" if status in ("completed", "delivered") else None),
+                 "2026-10-20T10:00:00+00:00" if status in ("completed", "delivered") else None,'tester'),
             )
 
     def test_enqueue_ignores_legacy_batch_and_subfolder_preferences(self):
@@ -59,7 +60,7 @@ class AudioDownloaderQueueHistoryTests(unittest.TestCase):
         # resolve postponed type annotations for the isolated Pydantic model.
         self.module.BatchRequest.model_rebuild(_types_namespace=vars(self.module))
         with patch.object(self.module, 'deps', return_value={'ready': True, 'upload_ready': True}):
-            result = self.module.enqueue(self.module.BatchRequest(**data))
+            result = self.module.enqueue(self.module.BatchRequest(**data),request=SimpleNamespace(headers={'x-auth-user':'tester'}))
         self.assertEqual(result['created'], 1)
         with self.module.db() as con:
             row = con.execute('SELECT video_id,project,folder FROM jobs').fetchone()
@@ -70,6 +71,44 @@ class AudioDownloaderQueueHistoryTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json(), {"jobs": []})
         # Nginx session enforcement cannot be reproduced in this isolated TestClient.
+
+    def test_alice_bob_admin_and_unassigned_legacy_jobs_are_disjoint(self):
+        a='ADJ-'+'A'*16
+        b='ADJ-'+'B'*16
+        legacy='ADJ-'+'C'*16
+        self.record(a,'queued')
+        self.record(b,'queued')
+        self.record(legacy,'queued')
+        with self.module.db() as con:
+            con.execute("UPDATE jobs SET owner_username='bob' WHERE job_id=?",(b,))
+            con.execute("UPDATE jobs SET owner_username='' WHERE job_id=?",(legacy,))
+        alice={'X-Auth-User':'tester','X-Is-Admin':'0'}
+        bob={'X-Auth-User':'bob','X-Is-Admin':'0'}
+        admin={'X-Auth-User':'root','X-Is-Admin':'1'}
+        api='/tts/api/audio-downloader/jobs'
+        self.assertEqual({x['job_id'] for x in self.client.get(api,headers=alice).json()['jobs']},{a})
+        self.assertEqual({x['job_id'] for x in self.client.get(api,headers=bob).json()['jobs']},{b})
+        self.assertEqual({x['job_id'] for x in self.client.get(api,headers=admin).json()['jobs']},{a,b,legacy})
+        self.assertEqual(self.client.get(api+'/'+b,headers=alice).status_code,404)
+        self.assertEqual(self.client.get(api+'/'+legacy,headers=alice).status_code,404)
+        self.assertEqual(self.client.post(api+'/'+b+'/cancel',headers=alice).status_code,404)
+        self.assertEqual(self.client.post(api+'/'+legacy+'/retry',headers=bob).status_code,404)
+        self.assertEqual(self.client.get(api+'/'+legacy,headers=admin).status_code,200)
+        self.assertEqual(self.client.get(api,headers={'X-Auth-User':''}).status_code,403)
+
+    def test_same_video_can_be_queued_independently_by_two_accounts(self):
+        self.module.BatchRequest.model_rebuild(_types_namespace=vars(self.module))
+        data={'links':['https://youtu.be/BaW_jenozKc'],
+              'permission_confirmed':True}
+        api='/tts/api/audio-downloader/jobs'
+        with patch.object(self.module,'deps',return_value={'ready':True,'upload_ready':True}):
+            first=self.client.post(api,json=data,headers={'X-Auth-User':'alice'})
+            second=self.client.post(api,json=data,headers={'X-Auth-User':'bob'})
+        self.assertEqual(first.status_code,201,first.text)
+        self.assertEqual(second.status_code,201,second.text)
+        self.assertEqual(first.json()['created'],1)
+        self.assertEqual(second.json()['created'],1)
+        self.assertNotEqual(first.json()['job_ids'],second.json()['job_ids'])
 
     def test_active_failed_and_cancelled_jobs_are_real_records(self):
         for suffix, status, error in (
@@ -122,8 +161,9 @@ class AudioDownloaderQueueHistoryTests(unittest.TestCase):
             links=['https://youtu.be/BaW_jenozKc'] * 2,
             permission_confirmed=True)
         with patch.object(self.module, 'deps', return_value={'ready': True, 'upload_ready': True}):
-            first = self.module.enqueue(payload)
-            second = self.module.enqueue(payload)
+            authenticated=SimpleNamespace(headers={'x-auth-user':'tester'})
+            first = self.module.enqueue(payload,request=authenticated)
+            second = self.module.enqueue(payload,request=authenticated)
         self.assertEqual(first['created'], 1)
         self.assertEqual(first['skipped_duplicates'], 1)
         self.assertEqual(second['created'], 0)

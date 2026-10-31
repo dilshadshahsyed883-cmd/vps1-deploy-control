@@ -1,0 +1,12 @@
+{
+  "source": "THREE_STUDIO_OWNER_SCOPED_QUEUE_RECOVERY_20261031",
+  "scope": "Independent per-user Uploader work: exact-ID resume for paused manual jobs, legacy calls preserved; historical Agent1 capture and 20261030 Short Studio delta immutable",
+  "entries": [
+    {
+      "path": "apps/local-upload-manager/part01/desktop_core/modules/db/queue_repository.py",
+      "previous_sha256": "423e63a37392f0581d2de162e58d7d92d468e85164b06be4199a2c830772154a",
+      "current_sha256": "cfff2bda08e9b8bf2dfb42fed2b18958087911ee175b52463598a32d28001471",
+      "reason": "Owner-scoped resume_paused(video_ids=...) prevents a retry on Alice's project from resuming Bob's paused core upload; no legacy state mutation."
+    }
+  ]
+}
