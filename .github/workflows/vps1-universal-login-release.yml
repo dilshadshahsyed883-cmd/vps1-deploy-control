@@ -15,7 +15,7 @@ jobs:
       cancel-in-progress: false
     environment: production
     runs-on: ubuntu-24.04
-    timeout-minutes: 55
+    timeout-minutes: 75
     permissions:
       contents: read
       id-token: write
@@ -48,13 +48,38 @@ jobs:
           printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
           # Never continue to the Nginx cutover unless the guarded Scene
           # application install and existing production admission both pass.
-          timeout 2400s ssh -T -p 22 -i "$scratch/identity" \
-            -o UserKnownHostsFile="$scratch/known_hosts" \
-            -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
-            -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=20 \
-            -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
-            vps1deploy@100.87.55.92 \
-            "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA scene-builder"
+          # Scene worker refresh refuses to deploy while queued/in-flight
+          # jobs exist. Leave those jobs untouched; retry only exact known
+          # busy/lock errors. Any other error fails immediately.
+          installed=0
+          for attempt in $(seq 1 18); do
+            if timeout 1900s ssh -T -p 22 -i "$scratch/identity" \
+                -o UserKnownHostsFile="$scratch/known_hosts" \
+                -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+                -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=20 \
+                -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+                vps1deploy@100.87.55.92 \
+                "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA scene-builder" \
+                > "$scratch/install.log" 2>&1; then
+              cat "$scratch/install.log"
+              installed=1
+              break
+            fi
+            if grep -Fq 'Scene production worker: queued or in-flight Scene jobs exist; source refresh deferred' "$scratch/install.log"; then
+              echo "SCENE_JOBS_BUSY_SAFE_DEFER attempt=$attempt/18; jobs preserved"
+            elif grep -Fq 'BlockingIOError: [Errno 11] Resource temporarily unavailable' "$scratch/install.log"; then
+              echo "DEPLOY_LOCK_BUSY_SAFE_DEFER attempt=$attempt/18; host lock preserved"
+            else
+              cat "$scratch/install.log" >&2
+              exit 1
+            fi
+            if [ "$attempt" -eq 18 ]; then
+              echo 'UNIVERSAL_LOGIN_RELEASE_DEFERRED; guarded Scene jobs never became idle' >&2
+              exit 1
+            fi
+            sleep 75
+          done
+          test "$installed" = 1
           # Existing allowlisted route-only lane does not restart uploaders.
           # It snapshots the exact TLS file, checks nginx -t, reloads,
           # validates real anonymous + authenticated HTTPS, and rolls back
