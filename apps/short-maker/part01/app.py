@@ -1446,9 +1446,9 @@ async def create_job(
     if bool(upload_to_drive) == bool(available_to_short_uploader):
         raise HTTPException(status_code=400, detail="Select exactly one output destination.")
     short_vps_folder_name = short_vps_folder_name or SHORT_VPS_DEFAULT
-    short_folder_owned(short_vps_folder_name,request)
     try:
         short_vps_folder_names()  # Ensure protected default folder exists.
+        short_folder_owned(short_vps_folder_name,request)
         short_target = short_vps_folder(short_vps_folder_name) if short_vps_folder_name else None
         if short_target is not None and not short_target.is_dir():
             raise ValueError("Selected VPS folder does not exist.")
