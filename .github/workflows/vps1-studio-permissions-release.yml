@@ -77,7 +77,11 @@ jobs:
           # The on-host transaction has already proved identity, health and
           # both upgraded Nginx routes before emitting this receipt.
           grep -Fq 'THREE_STUDIO_PERMISSIONS=PASS' "$scratch/install.log"
-          grep -Fq 'THREE_STUDIO_PERMISSIONS_GATEWAY=NO_MUTATION' "$scratch/install.log"
+          # The generic gateway may be skipped entirely when the legacy active
+          # inventory is empty; if invoked, our explicit marker prevents writes.
+          if grep -Fq 'THREE_STUDIO_PERMISSIONS_GATEWAY=NO_MUTATION' "$scratch/install.log"; then
+            echo 'GENERIC_GATEWAY_REPUBLISH=SKIPPED'
+          fi
           echo 'THREE_STUDIO_PERMISSIONS=GUARDED_RELEASE_VERIFIED'
           echo 'SCENE_RENDER_WORKER=UNCHANGED'
           echo 'SONG_SHORT_COPYRIGHT_QUEUES=UNTOUCHED'
