@@ -248,6 +248,14 @@ def _runtime_reference_probe(paths: list[Path], proc_root: Path = Path("/proc"))
                 if pid.exists():
                     return "unverifiable-process-race"
                 continue
+            except ProcessLookupError:
+                # /proc/<pid>/environ may raise ESRCH when a process exits
+                # between PID enumeration and the read. A confirmed vanished
+                # PID holds no runtime references; any still-existing PID
+                # remains unverifiable and blocks deletion.
+                if pid.exists():
+                    return "unverifiable-process-race"
+                continue
             except PermissionError:
                 return "unverifiable-permission-" + stage
             except OSError as exc:
