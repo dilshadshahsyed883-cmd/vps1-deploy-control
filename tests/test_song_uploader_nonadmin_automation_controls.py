@@ -28,6 +28,7 @@ def extracted(name: str, env: dict):
                              names=[ast.alias(name="annotations")], level=0), method],
         type_ignores=[])
     scope = dict(env)
+    ast.fix_missing_locations(module)
     exec(compile(module, str(BACKEND), "exec"), scope)
     return scope[name]
 
@@ -37,6 +38,7 @@ class SongNonAdminAutomation(TestCase):
         source = TEMPLATE.read_text(encoding="utf-8")
         start = source.index('<div class="lum-ae-pc-row lum-ae-planner-actions lum-ae-bulk-profile-controls"')
         end = source.index('<div class="lum-table-wrap lum-ae-automation-profiles-wrap">', start)
+        start = source.rfind("{% if engine_instance in ['song', 'shortstudio'] %}", 0, start)
         top = Environment().from_string(source[start:end])
         a = source.index('<section class="lum-card lum-ae-automation-planner"')
         z = source.index('<section class="lum-card lum-ae-pc-controls"', a)
