@@ -89,6 +89,26 @@ class SongSheetsOnlyTests(TestCase):
             self.assertIn("Enable Sheets Sync", single(object(), "token", 7)[1]["error"])
             self.assertIn("Enable Sheets Sync", all_sources(object(), "token")[1]["error"])
 
+    def test_new_song_database_defaults_to_modes_on_not_upload_running(self):
+        source = (ROOT / "apps/local-upload-manager/part01/lum_engine/config.py").read_text()
+        tree = ast.parse(source)
+        assignment = next(node for node in tree.body
+                          if isinstance(node, ast.Assign) and any(
+                              isinstance(target, ast.Name) and target.id == "DEFAULT_SETTINGS"
+                              for target in node.targets))
+        compiled = compile(ast.Module(body=[assignment], type_ignores=[]),
+                           "config.py", "exec")
+        for instance in ("song", "shortstudio", "engine1"):
+            with patch.dict(os.environ, {"LUM_ENGINE_INSTANCE": instance}):
+                values = {"os": os}
+                exec(compiled, values)
+                settings = values["DEFAULT_SETTINGS"]
+                expected = "1" if instance == "song" else "0"
+                self.assertEqual(settings["sheets_sync_enabled"], expected)
+                self.assertEqual(settings["auto_engine_enabled"], expected)
+                if instance == "song":
+                    self.assertEqual(settings["engine_enabled"], "0")
+
     def test_song_disallows_direct_channel_and_group_creation_for_all_users(self):
         class NotFound(Exception):
             def __init__(self, status_code, detail):
