@@ -161,8 +161,9 @@ class AudioDownloaderQueueHistoryTests(unittest.TestCase):
             links=['https://youtu.be/BaW_jenozKc'] * 2,
             permission_confirmed=True)
         with patch.object(self.module, 'deps', return_value={'ready': True, 'upload_ready': True}):
-            first = self.module.enqueue(payload)
-            second = self.module.enqueue(payload)
+            authenticated=SimpleNamespace(headers={'x-auth-user':'tester'})
+            first = self.module.enqueue(payload,request=authenticated)
+            second = self.module.enqueue(payload,request=authenticated)
         self.assertEqual(first['created'], 1)
         self.assertEqual(first['skipped_duplicates'], 1)
         self.assertEqual(second['created'], 0)
