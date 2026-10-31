@@ -88,12 +88,13 @@ class AudioDownloaderQueueHistoryTests(unittest.TestCase):
         api='/tts/api/audio-downloader/jobs'
         self.assertEqual({x['job_id'] for x in self.client.get(api,headers=alice).json()['jobs']},{a})
         self.assertEqual({x['job_id'] for x in self.client.get(api,headers=bob).json()['jobs']},{b})
-        self.assertEqual({x['job_id'] for x in self.client.get(api,headers=admin).json()['jobs']},{a,b,legacy})
+        self.assertEqual({x['job_id'] for x in self.client.get(api,headers=admin).json()['jobs']},set())
         self.assertEqual(self.client.get(api+'/'+b,headers=alice).status_code,404)
         self.assertEqual(self.client.get(api+'/'+legacy,headers=alice).status_code,404)
         self.assertEqual(self.client.post(api+'/'+b+'/cancel',headers=alice).status_code,404)
         self.assertEqual(self.client.post(api+'/'+legacy+'/retry',headers=bob).status_code,404)
-        self.assertEqual(self.client.get(api+'/'+legacy,headers=admin).status_code,200)
+        self.assertEqual(self.client.get(api+'/'+legacy,headers=admin).status_code,404)
+        self.assertEqual(self.client.post(api+'/'+a+'/cancel',headers=admin).status_code,404)
         self.assertEqual(self.client.get(api,headers={'X-Auth-User':''}).status_code,403)
 
     def test_same_video_can_be_queued_independently_by_two_accounts(self):
