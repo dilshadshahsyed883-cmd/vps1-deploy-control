@@ -42,4 +42,18 @@ class FinalReleaseTests(unittest.TestCase):
         self.assertEqual(len(calls),3)
         self.assertTrue(all('/actions/' not in url for url in calls))
 
+
+    def test_short_assignment_form_removed_by_existing_template_only_release(self):
+        template=(ROOT/'apps/local-upload-manager/part01/templates/app.html').read_text(encoding='utf-8')
+        runtime=(ROOT/'production/runtime.py').read_text(encoding='utf-8')
+        release=(ROOT/'production/short_uploader_group_release.py').read_text(encoding='utf-8')
+        self.assertNotIn('Assign Studio resources to a user',template)
+        self.assertNotIn('User workspace ownership',template)
+        self.assertNotIn('/actions/studio-tenant/grant',template)
+        self.assertIn('/actions/studio-tenant/channel-create',template)
+        self.assertIn('[vps1-shortstudio-intro-only]',runtime)
+        self.assertIn('install_shortstudio_ui(revision, ui_only=True)',runtime)
+        self.assertIn('("templates/app.html",) if ui_only else FILES',release)
+        self.assertIn('elif ui_only:verify_live(ui_only=True)',release)
+
 if __name__ == '__main__': unittest.main()
