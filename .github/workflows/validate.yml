@@ -53,7 +53,7 @@ jobs:
         run: python3 -m pip install --disable-pip-version-check -r apps/copyright-uploader/part01/requirements.txt
       - name: Install offline image and video test tools (CI only)
         run: |
-          python3 -m pip install --disable-pip-version-check 'Pillow==11.3.0'
+          python3 -m pip install --disable-pip-version-check 'Pillow==11.3.0' 'numpy==2.2.6'
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends ffmpeg
       - name: Python tests
