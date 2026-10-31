@@ -728,9 +728,7 @@ async def authentication(request: Request, call_next):
         return await call_next(request)
     if not logged_in(request):
         # Browser document navigations return to their original app after login.
-        # AJAX/API callers retain a machine-readable 401 rather than HTML.
-        if request.url.path.startswith("/api/"):
-            return JSONResponse({"detail": "Login required"}, status_code=401)
+        # Preserve legacy non-document request behavior for existing clients.
         if request.method in ("GET", "HEAD") and "text/html" in request.headers.get("accept", "").lower():
             target = request.url.path + ("?" + request.url.query if request.url.query else "")
             return RedirectResponse(login_redirect_url(target), status_code=303)
