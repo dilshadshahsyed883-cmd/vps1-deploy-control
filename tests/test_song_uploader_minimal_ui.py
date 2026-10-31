@@ -72,8 +72,8 @@ class SongUploaderMinimalUITests(unittest.TestCase):
         self.assertIn("profile_id:picker.value", self.app)
         self.assertIn("job_id:item.id", self.app)
 
-    def test_song_dashboard_hides_vps_reports_without_deleting_other_mode_reports(self):
-        """Only Song Dashboard omits the shared VPS Reports macro output."""
+    def test_song_and_short_dashboards_hide_vps_reports_without_deleting_other_mode_reports(self):
+        """Song and Short Dashboards omit the shared VPS Reports macro output."""
         start = self.app.index("{% macro reports_panel() %}")
         end = self.app.index("{% macro queue_table", start)
         begin = self.app.index("{% elif tab == 'dashboard' %}")
@@ -92,7 +92,7 @@ class SongUploaderMinimalUITests(unittest.TestCase):
                                        csrf="offline", stats=stats, reports=[sample_report])
                 self.assertIn("Serial engine", html)
                 self.assertIn("Save modes", html)
-                if instance == "song":
+                if instance in ("song", "shortstudio"):
                     for absent in ("VPS Reports", "Generate Health Report",
                                    "LUM_HEALTH_SAMPLE.txt", "/actions/report-health",
                                    'class="report-list"'):
@@ -102,7 +102,7 @@ class SongUploaderMinimalUITests(unittest.TestCase):
                                     "LUM_HEALTH_SAMPLE.txt", "/actions/report-health"):
                         self.assertIn(present, html)
         self.assertIn("{% macro reports_panel() %}", self.app)
-        self.assertIn("{% if engine_instance != 'song' %}{{ reports_panel() }}{% endif %}",
+        self.assertIn("{% if engine_instance not in ['song', 'shortstudio'] %}{{ reports_panel() }}{% endif %}",
                       self.app)
 
     def test_engine_actions_and_panels_unchanged(self):
