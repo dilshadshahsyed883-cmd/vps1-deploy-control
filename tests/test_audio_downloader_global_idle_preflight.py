@@ -54,6 +54,21 @@ class TestAudioIdleGlobalPreflight(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "preflight unavailable"):
             require_idle_audio_downloader()
 
+    def test_default_uses_same_data_root_as_production_runtime(self):
+        from production import voice_template_release as release
+        default_db = self.root / "voice-studio" / "audio-downloader" / "data" / "jobs.sqlite3"
+        default_db.parent.mkdir(parents=True)
+        with sqlite3.connect(default_db) as conn:
+            conn.execute("CREATE TABLE jobs (status TEXT NOT NULL)")
+            conn.execute("INSERT INTO jobs(status) VALUES ('completed')")
+        # Remove the service-only env variable, as on the production deploy host.
+        with patch.object(release, "DATA", self.root), patch.dict(os.environ, {}, clear=True):
+            require_idle_audio_downloader()
+            with sqlite3.connect(default_db) as conn:
+                conn.execute("INSERT INTO jobs(status) VALUES ('upload_retry')")
+            with self.assertRaisesRegex(RuntimeError, "active/pending jobs"):
+                require_idle_audio_downloader()
+
     def test_symlinked_database_blocks(self):
         actual = self.root / "real.sqlite3"
         self.db.rename(actual)

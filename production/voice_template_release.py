@@ -18,7 +18,7 @@ import subprocess
 import time
 import urllib.request
 
-from production.runtime import BASE, REPO, atomic_json, atomic_link, event, http_check, run
+from production.runtime import BASE, DATA, REPO, atomic_json, atomic_link, event, http_check, run
 
 APP = "voice-studio"
 CURRENT = BASE / "current/voice-studio"
@@ -623,7 +623,7 @@ def require_idle_audio_downloader() -> None:
     from contextlib import closing
 
     root = Path(os.environ.get("AUDIO_DOWNLOADER_ROOT",
-                               "/home/ubuntu/apps/audio_downloader_voice_studio"))
+                               str(DATA.joinpath("voice-studio", "audio-downloader"))))
     require(root.is_absolute(), "Audio Downloader queue path must be absolute")
     queue_db = root / "data" / "jobs.sqlite3"
     require(queue_db.is_file() and not queue_db.is_symlink(),
