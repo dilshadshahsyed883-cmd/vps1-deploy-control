@@ -107,5 +107,31 @@ class Haseeb1Assignment(unittest.TestCase):
         self.assertEqual(set(read_only_audit(self.root,self.scene)["instances"]),{"song","short"})
 
 
+
+    def test_related_studio_inventory_is_read_only(self):
+        from production.studio_haseeb1_assignment import inspect_related_stores
+        song = self.root / "song-maker/state"
+        song.mkdir(parents=True)
+        with sqlite3.connect(song / "jobs.sqlite3") as con:
+            con.execute("CREATE TABLE jobs(id TEXT, owner TEXT)")
+            con.execute("INSERT INTO jobs VALUES('j1','admin')")
+        audio = self.root / "voice-studio/audio-downloader/data"
+        audio.mkdir(parents=True)
+        with sqlite3.connect(audio / "jobs.sqlite3") as con:
+            con.execute("CREATE TABLE jobs(job_id TEXT, owner_username TEXT)")
+            con.execute("INSERT INTO jobs VALUES('a1','haseeb1')")
+        short = self.root / "short-maker/jobs/j1"
+        short.mkdir(parents=True)
+        (short / "state.json").write_text('{"owner": "", "status": "completed"}')
+        folder = self.root / "short-maker/vps_short_folders/Default"
+        folder.mkdir(parents=True)
+        report = inspect_related_stores(self.root)
+        self.assertEqual(report["song_maker"]["non_target"],1)
+        self.assertEqual(report["audio_downloader"]["non_target"],0)
+        self.assertEqual(report["short_maker"]["jobs_non_target"],1)
+        self.assertEqual(report["short_maker"]["folders_non_target"],1)
+        self.assertEqual((short / "state.json").read_text(),
+                         '{"owner": "", "status": "completed"}')
+
 if __name__ == "__main__":
     unittest.main()
