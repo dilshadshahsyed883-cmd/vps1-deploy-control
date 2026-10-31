@@ -304,6 +304,8 @@ async def standalone_auth(request: Request, call_next):
             allowed_exact={route("/logout"),route("/actions/add-video"),
                 route("/actions/oauth-start"),route("/actions/oauth-complete"),
                 route("/actions/google-oauth/connect"),
+                route("/actions/studio-tenant/channel-create"),
+                route("/actions/studio-tenant/group-create"),
                 route("/actions/auth-connections/test"),
                 route("/actions/auth-connections/activate"),
                 route("/actions/sheets/save"),route("/actions/sheets/delete"),
@@ -1151,6 +1153,35 @@ def sheets_sync_all(request: Request, csrf_token: str = Form(...)):
         error=f"Sync completed with {int(result.get('failed') or 0)} failed source(s): " + ", ".join(failures[:5]),
     )
 
+
+
+# STUDIO_TENANT_SAFE_ONBOARDING_V1
+@app.post(route("/actions/studio-tenant/channel-create"))
+def studio_tenant_channel_create(request: Request,csrf_token: str=Form(...),
+                                 channel_id: str=Form(...),channel_name: str=Form(...),
+                                 google_account_email: str=Form("")):
+    user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
+    if os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio","copyright"}:
+        raise HTTPException(404,"Not found")
+    try:
+        cid=studio_tenants.create_channel(user["username"],channel_id,channel_name,
+                                          google_account_email)
+        return redirect("/app?tab=channels",message=f"YouTube channel #{cid} created for this account; connect Google OAuth to authorize.")
+    except Exception as exc:
+        return redirect("/app?tab=channels",error=str(exc))
+
+
+@app.post(route("/actions/studio-tenant/group-create"))
+def studio_tenant_group_create(request: Request,csrf_token: str=Form(...),
+                               group_name: str=Form(...),channel_ids: list[int]=Form([])):
+    user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
+    if os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio","copyright"}:
+        raise HTTPException(404,"Not found")
+    try:
+        gid=studio_tenants.create_group(user["username"],group_name,channel_ids)
+        return redirect("/app?tab=channels",message=f"Private channel group #{gid} created for this account.")
+    except Exception as exc:
+        return redirect("/app?tab=channels",error=str(exc))
 
 
 # STUDIO_TENANT_ASSIGNMENT_V1
