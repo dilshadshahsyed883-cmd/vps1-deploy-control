@@ -6,6 +6,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 
@@ -29,7 +30,7 @@ class AudioDownloaderQueueHistoryTests(unittest.TestCase):
         spec.loader.exec_module(self.module)
         app = FastAPI()
         app.include_router(self.module.router)
-        self.client = TestClient(app)
+        self.client = TestClient(app,headers={'X-Auth-User':'tester'})
         self.module.init_storage()
 
     def tearDown(self):
@@ -42,14 +43,14 @@ class AudioDownloaderQueueHistoryTests(unittest.TestCase):
             db.execute(
                 """INSERT INTO jobs
                 (job_id,batch_id,video_id,url,project,folder,format,quality,
-                auto_upload,keep_metadata,status,title,error,created_at,updated_at,completed_at)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                auto_upload,keep_metadata,status,title,error,created_at,updated_at,completed_at,owner_username)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (job_id, "ADB-TEST", "ABCDEFGHIJK",
                  "https://www.youtube.com/watch?v=ABCDEFGHIJK",
                  "Test", "Test Folder", "mp3", 192, 0, 0,
                  status, "Authorized test clip", error,
                  "2026-10-20T10:00:00+00:00", "2026-10-20T10:00:00+00:00",
-                 "2026-10-20T10:00:00+00:00" if status in ("completed", "delivered") else None),
+                 "2026-10-20T10:00:00+00:00" if status in ("completed", "delivered") else None,'tester'),
             )
 
     def test_enqueue_ignores_legacy_batch_and_subfolder_preferences(self):
@@ -59,7 +60,7 @@ class AudioDownloaderQueueHistoryTests(unittest.TestCase):
         # resolve postponed type annotations for the isolated Pydantic model.
         self.module.BatchRequest.model_rebuild(_types_namespace=vars(self.module))
         with patch.object(self.module, 'deps', return_value={'ready': True, 'upload_ready': True}):
-            result = self.module.enqueue(self.module.BatchRequest(**data))
+            result = self.module.enqueue(self.module.BatchRequest(**data),request=SimpleNamespace(headers={'x-auth-user':'tester'}))
         self.assertEqual(result['created'], 1)
         with self.module.db() as con:
             row = con.execute('SELECT video_id,project,folder FROM jobs').fetchone()
