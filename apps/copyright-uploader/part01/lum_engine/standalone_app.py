@@ -263,7 +263,9 @@ def stats_payload(user: dict[str, Any] | None = None) -> dict[str, Any]:
         "active_project_id": worker.active_project_id if user is None or int(user.get("is_admin") or 0) else None,
         "engine_enabled": store.setting("engine_enabled", "1") == "1",
         "pause_after_current": store.setting("pause_after_current", "0") == "1",
-        "settings": store.settings() if user is None or int(user.get("is_admin") or 0) else {},
+        "settings": (store.settings() if user is None or int(user.get("is_admin") or 0)
+                     else ({"sheets_sync_enabled": "1", "auto_engine_enabled": "1"}
+                           if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" else {})),
     }
 
 
@@ -2219,6 +2221,8 @@ def auto_v6_missed_skip(request: Request,csrf_token: str=Form(...),missed_id: in
 @app.post(route("/actions/settings"))
 def save_settings(request: Request, csrf_token: str = Form(...), sheets_sync_enabled: str = Form("0"), auto_engine_enabled: str = Form("0"), bulk_import_enabled: str = Form("0"), delete_staged_after_verified: str = Form("1")):
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
+    if os.getenv("LUM_ENGINE_INSTANCE") == "copyright":
+        raise HTTPException(404, "Copyright uploader mode settings are fixed")
     settings = {
         "sheets_sync_enabled": sheets_sync_enabled,
         "auto_engine_enabled": auto_engine_enabled,

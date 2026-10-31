@@ -38,8 +38,9 @@ DEFAULT_SETTINGS = {
     "remote_verification_enabled": "1",
     "source_mode": "drive_link",
     "max_active_uploads": "1",
-    "sheets_sync_enabled": "0",
-    "auto_engine_enabled": "0",
+    # Copyright UI compatibility flags never arm an automatic uploader.
+    "sheets_sync_enabled": "1" if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" else "0",
+    "auto_engine_enabled": "1" if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" else "0",
     "bulk_import_enabled": "0",
     "drive_delete_source_after_verified": "0",
 }
