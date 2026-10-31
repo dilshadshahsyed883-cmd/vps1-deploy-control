@@ -139,11 +139,18 @@ async function check() {
     };
     audio.jobTable([job],1);
     document.createElement = saveAdd;
-    assert.equal(controls.length,1,'job should expose one action');
+    assert.equal(controls.length,job.status==='queued'?1:2,
+      'active jobs offer Cancel; terminal failures offer Retry and Delete History');
     // Backend mutating requests are mocked; no real job is created.
     calls.length = 0;
     await controls[0].callback();
     assert.ok(calls.some(x=>x.url===apiRoot+'/jobs/'+job.job_id+'/'+(job.status==='queued'?'cancel':'retry') && x.method==='POST'));
+    if(job.status==='failed'){
+      calls.length=0;
+      await controls[1].callback();
+      assert.ok(calls.some(x=>x.url===apiRoot+'/jobs/'+job.job_id && x.method==='DELETE'),
+        'terminal history deletion must use the owner-scoped DELETE endpoint');
+    }
   }
   function contents(node){return [node.textContent,...node.children.map(contents)].join(' ');}
   const authFailed = {...failed, auto_upload:true, error:'YOUTUBE_AUTH_REQUIRED: blocked'};
