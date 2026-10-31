@@ -4960,8 +4960,10 @@ def queue_guarded_storage_gc(*, now: float | None = None) -> dict[str, Any]:
 async def storage_run_safe_cleanup(request: Request):
     require_admin(request)
     require_storage_csrf(request)
-    if RUNTIME_CANDIDATE or os.getenv("FRESH_WEBSITE_SMOKE_TEST") == "1":
-        raise HTTPException(403, "Candidate storage cleanup is disabled")
+    # Candidate middleware admits only this exact admin + CSRF-protected
+    # manual systemd request. The route still cannot mutate app/worker data.
+    if os.getenv("FRESH_WEBSITE_SMOKE_TEST") == "1":
+        raise HTTPException(403, "Smoke-test storage cleanup is disabled")
     try:
         payload = await request.json()
     except Exception as exc:
