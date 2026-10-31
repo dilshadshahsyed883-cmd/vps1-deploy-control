@@ -36,6 +36,22 @@
     ["Copyright Studio", "/video-merger/", "copyright"],
     ["Experiment Studio", "/experiment-studio/", "experiment"]
   ]);
+  // A verified Scene identity decides permissions. Never trust local storage
+  // or an app-provided is_admin flag. Fail closed while identity is pending.
+  const applyStudioVisibility = (links, identity) => {
+    const authenticated = !!(identity && identity.authenticated === true);
+    const admin = authenticated && identity.is_admin === true;
+    const granted = authenticated && Array.isArray(identity.allowed_studios)
+      ? identity.allowed_studios : [];
+    for (const [key, link] of Object.entries(links)) {
+      if (!link) continue;
+      const visible = key === "dashboard" || (key === "experiment"
+        ? admin : (admin || granted.includes(key)));
+      link.hidden = !visible;
+      if (visible) link.removeAttribute("hidden");
+      else link.setAttribute("hidden", "");
+    }
+  };
   const activeKeyForPath = (pathname) => {
     if (pathname.startsWith("/local-upload-manager/modes/song/")) return "song";
     if (/^\/(short-maker|short-uploader|short-studio)(\/|$)/.test(pathname)) return "short";
@@ -125,7 +141,9 @@
       PRIMARY_NAV.every(([label, href], i) =>
         existing[i].textContent.trim() === label &&
         existing[i].getAttribute("href") === href);
+    let primaryLinks;
     if (isCanonical) {
+      primaryLinks = Object.fromEntries(PRIMARY_NAV.map(([, , key], i) => [key, existing[i]]));
       // Keep the original nodes and their positions across routes: no
       // unnecessary sidebar repaint or jump while pages switch.
       for (const extra of existing.slice(PRIMARY_NAV.length)) {
@@ -139,14 +157,17 @@
       });
     } else {
       navigation.replaceChildren();
-      addPrimaryLinks(navigation, current);
+      primaryLinks = addPrimaryLinks(navigation, current);
     }
-    // Short Maker and Video Merger are independent legacy documents. Render
-    // the same second-level rail there; Scene templates already render it.
+    applyStudioVisibility(primaryLinks, null);
+    // Experiment navigation remains admin-only even on independently served pages.
+    // Hide while session identity is pending; a trusted live Scene response enables it.
     if (current === "experiment" && !document.querySelector('nav[aria-label="Experiment Studio"]')) {
       const main = document.querySelector("main");
       if (main) main.prepend(createExperimentTabs(true, experimentSection(window.location.pathname)).tabs);
     }
+    const experimentTabs = document.querySelector('nav[aria-label="Experiment Studio"]');
+    if (experimentTabs) experimentTabs.hidden = true;
     let account = sidebar.querySelector(":scope > .sidebar-account");
     if (!account) {
       account = node("div", "sidebar-account");
@@ -171,8 +192,10 @@
     account.append(accountName, loginLink, logout);
     let adminLink = navigation.querySelector('a[href="/admin"]');
     const setIdentity = (identity) => {
+      applyStudioVisibility(primaryLinks, identity);
       const authenticated = !!(identity && identity.authenticated === true);
       const isAdmin = authenticated && identity.is_admin === true;
+      if (experimentTabs) experimentTabs.hidden = !isAdmin;
       if (isAdmin && !adminLink) {
         adminLink = addLink(navigation, "Admin", "/admin",
           /^\/admin(\/|$)/.test(window.location.pathname));
@@ -236,9 +259,11 @@
       (app === "voice" && (window.location?.hash === "#vs-audio" ||
         /^\/audio-downloader\/?$/.test(window.location?.pathname || ""))) ? "song" : "experiment";
     const primaryLinks = addPrimaryLinks(navigation, current);
+    applyStudioVisibility(primaryLinks, null);
     // All native app screens use the live Scene session role; no local-app
     // guessing or browser-stored role flags. Admin stays hidden until verified.
     let adminLink = null;
+    let experimentTabs = null;
     const account = node("div", "vps1-native-account");
     account.hidden = false;
     account.appendChild(node("small", "", "ACCOUNT"));
@@ -253,8 +278,10 @@
     logout.hidden = true;
     account.appendChild(logout);
     const setIdentity = (identity) => {
+      applyStudioVisibility(primaryLinks, identity);
       const authorized = !!(identity && identity.authenticated === true);
       const isAdmin = authorized && identity.is_admin === true;
+      if (experimentTabs) experimentTabs.hidden = !isAdmin;
       if (isAdmin && !adminLink) {
         adminLink = node("a", "", "Admin");
         adminLink.href = "/admin";
@@ -305,7 +332,11 @@
       ? createExperimentTabs(false, app === "library" ? "library" :
           app === "acs" ? "video" : app === "voice" ? "voice" : "upload")
       : null;
-    if (secondLevel) toggle.after(secondLevel.tabs);
+    if (secondLevel) {
+      experimentTabs = secondLevel.tabs;
+      experimentTabs.hidden = true;
+      toggle.after(experimentTabs);
+    }
     const attachInnerTabs = tabs => (secondLevel ? secondLevel.tabs : toggle).after(tabs);
     const voiceLink = secondLevel?.links.voice;
     const songLink = primaryLinks.song;

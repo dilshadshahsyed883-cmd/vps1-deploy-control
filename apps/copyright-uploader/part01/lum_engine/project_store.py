@@ -263,6 +263,49 @@ class ProjectStore:
             return row
         return None
 
+    def claim_next_eligible(self) -> dict[str, Any] | None:
+        """Claim one due job atomically so a concurrent Cancel cannot race the worker.
+
+        SOURCE_READY is a recoverable active state; startup recovery returns it to
+        QUEUED after an interrupted process without dropping original media.
+        """
+        now = datetime.now(timezone.utc)
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            rows = conn.execute(
+                "SELECT * FROM projects WHERE status IN ('QUEUED','WAITING_SLOT','SCHEDULED') ORDER BY id ASC"
+            ).fetchall()
+            for raw in rows:
+                row = dict(raw)
+                when = parse_time(row.get("app_upload_at"))
+                if when and when > now:
+                    if row["status"] != "SCHEDULED":
+                        conn.execute("UPDATE projects SET status='SCHEDULED',updated_at=? WHERE id=?",
+                                     (now_iso(), int(row["id"])))
+                    continue
+                conn.execute("UPDATE projects SET status='SOURCE_READY',updated_at=? WHERE id=?",
+                             (now_iso(), int(row["id"])))
+                row["status"] = "SOURCE_READY"
+                return row
+        return None
+
+    def cancel_waiting(self, project_id: int, owner: str) -> bool:
+        """Cancel only unclaimed waiting work; keep media and upload history intact."""
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT owner_username,status FROM projects WHERE id=?", (int(project_id),)
+            ).fetchone()
+            if (not row or str(row["owner_username"]).casefold() != str(owner).casefold()
+                    or str(row["status"]) not in WAITING_STATES):
+                return False
+            conn.execute(
+                "UPDATE projects SET status='CANCELLED',updated_at=? WHERE id=?",
+                (now_iso(), int(project_id)),
+            )
+        self.event(project_id, "Waiting project cancelled; source media retained", "WARNING")
+        return True
+
     def mark_other_waiting(self, active_id: int) -> None:
         with self.connect() as conn:
             conn.execute("UPDATE projects SET status='WAITING_SLOT',updated_at=? WHERE id<>? AND status='QUEUED'", (now_iso(), int(active_id)))

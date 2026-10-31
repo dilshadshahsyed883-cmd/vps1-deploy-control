@@ -50,7 +50,8 @@ class CopyrightStudioContract(unittest.TestCase):
         from production import copyright_studio_release
         self.assertNotIn("copyright-uploader", scene_session_routes.APP_IDS)
         self.assertNotIn("copyright-uploader", nginx_route_only.APPS)
-        self.assertIn("auth_request /_scene_uploader_auth;", copyright_studio_release.ROUTE)
+        self.assertIn("auth_request /_vps1_sso_copyright_uploader;", copyright_studio_release.ROUTE)
+        self.assertIn("app=copyright-uploader;", copyright_studio_release.ROUTE)
         self.assertIn("proxy_pass http://127.0.0.1:8020;", copyright_studio_release.ROUTE)
         self.assertIn("proxy_set_header X-Auth-User $scene_lum_user;", copyright_studio_release.ROUTE)
 

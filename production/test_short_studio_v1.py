@@ -89,7 +89,10 @@ class ShortStudioV1(unittest.TestCase):
         proposed = short_studio_release.apply_route(original)
         self.assertIn("location ^~ /short-uploader/ {", proposed)
         self.assertIn("proxy_pass http://127.0.0.1:8019;", proposed)
-        self.assertIn("auth_request /_scene_uploader_auth;", proposed)
+        self.assertIn("auth_request /_vps1_sso_short_uploader;", proposed)
+        self.assertIn("app=short-uploader;", proposed)
+        legacy = original.replace(ANCHOR, short_studio_release.LEGACY_ROUTE + ANCHOR)
+        self.assertEqual(short_studio_release.apply_route(legacy), proposed)
         self.assertIn("proxy_set_header X-Auth-User $scene_lum_user;", proposed)
         self.assertEqual(short_studio_release.apply_route(proposed), proposed)
         with self.assertRaisesRegex(RuntimeError, "already claimed"):

@@ -995,6 +995,19 @@ def main():
     check_host(args.revision)
     with deployment_lock():
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        # One reviewed Scene web overlay plus reversible uploader auth_request rules.
+        if '[vps1-studio-permissions-release]' in intent:
+            if args.apps != ['scene-builder']:
+                raise RuntimeError('Three-Studio permissions require the Scene-only authorized lane')
+            from production.studio_permissions_release import install, rollback
+            if args.action == 'install':
+                install(args.revision)
+            elif args.action == 'rollback':
+                rollback(args.revision)
+            else:
+                from production.scene_candidate_release import _health
+                event(three_studio_permissions='READY', scene=_health())
+            return
         # Trusted VPS root helper supports the existing local-upload-manager
         # lane, not a new app name. Dispatch only this explicitly SHA-pinned
         # Copyright intent to an entirely separate catalog/service/SQLite.

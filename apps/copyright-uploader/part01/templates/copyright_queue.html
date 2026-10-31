@@ -23,11 +23,12 @@
       <td>{{ ch.name }}</td>
       <td><span class="lum-state s-{{ p.status|lower }}">{{ p.status|replace('_',' ')|title }}</span><div class="lum-progress" role="progressbar" aria-label="Upload progress for project {{ p.id }}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ p.progress or 0 }}"><i style="width:{{ p.progress or 0 }}%"></i></div><small>{{ p.progress or 0 }}%</small></td>
       <td>{{ p.app_upload_at|schedule_pkt }}</td>
-      <td>{% if p.error_message %}<details class="copyright-error"><summary>View message</summary><p>{{ p.error_message }}</p></details>{% elif p.status == 'COMPLETED' %}Upload verified{% else %}{{ p.core_status or '—' }}{% endif %}</td>
+      <td>{% if p.error_message %}<details class="copyright-error"><summary>View message</summary><p>{{ p.error_message }}</p></details>{% elif p.status == 'COMPLETED' %}Upload verified{% if p.cleanup_verified_at %} · VPS cleanup recorded{% else %} · Cleanup not confirmed{% endif %}{% else %}{{ p.core_status or '—' }}{% endif %}</td>
       <td><div class="lum-actions">
         {% if p.youtube_url %}<a class="lum-button tiny" href="{{ p.youtube_url }}" target="_blank" rel="noopener">YouTube</a>{% endif %}
         {% if p.status in ['FAILED','PAUSED'] %}<form method="post" action="{{ base_path }}/actions/retry/{{ p.id }}"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button tiny" type="submit">Retry</button></form>
         {% elif p.status == 'REVIEW_REQUIRED' %}<details><summary>Review upload</summary><p>Check YouTube Studio for an existing video before retrying.</p><form method="post" action="{{ base_path }}/actions/authorize-fresh/{{ p.id }}"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label class="lum-field"><span>Type NO REMOTE VIDEO</span><input name="confirm_text" required placeholder="NO REMOTE VIDEO"></label><button class="lum-button tiny danger" type="submit">Authorize Fresh Upload</button></form></details>
+        {% elif p.status in ['QUEUED','WAITING_SLOT','SCHEDULED'] %}<form method="post" action="{{ base_path }}/actions/cancel/{{ p.id }}" data-copyright-confirm="Cancel this waiting video? Original media will be kept."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button tiny" type="submit">Cancel</button></form>
         {% elif not p.youtube_url %}<span>—</span>{% endif %}
       </div></td>
     </tr>
