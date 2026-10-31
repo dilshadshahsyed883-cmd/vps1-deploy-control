@@ -44,6 +44,13 @@ class SongWorkerReadOnlyTests(unittest.TestCase):
                 (v6/"auto_engine_v6.sqlite3").symlink_to("/etc/passwd")
                 self.assertEqual(diag.collect(root)["db"],"UNAVAILABLE")
 
+    def test_diagnostic_uses_bounded_serialized_lock_retry(self):
+        workflow=(Path(__file__).resolve().parents[1]/".github/workflows/vps1-song-studio-release.yml").read_text()
+        self.assertIn("'[vps1-song-worker-readonly-diagnose]'*",workflow)
+        self.assertIn("for attempt in {1..30}; do",workflow)
+        self.assertIn('BlockingIOError: [Errno 11] Resource temporarily unavailable',workflow)
+        self.assertIn('apps=(local-upload-manager)',workflow)
+
     def test_dispatch_is_diagnostic_only(self):
         source=(Path(__file__).resolve().parents[1]/"production/runtime.py").read_text()
         self.assertIn("[vps1-song-worker-readonly-diagnose]",source)
