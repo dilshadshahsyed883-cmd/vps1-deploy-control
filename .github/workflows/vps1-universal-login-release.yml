@@ -1,0 +1,71 @@
+name: VPS1 universal login redirect guarded release
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  scene-and-nginx:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'dilshadshahsyed883-cmd' &&
+      contains(github.event.head_commit.message, '[vps1-universal-login-release]')
+    concurrency:
+      group: vps1-production-applications
+      cancel-in-progress: false
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Join existing VPS1 Tailscale connection
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Install Scene login first, then apply one guarded Nginx policy
+        shell: bash
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/identity"
+          unset PRIVATE_IDENTITY
+          chmod 0600 "$scratch/identity"
+          ssh-keygen -y -P '' -f "$scratch/identity" > "$scratch/public"
+          test "$(ssh-keygen -lf "$scratch/public" -E sha256 | awk '{print $2}')" = \
+            'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
+          # Never continue to the Nginx cutover unless the guarded Scene
+          # application install and existing production admission both pass.
+          timeout 2400s ssh -T -p 22 -i "$scratch/identity" \
+            -o UserKnownHostsFile="$scratch/known_hosts" \
+            -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=20 \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+            vps1deploy@100.87.55.92 \
+            "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA scene-builder"
+          # Existing allowlisted route-only lane does not restart uploaders.
+          # It snapshots the exact TLS file, checks nginx -t, reloads,
+          # validates real anonymous + authenticated HTTPS, and rolls back
+          # the Nginx policy automatically on verification failure.
+          timeout 200s ssh -T -p 22 -i "$scratch/identity" \
+            -o UserKnownHostsFile="$scratch/known_hosts" \
+            -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=20 \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+            vps1deploy@100.87.55.92 \
+            "sudo -n /usr/local/sbin/vps1-production-deploy nginx-route-only $SOURCE_SHA short-maker"
+          echo 'UNIVERSAL_BROWSER_LOGIN=VERIFIED'
+          echo 'AUTO_SCRIPT=OFFLINE'
+          echo 'UPLOADER_QUEUES=UNCHANGED'

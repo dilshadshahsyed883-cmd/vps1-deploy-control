@@ -54,4 +54,4 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
 }
 </style>
 
-</head><body class="login-body"><form class="login-card" action="/login" method="post"><div class="login-logo">S</div><h1>Scene Builder</h1><p>Team access</p>{% if error %}<div class="login-error">{{ error }}</div>{% endif %}<label>Username<input name="username" autocomplete="username" required></label><label>Secret key<input name="secret_key" type="password" autocomplete="current-password" required></label><button class="button" type="submit">Sign in</button></form></body></html>
+</head><body class="login-body"><form class="login-card" action="/login" method="post"><div class="login-logo">S</div><h1>Scene Builder</h1><p>Team access</p>{% if error %}<div class="login-error">{{ error }}</div>{% endif %}<input type="hidden" name="next" value="{{ login_next }}"><label>Username<input name="username" autocomplete="username" required></label><label>Secret key<input name="secret_key" type="password" autocomplete="current-password" required></label><button class="button" type="submit">Sign in</button></form></body></html>
