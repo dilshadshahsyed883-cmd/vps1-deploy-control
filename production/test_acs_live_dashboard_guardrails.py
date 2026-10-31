@@ -171,7 +171,14 @@ class IntegrationRoutingTests(unittest.TestCase):
                         'id="policy-form"', 'id="reclaim-button"'):
             self.assertNotIn(retired, template)
         self.assertIn("data.read_only !== true || data.partial !== true", js)
-        self.assertNotIn("method:'POST'", js)
+        # A single admin-confirmed request may queue the separate guarded
+        # systemd GC; the dashboard still cannot invoke legacy deletion APIs.
+        self.assertEqual(js.count("method:'POST'"), 1)
+        self.assertIn("/api/admin/storage/run-safe-cleanup", js)
+        self.assertIn("X-Storage-CSRF", js)
+        for forbidden in ("/api/admin/storage/cleanup", "/api/admin/storage/full-clean",
+                          "/api/admin/storage/policy"):
+            self.assertNotIn(forbidden, js)
 
     def test_storage_fallback_is_metrics_only(self):
         js = (SCENE / "static/storage_manager.js").read_text()

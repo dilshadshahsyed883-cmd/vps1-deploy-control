@@ -710,8 +710,14 @@ def deployment_cleanup_status() -> dict[str, Any]:
 
     manual_dir = Path("/run/vps1-storage-gc-manual")
     try:
+        path_state = run(["systemctl", "is-active",
+                          "vps1-storage-deployment-gc-manual.path"], timeout=8)
+        path_enabled = path_state.stdout.strip() == "active"
+    except (OSError, subprocess.TimeoutExpired, AttributeError):
+        path_enabled = False
+    try:
         directory = manual_dir.stat()
-        manual_available = (not manual_dir.is_symlink() and manual_dir.is_dir()
+        manual_available = (path_enabled and not manual_dir.is_symlink() and manual_dir.is_dir()
                             and directory.st_uid == os.geteuid()
                             and directory.st_mode & 0o077 == 0)
         manual_pending = (manual_available and (manual_dir / "request").is_file()
