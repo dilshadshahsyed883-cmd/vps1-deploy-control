@@ -46,6 +46,22 @@ class StorageGCTests(unittest.TestCase):
             self.assertEqual(scan.call_count, 3)
             self.assertEqual(pause.call_count, 2)
 
+    def test_readonly_runtime_stage_is_redacted_and_apply_semantics_unchanged(self):
+        from unittest.mock import patch
+        proc = Path(self.workspace.name) / "diagnostic-proc"
+        (proc / "982374").mkdir(parents=True)
+        target = self.root / "releases" / self.app / self.revisions[3]
+        with patch.object(gc.time, "sleep") as pause:
+            detailed = gc._runtime_reference_probe(
+                [target], proc_root=proc, explain_race=True)
+            standard = gc._runtime_reference_probe([target], proc_root=proc)
+        self.assertEqual(detailed, "unverifiable-process-race-at-read-cmdline")
+        self.assertEqual(standard, "unverifiable-process-race")
+        self.assertTrue(gc._runtime_in_use([target], proc_root=proc))
+        self.assertNotIn("982374", detailed)
+        self.assertNotIn(self.revisions[3], detailed)
+        self.assertEqual(pause.call_count, 4)
+
     def test_esrch_during_proc_read_only_ignores_confirmed_vanished_pid(self):
         import errno
         import shutil
