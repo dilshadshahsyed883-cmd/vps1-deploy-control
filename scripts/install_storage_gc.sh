@@ -44,9 +44,14 @@ systemctl enable --now vps1-storage-deployment-gc.timer
 systemctl enable --now vps1-storage-deployment-gc-manual.path
 systemctl enable --now vps1-storage-deployment-gc-status.timer
 systemctl is-enabled --quiet vps1-storage-deployment-gc.timer
+systemctl is-enabled --quiet vps1-storage-deployment-gc-manual.path
+systemctl is-enabled --quiet vps1-storage-deployment-gc-status.timer
 systemctl is-active --quiet vps1-storage-deployment-gc.timer
 systemctl is-active --quiet vps1-storage-deployment-gc-manual.path
 systemctl is-active --quiet vps1-storage-deployment-gc-status.timer
+test "$(stat -c '%U:%a' /run/vps1-storage-gc-manual)" = "ubuntu:700" || {
+  echo 'REFUSE: manual GC request spool identity or permissions invalid'; exit 25;
+}
 /usr/bin/python3 /usr/local/libexec/vps1-storage-gc.py --publish-status || echo 'STORAGE_GC_TELEMETRY=INVENTORY_PENDING'
 echo 'VPS1_STORAGE_DEPLOYMENT_GC_TIMER=ACTIVE'
 echo 'USER_MEDIA=UNCHANGED'
