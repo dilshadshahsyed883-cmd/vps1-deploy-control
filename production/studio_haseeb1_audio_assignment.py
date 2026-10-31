@@ -231,6 +231,10 @@ def install(revision: str) -> dict:
     scene = DATA / SCENE_REL
     check_scene_account(scene)
     source = trusted_db(DATA)
+    with open_db(source, readonly=True) as preflight:
+        if "owner_username" not in columns(preflight, "jobs"):
+            from production.studio_haseeb1_audio_legacy import install_legacy
+            return install_legacy(revision)
     journal = BASE / "transactions/haseeb1-audio-downloader-owner" / revision
     guard(not journal.exists(), "TRANSACTION_ALREADY_EXISTS")
     # A no-mutation preflight makes unproven and foreign owners visible first.
@@ -317,6 +321,9 @@ def rollback(revision: str) -> dict:
     from production.runtime import BASE, DATA, atomic_json
     guard(bool(re.fullmatch("[a-f0-9]{40}", revision)), "INVALID_REVISION")
     journal = BASE / "transactions/haseeb1-audio-downloader-owner" / revision
+    if (journal / "legacy-claims.json").is_file():
+        from production.studio_haseeb1_audio_legacy import rollback_legacy
+        return rollback_legacy(revision)
     record = journal / "claimed.json"
     guard(record.is_file() and not record.is_symlink(), "CLAIM_RECEIPT_MISSING")
     payload = json.loads(record.read_text())

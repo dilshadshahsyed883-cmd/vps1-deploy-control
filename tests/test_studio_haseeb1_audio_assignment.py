@@ -204,5 +204,88 @@ class AudioOwnershipTests(unittest.TestCase):
             audio.install("3" * 40)
 
 
+    def legacy_jobs(self):
+        """Observed live shape: 15 unknown, 5 handoffs to active foreign account."""
+        with sqlite3.connect(self.scene) as db:
+            db.execute("INSERT INTO users VALUES('alice',1,'song,short',0)")
+        for idx in range(20):
+            self.job(f"legacy{idx:02}", "completed",
+                     handoff="alice" if idx >= 15 else None,
+                     auto=1 if idx >= 15 else 0)
+        with sqlite3.connect(self.source) as db:
+            db.execute("ALTER TABLE jobs DROP COLUMN owner_username")
+
+    def test_missing_column_claims_15_and_preserves_five_foreign_active_handoffs(self):
+        self.legacy_jobs()
+        before = self.snapshot()
+        preferences = self.preferences()
+        result = audio.install("4" * 40)
+        self.assertEqual(result["state"], "OWNERSHIP_VERIFIED")
+        self.assertEqual(result["claimed_now"], 15)
+        self.assertEqual(result["preserved_foreign"], 5)
+        self.assertEqual(result["schema_status"], "OWNER_COLUMN_ADDED")
+        with sqlite3.connect(self.source) as db:
+            after = db.execute("SELECT * FROM jobs ORDER BY job_id").fetchall()
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM jobs").fetchone()[0], 20)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM jobs WHERE owner_username='haseeb1'").fetchone()[0], 15)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM jobs WHERE owner_username='alice'").fetchone()[0], 5)
+        self.assertEqual([row[0] for row in before], [row[0] for row in after])
+        self.assertEqual([tuple(row) for row in before], [tuple(row[:-1]) for row in after])
+        self.assertEqual(self.preferences(), preferences)
+        journal = self.base / "transactions/haseeb1-audio-downloader-owner" / ("4" * 40)
+        with sqlite3.connect(journal / "backup/jobs.sqlite3") as backup:
+            self.assertNotIn("owner_username",
+                             [r[1] for r in backup.execute("PRAGMA table_info(jobs)")])
+            self.assertEqual(backup.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+
+    def test_missing_column_rollback_owner_only(self):
+        self.legacy_jobs()
+        before = self.snapshot()
+        audio.install("5" * 40)
+        result = audio.rollback("5" * 40)
+        self.assertEqual(result["claims_reverted"], 20)
+        with sqlite3.connect(self.source) as db:
+            after = db.execute("SELECT * FROM jobs ORDER BY job_id").fetchall()
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM jobs WHERE owner_username=''").fetchone()[0], 20)
+        self.assertEqual([tuple(row) for row in before], [tuple(row[:-1]) for row in after])
+
+    def test_missing_column_active_job_never_alters_schema_or_jobs(self):
+        self.legacy_jobs()
+        with sqlite3.connect(self.source) as db:
+            db.execute("UPDATE jobs SET status='upload_retry' WHERE job_id='legacy00'")
+        before = self.snapshot()
+        with self.assertRaisesRegex(audio.AudioClaimBlocked, "LEGACY_ACTIVE_JOBS"):
+            audio.install("6" * 40)
+        self.assertEqual(before, self.snapshot())
+        self.assertFalse((self.base / "transactions").exists())
+
+    def test_missing_column_foreign_inactive_account_never_claimed(self):
+        self.legacy_jobs()
+        with sqlite3.connect(self.scene) as db:
+            db.execute("UPDATE users SET is_active=0 WHERE username='alice'")
+        before = self.snapshot()
+        with self.assertRaisesRegex(audio.AudioClaimBlocked, "LEGACY_FOREIGN_OWNER_NOT_ACTIVE"):
+            audio.install("7" * 40)
+        self.assertEqual(before, self.snapshot())
+
+    def test_missing_column_new_job_blocks_legacy_assignment(self):
+        self.legacy_jobs()
+        with sqlite3.connect(self.source) as db:
+            cols = self._columns()
+            original = db.execute("SELECT * FROM jobs WHERE job_id='legacy00'").fetchone()
+            copied = dict(zip(cols, original))
+            copied["job_id"] = "extra"
+            copied["video_id"] = "differentid"
+            db.execute("INSERT INTO jobs (" + ",".join(cols) + ") VALUES (" +
+                       ",".join("?" for _ in cols) + ")", [copied[col] for col in cols])
+        with self.assertRaisesRegex(audio.AudioClaimBlocked, "LEGACY_TOTAL_CHANGED"):
+            audio.install("8" * 40)
+        self.assertNotIn("owner_username", self._columns())
+
+    def _columns(self):
+        with sqlite3.connect(self.source) as db:
+            return [r[1] for r in db.execute("PRAGMA table_info(jobs)")]
+
+
 if __name__ == "__main__":
     unittest.main()
