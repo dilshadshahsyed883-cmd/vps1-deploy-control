@@ -1029,6 +1029,8 @@ def copyright_edit_metadata(
 
 
 def _copyright_retry_owned_project(project_id: int, project: dict[str, Any]) -> None:
+    if str(project.get("status") or "") not in {"FAILED", "PAUSED"}:
+        raise ValueError("Only failed or paused projects can be retried")
     core_id = int(project.get("core_video_id") or 0)
     if core_id:
         core = db.get_video(core_id) or {}
