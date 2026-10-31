@@ -8,6 +8,15 @@ import sqlite3
 import tempfile
 
 
+def exact_known_external_auth(results, config, candidate, allowed=False):
+    """Never treat generic network, download or credentials failure as success."""
+    return bool(
+        allowed and candidate is None and config.get('enabled') is True and
+        results.get('youtube','').startswith('FAIL: YOUTUBE_AUTH_REQUIRED:') and
+        results.get('proxy_test','').startswith('FAIL: YOUTUBE_AUTH_REQUIRED:')
+    )
+
+
 def smoke(source, state, proxy_config=None, allow_known_external_auth=False):
     with tempfile.TemporaryDirectory(prefix='vm-import-smoke-') as directory:
         root = Path(directory)
@@ -100,12 +109,8 @@ def smoke(source, state, proxy_config=None, allow_known_external_auth=False):
         # For an owner-handover-only release, the guarded installer can accept
         # this exact known external failure ONLY when the complete downloader
         # path is AST-identical to the currently running live release.
-        external_auth_blocked = bool(
-            allow_known_external_auth and candidate is None and
-            config.get('enabled') is True and
-            results.get('youtube','').startswith('FAIL: YOUTUBE_AUTH_REQUIRED:') and
-            results.get('proxy_test','').startswith('FAIL: YOUTUBE_AUTH_REQUIRED:')
-        )
+        external_auth_blocked = exact_known_external_auth(
+            results, config, candidate, allow_known_external_auth)
         results['youtube_external_auth_blocked'] = external_auth_blocked
         if external_auth_blocked:
             results['youtube'] = 'UPSTREAM_AUTH_BLOCKED'
