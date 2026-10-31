@@ -623,7 +623,7 @@ def require_idle_audio_downloader() -> None:
     from contextlib import closing
 
     root = Path(os.environ.get("AUDIO_DOWNLOADER_ROOT",
-                               str(DATA / "voice-studio" / "audio-downloader")))
+                               str(DATA.joinpath("voice-studio", "audio-downloader"))))
     require(root.is_absolute(), "Audio Downloader queue path must be absolute")
     queue_db = root / "data" / "jobs.sqlite3"
     require(queue_db.is_file() and not queue_db.is_symlink(),
