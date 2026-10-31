@@ -158,6 +158,38 @@ class TenantTests(unittest.TestCase):
                     self.assertEqual(values[0][1],"/keep/bob-token.json")
                     self.assertIsNone(values[1][2])
 
+    def test_owned_manual_channel_can_join_owned_sheet_without_token_rotation(self):
+        for idx,package in enumerate(PACKAGES):
+            with self.subTest(instance=idx):
+                tenant=self.tenant(package,"existing-own-sheet-"+str(idx))
+                with tenant.db.connect() as con:
+                    con.executescript("""
+                      CREATE TABLE sheet_sources(
+                        id INTEGER PRIMARY KEY,last_sync_at TEXT,
+                        last_sync_status TEXT,updated_at TEXT);
+                      CREATE TABLE channels(
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        channel_id TEXT UNIQUE NOT NULL,channel_name TEXT NOT NULL,
+                        google_account_email TEXT,token_file_path TEXT NOT NULL,
+                        status TEXT NOT NULL,sheet_source_id INTEGER,
+                        sheet_row_key TEXT,sheet_present INTEGER,
+                        sheet_notes TEXT,sheet_last_seen_at TEXT,last_used_at TEXT);
+                      INSERT INTO sheet_sources(id) VALUES (1);
+                      INSERT INTO channels(channel_id,channel_name,token_file_path,status)
+                        VALUES ('UCaaaaaaaaaaaaaaaaaaaaaa','Original','/keep/alice-oauth.json','ACTIVE');
+                    """)
+                tenant.bind("sheet",1,"alice")
+                tenant.bind("channel",1,"alice")
+                parsed=SimpleNamespace(key="alpha",channel_id="UC"+"a"*22,
+                    channel_name="Updated channel name",gmail="alice@example.com",notes="")
+                result=tenant.sync_owned_sheet_rows("alice",1,[parsed])
+                self.assertTrue(result["ok"])
+                with tenant.db.connect() as con:
+                    row=con.execute("""SELECT id,token_file_path,sheet_source_id,
+                        sheet_row_key FROM channels""").fetchone()
+                    self.assertEqual(row,(1,"/keep/alice-oauth.json",1,"alpha"))
+                    self.assertEqual(con.execute("SELECT COUNT(*) FROM channels").fetchone()[0],1)
+
     def test_studios_do_not_share_tenant_database_rows(self):
         a=self.tenant(PACKAGES[0],"song")
         b=self.tenant(PACKAGES[1],"copyright")
