@@ -1,0 +1,69 @@
+name: VPS1 read-only three-Studio tenant ownership audit
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  audit:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'dilshadshahsyed883-cmd' &&
+      contains(github.event.head_commit.message, '[vps1-studio-tenant-readonly-audit]')
+    concurrency:
+      group: vps1-production-applications
+      cancel-in-progress: false
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Prove no-mutation preflight in disposable SQLite fixtures
+        run: python -m unittest tests.test_studio_tenant_readonly_preflight -v
+      - name: Join the existing restricted production tailnet
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Read only production schema, owners and claimed uploads
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+          SOURCE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/identity"
+          unset PRIVATE_IDENTITY
+          chmod 0600 "$scratch/identity"
+          ssh-keygen -y -P '' -f "$scratch/identity" > "$scratch/public"
+          fingerprint="$(ssh-keygen -lf "$scratch/public" -E sha256 | awk '{print $2}')"
+          test "$fingerprint" = 'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
+          # The root helper recognizes this exact commit intent and emits
+          # aggregate counts only. It does not install an app or restart a unit.
+          timeout 240s ssh -T -p 22 -i "$scratch/identity" \
+            -o UserKnownHostsFile="$scratch/known_hosts" \
+            -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+            vps1deploy@100.87.55.92 \
+            "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA local-upload-manager" \
+            > "$scratch/read-only.log" 2>&1
+          grep -Fq '"mode": "READ_ONLY_NO_MUTATION"' "$scratch/read-only.log"
+          grep -Fq '"shared_google_drive": "UNCHANGED"' "$scratch/read-only.log"
+          cat "$scratch/read-only.log"
+          echo 'STUDIO_TENANT_AUDIT=READ_ONLY'
+          echo 'AUTO_SCRIPT=OFFLINE'
