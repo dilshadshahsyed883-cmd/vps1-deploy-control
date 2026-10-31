@@ -32,7 +32,13 @@ class StorageDashboardRelease(unittest.TestCase):
         self.assertIn("dashboard_control_center.js?v=20261019-hide-algrow-v3", dashboard)
         self.assertIn("dashboard_no_algrow", scene)
         self.assertIn("method:\u0027GET\u0027", js)
-        self.assertNotIn("method:\u0027POST\u0027", js)
+        # One admin-confirmed POST is allowed to request the guarded systemd GC.
+        self.assertEqual(js.count("method:'POST'"), 1)
+        self.assertIn("/api/admin/storage/run-safe-cleanup", js)
+        self.assertIn("X-Storage-CSRF", js)
+        for blocked in ("/api/admin/storage/cleanup", "/api/admin/storage/full-clean",
+                        "/api/admin/storage/policy"):
+            self.assertNotIn(blocked, js)
         self.assertIn("renderCleanupStatus", js)
         self.assertIn("storage_manager.js?v=20261031-manual-gc-v1", template)
 
