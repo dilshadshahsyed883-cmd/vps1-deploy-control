@@ -299,9 +299,16 @@ def _confirmed_resource_free_kthread(pid: Path) -> bool | str:
             return False
         if not (pid / "fd").is_dir() or any((pid / "fd").iterdir()):
             return False
-        if any((pid / name).exists() or (pid / name).is_symlink()
-               for name in ("cwd", "exe")):
-            return False
+        # /proc/PID/cwd and exe entries can be dangling kernel-proc
+        # symlinks even when the task has no userspace mm. A dangling link
+        # has no live path reference; a resolvable target still blocks.
+        for name in ("cwd", "exe"):
+            try:
+                (pid / name).resolve(strict=True)
+            except FileNotFoundError:
+                continue
+            else:
+                return False
         if (pid / "maps").read_bytes():
             return False
         second = snapshot()
