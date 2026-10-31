@@ -181,5 +181,70 @@ class Haseeb1Assignment(unittest.TestCase):
         self.assertIn("FIRST_CLAIM_REGISTRY_ONLY",source)
         self.assertIn("UPLOADER_DATA_ASSIGNED_ONLINE",source)
 
+
+    def _online_claim(self, revision, *, fail_after_write=False):
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        from production import runtime, studio_haseeb1_assignment as migration
+        from production.song_uploader_group_summary_release import idle as _song_idle
+        for leaf in ("lum-song", "lum-shortstudio"):
+            with sqlite3.connect(self.root / "local-upload-manager" / leaf / "projects.sqlite3") as db:
+                db.execute("DELETE FROM projects")
+        actual_readonly = migration.read_only_audit
+        calls = [0]
+        def checked_readonly(*args):
+            calls[0] += 1
+            if fail_after_write and calls[0] == 2:
+                raise MigrationBlocked("HASEEB1_STUDIO_ASSIGNMENT_BLOCKED: FORCED_VERIFY_ERROR")
+            return actual_readonly(*args)
+        with patch.object(runtime, "BASE", self.root), \
+             patch.object(runtime, "DATA", self.root), \
+             patch("shutil.disk_usage", return_value=SimpleNamespace(free=20_000_000_000)), \
+             patch("production.song_uploader_group_summary_release.idle"), \
+             patch("production.short_uploader_group_release.idle"), \
+             patch.object(migration, "release_idle_diagnostic",
+                          return_value={"song": "PASS", "short": "PASS"}), \
+             patch.object(migration, "read_only_audit", side_effect=checked_readonly):
+            migration.install_registry_only_online(revision)
+
+    def test_online_first_claim_real_sqlite_preserves_video_rows(self):
+        import json
+        for leaf in ("lum-song", "lum-shortstudio"):
+            dbpath = self.root / "local-upload-manager" / leaf / "core/data/uploader.db"
+            with sqlite3.connect(dbpath) as db:
+                before = db.execute("SELECT id,status FROM videos").fetchall()
+                self.assertEqual(before, [(9, "QUEUED")])
+        self._online_claim("a" * 40)
+        for leaf in ("lum-song", "lum-shortstudio"):
+            dbpath = self.root / "local-upload-manager" / leaf / "core/data/uploader.db"
+            with sqlite3.connect(dbpath) as db:
+                self.assertEqual(db.execute(
+                    "SELECT id,status FROM videos").fetchall(), [(9, "QUEUED")])
+                self.assertEqual(db.execute(
+                    "SELECT COUNT(*) FROM studio_entity_owners WHERE owner_username='haseeb1'"
+                ).fetchone()[0], 5)
+            with sqlite3.connect(self.root / "local-upload-manager" / leaf / "projects.sqlite3") as db:
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM projects").fetchone()[0], 0)
+        journal = self.root / "transactions/haseeb1-song-short-owner-online" / ("a" * 40)
+        receipt = json.loads((journal / "receipt.json").read_text())
+        self.assertEqual(receipt["state"], "UPLOADER_DATA_ASSIGNED_ONLINE")
+        for leaf in ("song", "short"):
+            self.assertEqual(len(list((journal / "backup" / leaf).rglob("*.db"))), 1)
+            self.assertTrue((journal / "backup" / leaf / "projects.sqlite3").exists())
+        self._online_claim("b" * 40)
+        with sqlite3.connect(self.root / "local-upload-manager/lum-song/core/data/uploader.db") as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM studio_entity_owners").fetchone()[0], 5)
+
+    def test_online_compensation_only_removes_new_owner_rows(self):
+        import json
+        with self.assertRaisesRegex(MigrationBlocked, "FORCED_VERIFY_ERROR"):
+            self._online_claim("c" * 40, fail_after_write=True)
+        for leaf in ("lum-song", "lum-shortstudio"):
+            with sqlite3.connect(self.root / "local-upload-manager" / leaf / "core/data/uploader.db") as db:
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM studio_entity_owners").fetchone()[0], 0)
+                self.assertEqual(db.execute("SELECT id,status FROM videos").fetchall(), [(9, "QUEUED")])
+        receipt_path = self.root / "transactions/haseeb1-song-short-owner-online" / ("c"*40) / "receipt.json"
+        self.assertEqual(json.loads(receipt_path.read_text())["state"], "COMPENSATED")
+
 if __name__ == "__main__":
     unittest.main()
