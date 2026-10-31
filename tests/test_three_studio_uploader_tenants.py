@@ -5,6 +5,7 @@ import importlib.util
 import sqlite3
 import tempfile
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -109,6 +110,53 @@ class TenantTests(unittest.TestCase):
                     self.assertEqual({row[0] for row in members},{a1,a2})
                     self.assertEqual(token[0],"")
                     self.assertEqual(con.execute("SELECT COUNT(*) FROM channels").fetchone()[0],3)
+
+    def test_owned_sheet_sync_rollback_and_delete_preserve_credentials(self):
+        for idx,package in enumerate(PACKAGES):
+            with self.subTest(instance=idx):
+                tenant=self.tenant(package,"sheets-"+str(idx))
+                with tenant.db.connect() as con:
+                    con.executescript("""
+                        CREATE TABLE sheet_sources (
+                          id INTEGER PRIMARY KEY,sheet_name TEXT NOT NULL,
+                          last_sync_at TEXT,last_sync_status TEXT,updated_at TEXT);
+                        CREATE TABLE channels (
+                          id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          channel_id TEXT UNIQUE NOT NULL,channel_name TEXT NOT NULL,
+                          google_account_email TEXT,token_file_path TEXT NOT NULL,
+                          status TEXT NOT NULL DEFAULT 'ACTIVE',
+                          sheet_source_id INTEGER,sheet_row_key TEXT,sheet_present INTEGER,
+                          sheet_notes TEXT,sheet_last_seen_at TEXT,last_used_at TEXT
+                        );
+                        INSERT INTO sheet_sources(id,sheet_name) VALUES (1,'Alice Sheet');
+                        INSERT INTO channels(channel_id,channel_name,token_file_path)
+                          VALUES ('UCbbbbbbbbbbbbbbbbbbbbbb','Bob token','/keep/bob-token.json');
+                    """)
+                tenant.bind("sheet",1,"alice")
+                tenant.bind("channel",1,"bob")
+                alice=SimpleNamespace(key="alice-row",channel_id="UC"+"a"*22,
+                                      channel_name="Alice",gmail="alice@example.com",notes="mine")
+                foreign=SimpleNamespace(key="foreign",channel_id="UC"+"b"*22,
+                                        channel_name="Bob",gmail="bob@example.com",notes="")
+                with self.assertRaises(PermissionError):
+                    tenant.sync_owned_sheet_rows("Alice",1,[alice,foreign])
+                with tenant.db.connect() as con:
+                    self.assertEqual(con.execute("SELECT COUNT(*) FROM channels").fetchone()[0],1)
+                    self.assertEqual(con.execute("SELECT token_file_path FROM channels WHERE id=1").fetchone()[0],
+                                     "/keep/bob-token.json")
+                result=tenant.sync_owned_sheet_rows("ALICE",1,[alice])
+                self.assertEqual(result["rows"],1)
+                self.assertEqual(tenant.owner("channel",2),"alice")
+                self.assertEqual(tenant.allowed_ids("channel",{"username":"bob","is_admin":0}),{1})
+                with self.assertRaises(PermissionError):
+                    tenant.delete_owned_sheet("bob",1)
+                self.assertEqual(tenant.delete_owned_sheet("alice",1),1)
+                self.assertEqual(tenant.owner("sheet",1),"")
+                with tenant.db.connect() as con:
+                    values=con.execute("SELECT channel_id,token_file_path,sheet_source_id FROM channels ORDER BY id").fetchall()
+                    self.assertEqual(len(values),2)
+                    self.assertEqual(values[0][1],"/keep/bob-token.json")
+                    self.assertIsNone(values[1][2])
 
     def test_studios_do_not_share_tenant_database_rows(self):
         a=self.tenant(PACKAGES[0],"song")
