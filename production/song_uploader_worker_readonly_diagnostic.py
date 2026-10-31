@@ -23,7 +23,7 @@ CATEGORY_PATTERNS = (
     ("CODE_TYPE", r"nonetype|attributeerror|typeerror|missing .*argument|not iterable|unsupported operand"),
     ("CODE_NAME", r"nameerror|unboundlocalerror|is not defined"),
     ("RATE_LIMIT", r"quota|rate.limit|too many requests|429"),
-    ("SOURCE_STATE", r"already claimed|source|waiting.network|not in queue|profile"),
+    ("SOURCE_STATE", r"already claimed|source|waiting.network|not in queue|profile|songmaker|song maker"),
 )
 
 
