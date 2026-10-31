@@ -63,7 +63,7 @@ class FinalReleaseTests(unittest.TestCase):
         self.assertIn('[vps1-shortstudio-assignment-form-only]',runtime)
         self.assertIn('install_short_owner_form(args.revision, assignment_only=True)',runtime)
         self.assertIn('[vps1-shortstudio-assignment-form-only]',workflow)
-        self.assertIn('def verify_live(*, ui_only=False, assignment_only=False, fixed_modes_only=False):',release)
+        self.assertIn('def verify_live(*, ui_only=False, assignment_only=False, fixed_modes_only=False, member_controls_only=False):',release)
         self.assertIn("'obsolete owner assignment panel still visible'",release)
         self.assertIn('elif assignment_only:verify_live(assignment_only=True)',release)
         self.assertIn('("templates/app.html",) if (ui_only or assignment_only) else FILES',release)
