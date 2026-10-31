@@ -5,7 +5,10 @@ import os
 from pathlib import Path
 import re
 import shutil
+import time
 import uuid
+
+from .store import TERMINAL
 
 ID=re.compile(r'^[0-9a-f]{32}$')
 
@@ -154,6 +157,35 @@ class Folders:
             db.execute('UPDATE song_folder_refs SET youtube_id=? WHERE job_id=? AND consumer=?',(youtube_id,jid,consumer))
             db.execute('UPDATE song_folder_media SET closed=1 WHERE job_id=?',(jid,))
         return self.cleanup(owner,fid,jid)
+
+    def dismiss(self, owner, fid, jid):
+        """Remove an idle project from the queue without deleting uploader reservations.
+
+        The tombstone and closing flag share one SQLite transaction, so a
+        concurrent Song Uploader reserve cannot slip between the two changes.
+        Original media survives until every reserved consumer has a receipt.
+        """
+        self.get(owner, fid)
+        with self.store.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            job=db.execute('SELECT stage,lane,deleted FROM jobs WHERE id=? AND owner=?',
+                           (jid,owner)).fetchone()
+            if not job or job['deleted']:
+                raise ValueError('Job not found')
+            if job['lane'] or job['stage'] not in TERMINAL:
+                raise ValueError('Cancel the job and wait for the worker before deleting')
+            media=db.execute('SELECT consumed FROM song_folder_media WHERE job_id=? AND folder_id=?',
+                             (jid,fid)).fetchone()
+            pending=bool(media and not media['consumed'] and db.execute(
+                "SELECT 1 FROM song_folder_refs WHERE job_id=? AND youtube_id=''",
+                (jid,)).fetchone())
+            if media and not media['consumed']:
+                db.execute('UPDATE song_folder_media SET closed=1 WHERE job_id=?',(jid,))
+            db.execute('UPDATE jobs SET deleted=1,updated=? WHERE id=? AND owner=?',
+                       (time.time(),jid,owner))
+        if media and not media['consumed'] and not pending:
+            self.cleanup(owner,fid,jid)
+        return pending
 
     def cleanup(self,owner,fid,jid):
         # Keep receipts committed even if cleanup is interrupted; retries are idempotent.
