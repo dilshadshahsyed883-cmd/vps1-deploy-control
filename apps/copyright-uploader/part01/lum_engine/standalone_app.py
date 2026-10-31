@@ -297,6 +297,21 @@ async def standalone_auth(request: Request, call_next):
         }
         request.session.pop("lum_admin_mode", None)
         request.state.lum_user = user
+        # TENANT_SAFE_WRITES: no unscoped global tokens, worker or queue changes.
+        if not is_admin and request.method not in {"GET","HEAD"}:
+            allowed_exact={route("/logout"),route("/actions/add-video"),
+                route("/actions/oauth-start"),route("/actions/oauth-complete"),
+                route("/actions/sheets/save"),route("/actions/sheets/delete"),
+                route("/actions/channels/status"),route("/actions/channels/delete-manual"),
+                route("/actions/channels/rescan-tokens"),route("/actions/channels/test-connections"),
+                route("/actions/copyright-profile/save"),route("/actions/copyright-profile/delete")}
+            allowed_prefixes=(route("/actions/retry/"),route("/actions/authorize-fresh/"),
+                route("/actions/cancel/"),route("/actions/channel-network/"))
+            if path not in allowed_exact and not path.startswith(allowed_prefixes):
+                return JSONResponse({"detail":"Global uploader operation is administrator-only"},status_code=403)
+        if not is_admin and (path.startswith(route("/reports/")) or
+                 path.startswith(route("/actions/auto-v6/thumbnail/"))):
+            return JSONResponse({"detail":"Owner-scoped resource access required"},status_code=403)
         return await call_next(request)
 
     if users.count() == 0:
@@ -750,6 +765,7 @@ async def add_video(
     source_size = 0
     try:
         upload_instance = os.getenv("LUM_ENGINE_INSTANCE", "engine1").strip().lower()
+        studio_tenants.require("channel",int(channel_db_id),user)
         if upload_instance == "copyright":
             if profile_id:
                 profile = store.copyright_profile(str(user["username"]), int(profile_id))
@@ -856,6 +872,7 @@ def oauth_start_action(
         target_id = int(target_channel_db_id or 0)
         if target_id <= 0:
             raise ValueError("Select a channel before starting Google authorization.")
+        studio_tenants.require("channel",target_id,user)
         target = db.get_channel(target_id)
         if not target:
             raise ValueError("Selected channel no longer exists. Refresh Accounts & Tokens and select it again.")
@@ -906,6 +923,7 @@ def oauth_complete_action(request: Request, csrf_token: str = Form(...), callbac
     if not session_id:
         return redirect(f"/app?tab={tab}", error="Start authentication first")
     try:
+        studio_tenants.require("channel",int(request.session.get("lum_oauth_target_channel_db_id") or 0),user)
         result = complete_oauth(db, session_id, callback_url)
         request.session.pop("lum_oauth_url", None); request.session.pop("lum_oauth_session_id", None)
         request.session.pop("lum_oauth_target_channel_db_id", None); request.session.pop("lum_oauth_target_channel_id", None); request.session.pop("lum_oauth_target_channel_name", None)
@@ -918,6 +936,7 @@ def oauth_complete_action(request: Request, csrf_token: str = Form(...), callbac
 def channel_network(channel_id: int, request: Request, csrf_token: str = Form(...), profile_name: str = Form(""), proxy_scheme: str = Form("http"), proxy_host: str = Form(""), proxy_port: str = Form(""), proxy_username: str = Form(""), proxy_password: str = Form("")):
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
+        studio_tenants.require("channel",channel_id,user)
         db.update_channel_network_profile(channel_id, browser_profile_name=profile_name, proxy_scheme=proxy_scheme, proxy_host=proxy_host, proxy_port=proxy_port, proxy_username=proxy_username, proxy_password=proxy_password)
         return redirect("/app?tab=channels", message="Channel network profile updated")
     except Exception as exc:
@@ -1018,6 +1037,13 @@ def sheets_save(
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
         sid = int(source_id) if str(source_id or "").strip() else None
+        if sid:
+            studio_tenants.require("sheet",sid,user)
+        elif not int(user.get("is_admin") or 0):
+            existing={str(row.get("sheet_url_or_id") or "").strip()
+                      for row in db.list_sheet_sources()}
+            if str(sheet_url_or_id or "").strip() in existing:
+                raise PermissionError("Sheet already exists in another workspace")
         saved_id = web_save_sheet_source(
             db,
             source_id=sid,
@@ -1025,6 +1051,8 @@ def sheets_save(
             sheet_url_or_id=sheet_url_or_id,
             enabled=str(enabled).lower() in {"1", "true", "on", "yes"},
         )
+        if not int(user.get("is_admin") or 0):
+            studio_tenants.bind("sheet",int(saved_id),user["username"])
         return redirect(
             f"/app?tab=sheets&source_id={saved_id}",
             message="Sheet source saved.",
@@ -1044,6 +1072,7 @@ def sheets_delete(
 ):
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
+        studio_tenants.require("sheet",int(source_id),user)
         web_delete_sheet_source(db, int(source_id))
         return redirect(
             "/app?tab=sheets",
@@ -1119,6 +1148,8 @@ def channels_status(
 ):
     user=current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
+        for channel_id in channel_ids:
+            studio_tenants.require("channel",channel_id,user)
         updated=set_status_bulk(db, channel_ids, status)
         return redirect("/app?tab=channels", message=f"Updated {updated} channel(s) to {str(status).upper()}.")
     except Exception as exc:
@@ -1133,6 +1164,8 @@ def channels_delete_manual(
 ):
     user=current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
+        for channel_id in channel_ids:
+            studio_tenants.require("channel",channel_id,user)
         result=delete_manual_selected(db, channel_ids)
         return redirect(
             "/app?tab=channels",
@@ -1155,6 +1188,10 @@ def channels_rescan_tokens(
 ):
     user=current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
+        if str(scope).lower()=="all_missing" and not int(user.get("is_admin") or 0):
+            raise PermissionError("Global token scan is administrator-only")
+        for channel_id in channel_ids:
+            studio_tenants.require("channel",channel_id,user)
         ids=None if str(scope).lower()=="all_missing" else channel_ids
         result=rescan_channel_tokens(db, ids)
         return redirect(
@@ -1176,6 +1213,8 @@ def channels_test_connections(
 ):
     user=current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
+        for channel_id in channel_ids:
+            studio_tenants.require("channel",channel_id,user)
         result=test_connections(db, channel_ids)
         return redirect(
             "/app?tab=channels",
