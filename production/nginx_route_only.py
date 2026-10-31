@@ -308,7 +308,7 @@ def publish(revision, app):
     if app == "short-maker":
         short_route = snippet_path(app)
         if (short_route.is_file() and not short_route.is_symlink() and
-            short_route.read_text().startswith("# VPS1_SCENE_SESSION_SSO_V1 short-maker\\n")):
+            short_route.read_text().startswith("# VPS1_SCENE_SESSION_SSO_V1 short-maker\n")):
             from production.universal_login_redirect import publish as publish_login
             publish_login(revision)
             return
