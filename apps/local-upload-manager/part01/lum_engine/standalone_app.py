@@ -200,7 +200,7 @@ def stats_payload(user: dict[str, Any] | None = None) -> dict[str, Any]:
         "active_project_id": worker.active_project_id if user is None or int(user.get("is_admin") or 0) else None,
         "engine_enabled": store.setting("engine_enabled", "1") == "1",
         "pause_after_current": store.setting("pause_after_current", "0") == "1",
-        "settings": store.settings(),
+        "settings": store.settings() if user is None or int(user.get("is_admin") or 0) else {},
     }
 
 
@@ -435,7 +435,10 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         channel_context["summary"]={"total":len(channel_context["rows"])}
         channel_context["oauth_inventory"]={}  # Never enumerate global token files
         web_clients=[]  # Client config belongs to the shared service, not the tenant
-    pc_sync_history = list_sync_history() if selected == "channels" else []
+    # PC Sync is a global administrator operation; its history may contain
+    # private channel identifiers and source paths from other accounts.
+    pc_sync_history = (list_sync_history() if selected == "channels" and
+                       int(user.get("is_admin") or 0) else [])
     try:
         selected_auto_mode = validate_auto_mode(auto_mode)
     except ValueError:
@@ -860,7 +863,7 @@ def retry_project(project_id: int, request: Request, csrf_token: str = Form(...)
             if str(core.get("status") or "") == "FAILED":
                 db.queue_failed_for_retry(exclude_auto_engine=True, video_ids=[core_id])
             elif str(core.get("status") or "") == "PAUSED":
-                db.resume_paused(exclude_auto_engine=True)
+                db.resume_paused(exclude_auto_engine=True,video_ids=[core_id])
         if not store.retry(project_id):
             raise ValueError("Project is not retryable")
         tab = "upload" if user_mode(user) == "simple" else "queue"
