@@ -124,7 +124,13 @@ def overlay_queue_layout_ui(live, source, baseline):
     marker = '/* VIDEO_MERGER_TWO_COLUMN_QUEUE_V2'
     require(source.count(marker) == 1, 'Queue UI marker missing or duplicated')
     require(baseline.count(marker) == 0, 'Queue baseline already contains patch')
-    require(live.count(marker) == 0, 'Queue patch already installed')
+    # Prior verified releases may already have this Queue UI. In that case,
+    # preserve it and apply only the new owner-folder callbacks below.
+    if live.count(marker)==1:
+        require(live.count('id="tab-queue"')==1 and live.count('id="queue"')==1,
+                'Existing Video Merger Queue UI incomplete')
+        return live
+    require(live.count(marker)==0, 'Ambiguous Queue patch state')
 
     def block(page, first, last):
         require(page.count(first) == 1 and page.count(last) == 1,
