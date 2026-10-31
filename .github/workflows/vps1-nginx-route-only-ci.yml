@@ -4,6 +4,11 @@ on:
     paths:
       - 'production/nginx_route_only.py'
       - 'production/scene_session_routes.py'
+      - 'production/universal_login_redirect.py'
+      - 'apps/scene-builder/part01/login_next.py'
+      - 'apps/scene-builder/part01/templates/login.html'
+      - 'tests/test_universal_login_redirect.py'
+      - '.github/workflows/vps1-universal-login-release.yml'
       - 'apps/scene-builder/part01/app.py'
       - 'tests/test_scene_session_sso.py'
       - 'production/remote_deploy.py'
@@ -40,5 +45,6 @@ jobs:
           python3 -m compileall -q production/nginx_route_only.py production/remote_deploy.py
           python3 -m unittest production.test_nginx_route_only production.test_gateway -v
           python3 -m unittest discover -s tests -p 'test_scene_session_sso.py' -v
+          python3 -m unittest discover -s tests -p 'test_universal_login_redirect.py' -v
           python3 -m unittest discover -s tests -p 'test_production_owner_only.py' -v
           echo 'NGINX_ROUTE_ONLY_CI=PASS_VPS_UNCHANGED'
