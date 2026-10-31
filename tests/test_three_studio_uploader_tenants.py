@@ -72,6 +72,14 @@ class TenantTests(unittest.TestCase):
         self.assertEqual(a.owner("channel",42),"alice")
         self.assertEqual(b.owner("channel",42),"bob")
 
+    def test_new_tenant_module_is_in_immutable_source_export(self):
+        from rebuild.fresh_vps import sources
+        for app in ("local-upload-manager","copyright-uploader"):
+            with self.subTest(app=app):
+                names={path for path,_contents in sources(app)}
+                self.assertIn("part01/lum_engine/studio_tenants.py",names)
+                self.assertIn("part01/lum_engine/standalone_app.py",names)
+
     def test_middleware_direct_routes_and_profile_history_have_guards(self):
         for package in PACKAGES:
             standalone=(package/"standalone_app.py").read_text(encoding="utf-8")
