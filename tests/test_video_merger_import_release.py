@@ -29,6 +29,8 @@ function showTab(tab){old}
 async function queueMerge(){old}
 function activeStatus(s){old}
 function renderQueue(){old}
+function renderFolders(){old}
+async function addFolder(){old}
 async function del(id){old}
 function renderProxy(){old}
 ''')

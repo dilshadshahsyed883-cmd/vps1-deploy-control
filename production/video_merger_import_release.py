@@ -124,7 +124,13 @@ def overlay_queue_layout_ui(live, source, baseline):
     marker = '/* VIDEO_MERGER_TWO_COLUMN_QUEUE_V2'
     require(source.count(marker) == 1, 'Queue UI marker missing or duplicated')
     require(baseline.count(marker) == 0, 'Queue baseline already contains patch')
-    require(live.count(marker) == 0, 'Queue patch already installed')
+    # Prior verified releases may already have this Queue UI. In that case,
+    # preserve it and apply only the new owner-folder callbacks below.
+    if live.count(marker)==1:
+        require(live.count('id="tab-queue"')==1 and live.count('id="queue"')==1,
+                'Existing Video Merger Queue UI incomplete')
+        return live
+    require(live.count(marker)==0, 'Ambiguous Queue patch state')
 
     def block(page, first, last):
         require(page.count(first) == 1 and page.count(last) == 1,
@@ -183,6 +189,22 @@ def overlay_queue_layout_ui(live, source, baseline):
     return live
 
 
+def overlay_owner_handover_ui(live, source):
+    """Apply only two reviewed Drive folder client callbacks to the live UI.
+
+    The guarded release retains the active sidebar, unrelated tabs, and
+    deployment overlay. Refuse ambiguous or missing anchors.
+    """
+    for prefix in ('function renderFolders()', 'async function addFolder()'):
+        candidates=[line for line in source.splitlines() if line.startswith(prefix)]
+        existing=[line for line in live.splitlines() if line.startswith(prefix)]
+        require(len(candidates)==1 and len(existing)==1,
+                'Video Merger owner folder UI anchor drift: '+prefix)
+        if candidates[0]!=existing[0]:
+            live=live.replace(existing[0],candidates[0],1)
+    return live
+
+
 def install(revision):
     require(re.fullmatch('[a-f0-9]{40}',revision),'invalid revision')
     app='video-merger'
@@ -230,6 +252,7 @@ def install(revision):
                 'reviewed pre-Queue UI baseline unavailable')
         baseline=baseline_path.read_text(encoding='utf-8')
         patched=overlay_queue_layout_ui(patched,source_html,baseline)
+    patched=overlay_owner_handover_ui(patched,source_html)
     live_template.write_text(patched,encoding='utf-8')
     manifest=json.loads((target/'_production_manifest.json').read_text())
     require(manifest.get('app')==app,'wrong manifest owner')
@@ -237,7 +260,8 @@ def install(revision):
     manifest['files'][name]=hashlib.sha256(source).hexdigest()
     manifest['files'][template]=hashlib.sha256(patched.encode('utf-8')).hexdigest()
     atomic_json(target/'_production_manifest.json',manifest,0o644)
-    activation=planned_proxy_activation(proxy_config)
+    # Handover must not silently activate or edit shared administrator proxy credentials.
+    activation=None
     # Both real-source downloads happen in a temporary directory. Existing Drive
     # files and SQLite records are only read. Fail before any live mutation.
     run(['/usr/sbin/runuser','-u','ubuntu','--',python,'-m','production.video_merger_import_smoke',
