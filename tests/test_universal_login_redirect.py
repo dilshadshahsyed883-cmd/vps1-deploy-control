@@ -1,5 +1,8 @@
 """Offline guardrails for shared browser login and native app routes."""
 import importlib.util
+import http.client
+import socket
+import time
 from pathlib import Path
 import re
 import shutil
@@ -85,6 +88,7 @@ class NginxGlobalLoginTests(unittest.TestCase):
 
     def test_api_and_websocket_guards_stay_ahead_of_redirect(self):
         self.assertIn('if ($uri ~* "(^|/)(api|health|healthz)(/|$)") { return 401; }', RULE)
+        self.assertIn('if ($uri ~ "^/(_|internal/)") { return 401; }', RULE)
         self.assertIn('if ($http_upgrade != "") { return 401; }', RULE)
         self.assertIn('if ($http_accept !~* "text/html") { return 401; }', RULE)
         self.assertLess(RULE.index("return 401;"), RULE.index("return 303"))
@@ -116,6 +120,67 @@ class NginxGlobalLoginTests(unittest.TestCase):
             run = subprocess.run(["nginx", "-t", "-p", tmp, "-c", str(conf)],
                                  capture_output=True, text=True, timeout=20)
             self.assertEqual(run.returncode, 0, run.stderr)
+
+
+    @unittest.skipUnless(shutil.which("nginx"), "Nginx executable unavailable")
+    def test_live_nginx_internal_auth_401_never_becomes_500(self):
+        """Exercise a real auth_request: HTML browser gets 303, subrequest 401."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "demo").mkdir()
+            (root / "demo/index.html").write_text("<html>Protected demo</html>")
+            with socket.socket() as sock:
+                sock.bind(("127.0.0.1", 0))
+                port = sock.getsockname()[1]
+            conf = root / "nginx.conf"
+            conf.write_text(
+                f"pid {root}/nginx.pid; error_log {root}/error.log; events {{}} "
+                f"http {{ access_log off; server {{ listen 127.0.0.1:{port};\n"
+                + RULE +
+                f" location = /_mock_auth {{ internal; return 401; }}\n"
+                f" location ^~ /demo/ {{ auth_request /_mock_auth; root {root}; }}\n"
+                f" location = /login {{ return 200; }}\n"
+                f"}} }}\n"
+            )
+            parsed = subprocess.run(["nginx", "-t", "-p", tmp, "-c", str(conf)],
+                                    capture_output=True, text=True, timeout=15)
+            self.assertEqual(parsed.returncode, 0, parsed.stderr)
+            process = subprocess.Popen(
+                ["nginx", "-p", tmp, "-c", str(conf), "-g", "daemon off;"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            try:
+                def get(path, accept):
+                    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+                    conn.request("GET", path, headers={"Accept": accept})
+                    response = conn.getresponse()
+                    status = response.status
+                    location = response.getheader("Location", "")
+                    response.read()
+                    conn.close()
+                    return status, location
+
+                for _ in range(30):
+                    try:
+                        status, _ = get("/login", "text/html")
+                        if status == 200:
+                            break
+                    except OSError:
+                        time.sleep(0.05)
+                else:
+                    self.fail("Nginx failed to bind test listener")
+                status, location = get("/demo/index.html", "text/html")
+                self.assertEqual(status, 303)
+                self.assertIn("/login?next=/demo/index.html", location)
+                self.assertEqual(get("/demo/index.html", "*/*")[0], 401)
+                self.assertEqual(get("/demo/api/health", "text/html")[0], 401)
+            finally:
+                process.terminate()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=3)
 
 
 if __name__ == "__main__":
