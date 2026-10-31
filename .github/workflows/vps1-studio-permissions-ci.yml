@@ -27,6 +27,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Install Jinja template parser for UI regression
+        run: python -m pip install 'jinja2==3.1.6'
       - name: Compile exact auth and release sources
         run: |
           python -m py_compile apps/scene-builder/part01/app.py production/studio_permissions_release.py production/runtime.py production/gateway.py
