@@ -309,6 +309,8 @@ async def standalone_auth(request: Request, call_next):
             allowed_exact={route("/logout"),route("/actions/add-video"),
                 route("/actions/oauth-start"),route("/actions/oauth-complete"),
                 route("/actions/google-oauth/connect"),
+                route("/actions/studio-tenant/channel-create"),
+                route("/actions/studio-tenant/group-create"),
                 route("/actions/auth-connections/test"),
                 route("/actions/auth-connections/activate"),
                 route("/actions/sheets/save"),route("/actions/sheets/delete"),
@@ -1189,7 +1191,7 @@ def studio_tenant_channel_create(request: Request,csrf_token: str=Form(...),
                                  channel_id: str=Form(...),channel_name: str=Form(...),
                                  google_account_email: str=Form("")):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
-    if os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio"}:
+    if os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio","copyright"}:
         raise HTTPException(404,"Not found")
     try:
         cid=studio_tenants.create_channel(user["username"],channel_id,channel_name,
@@ -1203,7 +1205,7 @@ def studio_tenant_channel_create(request: Request,csrf_token: str=Form(...),
 def studio_tenant_group_create(request: Request,csrf_token: str=Form(...),
                                group_name: str=Form(...),channel_ids: list[int]=Form([])):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
-    if os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio"}:
+    if os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio","copyright"}:
         raise HTTPException(404,"Not found")
     try:
         gid=studio_tenants.create_group(user["username"],group_name,channel_ids)
