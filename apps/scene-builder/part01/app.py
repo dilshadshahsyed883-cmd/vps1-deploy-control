@@ -266,6 +266,7 @@ def init_db() -> None:
             "subscription_end_at": "TEXT NOT NULL DEFAULT ''",
             "last_login_at": "TEXT NOT NULL DEFAULT ''",
             "app_access": "TEXT NOT NULL DEFAULT 'scene_builder'",
+            "studio_access": "TEXT NOT NULL DEFAULT 'song,short,copyright'",
         }
         for column, definition in user_additions.items():
             if column not in user_columns:
@@ -626,7 +627,7 @@ def user_account(username: str) -> dict[str, Any] | None:
         row = conn.execute(
             """SELECT username,is_active,is_admin,created_at,daily_render_limit,
                       subscription_plan_days,subscription_start_at,subscription_end_at,last_login_at,
-                      app_access
+                      app_access,studio_access
                FROM users WHERE username=? COLLATE NOCASE""",
             (username,),
         ).fetchone()
@@ -668,6 +669,44 @@ def app_access_allows(account: dict[str, Any] | None, app_name: str) -> bool:
     return bool(account and int(account.get("is_active") or 0) and
                 app_name in {"scene_builder", "auto_caption", "lum"})
 
+
+
+# Only these three public Studio groups are configurable per user.
+# The pre-existing app_access column is retained for legacy integrations.
+STUDIO_KEYS = ("song", "short", "copyright")
+STUDIO_SSO_APPS = {
+    "song-maker": "song", "short-maker": "short", "video-merger": "copyright",
+    "short-uploader": "short", "copyright-uploader": "copyright",
+}
+
+
+def allowed_studios(account: dict[str, Any] | None) -> tuple[str, ...]:
+    if not account or not int(account.get("is_active") or 0):
+        return ()
+    if bool(account.get("is_admin")):
+        return STUDIO_KEYS
+    stored = account.get("studio_access")
+    # Migration-safe: do not revoke existing user access.
+    if stored is None:
+        return STUDIO_KEYS
+    selected = {item.strip() for item in str(stored).split(",")}
+    return tuple(item for item in STUDIO_KEYS if item in selected)
+
+
+def studio_access_allows(account: dict[str, Any] | None, studio: str) -> bool:
+    return studio in allowed_studios(account)
+
+
+def studio_for_path(path: str) -> str:
+    normalized = path.rstrip("/") or "/"
+    for studio, prefixes in (
+        ("song", ("/song-studio", "/song-uploader", "/song-maker", "/audio-downloader")),
+        ("short", ("/short-maker", "/short-uploader", "/short-studio")),
+        ("copyright", ("/video-merger", "/copyright-uploader", "/copyright-studio")),
+    ):
+        if any(normalized == prefix or normalized.startswith(prefix + "/") for prefix in prefixes):
+            return studio
+    return ""
 
 def require_auto_caption_access(request: Request) -> dict[str, Any]:
     """Return the active account when it may use Auto Caption Studio."""
@@ -740,6 +779,14 @@ async def authentication(request: Request, call_next):
     # Refresh role from SQLite on every request, including post-demotion sessions.
     request.session["is_admin"] = bool(account.get("is_admin"))
     request.session["app_access"] = "all"
+    request.session["studio_access"] = allowed_studios(account)
+    studio = studio_for_path(request.url.path)
+    if studio and not studio_access_allows(account, studio):
+        return Response(status_code=403, content="Studio access not granted")
+    if (request.url.path == "/experiment-studio" or
+            request.url.path.startswith("/experiment-studio/") or
+            request.url.path.startswith("/api/experiment-browser/")) and not account.get("is_admin"):
+        return Response(status_code=403, content="Administrator access required")
     return await call_next(request)
 
 app.add_middleware(
