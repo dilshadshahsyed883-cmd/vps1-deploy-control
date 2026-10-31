@@ -172,6 +172,25 @@ class ShortMakerHandoverTests(unittest.TestCase):
         self.assertEqual(self.client.post("/api/jobs/" + job_id + "/retry", headers=USER).status_code, 409)
         self.assertEqual(self.mock_submit.call_count, 0)
 
+    def test_download_rejects_symlinked_media_and_directory(self):
+        job_id = "8" * 16
+        self.job(job_id, "haseeb1", status="completed")
+        output_dir = self.maker.JOBS_ROOT / job_id / "outputs"
+        output_dir.mkdir()
+        foreign = Path(self.tmp.name) / "foreign.mp4"
+        foreign.write_bytes(b"private foreign content")
+        linked = output_dir / "link.mp4"
+        linked.symlink_to(foreign)
+        response = self.client.get(f"/outputs/{job_id}/link.mp4", headers=USER)
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(self.client.get(f"/outputs/{job_id}/link.mp4", headers=FOREIGN).status_code, 404)
+        linked.unlink()
+        output_dir.rmdir()
+        output_dir.symlink_to(foreign.parent, target_is_directory=True)
+        response = self.client.get(f"/outputs/{job_id}/foreign.mp4", headers=USER)
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(foreign.read_bytes(), b"private foreign content")
+
     def test_crash_during_delivery_requires_manual_review(self):
         job_id = "7" * 16
         self.job(job_id, "haseeb1", status="running")
