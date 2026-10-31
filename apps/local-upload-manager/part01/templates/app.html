@@ -992,7 +992,7 @@
       <div class="lum-card-head"><div><h2>Automation</h2>{% if engine_instance not in ['song', 'shortstudio'] %}<p>Run profile automation from one table. Row actions target one profile; Start All remains global.</p>{% endif %}</div><span class="lum-badge">{{ ae.profiles|length }} profiles</span></div>
 {% if engine_instance not in ['song', 'shortstudio'] %}
       <div class="lum-ae-pc-row lum-ae-profile-quick-controls lum-ae-global-actions">
-        {% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+        {% if engine_instance == 'song' or user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/sync-all" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button primary" type="submit">Sync All Channels</button></form>
 {% endif %}
         {% if p %}<button class="lum-button secondary" type="button" data-ae-sync-scan data-profile-id="{{ p.id }}" data-csrf="{{ csrf }}">Sync Channel</button>{% endif %}
@@ -1007,9 +1007,9 @@
 
       {% if engine_instance in ['song', 'shortstudio'] %}
       <div class="lum-ae-pc-row lum-ae-planner-actions lum-ae-bulk-profile-controls" style="margin:12px 0 10px" aria-label="Auto Engine profile controls">
-        {% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}<button class="lum-button secondary" type="button" data-ae-open-schedules>Profile Schedules</button>{% endif %}
-        {% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}<button class="lum-button secondary" type="button" data-ae-preview-all>Preview Next Jobs</button>{% endif %}
-        {% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}<button class="lum-button secondary" type="button" data-ae-jump-start-all>Start All Profiles</button>{% endif %}
+        {% if engine_instance == 'song' or user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}<button class="lum-button secondary" type="button" data-ae-open-schedules>Profile Schedules</button>{% endif %}
+        {% if engine_instance == 'song' or user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}<button class="lum-button secondary" type="button" data-ae-preview-all>Preview Next Jobs</button>{% endif %}
+        {% if engine_instance == 'song' or user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}<button class="lum-button secondary" type="button" data-ae-jump-start-all>Start All Profiles</button>{% endif %}
         {% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/sync-all" data-lum-soft-form>
           <input type="hidden" name="csrf_token" value="{{ csrf }}">
@@ -1136,11 +1136,11 @@
       <div class="lum-card-head"><div><h2>Preflight</h2>{% if engine_instance != 'song' %}<p>Validation only. Generate, Preview and Start controls are kept once in the Automation card above.</p>{% endif %}</div></div>
       <div class="lum-ae-planner-actions">
         {% if p %}<button class="lum-button secondary" type="button" data-ae-preflight data-profile-id="{{ p.id }}" data-csrf="{{ csrf }}">Selected Profile Preflight</button>{% endif %}
-        {% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}<button class="lum-button secondary" type="button" data-ae-queue-preflight data-csrf="{{ csrf }}">Queue Preflight</button>{% endif %}
+        {% if engine_instance == 'song' or user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}<button class="lum-button secondary" type="button" data-ae-queue-preflight data-csrf="{{ csrf }}">Queue Preflight</button>{% endif %}
       </div>
       <div id="lum-ae-preview-result" class="lum-ae-result"></div>
       <div id="lum-ae-queue-preflight-result" class="lum-ae-result"></div>
-      {% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+      {% if engine_instance == 'song' or user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
 <form id="lum-ae-start-all-form" method="post" action="{{ base_path }}/actions/auto-v6/start-all" data-lum-soft-form hidden>
         <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="confirmation" value="">
       </form>
@@ -1184,7 +1184,7 @@
     </section>
 
     <dialog id="lum-ae-schedules-dialog" class="lum-ae-dialog">
-      {% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+      {% if engine_instance == 'song' or user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/profile-schedules/save" data-lum-soft-form>
         <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="current_profile_id" value="{{ p.id if p else 0 }}">
         <div class="lum-card-head"><div><h2>Profile Schedules</h2><p>Edit schedule ON/OFF and Pakistan Time (PKT) alarm times for all saved profiles from one place.</p></div><button type="button" class="lum-button secondary tiny" data-ae-close-schedules>Close</button></div>
