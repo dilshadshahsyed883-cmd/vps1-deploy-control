@@ -241,9 +241,16 @@ class TenantTests(unittest.TestCase):
             self.assertNotIn('aria-label="User workspace ownership"',template)
             self.assertNotIn("/actions/studio-tenant/grant",template)
             self.assertNotIn("Exact Scene Builder username",template)
-            self.assertIn("Your YouTube channels &amp; groups",template)
-            self.assertIn("/actions/studio-tenant/channel-create",template)
-            self.assertIn("/actions/studio-tenant/group-create",template)
+            # Copyright removed the manual forms, but retains tenant-safe
+            # API endpoints for backward compatibility and isolation.
+            if package.parent.parent.name == "copyright-uploader":
+                self.assertNotIn("Your YouTube channels &amp; groups", template)
+                self.assertNotIn("/actions/studio-tenant/channel-create", template)
+                self.assertNotIn("/actions/studio-tenant/group-create", template)
+            else:
+                self.assertIn("Your YouTube channels &amp; groups", template)
+                self.assertIn("/actions/studio-tenant/channel-create", template)
+                self.assertIn("/actions/studio-tenant/group-create", template)
             self.assertIn("STUDIO_TENANT_SAFE_ONBOARDING_V1",standalone)
             self.assertIn('studio_tenants.create_channel(',standalone)
             self.assertIn('studio_tenants.create_group(',standalone)
