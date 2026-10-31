@@ -813,6 +813,7 @@ def scene_session_identity(request: Request):
         "authenticated": True,
         "username": str(account["username"]),
         "is_admin": bool(account["is_admin"]),
+        "allowed_studios": list(allowed_studios(account)),
     }, headers={"Cache-Control": "private, no-store", "Vary": "Cookie"})
 
 
@@ -847,6 +848,7 @@ def login(request: Request, username: str = Form(...), secret_key: str = Form(..
     request.session["username"] = row["username"]
     request.session["is_admin"] = bool(row["is_admin"])
     request.session["app_access"] = "all"
+    request.session["studio_access"] = allowed_studios(user_account(str(row["username"])))
     return RedirectResponse(safe_login_target(next), status_code=303)
 
 
@@ -2138,6 +2140,8 @@ async def audio_downloader_canonical_page(request: Request):
 @app.api_route("/song-uploader/{upstream_path:path}", methods=["GET", "HEAD", "POST"])
 async def song_uploader_canonical(request: Request, upstream_path: str = ""):
     account = require_local_upload_manager_access(request)
+    if not studio_access_allows(account, "song"):
+        raise HTTPException(status_code=403, detail="Song Studio access required")
     try:
         legacy_path = song_uploader_upstream_path(request.url.path, request.url.query)
     except ValueError as exc:
@@ -2263,7 +2267,7 @@ app.add_event_handler("shutdown", EXPERIMENT_BROWSER.close_all)
 
 
 def experiment_owner(request: Request) -> str:
-    require_login(request)
+    require_admin(request)
     return str(request.session["username"])
 
 
@@ -4788,6 +4792,7 @@ def auto_caption_auth(request: Request):
 SCENE_SSO_APP_IDS = frozenset({
     "short-maker", "short-stream", "self-media-library", "video-merger", "song-maker",
     "voice-studio", "auto-caption-studio", "local-upload-manager",
+    "short-uploader", "copyright-uploader",
 })
 
 
@@ -4805,6 +4810,9 @@ def workspace_session_auth(request: Request, app: str = ""):
     account = user_account(str(request.session.get("username") or ""))
     if not account or not int(account.get("is_active") or 0):
         return Response(status_code=401)
+    studio = STUDIO_SSO_APPS.get(app)
+    if studio and not studio_access_allows(account, studio):
+        return Response(status_code=403)
     admin = bool(account.get("is_admin"))
     access = "both" if admin else (
         "auto_caption" if app == "auto-caption-studio" else
