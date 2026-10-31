@@ -323,9 +323,14 @@ class ProjectStore:
         self.event(project_id, "Project returned to queue for retry", "WARNING")
         return True
 
-    def counts(self) -> dict[str, int]:
+    def counts(self, owner: str | None = None) -> dict[str, int]:
         with self.connect() as conn:
-            rows = conn.execute("SELECT status,COUNT(*) AS n FROM projects GROUP BY status").fetchall()
+            if owner:
+                rows = conn.execute("SELECT status,COUNT(*) AS n FROM projects "
+                                    "WHERE owner_username=? COLLATE NOCASE GROUP BY status",
+                                    (owner,)).fetchall()
+            else:
+                rows = conn.execute("SELECT status,COUNT(*) AS n FROM projects GROUP BY status").fetchall()
         out = {str(r["status"]): int(r["n"]) for r in rows}
         out["TOTAL"] = sum(out.values())
         out["ACTIVE"] = sum(out.get(s, 0) for s in ACTIVE_STATES)
