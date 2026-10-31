@@ -120,19 +120,20 @@ def inspect_projects(con: sqlite3.Connection, target: str = TARGET) -> dict:
     columns = schema(con, "projects")
     require({"id", "owner_username", "status", "channel_db_id"} <= columns, "PROJECTS_SCHEMA_DRIFT")
     rows = con.execute("SELECT owner_username,COUNT(*) FROM projects GROUP BY owner_username").fetchall()
-    # Historical admin projects are intentionally NOT reassigned without a
-    # separately verified source-owner transfer. Never steal existing work.
+    # Approved transfer is limited to unassigned legacy rows and the default
+    # administrator's historic projects. Never claim another named account.
     owners = {str(r[0] or "").strip().casefold(): int(r[1]) for r in rows}
-    require(all(k in ("", target) for k in owners), "PROJECT_OWNER_REQUIRES_SEPARATE_TRANSFER")
+    require(all(k in ("", "admin", target) for k in owners),
+            "PROJECT_OWNER_REQUIRES_SEPARATE_TRANSFER")
     busy = con.execute("""SELECT COUNT(*) FROM projects WHERE UPPER(COALESCE(status,'')) IN
               ('DOWNLOADING','SOURCE_READY','UPLOADING','VERIFYING_REMOTE','CLEANING')""").fetchone()[0]
     require(busy == 0, "ACTIVE_PROJECT_PRESENT")
-    return {"total": sum(owners.values()), "to_assign": owners.get("", 0), "already_owned": owners.get(target, 0)}
+    return {"total": sum(owners.values()), "to_assign": owners.get("", 0) + owners.get("admin", 0), "already_owned": owners.get(target, 0)}
 
 
 def assign_projects(con: sqlite3.Connection, target: str = TARGET) -> dict:
     counts = inspect_projects(con, target)
-    con.execute("UPDATE projects SET owner_username=? WHERE TRIM(owner_username)=''", (target,))
+    con.execute("UPDATE projects SET owner_username=? WHERE TRIM(owner_username)='' OR LOWER(TRIM(owner_username))='admin'", (target,))
     require(inspect_projects(con, target)["to_assign"] == 0, "PROJECT_ASSIGNMENT_INCOMPLETE")
     return counts
 
