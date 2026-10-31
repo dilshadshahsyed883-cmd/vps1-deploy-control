@@ -102,6 +102,7 @@ def init_storage() -> None:
                                ('thumbnail_upload_after', 'TEXT'),
                                ('auto_song_maker', 'INTEGER NOT NULL DEFAULT 0'),
                                ('song_maker_owner', 'TEXT'),
+                               ('owner_username', "TEXT NOT NULL DEFAULT ''"),
                                ('song_maker_status', "TEXT NOT NULL DEFAULT 'off'"),
                                ('song_maker_job_id', 'TEXT'),
                                ('song_maker_next_retry_at', 'TEXT'),
@@ -109,6 +110,11 @@ def init_storage() -> None:
                                ('song_folder_name', "TEXT NOT NULL DEFAULT ''")):
             if name not in columns:
                 con.execute(f'ALTER TABLE jobs ADD COLUMN {name} {sql_type}')
+        # Preserve old jobs. Auto-queue's explicit owner is reliable evidence;
+        # all other legacy downloads remain unassigned and admin-only.
+        con.execute("""UPDATE jobs SET owner_username=lower(trim(song_maker_owner))
+            WHERE owner_username='' AND song_maker_owner IS NOT NULL
+              AND trim(song_maker_owner)<>''""")
         con.execute('''CREATE TABLE IF NOT EXISTS audio_upload_pacing (
             id INTEGER PRIMARY KEY CHECK (id=1), next_upload_at TEXT NOT NULL
         )''')
@@ -222,6 +228,7 @@ def sanitized_row(row: sqlite3.Row) -> dict:
     data.pop('local_file', None)
     data.pop('local_thumbnail', None)
     data.pop('song_maker_owner', None)
+    data.pop('owner_username', None)
     data['download_thumbnail'] = bool(data['download_thumbnail'])
     data['auto_song_maker'] = bool(data.get('auto_song_maker'))
     data['thumbnail_url'] = ('/tts/api/audio-downloader/jobs/' + data['job_id'] + '/thumbnail') if row['local_thumbnail'] and Path(row['local_thumbnail']).is_file() else None
@@ -248,17 +255,30 @@ def deps() -> dict:
     return {'ytdlp': ytdlp, 'ytdlp_command': command, 'ffmpeg': ffmpeg, 'rclone': rclone, 'drive_configured': drive_cfg, 'ready': bool(command and ffmpeg), 'upload_ready': bool(rclone and drive_cfg), 'progress_streaming': True}
 
 
+def audio_identity(request: Request):
+    if request is None:
+        raise HTTPException(403,"Authenticated Audio Downloader account required")
+    owner=_preferences_owner(request)
+    admin=str(request.headers.get("x-is-admin") or "").strip()=="1"
+    return owner.casefold(),admin
+
+
 @router.get('/status')
-def status():
+def status(request: Request):
+    owner,admin=audio_identity(request)
     init_storage()
     d = deps()
     with db() as con:
-        q = con.execute('SELECT status,COUNT(*) AS n FROM jobs GROUP BY status').fetchall()
+        if admin:
+            q=con.execute('SELECT status,COUNT(*) AS n FROM jobs GROUP BY status').fetchall()
+        else:
+            q=con.execute('SELECT status,COUNT(*) AS n FROM jobs WHERE lower(owner_username)=? GROUP BY status',(owner,)).fetchall()
     return {'ready': d['ready'], 'reason': '' if d['ready'] else 'yt-dlp or FFmpeg unavailable',
             'upload_ready': d['upload_ready'], 'drive_root': f'{DRIVE_REMOTE}:{DRIVE_BASE}',
             'formats': ['mp3', 'wav'], 'quality': [128, 192, 256],
             'download_contract': 'explicit-proxy-private-session-v2',
-            'proxy': proxy_runtime_status(), 'youtube_session': cookie_status(),
+            'proxy': proxy_runtime_status() if admin else {"configured":True},
+            'youtube_session': cookie_status() if admin else {"managed_by_admin":True},
             'retry_policy': 'only confirmed Drive API rate limits retry every 180s; other failures require manual Retry; 60s between successful audio transfers',
             'upload_policy': 'one copyto per audio/thumbnail; no post-upload Drive probes; local files retained',
             'upload_gap_seconds': UPLOAD_GAP_SECONDS, 'thumbnail_gap_seconds': THUMBNAIL_GAP_SECONDS,
@@ -341,9 +361,7 @@ def enqueue(payload: BatchRequest, request: Request = None):
         raise HTTPException(422, 'Song Maker auto-queue requires thumbnail and Drive auto-upload OFF')
     if payload.auto_upload and not deps()['upload_ready']:
         raise HTTPException(503, 'Google Drive upload is not configured')
-    owner = request.headers.get('x-auth-user', '').strip() if request is not None else ''
-    if payload.auto_song_maker and (not owner or len(owner) > 160 or any(ord(c)<32 for c in owner)):
-        raise HTTPException(403, 'Authenticated Song Maker user required for auto-queue')
+    owner, _admin = audio_identity(request)
     folder_snapshot={}
     if payload.auto_song_maker:
         if not payload.folder_confirmed: raise HTTPException(422,'Confirm the destination folder before starting')
@@ -368,20 +386,21 @@ def enqueue(payload: BatchRequest, request: Request = None):
                     continue
                 seen.add((video, payload.format))
                 existing = con.execute("""SELECT job_id FROM jobs WHERE video_id=? AND format=?
+                    AND lower(owner_username)=?
                     AND status IN ('queued','downloading','downloaded','uploading','upload_retry','delivered','completed')
-                    AND (?=0 OR (song_maker_owner=? AND song_folder_id=? AND auto_song_maker=1))
-                    ORDER BY created_at DESC LIMIT 1""", (video, payload.format,int(payload.auto_song_maker),owner,payload.song_folder_id)).fetchone()
+                    AND (?=0 OR (song_folder_id=? AND auto_song_maker=1))
+                    ORDER BY created_at DESC LIMIT 1""", (video, payload.format,owner,int(payload.auto_song_maker),payload.song_folder_id)).fetchone()
                 if existing:
                     existing_jobs.append(existing['job_id'])
                     continue
                 jid = 'ADJ-' + uuid.uuid4().hex[:16].upper()
                 con.execute('''INSERT INTO jobs(job_id,batch_id,video_id,url,project,folder,format,quality,
-                    auto_upload,keep_metadata,download_thumbnail,auto_song_maker,song_maker_owner,song_maker_status,status,created_at,updated_at,song_folder_id,song_folder_name) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                    auto_upload,keep_metadata,download_thumbnail,auto_song_maker,song_maker_owner,song_maker_status,status,created_at,updated_at,song_folder_id,song_folder_name,owner_username) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                     (jid, batch_id, video, url, '', '', payload.format, payload.quality,
                      int(payload.auto_upload), int(payload.keep_metadata), int(payload.download_thumbnail),
                      int(payload.auto_song_maker), owner if payload.auto_song_maker else None,
                      'pending' if payload.auto_song_maker else 'off', 'queued', created, created,
-                     folder_snapshot.get('id',''),folder_snapshot.get('name','')))
+                     folder_snapshot.get('id',''),folder_snapshot.get('name',''),owner))
                 jobs.append(jid)
             con.execute('COMMIT')
         except BaseException:
@@ -393,12 +412,15 @@ def enqueue(payload: BatchRequest, request: Request = None):
 
 @router.get('/jobs')
 def list_jobs(limit: int = 100, request: Request = None):
+    owner,admin=audio_identity(request)
     init_storage()
     limit = max(1, min(limit, 200))
     with db() as con:
-        rows = con.execute('SELECT * FROM jobs ORDER BY created_at DESC,job_id DESC LIMIT ?', (limit,)).fetchall()
-    owner=request.headers.get('x-auth-user','').strip() if request is not None else ''
-    return {'jobs': [sanitized_row(row) for row in rows if not row['song_folder_id'] or row['song_maker_owner']==owner]}
+        if admin:
+            rows=con.execute('SELECT * FROM jobs ORDER BY created_at DESC,job_id DESC LIMIT ?',(limit,)).fetchall()
+        else:
+            rows=con.execute('SELECT * FROM jobs WHERE lower(owner_username)=? ORDER BY created_at DESC,job_id DESC LIMIT ?',(owner,limit)).fetchall()
+    return {'jobs':[sanitized_row(row) for row in rows]}
 
 
 def row_for(jid: str, request: Request = None):
@@ -406,8 +428,10 @@ def row_for(jid: str, request: Request = None):
         raise HTTPException(404, 'Unknown audio job')
     with db() as con:
         row = con.execute('SELECT * FROM jobs WHERE job_id=?', (jid,)).fetchone()
-    if row is None or (request is not None and row['song_folder_id'] and row['song_maker_owner']!=request.headers.get('x-auth-user','').strip()):
-        raise HTTPException(404, 'Unknown audio job')
+    owner,admin=audio_identity(request)
+    if row is None or (not admin and (not row['owner_username'] or
+         str(row['owner_username']).casefold()!=owner)):
+        raise HTTPException(404,'Unknown audio job')
     return row
 
 
