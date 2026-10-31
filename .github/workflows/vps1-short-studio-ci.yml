@@ -54,6 +54,10 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_short_maker_queue_modal.py' -v
       - name: Short Uploader group metadata and queue regressions
         run: python -m unittest discover -s tests -p 'test_short_uploader_group_metadata.py' -v
+      - name: Verify Short-only channel cleanup and permanently enabled modes
+        run: |
+          python -m unittest discover -s tests -p 'test_short_uploader_fixed_modes.py' -v
+          python -m unittest discover -s tests -p 'test_shared_uploader_admin_controls_ui.py' -v
       - name: Short Uploader final release scope and live acceptance guards
         run: python -m unittest discover -s tests -p 'test_short_uploader_final_release.py' -v
       - name: Install rendered UI test browser
