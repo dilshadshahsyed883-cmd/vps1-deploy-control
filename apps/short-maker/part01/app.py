@@ -124,6 +124,40 @@ def short_vps_folder_names() -> list[str]:
     )
 
 
+def short_folder_owner(name: str) -> str:
+    folder=short_vps_folder(name)
+    meta=folder/".studio_owner"
+    if meta.is_symlink():
+        raise ValueError("Unsafe ownership marker")
+    if not meta.is_file():
+        return ""  # Legacy folder: admin-only, never guess its owner.
+    return meta.read_text(encoding="utf-8").strip().casefold()
+
+
+def short_folder_owned(name: str, request: Request) -> Path:
+    owner, admin=short_identity(request)
+    folder=short_vps_folder(name)
+    if not folder.is_dir():
+        raise HTTPException(status_code=404, detail="Output folder not found")
+    if not admin and short_folder_owner(name)!=owner.casefold():
+        raise HTTPException(status_code=403, detail="Output folder belongs to another account")
+    return folder
+
+
+def short_personal_default(owner: str) -> str:
+    """Create the caller's own default without claiming the shared legacy Default."""
+    name="My_"+hashlib.sha256(owner.casefold().encode("utf-8")).hexdigest()[:12]
+    folder=short_vps_folder(name)
+    SHORT_VPS_ROOT.mkdir(parents=True, exist_ok=True)
+    try:
+        folder.mkdir(mode=0o700,exist_ok=False)
+        (folder/".studio_owner").write_text(owner.casefold(),encoding="utf-8")
+    except FileExistsError:
+        if short_folder_owner(name)!=owner.casefold():
+            raise HTTPException(status_code=409,detail="Personal folder ownership mismatch")
+    return name
+
+
 def publish_short_to_vps(path: Path, folder_name: str, job_id: str, strict: bool = False) -> str:
     folder = short_vps_folder(folder_name)
     if not folder.is_dir():
@@ -1333,8 +1367,12 @@ def home(request: Request):
 
 
 @app.get("/api/vps-folders")
-def list_short_vps_folders():
-    return {"folders": short_vps_folder_names()}
+def list_short_vps_folders(request: Request):
+    owner, admin=short_identity(request)
+    if not admin:
+        short_personal_default(owner)
+    return {"folders": [name for name in short_vps_folder_names()
+                        if admin or short_folder_owner(name)==owner.casefold()]}
 
 
 @app.post("/api/vps-folders")
@@ -1345,6 +1383,8 @@ async def create_short_vps_folder(request: Request):
         folder = short_vps_folder(name)
         SHORT_VPS_ROOT.mkdir(parents=True, exist_ok=True)
         folder.mkdir(exist_ok=False)
+        owner, _admin=short_identity(request)
+        (folder/".studio_owner").write_text(owner.casefold(),encoding="utf-8")
     except FileExistsError:
         raise HTTPException(status_code=409, detail="Folder already exists.")
     except (ValueError, OSError) as exc:
@@ -1396,7 +1436,9 @@ async def create_job(
     verified_clean: bool = Form(True),
     short_vps_folder_name: str = Form("", alias="short_vps_folder"),
 ):
-    owner, _ = short_identity(request)
+    owner, admin = short_identity(request)
+    if not admin and (not short_vps_folder_name or short_vps_folder_name=="Default"):
+        short_vps_folder_name=short_personal_default(owner)
     input_mode=input_mode if input_mode in ("upload","drive") else "upload"
     # Backward-compatible API inference; explicit checkbox states must be exclusive.
     if available_to_short_uploader is None:
@@ -1404,6 +1446,7 @@ async def create_job(
     if bool(upload_to_drive) == bool(available_to_short_uploader):
         raise HTTPException(status_code=400, detail="Select exactly one output destination.")
     short_vps_folder_name = short_vps_folder_name or SHORT_VPS_DEFAULT
+    short_folder_owned(short_vps_folder_name,request)
     try:
         short_vps_folder_names()  # Ensure protected default folder exists.
         short_target = short_vps_folder(short_vps_folder_name) if short_vps_folder_name else None
@@ -1705,7 +1748,11 @@ async def begin_resumable_upload(request: Request):
         raise HTTPException(status_code=400, detail="Missing upload manifest.")
     if not isinstance(payload.get("config"), dict):
         raise HTTPException(status_code=400, detail="Missing render settings.")
+    owner, admin=short_identity(request)
+    if not admin and str(payload["config"].get("short_vps_folder") or SHORT_VPS_DEFAULT)=="Default":
+        payload["config"]["short_vps_folder"]=short_personal_default(owner)
     cfg = upload_config(payload["config"])
+    short_folder_owned(str(cfg["short_vps_folder"]),request)
     file_groups = payload["files"]
     manifest_files = {}
     grand_total = 0
