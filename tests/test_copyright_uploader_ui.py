@@ -84,7 +84,7 @@ class CopyrightUploaderUI(unittest.TestCase):
                                 '/actions/studio-tenant/channel-create',
                                 '/actions/studio-tenant/group-create'):
                     self.assertNotIn(removed,html)
-                self.assertIn('Channel &amp; Brand Manager',html)
+                self.assertIn('Channel & Brand Manager',html)
                 self.assertIn('tab=sheets',html)
 
     def test_modes_card_absent_for_admin_and_nonadmin(self):
