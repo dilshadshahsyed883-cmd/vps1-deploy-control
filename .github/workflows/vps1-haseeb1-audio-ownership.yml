@@ -23,11 +23,13 @@ jobs:
         run: python -m py_compile production/studio_haseeb1_audio_assignment.py production/runtime.py
       - name: Evidence, active jobs, foreign users and rollback regression
         run: python -m unittest tests.test_studio_haseeb1_audio_assignment -v
+      - name: Install existing Audio API regression dependencies
+        run: python -m pip install fastapi==0.115.12 httpx==0.28.1
       - name: Existing downloader owner scope and Song Maker handoff
         run: python -m unittest tests.test_audio_downloader_queue_history tests.test_audio_song_maker_handoff -v
 
   run-reviewed-scoped-intent:
-    needs: [assignment-tests]
+    needs: [audio-owner-tests]
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
