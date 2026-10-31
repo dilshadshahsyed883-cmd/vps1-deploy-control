@@ -46,6 +46,7 @@ app = FastAPI(title="Short Maker", version="1.4-multi-drive-audio-input")
 executor = ThreadPoolExecutor(max_workers=1)
 jobs = {}
 jobs_lock = threading.Lock()
+state_write_lock = threading.Lock()
 
 def utc_now():
     return datetime.now(timezone.utc).isoformat()
@@ -250,13 +251,19 @@ def state_path(job_id: str) -> Path:
 
 
 def save_state(job_id: str):
-    with jobs_lock:
-        state = dict(jobs[job_id])
-    p = state_path(job_id)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
-    tmp.replace(p)
+    # A worker progress write must never overwrite a newer user pause/cancel
+    # on disk. Serialize snapshots and atomic renames across both threads.
+    with state_write_lock:
+        with jobs_lock:
+            state = dict(jobs[job_id])
+        p = state_path(job_id)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_name("." + p.name + "." + uuid.uuid4().hex + ".tmp")
+        try:
+            tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
+            tmp.replace(p)
+        finally:
+            tmp.unlink(missing_ok=True)
 
 
 def set_state(job_id: str, **updates):
