@@ -117,7 +117,10 @@ class AutoCleanReadOnlyView(unittest.TestCase):
         self.assertIn("renderCleanupStatus(data.deployment_cleanup)", script)
         self.assertIn("data.read_only !== true || data.partial !== true", script)
         self.assertIn("method:'GET'", script)
-        for blocked in ("method:'POST'", "method: 'POST'", "/api/admin/storage/cleanup",
+        self.assertIn("run-safe-cleanup", script)
+        self.assertIn("X-Storage-CSRF", script)
+        self.assertIn("confirmation:'RUN SAFE CLEANUP'", script)
+        for blocked in ("/api/admin/storage/cleanup",
                         "/api/admin/storage/full-clean", "/api/admin/storage/policy",
                         "/api/admin/storage/scan", "Full Production Clean"):
             self.assertNotIn(blocked, script)

@@ -12,6 +12,24 @@ from production import storage_gc as gc
 
 
 class StorageGCTests(unittest.TestCase):
+    def test_manual_systemd_path_reuses_existing_protected_gc_engine(self):
+        root = Path(__file__).resolve().parents[1]
+        units = root / "infrastructure/systemd"
+        manual = (units / "vps1-storage-deployment-gc-manual.path").read_text()
+        service = (units / "vps1-storage-deployment-gc.service").read_text()
+        status = (units / "vps1-storage-deployment-gc-status.service").read_text()
+        timer = (units / "vps1-storage-deployment-gc-status.timer").read_text()
+        installer = (root / "scripts/install_storage_gc.sh").read_text()
+        self.assertIn("Unit=vps1-storage-deployment-gc.service", manual)
+        self.assertIn("ExecStartPre=-/usr/bin/rm -f /run/vps1-storage-gc-manual/request", service)
+        self.assertIn("storage-gc.py --apply", service)
+        self.assertIn("storage-gc.py --publish-status", status)
+        self.assertNotIn("--apply", status)
+        self.assertIn("OnUnitActiveSec=30min", timer)
+        self.assertIn("systemd-tmpfiles --create", installer)
+        self.assertIn("vps1-storage-deployment-gc-manual.path", installer)
+
+
     def setUp(self):
         self.workspace = tempfile.TemporaryDirectory()
         self.addCleanup(self.workspace.cleanup)

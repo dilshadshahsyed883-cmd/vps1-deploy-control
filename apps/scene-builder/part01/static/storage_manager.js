@@ -1,7 +1,7 @@
 export const CONTRACT = 2;
 /* CW-025: Storage Manager read-only active cleanup dashboard.
  * Independent deployment GC and app-owned Drive cleanup never share a delete control.
- * All network operations in this view are GETs.
+ * Status is read-only. One admin-only CSRF-protected action queues the guarded systemd cleaner.
  */
 export function mount(root, context = {}) {
   if (!root) throw new Error('Storage root required');
@@ -86,6 +86,8 @@ export function mount(root, context = {}) {
       ? (info.next_run_at?'Uses a 12-hour inactive-release grace; preserves the live release and rollback copies.':'The timer is active, but systemd has not published its next run. Refresh cleanup status to check again.')
       : 'Cannot confirm an active timer from the live host. No app data will be deleted from this page.');
     text('gc-next-run', presentTime(info?.next_run_at));
+    if (manualButton) manualButton.disabled = manualRunning || !active || info?.manual_available !== true || info?.manual_pending === true;
+    if (!manualRunning && info?.manual_pending === true) text('gc-manual-result', 'Manual cleanup queued; all protected checks remain active.');
     const audit = info?.last_cleanup || null;
     text('gc-last-run', presentTime(audit?.timestamp));
     text('gc-last-result', audit
@@ -116,6 +118,32 @@ export function mount(root, context = {}) {
       : 'No privileged inventory available from this read-only web service; do not interpret as 0 B.');
   }
 
+  const manualButton = get('gc-manual-clean');
+  let manualRunning = false;
+  async function requestManualCleanup() {
+    if (!manualButton || manualRunning || manualButton.disabled) return;
+    if (!window.confirm('Run safe deployment cleanup now? Active releases, rollback copies, media and queues remain protected.')) return;
+    const csrf = root.querySelector('#storage-app')?.dataset.csrf || root.dataset.csrf;
+    if (!csrf) { text('gc-manual-result', 'Admin token unavailable. Reload Storage Manager.'); return; }
+    manualRunning = true;
+    manualButton.disabled = true;
+    text('gc-manual-result', 'Sending guarded cleanup request…');
+    try {
+      const response = await fetch('/api/admin/storage/run-safe-cleanup', {
+        method:'POST', credentials:'same-origin', cache:'no-store',
+        headers:{'Content-Type':'application/json','Accept':'application/json','X-Storage-CSRF':csrf},
+        body:JSON.stringify({confirmation:'RUN SAFE CLEANUP'})});
+      const body = await response.json();
+      if (!response.ok || body.ok !== true || body.status !== 'queued') throw new Error(body.detail || body.message || 'Request failed');
+      text('gc-manual-result', 'Queued safely. Refresh status for audited results; timer stays active.');
+      await loadStatus();
+    } catch (error) {
+      text('gc-manual-result', 'Not started: ' + (error?.message || 'unavailable'));
+    } finally {
+      manualRunning = false;
+    }
+  }
+
   let pending = false;
   async function loadStatus() {
     if (pending) return;
@@ -143,6 +171,7 @@ export function mount(root, context = {}) {
   }
   get('refresh-metrics')?.addEventListener('click', () => { loadMetrics(); loadStatus(); }, {signal:lifetime.signal});
   get('refresh-cleanup-status')?.addEventListener('click', loadStatus, {signal:lifetime.signal});
+  manualButton?.addEventListener('click', requestManualCleanup, {signal:lifetime.signal});
   loadMetrics();
   loadStatus();
   const timers = [window.setInterval(() => {if (!document.hidden) loadMetrics();}, 30000),

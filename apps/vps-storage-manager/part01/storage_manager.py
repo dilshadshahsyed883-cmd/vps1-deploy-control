@@ -701,12 +701,23 @@ def deployment_cleanup_status() -> dict[str, Any]:
         generated = public.get("generated_at")
         if (type(eligible) is int and eligible >= 0 and type(measured) is int
                 and type(generated) is int and measured <= generated
-                and 0 <= time.time() - measured <= 30 * 86400):
+                and 0 <= time.time() - measured <= 2 * 3600):
             eligible_bytes = eligible
             count = public.get("eligible_candidate_count")
             if type(count) is int and 0 <= count <= 1_000_000:
                 eligible_candidate_count = count
             eligible_measured_at = datetime.fromtimestamp(measured, timezone.utc).isoformat()
+
+    manual_dir = Path("/run/vps1-storage-gc-manual")
+    try:
+        directory = manual_dir.stat()
+        manual_available = (not manual_dir.is_symlink() and manual_dir.is_dir()
+                            and directory.st_uid == os.geteuid()
+                            and directory.st_mode & 0o077 == 0)
+        manual_pending = (manual_available and (manual_dir / "request").is_file()
+                          and not (manual_dir / "request").is_symlink())
+    except OSError:
+        manual_available, manual_pending = False, False
 
     active = states["is-active"] == "active"
     enabled = states["is-enabled"] == "enabled"
@@ -724,6 +735,8 @@ def deployment_cleanup_status() -> dict[str, Any]:
         "eligible_bytes": eligible_bytes,
         "eligible_candidate_count": eligible_candidate_count,
         "eligible_measured_at": eligible_measured_at,
+        "manual_available": manual_available,
+        "manual_pending": manual_pending,
         "scope": "unreferenced GitHub releases and isolated virtual environments only",
         "media_cleanup": "owned independently by each application after verified Drive delivery",
     }

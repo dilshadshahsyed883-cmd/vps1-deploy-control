@@ -74,3 +74,21 @@ deletion, or on-host repair was performed in this source audit.
 Source fixes and tests are on the linked GitHub branch. Production acceptance,
 actual cause of the 229 skips, and post-deployment free-space delta are
 **not established by this document**.
+
+## 2026-10-31 follow-up: manual safe cleanup + fresh telemetry
+
+- Root-owned read-only status publisher now runs every 30 minutes via a separate
+  timer, without deleting anything. Estimates older than 2 hours are rejected.
+  A repeated value from a fresh scan is a valid reading, not a forced change.
+- Admin-only **Run Safe Cleanup** requires an authenticated admin session,
+  session-bound CSRF header, explicit confirmation and a two-minute cooldown.
+  It writes a fixed one-shot request in a restricted tmpfiles-managed directory.
+- A systemd `.path` starts the same guarded GC service already used by the
+  12-hour timer. Web workers do not receive root privileges or delete paths.
+  Active deployments, process references, rollback copies, grace periods,
+  user media and queues retain every existing deletion guard.
+- A queued request is not counted as freed space: only the verified root audit
+  supplies successful-run metrics. Manual and timer invocations are distinct
+  triggers for the same operation and each run is independently audited.
+- Production deployment and actual reclaiming remain unverified until the
+  separately scoped GC and dashboard releases complete.

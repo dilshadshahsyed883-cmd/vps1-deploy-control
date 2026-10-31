@@ -12,6 +12,9 @@ import subprocess
 import shutil
 import sqlite3
 import tempfile
+import time
+import stat
+import fcntl
 import threading
 import zipfile
 from datetime import datetime, timezone, timedelta
@@ -4793,7 +4796,8 @@ def persistent_workspace(request: Request):
     return templates.TemplateResponse("persistent_workspace.html", {
         "request": request, "page": "shell_workspace",
         "username": request.session.get("username", "team"),
-        "storage_csrf": "", "drive_connected": False,
+        "storage_csrf": request.session.setdefault("storage_csrf", secrets.token_urlsafe(32)) if request.session.get("is_admin") else "",
+        "drive_connected": False,
         "shell_entry": shell_manifest["entry"],
     }, headers={"Cache-Control": "no-store"})
 
@@ -4896,6 +4900,73 @@ def storage_metrics(request: Request):
 def storage_snapshot_api(request: Request):
     require_admin(request)
     return storage_manager_request("GET", "/v1/snapshot", timeout=180)
+
+
+
+MANUAL_STORAGE_GC_REQUEST_DIR = Path("/run/vps1-storage-gc-manual")
+
+
+def queue_guarded_storage_gc(*, now: float | None = None) -> dict[str, Any]:
+    """Queue a fixed systemd path request; never perform privileged deletion."""
+    directory = MANUAL_STORAGE_GC_REQUEST_DIR
+    try:
+        mode = directory.lstat()
+        if (not stat.S_ISDIR(mode.st_mode) or mode.st_uid != os.geteuid()
+                or mode.st_mode & 0o077):
+            raise RuntimeError("Manual cleanup request spool is not safely provisioned")
+        fd = os.open(directory / "request.lock", os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        with os.fdopen(fd, "r+") as handle:
+            if os.fstat(handle.fileno()).st_uid != os.geteuid():
+                raise RuntimeError("Manual cleanup lock ownership is invalid")
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            request = directory / "request"
+            if request.is_symlink():
+                raise RuntimeError("Unsafe manual cleanup request")
+            if request.exists():
+                return {"ok": True, "status": "queued", "message": "Cleanup already queued"}
+            clock = time.time() if now is None else now
+            last = directory / "last-request"
+            if last.is_symlink():
+                raise RuntimeError("Unsafe cleanup throttle marker")
+            if last.exists() and clock - last.stat().st_mtime < 120:
+                raise RuntimeError("Please wait two minutes before requesting another cleanup")
+            flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0)
+            request_fd = os.open(request, flags, 0o600)
+            with os.fdopen(request_fd, "w", encoding="ascii") as record:
+                record.write(str(int(clock)) + "\n")
+                record.flush()
+                os.fsync(record.fileno())
+            marker_fd = os.open(last, os.O_CREAT | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0), 0o600)
+            with os.fdopen(marker_fd, "w", encoding="ascii") as marker:
+                marker.write(str(int(clock)) + "\n")
+            os.utime(last, (clock, clock))
+            return {"ok": True, "status": "queued", "message": "Guarded cleanup requested; refresh for audited results"}
+    except OSError as exc:
+        raise RuntimeError("Guarded cleanup unavailable or already being requested") from exc
+
+
+@app.post("/api/admin/storage/run-safe-cleanup")
+async def storage_run_safe_cleanup(request: Request):
+    require_admin(request)
+    require_storage_csrf(request)
+    if RUNTIME_CANDIDATE or os.getenv("FRESH_WEBSITE_SMOKE_TEST") == "1":
+        raise HTTPException(403, "Candidate storage cleanup is disabled")
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(400, "Invalid cleanup confirmation") from exc
+    if not isinstance(payload, dict) or payload.get("confirmation") != "RUN SAFE CLEANUP":
+        raise HTTPException(400, "Explicit cleanup confirmation required")
+    try:
+        status = storage_manager_request("GET", "/v1/snapshot", timeout=30).get("deployment_cleanup", {})
+        if status.get("status") != "active" or status.get("manual_available") is not True:
+            raise HTTPException(409, "Guarded cleanup system not active or not provisioned")
+        result = queue_guarded_storage_gc()
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    audit_event("storage_manual_gc_requested", "Administrator queued guarded deployment cleanup",
+                {"status": result["status"]})
+    return result
 
 
 @app.get("/api/admin/storage/history")

@@ -4,7 +4,7 @@
 
 {% macro storage_content() %}
 {% include "admin_workspace_nav.html" %}
-<link rel="stylesheet" href="/static/storage_manager.css?v=20261030-gc-audit-v3">
+<link rel="stylesheet" href="/static/storage_manager.css?v=20261031-manual-gc-v1">
 <div id="storage-app" data-csrf="{{ storage_csrf }}">
   <section class="sm-hero">
     <div>
@@ -18,6 +18,7 @@
       <span id="manager-status" class="sm-status"><i></i> Connecting</span>
       <button id="refresh-metrics" class="button secondary" type="button">Refresh metrics</button>
       <button id="refresh-cleanup-status" class="button" type="button">Refresh cleanup status</button>
+      <button id="gc-manual-clean" class="button" type="button" disabled>Run Safe Cleanup</button>
     </div>
   </section>
 
@@ -52,6 +53,7 @@
         <span>12-hour deployment cleaner</span>
         <strong id="deployment-gc-state" role="status" aria-live="polite">Checking live timer…</strong>
         <p id="deployment-gc-detail">Reading systemd status.</p>
+        <p id="gc-manual-result" role="status" aria-live="polite">Manual cleanup requires the guarded root-owned service.</p>
       </article>
       <article class="sm-auto-status-card">
         <span>Next scheduled run</span>
@@ -80,7 +82,7 @@
         <p>No centralized deletion: each app verifies delivery and job dependencies before cleaning its own files.</p>
       </article>
     </div>
-    <p class="sm-gc-disclaimer">The legacy central cleanup policy and destructive Full Production Clean controls have been retired from this page. Live releases, rollback copies, databases, queues, credentials and user media remain protected. This dashboard only reads status; it does not start cleanup.</p>
+    <p class="sm-gc-disclaimer">The legacy central cleanup policy and destructive Full Production Clean controls have been retired from this page. Live releases, rollback copies, databases, queues, credentials and user media remain protected. The dashboard reads status; the admin-only Run Safe Cleanup action requests the same protected root service as the timer. No direct web deletion is permitted.</p>
   </section>
 
   <div id="storage-toast" class="sm-toast" hidden></div>
@@ -90,4 +92,4 @@
 
 {% endblock %}
 
-{% block scripts %}<script type="module" src="/static/storage_manager.js?v=20261030-gc-audit-v3"></script>{% endblock %}
+{% block scripts %}<script type="module" src="/static/storage_manager.js?v=20261031-manual-gc-v1"></script>{% endblock %}
