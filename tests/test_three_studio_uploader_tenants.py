@@ -98,6 +98,19 @@ class TenantTests(unittest.TestCase):
                 self.assertIn(marker,engine)
             self.assertIn("{% if user.is_admin and engine_instance in ",template)
             self.assertIn("/actions/studio-tenant/grant",template)
+            # Regression: direct OAuth/queue actions must not fall back to the
+            # service-global channel inventory when called by a member.
+            for marker in (
+                'studio_tenants.require("group",group_id,user)',
+                'studio_tenants.require("channel",cid,user)',
+                'studio_tenants.require("channel",channel_id,user)',
+                'video_ids=[core_id]',
+                'payload["connections"]=[',
+                'pc_sync_history = (list_sync_history() if selected == "channels"',
+                'counts=store.counts(owner=owner)',
+                'route("/actions/google-oauth/connect")',
+            ):
+                self.assertIn(marker,standalone,(package,marker))
             compile(standalone,str(package/"standalone_app.py"),"exec")
             compile(engine,str(package/"auto_engine_v6.py"),"exec")
 
