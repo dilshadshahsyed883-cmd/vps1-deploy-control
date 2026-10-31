@@ -14,6 +14,7 @@ on:
         type: choice
         default: install
         options: [install, rollback, nginx-route-only, nginx-route-rollback]
+# PR544: voice-studio targeted release activates Audio Downloader per-account queue access; runtime idle gate protects downloads.
 permissions:
   contents: read
 # Keep this workflow independent of complete-site workflow scheduling.
