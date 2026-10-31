@@ -183,6 +183,32 @@ def release_idle_diagnostic() -> dict:
             else:
                 status = "BLOCKED_OTHER"
             results[name] = status
+    # Installation also requires all six unit identities to be active.
+    # Report only allowlisted states: no service output, paths or private IDs.
+    import subprocess
+    import shutil
+    required_services = {}
+    for mode, service in (("song", "song"), ("short", "shortstudio")):
+        required_services[mode] = {}
+        for part in ("scheduler", "worker", "web"):
+            name = f"vps1-production-lum-{service}-{part}.service"
+            try:
+                proc = subprocess.run(
+                    ["systemctl", "is-active", "--quiet", name],
+                    check=False, capture_output=True, timeout=12,
+                )
+                status = "ACTIVE" if proc.returncode == 0 else "NOT_ACTIVE"
+            except (OSError, subprocess.TimeoutExpired):
+                status = "UNAVAILABLE"
+            required_services[mode][part] = status
+    results["required_services"] = required_services
+    try:
+        results["disk_reserve"] = (
+            "PASS" if shutil.disk_usage("/").free >= 5_000_000_000
+            else "INSUFFICIENT"
+        )
+    except OSError:
+        results["disk_reserve"] = "UNAVAILABLE"
     journal = BASE / "transactions/haseeb1-song-short-assignment" / (
         "80a225070cd27f46be71b0d66ad49980fd5bdd1b"
     )
