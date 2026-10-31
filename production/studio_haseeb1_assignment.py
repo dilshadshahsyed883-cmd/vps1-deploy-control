@@ -183,23 +183,26 @@ def release_idle_diagnostic() -> dict:
             else:
                 status = "BLOCKED_OTHER"
             results[name] = status
-    journal = BASE / "transactions/haseeb1-song-short-assignment" / (
-        "80a225070cd27f46be71b0d66ad49980fd5bdd1b"
-    )
-    receipt = journal / "receipt.json"
-    if receipt.is_file() and not receipt.is_symlink():
-        import json
-        try:
-            state = str(json.loads(receipt.read_text()).get("state") or "").strip()
-        except (ValueError, OSError):
-            state = ""
-        results["previous_transaction"] = (
-            state if state in {"UPLOADER_DATA_ASSIGNED", "BLOCKED_OR_ROLLED_BACK"} else "UNKNOWN"
-        )
-    else:
-        results["previous_transaction"] = (
-            "NO_RECEIPT" if journal.exists() else "NO_JOURNAL"
-        )
+    base = BASE / "transactions/haseeb1-song-short-assignment"
+    transaction_states = {}
+    for label, sha in (
+        ("initial", "80a225070cd27f46be71b0d66ad49980fd5bdd1b"),
+        ("exact_backup_retry", "5720e72ff1ce4e8ab425e6faea685108cd3d75ff"),
+    ):
+        journal = base / sha
+        receipt = journal / "receipt.json"
+        if receipt.is_file() and not receipt.is_symlink():
+            import json
+            try:
+                state = str(json.loads(receipt.read_text()).get("state") or "").strip()
+            except (ValueError, OSError):
+                state = ""
+            transaction_states[label] = (
+                state if state in {"UPLOADER_DATA_ASSIGNED","BLOCKED_OR_ROLLED_BACK",
+                                   "BACKUP_FAILED_NO_MUTATION"} else "UNKNOWN")
+        else:
+            transaction_states[label] = "NO_RECEIPT" if journal.exists() else "NO_JOURNAL"
+    results["transactions"] = transaction_states
     return results
 
 
