@@ -203,6 +203,30 @@ def release_idle_diagnostic() -> dict:
     return results
 
 
+
+def backup_exact_owner_databases(root: Path, destination: Path) -> list[str]:
+    """Consistent WAL backups of only DBs this migration updates.
+
+    Unrelated V6/PC media/index databases never change and must not block
+    or expand the ownership transaction.
+    """
+    backed = []
+    for name in ("core/data/uploader.db", "projects.sqlite3"):
+        source = root / name
+        require(source.is_file() and not source.is_symlink(),
+                "ASSIGNMENT_SOURCE_DB_UNAVAILABLE")
+        target = destination / name
+        target.parent.mkdir(parents=True,exist_ok=True)
+        with sqlite3.connect(source.as_uri() + "?mode=ro", uri=True, timeout=20) as src, \\
+             sqlite3.connect(target, timeout=20) as dst:
+            src.backup(dst)
+            require(dst.execute("PRAGMA integrity_check").fetchone()[0] == "ok",
+                    "ASSIGNMENT_BACKUP_INTEGRITY_FAILURE")
+        target.chmod(0o600)
+        backed.append(name)
+    return backed
+
+
 def install(revision: str) -> None:
     """Serialized production root-helper entry; uploader-state ownership only.
 
@@ -214,7 +238,7 @@ def install(revision: str) -> None:
     import re
     import shutil
     import subprocess
-    from production.runtime import BASE, DATA, backup_databases, atomic_json
+    from production.runtime import BASE, DATA, atomic_json
     from production.song_uploader_group_summary_release import idle as song_idle, health as song_health
     from production.short_uploader_group_release import idle as short_idle, health as short_health
 
@@ -247,15 +271,24 @@ def install(revision: str) -> None:
     atomic_json(journal / "intent.json",
                 {"revision": revision, "target": TARGET, "units": list(previous),
                  "state": "PREFLIGHT_PASS", "auto_script": "OFFLINE"})
-    # Backups taken before changing any state, including committed WAL data.
-    backups = {mode: backup_databases(root, journal / "backup" / mode)
-               for mode, root in roots.items()}
-    require(all(backups.values()), "NO_DATABASE_BACKUP")
+    # Only these exact four SQLite files are mutated. Back up those, not
+    # unrelated V6 thumbnails, channel OAuth/session, or media indexes.
+    print("HASEEB1_MIGRATION_PHASE=BACKUP", flush=True)
+    try:
+        backups = {mode: backup_exact_owner_databases(root, journal / "backup" / mode)
+                   for mode, root in roots.items()}
+        require(all(len(value) == 2 for value in backups.values()), "NO_DATABASE_BACKUP")
+    except BaseException:
+        atomic_json(journal / "receipt.json", {
+            "state": "BACKUP_FAILED_NO_MUTATION", "revision": revision,
+            "auto_script": "OFFLINE"})
+        raise
     stopped = False
     changed = False
     try:
         song_idle()
         short_idle(allow_waiting_network=True)
+        print("HASEEB1_MIGRATION_PHASE=SERVICE_STOP", flush=True)
         # Protect in-memory queues from races; only Song and Short are stopped.
         stopped = True
         for mode in ("song", "short"):
@@ -264,6 +297,7 @@ def install(revision: str) -> None:
                                capture_output=True, text=True, timeout=90)
         check_scene_account(scene_db)
         read_only_audit(DATA, scene_db)
+        print("HASEEB1_MIGRATION_PHASE=ASSIGN_OWNER", flush=True)
         results = {}
         for mode, root in roots.items():
             core = root / "core/data/uploader.db"
@@ -277,11 +311,13 @@ def install(revision: str) -> None:
                 con.execute("BEGIN IMMEDIATE")
                 results[mode]["projects"] = assign_projects(con)
             changed = True
+        print("HASEEB1_MIGRATION_PHASE=POSTWRITE_VERIFY", flush=True)
         after = read_only_audit(DATA, scene_db)
         require(all(
             all(entry["to_assign"] == 0 for entry in value["entities"].values()) and
             value["projects"]["to_assign"] == 0
             for value in after["instances"].values()), "POST_MIGRATION_OWNER_COUNT")
+        print("HASEEB1_MIGRATION_PHASE=SERVICE_START", flush=True)
         for mode in ("short", "song"):
             for name in reversed(units[mode]):
                 subprocess.run(["systemctl", "start", name], check=True,
@@ -289,6 +325,7 @@ def install(revision: str) -> None:
         stopped = False
         require(song_health().get("ok") is True and short_health().get("ok") is True,
                 "POST_RESTART_HEALTH_FAILED")
+        print("HASEEB1_MIGRATION_PHASE=LIVE_HEALTH_PASS", flush=True)
         atomic_json(journal / "receipt.json",
                     {"state": "UPLOADER_DATA_ASSIGNED", "revision": revision,
                      "owner": TARGET, "before": before, "after": after,
@@ -301,6 +338,7 @@ def install(revision: str) -> None:
                           "auto_script": "OFFLINE",
                           "shared_google_drive": "UNCHANGED"},sort_keys=True),flush=True)
     except BaseException:
+        print("HASEEB1_MIGRATION_PHASE=ROLLBACK", flush=True)
         # Retry stopping, then SQLite backup-API restore. Never edit media,
         # token files, Drive, per-account records or Copyright Studio.
         if changed or stopped:
