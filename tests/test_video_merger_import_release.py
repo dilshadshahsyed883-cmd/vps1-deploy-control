@@ -63,7 +63,11 @@ function renderProxy(){old}
                     return baseline
                 if args[:3]==['python3','-m','venv']:
                     path=Path(args[3]);(path/'bin').mkdir(parents=True);(path/'bin/python').touch()
-                if failure=='smoke' and 'production.video_merger_import_smoke' in args:raise RuntimeError('source failure')
+                if 'production.video_merger_import_smoke' in args:
+                    if failure=='smoke':raise RuntimeError('source failure')
+                    return json.dumps({'youtube':'PASS','drive':'PASS',
+                        'library_persistence':'PASS',
+                        'youtube_external_auth_blocked':False})+'\n'
                 return ''
             checks=[None,RuntimeError('health failure'),None,None] if failure=='health' else [None,None,None]
             with patch.object(release,'BASE',base),patch.object(release,'DATA',root/'data'),patch.object(release,'REPO',repo), \
@@ -140,6 +144,41 @@ function renderProxy(){old}
             self.assertTrue((venv/'bin/deno').stat().st_mode & 0o111)
             with patch.object(release.urllib.request,'urlopen',return_value=io.BytesIO(b'invalid')):
                 with self.assertRaisesRegex(RuntimeError,'digest mismatch'):release.install_js(venv)
+    def test_owner_only_parity_refuses_any_downloader_change(self):
+        canonical=(Path(__file__).resolve().parents[1]/
+                   'apps/video-merger/part01/app.py').read_text()
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); previous=root/'old.py'; candidate=root/'new.py'
+            previous.write_text(canonical)
+            candidate.write_text(canonical)
+            self.assertTrue(release.owner_handover_only_change(previous,candidate))
+            # Reviewed handover nodes may differ, but downloader paths may not.
+            candidate.write_text(canonical.replace(
+                'def owner_queue_paused(owner):',
+                'def owner_queue_paused(owner):\\n    pass',1))
+            self.assertTrue(release.owner_handover_only_change(previous,candidate))
+            candidate.write_text(canonical.replace(
+                'def validate_url(u):',
+                'def validate_url(u):\\n    pass',1))
+            self.assertFalse(release.owner_handover_only_change(previous,candidate))
+            candidate.unlink()
+            with self.assertRaisesRegex(RuntimeError,'candidate Video Merger source'):
+                release.owner_handover_only_change(previous,candidate)
+
+    def test_known_external_auth_classifier_is_strict(self):
+        from production.video_merger_import_smoke import exact_known_external_auth
+        report={'youtube':'FAIL: YOUTUBE_AUTH_REQUIRED: blocked',
+                'proxy_test':'FAIL: YOUTUBE_AUTH_REQUIRED: blocked'}
+        config={'enabled':True,'profiles':[{'id':'existing'}]}
+        self.assertTrue(exact_known_external_auth(report,config,None,True))
+        self.assertFalse(exact_known_external_auth(report,config,None,False))
+        self.assertFalse(exact_known_external_auth(report,config,{'id':'candidate'},True))
+        self.assertFalse(exact_known_external_auth(report,{'enabled':False},None,True))
+        self.assertFalse(exact_known_external_auth({**report,'youtube':'FAIL: HTTP 403'},
+                                                    config,None,True))
+        self.assertFalse(exact_known_external_auth({**report,'proxy_test':'DIRECT_MODE'},
+                                                    config,None,True))
+
     def test_workflow_intent_and_smoke_syntax(self):
         root=Path(__file__).resolve().parents[1]
         workflow=(root/'.github/workflows/vps1-video-merger-import-release.yml').read_text()
