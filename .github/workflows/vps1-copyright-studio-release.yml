@@ -2,6 +2,7 @@ name: VPS1 Copyright Studio guarded release
 on:
   push:
     branches: [main]
+# PR544: copyright-ui-only selector deploys isolated Copyright Uploader, not Merger or Scene.
 permissions:
   contents: read
 jobs:
