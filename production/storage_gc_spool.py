@@ -131,11 +131,19 @@ def provision() -> None:
                            check=True, timeout=15, capture_output=True)
             for childname in ("request.lock", "last-request"):
                 child = DIR / childname
-                if child.exists():
-                    if child.is_symlink() or not stat.S_ISREG(child.lstat().st_mode):
-                        raise RuntimeError("Manual spool marker changed during repair")
-                    os.chown(child, uid, gid, follow_symlinks=False)
-                    os.chmod(child, 0o600, follow_symlinks=False)
+                if child.exists() or child.is_symlink():
+                    # Hold the exact non-symlink inode while fixing metadata:
+                    # Linux chmod(follow_symlinks=False) is not supported.
+                    child_fd = os.open(child, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0))
+                    try:
+                        existing = os.fstat(child_fd)
+                        if (not stat.S_ISREG(existing.st_mode) or
+                                existing.st_uid not in private | {0}):
+                            raise RuntimeError("Manual spool marker changed during repair")
+                        os.fchown(child_fd, uid, gid)
+                        os.fchmod(child_fd, 0o600)
+                    finally:
+                        os.close(child_fd)
             _checked_dir(DIR, {uid})
             mode = DIR.lstat()
             if (mode.st_mode & 0o777) != 0o700:
