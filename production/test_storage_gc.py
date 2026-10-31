@@ -12,6 +12,40 @@ from production import storage_gc as gc
 
 
 class StorageGCTests(unittest.TestCase):
+    def test_transient_proc_race_requires_clean_independent_rescan(self):
+        from unittest.mock import patch
+
+        target = self.root / "releases" / self.app / self.revisions[3]
+        with patch.object(gc, "_runtime_reference_pass",
+                          side_effect=["unverifiable-process-race", "clear"]) as scan, \
+             patch.object(gc.time, "sleep") as pause:
+            self.assertEqual(gc._runtime_reference_probe([target]), "clear")
+            self.assertEqual(scan.call_count, 2)
+            pause.assert_called_once_with(0.05)
+
+        # A second scan that positively references a release always blocks it.
+        with patch.object(gc, "_runtime_reference_pass",
+                          side_effect=["unverifiable-process-race", "referenced"]) as scan, \
+             patch.object(gc.time, "sleep"):
+            self.assertTrue(gc._runtime_in_use([target]))
+            self.assertEqual(scan.call_count, 2)
+
+        # Permission failures are not transient races and cannot be retried away.
+        with patch.object(gc, "_runtime_reference_pass",
+                          return_value="unverifiable-permission-read-environ") as scan, \
+             patch.object(gc.time, "sleep") as pause:
+            self.assertTrue(gc._runtime_in_use([target]))
+            scan.assert_called_once()
+            pause.assert_not_called()
+
+        # A persistent or unresolved process race must remain fail-closed.
+        with patch.object(gc, "_runtime_reference_pass",
+                          return_value="unverifiable-process-race") as scan, \
+             patch.object(gc.time, "sleep") as pause:
+            self.assertTrue(gc._runtime_in_use([target]))
+            self.assertEqual(scan.call_count, 3)
+            self.assertEqual(pause.call_count, 2)
+
     def test_esrch_during_proc_read_only_ignores_confirmed_vanished_pid(self):
         import errno
         import shutil
