@@ -69,7 +69,7 @@ class StorageWebOnlyRelease(unittest.TestCase):
         # Model the installed older candidate policy: no Storage Manager POST
         # allowlist, otherwise unchanged.
         exception = ('    if method == "POST" and path == '
-                     '"/api/admin/storage/run-safe-cleanup":\\n        return True\\n')
+                     '"/api/admin/storage/run-safe-cleanup":\n        return True\n')
         original = reviewed.replace(exception, "")
         self.assertNotEqual(original, reviewed)
         patched = overlay.patch_candidate_policy(original, reviewed)
