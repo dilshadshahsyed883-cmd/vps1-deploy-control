@@ -112,4 +112,4 @@ jobs:
           fi
           grep -Fq '"auto_script": "OFFLINE"' "$scratch/receipt.log"
           grep -Fq '"google_drive": "UNCHANGED"' "$scratch/receipt.log"
-          grep -Eo '"(total_jobs|nonterminal_jobs|already_owned|eligible|nonterminal_deferred|unproven_legacy|foreign_owner|handoff_conflict|claimed_now)": [0-9]+' "$scratch/receipt.log" || true
+          grep -Eo '"(total_jobs|nonterminal_jobs|authenticated_handoff_matches|foreign_handoff_records|unproven_handoff_records|already_owned|eligible|nonterminal_deferred|unproven_legacy|foreign_owner|handoff_conflict|claimed_now)": [0-9]+' "$scratch/receipt.log" || true
