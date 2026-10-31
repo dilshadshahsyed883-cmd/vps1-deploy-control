@@ -12,7 +12,6 @@ import sqlite3
 import subprocess
 
 from production.runtime import BASE, REPO, atomic_json, atomic_link, event, http_check, run
-from production.voice_queue_release import local_json
 from production.audio_proxy_restore import plan as plan_proxy_restore, replace_private
 from production.video_merger_import_release import install_js as install_verified_deno
 
@@ -72,10 +71,29 @@ def lock_idle(path):
 
 def verify():
     from production.route_uploader_scene_https import scene_cookie, https_get
+    from urllib import request as urlrequest
     cookie = scene_cookie()
+    opener = urlrequest.build_opener(urlrequest.ProxyHandler({}))
+    # Trust only the live Scene session gate; never invent an admin identity
+    # or depend on client-controlled headers for the local authenticated probe.
+    gate = urlrequest.Request(
+        'http://127.0.0.1:18080/internal/workspace-auth?app=voice-studio',
+        headers={'Cookie': cookie})
+    with opener.open(gate, timeout=8) as response:
+        require(response.status == 204 and response.headers.get('X-Is-Admin') == '1',
+                'Scene admin SSO unavailable for Audio verification')
+        username = str(response.headers.get('X-Auth-User') or '').strip()
+    require(bool(username) and len(username) <= 160 and not any(c in username for c in '\r\n'),
+            'Scene admin identity invalid for Audio verification')
+    verified_headers = {'X-Auth-User': username, 'X-Is-Admin': '1'}
     for endpoint in ('status', 'proxy', 'jobs?limit=1'):
-        status, data = local_json('http://127.0.0.1:8143/tts/api/audio-downloader/' + endpoint)
-        require(status == 200, 'Audio local API unavailable')
+        local = urlrequest.Request(
+            'http://127.0.0.1:8143/tts/api/audio-downloader/' + endpoint,
+            headers=verified_headers)
+        with opener.open(local, timeout=12) as response:
+            status = response.status
+            data = json.loads(response.read(1_000_000))
+        require(status == 200 and isinstance(data, dict), 'Audio local API unavailable')
         if endpoint == 'status':
             require(data.get('ready') and data.get('download_contract') == 'explicit-proxy-private-session-v2', 'worker dependencies/contract unavailable')
             require(data.get('proxy', {}).get('valid_selection'), 'enabled proxy selection invalid')
