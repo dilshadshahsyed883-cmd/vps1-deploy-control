@@ -67,13 +67,13 @@ jobs:
           gc_install_ok=false
           for attempt in $(seq 1 10); do
             if output="$(remote storage-gc-install 2>&1)"; then
-              printf '%s\\n' "$output"
+              printf '%s\n' "$output"
               gc_install_ok=true
               break
             fi
-            if [[ "$output" != *'BlockingIOError'* || \\
+            if [[ "$output" != *'BlockingIOError'* || \
                   "$output" != *'Resource temporarily unavailable'* ]]; then
-              printf '%s\\n' "$output" >&2
+              printf '%s\n' "$output" >&2
               echo 'STORAGE_GC_INSTALL=FAILED_UNEXPECTED_ERROR' >&2
               exit 1
             fi
