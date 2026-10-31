@@ -250,7 +250,9 @@ def install(revision: str) -> None:
         print(json.dumps({"STUDIO_UPLOADER_ASSIGNMENT": "PASS",
                           "owner": TARGET, "scope": "SONG_SHORT_UPLOADERS_ONLY",
                           "instances": after["instances"], "rollback": "BACKUPS_PRESENT",
-                          "other_studio_data": "NOT_MIGRATED"},sort_keys=True),flush=True)
+                          "other_studio_data": "NOT_MIGRATED",
+                          "auto_script": "OFFLINE",
+                          "shared_google_drive": "UNCHANGED"},sort_keys=True),flush=True)
     except BaseException:
         # Retry stopping, then SQLite backup-API restore. Never edit media,
         # token files, Drive, per-account records or Copyright Studio.
