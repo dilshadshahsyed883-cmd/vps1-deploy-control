@@ -1,0 +1,155 @@
+"""Guarded first-owner assignment for Song and Short Uploader legacy data.
+
+No cross-tenant transfers: only unassigned uploader entities are claimed.
+Foreign-owned entities or project rows block the whole operation. This module
+does not touch Copyright Studio, Google Drive, OAuth files, or upload statuses.
+The caller must independently prove both application services are quiescent,
+verify the canonical Scene account, and take consistent SQLite backups.
+"""
+from __future__ import annotations
+
+import sqlite3
+from pathlib import Path
+
+TARGET = "haseeb1"
+ENTITY_TABLES = (
+    ("channel", "channels"),
+    ("group", "channel_groups"),
+    ("sheet", "sheet_sources"),
+    ("profile", "auto_engine_profiles"),
+)
+ACTIVE = ("CLAIMED", "UPLOADING", "THUMBNAIL_UPLOADING", "PROCESSING", "IN_PROGRESS")
+
+
+class MigrationBlocked(RuntimeError):
+    pass
+
+
+def require(ok: bool, reason: str) -> None:
+    if not ok:
+        raise MigrationBlocked("HASEEB1_STUDIO_ASSIGNMENT_BLOCKED: " + reason)
+
+
+def exists(con: sqlite3.Connection, table: str) -> bool:
+    return con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
+    ).fetchone() is not None
+
+
+def schema(con: sqlite3.Connection, table: str) -> set[str]:
+    return {row[1] for row in con.execute("PRAGMA table_info(" + table + ")")}
+
+
+def check_scene_account(scene_db: Path, target: str = TARGET) -> dict:
+    """Read-only proof: never create an account or guess by display name."""
+    require(scene_db.is_file() and not scene_db.is_symlink(), "SCENE_DB_UNAVAILABLE")
+    with sqlite3.connect(scene_db.as_uri() + "?mode=ro", uri=True, timeout=5) as con:
+        require(exists(con, "users"), "SCENE_USERS_TABLE_MISSING")
+        fields = schema(con, "users")
+        require({"username", "is_active", "studio_access"} <= fields, "SCENE_AUTH_SCHEMA_DRIFT")
+        rows = con.execute(
+            "SELECT username,is_active,studio_access,is_admin FROM users WHERE username=? COLLATE NOCASE",
+            (target,)
+        ).fetchall()
+        require(len(rows) == 1, "TARGET_USERNAME_NOT_UNIQUE_OR_MISSING")
+        username, active, studios, admin = rows[0]
+        require(str(username).casefold() == target and int(active) == 1, "TARGET_NOT_ACTIVE")
+        permitted = set(str(studios or "").split(",")) if studios is not None else {"song", "short"}
+        require(bool(admin) or {"song", "short"} <= permitted, "TARGET_STUDIO_ACCESS_MISSING")
+    return {"target": target, "active": True, "studdio_access": "PASS"}
+
+
+def inspect_core(con: sqlite3.Connection, target: str = TARGET) -> dict:
+    for _, table in ENTITY_TABLES:
+        require(exists(con, table), "MISSING_" + table.upper())
+        require("id" in schema(con, table), "INVALID_ID_" + table.upper())
+    require(exists(con, "videos"), "VIDEOS_TABLE_MISSING")
+    require("status" in schema(con, "videos"), "VIDEOS_STATUS_MISSING")
+    marks = ",".join("?" for _ in ACTIVE)
+    busy = con.execute("SELECT COUNT(*) FROM videos WHERE UPPER(COALESCE(status,'')) IN (" + marks + ")", ACTIVE).fetchone()[0]
+    require(busy == 0, "ACTIVE_UPLOAD_PRESENT")
+    if exists(con, "studio_entity_owners"):
+        require({"entity_kind", "entity_id", "owner_username"} <= schema(con, "studio_entity_owners"),
+                "OWNER_REGISTRY_SCHEMA_DRIFT")
+    counts = {}
+    for kind, table in ENTITY_TABLES:
+        rows = con.execute("SELECT id FROM " + table).fetchall()
+        require(all(isinstance(r[0], int) and r[0] > 0 for r in rows), "INVALID_ENTITY_ID")
+        assigned = {}
+        if exists(con, "studio_entity_owners"):
+            assigned = {int(r[0]): str(r[1]).casefold() for r in con.execute(
+                "SELECT entity_id,owner_username FROM studio_entity_owners WHERE entity_kind=?", (kind,)
+            )}
+        require(not (set(assigned) - {r[0] for r in rows}), "ORPHAN_OWNER_" + kind.upper())
+        require(all(value == target for value in assigned.values()), "FOREIGN_OWNER_" + kind.upper())
+        counts[kind] = {"total": len(rows), "already_owned": len(assigned),
+                        "to_assign": len(rows) - len(assigned)}
+    if exists(con, "channel_group_members"):
+        bad = con.execute("""SELECT COUNT(*) FROM channel_group_members m
+            LEFT JOIN channel_groups g ON g.id=m.group_id
+            LEFT JOIN channels c ON c.id=m.channel_db_id
+            WHERE g.id IS NULL OR c.id IS NULL""").fetchone()[0]
+        require(bad == 0, "GROUP_CHANNEL_MEMBERSHIP_INVALID")
+    return counts
+
+
+def assign_core(con: sqlite3.Connection, target: str = TARGET) -> dict:
+    """Caller owns BEGIN IMMEDIATE / COMMIT; never commit in this function."""
+    counts = inspect_core(con, target)
+    con.execute("""CREATE TABLE IF NOT EXISTS studio_entity_owners(
+       entity_kind TEXT NOT NULL, entity_id INTEGER NOT NULL,
+       owner_username TEXT NOT NULL COLLATE NOCASE,
+       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       PRIMARY KEY(entity_kind,entity_id))""")
+    con.execute("""CREATE INDEX IF NOT EXISTS idx_studio_entity_owner
+                   ON studio_entity_owners(owner_username,entity_kind)""")
+    for kind, table in ENTITY_TABLES:
+        con.execute(
+            "INSERT INTO studio_entity_owners(entity_kind,entity_id,owner_username) "
+            "SELECT ?,t.id,? FROM " + table + " t WHERE NOT EXISTS "
+            "(SELECT 1 FROM studio_entity_owners o WHERE o.entity_kind=? AND o.entity_id=t.id)",
+            (kind, target, kind),
+        )
+    verified = inspect_core(con, target)
+    require(all(row["to_assign"] == 0 for row in verified.values()), "ASSIGNMENT_INCOMPLETE")
+    return counts
+
+
+def inspect_projects(con: sqlite3.Connection, target: str = TARGET) -> dict:
+    require(exists(con, "projects"), "PROJECTS_TABLE_MISSING")
+    columns = schema(con, "projects")
+    require({"id", "owner_username", "status", "channel_db_id"} <= columns, "PROJECTS_SCHEMA_DRIFT")
+    rows = con.execute("SELECT owner_username,COUNT(*) FROM projects GROUP BY owner_username").fetchall()
+    # Historical admin projects are intentionally NOT reassigned without a
+    # separately verified source-owner transfer. Never steal existing work.
+    owners = {str(r[0] or "").strip().casefold(): int(r[1]) for r in rows}
+    require(all(k in ("", target) for k in owners), "PROJECT_OWNER_REQUIRES_SEPARATE_TRANSFER")
+    busy = con.execute("""SELECT COUNT(*) FROM projects WHERE UPPER(COALESCE(status,'')) IN
+              ('DOWNLOADING','SOURCE_READY','UPLOADING','VERIFYING_REMOTE','CLEANING')""").fetchone()[0]
+    require(busy == 0, "ACTIVE_PROJECT_PRESENT")
+    return {"total": sum(owners.values()), "to_assign": owners.get("", 0), "already_owned": owners.get(target, 0)}
+
+
+def assign_projects(con: sqlite3.Connection, target: str = TARGET) -> dict:
+    counts = inspect_projects(con, target)
+    con.execute("UPDATE projects SET owner_username=? WHERE TRIM(owner_username)=''", (target,))
+    require(inspect_projects(con, target)["to_assign"] == 0, "PROJECT_ASSIGNMENT_INCOMPLETE")
+    return counts
+
+
+def read_only_audit(data_root: Path, scene_db: Path) -> dict:
+    """Do not mutate state; reports only aggregate counts."""
+    check_scene_account(scene_db)
+    results = {}
+    for mode, leaf in (("song", "lum-song"), ("short", "lum-shortstudio")):
+        root = data_root / "local-upload-manager" / leaf
+        core, project = root / "core/data/uploader.db", root / "projects.sqlite3"
+        require(core.is_file() and not core.is_symlink(), mode.upper() + "_CORE_MISSING")
+        require(project.is_file() and not project.is_symlink(), mode.upper() + "_PROJECTS_MISSING")
+        with sqlite3.connect(core.as_uri() + "?mode=ro", uri=True) as con:
+            counters = inspect_core(con)
+        with sqlite3.connect(project.as_uri() + "?mode=ro", uri=True) as con:
+            projects = inspect_projects(con)
+        results[mode] = {"entities": counters, "projects": projects}
+    return {"target_verified": True, "mode": "READ_ONLY", "instances": results,
+            "shared_google_drive": "UNCHANGED", "auto_script": "OFFLINE"}
