@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
+from .studio_tenants import StudioTenants
 from .auth_store import UserStore
 from .config import (
     API_VERSION, BASE_PATH, BUILD, COOKIE_SECURE, DATA_ROOT, REPORTS_ROOT, SESSION_SECRET,
@@ -50,6 +51,7 @@ if not SESSION_SECRET:
 store = ProjectStore()
 users = UserStore()
 db = Database()
+studio_tenants = StudioTenants(db)
 auth_manager = AuthManager(db)
 worker = VPSUploadWorker(store, db)
 
@@ -142,9 +144,13 @@ def require_heavy(user: dict[str, Any]) -> None:
     """Compatibility hook: only the full workspace remains."""
     return None
 
-def all_channels() -> list[dict[str, Any]]:
+def all_channels(user: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     with db.connect() as conn:
         rows = [dict(r) for r in conn.execute("SELECT * FROM channels ORDER BY id DESC").fetchall()]
+    if user is not None:
+        allowed=studio_tenants.allowed_ids("channel",user)
+        if allowed is not None:
+            rows=[row for row in rows if int(row["id"]) in allowed]
     for row in rows:
         token = str(row.get("token_file_path") or "")
         row["token_status"] = token_status_label(classify_google_json(Path(token))) if token else "Missing"
@@ -367,15 +373,32 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         allowed = {"dashboard", "channels", "sheets", "auto_engine", "logs"}
     default_tab = "dashboard"
     selected = tab if tab in allowed else default_tab
-    channels = all_channels()
+    channels = all_channels(user)
     projects = get_projects(user)
     logs = get_logs(user) if selected == "logs" else []
     sheet_sources = db.list_sheet_sources() if selected == "sheets" else []
     selected_sheet_source = db.get_sheet_source(int(source_id)) if selected == "sheets" and int(source_id or 0) else None
+    permitted_sheets=studio_tenants.allowed_ids("sheet",user)
+    if permitted_sheets is not None:
+        sheet_sources=[item for item in sheet_sources if int(item["id"]) in permitted_sheets]
+        if selected_sheet_source and int(selected_sheet_source["id"]) not in permitted_sheets:
+            selected_sheet_source=None
     web_clients = list_clients()
     channel_context = channels_page_context(db, web_clients) if selected == "channels" else {
         "rows": [], "summary": {}, "groups": [], "sheets": [], "oauth_inventory": {}
     }
+    permitted_channels=studio_tenants.allowed_ids("channel",user)
+    if permitted_channels is not None:
+        permitted_groups=studio_tenants.allowed_ids("group",user)
+        channel_context["rows"]=[item for item in channel_context["rows"]
+                                 if int(item.get("id") or 0) in permitted_channels]
+        channel_context["groups"]=[item for item in channel_context["groups"]
+                                   if int(item.get("id") or 0) in permitted_groups]
+        channel_context["sheets"]=[item for item in channel_context["sheets"]
+                                   if int(item.get("id") or 0) in permitted_sheets]
+        channel_context["summary"]={"total":len(channel_context["rows"])}
+        channel_context["oauth_inventory"]={}  # Never enumerate global token files
+        web_clients=[]  # Client config belongs to the shared service, not the tenant
     pc_sync_history = list_sync_history() if selected == "channels" else []
     try:
         selected_auto_mode = validate_auto_mode(auto_mode)
@@ -409,7 +432,8 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         if selected == "auto_engine" and engine_instance == "engine1"
         else {}
     )
-    auto_v6 = v6_profile_context(db, v6_store, int(auto_profile_id or 0),owner=str(user.get("username") or "")) if selected == "auto_engine" and selected_auto_mode == "engine1" else {}
+    auto_v6 = v6_profile_context(db, v6_store, int(auto_profile_id or 0),
+                                     owner="" if int(user.get("is_admin") or 0) else str(user.get("username") or "")) if selected == "auto_engine" and selected_auto_mode == "engine1" else {}
     if selected == "auto_engine" and auto_v6:
         auto_v6["short_folders"] = v6_shortstudio_list_folders() if engine_instance == "shortstudio" else []
         # LUM_SCHEDULER_CONTROL_LIVE_V1: runtime-only presentation state.
@@ -1115,9 +1139,10 @@ def _v6_profile(profile_id: int,request: Request=None):
     profile=db.get_auto_engine_profile(int(profile_id))
     if not profile:
         raise ValueError("Auto Engine profile not found.")
-    owner=v6_store.group_settings(int(profile_id)).get("song_folder_owner")
-    if owner and (request is None or owner!=str(current_user(request).get("username") or "")):
-        raise ValueError("This folder profile belongs to another account.")
+    if request is None:
+        raise ValueError("Verified Studio account is required for profile changes.")
+    user=current_user(request)
+    studio_tenants.require("profile",int(profile_id),user)
     return profile
 
 
@@ -1128,8 +1153,18 @@ async def auto_v6_profile_save(request: Request):
     try:
         raw=str(form.get("profile_id") or "").strip()
         pid=int(raw) if raw.isdigit() else None
+        if pid:
+            _v6_profile(pid,request)
+        group_id=str(form.get("channel_group_id") or "").strip()
+        channel_id=str(form.get("channel_db_id") or "").strip()
+        if group_id.isdigit():
+            studio_tenants.require("group",int(group_id),user)
+        if channel_id.isdigit():
+            studio_tenants.require("channel",int(channel_id),user)
         fields=dict(form); fields["_song_owner"]=str(user.get("username") or "")
         saved=v6_save_profile_from_form(db,v6_store,fields,pid)
+        if not int(user.get("is_admin") or 0):
+            studio_tenants.bind("profile",int(saved),user["username"])
         return redirect(f"/app?tab=auto_engine&auto_profile_id={saved}",message=f"Auto Engine profile #{saved} saved.")
     except Exception as exc:
         return redirect("/app?tab=auto_engine",error=str(exc))
