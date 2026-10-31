@@ -266,5 +266,20 @@ class TenantTests(unittest.TestCase):
             compile(engine,str(package/"auto_engine_v6.py"),"exec")
 
 
+    def test_song_assignment_ui_release_is_template_only(self):
+        root=Path(__file__).resolve().parents[1]
+        release=(root/"production/song_uploader_group_summary_release.py").read_text(encoding="utf-8")
+        runtime=(root/"production/runtime.py").read_text(encoding="utf-8")
+        self.assertIn("def install(revision, *, ui_only=False):", release)
+        self.assertIn('for relative in (("templates/app.html",) if ui_only else FILES):', release)
+        self.assertIn("if not ui_only:", release)
+        self.assertIn("SONG_ASSIGNMENT_UI_RELEASE", release)
+        self.assertIn("'User workspace ownership' not in html", release)
+        self.assertIn("'[vps1-song-uploader-assignment-ui-only]' in intent", runtime)
+        self.assertIn("install_song_ui(revision, ui_only=True)", runtime)
+        compile(release, "production/song_uploader_group_summary_release.py", "exec")
+        compile(runtime, "production/runtime.py", "exec")
+
+
 if __name__=="__main__":
     unittest.main()

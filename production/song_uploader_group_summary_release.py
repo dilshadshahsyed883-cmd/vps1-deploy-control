@@ -188,6 +188,10 @@ def verify_live():
     status,_,body=https_get('/song-uploader/app?tab=auto_engine&new_profile=1',cookie)
     require(status==200,'authenticated Song Uploader GET failed')
     html=body.decode('utf-8')
+    require('Assign Studio resources to a user' not in html and
+            'User workspace ownership' not in html and
+            '/actions/studio-tenant/grant' not in html,
+            'obsolete resource owner assignment form still visible')
     require('data-song-group-summary' in html and '<th>Group Name</th>' in html and
             '<th>Channels</th>' in html and '<th>Schedule (PKT)</th>' in html,
             'live automation group summary is missing')
@@ -254,7 +258,7 @@ def verify_live():
     print('SONG_UPLOADER_LIVE=PASS AUTH=PASS PROFILES=PASS SCHEDULES=PASS NO_UPLOAD_OR_ARM_ACTIONS',flush=True)
 
 
-def install(revision):
+def install(revision, *, ui_only=False):
     require(re.fullmatch('[a-f0-9]{40}',revision),'invalid revision')
     require(shutil.disk_usage('/').free>=5_000_000_000,'disk reserve')
     idle()
@@ -272,12 +276,12 @@ def install(revision):
         active=subprocess.run(['systemctl','is-active','--quiet',name],capture_output=True,timeout=10).returncode==0
         previous[name]={'text':text,'active':active}
     require(len(old_dirs)==1,'Song Uploader units use different releases')
-    target=BASE/'releases/local-upload-manager'/(revision+'-song-group-summary')
-    journal=BASE/'transactions/song-uploader-group-summary'/revision
+    target=BASE/'releases/local-upload-manager'/(revision+('-song-assignment-ui' if ui_only else '-song-group-summary'))
+    journal=BASE/'transactions'/('song-uploader-assignment-ui' if ui_only else 'song-uploader-group-summary')/revision
     require(not target.exists() and not target.is_symlink() and not journal.exists(),'immutable release already exists')
     shutil.copytree(next(iter(old_dirs)).parent,target,symlinks=True)
     hashes={}
-    for relative in FILES:
+    for relative in (("templates/app.html",) if ui_only else FILES):
         src=REPO/'apps/local-upload-manager/part01'/relative
         dst=target/'part01'/relative
         require(src.is_file() and not src.is_symlink() and not dst.is_symlink() and
@@ -286,14 +290,15 @@ def install(revision):
         dst.parent.mkdir(parents=True,exist_ok=True)
         shutil.copy2(src,dst)
         hashes[relative]=hashlib.sha256(dst.read_bytes()).hexdigest()
-    queue_source=REPO/'apps/local-upload-manager/part01'/QUEUE_REPOSITORY
-    queue_target=target/'part01'/QUEUE_REPOSITORY
-    require(queue_source.is_file() and not queue_source.is_symlink() and
-            queue_target.is_file() and not queue_target.is_symlink(), 'queue repository ownership')
-    queue_target.write_bytes(queue_resume_owner_overlay(
-        queue_claim_overlay(queue_target.read_bytes(), queue_source.read_bytes()),
-        queue_source.read_bytes()))
-    hashes[QUEUE_REPOSITORY]=hashlib.sha256(queue_target.read_bytes()).hexdigest()
+    if not ui_only:
+        queue_source=REPO/'apps/local-upload-manager/part01'/QUEUE_REPOSITORY
+        queue_target=target/'part01'/QUEUE_REPOSITORY
+        require(queue_source.is_file() and not queue_source.is_symlink() and
+                queue_target.is_file() and not queue_target.is_symlink(), 'queue repository ownership')
+        queue_target.write_bytes(queue_resume_owner_overlay(
+            queue_claim_overlay(queue_target.read_bytes(), queue_source.read_bytes()),
+            queue_source.read_bytes()))
+        hashes[QUEUE_REPOSITORY]=hashlib.sha256(queue_target.read_bytes()).hexdigest()
     journal.mkdir(parents=True,mode=0o700)
     atomic_json(journal/'previous.json',previous)
     changed=False
@@ -311,10 +316,12 @@ def install(revision):
         for name in reversed(UNITS):
             if previous[name]['active']:command('systemctl','start',name)
         verify_live()
-        verify_worker_recovery()
+        if not ui_only:
+            verify_worker_recovery()
         atomic_json(journal/'state.json',dict(status='ACTIVE',revision=revision,source=str(target),files=hashes,
                                            sqlite_backups=len(backups),scheduler='PRESERVED',auto_script='UNTOUCHED'))
-        print('SONG_GROUP_SUMMARY_RELEASE=PASS OTHER_ENGINES=UNTOUCHED ROLLBACK=READY',flush=True)
+        print(('SONG_ASSIGNMENT_UI_RELEASE' if ui_only else 'SONG_GROUP_SUMMARY_RELEASE')
+              +'=PASS OTHER_ENGINES=UNTOUCHED ROLLBACK=READY',flush=True)
     except BaseException:
         if changed:
             for name in UNITS:command('systemctl','stop',name)
