@@ -49,6 +49,12 @@ if not SESSION_SECRET:
     raise RuntimeError("LUM_SESSION_SECRET is required")
 
 store = ProjectStore()
+# Short-only persisted availability flags; schedule/worker Start remains separate.
+SHORT_UPLOADER_FIXED_MODES = ("sheets_sync_enabled", "auto_engine_enabled")
+if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio":
+    for _mode_key in SHORT_UPLOADER_FIXED_MODES:
+        if store.setting(_mode_key, "0") != "1":
+            store.set_setting(_mode_key, "1")
 users = UserStore()
 db = Database()
 studio_tenants = StudioTenants(db)
@@ -191,13 +197,20 @@ def get_logs(user: dict[str, Any], limit: int = 300) -> list[dict[str, Any]]:
     return store.events(owner=owner, limit=limit)
 
 
+def mode_is_enabled(key: str) -> bool:
+    # Song and Short modes are capabilities, not scheduler/worker Start actions.
+    if os.getenv("LUM_ENGINE_INSTANCE") in {"song", "shortstudio"} and key in SHORT_UPLOADER_FIXED_MODES:
+        return True
+    return store.setting(key, "0") == "1"
+
+
 def stats_payload(user: dict[str, Any] | None = None) -> dict[str, Any]:
     channels = all_channels(user)
     owner = str(user.get("username") or "") if user is not None and not int(user.get("is_admin") or 0) else None
     counts=store.counts(owner=owner)
     settings = store.settings() if user is None or int(user.get("is_admin") or 0) else {}
-    if os.getenv("LUM_ENGINE_INSTANCE", "engine1") == "song":
-        # Song modes are capabilities, not Start controls. Legacy OFF values
+    if os.getenv("LUM_ENGINE_INSTANCE", "engine1") in {"song", "shortstudio"}:
+        # Song and Short modes are capabilities, not Start controls. Legacy OFF values
         # must not disable Sheets Sync or Auto Engine for either user role.
         settings = {**settings, "sheets_sync_enabled": "1", "auto_engine_enabled": "1"}
     return {
@@ -1012,7 +1025,7 @@ def sheets_sync(
     source_id: int = Form(...),
 ):
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
-    if os.getenv("LUM_ENGINE_INSTANCE", "engine1") != "song" and store.setting("sheets_sync_enabled", "0") != "1":
+    if os.getenv("LUM_ENGINE_INSTANCE", "engine1") not in {"song", "shortstudio"} and store.setting("sheets_sync_enabled", "0") != "1":
         return redirect(
             f"/app?tab=sheets&source_id={int(source_id)}",
             error="Enable Sheets Sync on Dashboard before running synchronization.",
@@ -1049,7 +1062,7 @@ def sheets_sync(
 @app.post(route("/actions/sheets/sync-all"))
 def sheets_sync_all(request: Request, csrf_token: str = Form(...)):
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
-    if os.getenv("LUM_ENGINE_INSTANCE", "engine1") != "song" and store.setting("sheets_sync_enabled", "0") != "1":
+    if os.getenv("LUM_ENGINE_INSTANCE", "engine1") not in {"song", "shortstudio"} and store.setting("sheets_sync_enabled", "0") != "1":
         return redirect(
             "/app?tab=sheets",
             error="Enable Sheets Sync on Dashboard before running synchronization.",
@@ -2214,6 +2227,8 @@ def save_settings(request: Request, csrf_token: str = Form(...), sheets_sync_ena
     if os.getenv("LUM_ENGINE_INSTANCE", "engine1") == "song":
         # Retire stale dashboard settings POSTs; never accept a forged OFF.
         raise HTTPException(404, "Song Uploader mode switches are retired")
+    if os.getenv("LUM_ENGINE_INSTANCE", "engine1") == "shortstudio":
+        raise HTTPException(404, "Short Uploader modes are permanently ON")
     settings = {
         "sheets_sync_enabled": sheets_sync_enabled,
         "auto_engine_enabled": auto_engine_enabled,

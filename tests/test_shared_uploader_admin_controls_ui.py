@@ -81,8 +81,8 @@ def test_uploader_dashboard_shared_modes_hidden_for_nonadmin() -> None:
         assert "Save modes" not in hidden
         assert "/actions/settings" not in hidden
         assert "Serial engine" in hidden
-        if instance == "song":
-            # Song retires its modes card for admins and non-admins alike.
+        if instance in ("song", "shortstudio"):
+            # Song and Short retire their modes cards for both roles.
             assert "/actions/settings" not in shown
             assert "Save modes" not in shown
         else:

@@ -36,7 +36,11 @@ class SongSheetsOnlyTests(TestCase):
             self.assertNotIn("/actions/studio-tenant/group-create", html)
         other = fragment.render(engine_instance="shortstudio", user={"is_admin": False},
                                 base_path="/short-uploader", channel_rows=[], csrf="csrf")
-        self.assertIn("Your YouTube channels", other)
+        self.assertNotIn("Your YouTube channels", other)
+        copyright_html = fragment.render(engine_instance="copyright",
+                                         user={"is_admin": False},
+                                         base_path="/copyright-uploader", channel_rows=[], csrf="csrf")
+        self.assertIn("Your YouTube channels", copyright_html)
 
     def test_legacy_off_modes_render_on_without_enabling_engine(self):
         class Store:
