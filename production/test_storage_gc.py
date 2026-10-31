@@ -71,6 +71,13 @@ class StorageGCTests(unittest.TestCase):
                          "referenced")
 
 
+    def test_runtime_probe_cannot_block_guarded_install_while_deployment_busy(self):
+        script = (Path(__file__).resolve().parents[1] /
+                  "scripts/install_storage_gc.sh").read_text()
+        self.assertIn("--probe-runtime", script)
+        self.assertIn("STORAGE_GC_RUNTIME_PROBE=LOCKED_OR_UNAVAILABLE_NO_DELETION", script)
+        self.assertNotIn("exit 26", script)
+
     def test_manual_systemd_path_reuses_existing_protected_gc_engine(self):
         root = Path(__file__).resolve().parents[1]
         units = root / "infrastructure/systemd"
