@@ -68,6 +68,7 @@ jobs:
           fingerprint="$(ssh-keygen -lf "$scratch/public" -E sha256 | awk '{print $2}')"
           test "$fingerprint" = 'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
           printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
+          helper_status=0
           timeout 480s ssh -T -p 22 -i "$scratch/identity" \
             -o UserKnownHostsFile="$scratch/known_hosts" \
             -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
@@ -75,10 +76,22 @@ jobs:
             -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
             vps1deploy@100.87.55.92 \
             "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA local-upload-manager" \
-            > "$scratch/receipt.log" 2>&1
+            > "$scratch/receipt.log" 2>&1 || helper_status=$?
+          if [ "$helper_status" -ne 0 ]; then
+            echo "HASEEB1_AUDIT_HELPER_EXIT=$helper_status"
+            # Only fixed uppercase machine-readable failure codes are emitted.
+            # Never dump raw SSH logs: they may contain private paths or IDs.
+            if ! grep -Eo 'HASEEB1_STUDIO_ASSIGNMENT_BLOCKED: [A-Z0-9_]+' "$scratch/receipt.log" | tail -n 1; then
+              echo 'HASEEB1_AUDIT_REMOTE_REASON=UNCLASSIFIED'
+            fi
+            exit 1
+          fi
           if git log -1 --format=%B | grep -Fq '[vps1-haseeb1-song-short-readonly]'; then
-            grep -Fq '"mode": "READ_ONLY"' "$scratch/receipt.log"
-            grep -Fq '"target_verified": true' "$scratch/receipt.log"
+            if ! grep -Fq '"mode": "READ_ONLY"' "$scratch/receipt.log" ||
+               ! grep -Fq '"target_verified": true' "$scratch/receipt.log"; then
+              echo 'HASEEB1_AUDIT_RECEIPT_MISMATCH'
+              exit 1
+            fi
             echo 'HASEEB1_FULL_STUDIO_AUDIT=READ_ONLY'
           else
             grep -Fq '"STUDIO_UPLOADER_ASSIGNMENT": "PASS"' "$scratch/receipt.log"
