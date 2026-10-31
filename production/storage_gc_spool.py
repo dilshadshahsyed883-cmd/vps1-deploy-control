@@ -37,8 +37,8 @@ def parse_identity(properties: str, status: str, *, get_user=pwd.getpwnam):
     if not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", name) or name == "root":
         raise RuntimeError("Scene web service identity is not an approved non-root account")
     account = get_user(name)
-    if not 1000 <= account.pw_uid <= 60000:
-        raise RuntimeError("Scene web account outside protected non-root range")
+    if not 0 < account.pw_uid < 65534:
+        raise RuntimeError("Scene web account is root, nobody or invalid")
     lines = [line.split() for line in status.splitlines() if line.startswith("Uid:")]
     if len(lines) != 1 or len(lines[0]) != 5 or any(not item.isdecimal() for item in lines[0][1:]):
         raise RuntimeError("Scene worker effective UID is unavailable")
@@ -131,11 +131,19 @@ def provision() -> None:
                            check=True, timeout=15, capture_output=True)
             for childname in ("request.lock", "last-request"):
                 child = DIR / childname
-                if child.exists():
-                    if child.is_symlink() or not stat.S_ISREG(child.lstat().st_mode):
-                        raise RuntimeError("Manual spool marker changed during repair")
-                    os.chown(child, uid, gid, follow_symlinks=False)
-                    os.chmod(child, 0o600, follow_symlinks=False)
+                if child.exists() or child.is_symlink():
+                    # Hold the exact non-symlink inode while fixing metadata:
+                    # Linux chmod(follow_symlinks=False) is not supported.
+                    child_fd = os.open(child, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0))
+                    try:
+                        existing = os.fstat(child_fd)
+                        if (not stat.S_ISREG(existing.st_mode) or
+                                existing.st_uid not in private | {0}):
+                            raise RuntimeError("Manual spool marker changed during repair")
+                        os.fchown(child_fd, uid, gid)
+                        os.fchmod(child_fd, 0o600)
+                    finally:
+                        os.close(child_fd)
             _checked_dir(DIR, {uid})
             mode = DIR.lstat()
             if (mode.st_mode & 0o777) != 0o700:
