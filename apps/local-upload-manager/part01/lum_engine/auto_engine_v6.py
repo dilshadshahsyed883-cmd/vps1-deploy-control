@@ -2642,14 +2642,38 @@ def profile_context(pc_db: Any, store: V6Store, profile_id:int=0, *, owner:str="
         if settings.get("song_folder_id"):
             pr.update({k:settings[k] for k in ("song_folder_id","song_folder_name","video_source_mode")})
         profiles.append(pr)
-    hidden_ids={int(pr["id"]) for pr in profiles if owner and
-                store.group_settings(int(pr["id"])).get("song_folder_owner") not in {None,"",owner}}
+    # STUDIO_USER_ISOLATION_V1: strict ACL. Legacy/unassigned resources
+    # stay visible to admins only; do not infer ownership from song folder IDs.
+    from .studio_tenants import StudioTenants
+    acl=StudioTenants(pc_db)
+    if owner:
+        viewer={"username":owner,"is_admin":0}
+        allowed_profiles=acl.allowed_ids("profile",viewer)
+        allowed_channels=acl.allowed_ids("channel",viewer)
+        allowed_groups=acl.allowed_ids("group",viewer)
+        hidden_ids={int(pr["id"]) for pr in profiles
+                    if int(pr["id"]) not in allowed_profiles}
+        ctx["all_channels"]=[ch for ch in ctx.get("all_channels",[])
+                             if int(ch.get("id") or 0) in allowed_channels]
+        ctx["groups"]=[g for g in ctx.get("groups",[])
+                       if int(g.get("id") or 0) in allowed_groups]
+    else:
+        hidden_ids=set()
     profiles=[pr for pr in profiles if int(pr["id"]) not in hidden_ids]
     ctx["profiles"]=profiles
     if ctx.get("selected") and int(ctx["selected"]["id"]) in hidden_ids:
         ctx.update(selected=None,source={},videos=[],thumbnails=[],thumbnail_trash=[],eligible_channels=0)
     for key in ("queue","records"):
-        ctx[key]=[row for row in ctx.get(key,[]) if int(row.get("auto_engine_profile_id") or row.get("profile_id") or 0) not in hidden_ids]
+        ctx[key]=[row for row in ctx.get(key,[])
+                  if int(row.get("auto_engine_profile_id") or row.get("profile_id") or 0)
+                  not in hidden_ids and (not owner or
+                     int(row.get("auto_engine_profile_id") or row.get("profile_id") or 0)
+                     in allowed_profiles)]
+    if owner:
+        # Dashboard aggregate counters can contain cross-tenant history.
+        stats=ctx.get("record_stats") or {}
+        ctx["record_stats"]={key:0 for key in stats}
+        ctx["missed"]=[]
     selected=ctx.get("selected")
     if selected:
         sid=int(selected.get("id") or 0); match=next((x for x in profiles if int(x.get("id") or 0)==sid),None)
