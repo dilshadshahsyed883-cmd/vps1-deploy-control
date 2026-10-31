@@ -1138,6 +1138,76 @@ def sheets_sync_all(request: Request, csrf_token: str = Form(...)):
 
 
 
+# STUDIO_TENANT_ASSIGNMENT_V1
+@app.post(route("/actions/studio-tenant/grant"))
+def studio_tenant_grant(
+    request: Request,
+    csrf_token: str = Form(...),
+    entity_kind: str = Form(...),
+    entity_id: int = Form(...),
+    owner_username: str = Form(...),
+):
+    """Admin explicitly assigns an idle legacy resource without touching media."""
+    user=current_user(request); require_admin(user); require_csrf(request,csrf_token)
+    try:
+        kind,entity_id=studio_tenants.identity(entity_kind,entity_id)
+        owner=studio_tenants.username(owner_username)
+        table={"channel":"channels","group":"channel_groups",
+               "profile":"auto_engine_profiles","sheet":"sheet_sources"}[kind]
+        with db.connect() as con:
+            if not con.execute(f"SELECT 1 FROM {table} WHERE id=?",(entity_id,)).fetchone():
+                raise ValueError("Resource not found in current Studio instance")
+            if kind=="channel":
+                pending=con.execute(
+                    "SELECT COUNT(*) FROM videos WHERE channel_db_id=? AND"
+                    " UPPER(status) NOT IN ('UPLOADED','PUBLISHED','FAILED','CANCELLED')",
+                    (entity_id,)).fetchone()[0]
+                groups=[int(row[0]) for row in con.execute(
+                    "SELECT group_id FROM channel_group_members WHERE channel_db_id=?",
+                    (entity_id,)).fetchall()]
+                for gid in groups:
+                    assigned=studio_tenants.owner("group",gid)
+                    if assigned and assigned!=owner:
+                        raise PermissionError("Channel belongs to a different user's group")
+            elif kind=="group":
+                pending=con.execute(
+                    "SELECT COUNT(*) FROM videos WHERE auto_engine_profile_id IN"
+                    " (SELECT id FROM auto_engine_profiles WHERE channel_group_id=?)"
+                    " AND UPPER(status) NOT IN ('UPLOADED','PUBLISHED','FAILED','CANCELLED')",
+                    (entity_id,)).fetchone()[0]
+                members=[int(row[0]) for row in con.execute(
+                    "SELECT channel_db_id FROM channel_group_members WHERE group_id=?",
+                    (entity_id,)).fetchall()]
+                if any(studio_tenants.owner("channel",cid)!=owner for cid in members):
+                    raise PermissionError("Assign all member channels to the same user first")
+            elif kind=="profile":
+                pending=con.execute(
+                    "SELECT COUNT(*) FROM videos WHERE auto_engine_profile_id=? AND"
+                    " UPPER(status) NOT IN ('UPLOADED','PUBLISHED','FAILED','CANCELLED')",
+                    (entity_id,)).fetchone()[0]
+                row=con.execute("SELECT channel_group_id FROM auto_engine_profiles WHERE id=?",
+                                (entity_id,)).fetchone()
+                if row and row[0] and studio_tenants.owner("group",int(row[0]))!=owner:
+                    raise PermissionError("Assign parent channel group to this account first")
+            else:
+                pending=con.execute(
+                    "SELECT COUNT(*) FROM videos WHERE channel_db_id IN"
+                    " (SELECT id FROM channels WHERE sheet_source_id=?) AND"
+                    " UPPER(status) NOT IN ('UPLOADED','PUBLISHED','FAILED','CANCELLED')",
+                    (entity_id,)).fetchone()[0]
+                children=[int(row[0]) for row in con.execute(
+                    "SELECT id FROM channels WHERE sheet_source_id=?", (entity_id,)).fetchall()]
+                if any(studio_tenants.owner("channel",cid)!=owner for cid in children):
+                    raise PermissionError("Assign referenced channels to this user first")
+        if pending:
+            raise PermissionError("Resource has outstanding queue jobs; assignment blocked")
+        studio_tenants.assign_by_admin(kind,entity_id,owner,user)
+        return redirect("/app?tab=channels",
+                        message=f"{kind.title()} #{entity_id} assigned to {owner}.")
+    except Exception as exc:
+        return redirect("/app?tab=channels",error=str(exc))
+
+
 # LUM_CHANNELS_PC_SYNC_V5_ROUTES
 @app.post(route("/actions/channels/status"))
 def channels_status(
