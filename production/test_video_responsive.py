@@ -21,9 +21,17 @@ class VideoOverlayTests(unittest.TestCase):
         for status in ('queued','running','processing','importing','uploading','unknown'):
             with self.subTest(status=status),patch('production.video_template_release.read_json',return_value={'jobs':[{'status':status}]}):
                 with self.assertRaises(RuntimeError):idle('short-maker')
-        with patch('production.video_template_release.read_json',return_value={'jobs':[],'library':[{'status':'importing'}]}):
-            with self.assertRaises(RuntimeError):idle('video-merger')
-        with patch('production.video_template_release.read_json',return_value={'jobs':[],'library':[]}):idle('video-merger')
+        # Video Merger now reads the running service's SQLite status, not the
+        # Drive-backed /api/state UI endpoint; verify the new fail-closed gate.
+        with patch('production.video_merger_import_release.live_paths',return_value=(Path('/managed/merger'),Path('/managed/config'))), \
+             patch('production.video_template_release.read_json',side_effect=AssertionError('unexpected Drive API call')), \
+             patch('production.video_merger_import_release.idle_database',side_effect=RuntimeError('unfinished Library import')):
+            with self.assertRaisesRegex(RuntimeError,'unfinished'):idle('video-merger')
+        with patch('production.video_merger_import_release.live_paths',return_value=(Path('/managed/merger'),Path('/managed/config'))), \
+             patch('production.video_template_release.read_json',side_effect=AssertionError('unexpected Drive API call')), \
+             patch('production.video_merger_import_release.idle_database') as sql_idle:
+            idle('video-merger')
+            sql_idle.assert_called_once_with(Path('/managed/merger'))
 
     def test_failed_overlay_restores_previous_pointer_and_preserves_backend(self):
         import production.video_template_release as release
