@@ -37,8 +37,8 @@ def parse_identity(properties: str, status: str, *, get_user=pwd.getpwnam):
     if not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", name) or name == "root":
         raise RuntimeError("Scene web service identity is not an approved non-root account")
     account = get_user(name)
-    if not 1000 <= account.pw_uid <= 60000:
-        raise RuntimeError("Scene web account outside protected non-root range")
+    if not 0 < account.pw_uid < 65534:
+        raise RuntimeError("Scene web account is root, nobody or invalid")
     lines = [line.split() for line in status.splitlines() if line.startswith("Uid:")]
     if len(lines) != 1 or len(lines[0]) != 5 or any(not item.isdecimal() for item in lines[0][1:]):
         raise RuntimeError("Scene worker effective UID is unavailable")
