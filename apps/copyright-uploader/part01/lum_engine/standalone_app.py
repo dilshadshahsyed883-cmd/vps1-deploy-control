@@ -312,8 +312,14 @@ async def standalone_auth(request: Request, call_next):
                 route("/actions/cancel/"),route("/actions/channel-network/"))
             if path not in allowed_exact and not path.startswith(allowed_prefixes):
                 return JSONResponse({"detail":"Global uploader operation is administrator-only"},status_code=403)
-        if not is_admin and (path.startswith(route("/reports/")) or
-                 path.startswith(route("/actions/auto-v6/thumbnail/"))):
+        if (not is_admin and os.getenv("LUM_ENGINE_INSTANCE") in
+                {"song","shortstudio","copyright"} and
+                (path.startswith(route("/reports/")) or
+                 path.startswith(route("/actions/auto-v6/thumbnail/")) or
+                 path==route("/actions/auto-v6/preview-all") or
+                 path==route("/actions/auto-v6/upload-records.csv") or
+                 path==route("/api/auto-modes") or
+                 path==route("/oauth/google/callback"))):
             return JSONResponse({"detail":"Owner-scoped resource access required"},status_code=403)
         return await call_next(request)
 
