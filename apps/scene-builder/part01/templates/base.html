@@ -142,10 +142,10 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
   <nav>
     <a class="{% if page=='dashboard' %}active{% endif %}" href="/">Dashboard</a>
 
-<a class="{% if page=='song_studio' %}active{% endif %}" href="/song-studio/">Song Studio</a>
-<a class="{% if page=='short_studio' %}active{% endif %}" href="/short-maker">Short Studio</a>
-<a href="/video-merger/">Copyright Studio</a>
-<a class="{% if page in ['experiment_studio','auto_script','local_upload_manager','voice_studio','queue','settings','audit_media','scene_media_library','auto_caption_studio','auto_caption_live','video_studio_embedded'] %}active{% endif %}" href="/experiment-studio/">Experiment Studio</a>
+{% if request.session.get("is_admin") or "song" in request.session.get("studio_access", ()) %}<a class="{% if page=='song_studio' %}active{% endif %}" href="/song-studio/">Song Studio</a>{% endif %}
+{% if request.session.get("is_admin") or "short" in request.session.get("studio_access", ()) %}<a class="{% if page=='short_studio' %}active{% endif %}" href="/short-maker">Short Studio</a>{% endif %}
+{% if request.session.get("is_admin") or "copyright" in request.session.get("studio_access", ()) %}<a href="/video-merger/">Copyright Studio</a>{% endif %}
+{% if request.session.get("is_admin") %}<a class="{% if page in ['experiment_studio','auto_script','local_upload_manager','voice_studio','queue','settings','audit_media','scene_media_library','auto_caption_studio','auto_caption_live','video_studio_embedded'] %}active{% endif %}" href="/experiment-studio/">Experiment Studio</a>{% endif %}
 <!-- Auto Script is an Experiment Studio subtab; activation remains separately guarded. -->
 
     <!-- YOUTUBE_NICHE_RESEARCH_V1_NAV -->
