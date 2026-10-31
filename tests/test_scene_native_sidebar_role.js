@@ -116,6 +116,27 @@ function boot(workspace, role) {
   };
 }
 
+test("Studio permissions fail closed and refresh on a verified Scene identity", async () => {
+  const h = boot("song", {authenticated:true,is_admin:false,username:"editor",allowed_studios:["song"]});
+  await h.tick();
+  const link = href => all(h.body).find(e => e.tag === "a" && e.href === href);
+  assert.equal(link("/song-studio/").hidden, false);
+  assert.equal(link("/short-maker").hidden, true);
+  assert.equal(link("/video-merger/").hidden, true);
+  assert.equal(link("/experiment-studio/").hidden, true);
+  await h.update({authenticated:true,is_admin:false,username:"editor",allowed_studios:["short","copyright"]});
+  assert.equal(link("/song-studio/").hidden, true);
+  assert.equal(link("/short-maker").hidden, false);
+  assert.equal(link("/video-merger/").hidden, false);
+  await h.update({authenticated:true,is_admin:true,username:"owner",allowed_studios:[]});
+  for(const href of ["/song-studio/","/short-maker","/video-merger/","/experiment-studio/"]) {
+    assert.equal(link(href).hidden, false, href);
+  }
+  await h.update(null);
+  assert.equal(link("/song-studio/").hidden, true);
+  assert.equal(link("/experiment-studio/").hidden, true);
+});
+
 test("native sidebar style and role source remain shared across apps", () => {
   const stylesheet = fs.readFileSync(path.join(__dirname,
     "../apps/scene-builder/part01/static/vps1_native_site_shell.css"), "utf8");
