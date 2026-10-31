@@ -329,27 +329,43 @@ def inspect_related_stores(data_root: Path, target: str = TARGET) -> dict:
     jobs_dir = short / "jobs"
     folders_dir = short / "vps_short_folders"
     job_total = job_other = folder_total = folder_other = 0
+    skipped_regular = 0
+    skipped_folder_regular = 0
     if jobs_dir.is_dir():
         require(not jobs_dir.is_symlink(), "SHORT_JOBS_UNTRUSTED")
+        # Real Short Maker jobs are directories containing state.json. Other
+        # regular files (locks, manifests, staging artifacts) are not jobs.
         for item in jobs_dir.iterdir():
-            require(item.is_dir() and not item.is_symlink(), "SHORT_JOB_UNTRUSTED")
-            state=item / "state.json"
+            if item.is_symlink():
+                require(False, "SHORT_JOB_SYMLINK")
+            if not item.is_dir():
+                require(item.is_file(), "SHORT_JOB_SPECIAL_ENTRY")
+                skipped_regular += 1
+                continue
+            state = item / "state.json"
             if not state.exists():
                 continue
             require(state.is_file() and not state.is_symlink(), "SHORT_JOB_STATE_UNTRUSTED")
-            raw=json.loads(state.read_text(encoding="utf-8"))
+            raw = json.loads(state.read_text(encoding="utf-8"))
             require(isinstance(raw,dict), "SHORT_JOB_STATE_INVALID")
-            job_total+=1
-            job_other+=int(str(raw.get("owner") or "").casefold()!=target)
+            job_total += 1
+            job_other += int(str(raw.get("owner") or "").casefold()!=target)
     if folders_dir.is_dir():
         require(not folders_dir.is_symlink(),"SHORT_FOLDERS_UNTRUSTED")
         for item in folders_dir.iterdir():
-            require(item.is_dir() and not item.is_symlink(),"SHORT_FOLDER_UNTRUSTED")
-            folder_total+=1
-            marker=item / ".studio_owner"
+            if item.is_symlink():
+                require(False, "SHORT_FOLDER_SYMLINK")
+            if not item.is_dir():
+                require(item.is_file(), "SHORT_FOLDER_SPECIAL_ENTRY")
+                skipped_folder_regular += 1
+                continue
+            folder_total += 1
+            marker = item / ".studio_owner"
             require(not marker.is_symlink(),"SHORT_FOLDER_MARKER_UNTRUSTED")
-            owner=marker.read_text(encoding="utf-8").strip().casefold() if marker.is_file() else ""
-            folder_other+=int(owner!=target)
+            owner = marker.read_text(encoding="utf-8").strip().casefold() if marker.is_file() else ""
+            folder_other += int(owner!=target)
     results["short_maker"]={"present":short.is_dir(),"jobs":job_total,"jobs_non_target":job_other,
-                              "folders":folder_total,"folders_non_target":folder_other}
+                              "folders":folder_total,"folders_non_target":folder_other,
+                              "unclassified_regular_job_files":skipped_regular,
+                              "unclassified_regular_folder_files":skipped_folder_regular}
     return results
