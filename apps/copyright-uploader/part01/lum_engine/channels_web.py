@@ -78,10 +78,24 @@ def token_status_for_channel(gmail: str, channel_id: str, same_gmail_count: int)
     return "INVALID", f"Invalid/expired/unusable token: {p.name if p else canonical}"
 
 
-def channels_page_context(db: Any, web_clients: Iterable[Dict[str, Any]] | None = None) -> Dict[str, Any]:
+def channels_page_context(db: Any, web_clients: Iterable[Dict[str, Any]] | None = None,
+                          allowed_channel_ids=None, allowed_sheet_ids=None) -> Dict[str, Any]:
     channels = db.list_channels(active_only=False)
+    # A tenant may create a brand-new manual channel before attaching a Sheet.
+    # Do not let the PC-Sheets inventory filter hide that owned channel, or
+    # load credentials for another tenant while building the channel manager.
+    if allowed_channel_ids is not None:
+        allowed={int(i) for i in allowed_channel_ids}
+        channels=[row for row in channels if int(row["id"]) in allowed]
+        present={int(row["id"]) for row in channels}
+        for cid in sorted(allowed-present):
+            row=db.get_channel(cid)
+            if row:
+                channels.append(row)
     groups_map = db.channel_group_names_map()
     sheets = db.list_sheet_sources()
+    if allowed_sheet_ids is not None:
+        sheets=[row for row in sheets if int(row["id"]) in allowed_sheet_ids]
     sheet_names = {int(s["id"]): _clean(s.get("sheet_name")) or f"Sheet #{s['id']}" for s in sheets}
     gmail_counts: Dict[str, int] = {}
     for ch in channels:
