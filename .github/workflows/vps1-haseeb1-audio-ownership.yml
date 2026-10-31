@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - "production/studio_haseeb1_audio_assignment.py"
+      - "production/studio_haseeb1_audio_legacy.py"
       - "production/runtime.py"
       - "tests/test_studio_haseeb1_audio_assignment.py"
       - ".github/workflows/vps1-haseeb1-audio-ownership.yml"
@@ -19,8 +20,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Parse the migration and production dispatcher
-        run: python -m py_compile production/studio_haseeb1_audio_assignment.py production/runtime.py
+      - name: Parse both migrations and production dispatcher
+        run: python -m py_compile production/studio_haseeb1_audio_assignment.py production/studio_haseeb1_audio_legacy.py production/runtime.py
       - name: Evidence, active jobs, foreign users and rollback regression
         run: python -m unittest tests.test_studio_haseeb1_audio_assignment -v
       - name: Install existing Audio API regression dependencies
@@ -113,4 +114,4 @@ jobs:
           fi
           grep -Fq '"auto_script": "OFFLINE"' "$scratch/receipt.log"
           grep -Fq '"google_drive": "UNCHANGED"' "$scratch/receipt.log"
-          grep -Eo '"(total_jobs|nonterminal_jobs|authenticated_handoff_matches|foreign_handoff_records|unproven_handoff_records|already_owned|eligible|nonterminal_deferred|unproven_legacy|foreign_owner|handoff_conflict|claimed_now)": [0-9]+' "$scratch/receipt.log" || true
+          grep -Eo '"(total_jobs|nonterminal_jobs|authenticated_handoff_matches|foreign_handoff_records|unproven_handoff_records|already_owned|eligible|nonterminal_deferred|unproven_legacy|foreign_owner|handoff_conflict|claimed_now|preserved_foreign)": [0-9]+' "$scratch/receipt.log" || true
