@@ -37,6 +37,7 @@ from scene_media_library import SceneMediaLibrary, InvalidMedia
 from director_v25 import preflight_v25, DirectorSpecError
 from director_v25_execution import compile_v25, bundle_exact_director_media
 from scene_media_source_policy import bundle_local_media
+from login_next import safe_login_target, login_redirect_url
 
 RUNTIME_CANDIDATE = os.getenv("VPS1_RUNTIME_CANDIDATE") == "1"
 SCENE_PRECUTOVER_EDITING = os.getenv("VPS1_SCENE_PRECUTOVER_EDITING", "0") == "1"
@@ -726,11 +727,18 @@ async def authentication(request: Request, call_next):
     if request.url.path.startswith("/static/") or request.url.path in public_paths:
         return await call_next(request)
     if not logged_in(request):
+        # Browser document navigations return to their original app after login.
+        # AJAX/API callers retain a machine-readable 401 rather than HTML.
+        if request.url.path.startswith("/api/"):
+            return JSONResponse({"detail": "Login required"}, status_code=401)
+        if request.method in ("GET", "HEAD") and "text/html" in request.headers.get("accept", "").lower():
+            target = request.url.path + ("?" + request.url.query if request.url.query else "")
+            return RedirectResponse(login_redirect_url(target), status_code=303)
         return RedirectResponse("/login", status_code=303)
     account = user_account(str(request.session.get("username") or ""))
     if not account or not int(account.get("is_active") or 0):
         request.session.clear()
-        return RedirectResponse("/login?error=Account+unavailable", status_code=303)
+        return RedirectResponse(login_redirect_url(request.url.path, error="Account unavailable"), status_code=303)
     # Refresh role from SQLite on every request, including post-demotion sessions.
     request.session["is_admin"] = bool(account.get("is_admin"))
     request.session["app_access"] = "all"
@@ -764,17 +772,19 @@ def scene_session_identity(request: Request):
 
 
 @app.get("/login", response_class=HTMLResponse)
-def login_page(request: Request, error: str = ""):
+def login_page(request: Request, error: str = "", next: str = ""):
+    target = safe_login_target(next)
     if logged_in(request):
-        return RedirectResponse("/", status_code=303)
+        return RedirectResponse(target, status_code=303)
     return templates.TemplateResponse(
         "login.html",
-        {"request": request, "error": error},
+        {"request": request, "error": error, "login_next": target},
     )
 
 
 @app.post("/login")
-def login(request: Request, username: str = Form(...), secret_key: str = Form(...)):
+def login(request: Request, username: str = Form(...), secret_key: str = Form(...),
+          next: str = Form("")):
     clean_username = username.strip()
     with db() as conn:
         row = conn.execute(
@@ -782,7 +792,9 @@ def login(request: Request, username: str = Form(...), secret_key: str = Form(..
             (clean_username,),
         ).fetchone()
     if not row or not int(row["is_active"]) or not verify_secret(secret_key.strip(), row["secret_hash"]):
-        return RedirectResponse("/login?error=Invalid+username+or+secret+key", status_code=303)
+        return RedirectResponse(
+            login_redirect_url(next, error="Invalid username or secret key"), status_code=303
+        )
     with db() as conn:
         conn.execute("UPDATE users SET last_login_at=? WHERE username=? COLLATE NOCASE", (now_iso(), row["username"]))
     request.session.clear()
@@ -790,7 +802,7 @@ def login(request: Request, username: str = Form(...), secret_key: str = Form(..
     request.session["username"] = row["username"]
     request.session["is_admin"] = bool(row["is_admin"])
     request.session["app_access"] = "all"
-    return RedirectResponse("/", status_code=303)
+    return RedirectResponse(safe_login_target(next), status_code=303)
 
 
 @app.post("/logout")
