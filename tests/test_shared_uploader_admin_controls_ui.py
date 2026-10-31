@@ -69,7 +69,8 @@ def test_uploader_dashboard_shared_modes_hidden_for_nonadmin() -> None:
         assert "Save modes" not in hidden
         assert "/actions/settings" not in hidden
         assert "Serial engine" in hidden
-        if instance == "shortstudio":
+        if instance in ("song", "shortstudio"):
+            # Song and Short retire modes for admins and non-admins alike.
             assert "/actions/settings" not in shown
             assert "Save modes" not in shown
         else:

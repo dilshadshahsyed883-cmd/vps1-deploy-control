@@ -39,9 +39,9 @@ class ShortUploaderFixedModes(unittest.TestCase):
     def test_short_manual_channel_group_form_removed_both_roles(self):
         source = TEMPLATE.read_text(encoding="utf-8")
         fragment = source.split(
-            "{% if not user.is_admin and engine_instance in ['song','copyright'] %}", 1
+            "{% if not user.is_admin and engine_instance in ['copyright'] %}", 1
         )[1].split('<section class="lum-channel-summary">', 1)[0]
-        fragment = "{% if not user.is_admin and engine_instance in ['song','copyright'] %}" + fragment
+        fragment = "{% if not user.is_admin and engine_instance in ['copyright'] %}" + fragment
         template = Environment().from_string(fragment)
         for admin in (False, True):
             rendered = template.render(
