@@ -153,8 +153,55 @@ def read_only_audit(data_root: Path, scene_db: Path) -> dict:
             projects = inspect_projects(con)
         results[mode] = {"entities": counters, "projects": projects}
     return {"target_verified": True, "mode": "READ_ONLY", "instances": results,
+            "uploader_idle_gate": release_idle_diagnostic(),
             "related_stores": inspect_related_stores(data_root),
             "shared_google_drive": "UNCHANGED", "auto_script": "OFFLINE"}
+
+def release_idle_diagnostic() -> dict:
+    """Read-only proof for each existing scoped release idle fence."""
+    from production.runtime import BASE
+    from production.song_uploader_group_summary_release import idle as song_idle
+    from production.short_uploader_group_release import idle as short_idle
+    results = {}
+    for name, check in (
+        ("song", lambda: song_idle()),
+        ("short", lambda: short_idle(allow_waiting_network=True)),
+    ):
+        try:
+            check()
+            results[name] = "PASS"
+        except (RuntimeError, OSError, ValueError, sqlite3.Error) as exc:
+            message = str(exc).casefold()
+            if "network" in message or "ledger" in message:
+                status = "NETWORK_WAIT_UNPROVEN_IDLE"
+            elif "upload in progress" in message or "active_project" in message:
+                status = "UPLOAD_IN_PROGRESS"
+            elif "health" in message or "unavailable" in message:
+                status = "HEALTH_UNAVAILABLE"
+            elif "schema" in message:
+                status = "SCHEMA_MISMATCH"
+            else:
+                status = "BLOCKED_OTHER"
+            results[name] = status
+    journal = BASE / "transactions/haseeb1-song-short-assignment" / (
+        "80a225070cd27f46be71b0d66ad49980fd5bdd1b"
+    )
+    receipt = journal / "receipt.json"
+    if receipt.is_file() and not receipt.is_symlink():
+        import json
+        try:
+            state = str(json.loads(receipt.read_text()).get("state") or "").strip()
+        except (ValueError, OSError):
+            state = ""
+        results["previous_transaction"] = (
+            state if state in {"UPLOADER_DATA_ASSIGNED", "BLOCKED_OR_ROLLED_BACK"} else "UNKNOWN"
+        )
+    else:
+        results["previous_transaction"] = (
+            "NO_RECEIPT" if journal.exists() else "NO_JOURNAL"
+        )
+    return results
+
 
 def install(revision: str) -> None:
     """Serialized production root-helper entry; uploader-state ownership only.
