@@ -805,6 +805,10 @@ def render_job(job_id: str, cfg: dict):
                     Path(item["local_path"]), folder_name, job_id,
                     strict=bool(cfg.get("output_names")),
                 )
+                # Persist publication before the uploader can consume/delete
+                # this file; retry must never republish a consumed MP4.
+                previous = get_state(job_id).get("published_outputs") or []
+                set_state(job_id, published_outputs=previous + [item["short_vps_filename"]])
             set_state(job_id, short_vps_folder=folder_name,
                       message=f"Saved {len(created)} video(s) to Short Uploader folder {folder_name}")
         if cfg.get("upload_to_drive", True):
@@ -827,11 +831,16 @@ def render_job(job_id: str, cfg: dict):
         new_status = "paused" if control == "pause" else "cancelled"
         if out_dir.is_dir() and not out_dir.is_symlink():
             shutil.rmtree(out_dir)
+        drive_staging = job_dir / "drive_input"
+        if drive_staging.is_dir() and not drive_staging.is_symlink():
+            shutil.rmtree(drive_staging)
         set_state(job_id, status=new_status, control="", phase="idle",
                   message="Paused; Resume restarts render" if new_status == "paused"
                           else "Cancelled; original inputs retained")
     except Exception as exc:
+        delivery_started = get_state(job_id).get("phase") == "delivery"
         set_state(job_id, status="failed", control="", phase="idle",
+                  delivery_review_required=delivery_started,
                   message=str(exc), error=str(exc))
     finally:
         _worker_context.job_id = None
@@ -854,6 +863,7 @@ def recover_pending_jobs():
             with jobs_lock:
                 jobs[state["job_id"]] = state
             set_state(state["job_id"], status="failed", phase="idle",
+                      delivery_review_required=True,
                       message="Delivery interrupted by restart; review published outputs before retry")
             continue
         job_id=str(state.get("job_id") or "")
@@ -1879,6 +1889,8 @@ def short_restart_config(job_id: str, state: dict, request: Request) -> dict:
     required = ("video_duration","image_duration","output_count","order","fit","motion","fps","crf","base_name")
     if any(k not in cfg for k in required):
         raise HTTPException(status_code=409, detail="This legacy job has no safe restart config.")
+    if state.get("published_outputs") or state.get("delivery_review_required"):
+        raise HTTPException(status_code=409, detail="Output may have been published; manual review required before retry.")
     if state.get("delivery_status") in ("uploading", "verified", "verified_cleaned"):
         raise HTTPException(status_code=409, detail="Remote delivery may exist; manual review required before retry.")
     short_folder_owned(str(cfg.get("short_vps_folder") or ""), request)
