@@ -1407,6 +1407,21 @@ def _v6_profile(profile_id: int,request: Request=None):
         raise ValueError("Verified Studio account is required for profile changes.")
     user=current_user(request)
     studio_tenants.require("profile",int(profile_id),user)
+    if not int(user.get("is_admin") or 0):
+        # A profile's ACL alone does not authorize new members added to
+        # its group later. Revalidate its live target set before scheduling.
+        group_id=int(profile.get("channel_group_id") or 0)
+        if group_id:
+            studio_tenants.require("group",group_id,user)
+            with db.connect() as con:
+                members=[int(row[0]) for row in con.execute(
+                    "SELECT channel_db_id FROM channel_group_members WHERE group_id=?",
+                    (group_id,)).fetchall()]
+            for cid in members:
+                studio_tenants.require("channel",cid,user)
+        direct_channel=int(profile.get("channel_db_id") or 0)
+        if direct_channel:
+            studio_tenants.require("channel",direct_channel,user)
     return profile
 
 
