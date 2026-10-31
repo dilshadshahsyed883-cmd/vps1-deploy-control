@@ -72,7 +72,7 @@ class SongNonAdminAutomation(TestCase):
         self.assertIn('os.getenv("LUM_ENGINE_INSTANCE") not in {"song", "shortstudio"}) or', source)
         self.assertIn("TENANT_SAFE_WRITES", source)
         script = SCRIPT.read_text(encoding="utf-8")
-        self.assertIn("dataset.engineInstance==='song'?'automation':'queue'", script)
+        self.assertIn("['song','shortstudio'].includes", script)
 
     def test_owner_selection_drops_foreign_or_mixed_group_profiles(self):
         user = {"username": "alice", "is_admin": 0}
