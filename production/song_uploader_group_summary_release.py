@@ -28,6 +28,52 @@ STATE=DATA/'local-upload-manager/lum-song'
 UNIT_DIR=Path('/etc/systemd/system')
 
 
+QUEUE_REPOSITORY = "desktop_core/modules/db/queue_repository.py"
+
+
+def queue_claim_overlay(original: bytes, reviewed: bytes) -> bytes:
+    """Patch only the reviewed claim method; retain all other live queue code."""
+    import ast
+    def method(text):
+        tree = ast.parse(text)
+        cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "QueueRepository")
+        return next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == "claim_available_jobs")
+    live = original.decode()
+    source = reviewed.decode()
+    old = method(live)
+    new = method(source)
+    expected = ast.parse(ast.get_source_segment(source, new)).body[0]
+    idx = next(i for i, arg in enumerate(expected.args.kwonlyargs)
+               if arg.arg == "allowed_auto_engine_profile_ids")
+    del expected.args.kwonlyargs[idx]
+    del expected.args.kw_defaults[idx]
+    claim_loop = next(n for n in expected.body if isinstance(n, ast.Try))
+    claim_loop.body = [n for n in claim_loop.body if not (
+        isinstance(n, ast.If) and ast.unparse(n.test) == "allowed_auto_engine_profile_ids is not None")]
+    old_dump = ast.dump(old, include_attributes=False)
+    require(old_dump in (ast.dump(new, include_attributes=False), ast.dump(expected, include_attributes=False)),
+            "queue claim method drift; scoped repair refused")
+    lines = live.splitlines(keepends=True)
+    replacement = source.splitlines(keepends=True)[new.lineno-1:new.end_lineno]
+    result = "".join(lines[:old.lineno-1] + replacement + lines[old.end_lineno:]).encode()
+    compile(result, QUEUE_REPOSITORY, "exec")
+    print("SONG_QUEUE_SCOPED_CLAIM_SUPPORT=PASS", flush=True)
+    return result
+
+
+def verify_worker_recovery():
+    from production.song_uploader_worker_readonly_diagnostic import collect
+    for _ in range(3):
+        time.sleep(4)
+        report = collect(STATE)
+        require(report.get("db") == "READ_ONLY_OK" and
+                report.get("worker_error") == "NONE" and
+                report.get("worker_heartbeat_age") == "RECENT" and
+                report.get("units", {}).get("worker") == "ACTIVE",
+                "worker recovery acceptance failed")
+    print("SONG_WORKER_RECOVERY=PASS ERROR=NONE HEARTBEAT=RECENT", flush=True)
+
+
 def require(condition, detail):
     if not condition: raise RuntimeError('SONG_GROUP_SUMMARY_RELEASE_BLOCKED: '+detail)
 
@@ -198,6 +244,12 @@ def install(revision):
         require(src.is_file() and not src.is_symlink() and dst.is_file() and not dst.is_symlink(),'source file drift')
         shutil.copy2(src,dst)
         hashes[relative]=hashlib.sha256(dst.read_bytes()).hexdigest()
+    queue_source=REPO/'apps/local-upload-manager/part01'/QUEUE_REPOSITORY
+    queue_target=target/'part01'/QUEUE_REPOSITORY
+    require(queue_source.is_file() and not queue_source.is_symlink() and
+            queue_target.is_file() and not queue_target.is_symlink(), 'queue repository ownership')
+    queue_target.write_bytes(queue_claim_overlay(queue_target.read_bytes(), queue_source.read_bytes()))
+    hashes[QUEUE_REPOSITORY]=hashlib.sha256(queue_target.read_bytes()).hexdigest()
     journal.mkdir(parents=True,mode=0o700)
     atomic_json(journal/'previous.json',previous)
     changed=False
@@ -215,6 +267,7 @@ def install(revision):
         for name in reversed(UNITS):
             if previous[name]['active']:command('systemctl','start',name)
         verify_live()
+        verify_worker_recovery()
         atomic_json(journal/'state.json',dict(status='ACTIVE',revision=revision,source=str(target),files=hashes,
                                            sqlite_backups=len(backups),scheduler='PRESERVED',auto_script='UNTOUCHED'))
         print('SONG_GROUP_SUMMARY_RELEASE=PASS OTHER_ENGINES=UNTOUCHED ROLLBACK=READY',flush=True)

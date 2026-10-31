@@ -6,6 +6,7 @@ on:
       - 'tests/test_song_uploader_*'
       - 'tests/test_song_worker_readonly_diagnostic.py'
       - 'production/song_uploader_worker_readonly_diagnostic.py'
+      - 'production/song_uploader_group_summary_release.py'
       - 'production/runtime.py'
       - '.github/workflows/vps1-song-uploader-parity-ci.yml'
   push:
@@ -15,6 +16,7 @@ on:
       - 'tests/test_song_uploader_*'
       - 'tests/test_song_worker_readonly_diagnostic.py'
       - 'production/song_uploader_worker_readonly_diagnostic.py'
+      - 'production/song_uploader_group_summary_release.py'
       - 'production/runtime.py'
       - '.github/workflows/vps1-song-uploader-parity-ci.yml'
 permissions:
@@ -36,6 +38,7 @@ jobs:
           node --check apps/local-upload-manager/part01/static/auto_engine_v6.js
       - name: Song parity and regression coverage
         run: |
+          python -m unittest discover -s tests -p 'test_song_uploader_worker_claim_release.py' -v
           python -m unittest discover -s tests -p 'test_song_uploader_parity.py' -v
           python -m unittest discover -s tests -p 'test_song_worker_readonly_diagnostic.py' -v
           python -m unittest discover -s tests -p 'test_song_uploader_component_mobile.py' -v
