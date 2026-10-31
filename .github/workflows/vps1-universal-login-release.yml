@@ -84,13 +84,21 @@ jobs:
           # It snapshots the exact TLS file, checks nginx -t, reloads,
           # validates real anonymous + authenticated HTTPS, and rolls back
           # the Nginx policy automatically on verification failure.
-          timeout 200s ssh -T -p 22 -i "$scratch/identity" \
-            -o UserKnownHostsFile="$scratch/known_hosts" \
-            -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
-            -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=20 \
-            -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
-            vps1deploy@100.87.55.92 \
-            "sudo -n /usr/local/sbin/vps1-production-deploy nginx-route-only $SOURCE_SHA short-maker"
+          if ! timeout 200s ssh -T -p 22 -i "$scratch/identity" \
+              -o UserKnownHostsFile="$scratch/known_hosts" \
+              -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+              -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=20 \
+              -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+              vps1deploy@100.87.55.92 \
+              "sudo -n /usr/local/sbin/vps1-production-deploy nginx-route-only $SOURCE_SHA short-maker" \
+              > "$scratch/nginx.log" 2>&1; then
+            cat "$scratch/nginx.log" >&2
+            exit 1
+          fi
+          cat "$scratch/nginx.log"
+          # Do not accept a merely migrated Short Maker route as a
+          # successful *universal* policy release.
+          grep -Eq 'UNIVERSAL_BROWSER_LOGIN=(PASS|ALREADY_LIVE)' "$scratch/nginx.log"
           echo 'UNIVERSAL_BROWSER_LOGIN=VERIFIED'
           echo 'AUTO_SCRIPT=OFFLINE'
           echo 'UPLOADER_QUEUES=UNCHANGED'
