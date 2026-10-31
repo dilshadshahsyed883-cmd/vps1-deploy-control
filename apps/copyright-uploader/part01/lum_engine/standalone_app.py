@@ -65,6 +65,9 @@ from .sheets_bridge import (
     delete_sheet_source as web_delete_sheet_source,
     sync_sheet_source_by_id as web_sync_sheet_source_by_id,
     sync_all_sheet_sources as web_sync_all_sheet_sources,
+    fetch_sheet_csv as tenant_fetch_sheet_csv,
+    rows_to_sheet_rows as tenant_rows_to_sheet_rows,
+    TOKEN_DIR as tenant_token_dir,
 )
 
 # LUM_CHANNELS_PC_SYNC_V5_IMPORTS
@@ -309,6 +312,7 @@ async def standalone_auth(request: Request, call_next):
                 route("/actions/auth-connections/test"),
                 route("/actions/auth-connections/activate"),
                 route("/actions/sheets/save"),route("/actions/sheets/delete"),
+                route("/actions/sheets/sync"),
                 route("/actions/channels/status"),route("/actions/channels/delete-manual"),
                 route("/actions/channels/rescan-tokens"),route("/actions/channels/test-connections"),
                 route("/actions/copyright/profile")}
@@ -1094,7 +1098,10 @@ def sheets_delete(
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
         studio_tenants.require("sheet",int(source_id),user)
-        web_delete_sheet_source(db, int(source_id))
+        if int(user.get("is_admin") or 0):
+            web_delete_sheet_source(db,int(source_id))
+        else:
+            studio_tenants.delete_owned_sheet(user["username"],int(source_id))
         return redirect(
             "/app?tab=sheets",
             message="Sheet source removed from current inventory. Saved token/history data was retained.",
@@ -1118,16 +1125,33 @@ def sheets_sync(
             f"/app?tab=sheets&source_id={int(source_id)}",
             error="Enable Sheets Sync on Dashboard before running synchronization.",
         )
-    result = web_sync_sheet_source_by_id(db, int(source_id))
-    if result.get("ok"):
+    try:
+        if int(user.get("is_admin") or 0):
+            result=web_sync_sheet_source_by_id(db,int(source_id))
+        else:
+            studio_tenants.require("sheet",int(source_id),user)
+            source=db.get_sheet_source(int(source_id))
+            if not source:
+                raise ValueError("Sheet source does not exist")
+            raw=tenant_fetch_sheet_csv(source["sheet_url_or_id"],None)
+            if not raw:
+                raise ValueError("Sheet returned zero rows; no existing records changed")
+            prepared=tenant_rows_to_sheet_rows(raw,str(tenant_token_dir))
+            result=studio_tenants.sync_owned_sheet_rows(
+                user["username"],int(source_id),prepared)
+        if result.get("ok"):
+            return redirect(
+                f"/app?tab=sheets&source_id={int(source_id)}",
+                message=f"Sheet synced · {int(result.get('rows') or 0)} row(s). "
+                        "Group memberships and existing OAuth remain unchanged.",
+            )
         return redirect(
             f"/app?tab=sheets&source_id={int(source_id)}",
-            message=f"Sheet synced · {int(result.get('rows') or 0)} row(s) · {int(result.get('groups_touched') or 0)} group(s).",
+            error=str(result.get("error") or result.get("status") or "Sheet sync failed."),
         )
-    return redirect(
-        f"/app?tab=sheets&source_id={int(source_id)}",
-        error=str(result.get("error") or result.get("status") or "Sheet sync failed."),
-    )
+    except Exception as exc:
+        return redirect(
+            f"/app?tab=sheets&source_id={int(source_id)}",error=str(exc))
 
 
 @app.post(route("/actions/sheets/sync-all"))
