@@ -555,3 +555,50 @@ body.lum-song-ui .lum-shell[data-engine-instance="shortstudio"] .lum-short-profi
   height:44px!important;min-height:44px!important;max-height:44px!important;
   padding:8px 11px!important;margin:0!important
 }
+
+/* Song Uploader Profiles: identical compact PR #505 action row, Song-scoped only. */
+.lum-shell[data-engine-instance="song"] .lum-ae-profile-manager{padding:12px 14px!important}
+.lum-shell[data-engine-instance="song"] .lum-short-profile-toolbar{
+  display:flex;align-items:center;justify-content:flex-start;gap:7px;flex-wrap:nowrap;min-width:0
+}
+.lum-shell[data-engine-instance="song"] .lum-short-profile-picker{
+  display:block;flex:1 1 225px;min-width:145px;max-width:310px;margin:0
+}
+.lum-shell[data-engine-instance="song"] .lum-short-profile-picker select{
+  display:block;width:100%;height:37px;min-height:37px;padding:6px 10px;font-size:12px
+}
+.lum-shell[data-engine-instance="song"] .lum-short-visually-hidden{
+  position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0,0,0,0);white-space:nowrap;border:0
+}
+.lum-shell[data-engine-instance="song"] .lum-short-profile-toolbar form{display:inline-flex;flex:0 0 auto;margin:0}
+.lum-shell[data-engine-instance="song"] .lum-short-profile-toolbar .lum-button{
+  min-height:37px;padding:7px 11px;font-size:12px;white-space:nowrap
+}
+.lum-shell[data-engine-instance="song"] .lum-short-profile-toolbar [data-ae-profile-dirty]{flex:0 0 auto;font-size:10px}
+.lum-shell[data-engine-instance="song"] .lum-short-profile-toolbar [data-ae-profile-dirty][hidden]{display:none!important}
+.lum-shell[data-engine-instance="song"] .lum-short-scheduler-state{
+  flex:0 0 auto;font-size:11px;font-weight:750;color:var(--lum-muted,#64748b);white-space:nowrap
+}
+.lum-shell[data-engine-instance="song"] .lum-short-scheduler-state.armed{color:#16803d}
+@media(max-width:850px){
+  .lum-shell[data-engine-instance="song"] .lum-short-profile-toolbar{flex-wrap:wrap}
+  .lum-shell[data-engine-instance="song"] .lum-short-profile-picker{flex:1 1 100%;max-width:none}
+}
+@media(max-width:480px){
+  .lum-shell[data-engine-instance="song"] .lum-short-profile-toolbar .lum-button,
+  .lum-shell[data-engine-instance="song"] .lum-short-profile-toolbar form{width:auto;flex:0 0 auto}
+}
+
+/* Match the shared Song/Short 44px form-control baseline; prevent a taller
+   profile label from pulling the dropdown above the action buttons. */
+body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-short-profile-picker{
+  box-sizing:border-box!important;display:inline-flex!important;align-items:center!important;
+  flex-direction:row!important;height:44px!important;min-height:44px!important;max-height:44px!important;
+  padding:0!important;margin:0!important
+}
+body.lum-song-ui .lum-shell[data-engine-instance="song"] .lum-short-profile-picker select{
+  box-sizing:border-box!important;display:block!important;
+  height:44px!important;min-height:44px!important;max-height:44px!important;
+  padding:8px 11px!important;margin:0!important
+}

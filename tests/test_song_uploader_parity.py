@@ -29,12 +29,43 @@ class SongParity(unittest.TestCase):
         self.assertIn('song-profile-privacy-status', APP)
         self.assertIn('data-short-schedule-slots data-short-profile-schedule', APP)
         self.assertIn("engine_instance in ['shortstudio','song']", APP)
-        self.assertIn("data-ae-open-schedules>Manage Schedules", APP)
+        self.assertIn("data-ae-open-schedules>Profile Schedules", APP)
         self.assertIn('data-short-profile-action="start"', APP)
         self.assertIn('data-ae-panel-target="queue"', APP)
         self.assertIn('group-channel-count="{{ pr.id }}"', APP)
         self.assertIn('value="songfolder"', APP)
         self.assertIn("Preserve existing visibility (Sheets / Private)", APP)
+
+    def test_song_profile_toolbar_matches_short_pr505_without_extra_manager(self):
+        section = APP.split('<section class="lum-card lum-ae-profile-manager"', 1)[1].split(
+            '<section class="lum-card lum-ae-automation-controls"', 1)[0]
+        def render(instance, armed):
+            return Environment(autoescape=True).from_string(section).render(
+                engine_instance=instance, base_path="/song-uploader" if instance == "song" else "/short-uploader",
+                csrf="offline-test", p={"id": 2, "category_name": "music", "enabled": True},
+                ae={"profiles": [{"id": 2, "category_name": "music", "enabled": True}],
+                    "engine": {"scheduler_armed": armed}})
+        for instance in ("song", "shortstudio"):
+            for armed in (False, True):
+                with self.subTest(instance=instance, armed=armed):
+                    html = render(instance, armed)
+                    self.assertEqual(html.count('id="lum-ae-profile-select"'), 1)
+                    self.assertEqual(html.count('class="lum-short-profile-toolbar"'), 1)
+                    self.assertIn('form="lum-ae-profile-form"', html)
+                    self.assertIn('form="lum-ae-delete-profile"', html)
+                    self.assertIn(">+ New Profile</a>", html)
+                    self.assertIn(">Save Changes</button>", html)
+                    self.assertIn("Disarm Scheduled Uploads" if armed else "Arm Scheduled Uploads", html)
+                    self.assertIn("Armed</span>" if armed else "Disarmed</span>", html)
+                    self.assertNotIn("Manage Schedules", html)
+                    self.assertNotIn("Pause Profile", html)
+                    self.assertNotIn("Turn Profile Off", html)
+                    self.assertNotIn("All saved profiles", html)
+                    self.assertNotIn("Editing ·", html)
+                    self.assertNotIn("Next run:", html)
+        self.assertIn('.lum-shell[data-engine-instance="song"] .lum-short-profile-toolbar', CSS)
+        base = (PART/"templates/base.html").read_text()
+        self.assertIn("song-profile=20261031-pr505-v1", base)
 
     def test_song_automation_no_queue_generate_control_and_still_keeps_sync(self):
         part=APP.split('<section class="lum-card lum-ae-automation-controls"',1)[1].split("</section>",1)[0]

@@ -793,9 +793,9 @@
     {% endif %}
 
     <section class="lum-card lum-ae-profile-manager" data-ae-panel="profiles" hidden>
-      {% if engine_instance == 'shortstudio' %}
-      {# Short Uploader only: one compact row; the settings form below still owns persistence. #}
-      <div class="lum-short-profile-toolbar" role="group" aria-label="Short Uploader profile controls">
+      {% if engine_instance in ['shortstudio','song'] %}
+      {# Song/Short reuse the verified compact PR #505 toolbar; profile form owns persistence. #}
+      <div class="lum-short-profile-toolbar" role="group" aria-label="{{ 'Song Uploader' if engine_instance == 'song' else 'Short Uploader' }} profile controls">
         <label class="lum-short-profile-picker">
           <span class="lum-short-visually-hidden">Current profile</span>
           <select id="lum-ae-profile-select" aria-label="Current profile" data-current-profile="{{ p.id if p else '' }}">
