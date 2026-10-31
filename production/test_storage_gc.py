@@ -162,6 +162,16 @@ class StorageGCTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 parse_identity(props, status.replace("1007", "1009"),
                                get_user=lookup)
+            # Web servers may legitimately run as a low-numbered, dedicated
+            # system account such as www-data; the fixed unit/PID still must match.
+            system_lookup = lambda _: SimpleNamespace(pw_uid=33, pw_gid=33)
+            system_status = status.replace("1007", "33")
+            self.assertEqual(parse_identity(props, system_status,
+                                            get_user=system_lookup)[2], 33)
+            with self.assertRaises(RuntimeError):
+                parse_identity(props, status.replace("1007", "0"),
+                               get_user=lambda _: SimpleNamespace(pw_uid=0, pw_gid=0))
+
 
     def test_manual_spool_alignment_never_executes_cleanup_or_weakens_permissions(self):
         root = Path(__file__).resolve().parents[1]
