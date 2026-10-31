@@ -217,23 +217,29 @@ def _runtime_reference_probe(paths: list[Path], proc_root: Path = Path("/proc"))
     separately from a positive runtime reference so host permissions can be
     repaired without bypassing the deletion guard.
     """
+    stage = "resolve-target"
     try:
         targets = [str(path.resolve(strict=True)) for path in paths]
         target_paths = [Path(target) for target in targets]
+        stage = "list-proc"
         for pid in proc_root.iterdir():
             if not pid.name.isdigit():
                 continue
             try:
                 for name in ("cmdline", "environ", "maps"):
+                    stage = "read-" + name
                     content = (pid / name).read_bytes()
                     if any(os.fsencode(target) in content for target in targets):
                         return "referenced"
                 for name in ("cwd", "exe"):
+                    stage = "resolve-" + name
                     with contextlib.suppress(FileNotFoundError):
                         linked = (pid / name).resolve(strict=True)
                         if any(linked == target or linked.is_relative_to(target) for target in target_paths):
                             return "referenced"
+                stage = "list-fd"
                 for fd in (pid / "fd").iterdir():
+                    stage = "resolve-fd"
                     with contextlib.suppress(FileNotFoundError):
                         linked = fd.resolve(strict=True)
                         if any(linked == target or linked.is_relative_to(target) for target in target_paths):
@@ -243,14 +249,18 @@ def _runtime_reference_probe(paths: list[Path], proc_root: Path = Path("/proc"))
                     return "unverifiable-process-race"
                 continue
             except PermissionError:
-                return "unverifiable-permission"
-            except OSError:
-                return "unverifiable-process-error"
+                return "unverifiable-permission-" + stage
+            except OSError as exc:
+                number = int(exc.errno) if isinstance(exc.errno, int) and 0 <= exc.errno <= 255 else 0
+                return f"unverifiable-process-error-{stage}-errno-{number}"
         return "clear"
     except PermissionError:
-        return "unverifiable-permission"
-    except (OSError, RuntimeError):
-        return "unverifiable-process-error"
+        return "unverifiable-permission-" + stage
+    except OSError as exc:
+        number = int(exc.errno) if isinstance(exc.errno, int) and 0 <= exc.errno <= 255 else 0
+        return f"unverifiable-process-error-{stage}-errno-{number}"
+    except RuntimeError:
+        return "unverifiable-process-error-" + stage + "-runtime"
 
 
 def _runtime_in_use(paths: list[Path], proc_root: Path = Path("/proc")) -> bool:
