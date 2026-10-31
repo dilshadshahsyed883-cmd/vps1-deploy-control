@@ -99,6 +99,23 @@ class StorageGCTests(unittest.TestCase):
             (pid / "exe").unlink()
             (pid / "cwd").unlink()
 
+            # Live host diagnostic: Kthread may resolve cwd to /, which is
+            # unrelated to the obsolete release. Require a candidate-aware
+            # comparison rather than banning every resolvable proc link.
+            (pid / "cwd").symlink_to(proc)
+            (pid / "exe").symlink_to(proc)
+            self.assertFalse(gc._confirmed_resource_free_kthread(pid))
+            self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc),
+                             "clear")
+            (pid / "cwd").unlink()
+            (pid / "cwd").symlink_to(target)
+            self.assertTrue(gc._runtime_in_use([target], proc_root=proc))
+            (pid / "cwd").unlink()
+            (pid / "exe").unlink()
+            (pid / "exe").symlink_to(target)
+            self.assertTrue(gc._runtime_in_use([target], proc_root=proc))
+            (pid / "exe").unlink()
+
             # Real userspace references still win over kernel-thread detection.
             (pid / "cmdline").write_bytes(os.fsencode(target) + b"/app.py")
             self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc),
