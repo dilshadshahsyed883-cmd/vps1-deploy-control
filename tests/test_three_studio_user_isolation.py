@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 from pathlib import Path
 import sqlite3
@@ -111,6 +112,34 @@ class UserIsolationContracts(unittest.TestCase):
             self.assertIn(guard, merger)
         self.assertEqual(merger.count("self.require_library_owner("), 4)
         self.assertIn("admin=self.is_admin()", merger)
+
+    def test_short_vps_folders_are_owned_and_legacy_folder_is_admin_only(self):
+        import tempfile
+        class ShortRequest:
+            def __init__(self, username, admin=False):
+                self.username=username
+                self.admin=admin
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            (root/"Default").mkdir()
+            context={"Path":Path,"hashlib":hashlib,"SHORT_VPS_ROOT":root,
+                "short_vps_folder":lambda n: root/n,
+                "short_identity":lambda req: (req.username,req.admin),
+                "HTTPException":HttpFailure}
+            ns=isolated_functions(SHORT,{"short_folder_owner","short_folder_owned",
+                                          "short_personal_default"},context)
+            owner=ns["short_personal_default"]("Alice")
+            self.assertEqual(ns["short_personal_default"]("Alice"),owner)
+            self.assertEqual(ns["short_folder_owner"](owner),"alice")
+            self.assertEqual(ns["short_folder_owner"]("Default"),"")
+            self.assertEqual(ns["short_folder_owned"](owner,ShortRequest("Alice")),root/owner)
+            with self.assertRaises(HttpFailure) as blocked:
+                ns["short_folder_owned"](owner,ShortRequest("Bob"))
+            self.assertEqual(blocked.exception.status_code,403)
+            with self.assertRaises(HttpFailure):
+                ns["short_folder_owned"]("Default",ShortRequest("Alice"))
+            self.assertEqual(ns["short_folder_owned"]("Default",
+                                ShortRequest("root",True)),root/"Default")
 
     def test_source_compiles_without_importing_live_apps(self):
         for path in (SHORT, MERGER):
