@@ -362,14 +362,21 @@ def inspect_related_stores(data_root: Path, target: str = TARGET) -> dict:
                     # Treat all such records as unresolved; read-only still runs.
                     total=int(con.execute("SELECT COUNT(*) FROM " + table).fetchone()[0])
                     entries[table] = {"total":total,"non_target":total,
-                                      "schema":"LEGACY_NO_OWNER"}
+                                      "schema":"LEGACY_NO_OWNER",
+                                      "owner_classes":{"unassigned":total}}
                     continue
-                total, not_target = con.execute(
-                    f"SELECT COUNT(*),SUM(CASE WHEN LOWER(TRIM(COALESCE({field},'')))<>? THEN 1 ELSE 0 END) FROM {table}",
+                owner_expr = f"LOWER(TRIM(COALESCE({field},'')))"
+                total, own, admin, blank = con.execute(
+                    "SELECT COUNT(*),"
+                    f"SUM(CASE WHEN {owner_expr}=? THEN 1 ELSE 0 END),"
+                    f"SUM(CASE WHEN {owner_expr}='admin' THEN 1 ELSE 0 END),"
+                    f"SUM(CASE WHEN {owner_expr}='' THEN 1 ELSE 0 END) FROM {table}",
                     (target,),
                 ).fetchone()
-                entries[table] = {"total":int(total or 0),
-                                  "non_target":int(not_target or 0)}
+                total, own, admin, blank = (int(v or 0) for v in (total, own, admin, blank))
+                entries[table] = {"total":total, "non_target":total-own,
+                                  "owner_classes":{"target":own,"admin":admin,"unassigned":blank,
+                                                   "other_named":total-own-admin-blank}}
         results[kind] = {"present":True,
                          "records":sum(v["total"] for v in entries.values()),
                          "non_target":sum(v["non_target"] for v in entries.values()),
@@ -378,6 +385,7 @@ def inspect_related_stores(data_root: Path, target: str = TARGET) -> dict:
     jobs_dir = short / "jobs"
     folders_dir = short / "vps_short_folders"
     job_total = job_other = folder_total = folder_other = 0
+    job_admin = job_blank = folder_admin = folder_blank = 0
     skipped_regular = 0
     skipped_folder_regular = 0
     if jobs_dir.is_dir():
@@ -398,7 +406,10 @@ def inspect_related_stores(data_root: Path, target: str = TARGET) -> dict:
             raw = json.loads(state.read_text(encoding="utf-8"))
             require(isinstance(raw,dict), "SHORT_JOB_STATE_INVALID")
             job_total += 1
-            job_other += int(str(raw.get("owner") or "").casefold()!=target)
+            source_owner = str(raw.get("owner") or "").strip().casefold()
+            job_other += int(source_owner != target)
+            job_admin += int(source_owner == "admin")
+            job_blank += int(not source_owner)
     if folders_dir.is_dir():
         require(not folders_dir.is_symlink(),"SHORT_FOLDERS_UNTRUSTED")
         for item in folders_dir.iterdir():
@@ -413,8 +424,14 @@ def inspect_related_stores(data_root: Path, target: str = TARGET) -> dict:
             require(not marker.is_symlink(),"SHORT_FOLDER_MARKER_UNTRUSTED")
             owner = marker.read_text(encoding="utf-8").strip().casefold() if marker.is_file() else ""
             folder_other += int(owner!=target)
+            folder_admin += int(owner=="admin")
+            folder_blank += int(not owner)
     results["short_maker"]={"present":short.is_dir(),"jobs":job_total,"jobs_non_target":job_other,
                               "folders":folder_total,"folders_non_target":folder_other,
                               "unclassified_regular_job_files":skipped_regular,
-                              "unclassified_regular_folder_files":skipped_folder_regular}
+                              "unclassified_regular_folder_files":skipped_folder_regular,
+                              "jobs_owner_classes":{"admin":job_admin,"unassigned":job_blank,
+                                  "other_named":job_other-job_admin-job_blank},
+                              "folders_owner_classes":{"admin":folder_admin,"unassigned":folder_blank,
+                                  "other_named":folder_other-folder_admin-folder_blank}}
     return results
