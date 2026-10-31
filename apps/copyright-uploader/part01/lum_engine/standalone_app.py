@@ -258,6 +258,7 @@ def stats_payload(user: dict[str, Any] | None = None) -> dict[str, Any]:
     counts=store.counts(owner=owner)
     return {
         "counts": counts,
+        "owner_queue_paused": store.owner_queue_paused(str(user["username"])) if user is not None and os.getenv("LUM_ENGINE_INSTANCE") == "copyright" else False,
         "channels": len(channels),
         "authenticated_channels": sum(1 for c in channels if str(c.get("token_status") or "").lower().startswith("valid")),
         "active_project_id": worker.active_project_id if user is None or int(user.get("is_admin") or 0) else None,
@@ -314,12 +315,15 @@ async def standalone_auth(request: Request, call_next):
                 route("/actions/auth-connections/test"),
                 route("/actions/auth-connections/activate"),
                 route("/actions/sheets/save"),route("/actions/sheets/delete"),
-                route("/actions/sheets/sync"),
+                route("/actions/sheets/sync"),route("/actions/sheets/sync-all"),
+                route("/actions/copyright/queue/pause"),route("/actions/copyright/queue/start"),
+                route("/actions/copyright/queue/bulk"),
                 route("/actions/channels/status"),route("/actions/channels/delete-manual"),
                 route("/actions/channels/rescan-tokens"),route("/actions/channels/test-connections"),
                 route("/actions/copyright/profile")}
             allowed_prefixes=(route("/actions/retry/"),route("/actions/authorize-fresh/"),
-                route("/actions/cancel/"),route("/actions/channel-network/"))
+                route("/actions/cancel/"),route("/actions/channel-network/"),
+                route("/actions/copyright/metadata/"))
             if path not in allowed_exact and not path.startswith(allowed_prefixes):
                 return JSONResponse({"detail":"Global uploader operation is administrator-only"},status_code=403)
         if (not is_admin and os.getenv("LUM_ENGINE_INSTANCE") in
@@ -979,21 +983,112 @@ def _owned_or_admin(user: dict[str, Any], project_id: int) -> dict[str, Any]:
     return project
 
 
+@app.post(route("/actions/copyright/queue/pause"))
+def copyright_pause_my_queue(request: Request, csrf_token: str = Form(...)):
+    user = current_user(request); require_csrf(request, csrf_token)
+    if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+        raise HTTPException(404, "Not found")
+    store.set_owner_queue_paused(str(user["username"]), True)
+    return redirect("/app?tab=queue",
+                    message="Your queue paused. Any upload already in progress may finish.")
+
+
+@app.post(route("/actions/copyright/queue/start"))
+def copyright_start_my_queue(request: Request, csrf_token: str = Form(...)):
+    user = current_user(request); require_csrf(request, csrf_token)
+    if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+        raise HTTPException(404, "Not found")
+    if store.setting("engine_enabled", "1") != "1":
+        return redirect("/app?tab=queue", error="Shared worker is paused; your queue cannot be started until it is available.")
+    store.set_owner_queue_paused(str(user["username"]), False)
+    return redirect("/app?tab=queue", message="Your waiting queue is enabled (manual jobs only).")
+
+
+@app.post(route("/actions/copyright/metadata/{project_id}"))
+def copyright_edit_metadata(
+    project_id: int, request: Request, csrf_token: str = Form(...),
+    title: str = Form(...), description: str = Form(""), tags: str = Form(""),
+    category_id: str = Form("22"), privacy_status: str = Form("private"),
+):
+    user = current_user(request); require_csrf(request, csrf_token)
+    if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+        raise HTTPException(404, "Not found")
+    # Unlike admin cross-tenant inspection, editing is *always* owner-only.
+    project = store.get(project_id)
+    if not project or str(project.get("owner_username") or "").casefold() != str(user["username"]).casefold():
+        raise HTTPException(403, "Project does not belong to this account")
+    try:
+        if not store.edit_waiting_metadata(project_id, str(user["username"]),
+                                           title=title, description=description,
+                                           tags=tags, category_id=category_id,
+                                           privacy_status=privacy_status):
+            raise ValueError("Only waiting jobs may have metadata changed")
+        return redirect("/app?tab=queue", message=f"Project #{project_id} metadata updated")
+    except ValueError as exc:
+        return redirect("/app?tab=queue", error=str(exc))
+
+
+def _copyright_retry_owned_project(project_id: int, project: dict[str, Any]) -> None:
+    if str(project.get("status") or "") not in {"FAILED", "PAUSED"}:
+        raise ValueError("Only failed or paused projects can be retried")
+    core_id = int(project.get("core_video_id") or 0)
+    if core_id:
+        core = db.get_video(core_id) or {}
+        if str(core.get("recovery_state") or "") == "REVIEW_REQUIRED":
+            raise ValueError("Crash review required before a fresh upload can be authorized")
+        if str(core.get("status") or "") == "FAILED":
+            db.queue_failed_for_retry(exclude_auto_engine=True, video_ids=[core_id])
+        elif str(core.get("status") or "") == "PAUSED":
+            db.resume_paused(exclude_auto_engine=True, video_ids=[core_id])
+    if not store.retry(project_id):
+        raise ValueError("Project is not retryable")
+
+
+@app.post(route("/actions/copyright/queue/bulk"))
+async def copyright_bulk_queue(request: Request):
+    user = current_user(request)
+    if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+        raise HTTPException(404, "Not found")
+    form = await request.form()
+    require_csrf(request, str(form.get("csrf_token") or ""))
+    selected = form.getlist("project_ids")
+    action = str(form.get("action") or "").strip()
+    if action not in {"cancel", "retry"} or not 1 <= len(selected) <= 100:
+        return redirect("/app?tab=queue", error="Choose up to 100 jobs and a valid bulk action")
+    try:
+        ids = sorted({int(value) for value in selected})
+    except (ValueError, TypeError):
+        raise HTTPException(400, "Invalid project IDs")
+    if len(ids) != len(selected) or any(pid <= 0 for pid in ids):
+        raise HTTPException(400, "Invalid or duplicate project IDs")
+    # Validate the *entire* set before touching any row, including for admins.
+    owned = [store.get(pid) for pid in ids]
+    if any(not p or str(p.get("owner_username") or "").casefold() != str(user["username"]).casefold()
+           for p in owned):
+        raise HTTPException(403, "Bulk selection contains an unowned project")
+    count = 0
+    failed = 0
+    for pid, project in zip(ids, owned):
+        try:
+            if action == "cancel":
+                if store.cancel_waiting(pid, str(user["username"])):
+                    count += 1
+                else:
+                    failed += 1
+            else:
+                _copyright_retry_owned_project(pid, project)
+                count += 1
+        except (ValueError, PermissionError):
+            failed += 1
+    return redirect("/app?tab=queue",
+                    message=f"Own queue: {action} applied to {count} job(s); {failed} skipped. Files and history retained.")
+
+
 @app.post(route("/actions/retry/{project_id}"))
 def retry_project(project_id: int, request: Request, csrf_token: str = Form(...)):
     user = current_user(request); require_csrf(request, csrf_token); project = _owned_or_admin(user, project_id)
     try:
-        core_id = int(project.get("core_video_id") or 0)
-        if core_id:
-            core = db.get_video(core_id) or {}
-            if str(core.get("recovery_state") or "") == "REVIEW_REQUIRED":
-                raise ValueError("Crash review required before a fresh upload can be authorized")
-            if str(core.get("status") or "") == "FAILED":
-                db.queue_failed_for_retry(exclude_auto_engine=True, video_ids=[core_id])
-            elif str(core.get("status") or "") == "PAUSED":
-                db.resume_paused(exclude_auto_engine=True,video_ids=[core_id])
-        if not store.retry(project_id):
-            raise ValueError("Project is not retryable")
+        _copyright_retry_owned_project(project_id, project)
         tab = "upload" if user_mode(user) == "simple" else "queue"
         return redirect(f"/app?tab={tab}", message=f"Project #{project_id} returned to queue")
     except Exception as exc:
@@ -1165,6 +1260,33 @@ def sheets_sync_all(request: Request, csrf_token: str = Form(...)):
             error="Enable Sheets Sync on Dashboard before running synchronization.",
         )
     try:
+        if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" and not int(user.get("is_admin") or 0):
+            allowed = studio_tenants.allowed_ids("sheet", user)
+            sources = [src for src in db.list_sheet_sources()
+                       if int(src.get("id") or 0) in (allowed or set())
+                       and int(src.get("enabled") or 0) == 1]
+            count = 0
+            failures = []
+            rows = 0
+            for source in sources:
+                try:
+                    raw = tenant_fetch_sheet_csv(source["sheet_url_or_id"], None)
+                    if not raw:
+                        raise ValueError("Sheet returned zero rows")
+                    prepared = tenant_rows_to_sheet_rows(raw, str(tenant_token_dir))
+                    outcome = studio_tenants.sync_owned_sheet_rows(
+                        str(user["username"]), int(source["id"]), prepared)
+                    if not outcome.get("ok"):
+                        raise ValueError(str(outcome.get("error") or "Sync failed"))
+                    count += 1
+                    rows += int(outcome.get("rows") or 0)
+                except Exception as exc:
+                    failures.append(f"{source.get('sheet_name') or source['id']}: {exc}")
+            if failures:
+                return redirect("/app?tab=sheets",
+                    error=f"Updated {count} owned sheet(s); {len(failures)} failed: " + "; ".join(failures[:3]))
+            return redirect("/app?tab=sheets",
+                message=f"Updated {count} owned sheet(s), {rows} row(s); other users unchanged.")
         result = web_sync_all_sheet_sources(db)
     except Exception as exc:
         return redirect("/app?tab=sheets", error=str(exc))

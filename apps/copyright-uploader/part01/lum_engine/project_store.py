@@ -117,6 +117,10 @@ class ProjectStore:
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_lum_events_project ON project_events(project_id,id)")
+            conn.execute("""CREATE TABLE IF NOT EXISTS copyright_owner_queues (
+                owner_username TEXT PRIMARY KEY COLLATE NOCASE,
+                paused INTEGER NOT NULL DEFAULT 0 CHECK(paused IN (0,1))
+            )""")
             conn.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
             for key, value in DEFAULT_SETTINGS.items():
                 conn.execute("INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)", (key, value))
@@ -144,6 +148,52 @@ class ProjectStore:
         if os.getenv("LUM_ENGINE_INSTANCE") == "copyright":
             result.update(sheets_sync_enabled="1", auto_engine_enabled="1")
         return result
+
+    def owner_queue_paused(self, owner: str) -> bool:
+        if not str(owner or "").strip():
+            raise ValueError("Owner is required")
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT paused FROM copyright_owner_queues WHERE owner_username=?",
+                (owner.strip(),),
+            ).fetchone()
+        return bool(row and int(row["paused"]))
+
+    def set_owner_queue_paused(self, owner: str, paused: bool) -> None:
+        if not str(owner or "").strip():
+            raise ValueError("Owner is required")
+        with self.connect() as conn:
+            conn.execute("""INSERT INTO copyright_owner_queues(owner_username,paused)
+                VALUES(?,?) ON CONFLICT(owner_username)
+                DO UPDATE SET paused=excluded.paused""",
+                (owner.strip(), int(bool(paused))))
+
+    def edit_waiting_metadata(self, project_id: int, owner: str, *,
+                              title: str, description: str, tags: str,
+                              category_id: str, privacy_status: str) -> bool:
+        """Edit only a still-unclaimed project owned by this account."""
+        title, description, tags = title.strip(), str(description), str(tags)
+        category_id = str(category_id).strip()
+        privacy_status = str(privacy_status).strip().lower()
+        if not title or len(title) > 100 or len(description) > 5000:
+            raise ValueError("Title (1–100) and description (up to 5000) required")
+        if len(tags) > 5000 or not category_id.isdigit() or not 1 <= int(category_id) <= 99:
+            raise ValueError("Invalid tags or YouTube category")
+        if privacy_status not in {"private", "unlisted", "public"}:
+            raise ValueError("Invalid visibility")
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.execute("""
+                UPDATE projects SET title=?,description=?,tags=?,category_id=?,
+                    privacy_status=?,updated_at=?
+                WHERE id=? AND owner_username=? COLLATE NOCASE
+                  AND status IN ('QUEUED','WAITING_SLOT','SCHEDULED')
+            """, (title, description, tags, category_id, privacy_status,
+                  now_iso(), int(project_id), owner))
+            changed = cursor.rowcount == 1
+        if changed:
+            self.event(project_id, "Waiting project metadata updated by owner")
+        return changed
 
     def create_project(self, data: dict[str, Any]) -> int:
         title = str(data.get("title") or "").strip()
@@ -262,7 +312,10 @@ class ProjectStore:
     def next_eligible(self) -> dict[str, Any] | None:
         now = datetime.now(timezone.utc)
         with self.connect() as conn:
-            rows = conn.execute("SELECT * FROM projects WHERE status IN ('QUEUED','WAITING_SLOT','SCHEDULED','PAUSED') ORDER BY id ASC").fetchall()
+            rows = conn.execute("""SELECT * FROM projects p WHERE status IN ('QUEUED','WAITING_SLOT','SCHEDULED','PAUSED')
+                    AND NOT EXISTS (SELECT 1 FROM copyright_owner_queues q
+                        WHERE q.owner_username=p.owner_username AND q.paused=1)
+                    ORDER BY id ASC""").fetchall()
         for raw in rows:
             row = dict(raw)
             if row["status"] == "PAUSED":
@@ -285,7 +338,10 @@ class ProjectStore:
         with self.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             rows = conn.execute(
-                "SELECT * FROM projects WHERE status IN ('QUEUED','WAITING_SLOT','SCHEDULED') ORDER BY id ASC"
+                """SELECT * FROM projects p WHERE status IN ('QUEUED','WAITING_SLOT','SCHEDULED')
+                    AND NOT EXISTS (SELECT 1 FROM copyright_owner_queues q
+                        WHERE q.owner_username=p.owner_username AND q.paused=1)
+                    ORDER BY id ASC"""
             ).fetchall()
             for raw in rows:
                 row = dict(raw)
