@@ -53,6 +53,52 @@ class AudioDownloaderQueueHistoryTests(unittest.TestCase):
                  "2026-10-20T10:00:00+00:00" if status in ("completed", "delivered") else None,'tester'),
             )
 
+    def test_owner_queue_pause_is_durable_and_does_not_block_other_users(self):
+        own, other = 'ADJ-'+'A'*16, 'ADJ-'+'B'*16
+        self.record(own, 'queued')
+        self.record(other, 'queued')
+        with self.module.db() as con:
+            con.execute("UPDATE jobs SET owner_username='bob' WHERE job_id=?", (other,))
+        base='/tts/api/audio-downloader'
+        self.assertEqual(self.client.post(base+'/queue/pause').json()['paused'], True)
+        self.assertEqual(self.client.get(base+'/queue').json()['paused'], True)
+        self.assertEqual(self.module._claim()['job_id'], other)
+        with self.module.db() as con:
+            self.assertEqual(con.execute('SELECT status FROM jobs WHERE job_id=?',
+                                         (own,)).fetchone()['status'], 'queued')
+        self.assertEqual(self.client.post(base+'/queue/resume').json()['paused'], False)
+        self.assertEqual(self.module._claim()['job_id'], own)
+
+    def test_history_delete_is_owner_only_and_non_destructive(self):
+        jid='ADJ-'+'D'*16
+        self.record(jid,'completed')
+        base='/tts/api/audio-downloader/jobs/'+jid
+        self.assertEqual(self.client.request('DELETE', base,
+                         headers={'X-Auth-User':'bob'}).status_code, 404)
+        response=self.client.request('DELETE', base)
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertTrue(response.json()['receipts_retained'])
+        self.assertEqual(self.client.get(base).status_code,404)
+        with self.module.db() as con:
+            row=con.execute('SELECT status,history_deleted FROM jobs WHERE job_id=?',(jid,)).fetchone()
+        self.assertEqual((row['status'],row['history_deleted']),('completed',1))
+
+    def test_active_cancel_finishes_safely_and_retry_resets_flag(self):
+        jid='ADJ-'+'E'*16
+        self.record(jid,'downloading')
+        base='/tts/api/audio-downloader/jobs/'+jid
+        self.assertEqual(self.client.post(base+'/cancel').status_code,200)
+        with self.assertRaises(self.module.AudioJobCancelled):
+            self.module._abort_if_cancelled(jid)
+        self.module._schedule_upload_retry(jid, self.module.AudioJobCancelled('owner cancellation'))
+        with self.module.db() as con:
+            row=con.execute('SELECT status FROM jobs WHERE job_id=?',(jid,)).fetchone()
+        self.assertEqual(row['status'],'cancelled')
+        self.assertEqual(self.client.post(base+'/retry').status_code,200)
+        with self.module.db() as con:
+            row=con.execute('SELECT status,cancel_requested FROM jobs WHERE job_id=?',(jid,)).fetchone()
+        self.assertEqual((row['status'],row['cancel_requested']),('queued',0))
+
     def test_enqueue_ignores_legacy_batch_and_subfolder_preferences(self):
         data = {'links': ['https://youtu.be/BaW_jenozKc'], 'permission_confirmed': True,
                 'project_name': 'Old Batch', 'drive_folder': 'Old Subfolder'}
