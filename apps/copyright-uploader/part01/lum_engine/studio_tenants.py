@@ -98,6 +98,72 @@ class StudioTenants:
                 (kind, owner),
             ).fetchall()}
 
+    def create_channel(self, username, channel_id, channel_name, email=""):
+        """Atomically create a NEW UC channel, without upserting legacy OAuth."""
+        owner=self.username(username)
+        channel_id=str(channel_id or "").strip()
+        channel_name=str(channel_name or "").strip()
+        email=str(email or "").strip()
+        if not re.fullmatch(r"UC[A-Za-z0-9_-]{22}",channel_id):
+            raise ValueError("Enter the exact 24-character YouTube UC Channel ID")
+        if not (1 <= len(channel_name) <= 120) or any(ord(c)<32 for c in channel_name):
+            raise ValueError("Channel name must be 1–120 printable characters")
+        if len(email)>160 or any(c in email for c in "\r\n"):
+            raise ValueError("Invalid account email")
+        with self.db.connect() as con:
+            self._initialize(con)
+            con.execute("BEGIN IMMEDIATE")
+            # An existing channel ID is globally unique. Never overwrite it,
+            # its token path, historical queue, or another tenant's credentials.
+            if con.execute("SELECT 1 FROM channels WHERE channel_id=?",
+                           (channel_id,)).fetchone():
+                raise PermissionError("This YouTube channel is already registered")
+            cur=con.execute("""
+                INSERT INTO channels(channel_id,channel_name,google_account_email,
+                                     token_file_path,channel_url,status)
+                VALUES (?,?,?,'',?,'ACTIVE')
+                """,(channel_id,channel_name,email or None,
+                     "https://www.youtube.com/channel/"+channel_id))
+            cid=int(cur.lastrowid)
+            con.execute("""INSERT INTO studio_entity_owners
+                (entity_kind,entity_id,owner_username) VALUES ('channel',?,?)""",
+                (cid,owner))
+            return cid
+
+    def create_group(self, username, group_name, channel_ids):
+        """New group with ONLY owner's channels, in one SQLite transaction."""
+        owner=self.username(username)
+        name=str(group_name or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 _.-]{1,79}",name):
+            raise ValueError("Group name must be 2–80 safe characters")
+        ids=sorted({int(value) for value in channel_ids})
+        if not ids or len(ids)>500 or any(cid<=0 for cid in ids):
+            raise ValueError("Select 1–500 owned channels")
+        with self.db.connect() as con:
+            self._initialize(con)
+            con.execute("BEGIN IMMEDIATE")
+            if con.execute("SELECT 1 FROM channel_groups WHERE group_name=? COLLATE NOCASE",
+                           (name,)).fetchone():
+                raise PermissionError("This channel-group name is already in use")
+            marks=",".join("?" for _ in ids)
+            owned=con.execute(
+                "SELECT c.id FROM channels c JOIN studio_entity_owners o "
+                "ON o.entity_kind='channel' AND o.entity_id=c.id "
+                "WHERE o.owner_username=? AND c.id IN ("+marks+")",
+                (owner,*ids)).fetchall()
+            if len(owned)!=len(ids):
+                raise PermissionError("Group contains a channel not owned by this user")
+            cur=con.execute("INSERT INTO channel_groups(group_name,notes) VALUES (?,?)",
+                            (name,"Created by authorized Studio account"))
+            gid=int(cur.lastrowid)
+            con.executemany(
+                "INSERT INTO channel_group_members(group_id,channel_db_id) VALUES (?,?)",
+                [(gid,cid) for cid in ids])
+            con.execute("""INSERT INTO studio_entity_owners
+                (entity_kind,entity_id,owner_username) VALUES ('group',?,?)""",
+                (gid,owner))
+            return gid
+
     def assign_by_admin(self, kind, entity_id, owner, user):
         """First assignment of a legacy entity; never silently transfer history."""
         if not user or not int(user.get("is_admin") or 0):
