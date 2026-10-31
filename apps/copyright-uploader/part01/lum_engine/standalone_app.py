@@ -521,7 +521,9 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
     auto_v6 = v6_profile_context(db, v6_store, int(auto_profile_id or 0),
                                      owner="" if int(user.get("is_admin") or 0) else str(user.get("username") or "")) if selected == "auto_engine" and selected_auto_mode == "engine1" else {}
     if selected == "auto_engine" and auto_v6:
-        auto_v6["short_folders"] = v6_shortstudio_list_folders() if engine_instance == "shortstudio" else []
+        auto_v6["short_folders"] = v6_shortstudio_list_folders(
+            owner="" if int(user.get("is_admin") or 0) else str(user.get("username") or "")
+        ) if engine_instance == "shortstudio" else []
         # LUM_SCHEDULER_CONTROL_LIVE_V1: runtime-only presentation state.
         # This does not mutate scheduler_armed or profile schedules.
         from datetime import datetime, timedelta
@@ -1413,6 +1415,15 @@ async def auto_v6_profile_save(request: Request):
             studio_tenants.require("group",int(group_id),user)
         if channel_id.isdigit():
             studio_tenants.require("channel",int(channel_id),user)
+        if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio":
+            folder_name=str(form.get("short_vps_folder") or "").strip()
+            if folder_name and not int(user.get("is_admin") or 0):
+                folder=v6_shortstudio_folder_path(folder_name)
+                marker=folder/".studio_owner"
+                if (marker.is_symlink() or not marker.is_file() or
+                        marker.read_text(encoding="utf-8").strip().casefold() !=
+                        str(user["username"]).casefold()):
+                    raise PermissionError("Short Maker folder belongs to another user")
         fields=dict(form); fields["_song_owner"]=str(user.get("username") or "")
         saved=v6_save_profile_from_form(db,v6_store,fields,pid)
         if not int(user.get("is_admin") or 0):
