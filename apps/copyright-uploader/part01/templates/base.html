@@ -49,7 +49,7 @@ label { display: block !important; margin-bottom: var(--sb-spacing-sm) !importan
 {% if engine_instance == 'copyright' %}<link rel="stylesheet" href="{{ base_path }}/static/copyright_workspace.css?v=20261030-ux1">{% endif %}
 {% if embedded_view %}
 <link rel="stylesheet" href="/static/vps1_native_site_shell.css?v=20261020-upload-studio-v1&song=20261029">
-<script src="/static/vps1_native_site_shell.js?v=20261020-upload-studio-v1&song=20261029&copyright=20261030&copyright-nav=20261030-v3" data-workspace="copyright-uploader" defer></script>
+<script src="/static/vps1_native_site_shell.js?v=20261020-upload-studio-v1&song=20261029&copyright=20261030&copyright-nav=20261030-v3&studio-permissions=20261031" data-workspace="copyright-uploader" defer></script>
 {% endif %}
 </head>
 <body class="{% if embedded_view %}lum-embedded{% endif %}{% if engine_instance in ['song', 'shortstudio', 'copyright'] %} lum-song-ui{% endif %}{% if engine_instance == 'copyright' %} lum-copyright-workspace{% endif %}">
