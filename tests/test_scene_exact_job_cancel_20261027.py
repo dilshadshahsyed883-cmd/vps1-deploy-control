@@ -151,6 +151,7 @@ class SceneExactResetQueueContract(unittest.TestCase):
         self.assertIn(MARKER, gateway)
         self.assertIn("args.apps != ['scene-builder']", runtime)
         self.assertIn("SCENE_EXACT_RESET_GATEWAY_MUTATIONS=NONE", gateway)
+        self.assertIn("if 'scene-builder' not in args.apps:", gateway)
 
 
 if __name__ == "__main__":
