@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{% block title %}{{ 'Short Uploader' if engine_instance == 'shortstudio' else ('Song Uploader' if engine_instance == 'song' else 'Auto Uploader') }}{% endblock %}</title>
   <link rel="stylesheet" href="{{ base_path }}/static/standalone.css?v=20260824-rwd2">
-  <link rel="stylesheet" href="{{ base_path }}/static/local_upload_manager.css?v=20261030-network-queue-v1{% if engine_instance == 'song' %}&amp;song=20261030-status-cards-v2{% endif %}{% if engine_instance == 'shortstudio' %}&amp;short=20261030-compact-automation-v3&amp;profile=20261030-short-defaults-sheets-v4&amp;profile-row=20261030-v1{% endif %}">
+  <link rel="stylesheet" href="{{ base_path }}/static/local_upload_manager.css?v=20261030-network-queue-v1{% if engine_instance == 'song' %}&amp;song=20261030-status-cards-v2&amp;song-profile=20261031-pr505-v1{% endif %}{% if engine_instance == 'shortstudio' %}&amp;short=20261030-compact-automation-v3&amp;profile=20261030-short-defaults-sheets-v4&amp;profile-row=20261030-v1{% endif %}">
   <link rel="stylesheet" href="{{ base_path }}/static/lum_desktop_theme_v4.css?v=20260826-v4">
 <style id="universal-theme-v3">
 :root {
@@ -33,7 +33,7 @@ label { display: block !important; margin-bottom: var(--sb-spacing-sm) !importan
 .row, .form-group, .mb-3, .mt-3 { margin-bottom: var(--sb-spacing-md) !important; }
 </style>
 {% if engine_instance in ['song', 'shortstudio'] %}
-<link rel="stylesheet" href="{{ base_path }}/static/song_uploader_kokoro_ui.css?v=20261030-minimal-auto-v2{% if engine_instance == 'song' %}&amp;song=20261030-status-cards-v2{% endif %}{% if engine_instance == 'shortstudio' %}&amp;short=20261030-compact-automation-v3{% endif %}">
+<link rel="stylesheet" href="{{ base_path }}/static/song_uploader_kokoro_ui.css?v=20261030-minimal-auto-v2{% if engine_instance == 'song' %}&amp;song=20261030-status-cards-v2&amp;song-profile=20261031-pr505-v1{% endif %}{% if engine_instance == 'shortstudio' %}&amp;short=20261030-compact-automation-v3{% endif %}">
 {% endif %}
 {% if embedded_view %}
 <link rel="stylesheet" href="/static/vps1_native_site_shell.css?v=20261020-upload-studio-v1&song=20261029">

@@ -123,6 +123,9 @@ def verify_live():
     required_controls=(
         'song-profile-privacy-status',
         'lum-short-engine-status',
+        'class="lum-short-profile-toolbar"',
+        'lum-short-scheduler-state',
+        'song-profile=20261031-pr505-v1',
         '20261030-status-cards-v2',
         'data-ae-panel-target="automation"',
         'data-ae-panel-target="profiles"',
@@ -130,6 +133,10 @@ def verify_live():
     )
     missing=[marker for marker in required_controls if marker not in html]
     require(not missing, 'Song profile parity controls missing from live HTML: '+', '.join(missing))
+    require(html.count('id="lum-ae-profile-select"') == 1 and
+            'class="lum-ae-profile-manager-top"' not in html and
+            'class="lum-ae-profile-browser"' not in html,
+            'Song PR #505 compact Profiles toolbar did not replace legacy manager')
     require(html.count('>Sync All Channels</button>')==1 and
             'Sync Channel</button>' not in html and
             'data-ae-sync-scan' not in html,
