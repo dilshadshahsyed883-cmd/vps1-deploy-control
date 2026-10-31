@@ -2128,7 +2128,7 @@ def _audio_downloader_hide_shared_proxy_controls(payload: bytes, *, is_admin: bo
     end = payload.find(panel_end, start + len(panel_start)) if start >= 0 else -1
     if start >= 0 and end >= 0:
         payload = (payload[:start] +
-                   b'<div id="vsaProxy" class="vsa-content" hidden></div>\\n' +
+                   b'<div id="vsaProxy" class="vsa-content" hidden></div>\n' +
                    payload[end:])
     return payload
 
