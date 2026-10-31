@@ -262,6 +262,7 @@ class RoleBehaviorTests(unittest.TestCase):
             self.assertEqual(self.studio_for_path(path), expected, path)
         self.assertIn('request.url.path.startswith("/api/experiment-browser/")', SOURCE)
         self.assertIn('not account.get("is_admin")', SOURCE)
+        self.assertIn("{% if request.session.get('is_admin') and page in", BASE)
 
     def test_three_studio_form_csrf_and_validation(self):
         with self.assertRaises(HTTPException) as failed:
