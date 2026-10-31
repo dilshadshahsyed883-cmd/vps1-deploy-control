@@ -84,8 +84,9 @@ class AudioPreferencesTests(unittest.TestCase):
 
     def test_unauthenticated_preferences_cannot_leak_or_overwrite(self):
         url = "/tts/api/audio-downloader/preferences"
-        self.assertEqual(self.client.get(url).status_code, 403)
-        self.assertEqual(self.client.put(url, json=self.snapshot()).status_code, 403)
+        # Explicit empty header overrides the test client's default owner.
+        self.assertEqual(self.client.get(url, headers={"X-Auth-User": ""}).status_code, 403)
+        self.assertEqual(self.client.put(url, headers={"X-Auth-User": ""}, json=self.snapshot()).status_code, 403)
         self.assertFalse(self.client.get(url, headers=self.owner_a).json()["saved"])
 
     def test_incompatible_auto_queue_options_and_invalid_quality_are_rejected(self):
