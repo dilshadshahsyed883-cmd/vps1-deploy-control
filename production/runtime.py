@@ -709,6 +709,12 @@ def install_app(app, revision):
     # and update only its immutable source pointer through the same root helper.
     if app == 'scene-builder' and (BASE / 'current/scene-builder').is_symlink():
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-storage-dashboard-web-only]' in intent:
+            # Web-only admin Storage overlay; queued Scene renders are
+            # deliberately NOT admission-gated by renderer source refresh.
+            from production.storage_dashboard_web_release import install as install_storage_web
+            install_storage_web(revision)
+            return
         if '[vps1-copyright-studio-release]' in intent:
             from production.copyright_scene_nav_release import install as install_copyright_scene
             install_copyright_scene(revision)
