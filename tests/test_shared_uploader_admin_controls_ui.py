@@ -37,7 +37,11 @@ def test_uploader_templates_compile_and_preserve_owned_actions() -> None:
             assert owned in source, (path, owned)
         assert 'Shared OAuth client is managed by an administrator' in source
         assert '{% if user.is_admin' in source
-        assert 'Save modes</button></form></section>{% endif %}' in source
+        if "copyright-uploader" in path:
+            # Copyright permanently has no mode-settings card, even for admins.
+            assert "Save modes" not in source
+        else:
+            assert 'Save modes</button></form></section>{% endif %}' in source
 
 
 def test_uploader_dashboard_shared_modes_hidden_for_nonadmin() -> None:
@@ -46,6 +50,14 @@ def test_uploader_dashboard_shared_modes_hidden_for_nonadmin() -> None:
         (UPLOADER_TEMPLATES[0], "song"),
         (UPLOADER_TEMPLATES[1], "copyright"),
     ):
+        if instance == "copyright":
+            from production.copyright_uploader_browser import fixture
+            for is_admin in (False, True):
+                html = fixture("dashboard", is_admin=is_admin)
+                assert "Save modes" not in html
+                assert "/actions/settings" not in html
+                assert "Copyright Uploader" in html
+            continue
         source = _source(path)
         start = source.index('<div class="lum-grid {{')
         end_marker = "Save modes</button></form></section>{% endif %}</div>"
