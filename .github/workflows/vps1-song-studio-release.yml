@@ -102,7 +102,7 @@ jobs:
                       "$output" == *"BlockingIOError: [Errno 11] Resource temporarily unavailable"* ]]; then
                   echo "Song uploader busy: existing upload preserved; guarded retry $attempt/30"
                   if (( attempt == 30 )); then
-                    echo "Song-scoped release remains blocked by active upload or deployment lock"
+                    echo "Song UI release remains blocked until uploader is idle"
                     exit 1
                   fi
                   sleep 30
