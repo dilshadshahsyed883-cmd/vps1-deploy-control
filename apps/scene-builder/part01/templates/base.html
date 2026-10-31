@@ -177,7 +177,7 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
 </aside>
 <main class="{% if page in ['auto_caption_studio','auto_caption_live'] %}acs-main {% endif %}{% if page in ['script_work','algrow_voice','auto_caption_studio','auto_caption_live'] %}story-suite-main {% endif %}{% if page=='atomic_flow' %}atomic-flow-main{% endif %}{% if page=='youtube_niche_research' %} ynr-main{% endif %}">
 {% if page=='song_studio' %}<nav class="vps1-native-video-tabs vps1-song-studio-tabs" aria-label="Song Studio"><a href="/audio-downloader/">Audio Downloader</a><a {% if studio_app=='song-maker' %}class="active" aria-current="page"{% endif %} href="/song-studio/song-maker/">Song Maker</a><a {% if studio_app=='song-uploader' %}class="active" aria-current="page"{% endif %} href="/song-uploader">Song Uploader</a></nav>{% endif %}
-{% if page in ['experiment_studio','auto_script','local_upload_manager','voice_studio','queue','settings','audit_media','scene_media_library','auto_caption_studio','auto_caption_live','video_studio_embedded'] %}
+{% if request.session.get('is_admin') and page in ['experiment_studio','auto_script','local_upload_manager','voice_studio','queue','settings','audit_media','scene_media_library','auto_caption_studio','auto_caption_live','video_studio_embedded'] %}
 <nav class="vps1-experiment-tabs" aria-label="Experiment Studio">
   <a {% if page=='experiment_studio' %}class="active" aria-current="page"{% endif %} href="/experiment-studio/antidetect-browser/">Antidetect Browser</a>
   <a href="/experiment-studio/self-media-library/">Self Media Library</a>
