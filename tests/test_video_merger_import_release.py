@@ -65,21 +65,23 @@ function renderProxy(){old}
                     path=Path(args[3]);(path/'bin').mkdir(parents=True);(path/'bin/python').touch()
                 if 'production.video_merger_import_smoke' in args:
                     if failure=='smoke':raise RuntimeError('source failure')
-                    return json.dumps({'youtube':'PASS','drive':'PASS',
-                        'library_persistence':'PASS',
-                        'youtube_external_auth_blocked':False})+'\n'
+                    return json.dumps({'youtube':('UPSTREAM_AUTH_BLOCKED' if failure in
+                                         ('auth-degraded','auth-mismatch') else 'PASS'),
+                        'drive':'PASS','library_persistence':'PASS',
+                        'youtube_external_auth_blocked':failure in
+                                         ('auth-degraded','auth-mismatch')})+'\n'
                 return ''
             checks=[None,RuntimeError('health failure'),None,None] if failure=='health' else [None,None,None]
             with patch.object(release,'BASE',base),patch.object(release,'DATA',root/'data'),patch.object(release,'REPO',repo), \
                  patch.object(release,'SYSTEMD',units),patch.object(release,'idle_database'),patch.object(release,'event'), \
-                 patch.object(release,'install_js'),patch.object(release,'live_paths',return_value=(root/'data/video-merger/video-merger',root/'config/proxy_profiles.json')), \
+                 patch.object(release,'install_js'),patch.object(release,'owner_handover_only_change',return_value=failure=='auth-degraded'),patch.object(release,'live_paths',return_value=(root/'data/video-merger/video-merger',root/'config/proxy_profiles.json')), \
                  patch.object(release,'run',side_effect=command) as commands,patch.object(release,'http_check',side_effect=checks), \
                  patch('production.route_uploader_scene_https.scene_cookie',return_value='cookie'), \
                  patch('production.route_uploader_scene_https.https_get',return_value=(200,'text/html',b'VIDEO_MERGER_TWO_COLUMN_QUEUE_V2 id="tab-queue" class="vm-merge-layout"')):
-                if failure:
+                if failure in ('smoke','health','auth-mismatch'):
                     with self.assertRaises(RuntimeError):release.install('a'*40)
                     self.assertEqual(pointer.resolve(),old);self.assertEqual(unit.read_text(),original)
-                    if failure=='smoke':
+                    if failure in ('smoke','auth-mismatch'):
                         self.assertFalse(any(call.args[0][0]=='systemctl' for call in commands.call_args_list))
                 else:
                     release.install('a'*40)
@@ -89,6 +91,11 @@ function renderProxy(){old}
                     self.assertIn('onclick="renameLibrary(',patched_html)
                     self.assertEqual((pointer/'part01/app.py').read_text(),'new = True')
                     self.assertIn('a'*40+'-imports/bin/python',unit.read_text())
+                    if failure=='auth-degraded':
+                        journal=json.loads((base/'transactions/video-merger-imports'/
+                                            ('a'*40)/'result.json').read_text())
+                        self.assertEqual(journal['youtube'],'UPSTREAM_AUTH_BLOCKED')
+                        self.assertTrue(journal['owner_handover_only'])
 
     def test_retry_ui_guard_preserves_unrelated_active_markup(self):
         canonical=(Path(__file__).resolve().parents[1]/'apps/video-merger/part01/templates/index.html').read_text()
@@ -191,5 +198,9 @@ function renderProxy(){old}
     def test_failure_before_promotion_preserves_live_service(self):self.exercise('smoke')
     def test_failed_health_rolls_back_pointer_and_python(self):self.exercise('health')
     def test_success_preserves_active_ui(self):self.exercise(None)
+    def test_exact_external_auth_allows_only_guarded_owner_handover(self):
+        self.exercise('auth-degraded')
+    def test_auth_degradation_refused_for_downloader_changes(self):
+        self.exercise('auth-mismatch')
 
 if __name__=='__main__':unittest.main()
