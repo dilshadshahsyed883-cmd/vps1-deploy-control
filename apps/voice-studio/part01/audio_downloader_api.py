@@ -260,19 +260,19 @@ def audio_identity(request: Request):
         raise HTTPException(403,"Authenticated Audio Downloader account required")
     owner=_preferences_owner(request)
     admin=str(request.headers.get("x-is-admin") or "").strip()=="1"
-    return owner.casefold(),admin
+    return owner,admin
 
 
 @router.get('/status')
-def status(request: Request):
-    owner,admin=audio_identity(request)
+def status(request: Request = None):
+    owner,admin=audio_identity(request) if request is not None else ('',True)
     init_storage()
     d = deps()
     with db() as con:
         if admin:
             q=con.execute('SELECT status,COUNT(*) AS n FROM jobs GROUP BY status').fetchall()
         else:
-            q=con.execute('SELECT status,COUNT(*) AS n FROM jobs WHERE lower(owner_username)=? GROUP BY status',(owner,)).fetchall()
+            q=con.execute('SELECT status,COUNT(*) AS n FROM jobs WHERE lower(owner_username)=? GROUP BY status',(owner.casefold(),)).fetchall()
     return {'ready': d['ready'], 'reason': '' if d['ready'] else 'yt-dlp or FFmpeg unavailable',
             'upload_ready': d['upload_ready'], 'drive_root': f'{DRIVE_REMOTE}:{DRIVE_BASE}',
             'formats': ['mp3', 'wav'], 'quality': [128, 192, 256],
@@ -389,7 +389,7 @@ def enqueue(payload: BatchRequest, request: Request = None):
                     AND lower(owner_username)=?
                     AND status IN ('queued','downloading','downloaded','uploading','upload_retry','delivered','completed')
                     AND (?=0 OR (song_folder_id=? AND auto_song_maker=1))
-                    ORDER BY created_at DESC LIMIT 1""", (video, payload.format,owner,int(payload.auto_song_maker),payload.song_folder_id)).fetchone()
+                    ORDER BY created_at DESC LIMIT 1""", (video, payload.format,owner.casefold(),int(payload.auto_song_maker),payload.song_folder_id)).fetchone()
                 if existing:
                     existing_jobs.append(existing['job_id'])
                     continue
@@ -419,7 +419,7 @@ def list_jobs(limit: int = 100, request: Request = None):
         if admin:
             rows=con.execute('SELECT * FROM jobs ORDER BY created_at DESC,job_id DESC LIMIT ?',(limit,)).fetchall()
         else:
-            rows=con.execute('SELECT * FROM jobs WHERE lower(owner_username)=? ORDER BY created_at DESC,job_id DESC LIMIT ?',(owner,limit)).fetchall()
+            rows=con.execute('SELECT * FROM jobs WHERE lower(owner_username)=? ORDER BY created_at DESC,job_id DESC LIMIT ?',(owner.casefold(),limit)).fetchall()
     return {'jobs':[sanitized_row(row) for row in rows]}
 
 
@@ -428,9 +428,9 @@ def row_for(jid: str, request: Request = None):
         raise HTTPException(404, 'Unknown audio job')
     with db() as con:
         row = con.execute('SELECT * FROM jobs WHERE job_id=?', (jid,)).fetchone()
-    owner,admin=audio_identity(request)
+    owner,admin=audio_identity(request) if request is not None else ('',True)
     if row is None or (not admin and (not row['owner_username'] or
-         str(row['owner_username']).casefold()!=owner)):
+         str(row['owner_username']).casefold()!=owner.casefold())):
         raise HTTPException(404,'Unknown audio job')
     return row
 
