@@ -157,6 +157,18 @@ class OwnerHandoverTests(unittest.TestCase):
         self.assertIn("created.folder",html)
         self.assertIn("My Drive Root",html)
 
+    def test_source_name_lookup_requires_session_and_does_no_network_when_logged_out(self):
+        handler=object.__new__(self.app.Handler)
+        handler.path=self.app.PREFIX+"/api/source-name"
+        handler.headers={}
+        handler.read_json=lambda: {"url":"https://www.youtube.com/watch?v=123"}
+        observed=[]
+        handler.send_json=lambda status,body: observed.append((status,body))
+        with patch.object(self.app,"source_display_filename",
+                          side_effect=AssertionError("unauthenticated source lookup")):
+            handler.do_POST()
+        self.assertEqual(observed[0][0],400)
+
     def test_guarded_overlay_only_changes_owner_folder_callbacks(self):
         from production.video_merger_import_release import overlay_owner_handover_ui
         source=HTML.read_text()
