@@ -262,7 +262,7 @@ def _confirmed_defunct_proc(pid: Path) -> bool:
 
 
 
-def _confirmed_resource_free_kthread(pid: Path) -> bool | str:
+def _confirmed_resource_free_kthread(pid: Path, target_paths: list[Path] | None = None) -> bool | str:
     """Prove a /proc task is a kernel thread with no release references.
 
     Kernel threads can return ESRCH from /proc/PID/environ while their PID
@@ -299,16 +299,20 @@ def _confirmed_resource_free_kthread(pid: Path) -> bool | str:
             return False
         if not (pid / "fd").is_dir() or any((pid / "fd").iterdir()):
             return False
-        # /proc/PID/cwd and exe entries can be dangling kernel-proc
-        # symlinks even when the task has no userspace mm. A dangling link
-        # has no live path reference; a resolvable target still blocks.
+        # A verified resource-free Kthread can have a normal cwd (often /).
+        # Permit only paths proven unrelated to every deletion candidate.
+        # Without target context (e.g. standalone diagnostics) fail closed.
         for name in ("cwd", "exe"):
             try:
-                (pid / name).resolve(strict=True)
+                linked = (pid / name).resolve(strict=True)
             except FileNotFoundError:
                 continue
             else:
-                return False
+                if target_paths is None or any(
+                    linked == target or linked.is_relative_to(target)
+                    for target in target_paths
+                ):
+                    return False
         if (pid / "maps").read_bytes():
             return False
         second = snapshot()
@@ -412,7 +416,7 @@ def _runtime_reference_pass(paths: list[Path], proc_root: Path = Path("/proc"),
                     if defunct == "identity-changed":
                         return "unverifiable-process-identity-change"
                     if defunct is not True:
-                        kthread = _confirmed_resource_free_kthread(pid)
+                        kthread = _confirmed_resource_free_kthread(pid, target_paths=target_paths)
                         if kthread == "identity-changed":
                             return "unverifiable-process-identity-change"
                         if kthread is not True:
