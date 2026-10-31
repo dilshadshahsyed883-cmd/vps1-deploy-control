@@ -995,6 +995,22 @@ def main():
     check_host(args.revision)
     with deployment_lock():
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        # Song Maker-only owner audit/claim, distinct from both parallel Maker
+        # and uploader migrations; no app install or shared runtime modification.
+        if '[vps1-haseeb1-songmaker-readonly]' in intent:
+            if args.action != 'install' or args.apps != ['local-upload-manager']:
+                raise RuntimeError('Song Maker owner audit requires the exact approved LUM helper lane')
+            from production.studio_haseeb1_songmaker_assignment import audit
+            event(**audit(DATA / 'song-maker', DATA / 'scene-builder/web/web.sqlite3'))
+            return
+        if '[vps1-haseeb1-songmaker-assignment]' in intent:
+            if args.action != 'install' or args.apps != ['local-upload-manager']:
+                raise RuntimeError('Song Maker owner claim requires the exact approved LUM helper lane')
+            from production.studio_haseeb1_songmaker_assignment import install
+            event(**install(args.revision, DATA / 'song-maker',
+                  DATA / 'scene-builder/web/web.sqlite3',
+                  BASE / 'transactions/haseeb1-songmaker-firstclaim'))
+            return
         # Read-only dry run can be merged independently before any owner change.
         if '[vps1-haseeb1-song-short-readonly]' in intent:
             if args.action != 'install' or args.apps != ['local-upload-manager']:
