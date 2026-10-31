@@ -73,6 +73,10 @@ class ShortUploaderFixedModes(unittest.TestCase):
             self.assertTrue(namespace["mode_is_enabled"]("sheets_sync_enabled"))
             self.assertTrue(namespace["mode_is_enabled"]("auto_engine_enabled"))
         with patch.dict(os.environ, {"LUM_ENGINE_INSTANCE": "song"}):
+            # Latest main already guarantees both Song modes remain available.
+            self.assertTrue(namespace["mode_is_enabled"]("sheets_sync_enabled"))
+            self.assertTrue(namespace["mode_is_enabled"]("auto_engine_enabled"))
+        with patch.dict(os.environ, {"LUM_ENGINE_INSTANCE": "engine1"}):
             self.assertFalse(namespace["mode_is_enabled"]("sheets_sync_enabled"))
             self.assertFalse(namespace["mode_is_enabled"]("auto_engine_enabled"))
         # Startup normalization persists ON only for the isolated shortstudio DB.
