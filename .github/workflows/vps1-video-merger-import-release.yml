@@ -61,8 +61,15 @@ jobs:
               "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA video-merger" \
               > "$scratch/installer.log" 2>&1; then
               cat "$scratch/installer.log"
-              grep -Fq '"result": "PASS_VIDEO_MERGER_IMPORTS"' "$scratch/installer.log"
-              echo 'VIDEO_MERGER_IMPORTS=VERIFIED'
+              # Distinguish a validated owner handover from a working YouTube canary.
+              if grep -Fq '"result": "PASS_VIDEO_MERGER_OWNER_HANDOVER_YOUTUBE_AUTH_BLOCKED"' "$scratch/installer.log"; then
+                echo 'VIDEO_MERGER_OWNER_HANDOVER=VERIFIED'
+                echo 'YOUTUBE=UPSTREAM_AUTH_BLOCKED_NOT_VERIFIED'
+              else
+                grep -Fq '"result": "PASS_VIDEO_MERGER_IMPORTS"' "$scratch/installer.log"
+                echo 'VIDEO_MERGER_IMPORTS=VERIFIED'
+                echo 'YOUTUBE=VERIFIED'
+              fi
               echo 'EXISTING_LIBRARY_DATA=PRESERVED'
               echo 'AUTO_SCRIPT=OFFLINE'
               exit 0
