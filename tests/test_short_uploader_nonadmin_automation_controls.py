@@ -64,15 +64,71 @@ class ShortMemberControls(TestCase):
                 self_assert=kind=="profile" and viewer["username"]=="alice"
                 assert self_assert
                 return {10,20}
+            def owner(self,kind,entity_id):
+                return "alice" if kind=="profile" and entity_id in {10,20} else "bob"
         def verified(pid,req):
             if pid==20: raise PermissionError("group contains foreign channel")
             return {"id":pid,"enabled":1}
         fn=extract("_short_owned_automation_profiles",{
             "os":os,"current_user":lambda req:user,"studio_tenants":Tenants(),
             "db":SimpleNamespace(list_auto_engine_profiles=lambda:[{"id":10},{"id":20},{"id":30}]),
+            "v6_store":SimpleNamespace(group_settings=lambda pid:{}),
             "_v6_profile":verified})
         with patch.dict(os.environ,{"LUM_ENGINE_INSTANCE":"shortstudio"}):
             self.assertEqual([x["id"] for x in fn(object())],[10])
+
+    def test_admin_bulk_selection_never_expands_to_global_records(self):
+        profiles={10:{"id":10,"enabled":1},20:{"id":20,"enabled":1},
+                  30:{"id":30,"enabled":1,"channel_group_id":5},
+                  40:{"id":40,"enabled":1,"channel_db_id":7}}
+        owners={("profile",10):"alice",("profile",20):"bob",
+                ("profile",30):"alice",("profile",40):"alice",
+                ("group",5):"alice",("channel",9):"bob",
+                ("channel",7):"bob"}
+        class Tenants:
+            def allowed_ids(self,kind,user):
+                return None if user["is_admin"] else {10,30,40}
+            def owner(self,kind,entity_id):
+                return owners.get((kind,entity_id),"")
+        class DB:
+            def list_auto_engine_profiles(self):return list(profiles.values())
+            def connect(self):return self
+            def __enter__(self):return self
+            def __exit__(self,*args):return False
+            def execute(self,*args):return self
+            def fetchall(self):return [(9,)]
+        user={"username":"alice","is_admin":True}
+        fn=extract("_short_owned_automation_profiles",{
+            "os":os,"current_user":lambda req:user,"studio_tenants":Tenants(),
+            "db":DB(),"v6_store":SimpleNamespace(group_settings=lambda pid:{}),
+            "_v6_profile":lambda pid,req:profiles[pid]})
+        with patch.dict(os.environ,{"LUM_ENGINE_INSTANCE":"shortstudio"}):
+            self.assertEqual([x["id"] for x in fn(object())],[10])
+            user["is_admin"]=False
+            self.assertEqual([x["id"] for x in fn(object())],[10])
+
+    def test_short_admin_start_all_has_no_global_fallback(self):
+        selected={"id":10,"enabled":1,"category_name":"Mine"}
+        actions=[]
+        class Store:
+            def engine(self):return {"manual_profile_ids":"99","running":1,"pause_after_current":0}
+            def group_settings(self,pid):return {}
+            def set_manual_profile_ids(self,ids):actions.append(("scope",ids))
+            def set_engine(self,**kw):actions.append(("engine",kw))
+        fn=extract("auto_v6_start_all",{
+            "os":os,"current_user":lambda req:{"username":"alice","is_admin":True},
+            "require_csrf":lambda *a:None,"require_heavy":lambda *a:None,
+            "_short_owned_automation_profiles":lambda req:[selected],
+            "db":SimpleNamespace(list_auto_engine_profiles=lambda:(_ for _ in ()).throw(
+                 AssertionError("Short admin must not use global profiles"))),
+            "v6_store":Store(),"v6_generate_queue":lambda db,st,p:{"created":1},
+            "v6_mark_schedule_skipped_today":lambda *a:None,
+            "redirect":lambda path,**kw:(path,kw)})
+        with patch.dict(os.environ,{"LUM_ENGINE_INSTANCE":"shortstudio"}):
+            result=fn(object(),"csrf","START ALL")
+        self.assertEqual(actions[0],("scope",[10,99]))
+        self.assertEqual(actions[1][0],"engine")
+        self.assertIn("owned profile",result[1]["message"])
 
     def test_member_sync_validates_own_group_without_start_or_queue_generation(self):
         calls=[]
