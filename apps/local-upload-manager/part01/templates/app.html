@@ -880,7 +880,7 @@
         </div>
         <div class="lum-ae-profile-manager-actions">
           <span class="lum-badge warn" data-ae-profile-dirty hidden>Unsaved changes</span>
-          {% if engine_instance in ['shortstudio','song'] %}{% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}<button class="lum-button secondary" type="button" data-ae-open-schedules>Manage Schedules</button>{% endif %}{% endif %}
+          {% if engine_instance in ['shortstudio','song'] %}{% if engine_instance == 'song' or user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}<button class="lum-button secondary" type="button" data-ae-open-schedules>Manage Schedules</button>{% endif %}{% endif %}
           <a class="lum-button secondary" href="{{ base_path }}/app?tab=auto_engine&new_profile=1" data-lum-soft-link data-ae-profile-nav>+ New Profile</a>
           <button class="lum-button primary" type="submit" form="lum-ae-profile-form">{{ 'Save Changes' if p else 'Create Profile' }}</button>
           {% if p %}
@@ -1010,7 +1010,7 @@
         {% if engine_instance == 'song' or user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}<button class="lum-button secondary" type="button" data-ae-open-schedules>Profile Schedules</button>{% endif %}
         {% if engine_instance == 'song' or user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}<button class="lum-button secondary" type="button" data-ae-preview-all>Preview Next Jobs</button>{% endif %}
         {% if engine_instance == 'song' or user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}<button class="lum-button secondary" type="button" data-ae-jump-start-all>Start All Profiles</button>{% endif %}
-        {% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+        {% if engine_instance == 'song' or user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/sync-all" data-lum-soft-form>
           <input type="hidden" name="csrf_token" value="{{ csrf }}">
           <button class="lum-button primary" type="submit">Sync All Channels</button>
