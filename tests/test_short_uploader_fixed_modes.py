@@ -78,7 +78,7 @@ class ShortUploaderFixedModes(unittest.TestCase):
         # Startup normalization persists ON only for the isolated shortstudio DB.
         self.assertIn('if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio":', source)
         self.assertIn('store.set_setting(_mode_key, "1")', source)
-        self.assertIn('if not mode_is_enabled("sheets_sync_enabled"):', source)
+        self.assertIn('not in {"song", "shortstudio"} and store.setting("sheets_sync_enabled", "0") != "1":', source)
 
     def test_short_stale_settings_post_cannot_disable_modes(self):
         source = BACKEND.read_text(encoding="utf-8")
