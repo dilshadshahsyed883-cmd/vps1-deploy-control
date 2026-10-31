@@ -49,6 +49,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Install HTTP regression test dependencies
+        run: |
+          python3 -m pip install --disable-pip-version-check 'fastapi==0.115.12' 'httpx==0.28.1' 'python-multipart==0.0.20' 'Pillow==11.1.0'
       - name: Python tests
         run: python3 -m unittest discover -s tests -v
       - name: Enforce owner-approved UI design source contract
