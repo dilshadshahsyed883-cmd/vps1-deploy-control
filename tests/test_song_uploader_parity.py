@@ -42,6 +42,7 @@ class SongParity(unittest.TestCase):
         def render(instance, armed):
             return Environment(autoescape=True).from_string(section).render(
                 engine_instance=instance, base_path="/song-uploader" if instance == "song" else "/short-uploader",
+                user={"is_admin": True},
                 csrf="offline-test", p={"id": 2, "category_name": "music", "enabled": True},
                 ae={"profiles": [{"id": 2, "category_name": "music", "enabled": True}],
                     "engine": {"scheduler_armed": armed}})

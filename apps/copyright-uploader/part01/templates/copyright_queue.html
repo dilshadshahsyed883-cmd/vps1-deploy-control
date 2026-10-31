@@ -3,6 +3,7 @@
   <div class="copyright-queue-toolbar">
     <label class="lum-field"><span>Search videos</span><input type="search" data-copyright-search placeholder="Title, channel or filename"></label>
     <label class="lum-field"><span>Status</span><select data-copyright-status><option value="all">All statuses</option><option value="waiting">Waiting / Scheduled</option><option value="active">Uploading / Processing</option><option value="attention">Needs attention</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></label>
+    {% if user.is_admin %}
     <div class="lum-actions copyright-queue-controls">
       {% if stats.engine_enabled and stats.settings.pause_after_current != '1' %}
       <form method="post" action="{{ base_path }}/actions/pause-after-current"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button" type="submit">Pause After Current</button></form>
@@ -11,6 +12,7 @@
       {% endif %}
       {% if health.active_project_id %}<form method="post" action="{{ base_path }}/actions/stop-current" data-copyright-confirm="Safely stop the current upload? Its files will be kept for retry."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button danger" type="submit">Stop Current</button></form>{% endif %}
     </div>
+    {% endif %}
   </div>
   <p class="copyright-result-count" data-copyright-count role="status">{{ projects|length }} videos</p>
   <div class="lum-table-wrap"><table class="lum-table copyright-queue-table"><thead><tr><th>Video</th><th>Channel</th><th>Status / Progress</th><th>Schedule (PKT)</th><th>Details</th><th>Actions</th></tr></thead><tbody>

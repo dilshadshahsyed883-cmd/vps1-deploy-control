@@ -23,6 +23,7 @@ class UploaderProfileBulkToolbarTests(unittest.TestCase):
         end = source.index('</section>', start) + len('</section>')
         return Environment(autoescape=True).from_string(source[start:end]).render(
             engine_instance=instance, ae=SimpleNamespace(profiles=[]),
+            user={'is_admin': True},
             p=None, base_path="/short-uploader" if instance == "shortstudio" else "/song-uploader",
             csrf="test-token"
         )
