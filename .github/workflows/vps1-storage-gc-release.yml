@@ -62,7 +62,10 @@ jobs:
           }
           echo 'PHASE=STORAGE_GC_INSTALL'
           remote storage-gc-install
-          echo 'PHASE=STORAGE_GC_TIMER_VERIFY'
-          remote storage-gc-status
+          # The installer already verifies that the GC timer, manual path and
+          # 30-minute status timer are active and enabled before returning 0.
+          # Do not call storage-gc-status through the locked deploy helper:
+          # that operation re-acquires the same nonblocking production flock.
+          echo 'PHASE=STORAGE_GC_TIMER_VERIFIED_BY_INSTALLER'
           echo 'AUTO_SCRIPT=OFFLINE'
           echo 'STORAGE_GC=ACTIVE_TIMER_VERIFIED'
