@@ -488,7 +488,7 @@ body.vs-kokoro-active #vsOmniHeader,body.vs-edge-active #vsOmniHeader,body.vs-au
       </div>
     </div>
   </div>
-  <div id="vsaQueue" class="vsa-content" hidden><div class="vsa-card"><div class="vsa-inline"><h2>Audio download queue</h2><button id="vsaRefreshQueue" type="button" class="vsa-secondary">Refresh queue</button></div><div id="vsaQueueRows">No jobs yet.</div></div></div>
+  <div id="vsaQueue" class="vsa-content" hidden><div class="vsa-card"><div class="vsa-inline"><h2>Audio download queue</h2><button id="vsaRefreshQueue" type="button" class="vsa-secondary">Refresh queue</button><button id="vsaPauseQueue" type="button" class="vsa-secondary">Pause my queue</button><small id="vsaQueuePauseStatus" role="status"></small></div><div id="vsaQueueRows">No jobs yet.</div></div></div>
 </section>
 
   <div id="vsaProxy" class="vsa-content" hidden>
@@ -2322,9 +2322,9 @@ function jobTable(jobs,limit){const wrap=make('div',null,'vsa-tablewrap'),table=
    imageLink.addEventListener('click',async event=>{event.preventDefault();await downloadThumbnailViaSession(job,imageLink,actions);});actions.append(imageLink,make('span',' '));
   }else if(job.status==='delivered'){actions.append(make('small','Thumbnail upload complete · no public link'));}
  }
- if(['queued','upload_retry'].includes(job.status))actions.append(button('Cancel',()=>api(root+'/'+'jobs/'+encodeURIComponent(job.job_id)+'/'+'cancel',{method:'POST'})));if(['failed','cancelled'].includes(job.status))actions.append(button('Retry',()=>api(root+'/'+'jobs/'+encodeURIComponent(job.job_id)+'/'+'retry',{method:'POST'})));row.append(actions);body.append(row);}
+ if(['queued','upload_retry','downloading','downloaded','uploading'].includes(job.status))actions.append(button(['downloading','uploading'].includes(job.status)?'Request Cancel':'Cancel',()=>api(root+'/'+'jobs/'+encodeURIComponent(job.job_id)+'/'+'cancel',{method:'POST'})));if(['failed','cancelled'].includes(job.status))actions.append(button('Retry',()=>api(root+'/'+'jobs/'+encodeURIComponent(job.job_id)+'/'+'retry',{method:'POST'})));if(['failed','cancelled','completed','delivered'].includes(job.status))actions.append(button('Delete History',()=>api(root+'/'+'jobs/'+encodeURIComponent(job.job_id),{method:'DELETE'})));row.append(actions);body.append(row);}
  if(!jobs.length){const empty=make('tr'),td=make('td','No audio jobs yet.');td.colSpan=6;empty.append(td);body.append(empty);}table.append(body);wrap.append(table);return wrap;}
-async function loadStatus(){try{const s=await api(root+'/'+'status');lastStatus=s;$('vsaReady').textContent=s.ready?'Downloader ready':'Downloader unavailable';$('vsaReady').classList.toggle('ready',!!s.ready);$('vsaWorker').textContent=s.worker?'Online':'Offline';$('vsaDriveState').textContent=s.upload_ready?'Connected':'Unavailable';$('vsaCount').textContent=Object.values(s.queue||{}).reduce((a,n)=>a+Number(n||0),0)+' jobs';$('vsaSubmit').disabled=!s.ready||submitting;}catch(e){$('vsaReady').textContent='Downloader offline';$('vsaReady').classList.remove('ready');$('vsaWorker').textContent='Offline';$('vsaSubmit').disabled=true;}}
+async function loadStatus(){try{const s=await api(root+'/'+'status');lastStatus=s;$('vsaReady').textContent=s.ready?'Downloader ready':'Downloader unavailable';$('vsaReady').classList.toggle('ready',!!s.ready);$('vsaWorker').textContent=s.worker?'Online':'Offline';$('vsaDriveState').textContent=s.upload_ready?'Connected':'Unavailable';$('vsaCount').textContent=Object.values(s.queue||{}).reduce((a,n)=>a+Number(n||0),0)+' jobs';$('vsaPauseQueue').textContent=s.queue_paused?'Resume my queue':'Pause my queue';$('vsaQueuePauseStatus').textContent=s.queue_paused?'Paused: running job may finish':'New jobs are allowed';$('vsaSubmit').disabled=!s.ready||submitting;}catch(e){$('vsaReady').textContent='Downloader offline';$('vsaReady').classList.remove('ready');$('vsaWorker').textContent='Offline';$('vsaSubmit').disabled=true;}}
 async function loadJobs(){try{const r=await api(root+'/'+'jobs?limit=200');if(!Array.isArray(r.jobs))throw new Error('Invalid queue API response: jobs list missing');$('vsaQueueRows').replaceChildren(jobTable(r.jobs,200));}catch(e){$('vsaQueueRows').textContent='Queue unavailable: '+e.message;}}
 let submitting=false;
 async function loadSongFolders(){
@@ -2377,6 +2377,7 @@ function boot(){if(!$('vsEngineAudio')||!$('vsAudioWorkspace'))return;
  $('vsaMetadata').addEventListener('change',saveDownloadPreferences);
  $('vsaSubmit').addEventListener('click',submit);$('vsaClear').addEventListener('click',()=>{$('vsaLinks').value='';msg('Links cleared.');});
  $('vsaRefreshQueue').addEventListener('click',loadJobs);
+ $('vsaPauseQueue').addEventListener('click',async()=>{const btn=$('vsaPauseQueue');btn.disabled=true;try{const action=btn.textContent.startsWith('Resume')?'resume':'pause';await api(root+'/queue/'+action,{method:'POST'});await loadStatus();await loadJobs();}catch(e){msg(e.message,'error');}finally{btn.disabled=false;}});
  drivePath();loadSongFolders().then(loadDownloadPreferences).catch(e=>{loadDownloadPreferences();msg(e.message,'error');});if(location.hash==='#vs-audio')choose(true);}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
 })();

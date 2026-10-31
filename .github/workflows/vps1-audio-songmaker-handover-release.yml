@@ -1,0 +1,100 @@
+name: VPS1 Audio Downloader and Song Maker owner handover guarded release
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  release:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'dilshadshahsyed883-cmd' &&
+      github.run_attempt == 1 &&
+      contains(github.event.head_commit.message, '[vps1-audio-songmaker-handover-release]') &&
+      contains(github.event.head_commit.message, '[vps1-audio-thumbnail-only]')
+    concurrency:
+      group: vps1-production-applications
+      cancel-in-progress: false
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Join pinned production Tailscale identity
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Install Song Maker consumer then Audio Downloader, with bounded rollback
+        shell: bash
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/identity"
+          unset PRIVATE_IDENTITY
+          chmod 0600 "$scratch/identity"
+          ssh-keygen -y -P '' -f "$scratch/identity" > "$scratch/public"
+          test "$(ssh-keygen -lf "$scratch/public" -E sha256 | awk '{print $2}')" = 'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
+          release() {
+            local operation="$1" app="$2"
+            case "$operation:$app" in
+              install:song-maker|install:voice-studio|rollback:song-maker) ;;
+              *) return 2 ;;
+            esac
+            timeout 2200s ssh -T -p 22 -i "$scratch/identity" \
+              -o UserKnownHostsFile="$scratch/known_hosts" \
+              -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+              -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o PreferredAuthentications=publickey -o PasswordAuthentication=no \
+              -o ConnectTimeout=20 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+              vps1deploy@100.87.55.92 \
+              "sudo -n /usr/local/sbin/vps1-production-deploy $operation $SOURCE_SHA $app"
+          }
+          # This job targets exactly two applications. It does not install Scene,
+          # uploaders, global shell, TTS engines, or Auto Script.
+          echo 'SONG_MAKER_RELEASE=START'
+          release install song-maker > "$scratch/song.log" 2>&1 || {
+            cat "$scratch/song.log"
+            echo 'SONG_MAKER_RELEASE=BLOCKED_OR_FAILED'
+            exit 1
+          }
+          cat "$scratch/song.log"
+          echo 'SONG_MAKER_RELEASE=GUARDED_PASS'
+          echo 'AUDIO_DOWNLOADER_RELEASE=START'
+          if release install voice-studio > "$scratch/audio.log" 2>&1; then
+            cat "$scratch/audio.log"
+            if grep -Fq '"result": "PASS_AUDIO_THUMBNAIL_ONLY"' "$scratch/audio.log"; then
+              echo 'AUDIO_DOWNLOADER_RELEASE=GUARDED_PASS'
+              echo 'SONG_AUDIO_HANDOVER=PROTECTED_INSTALL_SUCCESS'
+              echo 'AUTO_SCRIPT=OFFLINE'
+              exit 0
+            fi
+            echo 'Audio deployment returned without expected guarded receipt' >&2
+          else
+            cat "$scratch/audio.log"
+            echo 'AUDIO_DOWNLOADER_RELEASE=BLOCKED_OR_FAILED' >&2
+          fi
+          # Audio's installer has its own transaction rollback. Restore
+          # Song Maker as well so a partially failed two-app release does
+          # not leave a mismatched handoff.
+          if release rollback song-maker > "$scratch/rollback.log" 2>&1; then
+            cat "$scratch/rollback.log"
+            echo 'SONG_MAKER_ROLLBACK=PASS'
+          else
+            cat "$scratch/rollback.log"
+            echo 'SONG_MAKER_ROLLBACK=NEEDS_OPERATOR_REVIEW' >&2
+          fi
+          exit 1
