@@ -60,12 +60,14 @@ print('COPYRIGHT_FIXED_MODE_SETTINGS=PASS')
 
     def test_copyright_manual_only_backend_no_scheduler(self):
         server = (COPY / "lum_engine/standalone_app.py").read_text()
-        self.assertIn('if os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio"}:', server)
+        self.assertIn('if os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio","copyright"}:', server)
         self.assertIn('raise HTTPException(404, "Copyright uploader mode settings are fixed")', server)
         self.assertIn('Automatic uploader engine is disabled for Copyright Studio', server)
         self.assertIn('store.setting("sheets_sync_enabled", "0")', server)
-        self.assertNotIn('route("/actions/studio-tenant/channel-create"),', server)
-        self.assertNotIn('route("/actions/studio-tenant/group-create"),', server)
+        # Existing ownership-checked API contracts stay compatible; only the form is removed.
+        self.assertIn('route("/actions/studio-tenant/channel-create"),', server)
+        # Existing ownership-checked API contracts stay compatible; only the form is removed.
+        self.assertIn('route("/actions/studio-tenant/group-create"),', server)
         workers = (ROOT / "production/workers.py").read_text()
         self.assertNotIn("lum-copyright-scheduler", workers)
         self.assertIn('LUM_ENGINE_INSTANCE', (ROOT / "production/runtime.py").read_text())
