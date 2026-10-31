@@ -85,9 +85,9 @@ class AutoCleanReadOnlyView(unittest.TestCase):
             return SimpleNamespace(stdout="User=testscene\nActiveState=active\n")
         with patch.object(module, "run", side_effect=command), \
              patch.object(module.pwd, "getpwnam",
-                          return_value=SimpleNamespace(pw_uid=uid if uid >= 1000 else 1001)):
+                          return_value=SimpleNamespace(pw_uid=uid if uid > 0 else 33)):
             expected = module._scene_manual_spool_owner_uid()
-        self.assertEqual(expected, uid if uid >= 1000 else 1001)
+        self.assertEqual(expected, uid if uid > 0 else 33)
 
         for invalid in ("User=root\nActiveState=active\n",
                         "User=\nActiveState=active\n",
