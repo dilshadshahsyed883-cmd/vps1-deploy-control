@@ -305,8 +305,11 @@ def main():
     intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
     # The one-off exact Scene job reset does not deploy or republish the gateway.
     if '[vps1-scene-exact-reset-3327-20261031]' in intent:
-        if args.apps != ['scene-builder']:
-            raise RuntimeError('exact Scene reset cannot modify application gateway')
+        # The trusted remote helper passes all currently active app routes
+        # here even after a scene-builder-only runtime operation. The exact
+        # reset already completed; do not republish any gateway routes.
+        if 'scene-builder' not in args.apps:
+            raise RuntimeError('exact Scene reset gateway readback missing Scene Builder')
         print('SCENE_EXACT_RESET_GATEWAY_MUTATIONS=NONE', flush=True)
         return
     # The exact-job cancellation release performs no application install.
