@@ -22,7 +22,7 @@ class StorageGCTests(unittest.TestCase):
         (pid / "fd").mkdir(parents=True)
         (pid / "cmdline").write_bytes(b"")
         (pid / "maps").write_bytes(b"")
-        (pid / "status").write_text("Name:\\tkthreadd\\nKthread:\\t1\\n")
+        (pid / "status").write_text("Name:\tkthreadd\nKthread:\t1\n")
         target = self.root / "releases" / self.app / self.revisions[3]
 
         def stat_line(flags=0x00200000, start=12345):
@@ -43,10 +43,10 @@ class StorageGCTests(unittest.TestCase):
                              "clear")
 
             # Missing or contradictory kernel identity always blocks deletion.
-            (pid / "status").write_text("Name:\\tkthreadd\\nKthread:\\t0\\n")
+            (pid / "status").write_text("Name:\tkthreadd\nKthread:\t0\n")
             self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc),
                              "unverifiable-process-race")
-            (pid / "status").write_text("Kthread:\\t1\\n")
+            (pid / "status").write_text("Kthread:\t1\n")
             (pid / "stat").write_text(stat_line(flags=0))
             self.assertTrue(gc._runtime_in_use([target], proc_root=proc))
             (pid / "stat").write_text(stat_line())
@@ -75,7 +75,7 @@ class StorageGCTests(unittest.TestCase):
         pid = proc / "2"
         (pid / "fd").mkdir(parents=True)
         (pid / "maps").write_bytes(b"")
-        (pid / "status").write_text("Kthread:\\t1\\n")
+        (pid / "status").write_text("Kthread:\t1\n")
         target = self.root / "releases" / self.app / self.revisions[3]
 
         def stat_line(start):
