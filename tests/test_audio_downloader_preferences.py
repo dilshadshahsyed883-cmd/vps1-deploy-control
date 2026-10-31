@@ -31,7 +31,7 @@ class AudioPreferencesTests(unittest.TestCase):
         self.m.init_storage()
         app = FastAPI()
         app.include_router(self.m.router)
-        self.client = TestClient(app)
+        self.client = TestClient(app,headers={'X-Auth-User':'owner-a'})
         self.owner_a = {"X-Auth-User": "owner-a"}
         self.owner_b = {"X-Auth-User": "owner-b"}
 
