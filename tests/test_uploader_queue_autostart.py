@@ -100,7 +100,7 @@ class QueueAutostartTests(unittest.TestCase):
 
     def test_copyright_remains_manual_serial_queue_not_auto_engine(self):
         worker = (COPYRIGHT / "worker.py").read_text(encoding="utf-8")
-        self.assertIn('self.store.next_eligible()', worker)
+        self.assertIn('self.store.claim_next_eligible()', worker)
         self.assertIn('self.store.setting("engine_enabled", "1")', worker)
         self.assertIn('if self.store.setting("pause_after_current", "0") == "1":', worker)
 

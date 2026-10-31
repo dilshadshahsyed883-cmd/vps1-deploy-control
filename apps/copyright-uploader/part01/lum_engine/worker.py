@@ -58,7 +58,7 @@ class VPSUploadWorker:
                 if self.store.setting("engine_enabled", "1") != "1":
                     time.sleep(2)
                     continue
-                project = self.store.next_eligible()
+                project = self.store.claim_next_eligible()
                 if not project:
                     self.store.release_waiting()
                     time.sleep(2)
