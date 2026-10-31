@@ -53,7 +53,21 @@ class FinalReleaseTests(unittest.TestCase):
         self.assertIn('/actions/studio-tenant/channel-create',template)
         self.assertIn('[vps1-shortstudio-intro-only]',runtime)
         self.assertIn('install_shortstudio_ui(args.revision, ui_only=True)',runtime)
-        self.assertIn('("templates/app.html",) if ui_only else FILES',release)
+        self.assertIn('("templates/app.html",) if (ui_only or assignment_only) else FILES',release)
         self.assertIn('elif ui_only:verify_live(ui_only=True)',release)
+
+    def test_short_assignment_form_has_independent_live_verification(self):
+        runtime=(ROOT/'production/runtime.py').read_text(encoding='utf-8')
+        release=(ROOT/'production/short_uploader_group_release.py').read_text(encoding='utf-8')
+        workflow=(ROOT/'.github/workflows/vps1-short-studio-release.yml').read_text(encoding='utf-8')
+        self.assertIn('[vps1-shortstudio-assignment-form-only]',runtime)
+        self.assertIn('install_short_owner_form(args.revision, assignment_only=True)',runtime)
+        self.assertIn('[vps1-shortstudio-assignment-form-only]',workflow)
+        self.assertIn('def verify_live(*, ui_only=False, assignment_only=False):',release)
+        self.assertIn("'obsolete owner assignment panel still visible'",release)
+        self.assertIn('elif assignment_only:verify_live(assignment_only=True)',release)
+        self.assertIn('("templates/app.html",) if (ui_only or assignment_only) else FILES',release)
+        compile(runtime,'production/runtime.py','exec')
+        compile(release,'production/short_uploader_group_release.py','exec')
 
 if __name__ == '__main__': unittest.main()

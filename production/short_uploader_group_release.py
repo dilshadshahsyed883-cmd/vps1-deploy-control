@@ -62,7 +62,7 @@ def idle(*, allow_waiting_network=False):
             lum_parked_network_idle(con)
 
 
-def verify_live(*, ui_only=False):
+def verify_live(*, ui_only=False, assignment_only=False):
     from production.route_uploader_scene_https import https_get, scene_cookie
     for _ in range(40):
         try:
@@ -74,6 +74,15 @@ def verify_live(*, ui_only=False):
     status,_,body=https_get('/short-uploader/app?tab=auto_engine&new_profile=1',cookie)
     require(status==200,'authenticated Short Uploader GET failed')
     html=body.decode('utf-8')
+    if assignment_only:
+        require('Assign Studio resources to a user' not in html and
+                'User workspace ownership' not in html and
+                '/actions/studio-tenant/grant' not in html,
+                'obsolete owner assignment panel still visible')
+        require(https_get('/short-uploader/app')[0] in (302, 303, 401, 403),
+                'anonymous route protection failed')
+        print('SHORT_ASSIGNMENT_UI_LIVE=PASS AUTH=PASS FORM_REMOVED=PASS',flush=True)
+        return
     require('data-short-group-summary' in html and '<th>Group Name</th>' in html and
             '<th>Channels</th>' in html and '<th>Schedule (PKT)</th>' in html,
             'live automation group summary is missing')
@@ -160,8 +169,9 @@ def verify_final_ui(html, form, cookie, https_get):
     print('SHORT_FINAL_UI=PASS DEFAULTS=PASS SHEETS=PASS BULK_HIDDEN=PASS CSS=PASS SONG_HEALTH=PASS',flush=True)
 
 
-def install(revision, *, ui_only=False, network_only=False):
-    require(not (ui_only and network_only), 'release modes are exclusive')
+def install(revision, *, ui_only=False, network_only=False, assignment_only=False):
+    require(sum(bool(x) for x in (ui_only, network_only, assignment_only)) <= 1,
+            'release modes are exclusive')
     require(re.fullmatch('[a-f0-9]{40}',revision),'invalid revision')
     require(shutil.disk_usage('/').free>=5_000_000_000,'disk reserve')
     idle(allow_waiting_network=True) if network_only else idle()
@@ -179,13 +189,13 @@ def install(revision, *, ui_only=False, network_only=False):
         active=subprocess.run(['systemctl','is-active','--quiet',name],capture_output=True,timeout=10).returncode==0
         previous[name]={'text':text,'active':active}
     require(len(old_dirs)==1,'Short Uploader units use different releases')
-    suffix=('-short-network-fairness' if network_only else '-short-ui-intro' if ui_only else '-short-group-metadata')
+    suffix=('-short-owner-form' if assignment_only else '-short-network-fairness' if network_only else '-short-ui-intro' if ui_only else '-short-group-metadata')
     target=BASE/'releases/local-upload-manager'/(revision+suffix)
-    journal=BASE/'transactions'/('short-uploader-network-fairness' if network_only else 'short-uploader-ui-intro' if ui_only else 'short-uploader-group-metadata')/revision
+    journal=BASE/'transactions'/('short-uploader-owner-form' if assignment_only else 'short-uploader-network-fairness' if network_only else 'short-uploader-ui-intro' if ui_only else 'short-uploader-group-metadata')/revision
     require(not target.exists() and not target.is_symlink() and not journal.exists(),'immutable release already exists')
     shutil.copytree(next(iter(old_dirs)).parent,target,symlinks=True)
     hashes={}
-    for relative in (NETWORK_ONLY_FILES if network_only else ("templates/app.html",) if ui_only else FILES):
+    for relative in (NETWORK_ONLY_FILES if network_only else ("templates/app.html",) if (ui_only or assignment_only) else FILES):
         src=REPO/'apps/local-upload-manager/part01'/relative
         dst=target/'part01'/relative
         require(src.is_file() and not src.is_symlink() and not dst.is_symlink() and
@@ -215,11 +225,13 @@ def install(revision, *, ui_only=False, network_only=False):
             # authenticated route before committing the immutable release.
             verify_live()
             print('SHORT_NETWORK_RELEASE=PASS HEALTH=PASS UI=PASS OTHER_UPLOADERS=UNTOUCHED',flush=True)
+        elif assignment_only:verify_live(assignment_only=True)
         elif ui_only:verify_live(ui_only=True)
         else:verify_live()
         atomic_json(journal/'state.json',dict(status='ACTIVE',revision=revision,source=str(target),files=hashes,
                                            sqlite_backups=len(backups),scheduler='PRESERVED',auto_script='UNTOUCHED'))
-        print('SHORT_GROUP_RELEASE=PASS OTHER_ENGINES=UNTOUCHED ROLLBACK=READY',flush=True)
+        print(('SHORT_ASSIGNMENT_UI_RELEASE' if assignment_only else 'SHORT_GROUP_RELEASE')
+              +'=PASS OTHER_ENGINES=UNTOUCHED ROLLBACK=READY',flush=True)
     except BaseException:
         if changed:
             for name in UNITS:command('systemctl','stop',name)
