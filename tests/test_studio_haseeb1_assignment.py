@@ -151,5 +151,22 @@ class Haseeb1Assignment(unittest.TestCase):
         self.assertIn('"shared_google_drive": "UNCHANGED"', source)
         self.assertIn('"other_studio_data": "NOT_MIGRATED"', source)
 
+
+    def test_exact_wal_backups_exclude_unrelated_indexes(self):
+        from production.studio_haseeb1_assignment import backup_exact_owner_databases
+        root = self.root / "local-upload-manager/lum-song"
+        other = root / "auto_engine_v6/auto_engine_v6.sqlite3"
+        other.parent.mkdir(parents=True)
+        with sqlite3.connect(other) as db:
+            db.execute("CREATE TABLE thumbnails(id INTEGER)")
+        backup = self.root / "journal/backups"
+        copied = backup_exact_owner_databases(root, backup)
+        self.assertEqual(copied, ["core/data/uploader.db","projects.sqlite3"])
+        self.assertTrue((backup / "core/data/uploader.db").is_file())
+        self.assertTrue((backup / "projects.sqlite3").is_file())
+        self.assertFalse((backup / "auto_engine_v6/auto_engine_v6.sqlite3").exists())
+        with sqlite3.connect(backup / "core/data/uploader.db") as db:
+            self.assertEqual(db.execute("PRAGMA integrity_check").fetchone()[0],"ok")
+
 if __name__ == "__main__":
     unittest.main()
