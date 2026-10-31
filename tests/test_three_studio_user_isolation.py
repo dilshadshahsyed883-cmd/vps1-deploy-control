@@ -48,6 +48,7 @@ class UserIsolationContracts(unittest.TestCase):
             "a": {"job_id": "a", "owner": "Alice", "status": "completed"},
             "b": {"job_id": "b", "owner": "Bob", "status": "completed"},
             "legacy": {"job_id": "legacy", "status": "completed"},
+            "root": {"job_id": "root", "owner": "root", "status": "completed"},
         }
         ns = isolated_functions(SHORT, {
             "short_identity", "short_state_owner", "short_can_access", "short_owned_state",
@@ -63,7 +64,11 @@ class UserIsolationContracts(unittest.TestCase):
         self.assertEqual(denied.exception.status_code, 404)
         with self.assertRaises(HttpFailure):
             ns["short_owned_state"]("legacy", bob)
-        self.assertTrue(all(ns["short_can_access"](x, admin) for x in records.values()))
+        # Admin operates only their own Short Maker records; legacy/foreign stay sealed.
+        self.assertTrue(ns["short_can_access"](records["root"], admin))
+        self.assertFalse(ns["short_can_access"](records["a"], admin))
+        self.assertFalse(ns["short_can_access"](records["b"], admin))
+        self.assertFalse(ns["short_can_access"](records["legacy"], admin))
         with self.assertRaises(HttpFailure) as unauth:
             ns["short_can_access"](records["a"], Request(""))
         self.assertEqual(unauth.exception.status_code, 401)
@@ -102,7 +107,7 @@ class UserIsolationContracts(unittest.TestCase):
             "short_can_access(state, request)",
             '"owner": owner',
             'owner=owner, message="Resuming PC file upload"',
-            'if not admin:',
+            'if short_folder_owner(name)!=owner.casefold():',
         ):
             self.assertIn(guard, short)
         for guard in ("self.require_library_owner(", "normalize_video_spec(x,i,owner=owner)",
@@ -120,7 +125,7 @@ class UserIsolationContracts(unittest.TestCase):
         ):
             self.assertIn(snippet, merger)
 
-    def test_short_vps_folders_are_owned_and_legacy_folder_is_admin_only(self):
+    def test_short_vps_folders_are_owned_and_legacy_folders_are_protected_from_admin(self):
         import tempfile
         class ShortRequest:
             def __init__(self, username, admin=False):
@@ -145,8 +150,9 @@ class UserIsolationContracts(unittest.TestCase):
             self.assertEqual(blocked.exception.status_code,403)
             with self.assertRaises(HttpFailure):
                 ns["short_folder_owned"]("Default",ShortRequest("Alice"))
-            self.assertEqual(ns["short_folder_owned"]("Default",
-                                ShortRequest("root",True)),root/"Default")
+            with self.assertRaises(HttpFailure) as admin_blocked:
+                ns["short_folder_owned"]("Default", ShortRequest("root", True))
+            self.assertEqual(admin_blocked.exception.status_code, 403)
 
     def test_source_compiles_without_importing_live_apps(self):
         for path in (SHORT, MERGER):

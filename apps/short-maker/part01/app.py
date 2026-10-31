@@ -3,6 +3,7 @@ import html
 import hashlib
 import os
 import random
+import signal
 import sqlite3
 import re
 import shutil
@@ -45,6 +46,7 @@ app = FastAPI(title="Short Maker", version="1.4-multi-drive-audio-input")
 executor = ThreadPoolExecutor(max_workers=1)
 jobs = {}
 jobs_lock = threading.Lock()
+state_write_lock = threading.Lock()
 
 def utc_now():
     return datetime.now(timezone.utc).isoformat()
@@ -63,10 +65,8 @@ def short_state_owner(state: dict) -> str:
 
 def short_can_access(state: dict, request: Request) -> bool:
     owner, admin = short_identity(request)
-    # Existing pre-ownership jobs are never assigned speculatively.
-    # Admin can recover them; standard accounts only see explicit ownership.
-    return admin or (bool(short_state_owner(state)) and
-                     short_state_owner(state).casefold() == owner.casefold())
+    # Even administrators act on their own records; unassigned legacy stays sealed.
+    return bool(short_state_owner(state)) and short_state_owner(state).casefold() == owner.casefold()
 
 
 def short_owned_state(job_id: str, request: Request) -> dict:
@@ -135,11 +135,11 @@ def short_folder_owner(name: str) -> str:
 
 
 def short_folder_owned(name: str, request: Request) -> Path:
-    owner, admin=short_identity(request)
+    owner, _admin=short_identity(request)
     folder=short_vps_folder(name)
     if not folder.is_dir():
         raise HTTPException(status_code=404, detail="Output folder not found")
-    if not admin and short_folder_owner(name)!=owner.casefold():
+    if short_folder_owner(name)!=owner.casefold():
         raise HTTPException(status_code=403, detail="Output folder belongs to another account")
     return folder
 
@@ -251,20 +251,34 @@ def state_path(job_id: str) -> Path:
 
 
 def save_state(job_id: str):
-    with jobs_lock:
-        state = dict(jobs[job_id])
-    p = state_path(job_id)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
-    tmp.replace(p)
+    # A worker progress write must never overwrite a newer user pause/cancel
+    # on disk. Serialize snapshots and atomic renames across both threads.
+    with state_write_lock:
+        with jobs_lock:
+            state = dict(jobs[job_id])
+        p = state_path(job_id)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_name("." + p.name + "." + uuid.uuid4().hex + ".tmp")
+        try:
+            tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
+            tmp.replace(p)
+        finally:
+            tmp.unlink(missing_ok=True)
 
 
 def set_state(job_id: str, **updates):
     with jobs_lock:
         if job_id not in jobs:
             jobs[job_id] = {"job_id": job_id}
-        jobs[job_id].update(updates)
+        current = jobs[job_id]
+        # Serialize the render-to-delivery boundary with queue actions.
+        # An owner request arriving before publish wins; once publishing
+        # starts, changing pause/cancel status is forbidden for every role.
+        if updates.get("phase") == "delivery" and current.get("control") in ("pause", "cancel"):
+            raise JobInterrupted()
+        if updates.get("control") in ("pause", "cancel") and current.get("phase") == "delivery":
+            raise HTTPException(status_code=409, detail="Output delivery already started.")
+        current.update(updates)
     save_state(job_id)
 
 
@@ -284,8 +298,57 @@ def get_state(job_id: str):
     raise HTTPException(status_code=404, detail="Job not found")
 
 
+class JobInterrupted(Exception):
+    """Cooperative per-render stop; not a system-wide engine interruption."""
+
+
+_worker_context = threading.local()
+
+
+def job_checkpoint(job_id: str):
+    state = get_state(job_id)
+    if state.get("control") in ("pause", "cancel") or state.get("status") in ("paused", "cancelled", "pausing", "cancelling"):
+        raise JobInterrupted()
+
+
+def worker_process(cmd, *, timeout=None, env=None):
+    """Terminate only this render's FFmpeg/rclone process group on stop."""
+    job_id = getattr(_worker_context, "job_id", None)
+    if not job_id:
+        return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              text=True, timeout=timeout, env=env)
+    job_checkpoint(job_id)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, env=env, start_new_session=True)
+    started = time.monotonic()
+    while True:
+        try:
+            out, err = proc.communicate(timeout=0.3)
+            return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
+        except subprocess.TimeoutExpired:
+            interrupted = get_state(job_id).get("control") in ("pause", "cancel")
+            expired = timeout is not None and time.monotonic() - started > timeout
+            if not interrupted and not expired:
+                continue
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                proc.communicate(timeout=4)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                proc.communicate()
+            if interrupted:
+                raise JobInterrupted()
+            raise subprocess.TimeoutExpired(cmd, timeout)
+
+
 def run_ffmpeg(cmd):
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc = worker_process(cmd)
     if proc.returncode != 0:
         raise RuntimeError((proc.stderr or "FFmpeg failed")[-6000:])
 
@@ -402,6 +465,43 @@ def normalize_drive_path(value: str) -> str:
         raise RuntimeError("Invalid Drive path.")
     return value.rstrip("/")
 
+def short_drive_root(owner: str) -> str:
+    """Shared admin rclone credentials, private per-account approved Drive subtree."""
+    return "gdrive:Short_Maker/Users/" + hashlib.sha256(owner.casefold().encode("utf-8")).hexdigest()[:20]
+
+
+def short_owned_drive_path(owner: str, value: str) -> str:
+    root = short_drive_root(owner)
+    path = normalize_drive_path(value)
+    if not path.startswith(root + "/"):
+        raise HTTPException(status_code=403, detail="Drive folder is outside your approved workspace.")
+    child = path[len(root) + 1:]
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,63}", child):
+        raise HTTPException(status_code=403, detail="Only direct owned Drive folders are supported.")
+    return path
+
+
+def short_drive_inputs_owned(owner: str, paths: list[str]) -> None:
+    for raw in paths:
+        source = parse_drive_folder_input(raw)
+        if source["kind"] != "path":
+            # A raw Drive folder ID can target another user's data; no safe
+            # containment proof without a remote parent-walk.
+            raise HTTPException(status_code=403, detail="Use an approved Drive folder path, not a raw shared link.")
+        short_owned_drive_path(owner, source["path"])
+
+
+def short_drive_folders(owner: str) -> list[str]:
+    root = short_drive_root(owner)
+    for name in ("Input", "Outputs"):
+        rclone_run(["mkdir", root + "/" + name], timeout=90, attempts=2)
+    listed = rclone_run(["lsf", root, "--dirs-only", "--max-depth", "1"],
+                        timeout=90, attempts=2)
+    return sorted({root + "/" + item.strip().rstrip("/") for item in listed.splitlines()
+                   if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,63}", item.strip().rstrip("/"))},
+                  key=str.casefold)
+
+
 def parse_drive_folder_input(value: str):
     value=(value or "").strip()
     if not value:
@@ -457,7 +557,7 @@ def rclone_run(args, timeout=900, attempts=3):
     last_detail=""
     for attempt in range(1,max(1,int(attempts))+1):
         try:
-            proc=subprocess.run(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,timeout=timeout,env=env)
+            proc=worker_process(cmd,timeout=timeout,env=env)
             if proc.returncode == 0:
                 return proc.stdout
             last_detail=(proc.stderr or proc.stdout or "").strip()
@@ -596,7 +696,10 @@ def render_job(job_id: str, cfg: dict):
     out_dir.mkdir(parents=True, exist_ok=True)
     audio_paths = [Path(p) for p in cfg.get("audio",[])]
 
+    _worker_context.job_id = job_id
     try:
+        job_checkpoint(job_id)
+        set_state(job_id, phase="render")
         input_mode=str(cfg.get("input_mode") or "upload")
         if input_mode=="drive":
             image_paths=[Path(p) for p in import_drive_images(job_id,cfg.get("drive_input_paths") or cfg.get("drive_input_path",""),job_dir)]
@@ -619,6 +722,7 @@ def render_job(job_id: str, cfg: dict):
             created = []
 
             for out_idx in range(1, count + 1):
+                job_checkpoint(job_id)
                 per_out = temp_root / f"out_{out_idx:03d}"
                 per_out.mkdir(parents=True, exist_ok=True)
                 timeline = build_timeline(image_paths, total_duration, image_duration, cfg["order"])
@@ -626,6 +730,7 @@ def render_job(job_id: str, cfg: dict):
                 total_slots = len(timeline)
 
                 for slot_idx, (img_path, slot_duration) in enumerate(timeline, 1):
+                    job_checkpoint(job_id)
                     set_state(
                         job_id,
                         message=f"Video {out_idx}/{count} · image {slot_idx}/{total_slots}",
@@ -687,6 +792,9 @@ def render_job(job_id: str, cfg: dict):
                     "drive_verified": False,
                 })
 
+        # Never interrupt an in-progress remote publish or Short Uploader handoff.
+        job_checkpoint(job_id)
+        set_state(job_id, phase="delivery")
         folder_name=cfg.get("short_vps_folder") or ""
         if cfg.get("available_to_short_uploader", not cfg.get("upload_to_drive", True)):
             if not folder_name:
@@ -697,6 +805,10 @@ def render_job(job_id: str, cfg: dict):
                     Path(item["local_path"]), folder_name, job_id,
                     strict=bool(cfg.get("output_names")),
                 )
+                # Persist publication before the uploader can consume/delete
+                # this file; retry must never republish a consumed MP4.
+                previous = get_state(job_id).get("published_outputs") or []
+                set_state(job_id, published_outputs=previous + [item["short_vps_filename"]])
             set_state(job_id, short_vps_folder=folder_name,
                       message=f"Saved {len(created)} video(s) to Short Uploader folder {folder_name}")
         if cfg.get("upload_to_drive", True):
@@ -714,8 +826,24 @@ def render_job(job_id: str, cfg: dict):
             job_id, status="completed", progress=100,
             message=final_message, outputs=created
         )
+    except JobInterrupted:
+        control = get_state(job_id).get("control")
+        new_status = "paused" if control == "pause" else "cancelled"
+        if out_dir.is_dir() and not out_dir.is_symlink():
+            shutil.rmtree(out_dir)
+        drive_staging = job_dir / "drive_input"
+        if drive_staging.is_dir() and not drive_staging.is_symlink():
+            shutil.rmtree(drive_staging)
+        set_state(job_id, status=new_status, control="", phase="idle",
+                  message="Paused; Resume restarts render" if new_status == "paused"
+                          else "Cancelled; original inputs retained")
     except Exception as exc:
-        set_state(job_id, status="failed", message=str(exc), error=str(exc))
+        delivery_started = get_state(job_id).get("phase") == "delivery"
+        set_state(job_id, status="failed", control="", phase="idle",
+                  delivery_review_required=delivery_started,
+                  message=str(exc), error=str(exc))
+    finally:
+        _worker_context.job_id = None
 
 
 
@@ -723,7 +851,20 @@ def render_job(job_id: str, cfg: dict):
 def recover_pending_jobs():
     pending=[]
     for state in load_job_states():
+        if state.get("status") in ("cancelling", "pausing"):
+            with jobs_lock:
+                jobs[state["job_id"]] = state
+            set_state(state["job_id"], status="cancelled" if state.get("control") == "cancel" else "paused",
+                      control="", phase="idle", message="Recovered stopped job after restart")
+            continue
         if state.get("status") not in ("queued","running"):
+            continue
+        if state.get("phase") == "delivery":
+            with jobs_lock:
+                jobs[state["job_id"]] = state
+            set_state(state["job_id"], status="failed", phase="idle",
+                      delivery_review_required=True,
+                      message="Delivery interrupted by restart; review published outputs before retry")
             continue
         job_id=str(state.get("job_id") or "")
         job_dir=JOBS_ROOT / job_id
@@ -885,6 +1026,18 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
  </div>
  <div class="hint" id="shortFolderMessage">Automatic names: Folder 001_abcdef.mp4, Folder 002_abcdef.mp4. Every batch uses a different tag.</div>
 </section>
+<section class="panel" aria-label="Owned Google Drive folders">
+ <h2>My Google Drive Folders</h2>
+ <div class="hint">Shared rclone credentials stay admin-only. Only your approved Drive subfolders are available.</div>
+ <div class="queue-actions">
+  <select id="shortDriveFolder" aria-label="Your Drive folder"><option value="">Loading folders…</option></select>
+  <button type="button" id="createDriveFolder" class="secondary">+ Create</button>
+  <button type="button" id="deleteDriveFolder" class="secondary">Delete empty</button>
+  <button type="button" id="useDriveForImages" class="secondary">Use for images</button>
+  <button type="button" id="useDriveForOutput" class="secondary">Use for output</button>
+ </div>
+ <div id="shortDriveMessage" class="hint" role="status"></div>
+</section>
 <div class="grid">
  <div>
   <section class="panel">
@@ -895,13 +1048,13 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
     <div id="imageCount" class="count">0 images selected</div>
    </div>
    <div id="driveImageBox" class="filebox" style="margin-top:10px" hidden>
-    <label for="driveInputPath"><b>Google Drive image folders / links</b></label>
+    <label for="driveInputPath"><b>My approved Google Drive image folders</b></label>
     <div id="driveInputRows">
-     <div class="drive-link-row"><input id="driveInputPath" class="drive-path-input" type="text" placeholder="Drive folder link or gdrive:Short_Maker/Input" aria-label="Google Drive folder link 1"><button class="danger remove-drive" type="button" disabled>Remove</button></div>
+     <div class="drive-link-row"><input id="driveInputPath" class="drive-path-input" type="text" placeholder="Choose a folder from My Google Drive Folders" aria-label="Google Drive folder link 1"><button class="danger remove-drive" type="button" disabled>Remove</button></div>
     </div>
     <button id="addDriveLink" type="button" class="source-action">+ Add another Drive link</button>
     <div id="driveLinkCount" class="count">0 Drive folders entered</div>
-    <div class="hint" style="margin:8px 0 0">Add multiple Google Drive folder links or gdrive: paths. Images from all folders are combined into this job.</div>
+    <div class="hint" style="margin:8px 0 0">Use only paths inside your own approved Drive workspace. Multiple owned image folders can be combined.</div>
    </div>
   </section>
   <section class="panel">
@@ -970,7 +1123,7 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
 <section id="queuePanel" hidden>
 <section class="panel">
   <div class="queue-head"><div><h2>Render Queue</h2><div class="hint">One render runs at a time. New jobs wait automatically.</div></div>
-  <div class="queue-actions"><button id="newJobBtn" type="button">+ New Job</button><button id="clearDoneBtn" class="secondary" type="button">Clear completed</button><button id="clearFailedBtn" class="danger" type="button">Clear failed</button></div></div>
+  <div class="queue-actions"><button id="newJobBtn" type="button">+ New Job</button><button id="clearDoneBtn" class="secondary" type="button">Clear completed</button><button id="clearFailedBtn" class="danger" type="button">Clear failed</button><button id="bulkPause" class="secondary" type="button">Pause selected</button><button id="bulkResume" class="secondary" type="button">Resume selected</button><button id="bulkCancel" class="secondary" type="button">Cancel selected</button><button id="bulkRetry" class="secondary" type="button">Retry selected</button><button id="bulkDelete" class="danger" type="button">Delete selected</button></div></div>
   <div class="queue-metrics">
     <div><b id="mUploading">0</b><span>Uploading</span></div>
     <div><b id="mQueued">0</b><span>Queued</span></div><div><b id="mRunning">0</b><span>Running</span></div><div><b id="mCompleted">0</b><span>Completed</span></div><div><b id="mFailed">0</b><span>Failed</span></div>
@@ -1033,6 +1186,49 @@ document.getElementById('deleteShortFolder').onclick=async()=>{
  }catch(e){shortFolderMessage.textContent='Folder error: '+e.message;}
 };
 loadShortFolders().catch(e=>{shortFolderMessage.textContent='Folder error: '+e.message;});
+const shortDriveFolder=document.getElementById('shortDriveFolder');
+const shortDriveMessage=document.getElementById('shortDriveMessage');
+async function loadOwnedDriveFolders(preferred){
+ const r=await fetch('api/drive-folders',{cache:'no-store'});
+ const data=await r.json();if(!r.ok)throw Error(data.detail||'Drive folders unavailable');
+ const original=preferred||shortDriveFolder.value;
+ shortDriveFolder.replaceChildren();
+ (data.folders||[]).forEach(path=>{const opt=document.createElement('option');opt.value=path;opt.textContent=path.slice(data.root.length+1);shortDriveFolder.appendChild(opt);});
+ if((data.folders||[]).includes(original))shortDriveFolder.value=original;
+ const output=document.getElementById('driveOutputPath');
+ if(output.value==='gdrive:Short_Maker/Outputs')output.value=data.root+'/Outputs';
+ shortDriveMessage.textContent='Approved root: '+data.root;
+}
+document.getElementById('createDriveFolder').onclick=async()=>{
+ const name=prompt('New Drive folder (letters, digits, spaces, _ or -):');if(!name)return;
+ try{
+  const r=await fetch('api/drive-folders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name.trim()})});
+  const d=await r.json();if(!r.ok)throw Error(d.detail||'Create failed');
+  await loadOwnedDriveFolders(d.path);
+ }catch(e){shortDriveMessage.textContent=e.message;}
+};
+document.getElementById('deleteDriveFolder').onclick=async()=>{
+ const path=shortDriveFolder.value;if(!path||!confirm('Delete EMPTY owned Drive folder '+path+'?'))return;
+ try{
+  const name=path.split('/').pop();
+  const r=await fetch('api/drive-folders/'+encodeURIComponent(name),{method:'DELETE'});
+  const d=await r.json();if(!r.ok)throw Error(d.detail||'Delete failed');
+  await loadOwnedDriveFolders();
+ }catch(e){shortDriveMessage.textContent=e.message;}
+};
+document.getElementById('useDriveForImages').onclick=()=>{
+ const path=shortDriveFolder.value;if(!path)return;
+ document.getElementById('driveInputPath').value=path;
+ document.getElementById('inputMode').value='drive';
+ document.getElementById('inputMode').dispatchEvent(new Event('change'));
+};
+document.getElementById('useDriveForOutput').onclick=()=>{
+ const path=shortDriveFolder.value;if(!path)return;
+ document.getElementById('driveOutputPath').value=path;
+ document.getElementById('uploadToDrive').checked=true;
+ document.getElementById('uploadToDrive').dispatchEvent(new Event('change'));
+};
+loadOwnedDriveFolders().catch(e=>shortDriveMessage.textContent='Drive unavailable: '+e.message);
 
 images.addEventListener('change',()=>imageCount.textContent=images.files.length+' image(s) selected');
 function syncInputMode(){const d=inputMode.value==='drive';localImageBox.hidden=d;driveImageBox.hidden=!d;}
@@ -1092,13 +1288,18 @@ async function poll(id){
    return;
   }
   if(s.status==='failed'){render.disabled=false;statusEl.textContent=`Failed: ${s.error||s.message||'Unknown error'}`;return;}
+  if(s.status==='paused'||s.status==='cancelled'){
+   render.disabled=false;
+   statusEl.textContent=s.message||('Job '+s.status+'. Check Render Queue for Resume or Retry.');
+   return;
+  }
   setTimeout(()=>poll(id),1500);
  }catch(e){statusEl.textContent='Status check failed; retrying...';setTimeout(()=>poll(id),2500);}
 }
 
 const makerPanel=document.getElementById('makerPanel'),queuePanel=document.getElementById('queuePanel'),settingsPanel=document.getElementById('settingsPanel');
 const makerTabBtn=document.getElementById('makerTabBtn'),queueTabBtn=document.getElementById('queueTabBtn'),settingsTabBtn=document.getElementById('settingsTabBtn');
-let queueItems=[],queuePage=1;const queuePageSize=20;
+let queueItems=[],queuePage=1;const queuePageSize=20;const selectedShortJobs=new Set();
 function showShortTab(name){
  const panels={maker:makerPanel,queue:queuePanel,settings:settingsPanel};
  const buttons={maker:makerTabBtn,queue:queueTabBtn,settings:settingsTabBtn};
@@ -1222,6 +1423,8 @@ function refreshShortJobDetails(){
 document.getElementById('queueRows').addEventListener('click',event=>{
  const detail=event.target.closest('[data-short-job-details]');
  if(detail){openShortJobDetails(detail.getAttribute('data-short-job-details'),detail);return;}
+ const action=event.target.closest('[data-short-job-action]');
+ if(action){controlQueueJob(action.getAttribute('data-short-job-id'),action.getAttribute('data-short-job-action'));return;}
  const deletion=event.target.closest('[data-short-job-delete]');
  if(deletion)deleteQueueJob(deletion.getAttribute('data-short-job-delete'));
 });
@@ -1265,21 +1468,47 @@ function renderQueue(){
   const count=Array.isArray(j.outputs)?j.outputs.length:0;
   const expected=Math.max(0,Number(j.config&&j.config.output_count||0));
   const countText=count?count+' video'+(count===1?'':'s'):expected?expected+' planned':'No outputs yet';
-  const terminal=st==='completed'||st==='failed';
+  const terminal=['completed','failed','cancelled'].includes(st);
+  const controls=st==='queued'||st==='running'?['pause','cancel']:
+                 st==='pausing'?['cancel']:st==='paused'?['resume','cancel']:
+                 st==='failed'||st==='cancelled'?['retry']:[];
   const id=escQ(String(j.job_id||''));
   const dest=shortJobDestination(j);
-  return '<tr><td><b>'+escQ(String(j.job_id||'').slice(0,8))+'</b></td>'+
+  return '<tr><td><label><input type="checkbox" data-short-select="'+id+'" '+(selectedShortJobs.has(String(j.job_id))?'checked':'')+' aria-label="Select job '+id+'"> <b>'+escQ(String(j.job_id||'').slice(0,8))+'</b></label></td>'+
    '<td><span class="qbadge '+escQ(st)+'">'+escQ(st)+'</span></td>'+
    '<td><div class="qbar"><span style="width:'+p+'%"></span></div><small>'+p.toFixed(0)+'%</small></td>'+
    '<td><div class="qmsg" title="'+escQ(j.message||'')+'">'+escQ(j.message||'')+'</div></td>'+
    '<td><div class="queue-output-count">'+escQ(countText)+'</div><div class="queue-output-destination" title="'+escQ(dest)+'">'+escQ(dest)+'</div></td>'+
    '<td><div class="queue-row-actions"><button type="button" class="secondary" data-short-job-details="'+id+'">View Details</button>'+
+   controls.map(action=>'<button type="button" class="secondary" data-short-job-id="'+id+'" data-short-job-action="'+action+'">'+escQ(action)+'</button>').join('')+
    (terminal?'<button type="button" class="danger" data-short-job-delete="'+id+'">Delete</button>':'')+'</div></td></tr>';
  }).join('');
 }
 
 async function loadQueue(){try{const r=await fetch('api/jobs',{cache:'no-store'}),d=await r.json();queueItems=d.jobs||[];const c=d.counts||{};mUploading.textContent=c.uploading||0;mQueued.textContent=c.queued||0;mRunning.textContent=c.running||0;mCompleted.textContent=c.completed||0;mFailed.textContent=c.failed||0;queueTotal.textContent=`(${queueItems.length})`;renderQueue();refreshShortJobDetails();}catch(e){}}
-async function deleteQueueJob(id){if(!confirm('Delete this completed/failed job and its local files?'))return;const r=await fetch(`api/jobs/${id}`,{method:'DELETE'});if(!r.ok){const d=await r.json();alert(d.detail||'Delete failed');}loadQueue();}
+async function deleteQueueJob(id){if(!confirm('Delete this terminal job and its job-local files? Shared/Drive outputs are retained.'))return;const r=await fetch(`api/jobs/${id}`,{method:'DELETE'});if(!r.ok){const d=await r.json();alert(d.detail||'Delete failed');}selectedShortJobs.delete(id);loadQueue();}
+async function controlQueueJob(id,action){
+ if(['cancel','retry'].includes(action)&&!confirm(action+' job '+id.slice(0,8)+'?'))return;
+ const r=await fetch('api/jobs/'+encodeURIComponent(id)+'/'+action,{method:'POST'});
+ if(!r.ok){const d=await r.json();alert(d.detail||'Queue action failed');}
+ loadQueue();
+}
+document.getElementById('queueRows').addEventListener('change',event=>{
+ const checkbox=event.target.closest('[data-short-select]');if(!checkbox)return;
+ const id=checkbox.getAttribute('data-short-select');
+ if(checkbox.checked)selectedShortJobs.add(id);else selectedShortJobs.delete(id);
+});
+for(const action of ['pause','resume','cancel','retry','delete']){
+ const btn=document.getElementById('bulk'+action[0].toUpperCase()+action.slice(1));
+ btn.onclick=async()=>{
+  const ids=Array.from(selectedShortJobs).filter(id=>queueItems.some(j=>j.job_id===id));
+  if(!ids.length){alert('Select one or more of your jobs.');return;}
+  if(!confirm(action+' '+ids.length+' selected job(s)?'))return;
+  const r=await fetch('api/jobs/bulk/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({job_ids:ids})});
+  const data=await r.json();if(!r.ok){alert(data.detail||'Bulk action failed');return;}
+  selectedShortJobs.clear();loadQueue();
+ };
+}
 async function clearQueueStatus(st){if(!confirm(`Clear all ${st} jobs?`))return;await fetch(`api/jobs/clear/${st}`,{method:'POST'});queuePage=1;loadQueue();}
 document.getElementById('clearDoneBtn').onclick=()=>clearQueueStatus('completed');document.getElementById('clearFailedBtn').onclick=()=>clearQueueStatus('failed');
 document.getElementById('prevPage').onclick=()=>{if(queuePage>1){queuePage--;renderQueue();}};document.getElementById('nextPage').onclick=()=>{const pages=Math.max(1,Math.ceil(queueItems.length/queuePageSize));if(queuePage<pages){queuePage++;renderQueue();}};
@@ -1368,23 +1597,74 @@ def home(request: Request):
 
 @app.get("/api/vps-folders")
 def list_short_vps_folders(request: Request):
-    owner, admin=short_identity(request)
-    if not admin:
-        short_personal_default(owner)
+    owner, _admin=short_identity(request)
+    short_personal_default(owner)
     return {"folders": [name for name in short_vps_folder_names()
-                        if admin or short_folder_owner(name)==owner.casefold()]}
+                        if short_folder_owner(name)==owner.casefold()]}
+
+
+@app.get("/api/drive-folders")
+def list_short_drive_folders(request: Request):
+    owner, _admin = short_identity(request)
+    try:
+        return {"root":short_drive_root(owner), "folders":short_drive_folders(owner)}
+    except RuntimeError:
+        raise HTTPException(status_code=503,detail="Shared Drive is temporarily unavailable.")
+
+
+@app.post("/api/drive-folders")
+async def create_short_drive_folder(request: Request):
+    owner, _admin = short_identity(request)
+    payload = await request.json()
+    name = str(payload.get("name") or "").strip() if isinstance(payload,dict) else ""
+    try:
+        path = short_owned_drive_path(owner,short_drive_root(owner) + "/" + name)
+        if path in short_drive_folders(owner):
+            raise HTTPException(status_code=409,detail="Drive folder already exists.")
+        rclone_run(["mkdir",path],timeout=120,attempts=2)
+        return {"ok":True,"path":path}
+    except HTTPException:
+        raise
+    except (ValueError,RuntimeError):
+        raise HTTPException(status_code=503,detail="Drive folder creation failed.")
+
+
+@app.delete("/api/drive-folders/{folder_name}")
+def delete_short_drive_folder(folder_name: str, request: Request):
+    owner, _admin = short_identity(request)
+    path = short_owned_drive_path(owner,short_drive_root(owner) + "/" + folder_name)
+    if folder_name in ("Input","Outputs"):
+        raise HTTPException(status_code=403,detail="Default Drive folder is protected.")
+    if path not in short_drive_folders(owner):
+        raise HTTPException(status_code=404,detail="Drive folder not found.")
+    for state in load_job_states():
+        if state.get("status") in ("uploading","queued","running","pausing","cancelling"):
+            cfg = state.get("config") or {}
+            if cfg.get("drive_output_path") == path or path in (
+                    cfg.get("drive_input_paths") or [cfg.get("drive_input_path")]):
+                raise HTTPException(status_code=409,detail="Drive folder is used by a pending job.")
+    try:
+        # rmdir is strictly empty-only, never purge, sync, or overwrite.
+        rclone_run(["rmdir",path],timeout=120,attempts=1)
+    except RuntimeError:
+        raise HTTPException(status_code=409,detail="Drive folder is not empty or is in use.")
+    return {"ok":True,"path":path}
 
 
 @app.post("/api/vps-folders")
 async def create_short_vps_folder(request: Request):
+    owner, _admin=short_identity(request)
     payload = await request.json()
     try:
         name = str(payload.get("name") or "").strip()
         folder = short_vps_folder(name)
         SHORT_VPS_ROOT.mkdir(parents=True, exist_ok=True)
-        folder.mkdir(exist_ok=False)
-        owner, _admin=short_identity(request)
-        (folder/".studio_owner").write_text(owner.casefold(),encoding="utf-8")
+        folder.mkdir(mode=0o700, exist_ok=False)
+        try:
+            (folder/".studio_owner").write_text(owner.casefold(),encoding="utf-8")
+        except Exception:
+            folder.rmdir()
+            raise
     except FileExistsError:
         raise HTTPException(status_code=409, detail="Folder already exists.")
     except (ValueError, OSError) as exc:
@@ -1394,18 +1674,26 @@ async def create_short_vps_folder(request: Request):
 
 @app.delete("/api/vps-folders/{folder_name}")
 def delete_short_vps_folder(folder_name: str, request: Request):
-    _owner, admin = short_identity(request)
-    # Until global legacy folders are assigned an owner, restrict their
-    # destructive management to admin and preserve every user's media.
-    if not admin:
-        raise HTTPException(status_code=403, detail="Shared folder deletion is admin-only.")
+    owner, _admin = short_identity(request)
     try:
-        if folder_name == SHORT_VPS_DEFAULT:
-            raise ValueError("Default folder is protected.")
-        folder = short_vps_folder(folder_name)
-        if not folder.is_dir():
-            raise HTTPException(status_code=404, detail="Folder not found.")
-        folder.rmdir()  # Fails safely if any video, hidden file or worker temp exists.
+        if folder_name == SHORT_VPS_DEFAULT or folder_name == short_personal_default(owner):
+            raise HTTPException(status_code=403, detail="Default folder is protected.")
+        folder = short_folder_owned(folder_name, request)
+        for state in load_job_states():
+            if (state.get("status") in ("uploading","queued","running","pausing","cancelling")
+                and (state.get("config") or {}).get("short_vps_folder") == folder_name):
+                raise HTTPException(status_code=409, detail="Folder has pending jobs.")
+        marker = folder / ".studio_owner"
+        if marker.is_symlink() or not marker.is_file():
+            raise HTTPException(status_code=403, detail="Folder ownership marker is missing.")
+        if any(entry.name != ".studio_owner" for entry in folder.iterdir()):
+            raise HTTPException(status_code=409, detail="Folder contains media or other files.")
+        marker.unlink()
+        try:
+            folder.rmdir()
+        except OSError:
+            marker.write_text(owner.casefold(), encoding="utf-8")
+            raise
     except OSError:
         raise HTTPException(status_code=409, detail="Folder is not empty or is in use.")
     except ValueError as exc:
@@ -1436,8 +1724,8 @@ async def create_job(
     verified_clean: bool = Form(True),
     short_vps_folder_name: str = Form("", alias="short_vps_folder"),
 ):
-    owner, admin = short_identity(request)
-    if not admin and (not short_vps_folder_name or short_vps_folder_name=="Default"):
+    owner, _admin = short_identity(request)
+    if not short_vps_folder_name or short_vps_folder_name=="Default":
         short_vps_folder_name=short_personal_default(owner)
     input_mode=input_mode if input_mode in ("upload","drive") else "upload"
     # Backward-compatible API inference; explicit checkbox states must be exclusive.
@@ -1460,12 +1748,17 @@ async def create_job(
     if input_mode=="drive":
         try:
             drive_input_paths = parse_drive_folder_inputs(drive_input_path, drive_input_paths_json)
+            short_drive_inputs_owned(owner, drive_input_paths)
             drive_input_path = drive_input_paths[0]
+        except HTTPException:
+            raise
         except Exception as exc:
             raise HTTPException(status_code=400,detail=str(exc))
     if upload_to_drive:
         try:
-            drive_output_path=normalize_drive_path(drive_output_path)
+            drive_output_path=short_owned_drive_path(owner, drive_output_path)
+        except HTTPException:
+            raise
         except Exception as exc:
             raise HTTPException(status_code=400,detail=str(exc))
     else:
@@ -1552,7 +1845,8 @@ async def create_job(
 def list_jobs(request: Request):
     items=[state for state in load_job_states()
            if short_can_access(state, request)]
-    counts={"uploading":0,"queued":0,"running":0,"completed":0,"failed":0}
+    counts={"uploading":0,"queued":0,"running":0,"completed":0,"failed":0,
+            "paused":0,"pausing":0,"cancelling":0,"cancelled":0}
     for item in items:
         st=str(item.get("status") or "unknown")
         if st in counts:
@@ -1569,9 +1863,15 @@ def list_jobs(request: Request):
 @app.delete("/api/jobs/{job_id}")
 def delete_terminal_job(job_id: str, request: Request):
     state=short_owned_state(job_id, request)
-    if state.get("status") not in ("completed","failed"):
-        raise HTTPException(status_code=409,detail="Only completed or failed jobs can be deleted.")
-    shutil.rmtree(JOBS_ROOT / job_id,ignore_errors=True)
+    if state.get("status") not in ("completed","failed","cancelled"):
+        raise HTTPException(status_code=409,detail="Only finished, failed or cancelled jobs can be deleted.")
+    job_dir = JOBS_ROOT / job_id
+    if job_dir.is_symlink() or job_dir.parent != JOBS_ROOT or not job_dir.is_dir():
+        raise HTTPException(status_code=409, detail="Unsafe or missing job folder.")
+    try:
+        shutil.rmtree(job_dir)
+    except OSError:
+        raise HTTPException(status_code=409, detail="Job-local media could not be safely removed.")
     with jobs_lock:
         jobs.pop(job_id,None)
     return {"ok":True,"job_id":job_id}
@@ -1579,8 +1879,8 @@ def delete_terminal_job(job_id: str, request: Request):
 @app.post("/api/jobs/clear/{status_name}")
 def clear_terminal_jobs(status_name: str, request: Request):
     short_identity(request)
-    if status_name not in ("completed","failed"):
-        raise HTTPException(status_code=400,detail="Only completed or failed jobs can be cleared.")
+    if status_name not in ("completed","failed","cancelled"):
+        raise HTTPException(status_code=400,detail="Only terminal jobs can be cleared.")
     removed=0
     for state in load_job_states():
         if not short_can_access(state, request) or state.get("status")!=status_name:
@@ -1588,11 +1888,116 @@ def clear_terminal_jobs(status_name: str, request: Request):
         job_id=str(state.get("job_id") or "")
         if not job_id:
             continue
-        shutil.rmtree(JOBS_ROOT / job_id,ignore_errors=True)
-        with jobs_lock:
-            jobs.pop(job_id,None)
+        delete_terminal_job(job_id, request)
         removed+=1
     return {"ok":True,"status":status_name,"removed":removed}
+
+def short_restart_config(job_id: str, state: dict, request: Request) -> dict:
+    """Rebuild the recorded render, without new output numbers or duplicate delivery."""
+    cfg = dict(state.get("config") or {})
+    required = ("video_duration","image_duration","output_count","order","fit","motion","fps","crf","base_name")
+    if any(k not in cfg for k in required):
+        raise HTTPException(status_code=409, detail="This legacy job has no safe restart config.")
+    if state.get("published_outputs") or state.get("delivery_review_required"):
+        raise HTTPException(status_code=409, detail="Output may have been published; manual review required before retry.")
+    if state.get("delivery_status") in ("uploading", "verified", "verified_cleaned"):
+        raise HTTPException(status_code=409, detail="Remote delivery may exist; manual review required before retry.")
+    short_folder_owned(str(cfg.get("short_vps_folder") or ""), request)
+    target_folder = short_vps_folder(cfg["short_vps_folder"])
+    if any((target_folder / filename).exists() or (target_folder / filename).is_symlink()
+           for filename in cfg.get("output_names") or []):
+        raise HTTPException(status_code=409, detail="Already published media exists; retry would duplicate delivery.")
+    source = JOBS_ROOT / job_id / "input"
+    images = sorted(str(p) for p in (source / "images").iterdir() if p.is_file() and not p.is_symlink()) if (source / "images").is_dir() else []
+    audio = sorted(str(p) for p in (source / "audio").iterdir() if p.is_file() and not p.is_symlink()) if (source / "audio").is_dir() else []
+    if cfg.get("input_mode") != "drive" and not images:
+        raise HTTPException(status_code=409, detail="Original input images are missing.")
+    if cfg.get("input_mode") == "drive" and not (cfg.get("drive_input_paths") or cfg.get("drive_input_path")):
+        raise HTTPException(status_code=409, detail="Original Drive input configuration is missing.")
+    cfg.update(images=images, audio=audio)
+    return cfg
+
+
+def short_job_action(job_id: str, request: Request, action: str) -> dict:
+    state = short_owned_state(job_id, request)
+    status = state.get("status")
+    if action in ("cancel", "pause") and state.get("phase") == "delivery":
+        raise HTTPException(status_code=409, detail="Delivery already started; cannot interrupt verified output handoff.")
+    if action == "cancel":
+        if status == "paused":
+            set_state(job_id, status="cancelled", control="", phase="idle",
+                      message="Cancelled while paused; originals retained")
+        elif status in ("queued","running","pausing"):
+            set_state(job_id, status="cancelling", control="cancel", message="Cancelling render safely")
+        else:
+            raise HTTPException(status_code=409, detail="Job cannot be cancelled in this state.")
+    elif action == "pause":
+        if status not in ("queued","running"):
+            raise HTTPException(status_code=409, detail="Only queued or rendering jobs can be paused.")
+        set_state(job_id, status="pausing", control="pause", message="Pausing at safe render checkpoint")
+    elif action in ("resume", "retry"):
+        expected = "paused" if action == "resume" else ("failed","cancelled")
+        if status not in ((expected,) if isinstance(expected,str) else expected):
+            raise HTTPException(status_code=409, detail="Job is not ready for " + action + ".")
+        cfg = short_restart_config(job_id, state, request)
+        out_dir = JOBS_ROOT / job_id / "outputs"
+        if out_dir.is_symlink():
+            raise HTTPException(status_code=409, detail="Unsafe job output folder.")
+        if out_dir.exists():
+            shutil.rmtree(out_dir)
+        set_state(job_id, status="queued", control="", phase="queued", error="",
+                  progress=0, message="Queued for " + action,
+                  delivery_status="waiting_render" if cfg.get("upload_to_drive") else "short_uploader")
+        executor.submit(render_job, job_id, cfg)
+    else:
+        raise HTTPException(status_code=400, detail="Invalid queue action.")
+    return {"ok": True, "job_id": job_id, "status": get_state(job_id)["status"]}
+
+
+@app.post("/api/jobs/bulk/{action}")
+async def bulk_short_job_action(action: str, request: Request):
+    short_identity(request)
+    if action not in ("pause","resume","cancel","retry","delete"):
+        raise HTTPException(status_code=400, detail="Invalid bulk action.")
+    payload = await request.json()
+    ids = payload.get("job_ids") if isinstance(payload,dict) else None
+    if not isinstance(ids,list) or not 1 <= len(ids) <= 100 or not all(
+            isinstance(job_id,str) and re.fullmatch(r"[0-9a-f]{16}",job_id) for job_id in ids):
+        raise HTTPException(status_code=400, detail="Select between 1 and 100 valid job IDs.")
+    ids = list(dict.fromkeys(ids))
+    # Preflight every owner before any write; foreign IDs must never partially act.
+    states = [short_owned_state(job_id, request) for job_id in ids]
+    for state in states:
+        status = state.get("status")
+        if action == "delete" and status not in ("completed","failed","cancelled"):
+            raise HTTPException(status_code=409,detail="Bulk delete requires terminal jobs only.")
+        if action == "pause" and status not in ("queued","running"):
+            raise HTTPException(status_code=409,detail="Bulk pause requires queued/running jobs.")
+        if action == "cancel" and status not in ("queued","running","pausing","paused"):
+            raise HTTPException(status_code=409,detail="Bulk cancel requires active/paused jobs.")
+        if action == "resume" and status != "paused":
+            raise HTTPException(status_code=409,detail="Bulk resume requires paused jobs.")
+        if action == "retry" and status not in ("failed","cancelled"):
+            raise HTTPException(status_code=409,detail="Bulk retry requires failed/cancelled jobs.")
+        if action in ("pause","cancel") and state.get("phase") == "delivery":
+            raise HTTPException(status_code=409,detail="A selected job is delivering output.")
+        if action in ("resume","retry"):
+            short_restart_config(str(state["job_id"]), state, request)
+    results = []
+    for job_id in ids:
+        if action == "delete":
+            results.append(delete_terminal_job(job_id, request))
+        else:
+            results.append(short_job_action(job_id, request, action))
+    return {"ok":True,"updated":len(results),"results":results}
+
+
+@app.post("/api/jobs/{job_id}/{action}")
+def control_short_job(job_id: str, action: str, request: Request):
+    if not re.fullmatch(r"[0-9a-f]{16}", job_id or ""):
+        raise HTTPException(status_code=404, detail="Job not found.")
+    return short_job_action(job_id, request, action)
+
 
 @app.get("/api/jobs/{job_id}")
 def job_status(job_id: str, request: Request):
@@ -1602,8 +2007,15 @@ def job_status(job_id: str, request: Request):
 @app.get("/outputs/{job_id}/{filename}")
 def download_output(job_id: str, filename: str, request: Request):
     short_owned_state(job_id, request)
-    target = JOBS_ROOT / job_id / "outputs" / safe_name(filename)
-    if not target.is_file():
+    # Owner-scoped job IDs must not traverse into another job or a symlinked
+    # output directory/file. Never follow a file-system alias on download.
+    if not re.fullmatch(r"[0-9a-f]{16}", job_id or ""):
+        raise HTTPException(status_code=404, detail="Output not found")
+    job_dir = JOBS_ROOT / job_id
+    output_dir = job_dir / "outputs"
+    target = output_dir / safe_name(filename)
+    if (job_dir.is_symlink() or output_dir.is_symlink() or target.is_symlink()
+            or not target.is_file()):
         raise HTTPException(status_code=404, detail="Output not found")
     return FileResponse(target, media_type="video/mp4", filename=target.name)
 
@@ -1675,7 +2087,7 @@ def upload_snapshot(job_id: str, manifest: dict) -> dict:
             "upload_progress": round(100 * received / total, 1) if total else 100}
 
 
-def upload_config(payload: dict) -> dict:
+def upload_config(payload: dict, owner: str = "") -> dict:
     try:
         duration = float(payload.get("video_duration", 16))
         img_duration = float(payload.get("image_duration", 3))
@@ -1708,6 +2120,11 @@ def upload_config(payload: dict) -> dict:
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     mode = "drive" if payload.get("input_mode") == "drive" else "upload"
+    if owner:
+        if to_drive:
+            short_owned_drive_path(owner, drive_output)
+        if mode == "drive":
+            short_drive_inputs_owned(owner, drive_paths)
     return {
         "video_duration": duration, "image_duration": img_duration,
         "output_count": count,
@@ -1748,10 +2165,10 @@ async def begin_resumable_upload(request: Request):
         raise HTTPException(status_code=400, detail="Missing upload manifest.")
     if not isinstance(payload.get("config"), dict):
         raise HTTPException(status_code=400, detail="Missing render settings.")
-    owner, admin=short_identity(request)
-    if not admin and str(payload["config"].get("short_vps_folder") or SHORT_VPS_DEFAULT)=="Default":
+    owner, _admin=short_identity(request)
+    if str(payload["config"].get("short_vps_folder") or SHORT_VPS_DEFAULT)=="Default":
         payload["config"]["short_vps_folder"]=short_personal_default(owner)
-    cfg = upload_config(payload["config"])
+    cfg = upload_config(payload["config"],owner=owner)
     short_folder_owned(str(cfg["short_vps_folder"]),request)
     file_groups = payload["files"]
     manifest_files = {}
