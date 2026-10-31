@@ -16,14 +16,27 @@ class SongWorkerReadOnlyTests(unittest.TestCase):
         self.assertEqual(diag.classify("Secret token REDACTED unauthorized"),"AUTH")
         self.assertEqual(diag.classify(""),"NONE")
 
+
+    def test_heartbeat_age_reports_coarse_categories(self):
+        self.assertEqual(diag.heartbeat_age_bucket(""), "ABSENT")
+        self.assertEqual(diag.heartbeat_age_bucket("not-a-date"), "UNKNOWN")
+        self.assertEqual(diag.heartbeat_age_bucket("2020-01-01T00:00:00+00:00"), "STALE")
+
+    def test_source_error_refinement_does_not_expose_error_text(self):
+        self.assertEqual(diag.classify_source_detail("V6 Drive source mapping is missing for this Auto Engine job."), "SOURCE_MAPPING_MISSING")
+        self.assertEqual(diag.classify_source_detail("Local Song Maker MP4 missing; Drive fallback is forbidden"), "SONGMAKER_MEDIA_MISSING")
+        self.assertEqual(diag.classify_source_detail("Profile 827 not found for secret user"), "PROFILE_MISSING")
+        self.assertEqual(diag.classify_source_detail("Job already claimed by another worker"), "CLAIM_CONFLICT")
+        self.assertEqual(diag.classify_source_detail("sqlite3.OperationalError: no such column foo"), "NOT_SOURCE_STATE")
+
     def test_output_contains_only_aggregates_even_for_sensitive_exception(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)
             v6=root/"auto_engine_v6"
             v6.mkdir()
             with sqlite3.connect(v6/"auto_engine_v6.sqlite3") as db:
-                db.execute("CREATE TABLE engine_state (singleton INTEGER PRIMARY KEY, last_worker_error TEXT, last_scheduler_error TEXT, running INTEGER, scheduler_armed INTEGER)")
-                db.execute("INSERT INTO engine_state VALUES (1, ?, '', 1, 1)",
+                db.execute("CREATE TABLE engine_state (singleton INTEGER PRIMARY KEY, last_worker_error TEXT, last_scheduler_error TEXT, running INTEGER, scheduler_armed INTEGER, last_worker_heartbeat TEXT, last_scheduler_heartbeat TEXT)")
+                db.execute("INSERT INTO engine_state VALUES (1, ?, '', 1, 1, NULL, NULL)",
                     ("sqlite3.OperationalError: no such column: example_secret_token_abc",))
             output=io.StringIO()
             with patch.object(diag,"unit_state",return_value="ACTIVE"), patch("sys.stdout",output):
