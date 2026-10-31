@@ -320,6 +320,53 @@ def _confirmed_resource_free_kthread(pid: Path) -> bool | str:
 
 
 
+
+def _redacted_proc_resource_proof(pid: Path) -> str:
+    """Only categorical /proc evidence; no PID, command, environment or path."""
+    proof = {
+        "marker": "unknown", "pf": "unknown", "start": "unknown",
+        "fds": "unknown", "maps": "unknown", "cwd": "unknown",
+        "exe": "unknown",
+    }
+    try:
+        status = (pid / "status").read_text(encoding="utf-8")
+        markers = [line.partition(":")[2].strip()
+                   for line in status.splitlines() if line.startswith("Kthread:")]
+        proof["marker"] = "yes" if markers == ["1"] else (
+            "no" if markers == ["0"] else "missing")
+    except (OSError, UnicodeError):
+        pass
+    try:
+        raw = (pid / "stat").read_text(encoding="ascii")
+        close = raw.rfind(")")
+        fields = raw[close + 2:].split() if close >= 0 else []
+        if len(fields) >= 20:
+            proof["pf"] = "yes" if int(fields[6]) & 0x00200000 else "no"
+            proof["start"] = "positive" if int(fields[19]) > 0 else "zero"
+    except (OSError, UnicodeError, ValueError, IndexError):
+        pass
+    try:
+        proof["fds"] = "nonempty" if any((pid / "fd").iterdir()) else "empty"
+    except OSError:
+        pass
+    try:
+        proof["maps"] = "nonempty" if (pid / "maps").read_bytes() else "empty"
+    except OSError:
+        pass
+    for name in ("cwd", "exe"):
+        try:
+            (pid / name).resolve(strict=True)
+        except FileNotFoundError:
+            proof[name] = "absent"
+        except (OSError, RuntimeError):
+            proof[name] = "unknown"
+        else:
+            proof[name] = "resolved"
+    return ",".join(f"{key}={value}" for key, value in proof.items())
+
+
+
+
 def _runtime_reference_pass(paths: list[Path], proc_root: Path = Path("/proc"),
                             *, explain_race: bool = False) -> str:
     """Redacted tri-state /proc probe; unverifiable must never permit deletion.
@@ -369,6 +416,9 @@ def _runtime_reference_pass(paths: list[Path], proc_root: Path = Path("/proc"),
                         if kthread == "identity-changed":
                             return "unverifiable-process-identity-change"
                         if kthread is not True:
+                            if explain_race and stage == "read-environ":
+                                return ("unverifiable-process-race-at-read-environ;"
+                                        + _redacted_proc_resource_proof(pid))
                             return ("unverifiable-process-race-at-" + stage
                                     if explain_race else "unverifiable-process-race")
                 continue
