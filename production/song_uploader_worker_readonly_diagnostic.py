@@ -34,6 +34,34 @@ def classify(message: str) -> str:
     return "OTHER"
 
 
+
+# Non-sensitive, allowlisted refinements of the original SOURCE_STATE bucket.
+# Never print the exception itself, filenames, IDs, user text or arbitrary hashes.
+SOURCE_DETAIL_PATTERNS = (
+    ("SOURCE_MAPPING_MISSING", r"source mapping.{0,50}miss|source reference.{0,50}miss"),
+    ("SONGMAKER_MEDIA_MISSING", r"local song maker.{0,60}missing|songmaker.{0,40}missing"),
+    ("SOURCE_FILE_MISSING", r"source.{0,70}(missing|not found|unavailable)|missing.{0,30}source"),
+    ("SOURCE_CHANGED", r"source.{0,60}chang|source.{0,60}mismatch"),
+    ("PROFILE_MISSING", r"profile.{0,60}(missing|not found|deleted)"),
+    ("PROFILE_DISABLED", r"profile.{0,60}(disabled|paused|inactive)"),
+    ("CLAIM_CONFLICT", r"already claimed|claim.{0,35}(lost|held|lease)"),
+    ("NETWORK_QUEUE_STATE", r"waiting.network|network wait"),
+    ("QUEUE_STATE", r"not in queue|not queued|queue"),
+    ("PROFILE_OTHER", r"profile"),
+    ("SOURCE_OTHER", r"source|songmaker|song maker"),
+)
+
+
+def classify_source_detail(message: str) -> str:
+    if classify(message) != "SOURCE_STATE":
+        return "NOT_SOURCE_STATE"
+    lowered = str(message or "").lower()
+    for code, pattern in SOURCE_DETAIL_PATTERNS:
+        if re.search(pattern, lowered):
+            return code
+    return "UNMAPPED_SOURCE_STATE"
+
+
 def unit_state(suffix: str) -> str:
     if suffix not in UNITS: return "UNKNOWN"
     unit=f"vps1-production-lum-song-{suffix}.service"
@@ -65,6 +93,7 @@ def collect(state: Path) -> dict:
                 report["db"]="MISSING_STATE"
                 return report
             report.update(db="READ_ONLY_OK",worker_error=classify(row[0]),
+                          worker_source_detail=classify_source_detail(row[0]),
                           scheduler_error=classify(row[1]),
                           engine_running=bool(row[2]),scheduler_armed=bool(row[3]),
                           worker_error_present=bool(row[0]),scheduler_error_present=bool(row[1]))
