@@ -95,5 +95,63 @@ class SceneTargetedCancel(unittest.TestCase):
         self.assertIn("SCENE_TARGET_CANCEL_GATEWAY_MUTATIONS=NONE", gateway)
 
 
+class SceneExactResetQueueContract(unittest.TestCase):
+    def _queue(self, tmp, *, project="Eala_Tokyo_V25", status="rendering",
+               drive_destination="", other_status=None):
+        import sqlite3
+        db = Path(tmp) / "queue.sqlite3"
+        with sqlite3.connect(str(db)) as conn:
+            conn.execute("CREATE TABLE jobs (id TEXT PRIMARY KEY,project_name TEXT,status TEXT,drive_destination TEXT)")
+            conn.execute("INSERT INTO jobs VALUES(?,?,?,?)",
+                         (incident.TARGET_JOB,project,status,drive_destination))
+            if other_status is not None:
+                conn.execute("INSERT INTO jobs VALUES(?,?,?,?)",
+                             ("b"*32,"Another Scene Project",other_status,""))
+        return db
+
+    def test_target_and_unrelated_terminal_history_allowed(self):
+        from production.scene_exact_reset_3327_20261031 import inspect_queue
+        with tempfile.TemporaryDirectory() as tmp:
+            db = self._queue(tmp, other_status="completed")
+            result = inspect_queue(db)
+            self.assertEqual(result["id"], incident.TARGET_JOB)
+            self.assertEqual(result["status"], "rendering")
+
+    def test_other_active_job_blocks_all_target_mutation(self):
+        from production.scene_exact_reset_3327_20261031 import inspect_queue
+        with tempfile.TemporaryDirectory() as tmp:
+            db = self._queue(tmp, other_status="queued")
+            with self.assertRaisesRegex(RuntimeError, "another project"):
+                inspect_queue(db)
+
+    def test_never_delete_remote_output(self):
+        from production.scene_exact_reset_3327_20261031 import inspect_queue
+        with tempfile.TemporaryDirectory() as tmp:
+            db = self._queue(tmp, drive_destination="gdrive:SceneBuilder-Renders/movie.mp4")
+            with self.assertRaisesRegex(RuntimeError, "Drive destination"):
+                inspect_queue(db)
+
+    def test_wrong_identity_or_completed_target_refused(self):
+        from production.scene_exact_reset_3327_20261031 import inspect_queue
+        with tempfile.TemporaryDirectory() as tmp:
+            db = self._queue(tmp, project="Another Person")
+            with self.assertRaisesRegex(RuntimeError, "identity"):
+                inspect_queue(db)
+        with tempfile.TemporaryDirectory() as tmp:
+            db = self._queue(tmp, status="completed")
+            with self.assertRaisesRegex(RuntimeError, "target completed"):
+                inspect_queue(db)
+
+    def test_exact_reset_no_shared_gateway_or_generic_install(self):
+        root = Path(__file__).resolve().parents[1]
+        runtime = (root / "production/runtime.py").read_text()
+        gateway = (root / "production/gateway.py").read_text()
+        from production.scene_exact_reset_3327_20261031 import MARKER
+        self.assertIn(MARKER, runtime)
+        self.assertIn(MARKER, gateway)
+        self.assertIn("args.apps != ['scene-builder']", runtime)
+        self.assertIn("SCENE_EXACT_RESET_GATEWAY_MUTATIONS=NONE", gateway)
+
+
 if __name__ == "__main__":
     unittest.main()
