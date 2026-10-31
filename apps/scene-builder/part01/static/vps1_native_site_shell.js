@@ -36,6 +36,22 @@
     ["Copyright Studio", "/video-merger/", "copyright"],
     ["Experiment Studio", "/experiment-studio/", "experiment"]
   ]);
+  // A verified Scene identity decides permissions. Never trust local storage
+  // or an app-provided is_admin flag. Fail closed while identity is pending.
+  const applyStudioVisibility = (links, identity) => {
+    const authenticated = !!(identity && identity.authenticated === true);
+    const admin = authenticated && identity.is_admin === true;
+    const granted = authenticated && Array.isArray(identity.allowed_studios)
+      ? identity.allowed_studios : [];
+    for (const [key, link] of Object.entries(links)) {
+      if (!link) continue;
+      const visible = key === "dashboard" || (key === "experiment"
+        ? admin : (admin || granted.includes(key)));
+      link.hidden = !visible;
+      if (visible) link.removeAttribute("hidden");
+      else link.setAttribute("hidden", "");
+    }
+  };
   const activeKeyForPath = (pathname) => {
     if (pathname.startsWith("/local-upload-manager/modes/song/")) return "song";
     if (/^\/(short-maker|short-uploader|short-studio)(\/|$)/.test(pathname)) return "short";
@@ -125,7 +141,9 @@
       PRIMARY_NAV.every(([label, href], i) =>
         existing[i].textContent.trim() === label &&
         existing[i].getAttribute("href") === href);
+    let primaryLinks;
     if (isCanonical) {
+      primaryLinks = Object.fromEntries(PRIMARY_NAV.map(([, , key], i) => [key, existing[i]]));
       // Keep the original nodes and their positions across routes: no
       // unnecessary sidebar repaint or jump while pages switch.
       for (const extra of existing.slice(PRIMARY_NAV.length)) {
@@ -139,8 +157,9 @@
       });
     } else {
       navigation.replaceChildren();
-      addPrimaryLinks(navigation, current);
+      primaryLinks = addPrimaryLinks(navigation, current);
     }
+    applyStudioVisibility(primaryLinks, null);
     // Short Maker and Video Merger are independent legacy documents. Render
     // the same second-level rail there; Scene templates already render it.
     if (current === "experiment" && !document.querySelector('nav[aria-label="Experiment Studio"]')) {
@@ -171,6 +190,7 @@
     account.append(accountName, loginLink, logout);
     let adminLink = navigation.querySelector('a[href="/admin"]');
     const setIdentity = (identity) => {
+      applyStudioVisibility(primaryLinks, identity);
       const authenticated = !!(identity && identity.authenticated === true);
       const isAdmin = authenticated && identity.is_admin === true;
       if (isAdmin && !adminLink) {
@@ -236,6 +256,7 @@
       (app === "voice" && (window.location?.hash === "#vs-audio" ||
         /^\/audio-downloader\/?$/.test(window.location?.pathname || ""))) ? "song" : "experiment";
     const primaryLinks = addPrimaryLinks(navigation, current);
+    applyStudioVisibility(primaryLinks, null);
     // All native app screens use the live Scene session role; no local-app
     // guessing or browser-stored role flags. Admin stays hidden until verified.
     let adminLink = null;
@@ -253,6 +274,7 @@
     logout.hidden = true;
     account.appendChild(logout);
     const setIdentity = (identity) => {
+      applyStudioVisibility(primaryLinks, identity);
       const authorized = !!(identity && identity.authenticated === true);
       const isAdmin = authorized && identity.is_admin === true;
       if (isAdmin && !adminLink) {
