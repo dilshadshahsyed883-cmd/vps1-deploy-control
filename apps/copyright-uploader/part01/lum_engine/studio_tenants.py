@@ -99,17 +99,7 @@ class StudioTenants:
             ).fetchall()}
 
     def assign_by_admin(self, kind, entity_id, owner, user):
-        """Admin-only explicit transfer; caller checks the entity exists and is idle."""
+        """First assignment of a legacy entity; never silently transfer history."""
         if not user or not int(user.get("is_admin") or 0):
             raise PermissionError("Administrator required")
-        kind, entity_id = self.identity(kind, entity_id)
-        owner = self.username(owner)
-        with self.db.connect() as con:
-            self._initialize(con)
-            con.execute(
-                "INSERT INTO studio_entity_owners(entity_kind,entity_id,owner_username)"
-                " VALUES(?,?,?) ON CONFLICT(entity_kind,entity_id)"
-                " DO UPDATE SET owner_username=excluded.owner_username",
-                (kind, entity_id, owner),
-            )
-        return owner
+        return self.bind(kind, entity_id, owner)
