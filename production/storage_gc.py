@@ -486,6 +486,29 @@ def prune_disposable_caches(now: float | None = None) -> dict[str, Any]:
     return results
 
 
+def summarize_skip_reasons(skipped: Any) -> dict[str, int]:
+    """Return bounded reason counts without exposing revisions, process IDs or paths."""
+    if not isinstance(skipped, list):
+        return {}
+    counts: dict[str, int] = {}
+    for item in skipped:
+        if item == "control:deployment-active":
+            reason = "deployment-active"
+        elif item == "control:blocked":
+            reason = "control-verification-blocked"
+        elif isinstance(item, str) and item.endswith(":service-inactive"):
+            reason = "service-inactive"
+        elif isinstance(item, str) and item.endswith(":process-in-use"):
+            reason = "process-in-use-or-unverifiable"
+        elif isinstance(item, str) and item.endswith(":no-longer-eligible"):
+            reason = "revalidation-changed"
+        else:
+            # Includes unlabelled application revalidation failures. Fail closed.
+            reason = "revalidation-or-unknown"
+        counts[reason] = counts.get(reason, 0) + 1
+    return dict(sorted(counts.items()))
+
+
 def _record_audit(state: Path, payload: dict[str, Any]) -> None:
     state.mkdir(parents=True, exist_ok=True, mode=0o750)
     target = state / "deployment-gc-history.jsonl"
@@ -552,6 +575,10 @@ def execute(root: Path = BASE, *, apply: bool = False, state: Path = STATE,
                 "deleted": result["outcome"]["deleted"], "skipped": result["outcome"]["skipped"],
                 "free_before_bytes": before, "free_after_bytes": result["free_after_bytes"],
                 "estimated_removed_bytes": result["outcome"]["estimated_removed_bytes"],
+                "candidate_count": (len(plan["candidates"]) +
+                                    len(control_plan["candidates"])),
+                "candidate_bytes_at_run": plan["estimated_bytes"],
+                "skip_reason_counts": summarize_skip_reasons(result["outcome"]["skipped"]),
                 "excluded": len(plan["excluded"]), "cache": result.get("cache", {}),
             })
         return result
@@ -589,6 +616,12 @@ def publish_readonly_status(*, state: Path = STATE, destination: Path = PUBLIC_S
                     "timestamp": when,
                     "deleted_count": len(deleted) if isinstance(deleted, list) else None,
                     "skipped_count": len(skipped) if isinstance(skipped, list) else None,
+                    # Legacy audit records are supported; do not expose raw entries.
+                    "skip_reason_counts": summarize_skip_reasons(skipped)
+                    if isinstance(skipped, list) else None,
+                    "candidate_count": record.get("candidate_count")
+                    if type(record.get("candidate_count")) is int and
+                       0 <= record["candidate_count"] <= 1_000_000 else None,
                     "measured_freed_bytes": max(0, after - before)
                     if type(before) is int and type(after) is int and before >= 0 and after >= 0
                     else None,
@@ -598,6 +631,7 @@ def publish_readonly_status(*, state: Path = STATE, destination: Path = PUBLIC_S
         pass
 
     eligible = None
+    eligible_candidates = None
     measured_at = None
     try:
         result = execute(root=root, apply=False, state=state, unit_dir=unit_dir,
@@ -606,6 +640,10 @@ def publish_readonly_status(*, state: Path = STATE, destination: Path = PUBLIC_S
         estimated = plan.get("estimated_bytes")
         if not plan.get("blocked") and type(estimated) is int and estimated >= 0:
             eligible = estimated
+            candidates = plan.get("candidates")
+            control_candidates = plan.get("control", {}).get("candidates")
+            if isinstance(candidates, list) and isinstance(control_candidates, list):
+                eligible_candidates = len(candidates) + len(control_candidates)
             measured_at = int(time.time())
     except (OSError, ValueError, RuntimeError, PermissionError, BlockingIOError):
         pass
@@ -613,6 +651,7 @@ def publish_readonly_status(*, state: Path = STATE, destination: Path = PUBLIC_S
     payload = {
         "schema": 1, "generated_at": int(time.time()),
         "last_cleanup": last, "eligible_bytes": eligible,
+        "eligible_candidate_count": eligible_candidates,
         "eligible_measured_at": measured_at,
     }
     parent = destination.parent

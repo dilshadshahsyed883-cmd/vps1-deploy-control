@@ -8,6 +8,8 @@ Type=oneshot
 User=root
 Group=root
 UMask=0077
+# Timer and manual requests share the same guarded root service.
+ExecStartPre=-/usr/bin/rm -f /run/vps1-storage-gc-manual/request
 ExecStart=/usr/bin/python3 /usr/local/libexec/vps1-storage-gc.py --apply
 # Best-effort read-only inventory and sanitized audit export after the guarded GC.
 ExecStartPost=-/usr/bin/python3 /usr/local/libexec/vps1-storage-gc.py --publish-status

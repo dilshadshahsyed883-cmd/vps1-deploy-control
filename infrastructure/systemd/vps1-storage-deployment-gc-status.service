@@ -1,0 +1,24 @@
+[Unit]
+Description=VPS1 read-only deployment cleanup inventory snapshot
+After=local-fs.target
+ConditionPathExists=/srv/fresh-website/control/state
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStart=/usr/bin/python3 /usr/local/libexec/vps1-storage-gc.py --publish-status
+TimeoutStartSec=600
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=yes
+ProtectSystem=strict
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadWritePaths=/var/lib/vps1-storage-gc-public /run/lock
+StandardOutput=journal
+StandardError=journal

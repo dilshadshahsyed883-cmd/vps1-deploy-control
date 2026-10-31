@@ -12,6 +12,24 @@ from production import storage_gc as gc
 
 
 class StorageGCTests(unittest.TestCase):
+    def test_manual_systemd_path_reuses_existing_protected_gc_engine(self):
+        root = Path(__file__).resolve().parents[1]
+        units = root / "infrastructure/systemd"
+        manual = (units / "vps1-storage-deployment-gc-manual.path").read_text()
+        service = (units / "vps1-storage-deployment-gc.service").read_text()
+        status = (units / "vps1-storage-deployment-gc-status.service").read_text()
+        timer = (units / "vps1-storage-deployment-gc-status.timer").read_text()
+        installer = (root / "scripts/install_storage_gc.sh").read_text()
+        self.assertIn("Unit=vps1-storage-deployment-gc.service", manual)
+        self.assertIn("ExecStartPre=-/usr/bin/rm -f /run/vps1-storage-gc-manual/request", service)
+        self.assertIn("storage-gc.py --apply", service)
+        self.assertIn("storage-gc.py --publish-status", status)
+        self.assertNotIn("--apply", status)
+        self.assertIn("OnUnitActiveSec=30min", timer)
+        self.assertIn("systemd-tmpfiles --create", installer)
+        self.assertIn("vps1-storage-deployment-gc-manual.path", installer)
+
+
     def setUp(self):
         self.workspace = tempfile.TemporaryDirectory()
         self.addCleanup(self.workspace.cleanup)
@@ -343,6 +361,52 @@ class StorageGCTests(unittest.TestCase):
         self.assertIn("control/" + revisions[0] + ":no-longer-eligible",
                       outcome["skipped"])
         self.assertTrue(item.exists())
+
+    def test_skip_reason_summary_is_bounded_and_redacts_identifiers(self):
+        skipped = [
+            "control:deployment-active",
+            "control/" + "a" * 40 + ":process-in-use",
+            "short-maker/" + "b" * 40 + ":service-inactive",
+            "control/" + "c" * 40 + ":no-longer-eligible",
+            "short-maker/" + "d" * 40,
+        ]
+        summary = gc.summarize_skip_reasons(skipped)
+        self.assertEqual(sum(summary.values()), len(skipped))
+        self.assertEqual(summary["deployment-active"], 1)
+        self.assertEqual(summary["process-in-use-or-unverifiable"], 1)
+        self.assertEqual(summary["service-inactive"], 1)
+        self.assertEqual(summary["revalidation-changed"], 1)
+        self.assertEqual(summary["revalidation-or-unknown"], 1)
+        self.assertNotIn("a" * 40, json.dumps(summary))
+        self.assertNotIn("short-maker", json.dumps(summary))
+        self.assertEqual(gc.summarize_skip_reasons(None), {})
+
+    def test_legacy_audit_status_includes_redacted_skip_reasons(self):
+        from unittest.mock import patch
+        state = Path(self.workspace.name) / "private"
+        state.mkdir()
+        status = Path(self.workspace.name) / "public" / "status.json"
+        old = {
+            "mode": "apply", "timestamp": 1792456676,
+            "deleted": [], "skipped": [
+                "control/" + "b" * 40 + ":process-in-use",
+                "control/" + "a" * 40 + ":no-longer-eligible"
+            ], "free_before_bytes": 1_000_000,
+            "free_after_bytes": 1_000_000
+        }
+        (state / "deployment-gc-history.jsonl").write_text(json.dumps(old) + "\n")
+        with patch.object(gc, "execute", return_value={"inventory": {
+                "candidates": [], "control": {"candidates": []},
+                "estimated_bytes": 12345}}):
+            payload = gc.publish_readonly_status(
+                state=state, destination=status, test_mode=True)
+        self.assertEqual(payload["last_cleanup"]["skipped_count"], 2)
+        self.assertEqual(payload["last_cleanup"]["skip_reason_counts"], {
+            "process-in-use-or-unverifiable": 1, "revalidation-changed": 1})
+        self.assertEqual(payload["eligible_candidate_count"], 0)
+        exported = status.read_text()
+        self.assertNotIn("control/", exported)
+        self.assertNotIn("b" * 40, exported)
 
     def test_explicit_apply_refuses_nonproduction_path(self):
         with self.assertRaises(RuntimeError):

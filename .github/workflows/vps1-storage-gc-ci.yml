@@ -30,4 +30,4 @@ jobs:
           python3 -m py_compile production/storage_gc.py production/test_storage_gc.py
           python3 -m unittest production.test_storage_gc -v
           bash -n scripts/install_storage_gc.sh
-          systemd-analyze verify infrastructure/systemd/vps1-storage-deployment-gc.service infrastructure/systemd/vps1-storage-deployment-gc.timer
+          systemd-analyze verify infrastructure/systemd/vps1-storage-deployment-gc.service infrastructure/systemd/vps1-storage-deployment-gc.timer infrastructure/systemd/vps1-storage-deployment-gc-manual.path infrastructure/systemd/vps1-storage-deployment-gc-status.service infrastructure/systemd/vps1-storage-deployment-gc-status.timer

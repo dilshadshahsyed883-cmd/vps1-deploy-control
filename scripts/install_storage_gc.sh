@@ -29,14 +29,24 @@ PY
 install -d -m 0755 /usr/local/libexec
 install -d -m 0750 /var/lib/vps-storage-manager
 install -d -o root -g root -m 0755 /var/lib/vps1-storage-gc-public
+id -u ubuntu >/dev/null || { echo 'REFUSE: expected scene service identity missing'; exit 24; }
+install -m 0644 infrastructure/tmpfiles.d/vps1-storage-gc-manual.conf /etc/tmpfiles.d/vps1-storage-gc-manual.conf
+systemd-tmpfiles --create /etc/tmpfiles.d/vps1-storage-gc-manual.conf
 install -m 0755 production/storage_gc.py /usr/local/libexec/vps1-storage-gc.py
 install -m 0644 infrastructure/systemd/vps1-storage-deployment-gc.service /etc/systemd/system/vps1-storage-deployment-gc.service
 install -m 0644 infrastructure/systemd/vps1-storage-deployment-gc.timer /etc/systemd/system/vps1-storage-deployment-gc.timer
+install -m 0644 infrastructure/systemd/vps1-storage-deployment-gc-manual.path /etc/systemd/system/vps1-storage-deployment-gc-manual.path
+install -m 0644 infrastructure/systemd/vps1-storage-deployment-gc-status.service /etc/systemd/system/vps1-storage-deployment-gc-status.service
+install -m 0644 infrastructure/systemd/vps1-storage-deployment-gc-status.timer /etc/systemd/system/vps1-storage-deployment-gc-status.timer
 systemctl daemon-reload
-systemd-analyze verify /etc/systemd/system/vps1-storage-deployment-gc.service /etc/systemd/system/vps1-storage-deployment-gc.timer
+systemd-analyze verify /etc/systemd/system/vps1-storage-deployment-gc.service /etc/systemd/system/vps1-storage-deployment-gc.timer /etc/systemd/system/vps1-storage-deployment-gc-manual.path /etc/systemd/system/vps1-storage-deployment-gc-status.service /etc/systemd/system/vps1-storage-deployment-gc-status.timer
 systemctl enable --now vps1-storage-deployment-gc.timer
+systemctl enable --now vps1-storage-deployment-gc-manual.path
+systemctl enable --now vps1-storage-deployment-gc-status.timer
 systemctl is-enabled --quiet vps1-storage-deployment-gc.timer
 systemctl is-active --quiet vps1-storage-deployment-gc.timer
+systemctl is-active --quiet vps1-storage-deployment-gc-manual.path
+systemctl is-active --quiet vps1-storage-deployment-gc-status.timer
 /usr/bin/python3 /usr/local/libexec/vps1-storage-gc.py --publish-status || echo 'STORAGE_GC_TELEMETRY=INVENTORY_PENDING'
 echo 'VPS1_STORAGE_DEPLOYMENT_GC_TIMER=ACTIVE'
 echo 'USER_MEDIA=UNCHANGED'

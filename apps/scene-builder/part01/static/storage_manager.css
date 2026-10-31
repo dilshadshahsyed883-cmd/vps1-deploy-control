@@ -64,3 +64,9 @@
  .sm-gc-dashboard .sm-auto-status-card{padding:14px}
  #refresh-cleanup-status{min-height:44px}
 }
+
+/* Storage audit: avoid hiding the hero behind the fixed mobile shell menu. */
+@media(max-width:700px){
+  #storage-app .sm-hero{padding-top:76px}
+  #gc-skip-reasons{overflow-wrap:anywhere}
+}

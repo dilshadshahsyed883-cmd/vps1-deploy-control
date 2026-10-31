@@ -1,0 +1,10 @@
+[Unit]
+Description=VPS1 admin-triggered guarded storage cleanup
+ConditionPathIsDirectory=/run/vps1-storage-gc-manual
+
+[Path]
+PathExists=/run/vps1-storage-gc-manual/request
+Unit=vps1-storage-deployment-gc.service
+
+[Install]
+WantedBy=multi-user.target

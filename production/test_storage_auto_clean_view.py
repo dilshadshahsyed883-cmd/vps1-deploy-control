@@ -117,7 +117,10 @@ class AutoCleanReadOnlyView(unittest.TestCase):
         self.assertIn("renderCleanupStatus(data.deployment_cleanup)", script)
         self.assertIn("data.read_only !== true || data.partial !== true", script)
         self.assertIn("method:'GET'", script)
-        for blocked in ("method:'POST'", "method: 'POST'", "/api/admin/storage/cleanup",
+        self.assertIn("run-safe-cleanup", script)
+        self.assertIn("X-Storage-CSRF", script)
+        self.assertIn("confirmation:'RUN SAFE CLEANUP'", script)
+        for blocked in ("/api/admin/storage/cleanup",
                         "/api/admin/storage/full-clean", "/api/admin/storage/policy",
                         "/api/admin/storage/scan", "Full Production Clean"):
             self.assertNotIn(blocked, script)
@@ -203,6 +206,46 @@ class AutoCleanReadOnlyView(unittest.TestCase):
         self.assertEqual(status["last_cleanup"]["measured_freed_bytes"], 409755648)
         self.assertEqual(status["eligible_bytes"], 76543)
         self.assertIsNotNone(status["eligible_measured_at"])
+
+    def test_public_skip_reason_counts_are_bounded_and_timestamp_matched(self):
+        module = self.manager
+        from datetime import datetime, timezone
+        now = int(datetime.now(timezone.utc).timestamp())
+        public = {
+            "schema": 1, "generated_at": now, "eligible_measured_at": now,
+            "eligible_bytes": 98765, "eligible_candidate_count": 229,
+            "last_cleanup": {
+                "timestamp": now - 300, "deleted_count": 0,
+                "skipped_count": 2, "measured_freed_bytes": 0,
+                "skip_reason_counts": {
+                    "process-in-use-or-unverifiable": 1,
+                    "revalidation-changed": 1
+                }
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(module, "STATE_ROOT", Path(tmp)), \
+             patch.object(module, "_public_deployment_gc_status", return_value=public), \
+             patch.object(module, "run", side_effect=OSError("systemd unavailable")):
+            result = module.deployment_cleanup_status()
+            self.assertEqual(result["eligible_candidate_count"], 229)
+            self.assertEqual(result["last_cleanup"]["skip_reason_counts"][
+                "process-in-use-or-unverifiable"], 1)
+            public["last_cleanup"]["skip_reason_counts"] = {
+                "/root/private/secret": 2}
+            bad = module.deployment_cleanup_status()
+            self.assertNotIn("skip_reason_counts", bad["last_cleanup"])
+            public["last_cleanup"]["skip_reason_counts"] = {
+                "process-in-use-or-unverifiable": 2}
+            public["last_cleanup"]["timestamp"] = now - 600
+            original = {
+                "mode": "apply", "timestamp": now - 300,
+                "free_before_bytes": 1000, "free_after_bytes": 1000,
+                "deleted": [], "skipped": ["control:deployment-active"]}
+            (Path(tmp) / "deployment-gc-history.jsonl").write_text(
+                json.dumps(original) + "\n")
+            stale = module.deployment_cleanup_status()
+            self.assertNotIn("skip_reason_counts", stale["last_cleanup"])
 
     def test_gc_public_export_excludes_sensitive_audit_paths(self):
         from production import storage_gc as gc
