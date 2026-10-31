@@ -598,7 +598,7 @@ body.vps1-native-site>.vps1-native-experiment-tabs~:is(
 @media(max-width:760px){
   body.vps1-native-site>.vps1-native-experiment-tabs{
     margin-top:72px!important;
-    margin-bottom:18px!important;
+    margin-bottom:14px!important;
   }
   body.vps1-native-site>.vps1-native-experiment-tabs~:is(
     .vps1-native-video-tabs,.vps1-native-upload-tabs){
