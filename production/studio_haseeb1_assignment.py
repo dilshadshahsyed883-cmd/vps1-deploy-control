@@ -476,3 +476,109 @@ def inspect_related_stores(data_root: Path, target: str = TARGET) -> dict:
                               "folders_owner_classes":{"admin":folder_admin,"unassigned":folder_blank,
                                   "other_named":folder_other-folder_admin-folder_blank}}
     return results
+
+
+def install_registry_only_online(revision: str) -> None:
+    """Online first-claim assignment of existing uploader entities only.
+
+    No service stop/start, no writes to projects/videos/queues/OAuth/Drive.
+    A failing post-check compensates ONLY rows inserted by this transaction;
+    never restore entire live SQLite files over concurrently created queues.
+    """
+    import json
+    import re
+    import shutil
+    from production.runtime import BASE, DATA, atomic_json
+    from production.song_uploader_group_summary_release import idle as song_idle
+    from production.short_uploader_group_release import idle as short_idle
+
+    require(bool(re.fullmatch(r"[0-9a-f]{40}", revision)), "INVALID_REVISION")
+    require(shutil.disk_usage("/").free >= 5_000_000_000, "INSUFFICIENT_DISK_RESERVE")
+    scene_db = DATA / "scene-builder/web/web.sqlite3"
+    roots = {mode: DATA / "local-upload-manager" / leaf for mode, leaf in
+             (("song", "lum-song"), ("short", "lum-shortstudio"))}
+    journal = BASE / "transactions/haseeb1-song-short-owner-online" / revision
+    require(not journal.exists(), "TRANSACTION_ALREADY_EXISTS")
+    check_scene_account(scene_db)
+    song_idle()
+    short_idle(allow_waiting_network=True)
+    before = read_only_audit(DATA, scene_db)
+    for mode, root in roots.items():
+        p = root / "projects.sqlite3"
+        require(p.is_file() and not p.is_symlink(), mode.upper() + "_PROJECT_DB_UNAVAILABLE")
+        with sqlite3.connect(p.as_uri() + "?mode=ro", uri=True) as db:
+            require(inspect_projects(db)["total"] == 0, "PROJECT_ROWS_REQUIRE_SEPARATE_MIGRATION")
+    journal.mkdir(parents=True, mode=0o700)
+    atomic_json(journal / "intent.json", {"revision": revision, "owner": TARGET,
+         "scope": "FIRST_CLAIM_REGISTRY_ONLY", "auto_script": "OFFLINE",
+         "services": "UNCHANGED"})
+    print("HASEEB1_MIGRATION_PHASE=BACKUP", flush=True)
+    try:
+        backups = {mode: backup_exact_owner_databases(root, journal / "backup" / mode)
+                   for mode, root in roots.items()}
+        require(all(len(files) == 2 for files in backups.values()), "BACKUP_INCOMPLETE")
+    except BaseException:
+        atomic_json(journal / "receipt.json", {"state":"BACKUP_FAILED_NO_MUTATION",
+                     "auto_script":"OFFLINE"})
+        raise
+
+    inserted = {}
+    try:
+        print("HASEEB1_MIGRATION_PHASE=FIRST_CLAIM",flush=True)
+        for mode, root in roots.items():
+            dbpath = root / "core/data/uploader.db"
+            require(dbpath.is_file() and not dbpath.is_symlink(), "CORE_DB_UNAVAILABLE")
+            with sqlite3.connect(dbpath, timeout=30) as con:
+                con.execute("PRAGMA busy_timeout=30000")
+                con.execute("BEGIN IMMEDIATE")
+                snapshot = inspect_core(con)
+                missing = {}
+                for kind, table in ENTITY_TABLES:
+                    if exists(con, "studio_entity_owners"):
+                        present = {int(row[0]) for row in con.execute(
+                            "SELECT entity_id FROM studio_entity_owners WHERE entity_kind=?", (kind,))}
+                    else:
+                        present = set()
+                    missing[kind] = [int(row[0]) for row in con.execute(
+                        "SELECT id FROM " + table) if int(row[0]) not in present]
+                    require(len(missing[kind]) == snapshot[kind]["to_assign"],
+                            "CLAIM_CANDIDATE_COUNT_CHANGED")
+                # Persist recovery intent before committing this independent DB.
+                atomic_json(journal / (mode + "-candidate.json"), missing, 0o600)
+                assign_core(con)
+            inserted[mode] = missing
+        print("HASEEB1_MIGRATION_PHASE=VERIFY",flush=True)
+        after = read_only_audit(DATA, scene_db)
+        require(all(
+            all(value["to_assign"] == 0 for value in item["entities"].values())
+            for item in after["instances"].values()),"POST_OWNER_COUNT_NOT_ZERO")
+        require(after["uploader_idle_gate"]["song"] == "PASS" and
+                after["uploader_idle_gate"]["short"] == "PASS","POST_OWNER_SERVICE_IDLE_FAILED")
+        atomic_json(journal / "receipt.json", {
+            "state": "UPLOADER_DATA_ASSIGNED_ONLINE", "revision": revision, "owner": TARGET,
+            "before": before["instances"], "after": after["instances"],
+            "services": "UNCHANGED", "google_drive": "UNCHANGED",
+            "auto_script": "OFFLINE"})
+        print(json.dumps({"STUDIO_UPLOADER_ASSIGNMENT":"PASS","owner":TARGET,
+              "scope":"SONG_SHORT_UPLOADERS_REGISTRY_ONLY",
+              "instances":after["instances"],"services":"UNCHANGED",
+              "other_studio_data":"NOT_MIGRATED",
+              "shared_google_drive":"UNCHANGED","auto_script":"OFFLINE"},
+              sort_keys=True),flush=True)
+    except BaseException:
+        print("HASEEB1_MIGRATION_PHASE=COMPENSATE",flush=True)
+        # Only undo IDs that this invocation inserted. No queue, video or
+        # whole-DB restore while services are online.
+        for mode, missing in inserted.items():
+            core = roots[mode] / "core/data/uploader.db"
+            with sqlite3.connect(core,timeout=30) as con:
+                con.execute("BEGIN IMMEDIATE")
+                for kind, ids in missing.items():
+                    con.executemany(
+                        "DELETE FROM studio_entity_owners WHERE entity_kind=? "
+                        "AND entity_id=? AND owner_username=? COLLATE NOCASE",
+                        [(kind,int(i),TARGET) for i in ids])
+        atomic_json(journal / "receipt.json", {"state":"COMPENSATED",
+                    "auto_script":"OFFLINE","services":"UNCHANGED"})
+        raise
+
