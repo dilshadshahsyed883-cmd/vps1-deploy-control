@@ -5007,7 +5007,11 @@ def queue_guarded_storage_gc(*, now: float | None = None) -> dict[str, Any]:
             if request.is_symlink():
                 raise RuntimeError("Unsafe manual cleanup request")
             if request.exists():
-                return {"ok": True, "status": "queued", "message": "Cleanup already queued"}
+                # A duplicate request is still pending, never a completed run.
+                queued_at = int(request.stat().st_mtime)
+                return {"ok": True, "status": "queued",
+                        "requested_at": queued_at,
+                        "message": "Cleanup already queued"}
             clock = time.time() if now is None else now
             last = directory / "last-request"
             if last.is_symlink():
@@ -5024,7 +5028,11 @@ def queue_guarded_storage_gc(*, now: float | None = None) -> dict[str, Any]:
             with os.fdopen(marker_fd, "w", encoding="ascii") as marker:
                 marker.write(str(int(clock)) + "\n")
             os.utime(last, (clock, clock))
-            return {"ok": True, "status": "queued", "message": "Guarded cleanup requested; refresh for audited results"}
+            # The systemd .path unit watches this exact request. This response
+            # only proves request creation, never that the GC ran or freed space.
+            return {"ok": True, "status": "queued",
+                    "requested_at": int(clock),
+                    "message": "Guarded cleanup queued; waiting for audited service run"}
     except OSError as exc:
         raise RuntimeError("Guarded cleanup unavailable or already being requested") from exc
 
