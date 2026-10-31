@@ -667,6 +667,10 @@ async def add_video(
             final = THUMBNAIL_ROOT / f"{project_id}{Path(thumb_path).suffix.lower()}"
             Path(thumb_path).replace(final)
             store.update(project_id, thumbnail_path=str(final))
+        # This is a separate serial queue, not the scheduled Auto Engine.
+        # New user-admitted work should not require pressing Start again.
+        if upload_instance in {"song", "shortstudio"} and store.setting("pause_after_current", "0") != "1":
+            store.set_setting("engine_enabled", "1")
         next_tab = "upload" if user_mode(user) == "simple" else "queue"
         return redirect(f"/app?tab={next_tab}", message=f"Project #{project_id} added to VPS queue")
     except Exception as exc:
@@ -1352,9 +1356,9 @@ def auto_v6_generate_json(request: Request,csrf_token: str=Form(...),profile_id:
         return V6JSONResponse({"ok":False,"profile_id":pid,"created":0,"errors":[str(exc)]},status_code=400)
 
 
-# Song / Short Uploader: restored group-level controls above the profiles list.
-# A queue generation is intentionally different from Start All: it does NOT
-# start the worker or arm the scheduled uploader.
+# Song / Short Uploader: group-level queue generation does not arm the
+# scheduler. Fresh eligible jobs auto-start the worker via generate_queue;
+# future scheduled jobs remain subject to their due times.
 @app.post(route("/actions/auto-v6/generate-all"))
 def auto_v6_generate_all(request: Request, csrf_token: str=Form(...), confirmation: str=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
@@ -1379,7 +1383,7 @@ def auto_v6_generate_all(request: Request, csrf_token: str=Form(...), confirmati
                 v6_mark_schedule_skipped_today(db,profile)
         except Exception as exc:
             skipped.append(f"{raw.get('category_name') or pid}: {exc}")
-    message=f"Queue generation: {created} new job(s) from {checked} enabled profile(s); {duplicates} duplicate(s) blocked. Upload engine state unchanged."
+    message=f"Queue generation: {created} new job(s) from {checked} enabled profile(s); {duplicates} duplicate(s) blocked. New eligible jobs auto-start; scheduled jobs wait until due."
     if skipped:
         message+=f" {len(skipped)} profile(s) skipped: "+"; ".join(skipped[:3])
     return redirect("/app?tab=auto_engine",message=message)

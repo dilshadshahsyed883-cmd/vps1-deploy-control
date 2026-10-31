@@ -12,6 +12,72 @@ from production import storage_gc as gc
 
 
 class StorageGCTests(unittest.TestCase):
+    def test_esrch_during_proc_read_only_ignores_confirmed_vanished_pid(self):
+        import errno
+        import shutil
+        from unittest.mock import patch
+        proc = Path(self.workspace.name) / "proc-esrch"
+        process = proc / "982374"
+        process.mkdir(parents=True)
+        target = self.root / "releases" / self.app / self.revisions[3]
+        gone = ProcessLookupError(errno.ESRCH, "process vanished")
+        # PID still present: fail closed; a re-used or zombie PID is unsafe
+        # until independently proven harmless.
+        with patch.object(Path, "read_bytes", side_effect=gone):
+            self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc),
+                             "unverifiable-process-race")
+            self.assertTrue(gc._runtime_in_use([target], proc_root=proc))
+
+        # PID truly vanished after enumeration: no process may reference it.
+        def disappear(_path):
+            shutil.rmtree(process)
+            raise ProcessLookupError(errno.ESRCH, "process vanished")
+
+        with patch.object(Path, "read_bytes", autospec=True, side_effect=disappear):
+            self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc), "clear")
+        self.assertFalse(process.exists())
+
+    def test_redacted_runtime_error_has_errno_and_stage_without_pid_leak(self):
+        import errno
+        from unittest.mock import patch
+        proc = Path(self.workspace.name) / "proc-sample"
+        (proc / "123456").mkdir(parents=True)
+        target = self.root / "releases" / self.app / self.revisions[3]
+        with patch.object(Path, "read_bytes", side_effect=OSError(errno.EIO, "io unavailable")):
+            status = gc._runtime_reference_probe([target], proc_root=proc)
+        self.assertEqual(status, "unverifiable-process-error-read-cmdline-errno-5")
+        self.assertNotIn("123456", status)
+        self.assertNotIn(self.revisions[3], status)
+
+    def test_unreadable_and_referenced_processes_stay_protected_but_distinct(self):
+        from unittest.mock import patch
+        proc = Path(self.workspace.name) / "procs"
+        proc.mkdir()
+        pid = proc / "1234"
+        pid.mkdir()
+        target = self.root / "releases" / self.app / self.revisions[3]
+        # Missing files in a still-live PID remain unsafe.
+        self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc),
+                         "unverifiable-process-race")
+        self.assertTrue(gc._runtime_in_use([target], proc_root=proc))
+        for name in ("cmdline", "environ", "maps"):
+            (pid / name).write_bytes(b"")
+        (pid / "fd").mkdir()
+        self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc), "clear")
+        (pid / "cmdline").write_bytes(os.fsencode(target) + b"/server.py")
+        self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc), "referenced")
+        self.assertTrue(gc._runtime_in_use([target], proc_root=proc))
+        self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc),
+                         "referenced")
+
+
+    def test_runtime_probe_cannot_block_guarded_install_while_deployment_busy(self):
+        script = (Path(__file__).resolve().parents[1] /
+                  "scripts/install_storage_gc.sh").read_text()
+        self.assertIn("--probe-runtime", script)
+        self.assertIn("STORAGE_GC_RUNTIME_PROBE=LOCKED_OR_UNAVAILABLE_NO_DELETION", script)
+        self.assertNotIn("exit 26", script)
+
     def test_manual_systemd_path_reuses_existing_protected_gc_engine(self):
         root = Path(__file__).resolve().parents[1]
         units = root / "infrastructure/systemd"

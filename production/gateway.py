@@ -301,16 +301,25 @@ def main():
     parser.add_argument('--apps', nargs='+', choices=sorted(CATALOG), required=True)
     args = parser.parse_args()
     check_host(args.revision)
-    # The exact-job cancellation release performs no application install.
-    # Do not reload Nginx or republish unrelated routes after that operation.
+    # Inspect protected-main release intent before any route mutation.
     intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
-    # Three-Studio release already owns and verifies the exact existing HTTPS
-    # Nginx route transaction. A generic gateway republish would undo its SSO.
+    # The Three-Studio transaction owns and verifies the existing SSO Nginx site.
     if '[vps1-studio-permissions-release]' in intent:
         if 'scene-builder' not in args.apps:
             raise RuntimeError('Three-Studio permissions require Scene gateway ownership')
         print('THREE_STUDIO_PERMISSIONS_GATEWAY=NO_MUTATION', flush=True)
         return
+    # The one-off exact Scene job reset does not deploy or republish the gateway.
+    if '[vps1-scene-exact-reset-3327-20261031]' in intent:
+        # The trusted remote helper passes all currently active app routes
+        # here even after a scene-builder-only runtime operation. The exact
+        # reset already completed; do not republish any gateway routes.
+        if 'scene-builder' not in args.apps:
+            raise RuntimeError('exact Scene reset gateway readback missing Scene Builder')
+        print('SCENE_EXACT_RESET_GATEWAY_MUTATIONS=NONE', flush=True)
+        return
+    # The exact-job cancellation release performs no application install.
+    # Do not reload Nginx or republish unrelated routes after that operation.
     if '[vps1-scene-job-terminate-3327-20261027]' in intent:
         if args.apps != ['scene-builder']:
             raise RuntimeError('cancel-only release cannot modify application gateway')

@@ -7,6 +7,8 @@ import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+import pwd
+import stat
 from pathlib import Path
 import re
 import shutil
@@ -576,6 +578,32 @@ def _public_deployment_gc_status() -> dict[str, Any] | None:
         return None
 
 
+def _manual_gc_spool_status(directory: Path, *, owner_uid: int,
+                            path_active: bool) -> tuple[bool, bool | None]:
+    """Check the fixed web-owned trigger spool without reading sensitive files.
+
+    The isolated Storage Manager may run as freshweb, whereas the authenticated
+    Scene web worker that queues requests runs as ubuntu. Comparing st_uid to
+    our own euid incorrectly disables manual cleanup on healthy hosts.
+    """
+    if not path_active or owner_uid < 0:
+        return False, False
+    try:
+        info = directory.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != owner_uid or info.st_mode & 0o077:
+            return False, False
+        if not os.access(directory, os.X_OK):
+            # Isolated read-only workers may not traverse ubuntu's 0700 spool.
+            # Availability is independently verified; pending state is unknown.
+            return True, None
+        request = directory / "request"
+        if request.is_symlink():
+            return False, None
+        return True, request.is_file()
+    except OSError:
+        return False, False
+
+
 def deployment_cleanup_status() -> dict[str, Any]:
     """Observe the root-owned 12-hour GC timer and bounded audit. Never execute GC."""
     unit = "vps1-storage-deployment-gc.timer"
@@ -716,14 +744,11 @@ def deployment_cleanup_status() -> dict[str, Any]:
     except (OSError, subprocess.TimeoutExpired, AttributeError):
         path_enabled = False
     try:
-        directory = manual_dir.stat()
-        manual_available = (path_enabled and not manual_dir.is_symlink() and manual_dir.is_dir()
-                            and directory.st_uid == os.geteuid()
-                            and directory.st_mode & 0o077 == 0)
-        manual_pending = (manual_available and (manual_dir / "request").is_file()
-                          and not (manual_dir / "request").is_symlink())
-    except OSError:
-        manual_available, manual_pending = False, False
+        expected_owner = pwd.getpwnam("ubuntu").pw_uid
+    except (KeyError, OSError):
+        expected_owner = -1
+    manual_available, manual_pending = _manual_gc_spool_status(
+        manual_dir, owner_uid=expected_owner, path_active=path_enabled)
 
     active = states["is-active"] == "active"
     enabled = states["is-enabled"] == "enabled"

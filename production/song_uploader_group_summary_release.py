@@ -141,6 +141,18 @@ def verify_live():
             'Sync Channel</button>' not in html and
             'data-ae-sync-scan' not in html,
             'individual sync UI persists or global sync is duplicated')
+    # Verify the actual Song Dashboard (not just Auto Engine) no longer exposes
+    # VPS report generation, listing or download controls; all stored reports remain.
+    dashboard_status,_,dashboard_body=https_get('/song-uploader/app?tab=dashboard',cookie)
+    require(dashboard_status==200, 'authenticated Song Uploader Dashboard GET failed')
+    dashboard_html=dashboard_body.decode('utf-8')
+    require('Serial engine' in dashboard_html and '>Save modes</button>' in dashboard_html,
+            'Song Uploader Dashboard content missing')
+    require('<h2>VPS Reports</h2>' not in dashboard_html and
+            '/actions/report-health' not in dashboard_html and
+            'class="report-list"' not in dashboard_html,
+            'Song Uploader Dashboard still displays VPS Reports')
+
     # Authenticated, read-only acceptance: report each component's displayed
     # state independently. Never infer a healthy worker from Engine RUNNING.
     for component, choices in (('WORKER', ('Idle','Processing','Error','Offline')),

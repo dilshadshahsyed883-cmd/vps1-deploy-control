@@ -995,8 +995,7 @@ def main():
     check_host(args.revision)
     with deployment_lock():
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
-        # One reviewed Scene web overlay plus reversible Short/Copyright
-        # auth_request updates. No uploader or render worker restarts.
+        # One reviewed Scene web overlay plus reversible uploader auth_request rules.
         if '[vps1-studio-permissions-release]' in intent:
             if args.apps != ['scene-builder']:
                 raise RuntimeError('Three-Studio permissions require the Scene-only authorized lane')
@@ -1087,6 +1086,14 @@ def main():
             from production.route_uploader_scene_https import deploy as activate_lum_legacy_route
             activate_lum_legacy_route(args.revision)
             event(lum_legacy_route="ENGINE1_VERIFIED", uploader_service_mutations="NONE")
+            return
+        # Owner-authorized one-off cleanup of the exact stalled Scene render.
+        # Never enter normal Scene install or any unrelated application lane.
+        if '[vps1-scene-exact-reset-3327-20261031]' in intent:
+            if args.action != 'install' or args.apps != ['scene-builder']:
+                raise RuntimeError('exact Scene reset requires scene-builder-only install lane')
+            from production.scene_exact_reset_3327_20261031 import reset_exact_scene_job
+            reset_exact_scene_job()
             return
         # One protected-main release, one specific Scene job. Never enter normal
         # install/rollback or restart a service during a cancellation request.

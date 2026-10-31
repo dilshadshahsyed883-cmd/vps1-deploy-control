@@ -16,7 +16,9 @@ class SongUploaderSettingsContract(TestCase):
     def test_dashboard_omits_bulk_toggle_for_song_and_shortstudio(self):
         source = TEMPLATE.read_text(encoding="utf-8")
         start = source.index('<div class="lum-grid lum-two">', source.index("{% elif tab == 'dashboard' %}"))
-        end = source.index("{{ reports_panel() }}", start)
+        # Exclude the whole report invocation guard; this regression inspects only
+        # Dashboard settings fields, never the shared report renderer.
+        end = source.index("{% if engine_instance not in ['song', 'shortstudio'] %}{{ reports_panel() }}{% endif %}", start)
         fragment = Environment(autoescape=True).from_string(source[start:end])
         for instance, expected_bulk in (("song", False), ("engine1", True), ("shortstudio", False)):
             data = {
