@@ -49,6 +49,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Install pinned Copyright HTTP-test dependencies (CI only; no VPS)
+        run: python3 -m pip install --disable-pip-version-check -r apps/copyright-uploader/part01/requirements.txt
       - name: Python tests
         run: python3 -m unittest discover -s tests -v
       - name: Enforce owner-approved UI design source contract
