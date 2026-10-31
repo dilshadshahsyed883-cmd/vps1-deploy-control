@@ -20,6 +20,8 @@ ANCHOR = " location = /internal/runtime-ready { return 404; }"
 RULE = """ # VPS1_UNIVERSAL_BROWSER_LOGIN_401_V1
  error_page 401 = @vps1_browser_login_401;
  location @vps1_browser_login_401 {
+    # auth_request subrequests must see the original 401, never a 303/500.
+    if ($uri ~ "^/(_|internal/)") { return 401; }
     # Machine-to-machine calls must never receive a login HTML redirect.
     if ($request_method !~ ^(GET|HEAD)$) { return 401; }
     if ($uri ~* "(^|/)(api|health|healthz)(/|$)") { return 401; }
