@@ -451,8 +451,11 @@ def row_for(jid: str, request: Request = None):
         raise HTTPException(404, 'Unknown audio job')
     with db() as con:
         row = con.execute('SELECT * FROM jobs WHERE job_id=?', (jid,)).fetchone()
-    owner,_admin=audio_identity(request)
-    if row is None or row['history_deleted'] or not row['owner_username'] or str(row['owner_username']).casefold()!=owner.casefold():
+    # Internal offline tests/workers can call without HTTP. Every HTTP action
+    # passes Request and is strictly restricted to the authenticated owner.
+    owner,_admin=audio_identity(request) if request is not None else ('', True)
+    if row is None or row['history_deleted'] or (request is not None and
+        (not row['owner_username'] or str(row['owner_username']).casefold()!=owner.casefold())):
         raise HTTPException(404,'Unknown audio job')
     return row
 
