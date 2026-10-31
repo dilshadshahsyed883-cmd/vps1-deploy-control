@@ -37,6 +37,67 @@ class StorageGCTests(unittest.TestCase):
             self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc), "clear")
         self.assertFalse(process.exists())
 
+    def test_runtime_esrch_skips_only_stable_resource_free_zombie(self):
+        from unittest.mock import patch
+        import errno
+
+        proc = Path(self.workspace.name) / "proc-zombie"
+        pid = proc / "982375"
+        (pid / "fd").mkdir(parents=True)
+        target = self.root / "releases" / self.app / self.revisions[3]
+        gone = ProcessLookupError(errno.ESRCH, "process is not runnable")
+
+        def stat_line(state="Z", start=123456):
+            # /proc/PID/stat fields: state is #3, starttime is #22.
+            fields = [state] + ["0"] * 18 + [str(start)] + ["0"] * 4
+            return f"{pid.name} (worker ) name) " + " ".join(fields)
+
+        (pid / "stat").write_text(stat_line())
+        with patch.object(Path, "read_bytes", side_effect=gone):
+            self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc),
+                             "clear")
+            # Existing runnable PID must never be ignored.
+            (pid / "stat").write_text(stat_line("R"))
+            self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc),
+                             "unverifiable-process-race")
+            (pid / "stat").write_text(stat_line())
+            # Open descriptor: even a claimed zombie is not proven harmless.
+            (pid / "fd" / "5").symlink_to(target)
+            self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc),
+                             "unverifiable-process-race")
+            (pid / "fd" / "5").unlink()
+
+            # PID reuse / changed start time between checks must fail closed.
+            real_read_text = Path.read_text
+            reads = [0]
+
+            def changing_stat(path, *args, **kwargs):
+                if path == pid / "stat":
+                    reads[0] += 1
+                    return stat_line(start=123456 + (reads[0] > 1))
+                return real_read_text(path, *args, **kwargs)
+
+            with patch.object(Path, "read_text", autospec=True,
+                              side_effect=changing_stat):
+                self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc),
+                                 "unverifiable-process-race")
+
+    def test_zombie_stat_missing_or_invalid_remains_protected(self):
+        from unittest.mock import patch
+        import errno
+
+        proc = Path(self.workspace.name) / "proc-unverified"
+        pid = proc / "986443"
+        (pid / "fd").mkdir(parents=True)
+        target = self.root / "releases" / self.app / self.revisions[3]
+        with patch.object(Path, "read_bytes",
+                          side_effect=ProcessLookupError(errno.ESRCH, "gone")):
+            self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc),
+                             "unverifiable-process-race")
+            (pid / "stat").write_text("untrusted")
+            self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc),
+                             "unverifiable-process-race")
+
     def test_redacted_runtime_error_has_errno_and_stage_without_pid_leak(self):
         import errno
         from unittest.mock import patch
