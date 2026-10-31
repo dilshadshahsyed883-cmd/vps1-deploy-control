@@ -24,6 +24,7 @@ FILES=(
     "lum_engine/standalone_app.py",
     "lum_engine/project_store.py",
     "lum_engine/studio_tenants.py",
+    "lum_engine/channels_web.py",
 )
 NEW_FILES=frozenset({"lum_engine/studio_tenants.py"})
 UNITS=tuple(f"vps1-production-lum-song-{kind}.service" for kind in ("scheduler","worker","web"))
