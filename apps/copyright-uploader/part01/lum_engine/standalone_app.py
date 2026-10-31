@@ -478,11 +478,13 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         sheet_sources=[item for item in sheet_sources if int(item["id"]) in permitted_sheets]
         if selected_sheet_source and int(selected_sheet_source["id"]) not in permitted_sheets:
             selected_sheet_source=None
-    web_clients = list_clients()
-    channel_context = channels_page_context(db, web_clients) if selected == "channels" else {
+    permitted_channels=studio_tenants.allowed_ids("channel",user)
+    web_clients = list_clients() if permitted_channels is None else []
+    channel_context = channels_page_context(
+        db, web_clients, permitted_channels, permitted_sheets
+    ) if selected == "channels" else {
         "rows": [], "summary": {}, "groups": [], "sheets": [], "oauth_inventory": {}
     }
-    permitted_channels=studio_tenants.allowed_ids("channel",user)
     if permitted_channels is not None:
         permitted_groups=studio_tenants.allowed_ids("group",user)
         channel_context["rows"]=[item for item in channel_context["rows"]
