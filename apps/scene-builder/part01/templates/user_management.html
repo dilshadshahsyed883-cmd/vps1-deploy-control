@@ -8,7 +8,7 @@
 
 <section class="um-create-card">
   <div class="um-section-heading">
-    <div><h2>Create user</h2><p>Both roles can use every application. Only Admin can access the Administration area.</p></div>
+    <div><h2>Create user</h2><p>Assign Song, Short and Copyright Studio to each user. Experiment Studio and Admin stay administrator-only.</p></div>
   </div>
   <form method="post" class="um-create-form um-two-role-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -16,6 +16,12 @@
     <label><span>Username</span><input name="username" required minlength="3" maxlength="40" pattern="[A-Za-z0-9_.-]+" autocomplete="off" placeholder="e.g. editor01"></label>
     <label><span>Secret key</span><input name="secret_key" type="password" required minlength="8" autocomplete="new-password" placeholder="Minimum 8 characters"></label>
     <label><span>Role</span><select name="role" required><option value="non_admin" selected>Non-admin</option><option value="admin">Admin</option></select></label>
+    <fieldset class="um-studios" style="display:flex;gap:12px;flex-wrap:wrap;border:1px solid #dce4ef;border-radius:10px;padding:10px 14px">
+      <legend>Allowed Studios (admin always has all)</legend>
+      <label><input type="checkbox" name="studio_song" value="on" checked> Song Studio</label>
+      <label><input type="checkbox" name="studio_short" value="on" checked> Short Studio</label>
+      <label><input type="checkbox" name="studio_copyright" value="on" checked> Copyright Studio</label>
+    </fieldset>
     <button class="button um-create-button" type="submit">Create user</button>
   </form>
 </section>
@@ -63,7 +69,7 @@
     </div>
     <div class="um-modal-summary um-role-summary">
       <div><small>Role</small><strong>{{ 'Admin' if user.is_admin else 'Non-admin' }}</strong></div>
-      <div><small>Application access</small><strong>All apps</strong></div>
+      <div><small>Studio access</small><strong>{% if user.is_admin %}All three (Admin){% elif user.allowed_studios %}{{ user.allowed_studios|join(', ')|title }}{% else %}None{% endif %}</strong></div>
       <div><small>Jobs</small><strong>{{ user.job_count }}</strong></div>
     </div>
     <div class="um-modal-section">
@@ -72,10 +78,28 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="action" value="set_role">
         <input type="hidden" name="username" value="{{ user.username }}">
-        <label><span>Role</span><select name="role"><option value="non_admin" {% if not user.is_admin %}selected{% endif %}>Non-admin — all apps, no Admin page</option><option value="admin" {% if user.is_admin %}selected{% endif %}>Admin — all apps and Admin page</option></select></label>
+        <label><span>Role</span><select name="role"><option value="non_admin" {% if not user.is_admin %}selected{% endif %}>Non-admin — assigned Studios, no Admin page</option><option value="admin" {% if user.is_admin %}selected{% endif %}>Admin — all apps and Admin page</option></select></label>
         <button class="button" type="submit">Save role</button>
       </form>
     </div>
+    {% if not user.is_admin %}
+    <div class="um-modal-section">
+      <h3>Allowed sidebar Studios</h3>
+      <form method="post" class="um-inline-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="action" value="set_studio_access">
+        <input type="hidden" name="username" value="{{ user.username }}">
+        <fieldset class="um-studios" style="display:flex;gap:12px;flex-wrap:wrap;border:1px solid #dce4ef;border-radius:10px;padding:10px 14px">
+          <legend>App permissions</legend>
+          <label><input type="checkbox" name="studio_song" value="on" {% if 'song' in user.allowed_studios %}checked{% endif %}> Song Studio</label>
+          <label><input type="checkbox" name="studio_short" value="on" {% if 'short' in user.allowed_studios %}checked{% endif %}> Short Studio</label>
+          <label><input type="checkbox" name="studio_copyright" value="on" {% if 'copyright' in user.allowed_studios %}checked{% endif %}> Copyright Studio</label>
+        </fieldset>
+        <p>Experiment Studio and Administration are reserved for Admin users.</p>
+        <button class="button" type="submit">Save Studio Access</button>
+      </form>
+    </div>
+    {% endif %}
     <div class="um-modal-section">
       <h3>Reset secret key</h3>
       <form method="post" class="um-inline-form">
