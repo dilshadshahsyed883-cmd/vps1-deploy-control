@@ -75,7 +75,9 @@ def test_uploader_dashboard_shared_modes_hidden_for_nonadmin() -> None:
 def test_copyright_queue_global_controls_hidden_but_personal_actions_preserved() -> None:
     path = "apps/copyright-uploader/part01/templates/copyright_queue.html"
     source = _source(path)
-    template = Environment().from_string(source)
+    environment = Environment()
+    environment.filters["schedule_pkt"] = lambda value: value
+    template = environment.from_string(source)
     context = {
         "base_path": "/copyright-uploader",
         "projects": [],
