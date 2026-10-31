@@ -70,9 +70,14 @@ def main():
             subprocess.run(['/usr/bin/bash', 'scripts/install_storage_gc.sh'],
                            cwd=checkout, check=True)
         elif operation == 'storage-gc-status':
-            subprocess.run(['/usr/bin/systemctl', 'is-active', '--quiet', service], check=True)
+            for unit in (service, 'vps1-storage-deployment-gc-manual.path',
+                         'vps1-storage-deployment-gc-status.timer'):
+                subprocess.run(['/usr/bin/systemctl', 'is-enabled', '--quiet', unit], check=True)
+                subprocess.run(['/usr/bin/systemctl', 'is-active', '--quiet', unit], check=True)
             subprocess.run(['/usr/bin/python3', '/usr/local/libexec/vps1-storage-gc.py', '--json'],
                            check=True)
+            subprocess.run(['/usr/bin/python3', '/usr/local/libexec/vps1-storage-gc.py',
+                            '--probe-runtime'], check=True)
         else:
             subprocess.run(['/usr/bin/systemctl', 'disable', '--now', service], check=True)
         return

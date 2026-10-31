@@ -209,41 +209,72 @@ def inventory(root: Path = BASE, now: float | None = None, unit_dir: Path | None
     return results
 
 
-def _runtime_in_use(paths: list[Path], proc_root: Path = Path("/proc")) -> bool:
-    """Block cleanup if any live process names, opens, or works inside a target."""
-    targets = [str(path.resolve(strict=True)) for path in paths]
+def _runtime_reference_probe(paths: list[Path], proc_root: Path = Path("/proc")) -> str:
+    """Redacted tri-state /proc probe; unverifiable must never permit deletion.
+
+    The result contains no PID, revision, directory, or environment contents.
+    A single unreadable *live* process still blocks removal. Report this
+    separately from a positive runtime reference so host permissions can be
+    repaired without bypassing the deletion guard.
+    """
     try:
+        targets = [str(path.resolve(strict=True)) for path in paths]
+        target_paths = [Path(target) for target in targets]
         for pid in proc_root.iterdir():
             if not pid.name.isdigit():
                 continue
             try:
-                # Check argv, environment, loaded libraries and file handles.
-                # If any process introspection fails, do not delete.
                 for name in ("cmdline", "environ", "maps"):
                     content = (pid / name).read_bytes()
                     if any(os.fsencode(target) in content for target in targets):
-                        return True
+                        return "referenced"
                 for name in ("cwd", "exe"):
                     with contextlib.suppress(FileNotFoundError):
                         linked = (pid / name).resolve(strict=True)
-                        if any(linked == Path(target) or linked.is_relative_to(Path(target))
-                               for target in targets):
-                            return True
+                        if any(linked == target or linked.is_relative_to(target) for target in target_paths):
+                            return "referenced"
                 for fd in (pid / "fd").iterdir():
                     with contextlib.suppress(FileNotFoundError):
                         linked = fd.resolve(strict=True)
-                        if any(linked == Path(target) or linked.is_relative_to(Path(target))
-                               for target in targets):
-                            return True
+                        if any(linked == target or linked.is_relative_to(target) for target in target_paths):
+                            return "referenced"
             except FileNotFoundError:
                 if pid.exists():
-                    return True  # Existing PID with missing proc data is unsafe.
-                continue  # PID vanished while /proc was traversed.
+                    return "unverifiable-process-race"
+                continue
+            except PermissionError:
+                return "unverifiable-permission"
             except OSError:
-                return True  # Unreadable process state: protect the candidate.
-        return False
-    except OSError:
-        return True
+                return "unverifiable-process-error"
+        return "clear"
+    except PermissionError:
+        return "unverifiable-permission"
+    except (OSError, RuntimeError):
+        return "unverifiable-process-error"
+
+
+def _runtime_in_use(paths: list[Path], proc_root: Path = Path("/proc")) -> bool:
+    """True means a runtime reference OR uncertainty; never bypass fail-closed."""
+    return _runtime_reference_probe(paths, proc_root=proc_root) != "clear"
+
+
+def diagnostic_runtime_probe(root: Path = BASE, *, unit_dir: Path | None = None) -> dict[str, Any]:
+    """Safe read-only host diagnostic for the current eligible inventory.
+
+    Avoids disclosing process IDs, directory names, revisions or full release
+    paths in a CI log. Only the first eligible candidate is probed.
+    """
+    snapshot = execute(root=root, apply=False, unit_dir=unit_dir)
+    plan = snapshot["inventory"]
+    control = plan.get("control") or {}
+    candidates = [*control.get("candidates", []), *plan.get("candidates", [])]
+    if not candidates:
+        return {"read_only": True, "candidate_count": 0,
+                "first_candidate_runtime_status": "not-applicable"}
+    candidate = candidates[0]
+    result = _runtime_reference_probe([Path(raw) for raw in candidate["paths"]])
+    return {"read_only": True, "candidate_count": len(candidates),
+            "first_candidate_runtime_status": result}
 
 
 def apply_plan(root: Path, plan: dict[str, Any], *, now: float | None = None,
@@ -690,7 +721,13 @@ def main() -> None:
     parser.add_argument("--apply", action="store_true", help="guarded removal; default is dry-run")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--publish-status", action="store_true", help="root-only sanitized read-only telemetry")
+    parser.add_argument("--probe-runtime", action="store_true", help="read-only redacted runtime verification diagnostic")
     args = parser.parse_args()
+    if args.probe_runtime:
+        if args.apply or args.publish_status:
+            parser.error("runtime probe must be independent and read-only")
+        print(json.dumps(diagnostic_runtime_probe(), sort_keys=True))
+        return
     if args.publish_status:
         if args.apply:
             parser.error("--publish-status cannot delete or apply")
