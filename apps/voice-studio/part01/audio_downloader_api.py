@@ -13,6 +13,7 @@ import stat
 import sys
 import os
 import re
+import signal
 import shutil
 import sqlite3
 import subprocess
@@ -107,7 +108,9 @@ def init_storage() -> None:
                                ('song_maker_job_id', 'TEXT'),
                                ('song_maker_next_retry_at', 'TEXT'),
                                ('song_folder_id', "TEXT NOT NULL DEFAULT ''"),
-                               ('song_folder_name', "TEXT NOT NULL DEFAULT ''")):
+                               ('song_folder_name', "TEXT NOT NULL DEFAULT ''"),
+                               ('history_deleted', 'INTEGER NOT NULL DEFAULT 0'),
+                               ('cancel_requested', 'INTEGER NOT NULL DEFAULT 0')):
             if name not in columns:
                 con.execute(f'ALTER TABLE jobs ADD COLUMN {name} {sql_type}')
         # Preserve old jobs. Auto-queue's explicit owner is reliable evidence;
@@ -118,6 +121,8 @@ def init_storage() -> None:
         con.execute('''CREATE TABLE IF NOT EXISTS audio_upload_pacing (
             id INTEGER PRIMARY KEY CHECK (id=1), next_upload_at TEXT NOT NULL
         )''')
+        con.execute('''CREATE TABLE IF NOT EXISTS audio_queue_control
+            (owner TEXT PRIMARY KEY, paused INTEGER NOT NULL DEFAULT 0)''')
         # Owner-scoped download defaults; never infer these from queued jobs.
         con.execute('''CREATE TABLE IF NOT EXISTS audio_preferences (
             owner TEXT PRIMARY KEY, format TEXT NOT NULL,
@@ -128,6 +133,17 @@ def init_storage() -> None:
         pref_cols={row[1] for row in con.execute('PRAGMA table_info(audio_preferences)')}
         if 'song_folder_id' not in pref_cols:
             con.execute("ALTER TABLE audio_preferences ADD COLUMN song_folder_id TEXT NOT NULL DEFAULT ''")
+
+
+class AudioJobCancelled(RuntimeError):
+    """Owner requested safe cancellation; no automatic redownload or upload."""
+
+
+def _abort_if_cancelled(jid: str) -> None:
+    with db() as con:
+        row = con.execute('SELECT cancel_requested FROM jobs WHERE job_id=?', (jid,)).fetchone()
+    if row and row['cancel_requested']:
+        raise AudioJobCancelled('Cancelled by owner')
 
 
 class DriveUploadFailure(RuntimeError):
@@ -157,9 +173,12 @@ def recover_interrupted_jobs() -> None:
             con.execute("""UPDATE jobs SET status='failed',next_retry_at=NULL,
                            progress_stage='manual retry required',updated_at=?
                            WHERE job_id=? AND status='upload_retry'""", (utc(), row['job_id']))
-        con.execute("""UPDATE jobs SET status='failed',next_retry_at=NULL,
-                       error='Job interrupted; retry manually using saved local audio',
-                       progress_stage='manual retry required',updated_at=?
+        con.execute("""UPDATE jobs SET status=CASE WHEN cancel_requested=1
+                           THEN 'cancelled' ELSE 'failed' END,next_retry_at=NULL,
+                       error=CASE WHEN cancel_requested=1 THEN NULL ELSE
+                           'Job interrupted; retry manually using saved local audio' END,
+                       progress_stage=CASE WHEN cancel_requested=1 THEN
+                           'cancelled on restart' ELSE 'manual retry required' END,updated_at=?
                        WHERE status IN ('downloading','downloaded','uploading')""", (utc(),))
         con.execute('COMMIT')
 
@@ -275,11 +294,11 @@ def status(request: Request = None):
     init_storage()
     d = deps()
     with db() as con:
-        if admin:
-            q=con.execute('SELECT status,COUNT(*) AS n FROM jobs GROUP BY status').fetchall()
-        else:
-            q=con.execute('SELECT status,COUNT(*) AS n FROM jobs WHERE lower(owner_username)=? GROUP BY status',(owner.casefold(),)).fetchall()
-    return {'ready': d['ready'], 'reason': '' if d['ready'] else 'yt-dlp or FFmpeg unavailable',
+        q=con.execute('SELECT status,COUNT(*) AS n FROM jobs WHERE lower(owner_username)=? AND history_deleted=0 GROUP BY status',(owner.casefold(),)).fetchall()
+        control=con.execute('SELECT paused FROM audio_queue_control WHERE owner=?',
+                            (owner.casefold(),)).fetchone()
+        paused=bool(control and control['paused'])
+    return {'queue_paused': paused, 'ready': d['ready'], 'reason': '' if d['ready'] else 'yt-dlp or FFmpeg unavailable',
             'upload_ready': d['upload_ready'], 'drive_root': f'{DRIVE_REMOTE}:{DRIVE_BASE}',
             'formats': ['mp3', 'wav'], 'quality': [128, 192, 256],
             'download_contract': 'explicit-proxy-private-session-v2',
@@ -418,14 +437,12 @@ def enqueue(payload: BatchRequest, request: Request = None):
 
 @router.get('/jobs')
 def list_jobs(limit: int = 100, request: Request = None):
-    owner,admin=audio_identity(request)
+    owner, _admin = audio_identity(request)
     init_storage()
     limit = max(1, min(limit, 200))
     with db() as con:
-        if admin:
-            rows=con.execute('SELECT * FROM jobs ORDER BY created_at DESC,job_id DESC LIMIT ?',(limit,)).fetchall()
-        else:
-            rows=con.execute('SELECT * FROM jobs WHERE lower(owner_username)=? ORDER BY created_at DESC,job_id DESC LIMIT ?',(owner.casefold(),limit)).fetchall()
+        rows=con.execute('SELECT * FROM jobs WHERE lower(owner_username)=? AND history_deleted=0 ORDER BY created_at DESC,job_id DESC LIMIT ?',
+                         (owner.casefold(),limit)).fetchall()
     return {'jobs':[sanitized_row(row) for row in rows]}
 
 
@@ -434,9 +451,11 @@ def row_for(jid: str, request: Request = None):
         raise HTTPException(404, 'Unknown audio job')
     with db() as con:
         row = con.execute('SELECT * FROM jobs WHERE job_id=?', (jid,)).fetchone()
-    owner,admin=audio_identity(request) if request is not None else ('',True)
-    if row is None or (not admin and (not row['owner_username'] or
-         str(row['owner_username']).casefold()!=owner.casefold())):
+    # Internal offline tests/workers can call without HTTP. Every HTTP action
+    # passes Request and is strictly restricted to the authenticated owner.
+    owner,_admin=audio_identity(request) if request is not None else ('', True)
+    if row is None or row['history_deleted'] or (request is not None and
+        (not row['owner_username'] or str(row['owner_username']).casefold()!=owner.casefold())):
         raise HTTPException(404,'Unknown audio job')
     return row
 
@@ -447,21 +466,69 @@ def get_job(job_id: str, request: Request = None):
     return sanitized_row(row_for(job_id,request))
 
 
+@router.get('/queue')
+def queue_state(request: Request):
+    owner, _admin = audio_identity(request)
+    init_storage()
+    with db() as con:
+        row=con.execute('SELECT paused FROM audio_queue_control WHERE owner=?',
+                        (owner.casefold(),)).fetchone()
+    return {'paused': bool(row and row['paused'])}
+
+
+@router.post('/queue/{action}')
+def queue_action(action: Literal['pause', 'resume'], request: Request):
+    owner, _admin = audio_identity(request)
+    init_storage()
+    with db() as con:
+        con.execute('''INSERT INTO audio_queue_control(owner,paused) VALUES(?,?)
+            ON CONFLICT(owner) DO UPDATE SET paused=excluded.paused''',
+            (owner.casefold(), int(action=='pause')))
+    # Already claimed tasks are not forcibly interrupted by a queue pause.
+    return {'paused': action=='pause', 'owner_scoped': True}
+
+
+@router.delete('/jobs/{job_id}')
+def hide_history(job_id: str, request: Request):
+    init_storage()
+    row = row_for(job_id, request)
+    if row['status'] not in ('failed', 'cancelled', 'completed', 'delivered'):
+        raise HTTPException(409, 'Only finished jobs can be removed from history')
+    # Soft-delete: preserve receipts, media, duplicate keys and Song Maker consumers.
+    with db() as con:
+        updated=con.execute("""UPDATE jobs SET history_deleted=1,updated_at=?
+            WHERE job_id=? AND lower(owner_username)=? AND history_deleted=0
+              AND status IN ('failed','cancelled','completed','delivered')""",
+            (utc(),job_id,row['owner_username'].casefold()))
+        if updated.rowcount!=1:
+            raise HTTPException(409, 'Job status changed; retry after refresh')
+    return {'hidden': True, 'media_retained': True, 'receipts_retained': True}
+
+
 @router.post('/jobs/{job_id}/{action}')
 def job_action(job_id: str, action: Literal['cancel', 'retry'], request: Request = None):
     init_storage()
     row = row_for(job_id,request)
     with db() as con:
         if action == 'cancel' and row['status'] in ('queued', 'upload_retry'):
-            con.execute("UPDATE jobs SET status='cancelled',next_retry_at=NULL,updated_at=? WHERE job_id=? AND status IN ('queued','upload_retry')", (utc(), job_id))
+            con.execute("""UPDATE jobs SET status='cancelled',next_retry_at=NULL,
+                cancel_requested=1,updated_at=? WHERE job_id=? AND status IN ('queued','upload_retry')""",
+                (utc(), job_id))
+        elif action == 'cancel' and row['status'] in ('downloading','downloaded','uploading'):
+            changed=con.execute("""UPDATE jobs SET cancel_requested=1,
+                progress_stage='cancellation requested',updated_at=?
+                WHERE job_id=? AND status IN ('downloading','downloaded','uploading')""",
+                (utc(), job_id))
+            if changed.rowcount!=1:
+                raise HTTPException(409,'Job finished before cancellation; refresh queue')
         elif action == 'retry' and row['status'] in ('failed', 'cancelled'):
             local = Path(row['local_file']) if row['local_file'] else None
             expected = (JOBS / job_id / (row['video_id'] + '.' + row['format'])).resolve()
             resume = bool(row['auto_upload'] and local and local.resolve() == expected and local.is_file())
             if resume:
-                con.execute("UPDATE jobs SET status='upload_retry',error=NULL,next_retry_at=?,updated_at=?,progress_stage='manual retry requested' WHERE job_id=? AND status IN ('failed','cancelled')", (utc(), utc(), job_id))
+                con.execute("UPDATE jobs SET status='upload_retry',error=NULL,next_retry_at=?,updated_at=?,cancel_requested=0,progress_stage='manual retry requested' WHERE job_id=? AND status IN ('failed','cancelled')", (utc(), utc(), job_id))
             else:
-                con.execute("UPDATE jobs SET status='queued',error=NULL,next_retry_at=NULL,upload_retry_count=0,started_at=NULL,completed_at=NULL,updated_at=?,download_percent=0,upload_percent=0,progress_stage=NULL WHERE job_id=? AND status IN ('failed','cancelled')", (utc(), job_id))
+                con.execute("UPDATE jobs SET status='queued',error=NULL,next_retry_at=NULL,upload_retry_count=0,started_at=NULL,completed_at=NULL,updated_at=?,download_percent=0,upload_percent=0,cancel_requested=0,progress_stage=NULL WHERE job_id=? AND status IN ('failed','cancelled')", (utc(), job_id))
         else:
             raise HTTPException(409, 'Action not available for this job status')
     return {'job_id': job_id, 'action': action, 'ok': True}
@@ -512,10 +579,13 @@ def _claim():
         con.execute('BEGIN IMMEDIATE')
         # Due uploads get priority over fresh YouTube downloads.
         row = con.execute("""SELECT * FROM jobs
-            WHERE (status='upload_retry' AND next_retry_at<=?
+            WHERE cancel_requested=0 AND history_deleted=0
+              AND NOT EXISTS (SELECT 1 FROM audio_queue_control q
+                  WHERE q.owner=lower(jobs.owner_username) AND q.paused=1)
+              AND ((status='upload_retry' AND next_retry_at<=?
                    AND (progress_stage='manual retry requested'
                         OR error GLOB 'Google Drive upload failed (RATE_LIMITED);*'))
-               OR status='queued'
+               OR status='queued')
             ORDER BY CASE WHEN status='upload_retry' THEN 0 ELSE 1 END,
                 CASE WHEN status='upload_retry' THEN next_retry_at ELSE created_at END,job_id
             LIMIT 1""", (utc(),)).fetchone()
@@ -622,8 +692,10 @@ def _run_tracked(command: list[str], *, jid: str, phase: str, cwd=None, env=None
                else re.compile(r'Transferred:.*?(\d+(?:\.\d+)?)%'))
     collected: list[str] = []
     highest = -1
+    _abort_if_cancelled(jid)
     with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                          text=True, bufsize=1, cwd=cwd, env=env) as proc:
+                          text=True, bufsize=1, cwd=cwd, env=env,
+                          start_new_session=True) as proc:
         def consume():
             nonlocal highest
             for line in proc.stdout:
@@ -640,11 +712,23 @@ def _run_tracked(command: list[str], *, jid: str, phase: str, cwd=None, env=None
                             **{'download_percent' if phase == 'download' else 'upload_percent': percent})
         reader = threading.Thread(target=consume, daemon=True)
         reader.start()
+        started = time.monotonic()
         try:
-            proc.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
+            while proc.poll() is None:
+                if time.monotonic() - started > timeout:
+                    raise subprocess.TimeoutExpired(command, timeout)
+                _abort_if_cancelled(jid)
+                time.sleep(0.3)
+            _abort_if_cancelled(jid)
+        except (subprocess.TimeoutExpired, AudioJobCancelled):
+            # Terminate the entire yt-dlp/rclone process group, including ffmpeg.
+            if proc.poll() is None:
+                os.killpg(proc.pid, signal.SIGTERM)
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                    proc.wait()
             raise
         finally:
             reader.join(timeout=10)
@@ -652,9 +736,11 @@ def _run_tracked(command: list[str], *, jid: str, phase: str, cwd=None, env=None
         return subprocess.CompletedProcess(command, proc.returncode, output, output)
 
 
-def _wait_for_audio_upload_slot() -> None:
+def _wait_for_audio_upload_slot(jid: str | None = None) -> None:
     """Persisted across restarts; the next audio starts after the previous verified upload."""
     while True:
+        if jid:
+            _abort_if_cancelled(jid)
         with db() as con:
             row = con.execute('SELECT next_upload_at FROM audio_upload_pacing WHERE id=1').fetchone()
         if not row:
@@ -680,6 +766,7 @@ def _wait_for_thumbnail_upload(jid: str) -> None:
     Read the durable timestamp each loop so restart/retry cannot bypass it.
     """
     while True:
+        _abort_if_cancelled(jid)
         with db() as con:
             row = con.execute('SELECT thumbnail_upload_after FROM jobs WHERE job_id=?',
                               (jid,)).fetchone()
@@ -697,6 +784,10 @@ def _schedule_upload_retry(jid: str, error: Exception) -> None:
     # In either case the downloaded MP3 and its immutable Drive receipts remain intact.
     with db() as con:
         row = con.execute('SELECT * FROM jobs WHERE job_id=?', (jid,)).fetchone()
+    if isinstance(error, AudioJobCancelled) or (row and row['cancel_requested']):
+        _update(jid, 'cancelled', error=None, next_retry_at=None,
+                progress_stage='cancelled by owner')
+        return
     if row and row['status'] in ('uploading', 'downloaded'):
         local = Path(row['local_file']) if row['local_file'] else None
         expected = (JOBS / jid / (row['video_id'] + '.' + row['format'])).resolve()
@@ -721,11 +812,13 @@ def resume_upload(job: dict) -> None:
     if thumbnail and (not job.get('local_thumbnail') or
                       Path(job['local_thumbnail']).resolve() != thumbnail.resolve() or not thumbnail.is_file()):
         raise RuntimeError('Downloaded thumbnail no longer available; manual retry required')
+    _abort_if_cancelled(jid)
     upload_downloaded(job, local, thumbnail, deps())
 
 
 def run_job(job: dict):
     jid = job['job_id']
+    _abort_if_cancelled(jid)
     video_id = job['video_id']
     if not VIDEO_ID.fullmatch(video_id):
         raise RuntimeError('Invalid YouTube video ID in queued job')
@@ -765,6 +858,7 @@ def run_job(job: dict):
             raise DownloadFailure('DOWNLOAD_TIMEOUT', 'YouTube download timed out; retry manually after checking the provider.') from None
         if p.returncode:
             raise download_failure(p.stderr or p.stdout or '')
+    _abort_if_cancelled(jid)
     paths = [Path(x.strip()) for x in (p.stdout or '').splitlines() if x.strip()]
     paths = [x for x in paths if x.is_file() and x.suffix.lower() == '.' + audio_format and folder.resolve() in x.resolve().parents]
     if not paths:
@@ -793,6 +887,7 @@ def run_job(job: dict):
             if handle.read(3) != b'\xff\xd8\xff':
                 raise RuntimeError('Downloaded thumbnail is not JPEG')
 
+    _abort_if_cancelled(jid)
     _update(jid, 'downloaded', title=safe, download_percent=100, progress_stage='downloaded', local_file=str(final),
             local_thumbnail=str(thumbnail) if thumbnail else None)
     if not job['auto_upload']:
@@ -826,6 +921,7 @@ def _drive_copy_failure_code(output: str) -> str:
 
 def upload_downloaded(job: dict, final: Path, thumbnail: Path | None, state: dict) -> None:
     jid = job['job_id']
+    _abort_if_cancelled(jid)
     if not state.get('upload_ready'):
         raise RuntimeError('Google Drive connection unavailable')
     _update(jid, 'uploading', progress_stage='uploading audio')
@@ -874,7 +970,8 @@ def upload_downloaded(job: dict, final: Path, thumbnail: Path | None, state: dic
     if job.get('drive_path') == remote:
         public_url = job.get('drive_url')
     else:
-        _wait_for_audio_upload_slot()
+        _wait_for_audio_upload_slot(jid)
+        _abort_if_cancelled(jid)
         upload_file(final, remote, job['format'])
         _record_audio_upload()
         public_url = None  # No extra Drive permission/link request.
@@ -894,11 +991,13 @@ def upload_downloaded(job: dict, final: Path, thumbnail: Path | None, state: dic
                 _update(jid, 'uploading', thumbnail_upload_after=utc_after(THUMBNAIL_GAP_SECONDS))
             _update(jid, 'uploading', progress_stage='waiting 30s after audio before thumbnail')
             _wait_for_thumbnail_upload(jid)
+            _abort_if_cancelled(jid)
             upload_file(thumbnail, thumb_remote, 'jpg')
             # The receipt is persisted only after a successful copyto command.
             _update(jid, 'uploading', thumbnail_drive_path=thumb_remote, thumbnail_drive_url=None,
                     thumbnail_upload_after=None)
         thumb_public_url = None
+    _abort_if_cancelled(jid)
     _update(jid, 'delivered', drive_path=remote, drive_url=public_url,
             thumbnail_drive_path=thumb_remote, thumbnail_drive_url=thumb_public_url,
             completed_at=utc(), next_retry_at=None, error=None,
@@ -1024,6 +1123,7 @@ def worker_loop():
                         resume_upload(item)
                     else:
                         run_job(item)
+                    _abort_if_cancelled(item['job_id'])
                     _handoff_song_maker(item['job_id'])
                 except Exception as exc:
                     _schedule_upload_retry(item['job_id'], exc)

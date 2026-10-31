@@ -3,6 +3,7 @@ import fcntl
 import asyncio
 import hashlib
 import json
+import re
 from pathlib import Path
 import shutil
 import time
@@ -12,7 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from .store import Store, ACTIVE, TERMINAL
 from .media import IMAGES, AUDIO, FORMATS, QUALITIES, audio_duration, output_name, run, validate_overlay
-from .drive import CONFIG, Drive, folder_ref, default_settings, enqueue_pair, archive_eligible
+from .drive import CONFIG, Drive, folder_ref, default_settings, enqueue_pair, archive_eligible, DEFAULT_INPUT, DEFAULT_OUTPUT
 from .worker import capacity
 from .folders import Folders
 
@@ -127,16 +128,60 @@ def create_app(store=None):
         except Exception:
             raise HTTPException(503, 'Existing Drive profiles unavailable') from None
 
+    def owner_drive_root(owner):
+        # Private namespace on the admin-managed shared remote. No user-provided path segment.
+        return 'Song Studio/users/' + hashlib.sha256(owner.encode('utf-8')).hexdigest()[:24]
+
+    def drive_choices(owner):
+        with store.db() as db:
+            db.execute('''CREATE TABLE IF NOT EXISTS song_drive_folders
+                (owner TEXT NOT NULL, path TEXT NOT NULL,
+                 PRIMARY KEY(owner, path))''')
+            rows = db.execute('SELECT path FROM song_drive_folders WHERE owner=? ORDER BY path',
+                              (owner,)).fetchall()
+        return [DEFAULT_INPUT, DEFAULT_OUTPUT] + [row['path'] for row in rows]
+
+    @app.get('/song-maker/api/drive/folders')
+    def drive_folders(user=Depends(principal)):
+        return {'folders': drive_choices(user['owner']),
+                'shared_config': True, 'owner_root': owner_drive_root(user['owner'])}
+
+    @app.post('/song-maker/api/drive/folders')
+    async def drive_folder_create(request: Request, user=Depends(principal)):
+        body = await request.json()
+        name = body.get('name')
+        if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9 _-]{0,63}', name):
+            raise HTTPException(422, 'Folder name must be 1-64 safe characters')
+        path = folder_ref(owner_drive_root(user['owner']) + '/' + name.strip())
+        if path in drive_choices(user['owner']):
+            return {'path': path, 'created': False}
+        # Namespaced mkdir on a pinned admin-managed remote: credentials stay server-side.
+        shared = store.record('settings', '__default__') or default_settings()
+        remote = shared.get('remote') or default_settings()['remote']
+        try:
+            Drive({'remote': remote}).call(['mkdir', remote + ':' + path])
+        except RuntimeError:
+            raise HTTPException(503, 'Unable to create folder in the approved Drive root') from None
+        with store.db() as db:
+            db.execute('INSERT OR IGNORE INTO song_drive_folders(owner,path) VALUES(?,?)',
+                       (user['owner'], path))
+        return {'path': path, 'created': True}
+
     @app.post('/song-maker/api/settings')
     async def settings(request: Request, user=Depends(principal)):
-        if not user['admin']:
-            raise HTTPException(403, 'Administrator required')
         data = await request.json()
         try:
             clean = {key: folder_ref(str(data[key])) for key in ('image_folder', 'audio_folder', 'output_folder')}
+            if not user['admin']:
+                allowed = set(drive_choices(user['owner']))
+                if any(value not in allowed for value in clean.values()):
+                    raise ValueError('Select an approved or personally created Drive folder')
+
             if clean['output_folder'] in {clean['image_folder'], clean['audio_folder']}:
                 raise ValueError('Output folder must differ from the input folder')
-            clean.update(remote=str(data['remote']), auto_sync=bool(data.get('auto_sync')),
+            shared = store.record('settings', '__default__') or default_settings()
+            remote = str(data['remote']) if user['admin'] else shared.get('remote', default_settings()['remote'])
+            clean.update(remote=remote, auto_sync=bool(data.get('auto_sync')),
                          resolution=data.get('resolution', '1080p'), fit=data.get('fit', 'fit'))
             if clean['resolution'] not in FORMATS or clean['fit'] not in {'fit', 'blur'}:
                 raise ValueError('Unsupported render options')
@@ -147,10 +192,11 @@ def create_app(store=None):
             Drive(clean)
         except (ValueError, KeyError, TypeError) as exc:
             raise HTTPException(422, str(exc))
-        # Each Drive profile settings row is owned by the authenticated administrator.
-        # Shared server credentials never grant another user access to that owner's files/jobs.
-        store.record('settings', user['owner'], clean)
-        store.record('settings', '__default__', {**clean, 'auto_sync': False})
+        # Never reset an in-flight sync request or any existing per-user preference.
+        previous = store.record('settings', user['owner'])
+        store.record('settings', user['owner'], {**previous, **clean})
+        if user['admin']:
+            store.record('settings', '__default__', {**clean, 'auto_sync': False})
         return {'saved': True}
 
     @app.post('/song-maker/api/export')
@@ -178,13 +224,10 @@ def create_app(store=None):
 
     @app.post('/song-maker/api/sync')
     def sync(user=Depends(principal)):
-        # Scene's trusted workspace SSO has already authenticated/authorized this
-        # user. Nonadmins may scan ONLY the fixed approved input/output defaults;
-        # arbitrary remote/folder config and rclone credentials remain admin-only.
-        settings = ((store.record('settings', user['owner']) or default_settings())
-                    if user['admin'] else default_settings())
-        settings['sync_requested'] = True
-        store.record('settings', user['owner'], settings)
+        # Sync Now sets only the request bit. In particular it cannot replace a
+        # non-admin user's saved folders, Auto Sync, or exported video settings.
+        settings = store.record('settings', user['owner']) or default_settings()
+        store.record('settings', user['owner'], {**settings, 'sync_requested': True})
         return {'queued': True}
 
     @app.post('/song-maker/api/pairs/select')
