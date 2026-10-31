@@ -79,6 +79,9 @@ jobs:
             > "$scratch/receipt.log" 2>&1 || helper_status=$?
           if [ "$helper_status" -ne 0 ]; then
             echo "HASEEB1_AUDIT_HELPER_EXIT=$helper_status"
+            # Exclude generic rollback phase; emit the last safe pre-rollback phase.
+            phase="$(grep -Eo 'HASEEB1_MIGRATION_PHASE=[A-Z_]+' "$scratch/receipt.log" | grep -v '=ROLLBACK$' | tail -n 1 || true)"
+            if [ -n "$phase" ]; then echo "$phase"; fi
             # Only fixed uppercase machine-readable failure codes are emitted.
             # Never dump raw SSH logs: they may contain private paths or IDs.
             if ! grep -Eo 'HASEEB1_STUDIO_ASSIGNMENT_BLOCKED: [A-Z0-9_]+' "$scratch/receipt.log" | tail -n 1; then
