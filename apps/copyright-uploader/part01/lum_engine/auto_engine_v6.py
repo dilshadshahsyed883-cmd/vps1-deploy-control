@@ -2598,6 +2598,17 @@ def profile_context(pc_db: Any, store: V6Store, profile_id:int=0, *, owner:str="
     ctx["profiles"]=profiles
     if ctx.get("selected") and int(ctx["selected"]["id"]) in hidden_ids:
         ctx.update(selected=None,source={},videos=[],thumbnails=[],thumbnail_trash=[],eligible_channels=0)
+    # If the global default belongs to someone else, load only this user's
+    # first owned profile rather than showing a blank/stale editor.
+    if owner and not ctx.get("selected") and profiles:
+        own_first=profiles[0]
+        own_id=int(own_first["id"])
+        thumbnails=store.thumbs(own_id,include_trashed=True)
+        ctx.update(selected=own_first,source=store.source(own_id),
+                   thumbnails=[row for row in thumbnails if row.get("status")!="TRASHED"],
+                   thumbnail_trash=[row for row in thumbnails if row.get("status")=="TRASHED"],
+                   videos=store.drive_videos(own_id),
+                   eligible_channels=len(target_channels(pc_db,own_first)))
     for key in ("queue","records"):
         ctx[key]=[row for row in ctx.get(key,[])
                   if int(row.get("auto_engine_profile_id") or row.get("profile_id") or 0)
