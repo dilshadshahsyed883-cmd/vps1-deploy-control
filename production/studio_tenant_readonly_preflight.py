@@ -14,7 +14,7 @@ from pathlib import Path
 INSTANCE_RELATIVE = {
     "song": "local-upload-manager/lum-song/core/data/uploader.db",
     "short": "local-upload-manager/lum-shortstudio/core/data/uploader.db",
-    "copyright": "copyright-uploader/core/data/uploader.db",
+    "copyright": "copyright-uploader/lum-copyright/core/data/uploader.db",
 }
 TERMINAL = ("UPLOADED", "PUBLISHED", "COMPLETED", "FAILED", "CANCELLED", "SKIPPED")
 
