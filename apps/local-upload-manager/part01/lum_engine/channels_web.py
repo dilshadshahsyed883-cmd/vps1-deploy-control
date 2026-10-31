@@ -79,8 +79,10 @@ def token_status_for_channel(gmail: str, channel_id: str, same_gmail_count: int)
 
 
 def channels_page_context(db: Any, web_clients: Iterable[Dict[str, Any]] | None = None,
-                          allowed_channel_ids=None, allowed_sheet_ids=None) -> Dict[str, Any]:
-    channels = db.list_channels(active_only=False)
+                          allowed_channel_ids=None, allowed_sheet_ids=None,
+                          inventory_channels=None) -> Dict[str, Any]:
+    channels = (list(inventory_channels) if inventory_channels is not None
+                else db.list_channels(active_only=False))
     # A tenant may create a brand-new manual channel before attaching a Sheet.
     # Do not let the PC-Sheets inventory filter hide that owned channel, or
     # load credentials for another tenant while building the channel manager.

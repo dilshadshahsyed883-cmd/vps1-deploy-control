@@ -253,6 +253,10 @@ async def standalone_auth(request: Request, call_next):
                 route("/actions/auto-v6/profile/delete"),
                 route("/actions/auto-v6/start-profile"),
                 route("/actions/auto-v6/pause-profile"),
+                route("/actions/auto-v6/profile-schedule/save"),
+                route("/actions/auto-v6/job/edit"),
+                route("/actions/auto-v6/job/network-action"),
+                route("/actions/auto-v6/songmaker/import"),
             }
             allowed_prefixes=(route("/actions/retry/"),
                 route("/actions/authorize-fresh/"),
@@ -425,7 +429,9 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
     permitted_channels=studio_tenants.allowed_ids("channel",user)
     web_clients = list_clients() if permitted_channels is None else []
     channel_context = channels_page_context(
-        db, web_clients, permitted_channels, permitted_sheets
+        db, web_clients, permitted_channels, permitted_sheets,
+        inventory_channels=channels if os.getenv("LUM_ENGINE_INSTANCE") in
+            {"song", "shortstudio", "copyright"} else None,
     ) if selected == "channels" else {
         "rows": [], "summary": {}, "groups": [], "sheets": [], "oauth_inventory": {}
     }
@@ -2195,7 +2201,7 @@ def dual_auth_google_callback(request: Request):
 
 @app.post(route("/actions/auth-connections/test"))
 async def dual_auth_test(request: Request):
-    current_user(request)
+    user = current_user(request)
     form = await request.form()
     require_csrf(request, str(form.get("csrf_token") or ""))
     try:
@@ -2211,7 +2217,7 @@ async def dual_auth_test(request: Request):
 
 @app.post(route("/actions/auth-connections/activate"))
 async def dual_auth_activate(request: Request):
-    current_user(request)
+    user = current_user(request)
     form = await request.form()
     require_csrf(request, str(form.get("csrf_token") or ""))
     try:

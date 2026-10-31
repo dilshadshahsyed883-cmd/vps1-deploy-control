@@ -13,6 +13,7 @@ on:
       - "production/song_uploader_group_summary_release.py"
       - "apps/local-upload-manager/part01/desktop_core/modules/db/queue_repository.py"
       - "apps/copyright-uploader/part01/desktop_core/modules/db/queue_repository.py"
+      - "tests/test_studio_tenant_http.py"
       - "apps/voice-studio/part01/audio_downloader_api.py"
       - "tests/test_audio_downloader_queue_history.py"
       - "apps/local-upload-manager/part01/templates/app.html"
@@ -32,6 +33,7 @@ on:
       - "production/song_uploader_group_summary_release.py"
       - "apps/local-upload-manager/part01/desktop_core/modules/db/queue_repository.py"
       - "apps/copyright-uploader/part01/desktop_core/modules/db/queue_repository.py"
+      - "tests/test_studio_tenant_http.py"
       - "apps/voice-studio/part01/audio_downloader_api.py"
       - "tests/test_audio_downloader_queue_history.py"
       - "apps/local-upload-manager/part01/templates/app.html"
@@ -42,6 +44,8 @@ jobs:
   owner-regression:
     runs-on: ubuntu-24.04
     timeout-minutes: 8
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -49,5 +53,9 @@ jobs:
           python-version: "3.11"
       - name: Parse full Short Maker and Video Merger source
         run: python -m py_compile apps/short-maker/part01/app.py apps/video-merger/part01/app.py apps/voice-studio/part01/audio_downloader_api.py
+      - name: Install uploader HTTP test dependencies
+        run: python -m pip install -r apps/local-upload-manager/part01/requirements.txt
+      - name: Exercise real HTTP routes as Alice, Bob and admin
+        run: python -m unittest tests.test_studio_tenant_http -v
       - name: Database-bound owner isolation and unauthenticated direct-access tests
         run: python -m unittest tests.test_three_studio_user_isolation tests.test_three_studio_uploader_tenants tests.test_studio_owner_scoped_recovery -v

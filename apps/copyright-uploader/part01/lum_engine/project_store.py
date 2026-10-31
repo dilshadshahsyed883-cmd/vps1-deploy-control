@@ -233,7 +233,7 @@ class ProjectStore:
         """
         params: list[Any] = []
         if owner:
-            query += " WHERE p.owner_username=? COLLATE NOCASE OR e.project_id IS NULL"
+            query += " WHERE p.owner_username=? COLLATE NOCASE"
             params.append(owner)
         query += " ORDER BY e.id DESC LIMIT ?"
         params.append(max(1, min(5000, int(limit))))
