@@ -270,7 +270,14 @@ class AudioOwnershipTests(unittest.TestCase):
 
     def test_missing_column_new_job_blocks_legacy_assignment(self):
         self.legacy_jobs()
-        self.job("extra", "completed")
+        with sqlite3.connect(self.source) as db:
+            cols = self._columns()
+            original = db.execute("SELECT * FROM jobs WHERE job_id='legacy00'").fetchone()
+            copied = dict(zip(cols, original))
+            copied["job_id"] = "extra"
+            copied["video_id"] = "differentid"
+            db.execute("INSERT INTO jobs (" + ",".join(cols) + ") VALUES (" +
+                       ",".join("?" for _ in cols) + ")", [copied[col] for col in cols])
         with self.assertRaisesRegex(audio.AudioClaimBlocked, "LEGACY_TOTAL_CHANGED"):
             audio.install("8" * 40)
         self.assertNotIn("owner_username", self._columns())
