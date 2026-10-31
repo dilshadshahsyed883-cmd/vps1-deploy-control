@@ -263,6 +263,12 @@ def audio_identity(request: Request):
     return owner,admin
 
 
+def audio_admin(request: Request):
+    _owner,admin=audio_identity(request)
+    if not admin:
+        raise HTTPException(403,"Shared downloader proxy controls are administrator-only")
+
+
 @router.get('/status')
 def status(request: Request = None):
     owner,admin=audio_identity(request) if request is not None else ('',True)
@@ -1380,12 +1386,14 @@ class ProxyEnabledRequest(BaseModel):
 
 
 @router.get('/proxy')
-def get_proxy():
+def get_proxy(request: Request = None):
+    if request is not None: audio_admin(request)
     return _public_proxy_config(_read_proxy_config())
 
 
 @router.post('/proxy/profiles')
-def save_proxy_profile(payload: ProxyProfileRequest):
+def save_proxy_profile(payload: ProxyProfileRequest, request: Request = None):
+    if request is not None: audio_admin(request)
     if not _safe_proxy_host(payload.host):
         raise HTTPException(422, 'Invalid proxy host')
     with _PROXY_LOCK:
@@ -1409,7 +1417,8 @@ def save_proxy_profile(payload: ProxyProfileRequest):
 
 
 @router.post('/proxy/enable')
-def enable_proxy(payload: ProxyEnabledRequest):
+def enable_proxy(payload: ProxyEnabledRequest, request: Request = None):
+    if request is not None: audio_admin(request)
     with _PROXY_LOCK:
         cfg = _read_proxy_config()
         if payload.enabled and not _selected_proxy({**cfg, 'enabled': True}):
@@ -1420,7 +1429,8 @@ def enable_proxy(payload: ProxyEnabledRequest):
 
 
 @router.post('/proxy/profiles/{profile_id}/activate')
-def activate_proxy(profile_id: str):
+def activate_proxy(profile_id: str, request: Request = None):
+    if request is not None: audio_admin(request)
     with _PROXY_LOCK:
         cfg = _read_proxy_config()
         if not any(p['id'] == profile_id for p in cfg['profiles']):
@@ -1431,7 +1441,8 @@ def activate_proxy(profile_id: str):
 
 
 @router.delete('/proxy/profiles/{profile_id}')
-def remove_proxy(profile_id: str):
+def remove_proxy(profile_id: str, request: Request = None):
+    if request is not None: audio_admin(request)
     with _PROXY_LOCK:
         cfg = _read_proxy_config()
         cfg['profiles'] = [p for p in cfg['profiles'] if p['id'] != profile_id]
@@ -1444,7 +1455,8 @@ def remove_proxy(profile_id: str):
 
 
 @router.post('/proxy/profiles/{profile_id}/test')
-def verify_proxy(profile_id: str):
+def verify_proxy(profile_id: str, request: Request = None):
+    if request is not None: audio_admin(request)
     cfg = _read_proxy_config()
     p = next((x for x in cfg['profiles'] if x['id'] == profile_id), None)
     if not p:
