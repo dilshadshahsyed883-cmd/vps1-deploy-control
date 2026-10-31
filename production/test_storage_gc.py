@@ -12,6 +12,31 @@ from production import storage_gc as gc
 
 
 class StorageGCTests(unittest.TestCase):
+    def test_esrch_during_proc_read_only_ignores_confirmed_vanished_pid(self):
+        import errno
+        import shutil
+        from unittest.mock import patch
+        proc = Path(self.workspace.name) / "proc-esrch"
+        process = proc / "982374"
+        process.mkdir(parents=True)
+        target = self.root / "releases" / self.app / self.revisions[3]
+        gone = ProcessLookupError(errno.ESRCH, "process vanished")
+        # PID still present: fail closed; a re-used or zombie PID is unsafe
+        # until independently proven harmless.
+        with patch.object(Path, "read_bytes", side_effect=gone):
+            self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc),
+                             "unverifiable-process-race")
+            self.assertTrue(gc._runtime_in_use([target], proc_root=proc))
+
+        # PID truly vanished after enumeration: no process may reference it.
+        def disappear(_path):
+            shutil.rmtree(process)
+            raise ProcessLookupError(errno.ESRCH, "process vanished")
+
+        with patch.object(Path, "read_bytes", autospec=True, side_effect=disappear):
+            self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc), "clear")
+        self.assertFalse(process.exists())
+
     def test_redacted_runtime_error_has_errno_and_stage_without_pid_leak(self):
         import errno
         from unittest.mock import patch
