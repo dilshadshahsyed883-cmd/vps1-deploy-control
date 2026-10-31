@@ -104,8 +104,15 @@ def _unit_references(app: str, root: Path, unit_dir: Path) -> tuple[set[str], bo
         return set(), False
 
 
-def inventory(root: Path = BASE, now: float | None = None, unit_dir: Path | None = None) -> dict[str, Any]:
-    """Conservative read-only inventory; unknown ownership is an exclusion."""
+def inventory(root: Path = BASE, now: float | None = None, unit_dir: Path | None = None,
+              *, only_app: str | None = None,
+              only_revision: str | None = None) -> dict[str, Any]:
+    """Conservative inventory; scoped rechecks still evaluate all protections.
+
+    For an apply-time recheck, inspect just the candidate being removed. The
+    complete app release list is still sorted before fallback protection is
+    calculated, so deleting one revision cannot silently promote another.
+    """
     now = time.time() if now is None else now
     unit_dir = Path("/etc/systemd/system") if unit_dir is None else unit_dir
     results: dict[str, Any] = {
@@ -120,7 +127,7 @@ def inventory(root: Path = BASE, now: float | None = None, unit_dir: Path | None
         results["blocked"] = "missing or unsafe deployment roots"
         return results
     deadline = now - MIN_AGE_HOURS * 3600
-    for app in sorted(APP_NAMES):
+    for app in sorted(APP_NAMES if only_app is None else APP_NAMES & {only_app}):
         releases = releases_root / app
         venvs = root / "venvs" / app
         link = current_root / app
@@ -174,6 +181,8 @@ def inventory(root: Path = BASE, now: float | None = None, unit_dir: Path | None
         results["protected"].append({"app": app, "revisions": sorted(protect)})
         for item in entries:
             name = item.name
+            if only_revision is not None and name != only_revision:
+                continue
             if name in protect:
                 continue
             if not REVISION.fullmatch(name) or item.stat().st_mtime > deadline:
@@ -242,12 +251,18 @@ def _confirmed_defunct_proc(pid: Path) -> bool:
             return False
         if (pid / "cwd").exists() or (pid / "exe").exists():
             return False
-        return snapshot() == first
+        second = snapshot()
+        # PID starttime/state drift is evidence of reuse or concurrent state
+        # transition. Never clear this with a later otherwise-clean retry.
+        if second is not None and second != first:
+            return "identity-changed"
+        return second == first
     except (OSError, ValueError, UnicodeError, RuntimeError):
         return False
 
 
-def _runtime_reference_probe(paths: list[Path], proc_root: Path = Path("/proc")) -> str:
+def _runtime_reference_pass(paths: list[Path], proc_root: Path = Path("/proc"),
+                            *, explain_race: bool = False) -> str:
     """Redacted tri-state /proc probe; unverifiable must never permit deletion.
 
     The result contains no PID, revision, directory, or environment contents.
@@ -286,8 +301,13 @@ def _runtime_reference_probe(paths: list[Path], proc_root: Path = Path("/proc"))
                 # Missing entries can reflect either a reaped PID or a zombie
                 # that still has a /proc directory. Only a verified defunct
                 # task with no runtime resources may be skipped.
-                if pid.exists() and not _confirmed_defunct_proc(pid):
-                    return "unverifiable-process-race"
+                if pid.exists():
+                    defunct = _confirmed_defunct_proc(pid)
+                    if defunct == "identity-changed":
+                        return "unverifiable-process-identity-change"
+                    if defunct is not True:
+                        return ("unverifiable-process-race-at-" + stage
+                                if explain_race else "unverifiable-process-race")
                 continue
             except PermissionError:
                 return "unverifiable-permission-" + stage
@@ -302,6 +322,26 @@ def _runtime_reference_probe(paths: list[Path], proc_root: Path = Path("/proc"))
         return f"unverifiable-process-error-{stage}-errno-{number}"
     except RuntimeError:
         return "unverifiable-process-error-" + stage + "-runtime"
+
+
+
+def _runtime_reference_probe(paths: list[Path], proc_root: Path = Path("/proc"),
+                             *, explain_race: bool = False) -> str:
+    """Retry only a transient /proc race; require a complete clean pass.
+
+    Short-lived processes can disappear during /proc enumeration, particularly
+    while unrelated upload workers are spawning. An unresolved race, a positive
+    runtime reference, or any permission/I/O uncertainty remains fail-closed.
+    Never treat a retry, delay or an incomplete scan as clearance.
+    """
+    for attempt in range(3):
+        status = (_runtime_reference_pass(paths, proc_root=proc_root, explain_race=True)
+                  if explain_race else _runtime_reference_pass(paths, proc_root=proc_root))
+        if not status.startswith("unverifiable-process-race"):
+            return status
+        if attempt < 2:
+            time.sleep(0.05)
+    return status
 
 
 def _runtime_in_use(paths: list[Path], proc_root: Path = Path("/proc")) -> bool:
@@ -323,7 +363,8 @@ def diagnostic_runtime_probe(root: Path = BASE, *, unit_dir: Path | None = None)
         return {"read_only": True, "candidate_count": 0,
                 "first_candidate_runtime_status": "not-applicable"}
     candidate = candidates[0]
-    result = _runtime_reference_probe([Path(raw) for raw in candidate["paths"]])
+    result = _runtime_reference_probe(
+        [Path(raw) for raw in candidate["paths"]], explain_race=True)
     return {"read_only": True, "candidate_count": len(candidates),
             "first_candidate_runtime_status": result}
 
@@ -337,7 +378,9 @@ def apply_plan(root: Path, plan: dict[str, Any], *, now: float | None = None,
     deleted: list[str] = []
     skipped: list[str] = []
     for candidate in plan["candidates"]:
-        current_plan = inventory(root, now=now, unit_dir=unit_dir)
+        current_plan = inventory(root, now=now, unit_dir=unit_dir,
+                                 only_app=candidate["app"],
+                                 only_revision=candidate["revision"])
         eligible = {
             (c["app"], c["revision"]): c for c in current_plan["candidates"]
         }

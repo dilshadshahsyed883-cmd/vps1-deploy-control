@@ -12,6 +12,56 @@ from production import storage_gc as gc
 
 
 class StorageGCTests(unittest.TestCase):
+    def test_transient_proc_race_requires_clean_independent_rescan(self):
+        from unittest.mock import patch
+
+        target = self.root / "releases" / self.app / self.revisions[3]
+        with patch.object(gc, "_runtime_reference_pass",
+                          side_effect=["unverifiable-process-race", "clear"]) as scan, \
+             patch.object(gc.time, "sleep") as pause:
+            self.assertEqual(gc._runtime_reference_probe([target]), "clear")
+            self.assertEqual(scan.call_count, 2)
+            pause.assert_called_once_with(0.05)
+
+        # A second scan that positively references a release always blocks it.
+        with patch.object(gc, "_runtime_reference_pass",
+                          side_effect=["unverifiable-process-race", "referenced"]) as scan, \
+             patch.object(gc.time, "sleep"):
+            self.assertTrue(gc._runtime_in_use([target]))
+            self.assertEqual(scan.call_count, 2)
+
+        # Permission failures are not transient races and cannot be retried away.
+        with patch.object(gc, "_runtime_reference_pass",
+                          return_value="unverifiable-permission-read-environ") as scan, \
+             patch.object(gc.time, "sleep") as pause:
+            self.assertTrue(gc._runtime_in_use([target]))
+            scan.assert_called_once()
+            pause.assert_not_called()
+
+        # A persistent or unresolved process race must remain fail-closed.
+        with patch.object(gc, "_runtime_reference_pass",
+                          return_value="unverifiable-process-race") as scan, \
+             patch.object(gc.time, "sleep") as pause:
+            self.assertTrue(gc._runtime_in_use([target]))
+            self.assertEqual(scan.call_count, 3)
+            self.assertEqual(pause.call_count, 2)
+
+    def test_readonly_runtime_stage_is_redacted_and_apply_semantics_unchanged(self):
+        from unittest.mock import patch
+        proc = Path(self.workspace.name) / "diagnostic-proc"
+        (proc / "982374").mkdir(parents=True)
+        target = self.root / "releases" / self.app / self.revisions[3]
+        with patch.object(gc.time, "sleep") as pause:
+            detailed = gc._runtime_reference_probe(
+                [target], proc_root=proc, explain_race=True)
+            standard = gc._runtime_reference_probe([target], proc_root=proc)
+        self.assertEqual(detailed, "unverifiable-process-race-at-read-cmdline")
+        self.assertEqual(standard, "unverifiable-process-race")
+        self.assertTrue(gc._runtime_in_use([target], proc_root=proc))
+        self.assertNotIn("982374", detailed)
+        self.assertNotIn(self.revisions[3], detailed)
+        self.assertEqual(pause.call_count, 4)
+
     def test_esrch_during_proc_read_only_ignores_confirmed_vanished_pid(self):
         import errno
         import shutil
@@ -78,9 +128,11 @@ class StorageGCTests(unittest.TestCase):
                 return real_read_text(path, *args, **kwargs)
 
             with patch.object(Path, "read_text", autospec=True,
-                              side_effect=changing_stat):
+                              side_effect=changing_stat), \
+                 patch.object(gc.time, "sleep") as pause:
                 self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc),
-                                 "unverifiable-process-race")
+                                 "unverifiable-process-identity-change")
+                pause.assert_not_called()
 
     def test_zombie_stat_missing_or_invalid_remains_protected(self):
         from unittest.mock import patch
@@ -139,6 +191,54 @@ class StorageGCTests(unittest.TestCase):
         self.assertIn("STORAGE_GC_RUNTIME_PROBE=LOCKED_OR_UNAVAILABLE_NO_DELETION", script)
         self.assertNotIn("exit 26", script)
 
+    def test_scene_web_spool_identity_parser_requires_nonroot_running_user(self):
+        from production.storage_gc_spool import parse_identity
+        from types import SimpleNamespace
+        props = "User=sceneweb\nMainPID=28471\nActiveState=active\n"
+        status = "Name:\tuvicorn\nUid:\t1007\t1007\t1007\t1007\n"
+        lookup = lambda _: SimpleNamespace(pw_uid=1007, pw_gid=1007)
+        # Mock group lookup since production group is verified separately.
+        from unittest.mock import patch
+        with patch("production.storage_gc_spool.grp.getgrgid",
+                   return_value=SimpleNamespace(gr_name="sceneweb")):
+            self.assertEqual(parse_identity(props, status, get_user=lookup)[:3],
+                             ("sceneweb", "sceneweb", 1007))
+            for unsafe in (
+                "User=root\nMainPID=28471\nActiveState=active\n",
+                "User=sceneweb\nMainPID=0\nActiveState=active\n",
+                "User=sceneweb\nMainPID=28471\nActiveState=inactive\n",
+                "User=sceneweb\nMainPID=28471\nActiveState=active\nUser=sceneweb\n",
+            ):
+                with self.assertRaises(RuntimeError):
+                    parse_identity(unsafe, status, get_user=lookup)
+            with self.assertRaises(RuntimeError):
+                parse_identity(props, status.replace("1007", "1009"),
+                               get_user=lookup)
+            # Web servers may legitimately run as a low-numbered, dedicated
+            # system account such as www-data; the fixed unit/PID still must match.
+            system_lookup = lambda _: SimpleNamespace(pw_uid=33, pw_gid=33)
+            system_status = status.replace("1007", "33")
+            self.assertEqual(parse_identity(props, system_status,
+                                            get_user=system_lookup)[2], 33)
+            with self.assertRaises(RuntimeError):
+                parse_identity(props, status.replace("1007", "0"),
+                               get_user=lambda _: SimpleNamespace(pw_uid=0, pw_gid=0))
+
+
+    def test_manual_spool_alignment_never_executes_cleanup_or_weakens_permissions(self):
+        root = Path(__file__).resolve().parents[1]
+        aligner = (root / "production/storage_gc_spool.py").read_text()
+        installer = (root / "scripts/install_storage_gc.sh").read_text()
+        self.assertIn("systemctl", aligner)
+        self.assertIn('if os.geteuid() != 0:', aligner)
+        self.assertIn('if (DIR / "request").exists()', aligner)
+        self.assertIn('mode.st_mode & 0o777) != 0o700', aligner)
+        self.assertIn('fcntl.LOCK_EX | fcntl.LOCK_NB', aligner)
+        self.assertIn('subprocess.run(["systemd-tmpfiles", "--create"', aligner)
+        self.assertIn('-m production.storage_gc_spool', installer)
+        self.assertNotIn("storage-gc.py --apply", aligner)
+        self.assertNotIn("chmod 0777", installer)
+
     def test_manual_systemd_path_reuses_existing_protected_gc_engine(self):
         root = Path(__file__).resolve().parents[1]
         units = root / "infrastructure/systemd"
@@ -153,7 +253,7 @@ class StorageGCTests(unittest.TestCase):
         self.assertIn("storage-gc.py --publish-status", status)
         self.assertNotIn("--apply", status)
         self.assertIn("OnUnitActiveSec=30min", timer)
-        self.assertIn("systemd-tmpfiles --create", installer)
+        self.assertIn("systemd-tmpfiles", (root / "production/storage_gc_spool.py").read_text())
         self.assertIn("vps1-storage-deployment-gc-manual.path", installer)
 
 
@@ -213,6 +313,39 @@ class StorageGCTests(unittest.TestCase):
                          [(self.app, self.revisions[3])])
         self.assertGreater(plan["estimated_bytes"], 0)
         for rev in self.revisions:
+            self.assertTrue((self.root / "releases" / self.app / rev).exists())
+
+    def test_scoped_inventory_matches_full_candidate_and_preserves_fallback(self):
+        full = self.inventory()
+        scoped = gc.inventory(
+            self.root, now=self.now, unit_dir=self.unit_dir,
+            only_app=self.app, only_revision=self.revisions[3])
+        self.assertEqual(scoped["candidates"], full["candidates"])
+        self.assertEqual(scoped["protected"], full["protected"])
+        self.assertEqual(scoped["estimated_bytes"], full["estimated_bytes"])
+        # A newly protected revision must still be rejected by a scoped recheck.
+        (self.unit_dir / "vps1-protect-old.service").write_text(
+            "WorkingDirectory=" + str(self.root / "releases" / self.app /
+                                      self.revisions[3]) + "\\n")
+        self.assertEqual(gc.inventory(
+            self.root, now=self.now, unit_dir=self.unit_dir,
+            only_app=self.app, only_revision=self.revisions[3])["candidates"], [])
+
+    def test_apply_scopes_revalidation_to_one_revision(self):
+        from unittest.mock import patch
+
+        real_inventory = gc.inventory
+        plan = self.inventory()
+        with patch.object(gc, "inventory", wraps=real_inventory) as inspected:
+            result = gc.apply_plan(self.root, plan, now=self.now,
+                                   unit_dir=self.unit_dir, test_mode=True)
+        self.assertEqual(result["deleted"],
+                         [self.app + "/" + self.revisions[3]])
+        self.assertEqual(inspected.call_count, 1)
+        self.assertEqual(inspected.call_args.kwargs["only_app"], self.app)
+        self.assertEqual(inspected.call_args.kwargs["only_revision"],
+                         self.revisions[3])
+        for rev in self.revisions[:3]:
             self.assertTrue((self.root / "releases" / self.app / rev).exists())
 
     def test_guarded_apply_deletes_only_superseded_release_and_venv(self):

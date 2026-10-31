@@ -29,9 +29,11 @@ PY
 install -d -m 0755 /usr/local/libexec
 install -d -m 0750 /var/lib/vps-storage-manager
 install -d -o root -g root -m 0755 /var/lib/vps1-storage-gc-public
-id -u ubuntu >/dev/null || { echo 'REFUSE: expected scene service identity missing'; exit 24; }
-install -m 0644 infrastructure/tmpfiles.d/vps1-storage-gc-manual.conf /etc/tmpfiles.d/vps1-storage-gc-manual.conf
-systemd-tmpfiles --create /etc/tmpfiles.d/vps1-storage-gc-manual.conf
+# Align the private 0700 request spool to the actual, systemd-verified,
+# non-root Scene candidate web worker. Refuse unknown identities or pending
+# requests, never make the spool group/world writable.
+id -u ubuntu >/dev/null || { echo 'REFUSE: baseline scene service identity missing'; exit 24; }
+/usr/bin/python3 -m production.storage_gc_spool
 install -m 0755 production/storage_gc.py /usr/local/libexec/vps1-storage-gc.py
 install -m 0644 infrastructure/systemd/vps1-storage-deployment-gc.service /etc/systemd/system/vps1-storage-deployment-gc.service
 install -m 0644 infrastructure/systemd/vps1-storage-deployment-gc.timer /etc/systemd/system/vps1-storage-deployment-gc.timer
@@ -49,8 +51,10 @@ systemctl is-enabled --quiet vps1-storage-deployment-gc-status.timer
 systemctl is-active --quiet vps1-storage-deployment-gc.timer
 systemctl is-active --quiet vps1-storage-deployment-gc-manual.path
 systemctl is-active --quiet vps1-storage-deployment-gc-status.timer
-test "$(stat -c '%U:%a' /run/vps1-storage-gc-manual)" = "ubuntu:700" || {
-  echo 'REFUSE: manual GC request spool identity or permissions invalid'; exit 25;
+# Final readback is performed by the root-only spool aligner itself.
+# Assert strict permissions independently (owner was bound to live web EUID).
+test "$(stat -c '%a' /run/vps1-storage-gc-manual)" = "700" || {
+  echo 'REFUSE: manual GC spool no longer private'; exit 25;
 }
 /usr/bin/python3 /usr/local/libexec/vps1-storage-gc.py --publish-status || echo 'STORAGE_GC_TELEMETRY=INVENTORY_PENDING'
 # The read-only probe also takes the deployment lock. Concurrent releases or
