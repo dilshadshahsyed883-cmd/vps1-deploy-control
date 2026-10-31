@@ -125,9 +125,31 @@ def read_only(data_root: Path, scene_db: Path) -> dict:
     check_scene_account(scene_db)
     path = trusted_db(data_root)
     with open_db(path, readonly=True) as con:
-        summary, _ = inspect(con)
+        job_columns = columns(con, "jobs")
+        pref_columns = columns(con, "audio_preferences")
+        schema_missing_jobs = sorted(REQUIRED_JOBS - job_columns)
+        schema_missing_preferences = sorted(REQUIRED_PREFS - pref_columns)
+        if not schema_missing_jobs and not schema_missing_preferences:
+            summary, _ = inspect(con)
+            schema_status = "READY_FOR_PROVEN_TERMINAL_ONLY"
+        else:
+            # Legacy schemas are audited without ALTER TABLE, service
+            # restart or guessing missing owner columns. No migration is
+            # authorized until production schema matches reviewed source.
+            total = int(con.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]) if job_columns else 0
+            nonterminal = int(con.execute(
+                "SELECT COUNT(*) FROM jobs WHERE lower(trim(coalesce(status,''))) NOT IN ("
+                + ",".join("?" for _ in TERMINAL) + ")", tuple(sorted(TERMINAL))
+            ).fetchone()[0]) if "status" in job_columns else None
+            summary = {"total_jobs": total, "nonterminal_jobs": nonterminal,
+                       "owners": "UNVERIFIED_SCHEMA", "preferences": "UNCHANGED",
+                       "media_references": "UNCHANGED"}
+            schema_status = "APPLY_BLOCKED_SCHEMA_DRIFT"
     return {
         "mode": "READ_ONLY", "target_verified": True, "inventory": summary,
+        "schema_status": schema_status,
+        "schema_missing_jobs": schema_missing_jobs,
+        "schema_missing_preferences": schema_missing_preferences,
         "unproven_jobs_remain_unassigned": True, "other_users_untouched": True,
         "google_drive": "UNCHANGED", "auto_script": "OFFLINE",
     }

@@ -164,8 +164,12 @@ class AudioOwnershipTests(unittest.TestCase):
     def test_schema_drift_and_symlink_aborts_closed(self):
         with sqlite3.connect(self.source) as db:
             db.execute("DROP TABLE audio_preferences")
+        report = audio.read_only(self.data, self.scene)
+        self.assertEqual(report["schema_status"], "APPLY_BLOCKED_SCHEMA_DRIFT")
+        self.assertIn("auto_upload", report["schema_missing_preferences"])
+        self.assertEqual(report["inventory"]["total_jobs"], 0)
         with self.assertRaisesRegex(audio.AudioClaimBlocked, "AUDIO_PREF_SCHEMA_DRIFT"):
-            audio.read_only(self.data, self.scene)
+            audio.install("3" * 40)
 
 
 if __name__ == "__main__":

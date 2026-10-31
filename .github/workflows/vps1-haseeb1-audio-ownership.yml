@@ -98,6 +98,9 @@ jobs:
             grep -Fq '"mode": "READ_ONLY"' "$scratch/receipt.log"
             grep -Fq '"target_verified": true' "$scratch/receipt.log"
             echo 'AUDIO_OWNER_PRODUCTION=READ_ONLY'
+            grep -Eo '"schema_status": "[A-Z_]+"' "$scratch/receipt.log" || true
+            grep -Eo '"schema_missing_jobs": \[[^]]*\]' "$scratch/receipt.log" || true
+            grep -Eo '"schema_missing_preferences": \[[^]]*\]' "$scratch/receipt.log" || true
           else
             grep -Fq '"HASEEB1_AUDIO_ASSIGNMENT":' "$scratch/receipt.log"
             if grep -Fq '"state": "OWNERSHIP_VERIFIED"' "$scratch/receipt.log"; then
