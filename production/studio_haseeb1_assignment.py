@@ -217,8 +217,8 @@ def backup_exact_owner_databases(root: Path, destination: Path) -> list[str]:
                 "ASSIGNMENT_SOURCE_DB_UNAVAILABLE")
         target = destination / name
         target.parent.mkdir(parents=True,exist_ok=True)
-        with sqlite3.connect(source.as_uri() + "?mode=ro", uri=True, timeout=20) as src, \\
-             sqlite3.connect(target, timeout=20) as dst:
+        with (sqlite3.connect(source.as_uri() + "?mode=ro", uri=True, timeout=20) as src,
+              sqlite3.connect(target, timeout=20) as dst):
             src.backup(dst)
             require(dst.execute("PRAGMA integrity_check").fetchone()[0] == "ok",
                     "ASSIGNMENT_BACKUP_INTEGRITY_FAILURE")
