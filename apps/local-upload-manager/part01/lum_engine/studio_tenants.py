@@ -164,6 +164,121 @@ class StudioTenants:
                 (gid,owner))
             return gid
 
+    def sync_owned_sheet_rows(self, username, sheet_id, rows):
+        """Atomic tenant-safe first-tab reconciliation, no global group/token writes.
+
+        Google Drive, token files and existing OAuth remain unchanged. Legacy
+        or another account's channel ID always blocks the entire transaction.
+        Groups are managed by the owner's separate group UI.
+        """
+        owner=self.username(username)
+        source_id=int(sheet_id)
+        if source_id<=0 or len(rows)>2000:
+            raise ValueError("Invalid Sheet source or row limit")
+        prepared=[]
+        seen_keys=set()
+        for raw in rows:
+            key=str(getattr(raw,"key","") or "").strip().lower()
+            name=str(getattr(raw,"channel_name","") or "").strip()
+            channel_id=str(getattr(raw,"channel_id","") or "").strip()
+            email=str(getattr(raw,"gmail","") or "").strip()
+            if not key or len(key)>180 or not name or len(name)>180:
+                raise ValueError("Sheet row has invalid channel key/name")
+            if key in seen_keys:
+                raise ValueError("Duplicate Sheet row key")
+            seen_keys.add(key)
+            if channel_id.lower().startswith("sheet:"):
+                channel_id=f"sheet:{source_id}:{key}"
+            elif not re.fullmatch(r"UC[A-Za-z0-9_-]{22}",channel_id):
+                raise ValueError("Sheet channel ID must be a verified UC ID or a provisional row")
+            notes=str(getattr(raw,"notes","") or "").strip()[:500]
+            prepared.append((key,channel_id,name,email,notes))
+        if not prepared:
+            raise ValueError("Google Sheet returned zero usable rows; no changes applied")
+
+        with self.db.connect() as con:
+            self._initialize(con)
+            con.execute("BEGIN IMMEDIATE")
+            source=con.execute(
+                "SELECT id FROM sheet_sources WHERE id=?",(source_id,)).fetchone()
+            assigned=con.execute("""SELECT owner_username FROM studio_entity_owners
+                 WHERE entity_kind='sheet' AND entity_id=?""",(source_id,)).fetchone()
+            if not source or not assigned or str(assigned[0]).casefold()!=owner:
+                raise PermissionError("Sheet source is not owned by this account")
+            updates=0
+            for key,ucid,name,email,notes in prepared:
+                by_row=con.execute(
+                    "SELECT id,channel_id FROM channels WHERE sheet_source_id=? AND sheet_row_key=?",
+                    (source_id,key)).fetchone()
+                by_id=con.execute(
+                    "SELECT id FROM channels WHERE channel_id=?",
+                    (ucid,)).fetchone()
+                if by_id and (not by_row or int(by_row[0])!=int(by_id[0])):
+                    raise PermissionError("Sheet channel ID exists outside this owned Sheet row")
+                if by_row:
+                    cid=int(by_row[0])
+                    assigned_channel=con.execute("""SELECT owner_username
+                        FROM studio_entity_owners WHERE entity_kind='channel' AND entity_id=?""",
+                        (cid,)).fetchone()
+                    if not assigned_channel or str(assigned_channel[0]).casefold()!=owner:
+                        raise PermissionError("Existing Sheet channel is not owned by this account")
+                    previous=str(by_row[1] or "")
+                    if previous.startswith("UC") and previous!=ucid:
+                        raise PermissionError("Existing authorized UC Channel ID cannot change via Sheet")
+                    con.execute("""UPDATE channels SET channel_id=?,channel_name=?,
+                        google_account_email=?,sheet_notes=?,sheet_present=1,
+                        sheet_last_seen_at=CURRENT_TIMESTAMP,last_used_at=CURRENT_TIMESTAMP
+                        WHERE id=?""",(ucid,name,email,notes,cid))
+                else:
+                    cur=con.execute("""INSERT INTO channels(
+                        channel_id,channel_name,google_account_email,token_file_path,
+                        status,sheet_source_id,sheet_row_key,sheet_present,sheet_notes,
+                        sheet_last_seen_at)
+                        VALUES (?,?,?,'','ACTIVE',?,?,1,?,CURRENT_TIMESTAMP)""",
+                        (ucid,name,email,source_id,key,notes))
+                    cid=int(cur.lastrowid)
+                    con.execute("""INSERT INTO studio_entity_owners
+                        (entity_kind,entity_id,owner_username) VALUES ('channel',?,?)""",
+                        (cid,owner))
+                updates+=1
+            keys=[entry[0] for entry in prepared]
+            placeholders=",".join("?" for _ in keys)
+            # No queue/history deletion, token rotation or group mutation.
+            removed=con.execute("""UPDATE channels SET sheet_present=0
+                WHERE sheet_source_id=? AND COALESCE(sheet_row_key,'') NOT IN ("""+
+                placeholders+""") AND COALESCE(sheet_present,1)<>0""",
+                (source_id,*keys)).rowcount
+            con.execute("""UPDATE sheet_sources SET last_sync_at=CURRENT_TIMESTAMP,
+                last_sync_status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?""",
+                (f"OWNED_SYNC: rows={updates} hidden={removed}",source_id))
+            return {"ok":True,"rows":updates,"updated":updates,"hidden_removed":removed,
+                    "groups_touched":0,"source_id":source_id}
+
+    def delete_owned_sheet(self, username, sheet_id):
+        """Detach only owned channels; do not delete media, groups or tokens."""
+        owner=self.username(username)
+        source_id=int(sheet_id)
+        with self.db.connect() as con:
+            self._initialize(con)
+            con.execute("BEGIN IMMEDIATE")
+            assigned=con.execute("""SELECT owner_username FROM studio_entity_owners
+                WHERE entity_kind='sheet' AND entity_id=?""",(source_id,)).fetchone()
+            if not assigned or str(assigned[0]).casefold()!=owner:
+                raise PermissionError("Sheet source belongs to a different user")
+            channels=[int(row[0]) for row in con.execute(
+                "SELECT id FROM channels WHERE sheet_source_id=?",(source_id,))]
+            for cid in channels:
+                linked=con.execute("""SELECT owner_username FROM studio_entity_owners
+                    WHERE entity_kind='channel' AND entity_id=?""",(cid,)).fetchone()
+                if not linked or str(linked[0]).casefold()!=owner:
+                    raise PermissionError("Sheet contains an unowned or foreign channel")
+            con.execute("""UPDATE channels SET sheet_present=0,sheet_source_id=NULL,
+                sheet_row_key=NULL WHERE sheet_source_id=?""",(source_id,))
+            con.execute("DELETE FROM sheet_sources WHERE id=?",(source_id,))
+            con.execute("""DELETE FROM studio_entity_owners
+                WHERE entity_kind='sheet' AND entity_id=?""",(source_id,))
+            return len(channels)
+
     def assign_by_admin(self, kind, entity_id, owner, user):
         """First assignment of a legacy entity; never silently transfer history."""
         if not user or not int(user.get("is_admin") or 0):
