@@ -79,6 +79,13 @@ def owned_routes(site):
     guard(len(names) == len(set(names)) and all(a in APPS for a in names),
           "unknown or repeated managed Nginx route")
     base = managed_re().sub("", site)
+    # The global HTML 401 handler is a reviewed, exact host-level overlay.
+    # Normalize only its complete byte-for-byte known form for route auditing.
+    from production.universal_login_redirect import MARKER as login_marker, RULE as login_rule
+    guard(base.count(login_marker) <= 1, "duplicate universal login policy marker")
+    if login_marker in base:
+        guard(login_rule in base, "unreviewed universal login policy")
+        base = base.replace(login_rule, "", 1)
     guard(base.count(SCENE_SESSION_HIDE) <= 1, "duplicate internal SSO deny location")
     base = base.replace(SCENE_SESSION_HIDE, "", 1)
     guard(base in known_sites(), "existing Scene HTTPS site drift; no Nginx change")
@@ -295,6 +302,16 @@ def preflight(revision, app, *, require_app=True):
 def publish(revision, app):
     auth = preflight(revision, app)
     old = SITE.read_text()
+    # Existing SSO Short Maker is the guarded deployment entrypoint for the
+    # host-wide browser login policy (including Short/Song/Copyright uploaders).
+    # A legacy Basic route still follows the original route-only migration.
+    if app == "short-maker":
+        short_route = snippet_path(app)
+        if (short_route.is_file() and not short_route.is_symlink() and
+            short_route.read_text().startswith("# VPS1_SCENE_SESSION_SSO_V1 short-maker\\n")):
+            from production.universal_login_redirect import publish as publish_login
+            publish_login(revision)
+            return
     # Existing HTTPS apps transition one at a time to the already-validated
     # Scene cookie, never reinstalling or restarting app services.
     from production import scene_session_routes as sso
