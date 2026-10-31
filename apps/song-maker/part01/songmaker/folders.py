@@ -28,6 +28,11 @@ class Folders:
                 manifest TEXT NOT NULL,closed INTEGER NOT NULL DEFAULT 0,consumed INTEGER NOT NULL DEFAULT 0);
             CREATE TABLE IF NOT EXISTS song_folder_refs(job_id TEXT NOT NULL,consumer TEXT NOT NULL,
                 youtube_id TEXT NOT NULL DEFAULT '',PRIMARY KEY(job_id,consumer));
+            -- Migration keeps the physically existing source-owner hash; access
+            -- is still gated by the new authenticated logical owner.
+            CREATE TABLE IF NOT EXISTS song_folder_path_owners(
+                folder_id TEXT PRIMARY KEY, owner TEXT NOT NULL,
+                original_owner_hash TEXT NOT NULL);
             ''')
 
     def get(self, owner, fid):
@@ -42,7 +47,16 @@ class Folders:
         if not owner or len(owner)>160 or any(ord(c)<32 for c in owner) or not ID.fullmatch(str(fid)):
             raise ValueError('Invalid folder identity')
         parent=self.store.root/'folders'
-        path=parent/hashlib.sha256(owner.encode()).hexdigest()/fid
+        with self.store.db() as db:
+            row=db.execute('SELECT owner,original_owner_hash FROM song_folder_path_owners '
+                           'WHERE folder_id=?',(fid,)).fetchone()
+        if row:
+            if row['owner'] != owner or not re.fullmatch(r'[0-9a-f]{64}',row['original_owner_hash']):
+                raise ValueError('Folder path ownership mismatch')
+            digest=row['original_owner_hash']
+        else:
+            digest=hashlib.sha256(owner.encode()).hexdigest()
+        path=parent/digest/fid
         for part in (self.store.root,parent,path.parent,path):
             if part.is_symlink(): raise ValueError('Folder symlinks are prohibited')
         return path

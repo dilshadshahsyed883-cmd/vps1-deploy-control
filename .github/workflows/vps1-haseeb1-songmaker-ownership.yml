@@ -1,0 +1,116 @@
+name: VPS1 haseeb1 Song Maker consented ownership migration
+on:
+  pull_request:
+    paths:
+      - "production/studio_haseeb1_songmaker_assignment.py"
+      - "production/runtime.py"
+      - "apps/song-maker/part01/songmaker/folders.py"
+      - "tests/test_studio_haseeb1_songmaker_assignment.py"
+      - ".github/workflows/vps1-haseeb1-songmaker-ownership.yml"
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  owner-migration-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile Song Maker ownership migration
+        run: python -m py_compile production/runtime.py production/studio_haseeb1_songmaker_assignment.py apps/song-maker/part01/songmaker/folders.py
+      - name: Unit test ownership proof, config snapshot and rollback
+        run: python -m unittest tests.test_studio_haseeb1_songmaker_assignment -v
+  guarded-production:
+    needs: [owner-migration-tests]
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.run_attempt == 1 &&
+      github.actor == 'dilshadshahsyed883-cmd' &&
+      (contains(github.event.head_commit.message, '[vps1-haseeb1-songmaker-readonly]') ||
+       contains(github.event.head_commit.message, '[vps1-haseeb1-songmaker-assignment]'))
+    concurrency:
+      group: vps1-production-applications
+      cancel-in-progress: false
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Join existing pinned Tailscale overlay
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Run approved Song Maker-only operation with no unscoped command
+        shell: bash
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/identity"
+          unset PRIVATE_IDENTITY
+          chmod 0600 "$scratch/identity"
+          ssh-keygen -y -P '' -f "$scratch/identity" > "$scratch/public"
+          fingerprint="$(ssh-keygen -lf "$scratch/public" -E sha256 | awk '{print $2}')"
+          test "$fingerprint" = 'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
+          read_only=0
+          if git log -1 --format=%B | grep -Fq '[vps1-haseeb1-songmaker-readonly]'; then
+            read_only=1
+          else
+            git log -1 --format=%B | grep -Fq '[vps1-haseeb1-songmaker-assignment]'
+          fi
+          remote() {
+            timeout 600s ssh -T -p 22 -i "$scratch/identity" \
+              -o UserKnownHostsFile="$scratch/known_hosts" \
+              -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+              -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=20 \
+              -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+              vps1deploy@100.87.55.92 \
+              "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA $1" \
+              > "$scratch/receipt.log" 2>&1
+          }
+          if [ "$read_only" -eq 0 ]; then
+            # The existing Song Maker code release is idle-fenced and rolled back
+            # if unhealthy. Folder-path adapter must be live BEFORE DB claim.
+            if ! remote song-maker; then
+              echo 'SONGMAKER_CODE_RELEASE_BLOCKED'
+              exit 1
+            fi
+            echo 'SONGMAKER_PATH_ADAPTER_RELEASE=PASS'
+          fi
+          if ! remote local-upload-manager; then
+            grep -Eo 'HASEEB1_STUDIO_ASSIGNMENT_BLOCKED: [A-Z0-9_]+' \
+              "$scratch/receipt.log" | tail -n 1 || true
+            echo 'SONGMAKER_OWNER_OPERATION=BLOCKED_NO_UNVERIFIED_FORCE_TRANSFER'
+            exit 1
+          fi
+          grep -Fq '"auto_script": "OFFLINE"' "$scratch/receipt.log"
+          grep -Fq '"shared_google_drive": "UNCHANGED"' "$scratch/receipt.log"
+          if [ "$read_only" -eq 1 ]; then
+            grep -Fq '"mode": "READ_ONLY"' "$scratch/receipt.log"
+            grep -Fq '"target_verified": true' "$scratch/receipt.log"
+            echo 'SONGMAKER_OWNERSHIP_AUDIT=READ_ONLY_PASS'
+          else
+            grep -Fq '"STUDIO_SONGMAKER_ASSIGNMENT": "PASS"' "$scratch/receipt.log"
+            echo 'SONGMAKER_HASEEB1_OWNERSHIP=PRODUCTION_VERIFIED'
+          fi
+          # Never expose private owner names, paths, jobs or service logs.
+          grep -Eo '"(approved_source_records|legacy_default_preserved|target_jobs|archived_snapshots)": [0-9]+' \
+            "$scratch/receipt.log" | tail -n 8 || true

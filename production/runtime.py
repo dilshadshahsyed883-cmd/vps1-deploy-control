@@ -558,6 +558,476 @@ def require_lum_release_idle(state: Path) -> None:
             # material only after stricter job/scheduler/media/port/unit
             # checks. This never becomes the default LUM release policy.
             intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        # Song Maker-only owner audit/claim, distinct from both parallel Maker
+        # and uploader migrations; no app install or shared runtime modification.
+        if '[vps1-haseeb1-songmaker-readonly]' in intent:
+            if args.action != 'install' or args.apps != ['local-upload-manager']:
+                raise RuntimeError('Song Maker owner audit requires the exact approved LUM helper lane')
+            from production.studio_haseeb1_songmaker_assignment import audit
+            event(**audit(DATA / 'song-maker', DATA / 'scene-builder/web/web.sqlite3'))
+            return
+        if '[vps1-haseeb1-songmaker-assignment]' in intent:
+            if args.action != 'install' or args.apps != ['local-upload-manager']:
+                raise RuntimeError('Song Maker owner claim requires the exact approved LUM helper lane')
+            from production.studio_haseeb1_songmaker_assignment import install
+            event(**install(args.revision, DATA / 'song-maker',
+                  DATA / 'scene-builder/web/web.sqlite3',
+                  BASE / 'transactions/haseeb1-songmaker-firstclaim'))
+            return
+            retained_idle = False
+            if '[vps1-shortstudio-preserved-recovery]' in intent:
+                try:
+                    retained_idle = shortstudio_rolled_back_empty(state, preserve_secure=True)
+                except (OSError, ValueError, TypeError, sqlite3.Error) as exc:
+                    raise RuntimeError(
+                        "LUM_RELEASE_BLOCKED: shortstudio preserved-state proof failed ("
+                        + type(exc).__name__ + ")") from exc
+            if retained_idle:
+                event(app="local-upload-manager",
+                      shortstudio_recovery="PRESERVED_SECURE_IDLE_PROVEN")
+            else:
+                modes += (("shortstudio", 8019, "/short-uploader/health", "lum-shortstudio"),)
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    in_flight = ("CLAIMED", "UPLOADING", "THUMBNAIL_UPLOADING",
+                 "PROCESSING", "IN_PROGRESS")
+    for mode, port, route, leaf in modes:
+        try:
+            with opener.open(f"http://127.0.0.1:{port}{route}", timeout=3) as response:
+                if response.status != 200:
+                    raise RuntimeError("engine did not return HTTP 200")
+                health = json.loads(response.read(4096))
+            if (health.get("ok") is not True or
+                    health.get("engine_instance") != mode):
+                raise RuntimeError("engine identity/readiness mismatch")
+            if health.get("active_project_id") not in (None, "", 0):
+                raise RuntimeError("in-flight web upload")
+            database = state / leaf / "core" / "data" / "uploader.db"
+            if database.is_file():
+                with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True,
+                                     timeout=3) as conn:
+                    conn.execute("PRAGMA query_only=ON")
+                    has_videos = conn.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='videos'"
+                    ).fetchone()
+                    if has_videos:
+                        matches = conn.execute(
+                            "SELECT 1 FROM videos WHERE UPPER(status) IN (" +
+                            ",".join("?" for _ in in_flight) + ") LIMIT 1",
+                            in_flight,
+                        ).fetchone()
+                        if matches:
+                            raise RuntimeError("in-flight SQLite upload")
+                        parked = lum_parked_network_idle(conn)
+                        if parked:
+                            event(app="local-upload-manager", mode=mode,
+                                  safe_pre_media_network_waits=parked)
+        except (OSError, ValueError, TypeError, sqlite3.Error, RuntimeError) as exc:
+            raise RuntimeError(
+                "LUM_RELEASE_BLOCKED: uploader " + mode +
+                " is busy or its idle state cannot be proven (" +
+                type(exc).__name__ + ")"
+            ) from exc
+    event(app="local-upload-manager", uploader_idle_preflight="PASS",
+          checked_modes=[mode for mode, *_ in modes])
+
+
+def require_sml_idle(state):
+    database = Path(state) / 'sml/library.db'
+    if not database.is_file():return
+    with sqlite3.connect(database.as_uri() + '?mode=ro',uri=True,timeout=5) as c:
+        c.execute('PRAGMA query_only=ON')
+        for table,where in (('sources',"status='processing'"),('media_imports',"status='processing'"),('ai_jobs',"state='running'")):
+            if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone():
+                if c.execute('SELECT 1 FROM '+table+' WHERE '+where+' LIMIT 1').fetchone():
+                    raise RuntimeError('SML_RELEASE_BLOCKED: active '+table+' work; retry after completion')
+
+
+def require_copyright_uploader_idle(state: Path) -> None:
+    """Protect all Copyright manual uploads and cleanup during web release.
+
+    Never stop a claimed upload, a queue handoff or a cleanup transaction.
+    Fail closed on missing/corrupt health/SQLite while a live unit is active.
+    """
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open("http://127.0.0.1:8020/copyright-uploader/health", timeout=5) as response:
+        if response.status != 200:
+            raise RuntimeError("COPYRIGHT_RELEASE_BLOCKED: health unavailable")
+        health = json.loads(response.read(8192))
+    if health.get("ok") is not True or health.get("engine_instance") != "copyright":
+        raise RuntimeError("COPYRIGHT_RELEASE_BLOCKED: wrong service identity")
+    if health.get("active_project_id") not in (None, "", 0):
+        raise RuntimeError("COPYRIGHT_RELEASE_BLOCKED: active media upload")
+    database = state / "lum-copyright/projects.sqlite3"
+    if database.is_symlink() or not database.is_file():
+        raise RuntimeError("COPYRIGHT_RELEASE_BLOCKED: project database missing or unsafe")
+    with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=5) as conn:
+        conn.execute("PRAGMA query_only=ON")
+        outstanding = conn.execute(
+            """SELECT 1 FROM projects
+               WHERE status NOT IN ('COMPLETED','CANCELLED','FAILED') LIMIT 1"""
+        ).fetchone()
+        if outstanding:
+            raise RuntimeError("COPYRIGHT_RELEASE_BLOCKED: queued/active Copyright project")
+    core = state / "lum-copyright/core/data/uploader.db"
+    if core.is_symlink():
+        raise RuntimeError("COPYRIGHT_RELEASE_BLOCKED: unsafe core DB")
+    if core.is_file():
+        with sqlite3.connect(core.as_uri() + "?mode=ro", uri=True, timeout=5) as conn:
+            conn.execute("PRAGMA query_only=ON")
+            busy = conn.execute(
+                """SELECT 1 FROM videos WHERE UPPER(status) IN
+                   ('CLAIMED','UPLOADING','THUMBNAIL_UPLOADING','PROCESSING','IN_PROGRESS',
+                    'WAITING_NETWORK','PAUSED','QUEUED') LIMIT 1"""
+            ).fetchone()
+            if busy:
+                raise RuntimeError("COPYRIGHT_RELEASE_BLOCKED: core upload queue not idle")
+    event(app="copyright-uploader", upload_idle_preflight="PASS")
+
+
+def require_short_maker_idle(state):
+    """Never interrupt an existing Short Maker render during navigation migration."""
+    jobs = state / "jobs"
+    if not jobs.is_dir():
+        return
+    for item in jobs.glob("*/state.json"):
+        if item.is_symlink() or not item.is_file():
+            raise RuntimeError("Short Maker state ownership drift")
+        try:
+            record = json.loads(item.read_text())
+        except (ValueError, OSError) as exc:
+            raise RuntimeError("Unreadable Short Maker job state blocks release") from exc
+        status = str(record.get("status") or "").lower().strip()
+        if status not in {"completed", "failed", "cancelled", "canceled"}:
+            raise RuntimeError("Short Maker has an unfinished job; preserving live render")
+
+
+def install_app(app, revision):
+    if app not in CATALOG:
+        raise ValueError('app is not owned by this installer')
+    if app == 'local-upload-manager':
+        intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-song-uploader-automation-summary]' in intent:
+            from production.song_uploader_group_summary_release import install as install_song_group_summary
+            install_song_group_summary(revision)
+            return
+        if '[vps1-short-uploader-group-metadata]' in intent:
+            from production.short_uploader_group_release import install as install_short_groups
+            install_short_groups(revision)
+            return
+    if app == 'video-merger':
+        intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-video-merger-import-release]' in intent:
+            from production.video_merger_import_release import install
+            install(revision)
+            return
+    # The public Scene service is the original isolated candidate on port 18080,
+    # not the later generic port-8080 service.  Keep its unit/env/data ownership
+    # and update only its immutable source pointer through the same root helper.
+    if app == 'scene-builder' and (BASE / 'current/scene-builder').is_symlink():
+        intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-storage-dashboard-web-only]' in intent:
+            # Web-only admin Storage overlay; queued Scene renders are
+            # deliberately NOT admission-gated by renderer source refresh.
+            from production.storage_dashboard_web_release import install as install_storage_web
+            install_storage_web(revision)
+            return
+        if '[vps1-copyright-studio-release]' in intent:
+            from production.copyright_scene_nav_release import install as install_copyright_scene
+            install_copyright_scene(revision)
+            return
+        if '[vps1-song-uploader-settings-fix]' in intent:
+            # Candidate POST gate is independent from the existing Song uploader
+            # database and worker. Release only that policy, not all Scene code.
+            from production.song_uploader_candidate_policy_release import install as install_song_policy
+            install_song_policy(revision)
+            return
+        if '[vps1-song-studio-release]' in intent:
+            from production.song_studio_release import install_scene
+            install_scene(revision)
+            return
+        if '[vps1-scene-delete-web-only]' in intent:
+            from production.scene_cancelled_delete_web_release import install as release_cancelled_delete
+            release_cancelled_delete(revision)
+            return
+        if '[vps1-scene-web-policy-only]' in intent:
+            from production.scene_manual_start_web_release import install as release_manual_start
+            release_manual_start(revision)
+            return
+        # Explicitly UI-only: clone the running Scene web source, changing just
+        # the Auto Script CSS + its scoped link. Never refresh busy renderers.
+        if '[vps1-auto-script-ui-overlay]' in intent:
+            from production.scene_auto_script_ui_overlay import install as release_auto_script_ui
+            release_auto_script_ui(revision)
+            return
+        from production.scene_candidate_release import install as install_scene_candidate
+        install_scene_candidate(revision)
+        return
+    if app in {'short-maker', 'video-merger', 'auto-caption-studio'}:
+        commit_message = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-video-template-only]' in commit_message:
+            from production.video_template_release import install as install_video_template
+            install_video_template(app, revision)
+            return
+    # Explicit protected-main Voice template-only intent: never restart or
+    # provision independent synthesis workers just to change sidebar markup.
+    if app == 'voice-studio':
+        commit_message = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-song-studio-release]' in commit_message:
+            from production.song_studio_release import install_voice
+            install_voice(revision)
+            return
+        if '[vps1-voice-edge-recovery-only]' in commit_message:
+            from production.voice_edge_worker_recovery import install as repair_edge_worker
+            repair_edge_worker(revision)
+            return
+        if '[vps1-voice-kokoro-recovery-only]' in commit_message:
+            from production.voice_kokoro_worker_recovery import install as repair_kokoro_worker
+            repair_kokoro_worker(revision)
+            return
+        if '[vps1-audio-error-label-only]' in commit_message:
+            from production.audio_downloader_release import install as label_audio_download_error
+            label_audio_download_error(revision, restore_proxy=False, include_thumbnail=True, diagnostic_only=True)
+            return
+        if '[vps1-audio-restore-only]' in commit_message:
+            from production.audio_downloader_release import install as restore_audio_download
+            restore_audio_download(revision, restore_proxy=False, include_thumbnail=True, restore_download=True)
+            return
+        if '[vps1-audio-thumbnail-only]' in commit_message:
+            from production.audio_downloader_release import install as install_audio_thumbnail
+            install_audio_thumbnail(revision, restore_proxy=False, include_thumbnail=True)
+            return
+        if '[vps1-audio-filename-only]' in commit_message:
+            from production.audio_downloader_release import install as install_audio_filename
+            install_audio_filename(revision, restore_proxy=False)
+            return
+        if '[vps1-audio-proxy-only]' in commit_message:
+            from production.audio_downloader_release import install as install_audio_proxy
+            install_audio_proxy(revision)
+            return
+        if '[vps1-voice-tts-controls-only]' in commit_message:
+            from production.voice_tts_controls_release import install as install_voice_tts_controls
+            install_voice_tts_controls(revision)
+            return
+        if '[vps1-voice-queue-api-only]' in commit_message:
+            from production.voice_queue_release import install as install_voice_queue_api
+            install_voice_queue_api(revision)
+            return
+        if '[vps1-voice-template-only]' in commit_message:
+            from production.voice_template_release import install as install_voice_template
+            install_voice_template(revision)
+            return
+    # Owner-approved website re-audit touches exact web files only. Workers stay live.
+    if app in {'auto-caption-studio','voice-studio','self-media-library','short-stream','video-merger'}:
+        commit_message = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-website-reaudit-release]' in commit_message:
+            from production.website_reaudit_release import install as install_website_reaudit
+            install_website_reaudit(app, revision)
+            return
+    unit_name = f'vps1-production-{app}.service'
+    unit = Path('/etc/systemd/system') / unit_name
+    current = BASE / 'current' / runtime_name(app)
+    state = DATA / runtime_name(app)
+    record = BASE / 'control/state' / (app + '.json')
+    if current.exists() and not current.is_symlink():
+        raise RuntimeError('existing app path is not a release pointer')
+    if current.is_symlink() and not record.is_file():
+        raise RuntimeError('existing app belongs to a different installer')
+    old = str(current.resolve(strict=True)) if current.is_symlink() else None
+    if old and not Path(old).is_relative_to(BASE / 'releases' / runtime_name(app)):
+        raise RuntimeError('existing pointer escaped app releases')
+    active = subprocess.run(['systemctl', 'is-active', '--quiet', unit_name]).returncode == 0
+    if not active:
+        free_port(CATALOG[app]['port'])
+    previous = {'current': old, 'unit': unit.read_text() if unit.exists() else None, 'active': active}
+    from production import workers
+    previous['workers'] = workers.snapshot(app)
+    if old == str(BASE / 'releases' / runtime_name(app) / revision) and active:
+        stage_source(app, revision)
+        http_check(app)
+        event(app=app, result='PASS_ALREADY_INSTALLED', revision=revision)
+        return
+    release = stage_source(app, revision)
+    state.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chown(state, 1000, 1000)
+    env_file = CONFIG / f'production-{app}.env'
+    CONFIG.mkdir(parents=True, exist_ok=True)
+    if not env_file.exists():
+        env = environment(app, state)
+        fd = os.open(env_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, 'w') as stream:
+            stream.write(''.join(k + '=' + v + '\n' for k, v in env.items()))
+    if app == 'short-stream':
+        from production.auto_stream_oauth_env import ensure_key
+        key_status = ensure_key(env_file, state)
+        event(app=app, oauth_vault_key=key_status, secrets_logged=False)
+    venv = BASE / 'venvs' / app / revision
+    venv.parent.mkdir(parents=True, exist_ok=True)
+    if not (venv / 'bin/python').is_file():
+        venv.mkdir(exist_ok=True)
+        os.chown(venv, 1000, 1000)
+        run(['runuser', '-u', 'ubuntu', '--', 'python3', '-m', 'venv', venv], quiet=True)
+    pip = [venv / 'bin/python', '-m', 'pip', 'install', '--disable-pip-version-check', '--no-cache-dir']
+    packages = CATALOG[app].get('packages')
+    args = packages if packages else ['-r', release / CATALOG[app]['requirements']]
+    run(['runuser', '-u', 'ubuntu', '--', *pip, *args, 'httpx==0.28.1'], timeout=900, quiet=True)
+    if app == 'self-media-library':
+        # The production catalog overrides part01/requirements.txt; validate
+        # the worker's actual immutable venv before switching its live pointer.
+        downloader = venv / 'bin/yt-dlp'
+        if not downloader.is_file() or not os.access(downloader, os.X_OK):
+            raise RuntimeError('SML_YTDLP_MISSING: downloader absent from release environment')
+        run(['runuser', '-u', 'ubuntu', '--', venv / 'bin/python',
+             '-m', 'yt_dlp', '--version'], timeout=45, quiet=True)
+        # The production package catalog overrides SML requirements.txt.  Verify
+        # the exact face detector/recognizer runtime before activating a release,
+        # rather than leaving 'Save person & scan images' silently disabled.
+        run(['runuser', '-u', 'ubuntu', '--', venv / 'bin/python', '-c',
+             'import cv2, numpy, PIL; '
+             'assert callable(cv2.FaceDetectorYN.create) and '
+             'callable(cv2.FaceRecognizerSF.create), "OpenCV face modules unavailable"'],
+            timeout=45, quiet=True)
+        event(app=app, dependency='opencv-face-engine', result='PASS_DEPENDENCY_INSTALLED',
+              runtime=str(venv))
+        event(app=app, dependency='yt-dlp', result='PASS_DEPENDENCY_INSTALLED',
+              runtime=str(venv))
+    if app == 'video-merger':
+        from production.video_merger_import_release import install_js
+        install_js(venv)
+    freeze = run([venv / 'bin/python', '-m', 'pip', 'freeze'], quiet=True)
+    (venv / 'installed-requirements.txt').write_text(freeze)
+    # Exercise real startup/UI and a bounded local render before changing live pointers.
+    run(['runuser', '-u', 'ubuntu', '--', venv / 'bin/python', '-m',
+         'production.smoke', '--app', app], cwd=REPO, timeout=180, quiet=True)
+    if app == 'self-media-library':
+        intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-sml-ai-release]' in intent:
+            models = state / 'sml' / 'ai_models'
+            models.mkdir(parents=True, exist_ok=True)
+            os.chown(models.parent, 1000, 1000)
+            os.chown(models, 1000, 1000)
+            run(['runuser','-u','ubuntu','--',venv / 'bin/python',
+                 release / 'part01/ai_engine.py','--prepare',models],timeout=600,quiet=True)
+            if not shutil.which('tesseract') or not Path('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf').is_file():
+                run(['apt-get','update','-qq'],timeout=300,quiet=True)
+                run(['apt-get','install','-y','--no-install-recommends','tesseract-ocr','fonts-dejavu-core'],timeout=300,quiet=True)
+            speech_models = state / 'sml/speech_models'
+            speech_models.mkdir(exist_ok=True)
+            os.chown(speech_models,1000,1000)
+            run(['runuser','-u','ubuntu','--',venv / 'bin/python',
+                 release / 'part01/ai_text.py','--prepare',speech_models],timeout=600,quiet=True)
+            run(['runuser','-u','ubuntu','--',venv / 'bin/python','-m',
+                 'production.sml_ai_verify','--model-cache',models],cwd=REPO,timeout=240,quiet=True)
+    if app == 'video-merger':
+        media = state / 'video-merger'
+        media.mkdir(exist_ok=True)
+        os.chown(media, 1000, 1000)
+        state_of_pointer = ensure_video_merger_venv_pointer(media, venv)
+        event(app='video-merger', venv_pointer=state_of_pointer, original='PRESERVED')
+    journal = BASE / 'transactions' / app / (revision + '-' + str(time.time_ns()))
+    journal.mkdir(parents=True)
+    atomic_json(journal / 'previous.json', previous)
+    # Never interrupt an upload in any of the three independently running engines.
+    if app == 'local-upload-manager' and active:
+        require_lum_release_idle(state)
+    if app == 'copyright-uploader' and active:
+        require_copyright_uploader_idle(state)
+    if app == 'short-maker' and active:
+        require_short_maker_idle(state)
+    if app == 'video-merger' and active:
+        from production.video_template_release import idle as require_video_merger_idle
+        require_video_merger_idle('video-merger')
+    if app == 'voice-studio' and active:
+        require_voice_release_idle(state)
+    # Only the app being replaced is stopped. Other apps and all agents stay up.
+    if app == 'self-media-library' and active:
+        require_sml_idle(state)
+    if active:
+        run(['systemctl', 'stop', unit_name], quiet=True)
+    workers.stop(app)
+    changed = False
+    short_studio_route_receipt = None
+    copyright_studio_route_receipt = None
+    try:
+        backups = backup_databases(state, journal / 'sqlite-backup')
+        changed = True
+        atomic_link(current, release)
+        unit.write_text(service_unit(app, revision))
+        unit.chmod(0o644)
+        run(['systemctl', 'daemon-reload'], quiet=True)
+        run(['systemd-analyze', 'verify', unit], quiet=True)
+        run(['systemctl', 'enable', unit_name], timeout=60, quiet=True)
+        run(['systemctl', 'restart', unit_name], timeout=60, quiet=True)
+        health = http_check(app)
+        workers.install(app, revision)
+        if app == 'self-media-library':
+            intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+            if '[vps1-sml-local-release]' in intent:
+                from production.sml_local_verify import verify as verify_local_sml
+                verify_local_sml(venv)
+        if app == 'scene-builder':
+            from production.browser_runtime import install as install_browser
+            install_browser()
+        if shutil.disk_usage('/').free < 5_000_000_000:
+            raise RuntimeError('operational disk reserve breached')
+        if app == 'copyright-uploader':
+            from production.copyright_studio_release import install_route
+            copyright_studio_route_receipt = install_route(revision)
+        if app == 'local-upload-manager':
+            intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+            if '[vps1-short-studio-release]' in intent:
+                from production.short_studio_release import install_route
+                short_studio_route_receipt = install_route(revision)
+        atomic_json(record, {'revision': revision, 'unit': unit_name, 'previous': previous,
+                             'transaction': str(journal), 'status': 'ACTIVE'})
+        event(app=app, result='PASS_SERVICE_HEALTH', revision=revision, port=CATALOG[app]['port'],
+              sqlite_backups=len(backups), health=health, rollback=str(journal))
+    except BaseException:
+        try:
+            if copyright_studio_route_receipt is not None:
+                from production.copyright_studio_release import restore_route
+                restore_route(copyright_studio_route_receipt)
+            if short_studio_route_receipt is not None:
+                from production.short_studio_release import restore_route
+                restore_route(short_studio_route_receipt)
+        finally:
+            if changed or active:
+                restore(app, previous)
+        raise
+
+
+@contextlib.contextmanager
+def deployment_lock():
+    with open('/run/lock/vps1-production.lock', 'a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        yield
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('action', choices=['install', 'status', 'rollback'])
+    parser.add_argument('--revision', required=True)
+    parser.add_argument('--apps', nargs='+', choices=sorted(CATALOG), default=list(CATALOG))
+    args = parser.parse_args()
+    check_host(args.revision)
+    with deployment_lock():
+        intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        # Scoped Audio Downloader first-owner audit/claim: no service restart,
+        # no media/prefs/queue mutation and no Song/Short Maker deployment.
+        if '[vps1-haseeb1-audio-readonly]' in intent:
+            if args.action != 'install' or args.apps != ['voice-studio']:
+                raise RuntimeError('haseeb1 Audio audit requires exact Voice lane')
+            from production.studio_haseeb1_audio_assignment import read_only
+            event(**read_only(DATA, DATA / 'scene-builder/web/web.sqlite3'))
+            return
+        if '[vps1-haseeb1-audio-apply]' in intent:
+            if args.apps != ['voice-studio'] or args.action not in ('install', 'rollback'):
+                raise RuntimeError('haseeb1 Audio claim requires exact Voice lane')
+            from production.studio_haseeb1_audio_assignment import install, rollback
+            if args.action == 'install':
+                install(args.revision)
+            else:
+                event(**rollback(args.revision))
+            return
             retained_idle = False
             if '[vps1-shortstudio-preserved-recovery]' in intent:
                 try:
