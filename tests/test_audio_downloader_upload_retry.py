@@ -189,6 +189,8 @@ class DriveUploadSchedulingTests(unittest.TestCase):
                 return False
             def wait(self, timeout=None):
                 return 0
+            def poll(self):
+                return self.returncode
         with patch.object(self.m.subprocess, "Popen",
                           return_value=Process(["AD_PROGRESS: 10.0%\\n", "AD_PROGRESS: 73.4%\\n",
                                                 "AD_PROGRESS: 100.0%\\n"])):
