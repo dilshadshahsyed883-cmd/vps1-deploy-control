@@ -1195,6 +1195,7 @@ def next_waiting():
     # Otherwise a user can cancel/delete a row after SELECT but before work starts.
     with DB_LOCK, db() as c:
         r=c.execute("""SELECT * FROM jobs j WHERE j.status='waiting'
+                         AND trim(coalesce(j.owner_username,''))<>''
                          AND NOT EXISTS (SELECT 1 FROM owner_queue_state p
                                          WHERE p.owner_username=j.owner_username AND p.paused=1)
                          ORDER BY j.order_idx,j.created_at LIMIT 1""").fetchone()
