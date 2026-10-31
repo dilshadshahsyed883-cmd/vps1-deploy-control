@@ -263,8 +263,7 @@ async def standalone_auth(request: Request, call_next):
         path.startswith(route("/actions/auto-v6/")) or
         path.startswith(route("/api/auto-v6")) or
         path.startswith(route("/modes/")) or
-        path.startswith(route("/actions/pc-sync/")) or
-        path == route("/actions/sheets/sync-all")
+        path.startswith(route("/actions/pc-sync/"))
     ):
         return JSONResponse({"detail": "Automatic uploader engine is disabled for Copyright Studio"}, status_code=404)
     if path.startswith(route("/static/")) or path == route("/health"):
