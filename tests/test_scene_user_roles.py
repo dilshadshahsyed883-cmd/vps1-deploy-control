@@ -68,7 +68,8 @@ class RoleBehaviorTests(unittest.TestCase):
                     subscription_start_at TEXT NOT NULL DEFAULT '',
                     subscription_end_at TEXT NOT NULL DEFAULT '',
                     last_login_at TEXT NOT NULL DEFAULT '',
-                    app_access TEXT NOT NULL DEFAULT 'scene_builder');
+                    app_access TEXT NOT NULL DEFAULT 'scene_builder',
+                    studio_access TEXT NOT NULL DEFAULT 'song,short,copyright');
                 CREATE TABLE job_ownership(job_id TEXT PRIMARY KEY, owner_username TEXT);
                 INSERT INTO users(username,secret_hash,is_active,is_admin,created_at,subscription_end_at,app_access)
                     VALUES('owner','hash:owner',1,1,'today','2020-01-01','scene_builder');
@@ -96,13 +97,27 @@ class RoleBehaviorTests(unittest.TestCase):
         self.require_admin = get_function("require_admin", self.bindings)
         self.edit = get_function("user_management_action", {**self.bindings, "require_admin": self.require_admin})
         self.allow_app = get_function("app_access_allows", self.bindings)
+        self.allowed_studios = get_function("allowed_studios", {
+            **self.bindings, "STUDIO_KEYS": ("song", "short", "copyright"),
+        })
+        self.studio_allows = get_function("studio_access_allows", {
+            **self.bindings, "allowed_studios": self.allowed_studios,
+        })
+        self.studio_for_path = get_function("studio_for_path", self.bindings)
         self.sso = get_function("workspace_session_auth", {
             **self.bindings,
-            "SCENE_SSO_APP_IDS": frozenset(("short-maker", "short-stream", "self-media-library",
-                "video-merger", "voice-studio", "auto-caption-studio", "local-upload-manager")),
+            "SCENE_SSO_APP_IDS": frozenset(("song-maker", "short-maker", "short-stream", "self-media-library",
+                "video-merger", "voice-studio", "auto-caption-studio", "local-upload-manager",
+                "short-uploader", "copyright-uploader")),
             "logged_in": lambda req: bool(req.session.get("authenticated")),
             "user_account": self.account,
             "Response": Response,
+            "STUDIO_SSO_APPS": {
+                "song-maker": "song", "short-maker": "short",
+                "video-merger": "copyright", "short-uploader": "short",
+                "copyright-uploader": "copyright",
+            },
+            "studio_access_allows": self.studio_allows,
         })
 
     def db(self):
@@ -207,6 +222,60 @@ class RoleBehaviorTests(unittest.TestCase):
         self.post("delete", "editor")
         self.assertIsNone(self.account("editor"))
 
+
+    def test_selective_studio_permissions_are_durable_and_denied_at_gateway(self):
+        with self.db() as conn:
+            conn.execute("INSERT INTO job_ownership(job_id, owner_username) VALUES('job1','editor')")
+        self.post("set_studio_access", "editor", studio_song="on")
+        self.assertEqual(self.allowed_studios(self.account("editor")), ("song",))
+        self.assertEqual(self.sso(self.request("editor", admin=False), app="song-maker").status_code, 204)
+        with self.db() as conn:
+            conn.execute("UPDATE users SET studio_access='song,short,copyright' WHERE username='editor'")
+        for app in ("short-uploader", "copyright-uploader"):
+            permitted = self.sso(self.request("editor", admin=False), app=app)
+            self.assertEqual(permitted.status_code, 204)
+            self.assertEqual(permitted.headers["X-App-Access"], "lum")
+        with self.db() as conn:
+            conn.execute("UPDATE users SET studio_access='song' WHERE username='editor'")
+        for app in ("short-maker", "short-uploader", "video-merger", "copyright-uploader"):
+            self.assertEqual(self.sso(self.request("editor", admin=False), app=app).status_code, 403)
+        self.assertEqual(self.allowed_studios(self.account("owner")), ("song", "short", "copyright"))
+        with self.assertRaises(HTTPException) as denied:
+            self.post("set_studio_access", "owner", studio_song="on")
+        self.assertEqual(denied.exception.status_code, 403)
+        with self.db() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM job_ownership").fetchone()[0], 1)
+        # No selection means none; previously created jobs stay intact.
+        self.post("set_studio_access", "editor")
+        self.assertEqual(self.allowed_studios(self.account("editor")), ())
+
+    def test_studio_paths_are_scoped_without_touching_other_legacy_apps(self):
+        cases = {
+            "/song-studio/": "song", "/song-maker/api/jobs": "song",
+            "/audio-downloader/": "song", "/song-uploader/actions": "song",
+            "/short-maker/": "short", "/short-uploader/api/queue": "short",
+            "/video-merger/": "copyright", "/copyright-uploader/app": "copyright",
+            "/experiment-studio/": "", "/local-upload-manager/app": "",
+            "/admin": "", "/api/session/identity": "",
+        }
+        for path, expected in cases.items():
+            self.assertEqual(self.studio_for_path(path), expected, path)
+        self.assertIn('request.url.path.startswith("/api/experiment-browser/")', SOURCE)
+        self.assertIn('not account.get("is_admin")', SOURCE)
+        self.assertIn("{% if request.session.get('is_admin') and page in", BASE)
+
+    def test_three_studio_form_csrf_and_validation(self):
+        with self.assertRaises(HTTPException) as failed:
+            self.edit(self.request(), action="set_studio_access", username="editor",
+                      studio_song="on", csrf_token="wrong")
+        self.assertEqual(failed.exception.status_code, 403)
+        with self.assertRaises(HTTPException) as invalid:
+            self.post("set_studio_access", "editor", studio_song="false")
+        self.assertEqual(invalid.exception.status_code, 400)
+        self.post("create", "songonly", secret_key="password123", role="non_admin",
+                  studio_song="on")
+        self.assertEqual(self.allowed_studios(self.account("songonly")), ("song",))
+
     def test_candidate_policy_grants_only_exact_admin_post(self):
         policy = ROOT / "apps/scene-builder/part01/precutover_policy.py"
         source = policy.read_text()
@@ -229,11 +298,13 @@ class RoleBehaviorTests(unittest.TestCase):
                 (_ for _ in ()).throw(HTTPException(401, "Login required")),
             "user_account": self.account,
             "JSONResponse": JsonResponse,
+            "allowed_studios": self.allowed_studios,
         })
         req = self.request("editor", admin=True)
         role = func(req)
         self.assertTrue(role.data["authenticated"])
         self.assertFalse(role.data["is_admin"])  # A stale session cannot escalate.
+        self.assertEqual(role.data["allowed_studios"], ["song", "short", "copyright"])
         self.assertEqual(role.data["username"], "editor")
         self.assertEqual(role.headers["Cache-Control"], "private, no-store")
         self.assertEqual(role.headers["Vary"], "Cookie")
@@ -256,6 +327,8 @@ class RoleBehaviorTests(unittest.TestCase):
         self.assertNotIn('name="plan_days"', TEMPLATE)
         self.assertNotIn('name="app_access"', TEMPLATE)
         self.assertNotIn('name="daily_render_limit"', TEMPLATE)
+        for name in ("studio_song", "studio_short", "studio_copyright"):
+            self.assertIn('name="' + name + '"', TEMPLATE)
         self.assertIn('{% if request.session.get("is_admin") %}', BASE)
         self.assertIn('href="/admin">Admin</a>', BASE)
         self.assertNotIn('{% if request.session.get("is_admin") %}<a href="/video-studio/', BASE)

@@ -787,7 +787,7 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
 </style>
 <link rel="stylesheet" href="/&#115;tatic/vps1_native_site_shell.css?v=20261020-experiment-v1&layout=video-v2&song=20261029">
 <link rel="stylesheet" href="/&#115;tatic/vps1_video_studio_geometry.css?v=20261020-geometry-v1&layout=video-v2">
-<script defer src="/&#115;tatic/vps1_native_site_shell.js?v=20261020-experiment-v1&layout=video-v2&song=20261029&copyright-nav=20261030-v3" data-unify-sidebar="1"></script>
+<script defer src="/&#115;tatic/vps1_native_site_shell.js?v=20261020-experiment-v1&layout=video-v2&song=20261029&copyright-nav=20261030-v3&studio-permissions=20261031" data-unify-sidebar="1"></script>
 </head>
 <body>
 <button type="button" class="vps1-video-mobile-menu" aria-controls="app-sidebar" aria-expanded="false">☰ Menu</button>
