@@ -103,6 +103,7 @@ class RoleBehaviorTests(unittest.TestCase):
         self.studio_allows = get_function("studio_access_allows", {
             **self.bindings, "allowed_studios": self.allowed_studios,
         })
+        self.studio_for_path = get_function("studio_for_path", self.bindings)
         self.sso = get_function("workspace_session_auth", {
             **self.bindings,
             "SCENE_SSO_APP_IDS": frozenset(("short-maker", "short-stream", "self-media-library",
@@ -239,6 +240,20 @@ class RoleBehaviorTests(unittest.TestCase):
         # No selection means none; previously created jobs stay intact.
         self.post("set_studio_access", "editor")
         self.assertEqual(self.allowed_studios(self.account("editor")), ())
+
+    def test_studio_paths_are_scoped_without_touching_other_legacy_apps(self):
+        cases = {
+            "/song-studio/": "song", "/song-maker/api/jobs": "song",
+            "/audio-downloader/": "song", "/song-uploader/actions": "song",
+            "/short-maker/": "short", "/short-uploader/api/queue": "short",
+            "/video-merger/": "copyright", "/copyright-uploader/app": "copyright",
+            "/experiment-studio/": "", "/local-upload-manager/app": "",
+            "/admin": "", "/api/session/identity": "",
+        }
+        for path, expected in cases.items():
+            self.assertEqual(self.studio_for_path(path), expected, path)
+        self.assertIn('request.url.path.startswith("/api/experiment-browser/")', SOURCE)
+        self.assertIn('not account.get("is_admin")', SOURCE)
 
     def test_three_studio_form_csrf_and_validation(self):
         with self.assertRaises(HTTPException) as failed:
