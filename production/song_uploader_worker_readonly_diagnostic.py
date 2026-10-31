@@ -9,6 +9,7 @@ import json
 import re
 import sqlite3
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 UNITS = ("web", "worker", "scheduler")
@@ -62,6 +63,25 @@ def classify_source_detail(message: str) -> str:
     return "UNMAPPED_SOURCE_STATE"
 
 
+
+def heartbeat_age_bucket(value: str) -> str:
+    # Only a bounded age category; do not expose exact timestamps, host details.
+    if not str(value or "").strip():
+        return "ABSENT"
+    try:
+        parsed = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            return "UNKNOWN"
+        seconds = (datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds()
+        if seconds <= 15:
+            return "RECENT"
+        if seconds <= 60:
+            return "DELAYED"
+        return "STALE"
+    except (ValueError, TypeError, OverflowError):
+        return "UNKNOWN"
+
+
 def unit_state(suffix: str) -> str:
     if suffix not in UNITS: return "UNKNOWN"
     unit=f"vps1-production-lum-song-{suffix}.service"
@@ -83,11 +103,12 @@ def collect(state: Path) -> dict:
         with sqlite3.connect(db.as_uri()+"?mode=ro",uri=True,timeout=4) as con:
             con.execute("PRAGMA query_only=ON")
             cols={str(row[1]) for row in con.execute("PRAGMA table_info(engine_state)")}
-            if not {"last_worker_error","last_scheduler_error","running","scheduler_armed"}.issubset(cols):
+            if not {"last_worker_error","last_scheduler_error","running","scheduler_armed","last_worker_heartbeat","last_scheduler_heartbeat"}.issubset(cols):
                 report["db"]="MISSING_COLUMNS"
                 return report
             row=con.execute(
-                "SELECT last_worker_error,last_scheduler_error,running,scheduler_armed "
+                "SELECT last_worker_error,last_scheduler_error,running,scheduler_armed, "
+                "last_worker_heartbeat,last_scheduler_heartbeat "
                 "FROM engine_state WHERE singleton=1").fetchone()
             if row is None:
                 report["db"]="MISSING_STATE"
@@ -96,7 +117,9 @@ def collect(state: Path) -> dict:
                           worker_source_detail=classify_source_detail(row[0]),
                           scheduler_error=classify(row[1]),
                           engine_running=bool(row[2]),scheduler_armed=bool(row[3]),
-                          worker_error_present=bool(row[0]),scheduler_error_present=bool(row[1]))
+                          worker_error_present=bool(row[0]),scheduler_error_present=bool(row[1]),
+                          worker_heartbeat_age=heartbeat_age_bucket(row[4]),
+                          scheduler_heartbeat_age=heartbeat_age_bucket(row[5]))
             core=state/"core/data/uploader.db"
             if core.is_file() and not core.is_symlink():
                 with sqlite3.connect(core.as_uri()+"?mode=ro",uri=True,timeout=4) as q:
