@@ -64,6 +64,52 @@ class TenantTests(unittest.TestCase):
                 with self.assertRaises(PermissionError):
                     tenant.allowed_ids("channel",{"username":""})
 
+    def test_owner_self_service_channel_group_is_atomic_and_collision_safe(self):
+        for idx,package in enumerate(PACKAGES):
+            with self.subTest(instance=idx):
+                tenant=self.tenant(package,"self-serve-"+str(idx))
+                with tenant.db.connect() as con:
+                    con.executescript("""
+                        CREATE TABLE channels(
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            channel_id TEXT UNIQUE NOT NULL,
+                            channel_name TEXT NOT NULL,
+                            google_account_email TEXT,
+                            token_file_path TEXT NOT NULL,
+                            channel_url TEXT,status TEXT NOT NULL DEFAULT 'ACTIVE');
+                        CREATE TABLE channel_groups(
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            group_name TEXT UNIQUE NOT NULL,
+                            notes TEXT);
+                        CREATE TABLE channel_group_members(
+                            group_id INTEGER NOT NULL, channel_db_id INTEGER NOT NULL,
+                            PRIMARY KEY(group_id,channel_db_id));
+                    """)
+                a1=tenant.create_channel("ALICE","UC"+"a"*22,"Alice Channel","alice@example.com")
+                a2=tenant.create_channel("alice","UC"+"b"*22,"Second Channel")
+                b1=tenant.create_channel("BOB","UC"+"c"*22,"Bob Channel")
+                self.assertEqual(tenant.allowed_ids("channel",{"username":"alice","is_admin":0}),{a1,a2})
+                with self.assertRaises(PermissionError):
+                    tenant.create_channel("bob","UC"+"a"*22,"Hijack")
+                with self.assertRaises(ValueError):
+                    tenant.create_channel("alice","invalid","Wrong")
+                with self.assertRaises(PermissionError):
+                    tenant.create_group("alice","Mixed Group",[a1,b1])
+                self.assertEqual(tenant.owner("group",1),"")
+                group=tenant.create_group("alice","Alice Group",[a1,a2])
+                self.assertEqual(tenant.owner("group",group),"alice")
+                with self.assertRaises(PermissionError):
+                    tenant.create_group("bob","Alice Group",[b1])
+                bob_group=tenant.create_group("bob","Bob Group",[b1])
+                self.assertEqual(tenant.owner("group",bob_group),"bob")
+                with tenant.db.connect() as con:
+                    members=con.execute("SELECT channel_db_id FROM channel_group_members WHERE group_id=?",
+                                        (group,)).fetchall()
+                    token=con.execute("SELECT token_file_path FROM channels WHERE id=?",(a1,)).fetchone()
+                    self.assertEqual({row[0] for row in members},{a1,a2})
+                    self.assertEqual(token[0],"")
+                    self.assertEqual(con.execute("SELECT COUNT(*) FROM channels").fetchone()[0],3)
+
     def test_studios_do_not_share_tenant_database_rows(self):
         a=self.tenant(PACKAGES[0],"song")
         b=self.tenant(PACKAGES[1],"copyright")
@@ -88,6 +134,7 @@ class TenantTests(unittest.TestCase):
                 script=(root/"production"/file_name).read_text(encoding="utf-8")
                 self.assertIn('"lum_engine/studio_tenants.py"',script)
                 self.assertIn('"lum_engine/project_store.py"',script)
+                self.assertIn('"lum_engine/channels_web.py"',script)
                 self.assertIn('NEW_FILES=frozenset({"lum_engine/studio_tenants.py"})',script)
                 self.assertIn('relative in NEW_FILES and not dst.exists()',script)
                 compile(script,file_name,"exec")
@@ -110,6 +157,13 @@ class TenantTests(unittest.TestCase):
                 self.assertIn(marker,engine)
             self.assertIn("{% if user.is_admin and engine_instance in ",template)
             self.assertIn("/actions/studio-tenant/grant",template)
+            self.assertIn("/actions/studio-tenant/channel-create",template)
+            self.assertIn("/actions/studio-tenant/group-create",template)
+            self.assertIn("STUDIO_TENANT_SAFE_ONBOARDING_V1",standalone)
+            self.assertIn('studio_tenants.create_channel(',standalone)
+            self.assertIn('studio_tenants.create_group(',standalone)
+            compile((package/"channels_web.py").read_text(),
+                    str(package/"channels_web.py"),"exec")
             # Regression: direct OAuth/queue actions must not fall back to the
             # service-global channel inventory when called by a member.
             for marker in (
