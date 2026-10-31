@@ -153,8 +153,55 @@ def read_only_audit(data_root: Path, scene_db: Path) -> dict:
             projects = inspect_projects(con)
         results[mode] = {"entities": counters, "projects": projects}
     return {"target_verified": True, "mode": "READ_ONLY", "instances": results,
+            "uploader_idle_gate": release_idle_diagnostic(),
             "related_stores": inspect_related_stores(data_root),
             "shared_google_drive": "UNCHANGED", "auto_script": "OFFLINE"}
+
+def release_idle_diagnostic() -> dict:
+    """Read-only proof for each existing scoped release idle fence."""
+    from production.runtime import BASE
+    from production.song_uploader_group_summary_release import idle as song_idle
+    from production.short_uploader_group_release import idle as short_idle
+    results = {}
+    for name, check in (
+        ("song", lambda: song_idle()),
+        ("short", lambda: short_idle(allow_waiting_network=True)),
+    ):
+        try:
+            check()
+            results[name] = "PASS"
+        except (RuntimeError, OSError, ValueError, sqlite3.Error) as exc:
+            message = str(exc).casefold()
+            if "network" in message or "ledger" in message:
+                status = "NETWORK_WAIT_UNPROVEN_IDLE"
+            elif "upload in progress" in message or "active_project" in message:
+                status = "UPLOAD_IN_PROGRESS"
+            elif "health" in message or "unavailable" in message:
+                status = "HEALTH_UNAVAILABLE"
+            elif "schema" in message:
+                status = "SCHEMA_MISMATCH"
+            else:
+                status = "BLOCKED_OTHER"
+            results[name] = status
+    journal = BASE / "transactions/haseeb1-song-short-assignment" / (
+        "80a225070cd27f46be71b0d66ad49980fd5bdd1b"
+    )
+    receipt = journal / "receipt.json"
+    if receipt.is_file() and not receipt.is_symlink():
+        import json
+        try:
+            state = str(json.loads(receipt.read_text()).get("state") or "").strip()
+        except (ValueError, OSError):
+            state = ""
+        results["previous_transaction"] = (
+            state if state in {"UPLOADER_DATA_ASSIGNED", "BLOCKED_OR_ROLLED_BACK"} else "UNKNOWN"
+        )
+    else:
+        results["previous_transaction"] = (
+            "NO_RECEIPT" if journal.exists() else "NO_JOURNAL"
+        )
+    return results
+
 
 def install(revision: str) -> None:
     """Serialized production root-helper entry; uploader-state ownership only.
@@ -315,14 +362,21 @@ def inspect_related_stores(data_root: Path, target: str = TARGET) -> dict:
                     # Treat all such records as unresolved; read-only still runs.
                     total=int(con.execute("SELECT COUNT(*) FROM " + table).fetchone()[0])
                     entries[table] = {"total":total,"non_target":total,
-                                      "schema":"LEGACY_NO_OWNER"}
+                                      "schema":"LEGACY_NO_OWNER",
+                                      "owner_classes":{"unassigned":total}}
                     continue
-                total, not_target = con.execute(
-                    f"SELECT COUNT(*),SUM(CASE WHEN LOWER(TRIM(COALESCE({field},'')))<>? THEN 1 ELSE 0 END) FROM {table}",
+                owner_expr = f"LOWER(TRIM(COALESCE({field},'')))"
+                total, own, admin, blank = con.execute(
+                    "SELECT COUNT(*),"
+                    f"SUM(CASE WHEN {owner_expr}=? THEN 1 ELSE 0 END),"
+                    f"SUM(CASE WHEN {owner_expr}='admin' THEN 1 ELSE 0 END),"
+                    f"SUM(CASE WHEN {owner_expr}='' THEN 1 ELSE 0 END) FROM {table}",
                     (target,),
                 ).fetchone()
-                entries[table] = {"total":int(total or 0),
-                                  "non_target":int(not_target or 0)}
+                total, own, admin, blank = (int(v or 0) for v in (total, own, admin, blank))
+                entries[table] = {"total":total, "non_target":total-own,
+                                  "owner_classes":{"target":own,"admin":admin,"unassigned":blank,
+                                                   "other_named":total-own-admin-blank}}
         results[kind] = {"present":True,
                          "records":sum(v["total"] for v in entries.values()),
                          "non_target":sum(v["non_target"] for v in entries.values()),
@@ -331,6 +385,7 @@ def inspect_related_stores(data_root: Path, target: str = TARGET) -> dict:
     jobs_dir = short / "jobs"
     folders_dir = short / "vps_short_folders"
     job_total = job_other = folder_total = folder_other = 0
+    job_admin = job_blank = folder_admin = folder_blank = 0
     skipped_regular = 0
     skipped_folder_regular = 0
     if jobs_dir.is_dir():
@@ -351,7 +406,10 @@ def inspect_related_stores(data_root: Path, target: str = TARGET) -> dict:
             raw = json.loads(state.read_text(encoding="utf-8"))
             require(isinstance(raw,dict), "SHORT_JOB_STATE_INVALID")
             job_total += 1
-            job_other += int(str(raw.get("owner") or "").casefold()!=target)
+            source_owner = str(raw.get("owner") or "").strip().casefold()
+            job_other += int(source_owner != target)
+            job_admin += int(source_owner == "admin")
+            job_blank += int(not source_owner)
     if folders_dir.is_dir():
         require(not folders_dir.is_symlink(),"SHORT_FOLDERS_UNTRUSTED")
         for item in folders_dir.iterdir():
@@ -366,8 +424,14 @@ def inspect_related_stores(data_root: Path, target: str = TARGET) -> dict:
             require(not marker.is_symlink(),"SHORT_FOLDER_MARKER_UNTRUSTED")
             owner = marker.read_text(encoding="utf-8").strip().casefold() if marker.is_file() else ""
             folder_other += int(owner!=target)
+            folder_admin += int(owner=="admin")
+            folder_blank += int(not owner)
     results["short_maker"]={"present":short.is_dir(),"jobs":job_total,"jobs_non_target":job_other,
                               "folders":folder_total,"folders_non_target":folder_other,
                               "unclassified_regular_job_files":skipped_regular,
-                              "unclassified_regular_folder_files":skipped_folder_regular}
+                              "unclassified_regular_folder_files":skipped_folder_regular,
+                              "jobs_owner_classes":{"admin":job_admin,"unassigned":job_blank,
+                                  "other_named":job_other-job_admin-job_blank},
+                              "folders_owner_classes":{"admin":folder_admin,"unassigned":folder_blank,
+                                  "other_named":folder_other-folder_admin-folder_blank}}
     return results

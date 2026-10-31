@@ -131,9 +131,12 @@ class Haseeb1Assignment(unittest.TestCase):
         folder.mkdir(parents=True)
         report = inspect_related_stores(self.root)
         self.assertEqual(report["song_maker"]["non_target"],1)
+        self.assertEqual(report["song_maker"]["tables"]["jobs"]["owner_classes"]["admin"],1)
         self.assertEqual(report["audio_downloader"]["non_target"],0)
         self.assertEqual(report["short_maker"]["jobs_non_target"],1)
+        self.assertEqual(report["short_maker"]["jobs_owner_classes"]["unassigned"],1)
         self.assertEqual(report["short_maker"]["folders_non_target"],1)
+        self.assertEqual(report["short_maker"]["folders_owner_classes"]["unassigned"],1)
         self.assertEqual(report["short_maker"]["unclassified_regular_job_files"],1)
         self.assertEqual(report["short_maker"]["unclassified_regular_folder_files"],1)
         self.assertEqual((short / "state.json").read_text(),
