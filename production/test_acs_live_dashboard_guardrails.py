@@ -145,14 +145,16 @@ class IntegrationRoutingTests(unittest.TestCase):
         self.assertIn("A disconnected API is not a failed media project.", code)
         self.assertIn("Backend unconfigured does not mean a cleanup operation failed.", code)
         js = (SCENE / "static/dashboard_control_center.js").read_text()
-        self.assertIn("status=!online?'Offline'", js)
+        self.assertIn("'vps-status'", js)
+        self.assertNotIn("overview-app-grid", js)
 
     def test_dashboard_omits_algrow_voice_card_without_touching_voice_studio(self):
         app = (SCENE / "app.py").read_text()
         js = (SCENE / "static/dashboard_control_center.js").read_text()
         self.assertNotIn('{"name": "Algrow Voice", "available"', app)
         self.assertNotIn('names.add("Algrow Voice")', app)
-        self.assertIn("a.name!=='Algrow Voice'", js)
+        self.assertNotIn("appCard(", js)
+        self.assertNotIn("overview-app-grid", js)
         self.assertIn('"Voice Studio","Voice API"', app)
 
     def test_storage_manager_is_read_only_and_legacy_controls_are_absent(self):

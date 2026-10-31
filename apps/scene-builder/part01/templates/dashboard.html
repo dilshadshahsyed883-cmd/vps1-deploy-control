@@ -20,7 +20,6 @@
       <article class="health-card"><span>Storage Usage</span><strong id="disk-percent">—</strong><small id="disk-detail">—</small></article>
       <article class="health-card"><span>Services Health</span><strong id="services-ratio">—</strong><small id="services-note">Checking services</small></article>
     </div>
-    <div class="app-grid" id="overview-app-grid"></div>
     <div class="dashboard-bottom-grid">
       <article class="dashboard-card resource-card">
         <h2>System Resources</h2>
@@ -33,8 +32,6 @@
           <div><span>Free Storage</span><strong id="free-storage">—</strong></div>
         </div>
       </article>
-      <article class="dashboard-card"><h2>Attention</h2><div id="attention-list" class="attention-list"><div class="empty-state">Checking system…</div></div></article>
-      <article class="dashboard-card"><div class="card-title-row"><h2>Recent Activity</h2></div><div id="activity-preview" class="activity-list"><div class="empty-state">Loading activity…</div></div></article>
     </div>
   </section>
 
@@ -43,5 +40,6 @@
 </div>
 {% endmacro %}
 {% block content %}{{ dashboard_content() }}
-<script type="module" src="/static/dashboard_control_center.js?v=20261019-hide-algrow-v3"></script>
+<link rel="stylesheet" href="/static/dashboard_control_center.css?v=20261031-compact-v1">
+<script type="module" src="/static/dashboard_control_center.js?v=20261031-compact-v1"></script>
 {% endblock %}
