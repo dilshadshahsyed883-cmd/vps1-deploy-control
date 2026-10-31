@@ -304,7 +304,7 @@ async def standalone_auth(request: Request, call_next):
                 route("/actions/sheets/save"),route("/actions/sheets/delete"),
                 route("/actions/channels/status"),route("/actions/channels/delete-manual"),
                 route("/actions/channels/rescan-tokens"),route("/actions/channels/test-connections"),
-                route("/actions/copyright-profile/save"),route("/actions/copyright-profile/delete")}
+                route("/actions/copyright/profile")}
             allowed_prefixes=(route("/actions/retry/"),route("/actions/authorize-fresh/"),
                 route("/actions/cancel/"),route("/actions/channel-network/"))
             if path not in allowed_exact and not path.startswith(allowed_prefixes):
