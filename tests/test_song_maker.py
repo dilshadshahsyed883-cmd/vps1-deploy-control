@@ -68,8 +68,8 @@ class SongMakerTests(unittest.TestCase):
             json={**settings, 'sync_interval': 300}).status_code, 200)
         self.assertEqual(self.client.post('/song-maker/api/settings', headers=self.headers,
             json={**settings, 'sync_interval': 1}).status_code, 422)
-        # Authenticated non-admin members may scan the fixed defaults, never
-        # change the configured Drive remote/folder or scan interval.
+        # Authenticated non-admin members can scan approved Drive folders and
+        # adjust their own interval; shared remote credentials remain admin-only.
         self.assertEqual(self.client.post('/song-maker/api/sync',
             headers={**self.headers, 'X-Is-Admin': '0'}).status_code, 200)
         self.assertEqual(self.store.record('settings','alice')['image_folder'],
@@ -529,7 +529,7 @@ class SongMakerTests(unittest.TestCase):
         other={'X-Auth-User':'bob','X-Song-Maker':'1'}
         self.assertEqual(self.client.get('/song-maker/api/state',headers=other).json()['jobs'],[])
         self.assertEqual(self.client.post('/song-maker/api/jobs/'+job['id']+'/cancel',headers=other).status_code,404)
-        self.assertEqual(self.client.post('/song-maker/api/settings',headers=other,json={}).status_code,403)
+        self.assertEqual(self.client.post('/song-maker/api/settings',headers=other,json={}).status_code,422)
         forged={**self.headers,'Origin':'https://evil.example'}
         self.assertEqual(self.client.post('/song-maker/api/sync',headers=forged).status_code,403)
         self.assertEqual(self.client.post('/song-maker/api/sync',headers={'X-Auth-User':'alice'}).status_code,403)
@@ -697,7 +697,7 @@ class SongMakerTests(unittest.TestCase):
         self.assertEqual(self.store.record('settings','bob')['image_folder'],default_settings()['image_folder'])
         self.assertEqual(self.store.record('settings','bob')['output_folder'],default_settings()['output_folder'])
         self.assertEqual(self.client.post('/song-maker/api/settings',headers=user,
-            json={**default_settings(),'image_folder':'unexpectedRemoteFolder'}).status_code,403)
+            json={**default_settings(),'image_folder':'unexpectedRemoteFolder'}).status_code,422)
         self.assertEqual(self.client.get('/song-maker/api/state',headers=user).json()['jobs'],[])
         self.assertEqual(self.client.post('/song-maker/api/sync').status_code,401)
 
