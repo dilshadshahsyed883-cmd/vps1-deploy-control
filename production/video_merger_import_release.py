@@ -1,4 +1,5 @@
 """Video Merger backend + isolated dependencies; preserve active UI and state."""
+import ast
 import hashlib
 import json
 import os
@@ -205,6 +206,32 @@ def overlay_owner_handover_ui(live, source):
     return live
 
 
+# A strictly scoped follow-up to PR #609: the YouTube downloader remains the
+# exact live implementation. Only the reviewed owner/queue/Drive routing code
+# may differ. This guard is evaluated against the actual live release on VPS.
+OWNER_HANDOVER_NODES = frozenset({
+    'init_db', 'owner_drive_root', 'list_owner_folders', 'resolve_owner_folder',
+    'create_owner_folder', 'delete_owner_folder', 'owner_queue_paused',
+    'set_owner_queue_paused', 'list_library_items', 'next_waiting', 'worker',
+    'add_job', 'Handler',
+})
+
+
+def owner_handover_only_change(previous_source, candidate_source):
+    def approved_unmodified_tree(path):
+        tree = ast.parse(Path(path).read_text(encoding='utf-8'))
+        remaining = [node for node in tree.body if not (
+            isinstance(node,(ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            and node.name in OWNER_HANDOVER_NODES)]
+        return ast.dump(ast.Module(body=remaining,type_ignores=[]),
+                        include_attributes=False)
+    require(Path(previous_source).is_file() and not Path(previous_source).is_symlink(),
+            'live Video Merger source missing or linked')
+    require(Path(candidate_source).is_file() and not Path(candidate_source).is_symlink(),
+            'candidate Video Merger source missing or linked')
+    return approved_unmodified_tree(previous_source) == approved_unmodified_tree(candidate_source)
+
+
 def install(revision):
     require(re.fullmatch('[a-f0-9]{40}',revision),'invalid revision')
     app='video-merger'
@@ -264,8 +291,31 @@ def install(revision):
     activation=None
     # Both real-source downloads happen in a temporary directory. Existing Drive
     # files and SQLite records are only read. Fail before any live mutation.
-    run(['/usr/sbin/runuser','-u','ubuntu','--',python,'-m','production.video_merger_import_smoke',
-         '--source',target/name,'--state',state,'--proxy-config',proxy_config],cwd=REPO,timeout=1800,quiet=False)
+    # Never relax YouTube verification for downloader changes. The exact
+    # known upstream authentication challenge can be recorded as degraded only
+    # if every non-handover AST node matches the currently running release.
+    handover_only = owner_handover_only_change(previous/name,target/name)
+    smoke_cmd = ['/usr/sbin/runuser','-u','ubuntu','--',python,'-m',
+                 'production.video_merger_import_smoke','--source',target/name,
+                 '--state',state,'--proxy-config',proxy_config]
+    if handover_only:
+        smoke_cmd.append('--allow-known-external-auth')
+    smoke_text = run(smoke_cmd,cwd=REPO,timeout=1800,quiet=False)
+    try:
+        smoke_result = json.loads(smoke_text.strip().splitlines()[-1])
+    except (IndexError,ValueError,TypeError):
+        raise RuntimeError('Video Merger smoke result missing or invalid') from None
+    require(smoke_result.get('drive')=='PASS' and
+            smoke_result.get('library_persistence')=='PASS',
+            'Video Merger real Drive and Library smoke must pass')
+    youtube_state = smoke_result.get('youtube')
+    youtube_degraded = (youtube_state == 'UPSTREAM_AUTH_BLOCKED' and
+                        handover_only and
+                        smoke_result.get('youtube_external_auth_blocked') is True)
+    require(youtube_state=='PASS' or youtube_degraded,
+            'Video Merger YouTube smoke failed; do not promote')
+    result_label = ('PASS_VIDEO_MERGER_OWNER_HANDOVER_YOUTUBE_AUTH_BLOCKED'
+                    if youtube_degraded else 'PASS_VIDEO_MERGER_IMPORTS')
     if activation:
         require(proxy_config.read_bytes()==activation['before'],
                 'saved proxy changed during read-only candidate; refuse switch')
@@ -302,8 +352,12 @@ def install(revision):
             require(b'VIDEO_MERGER_TWO_COLUMN_QUEUE_V2' in page and
                     b'id="tab-queue"' in page and b'class="vm-merge-layout"' in page,
                     'authenticated Queue/two-column UI readback failed')
-        atomic_json(journal/'result.json',{'status':'ACTIVE','youtube':'PASS','drive':'PASS','data':'PRESERVED'})
-        event(app=app,result='PASS_VIDEO_MERGER_IMPORTS',revision=revision,data='PRESERVED',proxy_activation='ENABLED' if proxy_changed else 'UNCHANGED',rollback=str(journal))
+        atomic_json(journal/'result.json',{'status':'ACTIVE','youtube':youtube_state,
+                  'drive':'PASS','data':'PRESERVED','owner_handover_only':handover_only})
+        event(app=app,result=result_label,revision=revision,data='PRESERVED',
+              youtube=youtube_state,drive='PASS',
+              proxy_activation='ENABLED' if proxy_changed else 'UNCHANGED',
+              rollback=str(journal))
     except BaseException:
         if changed:
             atomic_link(current,previous)

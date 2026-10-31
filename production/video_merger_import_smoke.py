@@ -8,7 +8,16 @@ import sqlite3
 import tempfile
 
 
-def smoke(source, state, proxy_config=None):
+def exact_known_external_auth(results, config, candidate, allowed=False):
+    """Never treat generic network, download or credentials failure as success."""
+    return bool(
+        allowed and candidate is None and config.get('enabled') is True and
+        results.get('youtube','').startswith('FAIL: YOUTUBE_AUTH_REQUIRED:') and
+        results.get('proxy_test','').startswith('FAIL: YOUTUBE_AUTH_REQUIRED:')
+    )
+
+
+def smoke(source, state, proxy_config=None, allow_known_external_auth=False):
     with tempfile.TemporaryDirectory(prefix='vm-import-smoke-') as directory:
         root = Path(directory)
         os.environ['VIDEO_MERGER_ROOT'] = str(root)
@@ -96,8 +105,19 @@ def smoke(source, state, proxy_config=None):
             app.process_library_import('smoke','https://example.com/smoke.mp4',{'url':'https://example.com/video.mp4','trim_enabled':False})
             item=app.get_library_item('smoke')
             results['library_persistence'] = 'PASS' if item['status']=='ready' and item['size_bytes']>0 else 'FAIL'
+        # An upstream authentication challenge is not a working YouTube download.
+        # For an owner-handover-only release, the guarded installer can accept
+        # this exact known external failure ONLY when the complete downloader
+        # path is AST-identical to the currently running live release.
+        external_auth_blocked = exact_known_external_auth(
+            results, config, candidate, allow_known_external_auth)
+        results['youtube_external_auth_blocked'] = external_auth_blocked
+        if external_auth_blocked:
+            results['youtube'] = 'UPSTREAM_AUTH_BLOCKED'
         print(json.dumps(results,sort_keys=True),flush=True)
-        if results.get('youtube')!='PASS' or results.get('drive')!='PASS' or results.get('library_persistence')!='PASS':
+        if (results.get('youtube') not in ('PASS','UPSTREAM_AUTH_BLOCKED') or
+                results.get('drive')!='PASS' or
+                results.get('library_persistence')!='PASS'):
             raise RuntimeError('Real-source smoke failed; candidate not promoted')
         if candidate and results.get('proxy_test')!='REAL_DOWNLOAD_PASS':
             raise RuntimeError('Saved proxy real media canary failed; live setting left disabled')
@@ -108,5 +128,7 @@ if __name__=='__main__':
     parser.add_argument('--source',type=Path,required=True)
     parser.add_argument('--state',type=Path,required=True)
     parser.add_argument('--proxy-config',type=Path)
+    parser.add_argument('--allow-known-external-auth',action='store_true',
+                        help='Only after installer has verified strict downloader parity')
     args=parser.parse_args()
-    smoke(args.source,args.state,args.proxy_config)
+    smoke(args.source,args.state,args.proxy_config,args.allow_known_external_auth)
