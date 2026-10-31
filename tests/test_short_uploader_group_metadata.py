@@ -382,7 +382,7 @@ class ShortAutomationGroupSummaryTests(unittest.TestCase):
         end=source.index('</section>',start)+len('</section>')
         return Environment(autoescape=True).from_string(source[start:end]).render(
             engine_instance=instance, ae=SimpleNamespace(profiles=profiles or []), p=None,
-            base_path='/short-uploader', csrf='offline-test')
+            user={'is_admin': True}, base_path='/short-uploader', csrf='offline-test')
     def test_group_name_channel_count_and_saved_times_are_visible(self):
         html=self.render(profiles=[dict(id=7,category_name='Shorts',group_name='Aina Asif',
             group_channel_count=12,enabled=1,v6_video_count=8,schedule_times='09:00,14:30',schedule_enabled=1)])
