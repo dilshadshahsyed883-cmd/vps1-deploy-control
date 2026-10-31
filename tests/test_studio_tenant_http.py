@@ -133,17 +133,17 @@ def exercise(mode):
         bob_sheet_row=SimpleNamespace(key="bob-sheet-row",
             channel_id="UC"+"b"*22,channel_name="BOB_PRIVATE_CHANNEL",
             gmail="bob@example.com",notes="")
-        with patch.object(app,"tenant_fetch_sheet_csv",return_value=[{"fixture":"row"}]), \\
-             patch.object(app,"tenant_rows_to_sheet_rows",
-                          return_value=[own_sheet_row,bob_sheet_row]) as parser:
+        with (patch.object(app,"tenant_fetch_sheet_csv",return_value=[{"fixture":"row"}]),
+              patch.object(app,"tenant_rows_to_sheet_rows",
+                           return_value=[own_sheet_row,bob_sheet_row]) as parser):
             foreign_post=post(bob,b_token,"sheets/sync",source_id=source_id)
             assert "error=" in foreign_post.headers["location"]
             mixed_post=post(alice,a_token,"sheets/sync",source_id=source_id)
             assert "error=" in mixed_post.headers["location"]
             parser.assert_called_once()
         assert "ALICE_SHEET_CHANNEL" not in alice.get("/test/app?tab=channels").text
-        with patch.object(app,"tenant_fetch_sheet_csv",return_value=[{"fixture":"row"}]), \\
-             patch.object(app,"tenant_rows_to_sheet_rows",return_value=[own_sheet_row]):
+        with (patch.object(app,"tenant_fetch_sheet_csv",return_value=[{"fixture":"row"}]),
+              patch.object(app,"tenant_rows_to_sheet_rows",return_value=[own_sheet_row])):
             owned_post=post(alice,a_token,"sheets/sync",source_id=source_id)
             assert "error=" not in owned_post.headers["location"],owned_post.headers["location"]
         assert "ALICE_SHEET_CHANNEL" in alice.get("/test/app?tab=channels").text
