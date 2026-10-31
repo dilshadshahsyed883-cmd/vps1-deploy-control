@@ -143,6 +143,24 @@ class Haseeb1Assignment(unittest.TestCase):
                          '{"owner": "", "status": "completed"}')
 
 
+    def test_readonly_classifies_required_service_and_disk_gates(self):
+        from subprocess import CompletedProcess
+        from unittest.mock import patch
+        from production.studio_haseeb1_assignment import release_idle_diagnostic
+        def mocked_run(args, **kwargs):
+            return CompletedProcess(args, 3 if "song-worker" in args[-1] else 0)
+        with patch("production.song_uploader_group_summary_release.idle"), \
+             patch("production.short_uploader_group_release.idle"), \
+             patch("subprocess.run", side_effect=mocked_run), \
+             patch("shutil.disk_usage", return_value=(100, 10, 90)):
+            report = release_idle_diagnostic()
+        self.assertEqual(report["song"], "PASS")
+        self.assertEqual(report["short"], "PASS")
+        self.assertEqual(report["required_services"]["song"]["worker"], "NOT_ACTIVE")
+        self.assertEqual(report["required_services"]["song"]["web"], "ACTIVE")
+        self.assertEqual(report["required_services"]["short"]["scheduler"], "ACTIVE")
+        self.assertEqual(report["disk_reserve"], "INSUFFICIENT")
+
     def test_guarded_release_prints_offline_receipt(self):
         from pathlib import Path
         source = Path("production/studio_haseeb1_assignment.py").read_text()
