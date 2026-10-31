@@ -12,6 +12,27 @@ from production import storage_gc as gc
 
 
 class StorageGCTests(unittest.TestCase):
+    def test_redacted_kthread_proof_does_not_expose_pid_or_resources(self):
+        proc = Path(self.workspace.name) / "diagnostic-proc"
+        pid = proc / "874321"
+        (pid / "fd").mkdir(parents=True)
+        (pid / "maps").write_bytes(b"")
+        (pid / "status").write_text("Kthread:\t1\n")
+        fields = (["I", "0"] + ["0"] * 4 + [str(0x00200000)]
+                  + ["0"] * 12 + ["0"] + ["0"] * 4)
+        (pid / "stat").write_text("874321 (kernel worker) " + " ".join(fields))
+        (pid / "exe").symlink_to(proc / "missing-executable")
+        evidence = gc._redacted_proc_resource_proof(pid)
+        self.assertIn("marker=yes", evidence)
+        self.assertIn("pf=yes", evidence)
+        self.assertIn("start=zero", evidence)
+        self.assertIn("maps=empty", evidence)
+        self.assertIn("fds=empty", evidence)
+        self.assertIn("exe=absent", evidence)
+        self.assertNotIn("874321", evidence)
+        self.assertNotIn(str(proc), evidence)
+        self.assertNotIn("kernel worker", evidence)
+
     def test_esrch_kernel_thread_requires_strong_resource_free_proof(self):
         """Live Kthread with no user-space resources must not block every release."""
         import errno
@@ -61,6 +82,39 @@ class StorageGCTests(unittest.TestCase):
             (pid / "cwd").symlink_to(target)
             self.assertTrue(gc._runtime_in_use([target], proc_root=proc))
             (pid / "cwd").unlink()
+
+            # A genuine kernel process may expose procfs cwd/exe
+            # symlinks whose targets do not exist. This must not be
+            # treated as a live release reference.
+            (pid / "cwd").symlink_to(proc / "nonexistent-cwd")
+            (pid / "exe").symlink_to(proc / "nonexistent-executable")
+            self.assertFalse((pid / "cwd").exists())
+            self.assertFalse((pid / "exe").exists())
+            self.assertTrue((pid / "cwd").is_symlink())
+            self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc),
+                             "clear")
+            (pid / "exe").unlink()
+            (pid / "exe").symlink_to(target)
+            self.assertTrue(gc._runtime_in_use([target], proc_root=proc))
+            (pid / "exe").unlink()
+            (pid / "cwd").unlink()
+
+            # Live host diagnostic: Kthread may resolve cwd to /, which is
+            # unrelated to the obsolete release. Require a candidate-aware
+            # comparison rather than banning every resolvable proc link.
+            (pid / "cwd").symlink_to(proc)
+            (pid / "exe").symlink_to(proc)
+            self.assertFalse(gc._confirmed_resource_free_kthread(pid))
+            self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc),
+                             "clear")
+            (pid / "cwd").unlink()
+            (pid / "cwd").symlink_to(target)
+            self.assertTrue(gc._runtime_in_use([target], proc_root=proc))
+            (pid / "cwd").unlink()
+            (pid / "exe").unlink()
+            (pid / "exe").symlink_to(target)
+            self.assertTrue(gc._runtime_in_use([target], proc_root=proc))
+            (pid / "exe").unlink()
 
             # Real userspace references still win over kernel-thread detection.
             (pid / "cmdline").write_bytes(os.fsencode(target) + b"/app.py")
