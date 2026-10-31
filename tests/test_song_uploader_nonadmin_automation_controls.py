@@ -28,6 +28,7 @@ def extracted(name: str, env: dict):
                              names=[ast.alias(name="annotations")], level=0), method],
         type_ignores=[])
     scope = dict(env)
+    scope.setdefault("Form", lambda value: value)
     ast.fix_missing_locations(module)
     exec(compile(module, str(BACKEND), "exec"), scope)
     return scope[name]
