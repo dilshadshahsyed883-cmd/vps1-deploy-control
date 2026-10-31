@@ -714,7 +714,7 @@
         {% if engine_instance in ['song','shortstudio'] %}
         <div class="lum-short-sheet-header-actions">
           <span class="lum-badge">{{ sheet_sources|length }} source{{ '' if sheet_sources|length == 1 else 's' }}</span>
-          {% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+          {% if engine_instance == 'song' or user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
 <form method="post" action="{{ base_path }}/actions/sheets/sync-all" data-lum-soft-form>
             <input type="hidden" name="csrf_token" value="{{ csrf }}">
             <button class="lum-button secondary" type="submit" {% if stats.settings.sheets_sync_enabled!='1' or not sheet_sources %}disabled{% endif %}>Update All Enabled Sheets</button>
@@ -1162,16 +1162,16 @@
       </div>
       <div class="lum-ae-pc-row lum-ae-pc-tools">
         {% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}<button class="lum-button secondary" type="button" data-ae-global-preflight data-csrf="{{ csrf }}">Preflight</button>{% endif %}
-        {% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+        {% if engine_instance == 'song' or user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/retry-failed" data-lum-soft-form data-ae-queue-optional-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button secondary" type="submit">Retry Failed</button></form>
 {% endif %}
-        {% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+        {% if engine_instance == 'song' or user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/resume-paused" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button secondary" type="submit">Resume Paused</button></form>
 {% endif %}
-        {% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+        {% if engine_instance == 'song' or user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/clear-done" data-lum-soft-form data-confirm="Clear completed queue rows? Permanent upload/script records remain protected."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button secondary" type="submit">Clear Done</button></form>
 {% endif %}
-        {% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+        {% if engine_instance == 'song' or user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/remove-selected" data-lum-soft-form data-ae-queue-form data-confirm="Remove selected safe jobs? Active uploads are protected."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button danger" type="submit">Remove Selected</button></form>
 {% endif %}
         <a class="lum-button secondary" href="{{ base_path }}/app?tab=auto_engine{% if p %}&auto_profile_id={{ p.id }}{% endif %}" data-lum-soft-link>Refresh</a>
@@ -1440,12 +1440,12 @@
             </form>
           </div>
           {% endif %}
-        </td><td>{{ q.channel_name }}</td><td><span class="lum-ellipsis" title="{{ q.drive_file_id or '' }}">{{ q.source_filename or q.original_filename or q.local_video_path }}</span></td><td>{{ q.thumbnail_filename or '—' }}</td><td><span class="lum-ellipsis" title="{{ q.title|e }}">{{ q.title }}</span></td><td>{{ q.app_upload_at or 'Now / queued' }}</td><td>{% if q.youtube_url %}<a href="{{ q.youtube_url }}" target="_blank" rel="noopener">Open</a>{% else %}—{% endif %}</td><td><span class="lum-ellipsis" title="{{ q.error_message or q.post_upload_state or '' }}">{{ q.error_message or q.post_upload_state or q.v6_state or '—' }}</span></td><td>{% if q.channel_job %}{% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+        </td><td>{{ q.channel_name }}</td><td><span class="lum-ellipsis" title="{{ q.drive_file_id or '' }}">{{ q.source_filename or q.original_filename or q.local_video_path }}</span></td><td>{{ q.thumbnail_filename or '—' }}</td><td><span class="lum-ellipsis" title="{{ q.title|e }}">{{ q.title }}</span></td><td>{{ q.app_upload_at or 'Now / queued' }}</td><td>{% if q.youtube_url %}<a href="{{ q.youtube_url }}" target="_blank" rel="noopener">Open</a>{% else %}—{% endif %}</td><td><span class="lum-ellipsis" title="{{ q.error_message or q.post_upload_state or '' }}">{{ q.error_message or q.post_upload_state or q.v6_state or '—' }}</span></td><td>{% if q.channel_job %}{% if engine_instance == 'song' or user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/job/upload-now" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="video_id" value="{{ q.id }}"><button class="lum-button secondary tiny" type="submit">Upload Now</button></form>
 {% endif %}<details><summary>Edit</summary><form method="post" action="{{ base_path }}/actions/auto-v6/job/edit" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="video_id" value="{{ q.id }}"><input name="title" value="{{ q.title|e }}" maxlength="100" required><textarea name="description" rows="2">{{ q.description }}</textarea><button class="lum-button secondary tiny" type="submit">Save Job Only</button></form></details>{% else %}Legacy{% endif %}</td></tr>{% else %}<tr><td colspan="12"><div class="lum-empty">No Auto Engine queue rows.</div></td></tr>{% endfor %}
         </tbody></table></div>
         {% if ae.queue|selectattr('recovery_state','equalto','REVIEW_REQUIRED')|list %}
-        <div class="lum-ae-recovery">{% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+        <div class="lum-ae-recovery">{% if engine_instance == 'song' or user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/recovery-clear" data-lum-soft-form data-ae-queue-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><label class="lum-field"><span>Recovery Review escape hatch</span><input name="confirmation" placeholder="Type I CHECKED YOUTUBE after checking Studio"></label><button class="lum-button danger" type="submit">Authorize Fresh Retry for Selected Review Jobs</button></form>
 {% endif %}</div>
         {% endif %}

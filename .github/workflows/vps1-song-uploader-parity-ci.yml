@@ -50,6 +50,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_song_uploader_modes_settings.py' -v
           python -m unittest discover -s tests -p 'test_song_uploader_sheets_only.py' -v
           python -m unittest discover -s tests -p 'test_song_uploader_nonadmin_automation_controls.py' -v
+          python -m unittest discover -s tests -p 'test_song_uploader_handover_queue_sheets.py' -v
           python -m unittest discover -s tests -p 'test_short_studio_profile_controls.py' -v
       - name: No accidental other-app deployment
         run: |
