@@ -64,6 +64,41 @@ def queue_claim_overlay(original: bytes, reviewed: bytes) -> bytes:
     return result
 
 
+def queue_resume_owner_overlay(original: bytes, reviewed: bytes) -> bytes:
+    """Overlay only exact-ID paused-job retry; preserve live claim and ledger code.
+
+    This must be added alongside claim_available_jobs. A user retry passes a
+    video_ids=[id] filter; running the old method would wake every user's
+    paused video in the shared per-instance worker database.
+    """
+    import ast
+    def method(text):
+        tree=ast.parse(text)
+        cls=next(n for n in tree.body if isinstance(n,ast.ClassDef)
+                 and n.name=="QueueRepository")
+        return next(n for n in cls.body if isinstance(n,ast.FunctionDef)
+                    and n.name=="resume_paused")
+    live=original.decode()
+    source=reviewed.decode()
+    old=method(live)
+    new=method(source)
+    if ast.dump(old,include_attributes=False)==ast.dump(new,include_attributes=False):
+        return original
+    old_args=[a.arg for a in old.args.args]
+    new_args=[a.arg for a in new.args.args]
+    require(old_args==["self","auto_engine_only","exclude_auto_engine"] and
+            new_args==old_args+["video_ids"] and
+            "recovery_state<>'REVIEW_REQUIRED'" in ast.get_source_segment(live,old) and
+            "SELECT id, resumable_uri FROM videos" in ast.get_source_segment(live,old),
+            "paused-job claim interface drift; release refused")
+    original_lines=live.splitlines(keepends=True)
+    new_lines=source.splitlines(keepends=True)[new.lineno-1:new.end_lineno]
+    result="".join(original_lines[:old.lineno-1]+new_lines+original_lines[old.end_lineno:]).encode()
+    compile(result,QUEUE_REPOSITORY,"exec")
+    print("SONG_OWNER_SCOPED_PAUSED_RETRY=PASS",flush=True)
+    return result
+
+
 def verify_worker_recovery():
     from production.song_uploader_worker_readonly_diagnostic import collect
     for _ in range(3):
@@ -254,7 +289,9 @@ def install(revision):
     queue_target=target/'part01'/QUEUE_REPOSITORY
     require(queue_source.is_file() and not queue_source.is_symlink() and
             queue_target.is_file() and not queue_target.is_symlink(), 'queue repository ownership')
-    queue_target.write_bytes(queue_claim_overlay(queue_target.read_bytes(), queue_source.read_bytes()))
+    queue_target.write_bytes(queue_resume_owner_overlay(
+        queue_claim_overlay(queue_target.read_bytes(), queue_source.read_bytes()),
+        queue_source.read_bytes()))
     hashes[QUEUE_REPOSITORY]=hashlib.sha256(queue_target.read_bytes()).hexdigest()
     journal.mkdir(parents=True,mode=0o700)
     atomic_json(journal/'previous.json',previous)
