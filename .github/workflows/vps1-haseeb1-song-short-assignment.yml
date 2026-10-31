@@ -29,7 +29,8 @@ jobs:
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
       github.actor == 'dilshadshahsyed883-cmd' &&
-      (contains(github.event.head_commit.message, '[vps1-haseeb1-song-short-assignment]') ||\n      contains(github.event.head_commit.message, '[vps1-haseeb1-song-short-readonly]'))
+      (contains(github.event.head_commit.message, '[vps1-haseeb1-song-short-assignment]') ||
+      contains(github.event.head_commit.message, '[vps1-haseeb1-song-short-readonly]'))
     concurrency:
       group: vps1-production-applications
       cancel-in-progress: false
