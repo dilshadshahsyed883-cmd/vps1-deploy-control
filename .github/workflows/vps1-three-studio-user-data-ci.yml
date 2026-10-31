@@ -8,6 +8,7 @@ on:
       - "apps/copyright-uploader/part01/lum_engine/**"
       - "tests/test_three_studio_user_isolation.py"
       - "tests/test_three_studio_uploader_tenants.py"
+      - "tests/test_studio_owner_scoped_recovery.py"
       - "apps/voice-studio/part01/audio_downloader_api.py"
       - "tests/test_audio_downloader_queue_history.py"
       - "apps/local-upload-manager/part01/templates/app.html"
@@ -22,6 +23,7 @@ on:
       - "apps/copyright-uploader/part01/lum_engine/**"
       - "tests/test_three_studio_user_isolation.py"
       - "tests/test_three_studio_uploader_tenants.py"
+      - "tests/test_studio_owner_scoped_recovery.py"
       - "apps/voice-studio/part01/audio_downloader_api.py"
       - "tests/test_audio_downloader_queue_history.py"
       - "apps/local-upload-manager/part01/templates/app.html"
@@ -40,4 +42,4 @@ jobs:
       - name: Parse full Short Maker and Video Merger source
         run: python -m py_compile apps/short-maker/part01/app.py apps/video-merger/part01/app.py apps/voice-studio/part01/audio_downloader_api.py
       - name: Database-bound owner isolation and unauthenticated direct-access tests
-        run: python -m unittest tests.test_three_studio_user_isolation tests.test_three_studio_uploader_tenants -v
+        run: python -m unittest tests.test_three_studio_user_isolation tests.test_three_studio_uploader_tenants tests.test_studio_owner_scoped_recovery -v
