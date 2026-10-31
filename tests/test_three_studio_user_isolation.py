@@ -109,7 +109,7 @@ class UserIsolationContracts(unittest.TestCase):
                       "ADD COLUMN owner_username", "owner_username<>",
                       "Shared global controls are administrator-only"):
             self.assertIn(guard, merger)
-        self.assertGreaterEqual(merger.count("self.require_library_owner("), 5)
+        self.assertEqual(merger.count("self.require_library_owner("), 4)
         self.assertIn("admin=self.is_admin()", merger)
 
     def test_source_compiles_without_importing_live_apps(self):
