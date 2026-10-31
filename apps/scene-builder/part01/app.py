@@ -4643,11 +4643,12 @@ def user_management_page(request: Request):
         counts[owner.casefold()] = counts.get(owner.casefold(), 0) + 1
     with db() as conn:
         rows = [dict(row) for row in conn.execute(
-            """SELECT username,is_active,is_admin,created_at,last_login_at
+            """SELECT username,is_active,is_admin,created_at,last_login_at,studio_access
                FROM users ORDER BY is_admin DESC, username COLLATE NOCASE"""
         ).fetchall()]
     for user in rows:
         user["job_count"] = counts.get(str(user["username"]).casefold(), 0)
+        user["allowed_studios"] = allowed_studios(user)
     token = request.session.get("user_management_csrf")
     if not token:
         token = secrets.token_urlsafe(32)
@@ -4666,6 +4667,8 @@ def user_management_action(
     request: Request, action: str = Form(...), username: str = Form(""),
     secret_key: str = Form(""), role: str = Form("non_admin"),
     csrf_token: str = Form(""),
+    studio_song: str = Form(""), studio_short: str = Form(""),
+    studio_copyright: str = Form(""),
 ):
     require_admin(request)
     expected = str(request.session.get("user_management_csrf") or "")
@@ -4675,6 +4678,13 @@ def user_management_action(
     actor = str(request.session.get("username") or "")
     if action in {"create", "set_role"} and role not in {"admin", "non_admin"}:
         raise HTTPException(400, "Role must be Admin or Non-admin")
+    for value in (studio_song, studio_short, studio_copyright):
+        if value not in ("", "on"):
+            raise HTTPException(400, "Invalid studio checkbox")
+    selected = ",".join(name for name, checked in (
+        ("song", studio_song), ("short", studio_short),
+        ("copyright", studio_copyright),
+    ) if checked == "on")
     try:
         with db() as conn:
             if action == "create":
@@ -4684,10 +4694,10 @@ def user_management_action(
                     raise HTTPException(400, "Secret key must be at least 8 characters")
                 conn.execute(
                     """INSERT INTO users(username,secret_hash,is_active,is_admin,created_at,
-                       daily_render_limit,subscription_start_at,subscription_end_at,app_access)
-                       VALUES(?,?,?,?,?,?,?,?,?)""",
+                       daily_render_limit,subscription_start_at,subscription_end_at,app_access,studio_access)
+                       VALUES(?,?,?,?,?,?,?,?,?,?)""",
                     (clean, hash_secret(secret_key), 1, int(role == "admin"), now_iso(),
-                     0, "", "", "all"),
+                     0, "", "", "all", selected if role == "non_admin" else "song,short,copyright"),
                 )
                 message = f"User {clean} created as {'Admin' if role == 'admin' else 'Non-admin'}"
             else:
@@ -4702,7 +4712,15 @@ def user_management_action(
                        WHERE is_admin=1 AND is_active=1 AND username<>? COLLATE NOCASE""",
                     (clean,),
                 ).fetchone()[0]
-                if action == "set_role":
+                if action == "set_studio_access":
+                    if target_admin:
+                        raise HTTPException(403, "Administrator Studio access cannot be restricted")
+                    conn.execute(
+                        "UPDATE users SET studio_access=? WHERE username=? COLLATE NOCASE",
+                        (selected, clean),
+                    )
+                    message = f"Studio access updated for {clean}"
+                elif action == "set_role":
                     if target_admin and role == "non_admin" and bool(row["is_active"]) and not others:
                         raise HTTPException(409, "Cannot demote the last active administrator")
                     conn.execute(
