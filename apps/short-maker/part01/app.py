@@ -1685,6 +1685,111 @@ def clear_terminal_jobs(status_name: str, request: Request):
         removed+=1
     return {"ok":True,"status":status_name,"removed":removed}
 
+def short_restart_config(job_id: str, state: dict, request: Request) -> dict:
+    """Rebuild the recorded render, without new output numbers or duplicate delivery."""
+    cfg = dict(state.get("config") or {})
+    required = ("video_duration","image_duration","output_count","order","fit","motion","fps","crf","base_name")
+    if any(k not in cfg for k in required):
+        raise HTTPException(status_code=409, detail="This legacy job has no safe restart config.")
+    if state.get("delivery_status") in ("uploading", "verified", "verified_cleaned"):
+        raise HTTPException(status_code=409, detail="Remote delivery may exist; manual review required before retry.")
+    short_folder_owned(str(cfg.get("short_vps_folder") or ""), request)
+    target_folder = short_vps_folder(cfg["short_vps_folder"])
+    if any((target_folder / filename).exists() or (target_folder / filename).is_symlink()
+           for filename in cfg.get("output_names") or []):
+        raise HTTPException(status_code=409, detail="Already published media exists; retry would duplicate delivery.")
+    source = JOBS_ROOT / job_id / "input"
+    images = sorted(str(p) for p in (source / "images").iterdir() if p.is_file() and not p.is_symlink()) if (source / "images").is_dir() else []
+    audio = sorted(str(p) for p in (source / "audio").iterdir() if p.is_file() and not p.is_symlink()) if (source / "audio").is_dir() else []
+    if cfg.get("input_mode") != "drive" and not images:
+        raise HTTPException(status_code=409, detail="Original input images are missing.")
+    if cfg.get("input_mode") == "drive" and not (cfg.get("drive_input_paths") or cfg.get("drive_input_path")):
+        raise HTTPException(status_code=409, detail="Original Drive input configuration is missing.")
+    cfg.update(images=images, audio=audio)
+    return cfg
+
+
+def short_job_action(job_id: str, request: Request, action: str) -> dict:
+    state = short_owned_state(job_id, request)
+    status = state.get("status")
+    if action in ("cancel", "pause") and state.get("phase") == "delivery":
+        raise HTTPException(status_code=409, detail="Delivery already started; cannot interrupt verified output handoff.")
+    if action == "cancel":
+        if status == "paused":
+            set_state(job_id, status="cancelled", control="", phase="idle",
+                      message="Cancelled while paused; originals retained")
+        elif status in ("queued","running","pausing"):
+            set_state(job_id, status="cancelling", control="cancel", message="Cancelling render safely")
+        else:
+            raise HTTPException(status_code=409, detail="Job cannot be cancelled in this state.")
+    elif action == "pause":
+        if status not in ("queued","running"):
+            raise HTTPException(status_code=409, detail="Only queued or rendering jobs can be paused.")
+        set_state(job_id, status="pausing", control="pause", message="Pausing at safe render checkpoint")
+    elif action in ("resume", "retry"):
+        expected = "paused" if action == "resume" else ("failed","cancelled")
+        if status not in ((expected,) if isinstance(expected,str) else expected):
+            raise HTTPException(status_code=409, detail="Job is not ready for " + action + ".")
+        cfg = short_restart_config(job_id, state, request)
+        out_dir = JOBS_ROOT / job_id / "outputs"
+        if out_dir.is_symlink():
+            raise HTTPException(status_code=409, detail="Unsafe job output folder.")
+        if out_dir.exists():
+            shutil.rmtree(out_dir)
+        set_state(job_id, status="queued", control="", phase="queued", error="",
+                  progress=0, message="Queued for " + action,
+                  delivery_status="waiting_render" if cfg.get("upload_to_drive") else "short_uploader")
+        executor.submit(render_job, job_id, cfg)
+    else:
+        raise HTTPException(status_code=400, detail="Invalid queue action.")
+    return {"ok": True, "job_id": job_id, "status": get_state(job_id)["status"]}
+
+
+@app.post("/api/jobs/bulk/{action}")
+async def bulk_short_job_action(action: str, request: Request):
+    short_identity(request)
+    if action not in ("pause","resume","cancel","retry","delete"):
+        raise HTTPException(status_code=400, detail="Invalid bulk action.")
+    payload = await request.json()
+    ids = payload.get("job_ids") if isinstance(payload,dict) else None
+    if not isinstance(ids,list) or not 1 <= len(ids) <= 100 or not all(
+            isinstance(job_id,str) and re.fullmatch(r"[0-9a-f]{16}",job_id) for job_id in ids):
+        raise HTTPException(status_code=400, detail="Select between 1 and 100 valid job IDs.")
+    ids = list(dict.fromkeys(ids))
+    # Preflight every owner before any write; foreign IDs must never partially act.
+    states = [short_owned_state(job_id, request) for job_id in ids]
+    for state in states:
+        status = state.get("status")
+        if action == "delete" and status not in ("completed","failed","cancelled"):
+            raise HTTPException(status_code=409,detail="Bulk delete requires terminal jobs only.")
+        if action == "pause" and status not in ("queued","running"):
+            raise HTTPException(status_code=409,detail="Bulk pause requires queued/running jobs.")
+        if action == "cancel" and status not in ("queued","running","pausing","paused"):
+            raise HTTPException(status_code=409,detail="Bulk cancel requires active/paused jobs.")
+        if action == "resume" and status != "paused":
+            raise HTTPException(status_code=409,detail="Bulk resume requires paused jobs.")
+        if action == "retry" and status not in ("failed","cancelled"):
+            raise HTTPException(status_code=409,detail="Bulk retry requires failed/cancelled jobs.")
+        if action in ("pause","cancel") and state.get("phase") == "delivery":
+            raise HTTPException(status_code=409,detail="A selected job is delivering output.")
+        if action in ("resume","retry"):
+            short_restart_config(str(state["job_id"]), state, request)
+    results = []
+    for job_id in ids:
+        if action == "delete":
+            results.append(delete_terminal_job(job_id, request))
+        else:
+            results.append(short_job_action(job_id, request, action))
+    return {"ok":True,"updated":len(results),"results":results}
+
+
+@app.post("/api/jobs/{job_id}/{action}")
+def control_short_job(job_id: str, action: str, request: Request):
+    if not re.fullmatch(r"[0-9a-f]{16}", job_id or ""):
+        raise HTTPException(status_code=404, detail="Job not found.")
+    return short_job_action(job_id, request, action)
+
+
 @app.get("/api/jobs/{job_id}")
 def job_status(job_id: str, request: Request):
     return JSONResponse(short_owned_state(job_id, request))
