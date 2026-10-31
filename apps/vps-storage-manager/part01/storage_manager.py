@@ -578,13 +578,42 @@ def _public_deployment_gc_status() -> dict[str, Any] | None:
         return None
 
 
+def _scene_manual_spool_owner_uid() -> int:
+    """Determine expected owner from the exact systemd Scene candidate unit.
+
+    Never infer permission from the Storage Manager's own UID; reject disabled,
+    empty, root, malformed and unknown service identities.
+    """
+    try:
+        result = run(["systemctl", "show", "vps1-scene-candidate.service",
+                      "--property=User", "--property=ActiveState", "--no-pager"],
+                     timeout=8)
+        rows = result.stdout.strip().splitlines()
+        if len(rows) != 2:
+            return -1
+        values = {}
+        for row in rows:
+            key, eq, value = row.partition("=")
+            if not eq or key not in {"User", "ActiveState"} or key in values:
+                return -1
+            values[key] = value.strip()
+        name = values.get("User", "")
+        if values.get("ActiveState") != "active" or not re.fullmatch(
+                r"[a-z_][a-z0-9_-]{0,31}", name) or name == "root":
+            return -1
+        identity = pwd.getpwnam(name)
+        return identity.pw_uid if 1000 <= identity.pw_uid <= 60000 else -1
+    except (KeyError, OSError, AttributeError, subprocess.TimeoutExpired):
+        return -1
+
+
 def _manual_gc_spool_status(directory: Path, *, owner_uid: int,
                             path_active: bool) -> tuple[bool, bool | None]:
     """Check the fixed web-owned trigger spool without reading sensitive files.
 
-    The isolated Storage Manager may run as freshweb, whereas the authenticated
-    Scene web worker that queues requests runs as ubuntu. Comparing st_uid to
-    our own euid incorrectly disables manual cleanup on healthy hosts.
+    The isolated Storage Manager can run under a separate identity from the
+    Scene web worker. Trust only the expected non-root systemd User readback,
+    never the isolated process EUID or a hardcoded account.
     """
     if not path_active or owner_uid < 0:
         return False, False
@@ -743,10 +772,10 @@ def deployment_cleanup_status() -> dict[str, Any]:
         path_enabled = path_state.stdout.strip() == "active"
     except (OSError, subprocess.TimeoutExpired, AttributeError):
         path_enabled = False
-    try:
-        expected_owner = pwd.getpwnam("ubuntu").pw_uid
-    except (KeyError, OSError):
-        expected_owner = -1
+    # Match the guarded spool against the actual non-root Scene web service
+    # owner, not a hardcoded ubuntu UID. No directory ownership is changed
+    # here; this isolated Storage Manager remains strictly read-only.
+    expected_owner = _scene_manual_spool_owner_uid()
     manual_available, manual_pending = _manual_gc_spool_status(
         manual_dir, owner_uid=expected_owner, path_active=path_enabled)
 
