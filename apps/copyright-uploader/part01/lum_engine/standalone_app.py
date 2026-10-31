@@ -263,7 +263,9 @@ def stats_payload(user: dict[str, Any] | None = None) -> dict[str, Any]:
         "active_project_id": worker.active_project_id if user is None or int(user.get("is_admin") or 0) else None,
         "engine_enabled": store.setting("engine_enabled", "1") == "1",
         "pause_after_current": store.setting("pause_after_current", "0") == "1",
-        "settings": store.settings() if user is None or int(user.get("is_admin") or 0) else {},
+        "settings": (store.settings() if user is None or int(user.get("is_admin") or 0)
+                     else ({"sheets_sync_enabled": "1", "auto_engine_enabled": "1"}
+                           if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" else {})),
     }
 
 
@@ -307,8 +309,6 @@ async def standalone_auth(request: Request, call_next):
             allowed_exact={route("/logout"),route("/actions/add-video"),
                 route("/actions/oauth-start"),route("/actions/oauth-complete"),
                 route("/actions/google-oauth/connect"),
-                route("/actions/studio-tenant/channel-create"),
-                route("/actions/studio-tenant/group-create"),
                 route("/actions/auth-connections/test"),
                 route("/actions/auth-connections/activate"),
                 route("/actions/sheets/save"),route("/actions/sheets/delete"),
@@ -1189,7 +1189,7 @@ def studio_tenant_channel_create(request: Request,csrf_token: str=Form(...),
                                  channel_id: str=Form(...),channel_name: str=Form(...),
                                  google_account_email: str=Form("")):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
-    if os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio","copyright"}:
+    if os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio"}:
         raise HTTPException(404,"Not found")
     try:
         cid=studio_tenants.create_channel(user["username"],channel_id,channel_name,
@@ -1203,7 +1203,7 @@ def studio_tenant_channel_create(request: Request,csrf_token: str=Form(...),
 def studio_tenant_group_create(request: Request,csrf_token: str=Form(...),
                                group_name: str=Form(...),channel_ids: list[int]=Form([])):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
-    if os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio","copyright"}:
+    if os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio"}:
         raise HTTPException(404,"Not found")
     try:
         gid=studio_tenants.create_group(user["username"],group_name,channel_ids)
@@ -2219,6 +2219,8 @@ def auto_v6_missed_skip(request: Request,csrf_token: str=Form(...),missed_id: in
 @app.post(route("/actions/settings"))
 def save_settings(request: Request, csrf_token: str = Form(...), sheets_sync_enabled: str = Form("0"), auto_engine_enabled: str = Form("0"), bulk_import_enabled: str = Form("0"), delete_staged_after_verified: str = Form("1")):
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
+    if os.getenv("LUM_ENGINE_INSTANCE") == "copyright":
+        raise HTTPException(404, "Copyright uploader mode settings are fixed")
     settings = {
         "sheets_sync_enabled": sheets_sync_enabled,
         "auto_engine_enabled": auto_engine_enabled,
