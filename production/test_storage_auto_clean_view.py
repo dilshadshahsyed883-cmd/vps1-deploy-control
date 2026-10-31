@@ -50,6 +50,33 @@ class AutoCleanReadOnlyView(unittest.TestCase):
         self.assertTrue(all(item["available"] is False for item in preview["categories"]))
         self.assertNotIn("operations", preview)
 
+    def test_manual_spool_owner_is_scene_identity_not_candidate_identity(self):
+        module = self.manager
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp) / "manual"
+            directory.mkdir(mode=0o700)
+            # Storage Manager may run as another account; the spool belongs
+            # to the authenticated Scene web worker. No root grant is needed.
+            available, pending = module._manual_gc_spool_status(
+                directory, owner_uid=os.geteuid(), path_active=True)
+            self.assertTrue(available)
+            self.assertFalse(pending)
+            self.assertEqual(module._manual_gc_spool_status(
+                directory, owner_uid=os.geteuid()+1, path_active=True),
+                (False, False))
+            self.assertEqual(module._manual_gc_spool_status(
+                directory, owner_uid=os.geteuid(), path_active=False),
+                (False, False))
+            (directory / "request").touch()
+            self.assertEqual(module._manual_gc_spool_status(
+                directory, owner_uid=os.geteuid(), path_active=True),
+                (True, True))
+            (directory / "request").unlink()
+            directory.chmod(0o755)
+            self.assertEqual(module._manual_gc_spool_status(
+                directory, owner_uid=os.geteuid(), path_active=True),
+                (False, False))
+
     def test_timer_fails_closed_when_systemd_is_unreadable(self):
         module = self.manager
         with patch.object(module, "run", side_effect=OSError("systemctl not available")):
