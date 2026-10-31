@@ -195,6 +195,11 @@ def stats_payload(user: dict[str, Any] | None = None) -> dict[str, Any]:
     channels = all_channels(user)
     owner = str(user.get("username") or "") if user is not None and not int(user.get("is_admin") or 0) else None
     counts=store.counts(owner=owner)
+    settings = store.settings() if user is None or int(user.get("is_admin") or 0) else {}
+    if os.getenv("LUM_ENGINE_INSTANCE", "engine1") == "song":
+        # Song modes are capabilities, not Start controls. Legacy OFF values
+        # must not disable Sheets Sync or Auto Engine for either user role.
+        settings = {**settings, "sheets_sync_enabled": "1", "auto_engine_enabled": "1"}
     return {
         "counts": counts,
         "channels": len(channels),
@@ -202,7 +207,7 @@ def stats_payload(user: dict[str, Any] | None = None) -> dict[str, Any]:
         "active_project_id": worker.active_project_id if user is None or int(user.get("is_admin") or 0) else None,
         "engine_enabled": store.setting("engine_enabled", "1") == "1",
         "pause_after_current": store.setting("pause_after_current", "0") == "1",
-        "settings": store.settings() if user is None or int(user.get("is_admin") or 0) else {},
+        "settings": settings,
     }
 
 
@@ -997,7 +1002,7 @@ def sheets_sync(
     source_id: int = Form(...),
 ):
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
-    if store.setting("sheets_sync_enabled", "0") != "1":
+    if os.getenv("LUM_ENGINE_INSTANCE", "engine1") != "song" and store.setting("sheets_sync_enabled", "0") != "1":
         return redirect(
             f"/app?tab=sheets&source_id={int(source_id)}",
             error="Enable Sheets Sync on Dashboard before running synchronization.",
@@ -1034,7 +1039,7 @@ def sheets_sync(
 @app.post(route("/actions/sheets/sync-all"))
 def sheets_sync_all(request: Request, csrf_token: str = Form(...)):
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
-    if store.setting("sheets_sync_enabled", "0") != "1":
+    if os.getenv("LUM_ENGINE_INSTANCE", "engine1") != "song" and store.setting("sheets_sync_enabled", "0") != "1":
         return redirect(
             "/app?tab=sheets",
             error="Enable Sheets Sync on Dashboard before running synchronization.",
@@ -1066,7 +1071,9 @@ def studio_tenant_channel_create(request: Request,csrf_token: str=Form(...),
                                  channel_id: str=Form(...),channel_name: str=Form(...),
                                  google_account_email: str=Form("")):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
-    if os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio","copyright"}:
+    if os.getenv("LUM_ENGINE_INSTANCE") == "song":
+        raise HTTPException(404, "Song channels and groups are managed by Google Sheets Sync")
+    if os.getenv("LUM_ENGINE_INSTANCE") not in {"shortstudio","copyright"}:
         raise HTTPException(404,"Not found")
     try:
         cid=studio_tenants.create_channel(user["username"],channel_id,channel_name,
@@ -1080,7 +1087,9 @@ def studio_tenant_channel_create(request: Request,csrf_token: str=Form(...),
 def studio_tenant_group_create(request: Request,csrf_token: str=Form(...),
                                group_name: str=Form(...),channel_ids: list[int]=Form([])):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
-    if os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio","copyright"}:
+    if os.getenv("LUM_ENGINE_INSTANCE") == "song":
+        raise HTTPException(404, "Song channels and groups are managed by Google Sheets Sync")
+    if os.getenv("LUM_ENGINE_INSTANCE") not in {"shortstudio","copyright"}:
         raise HTTPException(404,"Not found")
     try:
         gid=studio_tenants.create_group(user["username"],group_name,channel_ids)
@@ -2122,6 +2131,9 @@ def auto_v6_missed_skip(request: Request,csrf_token: str=Form(...),missed_id: in
 @app.post(route("/actions/settings"))
 def save_settings(request: Request, csrf_token: str = Form(...), sheets_sync_enabled: str = Form("0"), auto_engine_enabled: str = Form("0"), bulk_import_enabled: str = Form("0"), delete_staged_after_verified: str = Form("1")):
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
+    if os.getenv("LUM_ENGINE_INSTANCE", "engine1") == "song":
+        # Retire stale dashboard settings POSTs; never accept a forged OFF.
+        raise HTTPException(404, "Song Uploader mode switches are retired")
     settings = {
         "sheets_sync_enabled": sheets_sync_enabled,
         "auto_engine_enabled": auto_engine_enabled,

@@ -69,8 +69,13 @@ def test_uploader_dashboard_shared_modes_hidden_for_nonadmin() -> None:
         assert "Save modes" not in hidden
         assert "/actions/settings" not in hidden
         assert "Serial engine" in hidden
-        assert "/actions/settings" in shown
-        assert "Save modes" in shown
+        if instance == "song":
+            # Song retires its modes card for admins and non-admins alike.
+            assert "/actions/settings" not in shown
+            assert "Save modes" not in shown
+        else:
+            assert "/actions/settings" in shown
+            assert "Save modes" in shown
 
 
 def test_copyright_queue_global_controls_hidden_but_personal_actions_preserved() -> None:

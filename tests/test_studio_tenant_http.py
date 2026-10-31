@@ -59,7 +59,19 @@ def exercise(mode):
         ):
             response = post(viewer, token, "studio-tenant/channel-create",
                             channel_id="UC" + letter * 22, channel_name=title)
-            assert response.status_code == 303 and "error=" not in response.headers["location"]
+            if mode == "song":
+                # Retired Song onboarding must reject direct POSTs. Seed legacy
+                # ownership directly to keep testing tenant isolation and OAuth.
+                assert response.status_code == 404
+                with app.db.connect() as connection:
+                    channel_db_id = connection.execute(
+                        "INSERT INTO channels(channel_id,channel_name,token_file_path,status) "
+                        "VALUES (?,?,'','ACTIVE')",
+                        ("UC" + letter * 22, title)).lastrowid
+                app.studio_tenants.bind("channel", channel_db_id,
+                                        "Alice" if letter == "a" else "Bob")
+            else:
+                assert response.status_code == 303 and "error=" not in response.headers["location"]
         a_id = app.studio_tenants.allowed_ids("channel", {"username": "Alice"}).pop()
         b_id = app.studio_tenants.allowed_ids("channel", {"username": "Bob"}).pop()
         for viewer, own, foreign in (
@@ -73,13 +85,16 @@ def exercise(mode):
 
         duplicate = post(bob, b_token, "studio-tenant/channel-create",
                          channel_id="UC" + "a" * 22, channel_name="Hijack")
-        assert "error=" in duplicate.headers["location"]
         group = post(alice, a_token, "studio-tenant/group-create",
                      group_name="Alice private group", channel_ids=str(a_id))
-        assert "error=" not in group.headers["location"]
         mixed = post(alice, a_token, "studio-tenant/group-create",
                      group_name="Invalid mixed group", channel_ids=[str(a_id), str(b_id)])
-        assert "error=" in mixed.headers["location"]
+        if mode == "song":
+            assert duplicate.status_code == group.status_code == mixed.status_code == 404
+        else:
+            assert "error=" in duplicate.headers["location"]
+            assert "error=" not in group.headers["location"]
+            assert "error=" in mixed.headers["location"]
 
         # Exercise both the permitted and forbidden OAuth branches: a NameError
         # hidden in a redirect must not count as successful access control.
