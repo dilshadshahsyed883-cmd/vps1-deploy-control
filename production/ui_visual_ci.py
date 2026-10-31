@@ -358,7 +358,7 @@ def run(screenshots: Path | None) -> int:
                                     }""",
                                     native_js)
                                 names = page.locator("#app-sidebar > nav > a").all_text_contents()
-                                if names != ["Dashboard", "Song Studio", "Short Studio", "Copyright Studio", "Experiment Studio"]:
+                                if names != ["Dashboard", "Song Studio", "Short Studio", "Copyright Studio", "Experiment Studio", "Admin"]:
                                     errors.append(f"{width}px {app}: sidebar drift {names!r}")
                             if app in NATIVE:
                                 workspace = {"auto-caption-studio": "acs",
