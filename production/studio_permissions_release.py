@@ -203,14 +203,24 @@ def install(revision: str) -> None:
         verify_short(https_get, scene_cookie)
         verify_copyright(https_get, scene_cookie)
         owner_cookie = scene_cookie()
-        for url, marker in (
-            ("/user-management", b"Song Studio"),
-            ("/song-studio/", b"Song Studio"),
-            ("/short-maker/", b"Short"),
-            ("/video-merger/", b"Video Merger"),
-        ):
-            status, _, body = https_get(url, owner_cookie)
-            require(status == 200 and marker in body, "authenticated Studio probe failed: " + url)
+        status, kind, body = https_get("/user-management", owner_cookie)
+        require(status == 200 and "html" in kind.lower() and b"Song Studio" in body
+                and b"Copyright Studio" in body and b"Short Studio" in body,
+                "authenticated User Management controls unavailable")
+        status, _, body = https_get("/api/session/identity", owner_cookie)
+        identity = json.loads(body) if status == 200 else {}
+        require(identity.get("authenticated") is True and
+                identity.get("is_admin") is True and
+                set(identity.get("allowed_studios") or []) == {"song", "short", "copyright"},
+                "verified owner admin identity or studio access missing")
+        # Song Studio is intentionally a 303 redirect to Audio Downloader;
+        # the two rendering routes may be served by another Nginx app.
+        status, _, _ = https_get("/song-studio/", owner_cookie)
+        require(status == 303, "Song Studio canonical redirect regressed")
+        for url in ("/short-maker/", "/video-merger/"):
+            status, _, _ = https_get(url, owner_cookie)
+            require(status in (200, 303, 308),
+                    "authenticated Studio route failed: " + url)
         for url in ("/user-management", "/short-uploader/app", "/copyright-uploader/app"):
             status, _, _ = https_get(url)
             require(status in (303, 401, 403), "anonymous Studio access exposed: " + url)
