@@ -763,7 +763,7 @@
     <section class="lum-card">
       <div class="lum-card-head">
         <div><h2>{{ 'Short Uploader · Auto Engine' if engine_instance == 'shortstudio' else ('Song Uploader · Short Uploader Auto Engine' if engine_instance == 'song' else 'Auto Uploader · Two Modes') }}</h2>
-          <p>{% if engine_instance == 'shortstudio' %}Group profiles, sources and upload queue.{% elif engine_instance == 'song' %}Short Uploader Auto Engine workflow: channel-based Video ID matching, Sheets, schedules, queue and records. Matching JPG/PNG thumbnails are required for Song Uploader.{% else %}Engine 1 and Engine 2 remain here. Short Uploader is now in Short Studio. Switching modes never starts a job.{% endif %}</p></div>
+          <p>{% if engine_instance == 'shortstudio' %}Manage group schedules and uploads.{% elif engine_instance == 'song' %}Short Uploader Auto Engine workflow: channel-based Video ID matching, Sheets, schedules, queue and records. Matching JPG/PNG thumbnails are required for Song Uploader.{% else %}Engine 1 and Engine 2 remain here. Short Uploader is now in Short Studio. Switching modes never starts a job.{% endif %}</p></div>
       </div>
       {% if engine_instance not in ['song', 'shortstudio'] %}
       <nav class="lum-ae-tabs lum-ae-tabs-primary" aria-label="Auto Uploader modes">
