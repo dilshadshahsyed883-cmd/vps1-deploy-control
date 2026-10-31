@@ -12,6 +12,28 @@ from production import storage_gc as gc
 
 
 class StorageGCTests(unittest.TestCase):
+    def test_unreadable_and_referenced_processes_stay_protected_but_distinct(self):
+        from unittest.mock import patch
+        proc = Path(self.workspace.name) / "procs"
+        proc.mkdir()
+        pid = proc / "1234"
+        pid.mkdir()
+        target = self.root / "releases" / self.app / self.revisions[3]
+        # Missing files in a still-live PID remain unsafe.
+        self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc),
+                         "unverifiable-process-race")
+        self.assertTrue(gc._runtime_in_use([target], proc_root=proc))
+        for name in ("cmdline", "environ", "maps"):
+            (pid / name).write_bytes(b"")
+        (pid / "fd").mkdir()
+        self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc), "clear")
+        (pid / "cmdline").write_bytes(os.fsencode(target) + b"/server.py")
+        self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc), "referenced")
+        self.assertTrue(gc._runtime_in_use([target], proc_root=proc))
+        self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc),
+                         "referenced")
+
+
     def test_manual_systemd_path_reuses_existing_protected_gc_engine(self):
         root = Path(__file__).resolve().parents[1]
         units = root / "infrastructure/systemd"
