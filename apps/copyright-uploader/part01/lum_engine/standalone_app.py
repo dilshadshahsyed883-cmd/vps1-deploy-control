@@ -251,9 +251,8 @@ def get_logs(user: dict[str, Any], limit: int = 300) -> list[dict[str, Any]]:
 
 def stats_payload(user: dict[str, Any] | None = None) -> dict[str, Any]:
     channels = all_channels(user)
-    counts=store.counts()
-    if user is not None and not int(user.get("is_admin") or 0):
-        counts={key:0 for key in counts}
+    owner = str(user.get("username") or "") if user is not None and not int(user.get("is_admin") or 0) else None
+    counts=store.counts(owner=owner)
     return {
         "counts": counts,
         "channels": len(channels),
