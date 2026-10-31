@@ -85,6 +85,19 @@ jobs:
             exit 1
           }
           echo 'PHASE=STORAGE_GC_TIMER_VERIFY'
-          remote storage-gc-status
+          # Timers and the root-owned service were already validated by the
+          # installer. An active GC may own the app deploy lock for its full
+          # protected apply, so a supplemental read-only status probe cannot
+          # always acquire it. Do not unlock or interrupt the running GC.
+          if status_output="$(remote storage-gc-status 2>&1)"; then
+            printf '%s\n' "$status_output"
+          elif [[ "$status_output" == *'BlockingIOError'* &&
+                  "$status_output" == *'Resource temporarily unavailable'* ]]; then
+            echo 'STORAGE_GC_STATUS=BUSY_LOCK_READONLY_STATUS_SKIPPED'
+          else
+            printf '%s\n' "$status_output" >&2
+            echo 'STORAGE_GC_STATUS=FAILED_UNEXPECTED_ERROR' >&2
+            exit 1
+          fi
           echo 'AUTO_SCRIPT=OFFLINE'
           echo 'STORAGE_GC=ACTIVE_TIMER_VERIFIED'
