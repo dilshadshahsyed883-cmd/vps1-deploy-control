@@ -139,6 +139,44 @@ class StorageGCTests(unittest.TestCase):
         self.assertIn("STORAGE_GC_RUNTIME_PROBE=LOCKED_OR_UNAVAILABLE_NO_DELETION", script)
         self.assertNotIn("exit 26", script)
 
+    def test_scene_web_spool_identity_parser_requires_nonroot_running_user(self):
+        from production.storage_gc_spool import parse_identity
+        from types import SimpleNamespace
+        props = "User=sceneweb\\nMainPID=28471\\nActiveState=active\\n"
+        status = "Name:\\tuvicorn\\nUid:\\t1007\\t1007\\t1007\\t1007\\n"
+        lookup = lambda _: SimpleNamespace(pw_uid=1007, pw_gid=1007)
+        # Mock group lookup since production group is verified separately.
+        from unittest.mock import patch
+        with patch("production.storage_gc_spool.grp.getgrgid",
+                   return_value=SimpleNamespace(gr_name="sceneweb")):
+            self.assertEqual(parse_identity(props, status, get_user=lookup)[:3],
+                             ("sceneweb", "sceneweb", 1007))
+            for unsafe in (
+                "User=root\\nMainPID=28471\\nActiveState=active\\n",
+                "User=sceneweb\\nMainPID=0\\nActiveState=active\\n",
+                "User=sceneweb\\nMainPID=28471\\nActiveState=inactive\\n",
+                "User=sceneweb\\nMainPID=28471\\nActiveState=active\\nUser=sceneweb\\n",
+            ):
+                with self.assertRaises(RuntimeError):
+                    parse_identity(unsafe, status, get_user=lookup)
+            with self.assertRaises(RuntimeError):
+                parse_identity(props, status.replace("1007", "1009"),
+                               get_user=lookup)
+
+    def test_manual_spool_alignment_never_executes_cleanup_or_weakens_permissions(self):
+        root = Path(__file__).resolve().parents[1]
+        aligner = (root / "production/storage_gc_spool.py").read_text()
+        installer = (root / "scripts/install_storage_gc.sh").read_text()
+        self.assertIn("systemctl", aligner)
+        self.assertIn('if os.geteuid() != 0:', aligner)
+        self.assertIn('if (DIR / "request").exists()', aligner)
+        self.assertIn('mode.st_mode & 0o777) != 0o700', aligner)
+        self.assertIn('fcntl.LOCK_EX | fcntl.LOCK_NB', aligner)
+        self.assertIn('subprocess.run(["systemd-tmpfiles", "--create"', aligner)
+        self.assertIn('-m production.storage_gc_spool', installer)
+        self.assertNotIn("storage-gc.py --apply", aligner)
+        self.assertNotIn("chmod 0777", installer)
+
     def test_manual_systemd_path_reuses_existing_protected_gc_engine(self):
         root = Path(__file__).resolve().parents[1]
         units = root / "infrastructure/systemd"
