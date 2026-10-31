@@ -44,6 +44,57 @@ class StorageWebOnlyRelease(unittest.TestCase):
         self.assertEqual(overlay.patch_web(patched, reviewed), patched)
         self.assertIn(original.split("def persistent_workspace")[0][:250], patched)
 
+    def test_existing_web_overlay_removes_only_old_candidate_veto(self):
+        reviewed = reviewed_web()
+        block_start = reviewed.index('MANUAL_STORAGE_GC_REQUEST_DIR = Path("/run/vps1-storage-gc-manual")')
+        block_end = reviewed.index('@app.get("/api/admin/storage/history")', block_start)
+        legacy = reviewed[:block_start] + reviewed[block_start:block_end].replace(
+            'if os.getenv("FRESH_WEBSITE_SMOKE_TEST") == "1":',
+            'if RUNTIME_CANDIDATE or os.getenv("FRESH_WEBSITE_SMOKE_TEST") == "1":'
+        ) + reviewed[block_end:]
+        patched = overlay.patch_web(legacy, reviewed)
+        manual = patched[patched.index('MANUAL_STORAGE_GC_REQUEST_DIR'):patched.index(
+            '@app.get("/api/admin/storage/history")')]
+        self.assertNotIn('if RUNTIME_CANDIDATE or', manual)
+        self.assertIn('if os.getenv("FRESH_WEBSITE_SMOKE_TEST") == "1":', manual)
+        self.assertIn('require_admin(request)', manual)
+        self.assertIn('require_storage_csrf(request)', manual)
+        self.assertIn('os.O_EXCL', manual)
+        self.assertEqual(patched, overlay.patch_web(patched, reviewed))
+
+    def test_exact_candidate_gc_route_only_and_other_mutations_denied(self):
+        from importlib.util import module_from_spec, spec_from_file_location
+        candidate_file = SCENE / "precutover_policy.py"
+        reviewed = candidate_file.read_text(encoding="utf-8")
+        # Model the installed older candidate policy: no Storage Manager POST
+        # allowlist, otherwise unchanged.
+        exception = ('    if method == "POST" and path == '
+                     '"/api/admin/storage/run-safe-cleanup":\n        return True\n')
+        original = reviewed.replace(exception, "")
+        self.assertNotEqual(original, reviewed)
+        patched = overlay.patch_candidate_policy(original, reviewed)
+        self.assertEqual(patched, overlay.patch_candidate_policy(patched, reviewed))
+        self.assertEqual(patched, reviewed)
+        with self.assertRaisesRegex(RuntimeError, "unexpected safety boundary"):
+            overlay.patch_candidate_policy("def arbitrary(): pass", reviewed)
+        namespace = {"__name__": "storage_policy_offline_test"}
+        exec(compile(patched, str(candidate_file), "exec"), namespace)
+        allowed = namespace["mutation_allowed"]
+        self.assertTrue(allowed("POST", "/api/admin/storage/run-safe-cleanup", False))
+        self.assertFalse(allowed("GET", "/api/admin/storage/run-safe-cleanup", False))
+        self.assertFalse(allowed("POST", "/api/admin/storage/cleanup", False))
+        self.assertFalse(allowed("POST", "/api/admin/storage/full-clean", False))
+        self.assertFalse(allowed("POST", "/api/admin/storage/run-safe-cleanup/", False))
+        self.assertFalse(allowed("POST", "/api/auto-script/tick", False,
+                                 auto_script_enabled=False))
+
+    def test_web_overlay_copies_only_reviewed_guard_file_and_preserves_render_worker(self):
+        script = (ROOT / "production/storage_dashboard_web_release.py").read_text()
+        self.assertIn('files["part01/precutover_policy.py"] = policy.encode("utf-8")', script)
+        self.assertIn('patch_candidate_policy(installed_policy.read_text', script)
+        self.assertIn('require(worker_pid() == renderer_pid', script)
+        self.assertIn('atomic_link(CURRENT, old)', script)
+
     def test_unknown_existing_web_shape_fails_closed(self):
         with self.assertRaisesRegex(RuntimeError, "history route"):
             overlay.patch_web("def application(): pass", reviewed_web())

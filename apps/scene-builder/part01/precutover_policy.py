@@ -65,6 +65,11 @@ def mutation_allowed(method: str, path: str, editing_enabled: bool, auto_script_
     # Preserve uploads/actions that already work under the legacy Nginx path.
     if method == "POST" and path.startswith("/song-uploader/"):
         return True
+    # The owner-approved Storage Manager action only queues a fixed,
+    # root-guarded systemd request. Handler requires admin + session CSRF.
+    # No general storage, app, media, worker or auto-script writes are allowed.
+    if method == "POST" and path == "/api/admin/storage/run-safe-cleanup":
+        return True
     if not editing_enabled:
         return False
     # Existing Media Audit handlers still enforce project ownership and revisions.

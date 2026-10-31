@@ -51,18 +51,30 @@ def patch_web(original: str, reviewed: str) -> str:
             and 'queue_guarded_storage_gc()' in block
             and 'os.O_EXCL' in block, "reviewed endpoint has drifted")
     require(original.count(next_route) == 1, "existing admin history route missing")
+    # Keep manual route dependencies local: deployed web overlays may not
+    # import fcntl/stat/time at module level.
+    scoped = block.replace(
+        '    """Queue a fixed systemd path request; never perform privileged deletion."""',
+        '    """Queue a fixed systemd path request; never perform privileged deletion."""\n'
+        '    import fcntl, stat, time')
+    require('    import fcntl, stat, time' in scoped
+            and 'if RUNTIME_CANDIDATE or' not in scoped
+            and 'if os.getenv("FRESH_WEBSITE_SMOKE_TEST") == "1":' in scoped,
+            "manual GC handler must retain smoke-test guard without candidate veto")
     if marker in original:
         require(original.count(marker) == 1
                 and original.count('@app.post("/api/admin/storage/run-safe-cleanup")') == 1,
                 "existing manual GC route has unexpected shape")
+        old_start = original.index(marker)
+        old_end = original.index(next_route, old_start)
+        existing_block = original[old_start:old_end]
+        require('require_admin(request)' in existing_block
+                and 'require_storage_csrf(request)' in existing_block
+                and 'queue_guarded_storage_gc()' in existing_block
+                and 'os.O_EXCL' in existing_block,
+                "existing manual GC handler safety contract differs")
+        original = original[:old_start] + scoped + original[old_end:]
     else:
-        # Local imports keep this overlay independent of the old file's import list.
-        scoped = block.replace(
-            '    """Queue a fixed systemd path request; never perform privileged deletion."""',
-            '    """Queue a fixed systemd path request; never perform privileged deletion."""\n'
-            '    import fcntl, stat, time')
-        require('    import fcntl, stat, time' in scoped,
-                "cannot scope manual request dependencies")
         original = original.replace(next_route, scoped + next_route, 1)
     persist = 'def persistent_workspace(request: Request):'
     require(original.count(persist) == 1, "persistent shell route missing")
@@ -77,6 +89,25 @@ def patch_web(original: str, reviewed: str) -> str:
     require(original.count('@app.post("/api/admin/storage/run-safe-cleanup")') == 1
             and original.count(after) == 1, "non-idempotent storage admin overlay")
     return original
+
+
+def patch_candidate_policy(original: str, reviewed: str) -> str:
+    """Allow only the reviewed admin GC POST on installed candidate web.
+
+    Patch the installed policy in place instead of replacing unrelated rules
+    with a newer source copy. All other write guards remain unchanged.
+    """
+    marker = '    if method == "POST" and path == "/api/admin/storage/run-safe-cleanup":\n        return True\n'
+    anchor = '    if not editing_enabled:\n        return False'
+    require(reviewed.count(marker) == 1 and reviewed.count(anchor) == 1,
+            "reviewed GC candidate exception not explicit or unique")
+    require(original.count(anchor) == 1
+            and original.count('def mutation_allowed(') == 1,
+            "installed candidate policy has unexpected safety boundary")
+    if marker in original:
+        require(original.count(marker) == 1, "duplicate admin GC write exception")
+        return original
+    return original.replace(anchor, marker + anchor, 1)
 
 
 def trusted_ui_files() -> dict[str, bytes]:
@@ -133,8 +164,16 @@ def install(revision: str) -> None:
             and reviewed.is_file() and not reviewed.is_symlink(),
             "Scene web source unavailable")
     patched = patch_web(web.read_text(encoding="utf-8"), reviewed.read_text(encoding="utf-8"))
+    installed_policy = old / "part01/precutover_policy.py"
+    reviewed_policy = SOURCE / "precutover_policy.py"
+    require(installed_policy.is_file() and not installed_policy.is_symlink()
+            and reviewed_policy.is_file() and not reviewed_policy.is_symlink(),
+            "candidate policy unavailable for scoped manual GC exception")
+    policy = patch_candidate_policy(installed_policy.read_text(encoding="utf-8"),
+                                    reviewed_policy.read_text(encoding="utf-8"))
     files = trusted_ui_files()
     files["part01/app.py"] = patched.encode("utf-8")
+    files["part01/precutover_policy.py"] = policy.encode("utf-8")
     manifest_path = old / "_scene_candidate_manifest.json"
     require(manifest_path.is_file() and not manifest_path.is_symlink(), "unowned release manifest")
     existing_manifest = json.loads(manifest_path.read_text())
