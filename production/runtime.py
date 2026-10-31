@@ -995,6 +995,13 @@ def main():
     check_host(args.revision)
     with deployment_lock():
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        # Read-only dry run can be merged independently before any owner change.
+        if '[vps1-haseeb1-song-short-readonly]' in intent:
+            if args.action != 'install' or args.apps != ['local-upload-manager']:
+                raise RuntimeError('haseeb1 audit requires exact LUM lane')
+            from production.studio_haseeb1_assignment import read_only_audit
+            event(**read_only_audit(DATA, DATA / 'scene-builder/web/web.sqlite3'))
+            return
         # One narrowly authorized Song/Short legacy first-owner migration.
         # The approved local-upload-manager helper lane and host lock apply;
         # no global LUM install and no Copyright, Drive or Auto Script writes.
