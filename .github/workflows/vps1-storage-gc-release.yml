@@ -61,7 +61,29 @@ jobs:
               "sudo -n /usr/local/sbin/vps1-production-deploy $1 $SOURCE_SHA vps-storage-manager"
           }
           echo 'PHASE=STORAGE_GC_INSTALL'
-          remote storage-gc-install
+          # A concurrent protected release may legitimately hold the control
+          # lock. Retry ONLY the identifiable lock refusal; never unlock,
+          # kill another deployer, or retry an unrelated installer error.
+          gc_install_ok=false
+          for attempt in $(seq 1 10); do
+            if output="$(remote storage-gc-install 2>&1)"; then
+              printf '%s\\n' "$output"
+              gc_install_ok=true
+              break
+            fi
+            if [[ "$output" != *'BlockingIOError'* || \\
+                  "$output" != *'Resource temporarily unavailable'* ]]; then
+              printf '%s\\n' "$output" >&2
+              echo 'STORAGE_GC_INSTALL=FAILED_UNEXPECTED_ERROR' >&2
+              exit 1
+            fi
+            echo "STORAGE_GC_INSTALL=DEPLOY_LOCK_BUSY_ATTEMPT_${attempt}_OF_10"
+            if (( attempt < 10 )); then sleep 30; fi
+          done
+          [[ "$gc_install_ok" == true ]] || {
+            echo 'STORAGE_GC_INSTALL=BLOCKED_CONCURRENT_DEPLOYMENTS' >&2
+            exit 1
+          }
           echo 'PHASE=STORAGE_GC_TIMER_VERIFY'
           remote storage-gc-status
           echo 'AUTO_SCRIPT=OFFLINE'
