@@ -279,7 +279,8 @@ class AudioDownloaderBrowserRouteContractTests(unittest.TestCase):
         source = MODULE.read_text(encoding="utf-8")
         self.assertIn("DB = DATA / 'jobs.sqlite3'", source)
         self.assertIn("@router.get('/jobs')", source)
-        self.assertIn("SELECT * FROM jobs ORDER BY created_at DESC", source)
+        self.assertIn("WHERE lower(owner_username)=? AND history_deleted=0 ORDER BY created_at DESC", source)
+        self.assertNotIn("SELECT * FROM jobs ORDER BY created_at DESC", source)
         self.assertIn("recover_interrupted_jobs()", source)
 
 
