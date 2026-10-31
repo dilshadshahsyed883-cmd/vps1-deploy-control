@@ -186,7 +186,7 @@ def atomic(path, data, mode=0o644):
         tmp.unlink(missing_ok=True)
 
 
-def tls_get(path, authorization="", cookie=""):
+def tls_get(path, authorization="", cookie="", accept=""):
     """Trust the signed live certificate and SNI while connecting over loopback."""
     with socket.create_connection(("127.0.0.1", 443), timeout=8) as raw:
         with ssl.create_default_context().wrap_socket(raw, server_hostname=DOMAIN) as tls:
@@ -197,6 +197,8 @@ def tls_get(path, authorization="", cookie=""):
                 headers["Authorization"] = authorization
             if cookie:
                 headers["Cookie"] = cookie
+            if accept:
+                headers["Accept"] = accept
             conn.request("GET", path, headers=headers)
             resp = conn.getresponse()
             return resp.status, resp.getheader("Content-Type", ""), resp.read(262144)
