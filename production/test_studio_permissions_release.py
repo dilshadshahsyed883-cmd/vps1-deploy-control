@@ -60,6 +60,18 @@ class StudioPermissionsReleaseTests(unittest.TestCase):
         self.assertIn("if '[vps1-studio-permissions-release]' in intent:", gateway_source)
         self.assertIn("THREE_STUDIO_PERMISSIONS_GATEWAY=NO_MUTATION", gateway_source)
 
+    def test_one_rollback_owner_and_queued_media_preserved(self):
+        src = (ROOT / "production/studio_permissions_release.py").read_text()
+        self.assertIn("site_after = copyright_apply(short_apply(site_before))", src)
+        self.assertIn("verify_short(https_get, scene_cookie)", src)
+        self.assertIn("verify_copyright(https_get, scene_cookie)", src)
+        self.assertIn("site_after_sha256", src)
+        self.assertIn('require(SITE.read_text() == site_after,', src)
+        self.assertIn("short_idle(allow_waiting_network=True)", src)
+        self.assertIn("copyright_web_idle(DATA", src)
+        self.assertNotIn("install_route as short_route", src)
+        self.assertNotIn("install_route as copyright_route", src)
+
     def test_no_worker_restart_or_media_mutation_in_release_source(self):
         contents = (ROOT / "production/studio_permissions_release.py").read_text()
         self.assertNotIn("workers.stop(", contents)
