@@ -266,6 +266,7 @@ def init_db() -> None:
             "subscription_end_at": "TEXT NOT NULL DEFAULT ''",
             "last_login_at": "TEXT NOT NULL DEFAULT ''",
             "app_access": "TEXT NOT NULL DEFAULT 'scene_builder'",
+            "studio_access": "TEXT NOT NULL DEFAULT 'song,short,copyright'",
         }
         for column, definition in user_additions.items():
             if column not in user_columns:
@@ -626,7 +627,7 @@ def user_account(username: str) -> dict[str, Any] | None:
         row = conn.execute(
             """SELECT username,is_active,is_admin,created_at,daily_render_limit,
                       subscription_plan_days,subscription_start_at,subscription_end_at,last_login_at,
-                      app_access
+                      app_access,studio_access
                FROM users WHERE username=? COLLATE NOCASE""",
             (username,),
         ).fetchone()
@@ -668,6 +669,44 @@ def app_access_allows(account: dict[str, Any] | None, app_name: str) -> bool:
     return bool(account and int(account.get("is_active") or 0) and
                 app_name in {"scene_builder", "auto_caption", "lum"})
 
+
+
+# Only these three public Studio groups are configurable per user.
+# The pre-existing app_access column is retained for legacy integrations.
+STUDIO_KEYS = ("song", "short", "copyright")
+STUDIO_SSO_APPS = {
+    "song-maker": "song", "short-maker": "short", "video-merger": "copyright",
+    "short-uploader": "short", "copyright-uploader": "copyright",
+}
+
+
+def allowed_studios(account: dict[str, Any] | None) -> tuple[str, ...]:
+    if not account or not int(account.get("is_active") or 0):
+        return ()
+    if bool(account.get("is_admin")):
+        return STUDIO_KEYS
+    stored = account.get("studio_access")
+    # Migration-safe: do not revoke existing user access.
+    if stored is None:
+        return STUDIO_KEYS
+    selected = {item.strip() for item in str(stored).split(",")}
+    return tuple(item for item in STUDIO_KEYS if item in selected)
+
+
+def studio_access_allows(account: dict[str, Any] | None, studio: str) -> bool:
+    return studio in allowed_studios(account)
+
+
+def studio_for_path(path: str) -> str:
+    normalized = path.rstrip("/") or "/"
+    for studio, prefixes in (
+        ("song", ("/song-studio", "/song-uploader", "/song-maker", "/audio-downloader")),
+        ("short", ("/short-maker", "/short-uploader", "/short-studio")),
+        ("copyright", ("/video-merger", "/copyright-uploader", "/copyright-studio")),
+    ):
+        if any(normalized == prefix or normalized.startswith(prefix + "/") for prefix in prefixes):
+            return studio
+    return ""
 
 def require_auto_caption_access(request: Request) -> dict[str, Any]:
     """Return the active account when it may use Auto Caption Studio."""
@@ -740,6 +779,14 @@ async def authentication(request: Request, call_next):
     # Refresh role from SQLite on every request, including post-demotion sessions.
     request.session["is_admin"] = bool(account.get("is_admin"))
     request.session["app_access"] = "all"
+    request.session["studio_access"] = allowed_studios(account)
+    studio = studio_for_path(request.url.path)
+    if studio and not studio_access_allows(account, studio):
+        return Response(status_code=403, content="Studio access not granted")
+    if (request.url.path == "/experiment-studio" or
+            request.url.path.startswith("/experiment-studio/") or
+            request.url.path.startswith("/api/experiment-browser/")) and not account.get("is_admin"):
+        return Response(status_code=403, content="Administrator access required")
     return await call_next(request)
 
 app.add_middleware(
@@ -766,6 +813,7 @@ def scene_session_identity(request: Request):
         "authenticated": True,
         "username": str(account["username"]),
         "is_admin": bool(account["is_admin"]),
+        "allowed_studios": list(allowed_studios(account)),
     }, headers={"Cache-Control": "private, no-store", "Vary": "Cookie"})
 
 
@@ -800,6 +848,7 @@ def login(request: Request, username: str = Form(...), secret_key: str = Form(..
     request.session["username"] = row["username"]
     request.session["is_admin"] = bool(row["is_admin"])
     request.session["app_access"] = "all"
+    request.session["studio_access"] = allowed_studios(user_account(str(row["username"])))
     return RedirectResponse(safe_login_target(next), status_code=303)
 
 
@@ -2091,6 +2140,8 @@ async def audio_downloader_canonical_page(request: Request):
 @app.api_route("/song-uploader/{upstream_path:path}", methods=["GET", "HEAD", "POST"])
 async def song_uploader_canonical(request: Request, upstream_path: str = ""):
     account = require_local_upload_manager_access(request)
+    if not studio_access_allows(account, "song"):
+        raise HTTPException(status_code=403, detail="Song Studio access required")
     try:
         legacy_path = song_uploader_upstream_path(request.url.path, request.url.query)
     except ValueError as exc:
@@ -2216,7 +2267,7 @@ app.add_event_handler("shutdown", EXPERIMENT_BROWSER.close_all)
 
 
 def experiment_owner(request: Request) -> str:
-    require_login(request)
+    require_admin(request)
     return str(request.session["username"])
 
 
@@ -4592,11 +4643,12 @@ def user_management_page(request: Request):
         counts[owner.casefold()] = counts.get(owner.casefold(), 0) + 1
     with db() as conn:
         rows = [dict(row) for row in conn.execute(
-            """SELECT username,is_active,is_admin,created_at,last_login_at
+            """SELECT username,is_active,is_admin,created_at,last_login_at,studio_access
                FROM users ORDER BY is_admin DESC, username COLLATE NOCASE"""
         ).fetchall()]
     for user in rows:
         user["job_count"] = counts.get(str(user["username"]).casefold(), 0)
+        user["allowed_studios"] = allowed_studios(user)
     token = request.session.get("user_management_csrf")
     if not token:
         token = secrets.token_urlsafe(32)
@@ -4615,6 +4667,8 @@ def user_management_action(
     request: Request, action: str = Form(...), username: str = Form(""),
     secret_key: str = Form(""), role: str = Form("non_admin"),
     csrf_token: str = Form(""),
+    studio_song: str = Form(""), studio_short: str = Form(""),
+    studio_copyright: str = Form(""),
 ):
     require_admin(request)
     expected = str(request.session.get("user_management_csrf") or "")
@@ -4624,6 +4678,13 @@ def user_management_action(
     actor = str(request.session.get("username") or "")
     if action in {"create", "set_role"} and role not in {"admin", "non_admin"}:
         raise HTTPException(400, "Role must be Admin or Non-admin")
+    for value in (studio_song, studio_short, studio_copyright):
+        if value not in ("", "on"):
+            raise HTTPException(400, "Invalid studio checkbox")
+    selected = ",".join(name for name, checked in (
+        ("song", studio_song), ("short", studio_short),
+        ("copyright", studio_copyright),
+    ) if checked == "on")
     try:
         with db() as conn:
             if action == "create":
@@ -4633,10 +4694,10 @@ def user_management_action(
                     raise HTTPException(400, "Secret key must be at least 8 characters")
                 conn.execute(
                     """INSERT INTO users(username,secret_hash,is_active,is_admin,created_at,
-                       daily_render_limit,subscription_start_at,subscription_end_at,app_access)
-                       VALUES(?,?,?,?,?,?,?,?,?)""",
+                       daily_render_limit,subscription_start_at,subscription_end_at,app_access,studio_access)
+                       VALUES(?,?,?,?,?,?,?,?,?,?)""",
                     (clean, hash_secret(secret_key), 1, int(role == "admin"), now_iso(),
-                     0, "", "", "all"),
+                     0, "", "", "all", selected if role == "non_admin" else "song,short,copyright"),
                 )
                 message = f"User {clean} created as {'Admin' if role == 'admin' else 'Non-admin'}"
             else:
@@ -4651,7 +4712,15 @@ def user_management_action(
                        WHERE is_admin=1 AND is_active=1 AND username<>? COLLATE NOCASE""",
                     (clean,),
                 ).fetchone()[0]
-                if action == "set_role":
+                if action == "set_studio_access":
+                    if target_admin:
+                        raise HTTPException(403, "Administrator Studio access cannot be restricted")
+                    conn.execute(
+                        "UPDATE users SET studio_access=? WHERE username=? COLLATE NOCASE",
+                        (selected, clean),
+                    )
+                    message = f"Studio access updated for {clean}"
+                elif action == "set_role":
                     if target_admin and role == "non_admin" and bool(row["is_active"]) and not others:
                         raise HTTPException(409, "Cannot demote the last active administrator")
                     conn.execute(
@@ -4741,6 +4810,7 @@ def auto_caption_auth(request: Request):
 SCENE_SSO_APP_IDS = frozenset({
     "short-maker", "short-stream", "self-media-library", "video-merger", "song-maker",
     "voice-studio", "auto-caption-studio", "local-upload-manager",
+    "short-uploader", "copyright-uploader",
 })
 
 
@@ -4758,10 +4828,13 @@ def workspace_session_auth(request: Request, app: str = ""):
     account = user_account(str(request.session.get("username") or ""))
     if not account or not int(account.get("is_active") or 0):
         return Response(status_code=401)
+    studio = STUDIO_SSO_APPS.get(app)
+    if studio and not studio_access_allows(account, studio):
+        return Response(status_code=403)
     admin = bool(account.get("is_admin"))
     access = "both" if admin else (
         "auto_caption" if app == "auto-caption-studio" else
-        "lum" if app == "local-upload-manager" else "scene_builder"
+        "lum" if app in {"local-upload-manager", "short-uploader", "copyright-uploader"} else "scene_builder"
     )
     return Response(status_code=204, headers={
         "X-Auth-User": str(account.get("username") or ""),
