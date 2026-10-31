@@ -214,7 +214,18 @@ class StudioTenants:
                     "SELECT id FROM channels WHERE channel_id=?",
                     (ucid,)).fetchone()
                 if by_id and (not by_row or int(by_row[0])!=int(by_id[0])):
-                    raise PermissionError("Sheet channel ID exists outside this owned Sheet row")
+                    # The user may attach their OWN previously registered manual
+                    # UC channel. Keep its same DB row and OAuth token file.
+                    existing=con.execute(
+                        "SELECT id,channel_id,sheet_source_id FROM channels WHERE id=?",
+                        (int(by_id[0]),)).fetchone()
+                    linked=con.execute("""SELECT owner_username FROM studio_entity_owners
+                        WHERE entity_kind='channel' AND entity_id=?""",
+                        (int(by_id[0]),)).fetchone()
+                    if (by_row or not existing or existing[2] is not None or
+                        not linked or str(linked[0]).casefold()!=owner):
+                        raise PermissionError("Sheet channel ID exists outside this owned Sheet row")
+                    by_row=(int(existing[0]),str(existing[1]))
                 if by_row:
                     cid=int(by_row[0])
                     assigned_channel=con.execute("""SELECT owner_username
@@ -226,9 +237,10 @@ class StudioTenants:
                     if previous.startswith("UC") and previous!=ucid:
                         raise PermissionError("Existing authorized UC Channel ID cannot change via Sheet")
                     con.execute("""UPDATE channels SET channel_id=?,channel_name=?,
-                        google_account_email=?,sheet_notes=?,sheet_present=1,
-                        sheet_last_seen_at=CURRENT_TIMESTAMP,last_used_at=CURRENT_TIMESTAMP
-                        WHERE id=?""",(ucid,name,email,notes,cid))
+                        google_account_email=?,sheet_notes=?,sheet_source_id=?,sheet_row_key=?,
+                        sheet_present=1,sheet_last_seen_at=CURRENT_TIMESTAMP,
+                        last_used_at=CURRENT_TIMESTAMP WHERE id=?""",
+                        (ucid,name,email,notes,source_id,key,cid))
                 else:
                     cur=con.execute("""INSERT INTO channels(
                         channel_id,channel_name,google_account_email,token_file_path,
