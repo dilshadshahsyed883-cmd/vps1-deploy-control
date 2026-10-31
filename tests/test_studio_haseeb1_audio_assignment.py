@@ -177,6 +177,22 @@ class AudioOwnershipTests(unittest.TestCase):
         self.assertEqual(report["inventory"]["preferences"], {"target": 1, "other": 1})
         self.assertEqual(before, self.preferences())
 
+    def test_foreign_handoff_active_account_proof_never_changes_owners(self):
+        self.job("a", "completed", handoff="alice", auto=1)
+        self.job("b", "completed", handoff="bob", auto=1)
+        self.job("c", "completed", handoff="missing", auto=1)
+        with sqlite3.connect(self.scene) as db:
+            db.execute("INSERT INTO users VALUES('alice',1,'song,short',0)")
+            db.execute("INSERT INTO users VALUES('bob',0,'song,short',0)")
+        with sqlite3.connect(self.source) as db:
+            db.execute("ALTER TABLE jobs DROP COLUMN owner_username")
+        before = self.preferences()
+        result = audio.read_only(self.data, self.scene)
+        self.assertEqual(result["inventory"]["foreign_handoff_account_status"],
+                         {"active_account": 1, "inactive_account": 1, "unknown_account": 1})
+        self.assertEqual(result["inventory"]["foreign_handoff_records"], 3)
+        self.assertEqual(before, self.preferences())
+
     def test_schema_drift_and_symlink_aborts_closed(self):
         with sqlite3.connect(self.source) as db:
             db.execute("DROP TABLE audio_preferences")
