@@ -242,7 +242,12 @@ def _confirmed_defunct_proc(pid: Path) -> bool:
             return False
         if (pid / "cwd").exists() or (pid / "exe").exists():
             return False
-        return snapshot() == first
+        second = snapshot()
+        # PID starttime/state drift is evidence of reuse or concurrent state
+        # transition. Never clear this with a later otherwise-clean retry.
+        if second is not None and second != first:
+            return "identity-changed"
+        return second == first
     except (OSError, ValueError, UnicodeError, RuntimeError):
         return False
 
@@ -286,8 +291,12 @@ def _runtime_reference_pass(paths: list[Path], proc_root: Path = Path("/proc")) 
                 # Missing entries can reflect either a reaped PID or a zombie
                 # that still has a /proc directory. Only a verified defunct
                 # task with no runtime resources may be skipped.
-                if pid.exists() and not _confirmed_defunct_proc(pid):
-                    return "unverifiable-process-race"
+                if pid.exists():
+                    defunct = _confirmed_defunct_proc(pid)
+                    if defunct == "identity-changed":
+                        return "unverifiable-process-identity-change"
+                    if defunct is not True:
+                        return "unverifiable-process-race"
                 continue
             except PermissionError:
                 return "unverifiable-permission-" + stage
