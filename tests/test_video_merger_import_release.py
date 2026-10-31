@@ -155,11 +155,11 @@ function renderProxy(){old}
             # Reviewed handover nodes may differ, but downloader paths may not.
             candidate.write_text(canonical.replace(
                 'def owner_queue_paused(owner):',
-                'def owner_queue_paused(owner):\\n    pass',1))
+                'def owner_queue_paused(owner):\n    pass',1))
             self.assertTrue(release.owner_handover_only_change(previous,candidate))
             candidate.write_text(canonical.replace(
                 'def validate_url(u):',
-                'def validate_url(u):\\n    pass',1))
+                'def validate_url(u):\n    pass',1))
             self.assertFalse(release.owner_handover_only_change(previous,candidate))
             candidate.unlink()
             with self.assertRaisesRegex(RuntimeError,'candidate Video Merger source'):
