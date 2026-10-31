@@ -49,6 +49,8 @@ async function fetch(url, options={}) {
     serverOptions = JSON.parse(options.body);
     response = {saved:true,preferences:serverOptions};
   }
+  else if (path.startsWith(apiRoot + '/jobs/') && /\/(cancel|retry)$/.test(path) && options.method === 'POST') response = {ok:true};
+  else if (path.startsWith(apiRoot + '/jobs/') && options.method === 'DELETE') response = {hidden:true};
   else if (path === apiRoot + '/proxy') response = {profiles:[],enabled:false,origin:'independent'};
   else if (path === apiRoot + '/proxy/profiles') response = {profiles:[],enabled:false};
   else throw new Error('Browser generated unexpected URL: ' + url);
