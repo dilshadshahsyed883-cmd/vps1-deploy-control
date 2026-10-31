@@ -23,6 +23,8 @@ def exercise(mode):
             LUM_DATA_DIR=temporary, LUM_SESSION_SECRET="offline-http-test-secret",
             LUM_SUITE_AUTH="1", LUM_BASE_PATH="/test", LUM_ENGINE_INSTANCE=mode,
             YOUTUBE_UPLOAD_MANAGER_DATA_DIR=temporary + "/core",
+            LUM_AUTO_ENGINE_V6_ROOT=temporary + "/auto-engine-v6",
+            SHORT_STUDIO_VPS_FOLDER_ROOT=temporary + "/short-maker-vps",
         )
         package = "copyright-uploader" if mode == "copyright" else "local-upload-manager"
         sys.path.insert(0, str(ROOT / "apps" / package / "part01"))
