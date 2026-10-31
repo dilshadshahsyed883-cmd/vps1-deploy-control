@@ -52,7 +52,7 @@ class FinalReleaseTests(unittest.TestCase):
         self.assertNotIn('/actions/studio-tenant/grant',template)
         self.assertIn('/actions/studio-tenant/channel-create',template)
         self.assertIn('[vps1-shortstudio-intro-only]',runtime)
-        self.assertIn('install_shortstudio_ui(revision, ui_only=True)',runtime)
+        self.assertIn('install_shortstudio_ui(args.revision, ui_only=True)',runtime)
         self.assertIn('("templates/app.html",) if ui_only else FILES',release)
         self.assertIn('elif ui_only:verify_live(ui_only=True)',release)
 
