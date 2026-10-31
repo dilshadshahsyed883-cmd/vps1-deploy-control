@@ -29,6 +29,8 @@ jobs:
           python -m unittest discover -s tests -p 'test_copyright_video_picker_cleanup.py' -v
           python -m unittest discover -s tests -p 'test_copyright_sidebar_consistency.py' -v
           node --check apps/copyright-uploader/part01/static/copyright_video_picker.js
+      - name: Copyright safe cancellation, atomic worker claim and cleanup UI
+        run: python -m unittest discover -s tests -p 'test_copyright_queue_claim_cancel.py' -v
       - name: Copyright compact UI and isolated release regressions
         run: python -m unittest discover -s tests -p 'test_copyright_uploader_ui.py' -v
       - name: Rendered responsive workspace and interaction checks (no uploads)
