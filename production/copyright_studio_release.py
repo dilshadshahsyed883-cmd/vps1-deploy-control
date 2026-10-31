@@ -19,10 +19,24 @@ from production.route_uploader_scene_https import (
 )
 
 MARKER = "# VPS1_COPYRIGHT_STUDIO_UPLOADER_ROUTE_V1"
+AUTH_LOCATION = """ location = /_vps1_sso_copyright_uploader {
+    internal;
+    proxy_pass http://127.0.0.1:18080/internal/workspace-auth?app=copyright-uploader;
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length "";
+    proxy_set_header Cookie $http_cookie;
+    proxy_set_header Authorization "";
+    proxy_set_header X-Auth-User "";
+    proxy_set_header X-App-Access "";
+    proxy_set_header X-Is-Admin "";
+    proxy_set_header Host $host;
+}
+"""
 ROUTE = """ # VPS1_COPYRIGHT_STUDIO_UPLOADER_ROUTE_V1
+""" + AUTH_LOCATION + """
  location = /copyright-uploader { return 308 /copyright-uploader/; }
  location ^~ /copyright-uploader/ {
-    auth_request /_scene_uploader_auth;
+    auth_request /_vps1_sso_copyright_uploader;
     auth_request_set $scene_lum_user $upstream_http_x_auth_user;
     auth_request_set $scene_lum_access $upstream_http_x_app_access;
     auth_request_set $scene_lum_admin $upstream_http_x_is_admin;
@@ -45,6 +59,14 @@ ROUTE = """ # VPS1_COPYRIGHT_STUDIO_UPLOADER_ROUTE_V1
  }
 """
 
+# Roll forward existing audited HTTPS config without replacing unrelated routes.
+LEGACY_ROUTE = ROUTE.replace(AUTH_LOCATION, "", 1).replace(
+    "\n\n location = /copyright-uploader", "\n location = /copyright-uploader", 1,
+).replace(
+    "auth_request /_vps1_sso_copyright_uploader;",
+    "auth_request /_scene_uploader_auth;", 1,
+)
+
 
 def guard(condition, message):
     if not condition:
@@ -58,9 +80,11 @@ def apply_route(site):
           "auth_request /_scene_uploader_auth;" in site,
           "trusted Scene uploader auth endpoint missing")
     if MARKER in site:
-        guard(site.count(MARKER) == 1 and site.count(ROUTE) == 1,
-              "Copyright Uploader route differs from reviewed source")
-        return site
+        guard(site.count(MARKER) == 1, "duplicate Copyright Uploader route")
+        if site.count(ROUTE) == 1:
+            return site
+        guard(site.count(LEGACY_ROUTE) == 1, "Copyright Uploader route differs from reviewed source")
+        return site.replace(LEGACY_ROUTE, ROUTE, 1)
     guard("location = /copyright-uploader" not in site and
           "location ^~ /copyright-uploader/" not in site,
           "short uploader URL already claimed")
