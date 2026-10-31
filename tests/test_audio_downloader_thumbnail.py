@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,7 +35,7 @@ class AudioThumbnailTests(unittest.TestCase):
         self.m.init_storage()
         app = FastAPI()
         app.include_router(self.m.router)
-        self.client = TestClient(app)
+        self.client = TestClient(app,headers={'X-Auth-User':'tester'})
 
     def tearDown(self):
         self.client.close()
@@ -67,7 +68,7 @@ class AudioThumbnailTests(unittest.TestCase):
         with patch.object(self.m, "deps", return_value={"ready": True, "upload_ready": True}):
             response = self.m.enqueue(self.m.BatchRequest(
                 links=["https://youtu.be/" + VIDEO], auto_upload=False,
-                permission_confirmed=True))
+                permission_confirmed=True),request=SimpleNamespace(headers={'x-auth-user':'tester'}))
         self.assertEqual(response["created"], 1)
         jobs = self.client.get("/tts/api/audio-downloader/jobs").json()["jobs"]
         self.assertFalse(jobs[0]["download_thumbnail"])
@@ -81,7 +82,7 @@ class AudioThumbnailTests(unittest.TestCase):
         with patch.object(self.m, "deps", return_value={"ready": True, "upload_ready": True}):
             response = self.m.enqueue(self.m.BatchRequest(
                 links=["https://youtu.be/" + VIDEO], auto_upload=False,
-                download_thumbnail=True, permission_confirmed=True))
+                download_thumbnail=True, permission_confirmed=True),request=SimpleNamespace(headers={'x-auth-user':'tester'}))
         self.assertEqual(response["created"], 1)
         jid = response["job_ids"][0]
         self.assertTrue(self.client.get("/tts/api/audio-downloader/jobs/" + jid).json()["download_thumbnail"])
@@ -134,10 +135,10 @@ class AudioThumbnailTests(unittest.TestCase):
         with self.m.db() as con:
             con.execute("""INSERT INTO jobs
                 (job_id,batch_id,video_id,url,project,folder,format,quality,
-                 auto_upload,keep_metadata,download_thumbnail,status,created_at,updated_at)
-                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 auto_upload,keep_metadata,download_thumbnail,status,created_at,updated_at,owner_username)
+                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (job["job_id"], "ADB-TEST", VIDEO, job["url"], job["project"], job["folder"],
-                 "mp3", 192, 1, 0, 1, "downloading", self.m.utc(), self.m.utc()))
+                 "mp3", 192, 1, 0, 1, "downloading", self.m.utc(), self.m.utc(),"tester"))
         state = {"ytdlp": "/fake/yt-dlp", "ffmpeg": "/fake/ffmpeg",
                  "rclone": "/fake/rclone", "upload_ready": True}
         with patch.object(self.m, "deps", return_value=state), \
@@ -186,10 +187,10 @@ class AudioThumbnailTests(unittest.TestCase):
         with self.m.db() as db:
             db.execute("""INSERT INTO jobs
                 (job_id,batch_id,video_id,url,project,folder,format,quality,
-                 auto_upload,keep_metadata,download_thumbnail,status,created_at,updated_at)
-                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 auto_upload,keep_metadata,download_thumbnail,status,created_at,updated_at,owner_username)
+                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (jid, "ADB-TEST", VIDEO, "https://youtu.be/" + VIDEO, "Audio Batch",
-                 "YouTube Audio", "mp3", 192, 0, 0, 1, "completed", "now", "now"))
+                 "YouTube Audio", "mp3", 192, 0, 0, 1, "completed", "now", "now","tester"))
         outside = Path(self.tmp.name) / (VIDEO + ".jpg")
         outside.write_bytes(JPG)
         with self.m.db() as db:
