@@ -1,9 +1,9 @@
 {
   "contract": 2,
-  "entry": "/static/shell-v2/host.gc-manual-20261031.js",
+  "entry": "/static/shell-v2/host.1b61eec812f32f2dbaf0.js",
   "assets": [
-    "/static/shell-v2/host.gc-manual-20261031.js",
-    "/static/shell-v2/storage_manager.gc-manual-20261031.js",
+    "/static/shell-v2/host.1b61eec812f32f2dbaf0.js",
+    "/static/shell-v2/storage_manager.50c7d057bf3f91a2bbd5.js",
     "/static/shell-v2/dashboard_control_center.4296b813993296e4a81d.js",
     "/static/shell-v2/storage_manager.2787c1e71b2d09bf0e46.css",
     "/static/shell-v2/dashboard_control_center.522b61f874c0a1b3e96a.css"
