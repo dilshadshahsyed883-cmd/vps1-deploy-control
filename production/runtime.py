@@ -1569,6 +1569,12 @@ def main():
             return
         # Scoped, transactional Short Uploader template change. Never enter
         # the shared LUM installer or restart Song/Engine 1/Engine 2 workers.
+        if '[vps1-shortstudio-assignment-form-only]' in intent:
+            if args.action != 'install' or args.apps != ['local-upload-manager']:
+                raise RuntimeError('Short owner-form removal requires isolated uploader lane')
+            from production.short_uploader_group_release import install as install_short_owner_form
+            install_short_owner_form(args.revision, assignment_only=True)
+            return
         if '[vps1-shortstudio-intro-only]' in intent:
             if args.action != 'install' or args.apps != ['local-upload-manager']:
                 raise RuntimeError('Short Uploader UI-only release is single-instance scoped')
