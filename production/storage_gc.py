@@ -247,7 +247,7 @@ def _confirmed_defunct_proc(pid: Path) -> bool:
         return False
 
 
-def _runtime_reference_probe(paths: list[Path], proc_root: Path = Path("/proc")) -> str:
+def _runtime_reference_pass(paths: list[Path], proc_root: Path = Path("/proc")) -> str:
     """Redacted tri-state /proc probe; unverifiable must never permit deletion.
 
     The result contains no PID, revision, directory, or environment contents.
@@ -302,6 +302,24 @@ def _runtime_reference_probe(paths: list[Path], proc_root: Path = Path("/proc"))
         return f"unverifiable-process-error-{stage}-errno-{number}"
     except RuntimeError:
         return "unverifiable-process-error-" + stage + "-runtime"
+
+
+
+def _runtime_reference_probe(paths: list[Path], proc_root: Path = Path("/proc")) -> str:
+    """Retry only a transient /proc race; require a complete clean pass.
+
+    Short-lived processes can disappear during /proc enumeration, particularly
+    while unrelated upload workers are spawning. An unresolved race, a positive
+    runtime reference, or any permission/I/O uncertainty remains fail-closed.
+    Never treat a retry, delay or an incomplete scan as clearance.
+    """
+    for attempt in range(3):
+        status = _runtime_reference_pass(paths, proc_root=proc_root)
+        if status != "unverifiable-process-race":
+            return status
+        if attempt < 2:
+            time.sleep(0.05)
+    return "unverifiable-process-race"
 
 
 def _runtime_in_use(paths: list[Path], proc_root: Path = Path("/proc")) -> bool:
