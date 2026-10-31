@@ -92,7 +92,7 @@ class SongUploaderMinimalUITests(unittest.TestCase):
                                        user={"is_admin": True},
                                        csrf="offline", stats=stats, reports=[sample_report])
                 self.assertIn("Serial engine", html)
-                if instance == "song":
+                if instance in ("song", "shortstudio"):
                     self.assertNotIn("Save modes", html)
                 else:
                     self.assertIn("Save modes", html)

@@ -62,7 +62,7 @@ def idle(*, allow_waiting_network=False):
             lum_parked_network_idle(con)
 
 
-def verify_live(*, ui_only=False, assignment_only=False):
+def verify_live(*, ui_only=False, assignment_only=False, fixed_modes_only=False):
     from production.route_uploader_scene_https import https_get, scene_cookie
     for _ in range(40):
         try:
@@ -74,6 +74,30 @@ def verify_live(*, ui_only=False, assignment_only=False):
     status,_,body=https_get('/short-uploader/app?tab=auto_engine&new_profile=1',cookie)
     require(status==200,'authenticated Short Uploader GET failed')
     html=body.decode('utf-8')
+    if fixed_modes_only:
+        def checked_tab(tab):
+            status, _, body = https_get('/short-uploader/app?tab=' + tab, cookie)
+            require(status == 200, 'Short Uploader ' + tab + ' route failed')
+            return body.decode('utf-8')
+        dashboard = checked_tab('dashboard')
+        channels = checked_tab('channels')
+        sheets = checked_tab('sheets')
+        require('Your YouTube channels &amp; groups' not in channels and
+                '/actions/studio-tenant/channel-create' not in channels and
+                '/actions/studio-tenant/group-create' not in channels,
+                'manual channel/group form still rendered')
+        require('Future modes' not in dashboard and 'Uploader modes' not in dashboard and
+                'Save modes' not in dashboard and
+                '/actions/settings' not in dashboard,
+                'obsolete Short Uploader mode controls still rendered')
+        require('Sync Enabled' in sheets and 'Sync Mode OFF' not in sheets,
+                'Sheets Sync is not enabled')
+        require('Auto Engine' in html and
+                https_get('/short-uploader/app')[0] in (302, 303, 401, 403),
+                'Short Uploader engine tab or anonymous auth regressed')
+        print('SHORT_FIXED_MODES_LIVE=PASS CHANNEL_FORM=ABSENT MODES=ON '
+              'SCHEDULE_AND_UPLOAD_ACTIONS=UNTOUCHED', flush=True)
+        return
     if assignment_only:
         require('Assign Studio resources to a user' not in html and
                 'User workspace ownership' not in html and
@@ -169,8 +193,8 @@ def verify_final_ui(html, form, cookie, https_get):
     print('SHORT_FINAL_UI=PASS DEFAULTS=PASS SHEETS=PASS BULK_HIDDEN=PASS CSS=PASS SONG_HEALTH=PASS',flush=True)
 
 
-def install(revision, *, ui_only=False, network_only=False, assignment_only=False):
-    require(sum(bool(x) for x in (ui_only, network_only, assignment_only)) <= 1,
+def install(revision, *, ui_only=False, network_only=False, assignment_only=False, fixed_modes_only=False):
+    require(sum(bool(x) for x in (ui_only, network_only, assignment_only, fixed_modes_only)) <= 1,
             'release modes are exclusive')
     require(re.fullmatch('[a-f0-9]{40}',revision),'invalid revision')
     require(shutil.disk_usage('/').free>=5_000_000_000,'disk reserve')
@@ -189,13 +213,15 @@ def install(revision, *, ui_only=False, network_only=False, assignment_only=Fals
         active=subprocess.run(['systemctl','is-active','--quiet',name],capture_output=True,timeout=10).returncode==0
         previous[name]={'text':text,'active':active}
     require(len(old_dirs)==1,'Short Uploader units use different releases')
-    suffix=('-short-owner-form' if assignment_only else '-short-network-fairness' if network_only else '-short-ui-intro' if ui_only else '-short-group-metadata')
+    suffix=('-short-fixed-modes' if fixed_modes_only else '-short-owner-form' if assignment_only else '-short-network-fairness' if network_only else '-short-ui-intro' if ui_only else '-short-group-metadata')
     target=BASE/'releases/local-upload-manager'/(revision+suffix)
-    journal=BASE/'transactions'/('short-uploader-owner-form' if assignment_only else 'short-uploader-network-fairness' if network_only else 'short-uploader-ui-intro' if ui_only else 'short-uploader-group-metadata')/revision
+    journal=BASE/'transactions'/('short-uploader-fixed-modes' if fixed_modes_only else 'short-uploader-owner-form' if assignment_only else 'short-uploader-network-fairness' if network_only else 'short-uploader-ui-intro' if ui_only else 'short-uploader-group-metadata')/revision
     require(not target.exists() and not target.is_symlink() and not journal.exists(),'immutable release already exists')
     shutil.copytree(next(iter(old_dirs)).parent,target,symlinks=True)
     hashes={}
-    for relative in (NETWORK_ONLY_FILES if network_only else ("templates/app.html",) if (ui_only or assignment_only) else FILES):
+    for relative in (NETWORK_ONLY_FILES if network_only else
+                     ('templates/app.html', 'lum_engine/standalone_app.py') if fixed_modes_only else
+                     ("templates/app.html",) if (ui_only or assignment_only) else FILES):
         src=REPO/'apps/local-upload-manager/part01'/relative
         dst=target/'part01'/relative
         require(src.is_file() and not src.is_symlink() and not dst.is_symlink() and
@@ -226,11 +252,12 @@ def install(revision, *, ui_only=False, network_only=False, assignment_only=Fals
             verify_live()
             print('SHORT_NETWORK_RELEASE=PASS HEALTH=PASS UI=PASS OTHER_UPLOADERS=UNTOUCHED',flush=True)
         elif assignment_only:verify_live(assignment_only=True)
+        elif fixed_modes_only:verify_live(fixed_modes_only=True)
         elif ui_only:verify_live(ui_only=True)
         else:verify_live()
         atomic_json(journal/'state.json',dict(status='ACTIVE',revision=revision,source=str(target),files=hashes,
                                            sqlite_backups=len(backups),scheduler='PRESERVED',auto_script='UNTOUCHED'))
-        print(('SHORT_ASSIGNMENT_UI_RELEASE' if assignment_only else 'SHORT_GROUP_RELEASE')
+        print(('SHORT_FIXED_MODES_RELEASE' if fixed_modes_only else 'SHORT_ASSIGNMENT_UI_RELEASE' if assignment_only else 'SHORT_GROUP_RELEASE')
               +'=PASS OTHER_ENGINES=UNTOUCHED ROLLBACK=READY',flush=True)
     except BaseException:
         if changed:

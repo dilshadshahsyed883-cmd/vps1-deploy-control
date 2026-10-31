@@ -19,7 +19,7 @@ class SongUploaderSettingsContract(TestCase):
         end = source.index("{% if engine_instance not in ['song', 'shortstudio'] %}{{ reports_panel() }}{% endif %}", start)
         fragment = Environment(autoescape=True).from_string(source[start:end])
         cases = (("song", True, False, False), ("song", False, False, False),
-                 ("engine1", True, True, True), ("shortstudio", True, True, False))
+                 ("engine1", True, True, True), ("shortstudio", True, False, False))
         for instance, admin, modes, bulk in cases:
             data = {
                 "engine_instance": instance, "user": {"is_admin": admin},
@@ -33,7 +33,7 @@ class SongUploaderSettingsContract(TestCase):
             self.assertEqual('name="sheets_sync_enabled"' in rendered, modes)
             self.assertEqual('name="auto_engine_enabled"' in rendered, modes)
             self.assertEqual("/actions/settings" in rendered, modes)
-            if instance == "song":
+            if instance in ("song", "shortstudio"):
                 self.assertNotIn("Uploader modes", rendered)
                 self.assertNotIn("Save modes", rendered)
 
@@ -64,7 +64,7 @@ class SongUploaderSettingsContract(TestCase):
             }
             with patch.dict(os.environ, {"LUM_ENGINE_INSTANCE": instance}):
                 exec(code, env)
-                if instance == "song":
+                if instance in ("song", "shortstudio"):
                     with self.assertRaises(Rejected) as error:
                         env["save_settings"](object(), "valid", "0", "0", "0", "1")
                     self.assertEqual(error.exception.status_code, 404)
