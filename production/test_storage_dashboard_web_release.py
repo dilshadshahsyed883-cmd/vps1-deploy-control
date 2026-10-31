@@ -115,7 +115,7 @@ class StorageWebOnlyRelease(unittest.TestCase):
             receipt = submit(now=1000.0)
             self.assertEqual(receipt["status"], "queued")
             self.assertEqual(receipt["requested_at"], 1000)
-            self.assertEqual((spool / "request").read_text(), "1000\\n")
+            self.assertEqual((spool / "request").read_text(), "1000\n")
             self.assertEqual(stat.S_IMODE((spool / "request").stat().st_mode), 0o600)
             duplicate = submit(now=1010.0)
             self.assertEqual(duplicate["status"], "queued")
