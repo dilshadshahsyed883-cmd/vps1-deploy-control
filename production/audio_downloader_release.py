@@ -83,7 +83,7 @@ def verify():
         require(response.status == 204 and response.headers.get('X-Is-Admin') == '1',
                 'Scene admin SSO unavailable for Audio verification')
         username = str(response.headers.get('X-Auth-User') or '').strip()
-    require(bool(username) and len(username) <= 160 and not any(c in username for c in '\\r\\n'),
+    require(bool(username) and len(username) <= 160 and not any(c in username for c in '\r\n'),
             'Scene admin identity invalid for Audio verification')
     verified_headers = {'X-Auth-User': username, 'X-Is-Admin': '1'}
     for endpoint in ('status', 'proxy', 'jobs?limit=1'):
