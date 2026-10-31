@@ -605,3 +605,8 @@ body.vps1-native-site>.vps1-native-experiment-tabs~:is(
 /* Three-Studio per-user navigation: hidden must override existing flex rules. */
 #app-sidebar.sidebar nav a[hidden],
 #vps1-native-site-sidebar nav a[hidden] { display: none !important; }
+
+/* Keep admin-only Experiment navigation out of sight until server role verification. */
+.vps1-experiment-tabs[hidden],
+.vps1-native-experiment-tabs[hidden],
+nav[aria-label="Experiment Studio"][hidden] { display: none !important; }
