@@ -235,8 +235,13 @@ class TenantTests(unittest.TestCase):
                            'allowed_channels=acl.allowed_ids("channel",viewer)',
                            'int(row.get("auto_engine_profile_id") or row.get("profile_id") or 0)'):
                 self.assertIn(marker,engine)
-            self.assertIn("{% if user.is_admin and engine_instance in ",template)
-            self.assertIn("/actions/studio-tenant/grant",template)
+            # Retired for admins and members across Song, Short and Copyright uploaders.
+            # Owner-scoped onboarding and backend isolation remain untouched.
+            self.assertNotIn("Assign Studio resources to a user",template)
+            self.assertNotIn('aria-label="User workspace ownership"',template)
+            self.assertNotIn("/actions/studio-tenant/grant",template)
+            self.assertNotIn("Exact Scene Builder username",template)
+            self.assertIn("Your YouTube channels &amp; groups",template)
             self.assertIn("/actions/studio-tenant/channel-create",template)
             self.assertIn("/actions/studio-tenant/group-create",template)
             self.assertIn("STUDIO_TENANT_SAFE_ONBOARDING_V1",standalone)
