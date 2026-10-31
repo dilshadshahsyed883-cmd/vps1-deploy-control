@@ -143,6 +143,36 @@ class Haseeb1Assignment(unittest.TestCase):
                          '{"owner": "", "status": "completed"}')
 
 
+
+    def test_related_owner_safety_distinguishes_active_user_and_media_path(self):
+        import hashlib
+        from production.studio_haseeb1_assignment import related_owner_safety
+        with sqlite3.connect(self.scene) as db:
+            db.execute("INSERT INTO users VALUES('alice',1,'song,short',0)")
+        song = self.root / "song-maker/state"
+        song.mkdir(parents=True)
+        with sqlite3.connect(song / "jobs.sqlite3") as db:
+            db.execute("CREATE TABLE jobs(id TEXT,owner TEXT,stage TEXT)")
+            db.execute("INSERT INTO jobs VALUES('j1','alice','Rendering')")
+            db.execute("INSERT INTO jobs VALUES('j2','legacy','Completed')")
+            db.execute("CREATE TABLE song_folders(id TEXT,owner TEXT)")
+            db.execute("INSERT INTO song_folders VALUES('f123','alice')")
+        folder = self.root / "song-maker/folders" / hashlib.sha256(b"alice").hexdigest() / "f123"
+        folder.mkdir(parents=True)
+        short = self.root / "short-maker/jobs/job1"
+        short.mkdir(parents=True)
+        (short / "state.json").write_text('{"owner":"","status":"completed"}')
+        result = related_owner_safety(self.root, self.scene)
+        self.assertEqual(result["song_maker"]["owner_classes"]["other_active"], 2)
+        self.assertEqual(result["song_maker"]["owner_classes"]["other_unrecognized"], 1)
+        self.assertEqual(result["song_maker"]["nonterminal_jobs"], 1)
+        self.assertEqual(result["song_maker"]["folder_media_paths"]["present"], 1)
+        self.assertTrue(result["song_maker"]["named_owner_conflict"])
+        self.assertEqual(result["short_maker"]["terminal_jobs"], 1)
+        self.assertEqual(result["short_maker"]["nonterminal_jobs"], 0)
+        self.assertNotIn("alice", str(result))
+        self.assertNotIn("legacy", str(result))
+
     def test_guarded_release_prints_offline_receipt(self):
         from pathlib import Path
         source = Path("production/studio_haseeb1_assignment.py").read_text()
