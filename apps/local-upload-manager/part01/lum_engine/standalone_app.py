@@ -1431,22 +1431,48 @@ def _song_owned_automation_profiles(request: Request) -> list[dict[str, Any]]:
 
 
 def _short_owned_automation_profiles(request: Request) -> list[dict[str, Any]]:
-    """Select only verified member-owned Short profiles with fully owned targets."""
+    """Require the signed-in owner's profile AND all live Short targets.
+
+    Admin can oversee records elsewhere, but bulk actions may touch only
+    profiles belonging to their own signed-in account, like other members.
+    """
     if os.getenv("LUM_ENGINE_INSTANCE") != "shortstudio":
-        raise PermissionError("Short tenant bulk operations are Short Uploader only")
+        raise PermissionError("Owner-scoped bulk operations are Short Uploader only")
     user=current_user(request)
-    if int(user.get("is_admin") or 0):
-        raise PermissionError("Administrator uses the existing global action")
+    owner=str(user.get("username") or "").strip().casefold()
+    if not owner:
+        raise PermissionError("Authenticated Short account required")
     allowed=studio_tenants.allowed_ids("profile",user)
     owned=[]
     for raw in db.list_auto_engine_profiles():
         pid=int(raw.get("id") or 0)
-        if pid not in allowed:
+        if pid<=0 or (allowed is not None and pid not in allowed):
+            continue
+        if str(studio_tenants.owner("profile",pid) or "").casefold()!=owner:
+            continue
+        folder_owner=str(v6_store.group_settings(pid).get("song_folder_owner") or "")
+        if folder_owner and folder_owner.casefold()!=owner:
             continue
         try:
-            owned.append(_v6_profile(pid,request))
+            profile=_v6_profile(pid,request)
+            group_id=int(profile.get("channel_group_id") or 0)
+            if group_id:
+                if str(studio_tenants.owner("group",group_id) or "").casefold()!=owner:
+                    continue
+                with db.connect() as con:
+                    members=[int(row[0]) for row in con.execute(
+                        "SELECT channel_db_id FROM channel_group_members WHERE group_id=?",
+                        (group_id,)).fetchall()]
+                if not members or any(
+                    str(studio_tenants.owner("channel",cid) or "").casefold()!=owner
+                    for cid in members
+                ):
+                    continue
+            direct_id=int(profile.get("channel_db_id") or 0)
+            if direct_id and str(studio_tenants.owner("channel",direct_id) or "").casefold()!=owner:
+                continue
+            owned.append(profile)
         except (ValueError,PermissionError):
-            # Legacy/unassigned and mixed-membership groups are never bulk targets.
             continue
     return owned
 
@@ -1557,9 +1583,9 @@ def auto_v6_sync_scan(request: Request,csrf_token: str=Form(...),profile_id: int
 def auto_v6_sync_all(request: Request,csrf_token: str=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
     mode=os.getenv("LUM_ENGINE_INSTANCE")
-    member=mode in {"song","shortstudio"} and not int(user.get("is_admin") or 0)
-    profiles=(_song_owned_automation_profiles(request) if mode=="song" else
-              _short_owned_automation_profiles(request)) if member else db.list_auto_engine_profiles()
+    member=mode=="shortstudio" or (mode=="song" and not int(user.get("is_admin") or 0))
+    profiles=(_short_owned_automation_profiles(request) if mode=="shortstudio" else
+              _song_owned_automation_profiles(request)) if member else db.list_auto_engine_profiles()
     created=0; synced=0; errors=[]
     for profile in profiles:
         folder_owner=v6_store.group_settings(int(profile.get("id") or 0)).get("song_folder_owner")
@@ -1643,9 +1669,10 @@ async def auto_v6_job_edit(request: Request):
 def auto_v6_queue_preflight(request: Request,csrf_token: str=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
     try:
-        if os.getenv("LUM_ENGINE_INSTANCE") in {"song","shortstudio"} and not int(user.get("is_admin") or 0):
-            profiles=(_song_owned_automation_profiles(request) if os.getenv("LUM_ENGINE_INSTANCE")=="song"
-                      else _short_owned_automation_profiles(request))
+        if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio" or (
+                os.getenv("LUM_ENGINE_INSTANCE")=="song" and not int(user.get("is_admin") or 0)):
+            profiles=(_short_owned_automation_profiles(request) if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio"
+                      else _song_owned_automation_profiles(request))
             ids={int(profile["id"]) for profile in profiles}
             class OwnedQueue:
                 def __getattr__(self,name):
@@ -1762,9 +1789,9 @@ def auto_v6_preview_all(request: Request):
     if os.environ.get("LUM_ENGINE_INSTANCE") not in {"song","shortstudio"}:
         return V6JSONResponse({"ok":False,"error":"Group preview unavailable for this engine."},status_code=400)
     mode=os.getenv("LUM_ENGINE_INSTANCE")
-    member=mode in {"song","shortstudio"} and not int(user.get("is_admin") or 0)
-    profiles=(_song_owned_automation_profiles(request) if mode=="song" else
-              _short_owned_automation_profiles(request)) if member else db.list_auto_engine_profiles()
+    member=mode=="shortstudio" or (mode=="song" and not int(user.get("is_admin") or 0))
+    profiles=(_short_owned_automation_profiles(request) if mode=="shortstudio" else
+              _song_owned_automation_profiles(request)) if member else db.list_auto_engine_profiles()
     summaries=[]; total=0
     for raw in profiles:
         pid=int(raw.get("id") or 0)
@@ -1850,9 +1877,9 @@ def auto_v6_start_all(request: Request,csrf_token: str=Form(...),confirmation: s
     if str(confirmation).strip()!="START ALL":
         return redirect("/app?tab=auto_engine",error='Type START ALL exactly.')
     mode=os.getenv("LUM_ENGINE_INSTANCE")
-    member=mode in {"song","shortstudio"} and not int(user.get("is_admin") or 0)
-    profiles=(_song_owned_automation_profiles(request) if mode=="song" else
-              _short_owned_automation_profiles(request)) if member else db.list_auto_engine_profiles()
+    member=mode=="shortstudio" or (mode=="song" and not int(user.get("is_admin") or 0))
+    profiles=(_short_owned_automation_profiles(request) if mode=="shortstudio" else
+              _song_owned_automation_profiles(request)) if member else db.list_auto_engine_profiles()
     enabled=[p for p in profiles if int(p.get("enabled") or 0)==1]
     if member:
         if not enabled:
@@ -2002,9 +2029,9 @@ async def auto_v6_profile_schedules_save(request: Request):
     current_raw=str(form.get("current_profile_id") or "0")
     current_profile_id=int(current_raw) if current_raw.isdigit() else 0
     mode=os.getenv("LUM_ENGINE_INSTANCE")
-    member=mode in {"song","shortstudio"} and not int(user.get("is_admin") or 0)
-    profiles=(_song_owned_automation_profiles(request) if mode=="song" else
-              _short_owned_automation_profiles(request)) if member else db.list_auto_engine_profiles()
+    member=mode=="shortstudio" or (mode=="song" and not int(user.get("is_admin") or 0))
+    profiles=(_short_owned_automation_profiles(request) if mode=="shortstudio" else
+              _song_owned_automation_profiles(request)) if member else db.list_auto_engine_profiles()
     for profile in profiles:
         folder_owner=v6_store.group_settings(int(profile.get("id") or 0)).get("song_folder_owner")
         if not member and folder_owner and folder_owner!=str(user.get("username") or ""): continue
