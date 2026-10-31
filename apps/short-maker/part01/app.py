@@ -3,6 +3,7 @@ import html
 import hashlib
 import os
 import random
+import signal
 import sqlite3
 import re
 import shutil
@@ -63,10 +64,8 @@ def short_state_owner(state: dict) -> str:
 
 def short_can_access(state: dict, request: Request) -> bool:
     owner, admin = short_identity(request)
-    # Existing pre-ownership jobs are never assigned speculatively.
-    # Admin can recover them; standard accounts only see explicit ownership.
-    return admin or (bool(short_state_owner(state)) and
-                     short_state_owner(state).casefold() == owner.casefold())
+    # Even administrators act on their own records; unassigned legacy stays sealed.
+    return bool(short_state_owner(state)) and short_state_owner(state).casefold() == owner.casefold()
 
 
 def short_owned_state(job_id: str, request: Request) -> dict:
@@ -135,11 +134,11 @@ def short_folder_owner(name: str) -> str:
 
 
 def short_folder_owned(name: str, request: Request) -> Path:
-    owner, admin=short_identity(request)
+    owner, _admin=short_identity(request)
     folder=short_vps_folder(name)
     if not folder.is_dir():
         raise HTTPException(status_code=404, detail="Output folder not found")
-    if not admin and short_folder_owner(name)!=owner.casefold():
+    if short_folder_owner(name)!=owner.casefold():
         raise HTTPException(status_code=403, detail="Output folder belongs to another account")
     return folder
 
@@ -284,8 +283,57 @@ def get_state(job_id: str):
     raise HTTPException(status_code=404, detail="Job not found")
 
 
+class JobInterrupted(Exception):
+    """Cooperative per-render stop; not a system-wide engine interruption."""
+
+
+_worker_context = threading.local()
+
+
+def job_checkpoint(job_id: str):
+    state = get_state(job_id)
+    if state.get("control") in ("pause", "cancel") or state.get("status") in ("paused", "cancelled", "pausing", "cancelling"):
+        raise JobInterrupted()
+
+
+def worker_process(cmd, *, timeout=None, env=None):
+    """Terminate only this render's FFmpeg/rclone process group on stop."""
+    job_id = getattr(_worker_context, "job_id", None)
+    if not job_id:
+        return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              text=True, timeout=timeout, env=env)
+    job_checkpoint(job_id)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, env=env, start_new_session=True)
+    started = time.monotonic()
+    while True:
+        try:
+            out, err = proc.communicate(timeout=0.3)
+            return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
+        except subprocess.TimeoutExpired:
+            interrupted = get_state(job_id).get("control") in ("pause", "cancel")
+            expired = timeout is not None and time.monotonic() - started > timeout
+            if not interrupted and not expired:
+                continue
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                proc.communicate(timeout=4)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                proc.communicate()
+            if interrupted:
+                raise JobInterrupted()
+            raise subprocess.TimeoutExpired(cmd, timeout)
+
+
 def run_ffmpeg(cmd):
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc = worker_process(cmd)
     if proc.returncode != 0:
         raise RuntimeError((proc.stderr or "FFmpeg failed")[-6000:])
 
@@ -457,7 +505,7 @@ def rclone_run(args, timeout=900, attempts=3):
     last_detail=""
     for attempt in range(1,max(1,int(attempts))+1):
         try:
-            proc=subprocess.run(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,timeout=timeout,env=env)
+            proc=worker_process(cmd,timeout=timeout,env=env)
             if proc.returncode == 0:
                 return proc.stdout
             last_detail=(proc.stderr or proc.stdout or "").strip()
@@ -596,7 +644,10 @@ def render_job(job_id: str, cfg: dict):
     out_dir.mkdir(parents=True, exist_ok=True)
     audio_paths = [Path(p) for p in cfg.get("audio",[])]
 
+    _worker_context.job_id = job_id
     try:
+        job_checkpoint(job_id)
+        set_state(job_id, phase="render")
         input_mode=str(cfg.get("input_mode") or "upload")
         if input_mode=="drive":
             image_paths=[Path(p) for p in import_drive_images(job_id,cfg.get("drive_input_paths") or cfg.get("drive_input_path",""),job_dir)]
@@ -619,6 +670,7 @@ def render_job(job_id: str, cfg: dict):
             created = []
 
             for out_idx in range(1, count + 1):
+                job_checkpoint(job_id)
                 per_out = temp_root / f"out_{out_idx:03d}"
                 per_out.mkdir(parents=True, exist_ok=True)
                 timeline = build_timeline(image_paths, total_duration, image_duration, cfg["order"])
@@ -626,6 +678,7 @@ def render_job(job_id: str, cfg: dict):
                 total_slots = len(timeline)
 
                 for slot_idx, (img_path, slot_duration) in enumerate(timeline, 1):
+                    job_checkpoint(job_id)
                     set_state(
                         job_id,
                         message=f"Video {out_idx}/{count} · image {slot_idx}/{total_slots}",
@@ -687,6 +740,9 @@ def render_job(job_id: str, cfg: dict):
                     "drive_verified": False,
                 })
 
+        # Never interrupt an in-progress remote publish or Short Uploader handoff.
+        job_checkpoint(job_id)
+        set_state(job_id, phase="delivery")
         folder_name=cfg.get("short_vps_folder") or ""
         if cfg.get("available_to_short_uploader", not cfg.get("upload_to_drive", True)):
             if not folder_name:
@@ -714,8 +770,19 @@ def render_job(job_id: str, cfg: dict):
             job_id, status="completed", progress=100,
             message=final_message, outputs=created
         )
+    except JobInterrupted:
+        control = get_state(job_id).get("control")
+        new_status = "paused" if control == "pause" else "cancelled"
+        if out_dir.is_dir() and not out_dir.is_symlink():
+            shutil.rmtree(out_dir)
+        set_state(job_id, status=new_status, control="", phase="idle",
+                  message="Paused; Resume restarts render" if new_status == "paused"
+                          else "Cancelled; original inputs retained")
     except Exception as exc:
-        set_state(job_id, status="failed", message=str(exc), error=str(exc))
+        set_state(job_id, status="failed", control="", phase="idle",
+                  message=str(exc), error=str(exc))
+    finally:
+        _worker_context.job_id = None
 
 
 
@@ -723,7 +790,19 @@ def render_job(job_id: str, cfg: dict):
 def recover_pending_jobs():
     pending=[]
     for state in load_job_states():
+        if state.get("status") in ("cancelling", "pausing"):
+            with jobs_lock:
+                jobs[state["job_id"]] = state
+            set_state(state["job_id"], status="cancelled" if state.get("control") == "cancel" else "paused",
+                      control="", phase="idle", message="Recovered stopped job after restart")
+            continue
         if state.get("status") not in ("queued","running"):
+            continue
+        if state.get("phase") == "delivery":
+            with jobs_lock:
+                jobs[state["job_id"]] = state
+            set_state(state["job_id"], status="failed", phase="idle",
+                      message="Delivery interrupted by restart; review published outputs before retry")
             continue
         job_id=str(state.get("job_id") or "")
         job_dir=JOBS_ROOT / job_id
@@ -1368,23 +1447,26 @@ def home(request: Request):
 
 @app.get("/api/vps-folders")
 def list_short_vps_folders(request: Request):
-    owner, admin=short_identity(request)
-    if not admin:
-        short_personal_default(owner)
+    owner, _admin=short_identity(request)
+    short_personal_default(owner)
     return {"folders": [name for name in short_vps_folder_names()
-                        if admin or short_folder_owner(name)==owner.casefold()]}
+                        if short_folder_owner(name)==owner.casefold()]}
 
 
 @app.post("/api/vps-folders")
 async def create_short_vps_folder(request: Request):
+    owner, _admin=short_identity(request)
     payload = await request.json()
     try:
         name = str(payload.get("name") or "").strip()
         folder = short_vps_folder(name)
         SHORT_VPS_ROOT.mkdir(parents=True, exist_ok=True)
-        folder.mkdir(exist_ok=False)
-        owner, _admin=short_identity(request)
-        (folder/".studio_owner").write_text(owner.casefold(),encoding="utf-8")
+        folder.mkdir(mode=0o700, exist_ok=False)
+        try:
+            (folder/".studio_owner").write_text(owner.casefold(),encoding="utf-8")
+        except Exception:
+            folder.rmdir()
+            raise
     except FileExistsError:
         raise HTTPException(status_code=409, detail="Folder already exists.")
     except (ValueError, OSError) as exc:
@@ -1394,18 +1476,26 @@ async def create_short_vps_folder(request: Request):
 
 @app.delete("/api/vps-folders/{folder_name}")
 def delete_short_vps_folder(folder_name: str, request: Request):
-    _owner, admin = short_identity(request)
-    # Until global legacy folders are assigned an owner, restrict their
-    # destructive management to admin and preserve every user's media.
-    if not admin:
-        raise HTTPException(status_code=403, detail="Shared folder deletion is admin-only.")
+    owner, _admin = short_identity(request)
     try:
-        if folder_name == SHORT_VPS_DEFAULT:
-            raise ValueError("Default folder is protected.")
-        folder = short_vps_folder(folder_name)
-        if not folder.is_dir():
-            raise HTTPException(status_code=404, detail="Folder not found.")
-        folder.rmdir()  # Fails safely if any video, hidden file or worker temp exists.
+        if folder_name == SHORT_VPS_DEFAULT or folder_name == short_personal_default(owner):
+            raise HTTPException(status_code=403, detail="Default folder is protected.")
+        folder = short_folder_owned(folder_name, request)
+        for state in load_job_states():
+            if (state.get("status") in ("uploading","queued","running","pausing","cancelling")
+                and (state.get("config") or {}).get("short_vps_folder") == folder_name):
+                raise HTTPException(status_code=409, detail="Folder has pending jobs.")
+        marker = folder / ".studio_owner"
+        if marker.is_symlink() or not marker.is_file():
+            raise HTTPException(status_code=403, detail="Folder ownership marker is missing.")
+        if any(entry.name != ".studio_owner" for entry in folder.iterdir()):
+            raise HTTPException(status_code=409, detail="Folder contains media or other files.")
+        marker.unlink()
+        try:
+            folder.rmdir()
+        except OSError:
+            marker.write_text(owner.casefold(), encoding="utf-8")
+            raise
     except OSError:
         raise HTTPException(status_code=409, detail="Folder is not empty or is in use.")
     except ValueError as exc:
@@ -1436,8 +1526,8 @@ async def create_job(
     verified_clean: bool = Form(True),
     short_vps_folder_name: str = Form("", alias="short_vps_folder"),
 ):
-    owner, admin = short_identity(request)
-    if not admin and (not short_vps_folder_name or short_vps_folder_name=="Default"):
+    owner, _admin = short_identity(request)
+    if not short_vps_folder_name or short_vps_folder_name=="Default":
         short_vps_folder_name=short_personal_default(owner)
     input_mode=input_mode if input_mode in ("upload","drive") else "upload"
     # Backward-compatible API inference; explicit checkbox states must be exclusive.
@@ -1552,7 +1642,8 @@ async def create_job(
 def list_jobs(request: Request):
     items=[state for state in load_job_states()
            if short_can_access(state, request)]
-    counts={"uploading":0,"queued":0,"running":0,"completed":0,"failed":0}
+    counts={"uploading":0,"queued":0,"running":0,"completed":0,"failed":0,
+            "paused":0,"pausing":0,"cancelling":0,"cancelled":0}
     for item in items:
         st=str(item.get("status") or "unknown")
         if st in counts:
@@ -1569,8 +1660,8 @@ def list_jobs(request: Request):
 @app.delete("/api/jobs/{job_id}")
 def delete_terminal_job(job_id: str, request: Request):
     state=short_owned_state(job_id, request)
-    if state.get("status") not in ("completed","failed"):
-        raise HTTPException(status_code=409,detail="Only completed or failed jobs can be deleted.")
+    if state.get("status") not in ("completed","failed","cancelled"):
+        raise HTTPException(status_code=409,detail="Only finished, failed or cancelled jobs can be deleted.")
     shutil.rmtree(JOBS_ROOT / job_id,ignore_errors=True)
     with jobs_lock:
         jobs.pop(job_id,None)
@@ -1579,8 +1670,8 @@ def delete_terminal_job(job_id: str, request: Request):
 @app.post("/api/jobs/clear/{status_name}")
 def clear_terminal_jobs(status_name: str, request: Request):
     short_identity(request)
-    if status_name not in ("completed","failed"):
-        raise HTTPException(status_code=400,detail="Only completed or failed jobs can be cleared.")
+    if status_name not in ("completed","failed","cancelled"):
+        raise HTTPException(status_code=400,detail="Only terminal jobs can be cleared.")
     removed=0
     for state in load_job_states():
         if not short_can_access(state, request) or state.get("status")!=status_name:
@@ -1748,8 +1839,8 @@ async def begin_resumable_upload(request: Request):
         raise HTTPException(status_code=400, detail="Missing upload manifest.")
     if not isinstance(payload.get("config"), dict):
         raise HTTPException(status_code=400, detail="Missing render settings.")
-    owner, admin=short_identity(request)
-    if not admin and str(payload["config"].get("short_vps_folder") or SHORT_VPS_DEFAULT)=="Default":
+    owner, _admin=short_identity(request)
+    if str(payload["config"].get("short_vps_folder") or SHORT_VPS_DEFAULT)=="Default":
         payload["config"]["short_vps_folder"]=short_personal_default(owner)
     cfg = upload_config(payload["config"])
     short_folder_owned(str(cfg["short_vps_folder"]),request)
