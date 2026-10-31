@@ -15,6 +15,7 @@ from production.runtime import BASE, DATA, REPO, atomic_json, backup_databases
 
 FILES=("lum_engine/auto_engine_v6.py", "lum_engine/standalone_app.py",
        "lum_engine/studio_tenants.py", "lum_engine/project_store.py",
+       "lum_engine/channels_web.py",
        "lum_engine/auto_engine_v6_worker.py", "desktop_core/modules/db/queue_repository.py",
        "templates/app.html", "templates/base.html", "static/auto_engine_v6.js",
        "static/local_upload_manager.css", "static/song_uploader_kokoro_ui.css")
