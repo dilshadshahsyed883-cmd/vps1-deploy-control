@@ -142,8 +142,8 @@ class StorageGCTests(unittest.TestCase):
     def test_scene_web_spool_identity_parser_requires_nonroot_running_user(self):
         from production.storage_gc_spool import parse_identity
         from types import SimpleNamespace
-        props = "User=sceneweb\\nMainPID=28471\\nActiveState=active\\n"
-        status = "Name:\\tuvicorn\\nUid:\\t1007\\t1007\\t1007\\t1007\\n"
+        props = "User=sceneweb\nMainPID=28471\nActiveState=active\n"
+        status = "Name:\tuvicorn\nUid:\t1007\t1007\t1007\t1007\n"
         lookup = lambda _: SimpleNamespace(pw_uid=1007, pw_gid=1007)
         # Mock group lookup since production group is verified separately.
         from unittest.mock import patch
@@ -152,10 +152,10 @@ class StorageGCTests(unittest.TestCase):
             self.assertEqual(parse_identity(props, status, get_user=lookup)[:3],
                              ("sceneweb", "sceneweb", 1007))
             for unsafe in (
-                "User=root\\nMainPID=28471\\nActiveState=active\\n",
-                "User=sceneweb\\nMainPID=0\\nActiveState=active\\n",
-                "User=sceneweb\\nMainPID=28471\\nActiveState=inactive\\n",
-                "User=sceneweb\\nMainPID=28471\\nActiveState=active\\nUser=sceneweb\\n",
+                "User=root\nMainPID=28471\nActiveState=active\n",
+                "User=sceneweb\nMainPID=0\nActiveState=active\n",
+                "User=sceneweb\nMainPID=28471\nActiveState=inactive\n",
+                "User=sceneweb\nMainPID=28471\nActiveState=active\nUser=sceneweb\n",
             ):
                 with self.assertRaises(RuntimeError):
                     parse_identity(unsafe, status, get_user=lookup)
@@ -191,7 +191,7 @@ class StorageGCTests(unittest.TestCase):
         self.assertIn("storage-gc.py --publish-status", status)
         self.assertNotIn("--apply", status)
         self.assertIn("OnUnitActiveSec=30min", timer)
-        self.assertIn("systemd-tmpfiles --create", installer)
+        self.assertIn("systemd-tmpfiles", (root / "production/storage_gc_spool.py").read_text())
         self.assertIn("vps1-storage-deployment-gc-manual.path", installer)
 
 
