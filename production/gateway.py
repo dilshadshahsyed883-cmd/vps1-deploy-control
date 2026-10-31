@@ -305,8 +305,9 @@ def main():
     intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
     # The Three-Studio transaction owns and verifies the existing SSO Nginx site.
     if '[vps1-studio-permissions-release]' in intent:
-        if 'scene-builder' not in args.apps:
-            raise RuntimeError('Three-Studio permissions require Scene gateway ownership')
+        # remote_deploy passes only legacy production-* units here. The live
+        # Scene candidate has a separate unit and may be absent from args.apps.
+        # Runtime has already enforced its exact Scene-only deployment lane.
         print('THREE_STUDIO_PERMISSIONS_GATEWAY=NO_MUTATION', flush=True)
         return
     # The one-off exact Scene job reset does not deploy or republish the gateway.
