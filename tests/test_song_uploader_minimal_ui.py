@@ -72,6 +72,39 @@ class SongUploaderMinimalUITests(unittest.TestCase):
         self.assertIn("profile_id:picker.value", self.app)
         self.assertIn("job_id:item.id", self.app)
 
+    def test_song_dashboard_hides_vps_reports_without_deleting_other_mode_reports(self):
+        """Only Song Dashboard omits the shared VPS Reports macro output."""
+        start = self.app.index("{% macro reports_panel() %}")
+        end = self.app.index("{% macro queue_table", start)
+        begin = self.app.index("{% elif tab == 'dashboard' %}")
+        finish = self.app.index("{% elif tab == 'channels' %}", begin)
+        source = self.app[start:end] + self.app[begin:finish].replace(
+            "{% elif tab == 'dashboard' %}", "", 1)
+        template = Environment(autoescape=True).from_string(source)
+        stats = {"counts": {"TOTAL": 1}, "channels": 3, "engine_enabled": True,
+                 "settings": {"sheets_sync_enabled": "0", "auto_engine_enabled": "1",
+                              "bulk_import_enabled": "0"}}
+        sample_report = {"name": "LUM_HEALTH_SAMPLE.txt", "size": 512,
+                         "modified_at": "31 Oct 2026"}
+        for instance in ("song", "shortstudio", "engine1", "engine2"):
+            with self.subTest(instance=instance):
+                html = template.render(engine_instance=instance, base_path="/test",
+                                       csrf="offline", stats=stats, reports=[sample_report])
+                self.assertIn("Serial engine", html)
+                self.assertIn("Save modes", html)
+                if instance == "song":
+                    for absent in ("VPS Reports", "Generate Health Report",
+                                   "LUM_HEALTH_SAMPLE.txt", "/actions/report-health",
+                                   'class="report-list"'):
+                        self.assertNotIn(absent, html)
+                else:
+                    for present in ("VPS Reports", "Generate Health Report",
+                                    "LUM_HEALTH_SAMPLE.txt", "/actions/report-health"):
+                        self.assertIn(present, html)
+        self.assertIn("{% macro reports_panel() %}", self.app)
+        self.assertIn("{% if engine_instance != 'song' %}{{ reports_panel() }}{% endif %}",
+                      self.app)
+
     def test_engine_actions_and_panels_unchanged(self):
         for panel in ("automation", "profiles", "queue", "records"):
             self.assertIn(f'data-ae-panel-target="{panel}"', self.app)
