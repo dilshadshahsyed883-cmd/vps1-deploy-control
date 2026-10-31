@@ -33,6 +33,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_copyright_queue_claim_cancel.py' -v
       - name: Copyright compact UI and isolated release regressions
         run: python -m unittest discover -s tests -p 'test_copyright_uploader_ui.py' -v
+      - name: Copyright non-admin manual handover and tenant regression
+        run: python -m unittest discover -s tests -p 'test_copyright_member_handover.py' -v
       - name: Copyright fixed-mode and no-manual-channel regression
         run: python -m unittest discover -s tests -p 'test_copyright_mode_cleanup.py' -v
       - name: Rendered responsive workspace and interaction checks (no uploads)
