@@ -75,6 +75,55 @@ class SongMakerTests(unittest.TestCase):
         self.assertEqual(self.store.record('settings','alice')['image_folder'],
                          default_settings()['image_folder'])
 
+    def test_nonadmin_can_manage_only_own_drive_folders_and_sync_preserves_settings(self):
+        from songmaker.drive import default_settings
+        alice={**self.headers, 'X-Is-Admin':'0'}
+        bob={**alice, 'X-Auth-User':'bob'}
+        with patch('songmaker.app.Drive.call', return_value='') as mkdir:
+            created=self.client.post('/song-maker/api/drive/folders',
+                headers=alice, json={'name':'My Audio'} )
+        self.assertEqual(created.status_code,200,created.text)
+        folder=created.json()['path']
+        self.assertTrue(folder.startswith('Song Studio/users/'))
+        self.assertTrue(folder.endswith('/My Audio'))
+        self.assertEqual(mkdir.call_count,1)
+        self.assertIn(folder,self.client.get('/song-maker/api/drive/folders',
+                            headers=alice).json()['folders'])
+        self.assertNotIn(folder,self.client.get('/song-maker/api/drive/folders',
+                            headers=bob).json()['folders'])
+        prefs={**default_settings(), 'image_folder':folder, 'audio_folder':folder,
+               'auto_sync':True, 'sync_interval':420, 'remote':'some-other-profile'}
+        saved=self.client.post('/song-maker/api/settings',headers=alice,json=prefs)
+        self.assertEqual(saved.status_code,200,saved.text)
+        before=self.store.record('settings','alice')
+        self.assertEqual(before['image_folder'],folder)
+        self.assertEqual(before['remote'],default_settings()['remote'])
+        self.assertTrue(before['auto_sync'])
+        self.assertEqual(self.client.post('/song-maker/api/sync',headers=alice).status_code,200)
+        after=self.store.record('settings','alice')
+        self.assertEqual(after,{**before,'sync_requested':True})
+        self.assertEqual(self.client.post('/song-maker/api/queue/pause',
+                          headers=alice).status_code,200)
+        self.assertTrue(self.client.get('/song-maker/api/state',
+                        headers=alice).json()['queue_paused'])
+        self.assertEqual(self.store.record('settings','__default__'),{})
+
+    def test_nonadmin_cannot_select_other_owner_folder_or_change_shared_remote(self):
+        from songmaker.drive import default_settings
+        alice={**self.headers,'X-Is-Admin':'0'}
+        bob={**alice,'X-Auth-User':'bob'}
+        with patch('songmaker.app.Drive.call', return_value=''):
+            f=self.client.post('/song-maker/api/drive/folders',
+                               headers=alice,json={'name':'Album One'}).json()['path']
+        attempt={**default_settings(),'image_folder':f,'audio_folder':f}
+        self.assertEqual(self.client.post('/song-maker/api/settings',
+                         headers=bob,json=attempt).status_code,422)
+        self.assertEqual(self.client.post('/song-maker/api/drive/folders',
+                         headers=bob,json={'name':'../other'}).status_code,422)
+        self.assertEqual(self.client.get('/song-maker/api/profiles',
+                         headers=bob).status_code,403)
+        self.assertEqual(self.store.record('settings','bob'),{})
+
     def test_drive_lookup_filters_names_and_retains_hash_metadata(self):
         with patch('songmaker.drive.run', return_value='[]') as execute:
             Drive({'remote': 'gdrive'}).lookup('imageFolder', 'song [1]*.jpg')
