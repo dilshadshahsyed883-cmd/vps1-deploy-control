@@ -123,6 +123,10 @@ class Haseeb1Assignment(unittest.TestCase):
         short = self.root / "short-maker/jobs/j1"
         short.mkdir(parents=True)
         (short / "state.json").write_text('{"owner": "", "status": "completed"}')
+        (short.parent / "retry.lock").write_text("staging")
+        (short.parent / "scratch").mkdir()
+        (short.parent.parent / "vps_short_folders").mkdir(parents=True,exist_ok=True)
+        (short.parent.parent / "vps_short_folders" / ".index").write_text("metadata")
         folder = self.root / "short-maker/vps_short_folders/Default"
         folder.mkdir(parents=True)
         report = inspect_related_stores(self.root)
@@ -130,6 +134,8 @@ class Haseeb1Assignment(unittest.TestCase):
         self.assertEqual(report["audio_downloader"]["non_target"],0)
         self.assertEqual(report["short_maker"]["jobs_non_target"],1)
         self.assertEqual(report["short_maker"]["folders_non_target"],1)
+        self.assertEqual(report["short_maker"]["unclassified_regular_job_files"],1)
+        self.assertEqual(report["short_maker"]["unclassified_regular_folder_files"],1)
         self.assertEqual((short / "state.json").read_text(),
                          '{"owner": "", "status": "completed"}')
 
