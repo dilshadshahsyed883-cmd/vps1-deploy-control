@@ -29,7 +29,7 @@ class StorageDashboardRelease(unittest.TestCase):
         scene = (ROOT / "production/scene_candidate_release.py").read_text()
         template = (SCENE / "templates/storage_manager.html").read_text()
         js = (SCENE / "static/storage_manager.js").read_text()
-        self.assertIn("dashboard_control_center.js?v=20261019-hide-algrow-v3", dashboard)
+        self.assertIn("dashboard_control_center.js?v=20261031-compact-v1", dashboard)
         self.assertIn("dashboard_no_algrow", scene)
         self.assertIn("method:\u0027GET\u0027", js)
         # One admin-confirmed POST is allowed to request the guarded systemd GC.

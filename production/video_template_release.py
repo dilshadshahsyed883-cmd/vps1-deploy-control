@@ -8,7 +8,7 @@ import shutil
 import urllib.request
 from pathlib import Path
 
-from production.runtime import BASE, CATALOG, REPO, atomic_json, atomic_link, event, http_check, run
+from production.runtime import BASE, CATALOG, DATA, REPO, atomic_json, atomic_link, event, http_check, run
 
 PAGES = {
     'short-maker': 'part01/app.py',
@@ -47,8 +47,18 @@ def idle(app):
     """Do not interrupt in-process renders, downloads, imports or waiting jobs."""
     if app=='auto-caption-studio':
         return  # ACS execution belongs to independent, untouched worker units.
+    if app=='video-merger':
+        # The UI state endpoint also performs a recursive Drive folder listing
+        # (rclone timeout up to 120s). It is not a safe deployment idle probe.
+        # Resolve the actual running service's data root, then inspect the
+        # existing SQLite job and library statuses strictly read-only.
+        # A missing/locked DB, waiting merge, or importing media fails closed.
+        from production.video_merger_import_release import idle_database, live_paths
+        state, _ = live_paths(DATA / 'video-merger/video-merger')
+        idle_database(state)
+        return
     port=CATALOG[app]['port']
-    path='/api/jobs' if app=='short-maker' else '/video-merger/api/state'
+    path='/api/jobs'
     data=read_json(f'http://127.0.0.1:{port}'+path)
     require(isinstance(data,dict) and isinstance(data.get('jobs'),list),'idle gate jobs missing')
     records=list(data['jobs'])
