@@ -173,6 +173,29 @@ def read_only(data_root: Path, scene_db: Path) -> dict:
                 "media_references": "UNCHANGED",
             }
             schema_status = "APPLY_BLOCKED_SCHEMA_DRIFT"
+    # Classify foreign handoff account activity without exposing identities.
+    # A non-target handoff is always protected, even if its named account is
+    # inactive or absent from the current Scene user table.
+    foreign_status = {"active_account": 0, "inactive_account": 0, "unknown_account": 0}
+    if "song_maker_owner" in job_columns:
+        with sqlite3.connect(scene_db.as_uri() + "?mode=ro", uri=True, timeout=5) as identity:
+            registered = {
+                str(name or "").strip().casefold(): bool(int(active or 0))
+                for name, active in identity.execute("SELECT username,is_active FROM users")
+            }
+        with open_db(path, readonly=True) as con:
+            linked = con.execute("""
+                SELECT song_maker_owner FROM jobs
+                WHERE trim(coalesce(song_maker_owner,''))<>''
+                  AND lower(trim(song_maker_owner))<>?
+            """, (TARGET,)).fetchall()
+            for row in linked:
+                owner = str(row[0]).strip().casefold()
+                category = ("unknown_account" if owner not in registered
+                            else "active_account" if registered[owner]
+                            else "inactive_account")
+                foreign_status[category] += 1
+    summary["foreign_handoff_account_status"] = foreign_status
     return {
         "mode": "READ_ONLY", "target_verified": True, "inventory": summary,
         "schema_status": schema_status,
