@@ -710,12 +710,10 @@
         <div><h2>Saved Sheet Sources</h2></div>
         <div class="lum-short-sheet-header-actions">
           <span class="lum-badge">{{ sheet_sources|length }} source{{ '' if sheet_sources|length == 1 else 's' }}</span>
-          {% if user.is_admin %}
-<form method="post" action="{{ base_path }}/actions/sheets/sync-all" data-lum-soft-form>
+          <form method="post" action="{{ base_path }}/actions/sheets/sync-all" data-lum-soft-form>
             <input type="hidden" name="csrf_token" value="{{ csrf }}">
             <button class="lum-button secondary" type="submit" {% if stats.settings.sheets_sync_enabled!='1' or not sheet_sources %}disabled{% endif %}>Update All Enabled Sheets</button>
           </form>
-{% endif %}
         </div>
       </div>
       {% if sheet_sources %}

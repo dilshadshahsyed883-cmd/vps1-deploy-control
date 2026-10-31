@@ -64,7 +64,7 @@ class UserIsolationContracts(unittest.TestCase):
         self.assertEqual(denied.exception.status_code, 404)
         with self.assertRaises(HttpFailure):
             ns["short_owned_state"]("legacy", bob)
-        # Admin operates on their own Short Maker jobs, not other users or unassigned legacy records.
+        # Admin operates only their own Short Maker records; legacy/foreign stay sealed.
         self.assertTrue(ns["short_can_access"](records["root"], admin))
         self.assertFalse(ns["short_can_access"](records["a"], admin))
         self.assertFalse(ns["short_can_access"](records["b"], admin))
@@ -78,12 +78,12 @@ class UserIsolationContracts(unittest.TestCase):
         connection.row_factory = sqlite3.Row
         connection.executescript("""
             CREATE TABLE jobs(id TEXT, owner_username TEXT, videos_json TEXT,
-                              order_idx INTEGER, created_at TEXT);
+                              order_idx INTEGER, created_at TEXT, status TEXT);
             CREATE TABLE library_items(id TEXT, owner_username TEXT, name TEXT,
                                        created_at TEXT, trim_json TEXT);
         """)
         for name, owner in (("a", "Alice"), ("b", "Bob"), ("legacy", "")):
-            connection.execute("INSERT INTO jobs VALUES(?,?,?,1,'2026-10-31')",
+            connection.execute("INSERT INTO jobs VALUES(?,?,?,1,'2026-10-31','waiting')",
                                (name, owner, "[]"))
             connection.execute("INSERT INTO library_items VALUES(?,?,?,'2026-10-31','{}')",
                                (name, owner, name))
@@ -116,7 +116,14 @@ class UserIsolationContracts(unittest.TestCase):
                       "Shared global controls are administrator-only"):
             self.assertIn(guard, merger)
         self.assertEqual(merger.count("self.require_library_owner("), 4)
-        self.assertIn("admin=self.is_admin()", merger)
+        # All Video Merger queue mutations must remain owner-only, including admin.
+        for snippet in (
+            "cancel_job(m.group(1),self.principal(),admin=False)",
+            "retry_job(m.group(1),self.principal(),admin=False)",
+            "delete_job(m.group(1),self.principal(),admin=False)",
+            "move_job(m.group(1),payload.get('direction'),self.principal(),admin=False)",
+        ):
+            self.assertIn(snippet, merger)
 
     def test_short_vps_folders_are_owned_and_legacy_folders_are_protected_from_admin(self):
         import tempfile
