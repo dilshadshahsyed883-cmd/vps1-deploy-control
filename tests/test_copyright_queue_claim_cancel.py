@@ -61,6 +61,17 @@ print("CANCEL_CLAIM_PASS")
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("CANCEL_CLAIM_PASS", result.stdout)
 
+    def test_manual_sheet_sync_all_not_blocked_by_auto_engine_guard(self):
+        app = (APP / "lum_engine/standalone_app.py").read_text()
+        guard = app.split('@app.middleware("http")', 1)[1].split('    if path.startswith(route("/static/"))', 1)[0]
+        self.assertIn('path.startswith(route("/actions/auto-v6/"))', guard)
+        self.assertNotIn('path == route("/actions/sheets/sync-all")', guard)
+        self.assertIn('@app.post(route("/actions/sheets/sync-all"))', app)
+        handler = app.split('def sheets_sync_all(', 1)[1].split('# LUM_CHANNELS_PC_SYNC_V5_ROUTES', 1)[0]
+        self.assertIn('require_csrf(request, csrf_token)', handler)
+        self.assertIn('store.setting("sheets_sync_enabled", "0")', handler)
+        self.assertIn('web_sync_all_sheet_sources(db)', handler)
+
     def test_copyright_actions_and_queue_cleanup_status(self):
         from production.copyright_uploader_browser import fixture
         html = fixture("queue")
