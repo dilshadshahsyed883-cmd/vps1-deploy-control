@@ -16,6 +16,14 @@ class SongWorkerReadOnlyTests(unittest.TestCase):
         self.assertEqual(diag.classify("Secret token REDACTED unauthorized"),"AUTH")
         self.assertEqual(diag.classify(""),"NONE")
 
+
+    def test_source_error_refinement_does_not_expose_error_text(self):
+        self.assertEqual(diag.classify_source_detail("V6 Drive source mapping is missing for this Auto Engine job."), "SOURCE_MAPPING_MISSING")
+        self.assertEqual(diag.classify_source_detail("Local Song Maker MP4 missing; Drive fallback is forbidden"), "SONGMAKER_MEDIA_MISSING")
+        self.assertEqual(diag.classify_source_detail("Profile 827 not found for secret user"), "PROFILE_MISSING")
+        self.assertEqual(diag.classify_source_detail("Job already claimed by another worker"), "CLAIM_CONFLICT")
+        self.assertEqual(diag.classify_source_detail("sqlite3.OperationalError: no such column foo"), "NOT_SOURCE_STATE")
+
     def test_output_contains_only_aggregates_even_for_sensitive_exception(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)
