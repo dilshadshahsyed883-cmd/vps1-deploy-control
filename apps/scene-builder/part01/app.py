@@ -4792,11 +4792,12 @@ def persistent_workspace(request: Request):
     if request.url.path in {"/admin/storage", "/workspace/storage/"}:
         require_admin(request)
     import json as shell_json
+    import secrets as shell_secrets
     shell_manifest = shell_json.loads((Path(__file__).parent / "static/shell-v2/manifest.json").read_text())
     return templates.TemplateResponse("persistent_workspace.html", {
         "request": request, "page": "shell_workspace",
         "username": request.session.get("username", "team"),
-        "storage_csrf": request.session.setdefault("storage_csrf", secrets.token_urlsafe(32)) if request.session.get("is_admin") else "",
+        "storage_csrf": request.session.setdefault("storage_csrf", shell_secrets.token_urlsafe(32)) if request.session.get("is_admin") else "",
         "drive_connected": False,
         "shell_entry": shell_manifest["entry"],
     }, headers={"Cache-Control": "no-store"})
