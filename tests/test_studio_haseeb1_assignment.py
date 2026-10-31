@@ -145,6 +145,7 @@ class Haseeb1Assignment(unittest.TestCase):
 
     def test_readonly_classifies_required_service_and_disk_gates(self):
         from subprocess import CompletedProcess
+        from types import SimpleNamespace
         from unittest.mock import patch
         from production.studio_haseeb1_assignment import release_idle_diagnostic
         def mocked_run(args, **kwargs):
@@ -152,7 +153,7 @@ class Haseeb1Assignment(unittest.TestCase):
         with patch("production.song_uploader_group_summary_release.idle"), \
              patch("production.short_uploader_group_release.idle"), \
              patch("subprocess.run", side_effect=mocked_run), \
-             patch("shutil.disk_usage", return_value=(100, 10, 90)):
+             patch("shutil.disk_usage", return_value=SimpleNamespace(free=90)):
             report = release_idle_diagnostic()
         self.assertEqual(report["song"], "PASS")
         self.assertEqual(report["short"], "PASS")
