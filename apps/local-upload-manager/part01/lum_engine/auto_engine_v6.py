@@ -65,12 +65,24 @@ def shortstudio_folder_path(name: str) -> Path:
     return path
 
 
-def shortstudio_list_folders() -> List[str]:
+def shortstudio_list_folders(owner: str = "") -> List[str]:
     if not SHORT_STUDIO_ROOT.is_dir() or SHORT_STUDIO_ROOT.is_symlink():
         return []
-    return sorted((p.name for p in SHORT_STUDIO_ROOT.iterdir()
-                   if SHORT_FOLDER_PATTERN.fullmatch(p.name)
-                   and p.is_dir() and not p.is_symlink()), key=str.casefold)
+    folders=[]
+    for p in SHORT_STUDIO_ROOT.iterdir():
+        if not SHORT_FOLDER_PATTERN.fullmatch(p.name) or not p.is_dir() or p.is_symlink():
+            continue
+        if owner:
+            marker=p/".studio_owner"
+            if marker.is_symlink() or not marker.is_file():
+                continue  # Legacy unassigned folder is admin-only.
+            try:
+                if marker.read_text(encoding="utf-8").strip().casefold()!=owner.casefold():
+                    continue
+            except OSError:
+                continue
+        folders.append(p.name)
+    return sorted(folders,key=str.casefold)
 
 
 def shortstudio_source_path(folder_id: str, filename: str) -> Path:
