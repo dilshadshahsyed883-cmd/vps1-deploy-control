@@ -36,10 +36,25 @@ def create_app(store=None):
                 raise HTTPException(403, 'Same-origin application request required')
         return {'owner': user, 'admin': request.headers.get('x-is-admin') == '1'}
 
-    def owned(job_id, user):
+    def owned(job_id, user, allow_reserved_deleted=False):
         job = store.get(job_id)
-        if not job or job['owner'] != user['owner'] or job['deleted']:
+        if not job or job['owner'] != user['owner']:
             raise HTTPException(404, 'Job not found')
+        if job['deleted']:
+            if not allow_reserved_deleted or not job.get('song_folder_id'):
+                raise HTTPException(404, 'Job not found')
+            # An importer may already have reserved the video before deletion.
+            # Let that same account finish fetching the original pair; never
+            # restore the deleted project to queue or folder discovery.
+            with store.db() as db:
+                pending = db.execute(
+                    """SELECT 1 FROM song_folder_media m
+                       JOIN song_folder_refs r ON r.job_id=m.job_id
+                       WHERE m.job_id=? AND m.folder_id=? AND m.consumed=0
+                         AND r.youtube_id='' LIMIT 1""",
+                    (job_id, job['song_folder_id'])).fetchone()
+            if not pending:
+                raise HTTPException(404, 'Job not found')
         return job
 
     def public(job):
@@ -340,18 +355,25 @@ def create_app(store=None):
             store.update(job_id, stage='Ready to Upload' if job.get('valid') and archived and not job.get('send_to_song_uploader') else 'Queued',
                          cancel=0, error='', drive_status='Pending', next_retry_at=None, retry_lane='')
         elif action == 'delete':
-            if job.get('song_folder_id'):
-                with store.db() as db:
-                    pending=db.execute('SELECT 1 FROM song_folder_media WHERE job_id=? AND consumed=0',(job_id,)).fetchone()
-                if pending: raise HTTPException(409,'Folder media is retained until dependent uploads finish')
             if job['lane'] or job['stage'] not in TERMINAL:
                 raise HTTPException(409, 'Cancel the job and wait for the worker before deleting')
-            # Tombstone preserves pair idempotency, removes owned local files only.
-            store.update(job_id, deleted=1)
+            # Queue deletion is immediate. Keep original files only while an
+            # already-reserved Song Uploader import/upload needs them.
+            retained = False
+            if job.get('song_folder_id'):
+                try:
+                    retained = folders.dismiss(job['owner'], job['song_folder_id'], job_id)
+                except ValueError as exc:
+                    raise HTTPException(409, str(exc)) from None
+            else:
+                store.update(job_id, deleted=1)
             for category in ('inputs', 'temp', 'outputs', 'staging', 'logs'):
+                if retained and category in {'inputs', 'outputs'}:
+                    continue
                 path = store.root / category / job_id
                 if path.is_dir() and not path.is_symlink():
                     shutil.rmtree(path)
+            return {'ok': True, 'media_retained': retained}
         else:
             raise HTTPException(404, 'Unknown action')
         return {'ok': True}
@@ -377,7 +399,7 @@ def create_app(store=None):
 
     @app.get('/song-maker/api/uploader/{job_id}/thumbnail')
     def uploader_thumbnail(job_id: str, user=Depends(principal)):
-        job = owned(job_id, user)
+        job = owned(job_id, user, allow_reserved_deleted=True)
         if not job.get('send_to_song_uploader') or job['stage'] != 'Completed':
             raise HTTPException(404, 'Local uploader thumbnail unavailable')
         name = Path(job['local_name']).stem + '.jpg'
@@ -388,7 +410,7 @@ def create_app(store=None):
 
     @app.get('/song-maker/api/jobs/{job_id}/video')
     def video(job_id: str, download: bool = False, user=Depends(principal)):
-        job = owned(job_id, user)
+        job = owned(job_id, user, allow_reserved_deleted=True)
         if not job.get('valid'):
             raise HTTPException(409, 'Video is not ready')
         path = store.root / 'outputs' / job_id / job['local_name']
