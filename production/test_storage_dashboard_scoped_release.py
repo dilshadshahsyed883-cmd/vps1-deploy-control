@@ -40,7 +40,7 @@ class StorageDashboardRelease(unittest.TestCase):
                         "/api/admin/storage/policy"):
             self.assertNotIn(blocked, js)
         self.assertIn("renderCleanupStatus", js)
-        self.assertIn("storage_manager.js?v=20261031-manual-gc-v1", template)
+        self.assertIn("storage_manager.js?v=20261031-manual-gc-v2", template)
 
     def test_service_health_and_process_cards_removed_entirely(self):
         template = (SCENE / "templates/storage_manager.html").read_text()
