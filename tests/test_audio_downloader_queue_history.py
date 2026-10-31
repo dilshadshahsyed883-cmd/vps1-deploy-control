@@ -72,6 +72,44 @@ class AudioDownloaderQueueHistoryTests(unittest.TestCase):
         self.assertEqual(r.json(), {"jobs": []})
         # Nginx session enforcement cannot be reproduced in this isolated TestClient.
 
+    def test_alice_bob_admin_and_unassigned_legacy_jobs_are_disjoint(self):
+        a='ADJ-'+'A'*16
+        b='ADJ-'+'B'*16
+        legacy='ADJ-'+'C'*16
+        self.record(a,'queued')
+        self.record(b,'queued')
+        self.record(legacy,'queued')
+        with self.module.db() as con:
+            con.execute("UPDATE jobs SET owner_username='bob' WHERE job_id=?",(b,))
+            con.execute("UPDATE jobs SET owner_username='' WHERE job_id=?",(legacy,))
+        alice={'X-Auth-User':'tester','X-Is-Admin':'0'}
+        bob={'X-Auth-User':'bob','X-Is-Admin':'0'}
+        admin={'X-Auth-User':'root','X-Is-Admin':'1'}
+        api='/tts/api/audio-downloader/jobs'
+        self.assertEqual({x['job_id'] for x in self.client.get(api,headers=alice).json()['jobs']},{a})
+        self.assertEqual({x['job_id'] for x in self.client.get(api,headers=bob).json()['jobs']},{b})
+        self.assertEqual({x['job_id'] for x in self.client.get(api,headers=admin).json()['jobs']},{a,b,legacy})
+        self.assertEqual(self.client.get(api+'/'+b,headers=alice).status_code,404)
+        self.assertEqual(self.client.get(api+'/'+legacy,headers=alice).status_code,404)
+        self.assertEqual(self.client.post(api+'/'+b+'/cancel',headers=alice).status_code,404)
+        self.assertEqual(self.client.post(api+'/'+legacy+'/retry',headers=bob).status_code,404)
+        self.assertEqual(self.client.get(api+'/'+legacy,headers=admin).status_code,200)
+        self.assertEqual(self.client.get(api,headers={'X-Auth-User':''}).status_code,403)
+
+    def test_same_video_can_be_queued_independently_by_two_accounts(self):
+        self.module.BatchRequest.model_rebuild(_types_namespace=vars(self.module))
+        data={'links':['https://youtu.be/BaW_jenozKc'],
+              'permission_confirmed':True}
+        api='/tts/api/audio-downloader/jobs'
+        with patch.object(self.module,'deps',return_value={'ready':True,'upload_ready':True}):
+            first=self.client.post(api,json=data,headers={'X-Auth-User':'alice'})
+            second=self.client.post(api,json=data,headers={'X-Auth-User':'bob'})
+        self.assertEqual(first.status_code,201,first.text)
+        self.assertEqual(second.status_code,201,second.text)
+        self.assertEqual(first.json()['created'],1)
+        self.assertEqual(second.json()['created'],1)
+        self.assertNotEqual(first.json()['job_ids'],second.json()['job_ids'])
+
     def test_active_failed_and_cancelled_jobs_are_real_records(self):
         for suffix, status, error in (
             ("1", "queued", ""),
