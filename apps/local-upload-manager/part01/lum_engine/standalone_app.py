@@ -259,7 +259,11 @@ async def standalone_auth(request: Request, call_next):
         if (not is_admin and os.getenv("LUM_ENGINE_INSTANCE") in
                 {"song","shortstudio","copyright"} and
                 (path.startswith(route("/reports/")) or
-                 path.startswith(route("/actions/auto-v6/thumbnail/")))):
+                 path.startswith(route("/actions/auto-v6/thumbnail/")) or
+                 path==route("/actions/auto-v6/preview-all") or
+                 path==route("/actions/auto-v6/upload-records.csv") or
+                 path==route("/api/auto-modes") or
+                 path==route("/oauth/google/callback"))):
             return JSONResponse({"detail":"Owner-scoped resource access required"},status_code=403)
         return await call_next(request)
 
