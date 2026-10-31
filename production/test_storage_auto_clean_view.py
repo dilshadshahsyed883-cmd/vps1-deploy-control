@@ -77,6 +77,25 @@ class AutoCleanReadOnlyView(unittest.TestCase):
                 directory, owner_uid=os.geteuid(), path_active=True),
                 (False, False))
 
+    def test_manual_spool_owner_follows_verified_scene_service_identity(self):
+        module = self.manager
+        import pwd
+        uid = os.geteuid()
+        def command(args, timeout=8):
+            return SimpleNamespace(stdout="User=testscene\\nActiveState=active\\n")
+        with patch.object(module, "run", side_effect=command), \\
+             patch.object(module.pwd, "getpwnam",
+                          return_value=SimpleNamespace(pw_uid=uid if uid >= 1000 else 1001)):
+            expected = module._scene_manual_spool_owner_uid()
+        self.assertEqual(expected, uid if uid >= 1000 else 1001)
+
+        for invalid in ("User=root\\nActiveState=active\\n",
+                        "User=\\nActiveState=active\\n",
+                        "User=testscene\\nActiveState=inactive\\n",
+                        "User=testscene\\nActiveState=active\\nUser=testscene\\n"):
+            with patch.object(module, "run", return_value=SimpleNamespace(stdout=invalid)):
+                self.assertEqual(module._scene_manual_spool_owner_uid(), -1)
+
     def test_timer_fails_closed_when_systemd_is_unreadable(self):
         module = self.manager
         with patch.object(module, "run", side_effect=OSError("systemctl not available")):
