@@ -20,7 +20,7 @@ class SongUploaderSettingsContract(TestCase):
         # Dashboard settings fields, never the shared report renderer.
         end = source.index("{% if engine_instance not in ['song', 'shortstudio'] %}{{ reports_panel() }}{% endif %}", start)
         fragment = Environment(autoescape=True).from_string(source[start:end])
-        for instance, expected_bulk in (("song", False), ("engine1", True), ("shortstudio", False)):
+        for instance, expected_bulk, expected_modes in (("song", False, True), ("engine1", True, True), ("shortstudio", False, False)):
             data = {
                 "engine_instance": instance,
                 "user": {"is_admin": True},
@@ -36,10 +36,10 @@ class SongUploaderSettingsContract(TestCase):
             }
             rendered = fragment.render(**data)
             self.assertEqual('name="bulk_import_enabled"' in rendered, expected_bulk)
-            self.assertIn('name="sheets_sync_enabled"', rendered)
-            self.assertIn('name="auto_engine_enabled"', rendered)
-            self.assertIn('name="csrf_token"', rendered)
-            self.assertIn("/actions/settings", rendered)
+            self.assertEqual('name="sheets_sync_enabled"' in rendered, expected_modes)
+            self.assertEqual('name="auto_engine_enabled"' in rendered, expected_modes)
+            self.assertEqual('name="csrf_token"' in rendered, expected_modes)
+            self.assertEqual("/actions/settings" in rendered, expected_modes)
             if instance == "song":
                 self.assertNotIn("Bulk Import", rendered)
 
