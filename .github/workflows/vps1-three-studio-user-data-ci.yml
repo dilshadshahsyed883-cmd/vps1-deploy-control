@@ -1,0 +1,33 @@
+name: VPS1 three-Studio per-user work isolation (offline)
+on:
+  pull_request:
+    paths:
+      - "apps/short-maker/part01/app.py"
+      - "apps/video-merger/part01/app.py"
+      - "apps/local-upload-manager/part01/lum_engine/**"
+      - "apps/copyright-uploader/part01/lum_engine/**"
+      - "tests/test_three_studio_user_isolation.py"
+      - ".github/workflows/vps1-three-studio-user-data-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/short-maker/part01/app.py"
+      - "apps/video-merger/part01/app.py"
+      - "apps/local-upload-manager/part01/lum_engine/**"
+      - "apps/copyright-uploader/part01/lum_engine/**"
+      - "tests/test_three_studio_user_isolation.py"
+permissions:
+  contents: read
+jobs:
+  owner-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Parse full Short Maker and Video Merger source
+        run: python -m py_compile apps/short-maker/part01/app.py apps/video-merger/part01/app.py
+      - name: Database-bound owner isolation and unauthenticated direct-access tests
+        run: python -m unittest tests.test_three_studio_user_isolation -v
