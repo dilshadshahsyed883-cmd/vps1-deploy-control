@@ -1,0 +1,85 @@
+name: VPS1 three-Studio permissions guarded production release
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  install:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'dilshadshahsyed883-cmd' &&
+      github.run_attempt == 1 &&
+      contains(github.event.head_commit.message, '[vps1-studio-permissions-release]')
+    concurrency:
+      group: vps1-production-applications
+      cancel-in-progress: false
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Gate exact source and user permission contracts (offline)
+        run: |
+          set -Eeuo pipefail
+          python -m unittest production.test_studio_permissions_release tests.test_scene_user_roles tests.test_scene_session_sso -q
+          node --test tests/test_scene_native_sidebar_role.js
+      - name: Connect to the existing protected Tailscale tailnet
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: SHA-pinned single-lane guarded Scene and Nginx transaction
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+          SOURCE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          test "$GITHUB_REF" = "refs/heads/main"
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/identity"
+          unset PRIVATE_IDENTITY
+          chmod 0600 "$scratch/identity"
+          ssh-keygen -y -P '' -f "$scratch/identity" > "$scratch/public"
+          actual="$(ssh-keygen -lf "$scratch/public" -E sha256 | awk '{print $2}')"
+          test "$actual" = 'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
+          remote() {
+            timeout 2400s ssh -T -p 22 -i "$scratch/identity" \
+              -o UserKnownHostsFile="$scratch/known_hosts" \
+              -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+              -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=20 \
+              -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+              vps1deploy@100.87.55.92 \
+              "sudo -n /usr/local/sbin/vps1-production-deploy $1 $SOURCE_SHA scene-builder"
+          }
+          # Existing root helper retains protected SHA, exclusive lock and rollback.
+          # No uploader or rendering worker is restarted by the scoped operation.
+          remote install > "$scratch/install.log" 2>&1 || {
+            cat "$scratch/install.log" >&2
+            echo 'THREE_STUDIO_PERMISSIONS=BLOCKED_OR_ROLLED_BACK'
+            exit 1
+          }
+          cat "$scratch/install.log"
+          remote status > "$scratch/status.log" 2>&1 || {
+            cat "$scratch/status.log" >&2
+            echo 'THREE_STUDIO_PERMISSIONS=STATUS_UNVERIFIED'
+            exit 1
+          }
+          cat "$scratch/status.log"
+          echo 'THREE_STUDIO_PERMISSIONS=GUARDED_RELEASE_VERIFIED'
+          echo 'SCENE_RENDER_WORKER=UNCHANGED'
+          echo 'SONG_SHORT_COPYRIGHT_QUEUES=UNTOUCHED'
+          echo 'AUTO_SCRIPT=OFFLINE'
