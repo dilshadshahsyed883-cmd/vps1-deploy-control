@@ -48,6 +48,8 @@ jobs:
           printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
           # Never continue to the Nginx cutover unless the guarded Scene
           # application install and existing production admission both pass.
+          # Release retry after #522: trigger only from fresh protected main.
+          # Do not replay failed Actions runs pinned to an obsolete revision.
           # Scene worker refresh refuses to deploy while queued/in-flight
           # jobs exist. Leave those jobs untouched; retry only exact known
           # busy/lock errors. Any other error fails immediately.
