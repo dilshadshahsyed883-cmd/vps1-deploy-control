@@ -153,6 +153,7 @@ def read_only_audit(data_root: Path, scene_db: Path) -> dict:
             projects = inspect_projects(con)
         results[mode] = {"entities": counters, "projects": projects}
     return {"target_verified": True, "mode": "READ_ONLY", "instances": results,
+            "related_stores": inspect_related_stores(data_root),
             "shared_google_drive": "UNCHANGED", "auto_script": "OFFLINE"}
 
 def install(revision: str) -> None:
@@ -278,3 +279,71 @@ def install(revision: str) -> None:
         atomic_json(journal / "receipt.json", {"state": "BLOCKED_OR_ROLLED_BACK",
                     "revision": revision, "auto_script": "OFFLINE"})
         raise
+
+def inspect_related_stores(data_root: Path, target: str = TARGET) -> dict:
+    """Read-only aggregate inventory of independent Song/Short Studio owners.
+
+    This must run before claiming COMPLETE ownership of either Studio. Never
+    emit usernames, account emails, filenames, folder names, tokens or IDs.
+    """
+    import json
+    root = Path(data_root)
+    results = {}
+    for kind, path, tables in (
+        ("song_maker", root / "song-maker/state/jobs.sqlite3",
+         (("jobs","owner"),("settings","owner"),("intake","owner"),
+          ("sync","owner"),("exports","owner"),("queue_control","owner"),
+          ("song_folders","owner"))),
+        ("audio_downloader", root / "voice-studio/audio-downloader/data/jobs.sqlite3",
+         (("jobs","owner_username"),("audio_preferences","owner"))),
+    ):
+        if not path.exists():
+            results[kind] = {"present": False, "records": 0, "non_target": 0}
+            continue
+        require(path.is_file() and not path.is_symlink(), "RELATED_DB_UNTRUSTED")
+        entries = {}
+        with sqlite3.connect(path.as_uri() + "?mode=ro",uri=True,timeout=5) as con:
+            con.execute("PRAGMA query_only=ON")
+            for table, field in tables:
+                if not exists(con,table):
+                    entries[table] = {"total":0,"non_target":0}
+                    continue
+                require(field in schema(con,table),"RELATED_SCHEMA_DRIFT")
+                total, not_target = con.execute(
+                    f"SELECT COUNT(*),SUM(CASE WHEN LOWER(TRIM(COALESCE({field},'')))<>? THEN 1 ELSE 0 END) FROM {table}",
+                    (target,),
+                ).fetchone()
+                entries[table] = {"total":int(total or 0),
+                                  "non_target":int(not_target or 0)}
+        results[kind] = {"present":True,
+                         "records":sum(v["total"] for v in entries.values()),
+                         "non_target":sum(v["non_target"] for v in entries.values()),
+                         "tables":entries}
+    short = root / "short-maker"
+    jobs_dir = short / "jobs"
+    folders_dir = short / "vps_short_folders"
+    job_total = job_other = folder_total = folder_other = 0
+    if jobs_dir.is_dir():
+        require(not jobs_dir.is_symlink(), "SHORT_JOBS_UNTRUSTED")
+        for item in jobs_dir.iterdir():
+            require(item.is_dir() and not item.is_symlink(), "SHORT_JOB_UNTRUSTED")
+            state=item / "state.json"
+            if not state.exists():
+                continue
+            require(state.is_file() and not state.is_symlink(), "SHORT_JOB_STATE_UNTRUSTED")
+            raw=json.loads(state.read_text(encoding="utf-8"))
+            require(isinstance(raw,dict), "SHORT_JOB_STATE_INVALID")
+            job_total+=1
+            job_other+=int(str(raw.get("owner") or "").casefold()!=target)
+    if folders_dir.is_dir():
+        require(not folders_dir.is_symlink(),"SHORT_FOLDERS_UNTRUSTED")
+        for item in folders_dir.iterdir():
+            require(item.is_dir() and not item.is_symlink(),"SHORT_FOLDER_UNTRUSTED")
+            folder_total+=1
+            marker=item / ".studio_owner"
+            require(not marker.is_symlink(),"SHORT_FOLDER_MARKER_UNTRUSTED")
+            owner=marker.read_text(encoding="utf-8").strip().casefold() if marker.is_file() else ""
+            folder_other+=int(owner!=target)
+    results["short_maker"]={"present":short.is_dir(),"jobs":job_total,"jobs_non_target":job_other,
+                              "folders":folder_total,"folders_non_target":folder_other}
+    return results
