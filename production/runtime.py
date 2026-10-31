@@ -706,6 +706,10 @@ def install_app(app, revision):
         raise ValueError('app is not owned by this installer')
     if app == 'local-upload-manager':
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-song-uploader-assignment-ui-only]' in intent:
+            from production.song_uploader_group_summary_release import install as install_song_ui
+            install_song_ui(revision, ui_only=True)
+            return
         if '[vps1-song-uploader-automation-summary]' in intent:
             from production.song_uploader_group_summary_release import install as install_song_group_summary
             install_song_group_summary(revision)
@@ -1160,6 +1164,10 @@ def install_app(app, revision):
         raise ValueError('app is not owned by this installer')
     if app == 'local-upload-manager':
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-song-uploader-assignment-ui-only]' in intent:
+            from production.song_uploader_group_summary_release import install as install_song_ui
+            install_song_ui(revision, ui_only=True)
+            return
         if '[vps1-song-uploader-automation-summary]' in intent:
             from production.song_uploader_group_summary_release import install as install_song_group_summary
             install_song_group_summary(revision)
