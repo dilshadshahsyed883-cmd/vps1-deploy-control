@@ -1001,6 +1001,18 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
  </div>
  <div class="hint" id="shortFolderMessage">Automatic names: Folder 001_abcdef.mp4, Folder 002_abcdef.mp4. Every batch uses a different tag.</div>
 </section>
+<section class="panel" aria-label="Owned Google Drive folders">
+ <h2>My Google Drive Folders</h2>
+ <div class="hint">Shared rclone credentials stay admin-only. Only your approved Drive subfolders are available.</div>
+ <div class="queue-actions">
+  <select id="shortDriveFolder" aria-label="Your Drive folder"><option value="">Loading folders…</option></select>
+  <button type="button" id="createDriveFolder" class="secondary">+ Create</button>
+  <button type="button" id="deleteDriveFolder" class="secondary">Delete empty</button>
+  <button type="button" id="useDriveForImages" class="secondary">Use for images</button>
+  <button type="button" id="useDriveForOutput" class="secondary">Use for output</button>
+ </div>
+ <div id="shortDriveMessage" class="hint" role="status"></div>
+</section>
 <div class="grid">
  <div>
   <section class="panel">
@@ -1011,13 +1023,13 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
     <div id="imageCount" class="count">0 images selected</div>
    </div>
    <div id="driveImageBox" class="filebox" style="margin-top:10px" hidden>
-    <label for="driveInputPath"><b>Google Drive image folders / links</b></label>
+    <label for="driveInputPath"><b>My approved Google Drive image folders</b></label>
     <div id="driveInputRows">
-     <div class="drive-link-row"><input id="driveInputPath" class="drive-path-input" type="text" placeholder="Drive folder link or gdrive:Short_Maker/Input" aria-label="Google Drive folder link 1"><button class="danger remove-drive" type="button" disabled>Remove</button></div>
+     <div class="drive-link-row"><input id="driveInputPath" class="drive-path-input" type="text" placeholder="Choose a folder from My Google Drive Folders" aria-label="Google Drive folder link 1"><button class="danger remove-drive" type="button" disabled>Remove</button></div>
     </div>
     <button id="addDriveLink" type="button" class="source-action">+ Add another Drive link</button>
     <div id="driveLinkCount" class="count">0 Drive folders entered</div>
-    <div class="hint" style="margin:8px 0 0">Add multiple Google Drive folder links or gdrive: paths. Images from all folders are combined into this job.</div>
+    <div class="hint" style="margin:8px 0 0">Use only paths inside your own approved Drive workspace. Multiple owned image folders can be combined.</div>
    </div>
   </section>
   <section class="panel">
@@ -1086,7 +1098,7 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
 <section id="queuePanel" hidden>
 <section class="panel">
   <div class="queue-head"><div><h2>Render Queue</h2><div class="hint">One render runs at a time. New jobs wait automatically.</div></div>
-  <div class="queue-actions"><button id="newJobBtn" type="button">+ New Job</button><button id="clearDoneBtn" class="secondary" type="button">Clear completed</button><button id="clearFailedBtn" class="danger" type="button">Clear failed</button></div></div>
+  <div class="queue-actions"><button id="newJobBtn" type="button">+ New Job</button><button id="clearDoneBtn" class="secondary" type="button">Clear completed</button><button id="clearFailedBtn" class="danger" type="button">Clear failed</button><button id="bulkPause" class="secondary" type="button">Pause selected</button><button id="bulkResume" class="secondary" type="button">Resume selected</button><button id="bulkCancel" class="secondary" type="button">Cancel selected</button><button id="bulkRetry" class="secondary" type="button">Retry selected</button><button id="bulkDelete" class="danger" type="button">Delete selected</button></div></div>
   <div class="queue-metrics">
     <div><b id="mUploading">0</b><span>Uploading</span></div>
     <div><b id="mQueued">0</b><span>Queued</span></div><div><b id="mRunning">0</b><span>Running</span></div><div><b id="mCompleted">0</b><span>Completed</span></div><div><b id="mFailed">0</b><span>Failed</span></div>
@@ -1149,6 +1161,49 @@ document.getElementById('deleteShortFolder').onclick=async()=>{
  }catch(e){shortFolderMessage.textContent='Folder error: '+e.message;}
 };
 loadShortFolders().catch(e=>{shortFolderMessage.textContent='Folder error: '+e.message;});
+const shortDriveFolder=document.getElementById('shortDriveFolder');
+const shortDriveMessage=document.getElementById('shortDriveMessage');
+async function loadOwnedDriveFolders(preferred){
+ const r=await fetch('api/drive-folders',{cache:'no-store'});
+ const data=await r.json();if(!r.ok)throw Error(data.detail||'Drive folders unavailable');
+ const original=preferred||shortDriveFolder.value;
+ shortDriveFolder.replaceChildren();
+ (data.folders||[]).forEach(path=>{const opt=document.createElement('option');opt.value=path;opt.textContent=path.slice(data.root.length+1);shortDriveFolder.appendChild(opt);});
+ if((data.folders||[]).includes(original))shortDriveFolder.value=original;
+ const output=document.getElementById('driveOutputPath');
+ if(output.value==='gdrive:Short_Maker/Outputs')output.value=data.root+'/Outputs';
+ shortDriveMessage.textContent='Approved root: '+data.root;
+}
+document.getElementById('createDriveFolder').onclick=async()=>{
+ const name=prompt('New Drive folder (letters, digits, spaces, _ or -):');if(!name)return;
+ try{
+  const r=await fetch('api/drive-folders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name.trim()})});
+  const d=await r.json();if(!r.ok)throw Error(d.detail||'Create failed');
+  await loadOwnedDriveFolders(d.path);
+ }catch(e){shortDriveMessage.textContent=e.message;}
+};
+document.getElementById('deleteDriveFolder').onclick=async()=>{
+ const path=shortDriveFolder.value;if(!path||!confirm('Delete EMPTY owned Drive folder '+path+'?'))return;
+ try{
+  const name=path.split('/').pop();
+  const r=await fetch('api/drive-folders/'+encodeURIComponent(name),{method:'DELETE'});
+  const d=await r.json();if(!r.ok)throw Error(d.detail||'Delete failed');
+  await loadOwnedDriveFolders();
+ }catch(e){shortDriveMessage.textContent=e.message;}
+};
+document.getElementById('useDriveForImages').onclick=()=>{
+ const path=shortDriveFolder.value;if(!path)return;
+ document.getElementById('driveInputPath').value=path;
+ document.getElementById('inputMode').value='drive';
+ document.getElementById('inputMode').dispatchEvent(new Event('change'));
+};
+document.getElementById('useDriveForOutput').onclick=()=>{
+ const path=shortDriveFolder.value;if(!path)return;
+ document.getElementById('driveOutputPath').value=path;
+ document.getElementById('uploadToDrive').checked=true;
+ document.getElementById('uploadToDrive').dispatchEvent(new Event('change'));
+};
+loadOwnedDriveFolders().catch(e=>shortDriveMessage.textContent='Drive unavailable: '+e.message);
 
 images.addEventListener('change',()=>imageCount.textContent=images.files.length+' image(s) selected');
 function syncInputMode(){const d=inputMode.value==='drive';localImageBox.hidden=d;driveImageBox.hidden=!d;}
@@ -1214,7 +1269,7 @@ async function poll(id){
 
 const makerPanel=document.getElementById('makerPanel'),queuePanel=document.getElementById('queuePanel'),settingsPanel=document.getElementById('settingsPanel');
 const makerTabBtn=document.getElementById('makerTabBtn'),queueTabBtn=document.getElementById('queueTabBtn'),settingsTabBtn=document.getElementById('settingsTabBtn');
-let queueItems=[],queuePage=1;const queuePageSize=20;
+let queueItems=[],queuePage=1;const queuePageSize=20;const selectedShortJobs=new Set();
 function showShortTab(name){
  const panels={maker:makerPanel,queue:queuePanel,settings:settingsPanel};
  const buttons={maker:makerTabBtn,queue:queueTabBtn,settings:settingsTabBtn};
@@ -1338,6 +1393,8 @@ function refreshShortJobDetails(){
 document.getElementById('queueRows').addEventListener('click',event=>{
  const detail=event.target.closest('[data-short-job-details]');
  if(detail){openShortJobDetails(detail.getAttribute('data-short-job-details'),detail);return;}
+ const action=event.target.closest('[data-short-job-action]');
+ if(action){controlQueueJob(action.getAttribute('data-short-job-id'),action.getAttribute('data-short-job-action'));return;}
  const deletion=event.target.closest('[data-short-job-delete]');
  if(deletion)deleteQueueJob(deletion.getAttribute('data-short-job-delete'));
 });
@@ -1381,21 +1438,47 @@ function renderQueue(){
   const count=Array.isArray(j.outputs)?j.outputs.length:0;
   const expected=Math.max(0,Number(j.config&&j.config.output_count||0));
   const countText=count?count+' video'+(count===1?'':'s'):expected?expected+' planned':'No outputs yet';
-  const terminal=st==='completed'||st==='failed';
+  const terminal=['completed','failed','cancelled'].includes(st);
+  const controls=st==='queued'||st==='running'?['pause','cancel']:
+                 st==='pausing'?['cancel']:st==='paused'?['resume','cancel']:
+                 st==='failed'||st==='cancelled'?['retry']:[];
   const id=escQ(String(j.job_id||''));
   const dest=shortJobDestination(j);
-  return '<tr><td><b>'+escQ(String(j.job_id||'').slice(0,8))+'</b></td>'+
+  return '<tr><td><label><input type="checkbox" data-short-select="'+id+'" '+(selectedShortJobs.has(String(j.job_id))?'checked':'')+' aria-label="Select job '+id+'"> <b>'+escQ(String(j.job_id||'').slice(0,8))+'</b></label></td>'+
    '<td><span class="qbadge '+escQ(st)+'">'+escQ(st)+'</span></td>'+
    '<td><div class="qbar"><span style="width:'+p+'%"></span></div><small>'+p.toFixed(0)+'%</small></td>'+
    '<td><div class="qmsg" title="'+escQ(j.message||'')+'">'+escQ(j.message||'')+'</div></td>'+
    '<td><div class="queue-output-count">'+escQ(countText)+'</div><div class="queue-output-destination" title="'+escQ(dest)+'">'+escQ(dest)+'</div></td>'+
    '<td><div class="queue-row-actions"><button type="button" class="secondary" data-short-job-details="'+id+'">View Details</button>'+
+   controls.map(action=>'<button type="button" class="secondary" data-short-job-id="'+id+'" data-short-job-action="'+action+'">'+escQ(action)+'</button>').join('')+
    (terminal?'<button type="button" class="danger" data-short-job-delete="'+id+'">Delete</button>':'')+'</div></td></tr>';
  }).join('');
 }
 
 async function loadQueue(){try{const r=await fetch('api/jobs',{cache:'no-store'}),d=await r.json();queueItems=d.jobs||[];const c=d.counts||{};mUploading.textContent=c.uploading||0;mQueued.textContent=c.queued||0;mRunning.textContent=c.running||0;mCompleted.textContent=c.completed||0;mFailed.textContent=c.failed||0;queueTotal.textContent=`(${queueItems.length})`;renderQueue();refreshShortJobDetails();}catch(e){}}
-async function deleteQueueJob(id){if(!confirm('Delete this completed/failed job and its local files?'))return;const r=await fetch(`api/jobs/${id}`,{method:'DELETE'});if(!r.ok){const d=await r.json();alert(d.detail||'Delete failed');}loadQueue();}
+async function deleteQueueJob(id){if(!confirm('Delete this terminal job and its job-local files? Shared/Drive outputs are retained.'))return;const r=await fetch(`api/jobs/${id}`,{method:'DELETE'});if(!r.ok){const d=await r.json();alert(d.detail||'Delete failed');}selectedShortJobs.delete(id);loadQueue();}
+async function controlQueueJob(id,action){
+ if(['cancel','retry'].includes(action)&&!confirm(action+' job '+id.slice(0,8)+'?'))return;
+ const r=await fetch('api/jobs/'+encodeURIComponent(id)+'/'+action,{method:'POST'});
+ if(!r.ok){const d=await r.json();alert(d.detail||'Queue action failed');}
+ loadQueue();
+}
+document.getElementById('queueRows').addEventListener('change',event=>{
+ const checkbox=event.target.closest('[data-short-select]');if(!checkbox)return;
+ const id=checkbox.getAttribute('data-short-select');
+ if(checkbox.checked)selectedShortJobs.add(id);else selectedShortJobs.delete(id);
+});
+for(const action of ['pause','resume','cancel','retry','delete']){
+ const btn=document.getElementById('bulk'+action[0].toUpperCase()+action.slice(1));
+ btn.onclick=async()=>{
+  const ids=Array.from(selectedShortJobs).filter(id=>queueItems.some(j=>j.job_id===id));
+  if(!ids.length){alert('Select one or more of your jobs.');return;}
+  if(!confirm(action+' '+ids.length+' selected job(s)?'))return;
+  const r=await fetch('api/jobs/bulk/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({job_ids:ids})});
+  const data=await r.json();if(!r.ok){alert(data.detail||'Bulk action failed');return;}
+  selectedShortJobs.clear();loadQueue();
+ };
+}
 async function clearQueueStatus(st){if(!confirm(`Clear all ${st} jobs?`))return;await fetch(`api/jobs/clear/${st}`,{method:'POST'});queuePage=1;loadQueue();}
 document.getElementById('clearDoneBtn').onclick=()=>clearQueueStatus('completed');document.getElementById('clearFailedBtn').onclick=()=>clearQueueStatus('failed');
 document.getElementById('prevPage').onclick=()=>{if(queuePage>1){queuePage--;renderQueue();}};document.getElementById('nextPage').onclick=()=>{const pages=Math.max(1,Math.ceil(queueItems.length/queuePageSize));if(queuePage<pages){queuePage++;renderQueue();}};
