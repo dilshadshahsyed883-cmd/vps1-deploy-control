@@ -2111,6 +2111,28 @@ def _audio_downloader_canonical_html(payload: bytes) -> bytes:
     return payload
 
 
+def _audio_downloader_hide_shared_proxy_controls(payload: bytes, *, is_admin: bool) -> bytes:
+    """Hide global downloader proxy controls from non-admin users.
+
+    The proxy API independently requires administrator identity; this only
+    avoids displaying controls that would produce a 403 for normal users.
+    Leave a hidden panel anchor for the existing three-tab JavaScript.
+    """
+    if is_admin:
+        return payload
+    proxy_tab = b'<button type="button" data-vsa-section="proxy" aria-selected="false">Proxy Settings</button>'
+    payload = payload.replace(proxy_tab, b"", 1)
+    panel_start = b'<div id="vsaProxy" class="vsa-content" hidden>'
+    panel_end = b'<!-- /AUDIO_DOWNLOADER_TAB_V1 -->'
+    start = payload.find(panel_start)
+    end = payload.find(panel_end, start + len(panel_start)) if start >= 0 else -1
+    if start >= 0 and end >= 0:
+        payload = (payload[:start] +
+                   b'<div id="vsaProxy" class="vsa-content" hidden></div>\\n' +
+                   payload[end:])
+    return payload
+
+
 @app.get("/audio-downloader/", response_class=HTMLResponse)
 async def audio_downloader_canonical_page(request: Request):
     require_login(request)
@@ -2124,6 +2146,9 @@ async def audio_downloader_canonical_page(request: Request):
     if upstream.status_code != 200 or "text/html" not in upstream.headers.get("content-type", "").lower():
         raise HTTPException(status_code=502, detail="Audio Downloader service unavailable")
     html = _audio_downloader_canonical_html(upstream.content)
+    html = _audio_downloader_hide_shared_proxy_controls(
+        html, is_admin=bool(request.session.get('is_admin')),
+    )
     return _VSResponse(
         content=html,
         status_code=200,
@@ -5283,6 +5308,9 @@ async def _vps1_voice_studio_proxy(request:_VSRequest,upstream_path:str):
     content=r.content
     rct=r.headers.get("content-type","")
     if upstream_path in {"","app"} and "text/html" in rct.lower():
+        content = _audio_downloader_hide_shared_proxy_controls(
+            content, is_admin=bool(request.session.get('is_admin')),
+        )
         content=content.replace(b"/tts/",b"/voice-studio/service/tts/")
         # Voice upstream still emits v=1 for the independent native shell.
         # Bust that stale browser cache without deploying/restarting its engine.
