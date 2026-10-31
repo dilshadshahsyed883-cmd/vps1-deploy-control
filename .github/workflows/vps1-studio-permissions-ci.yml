@@ -1,0 +1,38 @@
+name: VPS1 three-Studio permissions (offline security gate)
+on:
+  pull_request:
+    paths:
+      - "apps/scene-builder/part01/app.py"
+      - "apps/scene-builder/part01/templates/**"
+      - "apps/scene-builder/part01/static/vps1_native_site_shell.*"
+      - "production/studio_permissions_release.py"
+      - "production/runtime.py"
+      - "production/gateway.py"
+      - "production/short_studio_release.py"
+      - "production/copyright_studio_release.py"
+      - "production/test_studio_permissions_release.py"
+      - "tests/test_scene_user_roles.py"
+      - "tests/test_scene_native_sidebar_role.js"
+      - ".github/workflows/vps1-studio-permissions-*.yml"
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  permissions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile exact auth and release sources
+        run: |
+          python -m py_compile apps/scene-builder/part01/app.py production/studio_permissions_release.py production/runtime.py production/gateway.py
+          node --check apps/scene-builder/part01/static/vps1_native_site_shell.js
+      - name: Tests for UI, role, SSO, migration and rollback contracts
+        run: |
+          python -m unittest production.test_studio_permissions_release tests.test_scene_user_roles tests.test_scene_session_sso -v
+          node --test tests/test_scene_native_sidebar_role.js
+          python -m unittest production.test_scene_video_studio_shell -v
