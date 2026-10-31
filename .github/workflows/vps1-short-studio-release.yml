@@ -2,6 +2,7 @@ name: VPS1 Short Studio guarded release
 on:
   push:
     branches: [main]
+# PR544 activation: shortstudio-final-ui selector deploys only Short Uploader; preserve Short Maker jobs and other engines.
 permissions:
   contents: read
 jobs:
