@@ -56,7 +56,7 @@ def check_scene_account(scene_db: Path, target: str = TARGET) -> dict:
         require(str(username).casefold() == target and int(active) == 1, "TARGET_NOT_ACTIVE")
         permitted = set(str(studios or "").split(",")) if studios is not None else {"song", "short"}
         require(bool(admin) or {"song", "short"} <= permitted, "TARGET_STUDIO_ACCESS_MISSING")
-    return {"target": target, "active": True, "studdio_access": "PASS"}
+    return {"target": target, "active": True, "studio_access": "PASS"}
 
 
 def inspect_core(con: sqlite3.Connection, target: str = TARGET) -> dict:
@@ -153,3 +153,127 @@ def read_only_audit(data_root: Path, scene_db: Path) -> dict:
         results[mode] = {"entities": counters, "projects": projects}
     return {"target_verified": True, "mode": "READ_ONLY", "instances": results,
             "shared_google_drive": "UNCHANGED", "auto_script": "OFFLINE"}
+
+def install(revision: str) -> None:
+    """Serialized production root-helper entry; uploader-state ownership only.
+
+    Never restart a busy uploader. Backup every SQLite database in each
+    isolated Song/Short state, stop only those two instances, and restore
+    databases + service states if any post-write assertion fails.
+    """
+    import json
+    import re
+    import shutil
+    import subprocess
+    from production.runtime import BASE, DATA, backup_databases, atomic_json
+    from production.song_uploader_group_summary_release import idle as song_idle, health as song_health
+    from production.short_uploader_group_release import idle as short_idle, health as short_health
+
+    require(bool(re.fullmatch(r"[0-9a-f]{40}", revision)), "INVALID_REVISION")
+    require(shutil.disk_usage("/").free >= 5_000_000_000, "INSUFFICIENT_DISK_RESERVE")
+    scene_db = DATA / "scene-builder/web/web.sqlite3"
+    roots = {mode: DATA / "local-upload-manager" / leaf for mode, leaf in
+             (("song", "lum-song"), ("short", "lum-shortstudio"))}
+    units = {
+        mode: tuple(f"vps1-production-lum-{name}-{part}.service"
+                    for part in ("scheduler", "worker", "web"))
+        for mode, name in (("song", "song"), ("short", "shortstudio"))
+    }
+    journal = BASE / "transactions/haseeb1-song-short-assignment" / revision
+    require(not journal.exists(), "TRANSACTION_ALREADY_EXISTS")
+    check_scene_account(scene_db)
+    # This fence checks the live health identity and upload/remote-ledger state.
+    song_idle()
+    short_idle(allow_waiting_network=True)
+    before = read_only_audit(DATA, scene_db)
+    previous = {}
+    for names in units.values():
+        for name in names:
+            state = subprocess.run(["systemctl", "is-active", "--quiet", name],
+                                   timeout=12, capture_output=True).returncode == 0
+            require(state, "EXPECTED_ACTIVE_UNIT_NOT_RUNNING")
+            previous[name] = state
+
+    journal.mkdir(parents=True, mode=0o700)
+    atomic_json(journal / "intent.json",
+                {"revision": revision, "target": TARGET, "units": list(previous),
+                 "state": "PREFLIGHT_PASS", "auto_script": "OFFLINE"})
+    # Backups taken before changing any state, including committed WAL data.
+    backups = {mode: backup_databases(root, journal / "backup" / mode)
+               for mode, root in roots.items()}
+    require(all(backups.values()), "NO_DATABASE_BACKUP")
+    stopped = False
+    changed = False
+    try:
+        song_idle()
+        short_idle(allow_waiting_network=True)
+        # Protect in-memory queues from races; only Song and Short are stopped.
+        stopped = True
+        for mode in ("song", "short"):
+            for name in units[mode]:
+                subprocess.run(["systemctl", "stop", name], check=True,
+                               capture_output=True, text=True, timeout=90)
+        check_scene_account(scene_db)
+        read_only_audit(DATA, scene_db)
+        results = {}
+        for mode, root in roots.items():
+            core = root / "core/data/uploader.db"
+            project = root / "projects.sqlite3"
+            require(core.is_file() and not core.is_symlink(), "CORE_DB_CHANGED")
+            require(project.is_file() and not project.is_symlink(), "PROJECT_DB_CHANGED")
+            with sqlite3.connect(core, timeout=15) as con:
+                con.execute("BEGIN IMMEDIATE")
+                results[mode] = {"entities": assign_core(con)}
+            with sqlite3.connect(project, timeout=15) as con:
+                con.execute("BEGIN IMMEDIATE")
+                results[mode]["projects"] = assign_projects(con)
+            changed = True
+        after = read_only_audit(DATA, scene_db)
+        require(all(
+            all(entry["to_assign"] == 0 for entry in value["entities"].values()) and
+            value["projects"]["to_assign"] == 0
+            for value in after["instances"].values()), "POST_MIGRATION_OWNER_COUNT")
+        for mode in ("short", "song"):
+            for name in reversed(units[mode]):
+                subprocess.run(["systemctl", "start", name], check=True,
+                               capture_output=True, text=True, timeout=90)
+        stopped = False
+        require(song_health().get("ok") is True and short_health().get("ok") is True,
+                "POST_RESTART_HEALTH_FAILED")
+        atomic_json(journal / "receipt.json",
+                    {"state": "UPLOADER_DATA_ASSIGNED", "revision": revision,
+                     "owner": TARGET, "before": before, "after": after,
+                     "backups": {key: len(value) for key, value in backups.items()},
+                     "google_drive": "UNCHANGED", "auto_script": "OFFLINE"})
+        print(json.dumps({"STUDIO_UPLOADER_ASSIGNMENT": "PASS",
+                          "owner": TARGET, "scope": "SONG_SHORT_UPLOADERS_ONLY",
+                          "instances": after["instances"], "rollback": "BACKUPS_PRESENT",
+                          "other_studio_data": "NOT_MIGRATED"},sort_keys=True),flush=True)
+    except BaseException:
+        # Retry stopping, then SQLite backup-API restore. Never edit media,
+        # token files, Drive, per-account records or Copyright Studio.
+        if changed or stopped:
+            for names in units.values():
+                for name in names:
+                    subprocess.run(["systemctl", "stop", name], check=True,
+                                   capture_output=True, text=True, timeout=90)
+            for mode, root in roots.items():
+                for relative in backups[mode]:
+                    saved = journal / "backup" / mode / relative
+                    original = root / relative
+                    require(original.is_file() and not original.is_symlink(),
+                            "ROLLBACK_DB_PATH_CHANGED")
+                    with sqlite3.connect(saved) as src, sqlite3.connect(original) as dst:
+                        src.backup(dst)
+                        require(dst.execute("PRAGMA integrity_check").fetchone()[0] == "ok",
+                                "ROLLBACK_INTEGRITY_FAILURE")
+            for mode in ("short", "song"):
+                for name in reversed(units[mode]):
+                    if previous[name]:
+                        subprocess.run(["systemctl", "start", name], check=True,
+                                       capture_output=True, text=True, timeout=90)
+            require(song_health().get("ok") is True and short_health().get("ok") is True,
+                    "ROLLBACK_HEALTH_FAILURE")
+        atomic_json(journal / "receipt.json", {"state": "BLOCKED_OR_ROLLED_BACK",
+                    "revision": revision, "auto_script": "OFFLINE"})
+        raise
