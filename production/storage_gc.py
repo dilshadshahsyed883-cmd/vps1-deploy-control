@@ -209,6 +209,44 @@ def inventory(root: Path = BASE, now: float | None = None, unit_dir: Path | None
     return results
 
 
+def _confirmed_defunct_proc(pid: Path) -> bool:
+    """Prove an existing proc entry is a resource-free zombie/dead task.
+
+    ESRCH from reading environ can mean a zombie whose /proc/PID entry persists
+    until its parent reaps it. Never treat ESRCH alone as safe: require two
+    identical stat snapshots (including starttime), no open FDs, and no live
+    cwd/exe. Running, reused, unreadable and inconsistent PIDs fail closed.
+    """
+    try:
+        if pid.is_symlink() or not pid.is_dir() or not pid.name.isdigit():
+            return False
+
+        def snapshot() -> tuple[str, int] | None:
+            raw = (pid / "stat").read_text(encoding="ascii")
+            close = raw.rfind(")")
+            if close < 0 or "(" not in raw[:close] or raw[close + 1:close + 2] != " ":
+                return None
+            if raw[:raw.index("(")].strip() != pid.name:
+                return None
+            fields = raw[close + 2:].split()
+            # Fields begin with state (field 3); starttime is field 22.
+            if len(fields) < 20 or fields[0] not in ("Z", "X", "x"):
+                return None
+            starttime = int(fields[19])
+            return (fields[0], starttime) if starttime > 0 else None
+
+        first = snapshot()
+        if first is None or not (pid / "fd").is_dir():
+            return False
+        if any((pid / "fd").iterdir()):
+            return False
+        if (pid / "cwd").exists() or (pid / "exe").exists():
+            return False
+        return snapshot() == first
+    except (OSError, ValueError, UnicodeError, RuntimeError):
+        return False
+
+
 def _runtime_reference_probe(paths: list[Path], proc_root: Path = Path("/proc")) -> str:
     """Redacted tri-state /proc probe; unverifiable must never permit deletion.
 
@@ -244,16 +282,11 @@ def _runtime_reference_probe(paths: list[Path], proc_root: Path = Path("/proc"))
                         linked = fd.resolve(strict=True)
                         if any(linked == target or linked.is_relative_to(target) for target in target_paths):
                             return "referenced"
-            except FileNotFoundError:
-                if pid.exists():
-                    return "unverifiable-process-race"
-                continue
-            except ProcessLookupError:
-                # /proc/<pid>/environ may raise ESRCH when a process exits
-                # between PID enumeration and the read. A confirmed vanished
-                # PID holds no runtime references; any still-existing PID
-                # remains unverifiable and blocks deletion.
-                if pid.exists():
+            except (FileNotFoundError, ProcessLookupError):
+                # Missing entries can reflect either a reaped PID or a zombie
+                # that still has a /proc directory. Only a verified defunct
+                # task with no runtime resources may be skipped.
+                if pid.exists() and not _confirmed_defunct_proc(pid):
                     return "unverifiable-process-race"
                 continue
             except PermissionError:
