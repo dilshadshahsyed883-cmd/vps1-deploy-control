@@ -89,6 +89,7 @@ class SongUploaderMinimalUITests(unittest.TestCase):
         for instance in ("song", "shortstudio", "engine1", "engine2"):
             with self.subTest(instance=instance):
                 html = template.render(engine_instance=instance, base_path="/test",
+                                       user={"is_admin": True},
                                        csrf="offline", stats=stats, reports=[sample_report])
                 self.assertIn("Serial engine", html)
                 self.assertIn("Save modes", html)

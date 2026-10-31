@@ -164,7 +164,7 @@
       <div class="lum-note"><strong>Safety:</strong> OAuth is locked to the selected database row and expected UC Channel ID. Authorizing a different Brand Channel is rejected; the token is never attached to another channel.</div>
     </section>
 
-    <section class="lum-card">
+    {% if user.is_admin %}<section class="lum-card">
       <div class="lum-card-head">
         <div><h2>1. Shared OAuth Client</h2><p>Configured once and reused for every new or reconnected channel. Existing channel tokens remain independent.</p></div>
         <span class="lum-badge {{ 'good' if clients else 'warn' }}">{{ 'READY' if clients else 'NOT CONFIGURED' }}</span>
@@ -177,6 +177,7 @@
       {% if clients %}<div class="lum-note">Shared client: <strong>{{ clients[0].filename }}</strong></div>{% else %}<div class="lum-note">Existing valid tokens can still upload. Connect/Reconnect stays disabled until the shared client is configured.</div>{% endif %}
     </section>
 
+    {% else %}<section class="lum-card"><p class="lum-note">Shared OAuth client is managed by an administrator. You can still connect or reconnect your own channels below.</p></section>{% endif %}
     <section class="lum-card" data-lum-auth-section="verify">
       <div class="lum-card-head"><div><h2>2. Verify &amp; Save Selected Channel Token</h2><p>The authorization session is locked to the exact channel selected with Connect/Reconnect. A different Google/Brand Channel will be rejected.</p></div></div>
       <div data-lum-oauth-slot>
@@ -438,7 +439,7 @@
     {% include "copyright_dashboard.html" %}
   {% elif tab == 'dashboard' %}
     <div class="lum-metrics"><div><span>Total projects</span><strong>{{ stats.counts.TOTAL or 0 }}</strong></div><div><span>Waiting</span><strong>{{ stats.counts.WAITING or 0 }}</strong></div><div><span>Active</span><strong>{{ stats.counts.ACTIVE or 0 }}</strong></div><div><span>Completed</span><strong>{{ stats.counts.COMPLETED or 0 }}</strong></div><div><span>Channels</span><strong>{{ stats.channels or 0 }}</strong></div></div>
-    <div class="lum-grid lum-two"><section class="lum-card"><div class="lum-card-head"><div><h2>Serial engine</h2><p>Current production contract.</p></div><span class="lum-badge {{ 'good' if stats.engine_enabled else 'warn' }}">{{ 'Running' if stats.engine_enabled else 'Paused' }}</span></div><dl class="lum-kv"><div><dt>Concurrent uploads</dt><dd>1 · safety locked</dd></div><div><dt>Remote verification</dt><dd>Required</dd></div><div><dt>Drive source deletion</dt><dd>Protected / OFF</dd></div><div><dt>VPS cleanup</dt><dd>After verified upload</dd></div></dl></section><section class="lum-card"><div class="lum-card-head"><div><h2>{{ 'Uploader modes' if engine_instance == 'song' else 'Future modes' }}</h2><p>{{ 'Song Uploader settings; schedules remain separately controlled.' if engine_instance == 'song' else 'Capabilities remain retained rather than removed.' }}</p></div></div><form method="post" action="{{ base_path }}/actions/settings"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label class="lum-switch"><span><strong>Sheets Sync</strong><small>Desktop-compatible source inventory mode</small></span><input type="hidden" name="sheets_sync_enabled" value="0"><input type="checkbox" name="sheets_sync_enabled" value="1" {% if stats.settings.sheets_sync_enabled=='1' %}checked{% endif %}></label><label class="lum-switch"><span><strong>Auto Engine</strong><small>Preserved; OFF for current single-upload workflow</small></span><input type="hidden" name="auto_engine_enabled" value="0"><input type="checkbox" name="auto_engine_enabled" value="1" {% if stats.settings.auto_engine_enabled=='1' %}checked{% endif %}></label>{% if engine_instance != 'song' %}<label class="lum-switch"><span><strong>Bulk Import</strong><small>Preserved; OFF for current single-upload workflow</small></span><input type="hidden" name="bulk_import_enabled" value="0"><input type="checkbox" name="bulk_import_enabled" value="1" {% if stats.settings.bulk_import_enabled=='1' %}checked{% endif %}></label>{% endif %}<input type="hidden" name="delete_staged_after_verified" value="1"><button class="lum-button" type="submit">Save modes</button></form></section></div>
+    <div class="lum-grid {{ 'lum-two' if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] else '' }}"><section class="lum-card"><div class="lum-card-head"><div><h2>Serial engine</h2><p>Current production contract.</p></div><span class="lum-badge {{ 'good' if stats.engine_enabled else 'warn' }}">{{ 'Running' if stats.engine_enabled else 'Paused' }}</span></div><dl class="lum-kv"><div><dt>Concurrent uploads</dt><dd>1 · safety locked</dd></div><div><dt>Remote verification</dt><dd>Required</dd></div><div><dt>Drive source deletion</dt><dd>Protected / OFF</dd></div><div><dt>VPS cleanup</dt><dd>After verified upload</dd></div></dl></section>{% if user.is_admin %}<section class="lum-card"><div class="lum-card-head"><div><h2>{{ 'Uploader modes' if engine_instance == 'song' else 'Future modes' }}</h2><p>{{ 'Song Uploader settings; schedules remain separately controlled.' if engine_instance == 'song' else 'Capabilities remain retained rather than removed.' }}</p></div></div><form method="post" action="{{ base_path }}/actions/settings"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label class="lum-switch"><span><strong>Sheets Sync</strong><small>Desktop-compatible source inventory mode</small></span><input type="hidden" name="sheets_sync_enabled" value="0"><input type="checkbox" name="sheets_sync_enabled" value="1" {% if stats.settings.sheets_sync_enabled=='1' %}checked{% endif %}></label><label class="lum-switch"><span><strong>Auto Engine</strong><small>Preserved; OFF for current single-upload workflow</small></span><input type="hidden" name="auto_engine_enabled" value="0"><input type="checkbox" name="auto_engine_enabled" value="1" {% if stats.settings.auto_engine_enabled=='1' %}checked{% endif %}></label>{% if engine_instance != 'song' %}<label class="lum-switch"><span><strong>Bulk Import</strong><small>Preserved; OFF for current single-upload workflow</small></span><input type="hidden" name="bulk_import_enabled" value="0"><input type="checkbox" name="bulk_import_enabled" value="1" {% if stats.settings.bulk_import_enabled=='1' %}checked{% endif %}></label>{% endif %}<input type="hidden" name="delete_staged_after_verified" value="1"><button class="lum-button" type="submit">Save modes</button></form></section>{% endif %}</div>
     {{ reports_panel() }}
   {% elif tab == 'channels' %}
     <section class="lum-channel-subnav" aria-label="Channels workspace">
@@ -752,10 +753,12 @@
         <div><h2>Saved Sheet Sources</h2></div>
         <div class="lum-short-sheet-header-actions">
           <span class="lum-badge">{{ sheet_sources|length }} source{{ '' if sheet_sources|length == 1 else 's' }}</span>
-          <form method="post" action="{{ base_path }}/actions/sheets/sync-all" data-lum-soft-form>
+          {% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/sheets/sync-all" data-lum-soft-form>
             <input type="hidden" name="csrf_token" value="{{ csrf }}">
             <button class="lum-button secondary" type="submit" {% if stats.settings.sheets_sync_enabled!='1' or not sheet_sources %}disabled{% endif %}>Update All Enabled Sheets</button>
           </form>
+{% endif %}
         </div>
       </div>
       {% if sheet_sources %}
@@ -860,11 +863,13 @@
             <strong>{{ 'ARMED' if ae.engine.scheduler_armed else 'DISARMED' }}</strong>
             {% if engine_instance != 'song' or ae.engine.scheduler_armed %}<small>{% if ae.engine.scheduler_armed %}Next run: {{ ae.scheduler_ui.next_run }} · {{ ae.scheduler_ui.ready_profiles }} profile(s) ready{% else %}Automatic scheduled uploads are paused{% endif %}</small>{% endif %}
           </div>
-          <form method="post" action="{{ base_path }}/actions/auto-v6/engine" data-lum-soft-form>
+          {% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/auto-v6/engine" data-lum-soft-form>
             <input type="hidden" name="csrf_token" value="{{ csrf }}">
             <input type="hidden" name="action" value="{{ 'disarm_scheduler' if ae.engine.scheduler_armed else 'arm_scheduler' }}">
             <button class="lum-button {{ 'secondary' if ae.engine.scheduler_armed else 'primary' }} lum-ae-schedule-toggle" type="submit">{{ 'Disarm Scheduled Uploads' if ae.engine.scheduler_armed else 'Arm Scheduled Uploads' }}</button>
           </form>
+{% endif %}
         </div>
       </div>
     </section>
@@ -936,7 +941,7 @@
         {% if p and p.channel_db_id %}
         {% if engine_instance not in ['song', 'shortstudio'] %}<button type="button" class="lum-button secondary tiny" data-ae-sync-scan data-profile-id="{{ p.id }}" data-csrf="{{ csrf }}">Sync Channel</button>{% endif %}
         {% else %}
-        {% if engine_instance not in ['song', 'shortstudio'] %}<button class="lum-button secondary tiny" type="button" data-ae-open-schedules>Manage Legacy Profile Schedules</button>{% endif %}
+        {% if engine_instance not in ['song', 'shortstudio'] %}{% if user.is_admin %}<button class="lum-button secondary tiny" type="button" data-ae-open-schedules>Manage Legacy Profile Schedules</button>{% endif %}{% endif %}
         {% if p and engine_instance not in ['song', 'shortstudio'] %}<button type="button" class="lum-button secondary tiny" data-ae-sync-scan data-profile-id="{{ p.id }}" data-csrf="{{ csrf }}">Sync & Scan Sources</button>{% endif %}
         {% endif %}
       </div>{% endif %}
@@ -975,7 +980,9 @@
       <div class="lum-card-head"><div><h2>Automation</h2>{% if engine_instance != 'song' %}<p>Run profile automation from one table. Row actions target one profile; Start All remains global.</p>{% endif %}</div><span class="lum-badge">{{ ae.profiles|length }} profiles</span></div>
 {% if engine_instance not in ['song', 'shortstudio'] %}
       <div class="lum-ae-pc-row lum-ae-profile-quick-controls lum-ae-global-actions">
-        <form method="post" action="{{ base_path }}/actions/auto-v6/sync-all" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button primary" type="submit">Sync All Channels</button></form>
+        {% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/auto-v6/sync-all" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button primary" type="submit">Sync All Channels</button></form>
+{% endif %}
         {% if p %}<button class="lum-button secondary" type="button" data-ae-sync-scan data-profile-id="{{ p.id }}" data-csrf="{{ csrf }}">Sync Channel</button>{% endif %}
         {% if engine_instance not in ['song', 'shortstudio'] %}<span class="lum-ae-auto-sync-note">Auto-sync defaults to every 15 minutes per channel and can be changed in the channel profile.</span>{% endif %}
       </div>
@@ -988,18 +995,22 @@
 
       {% if engine_instance in ['song', 'shortstudio'] %}
       <div class="lum-ae-pc-row lum-ae-planner-actions lum-ae-bulk-profile-controls" style="margin:12px 0 10px" aria-label="Auto Engine profile controls">
-        <form method="post" action="{{ base_path }}/actions/auto-v6/generate-all" data-lum-soft-form data-confirm="Generate queue jobs for all enabled profiles? This does not start the upload engine.">
+        {% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/auto-v6/generate-all" data-lum-soft-form data-confirm="Generate queue jobs for all enabled profiles? This does not start the upload engine.">
           <input type="hidden" name="csrf_token" value="{{ csrf }}">
           <input type="hidden" name="confirmation" value="GENERATE ALL">
           <button class="lum-button primary" type="submit">Generate Queue Now</button>
         </form>
-        <button class="lum-button secondary" type="button" data-ae-preview-all>Preview Next Jobs</button>
-        <button class="lum-button secondary" type="button" data-ae-open-schedules>Profile Schedules</button>
-        <button class="lum-button secondary" type="button" data-ae-jump-start-all>Start All Profiles</button>
-        <form method="post" action="{{ base_path }}/actions/auto-v6/sync-all" data-lum-soft-form>
+{% endif %}
+        {% if user.is_admin %}<button class="lum-button secondary" type="button" data-ae-preview-all>Preview Next Jobs</button>{% endif %}
+        {% if user.is_admin %}<button class="lum-button secondary" type="button" data-ae-open-schedules>Profile Schedules</button>{% endif %}
+        {% if user.is_admin %}<button class="lum-button secondary" type="button" data-ae-jump-start-all>Start All Profiles</button>{% endif %}
+        {% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/auto-v6/sync-all" data-lum-soft-form>
           <input type="hidden" name="csrf_token" value="{{ csrf }}">
           <button class="lum-button primary" type="submit">Sync All Channels</button>
         </form>
+{% endif %}
       </div>
       <div id="lum-ae-bulk-preview" class="lum-ae-result" role="status" aria-live="polite" hidden></div>
       {% endif %}
@@ -1061,9 +1072,11 @@
                   {% endif %}
                   {% endif %}
                   <a class="lum-button secondary tiny" href="{{ base_path }}/app?tab=auto_engine&auto_profile_id={{ pr.id }}" data-lum-soft-link>Edit</a>
-                  <form id="lum-ae-generate-profile-{{ pr.id }}" method="post" action="{{ base_path }}/actions/auto-v6/generate" data-lum-soft-form hidden>
+                  {% if user.is_admin %}
+<form id="lum-ae-generate-profile-{{ pr.id }}" method="post" action="{{ base_path }}/actions/auto-v6/generate" data-lum-soft-form hidden>
                     <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ pr.id }}"><input type="hidden" name="confirmation" value="">
                   </form>
+{% endif %}
                 </div>
               </td>
             </tr>
@@ -1132,37 +1145,56 @@
       <div class="lum-card-head"><div><h2>Preflight</h2>{% if engine_instance != 'song' %}<p>Validation only. Generate, Preview and Start controls are kept once in the Automation card above.</p>{% endif %}</div></div>
       <div class="lum-ae-planner-actions">
         {% if p %}<button class="lum-button secondary" type="button" data-ae-preflight data-profile-id="{{ p.id }}" data-csrf="{{ csrf }}">Selected Profile Preflight</button>{% endif %}
-        <button class="lum-button secondary" type="button" data-ae-queue-preflight data-csrf="{{ csrf }}">Queue Preflight</button>
+        {% if user.is_admin %}<button class="lum-button secondary" type="button" data-ae-queue-preflight data-csrf="{{ csrf }}">Queue Preflight</button>{% endif %}
       </div>
       <div id="lum-ae-preview-result" class="lum-ae-result"></div>
       <div id="lum-ae-queue-preflight-result" class="lum-ae-result"></div>
-      <form id="lum-ae-start-all-form" method="post" action="{{ base_path }}/actions/auto-v6/start-all" data-lum-soft-form hidden>
+      {% if user.is_admin %}
+<form id="lum-ae-start-all-form" method="post" action="{{ base_path }}/actions/auto-v6/start-all" data-lum-soft-form hidden>
         <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="confirmation" value="">
       </form>
+{% endif %}
     </section>
 
     <section class="lum-card lum-ae-pc-controls" data-ae-panel="queue" hidden>
       <div class="lum-card-head"><div><h2>Queue Controls</h2>{% if engine_instance != 'song' %}<p>Start, stop, retry, recover and manage the live upload queue from one place. Upload safety and duplicate protections remain unchanged.</p>{% endif %}</div>{% if engine_instance != 'song' %}<span class="lum-badge">PC CONTROL PARITY</span>{% endif %}</div>
       <div class="lum-ae-pc-row lum-ae-pc-main">
-        <form method="post" action="{{ base_path }}/actions/auto-v6/engine" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="start"><button class="lum-button primary" type="submit">Start / Resume Engine</button></form>
-        <form method="post" action="{{ base_path }}/actions/auto-v6/engine" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="pause_after_current"><button class="lum-button secondary" type="submit">Pause After Current</button></form>
-        <form method="post" action="{{ base_path }}/actions/auto-v6/engine" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="stop"><button class="lum-button secondary" type="submit">Stop After Current</button></form>
+        {% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/auto-v6/engine" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="start"><button class="lum-button primary" type="submit">Start / Resume Engine</button></form>
+{% endif %}
+        {% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/auto-v6/engine" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="pause_after_current"><button class="lum-button secondary" type="submit">Pause After Current</button></form>
+{% endif %}
+        {% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/auto-v6/engine" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="stop"><button class="lum-button secondary" type="submit">Stop After Current</button></form>
+{% endif %}
       </div>
       <div class="lum-ae-pc-row lum-ae-pc-tools">
-        <button class="lum-button secondary" type="button" data-ae-global-preflight data-csrf="{{ csrf }}">Preflight</button>
-        <form method="post" action="{{ base_path }}/actions/auto-v6/retry-failed" data-lum-soft-form data-ae-queue-optional-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button secondary" type="submit">Retry Failed</button></form>
-        <form method="post" action="{{ base_path }}/actions/auto-v6/resume-paused" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button secondary" type="submit">Resume Paused</button></form>
-        <form method="post" action="{{ base_path }}/actions/auto-v6/clear-done" data-lum-soft-form data-confirm="Clear completed queue rows? Permanent upload/script records remain protected."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button secondary" type="submit">Clear Done</button></form>
-        <form method="post" action="{{ base_path }}/actions/auto-v6/remove-selected" data-lum-soft-form data-ae-queue-form data-confirm="Remove selected safe jobs? Active uploads are protected."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button danger" type="submit">Remove Selected</button></form>
+        {% if user.is_admin %}<button class="lum-button secondary" type="button" data-ae-global-preflight data-csrf="{{ csrf }}">Preflight</button>{% endif %}
+        {% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/auto-v6/retry-failed" data-lum-soft-form data-ae-queue-optional-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button secondary" type="submit">Retry Failed</button></form>
+{% endif %}
+        {% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/auto-v6/resume-paused" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button secondary" type="submit">Resume Paused</button></form>
+{% endif %}
+        {% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/auto-v6/clear-done" data-lum-soft-form data-confirm="Clear completed queue rows? Permanent upload/script records remain protected."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button secondary" type="submit">Clear Done</button></form>
+{% endif %}
+        {% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/auto-v6/remove-selected" data-lum-soft-form data-ae-queue-form data-confirm="Remove selected safe jobs? Active uploads are protected."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button danger" type="submit">Remove Selected</button></form>
+{% endif %}
         <a class="lum-button secondary" href="{{ base_path }}/app?tab=auto_engine{% if p %}&auto_profile_id={{ p.id }}{% endif %}" data-lum-soft-link>Refresh</a>
-        <form class="lum-ae-concurrency-form" method="post" action="{{ base_path }}/actions/auto-v6/concurrency" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ p.id if p else 0 }}"><label>Concurrent Uploads: <select name="concurrency" id="lum-ae-concurrency">{% for n in range(1,6) %}<option value="{{ n }}" {% if (ae.engine.concurrency or 1)==n %}selected{% endif %}>{{ n }} upload{{ '' if n==1 else 's' }}</option>{% endfor %}</select><small>Requested control; effective VPS upload safety limit remains 1.</small></label></form>
+        {% if user.is_admin %}
+<form class="lum-ae-concurrency-form" method="post" action="{{ base_path }}/actions/auto-v6/concurrency" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ p.id if p else 0 }}"><label>Concurrent Uploads: <select name="concurrency" id="lum-ae-concurrency">{% for n in range(1,6) %}<option value="{{ n }}" {% if (ae.engine.concurrency or 1)==n %}selected{% endif %}>{{ n }} upload{{ '' if n==1 else 's' }}</option>{% endfor %}</select><small>Requested control; effective VPS upload safety limit remains 1.</small></label></form>
+{% endif %}
       </div>
       <div class="lum-ae-queue-summary">Showing {{ ae.queue|length }} Auto Engine job(s). Engine: <strong>{{ 'RUNNING' if ae.engine.running else 'STOPPED' }}</strong>. Worker: <strong>{{ ae.worker_service or 'unknown' }}</strong>. Requested concurrency: <strong>{{ ae.engine.concurrency or 1 }}</strong> · Effective: <strong>1</strong>. Permanent duplicate/upload records remain active even when queue rows are cleared.</div>
       
     </section>
 
     <dialog id="lum-ae-schedules-dialog" class="lum-ae-dialog">
-      <form method="post" action="{{ base_path }}/actions/auto-v6/profile-schedules/save" data-lum-soft-form>
+      {% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/auto-v6/profile-schedules/save" data-lum-soft-form>
         <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="current_profile_id" value="{{ p.id if p else 0 }}">
         <div class="lum-card-head"><div><h2>Profile Schedules</h2><p>Edit schedule ON/OFF and Pakistan Time (PKT) alarm times for all saved profiles from one place.</p></div><button type="button" class="lum-button secondary tiny" data-ae-close-schedules>Close</button></div>
         <div class="lum-table-wrap"><table class="lum-table lum-ae-schedule-manager"><thead><tr><th>Profile</th><th>Schedule</th><th>Time(s) (PKT)</th></tr></thead><tbody>
@@ -1173,6 +1205,7 @@
         </tbody></table></div>
         <div class="lum-ae-dialog-actions"><button type="button" class="lum-button secondary" data-ae-close-schedules>Cancel</button><button type="submit" class="lum-button primary">Save Changes</button></div>
       </form>
+{% endif %}
     </dialog>
 
 
@@ -1321,7 +1354,9 @@
     </form>
 
     {% if p and p.channel_db_id %}
-    <form id="lum-ae-resume-channel-profile" method="post" action="{{ base_path }}/actions/auto-v6/profile/resume" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ p.id }}"></form>
+    {% if user.is_admin %}
+<form id="lum-ae-resume-channel-profile" method="post" action="{{ base_path }}/actions/auto-v6/profile/resume" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ p.id }}"></form>
+{% endif %}
     {% endif %}
 
     {% if p %}
@@ -1334,15 +1369,29 @@
         <div class="lum-card-head"><div><h2>Thumbnail Library{% if p %} · {{ p.category_name }}{% endif %}</h2><p>Permanent VPS assets. PC and Drive thumbnails share the same rotation library.</p></div>{% if p %}<span class="lum-badge">{{ ae.thumbnails|selectattr('status','equalto','ACTIVE')|list|length }} active · {{ ae.thumbnails|length }} stored</span>{% endif %}</div>
         {% if p %}
         <div class="lum-ae-thumb-actions">
-          <form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/upload" enctype="multipart/form-data" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ p.id }}"><input type="file" name="files" accept=".jpg,.jpeg,.png,image/jpeg,image/png" multiple required><button class="lum-button primary" type="submit">Upload from PC</button></form>
-          <form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/sync-drive" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ p.id }}"><button class="lum-button secondary" type="submit">Sync Drive Thumbnails</button></form>
-          <form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/reset-rotation" data-lum-soft-form data-confirm="Reset this category rotation to thumbnail #1?"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ p.id }}"><button class="lum-button secondary" type="submit">Reset Rotation</button></form>
+          {% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/upload" enctype="multipart/form-data" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ p.id }}"><input type="file" name="files" accept=".jpg,.jpeg,.png,image/jpeg,image/png" multiple required><button class="lum-button primary" type="submit">Upload from PC</button></form>
+{% endif %}
+          {% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/sync-drive" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ p.id }}"><button class="lum-button secondary" type="submit">Sync Drive Thumbnails</button></form>
+{% endif %}
+          {% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/reset-rotation" data-lum-soft-form data-confirm="Reset this category rotation to thumbnail #1?"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ p.id }}"><button class="lum-button secondary" type="submit">Reset Rotation</button></form>
+{% endif %}
         </div>
         <div class="lum-ae-thumb-selectbar"><strong data-ae-thumb-count>0 selected</strong><button type="button" class="lum-link-button" data-ae-thumb-select-all>Select All</button><button type="button" class="lum-link-button" data-ae-thumb-clear>Clear</button>
-          <form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/status" data-lum-soft-form data-ae-thumb-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="status" value="ACTIVE"><button class="lum-button secondary tiny" type="submit">Enable</button></form>
-          <form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/status" data-lum-soft-form data-ae-thumb-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="status" value="DISABLED"><button class="lum-button secondary tiny" type="submit">Disable</button></form>
-          <form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/move" data-lum-soft-form data-ae-thumb-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><select name="target_profile_id" required><option value="">Move to category…</option>{% for pr in ae.profiles if pr.id != p.id %}<option value="{{ pr.id }}">{{ pr.category_name }}</option>{% endfor %}</select><button class="lum-button secondary tiny" type="submit">Move</button></form>
-          <form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/trash" data-lum-soft-form data-ae-thumb-form data-confirm="Move selected thumbnails to 7-day Trash? Live queued thumbnails are protected."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button danger tiny" type="submit">Trash Selected</button></form>
+          {% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/status" data-lum-soft-form data-ae-thumb-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="status" value="ACTIVE"><button class="lum-button secondary tiny" type="submit">Enable</button></form>
+{% endif %}
+          {% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/status" data-lum-soft-form data-ae-thumb-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="status" value="DISABLED"><button class="lum-button secondary tiny" type="submit">Disable</button></form>
+{% endif %}
+          {% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/move" data-lum-soft-form data-ae-thumb-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><select name="target_profile_id" required><option value="">Move to category…</option>{% for pr in ae.profiles if pr.id != p.id %}<option value="{{ pr.id }}">{{ pr.category_name }}</option>{% endfor %}</select><button class="lum-button secondary tiny" type="submit">Move</button></form>
+{% endif %}
+          {% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/trash" data-lum-soft-form data-ae-thumb-form data-confirm="Move selected thumbnails to 7-day Trash? Live queued thumbnails are protected."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button danger tiny" type="submit">Trash Selected</button></form>
+{% endif %}
         </div>
         <div class="lum-ae-thumb-grid">
           {% for t in ae.thumbnails %}
@@ -1353,7 +1402,9 @@
           </article>
           {% else %}<div class="lum-empty">No thumbnails stored for this category. Upload one or many from PC, or configure a Drive Thumbnail Folder and sync it.</div>{% endfor %}
         </div>
-        {% if ae.thumbnail_trash %}<details class="lum-ae-trash"><summary>Thumbnail Trash · {{ ae.thumbnail_trash|length }} item(s) · auto-purge after 7 days</summary><div class="lum-ae-trash-list">{% for t in ae.thumbnail_trash %}<div><span>{{ t.original_filename }}</span><form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/restore" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="asset_id" value="{{ t.id }}"><button class="lum-button secondary tiny" type="submit">Restore</button></form></div>{% endfor %}</div><form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/empty-trash" data-lum-soft-form class="lum-ae-empty-trash"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label class="lum-field"><span>Permanent delete</span><input name="confirmation" placeholder="Type EMPTY TRASH" autocomplete="off"></label><button class="lum-button danger tiny" type="submit">Empty Trash</button></form></details>{% endif %}
+        {% if ae.thumbnail_trash %}<details class="lum-ae-trash"><summary>Thumbnail Trash · {{ ae.thumbnail_trash|length }} item(s) · auto-purge after 7 days</summary><div class="lum-ae-trash-list">{% for t in ae.thumbnail_trash %}<div><span>{{ t.original_filename }}</span>{% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/restore" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="asset_id" value="{{ t.id }}"><button class="lum-button secondary tiny" type="submit">Restore</button></form>
+{% endif %}</div>{% endfor %}</div><form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/empty-trash" data-lum-soft-form class="lum-ae-empty-trash"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label class="lum-field"><span>Permanent delete</span><input name="confirmation" placeholder="Type EMPTY TRASH" autocomplete="off"></label><button class="lum-button danger tiny" type="submit">Empty Trash</button></form></details>{% endif %}
         {% else %}<div class="lum-empty">Save/select a profile to manage its category thumbnail library.</div>{% endif %}
       </section>
       <div class="lum-ae-lightbox" id="lum-ae-lightbox" hidden><button type="button" data-ae-close-preview>×</button><img alt="Thumbnail preview"></div>
@@ -1363,20 +1414,28 @@
     <div data-ae-panel="queue" hidden>
       
 
-      {% if ae.missed %}<section class="lum-card"><div class="lum-card-head"><div><h2>Missed Alarm Review</h2><p>PC “Ask” policy adapted for an unattended VPS.</p></div><span class="lum-badge warn">{{ ae.missed|length }} review</span></div>{% for m in ae.missed %}<div class="lum-ae-missed"><span>Profile #{{ m.profile_id }} · {{ m.alarm_date }} {{ m.alarm_time }} PKT · {{ m.delay_minutes }} min late</span><form method="post" action="{{ base_path }}/actions/auto-v6/missed/run" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="missed_id" value="{{ m.id }}"><button class="lum-button tiny" type="submit">Run Now</button></form><form method="post" action="{{ base_path }}/actions/auto-v6/missed/skip" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="missed_id" value="{{ m.id }}"><button class="lum-button secondary tiny" type="submit">Skip Today</button></form></div>{% endfor %}</section>{% endif %}
+      {% if ae.missed %}<section class="lum-card"><div class="lum-card-head"><div><h2>Missed Alarm Review</h2><p>PC “Ask” policy adapted for an unattended VPS.</p></div><span class="lum-badge warn">{{ ae.missed|length }} review</span></div>{% for m in ae.missed %}<div class="lum-ae-missed"><span>Profile #{{ m.profile_id }} · {{ m.alarm_date }} {{ m.alarm_time }} PKT · {{ m.delay_minutes }} min late</span>{% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/auto-v6/missed/run" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="missed_id" value="{{ m.id }}"><button class="lum-button tiny" type="submit">Run Now</button></form>
+{% endif %}{% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/auto-v6/missed/skip" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="missed_id" value="{{ m.id }}"><button class="lum-button secondary tiny" type="submit">Skip Today</button></form>
+{% endif %}</div>{% endfor %}</section>{% endif %}
 
       <section class="lum-card">
         <div class="lum-card-head"><div><h2>Auto Engine Queue</h2><p>Queued jobs are immutable Sheet snapshots. Upload Now may reprioritize a scheduled job; queued title/description edits do not write back to the Sheet.</p></div><div><span class="lum-badge">{{ ae.queue|length }} rows</span> <strong data-ae-queue-count>0 selected</strong></div></div>
         <div class="lum-table-wrap"><table class="lum-table lum-ae-queue"><thead><tr><th>☑</th><th>Job</th><th>Video ID</th><th>Status</th><th>Channel</th><th>Video</th><th>Thumbnail</th><th>Title</th><th>Schedule</th><th>YouTube</th><th>Error / Post State</th><th>Actions</th></tr></thead><tbody>
-        {% for q in ae.queue %}<tr><td><input type="checkbox" class="lum-ae-queue-select" value="{{ q.id }}"></td><td>{{ q.id }}</td><td><code>{{ q.metadata_video_key or 'Legacy' }}</code></td><td><span class="lum-state s-{{ (q.status or '')|lower }}">{{ q.status }}</span></td><td>{{ q.channel_name }}</td><td><span class="lum-ellipsis" title="{{ q.drive_file_id or '' }}">{{ q.source_filename or q.original_filename or q.local_video_path }}</span></td><td>{{ q.thumbnail_filename or '—' }}</td><td><span class="lum-ellipsis" title="{{ q.title|e }}">{{ q.title }}</span></td><td>{{ q.app_upload_at or 'Now / queued' }}</td><td>{% if q.youtube_url %}<a href="{{ q.youtube_url }}" target="_blank" rel="noopener">Open</a>{% else %}—{% endif %}</td><td><span class="lum-ellipsis" title="{{ q.error_message or q.post_upload_state or '' }}">{{ q.error_message or q.post_upload_state or q.v6_state or '—' }}</span></td><td>{% if q.channel_job %}<form method="post" action="{{ base_path }}/actions/auto-v6/job/upload-now" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="video_id" value="{{ q.id }}"><button class="lum-button secondary tiny" type="submit">Upload Now</button></form><details><summary>Edit</summary><form method="post" action="{{ base_path }}/actions/auto-v6/job/edit" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="video_id" value="{{ q.id }}"><input name="title" value="{{ q.title|e }}" maxlength="100" required><textarea name="description" rows="2">{{ q.description }}</textarea><button class="lum-button secondary tiny" type="submit">Save Job Only</button></form></details>{% else %}Legacy{% endif %}</td></tr>{% else %}<tr><td colspan="12"><div class="lum-empty">No Auto Engine queue rows.</div></td></tr>{% endfor %}
+        {% for q in ae.queue %}<tr><td><input type="checkbox" class="lum-ae-queue-select" value="{{ q.id }}"></td><td>{{ q.id }}</td><td><code>{{ q.metadata_video_key or 'Legacy' }}</code></td><td><span class="lum-state s-{{ (q.status or '')|lower }}">{{ q.status }}</span></td><td>{{ q.channel_name }}</td><td><span class="lum-ellipsis" title="{{ q.drive_file_id or '' }}">{{ q.source_filename or q.original_filename or q.local_video_path }}</span></td><td>{{ q.thumbnail_filename or '—' }}</td><td><span class="lum-ellipsis" title="{{ q.title|e }}">{{ q.title }}</span></td><td>{{ q.app_upload_at or 'Now / queued' }}</td><td>{% if q.youtube_url %}<a href="{{ q.youtube_url }}" target="_blank" rel="noopener">Open</a>{% else %}—{% endif %}</td><td><span class="lum-ellipsis" title="{{ q.error_message or q.post_upload_state or '' }}">{{ q.error_message or q.post_upload_state or q.v6_state or '—' }}</span></td><td>{% if q.channel_job %}{% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/auto-v6/job/upload-now" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="video_id" value="{{ q.id }}"><button class="lum-button secondary tiny" type="submit">Upload Now</button></form>
+{% endif %}<details><summary>Edit</summary><form method="post" action="{{ base_path }}/actions/auto-v6/job/edit" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="video_id" value="{{ q.id }}"><input name="title" value="{{ q.title|e }}" maxlength="100" required><textarea name="description" rows="2">{{ q.description }}</textarea><button class="lum-button secondary tiny" type="submit">Save Job Only</button></form></details>{% else %}Legacy{% endif %}</td></tr>{% else %}<tr><td colspan="12"><div class="lum-empty">No Auto Engine queue rows.</div></td></tr>{% endfor %}
         </tbody></table></div>
-        <div class="lum-ae-recovery"><form method="post" action="{{ base_path }}/actions/auto-v6/recovery-clear" data-lum-soft-form data-ae-queue-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><label class="lum-field"><span>Recovery Review escape hatch</span><input name="confirmation" placeholder="Type I CHECKED YOUTUBE after checking Studio"></label><button class="lum-button danger" type="submit">Authorize Fresh Retry for Selected Review Jobs</button></form></div>
+        <div class="lum-ae-recovery">{% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/auto-v6/recovery-clear" data-lum-soft-form data-ae-queue-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><label class="lum-field"><span>Recovery Review escape hatch</span><input name="confirmation" placeholder="Type I CHECKED YOUTUBE after checking Studio"></label><button class="lum-button danger" type="submit">Authorize Fresh Retry for Selected Review Jobs</button></form>
+{% endif %}</div>
       </section>
     </div>
 
     <div data-ae-panel="records" hidden>
       <section class="lum-card">
-        <div class="lum-card-head"><div><h2>Permanent Upload Records</h2><p>One row per actual upload. Imported PC history remains visible, while the internal V6 safety ledger stays preserved in the background and is not double-counted.</p></div><a class="lum-button secondary" href="{{ base_path }}/actions/auto-v6/upload-records.csv">Download CSV</a></div>
+        <div class="lum-card-head"><div><h2>Permanent Upload Records</h2><p>One row per actual upload. Imported PC history remains visible, while the internal V6 safety ledger stays preserved in the background and is not double-counted.</p></div>{% if user.is_admin %}<a class="lum-button secondary" href="{{ base_path }}/actions/auto-v6/upload-records.csv">Download CSV</a>{% endif %}</div>
         <div class="lum-note"><strong>Duplicate hard guards remain unchanged:</strong> PC Channel ID + exact normalized filename remains authoritative; V6 additionally blocks Channel ID + Drive File ID and Channel ID + script/permanent-ID stem. Safety-ledger rows are retained permanently but hidden when the same verified V6 upload receipt already exists.</div>
         <div class="lum-ae-record-stats"><div><span>Today</span><strong>{{ ae.record_stats.today or 0 }}</strong></div><div><span>Yesterday</span><strong>{{ ae.record_stats.yesterday or 0 }}</strong></div><div><span>7 days</span><strong>{{ ae.record_stats.days7 or 0 }}</strong></div><div><span>30 days</span><strong>{{ ae.record_stats.days30 or 0 }}</strong></div><div><span>90 days</span><strong>{{ ae.record_stats.days90 or 0 }}</strong></div><div><span>365 days</span><strong>{{ ae.record_stats.days365 or 0 }}</strong></div><div><span>All time</span><strong>{{ ae.record_stats.total or 0 }}</strong></div></div>
         <div class="lum-table-wrap"><table class="lum-table lum-ae-records"><thead><tr><th>Uploaded</th><th>Profile</th><th>Channel</th><th>Channel ID</th><th>Filename</th><th>Script Key</th><th>Drive File ID</th><th>YouTube</th><th>Thumbnail</th><th>Drive Result</th><th>State</th></tr></thead><tbody>
@@ -1395,7 +1454,13 @@
   {% elif tab == 'queue' and engine_instance == 'copyright' %}
     {% include "copyright_queue.html" %}
   {% elif tab == 'queue' %}
-    <section class="lum-card"><div class="lum-card-head"><div><h2>Queue</h2><p>Crash-safe desktop upload states wrapped by Drive staging, remote verification and verified cleanup.</p></div><div class="lum-actions"><form method="post" action="{{ base_path }}/actions/pause-after-current"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button" type="submit">Pause After Current</button></form><form method="post" action="{{ base_path }}/actions/stop-current"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button danger" type="submit">Safe Stop Current</button></form><form method="post" action="{{ base_path }}/actions/resume"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button primary" type="submit">Resume</button></form></div></div>{{ queue_table(False) }}</section>
+    <section class="lum-card"><div class="lum-card-head"><div><h2>Queue</h2><p>Crash-safe desktop upload states wrapped by Drive staging, remote verification and verified cleanup.</p></div><div class="lum-actions">{% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/pause-after-current"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button" type="submit">Pause After Current</button></form>
+{% endif %}{% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/stop-current"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button danger" type="submit">Safe Stop Current</button></form>
+{% endif %}{% if user.is_admin %}
+<form method="post" action="{{ base_path }}/actions/resume"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button primary" type="submit">Resume</button></form>
+{% endif %}</div></div>{{ queue_table(False) }}</section>
   {% elif tab == 'logs' %}
     <section class="lum-card"><div class="lum-card-head"><div><h2>Logs</h2><p>Copyright Uploader events only.</p></div></div><div class="lum-log">{% for e in logs %}<div><time>{{ e.created_at }}</time><b class="l-{{ e.level|lower }}">{{ e.level }}</b><span>{% if e.project_id %}#{{ e.project_id }} · {% endif %}{{ e.message }}</span></div>{% else %}<div>No logs yet.</div>{% endfor %}</div></section>
   {% endif %}

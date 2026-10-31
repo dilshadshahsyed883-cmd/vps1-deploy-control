@@ -39,7 +39,7 @@ class ShortProfileControlTests(unittest.TestCase):
         start=source.index("{% elif tab == 'sheets' %}")
         end=source.index("{% elif tab == 'auto_engine' %}",start)
         section=source[start:end].split("\n",1)[1]
-        ctx=dict(base_path='/short-uploader',csrf='offline',selected_sheet_source=None,
+        ctx=dict(base_path='/short-uploader',csrf='offline',user={'is_admin': True},selected_sheet_source=None,
                  sheet_sources=[dict(id=1,sheet_name='Source',sheet_url_or_id='sheet-url',
                                      enabled=True,last_sync_at=None,last_sync_status=None)],
                  stats=dict(settings=dict(sheets_sync_enabled='1')))
@@ -209,6 +209,7 @@ class ShortProfileControlTests(unittest.TestCase):
         end = source.index('<section class="lum-card lum-ae-automation-controls"', start)
         section = source[start:end]
         context = dict(engine_instance='shortstudio', base_path='/short-uploader',
+                       user={'is_admin': True},
                        csrf='offline-token', p=dict(id=2, category_name='Hania Asif', enabled=True),
                        ae=dict(engine=dict(scheduler_armed=True),
                                profiles=[dict(id=2,category_name='Hania Asif',enabled=True)]))

@@ -24,13 +24,17 @@ class SongStudioReleaseTests(unittest.TestCase):
         transport = types.SimpleNamespace(get=Mock(return_value=upstream))
         auth = Mock()
         render = Mock(return_value=b'canonical html')
+        hide_proxy = Mock(return_value=b'canonical html')
         response = Mock()
         env = {'Request':object,'HTMLResponse':object,'HTTPException':HTTPException,
                '_vs_asyncio':asyncio,'_vs_requests':transport,'require_login':auth,
-               '_audio_downloader_canonical_html':render,'_VSResponse':response}
+               '_audio_downloader_canonical_html':render,
+               '_audio_downloader_hide_shared_proxy_controls':hide_proxy,
+               '_VSResponse':response}
         exec(compile(ast.Module(body=[node],type_ignores=[]),'<route-test>','exec'),env)
-        request = object()
+        request = types.SimpleNamespace(session={'is_admin': False})
         asyncio.run(env['audio_downloader_canonical_page'](request))
+        hide_proxy.assert_called_once_with(b'canonical html', is_admin=False)
         auth.assert_called_once_with(request)
         transport.get.assert_called_once_with('http://127.0.0.1:8143/app',timeout=30,allow_redirects=False)
         render.assert_called_once_with(b'reviewed html')

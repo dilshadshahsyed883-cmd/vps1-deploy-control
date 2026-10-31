@@ -16,7 +16,7 @@ class SongAutomationGroupSummaryTests(unittest.TestCase):
         end = source.index('</section>', start) + len('</section>')
         return Environment(autoescape=True).from_string(source[start:end]).render(
             engine_instance=instance, ae=SimpleNamespace(profiles=profiles or []),
-            p=None, base_path="/song-uploader", csrf="offline-test"
+            p=None, user={"is_admin": True}, base_path="/song-uploader", csrf="offline-test"
         )
 
     def test_group_name_exact_channel_count_and_saved_pkt_times(self):
