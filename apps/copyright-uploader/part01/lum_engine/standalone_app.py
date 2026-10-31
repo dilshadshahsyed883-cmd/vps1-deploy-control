@@ -932,6 +932,18 @@ def retry_project(project_id: int, request: Request, csrf_token: str = Form(...)
         return redirect(f"/app?tab={tab}", error=str(exc))
 
 
+@app.post(route("/actions/cancel/{project_id}"))
+def cancel_waiting_project(project_id: int, request: Request, csrf_token: str = Form(...)):
+    user = current_user(request)
+    require_csrf(request, csrf_token)
+    if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+        raise HTTPException(404, "Not found")
+    project = _owned_or_admin(user, project_id)
+    if store.cancel_waiting(project_id, str(project["owner_username"])):
+        return redirect("/app?tab=queue", message=f"Waiting project #{project_id} cancelled; media preserved")
+    return redirect("/app?tab=queue", error="Project is no longer waiting; active or completed uploads cannot be cancelled here")
+
+
 @app.post(route("/actions/authorize-fresh/{project_id}"))
 def authorize_fresh(project_id: int, request: Request, csrf_token: str = Form(...), confirm_text: str = Form("")):
     user = current_user(request); require_csrf(request, csrf_token); project = _owned_or_admin(user, project_id)
