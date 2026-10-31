@@ -73,7 +73,27 @@ class CopyrightUploaderUI(unittest.TestCase):
         self.assertIn('/actions/sheets/sync-all',html)
         self.assertIn('/actions/sheets/sync',html)
         self.assertIn('No Google Sheet source saved yet.',html)
-        self.assertIn('Sync Mode OFF',html)
+        self.assertIn('Sync Enabled',html)
+        self.assertNotIn('Sync Mode OFF',html)
+
+    def test_channels_have_no_manual_channel_or_group_creation_for_any_user(self):
+        for is_admin in (True, False):
+            with self.subTest(admin=is_admin):
+                html=fixture('channels',is_admin=is_admin)
+                for removed in ('Your YouTube channels', 'Add my channel', 'Create my group',
+                                '/actions/studio-tenant/channel-create',
+                                '/actions/studio-tenant/group-create'):
+                    self.assertNotIn(removed,html)
+                self.assertIn('Channel &amp; Brand Manager',html)
+                self.assertIn('tab=sheets',html)
+
+    def test_modes_card_absent_for_admin_and_nonadmin(self):
+        for is_admin in (True, False):
+            html=fixture('dashboard',is_admin=is_admin)
+            for removed in ('Future modes','Uploader modes','Save modes',
+                            '/actions/settings'):
+                self.assertNotIn(removed,html)
+            self.assertIn('tab=queue',html)
 
     def test_release_selection_keeps_other_apps_out_of_ui_release(self):
         workflow=(ROOT/'.github/workflows/vps1-copyright-studio-release.yml').read_text()
