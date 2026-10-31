@@ -160,12 +160,14 @@
       primaryLinks = addPrimaryLinks(navigation, current);
     }
     applyStudioVisibility(primaryLinks, null);
-    // Short Maker and Video Merger are independent legacy documents. Render
-    // the same second-level rail there; Scene templates already render it.
+    // Experiment navigation remains admin-only even on independently served pages.
+    // Hide while session identity is pending; a trusted live Scene response enables it.
     if (current === "experiment" && !document.querySelector('nav[aria-label="Experiment Studio"]')) {
       const main = document.querySelector("main");
       if (main) main.prepend(createExperimentTabs(true, experimentSection(window.location.pathname)).tabs);
     }
+    const experimentTabs = document.querySelector('nav[aria-label="Experiment Studio"]');
+    if (experimentTabs) experimentTabs.hidden = true;
     let account = sidebar.querySelector(":scope > .sidebar-account");
     if (!account) {
       account = node("div", "sidebar-account");
@@ -193,6 +195,7 @@
       applyStudioVisibility(primaryLinks, identity);
       const authenticated = !!(identity && identity.authenticated === true);
       const isAdmin = authenticated && identity.is_admin === true;
+      if (experimentTabs) experimentTabs.hidden = !isAdmin;
       if (isAdmin && !adminLink) {
         adminLink = addLink(navigation, "Admin", "/admin",
           /^\/admin(\/|$)/.test(window.location.pathname));
@@ -260,6 +263,7 @@
     // All native app screens use the live Scene session role; no local-app
     // guessing or browser-stored role flags. Admin stays hidden until verified.
     let adminLink = null;
+    let experimentTabs = null;
     const account = node("div", "vps1-native-account");
     account.hidden = false;
     account.appendChild(node("small", "", "ACCOUNT"));
@@ -277,6 +281,7 @@
       applyStudioVisibility(primaryLinks, identity);
       const authorized = !!(identity && identity.authenticated === true);
       const isAdmin = authorized && identity.is_admin === true;
+      if (experimentTabs) experimentTabs.hidden = !isAdmin;
       if (isAdmin && !adminLink) {
         adminLink = node("a", "", "Admin");
         adminLink.href = "/admin";
@@ -327,7 +332,11 @@
       ? createExperimentTabs(false, app === "library" ? "library" :
           app === "acs" ? "video" : app === "voice" ? "voice" : "upload")
       : null;
-    if (secondLevel) toggle.after(secondLevel.tabs);
+    if (secondLevel) {
+      experimentTabs = secondLevel.tabs;
+      experimentTabs.hidden = true;
+      toggle.after(experimentTabs);
+    }
     const attachInnerTabs = tabs => (secondLevel ? secondLevel.tabs : toggle).after(tabs);
     const voiceLink = secondLevel?.links.voice;
     const songLink = primaryLinks.song;
