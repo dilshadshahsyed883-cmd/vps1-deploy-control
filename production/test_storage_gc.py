@@ -62,6 +62,22 @@ class StorageGCTests(unittest.TestCase):
             self.assertTrue(gc._runtime_in_use([target], proc_root=proc))
             (pid / "cwd").unlink()
 
+            # A genuine kernel process may expose procfs cwd/exe
+            # symlinks whose targets do not exist. This must not be
+            # treated as a live release reference.
+            (pid / "cwd").symlink_to(proc / "nonexistent-cwd")
+            (pid / "exe").symlink_to(proc / "nonexistent-executable")
+            self.assertFalse((pid / "cwd").exists())
+            self.assertFalse((pid / "exe").exists())
+            self.assertTrue((pid / "cwd").is_symlink())
+            self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc),
+                             "clear")
+            (pid / "exe").unlink()
+            (pid / "exe").symlink_to(target)
+            self.assertTrue(gc._runtime_in_use([target], proc_root=proc))
+            (pid / "exe").unlink()
+            (pid / "cwd").unlink()
+
             # Real userspace references still win over kernel-thread detection.
             (pid / "cmdline").write_bytes(os.fsencode(target) + b"/app.py")
             self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc),
