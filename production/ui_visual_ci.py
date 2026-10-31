@@ -205,7 +205,8 @@ def verify_song_navigation(browser, shell_js: str, shell_css: str) -> list[str]:
     scene_env = Environment(loader=FileSystemLoader(SCENE / "templates"),
                             undefined=ChainableUndefined)
     experiment_html = scene_env.get_template("base.html").render(
-        request={"session": {"is_admin": False, "app_access": "all"}},
+        request={"session": {"is_admin": True, "app_access": "all",
+                             "studio_access": ("song", "short", "copyright")}},
         page="experiment_studio", username="fixture")
     context = browser.new_context(viewport={"width": 1440, "height": 900})
     errors = []
@@ -227,7 +228,8 @@ def verify_song_navigation(browser, shell_js: str, shell_css: str) -> list[str]:
                 route.fulfill(content_type="text/css", body=shell_css)
             else:
                 route.fulfill(content_type="application/json", body=
-                    '{"authenticated":true,"is_admin":false,"username":"fixture",'
+                    '{"authenticated":true,"is_admin":true,"username":"fixture",'
+                    '"allowed_studios":["song","short","copyright"],'
                     '"jobs":[],"voices":[],"profiles":[],"counts":{}}')
         context.route("**/*", route_request)
         page = context.new_page()
@@ -321,9 +323,20 @@ def run(screenshots: Path | None) -> int:
                 rails = {}
                 screenshots_in_memory = {}
                 try:
+                    # Compare real admin Studio hierarchy with the same verified
+                    # Scene role in every app. about:blank fixtures cannot fetch
+                    # /api/session/identity and incorrectly hide Experiment tabs.
+                    ctx.route("**/api/session/identity", lambda route: route.fulfill(
+                        status=200, content_type="application/json", body=(
+                            '{"authenticated":true,"is_admin":true,"username":"visual-admin",'
+                            '"allowed_studios":["song","short","copyright"]}')))
+                    ctx.route("**/__vps1_visual_fixture__", lambda route: route.fulfill(
+                        status=200, content_type="text/html",
+                        body="<!doctype html><html><body></body></html>"))
                     for app in list(VIDEOS) + ["auto-uploader", "auto-stream", "voice-studio"]:
                         page = ctx.new_page()
                         try:
+                            page.goto("https://app.scenebuilder.online/__vps1_visual_fixture__")
                             page.set_content(page_html(app))
                             page.add_style_tag(content="body{margin:0}")
                             page.add_style_tag(content=shell_css)
@@ -356,6 +369,13 @@ def run(screenshots: Path | None) -> int:
                                       document.body.append(s);
                                     }""",
                                     [workspace, native_js])
+                            if app in ("scene-builder", "video-merger") or app in NATIVE:
+                                page.wait_for_function("""() => {
+                                    const account = document.querySelector(
+                                      '#app-sidebar .sidebar-account, '
+                                      + '#vps1-native-site-sidebar .vps1-native-account');
+                                    return account && account.dataset.vps1IdentityStatus === 'verified';
+                                }""", timeout=7000)
                             if app in VIDEOS:
                                 selector = (".vps1-native-video-tabs"
                                             if app == "auto-caption-studio"
