@@ -995,6 +995,23 @@ def main():
     check_host(args.revision)
     with deployment_lock():
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        # Scoped Audio Downloader first-owner audit/claim: no service restart,
+        # no media/prefs/queue mutation and no Song/Short Maker deployment.
+        if '[vps1-haseeb1-audio-readonly]' in intent:
+            if args.action != 'install' or args.apps != ['voice-studio']:
+                raise RuntimeError('haseeb1 Audio audit requires exact Voice lane')
+            from production.studio_haseeb1_audio_assignment import read_only
+            event(**read_only(DATA, DATA / 'scene-builder/web/web.sqlite3'))
+            return
+        if '[vps1-haseeb1-audio-apply]' in intent:
+            if args.apps != ['voice-studio'] or args.action not in ('install', 'rollback'):
+                raise RuntimeError('haseeb1 Audio claim requires exact Voice lane')
+            from production.studio_haseeb1_audio_assignment import install, rollback
+            if args.action == 'install':
+                install(args.revision)
+            else:
+                event(**rollback(args.revision))
+            return
         # Read-only dry run can be merged independently before any owner change.
         if '[vps1-haseeb1-song-short-readonly]' in intent:
             if args.action != 'install' or args.apps != ['local-upload-manager']:
