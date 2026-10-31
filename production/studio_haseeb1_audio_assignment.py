@@ -141,9 +141,37 @@ def read_only(data_root: Path, scene_db: Path) -> dict:
                 "SELECT COUNT(*) FROM jobs WHERE lower(trim(coalesce(status,''))) NOT IN ("
                 + ",".join("?" for _ in TERMINAL) + ")", tuple(sorted(TERMINAL))
             ).fetchone()[0]) if "status" in job_columns else None
-            summary = {"total_jobs": total, "nonterminal_jobs": nonterminal,
-                       "owners": "UNVERIFIED_SCHEMA", "preferences": "UNCHANGED",
-                       "media_references": "UNCHANGED"}
+            proven = None
+            foreign_handoff = None
+            unproven = None
+            if {"song_maker_owner", "auto_song_maker"} <= job_columns:
+                evidence = con.execute("""
+                    SELECT
+                      SUM(CASE WHEN lower(trim(coalesce(song_maker_owner,'')))=?
+                                AND auto_song_maker=1 THEN 1 ELSE 0 END),
+                      SUM(CASE WHEN trim(coalesce(song_maker_owner,''))<>''
+                                AND lower(trim(song_maker_owner))<>? THEN 1 ELSE 0 END),
+                      SUM(CASE WHEN trim(coalesce(song_maker_owner,''))=''
+                                OR auto_song_maker<>1 THEN 1 ELSE 0 END)
+                    FROM jobs
+                """, (TARGET, TARGET)).fetchone()
+                proven, foreign_handoff, unproven = [int(v or 0) for v in evidence]
+            pref_target = pref_foreign = None
+            if "owner" in pref_columns:
+                prefs = con.execute("""SELECT
+                    SUM(CASE WHEN lower(trim(owner))=? THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN lower(trim(owner))<>? THEN 1 ELSE 0 END)
+                    FROM audio_preferences""", (TARGET, TARGET)).fetchone()
+                pref_target, pref_foreign = [int(v or 0) for v in prefs]
+            summary = {
+                "total_jobs": total, "nonterminal_jobs": nonterminal,
+                "owners": "UNVERIFIED_SCHEMA",
+                "authenticated_handoff_matches": proven,
+                "foreign_handoff_records": foreign_handoff,
+                "unproven_handoff_records": unproven,
+                "preferences": {"target": pref_target, "other": pref_foreign},
+                "media_references": "UNCHANGED",
+            }
             schema_status = "APPLY_BLOCKED_SCHEMA_DRIFT"
     return {
         "mode": "READ_ONLY", "target_verified": True, "inventory": summary,

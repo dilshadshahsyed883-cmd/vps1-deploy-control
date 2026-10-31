@@ -161,6 +161,22 @@ class AudioOwnershipTests(unittest.TestCase):
         self.assertEqual(self.snapshot()[0][3], "haseeb1")
         self.assertEqual(self.snapshot()[0][2], "upload_retry")
 
+    def test_legacy_missing_owner_column_reports_only_aggregate_evidence(self):
+        self.job("h1", "completed", handoff="haseeb1", auto=1)
+        self.job("h2", "failed", handoff="alice", auto=1)
+        self.job("h3", "completed")
+        with sqlite3.connect(self.source) as con:
+            con.execute("ALTER TABLE jobs DROP COLUMN owner_username")
+        before = self.preferences()
+        report = audio.read_only(self.data, self.scene)
+        self.assertEqual(report["schema_status"], "APPLY_BLOCKED_SCHEMA_DRIFT")
+        self.assertEqual(report["schema_missing_jobs"], ["owner_username"])
+        self.assertEqual(report["inventory"]["authenticated_handoff_matches"], 1)
+        self.assertEqual(report["inventory"]["foreign_handoff_records"], 1)
+        self.assertEqual(report["inventory"]["unproven_handoff_records"], 1)
+        self.assertEqual(report["inventory"]["preferences"], {"target": 1, "other": 1})
+        self.assertEqual(before, self.preferences())
+
     def test_schema_drift_and_symlink_aborts_closed(self):
         with sqlite3.connect(self.source) as db:
             db.execute("DROP TABLE audio_preferences")
