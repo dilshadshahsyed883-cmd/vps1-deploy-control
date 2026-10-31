@@ -289,6 +289,14 @@ async def standalone_auth(request: Request, call_next):
                     route("/actions/auto-v6/queue-preflight"),
                     route("/actions/auto-v6/profile-schedules/save"),
                 })
+            if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio":
+                # Member bulk actions are ACL-scoped in Short handlers.
+                allowed_exact.update({
+                    route("/actions/auto-v6/sync-all"),
+                    route("/actions/auto-v6/start-all"),
+                    route("/actions/auto-v6/queue-preflight"),
+                    route("/actions/auto-v6/profile-schedules/save"),
+                })
             allowed_prefixes=(route("/actions/retry/"),
                 route("/actions/authorize-fresh/"),
                 route("/actions/cancel/"),route("/actions/channel-network/"))
@@ -300,7 +308,7 @@ async def standalone_auth(request: Request, call_next):
                 (path.startswith(route("/reports/")) or
                  path.startswith(route("/actions/auto-v6/thumbnail/")) or
                  (path==route("/actions/auto-v6/preview-all") and
-                  os.getenv("LUM_ENGINE_INSTANCE") != "song") or
+                  os.getenv("LUM_ENGINE_INSTANCE") not in {"song", "shortstudio"}) or
                  path==route("/actions/auto-v6/upload-records.csv") or
                  path==route("/api/auto-modes"))):
             return JSONResponse({"detail":"Owner-scoped resource access required"},status_code=403)
@@ -1422,6 +1430,27 @@ def _song_owned_automation_profiles(request: Request) -> list[dict[str, Any]]:
     return owned
 
 
+def _short_owned_automation_profiles(request: Request) -> list[dict[str, Any]]:
+    """Select only verified member-owned Short profiles with fully owned targets."""
+    if os.getenv("LUM_ENGINE_INSTANCE") != "shortstudio":
+        raise PermissionError("Short tenant bulk operations are Short Uploader only")
+    user=current_user(request)
+    if int(user.get("is_admin") or 0):
+        raise PermissionError("Administrator uses the existing global action")
+    allowed=studio_tenants.allowed_ids("profile",user)
+    owned=[]
+    for raw in db.list_auto_engine_profiles():
+        pid=int(raw.get("id") or 0)
+        if pid not in allowed:
+            continue
+        try:
+            owned.append(_v6_profile(pid,request))
+        except (ValueError,PermissionError):
+            # Legacy/unassigned and mixed-membership groups are never bulk targets.
+            continue
+    return owned
+
+
 @app.post(route("/actions/auto-v6/profile/save"))
 async def auto_v6_profile_save(request: Request):
     user=current_user(request); require_heavy(user)
@@ -1527,20 +1556,22 @@ def auto_v6_sync_scan(request: Request,csrf_token: str=Form(...),profile_id: int
 @app.post(route("/actions/auto-v6/sync-all"))
 def auto_v6_sync_all(request: Request,csrf_token: str=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
-    song_member=(os.getenv("LUM_ENGINE_INSTANCE")=="song" and not int(user.get("is_admin") or 0))
-    profiles=_song_owned_automation_profiles(request) if song_member else db.list_auto_engine_profiles()
+    mode=os.getenv("LUM_ENGINE_INSTANCE")
+    member=mode in {"song","shortstudio"} and not int(user.get("is_admin") or 0)
+    profiles=(_song_owned_automation_profiles(request) if mode=="song" else
+              _short_owned_automation_profiles(request)) if member else db.list_auto_engine_profiles()
     created=0; synced=0; errors=[]
     for profile in profiles:
         folder_owner=v6_store.group_settings(int(profile.get("id") or 0)).get("song_folder_owner")
-        if not song_member and folder_owner and folder_owner!=str(user.get("username") or ""): continue
+        if not member and folder_owner and folder_owner!=str(user.get("username") or ""): continue
         pid=int(profile.get("id") or 0)
         if int(profile.get("enabled") or 0)!=1:
             continue
         try:
             if v6_store.is_channel_profile(pid):
                 # Member Sync is validation/inventory only; Start remains explicit.
-                result=v6_sync_channel_profile(db,v6_store,profile,queue_valid=not song_member)
-            elif os.environ.get("LUM_ENGINE_INSTANCE")=="song":
+                result=v6_sync_channel_profile(db,v6_store,profile,queue_valid=not member)
+            elif os.environ.get("LUM_ENGINE_INSTANCE") in {"song","shortstudio"}:
                 result=v6_preflight_profile(db,v6_store,profile)
                 if not result.get("ok"):
                     raise ValueError("; ".join(result.get("errors") or ["Source validation failed"]))
@@ -1549,9 +1580,9 @@ def auto_v6_sync_all(request: Request,csrf_token: str=Form(...)):
             created+=int(result.get("created") or 0); synced+=1
         except Exception as exc:
             errors.append(f"{profile.get('category_name') or pid}: {exc}")
-    if created and not song_member: v6_store.set_engine(running=True,pause_after_current=False)
+    if created and not member: v6_store.set_engine(running=True,pause_after_current=False)
     message=(f"Synced {synced} owned profile(s); no uploads started."
-             if song_member else
+             if member else
              f"Synced {synced} channel profile(s); queued {created} new job(s).")
     if errors: message+=f" {len(errors)} profile(s) need attention."
     return redirect("/app?tab=auto_engine",message=message,error="; ".join(errors[:3]) if errors and synced==0 else "")
@@ -1612,8 +1643,10 @@ async def auto_v6_job_edit(request: Request):
 def auto_v6_queue_preflight(request: Request,csrf_token: str=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
     try:
-        if os.getenv("LUM_ENGINE_INSTANCE")=="song" and not int(user.get("is_admin") or 0):
-            ids={int(profile["id"]) for profile in _song_owned_automation_profiles(request)}
+        if os.getenv("LUM_ENGINE_INSTANCE") in {"song","shortstudio"} and not int(user.get("is_admin") or 0):
+            profiles=(_song_owned_automation_profiles(request) if os.getenv("LUM_ENGINE_INSTANCE")=="song"
+                      else _short_owned_automation_profiles(request))
+            ids={int(profile["id"]) for profile in profiles}
             class OwnedQueue:
                 def __getattr__(self,name):
                     return getattr(db,name)
@@ -1728,8 +1761,10 @@ def auto_v6_preview_all(request: Request):
     user=current_user(request); require_heavy(user)
     if os.environ.get("LUM_ENGINE_INSTANCE") not in {"song","shortstudio"}:
         return V6JSONResponse({"ok":False,"error":"Group preview unavailable for this engine."},status_code=400)
-    member=(os.getenv("LUM_ENGINE_INSTANCE")=="song" and not int(user.get("is_admin") or 0))
-    profiles=_song_owned_automation_profiles(request) if member else db.list_auto_engine_profiles()
+    mode=os.getenv("LUM_ENGINE_INSTANCE")
+    member=mode in {"song","shortstudio"} and not int(user.get("is_admin") or 0)
+    profiles=(_song_owned_automation_profiles(request) if mode=="song" else
+              _short_owned_automation_profiles(request)) if member else db.list_auto_engine_profiles()
     summaries=[]; total=0
     for raw in profiles:
         pid=int(raw.get("id") or 0)
@@ -1814,8 +1849,10 @@ def auto_v6_start_all(request: Request,csrf_token: str=Form(...),confirmation: s
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
     if str(confirmation).strip()!="START ALL":
         return redirect("/app?tab=auto_engine",error='Type START ALL exactly.')
-    member=(os.getenv("LUM_ENGINE_INSTANCE")=="song" and not int(user.get("is_admin") or 0))
-    profiles=_song_owned_automation_profiles(request) if member else db.list_auto_engine_profiles()
+    mode=os.getenv("LUM_ENGINE_INSTANCE")
+    member=mode in {"song","shortstudio"} and not int(user.get("is_admin") or 0)
+    profiles=(_song_owned_automation_profiles(request) if mode=="song" else
+              _short_owned_automation_profiles(request)) if member else db.list_auto_engine_profiles()
     enabled=[p for p in profiles if int(p.get("enabled") or 0)==1]
     if member:
         if not enabled:
@@ -1964,8 +2001,10 @@ async def auto_v6_profile_schedules_save(request: Request):
     errors=[]
     current_raw=str(form.get("current_profile_id") or "0")
     current_profile_id=int(current_raw) if current_raw.isdigit() else 0
-    member=(os.getenv("LUM_ENGINE_INSTANCE")=="song" and not int(user.get("is_admin") or 0))
-    profiles=_song_owned_automation_profiles(request) if member else db.list_auto_engine_profiles()
+    mode=os.getenv("LUM_ENGINE_INSTANCE")
+    member=mode in {"song","shortstudio"} and not int(user.get("is_admin") or 0)
+    profiles=(_song_owned_automation_profiles(request) if mode=="song" else
+              _short_owned_automation_profiles(request)) if member else db.list_auto_engine_profiles()
     for profile in profiles:
         folder_owner=v6_store.group_settings(int(profile.get("id") or 0)).get("song_folder_owner")
         if not member and folder_owner and folder_owner!=str(user.get("username") or ""): continue

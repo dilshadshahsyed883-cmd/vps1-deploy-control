@@ -1567,6 +1567,13 @@ def main():
             from production.short_uploader_group_release import install as install_network_fix
             install_network_fix(args.revision, network_only=True)
             return
+        # Dedicated Short member-controls release. Never touch Song or shared LUM lanes.
+        if '[vps1-shortstudio-member-controls]' in intent:
+            if args.action != 'install' or args.apps != ['local-upload-manager']:
+                raise RuntimeError('Short member controls require isolated Short Uploader lane')
+            from production.short_uploader_group_release import install as install_short_member_controls
+            install_short_member_controls(args.revision, member_controls_only=True)
+            return
         # Fixed-mode Short-only release; do not invoke the shared LUM installer.
         if '[vps1-shortstudio-fixed-modes]' in intent:
             if args.action != 'install' or args.apps != ['local-upload-manager']:
