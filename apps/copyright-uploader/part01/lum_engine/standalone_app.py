@@ -635,7 +635,7 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         "auto_mode": selected_auto_mode,
         "engine_instance": engine_instance,
         "mode_registry": mode_registry,
-        "reports": list_reports(),
+        "reports": list_reports() if int(user.get("is_admin") or 0) else [],
         "csrf": csrf(request),
         "oauth_url": str(request.session.get("lum_oauth_url") or ""),
         "oauth_session_id": str(request.session.get("lum_oauth_session_id") or ""),
