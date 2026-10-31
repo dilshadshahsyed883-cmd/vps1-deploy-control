@@ -3,7 +3,14 @@
 No running VPS, systemd commands, worker queue reads or production deletions.
 """
 from pathlib import Path
+import ast
+import fcntl
+import os
+import stat
+import tempfile
+import time
 import unittest
+from typing import Any
 
 from production import storage_dashboard_web_release as overlay
 
@@ -87,6 +94,53 @@ class StorageWebOnlyRelease(unittest.TestCase):
         self.assertFalse(allowed("POST", "/api/admin/storage/run-safe-cleanup/", False))
         self.assertFalse(allowed("POST", "/api/auto-script/tick", False,
                                  auto_script_enabled=False))
+
+    def test_button_queues_exact_root_systemd_service_with_auditable_receipt(self):
+        # No real systemd calls or production writes: execute only the reviewed
+        # private queue function in an isolated 0700 tempfile spool.
+        source = reviewed_web()
+        code = ast.parse(source)
+        queue = next(node for node in code.body
+                     if isinstance(node, ast.FunctionDef)
+                     and node.name == "queue_guarded_storage_gc")
+        isolated = compile(ast.Module(body=[queue], type_ignores=[]),
+                           str(SCENE / "app.py"), "exec")
+        with tempfile.TemporaryDirectory() as folder:
+            spool = Path(folder) / "private"
+            spool.mkdir(mode=0o700)
+            namespace = dict(Path=Path, MANUAL_STORAGE_GC_REQUEST_DIR=spool,
+                             Any=Any, os=os, fcntl=fcntl, stat=stat, time=time)
+            exec(isolated, namespace)
+            submit = namespace["queue_guarded_storage_gc"]
+            receipt = submit(now=1000.0)
+            self.assertEqual(receipt["status"], "queued")
+            self.assertEqual(receipt["requested_at"], 1000)
+            self.assertEqual((spool / "request").read_text(), "1000\n")
+            self.assertEqual(stat.S_IMODE((spool / "request").stat().st_mode), 0o600)
+            duplicate = submit(now=1010.0)
+            self.assertEqual(duplicate["status"], "queued")
+            self.assertIsInstance(duplicate["requested_at"], int)
+            (spool / "request").unlink()
+            with self.assertRaisesRegex(RuntimeError, "two minutes"):
+                submit(now=1060.0)
+            spool.chmod(0o755)
+            with self.assertRaisesRegex(RuntimeError, "not safely provisioned"):
+                submit(now=1200.0)
+        path_unit = (ROOT / "infrastructure/systemd/vps1-storage-deployment-gc-manual.path").read_text()
+        gc_unit = (ROOT / "infrastructure/systemd/vps1-storage-deployment-gc.service").read_text()
+        self.assertIn("PathExists=/run/vps1-storage-gc-manual/request", path_unit)
+        self.assertIn("Unit=vps1-storage-deployment-gc.service", path_unit)
+        self.assertIn("--apply", gc_unit)
+        self.assertIn("ExecStartPre=-/usr/bin/rm -f /run/vps1-storage-gc-manual/request", gc_unit)
+
+    def test_button_does_not_confuse_queue_receipt_with_completed_audit(self):
+        js = (SCENE / "static/storage_manager.js").read_text()
+        self.assertIn("manualRunRequestedAt", js)
+        self.assertIn("body.requested_at", js)
+        self.assertIn("auditAt > (manualRunBaselineAuditAt || 0)", js)
+        self.assertIn("stopManualPolling()", js)
+        self.assertIn("Verified cleanup completed", js)
+        self.assertNotIn("Queued safely. Refresh status", js)
 
     def test_web_overlay_copies_only_reviewed_guard_file_and_preserves_render_worker(self):
         script = (ROOT / "production/storage_dashboard_web_release.py").read_text()

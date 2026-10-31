@@ -86,8 +86,10 @@ export function mount(root, context = {}) {
       ? (info.next_run_at?'Uses a 12-hour inactive-release grace; preserves the live release and rollback copies.':'The timer is active, but systemd has not published its next run. Refresh cleanup status to check again.')
       : 'Cannot confirm an active timer from the live host. No app data will be deleted from this page.');
     text('gc-next-run', presentTime(info?.next_run_at));
-    if (manualButton) manualButton.disabled = manualRunning || !active || info?.manual_available !== true || info?.manual_pending === true;
-    if (!manualRunning && info?.manual_pending === true) text('gc-manual-result', 'Manual cleanup queued; all protected checks remain active.');
+    if (manualButton) manualButton.disabled = manualRunning || manualRunRequestedAt !== null ||
+      !active || info?.manual_available !== true || info?.manual_pending === true;
+    if (!manualRunning && manualRunRequestedAt === null && info?.manual_pending === true)
+      text('gc-manual-result', 'Manual cleanup queued; awaiting guarded service audit.');
     const audit = info?.last_cleanup || null;
     text('gc-last-run', presentTime(audit?.timestamp));
     text('gc-last-result', audit
@@ -116,10 +118,42 @@ export function mount(root, context = {}) {
     text('gc-eligible-detail', info && Number.isFinite(info.eligible_bytes)
       ? 'Read-only candidate estimate (' + (Number.isSafeInteger(info.eligible_candidate_count) ? info.eligible_candidate_count + ' items, ' : '') + 'measured ' + presentTime(info.eligible_measured_at) + '). Not a promise of deletable space; live checks can skip candidates.'
       : 'No privileged inventory available from this read-only web service; do not interpret as 0 B.');
+    const auditAt = Date.parse(audit?.timestamp || '');
+    if (Number.isFinite(auditAt)) lastObservedAuditAt = auditAt;
+    if (manualRunRequestedAt !== null) {
+      // A POST receipt is NOT a systemd completion. Only the root-owned
+      // audit published after the request can confirm an actual run.
+      const afterRequest = Number.isFinite(auditAt) &&
+        auditAt >= manualRunRequestedAt * 1000 - 1000 &&
+        auditAt > (manualRunBaselineAuditAt || 0);
+      const expired = Date.now() - manualRunRequestedAt * 1000 > 35 * 60 * 1000;
+      if (afterRequest) {
+        text('gc-manual-result', 'Verified cleanup completed: ' +
+          (Number.isFinite(audit?.measured_freed_bytes) ? bytes(audit.measured_freed_bytes) : 'space unknown') +
+          ' freed; ' + (audit?.deleted_count ?? 'unknown') +
+          ' release(s) deleted; ' + (audit?.skipped_count ?? 'unknown') + ' skipped.');
+        manualRunRequestedAt = null;
+        stopManualPolling();
+      } else if (expired) {
+        text('gc-manual-result', 'Request submitted, but no new completed cleanup audit was verified. Check service status; do not assume files were deleted.');
+        manualRunRequestedAt = null;
+        stopManualPolling();
+      } else {
+        text('gc-manual-result', 'Request queued; checking the guarded systemd cleanup audit…');
+      }
+    }
   }
 
   const manualButton = get('gc-manual-clean');
   let manualRunning = false;
+  let manualRunRequestedAt = null;
+  let manualRunBaselineAuditAt = 0;
+  let lastObservedAuditAt = 0;
+  let manualStatusTimer = null;
+  function stopManualPolling() {
+    if (manualStatusTimer !== null) window.clearInterval(manualStatusTimer);
+    manualStatusTimer = null;
+  }
   async function requestManualCleanup() {
     if (!manualButton || manualRunning || manualButton.disabled) return;
     if (!window.confirm('Run safe deployment cleanup now? Active releases, rollback copies, media and queues remain protected.')) return;
@@ -135,7 +169,13 @@ export function mount(root, context = {}) {
         body:JSON.stringify({confirmation:'RUN SAFE CLEANUP'})});
       const body = await response.json();
       if (!response.ok || body.ok !== true || body.status !== 'queued') throw new Error(body.detail || body.message || 'Request failed');
-      text('gc-manual-result', 'Queued safely. Refresh status for audited results; timer stays active.');
+      if (!Number.isSafeInteger(body.requested_at) || body.requested_at <= 0)
+        throw new Error('Cleanup request received without a verifiable timestamp');
+      manualRunBaselineAuditAt = lastObservedAuditAt;
+      manualRunRequestedAt = body.requested_at;
+      text('gc-manual-result', 'Request queued via systemd. Awaiting verified cleanup audit…');
+      if (manualStatusTimer === null)
+        manualStatusTimer = window.setInterval(() => { if (!document.hidden) loadStatus(); }, 5000);
       await loadStatus();
     } catch (error) {
       text('gc-manual-result', 'Not started: ' + (error?.message || 'unavailable'));
@@ -176,7 +216,7 @@ export function mount(root, context = {}) {
   loadStatus();
   const timers = [window.setInterval(() => {if (!document.hidden) loadMetrics();}, 30000),
     window.setInterval(() => {if (!document.hidden) loadStatus();}, 60000)];
-  return {unmount() { lifetime.abort(); timers.forEach(window.clearInterval); }, dispose() {}};
+  return {unmount() { lifetime.abort(); timers.forEach(window.clearInterval); stopManualPolling(); }, dispose() {}};
 }
 
 // Legacy document boundary; the persistent adapter mounts its own shadow root.
