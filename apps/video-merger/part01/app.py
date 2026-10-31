@@ -1401,6 +1401,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         p=self.route()
         try:
+            # Every mutation and source lookup must have verified Scene identity.
+            # /health remains the only intentionally public operational probe.
+            self.principal()
             payload=self.read_json()
             if p==PREFIX+'/api/jobs':
                 jid,filename=add_job(payload,self.principal()); return self.send_json(201,{'ok':True,'id':jid,'filename':filename})
