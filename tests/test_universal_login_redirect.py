@@ -43,6 +43,18 @@ class LoginReturnTargetTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertEqual(helper.safe_login_target(value), "/")
 
+    def test_full_unescaped_nginx_deep_link_is_preserved(self):
+        raw = "next=/short-uploader/app?tab=queue&profile=2&source=maker"
+        self.assertEqual(
+            helper.browser_login_target(raw, "/short-uploader/app?tab=queue"),
+            "/short-uploader/app?tab=queue&profile=2&source=maker",
+        )
+        self.assertEqual(
+            helper.browser_login_target("next=%2Fshort-maker%2F", "/short-maker/"),
+            "/short-maker/",
+        )
+        self.assertEqual(helper.browser_login_target("next=//evil.example", "//evil.example"), "/")
+
     def test_login_url_escapes_query_parameters(self):
         self.assertEqual(helper.login_redirect_url("/short-uploader/app?tab=queue&group=2"),
                          "/login?next=%2Fshort-uploader%2Fapp%3Ftab%3Dqueue%26group%3D2")
