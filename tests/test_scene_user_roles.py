@@ -229,6 +229,14 @@ class RoleBehaviorTests(unittest.TestCase):
         self.post("set_studio_access", "editor", studio_song="on")
         self.assertEqual(self.allowed_studios(self.account("editor")), ("song",))
         self.assertEqual(self.sso(self.request("editor", admin=False), app="song-maker").status_code, 204)
+        with self.db() as conn:
+            conn.execute("UPDATE users SET studio_access='song,short,copyright' WHERE username='editor'")
+        for app in ("short-uploader", "copyright-uploader"):
+            permitted = self.sso(self.request("editor", admin=False), app=app)
+            self.assertEqual(permitted.status_code, 204)
+            self.assertEqual(permitted.headers["X-App-Access"], "lum")
+        with self.db() as conn:
+            conn.execute("UPDATE users SET studio_access='song' WHERE username='editor'")
         for app in ("short-maker", "short-uploader", "video-merger", "copyright-uploader"):
             self.assertEqual(self.sso(self.request("editor", admin=False), app=app).status_code, 403)
         self.assertEqual(self.allowed_studios(self.account("owner")), ("song", "short", "copyright"))
