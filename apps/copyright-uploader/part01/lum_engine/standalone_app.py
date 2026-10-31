@@ -303,6 +303,9 @@ async def standalone_auth(request: Request, call_next):
         if not is_admin and request.method not in {"GET","HEAD"}:
             allowed_exact={route("/logout"),route("/actions/add-video"),
                 route("/actions/oauth-start"),route("/actions/oauth-complete"),
+                route("/actions/google-oauth/connect"),
+                route("/actions/auth-connections/test"),
+                route("/actions/auth-connections/activate"),
                 route("/actions/sheets/save"),route("/actions/sheets/delete"),
                 route("/actions/channels/status"),route("/actions/channels/delete-manual"),
                 route("/actions/channels/rescan-tokens"),route("/actions/channels/test-connections"),
@@ -317,8 +320,7 @@ async def standalone_auth(request: Request, call_next):
                  path.startswith(route("/actions/auto-v6/thumbnail/")) or
                  path==route("/actions/auto-v6/preview-all") or
                  path==route("/actions/auto-v6/upload-records.csv") or
-                 path==route("/api/auto-modes") or
-                 path==route("/oauth/google/callback"))):
+                 path==route("/api/auto-modes"))):
             return JSONResponse({"detail":"Owner-scoped resource access required"},status_code=403)
         return await call_next(request)
 
@@ -2180,9 +2182,17 @@ def _dual_auth_is_admin(user):
 
 @app.get(route("/actions/auth-connections/status"))
 def dual_auth_status(request: Request):
-    current_user(request)
-    payload = _dual_auth.status()
+    user=current_user(request)
+    payload=_dual_auth.status()
     payload.update(_dual_auth.inventory())
+    allowed=studio_tenants.allowed_ids("channel",user)
+    if allowed is not None:
+        payload["connections"]=[
+            row for row in payload.get("connections",[])
+            if int(row.get("channel_db_id") or 0) in allowed
+        ]
+        payload["client_id_hint"]=""
+        payload["updated_at"]=""
     return _DualAuthJSONResponse(payload)
 
 
@@ -2209,7 +2219,9 @@ async def dual_auth_google_connect(request: Request):
     form = await request.form()
     require_csrf(request, str(form.get("csrf_token") or ""))
     try:
-        url = _dual_auth.begin(int(str(form.get("channel_db_id") or "0")), user=user)
+        channel_id=int(str(form.get("channel_db_id") or "0"))
+        studio_tenants.require("channel",channel_id,user)
+        url = _dual_auth.begin(channel_id, user=user)
         return _DualAuthRedirectResponse(url=url, status_code=303)
     except Exception as exc:
         return redirect("/app?tab=authentication", error=str(exc))
@@ -2240,9 +2252,10 @@ async def dual_auth_test(request: Request):
     form = await request.form()
     require_csrf(request, str(form.get("csrf_token") or ""))
     try:
+        channel_id=int(str(form.get("channel_db_id") or "0"))
+        studio_tenants.require("channel",channel_id,user)
         result = _dual_auth.test_connection(
-            int(str(form.get("channel_db_id") or "0")),
-            str(form.get("method") or ""),
+            channel_id, str(form.get("method") or ""),
         )
         return redirect("/app?tab=authentication", message=f"{result.get('channel_name') or 'Channel'}: {result.get('method')} connection is working.")
     except Exception as exc:
@@ -2255,10 +2268,10 @@ async def dual_auth_activate(request: Request):
     form = await request.form()
     require_csrf(request, str(form.get("csrf_token") or ""))
     try:
+        channel_id=int(str(form.get("channel_db_id") or "0"))
+        studio_tenants.require("channel",channel_id,user)
         result = _dual_auth.select_active(
-            int(str(form.get("channel_db_id") or "0")),
-            str(form.get("method") or ""),
-            verify=True,
+            channel_id, str(form.get("method") or ""), verify=True,
         )
         return redirect("/app?tab=authentication", message=f"{result.get('channel_name') or 'Channel'} now uses {result.get('method')} authentication for new jobs.")
     except Exception as exc:
