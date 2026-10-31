@@ -168,5 +168,18 @@ class Haseeb1Assignment(unittest.TestCase):
         with sqlite3.connect(backup / "core/data/uploader.db") as db:
             self.assertEqual(db.execute("PRAGMA integrity_check").fetchone()[0],"ok")
 
+
+    def test_live_owner_assignment_no_worker_restart_or_queue_write(self):
+        import inspect
+        from production.studio_haseeb1_assignment import install_registry_only_online
+        source=inspect.getsource(install_registry_only_online)
+        self.assertNotIn("systemctl",source)
+        self.assertNotIn("UPDATE videos",source)
+        self.assertNotIn("UPDATE projects",source)
+        self.assertIn("assign_core(con)",source)
+        self.assertIn("backup_exact_owner_databases",source)
+        self.assertIn("FIRST_CLAIM_REGISTRY_ONLY",source)
+        self.assertIn("UPLOADER_DATA_ASSIGNED_ONLINE",source)
+
 if __name__ == "__main__":
     unittest.main()
