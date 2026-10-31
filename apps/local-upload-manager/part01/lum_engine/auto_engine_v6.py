@@ -2528,13 +2528,40 @@ def _channel_queue_valid_rows(pc_db: Any, store: V6Store, profile: Dict[str,Any]
     return {"created":len(created),"video_ids":created,"blocked":blocked}
 
 
+def auto_start_new_jobs(store: V6Store, profile: Dict[str, Any], created: int) -> bool:
+    """Arm eligible Song/Short jobs at admission, without bypassing manual pauses.
+
+    Keep Start-one-profile isolation: include only the newly queued profile in
+    an existing manual scope instead of unscoping older unrelated jobs.
+    Future scheduled rows still wait for their due time in the claim layer.
+    """
+    if os.environ.get("LUM_ENGINE_INSTANCE") not in {"song", "shortstudio"}:
+        return False
+    if int(created or 0) <= 0 or int(profile.get("enabled") or 0) != 1:
+        return False
+    state = store.engine()
+    if int(state.get("pause_after_current") or 0):
+        return False
+    manual = state.get("manual_profile_ids")
+    if manual is not None:
+        selected = {int(value) for value in str(manual).split(",") if value.strip().isdigit()}
+        pid = int(profile["id"])
+        if pid not in selected:
+            store.set_manual_profile_ids(sorted(selected | {pid}))
+    store.set_engine(running=True, pause_after_current=False)
+    return True
+
+
 def sync_channel_profile(pc_db: Any, store: V6Store, profile: Dict[str,Any], *, queue_valid: bool=True, only_video_key: str="") -> Dict[str,Any]:
     result=_channel_validate_rows(pc_db,store,profile)
     queued={"created":0,"video_ids":[],"blocked":[]}
     if queue_valid:
         queued=_channel_queue_valid_rows(pc_db,store,profile,result,only_video_key=only_video_key)
         if queued["created"]:
-            store.set_engine(running=True,pause_after_current=False)
+            if os.environ.get("LUM_ENGINE_INSTANCE") in {"song", "shortstudio"}:
+                auto_start_new_jobs(store, profile, queued["created"])
+            else:
+                store.set_engine(running=True,pause_after_current=False)
     store.mark_channel_synced(int(profile["id"]))
     states={}
     for r in result["rows"]: states[r["state"]]=states.get(r["state"],0)+1
@@ -2557,7 +2584,9 @@ def planner(pc_db: Any, store: V6Store, profile: Dict[str,Any], *, max_jobs_over
 
 def generate_queue(pc_db: Any, store: V6Store, profile: Dict[str,Any], *, run_key:str|None=None, max_jobs_override:int|None=None) -> Dict[str,Any]:
     if not store.is_channel_profile(int(profile.get("id") or 0)):
-        return _CHANNEL_LEGACY_GENERATE(pc_db,store,profile,run_key=run_key,max_jobs_override=max_jobs_override)
+        result=_CHANNEL_LEGACY_GENERATE(pc_db,store,profile,run_key=run_key,max_jobs_override=max_jobs_override)
+        auto_start_new_jobs(store, profile, int(result.get("created") or 0))
+        return result
     result=sync_channel_profile(pc_db,store,profile,queue_valid=True)
     return {"created":int(result.get("created") or 0),"video_ids":result.get("video_ids") or [],"duplicates_blocked":0,"already_claimed":False}
 

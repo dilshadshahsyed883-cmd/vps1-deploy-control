@@ -794,6 +794,10 @@ async def add_video(
             final = THUMBNAIL_ROOT / f"{project_id}{Path(thumb_path).suffix.lower()}"
             Path(thumb_path).replace(final)
             store.update(project_id, thumbnail_path=str(final))
+        # Copyright uses the independent serial worker. Re-arm it when a new
+        # project is accepted; do not override an explicit pause-after-current.
+        if upload_instance == "copyright" and store.setting("pause_after_current", "0") != "1":
+            store.set_setting("engine_enabled", "1")
         next_tab = "queue"
         return redirect(f"/app?tab={next_tab}", message=f"Project #{project_id} added to VPS queue")
     except Exception as exc:
