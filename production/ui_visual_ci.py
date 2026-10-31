@@ -227,7 +227,9 @@ def verify_song_navigation(browser, shell_js: str, shell_css: str) -> list[str]:
                 route.fulfill(content_type="text/css", body=shell_css)
             else:
                 route.fulfill(content_type="application/json", body=
-                    '{"authenticated":true,"is_admin":false,"username":"fixture",'
+                    # This navigation round trip enters admin-only Experiment Studio.
+                    # Test the admin role here; member hiding is asserted separately.
+                    '{"authenticated":true,"is_admin":true,"username":"fixture-admin",'
                     '"jobs":[],"voices":[],"profiles":[],"counts":{}}')
         context.route("**/*", route_request)
         page = context.new_page()
