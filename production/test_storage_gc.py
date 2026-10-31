@@ -12,6 +12,18 @@ from production import storage_gc as gc
 
 
 class StorageGCTests(unittest.TestCase):
+    def test_redacted_runtime_error_has_errno_and_stage_without_pid_leak(self):
+        import errno
+        from unittest.mock import patch
+        proc = Path(self.workspace.name) / "proc-sample"
+        (proc / "123456").mkdir(parents=True)
+        target = self.root / "releases" / self.app / self.revisions[3]
+        with patch.object(Path, "read_bytes", side_effect=OSError(errno.EIO, "io unavailable")):
+            status = gc._runtime_reference_probe([target], proc_root=proc)
+        self.assertEqual(status, "unverifiable-process-error-read-cmdline-errno-5")
+        self.assertNotIn("123456", status)
+        self.assertNotIn(self.revisions[3], status)
+
     def test_unreadable_and_referenced_processes_stay_protected_but_distinct(self):
         from unittest.mock import patch
         proc = Path(self.workspace.name) / "procs"
