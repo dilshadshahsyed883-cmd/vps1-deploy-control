@@ -1008,8 +1008,8 @@ def main():
         if '[vps1-haseeb1-song-short-assignment]' in intent:
             if args.action != 'install' or args.apps != ['local-upload-manager']:
                 raise RuntimeError('haseeb1 owner assignment requires exact LUM lane')
-            from production.studio_haseeb1_assignment import install as assign_haseeb1
-            assign_haseeb1(args.revision)
+            from production.studio_haseeb1_assignment import install_registry_only_online
+            install_registry_only_online(args.revision)
             return
         # Strictly read-only per-user Studio inventory. The existing root
         # helper's approved local-upload-manager lane is reused; nothing is
