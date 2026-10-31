@@ -32,7 +32,7 @@ class SongMakerOwnership(unittest.TestCase):
             db.executescript("""
             PRAGMA journal_mode=WAL;
             CREATE TABLE jobs(id TEXT PRIMARY KEY,owner TEXT,source_key TEXT,
-                stage TEXT,lane TEXT,data TEXT,UNIQUE(owner,source_key));
+                stage TEXT,lane TEXT,data TEXT,created REAL DEFAULT 0,UNIQUE(owner,source_key));
             CREATE TABLE settings(owner TEXT PRIMARY KEY,data TEXT);
             CREATE TABLE intake(owner TEXT PRIMARY KEY,data TEXT);
             CREATE TABLE sync(owner TEXT PRIMARY KEY,data TEXT);
@@ -43,7 +43,7 @@ class SongMakerOwnership(unittest.TestCase):
                 owner TEXT,original_owner_hash TEXT);
             CREATE TABLE song_folder_media(job_id TEXT PRIMARY KEY,folder_id TEXT);
             """)
-            db.executemany("INSERT INTO jobs VALUES(?,?,?,?,?,?)",
+            db.executemany("INSERT INTO jobs(id,owner,source_key,stage,lane,data) VALUES(?,?,?,?,?,?)",
                  [(f"job{i}","haseeb" if i<9 else "team",f"key{i}",
                    "Completed" if i<4 else ("Cancelled" if i<7 else
                    "Failed" if i==7 else "Needs Attention"),"",json.dumps(
