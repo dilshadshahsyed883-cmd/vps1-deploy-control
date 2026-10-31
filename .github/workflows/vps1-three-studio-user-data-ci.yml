@@ -7,6 +7,9 @@ on:
       - "apps/local-upload-manager/part01/lum_engine/**"
       - "apps/copyright-uploader/part01/lum_engine/**"
       - "tests/test_three_studio_user_isolation.py"
+      - "tests/test_three_studio_uploader_tenants.py"
+      - "apps/local-upload-manager/part01/templates/app.html"
+      - "apps/copyright-uploader/part01/templates/app.html"
       - ".github/workflows/vps1-three-studio-user-data-ci.yml"
   push:
     branches: [main]
@@ -16,6 +19,9 @@ on:
       - "apps/local-upload-manager/part01/lum_engine/**"
       - "apps/copyright-uploader/part01/lum_engine/**"
       - "tests/test_three_studio_user_isolation.py"
+      - "tests/test_three_studio_uploader_tenants.py"
+      - "apps/local-upload-manager/part01/templates/app.html"
+      - "apps/copyright-uploader/part01/templates/app.html"
 permissions:
   contents: read
 jobs:
@@ -30,4 +36,4 @@ jobs:
       - name: Parse full Short Maker and Video Merger source
         run: python -m py_compile apps/short-maker/part01/app.py apps/video-merger/part01/app.py
       - name: Database-bound owner isolation and unauthenticated direct-access tests
-        run: python -m unittest tests.test_three_studio_user_isolation -v
+        run: python -m unittest tests.test_three_studio_user_isolation tests.test_three_studio_uploader_tenants -v
