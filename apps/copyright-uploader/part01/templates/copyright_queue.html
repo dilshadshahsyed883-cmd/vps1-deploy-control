@@ -12,8 +12,8 @@
       {% endif %}
       {% if health.active_project_id %}<form method="post" action="{{ base_path }}/actions/stop-current" data-copyright-confirm="Safely stop the current upload? Its files will be kept for retry."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button danger" type="submit">Stop Current</button></form>{% endif %}
     </div>
+    {% endif %}
   </div>
-  {% endif %}
   <p class="copyright-result-count" data-copyright-count role="status">{{ projects|length }} videos</p>
   <div class="lum-table-wrap"><table class="lum-table copyright-queue-table"><thead><tr><th>Video</th><th>Channel</th><th>Status / Progress</th><th>Schedule (PKT)</th><th>Details</th><th>Actions</th></tr></thead><tbody>
   {% for p in projects %}
