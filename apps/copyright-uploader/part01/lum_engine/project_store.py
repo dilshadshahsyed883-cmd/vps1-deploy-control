@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -119,19 +120,30 @@ class ProjectStore:
             conn.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
             for key, value in DEFAULT_SETTINGS.items():
                 conn.execute("INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)", (key, value))
+            # Upgrade legacy OFF flags without starting Copyright scheduling.
+            if os.getenv("LUM_ENGINE_INSTANCE") == "copyright":
+                for key in ("sheets_sync_enabled", "auto_engine_enabled"):
+                    conn.execute("UPDATE settings SET value='1' WHERE key=? AND value!='1'", (key,))
 
     def setting(self, key: str, default: str = "") -> str:
+        if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" and key in {"sheets_sync_enabled", "auto_engine_enabled"}:
+            return "1"
         with self.connect() as conn:
             row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
         return str(row["value"]) if row else default
 
     def set_setting(self, key: str, value: Any) -> None:
+        if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" and key in {"sheets_sync_enabled", "auto_engine_enabled"}:
+            value = "1"
         with self.connect() as conn:
             conn.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(key), str(value)))
 
     def settings(self) -> dict[str, str]:
         with self.connect() as conn:
-            return {str(r["key"]): str(r["value"]) for r in conn.execute("SELECT key,value FROM settings ORDER BY key")}
+            result = {str(r["key"]): str(r["value"]) for r in conn.execute("SELECT key,value FROM settings ORDER BY key")}
+        if os.getenv("LUM_ENGINE_INSTANCE") == "copyright":
+            result.update(sheets_sync_enabled="1", auto_engine_enabled="1")
+        return result
 
     def create_project(self, data: dict[str, Any]) -> int:
         title = str(data.get("title") or "").strip()
