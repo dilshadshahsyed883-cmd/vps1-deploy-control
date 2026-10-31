@@ -12,6 +12,27 @@ from production import storage_gc as gc
 
 
 class StorageGCTests(unittest.TestCase):
+    def test_redacted_kthread_proof_does_not_expose_pid_or_resources(self):
+        proc = Path(self.workspace.name) / "diagnostic-proc"
+        pid = proc / "874321"
+        (pid / "fd").mkdir(parents=True)
+        (pid / "maps").write_bytes(b"")
+        (pid / "status").write_text("Kthread:\t1\n")
+        fields = (["I", "0"] + ["0"] * 4 + [str(0x00200000)]
+                  + ["0"] * 12 + ["0"] + ["0"] * 4)
+        (pid / "stat").write_text("874321 (kernel worker) " + " ".join(fields))
+        (pid / "exe").symlink_to(proc / "missing-executable")
+        evidence = gc._redacted_proc_resource_proof(pid)
+        self.assertIn("marker=yes", evidence)
+        self.assertIn("pf=yes", evidence)
+        self.assertIn("start=zero", evidence)
+        self.assertIn("maps=empty", evidence)
+        self.assertIn("fds=empty", evidence)
+        self.assertIn("exe=absent", evidence)
+        self.assertNotIn("874321", evidence)
+        self.assertNotIn(str(proc), evidence)
+        self.assertNotIn("kernel worker", evidence)
+
     def test_esrch_kernel_thread_requires_strong_resource_free_proof(self):
         """Live Kthread with no user-space resources must not block every release."""
         import errno
