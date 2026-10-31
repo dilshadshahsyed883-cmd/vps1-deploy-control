@@ -69,6 +69,45 @@ def validate_sources(source: dict[str, bytes]) -> None:
             "reviewed navigation source missing")
 
 
+def copyright_web_idle(state: Path) -> None:
+    """Check active transfers, not parked/manual queue rows; no worker restart."""
+    import sqlite3
+    import urllib.request
+
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open("http://127.0.0.1:8020/copyright-uploader/health", timeout=5) as response:
+            require(response.status == 200, "Copyright health unavailable")
+            health = json.loads(response.read(8192))
+    except (OSError, ValueError) as exc:
+        raise RuntimeError("Copyright health preflight unavailable") from exc
+    require(health.get("ok") is True and health.get("engine_instance") == "copyright",
+            "Copyright independent service identity mismatch")
+    require(health.get("active_project_id") in (None, "", 0),
+            "Copyright web upload in progress")
+    core = state / "lum-copyright/core/data/uploader.db"
+    require(core.is_file() and not core.is_symlink(), "Copyright uploader DB missing")
+    with sqlite3.connect(core.as_uri() + "?mode=ro", uri=True, timeout=5) as conn:
+        conn.execute("PRAGMA query_only=ON")
+        busy = conn.execute(
+            """SELECT 1 FROM videos WHERE UPPER(status) IN
+               ('CLAIMED','UPLOADING','THUMBNAIL_UPLOADING','PROCESSING','IN_PROGRESS')
+               LIMIT 1"""
+        ).fetchone()
+        require(not busy, "Copyright video transfer in progress")
+    project_db = state / "lum-copyright/projects.sqlite3"
+    require(project_db.is_file() and not project_db.is_symlink(),
+            "Copyright projects DB missing")
+    with sqlite3.connect(project_db.as_uri() + "?mode=ro", uri=True, timeout=5) as conn:
+        conn.execute("PRAGMA query_only=ON")
+        busy = conn.execute(
+            """SELECT 1 FROM projects WHERE UPPER(status) IN
+               ('CLAIMED','UPLOADING','PROCESSING','IN_PROGRESS','MERGING',
+                'RENDERING','CLEANUP','VERIFYING') LIMIT 1"""
+        ).fetchone()
+        require(not busy, "Copyright project transfer/processing in progress")
+
+
 def preflight() -> str:
     require(os.geteuid() == 0, "root execution required")
     require(shutil.disk_usage("/").free >= 5_000_000_000, "5 GB disk reserve unavailable")
@@ -78,13 +117,13 @@ def preflight() -> str:
             "Scene source pointer outside managed releases")
     healthy()
     pid = worker_pid()
-    # Routes are reloaded only after all three uploader families are confirmed idle.
-    # Queued jobs and user media are never deleted or rescheduled.
+    # This is a web-only permission cutover: pending/waiting media stays queued.
+    # Fail closed on an active upload, claimed transfer or unknown DB/service state.
     from production.short_uploader_group_release import idle as short_idle
-    from production.runtime import require_copyright_uploader_idle, require_lum_release_idle, DATA
+    from production.runtime import require_lum_release_idle, DATA
     require_lum_release_idle(DATA / "local-upload-manager")
-    require_copyright_uploader_idle(DATA / "copyright-uploader")
-    short_idle()
+    copyright_web_idle(DATA / "copyright-uploader")
+    short_idle(allow_waiting_network=True)
     require(worker_pid() == pid, "Scene worker changed during preflight")
     return pid
 
@@ -106,8 +145,9 @@ def install(revision: str) -> None:
     require(not target.exists() and not target.is_symlink()
             and not journal.exists(), "immutable release or transaction already exists")
     changed = False
-    short_receipt = None
-    copyright_receipt = None
+    site_changed = False
+    site_before = None
+    site_after = None
     journal.mkdir(mode=0o700, parents=True)
     atomic_json(journal / "previous.json", {
         "revision": revision, "current": str(previous), "worker_pid": pid,
@@ -135,11 +175,33 @@ def install(revision: str) -> None:
         restart_web(pid)
         from production.scene_candidate_release import _verify_integrations
         _verify_integrations()
-        from production.short_studio_release import install_route as short_route
-        from production.copyright_studio_release import install_route as copyright_route
-        short_receipt = short_route(revision)
-        copyright_receipt = copyright_route(revision)
+        # One Nginx reload, one full-site CAS receipt, one rollback: never
+        # leave half-updated Short/Copyright auth_request locations.
+        from production.short_studio_release import (
+            SITE, ENABLED, apply_route as short_apply, verify_local as short_local,
+            verify_https_route as verify_short, write_site, command,
+        )
+        from production.copyright_studio_release import (
+            apply_route as copyright_apply, verify_local as copyright_local,
+            verify_https_route as verify_copyright,
+        )
+        require(SITE.is_file() and ENABLED.is_symlink() and ENABLED.resolve() == SITE,
+                "trusted existing HTTPS site unavailable")
+        short_local()
+        copyright_local()
+        site_before = SITE.read_text()
+        site_after = copyright_apply(short_apply(site_before))
+        if site_after != site_before:
+            (journal / "before-nginx.conf").write_text(site_before)
+            (journal / "before-nginx.conf").chmod(0o600)
+            require(SITE.read_text() == site_before, "concurrent Nginx edit")
+            write_site(site_after)
+            site_changed = True
+            command("nginx", "-t")
+            command("systemctl", "reload", "nginx")
         from production.route_uploader_scene_https import scene_cookie, https_get
+        verify_short(https_get, scene_cookie)
+        verify_copyright(https_get, scene_cookie)
         owner_cookie = scene_cookie()
         for url, marker in (
             ("/user-management", b"Song Studio"),
@@ -156,30 +218,32 @@ def install(revision: str) -> None:
         atomic_json(journal / "receipt.json", {
             "revision": revision, "before": str(previous), "after": str(target),
             "worker_pid": pid, "state": "ACTIVE",
-            "short_route_changed": short_receipt is not None,
-            "copyright_route_changed": copyright_receipt is not None,
+            "site_changed": site_changed,
+            "site_before_sha256": hashlib.sha256(site_before.encode()).hexdigest(),
+            "site_after_sha256": hashlib.sha256(site_after.encode()).hexdigest(),
         })
         print("THREE_STUDIO_PERMISSIONS=PASS USERS=RETAINED UPLOAD_WORKERS=UNTOUCHED AUTO_SCRIPT=OFFLINE", flush=True)
     except BaseException:
         try:
-            if copyright_receipt is not None:
-                from production.copyright_studio_release import restore_route
-                restore_route(copyright_receipt)
-            if short_receipt is not None:
-                from production.short_studio_release import restore_route
-                restore_route(short_receipt)
+            if site_changed:
+                from production.short_studio_release import SITE, write_site, command
+                require(SITE.read_text() == site_after,
+                        "concurrent Nginx edit prevents automatic rollback")
+                write_site(site_before)
+                command("nginx", "-t")
+                command("systemctl", "reload", "nginx")
         finally:
             if changed:
                 atomic_link(CURRENT, previous)
                 restart_web(pid)
         raise
 
-
 def rollback(revision: str) -> None:
     require(re.fullmatch("[a-f0-9]{40}", revision) is not None, "invalid revision")
     journal = JOURNALS / revision
     receipt_path = journal / "receipt.json"
-    require(receipt_path.is_file() and not receipt_path.is_symlink(), "release receipt unavailable")
+    require(receipt_path.is_file() and not receipt_path.is_symlink(),
+            "release receipt unavailable")
     receipt = json.loads(receipt_path.read_text())
     require(receipt.get("revision") == revision and receipt.get("state") == "ACTIVE",
             "release receipt invalid")
@@ -187,33 +251,39 @@ def rollback(revision: str) -> None:
             "Scene has changed since release")
     pid = worker_pid()
     require(pid == receipt["worker_pid"], "render worker changed since release")
-    from production.short_studio_release import restore_route as restore_short
-    from production.copyright_studio_release import restore_route as restore_copyright
-    from production.short_studio_release import SITE, ROUTE as SHORT_ROUTE, LEGACY_ROUTE as SHORT_LEGACY
-    from production.copyright_studio_release import ROUTE as COPYRIGHT_ROUTE, LEGACY_ROUTE as COPYRIGHT_LEGACY
-    before_site = SITE.read_text()
-    after_site = before_site
-    if receipt["copyright_route_changed"]:
-        require(after_site.count(COPYRIGHT_ROUTE) == 1, "Copyright route changed externally")
-        after_site = after_site.replace(COPYRIGHT_ROUTE, COPYRIGHT_LEGACY, 1)
-    if receipt["short_route_changed"]:
-        require(after_site.count(SHORT_ROUTE) == 1, "Short route changed externally")
-        after_site = after_site.replace(SHORT_ROUTE, SHORT_LEGACY, 1)
-    # Nginx route rollback is all-or-nothing; perform one validated reload.
-    if after_site != before_site:
-        from production.short_studio_release import write_site, command
-        write_site(after_site)
+    from production.short_studio_release import SITE, write_site, command
+    current_site = SITE.read_text()
+    require(hashlib.sha256(current_site.encode()).hexdigest() ==
+            receipt["site_after_sha256"], "Nginx site changed externally")
+    if receipt["site_changed"]:
+        before_path = journal / "before-nginx.conf"
+        require(before_path.is_file() and not before_path.is_symlink(),
+                "original Nginx receipt missing")
+        previous_site = before_path.read_text()
+        require(hashlib.sha256(previous_site.encode()).hexdigest() ==
+                receipt["site_before_sha256"], "original Nginx content drift")
+    else:
+        previous_site = current_site
+    previous = Path(receipt["before"])
+    require(previous.is_dir() and previous.is_relative_to(RELEASES),
+            "previous Scene source lost")
+    if receipt["site_changed"]:
+        write_site(previous_site)
         try:
             command("nginx", "-t")
             command("systemctl", "reload", "nginx")
         except BaseException:
-            write_site(before_site)
+            write_site(current_site)
             command("nginx", "-t")
             command("systemctl", "reload", "nginx")
             raise
-    previous = Path(receipt["before"])
-    require(previous.is_dir() and previous.is_relative_to(RELEASES), "previous Scene source lost")
     atomic_link(CURRENT, previous)
-    restart_web(pid)
+    try:
+        restart_web(pid)
+    except BaseException:
+        # Restore the new Scene source if reversing it failed.
+        atomic_link(CURRENT, Path(receipt["after"]))
+        restart_web(pid)
+        raise
     atomic_json(receipt_path, {**receipt, "state": "ROLLED_BACK"})
     print("THREE_STUDIO_PERMISSIONS=ROLLED_BACK USER_DATA=RETAINED", flush=True)
