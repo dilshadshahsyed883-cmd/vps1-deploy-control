@@ -263,7 +263,15 @@ def set_state(job_id: str, **updates):
     with jobs_lock:
         if job_id not in jobs:
             jobs[job_id] = {"job_id": job_id}
-        jobs[job_id].update(updates)
+        current = jobs[job_id]
+        # Serialize the render-to-delivery boundary with queue actions.
+        # An owner request arriving before publish wins; once publishing
+        # starts, changing pause/cancel status is forbidden for every role.
+        if updates.get("phase") == "delivery" and current.get("control") in ("pause", "cancel"):
+            raise JobInterrupted()
+        if updates.get("control") in ("pause", "cancel") and current.get("phase") == "delivery":
+            raise HTTPException(status_code=409, detail="Output delivery already started.")
+        current.update(updates)
     save_state(job_id)
 
 
