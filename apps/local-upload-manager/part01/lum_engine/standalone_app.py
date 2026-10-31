@@ -1015,7 +1015,7 @@ def sheets_sync(
     source_id: int = Form(...),
 ):
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
-    if not mode_is_enabled("sheets_sync_enabled"):
+    if os.getenv("LUM_ENGINE_INSTANCE", "engine1") not in {"song", "shortstudio"} and store.setting("sheets_sync_enabled", "0") != "1":
         return redirect(
             f"/app?tab=sheets&source_id={int(source_id)}",
             error="Enable Sheets Sync on Dashboard before running synchronization.",
@@ -1052,7 +1052,7 @@ def sheets_sync(
 @app.post(route("/actions/sheets/sync-all"))
 def sheets_sync_all(request: Request, csrf_token: str = Form(...)):
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
-    if not mode_is_enabled("sheets_sync_enabled"):
+    if os.getenv("LUM_ENGINE_INSTANCE", "engine1") not in {"song", "shortstudio"} and store.setting("sheets_sync_enabled", "0") != "1":
         return redirect(
             "/app?tab=sheets",
             error="Enable Sheets Sync on Dashboard before running synchronization.",
