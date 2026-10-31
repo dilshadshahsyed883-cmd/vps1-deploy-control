@@ -450,6 +450,43 @@ def normalize_drive_path(value: str) -> str:
         raise RuntimeError("Invalid Drive path.")
     return value.rstrip("/")
 
+def short_drive_root(owner: str) -> str:
+    """Shared admin rclone credentials, private per-account approved Drive subtree."""
+    return "gdrive:Short_Maker/Users/" + hashlib.sha256(owner.casefold().encode("utf-8")).hexdigest()[:20]
+
+
+def short_owned_drive_path(owner: str, value: str) -> str:
+    root = short_drive_root(owner)
+    path = normalize_drive_path(value)
+    if not path.startswith(root + "/"):
+        raise HTTPException(status_code=403, detail="Drive folder is outside your approved workspace.")
+    child = path[len(root) + 1:]
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,63}", child):
+        raise HTTPException(status_code=403, detail="Only direct owned Drive folders are supported.")
+    return path
+
+
+def short_drive_inputs_owned(owner: str, paths: list[str]) -> None:
+    for raw in paths:
+        source = parse_drive_folder_input(raw)
+        if source["kind"] != "path":
+            # A raw Drive folder ID can target another user's data; no safe
+            # containment proof without a remote parent-walk.
+            raise HTTPException(status_code=403, detail="Use an approved Drive folder path, not a raw shared link.")
+        short_owned_drive_path(owner, source["path"])
+
+
+def short_drive_folders(owner: str) -> list[str]:
+    root = short_drive_root(owner)
+    for name in ("Input", "Outputs"):
+        rclone_run(["mkdir", root + "/" + name], timeout=90, attempts=2)
+    listed = rclone_run(["lsf", root, "--dirs-only", "--max-depth", "1"],
+                        timeout=90, attempts=2)
+    return sorted({root + "/" + item.strip().rstrip("/") for item in listed.splitlines()
+                   if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,63}", item.strip().rstrip("/"))},
+                  key=str.casefold)
+
+
 def parse_drive_folder_input(value: str):
     value=(value or "").strip()
     if not value:
@@ -1453,6 +1490,54 @@ def list_short_vps_folders(request: Request):
                         if short_folder_owner(name)==owner.casefold()]}
 
 
+@app.get("/api/drive-folders")
+def list_short_drive_folders(request: Request):
+    owner, _admin = short_identity(request)
+    try:
+        return {"root":short_drive_root(owner), "folders":short_drive_folders(owner)}
+    except RuntimeError:
+        raise HTTPException(status_code=503,detail="Shared Drive is temporarily unavailable.")
+
+
+@app.post("/api/drive-folders")
+async def create_short_drive_folder(request: Request):
+    owner, _admin = short_identity(request)
+    payload = await request.json()
+    name = str(payload.get("name") or "").strip() if isinstance(payload,dict) else ""
+    try:
+        path = short_owned_drive_path(owner,short_drive_root(owner) + "/" + name)
+        if path in short_drive_folders(owner):
+            raise HTTPException(status_code=409,detail="Drive folder already exists.")
+        rclone_run(["mkdir",path],timeout=120,attempts=2)
+        return {"ok":True,"path":path}
+    except HTTPException:
+        raise
+    except (ValueError,RuntimeError):
+        raise HTTPException(status_code=503,detail="Drive folder creation failed.")
+
+
+@app.delete("/api/drive-folders/{folder_name}")
+def delete_short_drive_folder(folder_name: str, request: Request):
+    owner, _admin = short_identity(request)
+    path = short_owned_drive_path(owner,short_drive_root(owner) + "/" + folder_name)
+    if folder_name in ("Input","Outputs"):
+        raise HTTPException(status_code=403,detail="Default Drive folder is protected.")
+    if path not in short_drive_folders(owner):
+        raise HTTPException(status_code=404,detail="Drive folder not found.")
+    for state in load_job_states():
+        if state.get("status") in ("uploading","queued","running","pausing","cancelling"):
+            cfg = state.get("config") or {}
+            if cfg.get("drive_output_path") == path or path in (
+                    cfg.get("drive_input_paths") or [cfg.get("drive_input_path")]):
+                raise HTTPException(status_code=409,detail="Drive folder is used by a pending job.")
+    try:
+        # rmdir is strictly empty-only, never purge, sync, or overwrite.
+        rclone_run(["rmdir",path],timeout=120,attempts=1)
+    except RuntimeError:
+        raise HTTPException(status_code=409,detail="Drive folder is not empty or is in use.")
+    return {"ok":True,"path":path}
+
+
 @app.post("/api/vps-folders")
 async def create_short_vps_folder(request: Request):
     owner, _admin=short_identity(request)
@@ -1550,12 +1635,17 @@ async def create_job(
     if input_mode=="drive":
         try:
             drive_input_paths = parse_drive_folder_inputs(drive_input_path, drive_input_paths_json)
+            short_drive_inputs_owned(owner, drive_input_paths)
             drive_input_path = drive_input_paths[0]
+        except HTTPException:
+            raise
         except Exception as exc:
             raise HTTPException(status_code=400,detail=str(exc))
     if upload_to_drive:
         try:
-            drive_output_path=normalize_drive_path(drive_output_path)
+            drive_output_path=short_owned_drive_path(owner, drive_output_path)
+        except HTTPException:
+            raise
         except Exception as exc:
             raise HTTPException(status_code=400,detail=str(exc))
     else:
@@ -1871,7 +1961,7 @@ def upload_snapshot(job_id: str, manifest: dict) -> dict:
             "upload_progress": round(100 * received / total, 1) if total else 100}
 
 
-def upload_config(payload: dict) -> dict:
+def upload_config(payload: dict, owner: str = "") -> dict:
     try:
         duration = float(payload.get("video_duration", 16))
         img_duration = float(payload.get("image_duration", 3))
@@ -1904,6 +1994,11 @@ def upload_config(payload: dict) -> dict:
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     mode = "drive" if payload.get("input_mode") == "drive" else "upload"
+    if owner:
+        if to_drive:
+            short_owned_drive_path(owner, drive_output)
+        if mode == "drive":
+            short_drive_inputs_owned(owner, drive_paths)
     return {
         "video_duration": duration, "image_duration": img_duration,
         "output_count": count,
@@ -1947,7 +2042,7 @@ async def begin_resumable_upload(request: Request):
     owner, _admin=short_identity(request)
     if str(payload["config"].get("short_vps_folder") or SHORT_VPS_DEFAULT)=="Default":
         payload["config"]["short_vps_folder"]=short_personal_default(owner)
-    cfg = upload_config(payload["config"])
+    cfg = upload_config(payload["config"],owner=owner)
     short_folder_owned(str(cfg["short_vps_folder"]),request)
     file_groups = payload["files"]
     manifest_files = {}
