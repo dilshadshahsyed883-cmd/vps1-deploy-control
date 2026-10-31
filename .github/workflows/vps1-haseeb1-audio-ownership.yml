@@ -1,0 +1,27 @@
+name: VPS1 haseeb1 Audio Downloader legacy owner CI
+on:
+  pull_request:
+    paths:
+      - "production/studio_haseeb1_audio_assignment.py"
+      - "production/runtime.py"
+      - "tests/test_studio_haseeb1_audio_assignment.py"
+      - ".github/workflows/vps1-haseeb1-audio-ownership.yml"
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  audio-owner-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Parse the migration and production dispatcher
+        run: python -m py_compile production/studio_haseeb1_audio_assignment.py production/runtime.py
+      - name: Evidence, active jobs, foreign users and rollback regression
+        run: python -m unittest tests.test_studio_haseeb1_audio_assignment -v
+      - name: Existing downloader owner scope and Song Maker handoff
+        run: python -m unittest tests.test_audio_downloader_queue_history tests.test_audio_song_maker_handoff -v
