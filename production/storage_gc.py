@@ -104,8 +104,15 @@ def _unit_references(app: str, root: Path, unit_dir: Path) -> tuple[set[str], bo
         return set(), False
 
 
-def inventory(root: Path = BASE, now: float | None = None, unit_dir: Path | None = None) -> dict[str, Any]:
-    """Conservative read-only inventory; unknown ownership is an exclusion."""
+def inventory(root: Path = BASE, now: float | None = None, unit_dir: Path | None = None,
+              *, only_app: str | None = None,
+              only_revision: str | None = None) -> dict[str, Any]:
+    """Conservative inventory; scoped rechecks still evaluate all protections.
+
+    For an apply-time recheck, inspect just the candidate being removed. The
+    complete app release list is still sorted before fallback protection is
+    calculated, so deleting one revision cannot silently promote another.
+    """
     now = time.time() if now is None else now
     unit_dir = Path("/etc/systemd/system") if unit_dir is None else unit_dir
     results: dict[str, Any] = {
@@ -120,7 +127,7 @@ def inventory(root: Path = BASE, now: float | None = None, unit_dir: Path | None
         results["blocked"] = "missing or unsafe deployment roots"
         return results
     deadline = now - MIN_AGE_HOURS * 3600
-    for app in sorted(APP_NAMES):
+    for app in sorted(APP_NAMES if only_app is None else APP_NAMES & {only_app}):
         releases = releases_root / app
         venvs = root / "venvs" / app
         link = current_root / app
@@ -174,6 +181,8 @@ def inventory(root: Path = BASE, now: float | None = None, unit_dir: Path | None
         results["protected"].append({"app": app, "revisions": sorted(protect)})
         for item in entries:
             name = item.name
+            if only_revision is not None and name != only_revision:
+                continue
             if name in protect:
                 continue
             if not REVISION.fullmatch(name) or item.stat().st_mtime > deadline:
@@ -364,7 +373,9 @@ def apply_plan(root: Path, plan: dict[str, Any], *, now: float | None = None,
     deleted: list[str] = []
     skipped: list[str] = []
     for candidate in plan["candidates"]:
-        current_plan = inventory(root, now=now, unit_dir=unit_dir)
+        current_plan = inventory(root, now=now, unit_dir=unit_dir,
+                                 only_app=candidate["app"],
+                                 only_revision=candidate["revision"])
         eligible = {
             (c["app"], c["revision"]): c for c in current_plan["candidates"]
         }

@@ -299,6 +299,39 @@ class StorageGCTests(unittest.TestCase):
         for rev in self.revisions:
             self.assertTrue((self.root / "releases" / self.app / rev).exists())
 
+    def test_scoped_inventory_matches_full_candidate_and_preserves_fallback(self):
+        full = self.inventory()
+        scoped = gc.inventory(
+            self.root, now=self.now, unit_dir=self.unit_dir,
+            only_app=self.app, only_revision=self.revisions[3])
+        self.assertEqual(scoped["candidates"], full["candidates"])
+        self.assertEqual(scoped["protected"], full["protected"])
+        self.assertEqual(scoped["estimated_bytes"], full["estimated_bytes"])
+        # A newly protected revision must still be rejected by a scoped recheck.
+        (self.unit_dir / "vps1-protect-old.service").write_text(
+            "WorkingDirectory=" + str(self.root / "releases" / self.app /
+                                      self.revisions[3]) + "\\n")
+        self.assertEqual(gc.inventory(
+            self.root, now=self.now, unit_dir=self.unit_dir,
+            only_app=self.app, only_revision=self.revisions[3])["candidates"], [])
+
+    def test_apply_scopes_revalidation_to_one_revision(self):
+        from unittest.mock import patch
+
+        real_inventory = gc.inventory
+        plan = self.inventory()
+        with patch.object(gc, "inventory", wraps=real_inventory) as inspected:
+            result = gc.apply_plan(self.root, plan, now=self.now,
+                                   unit_dir=self.unit_dir, test_mode=True)
+        self.assertEqual(result["deleted"],
+                         [self.app + "/" + self.revisions[3]])
+        self.assertEqual(inspected.call_count, 1)
+        self.assertEqual(inspected.call_args.kwargs["only_app"], self.app)
+        self.assertEqual(inspected.call_args.kwargs["only_revision"],
+                         self.revisions[3])
+        for rev in self.revisions[:3]:
+            self.assertTrue((self.root / "releases" / self.app / rev).exists())
+
     def test_guarded_apply_deletes_only_superseded_release_and_venv(self):
         outcome = self.execute()
         self.assertEqual(outcome["outcome"]["deleted"], [self.app + "/" + self.revisions[3]])
