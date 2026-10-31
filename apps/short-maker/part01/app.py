@@ -1288,6 +1288,11 @@ async function poll(id){
    return;
   }
   if(s.status==='failed'){render.disabled=false;statusEl.textContent=`Failed: ${s.error||s.message||'Unknown error'}`;return;}
+  if(s.status==='paused'||s.status==='cancelled'){
+   render.disabled=false;
+   statusEl.textContent=s.message||('Job '+s.status+'. Check Render Queue for Resume or Retry.');
+   return;
+  }
   setTimeout(()=>poll(id),1500);
  }catch(e){statusEl.textContent='Status check failed; retrying...';setTimeout(()=>poll(id),2500);}
 }
@@ -2002,8 +2007,15 @@ def job_status(job_id: str, request: Request):
 @app.get("/outputs/{job_id}/{filename}")
 def download_output(job_id: str, filename: str, request: Request):
     short_owned_state(job_id, request)
-    target = JOBS_ROOT / job_id / "outputs" / safe_name(filename)
-    if not target.is_file():
+    # Owner-scoped job IDs must not traverse into another job or a symlinked
+    # output directory/file. Never follow a file-system alias on download.
+    if not re.fullmatch(r"[0-9a-f]{16}", job_id or ""):
+        raise HTTPException(status_code=404, detail="Output not found")
+    job_dir = JOBS_ROOT / job_id
+    output_dir = job_dir / "outputs"
+    target = output_dir / safe_name(filename)
+    if (job_dir.is_symlink() or output_dir.is_symlink() or target.is_symlink()
+            or not target.is_file()):
         raise HTTPException(status_code=404, detail="Output not found")
     return FileResponse(target, media_type="video/mp4", filename=target.name)
 
