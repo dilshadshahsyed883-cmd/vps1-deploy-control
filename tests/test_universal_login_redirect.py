@@ -52,7 +52,7 @@ class LoginReturnTargetTests(unittest.TestCase):
         self.assertIn('name="next" value="{{ login_next }}"', template)
         self.assertIn("login_redirect_url(next, error=", app)
         self.assertIn("return RedirectResponse(safe_login_target(next), status_code=303)", app)
-        self.assertIn('request.url.path.startswith("/api/")', app)
+        self.assertIn('"text/html" in request.headers.get("accept", "")', app)
 
 
 class NginxGlobalLoginTests(unittest.TestCase):
@@ -112,7 +112,7 @@ class NginxGlobalLoginTests(unittest.TestCase):
             value = value.replace("listen 80;", "listen 18880;")
             value = value.replace("listen 443 ssl;", "listen 18443 ssl;")
             conf = root / "nginx.conf"
-            conf.write_text(f"pid {root}/nginx.pid; events {{}} http {{\n{value}\n}}")
+            conf.write_text(f"pid {root}/nginx.pid; error_log {root}/error.log; events {{}} http {{ access_log off;\n{value}\n}}")
             run = subprocess.run(["nginx", "-t", "-p", tmp, "-c", str(conf)],
                                  capture_output=True, text=True, timeout=20)
             self.assertEqual(run.returncode, 0, run.stderr)
