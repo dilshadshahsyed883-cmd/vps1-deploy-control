@@ -58,6 +58,8 @@ ROUTE = """ # VPS1_SHORT_STUDIO_UPLOADER_ROUTE_V1
 
 # Exact previous route is recognized only for a reversible permission upgrade.
 LEGACY_ROUTE = ROUTE.replace(AUTH_LOCATION, "", 1).replace(
+    "\n\n location = /short-uploader", "\n location = /short-uploader", 1,
+).replace(
     "auth_request /_vps1_sso_short_uploader;",
     "auth_request /_scene_uploader_auth;", 1,
 )
