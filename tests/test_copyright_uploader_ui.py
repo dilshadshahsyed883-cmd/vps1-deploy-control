@@ -62,6 +62,19 @@ class CopyrightUploaderUI(unittest.TestCase):
         self.assertIn('value="sheets"',html)
         self.assertNotIn('Arm Scheduled',html)
 
+    def test_sheets_sync_matches_compact_short_uploader_layout(self):
+        html=fixture('sheets')
+        self.assertIn('lum-sheet-format-help',html)
+        self.assertIn('<summary>Sheet format</summary>',html)
+        self.assertIn('lum-short-sheet-header-actions',html)
+        self.assertEqual(html.count('Update All Enabled Sheets'),1)
+        self.assertNotIn('<h2>Manual Update</h2>',html)
+        self.assertIn('/actions/sheets/save',html)
+        self.assertIn('/actions/sheets/sync-all',html)
+        self.assertIn('/actions/sheets/sync',html)
+        self.assertIn('No Google Sheet source saved yet.',html)
+        self.assertIn('Sync Mode OFF',html)
+
     def test_release_selection_keeps_other_apps_out_of_ui_release(self):
         workflow=(ROOT/'.github/workflows/vps1-copyright-studio-release.yml').read_text()
         self.assertIn("contains(github.event.head_commit.message, '[vps1-copyright-uploader-ui]')",workflow)
