@@ -69,6 +69,15 @@ class OwnerHandoverTests(unittest.TestCase):
         self.assertEqual(self.request("/api/queue/resume","alice")[0],200)
         self.assertEqual(self.app.next_waiting()["id"],alice)
 
+    def test_unassigned_legacy_job_is_preserved_but_never_auto_claimed(self):
+        jid=self.queue("alice")
+        with self.app.db() as c:
+            c.execute("UPDATE jobs SET owner_username='' WHERE id=?",(jid,))
+        self.assertIsNone(self.app.next_waiting())
+        self.assertEqual(self.app.get_job(jid)["status"],"waiting")
+        self.assertEqual(self.app.list_jobs("alice"),[])
+        self.assertEqual(self.app.list_jobs("bob"),[])
+
     def test_state_no_network_and_no_admin_cross_owner_data(self):
         alice=self.queue("alice")
         bob=self.queue("bob")
