@@ -602,7 +602,7 @@ def _scene_manual_spool_owner_uid() -> int:
                 r"[a-z_][a-z0-9_-]{0,31}", name) or name == "root":
             return -1
         identity = pwd.getpwnam(name)
-        return identity.pw_uid if 1000 <= identity.pw_uid <= 60000 else -1
+        return identity.pw_uid if 0 < identity.pw_uid < 65534 else -1
     except (KeyError, OSError, AttributeError, subprocess.TimeoutExpired):
         return -1
 
