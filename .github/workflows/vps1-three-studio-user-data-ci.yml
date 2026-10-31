@@ -9,6 +9,8 @@ on:
       - "tests/test_three_studio_user_isolation.py"
       - "tests/test_three_studio_uploader_tenants.py"
       - "tests/test_studio_owner_scoped_recovery.py"
+      - "production/studio_tenant_readonly_preflight.py"
+      - "tests/test_studio_tenant_readonly_preflight.py"
       - "production/short_uploader_group_release.py"
       - "production/song_uploader_group_summary_release.py"
       - "apps/local-upload-manager/part01/desktop_core/modules/db/queue_repository.py"
@@ -29,6 +31,8 @@ on:
       - "tests/test_three_studio_user_isolation.py"
       - "tests/test_three_studio_uploader_tenants.py"
       - "tests/test_studio_owner_scoped_recovery.py"
+      - "production/studio_tenant_readonly_preflight.py"
+      - "tests/test_studio_tenant_readonly_preflight.py"
       - "production/short_uploader_group_release.py"
       - "production/song_uploader_group_summary_release.py"
       - "apps/local-upload-manager/part01/desktop_core/modules/db/queue_repository.py"
@@ -58,4 +62,4 @@ jobs:
       - name: Exercise real HTTP routes as Alice, Bob and admin
         run: python -m unittest tests.test_studio_tenant_http -v
       - name: Database-bound owner isolation and unauthenticated direct-access tests
-        run: python -m unittest tests.test_three_studio_user_isolation tests.test_three_studio_uploader_tenants tests.test_studio_owner_scoped_recovery -v
+        run: python -m unittest tests.test_three_studio_user_isolation tests.test_three_studio_uploader_tenants tests.test_studio_owner_scoped_recovery tests.test_studio_tenant_readonly_preflight -v
