@@ -1567,6 +1567,13 @@ def main():
             from production.short_uploader_group_release import install as install_network_fix
             install_network_fix(args.revision, network_only=True)
             return
+        # Fixed-mode Short-only release; do not invoke the shared LUM installer.
+        if '[vps1-shortstudio-fixed-modes]' in intent:
+            if args.action != 'install' or args.apps != ['local-upload-manager']:
+                raise RuntimeError('Short fixed-mode release requires isolated uploader lane')
+            from production.short_uploader_group_release import install as install_short_fixed_modes
+            install_short_fixed_modes(args.revision, fixed_modes_only=True)
+            return
         # Scoped, transactional Short Uploader template change. Never enter
         # the shared LUM installer or restart Song/Engine 1/Engine 2 workers.
         if '[vps1-shortstudio-assignment-form-only]' in intent:
