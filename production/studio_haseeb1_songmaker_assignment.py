@@ -122,19 +122,13 @@ def audit(root: Path, scene_db: Path) -> dict:
     state["inventory_matches"] = all(state["tables"][k] == v for k, v in EXPECTED.items())
     state["source_owner_verified"] = state["unresolved_foreign"] == 0
     state["media_references_safe"] = state["unsafe_media_paths"] == 0 and state["missing_media_paths"] == 0
+    # Empty/foreign folder owners cannot safely be renamed: paths are
+    # SHA256(original owner)/folder-id and media references depend on them.
     state["eligible_for_claim"] = (
         state["inventory_matches"] and state["source_owner_verified"] and
         state["media_references_safe"] and state["nonterminal_jobs"] == 0 and
-        state["tables"]["song_folders"] == state["owner_classes"].get("target", 0)
-        if state["tables"]["song_folders"] else
-        state["inventory_matches"] and state["source_owner_verified"] and
-        state["media_references_safe"] and state["nonterminal_jobs"] == 0
+        _non_target_folders(dbpath) == 0
     )
-    # Non-target folder rows cannot be assigned without moving or remapping
-    # hashed media. Do not claim those folders even if they are unassigned.
-    state["eligible_for_claim"] = (
-        state["eligible_for_claim"] and
-        not _non_target_folders(dbpath))
     return {"mode": "READ_ONLY", "target_verified": True,
             "song_maker": state, "auto_script": "OFFLINE",
             "shared_google_drive": "UNCHANGED", "other_studios": "UNTOUCHED"}
@@ -220,10 +214,10 @@ def install(revision: str, root: Path, scene_db: Path, journal_base: Path):
     modified = False
     backup = journal / "backup/jobs.sqlite3"
     try:
+        stopped = True  # Restore even if a stop halfway through fails.
         for unit in reversed(UNITS):
             subprocess.run(["systemctl","stop",unit], check=True, timeout=30,
                            capture_output=True)
-        stopped = True
         # A final static check after quiescence closes the TOCTOU gap.
         require(audit(root, scene_db)["song_maker"] == state,
                 "SONGMAKER_OWNER_CHANGED_DURING_STOP")
