@@ -61,6 +61,8 @@ ROUTE = """ # VPS1_COPYRIGHT_STUDIO_UPLOADER_ROUTE_V1
 
 # Roll forward existing audited HTTPS config without replacing unrelated routes.
 LEGACY_ROUTE = ROUTE.replace(AUTH_LOCATION, "", 1).replace(
+    "\n\n location = /copyright-uploader", "\n location = /copyright-uploader", 1,
+).replace(
     "auth_request /_vps1_sso_copyright_uploader;",
     "auth_request /_scene_uploader_auth;", 1,
 )
