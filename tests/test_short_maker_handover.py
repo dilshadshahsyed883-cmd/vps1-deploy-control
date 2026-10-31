@@ -164,6 +164,24 @@ class ShortMakerHandoverTests(unittest.TestCase):
         self.assertFalse(thread.is_alive(), "render child process was not interrupted")
         self.assertEqual(result, ["cancelled"])
 
+    def test_retry_never_republishes_consumed_short_uploader_output(self):
+        job_id = "6" * 16
+        self.job(job_id, "haseeb1", status="failed")
+        # The Uploader may have already deleted the verified source MP4.
+        self.maker.set_state(job_id, published_outputs=["already-consumed.mp4"])
+        self.assertEqual(self.client.post("/api/jobs/" + job_id + "/retry", headers=USER).status_code, 409)
+        self.assertEqual(self.mock_submit.call_count, 0)
+
+    def test_crash_during_delivery_requires_manual_review(self):
+        job_id = "7" * 16
+        self.job(job_id, "haseeb1", status="running")
+        self.maker.set_state(job_id, phase="delivery")
+        self.maker.recover_pending_jobs()
+        state = self.maker.get_state(job_id)
+        self.assertEqual(state["status"], "failed")
+        self.assertTrue(state["delivery_review_required"])
+        self.assertEqual(self.client.post("/api/jobs/" + job_id + "/retry", headers=USER).status_code, 409)
+
     def test_retry_rejects_already_published_media(self):
         job_id = "5" * 16
         self.job(job_id, "haseeb1", status="failed")
