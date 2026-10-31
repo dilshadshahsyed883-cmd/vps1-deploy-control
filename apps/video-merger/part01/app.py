@@ -587,7 +587,7 @@ def create_owner_folder(owner, name):
     if not rel or rel.startswith('users/'):
         raise ValueError('Enter a folder name relative to your own Drive root')
     path=root+'/'+rel
-    if len(path.split('/'))>7:
+    if len(path.split('/'))>5:
         raise ValueError('Maximum folder depth exceeded')
     with DB_LOCK, db() as c:
         existing=c.execute('SELECT owner_username FROM drive_folders WHERE path=?',(path,)).fetchone()
