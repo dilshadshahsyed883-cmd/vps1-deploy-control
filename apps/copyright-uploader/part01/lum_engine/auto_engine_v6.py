@@ -2579,9 +2579,9 @@ def profile_context(pc_db: Any, store: V6Store, profile_id:int=0, *, owner:str="
         profiles.append(pr)
     # STUDIO_USER_ISOLATION_V1: strict ACL. Legacy/unassigned resources
     # stay visible to admins only; do not infer ownership from song folder IDs.
-    from .studio_tenants import StudioTenants
-    acl=StudioTenants(pc_db)
     if owner:
+        from .studio_tenants import StudioTenants
+        acl=StudioTenants(pc_db)
         viewer={"username":owner,"is_admin":0}
         allowed_profiles=acl.allowed_ids("profile",viewer)
         allowed_channels=acl.allowed_ids("channel",viewer)
