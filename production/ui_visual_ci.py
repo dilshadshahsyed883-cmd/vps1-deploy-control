@@ -205,7 +205,7 @@ def verify_song_navigation(browser, shell_js: str, shell_css: str) -> list[str]:
     scene_env = Environment(loader=FileSystemLoader(SCENE / "templates"),
                             undefined=ChainableUndefined)
     experiment_html = scene_env.get_template("base.html").render(
-        request={"session": {"is_admin": False, "app_access": "all"}},
+        request={"session": {"is_admin": True, "app_access": "all"}},
         page="experiment_studio", username="fixture")
     context = browser.new_context(viewport={"width": 1440, "height": 900})
     errors = []
@@ -227,7 +227,7 @@ def verify_song_navigation(browser, shell_js: str, shell_css: str) -> list[str]:
                 route.fulfill(content_type="text/css", body=shell_css)
             else:
                 route.fulfill(content_type="application/json", body=
-                    '{"authenticated":true,"is_admin":false,"username":"fixture",'
+                    '{"authenticated":true,"is_admin":true,"username":"fixture",'
                     '"jobs":[],"voices":[],"profiles":[],"counts":{}}')
         context.route("**/*", route_request)
         page = context.new_page()
@@ -248,6 +248,9 @@ def verify_song_navigation(browser, shell_js: str, shell_css: str) -> list[str]:
         if page.locator('.vps1-native-song-tabs a').all_text_contents() != [
                 "Audio Downloader", "Song Maker", "Song Uploader"]:
             errors.append("song-studio: independent app tabs missing")
+        # This integration path requires a trusted administrator session:
+        # Experiment Studio is intentionally invisible to regular members.
+        experiment.wait_for(state="visible")
         experiment.click()
         page.wait_for_url(origin + "/experiment-studio/")
         page.locator('nav[aria-label="Experiment Studio"] a[href^="/voice-studio/app"]').click()
@@ -325,6 +328,22 @@ def run(screenshots: Path | None) -> int:
                         page = ctx.new_page()
                         try:
                             page.set_content(page_html(app))
+                            # Only a verified admin can see the second-level
+                            # Experiment rail. The geometry fixture is the
+                            # admin path; per-user hiding is checked by the
+                            # real Short Maker identity regression above.
+                            page.evaluate("""() => {
+                                const original = window.fetch.bind(window);
+                                window.fetch = (input, init) => {
+                                    if (String(input).includes('/api/session/identity'))
+                                        return Promise.resolve({ok:true, json:async () => ({
+                                            authenticated:true, is_admin:true,
+                                            allowed_studios:['song','short','copyright'],
+                                            username:'fixture-admin'
+                                        })});
+                                    return original(input, init);
+                                };
+                            }""")
                             page.add_style_tag(content="body{margin:0}")
                             page.add_style_tag(content=shell_css)
                             page.add_style_tag(content=geometry_css)
@@ -339,7 +358,7 @@ def run(screenshots: Path | None) -> int:
                                     }""",
                                     native_js)
                                 names = page.locator("#app-sidebar > nav > a").all_text_contents()
-                                if names != ["Dashboard", "Song Studio", "Short Studio", "Copyright Studio", "Experiment Studio"]:
+                                if names != ["Dashboard", "Song Studio", "Short Studio", "Copyright Studio", "Experiment Studio", "Admin"]:
                                     errors.append(f"{width}px {app}: sidebar drift {names!r}")
                             if app in NATIVE:
                                 workspace = {"auto-caption-studio": "acs",
@@ -375,6 +394,8 @@ def run(screenshots: Path | None) -> int:
                                 continue
                             nav = page.locator(selector).first
                             nav.wait_for(state="visible", timeout=5000)
+                            page.locator('nav[aria-label="Experiment Studio"]').first.wait_for(
+                                state="visible", timeout=5000) if app != "video-merger" else None
                             normalize_tabs(page, selector)
                             rect = nav.bounding_box()
                             if not rect:
