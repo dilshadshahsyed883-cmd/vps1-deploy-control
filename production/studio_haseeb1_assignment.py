@@ -308,7 +308,13 @@ def inspect_related_stores(data_root: Path, target: str = TARGET) -> dict:
                 if not exists(con,table):
                     entries[table] = {"total":0,"non_target":0}
                     continue
-                require(field in schema(con,table),"RELATED_SCHEMA_DRIFT")
+                if field not in schema(con,table):
+                    # Old releases can lack the newer ownership column.
+                    # Treat all such records as unresolved; read-only still runs.
+                    total=int(con.execute("SELECT COUNT(*) FROM " + table).fetchone()[0])
+                    entries[table] = {"total":total,"non_target":total,
+                                      "schema":"LEGACY_NO_OWNER"}
+                    continue
                 total, not_target = con.execute(
                     f"SELECT COUNT(*),SUM(CASE WHEN LOWER(TRIM(COALESCE({field},'')))<>? THEN 1 ELSE 0 END) FROM {table}",
                     (target,),
