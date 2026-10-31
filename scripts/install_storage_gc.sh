@@ -53,6 +53,8 @@ test "$(stat -c '%U:%a' /run/vps1-storage-gc-manual)" = "ubuntu:700" || {
   echo 'REFUSE: manual GC request spool identity or permissions invalid'; exit 25;
 }
 /usr/bin/python3 /usr/local/libexec/vps1-storage-gc.py --publish-status || echo 'STORAGE_GC_TELEMETRY=INVENTORY_PENDING'
+/usr/bin/python3 /usr/local/libexec/vps1-storage-gc.py --probe-runtime \
+  || { echo 'STORAGE_GC_RUNTIME_PROBE=UNAVAILABLE_READ_ONLY'; exit 26; }
 echo 'VPS1_STORAGE_DEPLOYMENT_GC_TIMER=ACTIVE'
 echo 'USER_MEDIA=UNCHANGED'
 echo 'AUTO_SCRIPT=OFFLINE'
