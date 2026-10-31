@@ -1860,7 +1860,13 @@ def delete_terminal_job(job_id: str, request: Request):
     state=short_owned_state(job_id, request)
     if state.get("status") not in ("completed","failed","cancelled"):
         raise HTTPException(status_code=409,detail="Only finished, failed or cancelled jobs can be deleted.")
-    shutil.rmtree(JOBS_ROOT / job_id,ignore_errors=True)
+    job_dir = JOBS_ROOT / job_id
+    if job_dir.is_symlink() or job_dir.parent != JOBS_ROOT or not job_dir.is_dir():
+        raise HTTPException(status_code=409, detail="Unsafe or missing job folder.")
+    try:
+        shutil.rmtree(job_dir)
+    except OSError:
+        raise HTTPException(status_code=409, detail="Job-local media could not be safely removed.")
     with jobs_lock:
         jobs.pop(job_id,None)
     return {"ok":True,"job_id":job_id}
@@ -1877,9 +1883,7 @@ def clear_terminal_jobs(status_name: str, request: Request):
         job_id=str(state.get("job_id") or "")
         if not job_id:
             continue
-        shutil.rmtree(JOBS_ROOT / job_id,ignore_errors=True)
-        with jobs_lock:
-            jobs.pop(job_id,None)
+        delete_terminal_job(job_id, request)
         removed+=1
     return {"ok":True,"status":status_name,"removed":removed}
 
