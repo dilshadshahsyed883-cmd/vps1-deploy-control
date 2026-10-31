@@ -139,5 +139,14 @@ class Haseeb1Assignment(unittest.TestCase):
         self.assertEqual((short / "state.json").read_text(),
                          '{"owner": "", "status": "completed"}')
 
+
+    def test_guarded_release_prints_offline_receipt(self):
+        from pathlib import Path
+        source = Path("production/studio_haseeb1_assignment.py").read_text()
+        self.assertIn('"STUDIO_UPLOADER_ASSIGNMENT": "PASS"', source)
+        self.assertIn('"auto_script": "OFFLINE"', source)
+        self.assertIn('"shared_google_drive": "UNCHANGED"', source)
+        self.assertIn('"other_studio_data": "NOT_MIGRATED"', source)
+
 if __name__ == "__main__":
     unittest.main()
