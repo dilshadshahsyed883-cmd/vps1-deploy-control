@@ -43,6 +43,18 @@ class LoginReturnTargetTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertEqual(helper.safe_login_target(value), "/")
 
+    def test_full_unescaped_nginx_deep_link_is_preserved(self):
+        raw = "next=/short-uploader/app?tab=queue&profile=2&source=maker"
+        self.assertEqual(
+            helper.browser_login_target(raw, "/short-uploader/app?tab=queue"),
+            "/short-uploader/app?tab=queue&profile=2&source=maker",
+        )
+        self.assertEqual(
+            helper.browser_login_target("next=%2Fshort-maker%2F", "/short-maker/"),
+            "/short-maker/",
+        )
+        self.assertEqual(helper.browser_login_target("next=//evil.example", "//evil.example"), "/")
+
     def test_login_url_escapes_query_parameters(self):
         self.assertEqual(helper.login_redirect_url("/short-uploader/app?tab=queue&group=2"),
                          "/login?next=%2Fshort-uploader%2Fapp%3Ftab%3Dqueue%26group%3D2")
@@ -94,6 +106,16 @@ class NginxGlobalLoginTests(unittest.TestCase):
         self.assertLess(RULE.index("return 401;"), RULE.index("return 303"))
         self.assertIn("return 303 /login?next=$request_uri;", RULE)
         self.assertNotIn("error_page 403", RULE)
+
+    def test_guarded_release_retries_only_known_busy_conditions(self):
+        workflow = (ROOT / ".github/workflows/vps1-universal-login-release.yml").read_text()
+        self.assertIn("for attempt in $(seq 1 18); do", workflow)
+        self.assertIn("Scene production worker: queued or in-flight Scene jobs exist; source refresh deferred", workflow)
+        self.assertIn("BlockingIOError: [Errno 11] Resource temporarily unavailable", workflow)
+        self.assertIn('test "$installed" = 1', workflow)
+        self.assertIn("nginx-route-only $SOURCE_SHA short-maker", workflow)
+        self.assertNotIn("kill -", workflow)
+        self.assertNotIn("systemctl stop", workflow)
 
     @unittest.skipUnless(shutil.which("nginx"), "Nginx parser unavailable")
     def test_real_nginx_parser_accepts_global_redirect_in_scene_site(self):
