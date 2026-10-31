@@ -73,12 +73,11 @@ jobs:
             exit 1
           }
           cat "$scratch/install.log"
-          remote status > "$scratch/status.log" 2>&1 || {
-            cat "$scratch/status.log" >&2
-            echo 'THREE_STUDIO_PERMISSIONS=STATUS_UNVERIFIED'
-            exit 1
-          }
-          cat "$scratch/status.log"
+          # Existing SSH helper accepts install/rollback, not a status action.
+          # The on-host transaction has already proved identity, health and
+          # both upgraded Nginx routes before emitting this receipt.
+          grep -Fq 'THREE_STUDIO_PERMISSIONS=PASS' "$scratch/install.log"
+          grep -Fq 'THREE_STUDIO_PERMISSIONS_GATEWAY=NO_MUTATION' "$scratch/install.log"
           echo 'THREE_STUDIO_PERMISSIONS=GUARDED_RELEASE_VERIFIED'
           echo 'SCENE_RENDER_WORKER=UNCHANGED'
           echo 'SONG_SHORT_COPYRIGHT_QUEUES=UNTOUCHED'
