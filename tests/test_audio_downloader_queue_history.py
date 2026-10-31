@@ -286,24 +286,28 @@ class AudioDownloaderWorkerSafeReleaseTests(unittest.TestCase):
 
     def test_release_rejects_active_audio_download(self):
         from production import voice_template_release as release
-        from unittest.mock import Mock
-        fake = Mock()
-        fake.status = 200
-        fake.read.return_value = b'{"queue":{"queued":0,"downloading":1,"uploading":0}}'
-        with patch.object(release.urllib.request, "urlopen") as urlopen:
-            urlopen.return_value.__enter__.return_value = fake
-            with self.assertRaisesRegex(RuntimeError, "active/pending jobs"):
-                release.require_idle_audio_downloader()
+        import sqlite3
+        with tempfile.TemporaryDirectory() as root:
+            data = Path(root) / "data"
+            data.mkdir()
+            with sqlite3.connect(data / "jobs.sqlite3") as db:
+                db.execute("CREATE TABLE jobs(status TEXT NOT NULL)")
+                db.execute("INSERT INTO jobs(status) VALUES ('downloading')")
+            with patch.dict(os.environ, {"AUDIO_DOWNLOADER_ROOT": root}):
+                with self.assertRaisesRegex(RuntimeError, "active/pending jobs"):
+                    release.require_idle_audio_downloader()
 
     def test_release_allows_idle_download_queue(self):
         from production import voice_template_release as release
-        from unittest.mock import Mock
-        fake = Mock()
-        fake.status = 200
-        fake.read.return_value = b'{"queue":{"queued":0,"downloading":0,"uploading":0}}'
-        with patch.object(release.urllib.request, "urlopen") as urlopen:
-            urlopen.return_value.__enter__.return_value = fake
-            release.require_idle_audio_downloader()
+        import sqlite3
+        with tempfile.TemporaryDirectory() as root:
+            data = Path(root) / "data"
+            data.mkdir()
+            with sqlite3.connect(data / "jobs.sqlite3") as db:
+                db.execute("CREATE TABLE jobs(status TEXT NOT NULL)")
+                db.execute("INSERT INTO jobs(status) VALUES ('completed')")
+            with patch.dict(os.environ, {"AUDIO_DOWNLOADER_ROOT": root}):
+                release.require_idle_audio_downloader()
 
     def test_release_probes_authenticated_queue_history_datasource_and_proxy(self):
         from production import voice_template_release as release

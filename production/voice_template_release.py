@@ -610,18 +610,42 @@ def read_full_authenticated_voice_html(cookie: str) -> bytes:
 
 
 def require_idle_audio_downloader() -> None:
-    """Never interrupt an actively processing or waiting audio job for a UI-only release."""
-    request = urllib.request.Request("http://127.0.0.1:8143/tts/api/audio-downloader/status")
+    """Require *every* tenant's Audio Downloader queue to be idle before Voice reload.
+
+    The HTTP status API is user-authenticated and owner-scoped, so probing it
+    anonymously returns 403 and a single user's response cannot prove global
+    idleness. Read the existing SQLite queue directly in strict read-only mode;
+    no HTTP/auth bypass, migration, queue modification or worker interaction.
+    Missing/unreadable/unknown state fails closed.
+    """
+    import os
+    import sqlite3
+    from contextlib import closing
+
+    root = Path(os.environ.get("AUDIO_DOWNLOADER_ROOT",
+                               "/home/ubuntu/apps/audio_downloader_voice_studio"))
+    require(root.is_absolute(), "Audio Downloader queue path must be absolute")
+    queue_db = root / "data" / "jobs.sqlite3"
+    require(queue_db.is_file() and not queue_db.is_symlink(),
+            "Audio Downloader global queue database unavailable")
+
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            require(response.status == 200, "Audio Downloader status API unavailable")
-            status = json.loads(response.read(32768))
-    except (OSError, ValueError) as exc:
-        raise RuntimeError("Audio Downloader preflight unavailable; abort Voice reload") from exc
-    require(isinstance(status, dict) and isinstance(status.get("queue"), dict),
-            "Audio Downloader status missing actual queue counts")
-    busy_states = ("queued", "downloading", "downloaded", "processing", "converting", "uploading")
-    require(all(not int(status["queue"].get(name) or 0) for name in busy_states),
+        with closing(sqlite3.connect(queue_db.as_uri() + "?mode=ro",
+                                     uri=True, timeout=10)) as connection:
+            connection.execute("PRAGMA query_only=ON")
+            # Treat every unrecognized/new job state as busy. A retry queue is
+            # not idle even while the worker is waiting between attempts.
+            terminal = ("completed", "delivered", "failed", "cancelled")
+            placeholders = ",".join("?" for _ in terminal)
+            busy = connection.execute(
+                f"SELECT 1 FROM jobs WHERE status NOT IN ({placeholders}) LIMIT 1",
+                terminal,
+            ).fetchone()
+    except (OSError, sqlite3.Error) as exc:
+        raise RuntimeError(
+            "Audio Downloader global queue preflight unavailable; abort Voice reload"
+        ) from exc
+    require(busy is None,
             "Audio Downloader has active/pending jobs; postpone Voice UI reload")
 
 
