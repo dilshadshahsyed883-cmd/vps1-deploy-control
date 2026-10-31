@@ -180,7 +180,7 @@ for (const workspace of ["uploader", "voice", "acs"]) {
   });
 }
 
-test("Self Media Library uses one Experiment Studio parent and all six second-level tabs", async () => {
+test("Experiment Studio second-level tabs stay hidden for nonadmins and appear for admins", async () => {
   const h=boot("library",{authenticated:true,is_admin:false,username:"editor"});
   await h.tick();
   const nav=all(h.body).find(e=>e.tag==="nav"&&e.attrs["aria-label"]==="Applications");
@@ -189,10 +189,15 @@ test("Self Media Library uses one Experiment Studio parent and all six second-le
   assert.equal(nav.children.filter(e=>e.textContent==="Self Media Library").length,0);
   const tabs=all(h.body).find(e=>e.className==="vps1-native-experiment-tabs");
   assert.ok(tabs);
+  assert.equal(tabs.hidden, true, "non-admin Experiment navigation must be hidden");
   assert.deepEqual(tabs.children.map(e=>e.textContent),["Antidetect Browser","Self Media Library","Auto Script","Video Studio","Voice Studio","Upload Studio"]);
   assert.deepEqual(tabs.children.map(e=>e.href),["/experiment-studio/antidetect-browser/","/self-media-library/","/experiment-studio/auto-script/","/scene-builder/","/voice-studio/app#vps1-production","/local-upload-manager/app?embedded=1&tab=dashboard"]);
   assert.equal(tabs.children.filter(e=>e.attrs["aria-current"]==="page").length,1);
   assert.equal(h.links().filter(e=>e.href==="/admin").length,0);
+  await h.update({authenticated:true,is_admin:true,username:"owner"});
+  assert.equal(tabs.hidden, false, "verified admin may see Experiment tabs");
+  await h.update(null);
+  assert.equal(tabs.hidden, true, "expired session must hide Experiment tabs");
 });
 
 test("voice native menu uses in-page tab activation instead of document reload", async () => {
