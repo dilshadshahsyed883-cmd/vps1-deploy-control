@@ -1,0 +1,30 @@
+name: VPS1 Song Short Copyright queue auto-start contracts
+on:
+  pull_request:
+    paths:
+      - 'apps/local-upload-manager/part01/lum_engine/auto_engine_v6.py'
+      - 'apps/local-upload-manager/part01/lum_engine/standalone_app.py'
+      - 'apps/copyright-uploader/part01/lum_engine/standalone_app.py'
+      - 'tests/test_uploader_queue_autostart.py'
+      - '.github/workflows/vps1-three-uploader-queue-autostart-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/local-upload-manager/part01/lum_engine/auto_engine_v6.py'
+      - 'apps/local-upload-manager/part01/lum_engine/standalone_app.py'
+      - 'apps/copyright-uploader/part01/lum_engine/standalone_app.py'
+      - 'tests/test_uploader_queue_autostart.py'
+      - '.github/workflows/vps1-three-uploader-queue-autostart-ci.yml'
+permissions:
+  contents: read
+jobs:
+  queue-autostart:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Strict offline queue admission and paused-state regression
+        run: python -m unittest discover -s tests -p test_uploader_queue_autostart.py -v
