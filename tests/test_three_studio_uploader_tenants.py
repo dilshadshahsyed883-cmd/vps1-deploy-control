@@ -80,6 +80,18 @@ class TenantTests(unittest.TestCase):
                 self.assertIn("part01/lum_engine/studio_tenants.py",names)
                 self.assertIn("part01/lum_engine/standalone_app.py",names)
 
+    def test_specialized_song_short_releases_package_owners_and_counts(self):
+        root=Path(__file__).resolve().parents[1]
+        for file_name in ("short_uploader_group_release.py",
+                          "song_uploader_group_summary_release.py"):
+            with self.subTest(release=file_name):
+                script=(root/"production"/file_name).read_text(encoding="utf-8")
+                self.assertIn('"lum_engine/studio_tenants.py"',script)
+                self.assertIn('"lum_engine/project_store.py"',script)
+                self.assertIn('NEW_FILES=frozenset({"lum_engine/studio_tenants.py"})',script)
+                self.assertIn('relative in NEW_FILES and not dst.exists()',script)
+                compile(script,file_name,"exec")
+
     def test_middleware_direct_routes_and_profile_history_have_guards(self):
         for package in PACKAGES:
             standalone=(package/"standalone_app.py").read_text(encoding="utf-8")
