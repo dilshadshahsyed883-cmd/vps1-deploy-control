@@ -1,0 +1,87 @@
+name: VPS1 scoped Song and Short haseeb1 ownership migration
+on:
+  pull_request:
+    paths:
+      - "production/studio_haseeb1_assignment.py"
+      - "production/runtime.py"
+      - "tests/test_studio_haseeb1_assignment.py"
+      - ".github/workflows/vps1-haseeb1-song-short-assignment.yml"
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  assignment-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile audited migrations
+        run: python -m py_compile production/studio_haseeb1_assignment.py production/runtime.py
+      - name: Test account guard, isolation, busy uploads and idempotency
+        run: python -m unittest tests.test_studio_haseeb1_assignment tests.test_studio_tenant_readonly_preflight -v
+  run-reviewed-scoped-intent:
+    needs: [assignment-tests]
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'dilshadshahsyed883-cmd' &&
+      (contains(github.event.head_commit.message, '[vps1-haseeb1-song-short-assignment]') ||\n      contains(github.event.head_commit.message, '[vps1-haseeb1-song-short-readonly]'))
+    concurrency:
+      group: vps1-production-applications
+      cancel-in-progress: false
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Join verified Tailscale overlay
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Scoped migration through pinned root helper (no Auto Script)
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+          SOURCE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/identity"
+          unset PRIVATE_IDENTITY
+          chmod 0600 "$scratch/identity"
+          ssh-keygen -y -P '' -f "$scratch/identity" > "$scratch/public"
+          fingerprint="$(ssh-keygen -lf "$scratch/public" -E sha256 | awk '{print $2}')"
+          test "$fingerprint" = 'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
+          timeout 480s ssh -T -p 22 -i "$scratch/identity" \
+            -o UserKnownHostsFile="$scratch/known_hosts" \
+            -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+            vps1deploy@100.87.55.92 \
+            "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA local-upload-manager" \
+            > "$scratch/receipt.log" 2>&1
+          if git log -1 --format=%B | grep -Fq '[vps1-haseeb1-song-short-readonly]'; then
+            grep -Fq '"mode": "READ_ONLY"' "$scratch/receipt.log"
+            grep -Fq '"target_verified": true' "$scratch/receipt.log"
+            echo 'HASEEB1_FULL_STUDIO_AUDIT=READ_ONLY'
+          else
+            grep -Fq '"STUDIO_UPLOADER_ASSIGNMENT": "PASS"' "$scratch/receipt.log"
+            echo 'HASEEB1_SONG_SHORT_UPLOADER_OWNERSHIP=PASS'
+          fi
+          grep -Fq '"auto_script": "OFFLINE"' "$scratch/receipt.log"
+          cat "$scratch/receipt.log"
