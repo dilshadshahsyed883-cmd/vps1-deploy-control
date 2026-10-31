@@ -22,6 +22,8 @@ RULE = """ # VPS1_UNIVERSAL_BROWSER_LOGIN_401_V1
  location @vps1_browser_login_401 {
     # Machine-to-machine calls must never receive a login HTML redirect.
     if ($request_method !~ ^(GET|HEAD)$) { return 401; }
+    if ($uri ~* "(^|/)(api|health|healthz)(/|$)") { return 401; }
+    if ($http_upgrade != "") { return 401; }
     if ($http_accept !~* "text/html") { return 401; }
     add_header Cache-Control "private, no-store" always;
     return 303 /login?next=$request_uri;
