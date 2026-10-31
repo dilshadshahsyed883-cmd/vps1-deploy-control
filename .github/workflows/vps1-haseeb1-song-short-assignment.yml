@@ -79,29 +79,8 @@ jobs:
             > "$scratch/receipt.log" 2>&1 || helper_status=$?
           if [ "$helper_status" -ne 0 ]; then
             echo "HASEEB1_AUDIT_HELPER_EXIT=$helper_status"
-            phase="$(grep -Eo 'HASEEB1_MIGRATION_PHASE=[A-Z_]+' "$scratch/receipt.log" | grep -v '=ROLLBACK
-            if [ -n "$phase" ]; then echo "$phase"; fi
-            # Only fixed uppercase machine-readable failure codes are emitted.
-            # Never dump raw SSH logs: they may contain private paths or IDs.
-            if ! grep -Eo 'HASEEB1_STUDIO_ASSIGNMENT_BLOCKED: [A-Z0-9_]+' "$scratch/receipt.log" | tail -n 1; then
-              echo 'HASEEB1_AUDIT_REMOTE_REASON=UNCLASSIFIED'
-            fi
-            exit 1
-          fi
-          if git log -1 --format=%B | grep -Fq '[vps1-haseeb1-song-short-readonly]'; then
-            if ! grep -Fq '"mode": "READ_ONLY"' "$scratch/receipt.log" ||
-               ! grep -Fq '"target_verified": true' "$scratch/receipt.log"; then
-              echo 'HASEEB1_AUDIT_RECEIPT_MISMATCH'
-              exit 1
-            fi
-            echo 'HASEEB1_FULL_STUDIO_AUDIT=READ_ONLY'
-          else
-            grep -Fq '"STUDIO_UPLOADER_ASSIGNMENT": "PASS"' "$scratch/receipt.log"
-            echo 'HASEEB1_SONG_SHORT_UPLOADER_OWNERSHIP=PASS'
-          fi
-          grep -Fq '"auto_script": "OFFLINE"' "$scratch/receipt.log"
-          cat "$scratch/receipt.log"
- | tail -n 1 || true)"
+            # Exclude generic rollback phase; emit the last safe pre-rollback phase.
+            phase="$(grep -Eo 'HASEEB1_MIGRATION_PHASE=[A-Z_]+' "$scratch/receipt.log" | grep -v '=ROLLBACK$' | tail -n 1 || true)"
             if [ -n "$phase" ]; then echo "$phase"; fi
             # Only fixed uppercase machine-readable failure codes are emitted.
             # Never dump raw SSH logs: they may contain private paths or IDs.
