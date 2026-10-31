@@ -588,17 +588,21 @@ body.vps1-native-uploader .lum-ae-schedule-control>button{flex:0 1 auto!importan
   background:var(--vps1-ui-primary,#6355df)!important;
   border-color:var(--vps1-ui-primary,#6355df)!important;color:#fff!important;
 }
+/* With a visible, server-verified Experiment parent, the third-level rail
+   follows immediately; the parent's 18px bottom margin is already the gap.
+   Do not push inner tabs down a second time. */
 body.vps1-native-site>.vps1-native-experiment-tabs~:is(
   .vps1-native-video-tabs,.vps1-native-upload-tabs){
-  margin-top:8px!important;
+  margin-top:0!important;
 }
 @media(max-width:760px){
   body.vps1-native-site>.vps1-native-experiment-tabs{
     margin-top:72px!important;
+    margin-bottom:14px!important;
   }
   body.vps1-native-site>.vps1-native-experiment-tabs~:is(
     .vps1-native-video-tabs,.vps1-native-upload-tabs){
-    margin-top:8px!important;
+    margin-top:0!important;
   }
 }
 

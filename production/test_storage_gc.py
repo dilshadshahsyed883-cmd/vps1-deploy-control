@@ -12,6 +12,95 @@ from production import storage_gc as gc
 
 
 class StorageGCTests(unittest.TestCase):
+    def test_esrch_kernel_thread_requires_strong_resource_free_proof(self):
+        """Live Kthread with no user-space resources must not block every release."""
+        import errno
+        from unittest.mock import patch
+
+        proc = Path(self.workspace.name) / "proc-kthreads"
+        pid = proc / "2"
+        (pid / "fd").mkdir(parents=True)
+        (pid / "cmdline").write_bytes(b"")
+        (pid / "maps").write_bytes(b"")
+        (pid / "status").write_text("Name:\tkthreadd\nKthread:\t1\n")
+        target = self.root / "releases" / self.app / self.revisions[3]
+
+        def stat_line(flags=0x00200000, start=12345):
+            fields = (["S", "0"] + ["0"] * 4 + [str(flags)]
+                      + ["0"] * 12 + [str(start)] + ["0"] * 4)
+            return f"{pid.name} (kthreadd) " + " ".join(fields)
+
+        (pid / "stat").write_text(stat_line())
+        original = Path.read_bytes
+
+        def process_read_bytes(path):
+            if path == pid / "environ":
+                raise ProcessLookupError(errno.ESRCH, "kernel process without user mm")
+            return original(path)
+
+        with patch.object(Path, "read_bytes", autospec=True, side_effect=process_read_bytes):
+            self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc),
+                             "clear")
+
+            # Missing or contradictory kernel identity always blocks deletion.
+            (pid / "status").write_text("Name:\tkthreadd\nKthread:\t0\n")
+            self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc),
+                             "unverifiable-process-race")
+            (pid / "status").write_text("Kthread:\t1\n")
+            (pid / "stat").write_text(stat_line(flags=0))
+            self.assertTrue(gc._runtime_in_use([target], proc_root=proc))
+            (pid / "stat").write_text(stat_line())
+
+            # Any FD, mapping, or cwd reference defeats the exemption.
+            (pid / "fd" / "4").symlink_to(target)
+            self.assertTrue(gc._runtime_in_use([target], proc_root=proc))
+            (pid / "fd" / "4").unlink()
+            (pid / "maps").write_bytes(os.fsencode(target))
+            self.assertTrue(gc._runtime_in_use([target], proc_root=proc))
+            (pid / "maps").write_bytes(b"")
+            (pid / "cwd").symlink_to(target)
+            self.assertTrue(gc._runtime_in_use([target], proc_root=proc))
+            (pid / "cwd").unlink()
+
+            # Real userspace references still win over kernel-thread detection.
+            (pid / "cmdline").write_bytes(os.fsencode(target) + b"/app.py")
+            self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc),
+                             "referenced")
+
+    def test_kernel_thread_pid_reuse_and_unreadable_status_fail_closed(self):
+        import errno
+        from unittest.mock import patch
+
+        proc = Path(self.workspace.name) / "proc-kthread-race"
+        pid = proc / "2"
+        (pid / "fd").mkdir(parents=True)
+        (pid / "maps").write_bytes(b"")
+        (pid / "status").write_text("Kthread:\t1\n")
+        target = self.root / "releases" / self.app / self.revisions[3]
+
+        def stat_line(start):
+            fields = (["I", "0"] + ["0"] * 4 + [str(0x00200000)]
+                      + ["0"] * 12 + [str(start)] + ["0"] * 4)
+            return f"{pid.name} (kworker) " + " ".join(fields)
+
+        (pid / "stat").write_text(stat_line(12345))
+        original_read_text = Path.read_text
+        count = [0]
+
+        def changed_stat(path, *args, **kwargs):
+            if path == pid / "stat":
+                count[0] += 1
+                return stat_line(12345 if count[0] == 1 else 12346)
+            return original_read_text(path, *args, **kwargs)
+
+        self.assertEqual(gc._confirmed_resource_free_kthread(pid), True)
+        with patch.object(Path, "read_text", autospec=True, side_effect=changed_stat):
+            self.assertEqual(gc._confirmed_resource_free_kthread(pid),
+                             "identity-changed")
+
+        (pid / "status").unlink()
+        self.assertFalse(gc._confirmed_resource_free_kthread(pid))
+
     def test_transient_proc_race_requires_clean_independent_rescan(self):
         from unittest.mock import patch
 
@@ -190,6 +279,17 @@ class StorageGCTests(unittest.TestCase):
         self.assertIn("--probe-runtime", script)
         self.assertIn("STORAGE_GC_RUNTIME_PROBE=LOCKED_OR_UNAVAILABLE_NO_DELETION", script)
         self.assertNotIn("exit 26", script)
+
+    def test_release_status_skips_only_expected_active_deploy_lock(self):
+        workflow = (Path(__file__).resolve().parents[1] /
+                    ".github/workflows/vps1-storage-gc-release.yml").read_text()
+        self.assertIn("STORAGE_GC_STATUS=BUSY_LOCK_READONLY_STATUS_SKIPPED",
+                      workflow)
+        self.assertIn("STORAGE_GC_STATUS=FAILED_UNEXPECTED_ERROR",
+                      workflow)
+        self.assertIn("Resource temporarily unavailable", workflow)
+        self.assertIn("remote storage-gc-status", workflow)
+        self.assertNotIn("systemctl stop vps1-storage-deployment-gc", workflow)
 
     def test_scene_web_spool_identity_parser_requires_nonroot_running_user(self):
         from production.storage_gc_spool import parse_identity

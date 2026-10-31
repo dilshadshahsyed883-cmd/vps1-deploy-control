@@ -261,6 +261,58 @@ def _confirmed_defunct_proc(pid: Path) -> bool:
         return False
 
 
+
+def _confirmed_resource_free_kthread(pid: Path) -> bool | str:
+    """Prove a /proc task is a kernel thread with no release references.
+
+    Kernel threads can return ESRCH from /proc/PID/environ while their PID
+    remains alive (state S/I). Neither an empty fd directory nor PPID=2 alone
+    proves that a process is safe to omit from the runtime reference scan.
+    Require the kernel Kthread marker, PF_KTHREAD stat flag, stable starttime,
+    empty maps/fds and no cwd/exe. Every uncertainty fails closed.
+    """
+    try:
+        if pid.is_symlink() or not pid.is_dir() or not pid.name.isdigit():
+            return False
+
+        def snapshot() -> tuple[int, int] | None:
+            raw = (pid / "stat").read_text(encoding="ascii")
+            close = raw.rfind(")")
+            if close < 0 or "(" not in raw[:close] or raw[:raw.index("(")].strip() != pid.name:
+                return None
+            fields = raw[close + 2:].split()
+            if len(fields) < 20:
+                return None
+            flags = int(fields[6])  # /proc/PID/stat field 9
+            starttime = int(fields[19])  # field 22
+            if not flags & 0x00200000 or starttime <= 0:  # PF_KTHREAD
+                return None
+            return (starttime, flags)
+
+        first = snapshot()
+        if first is None:
+            return False
+        status = (pid / "status").read_text(encoding="utf-8")
+        marker = [line.partition(":")[2].strip() for line in status.splitlines()
+                  if line.startswith("Kthread:")]
+        if marker != ["1"]:
+            return False
+        if not (pid / "fd").is_dir() or any((pid / "fd").iterdir()):
+            return False
+        if any((pid / name).exists() or (pid / name).is_symlink()
+               for name in ("cwd", "exe")):
+            return False
+        if (pid / "maps").read_bytes():
+            return False
+        second = snapshot()
+        if second is not None and second != first:
+            return "identity-changed"
+        return second == first
+    except (OSError, ValueError, UnicodeError, RuntimeError):
+        return False
+
+
+
 def _runtime_reference_pass(paths: list[Path], proc_root: Path = Path("/proc"),
                             *, explain_race: bool = False) -> str:
     """Redacted tri-state /proc probe; unverifiable must never permit deletion.
@@ -306,8 +358,12 @@ def _runtime_reference_pass(paths: list[Path], proc_root: Path = Path("/proc"),
                     if defunct == "identity-changed":
                         return "unverifiable-process-identity-change"
                     if defunct is not True:
-                        return ("unverifiable-process-race-at-" + stage
-                                if explain_race else "unverifiable-process-race")
+                        kthread = _confirmed_resource_free_kthread(pid)
+                        if kthread == "identity-changed":
+                            return "unverifiable-process-identity-change"
+                        if kthread is not True:
+                            return ("unverifiable-process-race-at-" + stage
+                                    if explain_race else "unverifiable-process-race")
                 continue
             except PermissionError:
                 return "unverifiable-permission-" + stage
