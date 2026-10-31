@@ -288,6 +288,13 @@ async def standalone_auth(request: Request, call_next):
                     route("/actions/auto-v6/start-all"),
                     route("/actions/auto-v6/queue-preflight"),
                     route("/actions/auto-v6/profile-schedules/save"),
+                    route("/actions/auto-v6/retry-failed"),
+                    route("/actions/auto-v6/resume-paused"),
+                    route("/actions/auto-v6/clear-done"),
+                    route("/actions/auto-v6/remove-selected"),
+                    route("/actions/auto-v6/recovery-clear"),
+                    route("/actions/auto-v6/job/upload-now"),
+                    route("/actions/sheets/sync-all"),
                 })
             if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio":
                 # Member bulk actions are ACL-scoped in Short handlers.
@@ -524,6 +531,26 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
     )
     auto_v6 = v6_profile_context(db, v6_store, int(auto_profile_id or 0),
                                      owner="" if int(user.get("is_admin") or 0) else str(user.get("username") or "")) if selected == "auto_engine" and selected_auto_mode == "engine1" else {}
+    if selected == "auto_engine" and auto_v6 and engine_instance=="song" and not int(user.get("is_admin") or 0):
+        # Existing context ACL filters static profile ownership; also recheck
+        # live group/channel members so a changed mixed-tenant group cannot
+        # expose its profiles or queue through member UI.
+        valid_ids={int(p["id"]) for p in _song_owned_automation_profiles(request)}
+        owned_channels=studio_tenants.allowed_ids("channel",user)
+        auto_v6["profiles"]=[p for p in auto_v6.get("profiles",[])
+                             if int(p.get("id") or 0) in valid_ids]
+        auto_v6["queue"]=[j for j in auto_v6.get("queue",[])
+                          if int(j.get("auto_engine_profile_id") or 0) in valid_ids
+                          and int(j.get("channel_db_id") or 0) in owned_channels]
+        auto_v6["records"]=[row for row in auto_v6.get("records",[])
+                            if int(row.get("profile_id") or 0) in valid_ids
+                            and (not row.get("channel_db_id") or
+                                 int(row["channel_db_id"]) in owned_channels)]
+        chosen=auto_v6.get("selected") or {}
+        if chosen and int(chosen.get("id") or 0) not in valid_ids:
+            auto_v6.update(selected=None,source={},videos=[],thumbnails=[],
+                           thumbnail_trash=[],eligible_channels=0,
+                           binding={},metadata_rows=[],drive_thumbnails_index=[])
     if selected == "auto_engine" and auto_v6:
         auto_v6["short_folders"] = v6_shortstudio_list_folders(
             owner="" if int(user.get("is_admin") or 0) else str(user.get("username") or "")
@@ -1076,6 +1103,29 @@ def sheets_sync_all(request: Request, csrf_token: str = Form(...)):
             error="Enable Sheets Sync on Dashboard before running synchronization.",
         )
     try:
+        if os.getenv("LUM_ENGINE_INSTANCE")=="song" and not int(user.get("is_admin") or 0):
+            allowed=studio_tenants.allowed_ids("sheet",user)
+            sources=[s for s in db.list_sheet_sources()
+                     if int(s.get("id") or 0) in allowed and int(s.get("enabled") or 0)]
+            if not sources:
+                return redirect("/app?tab=sheets",message="No enabled owned Sheets to sync.")
+            done=0; rows=0; errors=[]
+            for source in sources:
+                sid=int(source["id"])
+                try:
+                    studio_tenants.require("sheet",sid,user)
+                    raw=tenant_fetch_sheet_csv(source["sheet_url_or_id"],None)
+                    if not raw: raise ValueError("Sheet returned zero rows")
+                    prepared=tenant_rows_to_sheet_rows(raw,str(tenant_token_dir))
+                    outcome=studio_tenants.sync_owned_sheet_rows(user["username"],sid,prepared)
+                    if not outcome.get("ok"): raise ValueError(str(outcome.get("error") or "Sheet sync failed"))
+                    done+=1; rows+=int(outcome.get("rows") or 0)
+                except Exception as exc:
+                    errors.append(f"{source.get('sheet_name') or sid}: {exc}")
+            if errors:
+                return redirect("/app?tab=sheets",error=f"Synced {done} owned Sheet(s); {len(errors)} failed: "+"; ".join(errors[:3]))
+            return redirect("/app?tab=sheets",
+                            message=f"Updated {done} owned enabled Sheet(s) · {rows} row(s). No uploads started.")
         result = web_sync_all_sheet_sources(db)
     except Exception as exc:
         return redirect("/app?tab=sheets", error=str(exc))
@@ -1477,6 +1527,62 @@ def _short_owned_automation_profiles(request: Request) -> list[dict[str, Any]]:
     return owned
 
 
+def _song_member_queue_jobs(request: Request, selected_ids=None, statuses=None) -> list[dict[str, Any]]:
+    """Validate both profile and channel ACL; reject foreign selected jobs."""
+    user=current_user(request)
+    if os.getenv("LUM_ENGINE_INSTANCE")!="song" or int(user.get("is_admin") or 0):
+        raise PermissionError("Song member queue action required")
+    owned={int(p["id"]) for p in _song_owned_automation_profiles(request)}
+    # A malformed or duplicate explicit selection must never widen to all
+    # owned jobs. An empty selection is allowed only for intentional bulk scope.
+    raw_selected=list(selected_ids or [])
+    try:
+        selected={int(v) for v in raw_selected}
+    except (ValueError,TypeError) as exc:
+        raise PermissionError("Invalid selected queue job IDs") from exc
+    if raw_selected and (len(selected)!=len(raw_selected) or any(v<=0 for v in selected)):
+        raise PermissionError("Invalid or duplicate selected queue job IDs")
+    jobs=db.list_auto_engine_jobs(limit=5000)
+    if selected and not selected.issubset({int(j.get("id") or 0) for j in jobs}):
+        raise PermissionError("Selected queue job was not found")
+    result=[]
+    for job in jobs:
+        vid=int(job.get("id") or 0)
+        if selected and vid not in selected: continue
+        pid=int(job.get("auto_engine_profile_id") or 0)
+        try:
+            if pid not in owned: raise PermissionError("Unowned profile")
+            _v6_profile(pid,request)
+            cid=int(job.get("channel_db_id") or 0)
+            if not cid: raise PermissionError("Unassigned channel")
+            studio_tenants.require("channel",cid,user)
+        except (PermissionError,ValueError) as exc:
+            if vid in selected: raise PermissionError("Selected queue job belongs to another account") from exc
+            continue
+        if statuses and str(job.get("status") or "").upper() not in statuses: continue
+        result.append(job)
+    return result
+
+
+def _song_member_engine_guard() -> None:
+    state=v6_store.engine()
+    if int(state.get("pause_after_current") or 0):
+        raise PermissionError("Shared engine is paused")
+    if state.get("manual_profile_ids") is None and int(state.get("running") or 0):
+        raise PermissionError("Shared engine running without owner scope")
+
+
+def _song_member_start_scoped(request: Request, profile_ids) -> None:
+    owned={int(p["id"]) for p in _song_owned_automation_profiles(request)}
+    ids={int(pid) for pid in profile_ids if int(pid)>0}
+    if not ids or not ids.issubset(owned): raise PermissionError("Unowned Song profile")
+    _song_member_engine_guard()
+    manual=v6_store.engine().get("manual_profile_ids")
+    scope={int(p) for p in str(manual or "").split(",") if p.strip().isdigit()} if manual is not None else set()
+    v6_store.set_manual_profile_ids(sorted(scope | ids))
+    v6_store.set_engine(running=True,pause_after_current=False,error="")
+
+
 @app.post(route("/actions/auto-v6/profile/save"))
 async def auto_v6_profile_save(request: Request):
     user=current_user(request); require_heavy(user)
@@ -1629,6 +1735,17 @@ def auto_v6_profile_resume(request: Request,csrf_token: str=Form(...),profile_id
 def auto_v6_job_upload_now(request: Request,csrf_token: str=Form(...),video_id: int=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
     vid=int(video_id); meta=v6_store.channel_job_meta(vid)
+    member=(os.getenv("LUM_ENGINE_INSTANCE")=="song" and not int(user.get("is_admin") or 0))
+    if member:
+        try:
+            verified=_song_member_queue_jobs(request,[vid])
+            if len(verified)!=1:
+                raise PermissionError("Job is not available to this account")
+            if not meta or int(meta.get("profile_id") or 0)!=int(verified[0].get("auto_engine_profile_id") or 0):
+                raise PermissionError("Job metadata does not match its owned profile")
+            _song_member_engine_guard()
+        except Exception as exc:
+            return redirect("/app?tab=auto_engine",error=str(exc))
     if meta: _v6_profile(int(meta["profile_id"]),request)
     if not meta:
         return redirect("/app?tab=auto_engine",error="Upload Now is available only for channel Video-ID Auto Engine jobs.")
@@ -1640,8 +1757,14 @@ def auto_v6_job_upload_now(request: Request,csrf_token: str=Form(...),video_id: 
         if status not in {"SCHEDULED","QUEUED","WAITING_SLOT"}:
             return redirect("/app?tab=auto_engine",error=f"Upload Now is available only for scheduled/pending jobs, not {status}. Use Retry Failed for recovery jobs.")
         con.execute("UPDATE videos SET status='QUEUED',app_upload_at=NULL,created_at='1970-01-01 00:00:00',error_message='',updated_at=CURRENT_TIMESTAMP WHERE id=?",(vid,))
-    v6_store.set_engine(running=True,pause_after_current=False)
-    return redirect("/app?tab=auto_engine",message=f"Job #{vid} moved to the front of the global queue after the current upload.")
+    if member:
+        try:
+            _song_member_start_scoped(request,{int(meta["profile_id"])})
+        except Exception as exc:
+            return redirect("/app?tab=auto_engine",error=str(exc))
+    else:
+        v6_store.set_engine(running=True,pause_after_current=False)
+    return redirect("/app?tab=auto_engine",message=f"Job #{vid} moved to the front of its authorized queue after the current upload.")
 
 
 @app.post(route("/actions/auto-v6/job/edit"))
@@ -1833,15 +1956,20 @@ def auto_v6_start_profile(request: Request,csrf_token: str=Form(...),profile_id:
         if not previously_enabled:
             db.set_auto_engine_profile_enabled(pid,True)
             profile=_v6_profile(pid,request)
+        song_member=(os.getenv("LUM_ENGINE_INSTANCE")=="song" and not int(user.get("is_admin") or 0))
+        if song_member: _song_member_engine_guard()
         result=v6_generate_queue(db,v6_store,profile)
         count=int(result.get("created") or 0)
         if count:
             v6_mark_schedule_skipped_today(db,profile)
-        current=v6_store.engine().get("manual_profile_ids")
-        active={int(value) for value in str(current or "").split(",") if value.strip().isdigit()} if current is not None else set()
-        active.add(pid)
-        v6_store.set_manual_profile_ids(sorted(active))
-        v6_store.set_engine(running=True,pause_after_current=False,error="")
+        if song_member:
+            _song_member_start_scoped(request,{pid})
+        else:
+            current=v6_store.engine().get("manual_profile_ids")
+            active={int(value) for value in str(current or "").split(",") if value.strip().isdigit()} if current is not None else set()
+            active.add(pid)
+            v6_store.set_manual_profile_ids(sorted(active))
+            v6_store.set_engine(running=True,pause_after_current=False,error="")
         return redirect(f"/app?tab=auto_engine&auto_profile_id={pid}",message=f"Started profile #{pid} only: {count} new job(s), {int(result.get('duplicates_blocked') or 0)} duplicate(s) blocked. Other queued profiles remain untouched.")
     except Exception as exc:
         if previously_enabled is False:
@@ -2091,6 +2219,31 @@ async def auto_v6_retry_failed(request: Request):
     user=current_user(request); require_heavy(user)
     form=await request.form(); require_csrf(request,str(form.get("csrf_token") or ""))
     ids=_v6_selected_ids(form)
+    if os.getenv("LUM_ENGINE_INSTANCE")=="song" and not int(user.get("is_admin") or 0):
+        # The generic selector drops invalid values; for Retry Failed that
+        # would turn an explicit malformed selection into retry-all-owned.
+        raw_ids=[str(value).strip() for value in form.getlist("video_ids")]
+        if raw_ids and (len(raw_ids)!=len(ids) or any(
+                not value.isdigit() or int(value)<=0 for value in raw_ids)):
+            return redirect("/app?tab=auto_engine",error="Invalid or duplicate selected queue job IDs")
+        try:
+            jobs=[j for j in _song_member_queue_jobs(request,ids or None,{"FAILED"})
+                  if str(j.get("recovery_state") or "")!="REVIEW_REQUIRED"]
+            safe=[]; blocked=0; profile_ids=set()
+            for job in jobs:
+                current=db.get_video(int(job["id"])) or {}
+                if str(current.get("channel_status") or "")!="ACTIVE":
+                    blocked+=1; continue
+                if v6_classify_google_json(str(current.get("token_file_path") or ""))!=V6_VALID_TOKEN:
+                    blocked+=1; continue
+                safe.append(int(job["id"]))
+                profile_ids.add(int(job["auto_engine_profile_id"]))
+            if safe: _song_member_engine_guard()
+            count=db.queue_failed_for_retry(auto_engine_only=True,video_ids=safe) if safe else 0
+            if count: _song_member_start_scoped(request,profile_ids)
+            return redirect("/app?tab=auto_engine",message=f"Retry queued {count} owned job(s); blocked {blocked}.")
+        except Exception as exc:
+            return redirect("/app?tab=auto_engine",error=str(exc))
     for selected_id in ids:
         source=v6_store.job_source(selected_id)
         if source: _v6_profile(int(source["profile_id"]),request)
@@ -2110,6 +2263,17 @@ async def auto_v6_retry_failed(request: Request):
 @app.post(route("/actions/auto-v6/resume-paused"))
 def auto_v6_resume_paused(request: Request,csrf_token: str=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
+    if os.getenv("LUM_ENGINE_INSTANCE")=="song" and not int(user.get("is_admin") or 0):
+        try:
+            jobs=_song_member_queue_jobs(request,statuses={"PAUSED"})
+            if not jobs: return redirect("/app?tab=auto_engine",message="No paused owned jobs.")
+            _song_member_engine_guard()
+            ids=[int(j["id"]) for j in jobs]
+            count=db.resume_paused(auto_engine_only=True,video_ids=ids)
+            if count: _song_member_start_scoped(request,{int(j["auto_engine_profile_id"]) for j in jobs})
+            return redirect("/app?tab=auto_engine",message=f"Resumed {count} owned paused job(s).")
+        except Exception as exc:
+            return redirect("/app?tab=auto_engine",error=str(exc))
     count=db.resume_paused(auto_engine_only=True)
     if count: v6_store.set_engine(running=True,pause_after_current=False)
     return redirect("/app?tab=auto_engine",message=f"Resumed {count} safe paused job(s).")
@@ -2118,6 +2282,14 @@ def auto_v6_resume_paused(request: Request,csrf_token: str=Form(...)):
 @app.post(route("/actions/auto-v6/clear-done"))
 def auto_v6_clear_done(request: Request,csrf_token: str=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
+    if os.getenv("LUM_ENGINE_INSTANCE")=="song" and not int(user.get("is_admin") or 0):
+        try:
+            jobs=_song_member_queue_jobs(request,statuses={"UPLOADED","PUBLISHED"})
+            ids=[int(j["id"]) for j in jobs]
+            count=db.delete_auto_engine_jobs(ids) if ids else 0
+            return redirect("/app?tab=auto_engine",message=f"Cleared {count} owned completed queue row(s). Permanent upload history retained.")
+        except Exception as exc:
+            return redirect("/app?tab=auto_engine",error=str(exc))
     count=db.clear_completed_auto_engine_jobs()
     return redirect("/app?tab=auto_engine",message=f"Cleared {count} completed queue row(s). Permanent upload/script history was retained.")
 
@@ -2127,6 +2299,11 @@ async def auto_v6_remove_selected(request: Request):
     user=current_user(request); require_heavy(user)
     form=await request.form(); require_csrf(request,str(form.get("csrf_token") or ""))
     ids=_v6_selected_ids(form)
+    if os.getenv("LUM_ENGINE_INSTANCE")=="song" and not int(user.get("is_admin") or 0):
+        try:
+            ids=[int(j["id"]) for j in _song_member_queue_jobs(request,ids)] if ids else []
+        except Exception as exc:
+            return redirect("/app?tab=auto_engine",error=str(exc))
     for selected_id in ids:
         source=v6_store.job_source(selected_id)
         if source: _v6_profile(int(source["profile_id"]),request)
@@ -2145,6 +2322,11 @@ async def auto_v6_recovery_clear(request: Request):
     if str(form.get("confirmation") or "").strip()!="I CHECKED YOUTUBE":
         return redirect("/app?tab=auto_engine",error='Type I CHECKED YOUTUBE exactly after checking YouTube Studio.')
     ids=_v6_selected_ids(form)
+    if os.getenv("LUM_ENGINE_INSTANCE")=="song" and not int(user.get("is_admin") or 0):
+        try:
+            ids=[int(j["id"]) for j in _song_member_queue_jobs(request,ids)] if ids else []
+        except Exception as exc:
+            return redirect("/app?tab=auto_engine",error=str(exc))
     for selected_id in ids:
         source=v6_store.job_source(selected_id)
         if source: _v6_profile(int(source["profile_id"]),request)
