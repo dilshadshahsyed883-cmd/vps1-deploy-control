@@ -37,7 +37,7 @@ from scene_media_library import SceneMediaLibrary, InvalidMedia
 from director_v25 import preflight_v25, DirectorSpecError
 from director_v25_execution import compile_v25, bundle_exact_director_media
 from scene_media_source_policy import bundle_local_media
-from login_next import safe_login_target, login_redirect_url
+from login_next import safe_login_target, login_redirect_url, browser_login_target
 
 RUNTIME_CANDIDATE = os.getenv("VPS1_RUNTIME_CANDIDATE") == "1"
 SCENE_PRECUTOVER_EDITING = os.getenv("VPS1_SCENE_PRECUTOVER_EDITING", "0") == "1"
@@ -771,7 +771,7 @@ def scene_session_identity(request: Request):
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, error: str = "", next: str = ""):
-    target = safe_login_target(next)
+    target = browser_login_target(request.scope.get("query_string", b"").decode("latin1"), next)
     if logged_in(request):
         return RedirectResponse(target, status_code=303)
     return templates.TemplateResponse(
