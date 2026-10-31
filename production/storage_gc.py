@@ -261,7 +261,8 @@ def _confirmed_defunct_proc(pid: Path) -> bool:
         return False
 
 
-def _runtime_reference_pass(paths: list[Path], proc_root: Path = Path("/proc")) -> str:
+def _runtime_reference_pass(paths: list[Path], proc_root: Path = Path("/proc"),
+                            *, explain_race: bool = False) -> str:
     """Redacted tri-state /proc probe; unverifiable must never permit deletion.
 
     The result contains no PID, revision, directory, or environment contents.
@@ -305,7 +306,8 @@ def _runtime_reference_pass(paths: list[Path], proc_root: Path = Path("/proc")) 
                     if defunct == "identity-changed":
                         return "unverifiable-process-identity-change"
                     if defunct is not True:
-                        return "unverifiable-process-race"
+                        return ("unverifiable-process-race-at-" + stage
+                                if explain_race else "unverifiable-process-race")
                 continue
             except PermissionError:
                 return "unverifiable-permission-" + stage
@@ -323,7 +325,8 @@ def _runtime_reference_pass(paths: list[Path], proc_root: Path = Path("/proc")) 
 
 
 
-def _runtime_reference_probe(paths: list[Path], proc_root: Path = Path("/proc")) -> str:
+def _runtime_reference_probe(paths: list[Path], proc_root: Path = Path("/proc"),
+                             *, explain_race: bool = False) -> str:
     """Retry only a transient /proc race; require a complete clean pass.
 
     Short-lived processes can disappear during /proc enumeration, particularly
@@ -332,12 +335,13 @@ def _runtime_reference_probe(paths: list[Path], proc_root: Path = Path("/proc"))
     Never treat a retry, delay or an incomplete scan as clearance.
     """
     for attempt in range(3):
-        status = _runtime_reference_pass(paths, proc_root=proc_root)
-        if status != "unverifiable-process-race":
+        status = (_runtime_reference_pass(paths, proc_root=proc_root, explain_race=True)
+                  if explain_race else _runtime_reference_pass(paths, proc_root=proc_root))
+        if not status.startswith("unverifiable-process-race"):
             return status
         if attempt < 2:
             time.sleep(0.05)
-    return "unverifiable-process-race"
+    return status
 
 
 def _runtime_in_use(paths: list[Path], proc_root: Path = Path("/proc")) -> bool:
@@ -359,7 +363,8 @@ def diagnostic_runtime_probe(root: Path = BASE, *, unit_dir: Path | None = None)
         return {"read_only": True, "candidate_count": 0,
                 "first_candidate_runtime_status": "not-applicable"}
     candidate = candidates[0]
-    result = _runtime_reference_probe([Path(raw) for raw in candidate["paths"]])
+    result = _runtime_reference_probe(
+        [Path(raw) for raw in candidate["paths"]], explain_race=True)
     return {"read_only": True, "candidate_count": len(candidates),
             "first_candidate_runtime_status": result}
 
