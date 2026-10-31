@@ -1002,6 +1002,14 @@ def main():
             from production.studio_haseeb1_assignment import read_only_audit
             event(**read_only_audit(DATA, DATA / 'scene-builder/web/web.sqlite3'))
             return
+        # Separate Short Maker data-only claim. This never deploys application
+        # source, restarts a worker, or rewrites rendered media.
+        if '[vps1-haseeb1-shortmaker-assignment]' in intent:
+            if args.action != 'install' or args.apps != ['short-maker']:
+                raise RuntimeError('haseeb1 Short Maker claim requires exact Short Maker lane')
+            from production.studio_haseeb1_shortmaker_assignment import install_shortmaker_claim
+            install_shortmaker_claim(args.revision)
+            return
         # One narrowly authorized Song/Short legacy first-owner migration.
         # The approved local-upload-manager helper lane and host lock apply;
         # no global LUM install and no Copyright, Drive or Auto Script writes.
