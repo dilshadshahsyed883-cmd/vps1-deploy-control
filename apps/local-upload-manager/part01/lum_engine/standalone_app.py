@@ -188,13 +188,16 @@ def get_logs(user: dict[str, Any], limit: int = 300) -> list[dict[str, Any]]:
     return store.events(owner=owner, limit=limit)
 
 
-def stats_payload() -> dict[str, Any]:
-    channels = all_channels()
+def stats_payload(user: dict[str, Any] | None = None) -> dict[str, Any]:
+    channels = all_channels(user)
+    counts=store.counts()
+    if user is not None and not int(user.get("is_admin") or 0):
+        counts={key:0 for key in counts}
     return {
-        "counts": store.counts(),
+        "counts": counts,
         "channels": len(channels),
         "authenticated_channels": sum(1 for c in channels if str(c.get("token_status") or "").lower().startswith("valid")),
-        "active_project_id": worker.active_project_id,
+        "active_project_id": worker.active_project_id if user is None or int(user.get("is_admin") or 0) else None,
         "engine_enabled": store.setting("engine_enabled", "1") == "1",
         "pause_after_current": store.setting("pause_after_current", "0") == "1",
         "settings": store.settings(),
@@ -544,7 +547,7 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         "message": message,
         "error": error,
         "health": health(),
-        "stats": stats_payload(),
+        "stats": stats_payload(user),
         "channels": channels,
         "clients": web_clients,
         "projects": projects,
