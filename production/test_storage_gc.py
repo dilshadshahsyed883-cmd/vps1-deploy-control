@@ -191,6 +191,17 @@ class StorageGCTests(unittest.TestCase):
         self.assertIn("STORAGE_GC_RUNTIME_PROBE=LOCKED_OR_UNAVAILABLE_NO_DELETION", script)
         self.assertNotIn("exit 26", script)
 
+    def test_release_status_skips_only_expected_active_deploy_lock(self):
+        workflow = (Path(__file__).resolve().parents[1] /
+                    ".github/workflows/vps1-storage-gc-release.yml").read_text()
+        self.assertIn("STORAGE_GC_STATUS=BUSY_LOCK_READONLY_STATUS_SKIPPED",
+                      workflow)
+        self.assertIn("STORAGE_GC_STATUS=FAILED_UNEXPECTED_ERROR",
+                      workflow)
+        self.assertIn("Resource temporarily unavailable", workflow)
+        self.assertIn("remote storage-gc-status", workflow)
+        self.assertNotIn("systemctl stop vps1-storage-deployment-gc", workflow)
+
     def test_scene_web_spool_identity_parser_requires_nonroot_running_user(self):
         from production.storage_gc_spool import parse_identity
         from types import SimpleNamespace
