@@ -45,8 +45,8 @@ class AudioTenantReleaseVerification(unittest.TestCase):
             calls.append((url, headers))
             if "/internal/workspace-auth" in url:
                 self.assertEqual(headers["cookie"], "session-cookie")
-                return Reply(204, headers={"X-Auth-User": "haseeb1", "X-Is-Admin": "1"})
-            self.assertEqual(headers.get("x-auth-user"), "haseeb1")
+                return Reply(204, headers={"X-Auth-User": "erin1", "X-Is-Admin": "1"})
+            self.assertEqual(headers.get("x-auth-user"), "erin1")
             self.assertEqual(headers.get("x-is-admin"), "1")
             state = {"ready": True, "download_contract": "explicit-proxy-private-session-v2",
                      "proxy": {"valid_selection": True}} if url.endswith("/status") else {"jobs": []}
@@ -75,7 +75,7 @@ class AudioTenantReleaseVerification(unittest.TestCase):
         mock_route = types.ModuleType("production.route_uploader_scene_https")
         mock_route.scene_cookie = lambda: "session-cookie"
         mock_route.https_get = lambda *args: (200, "application/json", b"{}")
-        for identity in ({"X-Auth-User": "haseeb1", "X-Is-Admin": "0"},
+        for identity in ({"X-Auth-User": "erin1", "X-Is-Admin": "0"},
                          {"X-Auth-User": "", "X-Is-Admin": "1"}):
             with self.subTest(identity=identity), \
                     patch.dict(sys.modules, {"production": pkg, "production.route_uploader_scene_https": mock_route}), \
