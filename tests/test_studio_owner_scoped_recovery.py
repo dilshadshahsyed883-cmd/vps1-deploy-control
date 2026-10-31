@@ -108,5 +108,51 @@ class RepositoryOwnerRegressions(unittest.TestCase):
                     self.assertNotIn("COMPLETED",b)
 
 
+
+class SongReleaseOwnerRetryTests(unittest.TestCase):
+    def test_song_guarded_release_overlays_only_reviewed_resume_method(self):
+        release=ROOT/"production/song_uploader_group_summary_release.py"
+        tree=ast.parse(release.read_text(encoding="utf-8"))
+        node=next(n for n in tree.body
+                  if isinstance(n,ast.FunctionDef) and
+                     n.name=="queue_resume_owner_overlay")
+        scope={
+            "QUEUE_REPOSITORY":"desktop_core/modules/db/queue_repository.py",
+            "require":lambda condition, detail: None if condition else
+                       (_ for _ in ()).throw(RuntimeError(detail)),
+        }
+        exec(compile(ast.fix_missing_locations(ast.Module(
+            body=[node],type_ignores=[])),str(release),"exec"),scope)
+        overlay=scope["queue_resume_owner_overlay"]
+        source=(SOURCES[0]/"desktop_core/modules/db/queue_repository.py").read_bytes()
+        # The old live method could only resume every paused manual job.
+        # This synthetic old release additionally retains unrelated functions.
+        old=b"""
+class QueueRepository:
+    def keep_legacy(self):
+        return 'intact'
+
+    def resume_paused(self, auto_engine_only=False, exclude_auto_engine=False):
+        where = "status='PAUSED' AND recovery_state<>'REVIEW_REQUIRED'"
+        if auto_engine_only:
+            where += " AND auto_engine_profile_id IS NOT NULL"
+        elif exclude_auto_engine:
+            where += " AND auto_engine_profile_id IS NULL"
+        with self.connect() as conn:
+            rows = conn.execute(f"SELECT id, resumable_uri FROM videos WHERE {where}").fetchall()
+            return len(rows)
+"""
+        updated=overlay(old,source).decode()
+        self.assertIn("def keep_legacy(self):",updated)
+        self.assertIn("def resume_paused(self, auto_engine_only",updated)
+        self.assertIn("video_ids: Optional[Iterable[int]]",updated)
+        self.assertIn("params.extend(selected)",updated)
+        # Unknown live method drift must fail safely before service shutdown.
+        broken=old.replace(b"def resume_paused(self, auto_engine_only=False, exclude_auto_engine=False)",
+                           b"def resume_paused(self, anything=False)")
+        with self.assertRaises(RuntimeError):
+            overlay(broken,source)
+
+
 if __name__=="__main__":
     unittest.main()
