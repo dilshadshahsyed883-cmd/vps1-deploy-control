@@ -304,6 +304,13 @@ def main():
     # The exact-job cancellation release performs no application install.
     # Do not reload Nginx or republish unrelated routes after that operation.
     intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+    # Three-Studio release already owns and verifies the exact existing HTTPS
+    # Nginx route transaction. A generic gateway republish would undo its SSO.
+    if '[vps1-studio-permissions-release]' in intent:
+        if 'scene-builder' not in args.apps:
+            raise RuntimeError('Three-Studio permissions require Scene gateway ownership')
+        print('THREE_STUDIO_PERMISSIONS_GATEWAY=NO_MUTATION', flush=True)
+        return
     if '[vps1-scene-job-terminate-3327-20261027]' in intent:
         if args.apps != ['scene-builder']:
             raise RuntimeError('cancel-only release cannot modify application gateway')
