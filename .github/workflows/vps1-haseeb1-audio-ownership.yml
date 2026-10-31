@@ -101,6 +101,7 @@ jobs:
             grep -Eo '"schema_status": "[A-Z_]+"' "$scratch/receipt.log" || true
             grep -Eo '"schema_missing_jobs": \[[^]]*\]' "$scratch/receipt.log" || true
             grep -Eo '"schema_missing_preferences": \[[^]]*\]' "$scratch/receipt.log" || true
+            grep -Eo '"foreign_handoff_account_status": \{[^}]*\}' "$scratch/receipt.log" || true
           else
             grep -Fq '"HASEEB1_AUDIO_ASSIGNMENT":' "$scratch/receipt.log"
             if grep -Fq '"state": "OWNERSHIP_VERIFIED"' "$scratch/receipt.log"; then
