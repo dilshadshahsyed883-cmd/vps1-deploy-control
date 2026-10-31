@@ -112,9 +112,11 @@ class StorageGCTests(unittest.TestCase):
                 return real_read_text(path, *args, **kwargs)
 
             with patch.object(Path, "read_text", autospec=True,
-                              side_effect=changing_stat):
+                              side_effect=changing_stat), \
+                 patch.object(gc.time, "sleep") as pause:
                 self.assertEqual(gc._runtime_reference_probe([target], proc_root=proc),
-                                 "unverifiable-process-race")
+                                 "unverifiable-process-identity-change")
+                pause.assert_not_called()
 
     def test_zombie_stat_missing_or_invalid_remains_protected(self):
         from unittest.mock import patch
