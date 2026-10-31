@@ -106,7 +106,7 @@ class RoleBehaviorTests(unittest.TestCase):
         self.studio_for_path = get_function("studio_for_path", self.bindings)
         self.sso = get_function("workspace_session_auth", {
             **self.bindings,
-            "SCENE_SSO_APP_IDS": frozenset(("short-maker", "short-stream", "self-media-library",
+            "SCENE_SSO_APP_IDS": frozenset(("song-maker", "short-maker", "short-stream", "self-media-library",
                 "video-merger", "voice-studio", "auto-caption-studio", "local-upload-manager",
                 "short-uploader", "copyright-uploader")),
             "logged_in": lambda req: bool(req.session.get("authenticated")),
