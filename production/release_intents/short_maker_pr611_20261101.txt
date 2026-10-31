@@ -1,0 +1,12 @@
+Short Maker PR #611 — guarded isolated production activation
+Source merge: f02b68aa6bc15c686149d7d2445346deb7f17f1e
+
+Operational release contract:
+- Install only short-maker via the existing protected-main, Tailscale-pinned, SHA-pinned vps1-short-studio-release workflow and its production app installer.
+- Fail closed on nonterminal or unreadable Short Maker jobs; never interrupt a render or upload.
+- Preserve the six legacy haseeb1 Short Maker jobs and three owned folders, all user-owned data, output naming, drive configuration, queues, media, and Short Uploader handoff.
+- Require existing installer preflight, backup, health and rollback. Do not restart Song/Short/Copyright Uploaders, Song Maker, Audio Downloader, Video Merger, or other apps.
+- Live authenticated admin/non-admin acceptance is still a separate verification step; automated CI must not be reported as authenticated acceptance.
+- Auto Script remains OFFLINE.
+
+This release intent does not enable automatic uploads or alter application source.
