@@ -94,6 +94,17 @@ def init_db():
           owner_username TEXT NOT NULL DEFAULT ''
         );
         INSERT OR IGNORE INTO settings(k,v) VALUES('paused','0');
+        CREATE TABLE IF NOT EXISTS owner_queue_state (
+          owner_username TEXT PRIMARY KEY COLLATE NOCASE,
+          paused INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS drive_folders (
+          path TEXT PRIMARY KEY,
+          owner_username TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS drive_folders_owner_idx
+          ON drive_folders(owner_username);
         ''')
         existing = {row[1] for row in c.execute("PRAGMA table_info(jobs)")}
         for name, kind in (
@@ -546,6 +557,83 @@ def delete_folder(name):
     return rel
 
 
+# Metadata-only folder listing keeps /api/state independent of Google Drive latency.
+# Legacy shared output paths and files remain intact but are not owned by new users.
+def owner_drive_root(owner):
+    if not str(owner or '').strip():
+        raise ValueError('Authenticated account required')
+    return 'users/' + owner_media_key(owner)
+
+def list_owner_folders(owner):
+    root=owner_drive_root(owner)
+    with DB_LOCK, db() as c:
+        rows=c.execute('SELECT path FROM drive_folders WHERE lower(owner_username)=lower(?) ORDER BY path',(owner,)).fetchall()
+    return [root]+[row['path'] for row in rows if row['path']!=root]
+
+def resolve_owner_folder(owner, value):
+    root=owner_drive_root(owner)
+    path=safe_folder(value)
+    if not path or path==root:
+        return root
+    with DB_LOCK, db() as c:
+        row=c.execute('SELECT 1 FROM drive_folders WHERE path=? AND lower(owner_username)=lower(?)',(path,owner)).fetchone()
+    if row is None:
+        raise ValueError('Select a folder owned by your account')
+    return path
+
+def create_owner_folder(owner, name):
+    root=owner_drive_root(owner)
+    rel=safe_folder(name)
+    if not rel or rel.startswith('users/'):
+        raise ValueError('Enter a folder name relative to your own Drive root')
+    path=root+'/'+rel
+    if len(path.split('/'))>5:
+        raise ValueError('Maximum folder depth exceeded')
+    with DB_LOCK, db() as c:
+        existing=c.execute('SELECT owner_username FROM drive_folders WHERE path=?',(path,)).fetchone()
+        if existing:
+            if existing['owner_username'].casefold()!=owner.casefold():
+                raise ValueError('Folder belongs to another account')
+            return path
+    ensure_output_root()
+    rclone(['mkdir',f'{REMOTE}{OUTPUT_ROOT}/{path}'],timeout=120)
+    with DB_LOCK, db() as c:
+        c.execute('INSERT OR IGNORE INTO drive_folders(path,owner_username,created_at) VALUES(?,?,?)',
+                  (path,owner,utcnow()))
+        row=c.execute('SELECT owner_username FROM drive_folders WHERE path=?',(path,)).fetchone()
+        if row['owner_username'].casefold()!=owner.casefold():
+            raise ValueError('Folder belongs to another account')
+    return path
+
+def delete_owner_folder(owner, path):
+    path=resolve_owner_folder(owner,path)
+    if path==owner_drive_root(owner):
+        raise ValueError('Personal root folder is protected')
+    with DB_LOCK, db() as c:
+        active=c.execute("""SELECT 1 FROM jobs WHERE status NOT IN ('complete','failed','cancelled')
+                            AND (folder=? OR folder LIKE ?) LIMIT 1""",(path,path+'/%')).fetchone()
+        if active:
+            raise ValueError('A queued or active merge is using this folder')
+    # rclone rmdir refuses any nonempty folder; never delete its contents.
+    rclone(['rmdir',f'{REMOTE}{OUTPUT_ROOT}/{path}'],timeout=120)
+    with DB_LOCK, db() as c:
+        c.execute('DELETE FROM drive_folders WHERE path=? AND lower(owner_username)=lower(?)',(path,owner))
+    return path
+
+def owner_queue_paused(owner):
+    with DB_LOCK, db() as c:
+        row=c.execute('SELECT paused FROM owner_queue_state WHERE owner_username=?',(owner,)).fetchone()
+    return bool(row and row['paused'])
+
+def set_owner_queue_paused(owner, paused):
+    owner_drive_root(owner)
+    with DB_LOCK, db() as c:
+        c.execute('''INSERT INTO owner_queue_state(owner_username,paused) VALUES(?,?)
+                     ON CONFLICT(owner_username) DO UPDATE SET paused=excluded.paused''',
+                  (owner,int(bool(paused))))
+    if not paused:
+        WORKER_WAKE.set()
+
 def validate_downloaded_file(path, idx):
     if not path.exists() or path.stat().st_size <= 0:
         raise RuntimeError(f'Video {idx}: downloaded file is empty or missing')
@@ -747,12 +835,20 @@ def list_library_items(owner=None):
             rows=c.execute('SELECT * FROM library_items ORDER BY lower(name), created_at').fetchall()
         else:
             rows=c.execute('SELECT * FROM library_items WHERE lower(owner_username)=lower(?) AND owner_username<>\'\' ORDER BY lower(name), created_at',(owner,)).fetchall()
+    with DB_LOCK, db() as c:
+        active_rows=c.execute("SELECT videos_json FROM jobs WHERE status NOT IN ('complete','failed','cancelled')").fetchall()
+    active_ids=set()
+    for row in active_rows:
+        try:
+            active_ids.update(v.get('library_id') for v in json.loads(row['videos_json'])
+                              if isinstance(v,dict) and v.get('kind')=='library')
+        except (ValueError,TypeError): pass
     out=[]
     for r in rows:
         d=dict(r)
         try: d['trim']=json.loads(d.pop('trim_json') or '{}')
         except Exception: d['trim']={}
-        d['in_use']=library_in_use(d['id']); out.append(d)
+        d['in_use']=d['id'] in active_ids; out.append(d)
     return out
 
 def update_library_item(item_id, **kw):
@@ -1098,7 +1194,11 @@ def next_waiting():
     # Atomically claim a waiting job before the worker leaves the DB lock.
     # Otherwise a user can cancel/delete a row after SELECT but before work starts.
     with DB_LOCK, db() as c:
-        r=c.execute("SELECT * FROM jobs WHERE status='waiting' ORDER BY order_idx, created_at LIMIT 1").fetchone()
+        r=c.execute("""SELECT * FROM jobs j WHERE j.status='waiting'
+                         AND trim(coalesce(j.owner_username,''))<>''
+                         AND NOT EXISTS (SELECT 1 FROM owner_queue_state p
+                                         WHERE p.owner_username=j.owner_username AND p.paused=1)
+                         ORDER BY j.order_idx,j.created_at LIMIT 1""").fetchone()
         if not r: return None
         c.execute("UPDATE jobs SET status='processing', message='Starting job', updated_at=? WHERE id=? AND status='waiting'",
                   (utcnow(), r['id']))
@@ -1108,7 +1208,6 @@ def next_waiting():
 
 def worker():
     while not STOP_EVENT.is_set():
-        if setting('paused','0')=='1': WORKER_WAKE.wait(2); WORKER_WAKE.clear(); continue
         j=next_waiting()
         if not j: WORKER_WAKE.wait(2); WORKER_WAKE.clear(); continue
         process_job(j)
@@ -1134,7 +1233,7 @@ def add_job(payload, owner=''):
     if any(v.get('kind')!='url' for v in videos[1:]): raise ValueError('Video 2 and later videos must use URLs')
     aspect=payload.get('aspect','9:16'); quality=payload.get('quality','1080p')
     if (aspect,quality) not in RES_MAP: raise ValueError('Invalid resolution selection')
-    fit='fit' if payload.get('fit_mode')=='fit' else 'crop'; folder=safe_folder(payload.get('folder',''))
+    fit='fit' if payload.get('fit_mode')=='fit' else 'crop'; folder=resolve_owner_folder(owner,payload.get('folder',''))
     filename=resolve_output_filename(payload,videos); name=filename; jid=uuid.uuid4().hex[:12]
     drive_enabled = payload.get('upload_to_drive', True) is True
     copyright_enabled = payload.get('add_to_copyright_folder', False) is True
@@ -1236,9 +1335,7 @@ class Handler(BaseHTTPRequestHandler):
         return self.headers.get('X-Is-Admin')=='1'
     def require_library_owner(self, item_id):
         item=get_library_item(item_id)
-        if not item or (not self.is_admin() and
-                (not item.get('owner_username') or
-                 item['owner_username'].casefold()!=self.principal().casefold())):
+        if not item or not item.get('owner_username') or item['owner_username'].casefold()!=self.principal().casefold():
             raise ValueError('Library item is not owned by current account')
         return item
     def do_GET(self):
@@ -1261,6 +1358,9 @@ class Handler(BaseHTTPRequestHandler):
                 anchor='<!-- V1_SERVER_ACCOUNT_FALLBACK -->'
                 if page.count(anchor)!=1: raise RuntimeError('Video Merger sidebar anchor changed')
                 page=page.replace(anchor,account,1)
+                if not is_admin:
+                    page=page.replace('</head>',
+                        '<style>#vm-tab-proxy,#tab-proxy{display:none!important}</style></head>',1)
                 if is_admin:
                     marker='<!-- Admin appears only after verified Scene session role -->'
                     if page.count(marker)!=1: raise RuntimeError('Video Merger Admin anchor changed')
@@ -1272,7 +1372,7 @@ class Handler(BaseHTTPRequestHandler):
             if m:
                 job=get_job(m.group(1))
                 owner=(self.headers.get('X-Auth-User') or '').strip()
-                if not job or not owner or (not self.is_admin() and str(job.get('owner_username') or '').lower()!=owner.lower()):
+                if not job or not owner or str(job.get('owner_username') or '').casefold()!=owner.casefold():
                     return self.send_json(404,{'ok':False,'error':'Output not found'})
                 path = LOCAL_OUTPUT_ROOT / job['id'] / job['filename']
                 if (not path.is_file() or path.is_symlink() or
@@ -1292,12 +1392,19 @@ class Handler(BaseHTTPRequestHandler):
                         self.wfile.write(chunk)
                 return
             if p==PREFIX+'/api/state':
-                return self.send_json(200,{'ok':True,'jobs':list_jobs(self.principal(),admin=self.is_admin()),'folders':list_folders() if self.is_admin() else [],'paused':setting('paused','0')=='1','output_root':OUTPUT_ROOT,'library':list_library_items(None if self.is_admin() else self.principal()),'proxy':public_proxy_state() if self.is_admin() else {'enabled':False,'profiles':[]}})
+                owner=self.principal()
+                return self.send_json(200,{'ok':True,'jobs':list_jobs(owner),
+                    'folders':list_owner_folders(owner),'paused':owner_queue_paused(owner),
+                    'output_root':OUTPUT_ROOT,'library':list_library_items(owner),
+                    'proxy':public_proxy_state() if self.is_admin() else {'enabled':False,'profiles':[]}})
             return self.send_json(404,{'ok':False,'error':'Not found'})
         except Exception as e: self.send_json(500,{'ok':False,'error':str(e)})
     def do_POST(self):
         p=self.route()
         try:
+            # Every mutation and source lookup must have verified Scene identity.
+            # /health remains the only intentionally public operational probe.
+            self.principal()
             payload=self.read_json()
             if p==PREFIX+'/api/jobs':
                 jid,filename=add_job(payload,self.principal()); return self.send_json(201,{'ok':True,'id':jid,'filename':filename})
@@ -1320,9 +1427,7 @@ class Handler(BaseHTTPRequestHandler):
             if m:
                 self.require_library_owner(m.group(1))
                 delete_library_item(m.group(1)); return self.send_json(200,{'ok':True})
-            if (p.startswith(PREFIX+'/api/proxy/') or p in
-                    (PREFIX+'/api/queue/pause',PREFIX+'/api/queue/resume',
-                     PREFIX+'/api/folders',PREFIX+'/api/folders/delete')) and not self.is_admin():
+            if p.startswith(PREFIX+'/api/proxy/') and not self.is_admin():
                 raise ValueError('Shared global controls are administrator-only until partitioned')
             if p==PREFIX+'/api/proxy/save': return self.send_json(200,{'ok':True,'id':save_proxy_profile(payload)})
             if p==PREFIX+'/api/proxy/delete': delete_proxy_profile((payload.get('id') or '').strip()); return self.send_json(200,{'ok':True})
@@ -1330,19 +1435,23 @@ class Handler(BaseHTTPRequestHandler):
             if p==PREFIX+'/api/proxy/toggle': set_proxy_enabled(bool(payload.get('enabled'))); return self.send_json(200,{'ok':True})
             if p==PREFIX+'/api/proxy/test': return self.send_json(200,{'ok':True,**test_proxy_profile((payload.get('id') or '').strip())})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/cancel',p)
-            if m: cancel_job(m.group(1),self.principal(),admin=self.is_admin()); return self.send_json(200,{'ok':True})
+            if m: cancel_job(m.group(1),self.principal(),admin=False); return self.send_json(200,{'ok':True})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/retry',p)
             if m:
-                retry_id,filename=retry_job(m.group(1),self.principal(),admin=self.is_admin())
+                retry_id,filename=retry_job(m.group(1),self.principal(),admin=False)
                 return self.send_json(202,{'ok':True,'id':retry_id,'filename':filename})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/delete',p)
-            if m: delete_job(m.group(1),self.principal(),admin=self.is_admin()); return self.send_json(200,{'ok':True})
+            if m: delete_job(m.group(1),self.principal(),admin=False); return self.send_json(200,{'ok':True})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/move',p)
-            if m: move_job(m.group(1),payload.get('direction'),self.principal(),admin=self.is_admin()); return self.send_json(200,{'ok':True})
-            if p==PREFIX+'/api/queue/pause': set_setting('paused','1'); return self.send_json(200,{'ok':True})
-            if p==PREFIX+'/api/queue/resume': set_setting('paused','0'); WORKER_WAKE.set(); return self.send_json(200,{'ok':True})
-            if p==PREFIX+'/api/folders': return self.send_json(201,{'ok':True,'folder':create_folder(payload.get('name',''))})
-            if p==PREFIX+'/api/folders/delete': return self.send_json(200,{'ok':True,'folder':delete_folder(payload.get('name',''))})
+            if m: move_job(m.group(1),payload.get('direction'),self.principal(),admin=False); return self.send_json(200,{'ok':True})
+            if p==PREFIX+'/api/queue/pause':
+                set_owner_queue_paused(self.principal(),True); return self.send_json(200,{'ok':True})
+            if p==PREFIX+'/api/queue/resume':
+                set_owner_queue_paused(self.principal(),False); return self.send_json(200,{'ok':True})
+            if p==PREFIX+'/api/folders':
+                return self.send_json(201,{'ok':True,'folder':create_owner_folder(self.principal(),payload.get('name',''))})
+            if p==PREFIX+'/api/folders/delete':
+                return self.send_json(200,{'ok':True,'folder':delete_owner_folder(self.principal(),payload.get('name',''))})
             return self.send_json(404,{'ok':False,'error':'Not found'})
         except (ValueError,KeyError) as e: self.send_json(400,{'ok':False,'error':str(e)})
         except Exception as e: self.send_json(500,{'ok':False,'error':str(e)})
