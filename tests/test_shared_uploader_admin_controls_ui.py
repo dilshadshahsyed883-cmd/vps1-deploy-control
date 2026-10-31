@@ -6,6 +6,7 @@ to shared uploader, scheduler, OAuth, queue, or Audio Downloader proxy state.
 from __future__ import annotations
 
 import ast
+import unittest
 from pathlib import Path
 
 from jinja2 import Environment
@@ -117,3 +118,20 @@ def test_audio_proxy_is_absent_for_nonadmin_but_available_for_admin() -> None:
     assert b'vsaProxySave' not in hidden
     assert b'id="vsaProxy"' in hidden
     assert b'safe-downloader' in hidden
+
+class SharedControlsUITests(unittest.TestCase):
+    def test_templates(self) -> None:
+        test_uploader_templates_compile_and_preserve_owned_actions()
+
+    def test_dashboard_roles(self) -> None:
+        test_uploader_dashboard_shared_modes_hidden_for_nonadmin()
+
+    def test_copyright_queue_roles(self) -> None:
+        test_copyright_queue_global_controls_hidden_but_personal_actions_preserved()
+
+    def test_audio_downloader_roles(self) -> None:
+        test_audio_proxy_is_absent_for_nonadmin_but_available_for_admin()
+
+
+if __name__ == "__main__":
+    unittest.main()
