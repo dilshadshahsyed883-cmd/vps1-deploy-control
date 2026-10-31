@@ -48,7 +48,7 @@ class SongNonAdminAutomation(TestCase):
         d2 = source.index('</dialog>', d)+len('</dialog>')
         dialog = Environment().from_string(source[d:d2])
         for instance, admin, expected in (("song", False, True), ("song", True, True),
-                                           ("shortstudio", False, False),
+                                           ("shortstudio", False, True),
                                            ("shortstudio", True, True)):
             with self.subTest(instance=instance, admin=admin):
                 ctx = {"engine_instance": instance, "user": {"is_admin": admin},
@@ -69,7 +69,7 @@ class SongNonAdminAutomation(TestCase):
         self.assertIn('if os.getenv("LUM_ENGINE_INSTANCE") == "song":\n                allowed_exact.update({', source)
         for endpoint in ("sync-all", "start-all", "queue-preflight", "profile-schedules/save"):
             self.assertIn('route("/actions/auto-v6/'+endpoint+'")', source)
-        self.assertIn('os.getenv("LUM_ENGINE_INSTANCE") != "song") or', source)
+        self.assertIn('os.getenv("LUM_ENGINE_INSTANCE") not in {"song", "shortstudio"}) or', source)
         self.assertIn("TENANT_SAFE_WRITES", source)
         script = SCRIPT.read_text(encoding="utf-8")
         self.assertIn("dataset.engineInstance==='song'?'automation':'queue'", script)
