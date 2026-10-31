@@ -86,9 +86,9 @@ class VideoMergerQueueRuntimeTests(unittest.TestCase):
         with self.app.db() as c:
             now = self.app.utcnow()
             c.execute(
-                "INSERT INTO library_items(id,name,filename,created_at,updated_at)"
-                " VALUES(?,?,?,?,?)",
-                ("librarytest", "Existing Library Video", "original.mp4", now, now),
+                "INSERT INTO library_items(id,name,filename,owner_username,created_at,updated_at)"
+                " VALUES(?,?,?,?,?,?)",
+                ("librarytest", "Existing Library Video", "original.mp4", "alice", now, now),
             )
 
     def queue(self, owner="alice"):
