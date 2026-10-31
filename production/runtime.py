@@ -1028,6 +1028,12 @@ def main():
             from production.short_uploader_group_release import install as install_shortstudio_ui
             install_shortstudio_ui(args.revision, ui_only=True)
             return
+        if '[vps1-song-worker-readonly-diagnose]' in intent:
+            if args.action != 'install' or args.apps != ['local-upload-manager']:
+                raise RuntimeError("Song worker diagnosis must use only the serialized LUM lane")
+            from production.song_uploader_worker_readonly_diagnostic import run as report_song_worker
+            report_song_worker(DATA / 'local-upload-manager/lum-song')
+            return  # No source install, queue change, service restart or rollback.
         if '[vps1-shortstudio-readonly-diagnose]' in intent:
             if args.action != 'install' or args.apps != ['local-upload-manager']:
                 raise RuntimeError("Short Studio read-only diagnosis is local-upload-manager scoped")
