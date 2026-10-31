@@ -155,6 +155,7 @@ def read_only_audit(data_root: Path, scene_db: Path) -> dict:
     return {"target_verified": True, "mode": "READ_ONLY", "instances": results,
             "uploader_idle_gate": release_idle_diagnostic(),
             "related_stores": inspect_related_stores(data_root),
+            "related_owner_safety": related_owner_safety(data_root, scene_db),
             "shared_google_drive": "UNCHANGED", "auto_script": "OFFLINE"}
 
 def release_idle_diagnostic() -> dict:
@@ -582,3 +583,125 @@ def install_registry_only_online(revision: str) -> None:
                     "auto_script":"OFFLINE","services":"UNCHANGED"})
         raise
 
+
+
+def related_owner_safety(data_root: Path, scene_db: Path) -> dict:
+    """Read-only classified ownership and media proof before maker migration.
+
+    Never output usernames, hashed owner paths, job IDs, tokens or media names.
+    A named existing owner (other than haseeb1) needs separate mapping even if
+    no longer active in Scene. This function never assigns ownership.
+    """
+    import hashlib
+    import json
+    root = Path(data_root)
+    with sqlite3.connect(scene_db.as_uri() + "?mode=ro", uri=True) as auth:
+        known = {str(name).strip().casefold(): (bool(active), bool(admin))
+                 for name, active, admin in auth.execute(
+                     "SELECT username,is_active,is_admin FROM users")}
+    def category(value):
+        owner = str(value or "").strip().casefold()
+        if not owner:
+            return "unassigned"
+        if owner == TARGET:
+            return "target"
+        if owner == "admin":
+            return "legacy_admin"
+        active = known.get(owner)
+        if active is None:
+            return "other_unrecognized"
+        return "other_active" if active[0] else "other_inactive"
+
+    summary = {}
+    for kind, dbpath, names in (
+        ("song_maker", root / "song-maker/state/jobs.sqlite3",
+         ("jobs", "settings", "intake", "sync", "exports",
+          "queue_control", "song_folders")),
+        ("audio_downloader", root / "voice-studio/audio-downloader/data/jobs.sqlite3",
+         ("jobs", "audio_preferences")),
+    ):
+        result = {"owner_classes": {}, "distinct_owners": {},
+                  "nonterminal_jobs": 0}
+        if not dbpath.exists():
+            result["present"] = False
+            summary[kind] = result
+            continue
+        require(dbpath.is_file() and not dbpath.is_symlink(),
+                "OWNER_SAFETY_DB_UNTRUSTED")
+        owners = {}
+        with sqlite3.connect(dbpath.as_uri()+"?mode=ro", uri=True, timeout=5) as db:
+            db.execute("PRAGMA query_only=ON")
+            for table in names:
+                if not exists(db, table):
+                    continue
+                field = "owner_username" if kind == "audio_downloader" and table == "jobs" else "owner"
+                has_owner = field in schema(db, table)
+                if not has_owner:
+                    count = int(db.execute("SELECT COUNT(*) FROM "+table).fetchone()[0])
+                    result["owner_classes"]["unassigned"] = (
+                        result["owner_classes"].get("unassigned", 0)+count)
+                else:
+                    for value, count in db.execute(
+                        "SELECT "+field+",COUNT(*) FROM "+table+" GROUP BY "+field):
+                        label = category(value)
+                        result["owner_classes"][label] = (
+                            result["owner_classes"].get(label, 0)+int(count))
+                        if str(value or "").strip():
+                            owners.setdefault(label, set()).add(str(value).strip().casefold())
+            if exists(db, "jobs"):
+                column = "stage" if kind == "song_maker" else "status"
+                if column in schema(db, "jobs"):
+                    terminals = (("completed", "failed", "cancelled", "canceled",
+                                  "waiting for drive", "needs attention")
+                                 if kind == "song_maker" else
+                                 ("completed", "failed", "cancelled", "canceled", "uploaded"))
+                    states = ",".join("?" for _ in terminals)
+                    result["nonterminal_jobs"] = int(db.execute(
+                        "SELECT COUNT(*) FROM jobs WHERE LOWER(TRIM(COALESCE("
+                        +column+",''))) NOT IN ("+states+")", terminals).fetchone()[0])
+            if kind == "song_maker" and exists(db, "song_folders"):
+                result["folder_media_paths"] = {
+                    "present": 0, "missing": 0, "unsafe": 0}
+                if {"owner", "id"} <= schema(db, "song_folders"):
+                    for owner, fid in db.execute("SELECT owner,id FROM song_folders"):
+                        if not owner or not fid:
+                            result["folder_media_paths"]["missing"] += 1
+                            continue
+                        path = (root / "song-maker/folders"
+                                / hashlib.sha256(str(owner).encode()).hexdigest()
+                                / str(fid))
+                        if any(p.is_symlink() for p in (path, path.parent, path.parent.parent)):
+                            result["folder_media_paths"]["unsafe"] += 1
+                        elif path.is_dir():
+                            result["folder_media_paths"]["present"] += 1
+                        else:
+                            result["folder_media_paths"]["missing"] += 1
+        result["present"] = True
+        result["distinct_owners"] = {key: len(value) for key, value in owners.items()}
+        result["named_owner_conflict"] = any(
+            result["owner_classes"].get(k, 0) > 0 for k in
+            ("legacy_admin", "other_unrecognized", "other_active", "other_inactive"))
+        summary[kind] = result
+
+    short = root / "short-maker/jobs"
+    short_state = {"terminal_jobs":0, "nonterminal_jobs":0, "unclassified":0}
+    if short.is_dir():
+        require(not short.is_symlink(), "SHORT_SAFETY_UNTRUSTED")
+        for item in short.iterdir():
+            require(not item.is_symlink(), "SHORT_JOB_SYMLINK")
+            if item.is_file():
+                short_state["unclassified"] += 1
+                continue
+            require(item.is_dir(), "SHORT_JOB_SPECIAL_ENTRY")
+            state=item/"state.json"
+            if not state.exists():
+                continue
+            require(state.is_file() and not state.is_symlink(), "SHORT_JOB_STATE_UNTRUSTED")
+            raw=json.loads(state.read_text(encoding="utf-8"))
+            require(isinstance(raw, dict), "SHORT_JOB_STATE_INVALID")
+            status=str(raw.get("status") or "").strip().casefold()
+            key=("terminal_jobs" if status in ("completed", "failed", "cancelled", "canceled")
+                 else "nonterminal_jobs")
+            short_state[key] += 1
+    summary["short_maker"] = short_state
+    return summary
