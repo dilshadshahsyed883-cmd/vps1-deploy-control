@@ -19,7 +19,7 @@ def main():
     template='{% extends "base.html" %}{% block content %}'+body+'{% endblock %}'
     ae=SimpleNamespace(groups=[dict(id=7,group_name='Test',channel_count=2)],short_folders=['Test'],profiles=[],scheduler_ui=SimpleNamespace(worker_status='Idle',scheduler_status='Waiting'),engine=SimpleNamespace(running=True,scheduler_armed=True))
     env=Environment(loader=FileSystemLoader(PART/'templates'))
-    html=env.from_string(template).render(engine_instance='shortstudio',p=None,src={},csrf='test',base_path='/short-uploader',ae=ae,embedded_view=False)
+    html=env.from_string(template).render(engine_instance='shortstudio',p=None,src={},csrf='test',base_path='/short-uploader',ae=ae,embedded_view=False,user={'is_admin': True, 'username': 'fixture'})
     writes=[]
     def route(handle):
         req=handle.request;path=urlsplit(req.url).path
