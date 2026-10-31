@@ -4834,7 +4834,7 @@ def workspace_session_auth(request: Request, app: str = ""):
     admin = bool(account.get("is_admin"))
     access = "both" if admin else (
         "auto_caption" if app == "auto-caption-studio" else
-        "lum" if app == "local-upload-manager" else "scene_builder"
+        "lum" if app in {"local-upload-manager", "short-uploader", "copyright-uploader"} else "scene_builder"
     )
     return Response(status_code=204, headers={
         "X-Auth-User": str(account.get("username") or ""),
