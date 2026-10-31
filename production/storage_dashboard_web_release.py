@@ -97,8 +97,8 @@ def patch_candidate_policy(original: str, reviewed: str) -> str:
     Patch the installed policy in place instead of replacing unrelated rules
     with a newer source copy. All other write guards remain unchanged.
     """
-    marker = '    if method == "POST" and path == "/api/admin/storage/run-safe-cleanup":\\n        return True\\n'
-    anchor = '    if not editing_enabled:\\n        return False'
+    marker = '    if method == "POST" and path == "/api/admin/storage/run-safe-cleanup":\n        return True\n'
+    anchor = '    if not editing_enabled:\n        return False'
     require(reviewed.count(marker) == 1 and reviewed.count(anchor) == 1,
             "reviewed GC candidate exception not explicit or unique")
     require(original.count(anchor) == 1
