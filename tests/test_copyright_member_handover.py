@@ -114,6 +114,8 @@ print("TWO_IDENTITY_HTTP=PASS")
             env = {**os.environ, "LUM_DATA_DIR": temp,
                    "YOUTUBE_UPLOAD_MANAGER_DATA_DIR": str(Path(temp) / "core"),
                    "LUM_ENGINE_INSTANCE": "copyright",
+                   "LUM_AUTO_ENGINE_V6_ROOT": str(Path(temp) / "auto_engine_v6"),
+                   "LUM_GOOGLE_OAUTH_ROOT": str(Path(temp) / "secure"),
                    "LUM_BASE_PATH": "/copyright-uploader",
                    "LUM_SUITE_AUTH": "1",
                    "LUM_COOKIE_SECURE": "0",
