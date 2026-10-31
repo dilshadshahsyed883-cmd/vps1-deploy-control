@@ -407,6 +407,50 @@
     </section>
     {% endif %}
 
+
+    {% if not user.is_admin and engine_instance in ['song','shortstudio','copyright'] %}
+    <section class="lum-card" aria-label="Your Studio channels and groups">
+      <div class="lum-card-head"><div>
+        <h2>Your YouTube channels &amp; groups</h2>
+        <p>New channels and groups belong to your account only. Existing channels, OAuth tokens
+           and another user's jobs will never be replaced. Google Drive remains shared.</p>
+      </div></div>
+      <form method="post" action="{{ base_path }}/actions/studio-tenant/channel-create"
+            class="lum-grid lum-three">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <label class="lum-field"><span>Exact YouTube UC Channel ID</span>
+          <input name="channel_id" required maxlength="24"
+                 pattern="UC[A-Za-z0-9_-]{22}" placeholder="UC…" autocomplete="off"></label>
+        <label class="lum-field"><span>Channel name</span>
+          <input name="channel_name" maxlength="120" required autocomplete="off"></label>
+        <label class="lum-field"><span>Google account email (optional)</span>
+          <input name="google_account_email" type="email" maxlength="160" autocomplete="off"></label>
+        <button type="submit" class="lum-button">Add my channel</button>
+      </form>
+      <p class="lum-note">After adding, connect Google OAuth from Accounts &amp; Tokens.
+         If a Channel ID already exists, ask the administrator to assign its original record;
+         this form never takes it over.</p>
+      {% if channel_rows %}
+      <form method="post" action="{{ base_path }}/actions/studio-tenant/group-create"
+            class="lum-grid lum-three">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <label class="lum-field"><span>New group name</span>
+          <input name="group_name" minlength="2" maxlength="80" required autocomplete="off"></label>
+        <fieldset class="lum-field" style="grid-column:span 2">
+          <legend>My channels in this group</legend>
+          {% for channel in channel_rows %}
+          <label style="display:inline-flex;gap:6px;margin:0 14px 8px 0;align-items:center">
+            <input type="checkbox" name="channel_ids" value="{{ channel.id }}">
+            {{ channel.channel_name }} ({{ channel.channel_id }})
+          </label>
+          {% endfor %}
+        </fieldset>
+        <button type="submit" class="lum-button">Create my group</button>
+      </form>
+      {% endif %}
+    </section>
+    {% endif %}
+
       <section class="lum-channel-summary">
         <div><span>Channels</span><strong>{{ channel_summary.total or 0 }}</strong></div>
         <div><span>Active</span><strong>{{ channel_summary.active or 0 }}</strong></div>
