@@ -1147,13 +1147,13 @@ def add_job(payload, owner=''):
                    int(drive_enabled),int(copyright_enabled),owner))
     WORKER_WAKE.set(); return jid,filename
 
-def delete_job(jid, owner=''):
+def delete_job(jid, owner='', admin=False):
     # Status verification and deletion share one lock with the worker claim.
     # Deletion must never remove a job after it was claimed for processing.
     with DB_LOCK, db() as c:
         j=c.execute('SELECT id,status,owner_username FROM jobs WHERE id=?',(jid,)).fetchone()
         if not j: raise KeyError('Job not found')
-        if not owner or not j['owner_username'] or str(j['owner_username']).casefold()!=str(owner).casefold():
+        if not admin and (not owner or not j['owner_username'] or str(j['owner_username']).casefold()!=str(owner).casefold()):
             raise ValueError('This job does not belong to the current account')
         if j['status'] not in ('waiting','complete','failed','cancelled'):
             raise ValueError('Active job cannot be deleted')
@@ -1162,19 +1162,19 @@ def delete_job(jid, owner=''):
     # Preserve completed media even when a history row is removed; cleanup is a separate explicit action.
 
 
-def cancel_job(jid, owner=''):
+def cancel_job(jid, owner='', admin=False):
     """Cancel only a still-waiting job; preserve its history and all source/output files."""
     with DB_LOCK, db() as c:
         j=c.execute('SELECT id,status,owner_username FROM jobs WHERE id=?',(jid,)).fetchone()
         if not j: raise KeyError('Job not found')
-        if not owner or not j['owner_username'] or str(j['owner_username']).casefold()!=str(owner).casefold():
+        if not admin and (not owner or not j['owner_username'] or str(j['owner_username']).casefold()!=str(owner).casefold()):
             raise ValueError('This job does not belong to the current account')
         if j['status']!='waiting': raise ValueError('Only waiting jobs can be cancelled')
         c.execute("UPDATE jobs SET status='cancelled', progress=0, message='Cancelled before processing', updated_at=? WHERE id=? AND status='waiting'",
                   (utcnow(),jid))
 
 
-def retry_job(jid, owner=''):
+def retry_job(jid, owner='', admin=False):
     """Idempotently retry a failed job as a new queued ID; never overwrite the failed record.
 
     A distinct work directory preserves the original verified output if the previous
@@ -1183,7 +1183,7 @@ def retry_job(jid, owner=''):
     with DB_LOCK, db() as c:
         j=c.execute('SELECT * FROM jobs WHERE id=?',(jid,)).fetchone()
         if not j: raise KeyError('Job not found')
-        if not owner or not j['owner_username'] or str(j['owner_username']).casefold()!=str(owner).casefold():
+        if not admin and (not owner or not j['owner_username'] or str(j['owner_username']).casefold()!=str(owner).casefold()):
             raise ValueError('This job does not belong to the current account')
         if j['status']!='failed': raise ValueError('Only failed jobs can be retried')
         previous=c.execute('SELECT id,filename FROM jobs WHERE retry_of=? ORDER BY created_at LIMIT 1',(jid,)).fetchone()
@@ -1203,9 +1203,9 @@ def retry_job(jid, owner=''):
     return new_id,j['filename']
 
 
-def move_job(jid,direction,owner=''):
+def move_job(jid,direction,owner='',admin=False):
     with DB_LOCK, db() as c:
-        rows=c.execute("SELECT id,order_idx FROM jobs WHERE status='waiting' AND owner_username<>'' AND lower(owner_username)=lower(?) ORDER BY order_idx,created_at",(owner,)).fetchall()
+        rows=(c.execute("SELECT id,order_idx FROM jobs WHERE status='waiting' ORDER BY order_idx,created_at").fetchall() if admin else c.execute("SELECT id,order_idx FROM jobs WHERE status='waiting' AND owner_username<>'' AND lower(owner_username)=lower(?) ORDER BY order_idx,created_at",(owner,)).fetchall())
         ids=[r['id'] for r in rows]
         if jid not in ids: raise ValueError('Only waiting jobs can be reordered')
         i=ids.index(jid); j=i+(-1 if direction=='up' else 1)
@@ -1272,7 +1272,7 @@ class Handler(BaseHTTPRequestHandler):
             if m:
                 job=get_job(m.group(1))
                 owner=(self.headers.get('X-Auth-User') or '').strip()
-                if not job or not owner or str(job.get('owner_username') or '').lower()!=owner.lower():
+                if not job or not owner or (not self.is_admin() and str(job.get('owner_username') or '').lower()!=owner.lower()):
                     return self.send_json(404,{'ok':False,'error':'Output not found'})
                 path = LOCAL_OUTPUT_ROOT / job['id'] / job['filename']
                 if (not path.is_file() or path.is_symlink() or
@@ -1330,15 +1330,15 @@ class Handler(BaseHTTPRequestHandler):
             if p==PREFIX+'/api/proxy/toggle': set_proxy_enabled(bool(payload.get('enabled'))); return self.send_json(200,{'ok':True})
             if p==PREFIX+'/api/proxy/test': return self.send_json(200,{'ok':True,**test_proxy_profile((payload.get('id') or '').strip())})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/cancel',p)
-            if m: cancel_job(m.group(1),(self.headers.get('X-Auth-User') or '').strip()); return self.send_json(200,{'ok':True})
+            if m: cancel_job(m.group(1),self.principal(),admin=self.is_admin()); return self.send_json(200,{'ok':True})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/retry',p)
             if m:
-                retry_id,filename=retry_job(m.group(1),(self.headers.get('X-Auth-User') or '').strip())
+                retry_id,filename=retry_job(m.group(1),self.principal(),admin=self.is_admin())
                 return self.send_json(202,{'ok':True,'id':retry_id,'filename':filename})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/delete',p)
-            if m: delete_job(m.group(1),(self.headers.get('X-Auth-User') or '').strip()); return self.send_json(200,{'ok':True})
+            if m: delete_job(m.group(1),self.principal(),admin=self.is_admin()); return self.send_json(200,{'ok':True})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/move',p)
-            if m: move_job(m.group(1),payload.get('direction'),(self.headers.get('X-Auth-User') or '').strip()); return self.send_json(200,{'ok':True})
+            if m: move_job(m.group(1),payload.get('direction'),self.principal(),admin=self.is_admin()); return self.send_json(200,{'ok':True})
             if p==PREFIX+'/api/queue/pause': set_setting('paused','1'); return self.send_json(200,{'ok':True})
             if p==PREFIX+'/api/queue/resume': set_setting('paused','0'); WORKER_WAKE.set(); return self.send_json(200,{'ok':True})
             if p==PREFIX+'/api/folders': return self.send_json(201,{'ok':True,'folder':create_folder(payload.get('name',''))})
