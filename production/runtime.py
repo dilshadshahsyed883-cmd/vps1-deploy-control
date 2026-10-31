@@ -1074,6 +1074,14 @@ def main():
             activate_lum_legacy_route(args.revision)
             event(lum_legacy_route="ENGINE1_VERIFIED", uploader_service_mutations="NONE")
             return
+        # Owner-authorized one-off cleanup of the exact stalled Scene render.
+        # Never enter normal Scene install or any unrelated application lane.
+        if '[vps1-scene-exact-reset-3327-20261031]' in intent:
+            if args.action != 'install' or args.apps != ['scene-builder']:
+                raise RuntimeError('exact Scene reset requires scene-builder-only install lane')
+            from production.scene_exact_reset_3327_20261031 import reset_exact_scene_job
+            reset_exact_scene_job()
+            return
         # One protected-main release, one specific Scene job. Never enter normal
         # install/rollback or restart a service during a cancellation request.
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)

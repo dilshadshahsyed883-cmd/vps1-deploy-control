@@ -301,9 +301,16 @@ def main():
     parser.add_argument('--apps', nargs='+', choices=sorted(CATALOG), required=True)
     args = parser.parse_args()
     check_host(args.revision)
+    # Inspect protected-main release intent before any route mutation.
+    intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+    # The one-off exact Scene job reset does not deploy or republish the gateway.
+    if '[vps1-scene-exact-reset-3327-20261031]' in intent:
+        if args.apps != ['scene-builder']:
+            raise RuntimeError('exact Scene reset cannot modify application gateway')
+        print('SCENE_EXACT_RESET_GATEWAY_MUTATIONS=NONE', flush=True)
+        return
     # The exact-job cancellation release performs no application install.
     # Do not reload Nginx or republish unrelated routes after that operation.
-    intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
     if '[vps1-scene-job-terminate-3327-20261027]' in intent:
         if args.apps != ['scene-builder']:
             raise RuntimeError('cancel-only release cannot modify application gateway')
