@@ -30,7 +30,6 @@
       <a class="{{ 'active' if tab=='dashboard' else '' }}" href="{{ base_path }}/app?tab=dashboard">Dashboard</a>
       <a class="{{ 'active' if tab=='channels' else '' }}" href="{{ base_path }}/app?tab=channels">Channels</a>
       <a class="{{ 'active' if tab=='sheets' else '' }}" href="{{ base_path }}/app?tab=sheets">Sheets Sync</a>
-      <a class="{{ 'active' if tab=='profiles' else '' }}" href="{{ base_path }}/app?tab=profiles">Profiles</a>
       <a class="{{ 'active' if tab=='add_video' else '' }}" href="{{ base_path }}/app?tab=add_video">Add Video</a>
       <a class="{{ 'active' if tab=='queue' else '' }}" href="{{ base_path }}/app?tab=queue">Queue</a>
       {% elif engine_instance == 'song' %}
@@ -67,14 +66,20 @@
     <section class="lum-card lum-span-2 copyright-source-card">
       <div class="lum-card-head"><div><h2>Add Video</h2><p>Choose a source, then set the destination and video details.</p></div><span class="lum-badge brand">Manual queue</span></div>
       <label class="lum-field"><span>Source</span><select name="source_mode" id="copyright-source-mode">
+        <option value="folder" selected>VPS Folder / Video Merger output</option>
         <option value="drive_link">Google Drive video link</option>
         <option value="pc_upload">Upload video from PC</option>
-        <option value="folder">Copyright Uploader folder / Video Merger output</option>
+
       </select></label>
       <div id="copyright-drive-source" class="copyright-source-panel"><label class="lum-field"><span>Google Drive video URL</span><input name="drive_url" type="url" placeholder="https://drive.google.com/file/d/.../view"></label></div>
       <div id="copyright-pc-source" class="copyright-source-panel" hidden><label class="lum-field"><span>PC video (MP4 / MOV / MKV)</span><input name="video_file" type="file" accept=".mp4,.mkv,.mov,video/mp4,video/quicktime"></label></div>
       <div id="copyright-folder-source" class="copyright-source-panel" hidden>
-        <label class="lum-field"><span>Select Video from VPS Folder</span>
+        <label class="lum-field"><span>1. Select VPS Folder</span>
+          <select name="vps_folder" id="copyright-vps-folder" disabled>
+            <option value="">My VPS Root</option>
+          </select>
+        </label>
+        <label class="lum-field"><span>2. Select Video</span>
           <select name="folder_file" id="copyright-folder-file" disabled>
             <option value="">Select a video from VPS folder</option>
             {% for item in copyright_files %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
@@ -88,10 +93,13 @@
       </div>
     </section>
     <section class="lum-card">
-      <h2>Upload Destination</h2>
-      <label class="lum-field"><span>Upload Profile (optional)</span><select name="profile_id" id="copyright-upload-profile"><option value="0">No profile</option>{% for p in copyright_profiles %}<option value="{{ p.id }}" {{ 'selected' if p.id == selected_copyright_profile_id else '' }}>{{ p.profile_name }} · {{ p.group_name or 'No group' }}</option>{% endfor %}</select></label>
-      <label class="lum-field"><span>YouTube Channel</span><select name="channel_db_id" required>
-        <option value="">Select connected channel</option>{% for ch in channels %}<option value="{{ ch.id }}">{{ ch.channel_name or ch.channel_id }} · {{ ch.token_status }}</option>{% endfor %}
+      <h2>Upload Destination</h2><input type="hidden" name="profile_id" value="0">
+      <label class="lum-field"><span>3. Select Group</span><select name="group_name" id="copyright-channel-group" required>
+        <option value="">Select a group</option>
+        {% for g in channel_groups %}<option value="{{ g.group_name|e }}">{{ g.group_name }}</option>{% endfor %}
+      </select></label>
+      <label class="lum-field"><span>4. Select Channel</span><select name="channel_db_id" id="copyright-channel-choice" required disabled>
+        <option value="">Select a group first</option>{% for ch in channel_rows %}<option value="{{ ch.id }}" data-groups="{{ ch.groups|e }}">{{ ch.channel_name or ch.channel_id }} · {{ ch.token_status }}</option>{% endfor %}
       </select></label>
       <div class="copyright-field-pair">
       <label class="lum-field"><span>Visibility</span><select name="privacy_status"><option value="public">Public</option><option value="unlisted">Unlisted</option><option value="private">Private</option></select></label>

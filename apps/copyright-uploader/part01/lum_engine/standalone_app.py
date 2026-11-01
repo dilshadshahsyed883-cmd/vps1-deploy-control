@@ -24,7 +24,7 @@ from .oauth_web import (complete_oauth, list_clients, list_owner_clients,
     owner_client_for_oauth, save_client_json, save_owner_client_json,
     save_shared_client_json, start_oauth)
 from .project_store import ProjectStore
-from .copyright_handoff import available_videos, owner_root
+from .copyright_handoff import available_videos, available_folders, owner_root, owner_folder, safe_relative_folder
 from .copyright_ui import schedule_pkt
 from .copyright_vault import owner_vault_inventory, import_client as import_owner_client, import_token as import_owner_token
 from .four_modes import registry as four_mode_registry, validate_mode as validate_auto_mode
@@ -114,8 +114,8 @@ def copyright_owner_root(owner: str) -> Path:
     return owner_root(owner)
 
 
-def copyright_folder_files(owner: str) -> list[str]:
-    return available_videos(owner, store.claimed_folder_files(owner))
+def copyright_folder_files(owner: str, folder: str = '') -> list[str]:
+    return available_videos(owner, store.claimed_folder_files(owner,folder),folder=folder)
 
 
 async def copyright_stage_file(video: UploadFile, ext: str) -> tuple[str, int, str]:
@@ -147,10 +147,10 @@ async def copyright_stage_file(video: UploadFile, ext: str) -> tuple[str, int, s
         target.unlink(missing_ok=True)
         raise
 
-async def copyright_stage_owner_file(owner: str, filename: str) -> tuple[str, int, str]:
+async def copyright_stage_owner_file(owner: str, filename: str, folder: str = '') -> tuple[str, int, str]:
     if not filename or Path(filename).name != filename or filename.startswith("."):
         raise ValueError("Invalid folder filename")
-    directory = copyright_owner_root(owner)
+    directory = owner_folder(owner, folder)
     source = directory / filename
     if directory.is_symlink() or source.is_symlink() or not source.is_file() or source.resolve().parent != directory.resolve():
         raise ValueError("Selected video is not in your Copyright Uploader folder")
@@ -498,7 +498,7 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
     mode = "heavy"
     allowed = {"dashboard", "channels", "sheets", "auto_engine", "add_video", "bulk_import", "queue", "logs", "auto_stream"}
     if os.getenv("LUM_ENGINE_INSTANCE", "engine1") == "copyright":
-        allowed = {"dashboard", "channels", "sheets", "profiles", "add_video", "queue", "logs"}
+        allowed = {"dashboard", "channels", "sheets", "add_video", "queue", "logs"}
     default_tab = "add_video"
     selected = tab if tab in allowed else default_tab
     channels = all_channels(user)
@@ -519,7 +519,8 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         inventory_channels=channels if os.getenv("LUM_ENGINE_INSTANCE") in
             {"song", "shortstudio", "copyright"} else None,
         prefer_stored_token_paths=os.getenv("LUM_ENGINE_INSTANCE") == "copyright",
-    ) if selected == "channels" else {
+    ) if (selected == "channels" or (selected == "add_video" and
+             os.getenv("LUM_ENGINE_INSTANCE") == "copyright")) else {
         "rows": [], "summary": {}, "groups": [], "sheets": [], "oauth_inventory": {}
     }
     if permitted_channels is not None:
@@ -786,8 +787,17 @@ def copyright_folder_videos(request: Request):
     user = current_user(request)
     if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
         raise HTTPException(404, "Not found")
-    videos = copyright_folder_files(str(user["username"]))
-    return JSONResponse({"ok": True, "files": videos, "count": len(videos)},
+    folder = str(request.query_params.get("folder") or "")
+    try:
+        folder = safe_relative_folder(folder)
+        folders = available_folders(str(user["username"]))
+        if folder not in folders:
+            raise ValueError("Select one of your own VPS folders")
+        videos = copyright_folder_files(str(user["username"]),folder)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return JSONResponse({"ok": True, "folders": folders, "folder": folder,
+                         "files": videos, "count": len(videos)},
                         headers={"Cache-Control": "no-store, private"})
 
 
@@ -841,7 +851,7 @@ async def add_video(
     app_upload_at: str = Form(""), made_for_kids: str = Form(""), playlist_id: str = Form(""), channel_db_id: int = Form(...),
     group_name: str = Form(""), thumbnail: UploadFile | None = File(default=None),
     source_mode: str = Form("drive_link"), video_file: UploadFile | None = File(default=None),
-    folder_file: str = Form(""), profile_id: int = Form(0),
+    folder_file: str = Form(""), vps_folder: str = Form(""), profile_id: int = Form(0),
 ):
     user = current_user(request); require_csrf(request, csrf_token)
     thumb_path = ""
@@ -853,6 +863,12 @@ async def add_video(
         upload_instance = os.getenv("LUM_ENGINE_INSTANCE", "engine1").strip().lower()
         studio_tenants.require("channel",int(channel_db_id),user)
         if upload_instance == "copyright":
+            # Group selection is authoritative server-side, never a client-only filter.
+            membership = db.channel_group_names_map()
+            memberships = [name.strip().casefold() for name in
+                           str(membership.get(int(channel_db_id)) or "").replace(";",",").replace("|",",").split(",")]
+            if not str(group_name or "").strip() or str(group_name).strip().casefold() not in memberships:
+                raise ValueError("Select a group containing the selected owned channel")
             if profile_id:
                 profile = store.copyright_profile(str(user["username"]), int(profile_id))
                 if not profile:
@@ -869,11 +885,14 @@ async def add_video(
                 owned_staging, source_size, fingerprint = await copyright_stage_file(
                     video_file, Path(source_original).suffix.lower())
             elif source_mode == "folder":
-                if folder_file not in copyright_folder_files(str(user["username"])):
-                    raise ValueError("Choose an available file from your uploader folder")
+                vps_folder = safe_relative_folder(vps_folder)
+                if vps_folder not in available_folders(str(user["username"])):
+                    raise ValueError("Select your own VPS folder")
+                if folder_file not in copyright_folder_files(str(user["username"]),vps_folder):
+                    raise ValueError("Choose an available video in your selected VPS folder")
                 source_original = folder_file
                 owned_staging, source_size, fingerprint = await copyright_stage_owner_file(
-                    str(user["username"]), folder_file)
+                    str(user["username"]), folder_file, vps_folder)
             else:
                 raise ValueError("Unknown source mode")
         has_thumbnail = bool(thumbnail and thumbnail.filename)
@@ -908,7 +927,7 @@ async def add_video(
             "drive_url": drive_url, "thumbnail_path": thumb_path,
             "staging_path": owned_staging, "source_file_name": source_original,
             "source_file_size": source_size, "source_fingerprint": fingerprint,
-            "source_origin": source_mode,
+            "source_origin": source_mode, "vps_folder": vps_folder if source_mode == "folder" else "",
             "title": title, "description": description, "tags": tags, "category_id": category_id,
             "privacy_status": privacy_status, "app_upload_at": app_upload_at_utc,
             "made_for_kids": str(made_for_kids).lower() in {"1", "true", "on", "yes"},

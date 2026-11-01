@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import THUMBNAIL_ROOT, STAGING_ROOT, ensure_dirs
-from .copyright_handoff import delete_verified_source
+from .copyright_handoff import delete_verified_source, delete_verified_merger_output
 from .drive_source import cleanup_project_staging, stage_drive_file
 from .project_store import ProjectStore, now_iso
 from .remote_verify import verify_youtube_video
@@ -218,10 +218,18 @@ class VPSUploadWorker:
                     deleted = delete_verified_source(
                         str(project["owner_username"]), str(project["source_file_name"]),
                         str(project.get("source_fingerprint") or ""),
+                        str(project.get("vps_folder") or ""),
                     )
                     self.store.event(project_id,
-                        "Verified Copyright Uploader folder source deleted from VPS"
-                        if deleted else "Verified Copyright folder source already absent")
+                        "Verified Copyright handoff source deleted from VPS"
+                        if deleted else "Verified Copyright handoff source already absent")
+                    removed_master = delete_verified_merger_output(
+                        str(project["owner_username"]), str(project["source_file_name"]),
+                        str(project.get("source_fingerprint") or ""),
+                    )
+                    if removed_master:
+                        self.store.event(project_id,
+                            "Matching owner-owned Video Merger retained MP4 deleted after YouTube verification")
                 except Exception as exc:
                     raise RuntimeError(f"YouTube verified but Copyright folder cleanup needs retry: {exc}") from exc
             try:

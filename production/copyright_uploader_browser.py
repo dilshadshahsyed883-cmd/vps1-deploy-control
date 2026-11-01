@@ -13,7 +13,7 @@ def fixture(tab, paused=False, projects=None, is_admin=True):
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     env.filters['schedule_pkt']=module.schedule_pkt
     projects = projects if projects is not None else [dict(id=1,title='Ready video',channel_db_id=7,status='QUEUED',progress=0,app_upload_at='2026-11-01 18:00',source_file_name='merge.mp4'),dict(id=2,title='Failed video',channel_db_id=7,status='FAILED',progress=35,error_message='<unsafe> Network issue'),dict(id=3,title='Review video',channel_db_id=7,status='REVIEW_REQUIRED',progress=45),dict(id=4,title='Uploaded video',channel_db_id=7,status='COMPLETED',progress=100,youtube_url='https://www.youtube.com/watch?v=fixture')]
-    return env.get_template('app.html').render(engine_instance='copyright',mode='heavy',base_path='/copyright-uploader',embedded_view=True,tab=tab,user=dict(username='fixture',is_admin=is_admin),csrf='fixture-csrf',health=dict(worker_alive=True,active_project_id=None),stats=dict(engine_enabled=not paused,owner_queue_paused=paused,counts=dict(TOTAL=4,WAITING=1,COMPLETED=1,FAILED=1),channels=1,settings=dict(pause_after_current='0',sheets_sync_enabled='1',auto_engine_enabled='1')),copyright_files=['merge.mp4'],copyright_profiles=[dict(id=3,profile_name='Main profile',group_name='Group A',metadata_source='manual')],channels=[dict(id=7,channel_name='My Channel',channel_id='UCfixture',token_status='OK')],projects=projects)
+    return env.get_template('app.html').render(engine_instance='copyright',mode='heavy',base_path='/copyright-uploader',embedded_view=True,tab=tab,user=dict(username='fixture',is_admin=is_admin),csrf='fixture-csrf',health=dict(worker_alive=True,active_project_id=None),stats=dict(engine_enabled=not paused,owner_queue_paused=paused,counts=dict(TOTAL=4,WAITING=1,COMPLETED=1,FAILED=1),channels=1,settings=dict(pause_after_current='0',sheets_sync_enabled='1',auto_engine_enabled='1')),copyright_files=['merge.mp4'],copyright_profiles=[dict(id=3,profile_name='Main profile',group_name='Group A',metadata_source='manual')],channels=[dict(id=7,channel_name='My Channel',channel_id='UCfixture',token_status='OK')],channel_rows=[dict(id=7,channel_name='My Channel',channel_id='UCfixture',token_status='OK',groups='Group A')],channel_groups=[dict(group_name='Group A')],projects=projects)
 
 def main():
     from playwright.sync_api import sync_playwright
@@ -40,7 +40,7 @@ def main():
                     return handle.fulfill(content_type='application/javascript' if req.resource_type=='script' else 'text/css',body='')
                 return handle.fulfill(content_type='application/json',body='{"files":["merge.mp4"]}')
             page.route('**/*',route)
-            for tab in ('dashboard','add_video','profiles','queue'):
+            for tab in ('dashboard','add_video','queue'):
                 page.goto('https://fixture.test/copyright-uploader/app?tab='+tab)
                 assert page.evaluate('document.documentElement.scrollWidth<=innerWidth'),(width,tab,'overflow')
                 assert not page.get_by_role('link',name='Auto Engine',exact=True).count()
@@ -67,11 +67,15 @@ def main():
                     page.locator('[data-copyright-search]').fill('my channel')
                     assert page.locator('[data-copyright-job]:visible').count()==4
                     assert not page.get_by_role('button',name='Stop Current').count()
-            page.goto('https://fixture.test/copyright-uploader/app?tab=add_video&profile_id=3')
-            assert page.locator('#copyright-upload-profile').input_value()=='3'
+            page.goto('https://fixture.test/copyright-uploader/app?tab=add_video')
+            assert not page.get_by_role('link',name='Profiles',exact=True).count()
+            assert page.locator('#copyright-vps-folder').count()==1
+            assert page.locator('#copyright-channel-group').count()==1
+            page.locator('#copyright-channel-group').select_option('Group A')
+            assert page.locator('#copyright-channel-choice option[value="7"]').count()==1
             assert not errors,errors
             page.close()
-            print(f'COPYRIGHT_BROWSER=PASS WIDTH={width} TABS=4 FILTERS=PASS SOURCE_MODES=PASS PROFILE=PASS')
+            print(f'COPYRIGHT_BROWSER=PASS WIDTH={width} TABS=3 FILTERS=PASS OWNER_VPS_AND_GROUP_CHANNEL=PASS')
         assert not writes,writes
         browser.close()
 

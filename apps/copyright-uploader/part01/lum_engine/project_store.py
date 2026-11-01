@@ -79,6 +79,7 @@ class ProjectStore:
                     updated_at TEXT NOT NULL,
                     source_fingerprint TEXT NOT NULL DEFAULT '',
                     source_origin TEXT NOT NULL DEFAULT '',
+                    vps_folder TEXT NOT NULL DEFAULT '',
                     archived_at TEXT
                 )
             """)
@@ -87,11 +88,14 @@ class ProjectStore:
                 conn.execute("ALTER TABLE projects ADD COLUMN source_fingerprint TEXT NOT NULL DEFAULT ''")
             if "source_origin" not in columns:
                 conn.execute("ALTER TABLE projects ADD COLUMN source_origin TEXT NOT NULL DEFAULT ''")
+            if "vps_folder" not in columns:
+                conn.execute("ALTER TABLE projects ADD COLUMN vps_folder TEXT NOT NULL DEFAULT ''")
             if "archived_at" not in columns:
                 conn.execute("ALTER TABLE projects ADD COLUMN archived_at TEXT")
+            conn.execute("DROP INDEX IF EXISTS uq_copyright_owner_folder_claim")
             conn.execute("""
                 CREATE UNIQUE INDEX IF NOT EXISTS uq_copyright_owner_folder_claim
-                ON projects(owner_username,source_file_name)
+                ON projects(owner_username,vps_folder,source_file_name)
                 WHERE source_origin='folder' AND status!='CANCELLED'
             """)
             conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_copyright_source_channel ON projects(owner_username,channel_db_id,source_fingerprint) WHERE source_fingerprint != '' AND status != 'CANCELLED'")
@@ -235,22 +239,23 @@ class ProjectStore:
             staging_path or None, str(data.get("source_file_name") or ""), int(data.get("source_file_size") or 0),
             str(data.get("source_fingerprint") or ""),
             str(data.get("source_origin") or ""),
+            str(data.get("vps_folder") or ""),
         )
         if not values[0]:
             raise ValueError("Project owner is required")
         if values[13] <= 0:
             raise ValueError("Channel is required")
-        if values[-1] not in {"folder", "pc_upload", "drive_link", ""}:
+        if values[-2] not in {"folder", "pc_upload", "drive_link", ""}:
             raise ValueError("Invalid source origin")
-        if values[-1] == "folder" and not str(data.get("source_file_name") or ""):
+        if values[-2] == "folder" and not str(data.get("source_file_name") or ""):
             raise ValueError("Folder video name is required")
         with self.connect() as conn:
             try:
                 cur = conn.execute("""
                 INSERT INTO projects(owner_username,ui_mode,source_mode,drive_url,thumbnail_path,title,description,tags,
                     category_id,privacy_status,app_upload_at,made_for_kids,playlist_id,channel_db_id,group_name,status,created_at,updated_at,
-                    staging_path,source_file_name,source_file_size,source_fingerprint,source_origin)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    staging_path,source_file_name,source_file_size,source_fingerprint,source_origin,vps_folder)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """, values)
             except sqlite3.IntegrityError as exc:
                 raise ValueError("This video was already queued or uploaded to the selected channel") from exc
@@ -427,7 +432,7 @@ class ProjectStore:
         out["WAITING"] = sum(out.get(s, 0) for s in WAITING_STATES)
         return out
 
-    def claimed_folder_files(self, owner: str) -> set[str]:
+    def claimed_folder_files(self, owner: str, folder: str = '') -> set[str]:
         """Include queued, scheduled, uploading, failed and completed jobs.
 
         Failed media remains reserved for retry. Cancelled jobs release their
@@ -437,9 +442,9 @@ class ProjectStore:
             return {str(row[0]) for row in conn.execute(
                 """SELECT source_file_name FROM projects
                    WHERE owner_username=? COLLATE NOCASE
-                     AND source_origin='folder' AND status!='CANCELLED'
+                     AND vps_folder=? AND source_origin='folder' AND status!='CANCELLED'
                      AND source_file_name IS NOT NULL""",
-                (owner,))}
+                (owner,folder))}
 
     def copyright_profiles(self, owner: str) -> list[dict[str, Any]]:
         with self.connect() as conn:

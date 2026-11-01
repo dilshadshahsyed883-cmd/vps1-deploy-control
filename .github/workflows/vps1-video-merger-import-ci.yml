@@ -19,5 +19,5 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m unittest tests.test_video_merger_imports tests.test_video_merger_import_release tests.test_video_merger_queue_layout tests.test_video_merger_owner_handover -v
+      - run: python -m unittest tests.test_video_merger_imports tests.test_video_merger_import_release tests.test_video_merger_queue_layout tests.test_video_merger_owner_handover tests.test_vps_owner_folder_handoff -v
       - run: python -m py_compile apps/video-merger/part01/app.py production/video_merger_import_release.py production/video_merger_import_smoke.py

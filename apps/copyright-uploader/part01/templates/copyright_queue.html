@@ -19,13 +19,15 @@
     <small>Only your own waiting/failed jobs can be changed. Unowned selections are rejected.</small>
   </form>
   <p class="copyright-result-count" data-copyright-count role="status">{{ projects|length }} videos</p>
-  <div class="lum-table-wrap"><table class="lum-table copyright-queue-table"><thead><tr><th>Video</th><th>Channel</th><th>Status / Progress</th><th>Schedule (PKT)</th><th>Details</th><th>Actions</th></tr></thead><tbody>
+  <div class="lum-table-wrap"><table class="lum-table copyright-queue-table"><thead><tr><th>Video</th><th>VPS Folder</th><th>Group</th><th>Channel</th><th>Status / Progress</th><th>Schedule (PKT)</th><th>Details</th><th>Actions</th></tr></thead><tbody>
   {% for p in projects %}
     {% set ch = namespace(name='Channel #' ~ p.channel_db_id) %}
     {% for c in channels %}{% if c.id|string == p.channel_db_id|string %}{% set ch.name = c.channel_name or c.channel_id %}{% endif %}{% endfor %}
     {% set bucket = 'cancelled' if p.status == 'CANCELLED' else 'completed' if p.status == 'COMPLETED' else ('attention' if p.status in ['FAILED','PAUSED','REVIEW_REQUIRED','WAITING_NETWORK','WAITING_PROXY'] else ('active' if p.status in ['DOWNLOADING','SOURCE_READY','UPLOAD_QUEUED','UPLOADING','VERIFYING_REMOTE','CLEANING'] else 'waiting')) %}
-    <tr data-copyright-job data-status="{{ bucket }}" data-search="{{ (p.title ~ ' ' ~ ch.name ~ ' ' ~ (p.source_file_name or '') ~ ' ' ~ p.id)|lower }}">
+    <tr data-copyright-job data-status="{{ bucket }}" data-search="{{ (p.title ~ ' ' ~ ch.name ~ ' ' ~ (p.source_file_name or '') ~ ' ' ~ (p.vps_folder or '') ~ ' ' ~ (p.group_name or '') ~ ' ' ~ p.id)|lower }}">
       <td><label><input type="checkbox" name="project_ids" value="{{ p.id }}" form="copyright-bulk-form" aria-label="Select project {{ p.id }}"> <strong>{{ p.title }}</strong></label><small>#{{ p.id }} · {{ p.source_file_name or 'Google Drive video' }}</small></td>
+      <td>{{ (p.vps_folder or 'My VPS Root') if p.source_origin == 'folder' else '—' }}</td>
+      <td>{{ p.group_name or '—' }}</td>
       <td>{{ ch.name }}</td>
       <td><span class="lum-state s-{{ p.status|lower }}">{{ p.status|replace('_',' ')|title }}</span><div class="lum-progress" role="progressbar" aria-label="Upload progress for project {{ p.id }}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ p.progress or 0 }}"><i style="width:{{ p.progress or 0 }}%"></i></div><small>{{ p.progress or 0 }}%</small></td>
       <td>{{ p.app_upload_at|schedule_pkt }}</td>
@@ -61,7 +63,7 @@
         {% endif %}
       </div></td>
     </tr>
-  {% else %}<tr><td colspan="6"><div class="lum-empty">No videos queued. <a href="{{ base_path }}/app?tab=add_video">Add your first video</a>.</div></td></tr>{% endfor %}
-  <tr data-copyright-no-match hidden><td colspan="6"><div class="lum-empty">No videos match these filters.</div></td></tr>
+  {% else %}<tr><td colspan="8"><div class="lum-empty">No videos queued. <a href="{{ base_path }}/app?tab=add_video">Add your first video</a>.</div></td></tr>{% endfor %}
+  <tr data-copyright-no-match hidden><td colspan="8"><div class="lum-empty">No videos match these filters.</div></td></tr>
   </tbody></table></div>
 </section>
