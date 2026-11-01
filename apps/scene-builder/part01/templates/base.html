@@ -145,8 +145,8 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
 {% if request.session.get("is_admin") or "song" in request.session.get("studio_access", ()) %}<a class="{% if page=='song_studio' %}active{% endif %}" href="/song-studio/">Song Studio</a>{% endif %}
 {% if request.session.get("is_admin") or "short" in request.session.get("studio_access", ()) %}<a class="{% if page=='short_studio' %}active{% endif %}" href="/short-maker">Short Studio</a>{% endif %}
 {% if request.session.get("is_admin") or "copyright" in request.session.get("studio_access", ()) %}<a href="/video-merger/">Copyright Studio</a>{% endif %}
-{% if request.session.get("is_admin") or "voice" in request.session.get("studio_access", ()) %}<a href="/voice-studio/app#vps1-production">Voice Studio</a>{% endif %}
-{% if request.session.get("is_admin") %}<a class="{% if page in ['experiment_studio','auto_script','local_upload_manager','voice_studio','queue','settings','audit_media','scene_media_library','auto_caption_studio','auto_caption_live','video_studio_embedded'] %}active{% endif %}" href="/experiment-studio/">Experiment Studio</a>{% endif %}
+{% if request.session.get("is_admin") or "voice" in request.session.get("studio_access", ()) %}<a class="{% if page=='voice_studio' %}active{% endif %}" href="/voice-studio/app#vps1-production">Voice Studio</a>{% endif %}
+{% if request.session.get("is_admin") %}<a class="{% if page in ['experiment_studio','auto_script','local_upload_manager','queue','settings','audit_media','scene_media_library','auto_caption_studio','auto_caption_live','video_studio_embedded'] %}active{% endif %}" href="/experiment-studio/">Experiment Studio</a>{% endif %}
 <!-- Auto Script is an Experiment Studio subtab; activation remains separately guarded. -->
 
     <!-- YOUTUBE_NICHE_RESEARCH_V1_NAV -->
@@ -178,7 +178,7 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
 </aside>
 <main class="{% if page in ['auto_caption_studio','auto_caption_live'] %}acs-main {% endif %}{% if page in ['script_work','algrow_voice','auto_caption_studio','auto_caption_live'] %}story-suite-main {% endif %}{% if page=='atomic_flow' %}atomic-flow-main{% endif %}{% if page=='youtube_niche_research' %} ynr-main{% endif %}">
 {% if page=='song_studio' %}<nav class="vps1-native-video-tabs vps1-song-studio-tabs" aria-label="Song Studio"><a href="/audio-downloader/">Audio Downloader</a><a {% if studio_app=='song-maker' %}class="active" aria-current="page"{% endif %} href="/song-studio/song-maker/">Song Maker</a><a {% if studio_app=='song-uploader' %}class="active" aria-current="page"{% endif %} href="/song-uploader">Song Uploader</a></nav>{% endif %}
-{% if request.session.get('is_admin') and page in ['experiment_studio','auto_script','local_upload_manager','voice_studio','queue','settings','audit_media','scene_media_library','auto_caption_studio','auto_caption_live','video_studio_embedded'] %}
+{% if request.session.get('is_admin') and page in ['experiment_studio','auto_script','local_upload_manager','queue','settings','audit_media','scene_media_library','auto_caption_studio','auto_caption_live','video_studio_embedded'] %}
 <nav class="vps1-experiment-tabs" aria-label="Experiment Studio">
   <a {% if page=='experiment_studio' %}class="active" aria-current="page"{% endif %} href="/experiment-studio/antidetect-browser/">Antidetect Browser</a>
   <a href="/experiment-studio/self-media-library/">Self Media Library</a>
