@@ -105,6 +105,7 @@ from .auto_engine_v6 import (
     target_channels as v6_target_channels, parse_schedule_times as v6_parse_schedule_times,
     sync_channel_profile as v6_sync_channel_profile, resume_channel_profile as v6_resume_channel_profile,
     shortstudio_list_folders as v6_shortstudio_list_folders,
+    shortstudio_folder_path as v6_shortstudio_folder_path,
 )
 
 app = FastAPI(title="Short Uploader" if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio" else "Auto Uploader", version=BUILD, docs_url=None, redoc_url=None)
