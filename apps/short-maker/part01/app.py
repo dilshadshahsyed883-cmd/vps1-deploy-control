@@ -1748,6 +1748,8 @@ def list_verified_short_folder_inventory(request: Request):
                 record = json.loads(manifest_path.read_text(encoding="utf-8"))
             except (ValueError, OSError):
                 continue
+            if not isinstance(record, dict):
+                continue
             name = record.get("folder")
             if record.get("owner") != owner.casefold() or name not in published:
                 continue
