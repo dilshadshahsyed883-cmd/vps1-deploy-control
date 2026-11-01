@@ -1149,8 +1149,8 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
   <div class="hint">Bulk MP4 files go directly to the selected VPS folder without rendering; files become available to Short Uploader only after server verification. An upload does not start publishing.</div>
   <div class="filebox"><label for="foldersVideoInput">Choose videos from PC (no arbitrary file-count cap)</label><input type="file" id="foldersVideoInput" multiple accept=".mp4,video/mp4"></div>
   <div class="hint" id="foldersSelectedInfo">No videos selected.</div>
-  <div class="queue-actions"><button id="foldersStartUpload" type="button" disabled>Start Upload · pending server integration</button><button id="foldersClearFiles" type="button" class="secondary">Clear Selection</button></div>
-  <div id="foldersUploadProgress" class="note">Per-video byte progress and resumable session controls will appear here after server-backed upload verification.</div>
+  <div class="queue-actions"><button id="foldersStartUpload" type="button" disabled>Start Upload</button><button id="foldersPauseUpload" type="button" class="secondary" disabled>Pause</button><button id="foldersResumeUpload" type="button" class="secondary" disabled>Resume</button><button id="foldersCancelUpload" type="button" class="danger" disabled>Cancel</button><button id="foldersRetryUpload" type="button" class="secondary" disabled>Retry</button><button id="foldersClearFiles" type="button" class="secondary">Clear Selection</button></div>
+  <div id="foldersUploadProgress" class="note" role="status" aria-live="polite">Choose ready-made MP4s, select an owned VPS folder, then Start Upload. Files are cached for recovery before network transfer.</div>
  </section>
  <section class="panel"><h2>Folders Inventory</h2>
   <div class="hint">Only folders owned by this account. Available videos must be complete verified MP4s, excluding staged/in-progress files.</div>
@@ -1620,6 +1620,7 @@ loadQueue();setInterval(loadQueue,2000);
 
 </script>
 <script src="/short-maker/resumable_client.js"></script>
+<script src="/short-maker/ready_video_client.js"></script>
 <script>
 (() => {
   const toggle=document.querySelector(".vps1-video-mobile-menu");
@@ -2539,3 +2540,9 @@ _sm_ready_module.register_ready_video_uploads(
     app, data_root=DATA_ROOT, short_identity=short_identity,
     short_folder_owned=short_folder_owned, short_vps_folder=short_vps_folder,
     reserve_short_output_names=reserve_short_output_names)
+
+@app.get("/ready_video_client.js")
+def ready_video_client_script():
+    return FileResponse(Path(__file__).with_name("ready_video_client.js"),
+                        media_type="application/javascript",
+                        headers={"Cache-Control":"no-store"})
