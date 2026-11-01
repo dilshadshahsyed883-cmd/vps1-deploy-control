@@ -35,7 +35,10 @@ async def voice_session_and_permissions(request: Request, call_next):
     username = identity["username"]
     admin = identity["is_admin"]
     grants = identity["allowed_studios"]
-    required = "song" if path.startswith("/tts/api/audio-downloader") else "voice"
+    audio_path = (path == "/audio-downloader/app" or
+                  path == "/tts/api/audio-downloader" or
+                  path.startswith("/tts/api/audio-downloader/"))
+    required = "song" if audio_path else "voice"
     if not admin and required not in grants:
         return JSONResponse({"detail": required + " Studio access required"}, status_code=403)
     # Endpoint guards are enforced server-side, never merely hidden in the UI.
@@ -64,6 +67,7 @@ def _startup():
         ad.start_worker()
 @app.get("/",response_class=HTMLResponse)
 @app.get("/app",response_class=HTMLResponse)
+@app.get("/audio-downloader/app",response_class=HTMLResponse)
 def studio(request:Request):
     response = templates.TemplateResponse(request, "voice_studio.html", {})
     response.headers["Cache-Control"] = "private, no-store, max-age=0, must-revalidate"
