@@ -40,6 +40,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from lum_engine.standalone_app import app,db,studio_tenants,store
 from lum_engine.copyright_vault import import_token,import_client,owner_vault_inventory,_token_root
+from lum_engine.channels_web import channels_page_context,rescan_channel_tokens,set_status_bulk
 from lum_engine.oauth_web import _owner_client_path
 
 alice_id='UC'+'a'*22
@@ -109,6 +110,34 @@ assert alice_path.is_file()
 assert _token_root('Alice') in alice_path.parents
 assert _token_root('Bob') not in alice_path.parents
 
+# Copyright's channel table must use the owner's stored DB pointer, not shared TOKEN_DIR.
+own_ids=studio_tenants.allowed_ids('channel',{'username':'Alice','is_admin':0})
+context=channels_page_context(db,allowed_channel_ids=own_ids,
+  allowed_sheet_ids=set(),prefer_stored_token_paths=True)
+own_row=next(r for r in context['rows'] if r['id']==a)
+assert own_row['token_status']=='OK',own_row
+page=alice.get('/copyright-uploader/app?tab=channels')
+assert page.status_code==200 and re.search(
+  rf'data-channel-row data-id="{a}"[^>]*data-token="OK"',page.text)
+assert context['summary']['token_ok']>=1
+# Rescan cannot replace private credentials with stale global names or mark it missing.
+before_path=db.get_channel(a)['token_file_path']
+rescan=rescan_channel_tokens(db,[a],prefer_stored_token_paths=True)
+assert rescan['valid']==1 and rescan['missing']==0 and rescan['updated']==0,rescan
+assert db.get_channel(a)['token_file_path']==before_path
+rescan_http=alice.post('/copyright-uploader/actions/channels/rescan-tokens',
+  data={'csrf_token':tok_a,'scope':'selected','channel_ids':str(a)})
+assert rescan_http.status_code==303 and 'error=' not in rescan_http.headers['location'],rescan_http.headers['location']
+assert db.get_channel(a)['token_file_path']==before_path
+foreign_rescan=bob.post('/copyright-uploader/actions/channels/rescan-tokens',
+  data={'csrf_token':tok_b,'scope':'selected','channel_ids':str(a)})
+assert foreign_rescan.status_code==303 and 'error=' in foreign_rescan.headers['location']
+assert db.get_channel(a)['token_file_path']==before_path
+# Owner-safe bulk activation must use the same valid private token, not legacy global path.
+db.set_channel_status_bulk([a],'INACTIVE')
+assert set_status_bulk(db,[a],'ACTIVE',prefer_stored_token_paths=True)==1
+assert db.get_channel(a)['token_file_path']==before_path
+
 # Valid old token remains on imports without explicit replace.
 other=json.dumps(dict(base,refresh_token='another-offline-refresh')).encode()
 kept=import_token(db,studio_tenants,'Alice',alice_id+'.json',other)
@@ -138,6 +167,9 @@ bulk=alice.post('/copyright-uploader/actions/copyright/credentials/upload',
   files=[('files',(cid+'.json',token,'application/json')) for cid in batch_ids])
 assert bulk.status_code==303 and 'error=' not in bulk.headers['location'],bulk.headers['location']
 assert owner_vault_inventory(db,studio_tenants,'Alice')['token_valid']==52
+bulk_page=alice.get('/copyright-uploader/app?tab=channels')
+assert bulk_page.status_code==200
+assert len(re.findall(r'data-channel-row[^>]*data-token="OK"',bulk_page.text))==52
 assert owner_vault_inventory(db,studio_tenants,'Bob')['token_valid']==1
 assert owner_vault_inventory(db,studio_tenants,'Admin')['token_total']==0
 for cid in batch_ids:

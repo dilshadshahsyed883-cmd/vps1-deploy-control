@@ -80,9 +80,31 @@ def token_status_for_channel(gmail: str, channel_id: str, same_gmail_count: int)
     return "INVALID", f"Invalid/expired/unusable token: {p.name if p else canonical}"
 
 
+def stored_token_status_for_channel(channel_id: str, stored_path: str) -> Tuple[str, str]:
+    """Copyright only: resolve the channel's DB-linked token, never a global filename.
+
+    The owner claim is checked by the caller before the channel row is visible.
+    Imported tokens live in an owner-private directory, not global TOKEN_DIR.
+    """
+    if not is_verified_channel_id(channel_id):
+        return "WAITING FOR OAUTH", "Verified YouTube UC Channel ID is required."
+    if not _clean(stored_path):
+        return "MISSING", "No authorized token is linked to this account's channel."
+    state = classify_google_json(stored_path)
+    if state == VALID_TOKEN:
+        return "OK", "Valid authorized token linked to this account's channel."
+    if state == MISSING_TOKEN:
+        return "MISSING", "The linked authorized token file was not found."
+    if state == CLIENT_SECRET:
+        return "INVALID", "Linked file is an OAuth client JSON, not a channel token."
+    if state == BAD_JSON:
+        return "INVALID", "Linked channel token JSON could not be parsed."
+    return "INVALID", "Linked channel token is invalid, expired or unusable."
+
+
 def channels_page_context(db: Any, web_clients: Iterable[Dict[str, Any]] | None = None,
                           allowed_channel_ids=None, allowed_sheet_ids=None,
-                          inventory_channels=None) -> Dict[str, Any]:
+                          inventory_channels=None, *, prefer_stored_token_paths=False) -> Dict[str, Any]:
     channels = (list(inventory_channels) if inventory_channels is not None
                 else db.list_channels(active_only=False))
     # A tenant may create a brand-new manual channel before attaching a Sheet.
@@ -116,8 +138,10 @@ def channels_page_context(db: Any, web_clients: Iterable[Dict[str, Any]] | None 
         gmail = normalize_gmail(_clean(ch.get("google_account_email")))
         channel_id = _clean(ch.get("channel_id"))
         config_status, config_detail = config_status_for_gmail(gmail, web_clients)
-        token_status, token_detail = token_status_for_channel(
-            gmail, channel_id, gmail_counts.get(gmail, 1)
+        token_status, token_detail = (
+            stored_token_status_for_channel(channel_id, _clean(ch.get("token_file_path")))
+            if prefer_stored_token_paths else
+            token_status_for_channel(gmail, channel_id, gmail_counts.get(gmail, 1))
         )
         status = _clean(ch.get("status")).upper() or "INACTIVE"
         if status == "ACTIVE": summary["active"] += 1
@@ -209,7 +233,7 @@ def oauth_file_inventory() -> Dict[str, Any]:
     }
 
 
-def set_status_bulk(db: Any, channel_ids: Iterable[int], status: str) -> int:
+def set_status_bulk(db: Any, channel_ids: Iterable[int], status: str, *, prefer_stored_token_paths=False) -> int:
     state = _clean(status).upper()
     if state not in {"ACTIVE", "INACTIVE", "DISABLED"}:
         raise ValueError("Unsupported channel status.")
@@ -228,7 +252,10 @@ def set_status_bulk(db: Any, channel_ids: Iterable[int], status: str) -> int:
                 1 for row in db.list_channels(active_only=False)
                 if normalize_gmail(_clean(row.get("google_account_email"))) == gmail
             )
-            token_status, _ = token_status_for_channel(gmail, channel_id, same)
+            token_status, _ = (
+                stored_token_status_for_channel(channel_id, _clean(ch.get("token_file_path")))
+                if prefer_stored_token_paths else token_status_for_channel(gmail, channel_id, same)
+            )
             if token_status in {"OK", "LEGACY"}:
                 allowed.append(cid)
         if not allowed:
@@ -244,7 +271,32 @@ def delete_manual_selected(db: Any, channel_ids: Iterable[int]) -> Dict[str, int
     return db.delete_manual_channels(ids)
 
 
-def rescan_channel_tokens(db: Any, channel_ids: Iterable[int] | None = None) -> Dict[str, Any]:
+def rescan_channel_tokens(db: Any, channel_ids: Iterable[int] | None = None,
+                          *, prefer_stored_token_paths=False) -> Dict[str, Any]:
+    if prefer_stored_token_paths:
+        # Copyright tokens are private. Never "repair" them from global TOKEN_DIR,
+        # which would overwrite an owner's valid DB pointer or expose foreign files.
+        # A rescan only checks explicitly authorized IDs; it cannot claim data.
+        selected = sorted({int(i) for i in (channel_ids or []) if int(i) > 0})
+        if not selected:
+            raise ValueError("Select owned channels for a private token scan")
+        result = {"checked": 0, "updated": 0, "valid": 0,
+                  "missing": 0, "invalid": 0, "blocked_activation": 0}
+        for channel_db_id in selected:
+            channel = db.get_channel(channel_db_id)
+            if channel is None:
+                continue
+            status, _ = stored_token_status_for_channel(
+                _clean(channel.get("channel_id")), _clean(channel.get("token_file_path"))
+            )
+            result["checked"] += 1
+            if status == "OK":
+                result["valid"] += 1
+            elif status == "INVALID":
+                result["invalid"] += 1
+            else:
+                result["missing"] += 1
+        return result
     TOKEN_DIR.mkdir(parents=True, exist_ok=True)
     channels = db.list_channels(active_only=False)
     wanted = set(int(x) for x in (channel_ids or []) if int(x) > 0)
