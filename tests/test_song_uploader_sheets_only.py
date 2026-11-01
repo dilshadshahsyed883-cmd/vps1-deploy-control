@@ -71,27 +71,57 @@ class SongSheetsOnlyTests(TestCase):
             self.assertEqual(result["settings"]["auto_engine_enabled"], "0")
 
     def test_saved_off_does_not_block_song_sheets_sync(self):
+        from types import SimpleNamespace
         class Store:
             def setting(self, key, default=""):
                 return "0"
+        calls = []
+        user = {"username": "alice", "is_admin": 1}
+        db = SimpleNamespace(
+            get_sheet_source=lambda sid: {"id": sid, "sheet_url_or_id": "own"} if sid == 7 else None,
+            list_sheet_sources=lambda: [{"id": 7, "sheet_name": "Mine",
+                                         "sheet_url_or_id": "own", "enabled": 1},
+                                        {"id": 8, "sheet_name": "Foreign",
+                                         "sheet_url_or_id": "foreign", "enabled": 1}],
+        )
         environment = {
             "Request": object, "Form": lambda value: value, "os": os,
-            "current_user": lambda request: {"is_admin": 1},
+            "current_user": lambda request: user,
             "require_csrf": lambda request, token: None,
             "require_heavy": lambda user: None,
-            "store": Store(), "db": object(),
-            "web_sync_sheet_source_by_id": lambda db, source_id: {"ok": True, "rows": 2},
-            "web_sync_all_sheet_sources": lambda db: {"ok": True, "count": 1, "rows": 2},
+            "store": Store(), "db": db,
+            "_studio_require": lambda kind, sid, viewer: (
+                calls.append(("require", sid)) if sid == 7 else
+                (_ for _ in ()).throw(PermissionError("foreign sheet"))),
+            "_studio_allowed_ids": lambda kind, viewer: {7},
+            "tenant_fetch_sheet_csv": lambda link, gid: (
+                calls.append(("fetch", link)) or [{"row": "own"}]),
+            "tenant_rows_to_sheet_rows": lambda rows, path: rows,
+            "tenant_token_dir": "/tmp",
+            "studio_tenants": SimpleNamespace(
+                sync_owned_sheet_rows=lambda username, sid, rows: (
+                    calls.append(("sync", sid)) or {"ok": True, "rows": 1})),
+            "web_sync_sheet_source_by_id": lambda *args: (
+                _ for _ in ()).throw(AssertionError("Global source sync")),
+            "web_sync_all_sheet_sources": lambda *args: (
+                _ for _ in ()).throw(AssertionError("Global all sync")),
             "redirect": lambda path, **kwargs: (path, kwargs),
         }
         single = extract_function("sheets_sync", environment)
         all_sources = extract_function("sheets_sync_all", environment)
         with patch.dict(os.environ, {"LUM_ENGINE_INSTANCE": "song"}):
-            self.assertIn("Sheet synced", single(object(), "token", 7)[1]["message"])
-            self.assertIn("Updated 1", all_sources(object(), "token")[1]["message"])
+            for admin in (False, True):
+                user["is_admin"] = admin
+                calls.clear()
+                self.assertIn("Sheet synced", single(object(), "token", 7)[1]["message"])
+                self.assertIn("Updated 1", all_sources(object(), "token")[1]["message"])
+                self.assertEqual([x for x in calls if x[0] == "fetch"],
+                                 [("fetch", "own"), ("fetch", "own")])
         with patch.dict(os.environ, {"LUM_ENGINE_INSTANCE": "engine1"}):
-            self.assertIn("Enable Sheets Sync", single(object(), "token", 7)[1]["error"])
-            self.assertIn("Enable Sheets Sync", all_sources(object(), "token")[1]["error"])
+            self.assertIn("Enable Sheets Sync",
+                          single(object(), "token", 7)[1]["error"])
+            self.assertIn("Enable Sheets Sync",
+                          all_sources(object(), "token")[1]["error"])
 
     def test_new_song_database_defaults_to_modes_on_not_upload_running(self):
         source = (ROOT / "apps/local-upload-manager/part01/lum_engine/config.py").read_text()
