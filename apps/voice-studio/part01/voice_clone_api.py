@@ -20,6 +20,7 @@ from urllib.parse import urlsplit
 import requests
 from fastapi import APIRouter, HTTPException, Query, Response
 from fastapi.responses import FileResponse
+from voice_tenant import owner
 from pydantic import BaseModel, Field
 
 ROOT = Path(os.environ.get("VOICE_CLONE_ROOT", "/home/ubuntu/apps/kokoro_tts_test/data/voice_clone"))
@@ -295,6 +296,8 @@ def init_storage() -> None:
             );
             """
         )
+        con.execute("CREATE TABLE IF NOT EXISTS voice_owner_categories (owner_username TEXT NOT NULL COLLATE NOCASE, name TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(owner_username,name))")
+        con.execute("CREATE TABLE IF NOT EXISTS voice_design_preview_owners (preview_id TEXT PRIMARY KEY, owner_username TEXT NOT NULL COLLATE NOCASE)")
         profile_cols = {str(r["name"]) for r in con.execute("PRAGMA table_info(profiles)").fetchall()}
         had_engine_pref = "engine_pref" in profile_cols
         for name, ddl in {
@@ -303,6 +306,7 @@ def init_storage() -> None:
             "engine_pref": "TEXT NOT NULL DEFAULT 'auto'",
             "profile_type": "TEXT NOT NULL DEFAULT 'cloned'",
             "design_prompt": "TEXT NOT NULL DEFAULT ''",
+            "owner_username": "TEXT NOT NULL DEFAULT ''",
         }.items():
             if name not in profile_cols:
                 con.execute(f"ALTER TABLE profiles ADD COLUMN {name} {ddl}")
@@ -336,6 +340,7 @@ def init_storage() -> None:
             # VOICE_STUDIO_BATCH_CONTROLS_API_V1
             "queue_paused": "INTEGER NOT NULL DEFAULT 0",
             "queue_order_at": "TEXT NOT NULL DEFAULT ''",
+            "owner_username": "TEXT NOT NULL DEFAULT ''",
         }
         for name, ddl in migrations.items():
             if name not in job_cols:
@@ -357,6 +362,8 @@ def init_storage() -> None:
         con.execute("CREATE INDEX IF NOT EXISTS idx_clone_jobs_delivery_retry ON jobs(delivery_status,delivery_next_retry,created_at)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_clone_jobs_batch ON jobs(batch_id,created_at)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_clone_jobs_queue_control ON jobs(status,queue_paused,queue_order_at,created_at)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_clone_jobs_owner ON jobs(owner_username,created_at)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_clone_profiles_owner ON profiles(owner_username,created_at)")
 
 
 def _safe_name(v: str, fallback: str = "reference") -> str:
@@ -750,7 +757,7 @@ def _direct_filename(title: str, job_id: str) -> str:
 
 
 def _load_profile_for_job(con: sqlite3.Connection, profile_id: str, engine: str) -> sqlite3.Row:
-    profile = con.execute("SELECT * FROM profiles WHERE profile_id=?", (profile_id,)).fetchone()
+    profile = con.execute("SELECT * FROM profiles WHERE profile_id=? AND owner_username=?", (profile_id, owner())).fetchone()
     if not profile:
         raise HTTPException(404, "Clone profile not found")
     profile_engine = str(profile["engine_pref"] or "auto").strip().lower()
@@ -1460,7 +1467,7 @@ def delete_category(name: str):
 def list_profiles():
     init_storage()
     with db() as con:
-        rows = con.execute("SELECT * FROM profiles ORDER BY created_at DESC").fetchall()
+        rows = con.execute("SELECT * FROM profiles WHERE owner_username=? ORDER BY created_at DESC",(owner(),)).fetchall()
     return {"ok": True, "profiles": [_profile_payload(r) for r in rows]}
 
 
@@ -1486,12 +1493,12 @@ def create_profile(payload: CloneProfileCreate):
         with db() as con:
             con.execute(
                 "INSERT INTO profiles(profile_id,name,source_filename,sample_file,sample_sha256,duration_seconds,"
-                "provenance_note,consent_confirmed,created_at,reference_language,reference_text,engine_pref) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                "provenance_note,consent_confirmed,created_at,reference_language,reference_text,engine_pref,owner_username) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     profile_id, payload.name.strip(), _safe_name(payload.source_filename),
                     sample_path.name, sha, duration, payload.provenance_note.strip(), 1, created,
-                    payload.reference_language.strip() or "auto", reference_text, engine_pref
+                    payload.reference_language.strip() or "auto", reference_text, engine_pref, owner()
                 )
             )
             row = con.execute("SELECT * FROM profiles WHERE profile_id=?", (profile_id,)).fetchone()
@@ -1505,7 +1512,7 @@ def create_profile(payload: CloneProfileCreate):
 def delete_profile(profile_id: str):
     init_storage()
     with db() as con:
-        row = con.execute("SELECT * FROM profiles WHERE profile_id=?", (profile_id,)).fetchone()
+        row = con.execute("SELECT * FROM profiles WHERE profile_id=? AND owner_username=?", (profile_id,owner())).fetchone()
         if not row:
             raise HTTPException(404, "Clone profile not found")
         active = int(con.execute(
@@ -1549,12 +1556,12 @@ def _insert_job(
 ) -> sqlite3.Row:
     con.execute(
         "INSERT INTO jobs(job_id,profile_id,text,language,status,created_at,engine,preset,speed,settings_json,"
-        "batch_id,batch_name,title,source_filename,output_basename,category,drive_folder,text_file,delivery_status) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'waiting_generation')",
+        "batch_id,batch_name,title,source_filename,output_basename,category,drive_folder,text_file,delivery_status,owner_username) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'waiting_generation',?)",
         (
             job_id, profile_id, text, language, "waiting_worker", utc_now(), engine, preset, float(speed),
             json.dumps(settings, separators=(",", ":"), sort_keys=True), batch_id, batch_name, title, source_filename,
-            output_basename, category, drive_folder, text_file,
+            output_basename, category, drive_folder, text_file, owner(),
         )
     )
     return con.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,)).fetchone()
@@ -1656,12 +1663,12 @@ def list_clone_jobs(limit: int = Query(default=100, ge=0)):
     with db() as con:
         base_sql = (
             "SELECT j.*,p.name profile_name FROM jobs j JOIN profiles p ON p.profile_id=j.profile_id "
-            "ORDER BY j.created_at DESC"
+            "WHERE j.owner_username=? AND p.owner_username=? ORDER BY j.created_at DESC"
         )
         if int(limit) == 0:
-            rows = con.execute(base_sql).fetchall()
+            rows = con.execute(base_sql,(owner(),owner())).fetchall()
         else:
-            rows = con.execute(base_sql + " LIMIT ?", (int(limit),)).fetchall()
+            rows = con.execute(base_sql + " LIMIT ?", (owner(),owner(),int(limit))).fetchall()
     return {
         "ok": True,
         "jobs": [
@@ -1683,8 +1690,8 @@ def _batch_rows(con, batch_id: str):
     if not bid:
         raise HTTPException(400, "Batch id is required")
     rows = con.execute(
-        "SELECT * FROM jobs WHERE batch_id=? ORDER BY created_at, rowid",
-        (bid,),
+        "SELECT * FROM jobs WHERE batch_id=? AND owner_username=? ORDER BY created_at, rowid",
+        (bid,owner()),
     ).fetchall()
     if not rows:
         raise HTTPException(404, "Clone batch not found")
@@ -1700,7 +1707,7 @@ def pause_clone_batch(batch_id: str):
         queued = sum(1 for r in rows if str(r["status"] or "") in {"waiting_worker", "queued"})
         if queued < 1:
             raise HTTPException(409, "This batch has no queued jobs to pause")
-        con.execute("UPDATE jobs SET queue_paused=1 WHERE batch_id=?", (bid,))
+        con.execute("UPDATE jobs SET queue_paused=1 WHERE batch_id=? AND owner_username=?", (bid,owner()))
     return {"ok": True, "batch_id": bid, "paused": True, "queued_jobs": queued}
 
 
@@ -1730,7 +1737,7 @@ def skip_clone_batch(batch_id: str):
         con.execute(
             "UPDATE jobs SET queue_paused=0,queue_order_at=? "
             "WHERE batch_id=? AND status IN ('waiting_worker','queued')",
-            (moved_at, bid),
+            (moved_at, bid, owner()),
         )
     return {"ok": True, "batch_id": bid, "skipped_to_end_at": moved_at, "queued_jobs": queued}
 
@@ -1774,7 +1781,7 @@ def delete_clone_batch(batch_id: str):
 def delete_clone_job(job_id: str):
     init_storage()
     with db() as con:
-        row = con.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,)).fetchone()
+        row = con.execute("SELECT * FROM jobs WHERE job_id=? AND owner_username=?", (job_id,owner())).fetchone()
         if not row:
             raise HTTPException(404, "Clone job not found")
         if str(row["status"]) == "processing":
