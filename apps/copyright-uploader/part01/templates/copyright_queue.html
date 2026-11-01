@@ -10,16 +10,6 @@
       <form method="post" action="{{ base_path }}/actions/copyright/queue/pause"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button" type="submit">Pause My Queue</button></form>
       {% endif %}
     </div>
-    {% if user.is_admin %}
-    <div class="lum-actions copyright-queue-controls" aria-label="Administrator global queue controls">
-      {% if stats.engine_enabled and stats.settings.pause_after_current != '1' %}
-      <form method="post" action="{{ base_path }}/actions/pause-after-current"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button" type="submit">Pause After Current</button></form>
-      {% else %}
-      <form method="post" action="{{ base_path }}/actions/resume"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button" type="submit">Resume Queue</button></form>
-      {% endif %}
-      {% if health.active_project_id %}<form method="post" action="{{ base_path }}/actions/stop-current" data-copyright-confirm="Safely stop the current upload? Its files will be kept for retry."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button danger" type="submit">Stop Current</button></form>{% endif %}
-    </div>
-    {% endif %}
   </div>
   <form id="copyright-bulk-form" method="post" action="{{ base_path }}/actions/copyright/queue/bulk" class="lum-actions" data-copyright-confirm="Apply this action to the selected jobs owned by your account?">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
