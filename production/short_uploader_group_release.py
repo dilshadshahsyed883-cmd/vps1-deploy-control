@@ -62,7 +62,7 @@ def idle(*, allow_waiting_network=False):
             lum_parked_network_idle(con)
 
 
-def verify_live(*, ui_only=False, assignment_only=False, fixed_modes_only=False, member_controls_only=False):
+def verify_live(*, ui_only=False, assignment_only=False, fixed_modes_only=False, member_controls_only=False, owner_parity_only=False):
     from production.route_uploader_scene_https import https_get, scene_cookie
     for _ in range(40):
         try:
@@ -74,6 +74,31 @@ def verify_live(*, ui_only=False, assignment_only=False, fixed_modes_only=False,
     status,_,body=https_get('/short-uploader/app?tab=auto_engine&new_profile=1',cookie)
     require(status==200,'authenticated Short Uploader GET failed')
     html=body.decode('utf-8')
+    if owner_parity_only:
+        status,_,body=https_get('/short-uploader/app?tab=channels',cookie)
+        require(status==200,'owner parity Channels readback failed')
+        channels=body.decode('utf-8')
+        require('Accounts &amp; Tokens' in channels and
+                'Set / Replace Shared Client' not in channels and
+                'Shared OAuth client is managed by an administrator' not in channels and
+                'data-lum-auth-section="verify"' in channels,
+                'Short Channels role parity or OAuth guard missing')
+        status,_,body=https_get('/short-uploader/app?tab=auto_engine',cookie)
+        require(status==200,'owner parity Auto Engine readback failed')
+        automation=body.decode('utf-8')
+        for marker in ('Retry Failed','Resume Paused','Clear Done','Remove Selected',
+                       'Profile Schedules','Start All Profiles','Sync All Channels',
+                       'Queue Preflight'):
+            require(marker in automation,'Short owner control missing: '+marker)
+        require('>Start / Resume Engine</button>' not in automation and
+                '>Stop After Current</button>' not in automation and
+                'Set / Replace Shared Client' not in automation,
+                'global Short administrator controls must not appear in user workspace')
+        require(https_get('/short-uploader/app')[0] in (302,303,401,403),
+                'Short owner-parity anonymous authentication regressed')
+        print('SHORT_OWNER_PARITY_LIVE=PASS ADMIN_UI=OWNER_SCOPED '
+              'MEMBER_TWO_USER_READBACK=REQUIRED NO_UPLOAD_STARTED',flush=True)
+        return
     if member_controls_only:
         status,_,body=https_get('/short-uploader/app?tab=auto_engine',cookie)
         require(status==200,'Short Automation page unavailable')
@@ -208,8 +233,8 @@ def verify_final_ui(html, form, cookie, https_get):
     print('SHORT_FINAL_UI=PASS DEFAULTS=PASS SHEETS=PASS BULK_HIDDEN=PASS CSS=PASS SONG_HEALTH=PASS',flush=True)
 
 
-def install(revision, *, ui_only=False, network_only=False, assignment_only=False, fixed_modes_only=False, member_controls_only=False):
-    require(sum(bool(x) for x in (ui_only, network_only, assignment_only, fixed_modes_only, member_controls_only)) <= 1,
+def install(revision, *, ui_only=False, network_only=False, assignment_only=False, fixed_modes_only=False, member_controls_only=False, owner_parity_only=False):
+    require(sum(bool(x) for x in (ui_only, network_only, assignment_only, fixed_modes_only, member_controls_only, owner_parity_only)) <= 1,
             'release modes are exclusive')
     require(re.fullmatch('[a-f0-9]{40}',revision),'invalid revision')
     require(shutil.disk_usage('/').free>=5_000_000_000,'disk reserve')
@@ -228,9 +253,9 @@ def install(revision, *, ui_only=False, network_only=False, assignment_only=Fals
         active=subprocess.run(['systemctl','is-active','--quiet',name],capture_output=True,timeout=10).returncode==0
         previous[name]={'text':text,'active':active}
     require(len(old_dirs)==1,'Short Uploader units use different releases')
-    suffix=('-short-member-controls' if member_controls_only else '-short-fixed-modes' if fixed_modes_only else '-short-owner-form' if assignment_only else '-short-network-fairness' if network_only else '-short-ui-intro' if ui_only else '-short-group-metadata')
+    suffix=('-short-owner-parity' if owner_parity_only else '-short-member-controls' if member_controls_only else '-short-fixed-modes' if fixed_modes_only else '-short-owner-form' if assignment_only else '-short-network-fairness' if network_only else '-short-ui-intro' if ui_only else '-short-group-metadata')
     target=BASE/'releases/local-upload-manager'/(revision+suffix)
-    journal=BASE/'transactions'/('short-uploader-member-controls' if member_controls_only else 'short-uploader-fixed-modes' if fixed_modes_only else 'short-uploader-owner-form' if assignment_only else 'short-uploader-network-fairness' if network_only else 'short-uploader-ui-intro' if ui_only else 'short-uploader-group-metadata')/revision
+    journal=BASE/'transactions'/('short-uploader-owner-parity' if owner_parity_only else 'short-uploader-member-controls' if member_controls_only else 'short-uploader-fixed-modes' if fixed_modes_only else 'short-uploader-owner-form' if assignment_only else 'short-uploader-network-fairness' if network_only else 'short-uploader-ui-intro' if ui_only else 'short-uploader-group-metadata')/revision
     require(not target.exists() and not target.is_symlink() and not journal.exists(),'immutable release already exists')
     shutil.copytree(next(iter(old_dirs)).parent,target,symlinks=True)
     hashes={}
@@ -270,11 +295,12 @@ def install(revision, *, ui_only=False, network_only=False, assignment_only=Fals
         elif assignment_only:verify_live(assignment_only=True)
         elif fixed_modes_only:verify_live(fixed_modes_only=True)
         elif member_controls_only:verify_live(member_controls_only=True)
+        elif owner_parity_only:verify_live(owner_parity_only=True)
         elif ui_only:verify_live(ui_only=True)
         else:verify_live()
         atomic_json(journal/'state.json',dict(status='ACTIVE',revision=revision,source=str(target),files=hashes,
                                            sqlite_backups=len(backups),scheduler='PRESERVED',auto_script='UNTOUCHED'))
-        print(('SHORT_MEMBER_CONTROLS_RELEASE' if member_controls_only else 'SHORT_FIXED_MODES_RELEASE' if fixed_modes_only else 'SHORT_ASSIGNMENT_UI_RELEASE' if assignment_only else 'SHORT_GROUP_RELEASE')
+        print(('SHORT_OWNER_PARITY_RELEASE' if owner_parity_only else 'SHORT_MEMBER_CONTROLS_RELEASE' if member_controls_only else 'SHORT_FIXED_MODES_RELEASE' if fixed_modes_only else 'SHORT_ASSIGNMENT_UI_RELEASE' if assignment_only else 'SHORT_GROUP_RELEASE')
               +'=PASS OTHER_ENGINES=UNTOUCHED ROLLBACK=READY',flush=True)
     except BaseException:
         if changed:
