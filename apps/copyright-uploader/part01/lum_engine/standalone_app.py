@@ -1184,7 +1184,7 @@ def sheets_save(
         sid = int(source_id) if str(source_id or "").strip() else None
         if sid:
             studio_tenants.require("sheet",sid,user)
-        elif not int(user.get("is_admin") or 0):
+        elif os.getenv("LUM_ENGINE_INSTANCE") == "copyright" or not int(user.get("is_admin") or 0):
             existing={str(row.get("sheet_url_or_id") or "").strip()
                       for row in db.list_sheet_sources()}
             if str(sheet_url_or_id or "").strip() in existing:
@@ -1218,10 +1218,10 @@ def sheets_delete(
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
         studio_tenants.require("sheet",int(source_id),user)
-        if int(user.get("is_admin") or 0):
-            web_delete_sheet_source(db,int(source_id))
-        else:
+        if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" or not int(user.get("is_admin") or 0):
             studio_tenants.delete_owned_sheet(user["username"],int(source_id))
+        else:
+            web_delete_sheet_source(db,int(source_id))
         return redirect(
             "/app?tab=sheets",
             message="Sheet source removed from current inventory. Saved token/history data was retained.",
@@ -1246,7 +1246,7 @@ def sheets_sync(
             error="Enable Sheets Sync on Dashboard before running synchronization.",
         )
     try:
-        if int(user.get("is_admin") or 0):
+        if os.getenv("LUM_ENGINE_INSTANCE") != "copyright" and int(user.get("is_admin") or 0):
             result=web_sync_sheet_source_by_id(db,int(source_id))
         else:
             studio_tenants.require("sheet",int(source_id),user)
@@ -1283,7 +1283,7 @@ def sheets_sync_all(request: Request, csrf_token: str = Form(...)):
             error="Enable Sheets Sync on Dashboard before running synchronization.",
         )
     try:
-        if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" and not int(user.get("is_admin") or 0):
+        if os.getenv("LUM_ENGINE_INSTANCE") == "copyright":
             allowed = studio_tenants.allowed_ids("sheet", user)
             sources = [src for src in db.list_sheet_sources()
                        if int(src.get("id") or 0) in (allowed or set())
@@ -1370,6 +1370,8 @@ def studio_tenant_grant(
 ):
     """Admin explicitly assigns an idle legacy resource without touching media."""
     user=current_user(request); require_admin(user); require_csrf(request,csrf_token)
+    if os.getenv("LUM_ENGINE_INSTANCE") == "copyright":
+        raise HTTPException(404, "Copyright Uploader uses independent user-owned resources")
     try:
         kind,entity_id=studio_tenants.identity(entity_kind,entity_id)
         owner=studio_tenants.username(owner_username)
@@ -1479,11 +1481,16 @@ def channels_rescan_tokens(
 ):
     user=current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
-        if str(scope).lower()=="all_missing" and not int(user.get("is_admin") or 0):
-            raise PermissionError("Global token scan is administrator-only")
-        for channel_id in channel_ids:
+        if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" and str(scope).lower()=="all_missing":
+            ids=sorted(studio_tenants.allowed_ids("channel",user) or [])
+        else:
+            if str(scope).lower()=="all_missing" and not int(user.get("is_admin") or 0):
+                raise PermissionError("Global token scan is administrator-only")
+            ids=None if str(scope).lower()=="all_missing" else channel_ids
+        for channel_id in (ids or []):
             studio_tenants.require("channel",channel_id,user)
-        ids=None if str(scope).lower()=="all_missing" else channel_ids
+        if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" and not ids:
+            return redirect("/app?tab=channels",message="No owned channels need scanning.")
         result=rescan_channel_tokens(db, ids)
         return redirect(
             "/app?tab=channels",
