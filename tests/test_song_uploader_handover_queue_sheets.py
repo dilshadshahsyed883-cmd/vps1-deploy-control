@@ -43,8 +43,8 @@ class SongMemberHandover(TestCase):
             self.assertIn('route("/actions/auto-v6/' + endpoint + '")', song_allowlist)
         self.assertIn('route("/actions/sheets/sync-all")', song_allowlist)
         upload_action = ui.index('action="{{ base_path }}/actions/auto-v6/job/upload-now"')
-        self.assertIn("{% if engine_instance in ['song','shortstudio'] or user.is_admin, ui[upload_action-240:upload_action])
-        self.assertIn('{% if engine_instance == \'song\' or user.is_admin', ui[ui.index("lum-ae-recovery"):ui.index("lum-ae-recovery")+190])
+        self.assertIn("{% if engine_instance in ['song','shortstudio'] or user.is_admin", ui[upload_action-240:upload_action])
+        self.assertIn("{% if engine_instance in ['song','shortstudio'] or user.is_admin", ui[ui.index("lum-ae-recovery"):ui.index("lum-ae-recovery")+190])
 
     def test_sync_all_only_fetches_owned_enabled_sources(self):
         calls = []
