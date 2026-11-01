@@ -1,0 +1,17 @@
+VPS_1 Short Uploader PR #615 — guarded owner-parity production release
+Source merge: 88f77a53ee50965d80f1e4ab2e4d913633c0a8fc
+
+Isolated release contract:
+- Scope ONLY local-upload-manager Short Uploader instance /short-uploader, port 8019.
+- Use existing protected-main [vps1-short-studio-release] and [vps1-shortstudio-owner-parity] selector; install only via serialized production lock and pinned Tailscale/SSH identity.
+- Do not deploy shared LUM/Engine 1/Engine 2, Song Uploader, Copyright Uploader, Short Maker or other apps.
+- Fail closed if any Short queue job is active, in upload transition or status is unknown. No forced shutdown or partial upload.
+- Preserve all channel, group, Sheet, profile and job ownership mappings, OAuth tokens/client files, uploads, queues, schedules, media, shared Drive configuration and historical records.
+- Backup data before swap, verify deployed Short source and authenticated Short Channels/Auto Engine view, check health, and roll back systemd pointer/restart if post-release validation fails.
+- Both admin and non-admin have identical owner-scoped operational controls. Do not show shared OAuth client management to either tenant. No admin cross-user bypass.
+- No manual or automatic upload should start solely because this deployment was requested; existing schedule/Start behavior remains authoritative.
+- CI source tests, cross-user owner isolation, Short/Song/Copyright boundary regressions and two-role UI contracts must remain passing.
+- Live authenticated two-user check remains separately required; the release's authenticated canary must not be misrepresented as both-user acceptance.
+- Auto Script OFFLINE. Drive Bridge/Tailscale and Clean After Drive Upload rules preserved.
+
+No application source changed in this intent commit.
