@@ -140,7 +140,7 @@ c=admin.post('/song-uploader/actions/song/credentials/upload',
   files={'files':('desktop-client.json',client_json,'application/json')})
 assert c.status_code==303 and 'error=' not in c.headers['location'],c.headers['location']
 assert _owner_client_path('Admin').is_file()
-assert not _owner_client_path('Alice').exists()
+assert _owner_client_path('Alice').exists() and _owner_client_path('Alice') != _owner_client_path('Admin')
 assert import_client('Admin',b'bad JSON')['status']=='KEPT'
 assert _owner_client_path('Admin').is_file()
 assert 'PRIVATE_VAULT_TEST' not in html_a
