@@ -10,21 +10,12 @@
       <form method="post" action="{{ base_path }}/actions/copyright/queue/pause"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button" type="submit">Pause My Queue</button></form>
       {% endif %}
     </div>
-    {% if user.is_admin %}
-    <div class="lum-actions copyright-queue-controls" aria-label="Administrator global queue controls">
-      {% if stats.engine_enabled and stats.settings.pause_after_current != '1' %}
-      <form method="post" action="{{ base_path }}/actions/pause-after-current"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button" type="submit">Pause After Current</button></form>
-      {% else %}
-      <form method="post" action="{{ base_path }}/actions/resume"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button" type="submit">Resume Queue</button></form>
-      {% endif %}
-      {% if health.active_project_id %}<form method="post" action="{{ base_path }}/actions/stop-current" data-copyright-confirm="Safely stop the current upload? Its files will be kept for retry."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button danger" type="submit">Stop Current</button></form>{% endif %}
-    </div>
-    {% endif %}
   </div>
   <form id="copyright-bulk-form" method="post" action="{{ base_path }}/actions/copyright/queue/bulk" class="lum-actions" data-copyright-confirm="Apply this action to the selected jobs owned by your account?">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
     <button class="lum-button" type="submit" name="action" value="retry">Retry Selected</button>
     <button class="lum-button danger" type="submit" name="action" value="cancel">Cancel Selected</button>
+    <button class="lum-button" type="submit" name="action" value="remove">Remove Done / Cancelled</button>
     <small>Only your own waiting/failed jobs can be changed. Unowned selections are rejected.</small>
   </form>
   <p class="copyright-result-count" data-copyright-count role="status">{{ projects|length }} videos</p>
@@ -45,6 +36,13 @@
         {% elif p.status == 'REVIEW_REQUIRED' %}<details><summary>Review upload</summary><p>Check YouTube Studio for an existing video before retrying.</p><form method="post" action="{{ base_path }}/actions/authorize-fresh/{{ p.id }}"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label class="lum-field"><span>Type NO REMOTE VIDEO</span><input name="confirm_text" required placeholder="NO REMOTE VIDEO"></label><button class="lum-button tiny danger" type="submit">Authorize Fresh Upload</button></form></details>
         {% elif p.status in ['QUEUED','WAITING_SLOT','SCHEDULED'] %}<form method="post" action="{{ base_path }}/actions/cancel/{{ p.id }}" data-copyright-confirm="Cancel this waiting video? Original media will be kept."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button tiny" type="submit">Cancel</button></form>
         {% elif not p.youtube_url %}<span>—</span>{% endif %}
+        {% if p.status in ['COMPLETED','CANCELLED'] %}
+        <form method="post" action="{{ base_path }}/actions/copyright/queue/remove" data-copyright-confirm="Remove this terminal job from your visible queue? Uploaded video records and source files are preserved.">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <input type="hidden" name="project_id" value="{{ p.id }}">
+          <button class="lum-button tiny" type="submit">Delete from Queue</button>
+        </form>
+        {% endif %}
         {% if p.status in ['QUEUED','WAITING_SLOT','SCHEDULED'] %}
         <details class="copyright-metadata-edit">
           <summary>Edit metadata</summary>

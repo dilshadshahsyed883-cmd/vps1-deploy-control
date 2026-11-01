@@ -89,7 +89,7 @@
     </section>
     <section class="lum-card">
       <h2>Upload Destination</h2>
-      <label class="lum-field"><span>Upload Profile (optional)</span><select name="profile_id" id="copyright-upload-profile"><option value="0">No profile</option>{% for p in copyright_profiles %}<option value="{{ p.id }}">{{ p.profile_name }} · {{ p.group_name or 'No group' }}</option>{% endfor %}</select></label>
+      <label class="lum-field"><span>Upload Profile (optional)</span><select name="profile_id" id="copyright-upload-profile"><option value="0">No profile</option>{% for p in copyright_profiles %}<option value="{{ p.id }}" {{ 'selected' if p.id == selected_copyright_profile_id else '' }}>{{ p.profile_name }} · {{ p.group_name or 'No group' }}</option>{% endfor %}</select></label>
       <label class="lum-field"><span>YouTube Channel</span><select name="channel_db_id" required>
         <option value="">Select connected channel</option>{% for ch in channels %}<option value="{{ ch.id }}">{{ ch.channel_name or ch.channel_id }} · {{ ch.token_status }}</option>{% endfor %}
       </select></label>
@@ -164,20 +164,19 @@
       <div class="lum-note"><strong>Safety:</strong> OAuth is locked to the selected database row and expected UC Channel ID. Authorizing a different Brand Channel is rejected; the token is never attached to another channel.</div>
     </section>
 
-    {% if user.is_admin %}<section class="lum-card">
+    <section class="lum-card">
       <div class="lum-card-head">
-        <div><h2>1. Shared OAuth Client</h2><p>Configured once and reused for every new or reconnected channel. Existing channel tokens remain independent.</p></div>
+        <div><h2>1. My OAuth Client</h2><p>Each account has the same OAuth setup controls. Uploading here changes only your own client; existing channel tokens and other users are unchanged. A previously configured shared client remains available as a fallback.</p></div>
         <span class="lum-badge {{ 'good' if clients else 'warn' }}">{{ 'READY' if clients else 'NOT CONFIGURED' }}</span>
       </div>
       <form method="post" action="{{ base_path }}/actions/oauth-client" enctype="multipart/form-data" class="lum-inline-form">
         <input type="hidden" name="csrf_token" value="{{ csrf }}">
-        <label class="lum-field lum-grow"><span>Google Desktop OAuth client JSON</span><input name="client_json" type="file" accept="application/json,.json" required></label>
-        <button class="lum-button" type="submit">Set / Replace Shared Client</button>
+        <label class="lum-field lum-grow"><span>My Google Desktop OAuth client JSON</span><input name="client_json" type="file" accept="application/json,.json" required></label>
+        <button class="lum-button" type="submit">Set / Replace My OAuth Client</button>
       </form>
-      {% if clients %}<div class="lum-note">Shared client: <strong>{{ clients[0].filename }}</strong></div>{% else %}<div class="lum-note">Existing valid tokens can still upload. Connect/Reconnect stays disabled until the shared client is configured.</div>{% endif %}
+      {% if clients %}<div class="lum-note">Available OAuth client: <strong>{{ clients[0].filename }}</strong></div>{% else %}<div class="lum-note">Set your OAuth client to connect channels. Previously valid tokens can still upload.</div>{% endif %}
     </section>
 
-    {% else %}<section class="lum-card"><p class="lum-note">Shared OAuth client is managed by an administrator. You can still connect or reconnect your own channels below.</p></section>{% endif %}
     <section class="lum-card" data-lum-auth-section="verify">
       <div class="lum-card-head"><div><h2>2. Verify &amp; Save Selected Channel Token</h2><p>The authorization session is locked to the exact channel selected with Connect/Reconnect. A different Google/Brand Channel will be rejected.</p></div></div>
       <div data-lum-oauth-slot>
@@ -445,7 +444,7 @@
     <section class="lum-channel-subnav" aria-label="Channels workspace">
       <button type="button" class="active" data-lum-channel-panel-target="manager">Channel Manager</button>
       <button type="button" data-lum-channel-panel-target="accounts">Accounts & Tokens</button>
-      {% if user.is_admin %}<button type="button" data-lum-channel-panel-target="pcsync">PC Data Sync</button>{% endif %}
+      {% if user.is_admin and engine_instance != "copyright" %}<button type="button" data-lum-channel-panel-target="pcsync">PC Data Sync</button>{% endif %}
     </section>
 
     <div data-lum-channel-panel="manager">
@@ -595,7 +594,7 @@
 
     <div data-lum-channel-panel="accounts" hidden>
       {{ auth_panel(False) }}
-      <section class="lum-card">
+      {% if engine_instance != "copyright" %}<section class="lum-card">
         <div class="lum-card-head"><div><h2>Permanent OAuth & Token Vault</h2><p>Stored outside releases in the PC-engine permanent config/ and data/tokens/ directories.</p></div></div>
         <div class="lum-vault-stats">
           <div><span>OAuth clients</span><strong>{{ oauth_inventory.config_valid or 0 }}</strong><small>{{ oauth_inventory.config_invalid or 0 }} invalid</small></div>
@@ -625,10 +624,10 @@
             <div><h3>Tokens</h3>{% for f in oauth_inventory.tokens %}<div class="lum-file-row"><code>{{ f.name }}</code><span class="{{ 'ok' if f.status=='OK' else 'warn' }}">{{ f.status }}</span></div>{% else %}<div class="lum-empty">No permanent token files.</div>{% endfor %}</div>
           </div>
         </details>
-      </section>
+      </section>{% endif %}
     </div>
 
-    {% if user.is_admin %}
+    {% if user.is_admin and engine_instance != "copyright" %}
     <div data-lum-channel-panel="pcsync" hidden>
       <section class="lum-card">
         <div class="lum-card-head"><div><h2>PC Data Sync</h2><p>Direct PC → HTTPS → VPS synchronization. Secrets do not pass through Google Drive.</p></div><span class="lum-badge">Preview first</span></div>
@@ -753,7 +752,29 @@
     <section class="lum-card">
       <div class="lum-card-head"><h2>Upload Profiles</h2><div class="lum-actions"><span class="lum-badge">{{ copyright_profiles|length }} saved</span><a class="lum-button primary" href="#copyright-new-profile">New Profile</a></div></div>
       <div class="lum-table-wrap"><table class="lum-table"><thead><tr><th>Name</th><th>Group</th><th>Metadata Source</th><th>Action</th></tr></thead><tbody>
-      {% for p in copyright_profiles %}<tr><td><strong>{{ p.profile_name }}</strong></td><td>{{ p.group_name or '—' }}</td><td>{{ 'Google Sheets' if p.metadata_source=='sheets' else 'Manual' }}</td><td><a class="lum-button tiny" href="{{ base_path }}/app?tab=add_video&amp;profile_id={{ p.id }}">Add Video</a></td></tr>
+      {% for p in copyright_profiles %}
+       <tr><td><strong>{{ p.profile_name }}</strong></td><td>{{ p.group_name or '—' }}</td><td>{{ 'Google Sheets' if p.metadata_source=='sheets' else 'Manual' }}</td>
+       <td><div class="lum-actions">
+         <a class="lum-button tiny" href="{{ base_path }}/app?tab=add_video&amp;profile_id={{ p.id }}">Add Video</a>
+         <details><summary>Edit</summary>
+           <form method="post" action="{{ base_path }}/actions/copyright/profile/update" class="lum-grid">
+             <input type="hidden" name="csrf_token" value="{{ csrf }}">
+             <input type="hidden" name="profile_id" value="{{ p.id }}">
+             <label class="lum-field"><span>Name</span><input name="profile_name" value="{{ p.profile_name }}" maxlength="100" required></label>
+             <label class="lum-field"><span>Group</span><input name="group_name" value="{{ p.group_name }}" maxlength="120"></label>
+             <label class="lum-field"><span>Metadata</span><select name="metadata_source">
+               <option value="manual" {{ 'selected' if p.metadata_source=='manual' else '' }}>Manual</option>
+               <option value="sheets" {{ 'selected' if p.metadata_source=='sheets' else '' }}>Google Sheets</option>
+             </select></label>
+             <button type="submit" class="lum-button tiny primary">Save</button>
+           </form>
+         </details>
+         <form method="post" action="{{ base_path }}/actions/copyright/profile/delete" data-copyright-confirm="Delete only this saved profile? Queued videos and history remain unchanged.">
+           <input type="hidden" name="csrf_token" value="{{ csrf }}">
+           <input type="hidden" name="profile_id" value="{{ p.id }}">
+           <button type="submit" class="lum-button tiny danger">Delete</button>
+         </form>
+       </div></td></tr>
       {% else %}<tr><td colspan="4"><div class="lum-empty">No profiles yet. Create a profile below to organize uploads.</div></td></tr>{% endfor %}</tbody></table></div>
     </section>
     <section class="lum-card" id="copyright-new-profile">
