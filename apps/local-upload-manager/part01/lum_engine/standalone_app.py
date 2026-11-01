@@ -188,12 +188,12 @@ def project_view(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def get_projects(user: dict[str, Any], limit: int = 500) -> list[dict[str, Any]]:
-    owner = None if int(user.get("is_admin") or 0) else str(user["username"])
+    owner = str(user["username"]) if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio" or not int(user.get("is_admin") or 0) else None
     return [project_view(p) for p in store.list(owner=owner, limit=limit)]
 
 
 def get_logs(user: dict[str, Any], limit: int = 300) -> list[dict[str, Any]]:
-    owner = None if int(user.get("is_admin") or 0) else str(user["username"])
+    owner = str(user["username"]) if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio" or not int(user.get("is_admin") or 0) else None
     return store.events(owner=owner, limit=limit)
 
 
@@ -206,9 +206,9 @@ def mode_is_enabled(key: str) -> bool:
 
 def stats_payload(user: dict[str, Any] | None = None) -> dict[str, Any]:
     channels = all_channels(user)
-    owner = str(user.get("username") or "") if user is not None and not int(user.get("is_admin") or 0) else None
+    owner = str(user.get("username") or "") if user is not None and (os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio" or not int(user.get("is_admin") or 0)) else None
     counts=store.counts(owner=owner)
-    settings = store.settings() if user is None or int(user.get("is_admin") or 0) else {}
+    settings = store.settings() if user is None or (int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") != "shortstudio") else {}
     if os.getenv("LUM_ENGINE_INSTANCE", "engine1") in {"song", "shortstudio"}:
         # Song and Short modes are capabilities, not Start controls. Legacy OFF values
         # must not disable Sheets Sync or Auto Engine for either user role.
@@ -254,7 +254,8 @@ async def standalone_auth(request: Request, call_next):
         request.state.lum_user = user
         # TENANT_SAFE_WRITES: shared scheduler/token/global queue controls are
         # admin-only until all direct actions have an explicit resource owner.
-        if (not is_admin and request.method not in {"GET", "HEAD"} and
+        if ((not is_admin or os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio") and
+                request.method not in {"GET", "HEAD"} and
                 os.getenv("LUM_ENGINE_INSTANCE") in {"song","shortstudio","copyright"}):
             allowed_exact={
                 route("/logout"),route("/actions/add-video"),
@@ -297,8 +298,14 @@ async def standalone_auth(request: Request, call_next):
                     route("/actions/sheets/sync-all"),
                 })
             if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio":
-                # Member bulk actions are ACL-scoped in Short handlers.
+                # Identical owner-only actions for admin and non-admin.
                 allowed_exact.update({
+                    route("/actions/sheets/sync-all"),
+                    route("/actions/auto-v6/retry-failed"),
+                    route("/actions/auto-v6/resume-paused"),
+                    route("/actions/auto-v6/clear-done"),
+                    route("/actions/auto-v6/remove-selected"),
+                    route("/actions/auto-v6/recovery-clear"),
                     route("/actions/auto-v6/sync-all"),
                     route("/actions/auto-v6/start-all"),
                     route("/actions/auto-v6/queue-preflight"),
@@ -310,8 +317,8 @@ async def standalone_auth(request: Request, call_next):
             if path not in allowed_exact and not path.startswith(allowed_prefixes):
                 return JSONResponse({"detail":"Shared operation is administrator-only until "
                              "tenant-safe processing is available"},status_code=403)
-        if (not is_admin and os.getenv("LUM_ENGINE_INSTANCE") in
-                {"song","shortstudio","copyright"} and
+        if ((not is_admin or os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio") and
+                os.getenv("LUM_ENGINE_INSTANCE") in {"song","shortstudio","copyright"} and
                 (path.startswith(route("/reports/")) or
                  path.startswith(route("/actions/auto-v6/thumbnail/")) or
                  (path==route("/actions/auto-v6/preview-all") and
@@ -474,7 +481,7 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         if selected_sheet_source and int(selected_sheet_source["id"]) not in permitted_sheets:
             selected_sheet_source=None
     permitted_channels=studio_tenants.allowed_ids("channel",user)
-    web_clients = list_clients() if permitted_channels is None else []
+    web_clients = list_clients() if permitted_channels is None and os.getenv("LUM_ENGINE_INSTANCE") != "shortstudio" else []
     channel_context = channels_page_context(
         db, web_clients, permitted_channels, permitted_sheets,
         inventory_channels=channels if os.getenv("LUM_ENGINE_INSTANCE") in
@@ -490,9 +497,10 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
                                    if int(item.get("id") or 0) in permitted_groups]
         channel_context["sheets"]=[item for item in channel_context["sheets"]
                                    if int(item.get("id") or 0) in permitted_sheets]
-        channel_context["summary"]={"total":len(channel_context["rows"])}
-        channel_context["oauth_inventory"]={}  # Never enumerate global token files
-        web_clients=[]  # Client config belongs to the shared service, not the tenant
+        # channels_page_context already calculated the correctly scoped totals.
+        # Never enumerate the global OAuth/token vault for ANY Short user.
+        channel_context["oauth_inventory"]={}
+        web_clients=[]  # The shared client is used internally, not disclosed.
     # PC Sync is a global administrator operation; its history may contain
     # private channel identifiers and source paths from other accounts.
     pc_sync_history = (list_sync_history() if selected == "channels" and
@@ -530,12 +538,12 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         else {}
     )
     auto_v6 = v6_profile_context(db, v6_store, int(auto_profile_id or 0),
-                                     owner="" if int(user.get("is_admin") or 0) else str(user.get("username") or "")) if selected == "auto_engine" and selected_auto_mode == "engine1" else {}
-    if selected == "auto_engine" and auto_v6 and engine_instance=="song" and not int(user.get("is_admin") or 0):
+                                     owner=str(user.get("username") or "") if engine_instance == "shortstudio" or not int(user.get("is_admin") or 0) else "") if selected == "auto_engine" and selected_auto_mode == "engine1" else {}
+    if selected == "auto_engine" and auto_v6 and (engine_instance == "shortstudio" or (engine_instance=="song" and not int(user.get("is_admin") or 0))):
         # Existing context ACL filters static profile ownership; also recheck
         # live group/channel members so a changed mixed-tenant group cannot
         # expose its profiles or queue through member UI.
-        valid_ids={int(p["id"]) for p in _song_owned_automation_profiles(request)}
+        valid_ids={int(p["id"]) for p in (_short_owned_automation_profiles(request) if engine_instance == "shortstudio" else _song_owned_automation_profiles(request))}
         owned_channels=studio_tenants.allowed_ids("channel",user)
         auto_v6["profiles"]=[p for p in auto_v6.get("profiles",[])
                              if int(p.get("id") or 0) in valid_ids]
@@ -553,7 +561,7 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
                            binding={},metadata_rows=[],drive_thumbnails_index=[])
     if selected == "auto_engine" and auto_v6:
         auto_v6["short_folders"] = v6_shortstudio_list_folders(
-            owner="" if int(user.get("is_admin") or 0) else str(user.get("username") or "")
+            owner=str(user.get("username") or "") if engine_instance == "shortstudio" or not int(user.get("is_admin") or 0) else ""
         ) if engine_instance == "shortstudio" else []
         # LUM_SCHEDULER_CONTROL_LIVE_V1: runtime-only presentation state.
         # This does not mutate scheduler_armed or profile schedules.
@@ -646,6 +654,7 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         "channel_groups": channel_context["groups"],
         "channel_sheets": channel_context["sheets"],
         "oauth_inventory": channel_context["oauth_inventory"],
+        "oauth_client_ready": bool(list_clients()) or any(row.get("config_status") == "OK" for row in channel_context["rows"]),
         "pc_sync_history": pc_sync_history,
         "auto_v6": auto_v6,
         "auto_mode": selected_auto_mode,
@@ -924,7 +933,7 @@ def _owned_or_admin(user: dict[str, Any], project_id: int) -> dict[str, Any]:
     project = store.get(project_id)
     if not project:
         raise HTTPException(404, "Project not found")
-    if not int(user.get("is_admin") or 0) and str(project.get("owner_username") or "").lower() != str(user.get("username") or "").lower():
+    if (os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio" or not int(user.get("is_admin") or 0)) and str(project.get("owner_username") or "").lower() != str(user.get("username") or "").lower():
         raise HTTPException(403, "Project does not belong to this user")
     return project
 
@@ -1103,7 +1112,7 @@ def sheets_sync_all(request: Request, csrf_token: str = Form(...)):
             error="Enable Sheets Sync on Dashboard before running synchronization.",
         )
     try:
-        if os.getenv("LUM_ENGINE_INSTANCE")=="song" and not int(user.get("is_admin") or 0):
+        if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio" or (os.getenv("LUM_ENGINE_INSTANCE")=="song" and not int(user.get("is_admin") or 0)):
             allowed=studio_tenants.allowed_ids("sheet",user)
             sources=[s for s in db.list_sheet_sources()
                      if int(s.get("id") or 0) in allowed and int(s.get("enabled") or 0)]
@@ -1299,11 +1308,12 @@ def channels_rescan_tokens(
 ):
     user=current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
-        if str(scope).lower()=="all_missing" and not int(user.get("is_admin") or 0):
+        if str(scope).lower()=="all_missing" and os.getenv("LUM_ENGINE_INSTANCE") != "shortstudio" and not int(user.get("is_admin") or 0):
             raise PermissionError("Global token scan is administrator-only")
         for channel_id in channel_ids:
             studio_tenants.require("channel",channel_id,user)
-        ids=None if str(scope).lower()=="all_missing" else channel_ids
+        ids=(sorted(studio_tenants.allowed_ids("channel",user)) if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio" and str(scope).lower()=="all_missing" else
+             None if str(scope).lower()=="all_missing" else channel_ids)
         result=rescan_channel_tokens(db, ids)
         return redirect(
             "/app?tab=channels",
@@ -1433,7 +1443,7 @@ def _v6_profile(profile_id: int,request: Request=None):
         raise ValueError("Verified Studio account is required for profile changes.")
     user=current_user(request)
     studio_tenants.require("profile",int(profile_id),user)
-    if not int(user.get("is_admin") or 0):
+    if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio" or not int(user.get("is_admin") or 0):
         # A profile's ACL alone does not authorize new members added to
         # its group later. Revalidate its live target set before scheduling.
         group_id=int(profile.get("channel_group_id") or 0)
