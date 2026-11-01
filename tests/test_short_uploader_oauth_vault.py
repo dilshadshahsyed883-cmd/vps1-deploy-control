@@ -27,7 +27,7 @@ class ShortVaultContracts(unittest.TestCase):
         self.assertIn('/actions/oauth-client',ui)
         self.assertIn('async def short_credentials_upload',app)
         self.assertIn('if os.getenv("LUM_ENGINE_INSTANCE") != "shortstudio"',app)
-        self.assertNotIn('len(files) > (1 if kind=="client" else 50)',app[app.index('async def short_credentials_upload'):])
+        self.assertNotIn('up to 50 authorized channel JSONs',app[app.index('async def short_credentials_upload'):app.index('async def channels_json_upload')])
         self.assertIn('chunkSize = 32',js)
         for path in ('lum_engine/oauth_web.py','lum_engine/song_vault.py','static/short_vault_upload.js'):
             self.assertIn('"'+path+'"',rel)
@@ -37,10 +37,7 @@ class ShortVaultContracts(unittest.TestCase):
         self.assertIn('AUTO_SCRIPT=OFFLINE',workflow)
 
     def test_real_http_admin_member_and_foreign_rejection(self):
-        try:
-            import fastapi, httpx, google_auth_oauthlib
-        except ImportError:
-            self.skipTest("full HTTP dependencies unavailable in this environment")
+        import fastapi, httpx, google_auth_oauthlib  # Required, not skipped by CI
         # Run in a disposable subprocess so all OAuth folders and queue paths are isolated.
         script=r'''
 import json,re

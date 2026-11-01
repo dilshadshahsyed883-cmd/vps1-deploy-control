@@ -1505,7 +1505,7 @@ async def short_credentials_upload(
     if kind not in {"client","token"}:
         return redirect("/app?tab=channels",error="Unknown credential JSON type")
     if not files or (kind=="client" and len(files)!=1):
-        return redirect("/app?tab=channels",error="Choose one OAuth client or up to 50 authorized channel JSONs")
+        return redirect("/app?tab=channels",error="Choose one OAuth client JSON or any number of authorized channel JSONs")
     installed=kept=invalid=unmatched=0
     failures=[]
     replace=str(replace_existing).lower() in {"1","on","true","yes"}

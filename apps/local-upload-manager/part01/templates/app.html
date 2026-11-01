@@ -651,7 +651,7 @@
           <div><span>My channel tokens</span><strong>{{ oauth_inventory.token_valid or 0 }}</strong><small>{{ oauth_inventory.token_invalid or 0 }} missing / invalid of {{ oauth_inventory.token_total or 0 }} owned channels</small></div>
         </div>
         <div class="lum-grid lum-two">
-          <form method="post" action="{{ base_path }}/actions/short/credentials/upload" enctype="multipart/form-data" class="lum-card inset" data-lum-soft-form>
+          <form method="post" action="{{ base_path }}/actions/short/credentials/upload" enctype="multipart/form-data" class="lum-card inset">
             <input type="hidden" name="csrf_token" value="{{ csrf }}">
             <input type="hidden" name="secret_kind" value="client">
             <h3>Upload OAuth client JSON</h3><p>PC Google Desktop OAuth config. One active private client per account. Existing valid client stays unless Replace is selected.</p>
@@ -659,7 +659,7 @@
             <label class="lum-check"><input type="checkbox" name="replace_existing" value="1"> Replace my existing valid OAuth client</label>
             <button class="lum-button" type="submit">Store Permanently</button>
           </form>
-          <form method="post" action="{{ base_path }}/actions/short/credentials/upload" enctype="multipart/form-data" class="lum-card inset" data-lum-soft-form data-short-vault-token-form>
+          <form method="post" action="{{ base_path }}/actions/short/credentials/upload" enctype="multipart/form-data" class="lum-card inset" data-short-vault-token-form>
             <input type="hidden" name="csrf_token" value="{{ csrf }}">
             <input type="hidden" name="secret_kind" value="token">
             <h3>Upload authorized token JSONs (unlimited selection)</h3><p>Multiple PC files supported. Use exact UC ChannelID.json; a Gmail filename is accepted only when it uniquely identifies one of your channels.</p>
