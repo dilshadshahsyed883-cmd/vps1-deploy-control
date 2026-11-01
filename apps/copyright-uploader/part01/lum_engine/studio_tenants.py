@@ -193,7 +193,7 @@ class StudioTenants:
             notes=str(getattr(raw,"notes","") or "").strip()[:500]
             group_names=()
             if sync_sheet_groups:
-                parts=[re.sub(r"\\s+"," ",part).strip() for part in
+                parts=[re.sub(r"\s+"," ",part).strip() for part in
                        re.split(r"[,;|]+",str(getattr(raw,"group","") or ""))]
                 group_names=tuple(dict.fromkeys(
                     part for part in parts if part and
