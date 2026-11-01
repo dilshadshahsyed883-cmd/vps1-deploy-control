@@ -1530,7 +1530,7 @@ def _short_owned_automation_profiles(request: Request) -> list[dict[str, Any]]:
     owner=str(user.get("username") or "").strip().casefold()
     if not owner:
         raise PermissionError("Authenticated Short account required")
-    allowed=_studio_allowed_ids("profile",user)
+    allowed=studio_tenants.allowed_ids("profile",user)
     owned=[]
     for raw in db.list_auto_engine_profiles():
         pid=int(raw.get("id") or 0)
