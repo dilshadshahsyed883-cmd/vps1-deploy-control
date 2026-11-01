@@ -19,7 +19,11 @@ def main():
     template='{% extends "base.html" %}{% block content %}'+body+'{% endblock %}'
     ae=SimpleNamespace(groups=[dict(id=7,group_name='Test',channel_count=2)],short_folders=['Test'],profiles=[],scheduler_ui=SimpleNamespace(worker_status='Idle',scheduler_status='Waiting'),engine=SimpleNamespace(running=True,scheduler_armed=True))
     env=Environment(loader=FileSystemLoader(PART/'templates'))
-    html=env.from_string(template).render(engine_instance='shortstudio',p=None,src={},csrf='test',base_path='/short-uploader',ae=ae,embedded_view=False,user={'is_admin': True, 'username': 'fixture'})
+    values=dict(engine_instance='shortstudio',p=None,src={},csrf='test',
+                base_path='/short-uploader',ae=ae,embedded_view=False)
+    html=env.from_string(template).render(**values,user={'is_admin': True, 'username': 'fixture'})
+    member_html=env.from_string(template).render(**values,user={'is_admin': False, 'username': 'fixture'})
+    assert html==member_html,'Short admin/member profile controls must render identically'
     writes=[]
     def route(handle):
         req=handle.request;path=urlsplit(req.url).path
@@ -52,11 +56,11 @@ def main():
             assert page.locator('.lum-ae-profile-summary').count()==0,(width,'redundant summary')
             assert page.locator('.lum-ae-profile-browser').count()==0,(width,'redundant profile browser')
             assert toolbar.locator('[data-ae-open-schedules]').count()==0,(width,'removed Profiles manage button still visible')
-            assert toolbar.locator('button.lum-ae-schedule-toggle').count()==1,(width,'schedule toggle missing')
-            assert toolbar.locator('button.lum-ae-schedule-toggle').inner_text()=='Disarm Scheduled Uploads'
+            assert toolbar.locator('button.lum-ae-schedule-toggle').count()==0,(width,'unsafe global scheduler action exposed')
+            assert toolbar.locator('.lum-short-scheduler-state').inner_text()=='Armed'
             if width>=1024:
                 elements=[toolbar.locator('#lum-ae-profile-select'),toolbar.get_by_text('+ New Profile'),
-                          toolbar.get_by_text('Create Profile'),toolbar.locator('button.lum-ae-schedule-toggle')]
+                          toolbar.get_by_text('Create Profile'),toolbar.locator('.lum-short-scheduler-state')]
                 heights=[item.bounding_box()['y'] for item in elements]
                 assert max(heights)-min(heights)<12,(width,'profile actions wrapped',heights)
             if width<=760:
