@@ -518,6 +518,7 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         db, web_clients, permitted_channels, permitted_sheets,
         inventory_channels=channels if os.getenv("LUM_ENGINE_INSTANCE") in
             {"song", "shortstudio", "copyright"} else None,
+        prefer_stored_token_paths=os.getenv("LUM_ENGINE_INSTANCE") == "copyright",
     ) if selected == "channels" else {
         "rows": [], "summary": {}, "groups": [], "sheets": [], "oauth_inventory": {}
     }
@@ -1499,7 +1500,8 @@ def channels_status(
     try:
         for channel_id in channel_ids:
             studio_tenants.require("channel",channel_id,user)
-        updated=set_status_bulk(db, channel_ids, status)
+        updated=set_status_bulk(db, channel_ids, status,
+            prefer_stored_token_paths=os.getenv("LUM_ENGINE_INSTANCE") == "copyright")
         return redirect("/app?tab=channels", message=f"Updated {updated} channel(s) to {str(status).upper()}.")
     except Exception as exc:
         return redirect("/app?tab=channels", error=str(exc))
@@ -1547,14 +1549,16 @@ def channels_rescan_tokens(
             studio_tenants.require("channel",channel_id,user)
         if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" and not ids:
             return redirect("/app?tab=channels",message="No owned channels need scanning.")
-        result=rescan_channel_tokens(db, ids)
-        return redirect(
-            "/app?tab=channels",
-            message=(
-                f"Token scan · checked {result['checked']} · updated {result['updated']} · "
-                f"missing {result['missing']} · invalid {result['invalid']}"
-            ),
+        copyright_private = os.getenv("LUM_ENGINE_INSTANCE") == "copyright"
+        result=rescan_channel_tokens(db, ids, prefer_stored_token_paths=copyright_private)
+        summary = (
+            f"Token scan · checked {result['checked']} · valid {result['valid']} · "
+            f"missing {result['missing']} · invalid {result['invalid']}"
+            if copyright_private else
+            f"Token scan · checked {result['checked']} · updated {result['updated']} · "
+            f"missing {result['missing']} · invalid {result['invalid']}"
         )
+        return redirect("/app?tab=channels", message=summary)
     except Exception as exc:
         return redirect("/app?tab=channels", error=str(exc))
 
