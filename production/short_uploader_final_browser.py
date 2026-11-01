@@ -65,8 +65,11 @@ def main():
             if width>=1024:
                 elements=[toolbar.locator('#lum-ae-profile-select'),toolbar.get_by_text('+ New Profile'),
                           toolbar.get_by_text('Create Profile'),toolbar.locator('.lum-short-scheduler-state')]
-                heights=[item.bounding_box()['y'] for item in elements]
-                assert max(heights)-min(heights)<12,(width,'profile actions wrapped',heights)
+                # Badges are shorter than buttons and vertically centered;
+                # compare centerlines, not top edges, to detect actual wrapping.
+                boxes=[item.bounding_box() for item in elements]
+                centers=[box['y']+box['height']/2 for box in boxes]
+                assert max(centers)-min(centers)<12,(width,'profile actions wrapped',centers)
             if width<=760:
                 assert page.locator('.lum-short-engine-tabbar nav').evaluate('e=>e.scrollWidth<=e.clientWidth'),width
                 for button in page.locator('.lum-short-engine-tabbar nav button').all():
