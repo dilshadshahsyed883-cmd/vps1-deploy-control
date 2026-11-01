@@ -671,12 +671,13 @@ def app_access_allows(account: dict[str, Any] | None, app_name: str) -> bool:
 
 
 
-# Only these three public Studio groups are configurable per user.
+# Four independent public Studio groups are configurable per user.
 # The pre-existing app_access column is retained for legacy integrations.
-STUDIO_KEYS = ("song", "short", "copyright")
+STUDIO_KEYS = ("song", "short", "copyright", "voice")
 STUDIO_SSO_APPS = {
     "song-maker": "song", "short-maker": "short", "video-merger": "copyright",
     "short-uploader": "short", "copyright-uploader": "copyright",
+    "voice-studio": "voice",
 }
 
 
@@ -703,6 +704,7 @@ def studio_for_path(path: str) -> str:
         ("song", ("/song-studio", "/song-uploader", "/song-maker", "/audio-downloader")),
         ("short", ("/short-maker", "/short-uploader", "/short-studio")),
         ("copyright", ("/video-merger", "/copyright-uploader", "/copyright-studio")),
+        ("voice", ("/voice-studio",))
     ):
         if any(normalized == prefix or normalized.startswith(prefix + "/") for prefix in prefixes):
             return studio
@@ -4693,7 +4695,7 @@ def user_management_action(
     secret_key: str = Form(""), role: str = Form("non_admin"),
     csrf_token: str = Form(""),
     studio_song: str = Form(""), studio_short: str = Form(""),
-    studio_copyright: str = Form(""),
+    studio_copyright: str = Form(""), studio_voice: str = Form(""),
 ):
     require_admin(request)
     expected = str(request.session.get("user_management_csrf") or "")
@@ -4703,12 +4705,12 @@ def user_management_action(
     actor = str(request.session.get("username") or "")
     if action in {"create", "set_role"} and role not in {"admin", "non_admin"}:
         raise HTTPException(400, "Role must be Admin or Non-admin")
-    for value in (studio_song, studio_short, studio_copyright):
+    for value in (studio_song, studio_short, studio_copyright, studio_voice):
         if value not in ("", "on"):
             raise HTTPException(400, "Invalid studio checkbox")
     selected = ",".join(name for name, checked in (
         ("song", studio_song), ("short", studio_short),
-        ("copyright", studio_copyright),
+        ("copyright", studio_copyright), ("voice", studio_voice),
     ) if checked == "on")
     try:
         with db() as conn:
@@ -4722,7 +4724,7 @@ def user_management_action(
                        daily_render_limit,subscription_start_at,subscription_end_at,app_access,studio_access)
                        VALUES(?,?,?,?,?,?,?,?,?,?)""",
                     (clean, hash_secret(secret_key), 1, int(role == "admin"), now_iso(),
-                     0, "", "", "all", selected if role == "non_admin" else "song,short,copyright"),
+                     0, "", "", "all", selected if role == "non_admin" else ",".join(STUDIO_KEYS)),
                 )
                 message = f"User {clean} created as {'Admin' if role == 'admin' else 'Non-admin'}"
             else:
@@ -5286,9 +5288,15 @@ _VS_UPSTREAM="http://127.0.0.1:8130"
 @app.get("/voice-studio", response_class=HTMLResponse)
 async def vps1_voice_studio_host(request:_VSRequest):
     require_login(request)
+    account = user_account(str(request.session.get("username") or ""))
+    if not studio_access_allows(account, "voice"):
+        raise HTTPException(403, "Voice Studio access required")
     return RedirectResponse("/voice-studio/app", status_code=303)
 
 async def _vps1_voice_studio_proxy(request:_VSRequest,upstream_path:str):
+    account = user_account(str(request.session.get("username") or ""))
+    if not studio_access_allows(account, "voice"):
+        raise HTTPException(403, "Voice Studio access required")
     body=await request.body()
     url=_VS_UPSTREAM+"/"+upstream_path.lstrip("/")
     headers={}
