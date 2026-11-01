@@ -55,6 +55,7 @@ class SongSheetsOnlyTests(TestCase):
         stats = extract_function("stats_payload", {
             "Any": Any, "os": os, "store": Store(),
             "worker": Worker(), "all_channels": lambda user: [],
+            "_song_account_scope": lambda user: os.getenv("LUM_ENGINE_INSTANCE") == "song" or not user.get("is_admin"),
         })
         with patch.dict(os.environ, {"LUM_ENGINE_INSTANCE": "song"}):
             for admin in (False, True):
