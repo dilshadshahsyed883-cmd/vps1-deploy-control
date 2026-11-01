@@ -1580,10 +1580,12 @@ async function loadOwnerFolderNames(){
  const profileDestination=document.getElementById('shortProfileDestination');
  const foldersDestination=document.getElementById('foldersVpsDestination');
  try{
-  const response=await fetch('api/vps-folders',{cache:'no-store'});
+  const response=await fetch('api/vps-folders/verified-inventory',{cache:'no-store'});
   const data=await response.json();
-  if(!response.ok)throw Error(data.detail||'Owned folders unavailable');
-  const list=Array.isArray(data.folders)?data.folders:[];
+  if(!response.ok)throw Error(data.detail||'Verified folder inventory unavailable');
+  const records=Array.isArray(data.folders)?data.folders:[];
+  const list=records.map(record=>record.name);
+  const byName=new Map(records.map(record=>[record.name,record]));
   for(const element of [profileDestination,foldersDestination]){
    const current=element.value;element.replaceChildren();
    for(const name of list){const option=document.createElement('option');option.value=name;option.textContent=name;element.appendChild(option);}
@@ -1593,7 +1595,10 @@ async function loadOwnerFolderNames(){
   for(const name of list){
    const row=document.createElement('tr');
    const cell=document.createElement('td');cell.textContent=name;row.appendChild(cell);
-   for(const value of ['Not verified','Not checked']){const td=document.createElement('td');td.textContent=value;row.appendChild(td);}
+   const entry=byName.get(name);
+   for(const value of [String(entry.available_videos), 'Pending uploader-profile verification']){
+    const td=document.createElement('td');td.textContent=value;row.appendChild(td);
+   }
    const action=document.createElement('td');action.textContent='Preflight required';row.appendChild(action);inventory.appendChild(row);
   }
   if(!list.length){const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=4;cell.textContent='No owner-owned VPS folders found.';row.appendChild(cell);inventory.appendChild(row);}
@@ -1697,6 +1702,81 @@ def list_short_vps_folders(request: Request):
     short_personal_default(owner)
     return {"folders": [name for name in short_vps_folder_names()
                         if short_folder_owner(name)==owner.casefold()]}
+
+
+@app.get("/api/vps-folders/verified-inventory")
+def list_verified_short_folder_inventory(request: Request):
+    """Show only owned folders and already-published MP4s with recorded verification.
+
+    A file merely present in a folder is not evidence that it is a valid,
+    complete, uploader-ready MP4. Old untracked files remain unverified.
+    Linked uploader-profile names will be attached only after authenticated
+    cross-service reference audits; deletion never infers them from this API.
+    """
+    owner, _ = short_identity(request)
+    short_personal_default(owner)
+    names = [n for n in short_vps_folder_names()
+             if short_folder_owner(n) == owner.casefold()]
+    published = {name: set() for name in names}
+    busy = {name: False for name in names}
+    for state in load_job_states():
+        if not short_can_access(state, request):
+            continue
+        cfg = state.get("config") or {}
+        name = str(state.get("short_vps_folder") or cfg.get("short_vps_folder") or "")
+        if name not in published:
+            continue
+        if state.get("status") in ("uploading", "queued", "running", "pausing", "cancelling"):
+            busy[name] = True
+        for filename in state.get("published_outputs") or []:
+            if isinstance(filename, str):
+                published[name].add(filename)
+        for output in state.get("outputs") or []:
+            if isinstance(output, dict) and output.get("short_vps_filename"):
+                published[name].add(str(output["short_vps_filename"]))
+
+    # Only fully committed ready-made uploads add names to available counts.
+    sessions = DATA_ROOT / "ready_video_uploads"
+    if sessions.is_dir() and not sessions.is_symlink():
+        for directory in sessions.iterdir():
+            if not directory.is_dir() or directory.is_symlink():
+                continue
+            manifest_path = directory / "manifest.json"
+            if manifest_path.is_symlink() or not manifest_path.is_file():
+                continue
+            try:
+                record = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (ValueError, OSError):
+                continue
+            name = record.get("folder")
+            if record.get("owner") != owner.casefold() or name not in published:
+                continue
+            if record.get("status") in ("uploading", "paused", "publishing"):
+                busy[name] = True
+            if record.get("status") == "completed":
+                for entry in record.get("files") or []:
+                    verified = entry.get("verified_name") if isinstance(entry, dict) else None
+                    if isinstance(verified, str):
+                        published[name].add(verified)
+
+    folders = []
+    for name in names:
+        folder = short_folder_owned(name, request)
+        complete = 0
+        for filename in published[name]:
+            if not filename or Path(filename).name != filename or not filename.lower().endswith(".mp4"):
+                continue
+            target = folder / filename
+            try:
+                if not target.is_symlink() and target.is_file() and target.stat().st_size > 1024:
+                    complete += 1
+            except OSError:
+                pass
+        folders.append({"name": name, "available_videos": complete,
+                        "has_active_maker_jobs_or_uploads": busy[name],
+                        "linked_profiles": None, "delete_preflight_ready": False})
+    return {"folders": folders, "verified_only": True,
+            "profile_dependencies_checked": False}
 
 
 @app.get("/api/drive-folders")
