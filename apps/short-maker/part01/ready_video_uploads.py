@@ -90,7 +90,8 @@ def register_ready_video_uploads(app, *, data_root, short_identity,
             if path.is_symlink():
                 raise HTTPException(409, detail="Unsafe staged file")
             size = int(record["size"])
-            received = path.stat().st_size if path.is_file() else 0
+            received = size if manifest["status"] == "completed" else (
+                path.stat().st_size if path.is_file() else 0)
             if received > size:
                 raise HTTPException(409, detail="Staged file exceeds manifest size")
             uploaded += received
@@ -279,6 +280,10 @@ def register_ready_video_uploads(app, *, data_root, short_identity,
                 publish(staged(session_id, index), destination, record["sha256"])
             manifest["status"] = "completed"
             save(session_id, manifest)
+            # Final MP4s have independent verified copies; avoid retaining an
+            # identical redundant staging copy after durable publish receipt.
+            for index in range(len(manifest["files"])):
+                staged(session_id, index).unlink(missing_ok=True)
             return snapshot(session_id, manifest)
 
     @app.post("/api/ready-videos/sessions/{session_id}/pause")
