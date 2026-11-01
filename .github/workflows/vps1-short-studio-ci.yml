@@ -72,6 +72,8 @@ jobs:
         run: |
           node --check apps/local-upload-manager/part01/static/short_vault_upload.js
           python -m unittest discover -s tests -p 'test_short_uploader_oauth_vault.py' -v
+      - name: Short Uploader Profile form reorder-only regression
+        run: python -m unittest discover -s tests -p 'test_short_uploader_profile_reorder_only.py' -v
       - name: Short Uploader final release scope and live acceptance guards
         run: python -m unittest discover -s tests -p 'test_short_uploader_final_release.py' -v
       - name: Install rendered UI test browser

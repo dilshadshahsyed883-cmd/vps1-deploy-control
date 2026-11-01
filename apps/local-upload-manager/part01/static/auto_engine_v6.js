@@ -515,3 +515,49 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout
   }).observe(document.documentElement,{childList:true,subtree:true});
   init();
 })();
+
+
+/* SHORT_PROFILE_REORDER_ONLY_V1 — move existing form controls; never change their values. */
+(() => {
+  'use strict';
+  function reorderShortProfile() {
+    // This JS is shared with other engines: touch Short Uploader group profiles only.
+    if (!window.location.pathname.startsWith('/short-uploader/')) return;
+    const form=document.getElementById('lum-ae-profile-form');
+    const panel=form?.querySelector('[data-ae-panel="profiles"]');
+    if (!panel || panel.dataset.shortProfileOrder==='complete') return;
+    const sections=[...panel.querySelectorAll(':scope > section.lum-card')];
+    const main=sections.find(el=>el.querySelector('input[name="category_name"]'));
+    const resources=sections.find(el=>el.querySelector('select[name="short_vps_folder"]') &&
+                                      el.querySelector('#short-profile-metadata-source'));
+    const profileName=main?.querySelector('input[name="category_name"]')?.closest('label');
+    const mediaFolder=resources?.querySelector('select[name="short_vps_folder"]')?.closest('label');
+    const driveAlternative=resources?.querySelector('input[name="drive_video_folder"]')?.closest('label');
+    const resourceHeading=resources?.querySelector(':scope > .lum-card-head');
+    if (!main || !resources || !profileName || !mediaFolder ||
+        !driveAlternative || !resourceHeading) return;
+    // Reparent originals, not clones: all field names, saved choices, defaults,
+    // validation, event handlers, and submit behavior remain untouched.
+    const nameSection=document.createElement('section');
+    nameSection.className='lum-card';
+    nameSection.append(profileName);
+    panel.insertBefore(nameSection,main);
+    panel.insertBefore(resources,main);
+    resourceHeading.after(mediaFolder,driveAlternative);
+    // The existing Metadata Source and all of its conditional fields now
+    // follow the media selectors; remaining profile settings stay in main.
+    panel.dataset.shortProfileOrder='complete';
+  }
+  document.addEventListener('DOMContentLoaded',reorderShortProfile);
+  window.addEventListener('pageshow',reorderShortProfile);
+  if (document.documentElement) {
+    new MutationObserver(records => {
+      if (records.some(record=>[...record.addedNodes].some(node=>
+        node.nodeType===1 && (node.id==='lum-ae-profile-form' ||
+        node.querySelector?.('#lum-ae-profile-form'))))) {
+        queueMicrotask(reorderShortProfile);
+      }
+    }).observe(document.documentElement,{childList:true,subtree:true});
+  }
+  reorderShortProfile();
+})();
