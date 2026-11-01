@@ -124,6 +124,7 @@ test("Studio permissions fail closed and refresh on a verified Scene identity", 
   assert.equal(link("/short-maker").hidden, true);
   assert.equal(link("/video-merger/").hidden, true);
   assert.equal(link("/experiment-studio/").hidden, true);
+  assert.equal(link("/voice-studio/app#vps1-production").hidden, true);
   await h.update({authenticated:true,is_admin:false,username:"editor",allowed_studios:["short","copyright"]});
   assert.equal(link("/song-studio/").hidden, true);
   assert.equal(link("/short-maker").hidden, false);
@@ -190,14 +191,27 @@ test("Experiment Studio second-level tabs stay hidden for nonadmins and appear f
   const tabs=all(h.body).find(e=>e.className==="vps1-native-experiment-tabs");
   assert.ok(tabs);
   assert.equal(tabs.hidden, true, "non-admin Experiment navigation must be hidden");
-  assert.deepEqual(tabs.children.map(e=>e.textContent),["Antidetect Browser","Self Media Library","Auto Script","Video Studio","Voice Studio","Upload Studio"]);
-  assert.deepEqual(tabs.children.map(e=>e.href),["/experiment-studio/antidetect-browser/","/self-media-library/","/experiment-studio/auto-script/","/scene-builder/","/voice-studio/app#vps1-production","/local-upload-manager/app?embedded=1&tab=dashboard"]);
+  assert.deepEqual(tabs.children.map(e=>e.textContent),["Antidetect Browser","Self Media Library","Auto Script","Video Studio","Upload Studio"]);
+  assert.deepEqual(tabs.children.map(e=>e.href),["/experiment-studio/antidetect-browser/","/self-media-library/","/experiment-studio/auto-script/","/scene-builder/","/local-upload-manager/app?embedded=1&tab=dashboard"]);
   assert.equal(tabs.children.filter(e=>e.attrs["aria-current"]==="page").length,1);
   assert.equal(h.links().filter(e=>e.href==="/admin").length,0);
   await h.update({authenticated:true,is_admin:true,username:"owner"});
   assert.equal(tabs.hidden, false, "verified admin may see Experiment tabs");
   await h.update(null);
   assert.equal(tabs.hidden, true, "expired session must hide Experiment tabs");
+});
+
+test("Voice Studio is an independently granted primary sidebar tab", async () => {
+  const h=boot("voice",{authenticated:true,is_admin:false,username:"editor",allowed_studios:["voice"]});
+  await h.tick();
+  const nav=all(h.body).find(e=>e.tag==="nav"&&e.attrs["aria-label"]==="Applications");
+  const voice=nav.children.find(e=>e.textContent==="Voice Studio");
+  assert.ok(voice);
+  assert.equal(voice.hidden,false);
+  assert.equal(voice.attrs["aria-current"],"page");
+  assert.equal(all(h.body).some(e=>e.className==="vps1-native-experiment-tabs"),false);
+  await h.update({authenticated:true,is_admin:false,username:"editor",allowed_studios:[]});
+  assert.equal(voice.hidden,true);
 });
 
 test("voice native menu uses in-page tab activation instead of document reload", async () => {
@@ -223,18 +237,18 @@ test("other workspaces link directly to Voice Studio without interception", asyn
   }
 });
 
-for (const workspace of ["uploader","stream","voice","acs"]) {
+for (const workspace of ["uploader","stream","acs"]) {
   test(`${workspace}: Upload Studio is only a second-level Experiment tab`, async () => {
     const h=boot(workspace,{authenticated:true,is_admin:false,username:"editor"});
     await h.tick();
     const nav=all(h.body).find(e=>e.tag==="nav"&&e.attrs["aria-label"]==="Applications");
     assert.ok(nav);
-    assert.equal(nav.children.filter(e=>["Upload Studio","Video Studio","Voice Studio"].includes(e.textContent)).length,0);
+    assert.equal(nav.children.filter(e=>["Upload Studio","Video Studio"].includes(e.textContent)).length,0);
     assert.equal(nav.children.filter(e=>e.href==="/experiment-studio/"&&e.textContent==="Experiment Studio").length,1);
     const experiment=all(h.body).find(e=>e.className==="vps1-native-experiment-tabs");
     assert.ok(experiment);
-    assert.deepEqual(experiment.children.map(e=>e.textContent),["Antidetect Browser","Self Media Library","Auto Script","Video Studio","Voice Studio","Upload Studio"]);
-    const selected=workspace==="acs"?"Video Studio":workspace==="voice"?"Voice Studio":"Upload Studio";
+    assert.deepEqual(experiment.children.map(e=>e.textContent),["Antidetect Browser","Self Media Library","Auto Script","Video Studio","Upload Studio"]);
+    const selected=workspace==="acs"?"Video Studio":"Upload Studio";
     assert.equal(experiment.children.filter(e=>e.attrs["aria-current"]==="page"&&e.textContent===selected).length,1);
     assert.equal(nav.children.filter(e=>e.textContent==="Auto Uploader"||e.textContent==="Auto Stream").length,0);
     const tabs=all(h.body).find(e=>e.className==="vps1-native-upload-tabs");
