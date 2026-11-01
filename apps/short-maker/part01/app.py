@@ -1013,6 +1013,8 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
 <header><h1>Short Maker</h1><p>Every render becomes a queue job. Keep adding new jobs while one job renders.</p></header>
 <div class="sm-tabs" role="tablist" aria-label="Short Maker">
  <button id="makerTabBtn" class="active" type="button" role="tab" aria-controls="makerPanel" aria-selected="true">Maker</button>
+ <button id="shortProfilesTabBtn" type="button" role="tab" aria-controls="shortProfilesPanel" aria-selected="false">Short Profiles</button>
+ <button id="foldersTabBtn" type="button" role="tab" aria-controls="foldersPanel" aria-selected="false">Folders</button>
  <button id="queueTabBtn" type="button" role="tab" aria-controls="queuePanel" aria-selected="false">Queue <span id="queueTotal"></span></button>
  <button id="settingsTabBtn" type="button" role="tab" aria-controls="settingsPanel" aria-selected="false">Settings</button>
 </div>
@@ -1120,6 +1122,42 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
 </section>
 </section>
 </form>
+<section id="shortProfilesPanel" role="tabpanel" aria-labelledby="shortProfilesTabBtn" hidden>
+ <section class="panel">
+  <div class="queue-head"><div><h2>Create / Edit Short Profile</h2><div class="hint">Persistent daily video generation · one batch per Pakistan day · uses imported VPS media, not an open PC session.</div></div></div>
+  <div class="two">
+   <div class="field"><label for="shortProfileName">Profile Name</label><input id="shortProfileName" name="short_profile_name" maxlength="120" autocomplete="off" placeholder="Choose a PC folder to suggest a name"></div>
+   <div class="field"><label for="shortProfileSource">PC Source Folder · voice and pictures</label><input id="shortProfileSource" type="file" multiple webkitdirectory directory accept="audio/*,image/*"><div class="hint" id="shortProfileMediaCount">No source files selected.</div></div>
+   <div class="field"><label for="shortProfileDestination">VPS Output Folder</label><select id="shortProfileDestination"><option value="">Choose your VPS folder</option></select></div>
+   <div class="field"><label for="shortProfileDailyCount">Videos per Day</label><input id="shortProfileDailyCount" type="number" min="1" step="1" placeholder="Daily target"></div>
+   <div class="field"><label for="shortProfileSchedule">Daily Start Time (Pakistan)</label><input id="shortProfileSchedule" type="time" value="00:00"></div>
+  </div>
+  <div class="note">Profile Name is suggested from the selected PC folder, remains editable, and is never silently replaced after you customize it. Source files must be uploaded and verified on VPS before unattended generation.</div>
+  <div class="queue-actions"><button type="button" id="shortProfileSave" disabled>Save Profile · pending verified media import</button><button class="secondary" type="button" id="shortProfileSync" disabled>Sync / Import Updates</button></div>
+ </section>
+ <section class="panel"><h2>Created Short Profiles</h2>
+  <div class="hint">Start · Stop · Edit · Delete · History are available when persisted owner-scoped profile storage and scheduling have been verified.</div>
+  <div id="shortProfilesRows" class="note">No profile records were loaded. This feature is not activated on production.</div>
+ </section>
+</section>
+<section id="foldersPanel" role="tabpanel" aria-labelledby="foldersTabBtn" hidden>
+ <section class="panel"><h2>Select VPS Folder</h2>
+  <div class="two"><div class="field"><label for="foldersVpsDestination">Owner-owned VPS output folder</label><select id="foldersVpsDestination"><option>Loading owned folders…</option></select></div>
+  <div class="field"><label>Manage</label><div class="queue-actions"><button class="secondary" type="button" id="foldersCreateVps">+ Create Folder</button></div></div></div>
+ </section>
+ <section class="panel"><h2>Upload Ready-made Videos</h2>
+  <div class="hint">Bulk MP4 files go directly to the selected VPS folder without rendering; files become available to Short Uploader only after server verification. An upload does not start publishing.</div>
+  <div class="filebox"><label for="foldersVideoInput">Choose videos from PC (no arbitrary file-count cap)</label><input type="file" id="foldersVideoInput" multiple accept=".mp4,video/mp4"></div>
+  <div class="hint" id="foldersSelectedInfo">No videos selected.</div>
+  <div class="queue-actions"><button id="foldersStartUpload" type="button" disabled>Start Upload</button><button id="foldersPauseUpload" type="button" class="secondary" disabled>Pause</button><button id="foldersResumeUpload" type="button" class="secondary" disabled>Resume</button><button id="foldersCancelUpload" type="button" class="danger" disabled>Cancel</button><button id="foldersRetryUpload" type="button" class="secondary" disabled>Retry</button><button id="foldersClearFiles" type="button" class="secondary">Clear Selection</button></div>
+  <div id="foldersUploadProgress" class="note" role="status" aria-live="polite">Choose ready-made MP4s, select an owned VPS folder, then Start Upload. Files are cached for recovery before network transfer.</div>
+ </section>
+ <section class="panel"><h2>Folders Inventory</h2>
+  <div class="hint">Only folders owned by this account. Available videos must be complete verified MP4s, excluding staged/in-progress files.</div>
+  <div class="queue-table-wrap"><table class="queue-table"><thead><tr><th>Folder Name</th><th>Available Videos</th><th>Linked Profiles</th><th>Delete</th></tr></thead><tbody id="foldersInventoryRows"><tr><td colspan="4">Loading owned folder names…</td></tr></tbody></table></div>
+  <div class="note">Deleting a folder and its videos requires explicit confirmation, profile dependency checks and a lock protecting active jobs. The existing empty-only delete API is not used for this workflow.</div>
+ </section>
+</section>
 <section id="queuePanel" hidden>
 <section class="panel">
   <div class="queue-head"><div><h2>Render Queue</h2><div class="hint">One render runs at a time. New jobs wait automatically.</div></div>
@@ -1297,20 +1335,23 @@ async function poll(id){
  }catch(e){statusEl.textContent='Status check failed; retrying...';setTimeout(()=>poll(id),2500);}
 }
 
-const makerPanel=document.getElementById('makerPanel'),queuePanel=document.getElementById('queuePanel'),settingsPanel=document.getElementById('settingsPanel');
-const makerTabBtn=document.getElementById('makerTabBtn'),queueTabBtn=document.getElementById('queueTabBtn'),settingsTabBtn=document.getElementById('settingsTabBtn');
+const makerPanel=document.getElementById('makerPanel'),shortProfilesPanel=document.getElementById('shortProfilesPanel'),foldersPanel=document.getElementById('foldersPanel'),queuePanel=document.getElementById('queuePanel'),settingsPanel=document.getElementById('settingsPanel');
+const makerTabBtn=document.getElementById('makerTabBtn'),shortProfilesTabBtn=document.getElementById('shortProfilesTabBtn'),foldersTabBtn=document.getElementById('foldersTabBtn'),queueTabBtn=document.getElementById('queueTabBtn'),settingsTabBtn=document.getElementById('settingsTabBtn');
 let queueItems=[],queuePage=1;const queuePageSize=20;const selectedShortJobs=new Set();
 function showShortTab(name){
- const panels={maker:makerPanel,queue:queuePanel,settings:settingsPanel};
- const buttons={maker:makerTabBtn,queue:queueTabBtn,settings:settingsTabBtn};
+ const panels={maker:makerPanel,profiles:shortProfilesPanel,folders:foldersPanel,queue:queuePanel,settings:settingsPanel};
+ const buttons={maker:makerTabBtn,profiles:shortProfilesTabBtn,folders:foldersTabBtn,queue:queueTabBtn,settings:settingsTabBtn};
  for(const key of Object.keys(panels)){
   const active=key===name;panels[key].hidden=!active;
   buttons[key].classList.toggle('active',active);
   buttons[key].setAttribute('aria-selected',String(active));
  }
  if(name==='queue')loadQueue();
+ if(name==='profiles'||name==='folders')loadOwnerFolderNames();
 }
 makerTabBtn.onclick=()=>showShortTab('maker');
+shortProfilesTabBtn.onclick=()=>showShortTab('profiles');
+foldersTabBtn.onclick=()=>showShortTab('folders');
 queueTabBtn.onclick=()=>showShortTab('queue');
 settingsTabBtn.onclick=()=>showShortTab('settings');
 document.getElementById('newJobBtn').onclick=()=>showShortTab('maker');
@@ -1512,6 +1553,66 @@ for(const action of ['pause','resume','cancel','retry','delete']){
 async function clearQueueStatus(st){if(!confirm(`Clear all ${st} jobs?`))return;await fetch(`api/jobs/clear/${st}`,{method:'POST'});queuePage=1;loadQueue();}
 document.getElementById('clearDoneBtn').onclick=()=>clearQueueStatus('completed');document.getElementById('clearFailedBtn').onclick=()=>clearQueueStatus('failed');
 document.getElementById('prevPage').onclick=()=>{if(queuePage>1){queuePage--;renderQueue();}};document.getElementById('nextPage').onclick=()=>{const pages=Math.max(1,Math.ceil(queueItems.length/queuePageSize));if(queuePage<pages){queuePage++;renderQueue();}};
+// Short Maker approved-plan baseline: owner-only folder selectors and editable folder-name suggestion.
+const shortProfileName=document.getElementById('shortProfileName');
+const shortProfileSource=document.getElementById('shortProfileSource');
+let lastShortProfileAutoName='';
+function shortProfileNameSuggestion(current, previousSuggestion, relativePath){
+ const relative=typeof relativePath==='string'?relativePath:'';
+ const suggested=relative.includes('/')?relative.split('/')[0].trim():'';
+ const editable=String(current||'');
+ return {name:suggested&&(!editable.trim()||editable===previousSuggestion)?suggested:editable,
+         suggested};
+}
+shortProfileSource.addEventListener('change',()=>{
+ const file=Array.from(shortProfileSource.files||[])[0];
+ const relative=file&&typeof file.webkitRelativePath==='string'?file.webkitRelativePath:'';
+ const update=shortProfileNameSuggestion(shortProfileName.value,lastShortProfileAutoName,relative);
+ shortProfileName.value=update.name;
+ lastShortProfileAutoName=update.suggested;
+ const selected=Array.from(shortProfileSource.files||[]);
+ const voice=selected.filter(f=>/\.(mp3|wav|m4a|aac|flac|ogg|opus)$/i.test(f.name)).length;
+ const pictures=selected.filter(f=>/\.(jpg|jpeg|png|webp|jfif|heic|heif)$/i.test(f.name)).length;
+ document.getElementById('shortProfileMediaCount').textContent=voice+' voice audio · '+pictures+' pictures selected locally (not imported to VPS)';
+});
+async function loadOwnerFolderNames(){
+ const inventory=document.getElementById('foldersInventoryRows');
+ const profileDestination=document.getElementById('shortProfileDestination');
+ const foldersDestination=document.getElementById('foldersVpsDestination');
+ try{
+  const response=await fetch('api/vps-folders/verified-inventory',{cache:'no-store'});
+  const data=await response.json();
+  if(!response.ok)throw Error(data.detail||'Verified folder inventory unavailable');
+  const records=Array.isArray(data.folders)?data.folders:[];
+  const list=records.map(record=>record.name);
+  const byName=new Map(records.map(record=>[record.name,record]));
+  for(const element of [profileDestination,foldersDestination]){
+   const current=element.value;element.replaceChildren();
+   for(const name of list){const option=document.createElement('option');option.value=name;option.textContent=name;element.appendChild(option);}
+   if(list.includes(current))element.value=current;
+  }
+  inventory.replaceChildren();
+  for(const name of list){
+   const row=document.createElement('tr');
+   const cell=document.createElement('td');cell.textContent=name;row.appendChild(cell);
+   const entry=byName.get(name);
+   for(const value of [String(entry.available_videos), 'Pending uploader-profile verification']){
+    const td=document.createElement('td');td.textContent=value;row.appendChild(td);
+   }
+   const action=document.createElement('td');action.textContent='Preflight required';row.appendChild(action);inventory.appendChild(row);
+  }
+  if(!list.length){const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=4;cell.textContent='No owner-owned VPS folders found.';row.appendChild(cell);inventory.appendChild(row);}
+ }catch(e){inventory.replaceChildren();const row=document.createElement('tr'),td=document.createElement('td');td.colSpan=4;td.textContent='Could not verify owner-owned VPS folders: '+e.message;row.appendChild(td);inventory.appendChild(row);}
+}
+document.getElementById('foldersCreateVps').onclick=async()=>{
+ document.getElementById('createShortFolder').click();
+ await loadOwnerFolderNames();
+};
+document.getElementById('foldersVideoInput').addEventListener('change',event=>{
+ const files=Array.from(event.target.files||[]);
+ document.getElementById('foldersSelectedInfo').textContent=files.length+' files selected locally; no server upload started.';
+});
+document.getElementById('foldersClearFiles').onclick=()=>{document.getElementById('foldersVideoInput').value='';document.getElementById('foldersSelectedInfo').textContent='No videos selected.';};
 loadQueue();setInterval(loadQueue,2000);
 
 // The refresh-safe uploader is loaded from resumable_client.js.
@@ -1519,6 +1620,7 @@ loadQueue();setInterval(loadQueue,2000);
 
 </script>
 <script src="/short-maker/resumable_client.js"></script>
+<script src="/short-maker/ready_video_client.js"></script>
 <script>
 (() => {
   const toggle=document.querySelector(".vps1-video-mobile-menu");
@@ -1601,6 +1703,83 @@ def list_short_vps_folders(request: Request):
     short_personal_default(owner)
     return {"folders": [name for name in short_vps_folder_names()
                         if short_folder_owner(name)==owner.casefold()]}
+
+
+@app.get("/api/vps-folders/verified-inventory")
+def list_verified_short_folder_inventory(request: Request):
+    """Show only owned folders and already-published MP4s with recorded verification.
+
+    A file merely present in a folder is not evidence that it is a valid,
+    complete, uploader-ready MP4. Old untracked files remain unverified.
+    Linked uploader-profile names will be attached only after authenticated
+    cross-service reference audits; deletion never infers them from this API.
+    """
+    owner, _ = short_identity(request)
+    short_personal_default(owner)
+    names = [n for n in short_vps_folder_names()
+             if short_folder_owner(n) == owner.casefold()]
+    published = {name: set() for name in names}
+    busy = {name: False for name in names}
+    for state in load_job_states():
+        if not short_can_access(state, request):
+            continue
+        cfg = state.get("config") or {}
+        name = str(state.get("short_vps_folder") or cfg.get("short_vps_folder") or "")
+        if name not in published:
+            continue
+        if state.get("status") in ("uploading", "queued", "running", "pausing", "cancelling"):
+            busy[name] = True
+        for filename in state.get("published_outputs") or []:
+            if isinstance(filename, str):
+                published[name].add(filename)
+        for output in state.get("outputs") or []:
+            if isinstance(output, dict) and output.get("short_vps_filename"):
+                published[name].add(str(output["short_vps_filename"]))
+
+    # Only fully committed ready-made uploads add names to available counts.
+    sessions = DATA_ROOT / "ready_video_uploads"
+    if sessions.is_dir() and not sessions.is_symlink():
+        for directory in sessions.iterdir():
+            if not directory.is_dir() or directory.is_symlink():
+                continue
+            manifest_path = directory / "manifest.json"
+            if manifest_path.is_symlink() or not manifest_path.is_file():
+                continue
+            try:
+                record = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (ValueError, OSError):
+                continue
+            if not isinstance(record, dict):
+                continue
+            name = record.get("folder")
+            if record.get("owner") != owner.casefold() or name not in published:
+                continue
+            if record.get("status") in ("uploading", "paused", "publishing"):
+                busy[name] = True
+            if record.get("status") == "completed":
+                for entry in record.get("files") or []:
+                    verified = entry.get("verified_name") if isinstance(entry, dict) else None
+                    if isinstance(verified, str):
+                        published[name].add(verified)
+
+    folders = []
+    for name in names:
+        folder = short_folder_owned(name, request)
+        complete = 0
+        for filename in published[name]:
+            if not filename or Path(filename).name != filename or not filename.lower().endswith(".mp4"):
+                continue
+            target = folder / filename
+            try:
+                if not target.is_symlink() and target.is_file() and target.stat().st_size > 1024:
+                    complete += 1
+            except OSError:
+                pass
+        folders.append({"name": name, "available_videos": complete,
+                        "has_active_maker_jobs_or_uploads": busy[name],
+                        "linked_profiles": None, "delete_preflight_ready": False})
+    return {"folders": folders, "verified_only": True,
+            "profile_dependencies_checked": False}
 
 
 @app.get("/api/drive-folders")
@@ -2347,3 +2526,23 @@ def discard_resumable_upload(job_id: str, request: Request):
         with jobs_lock:
             jobs.pop(job_id, None)
     return {"ok": True, "job_id": job_id}
+
+
+# Short Maker approved Folders: register the isolated resumable ready-MP4 API.
+# The browser upload UI stays disabled until all cross-service folder safety gates
+# and two-user integration tests are proven. No scheduler or Auto Script is started.
+import importlib.util as _sm_importlib
+_sm_ready_spec = _sm_importlib.spec_from_file_location(
+    "short_maker_ready_uploads", Path(__file__).with_name("ready_video_uploads.py"))
+_sm_ready_module = _sm_importlib.module_from_spec(_sm_ready_spec)
+_sm_ready_spec.loader.exec_module(_sm_ready_module)
+_sm_ready_module.register_ready_video_uploads(
+    app, data_root=DATA_ROOT, short_identity=short_identity,
+    short_folder_owned=short_folder_owned, short_vps_folder=short_vps_folder,
+    reserve_short_output_names=reserve_short_output_names)
+
+@app.get("/ready_video_client.js")
+def ready_video_client_script():
+    return FileResponse(Path(__file__).with_name("ready_video_client.js"),
+                        media_type="application/javascript",
+                        headers={"Cache-Control":"no-store"})

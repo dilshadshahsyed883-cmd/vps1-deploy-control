@@ -1,0 +1,35 @@
+name: Short Maker locked-plan staging CI
+on:
+  pull_request:
+    paths:
+      - 'apps/short-maker/**'
+      - 'tests/test_short_maker_plan_ui.py'
+      - 'tests/test_short_maker_ready_video_uploads.py'
+      - 'tests/test_short_maker_verified_inventory.py'
+      - '.github/workflows/vps1-short-maker-plan-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  approved-ui-and-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install existing Short Maker dependencies
+        run: python -m pip install -r apps/short-maker/part01/requirements.txt httpx==0.28.1
+      - name: Syntax and existing queue/owner regression
+        run: |
+          python -m py_compile apps/short-maker/part01/app.py apps/short-maker/part01/ready_video_uploads.py
+          python -m unittest discover -s tests -p 'test_short_maker_plan_ui.py' -v
+          python -m unittest discover -s tests -p 'test_short_maker_ready_video_uploads.py' -v
+          python -m unittest discover -s tests -p 'test_short_maker_verified_inventory.py' -v
+          python -m unittest discover -s tests -p 'test_short_maker_handover.py' -v
+          python -m unittest discover -s tests -p 'test_short_maker_resume.py' -v
+      - name: Check browser resumable uploader JavaScript syntax
+        run: node --check apps/short-maker/part01/ready_video_client.js
+      - name: Auto Script remains offline
+        run: grep -q 'Auto Script stays OFFLINE' apps/short-maker/part01/app.py
