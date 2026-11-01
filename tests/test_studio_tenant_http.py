@@ -81,11 +81,19 @@ def exercise(mode):
             html = viewer.get("/test/app?tab=channels").text
             assert own in html and foreign not in html
         html = admin.get("/test/app?tab=channels").text
-        if mode == "song":
-            # An admin account cannot inspect Alice/Bob channels either.
-            assert "ALICE_PRIVATE_CHANNEL" not in html and "BOB_PRIVATE_CHANNEL" not in html
+        if mode in {"copyright", "song"}:
+            # Admin sees only its own records in these owner-scoped uploaders.
+            assert "ALICE_PRIVATE_CHANNEL" not in html
+            assert "BOB_PRIVATE_CHANNEL" not in html
+            if mode == "copyright":
+                own_admin = post(admin, admin_token, "studio-tenant/channel-create",
+                                 channel_id="UC" + "z" * 22,
+                                 channel_name="ADMIN_PRIVATE_CHANNEL")
+                assert own_admin.status_code == 303
+                assert "error=" not in own_admin.headers["location"]
+                assert "ADMIN_PRIVATE_CHANNEL" in admin.get("/test/app?tab=channels").text
+                assert "ADMIN_PRIVATE_CHANNEL" not in alice.get("/test/app?tab=channels").text
         else:
-            # Other uploaders retain their preexisting provisioning behavior.
             assert "ALICE_PRIVATE_CHANNEL" in html and "BOB_PRIVATE_CHANNEL" in html
 
         duplicate = post(bob, b_token, "studio-tenant/channel-create",
@@ -128,11 +136,19 @@ def exercise(mode):
         assert "LEGACY_PRIVATE_CHANNEL" not in alice.get("/test/app?tab=channels").text
         grant = post(admin, admin_token, "studio-tenant/grant", entity_kind="channel",
                      entity_id=legacy_id, owner_username="Alice")
-        assert "error=" not in grant.headers["location"], grant.headers["location"]
-        assert app.studio_tenants.owner("channel", legacy_id) == "alice"
+        if mode == "copyright":
+            # No admin bypass or unreviewed reassignment of legacy channels.
+            assert grant.status_code == 404
+            assert app.studio_tenants.owner("channel", legacy_id) == ""
+        else:
+            assert "error=" not in grant.headers["location"], grant.headers["location"]
+            assert app.studio_tenants.owner("channel", legacy_id) == "alice"
         transfer = post(admin, admin_token, "studio-tenant/grant", entity_kind="channel",
                         entity_id=b_id, owner_username="Alice")
-        assert "error=" in transfer.headers["location"]
+        if mode == "copyright":
+            assert transfer.status_code == 404
+        else:
+            assert "error=" in transfer.headers["location"]
         assert app.studio_tenants.owner("channel", b_id) == "bob"
         denied = post(alice, a_token, "studio-tenant/grant", entity_kind="channel",
                       entity_id=b_id, owner_username="Alice")

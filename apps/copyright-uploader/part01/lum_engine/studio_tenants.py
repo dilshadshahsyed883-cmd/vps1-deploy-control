@@ -6,6 +6,7 @@ admin-only until explicitly assigned. No worker/queue mutations in this module.
 """
 from __future__ import annotations
 
+import os
 import re
 
 KINDS = frozenset({"channel", "group", "sheet", "profile"})
@@ -77,7 +78,7 @@ class StudioTenants:
         self.identity(kind, entity_id)
         if not user or not str(user.get("username") or "").strip():
             raise PermissionError("Authenticated Studio account is required")
-        if int(user.get("is_admin") or 0):
+        if int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
             return
         owner = self.owner(kind, entity_id)
         if not owner or owner != self.username(user["username"]):
@@ -88,8 +89,8 @@ class StudioTenants:
             raise ValueError("Unknown Studio resource type")
         if not user or not str(user.get("username") or "").strip():
             raise PermissionError("Authenticated Studio account is required")
-        if int(user.get("is_admin") or 0):
-            return None  # Admin may inspect every record including legacy.
+        if int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+            return None  # Non-Copyright admins may inspect legacy records.
         owner = self.username(user["username"])
         with self.db.connect() as con:
             self._initialize(con)
