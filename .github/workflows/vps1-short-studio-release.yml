@@ -57,6 +57,8 @@ jobs:
             apps=(short-maker)
           elif [[ "$RELEASE_INTENT" == *'[vps1-shortstudio-fixed-modes]'* ]]; then
             apps=(local-upload-manager)
+          elif [[ "$RELEASE_INTENT" == *'[vps1-shortstudio-owner-parity]'* ]]; then
+            apps=(local-upload-manager)
           elif [[ "$RELEASE_INTENT" == *'[vps1-shortstudio-member-controls]'* ]]; then
             apps=(local-upload-manager)
           elif [[ "$RELEASE_INTENT" == *'[vps1-shortstudio-assignment-form-only]'* ]] || [[ "$RELEASE_INTENT" == *'[vps1-shortstudio-intro-only]'* ]] || [[ "$RELEASE_INTENT" == *'[vps1-shortstudio-profile-controls]'* ]] || [[ "$RELEASE_INTENT" == *'[vps1-shortstudio-network-fairness]'* ]] || [[ "$RELEASE_INTENT" == *'[vps1-shortstudio-final-ui]'* ]]; then
