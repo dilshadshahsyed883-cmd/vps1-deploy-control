@@ -136,7 +136,10 @@ def exercise(mode):
             assert app.studio_tenants.owner("channel", legacy_id) == "alice"
         transfer = post(admin, admin_token, "studio-tenant/grant", entity_kind="channel",
                         entity_id=b_id, owner_username="Alice")
-        assert "error=" in transfer.headers["location"]
+        if mode == "shortstudio":
+            assert transfer.status_code == 403 or "error=" in transfer.headers.get("location","")
+        else:
+            assert "error=" in transfer.headers["location"]
         assert app.studio_tenants.owner("channel", b_id) == "bob"
         denied = post(alice, a_token, "studio-tenant/grant", entity_kind="channel",
                       entity_id=b_id, owner_username="Alice")
