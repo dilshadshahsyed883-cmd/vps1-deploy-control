@@ -9,6 +9,9 @@ import voice_clone_api as vc
 import kokoro_api as ko
 import edge_api as ed
 import audio_downloader_api as ad
+import asyncio
+from fastapi.responses import JSONResponse
+from voice_tenant import scene_identity, set_identity, reset_identity
 BASE=Path(__file__).resolve().parent
 templates=Jinja2Templates(directory=str(BASE/"templates"))
 app=FastAPI(title="VPS1 OmniVoice Voice Studio",docs_url=None,redoc_url=None)
@@ -16,6 +19,39 @@ app.include_router(vc.router)
 app.include_router(ko.router)
 app.include_router(ed.router)
 app.include_router(ad.router)
+@app.middleware("http")
+async def voice_session_and_permissions(request: Request, call_next):
+    """Live SSO for all public Voice API routes, not just sidebar links.
+
+    Health probes remain anonymous. Legacy Audio Downloader retains Song grant.
+    """
+    path = request.url.path
+    if path == "/healthz":
+        return await call_next(request)
+    try:
+        identity = await asyncio.to_thread(scene_identity, request.headers.get("cookie", ""))
+    except HTTPException as exc:
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+    username = identity["username"]
+    admin = identity["is_admin"]
+    grants = identity["allowed_studios"]
+    required = "song" if path.startswith("/tts/api/audio-downloader") else "voice"
+    if not admin and required not in grants:
+        return JSONResponse({"detail": required + " Studio access required"}, status_code=403)
+    # Endpoint guards are enforced server-side, never merely hidden in the UI.
+    protected = (
+        path.startswith("/tts/api/clone/worker/") or
+        (path.startswith("/tts/api/clone/omnivoice/") and
+         any(path.endswith("/" + item) for item in ("config", "connect", "disconnect", "test")))
+    )
+    if request.method not in ("GET", "HEAD") and protected and not admin:
+        return JSONResponse({"detail": "Shared provider configuration requires Admin"}, status_code=403)
+    tokens = set_identity(username, admin)
+    try:
+        return await call_next(request)
+    finally:
+        reset_identity(tokens)
+
 @app.on_event("startup")
 def _startup():
     vc.init_storage()
