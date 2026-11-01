@@ -81,9 +81,17 @@ def exercise(mode):
             html = viewer.get("/test/app?tab=channels").text
             assert own in html and foreign not in html
         html = admin.get("/test/app?tab=channels").text
-        if mode == "shortstudio":
-            # Short admin uses the SAME private workspace rules as a member.
-            assert "ALICE_PRIVATE_CHANNEL" not in html and "BOB_PRIVATE_CHANNEL" not in html
+        if mode in {"copyright","shortstudio"}:
+            # Both uploader administrators are ordinary owner-scoped users.
+            assert "ALICE_PRIVATE_CHANNEL" not in html
+            assert "BOB_PRIVATE_CHANNEL" not in html
+            own_admin = post(admin, admin_token, "studio-tenant/channel-create",
+                             channel_id="UC" + "z" * 22,
+                             channel_name="ADMIN_PRIVATE_CHANNEL")
+            assert own_admin.status_code == 303
+            assert "error=" not in own_admin.headers["location"]
+            assert "ADMIN_PRIVATE_CHANNEL" in admin.get("/test/app?tab=channels").text
+            assert "ADMIN_PRIVATE_CHANNEL" not in alice.get("/test/app?tab=channels").text
         else:
             assert "ALICE_PRIVATE_CHANNEL" in html and "BOB_PRIVATE_CHANNEL" in html
 
@@ -127,17 +135,25 @@ def exercise(mode):
         assert "LEGACY_PRIVATE_CHANNEL" not in alice.get("/test/app?tab=channels").text
         grant = post(admin, admin_token, "studio-tenant/grant", entity_kind="channel",
                      entity_id=legacy_id, owner_username="Alice")
-        if mode == "shortstudio":
-            assert grant.status_code == 403 or "error=" in grant.headers.get("location", "")
+        if mode in {"copyright","shortstudio"}:
+            # No bypass or unreviewed reassignment of legacy channels.
+            if mode == "copyright":
+                assert grant.status_code == 404
+            else:
+                assert grant.status_code == 403 or "error=" in grant.headers.get("location","")
             assert app.studio_tenants.owner("channel", legacy_id) == ""
-            app.studio_tenants.bind("channel",legacy_id,"Alice")  # test fixture only
+            if mode == "shortstudio":
+                app.studio_tenants.bind("channel",legacy_id,"Alice")  # disposable fixture only
         else:
             assert "error=" not in grant.headers["location"], grant.headers["location"]
             assert app.studio_tenants.owner("channel", legacy_id) == "alice"
         transfer = post(admin, admin_token, "studio-tenant/grant", entity_kind="channel",
                         entity_id=b_id, owner_username="Alice")
-        if mode == "shortstudio":
-            assert transfer.status_code == 403 or "error=" in transfer.headers.get("location","")
+        if mode in {"copyright","shortstudio"}:
+            if mode == "copyright":
+                assert transfer.status_code == 404
+            else:
+                assert transfer.status_code == 403 or "error=" in transfer.headers.get("location","")
         else:
             assert "error=" in transfer.headers["location"]
         assert app.studio_tenants.owner("channel", b_id) == "bob"
