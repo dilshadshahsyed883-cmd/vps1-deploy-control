@@ -308,6 +308,47 @@ class Imports(unittest.TestCase):
     def test_invalid_enabled_proxy_fails_closed(self):
         self.app.save_proxy_config({'enabled':True,'active_id':'missing','profiles':[]})
         with self.assertRaisesRegex(RuntimeError,'profile is missing'):self.app.yt_common_args()
+    def test_drive_public_link_does_not_touch_readonly_home_cookies(self):
+        # gdown 5.2.0 writes ~/.cache/gdown/cookies.txt unless --no-cookies
+        # is passed. Production's service HOME is intentionally read-only.
+        seen=[]
+        def download(args, **kwargs):
+            seen.append(list(args))
+            self.dst.write_bytes(b'video-bytes')
+            return ''
+        with patch.object(self.app,'downloader_command',return_value=['python','-m','gdown']), \
+             patch.object(self.app,'run',side_effect=download), \
+             patch.object(self.app,'validate_downloaded_file'), \
+             patch.object(self.app,'verify_library_media') as verify, \
+             patch.object(self.app,'find_drive_item') as private_lookup:
+            self.app.source_to_file('https://drive.google.com/file/d/abcdefghijk/view',self.dst,None,1)
+        self.assertEqual(len(seen),1)
+        self.assertIn('--no-cookies',seen[0])
+        self.assertIn('--fuzzy',seen[0])
+        self.assertEqual(self.dst.read_bytes(),b'video-bytes')
+        verify.assert_called_once_with(self.dst)
+        private_lookup.assert_not_called()
+
+    def test_drive_nonpublic_link_still_falls_back_to_connected_account(self):
+        seen=[]
+        def denied(args, **kwargs):
+            seen.append(list(args))
+            raise RuntimeError('HTTP 403: file requires access')
+        def authorized_copy(args, **kwargs):
+            self.assertEqual(args[0],'copyto')
+            self.dst.write_bytes(b'private-video')
+            return ''
+        with patch.object(self.app,'downloader_command',return_value=['python','-m','gdown']), \
+             patch.object(self.app,'run',side_effect=denied), \
+             patch.object(self.app,'find_drive_item',return_value={'Path':'approved/private.mp4'}) as lookup, \
+             patch.object(self.app,'rclone',side_effect=authorized_copy), \
+             patch.object(self.app,'validate_downloaded_file'), \
+             patch.object(self.app,'verify_library_media') as verify:
+            self.app.source_to_file('https://drive.google.com/file/d/abcdefghijk/view',self.dst,None,1)
+        self.assertIn('--no-cookies',seen[0])
+        lookup.assert_called_once_with('abcdefghijk')
+        verify.assert_called_once_with(self.dst)
+
     def test_drive_launch_failure_still_uses_connected_account(self):
         with patch.object(self.app,'downloader_command',side_effect=RuntimeError('missing gdown')), \
              patch.object(self.app,'find_drive_item',return_value={'Path':'original.mp4'}), \
