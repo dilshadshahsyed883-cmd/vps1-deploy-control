@@ -502,6 +502,26 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         # Never enumerate the global OAuth/token vault for ANY Short user.
         channel_context["oauth_inventory"]={}
         web_clients=[]  # The shared client is used internally, not disclosed.
+    if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio":
+        # A channel may be present in a legacy mixed-owner group: neither its
+        # visible Group column nor hidden search attributes may name that
+        # foreign group, even for the Short administrator.
+        names_by_channel={}
+        if permitted_channels and permitted_groups:
+            with db.connect() as con:
+                group_ids=sorted(int(gid) for gid in permitted_groups)
+                marks=",".join("?" for _ in group_ids)
+                for cid,name in con.execute(
+                    "SELECT m.channel_db_id,g.group_name FROM channel_group_members m "
+                    "JOIN channel_groups g ON g.id=m.group_id "
+                    "WHERE m.group_id IN ("+marks+")",group_ids).fetchall():
+                    names_by_channel.setdefault(int(cid),[]).append(str(name))
+        for row in channel_context["rows"]:
+            row["groups"]=", ".join(names_by_channel.get(int(row["id"]),[]))
+            row["search_blob"]=" ".join(str(row.get(key) or "") for key in (
+                "id","channel_name","gmail","groups","config_status",
+                "token_status","browser_profile","channel_id","channel_url",
+                "proxy","proxy_username","sheet_name","sheet_notes","status")).lower()
     # PC Sync is a global administrator operation; its history may contain
     # private channel identifiers and source paths from other accounts.
     pc_sync_history = (list_sync_history() if selected == "channels" and
