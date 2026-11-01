@@ -64,6 +64,12 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_short_uploader_nonadmin_automation_controls.py' -v
       - name: Short Uploader admin/member own-data parity and queue safety
         run: python -m unittest discover -s tests -p 'test_short_uploader_owner_parity.py' -v
+      - name: Install real Short Uploader OAuth HTTP test dependencies
+        run: python -m pip install -r apps/local-upload-manager/part01/requirements.txt
+      - name: Short Uploader account-private OAuth vault and unlimited token batches
+        run: |
+          node --check apps/local-upload-manager/part01/static/short_vault_upload.js
+          python -m unittest discover -s tests -p 'test_short_uploader_oauth_vault.py' -v
       - name: Short Uploader final release scope and live acceptance guards
         run: python -m unittest discover -s tests -p 'test_short_uploader_final_release.py' -v
       - name: Install rendered UI test browser
