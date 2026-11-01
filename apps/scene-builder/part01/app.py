@@ -2147,8 +2147,9 @@ async def audio_downloader_canonical_page(request: Request):
     # The legacy Scene Voice proxy still targets the retired 8130 instance.
     # Fetch only its HTML after Scene authentication; no credentials or body forwarded.
     upstream = await _vs_asyncio.to_thread(
-        _vs_requests.get, "http://127.0.0.1:8143/app", timeout=30,
-        allow_redirects=False,
+        _vs_requests.get, "http://127.0.0.1:8143/audio-downloader/app",
+        headers={"Cookie": request.headers.get("cookie", "")},
+        timeout=30, allow_redirects=False,
     )
     if upstream.status_code != 200 or "text/html" not in upstream.headers.get("content-type", "").lower():
         raise HTTPException(status_code=502, detail="Audio Downloader service unavailable")
