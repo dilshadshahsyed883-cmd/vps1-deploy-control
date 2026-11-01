@@ -26,6 +26,7 @@ from .oauth_web import (complete_oauth, list_clients, list_owner_clients,
 from .project_store import ProjectStore
 from .copyright_handoff import available_videos, owner_root
 from .copyright_ui import schedule_pkt
+from .copyright_vault import owner_vault_inventory, import_client as import_owner_client, import_token as import_owner_token
 from .four_modes import registry as four_mode_registry, validate_mode as validate_auto_mode
 from .mode_gateway import forward as forward_engine_request, MODE_PORTS as ENGINE_PORTS
 from .reports import generate_health_report, list_reports, report_path
@@ -337,6 +338,7 @@ async def standalone_auth(request: Request, call_next):
                 route("/actions/sheets/save"),route("/actions/sheets/delete"),
                 route("/actions/sheets/sync"),route("/actions/sheets/sync-all"),
                 route("/actions/copyright/queue/pause"),route("/actions/copyright/queue/start"),
+                route("/actions/copyright/credentials/upload"),
                 route("/actions/copyright/queue/bulk"),route("/actions/copyright/queue/remove"),
                 route("/actions/channels/status"),route("/actions/channels/delete-manual"),
                 route("/actions/channels/rescan-tokens"),route("/actions/channels/test-connections"),
@@ -530,7 +532,8 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
             channel_context["summary"]={"total":len(channel_context["rows"])}
             web_clients=[]  # Other instances expose the shared client only to global admins
-        channel_context["oauth_inventory"]={}  # Never enumerate global token files
+        channel_context["oauth_inventory"]=(owner_vault_inventory(db,studio_tenants,str(user["username"]))
+            if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" else {})
     # PC Sync is a global administrator operation; its history may contain
     # private channel identifiers and source paths from other accounts.
     pc_sync_history = (list_sync_history() if selected == "channels" and
@@ -1621,6 +1624,58 @@ async def channels_json_upload(
     if errors:
         return redirect("/app?tab=channels", error=msg+" · "+"; ".join(errors[:3]))
     return redirect("/app?tab=channels", message=msg)
+
+
+@app.post(route("/actions/copyright/credentials/upload"))
+async def copyright_credentials_upload(
+    request: Request, csrf_token: str = Form(...), secret_kind: str = Form(...),
+    replace_existing: str = Form("0"), files: list[UploadFile] = File(...),
+):
+    """PC JSON restoration with identical admin/member controls and private owner mapping."""
+    user = current_user(request)
+    require_csrf(request, csrf_token)
+    if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+        raise HTTPException(404, "Not found")
+    kind = str(secret_kind or "").strip().lower()
+    if kind not in {"client", "token"}:
+        return redirect("/app?tab=channels", error="Unknown credential JSON type")
+    if not files or len(files) > (1 if kind == "client" else 50):
+        return redirect("/app?tab=channels", error="Choose one OAuth client or up to 50 authorized channel JSONs")
+    installed=kept=invalid=unmatched=0
+    failures=[]
+    replace = str(replace_existing).lower() in {"1", "on", "true", "yes"}
+    size_limit = 1024 * 1024 if kind == "client" else 4 * 1024 * 1024
+    for upload in files:
+        try:
+            name = Path(str(upload.filename or "").replace(chr(92),"/")).name
+            if not name.lower().endswith(".json"):
+                raise ValueError("Only .json files are accepted")
+            content = await upload.read(size_limit + 1)
+            if not content or len(content) > size_limit:
+                raise ValueError("Empty or oversized JSON file")
+            if kind == "client":
+                result = import_owner_client(str(user["username"]), content, replace_valid=replace)
+            else:
+                result = import_owner_token(db,studio_tenants,str(user["username"]),name,content,replace_valid=replace)
+            state=str(result.get("status") or "INVALID")
+            if state == "INSTALLED": installed+=1
+            elif state == "KEPT": kept+=1
+            elif state in {"UNMATCHED","CONFLICT"}:
+                unmatched+=1
+                failures.append(name + ": " + str(result.get("reason") or "Not matched"))
+            else:
+                invalid+=1
+                failures.append(name + ": " + str(result.get("reason") or "Invalid JSON"))
+        except Exception as exc:
+            invalid+=1
+            failures.append(Path(str(upload.filename or "file")).name + ": " + str(exc))
+        finally:
+            await upload.close()
+    summary = (("OAuth client" if kind == "client" else "Channel tokens") +
+               f" · installed {installed} · kept {kept} · invalid {invalid} · unmatched {unmatched}")
+    if failures:
+        return redirect("/app?tab=channels", error=summary + " · " + "; ".join(failures[:3]))
+    return redirect("/app?tab=channels", message=summary)
 
 
 @app.post(route("/actions/pc-sync/upload"))
