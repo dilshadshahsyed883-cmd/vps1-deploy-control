@@ -145,6 +145,49 @@ print("TWO_IDENTITY_HTTP=PASS")
             self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
             self.assertIn("TWO_IDENTITY_HTTP=PASS", run.stdout)
 
+    def test_private_oauth_client_per_account_and_no_shared_overwrite(self):
+        script = r"""
+import json
+from lum_engine.oauth_web import (
+    _owner_client_path, save_owner_client_json, list_owner_clients, owner_client_for_oauth
+)
+data = {"installed": {
+    "client_id": "test-disposable.apps.googleusercontent.com",
+    "project_id": "copyright-ci-disposable",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_secret": "disposable-only-secret",
+    "redirect_uris": ["http://localhost:8765/"]
+}}
+valid = json.dumps(data).encode("utf-8")
+alice = _owner_client_path("alice")
+bob = _owner_client_path("bob")
+assert alice != bob
+save_owner_client_json("alice", valid)
+assert alice.is_file() and not bob.exists()
+assert list_owner_clients("alice")[0]["label"] == "my_oauth_client"
+assert owner_client_for_oauth("alice") == alice
+try:
+    save_owner_client_json("bob", b"not JSON")
+except ValueError:
+    pass
+else:
+    raise AssertionError("Invalid credentials accepted")
+assert alice.is_file() and not bob.exists()
+save_owner_client_json("bob", valid)
+assert bob.is_file() and alice.read_bytes() == bob.read_bytes()
+print("PRIVATE_OAUTH_ISOLATION=PASS")
+"""
+        with tempfile.TemporaryDirectory() as temp:
+            env = {**os.environ, "LUM_DATA_DIR": temp,
+                   "YOUTUBE_UPLOAD_MANAGER_DATA_DIR": str(Path(temp) / "core"),
+                   "LUM_ENGINE_INSTANCE": "copyright", "PYTHONDONTWRITEBYTECODE": "1"}
+            run = subprocess.run([sys.executable, "-c", script],
+                                 cwd=str(COPY), env=env, text=True, capture_output=True)
+            self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+            self.assertIn("PRIVATE_OAUTH_ISOLATION=PASS", run.stdout)
+
     def test_both_roles_render_owned_manual_controls(self):
         from production.copyright_uploader_browser import fixture
         for role in (False, True):
