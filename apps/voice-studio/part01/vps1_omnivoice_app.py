@@ -11,7 +11,7 @@ import edge_api as ed
 import audio_downloader_api as ad
 import asyncio
 from fastapi.responses import JSONResponse
-from voice_tenant import scene_identity, set_identity, reset_identity
+from voice_tenant import scene_identity, set_identity, reset_identity, owner
 BASE=Path(__file__).resolve().parent
 templates=Jinja2Templates(directory=str(BASE/"templates"))
 app=FastAPI(title="VPS1 OmniVoice Voice Studio",docs_url=None,redoc_url=None)
@@ -76,7 +76,9 @@ def drive_folders():
     try:
         result = rclone(["lsjson", f"{REMOTE}:{DRIVE_ROOT}", "--dirs-only", "--max-depth", "1"], timeout=20)
         rows = json.loads(result.stdout or "[]")
-        return {"ok": True, "root": DRIVE_ROOT, "folders": sorted(str(r["Name"]) for r in rows if r.get("IsDir") and r.get("Name"))}
+        prefix = ("vs_" + owner() + "__").casefold()
+        folders = sorted(str(r["Name"]) for r in rows if r.get("IsDir") and r.get("Name") and str(r["Name"]).casefold().startswith(prefix))
+        return {"ok": True, "root": DRIVE_ROOT, "folders": folders}
     except Exception as exc:
         raise HTTPException(503, "Voice Drive folder listing unavailable. Check the Voice Studio Drive connection and retry.") from exc
 
