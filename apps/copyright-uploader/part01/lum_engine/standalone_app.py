@@ -1639,8 +1639,10 @@ async def copyright_credentials_upload(
     kind = str(secret_kind or "").strip().lower()
     if kind not in {"client", "token"}:
         return redirect("/app?tab=channels", error="Unknown credential JSON type")
-    if not files or len(files) > (1 if kind == "client" else 50):
-        return redirect("/app?tab=channels", error="Choose one OAuth client or up to 50 authorized channel JSONs")
+    if not files:
+        return redirect("/app?tab=channels", error="Select at least one credential JSON file")
+    if kind == "client" and len(files) != 1:
+        return redirect("/app?tab=channels", error="Choose exactly one OAuth client JSON")
     installed=kept=invalid=unmatched=0
     failures=[]
     replace = str(replace_existing).lower() in {"1", "on", "true", "yes"}

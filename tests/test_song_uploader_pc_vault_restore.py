@@ -144,6 +144,45 @@ assert _owner_client_path('Alice').exists() and _owner_client_path('Alice') != _
 assert import_client('Admin',b'bad JSON')['status']=='KEPT'
 assert _owner_client_path('Admin').is_file()
 assert 'PRIVATE_VAULT_TEST' not in html_a
+
+# Regression: legitimate multi-channel imports are not arbitrarily rejected
+# at 51 files (or 100+). Non-admin and admin both operate only on own channels.
+bob_original = bob_path.read_bytes()
+for owner, client, csrf_token, count in (
+    ('Alice', alice, tok_a, 101),
+    ('Admin', admin, tok_admin, 51),
+):
+    own_ids = []
+    for index in range(count):
+        channel_id = 'UC' + f'{index + (1000 if owner == "Admin" else 1):022d}'
+        studio_tenants.create_channel(
+            owner, channel_id, f'{owner} bulk {index}',
+            f'{owner.lower()}-bulk-{index}@example.invalid'
+        )
+        own_ids.append(channel_id)
+    response = client.post('/song-uploader/actions/song/credentials/upload',
+        data={'csrf_token':csrf_token,'secret_kind':'token'},
+        files=[('files',(channel_id+'.json',token,'application/json'))
+               for channel_id in own_ids])
+    assert response.status_code == 303, response.text[:300]
+    assert 'error=' not in response.headers['location'],response.headers['location']
+    assert f'installed+{count}' in response.headers['location'],response.headers['location']
+    for channel_id in own_ids:
+        with db.connect() as conn:
+            row = conn.execute('SELECT token_file_path FROM channels WHERE channel_id=?',
+                               (channel_id,)).fetchone()
+        assert row is not None and row['token_file_path'], channel_id
+        imported = Path(row['token_file_path'])
+        assert imported.read_bytes() == token and _token_root(owner) in imported.parents
+assert bob_path.read_bytes() == bob_original
+
+# The OAuth-client credential itself remains exactly one file per request.
+two_clients = alice.post('/song-uploader/actions/song/credentials/upload',
+    data={'csrf_token':tok_a,'secret_kind':'client','replace_existing':'1'},
+    files=[('files',('a.json',client_json,'application/json')),
+           ('files',('b.json',client_json,'application/json'))])
+assert two_clients.status_code == 303 and 'error=' in two_clients.headers['location']
+assert _owner_client_path('Alice').read_bytes() == client_json
 print('PRIVATE_VAULT_TEST=PASS')
 """
         with tempfile.TemporaryDirectory() as tmp:
