@@ -73,7 +73,7 @@ def save_shared_client_json(payload: bytes) -> dict:
 def _owner_client_path(username: str) -> Path:
     """One private Desktop OAuth client per authenticated Studio account."""
     owner = str(username or "").strip().casefold()
-    if not re.fullmatch(r"[a-z0-9_.@-]{1,100}", owner):
+    if not re.fullmatch(r"[a-z0-9_.@+-]{1,160}", owner):
         raise ValueError("Verified account name is required")
     digest = hashlib.sha256(owner.encode("utf-8")).hexdigest()[:32]
     return OAUTH_CLIENT_ROOT / "owners" / digest / "client_secret.json"
