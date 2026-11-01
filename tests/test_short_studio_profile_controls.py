@@ -219,8 +219,10 @@ class ShortProfileControlTests(unittest.TestCase):
         self.assertIn('class="lum-short-profile-toolbar"', rendered)
         self.assertIn('form="lum-ae-profile-form"', rendered)
         self.assertIn('form="lum-ae-delete-profile"', rendered)
-        self.assertIn('name="action" value="disarm_scheduler"', rendered)
-        self.assertIn('Disarm Scheduled Uploads', rendered)
+        # Scheduler is global; both roles get an identical read-only status.
+        self.assertNotIn('name="action" value="disarm_scheduler"', rendered)
+        self.assertNotIn('Disarm Scheduled Uploads', rendered)
+        self.assertIn('class="lum-short-scheduler-state armed"', rendered)
         self.assertNotIn('Manage Schedules', rendered)
         self.assertNotIn('Pause Profile', rendered)
         self.assertNotIn('Turn Profile Off', rendered)
@@ -230,8 +232,12 @@ class ShortProfileControlTests(unittest.TestCase):
         self.assertNotIn('Next run:', rendered)
         context['ae']['engine']['scheduler_armed'] = False
         unarmed = Environment().from_string(section).render(**context)
-        self.assertIn('name="action" value="arm_scheduler"', unarmed)
-        self.assertIn('Arm Scheduled Uploads', unarmed)
+        self.assertNotIn('name="action" value="arm_scheduler"', unarmed)
+        self.assertNotIn('Arm Scheduled Uploads', unarmed)
+        self.assertIn('class="lum-short-scheduler-state disarmed"', unarmed)
+        context['user']={'is_admin': False}
+        member=Environment().from_string(section).render(**context)
+        self.assertEqual(unarmed, member)
         self.assertIn('lum-short-profile-toolbar', css)
         self.assertIn('flex-wrap:nowrap', css)
         self.assertIn('profile-row=20261030-v1', (PART/"templates/base.html").read_text())
