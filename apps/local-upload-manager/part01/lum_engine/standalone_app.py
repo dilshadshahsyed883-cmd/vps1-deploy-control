@@ -2048,7 +2048,9 @@ def auto_v6_start_profile(request: Request,csrf_token: str=Form(...),profile_id:
         count=int(result.get("created") or 0)
         if count:
             v6_mark_schedule_skipped_today(db,profile)
-        if song_member:
+        if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio":
+            _short_owner_start_scoped(request,{pid})
+        elif song_member:
             _song_member_start_scoped(request,{pid})
         else:
             current=v6_store.engine().get("manual_profile_ids")
