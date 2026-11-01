@@ -1013,7 +1013,7 @@ def sheets_save(
         sid = int(source_id) if str(source_id or "").strip() else None
         if sid:
             studio_tenants.require("sheet",sid,user)
-        elif not int(user.get("is_admin") or 0):
+        elif os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio" or not int(user.get("is_admin") or 0):
             existing={str(row.get("sheet_url_or_id") or "").strip()
                       for row in db.list_sheet_sources()}
             if str(sheet_url_or_id or "").strip() in existing:
@@ -1025,7 +1025,7 @@ def sheets_save(
             sheet_url_or_id=sheet_url_or_id,
             enabled=str(enabled).lower() in {"1", "true", "on", "yes"},
         )
-        if not int(user.get("is_admin") or 0):
+        if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio" or not int(user.get("is_admin") or 0):
             studio_tenants.bind("sheet",int(saved_id),user["username"])
         return redirect(
             f"/app?tab=sheets&source_id={saved_id}",
@@ -1047,7 +1047,7 @@ def sheets_delete(
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
         studio_tenants.require("sheet",int(source_id),user)
-        if int(user.get("is_admin") or 0):
+        if int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") != "shortstudio":
             web_delete_sheet_source(db,int(source_id))
         else:
             studio_tenants.delete_owned_sheet(user["username"],int(source_id))
@@ -1075,7 +1075,7 @@ def sheets_sync(
             error="Enable Sheets Sync on Dashboard before running synchronization.",
         )
     try:
-        if int(user.get("is_admin") or 0):
+        if int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") != "shortstudio":
             result=web_sync_sheet_source_by_id(db,int(source_id))
         else:
             studio_tenants.require("sheet",int(source_id),user)
@@ -1537,6 +1537,55 @@ def _short_owned_automation_profiles(request: Request) -> list[dict[str, Any]]:
     return owned
 
 
+def _short_owned_queue_jobs(request: Request, selected_ids=None, statuses=None) -> list[dict[str, Any]]:
+    """Fail closed for both Short roles: every selected job and its live channel
+    must belong to the signed-in user. Never fall back to a global queue."""
+    if os.getenv("LUM_ENGINE_INSTANCE") != "shortstudio":
+        raise PermissionError("Short owner queue actions are only available in Short Uploader")
+    user=current_user(request)
+    owned={int(p["id"]) for p in _short_owned_automation_profiles(request)}
+    raw=list(selected_ids or [])
+    try:
+        selected={int(value) for value in raw}
+    except (ValueError,TypeError) as exc:
+        raise PermissionError("Invalid queue job IDs") from exc
+    if raw and (len(raw)!=len(selected) or any(value<=0 for value in selected)):
+        raise PermissionError("Invalid or duplicate queue job IDs")
+    jobs=db.list_auto_engine_jobs(limit=5000)
+    available={int(job.get("id") or 0) for job in jobs}
+    if selected and not selected.issubset(available):
+        raise PermissionError("Selected queue job does not exist")
+    result=[]
+    for job in jobs:
+        vid=int(job.get("id") or 0)
+        if selected and vid not in selected: continue
+        pid=int(job.get("auto_engine_profile_id") or 0)
+        cid=int(job.get("channel_db_id") or 0)
+        if pid not in owned or not cid or str(studio_tenants.owner("channel",cid) or "").casefold()!=str(user["username"]).casefold():
+            if vid in selected: raise PermissionError("Selected queue job belongs to another account")
+            continue
+        if statuses and str(job.get("status") or "").upper() not in statuses: continue
+        result.append(job)
+    return result
+
+
+def _short_owner_start_scoped(request: Request, profile_ids) -> None:
+    """Preserve other owners' running scope while starting own jobs only."""
+    owned={int(p["id"]) for p in _short_owned_automation_profiles(request)}
+    ids={int(pid) for pid in profile_ids if int(pid)>0}
+    if not ids or not ids.issubset(owned):
+        raise PermissionError("Unowned Short profile")
+    state=v6_store.engine()
+    if int(state.get("pause_after_current") or 0):
+        raise PermissionError("Shared engine is paused; cannot force a global resume")
+    manual=state.get("manual_profile_ids")
+    if manual is None and int(state.get("running") or 0):
+        raise PermissionError("Shared engine running without owner scope")
+    scope={int(pid) for pid in str(manual or "").split(",") if pid.strip().isdigit()} if manual is not None else set()
+    v6_store.set_manual_profile_ids(sorted(scope | ids))
+    v6_store.set_engine(running=True,pause_after_current=False,error="")
+
+
 def _song_member_queue_jobs(request: Request, selected_ids=None, statuses=None) -> list[dict[str, Any]]:
     """Validate both profile and channel ACL; reject foreign selected jobs."""
     user=current_user(request)
@@ -1610,7 +1659,7 @@ async def auto_v6_profile_save(request: Request):
             studio_tenants.require("channel",int(channel_id),user)
         if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio":
             folder_name=str(form.get("short_vps_folder") or "").strip()
-            if folder_name and not int(user.get("is_admin") or 0):
+            if folder_name:
                 folder=v6_shortstudio_folder_path(folder_name)
                 marker=folder/".studio_owner"
                 if (marker.is_symlink() or not marker.is_file() or
@@ -1619,7 +1668,7 @@ async def auto_v6_profile_save(request: Request):
                     raise PermissionError("Short Maker folder belongs to another user")
         fields=dict(form); fields["_song_owner"]=str(user.get("username") or "")
         saved=v6_save_profile_from_form(db,v6_store,fields,pid)
-        if not int(user.get("is_admin") or 0):
+        if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio" or not int(user.get("is_admin") or 0):
             studio_tenants.bind("profile",int(saved),user["username"])
         return redirect(f"/app?tab=auto_engine&auto_profile_id={saved}",message=f"Auto Engine profile #{saved} saved.")
     except Exception as exc:
