@@ -98,7 +98,7 @@ class ShortProfileFolderRegression(unittest.TestCase):
                     })))
                 with patch.dict(os.environ,{"LUM_ENGINE_INSTANCE":"shortstudio"}):
                     result = attempt("Hania Asif")
-                    self.assertEqual(result[1].get("message"),"Auto Engine profile #42 saved.")
+                    self.assertEqual(result[1].get("message"),"Auto Engine profile #42 saved.",result)
                     self.assertEqual(saved[-1][0]["short_vps_folder"],"Hania Asif")
                     self.assertEqual(owned[-1],("profile",42,"Alice"))
                     self.assertEqual(calls[-1],("group",7))
