@@ -352,6 +352,8 @@ async def standalone_auth(request: Request, call_next):
             if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio":
                 # Identical owner-only actions for admin and non-admin.
                 allowed_exact.update({
+                    route("/actions/oauth-client"),
+                    route("/actions/short/credentials/upload"),
                     route("/actions/sheets/sync-all"),
                     route("/actions/auto-v6/retry-failed"),
                     route("/actions/auto-v6/resume-paused"),
