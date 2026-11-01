@@ -57,6 +57,8 @@ jobs:
             apps=(short-maker)
           elif [[ "$RELEASE_INTENT" == *'[vps1-shortstudio-fixed-modes]'* ]]; then
             apps=(local-upload-manager)
+          elif [[ "$RELEASE_INTENT" == *'[vps1-shortstudio-profile-order-only]'* ]]; then
+            apps=(local-upload-manager)
           elif [[ "$RELEASE_INTENT" == *'[vps1-shortstudio-profile-folder-fix]'* ]]; then
             apps=(local-upload-manager)
           elif [[ "$RELEASE_INTENT" == *'[vps1-shortstudio-oauth-vault]'* ]]; then
