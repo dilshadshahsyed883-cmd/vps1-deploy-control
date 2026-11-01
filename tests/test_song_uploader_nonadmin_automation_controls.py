@@ -188,6 +188,7 @@ class SongNonAdminAutomation(TestCase):
             "os": os, "current_user": lambda req: {"username": "alice", "is_admin": 0},
             "require_csrf": lambda *args: None, "require_heavy": lambda *args: None,
             "_song_owned_automation_profiles": lambda req: owned,
+            "_song_member_queue_jobs": lambda req: [all_jobs[0]],
             "db": QueueDB(), "v6_store": object(), "v6_queue_preflight": preflight,
             "V6JSONResponse": lambda value, status_code=200: value,
         })
