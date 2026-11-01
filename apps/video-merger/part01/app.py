@@ -687,10 +687,11 @@ def source_to_file(url, dst, job_id, idx, status_cb=None):
         shutil.move(str(candidates[0]),dst); validate_downloaded_file(dst,idx); verify_library_media(dst); return
     if looks_drive(url):
         note(max(3,min(38,4+idx*5)),f'Downloading Drive video {idx}')
-        # Private files use the connected Drive account when public download fails.
+        # Avoid gdown's default ~/.cache/gdown/cookies.txt in the read-only service HOME.
+        # Public links never need shared session cookies; private files use rclone below.
         public_error=''
         try:
-            run(downloader_command('gdown')+['--fuzzy',url,'-O',str(dst)],timeout=7200)
+            run(downloader_command('gdown')+['--fuzzy','--no-cookies',url,'-O',str(dst)],timeout=7200)
             validate_downloaded_file(dst,idx)
             verify_library_media(dst)
             return
