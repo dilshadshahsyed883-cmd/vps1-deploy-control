@@ -2166,6 +2166,16 @@ async def audio_downloader_canonical_page(request: Request):
 
 
 
+@app.api_route("/audio-downloader/tts/api/audio-downloader", methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS"])
+@app.api_route("/audio-downloader/tts/api/audio-downloader/{subpath:path}", methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS"])
+async def song_audio_downloader_api(request: Request, subpath: str = ""):
+    """Keep the existing Audio Downloader accessible without a Voice grant."""
+    if len(subpath) > 256 or ".." in subpath.split("/") or not re.fullmatch(r"[A-Za-z0-9_./-]*", subpath):
+        raise HTTPException(404, "Audio Downloader route unavailable")
+    suffix = "/" + subpath if subpath else ""
+    return await _vps1_voice_studio_proxy(request, "tts/api/audio-downloader" + suffix)
+
+
 # SONG_UPLOADER_CANONICAL_URL_V1: Canonical URL is a trusted facade over the
 # EXISTING LUM song gateway. Never launch or duplicate an uploader worker.
 @app.api_route("/song-uploader", methods=["GET", "HEAD"])
