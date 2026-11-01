@@ -22,6 +22,10 @@ class CopyrightOwnerVaultTests(unittest.TestCase):
             with self.subTest(admin=admin):
                 html = fixture("channels", is_admin=admin)
                 self.assertIn("Permanent OAuth &amp; Token Vault", html)
+                self.assertIn("1. Shared OAuth Client", html)
+                self.assertIn("Google Desktop OAuth client JSON", html)
+                self.assertIn("Set / Replace Shared Client", html)
+                self.assertIn('/actions/oauth-client', html)
                 self.assertIn("Upload OAuth client JSON", html)
                 self.assertIn("Upload authorized token JSONs", html)
                 self.assertIn('name="replace_existing"', html)
@@ -80,6 +84,10 @@ tok_admin,html_admin=csrf(admin)
 assert 'BOB_PRIVATE' not in html_a and 'Alice Private' in html_a
 assert 'Bob Private' in html_b and 'Alice Private' not in html_b
 assert 'Bob Private' not in html_admin and 'Alice Private' not in html_admin
+for rendered in (html_a,html_b,html_admin):
+  assert "1. Shared OAuth Client" in rendered
+  assert "Set / Replace Shared Client" in rendered
+  assert '/actions/oauth-client' in rendered
 
 invalid=alice.post('/copyright-uploader/actions/copyright/credentials/upload',
   data={'csrf_token':'invalid','secret_kind':'token'},
@@ -126,6 +134,24 @@ c=admin.post('/copyright-uploader/actions/copyright/credentials/upload',
 assert c.status_code==303 and 'error=' not in c.headers['location'],c.headers['location']
 assert _owner_client_path('Admin').is_file()
 assert not _owner_client_path('Alice').exists()
+# Restore the original shared-client card upload action for non-admin, too.
+shared_card=alice.post('/copyright-uploader/actions/oauth-client',
+  data={'csrf_token':tok_a},
+  files={'client_json':('shared_oauth_client.json',client_json,'application/json')})
+assert shared_card.status_code==303 and 'error=' not in shared_card.headers['location'],shared_card.headers['location']
+assert _owner_client_path('Alice').is_file()
+assert _owner_client_path('Alice')!=_owner_client_path('Admin')
+assert _owner_client_path('Admin').read_bytes()==client_json
+assert _owner_client_path('Bob').exists() is False
+# User-specific replacement must not modify the other user's configured client.
+new_client_json=json.dumps({'installed':dict(json.loads(client_json)['installed'],
+  client_id='replacement-disposable.apps.googleusercontent.com')}).encode()
+changed=alice.post('/copyright-uploader/actions/oauth-client',
+  data={'csrf_token':tok_a},
+  files={'client_json':('replace.json',new_client_json,'application/json')})
+assert changed.status_code==303 and 'error=' not in changed.headers['location'],changed.headers['location']
+assert _owner_client_path('Alice').read_bytes()==new_client_json
+assert _owner_client_path('Admin').read_bytes()==client_json
 assert import_client('Admin',b'bad JSON')['status']=='KEPT'
 assert _owner_client_path('Admin').is_file()
 assert 'PRIVATE_VAULT_TEST' not in html_a

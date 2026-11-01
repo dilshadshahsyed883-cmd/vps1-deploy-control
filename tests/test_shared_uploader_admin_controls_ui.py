@@ -37,7 +37,9 @@ def test_uploader_templates_compile_and_preserve_owned_actions() -> None:
             assert owned in source, (path, owned)
         if "copyright-uploader" in path:
             # Copyright grants identical owner-scoped OAuth controls to both roles.
-            assert "Set / Replace My OAuth Client" in source
+            assert "1. Shared OAuth Client" in source
+            assert "Set / Replace Shared Client" in source
+            assert 'name="client_json"' in source
             assert 'Shared OAuth client is managed by an administrator' not in source
             assert "Save modes" not in source
         else:
