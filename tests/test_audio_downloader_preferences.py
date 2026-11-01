@@ -30,6 +30,12 @@ class AudioPreferencesTests(unittest.TestCase):
         self.m.AudioPreferences.model_rebuild(_types_namespace=vars(self.m))
         self.m.init_storage()
         app = FastAPI()
+        @app.middleware("http")
+        async def verified_scene_fixture(request, call_next):
+            # Only a test shim: production uses the Scene session verifier.
+            request.state.scene_owner = request.headers.get("x-auth-user", "")
+            request.state.scene_admin = request.headers.get("x-is-admin") == "1"
+            return await call_next(request)
         app.include_router(self.m.router)
         self.client = TestClient(app,headers={'X-Auth-User':'owner-a'})
         self.owner_a = {"X-Auth-User": "owner-a"}
