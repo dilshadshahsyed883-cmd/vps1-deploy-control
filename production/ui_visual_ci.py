@@ -186,9 +186,9 @@ def verify_song_navigation(browser, shell_js: str, shell_css: str) -> list[str]:
     canonical_html = html
     for old, new, count in (
         ("(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/audio-downloader'",
-         "'/voice-studio/tts/api/audio-downloader'", 1),
+         "'/audio-downloader/tts/api/audio-downloader'", 1),
         ("(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/audio-downloader/proxy'",
-         "'/voice-studio/tts/api/audio-downloader/proxy'", 1),
+         "'/audio-downloader/tts/api/audio-downloader/proxy'", 1),
         ("document.documentElement.dataset.vsEngine='audio-downloader';history.replaceState(null,'','#vs-audio');tab('downloader')",
          "document.documentElement.dataset.vsEngine='audio-downloader';history.replaceState(null,'','/audio-downloader/');tab('downloader')", 1),
         ("if(location.hash==='#vs-audio')choose(true);",
