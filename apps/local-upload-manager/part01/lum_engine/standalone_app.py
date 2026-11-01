@@ -245,7 +245,7 @@ def stats_payload(user: dict[str, Any] | None = None) -> dict[str, Any]:
         "counts": counts,
         "channels": len(channels),
         "authenticated_channels": sum(1 for c in channels if str(c.get("token_status") or "").lower().startswith("valid")),
-        "active_project_id": worker.active_project_id if user is None or int(user.get("is_admin") or 0) else None,
+        "active_project_id": worker.active_project_id if user is None or (int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") != "song") else None,
         "engine_enabled": store.setting("engine_enabled", "1") == "1",
         "pause_after_current": store.setting("pause_after_current", "0") == "1",
         "settings": settings,
@@ -537,7 +537,7 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
     # PC Sync is a global administrator operation; its history may contain
     # private channel identifiers and source paths from other accounts.
     pc_sync_history = (list_sync_history() if selected == "channels" and
-                       int(user.get("is_admin") or 0) else [])
+                       int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") != "song" else [])
     try:
         selected_auto_mode = validate_auto_mode(auto_mode)
     except ValueError:
@@ -692,7 +692,7 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         "auto_mode": selected_auto_mode,
         "engine_instance": engine_instance,
         "mode_registry": mode_registry,
-        "reports": list_reports() if int(user.get("is_admin") or 0) else [],
+        "reports": list_reports() if int(user.get("is_admin") or 0) and engine_instance != "song" else [],
         "csrf": csrf(request),
         "oauth_url": str(request.session.get("lum_oauth_url") or ""),
         "oauth_session_id": str(request.session.get("lum_oauth_session_id") or ""),
