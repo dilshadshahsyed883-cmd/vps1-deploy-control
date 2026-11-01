@@ -709,27 +709,34 @@ def _validate_category_name(value: str) -> str:
 
 
 def _resolve_category(con: sqlite3.Connection, value: str) -> str:
-    value = (value or "").strip()
-    if value:
-        name = _validate_category_name(value)
-        row = con.execute("SELECT name FROM categories WHERE name=? COLLATE NOCASE", (name,)).fetchone()
-        if not row:
-            raise HTTPException(400, "Selected category no longer exists")
-        return str(row["name"])
-    row = con.execute("SELECT name FROM categories ORDER BY created_at,name LIMIT 1").fetchone()
+    username = owner()
+    con.execute(
+        "INSERT OR IGNORE INTO voice_owner_categories(owner_username,name,created_at) VALUES(?,?,?)",
+        (username, "General", utc_now()),
+    )
+    name = _validate_category_name(value) if (value or "").strip() else "General"
+    row = con.execute(
+        "SELECT name FROM voice_owner_categories WHERE owner_username=? AND name=? COLLATE NOCASE",
+        (username, name),
+    ).fetchone()
     if not row:
-        con.execute("INSERT INTO categories(name,created_at) VALUES('General',?)", (utc_now(),))
-        return "General"
+        raise HTTPException(400, "Selected category no longer exists")
     return str(row["name"])
 
 
 def _validate_drive_folder(value: str) -> str:
+    """New Voice outputs go to a tenant-specific Drive folder; old jobs stay unchanged."""
     value = (value or "").strip()
-    if not value:
-        return ""
-    if len(value) > 180 or value in {".", ".."} or "/" in value or "\\" in value or any(ord(ch) < 32 for ch in value):
+    if len(value) > 150 or value in {".", ".."} or "/" in value or chr(92) in value or any(ord(ch) < 32 for ch in value):
         raise HTTPException(400, "Output folder is invalid")
-    return value
+    prefix = "vs_" + owner() + "__"
+    if not value:
+        return prefix + "default"
+    if value.casefold().startswith(prefix.casefold()):
+        return value
+    if value.casefold().startswith("vs_"):
+        raise HTTPException(403, "Another Voice user's folder is unavailable")
+    return prefix + value
 
 
 def _validate_txt_filename(value: str) -> tuple[str, str]:
@@ -1430,8 +1437,16 @@ def clone_status():
 @router.get("/tts/api/clone/categories")
 def list_categories():
     init_storage()
+    username = owner()
     with db() as con:
-        rows = con.execute("SELECT name,created_at FROM categories ORDER BY created_at,name COLLATE NOCASE").fetchall()
+        con.execute(
+            "INSERT OR IGNORE INTO voice_owner_categories(owner_username,name,created_at) VALUES(?,?,?)",
+            (username, "General", utc_now()),
+        )
+        rows = con.execute(
+            "SELECT name,created_at FROM voice_owner_categories WHERE owner_username=? ORDER BY created_at,name COLLATE NOCASE",
+            (username,),
+        ).fetchall()
     return {"ok": True, "categories": [{"name": str(r["name"]), "created_at": str(r["created_at"])} for r in rows]}
 
 
@@ -1439,11 +1454,12 @@ def list_categories():
 def create_category(payload: CategoryCreate):
     init_storage()
     name = _validate_category_name(payload.name)
+    username = owner()
     with db() as con:
-        exists = con.execute("SELECT name FROM categories WHERE name=? COLLATE NOCASE", (name,)).fetchone()
+        exists = con.execute("SELECT name FROM voice_owner_categories WHERE owner_username=? AND name=? COLLATE NOCASE",(username,name)).fetchone()
         if exists:
             return {"ok": True, "category": str(exists["name"]), "created": False}
-        con.execute("INSERT INTO categories(name,created_at) VALUES(?,?)", (name, utc_now()))
+        con.execute("INSERT INTO voice_owner_categories(owner_username,name,created_at) VALUES(?,?,?)", (username, name, utc_now()))
     return {"ok": True, "category": name, "created": True}
 
 
@@ -1451,15 +1467,16 @@ def create_category(payload: CategoryCreate):
 def delete_category(name: str):
     init_storage()
     name = _validate_category_name(name)
+    username = owner()
     with db() as con:
-        row = con.execute("SELECT name FROM categories WHERE name=? COLLATE NOCASE", (name,)).fetchone()
+        row = con.execute("SELECT name FROM voice_owner_categories WHERE owner_username=? AND name=? COLLATE NOCASE",(username,name)).fetchone()
         if not row:
             raise HTTPException(404, "Category not found")
-        total = int(con.execute("SELECT COUNT(*) FROM categories").fetchone()[0])
+        total = int(con.execute("SELECT COUNT(*) FROM voice_owner_categories WHERE owner_username=?", (username,)).fetchone()[0])
         if total <= 1:
             raise HTTPException(409, "At least one category must remain")
         canonical = str(row["name"])
-        con.execute("DELETE FROM categories WHERE name=?", (canonical,))
+        con.execute("DELETE FROM voice_owner_categories WHERE owner_username=? AND name=?", (username, canonical))
     return {"ok": True, "deleted": canonical, "note": "Existing jobs keep their saved category"}
 
 
@@ -1720,7 +1737,7 @@ def resume_clone_batch(batch_id: str):
         queued = sum(1 for r in rows if str(r["status"] or "") in {"waiting_worker", "queued"})
         if queued < 1:
             raise HTTPException(409, "This batch has no queued jobs to resume")
-        con.execute("UPDATE jobs SET queue_paused=0 WHERE batch_id=?", (bid,))
+        con.execute("UPDATE jobs SET queue_paused=0 WHERE batch_id=? AND owner_username=?", (bid,owner()))
     return {"ok": True, "batch_id": bid, "paused": False, "queued_jobs": queued}
 
 
@@ -1736,7 +1753,7 @@ def skip_clone_batch(batch_id: str):
             raise HTTPException(409, "This batch has no queued jobs to skip")
         con.execute(
             "UPDATE jobs SET queue_paused=0,queue_order_at=? "
-            "WHERE batch_id=? AND status IN ('waiting_worker','queued')",
+            "WHERE batch_id=? AND owner_username=? AND status IN ('waiting_worker','queued')",
             (moved_at, bid, owner()),
         )
     return {"ok": True, "batch_id": bid, "skipped_to_end_at": moved_at, "queued_jobs": queued}
@@ -1770,7 +1787,7 @@ def delete_clone_batch(batch_id: str):
                 409,
                 "Batch delete is allowed only before any job starts. " + "; ".join(unsafe[:5]),
             )
-        deleted = con.execute("DELETE FROM jobs WHERE batch_id=?", (bid,)).rowcount
+        deleted = con.execute("DELETE FROM jobs WHERE batch_id=? AND owner_username=?", (bid,owner())).rowcount
     for rel in text_files:
         if rel:
             _cleanup_text_rel(rel)
@@ -1815,7 +1832,7 @@ def discard_clone_job(job_id: str):
         # Serialize against the Drive spooler. If the spooler already owns the
         # row it will be 'uploading' and this request is rejected.
         con.execute("BEGIN IMMEDIATE")
-        row = con.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,)).fetchone()
+        row = con.execute("SELECT * FROM jobs WHERE job_id=? AND owner_username=?", (job_id,owner())).fetchone()
         if not row:
             raise HTTPException(404, "Clone job not found")
         status = str(row["status"] or "")
@@ -1842,7 +1859,9 @@ def clone_audio(filename: str):
     if not re.fullmatch(r"[A-Za-z0-9._-]{1,180}\.(?:wav|mp3|flac|ogg)", filename):
         raise HTTPException(404)
     path = AUDIO_DIR / filename
-    if not path.is_file():
+    with db() as con:
+        permitted = con.execute("SELECT 1 FROM jobs WHERE audio_file=? AND owner_username=?", (filename,owner())).fetchone()
+    if not permitted or not path.is_file():
         raise HTTPException(404)
     media = {
         ".wav": "audio/wav",
