@@ -27,6 +27,11 @@ jobs:
         run: |
           python -m unittest discover -s tests -p 'test_voice_tenant_isolation.py' -v
           python -m unittest discover -s tests -p 'test_voice_song_route_contract.py' -v
+          python -m unittest discover -s tests -p 'test_audio_downloader_preferences.py' -v
+          python -m unittest discover -s tests -p 'test_audio_downloader_queue_history.py' -v
+          python -m unittest discover -s tests -p 'test_audio_downloader_thumbnail.py' -v
+          python -m unittest discover -s tests -p 'test_audio_downloader_proxy.py' -v
+          python -m unittest discover -s tests -p 'test_song_studio_release.py' -v
           python -m unittest discover -s tests -p 'test_voice_owner_preflight.py' -v
           python -m unittest discover -s tests -p 'test_voice_tts_queue_http.py' -v
           python -m unittest discover -s tests -p 'test_voice_output_naming_drive.py' -v
