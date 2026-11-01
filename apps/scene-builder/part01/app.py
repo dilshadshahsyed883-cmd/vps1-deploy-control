@@ -4725,7 +4725,7 @@ def user_management_action(
                        daily_render_limit,subscription_start_at,subscription_end_at,app_access,studio_access)
                        VALUES(?,?,?,?,?,?,?,?,?,?)""",
                     (clean, hash_secret(secret_key), 1, int(role == "admin"), now_iso(),
-                     0, "", "", "all", selected if role == "non_admin" else ",".join(STUDIO_KEYS)),
+                     0, "", "", "all", selected if role == "non_admin" else "song,short,copyright,voice"),
                 )
                 message = f"User {clean} created as {'Admin' if role == 'admin' else 'Non-admin'}"
             else:
