@@ -689,7 +689,8 @@ def allowed_studios(account: dict[str, Any] | None) -> tuple[str, ...]:
     stored = account.get("studio_access")
     # Migration-safe: do not revoke existing user access.
     if stored is None:
-        return STUDIO_KEYS
+        # Old accounts keep their prior 3 Studio grants; Voice is opt-in.
+        return ("song", "short", "copyright")
     selected = {item.strip() for item in str(stored).split(",")}
     return tuple(item for item in STUDIO_KEYS if item in selected)
 
