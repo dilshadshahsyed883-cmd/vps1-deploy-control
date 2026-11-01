@@ -49,6 +49,8 @@ async def voice_session_and_permissions(request: Request, call_next):
     )
     if request.method not in ("GET", "HEAD") and protected and not admin:
         return JSONResponse({"detail": "Shared provider configuration requires Admin"}, status_code=403)
+    request.state.scene_owner = username
+    request.state.scene_admin = admin
     tokens = set_identity(username, admin)
     try:
         return await call_next(request)
