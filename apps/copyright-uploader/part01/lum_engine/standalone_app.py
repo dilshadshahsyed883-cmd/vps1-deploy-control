@@ -481,7 +481,7 @@ def root() -> RedirectResponse:
 
 
 @app.get(route("/app"), response_class=HTMLResponse)
-def app_page(request: Request, tab: str = "", message: str = "", error: str = "", embedded: int = 0, source_id: int = 0, auto_profile_id: int = 0, new_profile: int = 0, auto_mode: str = "engine1"):
+def app_page(request: Request, tab: str = "", message: str = "", error: str = "", embedded: int = 0, source_id: int = 0, auto_profile_id: int = 0, new_profile: int = 0, auto_mode: str = "engine1", profile_id: int = 0):
     user = current_user(request)
     if SUITE_AUTH_ENABLED and embedded:
         request.session["lum_embedded"] = "1"
@@ -665,6 +665,7 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         "suite_auth": SUITE_AUTH_ENABLED,
         "embedded_view": embedded_view,
         "copyright_profiles": store.copyright_profiles(str(user["username"])),
+        "selected_copyright_profile_id": (int(profile_id) if profile_id > 0 and store.copyright_profile(str(user["username"]),int(profile_id)) else 0),
         "copyright_files": copyright_folder_files(str(user["username"])),
     })
 
