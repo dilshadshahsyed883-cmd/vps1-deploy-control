@@ -998,6 +998,8 @@ def authorize_fresh(project_id: int, request: Request, csrf_token: str = Form(..
 @app.post(route("/actions/pause-after-current"))
 def pause_after_current(request: Request, csrf_token: str = Form(...)):
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
+    if os.getenv("LUM_ENGINE_INSTANCE") == "song":
+        raise HTTPException(403, "Use your Song profile Pause control")
     store.set_setting("pause_after_current", "1")
     return redirect("/app?tab=queue", message="Uploader will pause after the current project")
 
@@ -1005,6 +1007,8 @@ def pause_after_current(request: Request, csrf_token: str = Form(...)):
 @app.post(route("/actions/stop-current"))
 def stop_current(request: Request, csrf_token: str = Form(...)):
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
+    if os.getenv("LUM_ENGINE_INSTANCE") == "song":
+        raise HTTPException(403, "Global stop cannot affect other users")
     worker.request_stop_current()
     return redirect("/app?tab=queue", message="Safe stop requested for the current upload")
 
@@ -1012,6 +1016,8 @@ def stop_current(request: Request, csrf_token: str = Form(...)):
 @app.post(route("/actions/resume"))
 def resume(request: Request, csrf_token: str = Form(...)):
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
+    if os.getenv("LUM_ENGINE_INSTANCE") == "song":
+        raise HTTPException(403, "Use your Song profile Start/Resume control")
     store.set_setting("engine_enabled", "1"); store.set_setting("pause_after_current", "0")
     return redirect("/app?tab=queue", message="Uploader resumed")
 
@@ -1372,6 +1378,8 @@ async def channels_json_upload(
     files: list[UploadFile] = File(...),
 ):
     user=current_user(request); require_admin(user); require_csrf(request, csrf_token); require_heavy(user)
+    if os.getenv("LUM_ENGINE_INSTANCE") == "song":
+        raise HTTPException(403, "Global credential import is not an account-scoped Song control")
     kind=str(secret_kind or "").strip().lower()
     if kind not in {"client","token"}:
         return redirect("/app?tab=channels", error="Invalid JSON storage type.")
@@ -1419,6 +1427,8 @@ async def pc_sync_upload(
     files: list[UploadFile] = File(...),
 ):
     user=current_user(request); require_admin(user); require_csrf(request, csrf_token); require_heavy(user)
+    if os.getenv("LUM_ENGINE_INSTANCE") == "song":
+        raise HTTPException(403, "Global PC snapshot sync is not a Song account action")
     payloads=[]
     total=0
     for upload in files[:5000]:
@@ -1437,6 +1447,8 @@ def pc_sync_apply(
     snapshot_id: str = Form(...),
 ):
     user=current_user(request); require_admin(user); require_csrf(request, csrf_token); require_heavy(user)
+    if os.getenv("LUM_ENGINE_INSTANCE") == "song":
+        raise HTTPException(403, "Global PC snapshot apply is not a Song account action")
     return apply_snapshot(db, snapshot_id)
 
 
@@ -1801,6 +1813,8 @@ async def auto_v6_job_edit(request: Request):
     if not meta:
         return redirect("/app?tab=auto_engine",error="Queued job edit is available only for channel Video-ID jobs.")
     _v6_profile(int(meta["profile_id"]),request)
+    if os.getenv("LUM_ENGINE_INSTANCE") == "song":
+        _song_member_queue_jobs(request,[vid])
     title=str(form.get("title") or "").strip(); description=str(form.get("description") or "")
     if not title: return redirect("/app?tab=auto_engine",error="Title cannot be empty.")
     if len(title)>100: return redirect("/app?tab=auto_engine",error="Title cannot exceed 100 characters.")
@@ -1875,6 +1889,11 @@ def auto_v6_generate_json(request: Request,csrf_token: str=Form(...),profile_id:
         if created and str(profile.get("work_mode") or "") == "auto":
             v6_store.set_engine(running=True,pause_after_current=False)
         rows=db.list_auto_engine_jobs(limit=5000)
+        if os.getenv("LUM_ENGINE_INSTANCE") == "song":
+            allowed={int(p["id"]) for p in _song_owned_automation_profiles(request)}
+            channels=_studio_allowed_ids("channel",user)
+            rows=[j for j in rows if int(j.get("auto_engine_profile_id") or 0) in allowed
+                  and int(j.get("channel_db_id") or 0) in channels]
         terminal={"UPLOADED","PUBLISHED","FAILED","CANCELLED"}
         active=[j for j in rows if str(j.get("status") or "").upper() not in terminal]
         profile_active=[j for j in active if int(j.get("auto_engine_profile_id") or 0)==pid]
@@ -1910,7 +1929,8 @@ def auto_v6_generate_all(request: Request, csrf_token: str=Form(...), confirmati
     if os.environ.get("LUM_ENGINE_INSTANCE") not in {"song","shortstudio"}:
         return redirect("/app?tab=auto_engine",error="This group action belongs to Song or Short Uploader.")
     created=0; duplicates=0; checked=0; skipped=[]
-    for raw in db.list_auto_engine_profiles():
+    profiles=(_song_owned_automation_profiles(request) if os.getenv("LUM_ENGINE_INSTANCE") == "song" else db.list_auto_engine_profiles())
+    for raw in profiles:
         pid=int(raw.get("id") or 0)
         owner=v6_store.group_settings(pid).get("song_folder_owner")
         if owner and owner!=str(user.get("username") or ""): continue
@@ -2230,6 +2250,8 @@ async def auto_v6_job_network_action(request: Request):
     if not row or not row.get("auto_engine_profile_id"):
         return redirect("/app?tab=auto_engine",error="Auto Engine queue job not found.")
     _v6_profile(int(row["auto_engine_profile_id"]),request)
+    if os.getenv("LUM_ENGINE_INSTANCE") == "song":
+        _song_member_queue_jobs(request,[vid])
     ok,message=db.resolve_waiting_network_job(vid,action)
     if not ok:
         return redirect("/app?tab=auto_engine",error=f"Job #{vid}: {message}")
