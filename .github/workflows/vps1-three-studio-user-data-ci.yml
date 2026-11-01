@@ -66,6 +66,8 @@ jobs:
       - name: Verify admin and non-admin shared controls (offline)
         run: python -m unittest tests.test_shared_uploader_admin_controls_ui -v
       - name: Exercise real HTTP routes as Alice, Bob and admin
-        run: python -m unittest tests.test_studio_tenant_http -v
+        run: |
+          python -m unittest tests.test_studio_tenant_http -v
+          python -m unittest tests.test_song_uploader_pc_vault_restore -v
       - name: Database-bound owner isolation and unauthenticated direct-access tests
         run: python -m unittest tests.test_three_studio_user_isolation tests.test_three_studio_uploader_tenants tests.test_studio_owner_scoped_recovery tests.test_studio_tenant_readonly_preflight -v

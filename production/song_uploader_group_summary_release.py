@@ -22,11 +22,13 @@ FILES=(
     "lum_engine/auto_engine_v6_scheduler.py",
     "lum_engine/auto_engine_v6_worker.py",
     "lum_engine/standalone_app.py",
+    "lum_engine/oauth_web.py",
+    "lum_engine/song_vault.py",
     "lum_engine/project_store.py",
     "lum_engine/studio_tenants.py",
     "lum_engine/channels_web.py",
 )
-NEW_FILES=frozenset({"lum_engine/studio_tenants.py"})
+NEW_FILES=frozenset({"lum_engine/studio_tenants.py","lum_engine/song_vault.py"})
 UNITS=tuple(f"vps1-production-lum-song-{kind}.service" for kind in ("scheduler","worker","web"))
 STATE=DATA/'local-upload-manager/lum-song'
 UNIT_DIR=Path('/etc/systemd/system')
@@ -195,6 +197,16 @@ def verify_live():
     require('data-song-group-summary' in html and '<th>Group Name</th>' in html and
             '<th>Channels</th>' in html and '<th>Schedule (PKT)</th>' in html,
             'live automation group summary is missing')
+    auth_status,_,auth_body=https_get('/song-uploader/app?tab=channels',cookie)
+    require(auth_status==200,'Song Uploader authenticated Channels GET failed')
+    auth_html=auth_body.decode('utf-8')
+    require('data-song-shared-client' in auth_html and
+            '1. Shared OAuth Client' in auth_html and
+            'Permanent OAuth &amp; Token Vault' in auth_html and
+            '/song-uploader/actions/song/credentials/upload' in auth_html and
+            '/song-uploader/actions/oauth-client' in auth_html and
+            'My channel tokens' in auth_html,
+            'Song OAuth/Vault owner controls missing from authenticated UI')
     # Verify the UI-only release, not merely service health: global sync
     # must be on the planner row, with no single-profile sync buttons.
     toolbar_marker='lum-ae-bulk-profile-controls'

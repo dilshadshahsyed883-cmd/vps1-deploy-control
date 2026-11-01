@@ -18,7 +18,16 @@ from .config import (
     API_VERSION, BASE_PATH, BUILD, COOKIE_SECURE, DATA_ROOT, REPORTS_ROOT, SESSION_SECRET,
     SUITE_AUTH_ENABLED, SUITE_LOGIN_URL, THUMBNAIL_ROOT, ensure_dirs,
 )
-from .oauth_web import complete_oauth, list_clients, save_client_json, save_shared_client_json, start_oauth
+from .oauth_web import (
+    complete_oauth, list_clients, list_owner_clients,
+    owner_client_for_oauth, save_client_json, save_owner_client_json,
+    save_shared_client_json, start_oauth,
+)
+from .song_vault import (
+    owner_vault_inventory as song_owner_vault_inventory,
+    import_client as import_song_owner_client,
+    import_token as import_song_owner_token,
+)
 from .project_store import ProjectStore
 from .four_modes import registry as four_mode_registry, validate_mode as validate_auto_mode
 from .mode_gateway import forward as forward_engine_request, MODE_PORTS as ENGINE_PORTS
@@ -324,6 +333,8 @@ async def standalone_auth(request: Request, call_next):
                     route("/actions/auto-v6/recovery-clear"),
                     route("/actions/auto-v6/job/upload-now"),
                     route("/actions/sheets/sync-all"),
+                    route("/actions/oauth-client"),
+                    route("/actions/song/credentials/upload"),
                     # Account-owned profile, thumbnail and queue controls.
                     route("/actions/auto-v6/generate"),
                     route("/actions/auto-v6/generate-json"),
@@ -523,7 +534,8 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         if selected_sheet_source and int(selected_sheet_source["id"]) not in permitted_sheets:
             selected_sheet_source=None
     permitted_channels=_studio_allowed_ids("channel",user)
-    web_clients = list_clients() if permitted_channels is None and os.getenv("LUM_ENGINE_INSTANCE") != "shortstudio" else []
+    web_clients = (list_owner_clients(str(user["username"])) if os.getenv("LUM_ENGINE_INSTANCE") == "song"
+                   else (list_clients() if permitted_channels is None and os.getenv("LUM_ENGINE_INSTANCE") != "shortstudio" else []))
     channel_context = channels_page_context(
         db, web_clients, permitted_channels, permitted_sheets,
         inventory_channels=channels if os.getenv("LUM_ENGINE_INSTANCE") in
@@ -541,8 +553,10 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
                                    if int(item.get("id") or 0) in permitted_sheets]
         # channels_page_context already calculated the correctly scoped totals.
         # Never enumerate the global OAuth/token vault for ANY Short user.
-        channel_context["oauth_inventory"]={}
-        web_clients=[]  # The shared client is used internally, not disclosed.
+        channel_context["oauth_inventory"]=(song_owner_vault_inventory(db,studio_tenants,str(user["username"]))
+                                             if os.getenv("LUM_ENGINE_INSTANCE") == "song" else {})
+        if os.getenv("LUM_ENGINE_INSTANCE") != "song":
+            web_clients=[]  # Other uploader client files are not disclosed.
     if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio":
         # A channel may be present in a legacy mixed-owner group: neither its
         # visible Group column nor hidden search attributes may name that
@@ -716,7 +730,8 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         "channel_groups": channel_context["groups"],
         "channel_sheets": channel_context["sheets"],
         "oauth_inventory": channel_context["oauth_inventory"],
-        "oauth_client_ready": bool(list_clients()) or any(row.get("config_status") == "OK" for row in channel_context["rows"]),
+        "oauth_client_ready": bool(web_clients) or any(row.get("config_status") == "OK" for row in channel_context["rows"]),
+        "shared_oauth_ready": bool(list_clients()) if engine_instance == "song" else False,
         "pc_sync_history": pc_sync_history,
         "auto_v6": auto_v6,
         "auto_mode": selected_auto_mode,
@@ -897,11 +912,17 @@ async def add_video(
 
 @app.post(route("/actions/oauth-client"))
 async def upload_oauth_client(request: Request, csrf_token: str = Form(...), client_json: UploadFile = File(...)):
-    user = current_user(request); require_admin(user); require_csrf(request, csrf_token)
+    user = current_user(request); require_csrf(request, csrf_token)
     try:
-        result = save_shared_client_json(await client_json.read())
+        if os.getenv("LUM_ENGINE_INSTANCE") == "song":
+            result = save_owner_client_json(str(user["username"]), await client_json.read(1024 * 1024 + 1))
+            message = f"My OAuth client ready: {result['filename']}; shared service client is unchanged."
+        else:
+            require_admin(user)
+            result = save_shared_client_json(await client_json.read())
+            message = f"Shared OAuth client ready: {result['filename']}"
         tab = "authentication" if user_mode(user) == "simple" else "channels"
-        return redirect(f"/app?tab={tab}", message=f"Shared OAuth client ready: {result['filename']}")
+        return redirect(f"/app?tab={tab}", message=message)
     except Exception as exc:
         tab = "authentication" if user_mode(user) == "simple" else "channels"
         return redirect(f"/app?tab={tab}", error=str(exc))
@@ -948,6 +969,9 @@ def oauth_start_action(
             profile_name=profile_name,
             target_channel_db_id=target_id,
             target_email=target_email,
+            client_path=(owner_client_for_oauth(str(user["username"]))
+                         if os.getenv("LUM_ENGINE_INSTANCE") == "song" else None),
+            owner_username=(str(user["username"]) if os.getenv("LUM_ENGINE_INSTANCE") == "song" else ""),
         )
         request.session["lum_oauth_url"] = result["authorization_url"]
         request.session["lum_oauth_session_id"] = result["session_id"]
@@ -972,7 +996,8 @@ def oauth_complete_action(request: Request, csrf_token: str = Form(...), callbac
     try:
         target_id=int(request.session.get("lum_oauth_target_channel_db_id") or 0)
         _studio_require("channel",target_id,user)
-        result = complete_oauth(db, session_id, callback_url)
+        result = complete_oauth(db, session_id, callback_url,
+                                owner_username=(str(user["username"]) if os.getenv("LUM_ENGINE_INSTANCE") == "song" else ""))
         request.session.pop("lum_oauth_url", None); request.session.pop("lum_oauth_session_id", None)
         request.session.pop("lum_oauth_target_channel_db_id", None); request.session.pop("lum_oauth_target_channel_id", None); request.session.pop("lum_oauth_target_channel_name", None)
         return redirect(f"/app?tab={tab}", message=f"Authenticated: {result['channel_name']} ({result['channel_id']})")
@@ -1412,6 +1437,58 @@ def channels_test_connections(
         )
     except Exception as exc:
         return redirect("/app?tab=channels", error=str(exc))
+
+
+@app.post(route("/actions/song/credentials/upload"))
+async def song_credentials_upload(
+    request: Request, csrf_token: str = Form(...), secret_kind: str = Form(...),
+    replace_existing: str = Form("0"), files: list[UploadFile] = File(...),
+):
+    """Private PC JSON upload for BOTH admin and non-admin, never global mutations."""
+    user=current_user(request)
+    require_csrf(request,csrf_token)
+    if os.getenv("LUM_ENGINE_INSTANCE") != "song":
+        raise HTTPException(404, "Not found")
+    kind=str(secret_kind or "").strip().lower()
+    if kind not in {"client","token"}:
+        return redirect("/app?tab=channels",error="Unknown credential JSON type")
+    if not files or len(files) > (1 if kind=="client" else 50):
+        return redirect("/app?tab=channels",error="Choose one OAuth client or up to 50 authorized channel JSONs")
+    installed=kept=invalid=unmatched=0
+    failures=[]
+    replace=str(replace_existing).lower() in {"1","on","true","yes"}
+    size_limit=1024*1024 if kind=="client" else 4*1024*1024
+    for upload in files:
+        try:
+            name=Path(str(upload.filename or "").replace(chr(92),"/")).name
+            if not name.lower().endswith(".json"):
+                raise ValueError("Only .json files are accepted")
+            content=await upload.read(size_limit+1)
+            if not content or len(content)>size_limit:
+                raise ValueError("Empty or oversized JSON file")
+            if kind=="client":
+                result=import_song_owner_client(str(user["username"]),content,replace_valid=replace)
+            else:
+                result=import_song_owner_token(db,studio_tenants,str(user["username"]),name,content,replace_valid=replace)
+            state=str(result.get("status") or "INVALID")
+            if state=="INSTALLED": installed+=1
+            elif state=="KEPT": kept+=1
+            elif state in {"UNMATCHED","CONFLICT"}:
+                unmatched+=1
+                failures.append(name+": "+str(result.get("reason") or "Not matched"))
+            else:
+                invalid+=1
+                failures.append(name+": "+str(result.get("reason") or "Invalid JSON"))
+        except Exception as exc:
+            invalid+=1
+            failures.append(Path(str(upload.filename or "file")).name+": "+str(exc))
+        finally:
+            await upload.close()
+    summary=(("My OAuth client" if kind=="client" else "My channel tokens")+
+             f" · installed {installed} · kept {kept} · invalid {invalid} · unmatched {unmatched}")
+    if failures:
+        return redirect("/app?tab=channels",error=summary+" · "+"; ".join(failures[:3]))
+    return redirect("/app?tab=channels",message=summary)
 
 
 @app.post(route("/actions/channels/json-upload"))

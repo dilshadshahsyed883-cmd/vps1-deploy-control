@@ -215,7 +215,10 @@ class TenantTests(unittest.TestCase):
                 self.assertIn('"lum_engine/studio_tenants.py"',script)
                 self.assertIn('"lum_engine/project_store.py"',script)
                 self.assertIn('"lum_engine/channels_web.py"',script)
-                self.assertIn('NEW_FILES=frozenset({"lum_engine/studio_tenants.py"})',script)
+                self.assertIn('"lum_engine/studio_tenants.py"',script)
+                self.assertIn("NEW_FILES=frozenset(",script)
+                if file_name == "song_uploader_group_summary_release.py":
+                    self.assertIn('"lum_engine/song_vault.py"',script)
                 self.assertIn('relative in NEW_FILES and not dst.exists()',script)
                 compile(script,file_name,"exec")
 
