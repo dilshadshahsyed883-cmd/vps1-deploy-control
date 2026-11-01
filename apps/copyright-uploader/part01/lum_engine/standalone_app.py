@@ -296,6 +296,7 @@ async def standalone_auth(request: Request, call_next):
         return JSONResponse({"detail": "Global health reports are unavailable in owner-scoped Copyright Studio"},status_code=404)
     if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" and request.method not in {"GET", "HEAD"} and path in {
         route("/actions/google-oauth/configure"), route("/actions/channels/json-upload"),
+        route("/actions/pc-sync/upload"), route("/actions/pc-sync/apply"),
         route("/actions/pause-after-current"), route("/actions/resume"), route("/actions/stop-current"),
     }:
         return JSONResponse({"detail": "Copyright queues are owner-scoped; global controls are disabled"}, status_code=404)
