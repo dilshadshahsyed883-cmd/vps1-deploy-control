@@ -28,6 +28,8 @@ class AudioProxyTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location('proxy_test_audio', ROOT / 'apps/voice-studio/part01/audio_downloader_api.py')
         self.m = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.m)
+        # CI fixture only: never probe the production rclone.conf pathname.
+        self.m.RCLONE_CONFIG = str(Path(self.tmp.name) / 'missing-rclone-ci.conf')
         self.m.init_storage()
         self.profile = {'id': 'qa', 'name': 'Test', 'host': 'proxy.example.com', 'port': 8080,
                         'username': 'u@ser', 'password': 'p:a ss'}
