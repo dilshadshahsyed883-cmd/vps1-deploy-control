@@ -323,6 +323,19 @@ async def standalone_auth(request: Request, call_next):
                     route("/actions/auto-v6/recovery-clear"),
                     route("/actions/auto-v6/job/upload-now"),
                     route("/actions/sheets/sync-all"),
+                    # Account-owned profile, thumbnail and queue controls.
+                    route("/actions/auto-v6/generate"),
+                    route("/actions/auto-v6/generate-json"),
+                    route("/actions/auto-v6/generate-all"),
+                    route("/actions/auto-v6/profile/resume"),
+                    route("/actions/auto-v6/missed/skip"),
+                    route("/actions/auto-v6/thumbnails/upload"),
+                    route("/actions/auto-v6/thumbnails/sync-drive"),
+                    route("/actions/auto-v6/thumbnails/status"),
+                    route("/actions/auto-v6/thumbnails/move"),
+                    route("/actions/auto-v6/thumbnails/trash"),
+                    route("/actions/auto-v6/thumbnails/restore"),
+                    route("/actions/auto-v6/thumbnails/reset-rotation"),
                 })
             if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio":
                 # Member bulk actions are ACL-scoped in Short handlers.
@@ -1868,7 +1881,10 @@ def auto_v6_generate(request: Request,csrf_token: str=Form(...),profile_id: int=
         result=v6_generate_queue(db,v6_store,profile)
         v6_mark_schedule_skipped_today(db,profile)
         if int(result.get("created") or 0) and str(profile.get("work_mode") or "") == "auto":
-            v6_store.set_engine(running=True,pause_after_current=False)
+            if os.getenv("LUM_ENGINE_INSTANCE") == "song":
+                _song_member_start_scoped(request,{int(profile_id)})
+            else:
+                v6_store.set_engine(running=True,pause_after_current=False)
         return redirect(f"/app?tab=auto_engine&auto_profile_id={int(profile_id)}",message=f"Generated {int(result.get('created') or 0)} job(s); duplicate blocks {int(result.get('duplicates_blocked') or 0)}.")
     except Exception as exc:
         return redirect(f"/app?tab=auto_engine&auto_profile_id={int(profile_id)}",error=str(exc))
@@ -1887,7 +1903,10 @@ def auto_v6_generate_json(request: Request,csrf_token: str=Form(...),profile_id:
         v6_mark_schedule_skipped_today(db,profile)
         created=int(result.get("created") or 0)
         if created and str(profile.get("work_mode") or "") == "auto":
-            v6_store.set_engine(running=True,pause_after_current=False)
+            if os.getenv("LUM_ENGINE_INSTANCE") == "song":
+                _song_member_start_scoped(request,{pid})
+            else:
+                v6_store.set_engine(running=True,pause_after_current=False)
         rows=db.list_auto_engine_jobs(limit=5000)
         if os.getenv("LUM_ENGINE_INSTANCE") == "song":
             allowed={int(p["id"]) for p in _song_owned_automation_profiles(request)}
@@ -1947,6 +1966,8 @@ def auto_v6_generate_all(request: Request, csrf_token: str=Form(...), confirmati
         except Exception as exc:
             skipped.append(f"{raw.get('category_name') or pid}: {exc}")
     message=f"Queue generation: {created} new job(s) from {checked} enabled profile(s); {duplicates} duplicate(s) blocked. New eligible jobs auto-start; scheduled jobs wait until due."
+    if created and os.getenv("LUM_ENGINE_INSTANCE") == "song":
+        _song_member_start_scoped(request,{int(p["id"]) for p in profiles if int(p.get("enabled") or 0)==1})
     if skipped:
         message+=f" {len(skipped)} profile(s) skipped: "+"; ".join(skipped[:3])
     return redirect("/app?tab=auto_engine",message=message)
@@ -2262,7 +2283,10 @@ async def auto_v6_job_network_action(request: Request):
             ("QUEUED" if action=="retry" else "CANCELLED",vid),
         )
     if action=="retry":
-        v6_store.set_engine(running=True,pause_after_current=False)
+        if os.getenv("LUM_ENGINE_INSTANCE") == "song":
+            _song_member_start_scoped(request,{int(row["auto_engine_profile_id"])})
+        else:
+            v6_store.set_engine(running=True,pause_after_current=False)
     return redirect("/app?tab=auto_engine",message=f"Job #{vid}: {message}")
 
 
@@ -2517,7 +2541,11 @@ def auto_v6_missed_run(request: Request,csrf_token: str=Form(...),missed_id: int
     try:
         result=v6_generate_queue(db,v6_store,profile,run_key=str(item["run_key"]),max_jobs_override=max_jobs)
         v6_store.resolve_missed(int(missed_id),"RUN")
-        if int(result.get("created") or 0): v6_store.set_engine(running=True,pause_after_current=False)
+        if int(result.get("created") or 0):
+            if os.getenv("LUM_ENGINE_INSTANCE") == "song":
+                _song_member_start_scoped(request,{int(profile["id"])})
+            else:
+                v6_store.set_engine(running=True,pause_after_current=False)
         return redirect(f"/app?tab=auto_engine&auto_profile_id={int(profile['id'])}",message=f"Missed alarm run now: created {int(result.get('created') or 0)} job(s).")
     except Exception as exc: return redirect("/app?tab=auto_engine",error=str(exc))
 
