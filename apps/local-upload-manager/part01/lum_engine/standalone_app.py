@@ -2259,6 +2259,9 @@ async def auto_v6_job_network_action(request: Request):
     if not row or not row.get("auto_engine_profile_id"):
         return redirect("/app?tab=auto_engine",error="Auto Engine queue job not found.")
     _v6_profile(int(row["auto_engine_profile_id"]),request)
+    if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio":
+        try: _short_owned_queue_jobs(request,[vid])
+        except Exception as exc: return redirect("/app?tab=auto_engine",error=str(exc))
     ok,message=db.resolve_waiting_network_job(vid,action)
     if not ok:
         return redirect("/app?tab=auto_engine",error=f"Job #{vid}: {message}")
@@ -2269,7 +2272,11 @@ async def auto_v6_job_network_action(request: Request):
             ("QUEUED" if action=="retry" else "CANCELLED",vid),
         )
     if action=="retry":
-        v6_store.set_engine(running=True,pause_after_current=False)
+        if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio":
+            try: _short_owner_start_scoped(request,{int(row["auto_engine_profile_id"])})
+            except Exception as exc: return redirect("/app?tab=auto_engine",error=str(exc))
+        else:
+            v6_store.set_engine(running=True,pause_after_current=False)
     return redirect("/app?tab=auto_engine",message=f"Job #{vid}: {message}")
 
 
@@ -2278,6 +2285,24 @@ async def auto_v6_retry_failed(request: Request):
     user=current_user(request); require_heavy(user)
     form=await request.form(); require_csrf(request,str(form.get("csrf_token") or ""))
     ids=_v6_selected_ids(form)
+    if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio":
+        try:
+            raw_ids=[str(value).strip() for value in form.getlist("video_ids")]
+            if raw_ids and (len(raw_ids)!=len(ids) or any(not value.isdigit() or int(value)<=0 for value in raw_ids)):
+                raise PermissionError("Invalid selected queue job IDs")
+            jobs=_short_owned_queue_jobs(request,ids or None,{"FAILED"})
+            jobs=[job for job in jobs if str(job.get("recovery_state") or "")!="REVIEW_REQUIRED"]
+            safe=[];blocked=0;profile_ids=set()
+            for job in jobs:
+                current=db.get_video(int(job["id"])) or {}
+                if str(current.get("channel_status") or "")!="ACTIVE" or v6_classify_google_json(str(current.get("token_file_path") or ""))!=V6_VALID_TOKEN:
+                    blocked+=1; continue
+                safe.append(int(job["id"]))
+                profile_ids.add(int(job["auto_engine_profile_id"]))
+            if safe: _short_owner_start_scoped(request,profile_ids)
+            count=db.queue_failed_for_retry(auto_engine_only=True,video_ids=safe) if safe else 0
+            return redirect("/app?tab=auto_engine",message=f"Retry queued {count} owned Short job(s); blocked {blocked}.")
+        except Exception as exc: return redirect("/app?tab=auto_engine",error=str(exc))
     if os.getenv("LUM_ENGINE_INSTANCE")=="song" and not int(user.get("is_admin") or 0):
         # The generic selector drops invalid values; for Retry Failed that
         # would turn an explicit malformed selection into retry-all-owned.
@@ -2322,6 +2347,14 @@ async def auto_v6_retry_failed(request: Request):
 @app.post(route("/actions/auto-v6/resume-paused"))
 def auto_v6_resume_paused(request: Request,csrf_token: str=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
+    if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio":
+        try:
+            jobs=_short_owned_queue_jobs(request,statuses={"PAUSED"})
+            if not jobs: return redirect("/app?tab=auto_engine",message="No paused owned Short jobs.")
+            _short_owner_start_scoped(request,{int(job["auto_engine_profile_id"]) for job in jobs})
+            count=db.resume_paused(auto_engine_only=True,video_ids=[int(job["id"]) for job in jobs])
+            return redirect("/app?tab=auto_engine",message=f"Resumed {count} owned Short job(s).")
+        except Exception as exc: return redirect("/app?tab=auto_engine",error=str(exc))
     if os.getenv("LUM_ENGINE_INSTANCE")=="song" and not int(user.get("is_admin") or 0):
         try:
             jobs=_song_member_queue_jobs(request,statuses={"PAUSED"})
@@ -2341,6 +2374,12 @@ def auto_v6_resume_paused(request: Request,csrf_token: str=Form(...)):
 @app.post(route("/actions/auto-v6/clear-done"))
 def auto_v6_clear_done(request: Request,csrf_token: str=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
+    if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio":
+        try:
+            jobs=_short_owned_queue_jobs(request,statuses={"UPLOADED","PUBLISHED"})
+            count=db.delete_auto_engine_jobs([int(job["id"]) for job in jobs]) if jobs else 0
+            return redirect("/app?tab=auto_engine",message=f"Cleared {count} owned completed Short jobs; upload history retained.")
+        except Exception as exc: return redirect("/app?tab=auto_engine",error=str(exc))
     if os.getenv("LUM_ENGINE_INSTANCE")=="song" and not int(user.get("is_admin") or 0):
         try:
             jobs=_song_member_queue_jobs(request,statuses={"UPLOADED","PUBLISHED"})
@@ -2358,6 +2397,11 @@ async def auto_v6_remove_selected(request: Request):
     user=current_user(request); require_heavy(user)
     form=await request.form(); require_csrf(request,str(form.get("csrf_token") or ""))
     ids=_v6_selected_ids(form)
+    if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio":
+        try:
+            ids=[int(job["id"]) for job in _short_owned_queue_jobs(request,ids)] if ids else []
+        except Exception as exc:
+            return redirect("/app?tab=auto_engine",error=str(exc))
     if os.getenv("LUM_ENGINE_INSTANCE")=="song" and not int(user.get("is_admin") or 0):
         try:
             ids=[int(j["id"]) for j in _song_member_queue_jobs(request,ids)] if ids else []
@@ -2381,6 +2425,11 @@ async def auto_v6_recovery_clear(request: Request):
     if str(form.get("confirmation") or "").strip()!="I CHECKED YOUTUBE":
         return redirect("/app?tab=auto_engine",error='Type I CHECKED YOUTUBE exactly after checking YouTube Studio.')
     ids=_v6_selected_ids(form)
+    if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio":
+        try:
+            ids=[int(job["id"]) for job in _short_owned_queue_jobs(request,ids)] if ids else []
+        except Exception as exc:
+            return redirect("/app?tab=auto_engine",error=str(exc))
     if os.getenv("LUM_ENGINE_INSTANCE")=="song" and not int(user.get("is_admin") or 0):
         try:
             ids=[int(j["id"]) for j in _song_member_queue_jobs(request,ids)] if ids else []
