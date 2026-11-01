@@ -1427,14 +1427,14 @@ def clone_status():
     counts = {s: 0 for s in ALLOWED_JOB_STATUSES}
     delivery_counts = {s: 0 for s in DELIVERY_STATUSES}
     with db() as con:
-        for row in con.execute("SELECT status,COUNT(*) n FROM jobs GROUP BY status"):
+        for row in con.execute("SELECT status,COUNT(*) n FROM jobs WHERE owner_username=? GROUP BY status",(owner(),)):
             if row["status"] in counts:
                 counts[str(row["status"])] = int(row["n"])
-        for row in con.execute("SELECT delivery_status,COUNT(*) n FROM jobs GROUP BY delivery_status"):
+        for row in con.execute("SELECT delivery_status,COUNT(*) n FROM jobs WHERE owner_username=? GROUP BY delivery_status",(owner(),)):
             if row["delivery_status"] in delivery_counts:
                 delivery_counts[str(row["delivery_status"])] = int(row["n"])
-        profiles = int(con.execute("SELECT COUNT(*) FROM profiles").fetchone()[0])
-        categories = int(con.execute("SELECT COUNT(*) FROM categories").fetchone()[0])
+        profiles = int(con.execute("SELECT COUNT(*) FROM profiles WHERE owner_username=?",(owner(),)).fetchone()[0])
+        categories = int(con.execute("SELECT COUNT(*) FROM voice_owner_categories WHERE owner_username=?",(owner(),)).fetchone()[0])
     return {
         "ok": True,
         "mode": "remote-gpu-worker",
@@ -1559,13 +1559,13 @@ def delete_profile(profile_id: str):
         if not row:
             raise HTTPException(404, "Clone profile not found")
         active = int(con.execute(
-            "SELECT COUNT(*) FROM jobs WHERE profile_id=? AND (status IN ('waiting_worker','processing') "
+            "SELECT COUNT(*) FROM jobs WHERE profile_id=? AND owner_username=? AND (status IN ('waiting_worker','processing') "
             "OR delivery_status IN ('pending','uploading','upload_failed','drive_verified'))",
-            (profile_id,)
+            (profile_id,owner())
         ).fetchone()[0])
         if active:
             raise HTTPException(409, "Finish/delete active generation and Drive-delivery jobs before deleting this profile")
-        stale = con.execute("SELECT audio_file,text_file FROM jobs WHERE profile_id=?", (profile_id,)).fetchall()
+        stale = con.execute("SELECT audio_file,text_file FROM jobs WHERE profile_id=? AND owner_username=?", (profile_id,owner())).fetchall()
         con.execute("DELETE FROM jobs WHERE profile_id=?", (profile_id,))
         con.execute("DELETE FROM profiles WHERE profile_id=?", (profile_id,))
     for j in stale:
@@ -1834,7 +1834,7 @@ def delete_clone_job(job_id: str):
             raise HTTPException(409, "Drive delivery is not safely cleaned yet")
         audio = str(row["audio_file"] or "")
         text_rel = str(row["text_file"] or "")
-        con.execute("DELETE FROM jobs WHERE job_id=?", (job_id,))
+        con.execute("DELETE FROM jobs WHERE job_id=? AND owner_username=?", (job_id,owner()))
     if audio:
         (AUDIO_DIR / audio).unlink(missing_ok=True)
     _cleanup_text_rel(text_rel)
@@ -1873,7 +1873,7 @@ def discard_clone_job(job_id: str):
         text_rel = str(row["text_file"] or "")
         # Deleting the row under an IMMEDIATE transaction prevents a pending
         # upload_failed retry from claiming it after confirmation.
-        con.execute("DELETE FROM jobs WHERE job_id=?", (job_id,))
+        con.execute("DELETE FROM jobs WHERE job_id=? AND owner_username=?", (job_id,owner()))
     if audio:
         (AUDIO_DIR / audio).unlink(missing_ok=True)
     _cleanup_text_rel(text_rel)
