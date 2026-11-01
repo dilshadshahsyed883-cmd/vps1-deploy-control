@@ -1555,8 +1555,8 @@ async def channels_json_upload(
     files: list[UploadFile] = File(...),
 ):
     user=current_user(request); require_admin(user); require_csrf(request, csrf_token); require_heavy(user)
-    if os.getenv("LUM_ENGINE_INSTANCE") == "song":
-        raise HTTPException(403, "Global credential import is not an account-scoped Song control")
+    if os.getenv("LUM_ENGINE_INSTANCE") in {"song","shortstudio"}:
+        raise HTTPException(403, "Global credential import is not an account-scoped Studio control")
     kind=str(secret_kind or "").strip().lower()
     if kind not in {"client","token"}:
         return redirect("/app?tab=channels", error="Invalid JSON storage type.")

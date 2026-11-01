@@ -74,8 +74,13 @@ assert invalid.status_code==403
 foreign=alice.post('/short-uploader/actions/short/credentials/upload',
   data={'csrf_token':ca,'secret_kind':'token'},
   files={'files':(uc_b+'.json',tok,'application/json')})
-assert foreign.status_code==303 and 'error=' in foreign.headers['location']
+assert foreign.status_code==303 and 'error=' in foreign.headers['location'],(foreign.status_code,foreign.headers.get('location'),foreign.text[:200])
 assert not db.get_channel(b)['token_file_path']
+# Legacy global importer must be inaccessible even to Short administrators.
+global_upload=admin.post('/short-uploader/actions/channels/json-upload',
+  data={'csrf_token':cad,'secret_kind':'token'},
+  files={'files':(uc_b+'.json',tok,'application/json')})
+assert global_upload.status_code==403,(global_upload.status_code,global_upload.text[:200])
 stored=alice.post('/short-uploader/actions/short/credentials/upload',
   data={'csrf_token':ca,'secret_kind':'token'},
   files={'files':(uc_a+'.json',tok,'application/json')})
