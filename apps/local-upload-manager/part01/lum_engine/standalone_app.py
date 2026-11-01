@@ -306,6 +306,7 @@ async def standalone_auth(request: Request, call_next):
                     route("/actions/auto-v6/clear-done"),
                     route("/actions/auto-v6/remove-selected"),
                     route("/actions/auto-v6/recovery-clear"),
+                    route("/actions/auto-v6/job/upload-now"),
                     route("/actions/auto-v6/sync-all"),
                     route("/actions/auto-v6/start-all"),
                     route("/actions/auto-v6/queue-preflight"),
