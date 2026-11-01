@@ -17,6 +17,10 @@ def extracted(name, env):
     fn = next(n for n in source.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name)
     fn.decorator_list = []
     scope = {"Form": lambda x: x, **env}
+    tenant = scope.get("studio_tenants")
+    if tenant is not None:
+        scope.setdefault("_studio_require", lambda kind, eid, user: tenant.require(kind, eid, user))
+        scope.setdefault("_studio_allowed_ids", lambda kind, user: tenant.allowed_ids(kind, user))
     module = ast.Module(body=[ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0), fn], type_ignores=[])
     ast.fix_missing_locations(module)
     exec(compile(module, str(BACKEND), "exec"), scope)
