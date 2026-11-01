@@ -1013,6 +1013,8 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
 <header><h1>Short Maker</h1><p>Every render becomes a queue job. Keep adding new jobs while one job renders.</p></header>
 <div class="sm-tabs" role="tablist" aria-label="Short Maker">
  <button id="makerTabBtn" class="active" type="button" role="tab" aria-controls="makerPanel" aria-selected="true">Maker</button>
+ <button id="shortProfilesTabBtn" type="button" role="tab" aria-controls="shortProfilesPanel" aria-selected="false">Short Profiles</button>
+ <button id="foldersTabBtn" type="button" role="tab" aria-controls="foldersPanel" aria-selected="false">Folders</button>
  <button id="queueTabBtn" type="button" role="tab" aria-controls="queuePanel" aria-selected="false">Queue <span id="queueTotal"></span></button>
  <button id="settingsTabBtn" type="button" role="tab" aria-controls="settingsPanel" aria-selected="false">Settings</button>
 </div>
@@ -1120,6 +1122,42 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
 </section>
 </section>
 </form>
+<section id="shortProfilesPanel" role="tabpanel" aria-labelledby="shortProfilesTabBtn" hidden>
+ <section class="panel">
+  <div class="queue-head"><div><h2>Create / Edit Short Profile</h2><div class="hint">Persistent daily video generation · one batch per Pakistan day · uses imported VPS media, not an open PC session.</div></div></div>
+  <div class="two">
+   <div class="field"><label for="shortProfileName">Profile Name</label><input id="shortProfileName" name="short_profile_name" maxlength="120" autocomplete="off" placeholder="Choose a PC folder to suggest a name"></div>
+   <div class="field"><label for="shortProfileSource">PC Source Folder · voice and pictures</label><input id="shortProfileSource" type="file" multiple webkitdirectory directory accept="audio/*,image/*"><div class="hint" id="shortProfileMediaCount">No source files selected.</div></div>
+   <div class="field"><label for="shortProfileDestination">VPS Output Folder</label><select id="shortProfileDestination"><option value="">Choose your VPS folder</option></select></div>
+   <div class="field"><label for="shortProfileDailyCount">Videos per Day</label><input id="shortProfileDailyCount" type="number" min="1" step="1" placeholder="Daily target"></div>
+   <div class="field"><label for="shortProfileSchedule">Daily Start Time (Pakistan)</label><input id="shortProfileSchedule" type="time" value="00:00"></div>
+  </div>
+  <div class="note">Profile Name is suggested from the selected PC folder, remains editable, and is never silently replaced after you customize it. Source files must be uploaded and verified on VPS before unattended generation.</div>
+  <div class="queue-actions"><button type="button" id="shortProfileSave" disabled>Save Profile · pending verified media import</button><button class="secondary" type="button" id="shortProfileSync" disabled>Sync / Import Updates</button></div>
+ </section>
+ <section class="panel"><h2>Created Short Profiles</h2>
+  <div class="hint">Start · Stop · Edit · Delete · History are available when persisted owner-scoped profile storage and scheduling have been verified.</div>
+  <div id="shortProfilesRows" class="note">No profile records were loaded. This feature is not activated on production.</div>
+ </section>
+</section>
+<section id="foldersPanel" role="tabpanel" aria-labelledby="foldersTabBtn" hidden>
+ <section class="panel"><h2>Select VPS Folder</h2>
+  <div class="two"><div class="field"><label for="foldersVpsDestination">Owner-owned VPS output folder</label><select id="foldersVpsDestination"><option>Loading owned folders…</option></select></div>
+  <div class="field"><label>Manage</label><div class="queue-actions"><button class="secondary" type="button" id="foldersCreateVps">+ Create Folder</button></div></div></div>
+ </section>
+ <section class="panel"><h2>Upload Ready-made Videos</h2>
+  <div class="hint">Bulk MP4 files go directly to the selected VPS folder without rendering; files become available to Short Uploader only after server verification. An upload does not start publishing.</div>
+  <div class="filebox"><label for="foldersVideoInput">Choose videos from PC (no arbitrary file-count cap)</label><input type="file" id="foldersVideoInput" multiple accept=".mp4,video/mp4"></div>
+  <div class="hint" id="foldersSelectedInfo">No videos selected.</div>
+  <div class="queue-actions"><button id="foldersStartUpload" type="button" disabled>Start Upload · pending server integration</button><button id="foldersClearFiles" type="button" class="secondary">Clear Selection</button></div>
+  <div id="foldersUploadProgress" class="note">Per-video byte progress and resumable session controls will appear here after server-backed upload verification.</div>
+ </section>
+ <section class="panel"><h2>Folders Inventory</h2>
+  <div class="hint">Only folders owned by this account. Available videos must be complete verified MP4s, excluding staged/in-progress files.</div>
+  <div class="queue-table-wrap"><table class="queue-table"><thead><tr><th>Folder Name</th><th>Available Videos</th><th>Linked Profiles</th><th>Delete</th></tr></thead><tbody id="foldersInventoryRows"><tr><td colspan="4">Loading owned folder names…</td></tr></tbody></table></div>
+  <div class="note">Deleting a folder and its videos requires explicit confirmation, profile dependency checks and a lock protecting active jobs. The existing empty-only delete API is not used for this workflow.</div>
+ </section>
+</section>
 <section id="queuePanel" hidden>
 <section class="panel">
   <div class="queue-head"><div><h2>Render Queue</h2><div class="hint">One render runs at a time. New jobs wait automatically.</div></div>
@@ -1297,20 +1335,23 @@ async function poll(id){
  }catch(e){statusEl.textContent='Status check failed; retrying...';setTimeout(()=>poll(id),2500);}
 }
 
-const makerPanel=document.getElementById('makerPanel'),queuePanel=document.getElementById('queuePanel'),settingsPanel=document.getElementById('settingsPanel');
-const makerTabBtn=document.getElementById('makerTabBtn'),queueTabBtn=document.getElementById('queueTabBtn'),settingsTabBtn=document.getElementById('settingsTabBtn');
+const makerPanel=document.getElementById('makerPanel'),shortProfilesPanel=document.getElementById('shortProfilesPanel'),foldersPanel=document.getElementById('foldersPanel'),queuePanel=document.getElementById('queuePanel'),settingsPanel=document.getElementById('settingsPanel');
+const makerTabBtn=document.getElementById('makerTabBtn'),shortProfilesTabBtn=document.getElementById('shortProfilesTabBtn'),foldersTabBtn=document.getElementById('foldersTabBtn'),queueTabBtn=document.getElementById('queueTabBtn'),settingsTabBtn=document.getElementById('settingsTabBtn');
 let queueItems=[],queuePage=1;const queuePageSize=20;const selectedShortJobs=new Set();
 function showShortTab(name){
- const panels={maker:makerPanel,queue:queuePanel,settings:settingsPanel};
- const buttons={maker:makerTabBtn,queue:queueTabBtn,settings:settingsTabBtn};
+ const panels={maker:makerPanel,profiles:shortProfilesPanel,folders:foldersPanel,queue:queuePanel,settings:settingsPanel};
+ const buttons={maker:makerTabBtn,profiles:shortProfilesTabBtn,folders:foldersTabBtn,queue:queueTabBtn,settings:settingsTabBtn};
  for(const key of Object.keys(panels)){
   const active=key===name;panels[key].hidden=!active;
   buttons[key].classList.toggle('active',active);
   buttons[key].setAttribute('aria-selected',String(active));
  }
  if(name==='queue')loadQueue();
+ if(name==='profiles'||name==='folders')loadOwnerFolderNames();
 }
 makerTabBtn.onclick=()=>showShortTab('maker');
+shortProfilesTabBtn.onclick=()=>showShortTab('profiles');
+foldersTabBtn.onclick=()=>showShortTab('folders');
 queueTabBtn.onclick=()=>showShortTab('queue');
 settingsTabBtn.onclick=()=>showShortTab('settings');
 document.getElementById('newJobBtn').onclick=()=>showShortTab('maker');
@@ -1512,6 +1553,55 @@ for(const action of ['pause','resume','cancel','retry','delete']){
 async function clearQueueStatus(st){if(!confirm(`Clear all ${st} jobs?`))return;await fetch(`api/jobs/clear/${st}`,{method:'POST'});queuePage=1;loadQueue();}
 document.getElementById('clearDoneBtn').onclick=()=>clearQueueStatus('completed');document.getElementById('clearFailedBtn').onclick=()=>clearQueueStatus('failed');
 document.getElementById('prevPage').onclick=()=>{if(queuePage>1){queuePage--;renderQueue();}};document.getElementById('nextPage').onclick=()=>{const pages=Math.max(1,Math.ceil(queueItems.length/queuePageSize));if(queuePage<pages){queuePage++;renderQueue();}};
+// Short Maker approved-plan baseline: owner-only folder selectors and editable folder-name suggestion.
+const shortProfileName=document.getElementById('shortProfileName');
+const shortProfileSource=document.getElementById('shortProfileSource');
+let lastShortProfileAutoName='';
+shortProfileSource.addEventListener('change',()=>{
+ const file=Array.from(shortProfileSource.files||[])[0];
+ const relative=file&&typeof file.webkitRelativePath==='string'?file.webkitRelativePath:'';
+ const suggested=relative.includes('/')?relative.split('/')[0].trim():'';
+ if(suggested&&(!shortProfileName.value.trim()||shortProfileName.value===lastShortProfileAutoName))
+  shortProfileName.value=suggested;
+ lastShortProfileAutoName=suggested;
+ const selected=Array.from(shortProfileSource.files||[]);
+ const voice=selected.filter(f=>/\.(mp3|wav|m4a|aac|flac|ogg|opus)$/i.test(f.name)).length;
+ const pictures=selected.filter(f=>/\.(jpg|jpeg|png|webp|jfif|heic|heif)$/i.test(f.name)).length;
+ document.getElementById('shortProfileMediaCount').textContent=voice+' voice audio · '+pictures+' pictures selected locally (not imported to VPS)';
+});
+async function loadOwnerFolderNames(){
+ const inventory=document.getElementById('foldersInventoryRows');
+ const profileDestination=document.getElementById('shortProfileDestination');
+ const foldersDestination=document.getElementById('foldersVpsDestination');
+ try{
+  const response=await fetch('api/vps-folders',{cache:'no-store'});
+  const data=await response.json();
+  if(!response.ok)throw Error(data.detail||'Owned folders unavailable');
+  const list=Array.isArray(data.folders)?data.folders:[];
+  for(const element of [profileDestination,foldersDestination]){
+   const current=element.value;element.replaceChildren();
+   for(const name of list){const option=document.createElement('option');option.value=name;option.textContent=name;element.appendChild(option);}
+   if(list.includes(current))element.value=current;
+  }
+  inventory.replaceChildren();
+  for(const name of list){
+   const row=document.createElement('tr');
+   const cell=document.createElement('td');cell.textContent=name;row.appendChild(cell);
+   for(const value of ['Not verified','Not checked']){const td=document.createElement('td');td.textContent=value;row.appendChild(td);}
+   const action=document.createElement('td');action.textContent='Preflight required';row.appendChild(action);inventory.appendChild(row);
+  }
+  if(!list.length){const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=4;cell.textContent='No owner-owned VPS folders found.';row.appendChild(cell);inventory.appendChild(row);}
+ }catch(e){inventory.replaceChildren();const row=document.createElement('tr'),td=document.createElement('td');td.colSpan=4;td.textContent='Could not verify owner-owned VPS folders: '+e.message;row.appendChild(td);inventory.appendChild(row);}
+}
+document.getElementById('foldersCreateVps').onclick=async()=>{
+ document.getElementById('createShortFolder').click();
+ await loadOwnerFolderNames();
+};
+document.getElementById('foldersVideoInput').addEventListener('change',event=>{
+ const files=Array.from(event.target.files||[]);
+ document.getElementById('foldersSelectedInfo').textContent=files.length+' files selected locally; no server upload started.';
+});
+document.getElementById('foldersClearFiles').onclick=()=>{document.getElementById('foldersVideoInput').value='';document.getElementById('foldersSelectedInfo').textContent='No videos selected.';};
 loadQueue();setInterval(loadQueue,2000);
 
 // The refresh-safe uploader is loaded from resumable_client.js.
