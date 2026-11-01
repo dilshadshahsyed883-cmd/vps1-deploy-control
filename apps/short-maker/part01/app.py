@@ -1557,13 +1557,19 @@ document.getElementById('prevPage').onclick=()=>{if(queuePage>1){queuePage--;ren
 const shortProfileName=document.getElementById('shortProfileName');
 const shortProfileSource=document.getElementById('shortProfileSource');
 let lastShortProfileAutoName='';
+function shortProfileNameSuggestion(current, previousSuggestion, relativePath){
+ const relative=typeof relativePath==='string'?relativePath:'';
+ const suggested=relative.includes('/')?relative.split('/')[0].trim():'';
+ const editable=String(current||'');
+ return {name:suggested&&(!editable.trim()||editable===previousSuggestion)?suggested:editable,
+         suggested};
+}
 shortProfileSource.addEventListener('change',()=>{
  const file=Array.from(shortProfileSource.files||[])[0];
  const relative=file&&typeof file.webkitRelativePath==='string'?file.webkitRelativePath:'';
- const suggested=relative.includes('/')?relative.split('/')[0].trim():'';
- if(suggested&&(!shortProfileName.value.trim()||shortProfileName.value===lastShortProfileAutoName))
-  shortProfileName.value=suggested;
- lastShortProfileAutoName=suggested;
+ const update=shortProfileNameSuggestion(shortProfileName.value,lastShortProfileAutoName,relative);
+ shortProfileName.value=update.name;
+ lastShortProfileAutoName=update.suggested;
  const selected=Array.from(shortProfileSource.files||[]);
  const voice=selected.filter(f=>/\.(mp3|wav|m4a|aac|flac|ogg|opus)$/i.test(f.name)).length;
  const pictures=selected.filter(f=>/\.(jpg|jpeg|png|webp|jfif|heic|heif)$/i.test(f.name)).length;
