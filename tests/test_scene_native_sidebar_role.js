@@ -156,7 +156,8 @@ for (const workspace of ["uploader", "voice", "acs"]) {
     assert(h.calls.every(x => x.url === "/api/session/identity"));
     assert.equal(h.calls[0].options.credentials, "same-origin");
     assert.equal(h.calls[0].options.cache, "no-store");
-    assert(h.links().some(e => e.href === "/scene-builder/"));
+    if (workspace !== "voice") assert(h.links().some(e => e.href === "/scene-builder/"));
+    else assert(h.links().some(e => e.href === "/voice-studio/app#vps1-production"));
     assert.equal(h.links().filter(e => e.href === "/experiment-studio/" && e.text === "Experiment Studio").length,1);
     assert(all(h.body).some(e => e.tag === "form" && e.action === "/logout"));
     // Promotion/demotion changes the existing DOM without stale admin navigation.
