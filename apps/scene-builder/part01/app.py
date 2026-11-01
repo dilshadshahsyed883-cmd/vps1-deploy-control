@@ -701,6 +701,10 @@ def studio_access_allows(account: dict[str, Any] | None, studio: str) -> bool:
 
 def studio_for_path(path: str) -> str:
     normalized = path.rstrip("/") or "/"
+    # Song's existing Audio Downloader engine is hosted by the Voice service.
+    # This narrow compatibility route uses Song permission, not Voice grant.
+    if normalized.startswith("/voice-studio/service/tts/api/audio-downloader"):
+        return "song"
     for studio, prefixes in (
         ("song", ("/song-studio", "/song-uploader", "/song-maker", "/audio-downloader")),
         ("short", ("/short-maker", "/short-uploader", "/short-studio")),
@@ -5296,8 +5300,10 @@ async def vps1_voice_studio_host(request:_VSRequest):
 
 async def _vps1_voice_studio_proxy(request:_VSRequest,upstream_path:str):
     account = user_account(str(request.session.get("username") or ""))
-    if not studio_access_allows(account, "voice"):
-        raise HTTPException(403, "Voice Studio access required")
+    # Keep Song Studio's existing audio API available to Song-only accounts.
+    studio = "song" if upstream_path.startswith("tts/api/audio-downloader") else "voice"
+    if not studio_access_allows(account, studio):
+        raise HTTPException(403, studio.title() + " Studio access required")
     body=await request.body()
     url=_VS_UPSTREAM+"/"+upstream_path.lstrip("/")
     headers={"Cookie": request.headers.get("cookie", "")}
