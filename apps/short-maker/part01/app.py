@@ -2443,3 +2443,17 @@ def discard_resumable_upload(job_id: str, request: Request):
         with jobs_lock:
             jobs.pop(job_id, None)
     return {"ok": True, "job_id": job_id}
+
+
+# Short Maker approved Folders: register the isolated resumable ready-MP4 API.
+# The browser upload UI stays disabled until all cross-service folder safety gates
+# and two-user integration tests are proven. No scheduler or Auto Script is started.
+import importlib.util as _sm_importlib
+_sm_ready_spec = _sm_importlib.spec_from_file_location(
+    "short_maker_ready_uploads", Path(__file__).with_name("ready_video_uploads.py"))
+_sm_ready_module = _sm_importlib.module_from_spec(_sm_ready_spec)
+_sm_ready_spec.loader.exec_module(_sm_ready_module)
+_sm_ready_module.register_ready_video_uploads(
+    app, data_root=DATA_ROOT, short_identity=short_identity,
+    short_folder_owned=short_folder_owned, short_vps_folder=short_vps_folder,
+    reserve_short_output_names=reserve_short_output_names)
