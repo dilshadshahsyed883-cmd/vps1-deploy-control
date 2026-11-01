@@ -164,6 +164,7 @@
       <div class="lum-note"><strong>Safety:</strong> OAuth is locked to the selected database row and expected UC Channel ID. Authorizing a different Brand Channel is rejected; the token is never attached to another channel.</div>
     </section>
 
+    {% if engine_instance != "copyright" %}
     <section class="lum-card">
       <div class="lum-card-head">
         <div><h2>1. My OAuth Client</h2><p>Each account has the same OAuth setup controls. Uploading here changes only your own client; existing channel tokens and other users are unchanged. A previously configured shared client remains available as a fallback.</p></div>
@@ -176,6 +177,7 @@
       </form>
       {% if clients %}<div class="lum-note">Available OAuth client: <strong>{{ clients[0].filename }}</strong></div>{% else %}<div class="lum-note">Set your OAuth client to connect channels. Previously valid tokens can still upload.</div>{% endif %}
     </section>
+    {% endif %}
 
     <section class="lum-card" data-lum-auth-section="verify">
       <div class="lum-card-head"><div><h2>2. Verify &amp; Save Selected Channel Token</h2><p>The authorization session is locked to the exact channel selected with Connect/Reconnect. A different Google/Brand Channel will be rejected.</p></div></div>
@@ -594,6 +596,43 @@
 
     <div data-lum-channel-panel="accounts" hidden>
       {{ auth_panel(False) }}
+      {% if engine_instance == "copyright" %}
+      <section class="lum-card">
+        <div class="lum-card-head"><div>
+          <h2>Permanent OAuth &amp; Token Vault</h2>
+          <p>Upload your PC OAuth client or saved authorized ChannelID token JSONs. Admin and non-admin have identical controls. Only channels owned by this account can be updated; other users' tokens are protected.</p>
+        </div></div>
+        <div class="lum-vault-stats">
+          <div><span>My OAuth clients</span><strong>{{ oauth_inventory.config_valid or 0 }}</strong><small>{{ 'Shared client fallback available' if oauth_inventory.shared_fallback else 'Private credentials' }}</small></div>
+          <div><span>My channel tokens</span><strong>{{ oauth_inventory.token_valid or 0 }}</strong><small>{{ oauth_inventory.token_invalid or 0 }} missing / invalid of {{ oauth_inventory.token_total or 0 }} owned channels</small></div>
+        </div>
+        <div class="lum-grid lum-two">
+          <form method="post" action="{{ base_path }}/actions/copyright/credentials/upload" enctype="multipart/form-data" class="lum-card inset" data-lum-soft-form>
+            <input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <input type="hidden" name="secret_kind" value="client">
+            <h3>Upload OAuth client JSON</h3><p>PC Google Desktop OAuth config. One active private client per account. Existing valid client stays unless Replace is selected.</p>
+            <input type="file" name="files" accept=".json,application/json" required>
+            <label class="lum-check"><input type="checkbox" name="replace_existing" value="1"> Replace my existing valid OAuth client</label>
+            <button class="lum-button" type="submit">Store Permanently</button>
+          </form>
+          <form method="post" action="{{ base_path }}/actions/copyright/credentials/upload" enctype="multipart/form-data" class="lum-card inset" data-lum-soft-form>
+            <input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <input type="hidden" name="secret_kind" value="token">
+            <h3>Upload authorized token JSONs</h3><p>Multiple PC files supported. Use exact UC ChannelID.json; a Gmail filename is accepted only when it uniquely identifies one of your channels.</p>
+            <input type="file" name="files" accept=".json,application/json" multiple required>
+            <label class="lum-check"><input type="checkbox" name="replace_existing" value="1"> Replace my existing valid ChannelID token</label>
+            <button class="lum-button" type="submit">Store &amp; Reconcile</button>
+          </form>
+        </div>
+        <details class="lum-vault-list"><summary>My stored file inventory</summary>
+          <div class="lum-grid lum-two">
+            <div><h3>My OAuth client</h3>{% for f in oauth_inventory.configs %}<div class="lum-file-row"><code>{{ f.name }}</code><span class="ok">OK</span></div>{% else %}<div class="lum-empty">No private OAuth client uploaded.</div>{% endfor %}</div>
+            <div><h3>My channel tokens</h3>{% for f in oauth_inventory.tokens %}<div class="lum-file-row"><code>{{ f.name }}</code><span class="{{ 'ok' if f.status=='OK' else 'warn' }}">{{ f.status }}</span></div>{% else %}<div class="lum-empty">No channels assigned to this account.</div>{% endfor %}</div>
+          </div>
+        </details>
+        <p class="lum-note">Valid tokens are preserved unless you choose replacement. An imported token is stored under your private VPS credentials folder; no global token vault is overwritten.</p>
+      </section>
+      {% endif %}
       {% if engine_instance != "copyright" %}<section class="lum-card">
         <div class="lum-card-head"><div><h2>Permanent OAuth & Token Vault</h2><p>Stored outside releases in the PC-engine permanent config/ and data/tokens/ directories.</p></div></div>
         <div class="lum-vault-stats">
