@@ -272,9 +272,11 @@ def stats_payload(user: dict[str, Any] | None = None) -> dict[str, Any]:
             else None),
         "engine_enabled": store.setting("engine_enabled", "1") == "1",
         "pause_after_current": store.setting("pause_after_current", "0") == "1",
-        "settings": (store.settings() if user is None or int(user.get("is_admin") or 0)
-                     else ({"sheets_sync_enabled": "1", "auto_engine_enabled": "1"}
-                           if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" else {})),
+        "settings": ({"sheets_sync_enabled": "1", "auto_engine_enabled": "1",
+                       "pause_after_current": store.setting("pause_after_current", "0"),
+                       "engine_enabled": store.setting("engine_enabled", "1")}
+                     if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" and user is not None
+                     else (store.settings() if user is None or int(user.get("is_admin") or 0) else {})),
     }
 
 
@@ -288,6 +290,10 @@ async def standalone_auth(request: Request, call_next):
         path.startswith(route("/actions/pc-sync/"))
     ):
         return JSONResponse({"detail": "Automatic uploader engine is disabled for Copyright Studio"}, status_code=404)
+    if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" and (
+        path.startswith(route("/reports/")) or path == route("/actions/report-health")
+    ):
+        return JSONResponse({"detail": "Global health reports are unavailable in owner-scoped Copyright Studio"},status_code=404)
     if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" and request.method not in {"GET", "HEAD"} and path in {
         route("/actions/google-oauth/configure"), route("/actions/channels/json-upload"),
         route("/actions/pause-after-current"), route("/actions/resume"), route("/actions/stop-current"),
