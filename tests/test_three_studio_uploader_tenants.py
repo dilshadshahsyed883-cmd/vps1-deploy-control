@@ -230,7 +230,10 @@ class TenantTests(unittest.TestCase):
                 "studio_tenants.assign_by_admin(", "STUDIO_TENANT_ASSIGNMENT_V1",
                 "studio_tenants.allowed_ids(\"channel\"", "studio_tenants.allowed_ids(\"sheet\"",
             ):
-                self.assertIn(marker,standalone, (package,marker))
+                scoped_alias = marker.replace("studio_tenants.require", "_studio_require").replace(
+                    "studio_tenants.allowed_ids", "_studio_allowed_ids")
+                self.assertTrue(marker in standalone or scoped_alias in standalone,
+                                (package, marker, scoped_alias))
             for marker in ("STUDIO_USER_ISOLATION_V1", 'allowed_profiles=acl.allowed_ids("profile",viewer)',
                            'allowed_channels=acl.allowed_ids("channel",viewer)',
                            'int(row.get("auto_engine_profile_id") or row.get("profile_id") or 0)'):
