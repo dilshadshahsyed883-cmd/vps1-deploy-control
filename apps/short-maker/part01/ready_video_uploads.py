@@ -268,9 +268,9 @@ def register_ready_video_uploads(app, *, data_root, short_identity,
                 for start in range(0, len(manifest["files"]), 999):
                     names.extend(reserve_short_output_names(
                         manifest["folder"], min(999, len(manifest["files"]) - start)))
-                for record, name in zip(manifest["files"], names):
+                for index, (record, name) in enumerate(zip(manifest["files"], names)):
                     record["verified_name"] = name
-                    record["sha256"] = file_digest(staged(session_id, manifest["files"].index(record)))
+                    record["sha256"] = file_digest(staged(session_id, index))
                 manifest["status"] = "publishing"
                 save(session_id, manifest)
             for index, record in enumerate(manifest["files"]):
