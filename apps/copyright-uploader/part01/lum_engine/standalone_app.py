@@ -329,7 +329,7 @@ async def standalone_auth(request: Request, call_next):
                 route("/actions/sheets/save"),route("/actions/sheets/delete"),
                 route("/actions/sheets/sync"),route("/actions/sheets/sync-all"),
                 route("/actions/copyright/queue/pause"),route("/actions/copyright/queue/start"),
-                route("/actions/copyright/queue/bulk"),
+                route("/actions/copyright/queue/bulk"),route("/actions/copyright/queue/remove"),
                 route("/actions/channels/status"),route("/actions/channels/delete-manual"),
                 route("/actions/channels/rescan-tokens"),route("/actions/channels/test-connections"),
                 route("/actions/copyright/profile")}
@@ -1076,7 +1076,7 @@ async def copyright_bulk_queue(request: Request):
     require_csrf(request, str(form.get("csrf_token") or ""))
     selected = form.getlist("project_ids")
     action = str(form.get("action") or "").strip()
-    if action not in {"cancel", "retry"} or not 1 <= len(selected) <= 100:
+    if action not in {"cancel", "retry", "remove"} or not 1 <= len(selected) <= 100:
         return redirect("/app?tab=queue", error="Choose up to 100 jobs and a valid bulk action")
     try:
         ids = sorted({int(value) for value in selected})
@@ -1093,7 +1093,12 @@ async def copyright_bulk_queue(request: Request):
     failed = 0
     for pid, project in zip(ids, owned):
         try:
-            if action == "cancel":
+            if action == "remove":
+                if store.archive_terminal(pid,str(user["username"])):
+                    count += 1
+                else:
+                    failed += 1
+            elif action == "cancel":
                 if store.cancel_waiting(pid, str(user["username"])):
                     count += 1
                 else:
@@ -1106,6 +1111,17 @@ async def copyright_bulk_queue(request: Request):
     return redirect("/app?tab=queue",
                     message=f"Own queue: {action} applied to {count} job(s); {failed} skipped. Files and history retained.")
 
+
+@app.post(route("/actions/copyright/queue/remove"))
+def copyright_remove_terminal_job(request: Request, csrf_token: str = Form(...), project_id: int = Form(...)):
+    user = current_user(request)
+    require_csrf(request,csrf_token)
+    if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+        raise HTTPException(404, "Not found")
+    _owned_or_admin(user,project_id)
+    if store.archive_terminal(project_id,str(user["username"])):
+        return redirect("/app?tab=queue",message="Removed from queue; upload history and media preserved.")
+    return redirect("/app?tab=queue",error="Only completed or cancelled jobs can be removed.")
 
 @app.post(route("/actions/retry/{project_id}"))
 def retry_project(project_id: int, request: Request, csrf_token: str = Form(...)):
