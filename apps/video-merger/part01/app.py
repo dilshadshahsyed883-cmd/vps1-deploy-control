@@ -81,6 +81,10 @@ def init_db():
           owner_username TEXT NOT NULL DEFAULT '',
           local_path TEXT NOT NULL DEFAULT '',
           retry_of TEXT NOT NULL DEFAULT '',
+          vps_output_folder TEXT NOT NULL DEFAULT '',
+          vps_handoff_enabled INTEGER NOT NULL DEFAULT 0,
+          request_key TEXT NOT NULL DEFAULT '',
+          filename_mode TEXT NOT NULL DEFAULT 'manual',
           created_at TEXT NOT NULL, updated_at TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY, v TEXT NOT NULL);
@@ -105,6 +109,12 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS drive_folders_owner_idx
           ON drive_folders(owner_username);
+        CREATE TABLE IF NOT EXISTS vps_output_folders(
+          owner_username TEXT NOT NULL COLLATE NOCASE,
+          path TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY(owner_username,path)
+        );
         ''')
         existing = {row[1] for row in c.execute("PRAGMA table_info(jobs)")}
         for name, kind in (
@@ -113,9 +123,14 @@ def init_db():
             ("owner_username", "TEXT NOT NULL DEFAULT ''"),
             ("local_path", "TEXT NOT NULL DEFAULT ''"),
             ("retry_of", "TEXT NOT NULL DEFAULT ''"),
+            ("vps_output_folder", "TEXT NOT NULL DEFAULT ''"),
+            ("vps_handoff_enabled", "INTEGER NOT NULL DEFAULT 0"),
+            ("request_key", "TEXT NOT NULL DEFAULT ''"),
+            ("filename_mode", "TEXT NOT NULL DEFAULT 'manual'"),
         ):
             if name not in existing:
                 c.execute(f"ALTER TABLE jobs ADD COLUMN {name} {kind}")
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_vm_owner_request ON jobs(owner_username,request_key) WHERE request_key != ''")
         library_columns={row[1] for row in c.execute("PRAGMA table_info(library_items)")}
         if "owner_username" not in library_columns:
             c.execute("ALTER TABLE library_items ADD COLUMN owner_username TEXT NOT NULL DEFAULT ''")
@@ -620,6 +635,81 @@ def delete_owner_folder(owner, path):
         c.execute('DELETE FROM drive_folders WHERE path=? AND lower(owner_username)=lower(?)',(path,owner))
     return path
 
+def vps_folder_name(value):
+    raw=str(value or '').strip().replace('\\','/')
+    if not raw:
+        return ''
+    bits=raw.split('/')
+    if (len(bits)>5 or any(not bit or bit in ('.','..') or
+        bit.startswith('.') or any(ord(ch)<32 for ch in bit) for bit in bits)):
+        raise ValueError('Invalid VPS folder path')
+    normalized=safe_folder(raw)
+    if normalized!=raw:
+        raise ValueError('Invalid VPS folder characters')
+    return normalized
+
+def vps_folder_root(owner):
+    if not str(owner or '').strip():
+        raise ValueError('Authenticated owner required')
+    if COPYRIGHT_MEDIA_ROOT.is_symlink():
+        raise ValueError('Unsafe shared VPS output root')
+    root = COPYRIGHT_MEDIA_ROOT / owner_media_key(owner)
+    if root.is_symlink():
+        raise ValueError('Unsafe owner VPS output root')
+    return root
+
+def resolve_vps_folder(owner, name='', registered=True):
+    rel = vps_folder_name(name)
+    root = vps_folder_root(owner)
+    target = root
+    for segment in rel.split('/') if rel else []:
+        target = target / segment
+        if target.is_symlink():
+            raise ValueError('Unsafe VPS output folder')
+    if registered and rel:
+        with DB_LOCK, db() as c:
+            row = c.execute('SELECT 1 FROM vps_output_folders WHERE lower(owner_username)=lower(?) AND path=?',
+                            (owner,rel)).fetchone()
+        if not row:
+            raise ValueError('Select your own registered VPS folder')
+    return target
+
+def list_vps_folders(owner):
+    vps_folder_root(owner)
+    with DB_LOCK, db() as c:
+        rows = c.execute('SELECT path FROM vps_output_folders WHERE lower(owner_username)=lower(?) ORDER BY path COLLATE NOCASE',(owner,)).fetchall()
+    return [''] + [row['path'] for row in rows]
+
+def create_vps_folder(owner,name):
+    rel=vps_folder_name(name)
+    if not rel:
+        raise ValueError('Folder name is required')
+    root=vps_folder_root(owner)
+    folder=resolve_vps_folder(owner,rel,registered=False)
+    root.mkdir(parents=True,exist_ok=True,mode=0o700)
+    folder.mkdir(parents=True,exist_ok=True,mode=0o700)
+    with DB_LOCK, db() as c:
+        c.execute('INSERT OR IGNORE INTO vps_output_folders(owner_username,path,created_at) VALUES(?,?,?)',
+                  (owner,rel,utcnow()))
+    return rel
+
+def delete_vps_folder(owner,name):
+    rel=vps_folder_name(name)
+    if not rel:
+        raise ValueError('Personal VPS output root is protected')
+    folder=resolve_vps_folder(owner,rel,registered=True)
+    with DB_LOCK, db() as c:
+        active=c.execute("""SELECT 1 FROM jobs WHERE lower(owner_username)=lower(?)
+             AND (vps_output_folder=? OR vps_output_folder LIKE ?)
+             AND status NOT IN ('complete','failed','cancelled') LIMIT 1""",
+             (owner,rel,rel+'/%')).fetchone()
+        if active:
+            raise ValueError('An active merge is using this VPS folder')
+        # rmdir never deletes media, child folders or an occupied folder.
+        folder.rmdir()
+        c.execute('DELETE FROM vps_output_folders WHERE lower(owner_username)=lower(?) AND path=?',(owner,rel))
+    return rel
+
 def owner_queue_paused(owner):
     with DB_LOCK, db() as c:
         row=c.execute('SELECT paused FROM owner_queue_state WHERE owner_username=?',(owner,)).fetchone()
@@ -1103,14 +1193,14 @@ def retain_verified_output(src, job_id, filename):
     return destination
 
 
-def deliver_copyright_folder(local, owner, job_id):
+def deliver_copyright_folder(local, owner, job_id, vps_folder=''):
     """Keep the verified output; add a separate account-scoped copy for manual uploader selection."""
     if not owner.strip():
         raise RuntimeError('Authenticated owner required for Copyright Uploader handoff')
     if COPYRIGHT_MEDIA_ROOT.is_symlink():
         raise RuntimeError('Unsafe handoff root')
     COPYRIGHT_MEDIA_ROOT.mkdir(parents=True, exist_ok=True, mode=0o700)
-    folder = COPYRIGHT_MEDIA_ROOT / owner_media_key(owner)
+    folder = resolve_vps_folder(owner, vps_folder, registered=bool(vps_folder))
     if folder.is_symlink():
         raise RuntimeError('Unsafe account handoff folder')
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -1168,6 +1258,12 @@ def process_job(j):
             update_job(jid,'trimming' if spec.get('trim_enabled') else 'preparing',prog,(f'Trimming video {i}/{len(srcs)}' if spec.get('trim_enabled') else f'Inspecting video {i}/{len(srcs)}'))
             n=ws/f'norm_{i:03d}.mp4'; normalize(p,n,w,h,j['fit_mode'],start,end,info); norms.append(n); expected_total+=selected
             update_job(jid,'preparing',55+int(15*i/total),f'Preparing video {i}/{len(srcs)}')
+        if j.get('filename_mode') == 'auto':
+            # Source naming may require slow metadata lookups. Keep HTTP queue admission fast.
+            resolved = source_display_filename(videos[1])
+            update_job_filename(jid,resolved)
+            j=dict(j)
+            j['filename']=resolved
         actual=unique_output_filename(j['folder'],j['filename']) if int(j.get('drive_enabled',1)) else j['filename']
         if actual!=j['filename']:
             update_job_filename(jid,actual); j=dict(j); j['filename']=actual
@@ -1180,9 +1276,9 @@ def process_job(j):
         fid,url = '',''
         # Handoff is independent from Drive; a Drive outage must never prevent
         # a verified MP4 from being made available for manual uploader selection.
-        if int(j.get('copyright_enabled',0)):
-            update_job(jid,'uploading',91,'Adding to Copyright Uploader folder')
-            deliver_copyright_folder(retained,j.get('owner_username',''),jid)
+        if int(j.get('copyright_enabled',0)) or int(j.get('vps_handoff_enabled',0)):
+            update_job(jid,'uploading',91,'Saving to selected owner VPS output folder')
+            deliver_copyright_folder(retained,j.get('owner_username',''),jid,j.get('vps_output_folder',''))
         if int(j.get('drive_enabled',1)):
             update_job(jid,'uploading',96,'Uploading to Google Drive')
             fid,url=upload_drive(retained,j['folder'],j['filename'])
@@ -1227,6 +1323,17 @@ def list_jobs(owner=None, admin=False):
 
 def add_job(payload, owner=''):
     if not str(owner).strip(): raise ValueError('Authenticated account required')
+    request_key=str(payload.get('request_key') or '').strip()
+    if request_key and not re.fullmatch(r'[A-Za-z0-9_-]{16,128}',request_key):
+        raise ValueError('Invalid queue admission request key')
+    if request_key:
+        with DB_LOCK, db() as c:
+            existing=c.execute("SELECT id,filename FROM jobs WHERE lower(owner_username)=lower(?) AND request_key=?",
+                               (owner,request_key)).fetchone()
+            if existing:
+                return existing['id'],existing['filename']
+    vps_folder=vps_folder_name(payload.get('vps_output_folder',''))
+    resolve_vps_folder(owner,vps_folder)
     videos=payload.get('videos') or []
     if not isinstance(videos,list) or len(videos)<2 or len(videos)>MAX_VIDEOS: raise ValueError(f'Use 2 to {MAX_VIDEOS} videos')
     videos=[normalize_video_spec(x,i,owner=owner) for i,x in enumerate(videos,1)]
@@ -1235,16 +1342,29 @@ def add_job(payload, owner=''):
     aspect=payload.get('aspect','9:16'); quality=payload.get('quality','1080p')
     if (aspect,quality) not in RES_MAP: raise ValueError('Invalid resolution selection')
     fit='fit' if payload.get('fit_mode')=='fit' else 'crop'; folder=resolve_owner_folder(owner,payload.get('folder',''))
-    filename=resolve_output_filename(payload,videos); name=filename; jid=uuid.uuid4().hex[:12]
+    filename_mode=str(payload.get('filename_mode') or 'auto').strip().lower()
+    if filename_mode not in ('auto','manual'):
+        raise ValueError('Filename mode must be Auto or Manual')
+    jid=uuid.uuid4().hex[:12]
+    filename=(f'Queued-{jid}.mp4' if filename_mode=='auto' else resolve_output_filename(payload,videos))
+    name=filename
     drive_enabled = payload.get('upload_to_drive', True) is True
     copyright_enabled = payload.get('add_to_copyright_folder', False) is True
     if copyright_enabled and not owner.strip(): raise ValueError('Login required for Copyright Uploader folder delivery')
     with DB_LOCK, db() as c:
         maxord=c.execute('SELECT COALESCE(MAX(order_idx),0) m FROM jobs').fetchone()['m']; now=utcnow()
-        c.execute('''INSERT INTO jobs(id,name,videos_json,aspect,quality,fit_mode,folder,filename,status,order_idx,created_at,updated_at,
-                  drive_enabled,copyright_enabled,owner_username) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
-                  (jid,name,json.dumps(videos),aspect,quality,fit,folder,filename,'waiting',int(maxord)+10,now,now,
-                   int(drive_enabled),int(copyright_enabled),owner))
+        try:
+            c.execute('''INSERT INTO jobs(id,name,videos_json,aspect,quality,fit_mode,folder,filename,status,order_idx,created_at,updated_at,
+                      drive_enabled,copyright_enabled,owner_username,vps_output_folder,vps_handoff_enabled,request_key,filename_mode)
+                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                      (jid,name,json.dumps(videos),aspect,quality,fit,folder,filename,'waiting',int(maxord)+10,now,now,
+                       int(drive_enabled),int(copyright_enabled),owner,vps_folder,1,request_key,filename_mode))
+        except sqlite3.IntegrityError:
+            previous=c.execute("SELECT id,filename FROM jobs WHERE lower(owner_username)=lower(?) AND request_key=?",
+                               (owner,request_key)).fetchone() if request_key else None
+            if not previous:
+                raise
+            return previous['id'],previous['filename']
     WORKER_WAKE.set(); return jid,filename
 
 def delete_job(jid, owner='', admin=False):
@@ -1294,11 +1414,13 @@ def retry_job(jid, owner='', admin=False):
         maxord=c.execute('SELECT COALESCE(MAX(order_idx),0) AS maxord FROM jobs').fetchone()['maxord']
         c.execute("""INSERT INTO jobs(id,name,videos_json,aspect,quality,fit_mode,folder,filename,
                   status,progress,message,error,drive_url,drive_id,order_idx,
-                  drive_enabled,copyright_enabled,owner_username,local_path,retry_of,created_at,updated_at)
-                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                  drive_enabled,copyright_enabled,owner_username,local_path,retry_of,created_at,updated_at,
+                  vps_output_folder,vps_handoff_enabled,filename_mode)
+                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                   (new_id,j['name'],j['videos_json'],j['aspect'],j['quality'],j['fit_mode'],
                    j['folder'],j['filename'],'waiting',0,'Retry queued','', '', '',int(maxord)+10,
-                   j['drive_enabled'],j['copyright_enabled'],j['owner_username'],'',jid,now,now))
+                   j['drive_enabled'],j['copyright_enabled'],j['owner_username'],'',jid,now,now,
+                   j['vps_output_folder'],j['vps_handoff_enabled'],j['filename_mode']))
     WORKER_WAKE.set()
     return new_id,j['filename']
 
@@ -1395,7 +1517,7 @@ class Handler(BaseHTTPRequestHandler):
             if p==PREFIX+'/api/state':
                 owner=self.principal()
                 return self.send_json(200,{'ok':True,'jobs':list_jobs(owner),
-                    'folders':list_owner_folders(owner),'paused':owner_queue_paused(owner),
+                    'folders':list_owner_folders(owner),'vps_folders':list_vps_folders(owner),'paused':owner_queue_paused(owner),
                     'output_root':OUTPUT_ROOT,'library':list_library_items(owner),
                     'proxy':public_proxy_state() if self.is_admin() else {'enabled':False,'profiles':[]}})
             return self.send_json(404,{'ok':False,'error':'Not found'})
@@ -1449,6 +1571,10 @@ class Handler(BaseHTTPRequestHandler):
                 set_owner_queue_paused(self.principal(),True); return self.send_json(200,{'ok':True})
             if p==PREFIX+'/api/queue/resume':
                 set_owner_queue_paused(self.principal(),False); return self.send_json(200,{'ok':True})
+            if p==PREFIX+'/api/vps-folders':
+                return self.send_json(201,{'ok':True,'folder':create_vps_folder(self.principal(),payload.get('name',''))})
+            if p==PREFIX+'/api/vps-folders/delete':
+                return self.send_json(200,{'ok':True,'folder':delete_vps_folder(self.principal(),payload.get('name',''))})
             if p==PREFIX+'/api/folders':
                 return self.send_json(201,{'ok':True,'folder':create_owner_folder(self.principal(),payload.get('name',''))})
             if p==PREFIX+'/api/folders/delete':

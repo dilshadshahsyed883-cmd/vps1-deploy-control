@@ -32,8 +32,10 @@ class CopyrightStudioContract(unittest.TestCase):
         template = (COPY / "templates/app.html").read_text()
         Environment().parse(template)
         self.assertIn("engine_instance == 'copyright'", template)
-        for tab in ("dashboard", "channels", "sheets", "profiles", "add_video", "queue", "logs"):
+        for tab in ("dashboard", "channels", "sheets", "add_video", "queue", "logs"):
             self.assertIn("tab=='" + tab + "'", template)
+        copyright_nav = template.split("{% if engine_instance == 'copyright' %}",1)[1].split("{% elif engine_instance == 'song' %}",1)[0]
+        self.assertNotIn("tab=='profiles'", copyright_nav)
         for source in ("drive_link", "pc_upload", "folder"):
             self.assertIn('value="' + source + '"', template)
         self.assertIn('name="csrf_token"', template)
@@ -81,7 +83,7 @@ class CopyrightStudioContract(unittest.TestCase):
         self.assertIn("add_to_copyright_folder:addCopyrightFolder.checked", html)
         self.assertIn("retained = retain_verified_output", server)
         self.assertIn("if int(j.get('drive_enabled',1)):", server)
-        self.assertIn("if int(j.get('copyright_enabled',0)):", server)
+        self.assertIn("if int(j.get('copyright_enabled',0)) or int(j.get('vps_handoff_enabled',0)):", server)
         self.assertIn("deliver_copyright_folder(retained", server)
         self.assertIn("COPYRIGHT_MEDIA_ROOT / owner_media_key(owner)", server)
         self.assertIn("api/jobs/([A-Za-z0-9]+)/(download|view)", server)

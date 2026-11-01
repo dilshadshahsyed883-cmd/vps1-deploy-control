@@ -34,6 +34,7 @@ jobs:
           SOURCE_SHA: ${{ github.sha }}
           COPYRIGHT_UI_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-copyright-uploader-ui]') }}
           COPYRIGHT_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-copyright-uploader-only]') }}
+          HANDOFF_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-vm-copyright-handoff]') }}
         run: |
           set -Eeuo pipefail
           set +x
@@ -84,7 +85,10 @@ jobs:
           # Ordered: isolated uploader first, Video Merger only when idle,
           # navigation-only Scene web release last. No automatic uploads.
           release_apps=(copyright-uploader video-merger scene-builder)
-          if [[ "$COPYRIGHT_UI_ONLY" == 'true' || "$COPYRIGHT_ONLY" == 'true' ]]; then
+          if [[ "$HANDOFF_ONLY" == 'true' ]]; then
+            # Coordinated handoff release; never deploy Scene Builder or other apps.
+            release_apps=(video-merger copyright-uploader)
+          elif [[ "$COPYRIGHT_UI_ONLY" == 'true' || "$COPYRIGHT_ONLY" == 'true' ]]; then
             release_apps=(copyright-uploader)
           fi
           for app in "${release_apps[@]}"; do
