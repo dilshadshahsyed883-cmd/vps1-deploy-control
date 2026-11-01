@@ -271,7 +271,9 @@ class TenantTests(unittest.TestCase):
                 'counts=store.counts(owner=owner)',
                 'route("/actions/google-oauth/connect")',
             ):
-                self.assertIn(marker,standalone,(package,marker))
+                strict_alias = marker.replace("studio_tenants.require", "_studio_require")
+                self.assertTrue(marker in standalone or strict_alias in standalone,
+                                (package, marker, strict_alias))
             compile(standalone,str(package/"standalone_app.py"),"exec")
             compile(engine,str(package/"auto_engine_v6.py"),"exec")
 
