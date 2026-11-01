@@ -20,7 +20,7 @@ def extract(name, scope):
     method = next(n for n in source.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
                   and n.name == name)
     method.decorator_list = []
-    module = ast.Module(body=[method], type_ignores=[])
+    module = ast.Module(body=[ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0), method], type_ignores=[])
     ast.fix_missing_locations(module)
     env = dict(scope)
     env.setdefault("Form", lambda value: value)
