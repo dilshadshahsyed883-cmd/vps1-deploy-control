@@ -89,6 +89,7 @@ class RepositoryOwnerRegressions(unittest.TestCase):
                             INSERT INTO projects VALUES(2,'Alice','COMPLETED');
                             INSERT INTO projects VALUES(3,'Bob','FAILED');
                             INSERT INTO projects VALUES(4,'Bob','QUEUED');
+                            ALTER TABLE projects ADD COLUMN archived_at TEXT;
                         """)
                     class Fake:
                         def connect(self):
