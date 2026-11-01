@@ -78,7 +78,8 @@ class ProjectStore:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     source_fingerprint TEXT NOT NULL DEFAULT '',
-                    source_origin TEXT NOT NULL DEFAULT ''
+                    source_origin TEXT NOT NULL DEFAULT '',
+                    archived_at TEXT
                 )
             """)
             columns = {row[1] for row in conn.execute("PRAGMA table_info(projects)")}
@@ -86,6 +87,8 @@ class ProjectStore:
                 conn.execute("ALTER TABLE projects ADD COLUMN source_fingerprint TEXT NOT NULL DEFAULT ''")
             if "source_origin" not in columns:
                 conn.execute("ALTER TABLE projects ADD COLUMN source_origin TEXT NOT NULL DEFAULT ''")
+            if "archived_at" not in columns:
+                conn.execute("ALTER TABLE projects ADD COLUMN archived_at TEXT")
             conn.execute("""
                 CREATE UNIQUE INDEX IF NOT EXISTS uq_copyright_owner_folder_claim
                 ON projects(owner_username,source_file_name)
@@ -261,10 +264,10 @@ class ProjectStore:
         return dict(row) if row else None
 
     def list(self, owner: str | None = None, limit: int = 500) -> list[dict[str, Any]]:
-        query = "SELECT * FROM projects"
+        query = "SELECT * FROM projects WHERE archived_at IS NULL"
         params: list[Any] = []
         if owner:
-            query += " WHERE owner_username=? COLLATE NOCASE"
+            query += " AND owner_username=? COLLATE NOCASE"
             params.append(owner)
         query += " ORDER BY id DESC LIMIT ?"
         params.append(max(1, min(5000, int(limit))))
@@ -391,14 +394,33 @@ class ProjectStore:
         self.event(project_id, "Project returned to queue for retry", "WARNING")
         return True
 
+    def archive_terminal(self, project_id: int, owner: str) -> bool:
+        """Remove completed/cancelled work from the visible queue without losing history.
+
+        Never delete projects, event records, source media, or YouTube receipts.
+        An active or retryable failure cannot be archived by this method.
+        """
+        if not str(owner or "").strip():
+            raise ValueError("Owner is required")
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            changed = conn.execute("""
+                UPDATE projects SET archived_at=?,updated_at=?
+                WHERE id=? AND owner_username=? COLLATE NOCASE
+                  AND archived_at IS NULL AND status IN ('COMPLETED','CANCELLED')
+            """, (now_iso(), now_iso(), int(project_id), owner)).rowcount
+        if changed:
+            self.event(project_id, "Project removed from queue by owner; upload history retained")
+        return changed == 1
+
     def counts(self, owner: str | None = None) -> dict[str, int]:
         with self.connect() as conn:
             if owner:
                 rows = conn.execute("SELECT status,COUNT(*) AS n FROM projects "
-                                    "WHERE owner_username=? COLLATE NOCASE GROUP BY status",
+                                    "WHERE archived_at IS NULL AND owner_username=? COLLATE NOCASE GROUP BY status",
                                     (owner,)).fetchall()
             else:
-                rows = conn.execute("SELECT status,COUNT(*) AS n FROM projects GROUP BY status").fetchall()
+                rows = conn.execute("SELECT status,COUNT(*) AS n FROM projects WHERE archived_at IS NULL GROUP BY status").fetchall()
         out = {str(r["status"]): int(r["n"]) for r in rows}
         out["TOTAL"] = sum(out.values())
         out["ACTIVE"] = sum(out.get(s, 0) for s in ACTIVE_STATES)
