@@ -65,6 +65,7 @@ class ShortProfileFolderRegression(unittest.TestCase):
             with self.assertRaises(ValueError):
                 path("../other")
             for is_admin in (False, True):
+                marker.write_text("alice\n", encoding="utf-8")
                 saved, owned, calls = [], [], []
                 user = {"username":"Alice","is_admin":is_admin}
                 environment = {
@@ -123,10 +124,12 @@ class ShortProfileFolderRegression(unittest.TestCase):
                     self.assertIn("belongs to another user",empty_marker[1]["error"])
                     self.assertEqual(len(saved),before)
 
-                    (root/"Linked").symlink_to(folder,target_is_directory=True)
+                    linked_path = root/"Linked"
+                    linked_path.symlink_to(folder,target_is_directory=True)
                     linked = attempt("Linked")
                     self.assertIn("symlinks are prohibited",linked[1]["error"])
                     self.assertEqual(len(saved),before)
+                    linked_path.unlink()
 
 
 if __name__ == "__main__":
