@@ -1547,6 +1547,7 @@ def _short_owned_queue_jobs(request: Request, selected_ids=None, statuses=None) 
         raise PermissionError("Short owner queue actions are only available in Short Uploader")
     user=current_user(request)
     owned={int(p["id"]) for p in _short_owned_automation_profiles(request)}
+    owned_channels=studio_tenants.allowed_ids("channel",user)
     raw=list(selected_ids or [])
     try:
         selected={int(value) for value in raw}
@@ -1564,7 +1565,7 @@ def _short_owned_queue_jobs(request: Request, selected_ids=None, statuses=None) 
         if selected and vid not in selected: continue
         pid=int(job.get("auto_engine_profile_id") or 0)
         cid=int(job.get("channel_db_id") or 0)
-        if pid not in owned or not cid or str(studio_tenants.owner("channel",cid) or "").casefold()!=str(user["username"]).casefold():
+        if pid not in owned or not cid or cid not in owned_channels:
             if vid in selected: raise PermissionError("Selected queue job belongs to another account")
             continue
         if statuses and str(job.get("status") or "").upper() not in statuses: continue
