@@ -20,7 +20,7 @@ FILES=("lum_engine/auto_engine_v6.py", "lum_engine/standalone_app.py",
        "lum_engine/auto_engine_v6_worker.py", "desktop_core/modules/db/queue_repository.py",
        "templates/app.html", "templates/base.html", "static/auto_engine_v6.js",
        "static/local_upload_manager.css", "static/song_uploader_kokoro_ui.css")
-NEW_FILES=frozenset({"lum_engine/studio_tenants.py","lum_engine/song_vault.py"})
+NEW_FILES=frozenset({"lum_engine/studio_tenants.py","lum_engine/song_vault.py","static/short_vault_upload.js"})
 UNITS=tuple(f"vps1-production-lum-shortstudio-{kind}.service" for kind in ("scheduler","worker","web"))
 STATE=DATA/'local-upload-manager/lum-shortstudio'
 UNIT_DIR=Path('/etc/systemd/system')
