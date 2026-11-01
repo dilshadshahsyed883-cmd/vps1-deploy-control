@@ -235,8 +235,14 @@ def verify_live():
     dashboard_status,_,dashboard_body=https_get('/song-uploader/app?tab=dashboard',cookie)
     require(dashboard_status==200, 'authenticated Song Uploader Dashboard GET failed')
     dashboard_html=dashboard_body.decode('utf-8')
-    require('Serial engine' in dashboard_html and '>Save modes</button>' in dashboard_html,
-            'Song Uploader Dashboard content missing')
+    # Song Uploader retired the shared "Save modes" card for both roles.
+    # Verify the current dashboard rather than requiring obsolete controls.
+    require('data-engine-instance="song"' in dashboard_html and
+            'class="lum-metrics"' in dashboard_html and
+            '<h2>Serial engine</h2>' in dashboard_html and
+            '>Save modes</button>' not in dashboard_html and
+            '<h2>Uploader modes</h2>' not in dashboard_html,
+            'Song Uploader Dashboard owner-parity contract mismatch')
     require('<h2>VPS Reports</h2>' not in dashboard_html and
             '/actions/report-health' not in dashboard_html and
             'class="report-list"' not in dashboard_html,
