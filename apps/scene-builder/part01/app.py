@@ -5288,7 +5288,7 @@ from starlette.responses import Response as _VSResponse
 import requests as _vs_requests
 import asyncio as _vs_asyncio
 
-_VS_UPSTREAM="http://127.0.0.1:8130"
+_VS_UPSTREAM="http://127.0.0.1:8143"
 
 @app.get("/voice-studio", response_class=HTMLResponse)
 async def vps1_voice_studio_host(request:_VSRequest):
