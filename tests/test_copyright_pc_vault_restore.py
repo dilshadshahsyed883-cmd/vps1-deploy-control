@@ -128,6 +128,28 @@ assert owner_vault_inventory(db,studio_tenants,'Alice')['token_valid']==1
 assert owner_vault_inventory(db,studio_tenants,'Bob')['token_valid']==1
 assert owner_vault_inventory(db,studio_tenants,'Admin')['token_total']==0
 
+# Regression: more than 50 distinct owned PC JSONs in one authenticated batch.
+# No arbitrary 50-file limit; each token still passes file-size and owner checks.
+batch_ids=['UC'+f'{i:022d}' for i in range(51)]
+for idx,cid in enumerate(batch_ids):
+  studio_tenants.create_channel('Alice',cid,f'Alice Batch {idx}',f'batch{idx}@example.com')
+bulk=alice.post('/copyright-uploader/actions/copyright/credentials/upload',
+  data={'csrf_token':tok_a,'secret_kind':'token'},
+  files=[('files',(cid+'.json',token,'application/json')) for cid in batch_ids])
+assert bulk.status_code==303 and 'error=' not in bulk.headers['location'],bulk.headers['location']
+assert owner_vault_inventory(db,studio_tenants,'Alice')['token_valid']==52
+assert owner_vault_inventory(db,studio_tenants,'Bob')['token_valid']==1
+assert owner_vault_inventory(db,studio_tenants,'Admin')['token_total']==0
+for cid in batch_ids:
+  assert _token_root('Alice').joinpath(cid+'.json').is_file()
+# Keep one-client-per-request contract intact, without changing existing state.
+multi_client=admin.post('/copyright-uploader/actions/copyright/credentials/upload',
+  data={'csrf_token':tok_admin,'secret_kind':'client'},
+  files=[('files',('one.json',client_json,'application/json')),
+         ('files',('two.json',client_json,'application/json'))])
+assert multi_client.status_code==303 and 'error=' in multi_client.headers['location']
+assert not _owner_client_path('Admin').exists()
+
 c=admin.post('/copyright-uploader/actions/copyright/credentials/upload',
   data={'csrf_token':tok_admin,'secret_kind':'client'},
   files={'files':('desktop-client.json',client_json,'application/json')})
@@ -166,7 +188,7 @@ print('PRIVATE_VAULT_TEST=PASS')
                    "LUM_GOOGLE_OAUTH_ROOT":str(Path(tmp)/"secure-oauth"),
                    "PYTHONDONTWRITEBYTECODE":"1"}
             run=subprocess.run([sys.executable,"-c",script],cwd=str(COPY),env=env,
-                               capture_output=True,text=True,timeout=60)
+                               capture_output=True,text=True,timeout=120)
             self.assertEqual(run.returncode,0,run.stdout+run.stderr)
             self.assertIn("PRIVATE_VAULT_TEST=PASS",run.stdout)
 
