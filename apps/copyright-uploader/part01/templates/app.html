@@ -89,7 +89,7 @@
     </section>
     <section class="lum-card">
       <h2>Upload Destination</h2>
-      <label class="lum-field"><span>Upload Profile (optional)</span><select name="profile_id" id="copyright-upload-profile"><option value="0">No profile</option>{% for p in copyright_profiles %}<option value="{{ p.id }}">{{ p.profile_name }} · {{ p.group_name or 'No group' }}</option>{% endfor %}</select></label>
+      <label class="lum-field"><span>Upload Profile (optional)</span><select name="profile_id" id="copyright-upload-profile"><option value="0">No profile</option>{% for p in copyright_profiles %}<option value="{{ p.id }}" {{ 'selected' if p.id == selected_copyright_profile_id else '' }}>{{ p.profile_name }} · {{ p.group_name or 'No group' }}</option>{% endfor %}</select></label>
       <label class="lum-field"><span>YouTube Channel</span><select name="channel_db_id" required>
         <option value="">Select connected channel</option>{% for ch in channels %}<option value="{{ ch.id }}">{{ ch.channel_name or ch.channel_id }} · {{ ch.token_status }}</option>{% endfor %}
       </select></label>
@@ -752,7 +752,29 @@
     <section class="lum-card">
       <div class="lum-card-head"><h2>Upload Profiles</h2><div class="lum-actions"><span class="lum-badge">{{ copyright_profiles|length }} saved</span><a class="lum-button primary" href="#copyright-new-profile">New Profile</a></div></div>
       <div class="lum-table-wrap"><table class="lum-table"><thead><tr><th>Name</th><th>Group</th><th>Metadata Source</th><th>Action</th></tr></thead><tbody>
-      {% for p in copyright_profiles %}<tr><td><strong>{{ p.profile_name }}</strong></td><td>{{ p.group_name or '—' }}</td><td>{{ 'Google Sheets' if p.metadata_source=='sheets' else 'Manual' }}</td><td><a class="lum-button tiny" href="{{ base_path }}/app?tab=add_video&amp;profile_id={{ p.id }}">Add Video</a></td></tr>
+      {% for p in copyright_profiles %}
+       <tr><td><strong>{{ p.profile_name }}</strong></td><td>{{ p.group_name or '—' }}</td><td>{{ 'Google Sheets' if p.metadata_source=='sheets' else 'Manual' }}</td>
+       <td><div class="lum-actions">
+         <a class="lum-button tiny" href="{{ base_path }}/app?tab=add_video&amp;profile_id={{ p.id }}">Add Video</a>
+         <details><summary>Edit</summary>
+           <form method="post" action="{{ base_path }}/actions/copyright/profile/update" class="lum-grid">
+             <input type="hidden" name="csrf_token" value="{{ csrf }}">
+             <input type="hidden" name="profile_id" value="{{ p.id }}">
+             <label class="lum-field"><span>Name</span><input name="profile_name" value="{{ p.profile_name }}" maxlength="100" required></label>
+             <label class="lum-field"><span>Group</span><input name="group_name" value="{{ p.group_name }}" maxlength="120"></label>
+             <label class="lum-field"><span>Metadata</span><select name="metadata_source">
+               <option value="manual" {{ 'selected' if p.metadata_source=='manual' else '' }}>Manual</option>
+               <option value="sheets" {{ 'selected' if p.metadata_source=='sheets' else '' }}>Google Sheets</option>
+             </select></label>
+             <button type="submit" class="lum-button tiny primary">Save</button>
+           </form>
+         </details>
+         <form method="post" action="{{ base_path }}/actions/copyright/profile/delete" data-copyright-confirm="Delete only this saved profile? Queued videos and history remain unchanged.">
+           <input type="hidden" name="csrf_token" value="{{ csrf }}">
+           <input type="hidden" name="profile_id" value="{{ p.id }}">
+           <button type="submit" class="lum-button tiny danger">Delete</button>
+         </form>
+       </div></td></tr>{% endfor %}
       {% else %}<tr><td colspan="4"><div class="lum-empty">No profiles yet. Create a profile below to organize uploads.</div></td></tr>{% endfor %}</tbody></table></div>
     </section>
     <section class="lum-card" id="copyright-new-profile">
