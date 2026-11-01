@@ -1,0 +1,8 @@
+VPS_1 — Short Uploader only: profile folder NameError deployment
+Source PR #627 (protected main 1f29eb4d8de265cafd6580241f98a72d56fa351a)
+Source error: name 'v6_shortstudio_folder_path' is not defined on Short Uploader Auto Engine > Profiles > Save Changes.
+Release markers: [vps1-short-studio-release] [vps1-shortstudio-profile-folder-fix]
+Scope: Short Uploader instance (local-upload-manager) only, port 8019; deploy isolated standalone_app.py web file using immutable overlay.
+Use existing validated shortstudio_folder_path for owner-checked Short Maker folder selection. Never weaken marker/foreign owner/symlink validation.
+Guard: protected-main CI; pinned Tailscale; serialized idle gate for active uploads; free disk check; SQLite backups; authenticated Short Auto Engine readback; automatic rollback if failed.
+Preserve profiles and PKT schedules, queues, media, OAuth, folder contents, Song/Copyright and Short Maker services. No Start/Arm/automatic upload. Auto Script OFFLINE.
