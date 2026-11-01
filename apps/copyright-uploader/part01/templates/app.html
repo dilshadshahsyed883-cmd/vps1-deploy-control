@@ -164,20 +164,19 @@
       <div class="lum-note"><strong>Safety:</strong> OAuth is locked to the selected database row and expected UC Channel ID. Authorizing a different Brand Channel is rejected; the token is never attached to another channel.</div>
     </section>
 
-    {% if user.is_admin %}<section class="lum-card">
+    <section class="lum-card">
       <div class="lum-card-head">
-        <div><h2>1. Shared OAuth Client</h2><p>Configured once and reused for every new or reconnected channel. Existing channel tokens remain independent.</p></div>
+        <div><h2>1. My OAuth Client</h2><p>Each account has the same OAuth setup controls. Uploading here changes only your own client; existing channel tokens and other users are unchanged. A previously configured shared client remains available as a fallback.</p></div>
         <span class="lum-badge {{ 'good' if clients else 'warn' }}">{{ 'READY' if clients else 'NOT CONFIGURED' }}</span>
       </div>
       <form method="post" action="{{ base_path }}/actions/oauth-client" enctype="multipart/form-data" class="lum-inline-form">
         <input type="hidden" name="csrf_token" value="{{ csrf }}">
-        <label class="lum-field lum-grow"><span>Google Desktop OAuth client JSON</span><input name="client_json" type="file" accept="application/json,.json" required></label>
-        <button class="lum-button" type="submit">Set / Replace Shared Client</button>
+        <label class="lum-field lum-grow"><span>My Google Desktop OAuth client JSON</span><input name="client_json" type="file" accept="application/json,.json" required></label>
+        <button class="lum-button" type="submit">Set / Replace My OAuth Client</button>
       </form>
-      {% if clients %}<div class="lum-note">Shared client: <strong>{{ clients[0].filename }}</strong></div>{% else %}<div class="lum-note">Existing valid tokens can still upload. Connect/Reconnect stays disabled until the shared client is configured.</div>{% endif %}
+      {% if clients %}<div class="lum-note">Available OAuth client: <strong>{{ clients[0].filename }}</strong></div>{% else %}<div class="lum-note">Set your OAuth client to connect channels. Previously valid tokens can still upload.</div>{% endif %}
     </section>
 
-    {% else %}<section class="lum-card"><p class="lum-note">Shared OAuth client is managed by an administrator. You can still connect or reconnect your own channels below.</p></section>{% endif %}
     <section class="lum-card" data-lum-auth-section="verify">
       <div class="lum-card-head"><div><h2>2. Verify &amp; Save Selected Channel Token</h2><p>The authorization session is locked to the exact channel selected with Connect/Reconnect. A different Google/Brand Channel will be rejected.</p></div></div>
       <div data-lum-oauth-slot>
@@ -445,7 +444,7 @@
     <section class="lum-channel-subnav" aria-label="Channels workspace">
       <button type="button" class="active" data-lum-channel-panel-target="manager">Channel Manager</button>
       <button type="button" data-lum-channel-panel-target="accounts">Accounts & Tokens</button>
-      {% if user.is_admin %}<button type="button" data-lum-channel-panel-target="pcsync">PC Data Sync</button>{% endif %}
+      {% if user.is_admin and engine_instance != "copyright" %}<button type="button" data-lum-channel-panel-target="pcsync">PC Data Sync</button>{% endif %}
     </section>
 
     <div data-lum-channel-panel="manager">
@@ -595,7 +594,7 @@
 
     <div data-lum-channel-panel="accounts" hidden>
       {{ auth_panel(False) }}
-      <section class="lum-card">
+      {% if engine_instance != "copyright" %}<section class="lum-card">
         <div class="lum-card-head"><div><h2>Permanent OAuth & Token Vault</h2><p>Stored outside releases in the PC-engine permanent config/ and data/tokens/ directories.</p></div></div>
         <div class="lum-vault-stats">
           <div><span>OAuth clients</span><strong>{{ oauth_inventory.config_valid or 0 }}</strong><small>{{ oauth_inventory.config_invalid or 0 }} invalid</small></div>
@@ -625,10 +624,10 @@
             <div><h3>Tokens</h3>{% for f in oauth_inventory.tokens %}<div class="lum-file-row"><code>{{ f.name }}</code><span class="{{ 'ok' if f.status=='OK' else 'warn' }}">{{ f.status }}</span></div>{% else %}<div class="lum-empty">No permanent token files.</div>{% endfor %}</div>
           </div>
         </details>
-      </section>
+      </section>{% endif %}
     </div>
 
-    {% if user.is_admin %}
+    {% if user.is_admin and engine_instance != "copyright" %}
     <div data-lum-channel-panel="pcsync" hidden>
       <section class="lum-card">
         <div class="lum-card-head"><div><h2>PC Data Sync</h2><p>Direct PC → HTTPS → VPS synchronization. Secrets do not pass through Google Drive.</p></div><span class="lum-badge">Preview first</span></div>
