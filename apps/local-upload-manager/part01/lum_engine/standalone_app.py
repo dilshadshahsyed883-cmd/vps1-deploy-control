@@ -1845,17 +1845,21 @@ async def auto_v6_job_edit(request: Request):
 def auto_v6_queue_preflight(request: Request,csrf_token: str=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
     try:
-        if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio" or (
-                os.getenv("LUM_ENGINE_INSTANCE")=="song" and not int(user.get("is_admin") or 0)):
-            profiles=(_short_owned_automation_profiles(request) if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio"
-                      else _song_owned_automation_profiles(request))
-            ids={int(profile["id"]) for profile in profiles}
+        mode=os.getenv("LUM_ENGINE_INSTANCE")
+        if mode in {"shortstudio","song"}:
+            if mode=="song":
+                # Shared queue preflight must never inspect a foreign channel
+                # even when a stale job points at an otherwise owned profile.
+                owned_jobs=_song_member_queue_jobs(request)
+            else:
+                ids={int(profile["id"]) for profile in _short_owned_automation_profiles(request)}
+                owned_jobs=[row for row in db.list_auto_engine_jobs(limit=5000)
+                            if int(row.get("auto_engine_profile_id") or 0) in ids]
             class OwnedQueue:
                 def __getattr__(self,name):
                     return getattr(db,name)
                 def list_auto_engine_jobs(self,limit=5000):
-                    return [row for row in db.list_auto_engine_jobs(limit=limit)
-                            if int(row.get("auto_engine_profile_id") or 0) in ids]
+                    return owned_jobs[:limit]
             return V6JSONResponse(v6_queue_preflight(OwnedQueue(),v6_store))
         return V6JSONResponse(v6_queue_preflight(db,v6_store))
     except Exception as exc:
@@ -1878,6 +1882,8 @@ def auto_v6_generate(request: Request,csrf_token: str=Form(...),profile_id: int=
     try:
         if str(confirmation).strip()!="GENERATE": raise ValueError('Type GENERATE exactly to create real queue jobs.')
         profile=_v6_profile(profile_id,request)
+        if os.getenv("LUM_ENGINE_INSTANCE") == "song" and str(profile.get("work_mode") or "") == "auto":
+            _song_member_engine_guard()
         result=v6_generate_queue(db,v6_store,profile)
         v6_mark_schedule_skipped_today(db,profile)
         if int(result.get("created") or 0) and str(profile.get("work_mode") or "") == "auto":
@@ -1899,6 +1905,8 @@ def auto_v6_generate_json(request: Request,csrf_token: str=Form(...),profile_id:
         if str(confirmation).strip()!="GENERATE":
             raise ValueError("Generate confirmation is invalid.")
         profile=_v6_profile(pid,request)
+        if os.getenv("LUM_ENGINE_INSTANCE") == "song" and str(profile.get("work_mode") or "") == "auto":
+            _song_member_engine_guard()
         result=v6_generate_queue(db,v6_store,profile)
         v6_mark_schedule_skipped_today(db,profile)
         created=int(result.get("created") or 0)
@@ -1949,6 +1957,11 @@ def auto_v6_generate_all(request: Request, csrf_token: str=Form(...), confirmati
         return redirect("/app?tab=auto_engine",error="This group action belongs to Song or Short Uploader.")
     created=0; duplicates=0; checked=0; skipped=[]
     profiles=(_song_owned_automation_profiles(request) if os.getenv("LUM_ENGINE_INSTANCE") == "song" else db.list_auto_engine_profiles())
+    if os.getenv("LUM_ENGINE_INSTANCE") == "song":
+        try:
+            _song_member_engine_guard()
+        except Exception as exc:
+            return redirect("/app?tab=auto_engine",error=str(exc))
     for raw in profiles:
         pid=int(raw.get("id") or 0)
         owner=v6_store.group_settings(pid).get("song_folder_owner")
@@ -1967,7 +1980,10 @@ def auto_v6_generate_all(request: Request, csrf_token: str=Form(...), confirmati
             skipped.append(f"{raw.get('category_name') or pid}: {exc}")
     message=f"Queue generation: {created} new job(s) from {checked} enabled profile(s); {duplicates} duplicate(s) blocked. New eligible jobs auto-start; scheduled jobs wait until due."
     if created and os.getenv("LUM_ENGINE_INSTANCE") == "song":
-        _song_member_start_scoped(request,{int(p["id"]) for p in profiles if int(p.get("enabled") or 0)==1})
+        try:
+            _song_member_start_scoped(request,{int(p["id"]) for p in profiles if int(p.get("enabled") or 0)==1})
+        except Exception as exc:
+            return redirect("/app?tab=auto_engine",error=f"Generated {created} owned jobs, but worker start was blocked: {exc}")
     if skipped:
         message+=f" {len(skipped)} profile(s) skipped: "+"; ".join(skipped[:3])
     return redirect("/app?tab=auto_engine",message=message)
@@ -2273,6 +2289,11 @@ async def auto_v6_job_network_action(request: Request):
     _v6_profile(int(row["auto_engine_profile_id"]),request)
     if os.getenv("LUM_ENGINE_INSTANCE") == "song":
         _song_member_queue_jobs(request,[vid])
+        if action=="retry":
+            try:
+                _song_member_engine_guard()
+            except Exception as exc:
+                return redirect("/app?tab=auto_engine",error=str(exc))
     ok,message=db.resolve_waiting_network_job(vid,action)
     if not ok:
         return redirect("/app?tab=auto_engine",error=f"Job #{vid}: {message}")
