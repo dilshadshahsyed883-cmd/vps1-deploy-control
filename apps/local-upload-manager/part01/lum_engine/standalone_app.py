@@ -216,12 +216,12 @@ def project_view(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def get_projects(user: dict[str, Any], limit: int = 500) -> list[dict[str, Any]]:
-    owner = str(user["username"]) if _song_account_scope(user) else None
+    owner = str(user["username"]) if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio" or _song_account_scope(user) else None
     return [project_view(p) for p in store.list(owner=owner, limit=limit)]
 
 
 def get_logs(user: dict[str, Any], limit: int = 300) -> list[dict[str, Any]]:
-    owner = str(user["username"]) if _song_account_scope(user) else None
+    owner = str(user["username"]) if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio" or _song_account_scope(user) else None
     return store.events(owner=owner, limit=limit)
 
 
@@ -234,9 +234,9 @@ def mode_is_enabled(key: str) -> bool:
 
 def stats_payload(user: dict[str, Any] | None = None) -> dict[str, Any]:
     channels = all_channels(user)
-    owner = str(user.get("username") or "") if user is not None and _song_account_scope(user) else None
+    owner = str(user.get("username") or "") if user is not None and (os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio" or _song_account_scope(user)) else None
     counts=store.counts(owner=owner)
-    settings = store.settings() if user is None or (int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") != "song") else {}
+    settings = store.settings() if user is None or (int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio"}) else {}
     if os.getenv("LUM_ENGINE_INSTANCE", "engine1") in {"song", "shortstudio"}:
         # Song and Short modes are capabilities, not Start controls. Legacy OFF values
         # must not disable Sheets Sync or Auto Engine for either user role.
@@ -245,7 +245,7 @@ def stats_payload(user: dict[str, Any] | None = None) -> dict[str, Any]:
         "counts": counts,
         "channels": len(channels),
         "authenticated_channels": sum(1 for c in channels if str(c.get("token_status") or "").lower().startswith("valid")),
-        "active_project_id": worker.active_project_id if user is None or (int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") != "song") else None,
+        "active_project_id": worker.active_project_id if user is None or (int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio"}) else None,
         "engine_enabled": store.setting("engine_enabled", "1") == "1",
         "pause_after_current": store.setting("pause_after_current", "0") == "1",
         "settings": settings,
@@ -282,7 +282,8 @@ async def standalone_auth(request: Request, call_next):
         request.state.lum_user = user
         # TENANT_SAFE_WRITES: shared scheduler/token/global queue controls are
         # admin-only until all direct actions have an explicit resource owner.
-        if (not is_admin and request.method not in {"GET", "HEAD"} and
+        if ((not is_admin or os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio") and
+                request.method not in {"GET", "HEAD"} and
                 os.getenv("LUM_ENGINE_INSTANCE") in {"song","shortstudio","copyright"}):
             allowed_exact={
                 route("/logout"),route("/actions/add-video"),
@@ -338,8 +339,15 @@ async def standalone_auth(request: Request, call_next):
                     route("/actions/auto-v6/thumbnails/reset-rotation"),
                 })
             if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio":
-                # Member bulk actions are ACL-scoped in Short handlers.
+                # Identical owner-only actions for admin and non-admin.
                 allowed_exact.update({
+                    route("/actions/sheets/sync-all"),
+                    route("/actions/auto-v6/retry-failed"),
+                    route("/actions/auto-v6/resume-paused"),
+                    route("/actions/auto-v6/clear-done"),
+                    route("/actions/auto-v6/remove-selected"),
+                    route("/actions/auto-v6/recovery-clear"),
+                    route("/actions/auto-v6/job/upload-now"),
                     route("/actions/auto-v6/sync-all"),
                     route("/actions/auto-v6/start-all"),
                     route("/actions/auto-v6/queue-preflight"),
@@ -351,8 +359,8 @@ async def standalone_auth(request: Request, call_next):
             if path not in allowed_exact and not path.startswith(allowed_prefixes):
                 return JSONResponse({"detail":"Shared operation is administrator-only until "
                              "tenant-safe processing is available"},status_code=403)
-        if (not is_admin and os.getenv("LUM_ENGINE_INSTANCE") in
-                {"song","shortstudio","copyright"} and
+        if ((not is_admin or os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio") and
+                os.getenv("LUM_ENGINE_INSTANCE") in {"song","shortstudio","copyright"} and
                 (path.startswith(route("/reports/")) or
                  path.startswith(route("/actions/auto-v6/thumbnail/")) or
                  (path==route("/actions/auto-v6/preview-all") and
@@ -515,7 +523,7 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         if selected_sheet_source and int(selected_sheet_source["id"]) not in permitted_sheets:
             selected_sheet_source=None
     permitted_channels=_studio_allowed_ids("channel",user)
-    web_clients = list_clients() if permitted_channels is None else []
+    web_clients = list_clients() if permitted_channels is None and os.getenv("LUM_ENGINE_INSTANCE") != "shortstudio" else []
     channel_context = channels_page_context(
         db, web_clients, permitted_channels, permitted_sheets,
         inventory_channels=channels if os.getenv("LUM_ENGINE_INSTANCE") in
@@ -531,13 +539,34 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
                                    if int(item.get("id") or 0) in permitted_groups]
         channel_context["sheets"]=[item for item in channel_context["sheets"]
                                    if int(item.get("id") or 0) in permitted_sheets]
-        channel_context["summary"]={"total":len(channel_context["rows"])}
-        channel_context["oauth_inventory"]={}  # Never enumerate global token files
-        web_clients=[]  # Client config belongs to the shared service, not the tenant
+        # channels_page_context already calculated the correctly scoped totals.
+        # Never enumerate the global OAuth/token vault for ANY Short user.
+        channel_context["oauth_inventory"]={}
+        web_clients=[]  # The shared client is used internally, not disclosed.
+    if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio":
+        # A channel may be present in a legacy mixed-owner group: neither its
+        # visible Group column nor hidden search attributes may name that
+        # foreign group, even for the Short administrator.
+        names_by_channel={}
+        if permitted_channels and permitted_groups:
+            with db.connect() as con:
+                group_ids=sorted(int(gid) for gid in permitted_groups)
+                marks=",".join("?" for _ in group_ids)
+                for cid,name in con.execute(
+                    "SELECT m.channel_db_id,g.group_name FROM channel_group_members m "
+                    "JOIN channel_groups g ON g.id=m.group_id "
+                    "WHERE m.group_id IN ("+marks+")",group_ids).fetchall():
+                    names_by_channel.setdefault(int(cid),[]).append(str(name))
+        for row in channel_context["rows"]:
+            row["groups"]=", ".join(names_by_channel.get(int(row["id"]),[]))
+            row["search_blob"]=" ".join(str(row.get(key) or "") for key in (
+                "id","channel_name","gmail","groups","config_status",
+                "token_status","browser_profile","channel_id","channel_url",
+                "proxy","proxy_username","sheet_name","sheet_notes","status")).lower()
     # PC Sync is a global administrator operation; its history may contain
     # private channel identifiers and source paths from other accounts.
     pc_sync_history = (list_sync_history() if selected == "channels" and
-                       int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") != "song" else [])
+                       int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio"} else [])
     try:
         selected_auto_mode = validate_auto_mode(auto_mode)
     except ValueError:
@@ -571,12 +600,12 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         else {}
     )
     auto_v6 = v6_profile_context(db, v6_store, int(auto_profile_id or 0),
-                                     owner="" if not _song_account_scope(user) else str(user.get("username") or "")) if selected == "auto_engine" and selected_auto_mode == "engine1" else {}
-    if selected == "auto_engine" and auto_v6 and engine_instance=="song":
+                                     owner=str(user.get("username") or "") if (os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio" or _song_account_scope(user)) else "") if selected == "auto_engine" and selected_auto_mode == "engine1" else {}
+    if selected == "auto_engine" and auto_v6 and engine_instance in {"song","shortstudio"}:
         # Existing context ACL filters static profile ownership; also recheck
         # live group/channel members so a changed mixed-tenant group cannot
         # expose its profiles or queue through member UI.
-        valid_ids={int(p["id"]) for p in _song_owned_automation_profiles(request)}
+        valid_ids={int(p["id"]) for p in (_short_owned_automation_profiles(request) if engine_instance == "shortstudio" else _song_owned_automation_profiles(request))}
         owned_channels=_studio_allowed_ids("channel",user)
         auto_v6["profiles"]=[p for p in auto_v6.get("profiles",[])
                              if int(p.get("id") or 0) in valid_ids]
@@ -594,7 +623,7 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
                            binding={},metadata_rows=[],drive_thumbnails_index=[])
     if selected == "auto_engine" and auto_v6:
         auto_v6["short_folders"] = v6_shortstudio_list_folders(
-            owner="" if int(user.get("is_admin") or 0) else str(user.get("username") or "")
+            owner=str(user.get("username") or "") if engine_instance == "shortstudio" or not int(user.get("is_admin") or 0) else ""
         ) if engine_instance == "shortstudio" else []
         # LUM_SCHEDULER_CONTROL_LIVE_V1: runtime-only presentation state.
         # This does not mutate scheduler_armed or profile schedules.
@@ -687,12 +716,13 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         "channel_groups": channel_context["groups"],
         "channel_sheets": channel_context["sheets"],
         "oauth_inventory": channel_context["oauth_inventory"],
+        "oauth_client_ready": bool(list_clients()) or any(row.get("config_status") == "OK" for row in channel_context["rows"]),
         "pc_sync_history": pc_sync_history,
         "auto_v6": auto_v6,
         "auto_mode": selected_auto_mode,
         "engine_instance": engine_instance,
         "mode_registry": mode_registry,
-        "reports": list_reports() if int(user.get("is_admin") or 0) and engine_instance != "song" else [],
+        "reports": list_reports() if int(user.get("is_admin") or 0) and engine_instance not in {"song","shortstudio"} else [],
         "csrf": csrf(request),
         "oauth_url": str(request.session.get("lum_oauth_url") or ""),
         "oauth_session_id": str(request.session.get("lum_oauth_session_id") or ""),
@@ -965,7 +995,7 @@ def _owned_or_admin(user: dict[str, Any], project_id: int) -> dict[str, Any]:
     project = store.get(project_id)
     if not project:
         raise HTTPException(404, "Project not found")
-    if _song_account_scope(user) and str(project.get("owner_username") or "").lower() != str(user.get("username") or "").lower():
+    if (os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio" or _song_account_scope(user)) and str(project.get("owner_username") or "").lower() != str(user.get("username") or "").lower():
         raise HTTPException(403, "Project does not belong to this user")
     return project
 
@@ -1051,7 +1081,7 @@ def sheets_save(
         sid = int(source_id) if str(source_id or "").strip() else None
         if sid:
             _studio_require("sheet",sid,user)
-        elif _song_account_scope(user):
+        elif os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio" or _song_account_scope(user):
             existing={str(row.get("sheet_url_or_id") or "").strip()
                       for row in db.list_sheet_sources()}
             if str(sheet_url_or_id or "").strip() in existing:
@@ -1063,7 +1093,7 @@ def sheets_save(
             sheet_url_or_id=sheet_url_or_id,
             enabled=str(enabled).lower() in {"1", "true", "on", "yes"},
         )
-        if _song_account_scope(user):
+        if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio" or _song_account_scope(user):
             studio_tenants.bind("sheet",int(saved_id),user["username"])
         return redirect(
             f"/app?tab=sheets&source_id={saved_id}",
@@ -1085,7 +1115,7 @@ def sheets_delete(
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
         _studio_require("sheet",int(source_id),user)
-        if int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") != "song":
+        if int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio"}:
             web_delete_sheet_source(db,int(source_id))
         else:
             studio_tenants.delete_owned_sheet(user["username"],int(source_id))
@@ -1113,7 +1143,7 @@ def sheets_sync(
             error="Enable Sheets Sync on Dashboard before running synchronization.",
         )
     try:
-        if int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") != "song":
+        if int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio"}:
             result=web_sync_sheet_source_by_id(db,int(source_id))
         else:
             _studio_require("sheet",int(source_id),user)
@@ -1150,7 +1180,7 @@ def sheets_sync_all(request: Request, csrf_token: str = Form(...)):
             error="Enable Sheets Sync on Dashboard before running synchronization.",
         )
     try:
-        if os.getenv("LUM_ENGINE_INSTANCE")=="song":
+        if os.getenv("LUM_ENGINE_INSTANCE") in {"song","shortstudio"}:
             allowed=_studio_allowed_ids("sheet",user)
             sources=[s for s in db.list_sheet_sources()
                      if int(s.get("id") or 0) in allowed and int(s.get("enabled") or 0)]
@@ -1346,11 +1376,13 @@ def channels_rescan_tokens(
 ):
     user=current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
-        if str(scope).lower()=="all_missing" and not int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") != "song":
+        if str(scope).lower()=="all_missing" and not int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio"}:
             raise PermissionError("Global token scan is administrator-only")
         for channel_id in channel_ids:
             _studio_require("channel",channel_id,user)
-        ids=(sorted(_studio_allowed_ids("channel",user)) if os.getenv("LUM_ENGINE_INSTANCE") == "song" else None) if str(scope).lower()=="all_missing" else channel_ids
+        ids=(sorted(_studio_allowed_ids("channel",user)) if os.getenv("LUM_ENGINE_INSTANCE") in {"song","shortstudio"} else None) if str(scope).lower()=="all_missing" else channel_ids
+        if os.getenv("LUM_ENGINE_INSTANCE") in {"song","shortstudio"} and not ids:
+            return redirect("/app?tab=channels",message="No owned channels selected for token scan.")
         result=rescan_channel_tokens(db, ids)
         return redirect(
             "/app?tab=channels",
@@ -1486,7 +1518,7 @@ def _v6_profile(profile_id: int,request: Request=None):
         raise ValueError("Verified Studio account is required for profile changes.")
     user=current_user(request)
     _studio_require("profile",int(profile_id),user)
-    if _song_account_scope(user):
+    if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio" or _song_account_scope(user):
         # A profile's ACL alone does not authorize new members added to
         # its group later. Revalidate its live target set before scheduling.
         group_id=int(profile.get("channel_group_id") or 0)
@@ -1578,6 +1610,56 @@ def _short_owned_automation_profiles(request: Request) -> list[dict[str, Any]]:
     return owned
 
 
+def _short_owned_queue_jobs(request: Request, selected_ids=None, statuses=None) -> list[dict[str, Any]]:
+    """Fail closed for both Short roles: every selected job and its live channel
+    must belong to the signed-in user. Never fall back to a global queue."""
+    if os.getenv("LUM_ENGINE_INSTANCE") != "shortstudio":
+        raise PermissionError("Short owner queue actions are only available in Short Uploader")
+    user=current_user(request)
+    owned={int(p["id"]) for p in _short_owned_automation_profiles(request)}
+    owned_channels=studio_tenants.allowed_ids("channel",user)
+    raw=list(selected_ids or [])
+    try:
+        selected={int(value) for value in raw}
+    except (ValueError,TypeError) as exc:
+        raise PermissionError("Invalid queue job IDs") from exc
+    if raw and (len(raw)!=len(selected) or any(value<=0 for value in selected)):
+        raise PermissionError("Invalid or duplicate queue job IDs")
+    jobs=db.list_auto_engine_jobs(limit=5000)
+    available={int(job.get("id") or 0) for job in jobs}
+    if selected and not selected.issubset(available):
+        raise PermissionError("Selected queue job does not exist")
+    result=[]
+    for job in jobs:
+        vid=int(job.get("id") or 0)
+        if selected and vid not in selected: continue
+        pid=int(job.get("auto_engine_profile_id") or 0)
+        cid=int(job.get("channel_db_id") or 0)
+        if pid not in owned or not cid or cid not in owned_channels:
+            if vid in selected: raise PermissionError("Selected queue job belongs to another account")
+            continue
+        if statuses and str(job.get("status") or "").upper() not in statuses: continue
+        result.append(job)
+    return result
+
+
+def _short_owner_start_scoped(request: Request, profile_ids) -> None:
+    """Preserve other owners' running scope while starting own jobs only."""
+    owned={int(p["id"]) for p in _short_owned_automation_profiles(request)}
+    ids={int(pid) for pid in profile_ids if int(pid)>0}
+    if not ids or not ids.issubset(owned):
+        raise PermissionError("Unowned Short profile")
+    state=v6_store.engine()
+    if int(state.get("pause_after_current") or 0):
+        raise PermissionError("Shared engine is paused; cannot force a global resume")
+    manual=state.get("manual_profile_ids")
+    if manual is None and int(state.get("running") or 0):
+        raise PermissionError("Shared engine running without owner scope")
+    scope={int(pid) for pid in str(manual or "").split(",") if pid.strip().isdigit()} if manual is not None else set()
+    v6_store.set_manual_profile_ids(sorted(scope | ids))
+    v6_store.set_engine(running=True,pause_after_current=False,error="")
+
+
 def _song_member_queue_jobs(request: Request, selected_ids=None, statuses=None) -> list[dict[str, Any]]:
     """Validate both profile and channel ACL; reject foreign selected jobs."""
     user=current_user(request)
@@ -1651,7 +1733,7 @@ async def auto_v6_profile_save(request: Request):
             _studio_require("channel",int(channel_id),user)
         if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio":
             folder_name=str(form.get("short_vps_folder") or "").strip()
-            if folder_name and not int(user.get("is_admin") or 0):
+            if folder_name:
                 folder=v6_shortstudio_folder_path(folder_name)
                 marker=folder/".studio_owner"
                 if (marker.is_symlink() or not marker.is_file() or
@@ -1660,7 +1742,7 @@ async def auto_v6_profile_save(request: Request):
                     raise PermissionError("Short Maker folder belongs to another user")
         fields=dict(form); fields["_song_owner"]=str(user.get("username") or "")
         saved=v6_save_profile_from_form(db,v6_store,fields,pid)
-        if _song_account_scope(user):
+        if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio" or _song_account_scope(user):
             studio_tenants.bind("profile",int(saved),user["username"])
         return redirect(f"/app?tab=auto_engine&auto_profile_id={saved}",message=f"Auto Engine profile #{saved} saved.")
     except Exception as exc:
@@ -1786,15 +1868,17 @@ def auto_v6_profile_resume(request: Request,csrf_token: str=Form(...),profile_id
 def auto_v6_job_upload_now(request: Request,csrf_token: str=Form(...),video_id: int=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
     vid=int(video_id); meta=v6_store.channel_job_meta(vid)
-    member=os.getenv("LUM_ENGINE_INSTANCE")=="song"
+    short_owner=os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio"
+    member=short_owner or os.getenv("LUM_ENGINE_INSTANCE")=="song"
     if member:
         try:
-            verified=_song_member_queue_jobs(request,[vid])
+            verified=(_short_owned_queue_jobs(request,[vid]) if short_owner
+                      else _song_member_queue_jobs(request,[vid]))
             if len(verified)!=1:
                 raise PermissionError("Job is not available to this account")
             if not meta or int(meta.get("profile_id") or 0)!=int(verified[0].get("auto_engine_profile_id") or 0):
                 raise PermissionError("Job metadata does not match its owned profile")
-            _song_member_engine_guard()
+            if not short_owner: _song_member_engine_guard()
         except Exception as exc:
             return redirect("/app?tab=auto_engine",error=str(exc))
     if meta: _v6_profile(int(meta["profile_id"]),request)
@@ -1810,7 +1894,8 @@ def auto_v6_job_upload_now(request: Request,csrf_token: str=Form(...),video_id: 
         con.execute("UPDATE videos SET status='QUEUED',app_upload_at=NULL,created_at='1970-01-01 00:00:00',error_message='',updated_at=CURRENT_TIMESTAMP WHERE id=?",(vid,))
     if member:
         try:
-            _song_member_start_scoped(request,{int(meta["profile_id"])})
+            if short_owner: _short_owner_start_scoped(request,{int(meta["profile_id"])})
+            else: _song_member_start_scoped(request,{int(meta["profile_id"])})
         except Exception as exc:
             return redirect("/app?tab=auto_engine",error=str(exc))
     else:
@@ -2045,7 +2130,9 @@ def auto_v6_start_profile(request: Request,csrf_token: str=Form(...),profile_id:
         count=int(result.get("created") or 0)
         if count:
             v6_mark_schedule_skipped_today(db,profile)
-        if song_member:
+        if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio":
+            _short_owner_start_scoped(request,{pid})
+        elif song_member:
             _song_member_start_scoped(request,{pid})
         else:
             current=v6_store.engine().get("manual_profile_ids")
@@ -2287,6 +2374,9 @@ async def auto_v6_job_network_action(request: Request):
     if not row or not row.get("auto_engine_profile_id"):
         return redirect("/app?tab=auto_engine",error="Auto Engine queue job not found.")
     _v6_profile(int(row["auto_engine_profile_id"]),request)
+    if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio":
+        try: _short_owned_queue_jobs(request,[vid])
+        except Exception as exc: return redirect("/app?tab=auto_engine",error=str(exc))
     if os.getenv("LUM_ENGINE_INSTANCE") == "song":
         _song_member_queue_jobs(request,[vid])
         if action=="retry":
@@ -2304,7 +2394,10 @@ async def auto_v6_job_network_action(request: Request):
             ("QUEUED" if action=="retry" else "CANCELLED",vid),
         )
     if action=="retry":
-        if os.getenv("LUM_ENGINE_INSTANCE") == "song":
+        if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio":
+            try: _short_owner_start_scoped(request,{int(row["auto_engine_profile_id"])})
+            except Exception as exc: return redirect("/app?tab=auto_engine",error=str(exc))
+        elif os.getenv("LUM_ENGINE_INSTANCE")=="song":
             _song_member_start_scoped(request,{int(row["auto_engine_profile_id"])})
         else:
             v6_store.set_engine(running=True,pause_after_current=False)
@@ -2316,6 +2409,24 @@ async def auto_v6_retry_failed(request: Request):
     user=current_user(request); require_heavy(user)
     form=await request.form(); require_csrf(request,str(form.get("csrf_token") or ""))
     ids=_v6_selected_ids(form)
+    if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio":
+        try:
+            raw_ids=[str(value).strip() for value in form.getlist("video_ids")]
+            if raw_ids and (len(raw_ids)!=len(ids) or any(not value.isdigit() or int(value)<=0 for value in raw_ids)):
+                raise PermissionError("Invalid selected queue job IDs")
+            jobs=_short_owned_queue_jobs(request,ids or None,{"FAILED"})
+            jobs=[job for job in jobs if str(job.get("recovery_state") or "")!="REVIEW_REQUIRED"]
+            safe=[];blocked=0;profile_ids=set()
+            for job in jobs:
+                current=db.get_video(int(job["id"])) or {}
+                if str(current.get("channel_status") or "")!="ACTIVE" or v6_classify_google_json(str(current.get("token_file_path") or ""))!=V6_VALID_TOKEN:
+                    blocked+=1; continue
+                safe.append(int(job["id"]))
+                profile_ids.add(int(job["auto_engine_profile_id"]))
+            if safe: _short_owner_start_scoped(request,profile_ids)
+            count=db.queue_failed_for_retry(auto_engine_only=True,video_ids=safe) if safe else 0
+            return redirect("/app?tab=auto_engine",message=f"Retry queued {count} owned Short job(s); blocked {blocked}.")
+        except Exception as exc: return redirect("/app?tab=auto_engine",error=str(exc))
     if os.getenv("LUM_ENGINE_INSTANCE")=="song":
         # The generic selector drops invalid values; for Retry Failed that
         # would turn an explicit malformed selection into retry-all-owned.
@@ -2360,6 +2471,14 @@ async def auto_v6_retry_failed(request: Request):
 @app.post(route("/actions/auto-v6/resume-paused"))
 def auto_v6_resume_paused(request: Request,csrf_token: str=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
+    if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio":
+        try:
+            jobs=_short_owned_queue_jobs(request,statuses={"PAUSED"})
+            if not jobs: return redirect("/app?tab=auto_engine",message="No paused owned Short jobs.")
+            _short_owner_start_scoped(request,{int(job["auto_engine_profile_id"]) for job in jobs})
+            count=db.resume_paused(auto_engine_only=True,video_ids=[int(job["id"]) for job in jobs])
+            return redirect("/app?tab=auto_engine",message=f"Resumed {count} owned Short job(s).")
+        except Exception as exc: return redirect("/app?tab=auto_engine",error=str(exc))
     if os.getenv("LUM_ENGINE_INSTANCE")=="song":
         try:
             jobs=_song_member_queue_jobs(request,statuses={"PAUSED"})
@@ -2379,6 +2498,12 @@ def auto_v6_resume_paused(request: Request,csrf_token: str=Form(...)):
 @app.post(route("/actions/auto-v6/clear-done"))
 def auto_v6_clear_done(request: Request,csrf_token: str=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
+    if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio":
+        try:
+            jobs=_short_owned_queue_jobs(request,statuses={"UPLOADED","PUBLISHED"})
+            count=db.delete_auto_engine_jobs([int(job["id"]) for job in jobs]) if jobs else 0
+            return redirect("/app?tab=auto_engine",message=f"Cleared {count} owned completed Short jobs; upload history retained.")
+        except Exception as exc: return redirect("/app?tab=auto_engine",error=str(exc))
     if os.getenv("LUM_ENGINE_INSTANCE")=="song":
         try:
             jobs=_song_member_queue_jobs(request,statuses={"UPLOADED","PUBLISHED"})
@@ -2396,6 +2521,11 @@ async def auto_v6_remove_selected(request: Request):
     user=current_user(request); require_heavy(user)
     form=await request.form(); require_csrf(request,str(form.get("csrf_token") or ""))
     ids=_v6_selected_ids(form)
+    if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio":
+        try:
+            ids=[int(job["id"]) for job in _short_owned_queue_jobs(request,ids)] if ids else []
+        except Exception as exc:
+            return redirect("/app?tab=auto_engine",error=str(exc))
     if os.getenv("LUM_ENGINE_INSTANCE")=="song":
         try:
             ids=[int(j["id"]) for j in _song_member_queue_jobs(request,ids)] if ids else []
@@ -2419,6 +2549,11 @@ async def auto_v6_recovery_clear(request: Request):
     if str(form.get("confirmation") or "").strip()!="I CHECKED YOUTUBE":
         return redirect("/app?tab=auto_engine",error='Type I CHECKED YOUTUBE exactly after checking YouTube Studio.')
     ids=_v6_selected_ids(form)
+    if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio":
+        try:
+            ids=[int(job["id"]) for job in _short_owned_queue_jobs(request,ids)] if ids else []
+        except Exception as exc:
+            return redirect("/app?tab=auto_engine",error=str(exc))
     if os.getenv("LUM_ENGINE_INSTANCE")=="song":
         try:
             ids=[int(j["id"]) for j in _song_member_queue_jobs(request,ids)] if ids else []

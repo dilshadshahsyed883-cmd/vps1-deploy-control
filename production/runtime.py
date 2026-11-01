@@ -1567,6 +1567,13 @@ def main():
             from production.short_uploader_group_release import install as install_network_fix
             install_network_fix(args.revision, network_only=True)
             return
+        # Full Short-only owner parity release: includes the tenant ACL module.
+        if '[vps1-shortstudio-owner-parity]' in intent:
+            if args.action != 'install' or args.apps != ['local-upload-manager']:
+                raise RuntimeError('Short parity release requires isolated Short Uploader lane')
+            from production.short_uploader_group_release import install as install_short_parity
+            install_short_parity(args.revision, owner_parity_only=True)
+            return
         # Dedicated Short member-controls release. Never touch Song or shared LUM lanes.
         if '[vps1-shortstudio-member-controls]' in intent:
             if args.action != 'install' or args.apps != ['local-upload-manager']:

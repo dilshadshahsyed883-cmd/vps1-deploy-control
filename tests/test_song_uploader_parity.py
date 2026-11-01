@@ -56,9 +56,11 @@ class SongParity(unittest.TestCase):
                     self.assertIn('form="lum-ae-delete-profile"', html)
                     self.assertIn(">+ New Profile</a>", html)
                     self.assertIn(">Save Changes</button>", html)
-                    if instance == "song":
-                        self.assertNotIn("Disarm Scheduled Uploads", html)
+                    if instance in {"shortstudio","song"}:
                         self.assertNotIn("Arm Scheduled Uploads", html)
+                        self.assertNotIn("Disarm Scheduled Uploads", html)
+                        if instance == "shortstudio":
+                            self.assertNotIn('lum-ae-schedule-toggle', html)
                     else:
                         self.assertIn("Disarm Scheduled Uploads" if armed else "Arm Scheduled Uploads", html)
                     self.assertIn("Armed</span>" if armed else "Disarmed</span>", html)

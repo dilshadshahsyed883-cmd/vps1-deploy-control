@@ -31,12 +31,12 @@ class SongMemberHandover(TestCase):
     def test_member_ui_exposes_only_scoped_queue_and_sheets_tools(self):
         ui = TEMPLATE.read_text(encoding="utf-8")
         sheet = ui[ui.index('<div class="lum-short-sheet-header-actions">'):ui.index("</div>", ui.index('<div class="lum-short-sheet-header-actions">'))]
-        self.assertIn("engine_instance == 'song' or user.is_admin", sheet)
+        self.assertIn("engine_instance in ['song','shortstudio'] or user.is_admin", sheet)
         queue = ui[ui.index('<section class="lum-card lum-ae-pc-controls"'):ui.index('<div class="lum-ae-queue-summary">')]
         for endpoint in ("retry-failed", "resume-paused", "clear-done", "remove-selected"):
             action = 'action="{{ base_path }}/actions/auto-v6/' + endpoint + '"'
             at = queue.index(action)
-            self.assertIn("engine_instance == 'song' or user.is_admin", queue[at-220:at])
+            self.assertIn("engine_instance in ['song','shortstudio'] or user.is_admin", queue[at-220:at])
         for endpoint in ("/actions/auto-v6/engine", "/actions/auto-v6/concurrency"):
             self.assertIn(endpoint, queue)
         backend = BACKEND.read_text(encoding="utf-8")
@@ -47,8 +47,8 @@ class SongMemberHandover(TestCase):
             self.assertIn('route("/actions/auto-v6/' + endpoint + '")', song_allowlist)
         self.assertIn('route("/actions/sheets/sync-all")', song_allowlist)
         upload_action = ui.index('action="{{ base_path }}/actions/auto-v6/job/upload-now"')
-        self.assertIn("{% if engine_instance == 'song' or user.is_admin", ui[upload_action-240:upload_action])
-        self.assertIn('{% if engine_instance == \'song\' or user.is_admin', ui[ui.index("lum-ae-recovery"):ui.index("lum-ae-recovery")+190])
+        self.assertIn("{% if engine_instance in ['song','shortstudio'] or user.is_admin", ui[upload_action-240:upload_action])
+        self.assertIn("{% if engine_instance in ['song','shortstudio'] or user.is_admin", ui[ui.index("lum-ae-recovery"):ui.index("lum-ae-recovery")+190])
 
     def test_sync_all_only_fetches_owned_enabled_sources(self):
         calls = []
