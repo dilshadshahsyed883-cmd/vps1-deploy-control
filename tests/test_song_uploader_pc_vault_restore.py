@@ -5,6 +5,7 @@ Runs with disposable data roots; never uses production OAuth or external APIs.
 from __future__ import annotations
 
 import os
+import importlib.util
 import subprocess
 import sys
 import tempfile
@@ -28,6 +29,7 @@ class SongOwnerVaultTests(unittest.TestCase):
         self.assertIn('"lum_engine/song_vault.py"',release)
         self.assertIn('NEW_FILES=frozenset({"lum_engine/studio_tenants.py","lum_engine/song_vault.py"})',release)
 
+    @unittest.skipUnless(importlib.util.find_spec("fastapi") is not None, "Real HTTP dependencies required")
     def test_private_token_import_and_authenticated_http(self):
         script = r"""
 import json,re
