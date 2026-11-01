@@ -81,7 +81,12 @@ def exercise(mode):
             html = viewer.get("/test/app?tab=channels").text
             assert own in html and foreign not in html
         html = admin.get("/test/app?tab=channels").text
-        assert "ALICE_PRIVATE_CHANNEL" in html and "BOB_PRIVATE_CHANNEL" in html
+        if mode == "song":
+            # An admin account cannot inspect Alice/Bob channels either.
+            assert "ALICE_PRIVATE_CHANNEL" not in html and "BOB_PRIVATE_CHANNEL" not in html
+        else:
+            # Other uploaders retain their preexisting provisioning behavior.
+            assert "ALICE_PRIVATE_CHANNEL" in html and "BOB_PRIVATE_CHANNEL" in html
 
         duplicate = post(bob, b_token, "studio-tenant/channel-create",
                          channel_id="UC" + "a" * 22, channel_name="Hijack")
