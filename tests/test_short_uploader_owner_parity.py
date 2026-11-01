@@ -111,6 +111,7 @@ class ShortOwnerParityTests(unittest.TestCase):
             "os":os,"current_user":lambda request:{"username":"alice","is_admin":True},
             "require_csrf":lambda *args:None,"require_heavy":lambda user:None,
             "studio_tenants":ACL(),
+            "_studio_allowed_ids":lambda kind,user:set(),
             "rescan_channel_tokens":lambda db,ids:(scanned.append(ids) or {"checked":0,"updated":0,"missing":0,"invalid":0}),
             "db":object(),"redirect":lambda path,**kw:(path,kw)
         })
