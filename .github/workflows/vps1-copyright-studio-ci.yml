@@ -15,7 +15,7 @@ jobs:
         run: python -m pip install 'jinja2==3.1.6'
       - name: Syntax verification
         run: |
-          python -m py_compile apps/video-merger/part01/app.py apps/copyright-uploader/part01/lum_engine/standalone_app.py apps/copyright-uploader/part01/lum_engine/project_store.py apps/copyright-uploader/part01/lum_engine/worker.py production/copyright_studio_release.py production/copyright_scene_nav_release.py production/runtime.py production/smoke.py
+          python -m py_compile apps/video-merger/part01/app.py apps/copyright-uploader/part01/lum_engine/standalone_app.py apps/copyright-uploader/part01/lum_engine/copyright_vault.py apps/copyright-uploader/part01/lum_engine/project_store.py apps/copyright-uploader/part01/lum_engine/worker.py production/copyright_studio_release.py production/copyright_scene_nav_release.py production/runtime.py production/smoke.py
           node --check apps/scene-builder/part01/static/vps1_native_site_shell.js
           node --check apps/copyright-uploader/part01/static/lum_ux_state_v2.js
       - name: Full isolated Copyright Uploader runtime dependencies
@@ -35,6 +35,8 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_copyright_uploader_ui.py' -v
       - name: Copyright non-admin manual handover and tenant regression
         run: python -m unittest discover -s tests -p 'test_copyright_member_handover.py' -v
+      - name: Copyright owner-private PC OAuth and authorized-token JSON Vault
+        run: python -m unittest discover -s tests -p 'test_copyright_pc_vault_restore.py' -v
       - name: Copyright fixed-mode and no-manual-channel regression
         run: python -m unittest discover -s tests -p 'test_copyright_mode_cleanup.py' -v
       - name: Rendered responsive workspace and interaction checks (no uploads)
