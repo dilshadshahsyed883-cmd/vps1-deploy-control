@@ -97,7 +97,23 @@
       <div class="lum-note"><strong>Safety:</strong> OAuth is locked to the selected database row and expected UC Channel ID. Authorizing a different Brand Channel is rejected; the token is never attached to another channel.</div>
     </section>
 
-    {% if engine_instance != 'song' %}
+    {% if engine_instance == 'song' %}
+    <section class="lum-card" data-song-shared-client>
+      <div class="lum-card-head">
+        <div><h2>1. Shared OAuth Client</h2>
+          <p>Configured service client remains available to every account. Upload an optional private Google Desktop client for your own channels; neither admin nor non-admin can overwrite other accounts' credentials.</p>
+        </div>
+        <span class="lum-badge {{ 'good' if shared_oauth_ready else 'warn' }}">{{ 'READY' if shared_oauth_ready else ('PRIVATE CLIENT READY' if clients else 'NOT CONFIGURED') }}</span>
+      </div>
+      <form method="post" action="{{ base_path }}/actions/oauth-client" enctype="multipart/form-data" class="lum-inline-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <label class="lum-field lum-grow"><span>Google Desktop OAuth client JSON (my account)</span><input name="client_json" type="file" accept=".json,application/json" required></label>
+        <button class="lum-button" type="submit">Set / Replace My Client</button>
+      </form>
+      <div class="lum-note">{{ 'Shared client is configured; my private client takes priority if uploaded.' if shared_oauth_ready else 'No shared client is available; upload your own client to reconnect your channels.' }}
+      {% if clients %} Current client: <strong>{{ clients[0].filename }}</strong>.{% endif %}</div>
+    </section>
+    {% else %}
     {% if engine_instance == 'shortstudio' %}
     <section class="lum-card"><p class="lum-note">Google authorization uses the configured service client. Connect/Reconnect is available for your own channels; tokens are saved only for the selected UC ID. {{ 'Connection ready' if oauth_client_ready else 'OAuth client setup is pending' }}.</p></section>
     {% elif user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}<section class="lum-card">
@@ -572,6 +588,43 @@
 
     <div data-lum-channel-panel="accounts" hidden>
       {{ auth_panel(False) }}
+      {% if engine_instance == "song" %}
+      <section class="lum-card">
+        <div class="lum-card-head"><div>
+          <h2>Permanent OAuth &amp; Token Vault</h2>
+          <p>Upload your PC OAuth client or saved authorized ChannelID token JSONs. Admin and non-admin have identical controls. Only channels owned by this account can be updated; other users' tokens are protected.</p>
+        </div></div>
+        <div class="lum-vault-stats">
+          <div><span>My OAuth clients</span><strong>{{ oauth_inventory.config_valid or 0 }}</strong><small>{{ 'Shared client fallback available' if oauth_inventory.shared_fallback else 'Private credentials' }}</small></div>
+          <div><span>My channel tokens</span><strong>{{ oauth_inventory.token_valid or 0 }}</strong><small>{{ oauth_inventory.token_invalid or 0 }} missing / invalid of {{ oauth_inventory.token_total or 0 }} owned channels</small></div>
+        </div>
+        <div class="lum-grid lum-two">
+          <form method="post" action="{{ base_path }}/actions/song/credentials/upload" enctype="multipart/form-data" class="lum-card inset" data-lum-soft-form>
+            <input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <input type="hidden" name="secret_kind" value="client">
+            <h3>Upload OAuth client JSON</h3><p>PC Google Desktop OAuth config. One active private client per account. Existing valid client stays unless Replace is selected.</p>
+            <input type="file" name="files" accept=".json,application/json" required>
+            <label class="lum-check"><input type="checkbox" name="replace_existing" value="1"> Replace my existing valid OAuth client</label>
+            <button class="lum-button" type="submit">Store Permanently</button>
+          </form>
+          <form method="post" action="{{ base_path }}/actions/song/credentials/upload" enctype="multipart/form-data" class="lum-card inset" data-lum-soft-form>
+            <input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <input type="hidden" name="secret_kind" value="token">
+            <h3>Upload authorized token JSONs</h3><p>Multiple PC files supported. Use exact UC ChannelID.json; a Gmail filename is accepted only when it uniquely identifies one of your channels.</p>
+            <input type="file" name="files" accept=".json,application/json" multiple required>
+            <label class="lum-check"><input type="checkbox" name="replace_existing" value="1"> Replace my existing valid ChannelID token</label>
+            <button class="lum-button" type="submit">Store &amp; Reconcile</button>
+          </form>
+        </div>
+        <details class="lum-vault-list"><summary>My stored file inventory</summary>
+          <div class="lum-grid lum-two">
+            <div><h3>My OAuth client</h3>{% for f in oauth_inventory.configs %}<div class="lum-file-row"><code>{{ f.name }}</code><span class="ok">OK</span></div>{% else %}<div class="lum-empty">No private OAuth client uploaded.</div>{% endfor %}</div>
+            <div><h3>My channel tokens</h3>{% for f in oauth_inventory.tokens %}<div class="lum-file-row"><code>{{ f.name }}</code><span class="{{ 'ok' if f.status=='OK' else 'warn' }}">{{ f.status }}</span></div>{% else %}<div class="lum-empty">No channels assigned to this account.</div>{% endfor %}</div>
+          </div>
+        </details>
+        <p class="lum-note">Valid tokens are preserved unless you choose replacement. An imported token is stored under your private VPS credentials folder; no global token vault is overwritten.</p>
+      </section>
+      {% endif %}
       {% if engine_instance not in ['song','shortstudio'] %}
       <section class="lum-card">
         <div class="lum-card-head"><div><h2>Permanent OAuth & Token Vault</h2><p>Stored outside releases in the PC-engine permanent config/ and data/tokens/ directories.</p></div></div>
