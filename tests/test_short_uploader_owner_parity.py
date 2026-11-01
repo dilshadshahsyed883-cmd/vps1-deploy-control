@@ -119,6 +119,19 @@ class ShortOwnerParityTests(unittest.TestCase):
         self.assertEqual(scanned,[])
         self.assertIn("No owned channels",result[1]["message"])
 
+    def test_parity_release_deploys_full_short_acl_and_rolls_back(self):
+        runtime=(ROOT/"production/runtime.py").read_text(encoding="utf-8")
+        install=(ROOT/"production/short_uploader_group_release.py").read_text(encoding="utf-8")
+        workflow=(ROOT/".github/workflows/vps1-short-studio-release.yml").read_text(encoding="utf-8")
+        self.assertIn("[vps1-shortstudio-owner-parity]",runtime)
+        self.assertIn("owner_parity_only=True",runtime)
+        self.assertIn("owner_parity_only=False",install)
+        self.assertIn('"lum_engine/studio_tenants.py"',install)
+        self.assertIn("SHORT_OWNER_PARITY_LIVE",install)
+        self.assertIn("SHORT_GROUP_ROLLBACK=PASS",install)
+        self.assertIn("[vps1-shortstudio-owner-parity]",workflow)
+        self.assertIn("AUTO_SCRIPT=OFFLINE",workflow)
+
     def test_ui_uses_identical_owned_controls_for_admin_and_member(self):
         source=TEMPLATE.read_text(encoding="utf-8")
         Environment().parse(source)
