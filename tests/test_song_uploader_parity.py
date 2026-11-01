@@ -56,13 +56,11 @@ class SongParity(unittest.TestCase):
                     self.assertIn('form="lum-ae-delete-profile"', html)
                     self.assertIn(">+ New Profile</a>", html)
                     self.assertIn(">Save Changes</button>", html)
-                    if instance == "shortstudio":
-                        # Global scheduler control is not an owner-safe operation.
-                        # Both Short roles manage their own profile schedules;
-                        # shared scheduler status remains read-only.
+                    if instance in {"shortstudio","song"}:
                         self.assertNotIn("Arm Scheduled Uploads", html)
                         self.assertNotIn("Disarm Scheduled Uploads", html)
-                        self.assertNotIn('lum-ae-schedule-toggle', html)
+                        if instance == "shortstudio":
+                            self.assertNotIn('lum-ae-schedule-toggle', html)
                     else:
                         self.assertIn("Disarm Scheduled Uploads" if armed else "Arm Scheduled Uploads", html)
                     self.assertIn("Armed</span>" if armed else "Disarmed</span>", html)

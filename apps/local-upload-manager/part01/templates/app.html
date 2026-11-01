@@ -97,6 +97,7 @@
       <div class="lum-note"><strong>Safety:</strong> OAuth is locked to the selected database row and expected UC Channel ID. Authorizing a different Brand Channel is rejected; the token is never attached to another channel.</div>
     </section>
 
+    {% if engine_instance != 'song' %}
     {% if engine_instance == 'shortstudio' %}
     <section class="lum-card"><p class="lum-note">Google authorization uses the configured service client. Connect/Reconnect is available for your own channels; tokens are saved only for the selected UC ID. {{ 'Connection ready' if oauth_client_ready else 'OAuth client setup is pending' }}.</p></section>
     {% elif user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}<section class="lum-card">
@@ -112,7 +113,7 @@
       {% if clients %}<div class="lum-note">Shared client: <strong>{{ clients[0].filename }}</strong></div>{% else %}<div class="lum-note">Existing valid tokens can still upload. Connect/Reconnect stays disabled until the shared client is configured.</div>{% endif %}
     </section>
 
-    {% else %}<section class="lum-card"><p class="lum-note">Shared OAuth client is managed by an administrator. You can still connect or reconnect your own channels below.</p></section>{% endif %}
+    {% else %}<section class="lum-card"><p class="lum-note">Shared OAuth client is managed by an administrator. You can still connect or reconnect your own channels below.</p></section>{% endif %}{% endif %}
     <section class="lum-card" data-lum-auth-section="verify">
       <div class="lum-card-head"><div><h2>2. Verify &amp; Save Selected Channel Token</h2><p>The authorization session is locked to the exact channel selected with Connect/Reconnect. A different Google/Brand Channel will be rejected.</p></div></div>
       <div data-lum-oauth-slot>
@@ -378,7 +379,7 @@
     <section class="lum-channel-subnav" aria-label="Channels workspace">
       <button type="button" class="active" data-lum-channel-panel-target="manager">Channel Manager</button>
       <button type="button" data-lum-channel-panel-target="accounts">Accounts & Tokens</button>
-      {% if user.is_admin and engine_instance != 'shortstudio' %}<button type="button" data-lum-channel-panel-target="pcsync">PC Data Sync</button>{% endif %}
+      {% if user.is_admin and engine_instance not in ['song','shortstudio'] %}<button type="button" data-lum-channel-panel-target="pcsync">PC Data Sync</button>{% endif %}
     </section>
 
     <div data-lum-channel-panel="manager">
@@ -571,7 +572,8 @@
 
     <div data-lum-channel-panel="accounts" hidden>
       {{ auth_panel(False) }}
-      {% if engine_instance != 'shortstudio' %}<section class="lum-card">
+      {% if engine_instance not in ['song','shortstudio'] %}
+      <section class="lum-card">
         <div class="lum-card-head"><div><h2>Permanent OAuth & Token Vault</h2><p>Stored outside releases in the PC-engine permanent config/ and data/tokens/ directories.</p></div></div>
         <div class="lum-vault-stats">
           <div><span>OAuth clients</span><strong>{{ oauth_inventory.config_valid or 0 }}</strong><small>{{ oauth_inventory.config_invalid or 0 }} invalid</small></div>
@@ -601,10 +603,11 @@
             <div><h3>Tokens</h3>{% for f in oauth_inventory.tokens %}<div class="lum-file-row"><code>{{ f.name }}</code><span class="{{ 'ok' if f.status=='OK' else 'warn' }}">{{ f.status }}</span></div>{% else %}<div class="lum-empty">No permanent token files.</div>{% endfor %}</div>
           </div>
         </details>
-      </section>{% endif %}
+      </section>
+      {% endif %}
     </div>
 
-    {% if user.is_admin and engine_instance != 'shortstudio' %}
+    {% if user.is_admin and engine_instance not in ['song','shortstudio'] %}
     <div data-lum-channel-panel="pcsync" hidden>
       <section class="lum-card">
         <div class="lum-card-head"><div><h2>PC Data Sync</h2><p>Direct PC → HTTPS → VPS synchronization. Secrets do not pass through Google Drive.</p></div><span class="lum-badge">Preview first</span></div>
@@ -696,7 +699,7 @@
             <button class="lum-button secondary" type="submit" {% if stats.settings.sheets_sync_enabled!='1' %}disabled{% endif %}>Update Selected Sheet</button>
           </form>
           {% endif %}
-          {% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+          {% if engine_instance != 'song' and (user.is_admin or engine_instance not in ['song','shortstudio','copyright']) %}
 <form method="post" action="{{ base_path }}/actions/sheets/sync-all" data-lum-soft-form>
             <input type="hidden" name="csrf_token" value="{{ csrf }}">
             <button class="lum-button" type="submit" {% if stats.settings.sheets_sync_enabled!='1' or not sheet_sources %}disabled{% endif %}>Update All Enabled Sheets</button>
@@ -814,7 +817,7 @@
             <strong>{{ 'ARMED' if ae.engine.scheduler_armed else 'DISARMED' }}</strong>
             {% if engine_instance != 'song' or ae.engine.scheduler_armed %}<small>{% if ae.engine.scheduler_armed %}Next run: {{ ae.scheduler_ui.next_run }} · {{ ae.scheduler_ui.ready_profiles }} profile(s) ready{% else %}Automatic scheduled uploads are paused{% endif %}</small>{% endif %}
           </div>
-          {% if (user.is_admin and engine_instance != 'shortstudio') or engine_instance not in ['song','shortstudio','copyright'] %}
+        {% if engine_instance not in ['song','shortstudio'] and (user.is_admin or engine_instance not in ['song','shortstudio','copyright']) %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/engine" data-lum-soft-form>
             <input type="hidden" name="csrf_token" value="{{ csrf }}">
             <input type="hidden" name="action" value="{{ 'disarm_scheduler' if ae.engine.scheduler_armed else 'arm_scheduler' }}">
@@ -859,7 +862,7 @@
         <a class="lum-button secondary" href="{{ base_path }}/app?tab=auto_engine&new_profile=1" data-lum-soft-link data-ae-profile-nav>+ New Profile</a>
         <button class="lum-button primary" type="submit" form="lum-ae-profile-form">{{ 'Save Changes' if p else 'Create Profile' }}</button>
         {% if p %}<button class="lum-button danger" type="submit" form="lum-ae-delete-profile">Delete Profile</button>{% endif %}
-        {% if (user.is_admin and engine_instance != 'shortstudio') or engine_instance not in ['song','shortstudio','copyright'] %}
+        {% if engine_instance not in ['song','shortstudio'] and (user.is_admin or engine_instance not in ['song','shortstudio','copyright']) %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/engine" data-lum-soft-form>
           <input type="hidden" name="csrf_token" value="{{ csrf }}">
           <input type="hidden" name="action" value="{{ 'disarm_scheduler' if ae.engine.scheduler_armed else 'arm_scheduler' }}">
@@ -909,7 +912,7 @@
             <strong>{{ 'ARMED' if ae.engine.scheduler_armed else 'DISARMED' }}</strong>
             {% if engine_instance != 'song' or ae.engine.scheduler_armed %}<small>{% if ae.engine.scheduler_armed %}Next run: {{ ae.scheduler_ui.next_run }} · {{ ae.scheduler_ui.ready_profiles }} profile(s) ready{% else %}Automatic scheduled uploads are paused{% endif %}</small>{% endif %}
           </div>
-          {% if (user.is_admin and engine_instance != 'shortstudio') or engine_instance not in ['song','shortstudio','copyright'] %}
+        {% if engine_instance not in ['song','shortstudio'] and (user.is_admin or engine_instance not in ['song','shortstudio','copyright']) %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/engine" data-lum-soft-form>
             <input type="hidden" name="csrf_token" value="{{ csrf }}">
             <input type="hidden" name="action" value="{{ 'disarm_scheduler' if ae.engine.scheduler_armed else 'arm_scheduler' }}">
@@ -954,7 +957,7 @@
         {% if p and p.channel_db_id %}
         {% if engine_instance not in ['song', 'shortstudio'] %}<button type="button" class="lum-button secondary tiny" data-ae-sync-scan data-profile-id="{{ p.id }}" data-csrf="{{ csrf }}">Sync Channel</button>{% endif %}
         {% else %}
-        {% if engine_instance not in ['song', 'shortstudio'] %}{% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}<button class="lum-button secondary tiny" type="button" data-ae-open-schedules>Manage Legacy Profile Schedules</button>{% endif %}{% endif %}
+        {% if engine_instance not in ['song', 'shortstudio'] %}{% if engine_instance != 'song' and (user.is_admin or engine_instance not in ['song','shortstudio','copyright']) %}<button class="lum-button secondary tiny" type="button" data-ae-open-schedules>Manage Legacy Profile Schedules</button>{% endif %}{% endif %}
         {% if p and engine_instance not in ['song', 'shortstudio'] %}<button type="button" class="lum-button secondary tiny" data-ae-sync-scan data-profile-id="{{ p.id }}" data-csrf="{{ csrf }}">Sync & Scan Sources</button>{% endif %}
         {% endif %}
       </div>{% endif %}
@@ -1065,7 +1068,7 @@
                   </form>
                   {% endif %}
                   {% if engine_instance not in ['song','shortstudio'] or (engine_instance == 'song' and pr.channel_db_id) %}<a class="lum-button secondary tiny" href="{{ base_path }}/app?tab=auto_engine&auto_profile_id={{ pr.id }}" data-lum-soft-link>Edit</a>{% endif %}
-                  {% if (user.is_admin and engine_instance != 'shortstudio') or engine_instance not in ['song','shortstudio','copyright'] %}
+                  {% if engine_instance == 'song' or (engine_instance != 'shortstudio' and (user.is_admin or engine_instance not in ['song','shortstudio','copyright'])) %}
 <form id="lum-ae-generate-profile-{{ pr.id }}" method="post" action="{{ base_path }}/actions/auto-v6/generate" data-lum-soft-form hidden>
                     <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ pr.id }}"><input type="hidden" name="confirmation" value="">
                   </form>
@@ -1152,18 +1155,18 @@
     <section class="lum-card lum-ae-pc-controls" data-ae-panel="queue" hidden>
       <div class="lum-card-head"><div><h2>Queue Controls</h2>{% if engine_instance != 'song' %}<p>Start, stop, retry, recover and manage the live upload queue from one place. Upload safety and duplicate protections remain unchanged.</p>{% endif %}</div>{% if engine_instance != 'song' %}<span class="lum-badge">PC CONTROL PARITY</span>{% endif %}</div>
       <div class="lum-ae-pc-row lum-ae-pc-main">
-        {% if (user.is_admin and engine_instance != 'shortstudio') or engine_instance not in ['song','shortstudio','copyright'] %}
+        {% if engine_instance not in ['song','shortstudio'] and (user.is_admin or engine_instance not in ['song','shortstudio','copyright']) %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/engine" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="start"><button class="lum-button primary" type="submit">Start / Resume Engine</button></form>
 {% endif %}
-        {% if (user.is_admin and engine_instance != 'shortstudio') or engine_instance not in ['song','shortstudio','copyright'] %}
+        {% if engine_instance not in ['song','shortstudio'] and (user.is_admin or engine_instance not in ['song','shortstudio','copyright']) %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/engine" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="pause_after_current"><button class="lum-button secondary" type="submit">Pause After Current</button></form>
 {% endif %}
-        {% if (user.is_admin and engine_instance != 'shortstudio') or engine_instance not in ['song','shortstudio','copyright'] %}
+        {% if engine_instance not in ['song','shortstudio'] and (user.is_admin or engine_instance not in ['song','shortstudio','copyright']) %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/engine" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="stop"><button class="lum-button secondary" type="submit">Stop After Current</button></form>
 {% endif %}
       </div>
       <div class="lum-ae-pc-row lum-ae-pc-tools">
-        {% if (user.is_admin and engine_instance != 'shortstudio') or engine_instance not in ['song','shortstudio','copyright'] %}<button class="lum-button secondary" type="button" data-ae-global-preflight data-csrf="{{ csrf }}">Preflight</button>{% endif %}
+        {% if engine_instance not in ['song','shortstudio'] and (user.is_admin or engine_instance not in ['song','shortstudio','copyright']) %}<button class="lum-button secondary" type="button" data-ae-global-preflight data-csrf="{{ csrf }}">Preflight</button>{% endif %}
         {% if engine_instance in ['song','shortstudio'] or user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/retry-failed" data-lum-soft-form data-ae-queue-optional-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button secondary" type="submit">Retry Failed</button></form>
 {% endif %}
@@ -1177,7 +1180,7 @@
 <form method="post" action="{{ base_path }}/actions/auto-v6/remove-selected" data-lum-soft-form data-ae-queue-form data-confirm="Remove selected safe jobs? Active uploads are protected."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button danger" type="submit">Remove Selected</button></form>
 {% endif %}
         <a class="lum-button secondary" href="{{ base_path }}/app?tab=auto_engine{% if p %}&auto_profile_id={{ p.id }}{% endif %}" data-lum-soft-link>Refresh</a>
-        {% if (user.is_admin and engine_instance != 'shortstudio') or engine_instance not in ['song','shortstudio','copyright'] %}
+        {% if engine_instance not in ['song','shortstudio'] and (user.is_admin or engine_instance not in ['song','shortstudio','copyright']) %}
 <form class="lum-ae-concurrency-form" method="post" action="{{ base_path }}/actions/auto-v6/concurrency" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ p.id if p else 0 }}"><label>Concurrent Uploads: <select name="concurrency" id="lum-ae-concurrency">{% for n in range(1,6) %}<option value="{{ n }}" {% if (ae.engine.concurrency or 1)==n %}selected{% endif %}>{{ n }} upload{{ '' if n==1 else 's' }}</option>{% endfor %}</select><small>Requested control; effective VPS upload safety limit remains 1.</small></label></form>
 {% endif %}
       </div>
@@ -1360,7 +1363,7 @@
     </form>
 
     {% if p and p.channel_db_id %}
-    {% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+    {% if engine_instance == 'song' or (user.is_admin or engine_instance not in ['song','shortstudio','copyright']) %}
 <form id="lum-ae-resume-channel-profile" method="post" action="{{ base_path }}/actions/auto-v6/profile/resume" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ p.id }}"></form>
 {% endif %}
     {% endif %}
@@ -1375,27 +1378,27 @@
         <div class="lum-card-head"><div><h2>Thumbnail Library{% if p %} · {{ p.category_name }}{% endif %}</h2><p>Permanent VPS assets. PC and Drive thumbnails share the same rotation library.</p></div>{% if p %}<span class="lum-badge">{{ ae.thumbnails|selectattr('status','equalto','ACTIVE')|list|length }} active · {{ ae.thumbnails|length }} stored</span>{% endif %}</div>
         {% if p %}
         <div class="lum-ae-thumb-actions">
-          {% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+          {% if engine_instance == 'song' or (user.is_admin or engine_instance not in ['song','shortstudio','copyright']) %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/upload" enctype="multipart/form-data" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ p.id }}"><input type="file" name="files" accept=".jpg,.jpeg,.png,image/jpeg,image/png" multiple required><button class="lum-button primary" type="submit">Upload from PC</button></form>
 {% endif %}
-          {% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+          {% if engine_instance == 'song' or (user.is_admin or engine_instance not in ['song','shortstudio','copyright']) %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/sync-drive" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ p.id }}"><button class="lum-button secondary" type="submit">Sync Drive Thumbnails</button></form>
 {% endif %}
-          {% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+          {% if engine_instance == 'song' or (user.is_admin or engine_instance not in ['song','shortstudio','copyright']) %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/reset-rotation" data-lum-soft-form data-confirm="Reset this category rotation to thumbnail #1?"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="profile_id" value="{{ p.id }}"><button class="lum-button secondary" type="submit">Reset Rotation</button></form>
 {% endif %}
         </div>
         <div class="lum-ae-thumb-selectbar"><strong data-ae-thumb-count>0 selected</strong><button type="button" class="lum-link-button" data-ae-thumb-select-all>Select All</button><button type="button" class="lum-link-button" data-ae-thumb-clear>Clear</button>
-          {% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+          {% if engine_instance == 'song' or (user.is_admin or engine_instance not in ['song','shortstudio','copyright']) %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/status" data-lum-soft-form data-ae-thumb-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="status" value="ACTIVE"><button class="lum-button secondary tiny" type="submit">Enable</button></form>
 {% endif %}
-          {% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+          {% if engine_instance == 'song' or (user.is_admin or engine_instance not in ['song','shortstudio','copyright']) %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/status" data-lum-soft-form data-ae-thumb-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="status" value="DISABLED"><button class="lum-button secondary tiny" type="submit">Disable</button></form>
 {% endif %}
-          {% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+          {% if engine_instance == 'song' or (user.is_admin or engine_instance not in ['song','shortstudio','copyright']) %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/move" data-lum-soft-form data-ae-thumb-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><select name="target_profile_id" required><option value="">Move to category…</option>{% for pr in ae.profiles if pr.id != p.id %}<option value="{{ pr.id }}">{{ pr.category_name }}</option>{% endfor %}</select><button class="lum-button secondary tiny" type="submit">Move</button></form>
 {% endif %}
-          {% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+          {% if engine_instance == 'song' or (user.is_admin or engine_instance not in ['song','shortstudio','copyright']) %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/trash" data-lum-soft-form data-ae-thumb-form data-confirm="Move selected thumbnails to 7-day Trash? Live queued thumbnails are protected."><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button danger tiny" type="submit">Trash Selected</button></form>
 {% endif %}
         </div>
@@ -1408,9 +1411,9 @@
           </article>
           {% else %}<div class="lum-empty">No thumbnails stored for this category. Upload one or many from PC, or configure a Drive Thumbnail Folder and sync it.</div>{% endfor %}
         </div>
-        {% if ae.thumbnail_trash %}<details class="lum-ae-trash"><summary>Thumbnail Trash · {{ ae.thumbnail_trash|length }} item(s) · auto-purge after 7 days</summary><div class="lum-ae-trash-list">{% for t in ae.thumbnail_trash %}<div><span>{{ t.original_filename }}</span>{% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+        {% if ae.thumbnail_trash %}<details class="lum-ae-trash"><summary>Thumbnail Trash · {{ ae.thumbnail_trash|length }} item(s) · auto-purge after 7 days</summary><div class="lum-ae-trash-list">{% for t in ae.thumbnail_trash %}<div><span>{{ t.original_filename }}</span>{% if engine_instance == 'song' or user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/restore" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="asset_id" value="{{ t.id }}"><button class="lum-button secondary tiny" type="submit">Restore</button></form>
-{% endif %}</div>{% endfor %}</div><form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/empty-trash" data-lum-soft-form class="lum-ae-empty-trash"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label class="lum-field"><span>Permanent delete</span><input name="confirmation" placeholder="Type EMPTY TRASH" autocomplete="off"></label><button class="lum-button danger tiny" type="submit">Empty Trash</button></form></details>{% endif %}
+{% endif %}</div>{% endfor %}</div>{% if engine_instance != 'song' %}<form method="post" action="{{ base_path }}/actions/auto-v6/thumbnails/empty-trash" data-lum-soft-form class="lum-ae-empty-trash"><input type="hidden" name="csrf_token" value="{{ csrf }}"><label class="lum-field"><span>Permanent delete</span><input name="confirmation" placeholder="Type EMPTY TRASH" autocomplete="off"></label><button class="lum-button danger tiny" type="submit">Empty Trash</button></form>{% endif %}</details>{% endif %}
         {% else %}<div class="lum-empty">Save/select a profile to manage its category thumbnail library.</div>{% endif %}
       </section>
       <div class="lum-ae-lightbox" id="lum-ae-lightbox" hidden><button type="button" data-ae-close-preview>×</button><img alt="Thumbnail preview"></div>
@@ -1420,9 +1423,9 @@
     <div data-ae-panel="queue" hidden>
       
 
-      {% if ae.missed %}<section class="lum-card"><div class="lum-card-head"><div><h2>Missed Alarm Review</h2><p>PC “Ask” policy adapted for an unattended VPS.</p></div><span class="lum-badge warn">{{ ae.missed|length }} review</span></div>{% for m in ae.missed %}<div class="lum-ae-missed"><span>Profile #{{ m.profile_id }} · {{ m.alarm_date }} {{ m.alarm_time }} PKT · {{ m.delay_minutes }} min late</span>{% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+      {% if ae.missed %}<section class="lum-card"><div class="lum-card-head"><div><h2>Missed Alarm Review</h2><p>PC “Ask” policy adapted for an unattended VPS.</p></div><span class="lum-badge warn">{{ ae.missed|length }} review</span></div>{% for m in ae.missed %}<div class="lum-ae-missed"><span>Profile #{{ m.profile_id }} · {{ m.alarm_date }} {{ m.alarm_time }} PKT · {{ m.delay_minutes }} min late</span>{% if engine_instance != 'song' and (user.is_admin or engine_instance not in ['song','shortstudio','copyright']) %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/missed/run" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="missed_id" value="{{ m.id }}"><button class="lum-button tiny" type="submit">Run Now</button></form>
-{% endif %}{% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+{% endif %}{% if engine_instance == 'song' or (user.is_admin or engine_instance not in ['song','shortstudio','copyright']) %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/missed/skip" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="missed_id" value="{{ m.id }}"><button class="lum-button secondary tiny" type="submit">Skip Today</button></form>
 {% endif %}</div>{% endfor %}</section>{% endif %}
 
@@ -1456,7 +1459,7 @@
 
     <div data-ae-panel="records" hidden>
       <section class="lum-card">
-        <div class="lum-card-head"><div><h2>Permanent Upload Records</h2><p>One row per actual upload. Imported PC history remains visible, while the internal V6 safety ledger stays preserved in the background and is not double-counted.</p></div>{% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}<a class="lum-button secondary" href="{{ base_path }}/actions/auto-v6/upload-records.csv">Download CSV</a>{% endif %}</div>
+        <div class="lum-card-head"><div><h2>Permanent Upload Records</h2><p>One row per actual upload. Imported PC history remains visible, while the internal V6 safety ledger stays preserved in the background and is not double-counted.</p></div>{% if engine_instance != 'song' and (user.is_admin or engine_instance not in ['song','shortstudio','copyright']) %}<a class="lum-button secondary" href="{{ base_path }}/actions/auto-v6/upload-records.csv">Download CSV</a>{% endif %}</div>
         <div class="lum-note"><strong>Duplicate hard guards remain unchanged:</strong> PC Channel ID + exact normalized filename remains authoritative; V6 additionally blocks Channel ID + Drive File ID and Channel ID + script/permanent-ID stem. Safety-ledger rows are retained permanently but hidden when the same verified V6 upload receipt already exists.</div>
         <div class="lum-ae-record-stats"><div><span>Today</span><strong>{{ ae.record_stats.today or 0 }}</strong></div><div><span>Yesterday</span><strong>{{ ae.record_stats.yesterday or 0 }}</strong></div><div><span>7 days</span><strong>{{ ae.record_stats.days7 or 0 }}</strong></div><div><span>30 days</span><strong>{{ ae.record_stats.days30 or 0 }}</strong></div><div><span>90 days</span><strong>{{ ae.record_stats.days90 or 0 }}</strong></div><div><span>365 days</span><strong>{{ ae.record_stats.days365 or 0 }}</strong></div><div><span>All time</span><strong>{{ ae.record_stats.total or 0 }}</strong></div></div>
         <div class="lum-table-wrap"><table class="lum-table lum-ae-records"><thead><tr><th>Uploaded</th><th>Profile</th><th>Channel</th><th>Channel ID</th><th>Filename</th><th>Script Key</th><th>Drive File ID</th><th>YouTube</th><th>Thumbnail</th><th>Drive Result</th><th>State</th></tr></thead><tbody>
@@ -1473,11 +1476,11 @@
   {% elif tab == 'bulk_import' and engine_instance not in ['song', 'shortstudio'] %}
     <section class="lum-card"><div class="lum-card-head"><div><h2>Bulk Import</h2><p>Desktop feature retained behind a mode toggle. Current production remains single-project submission.</p></div><span class="lum-badge {{ 'good' if stats.settings.bulk_import_enabled=='1' else 'warn' }}">{{ 'Enabled' if stats.settings.bulk_import_enabled=='1' else 'Mode OFF' }}</span></div><div class="lum-disabled-grid"><label class="lum-field"><span>Import source</span><input disabled placeholder="Future bulk source"></label><label class="lum-field"><span>Target group</span><select disabled><option>Select group</option></select></label><button class="lum-button" disabled>Preview Import</button><button class="lum-button primary" disabled>Add to Queue</button></div><div class="lum-note">Bulk items will be expanded into independent single-video VPS projects rather than creating a second upload engine.</div></section>
   {% elif tab == 'queue' %}
-    <section class="lum-card"><div class="lum-card-head"><div><h2>Queue</h2><p>Crash-safe desktop upload states wrapped by Drive staging, remote verification and verified cleanup.</p></div><div class="lum-actions">{% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+    <section class="lum-card"><div class="lum-card-head"><div><h2>Queue</h2><p>Crash-safe desktop upload states wrapped by Drive staging, remote verification and verified cleanup.</p></div><div class="lum-actions">{% if engine_instance != 'song' and (user.is_admin or engine_instance not in ['song','shortstudio','copyright']) %}
 <form method="post" action="{{ base_path }}/actions/pause-after-current"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button" type="submit">Pause After Current</button></form>
-{% endif %}{% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+{% endif %}{% if engine_instance != 'song' and (user.is_admin or engine_instance not in ['song','shortstudio','copyright']) %}
 <form method="post" action="{{ base_path }}/actions/stop-current"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button danger" type="submit">Safe Stop Current</button></form>
-{% endif %}{% if user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
+{% endif %}{% if engine_instance != 'song' and (user.is_admin or engine_instance not in ['song','shortstudio','copyright']) %}
 <form method="post" action="{{ base_path }}/actions/resume"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="lum-button primary" type="submit">Resume</button></form>
 {% endif %}</div></div>{{ queue_table(False) }}</section>
   {% elif tab == 'logs' %}

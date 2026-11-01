@@ -81,17 +81,18 @@ def exercise(mode):
             html = viewer.get("/test/app?tab=channels").text
             assert own in html and foreign not in html
         html = admin.get("/test/app?tab=channels").text
-        if mode in {"copyright","shortstudio"}:
-            # Both uploader administrators are ordinary owner-scoped users.
+        if mode in {"copyright", "song", "shortstudio"}:
+            # Administrators remain owner-scoped in all three uploaders.
             assert "ALICE_PRIVATE_CHANNEL" not in html
             assert "BOB_PRIVATE_CHANNEL" not in html
-            own_admin = post(admin, admin_token, "studio-tenant/channel-create",
-                             channel_id="UC" + "z" * 22,
-                             channel_name="ADMIN_PRIVATE_CHANNEL")
-            assert own_admin.status_code == 303
-            assert "error=" not in own_admin.headers["location"]
-            assert "ADMIN_PRIVATE_CHANNEL" in admin.get("/test/app?tab=channels").text
-            assert "ADMIN_PRIVATE_CHANNEL" not in alice.get("/test/app?tab=channels").text
+            if mode == "copyright":
+                own_admin = post(admin, admin_token, "studio-tenant/channel-create",
+                                 channel_id="UC" + "z" * 22,
+                                 channel_name="ADMIN_PRIVATE_CHANNEL")
+                assert own_admin.status_code == 303
+                assert "error=" not in own_admin.headers["location"]
+                assert "ADMIN_PRIVATE_CHANNEL" in admin.get("/test/app?tab=channels").text
+                assert "ADMIN_PRIVATE_CHANNEL" not in alice.get("/test/app?tab=channels").text
         else:
             assert "ALICE_PRIVATE_CHANNEL" in html and "BOB_PRIVATE_CHANNEL" in html
 

@@ -29,6 +29,10 @@ def extracted(name: str, env: dict):
         type_ignores=[])
     scope = dict(env)
     scope.setdefault("Form", lambda value: value)
+    tenant = scope.get("studio_tenants")
+    if tenant is not None:
+        scope.setdefault("_studio_require", lambda kind, eid, user: tenant.require(kind, eid, user))
+        scope.setdefault("_studio_allowed_ids", lambda kind, user: tenant.allowed_ids(kind, user))
     ast.fix_missing_locations(module)
     exec(compile(module, str(BACKEND), "exec"), scope)
     return scope[name]
@@ -184,6 +188,7 @@ class SongNonAdminAutomation(TestCase):
             "os": os, "current_user": lambda req: {"username": "alice", "is_admin": 0},
             "require_csrf": lambda *args: None, "require_heavy": lambda *args: None,
             "_song_owned_automation_profiles": lambda req: owned,
+            "_song_member_queue_jobs": lambda req: [all_jobs[0]],
             "db": QueueDB(), "v6_store": object(), "v6_queue_preflight": preflight,
             "V6JSONResponse": lambda value, status_code=200: value,
         })
