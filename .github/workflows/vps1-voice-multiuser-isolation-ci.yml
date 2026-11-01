@@ -1,0 +1,39 @@
+name: VPS1 Voice multi-user isolation (offline)
+on:
+  pull_request:
+    paths:
+      - 'apps/voice-studio/**'
+      - 'apps/scene-builder/part01/app.py'
+      - 'apps/scene-builder/part01/templates/base.html'
+      - 'apps/scene-builder/part01/templates/user_management.html'
+      - 'apps/scene-builder/part01/static/vps1_native_site_shell.js'
+      - 'tests/test_voice_*'
+      - 'production/test_unified_sidebar_navigation.py'
+      - '.github/workflows/vps1-voice-multiuser-isolation-ci.yml'
+permissions:
+  contents: read
+jobs:
+  isolation-and-navigation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install offline API test dependencies
+        run: python -m pip install fastapi 'httpx>=0.27,<0.29' requests jinja2 pydantic python-multipart
+      - name: Multi-user queue/profile/download isolation
+        run: |
+          python -m unittest discover -s tests -p 'test_voice_tenant_isolation.py' -v
+          python -m unittest discover -s tests -p 'test_voice_tts_queue_http.py' -v
+          python -m unittest discover -s tests -p 'test_voice_output_naming_drive.py' -v
+      - name: Canonical Studio and Voice sidebar navigation
+        run: |
+          python -m unittest production.test_unified_sidebar_navigation -v
+          node --test tests/test_scene_native_sidebar_role.js
+      - name: No live VPS mutation
+        run: |
+          echo 'VOICE_MULTITENANT_OFFLINE_TESTS=COMPLETE'
+          echo 'VOICE_PRODUCTION_DEPLOY=NOT_AUTHORIZED'
+          echo 'AUTO_SCRIPT=OFFLINE'
