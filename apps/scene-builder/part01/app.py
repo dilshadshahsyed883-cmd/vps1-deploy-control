@@ -5347,6 +5347,12 @@ async def _vps1_voice_studio_proxy(request:_VSRequest,upstream_path:str):
             b"vps1_native_site_shell.css?v=1",
             b"vps1_native_site_shell.css?v=20261029-song-studio-v1",
         )
+    if studio == "song" and "application/json" in rct.lower():
+        # Existing downloader job JSON advertises root-relative local media URLs.
+        # Keep them inside the Song-owned authenticated facade, not Voice SSO.
+        content=content.replace(
+            b'"/tts/api/audio-downloader', b'"/audio-downloader/tts/api/audio-downloader',
+        )
     out={k:r.headers[k] for k in ("content-type","content-disposition","cache-control") if k in r.headers}
     return _VSResponse(content=content,status_code=r.status_code,headers=out)
 
