@@ -78,7 +78,7 @@ def verify_live(*, ui_only=False, assignment_only=False, fixed_modes_only=False,
         status,_,body=https_get('/short-uploader/app?tab=channels',cookie)
         require(status==200,'owner parity Channels readback failed')
         channels=body.decode('utf-8')
-        require('Accounts &amp; Tokens' in channels and
+        require(('Accounts &amp; Tokens' in channels or 'Accounts & Tokens' in channels) and
                 'Set / Replace Shared Client' not in channels and
                 'Shared OAuth client is managed by an administrator' not in channels and
                 'data-lum-auth-section="verify"' in channels,
