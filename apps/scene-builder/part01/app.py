@@ -2082,12 +2082,12 @@ def _audio_downloader_canonical_html(payload: bytes) -> bytes:
     rewrites = (
         (
             b"(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/audio-downloader'",
-            b"'/voice-studio/tts/api/audio-downloader'",
+            b"'/audio-downloader/tts/api/audio-downloader'",
             1,
         ),
         (
             b"(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/audio-downloader/proxy'",
-            b"'/voice-studio/tts/api/audio-downloader/proxy'",
+            b"'/audio-downloader/tts/api/audio-downloader/proxy'",
             1,
         ),
         (
