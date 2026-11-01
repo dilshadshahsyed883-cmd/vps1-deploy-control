@@ -5299,7 +5299,7 @@ async def _vps1_voice_studio_proxy(request:_VSRequest,upstream_path:str):
         raise HTTPException(403, "Voice Studio access required")
     body=await request.body()
     url=_VS_UPSTREAM+"/"+upstream_path.lstrip("/")
-    headers={}
+    headers={"Cookie": request.headers.get("cookie", "")}
     ct=request.headers.get("content-type")
     if ct:
         headers["content-type"]=ct
