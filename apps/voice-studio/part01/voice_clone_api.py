@@ -866,7 +866,7 @@ def test_worker_generation(profile_id: str = Query(min_length=8, max_length=64))
     if not probe["ok"]:
         return {"ok": False, "error": probe.get("error") or "worker_offline", **probe}
     with db() as con:
-        row = con.execute("SELECT * FROM profiles WHERE profile_id=?", (profile_id,)).fetchone()
+        row = con.execute("SELECT * FROM profiles WHERE profile_id=? AND owner_username=?", (profile_id,owner())).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Voice profile not found")
     sample = SAMPLES_DIR / str(row["sample_file"])
@@ -1335,7 +1335,7 @@ def approve_omnivoice_design_preview(preview_id: str, payload: OmniVoiceDesignAp
                     owner(),
                 ),
             )
-            row = con.execute("SELECT * FROM profiles WHERE profile_id=?", (profile_id,)).fetchone()
+            row = con.execute("SELECT * FROM profiles WHERE profile_id=? AND owner_username=?", (profile_id,owner())).fetchone()
     except Exception:
         sample_path.unlink(missing_ok=True)
         raise
@@ -1380,7 +1380,7 @@ def test_omnivoice_generation(profile_id: str = Query(min_length=8, max_length=6
     if not probe["ok"]:
         return {"ok": False, "error": probe.get("error") or "worker_offline", **probe}
     with db() as con:
-        row = con.execute("SELECT * FROM profiles WHERE profile_id=?", (profile_id,)).fetchone()
+        row = con.execute("SELECT * FROM profiles WHERE profile_id=? AND owner_username=?", (profile_id,owner())).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Voice profile not found")
     sample = SAMPLES_DIR / str(row["sample_file"])
@@ -1544,7 +1544,7 @@ def create_profile(payload: CloneProfileCreate):
                     payload.reference_language.strip() or "auto", reference_text, engine_pref, owner()
                 )
             )
-            row = con.execute("SELECT * FROM profiles WHERE profile_id=?", (profile_id,)).fetchone()
+            row = con.execute("SELECT * FROM profiles WHERE profile_id=? AND owner_username=?", (profile_id,owner())).fetchone()
         return {"ok": True, "profile": _profile_payload(row)}
     except Exception:
         sample_path.unlink(missing_ok=True)
