@@ -62,7 +62,10 @@ jobs:
               > "$scratch/installer.log" 2>&1; then
               cat "$scratch/installer.log"
               # Distinguish a validated owner handover from a working YouTube canary.
-              if grep -Fq '"result": "PASS_VIDEO_MERGER_OWNER_HANDOVER_YOUTUBE_AUTH_BLOCKED"' "$scratch/installer.log"; then
+              if grep -Fq '"result": "PASS_VIDEO_MERGER_REVIEWED_GDOWN_YOUTUBE_AUTH_BLOCKED"' "$scratch/installer.log"; then
+                echo 'VIDEO_MERGER_GDOWN_READONLY_FIX=VERIFIED'
+                echo 'YOUTUBE=UPSTREAM_AUTH_BLOCKED_NOT_VERIFIED'
+              elif grep -Fq '"result": "PASS_VIDEO_MERGER_OWNER_HANDOVER_YOUTUBE_AUTH_BLOCKED"' "$scratch/installer.log"; then
                 echo 'VIDEO_MERGER_OWNER_HANDOVER=VERIFIED'
                 echo 'YOUTUBE=UPSTREAM_AUTH_BLOCKED_NOT_VERIFIED'
               else

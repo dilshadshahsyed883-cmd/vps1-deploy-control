@@ -232,6 +232,29 @@ def owner_handover_only_change(previous_source, candidate_source):
     return approved_unmodified_tree(previous_source) == approved_unmodified_tree(candidate_source)
 
 
+def reviewed_drive_cookie_only_change(previous_source, candidate_source):
+    """Only the exact public gdown no-cookie fix may pass the known external auth gate."""
+    previous, candidate = Path(previous_source), Path(candidate_source)
+    for path in (previous, candidate):
+        require(path.is_file() and not path.is_symlink(),
+                'Video Merger source missing or linked')
+    old = "run(downloader_command('gdown')+['--fuzzy',url,'-O',str(dst)],timeout=7200)"
+    fixed = "run(downloader_command('gdown')+['--fuzzy','--no-cookies',url,'-O',str(dst)],timeout=7200)"
+    previous_text = previous.read_text(encoding='utf-8')
+    candidate_text = candidate.read_text(encoding='utf-8')
+    if (previous_text.count(old)!=1 or previous_text.count(fixed)!=0 or
+            candidate_text.count(fixed)!=1 or candidate_text.count(old)!=0):
+        return False
+    def protected_ast(source):
+        tree=ast.parse(source)
+        remaining=[node for node in tree.body if not (
+            isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef,ast.ClassDef))
+            and node.name in OWNER_HANDOVER_NODES)]
+        return ast.dump(ast.Module(body=remaining,type_ignores=[]),
+                        include_attributes=False)
+    return protected_ast(previous_text)==protected_ast(candidate_text.replace(fixed,old,1))
+
+
 def install(revision):
     require(re.fullmatch('[a-f0-9]{40}',revision),'invalid revision')
     app='video-merger'
@@ -295,10 +318,11 @@ def install(revision):
     # known upstream authentication challenge can be recorded as degraded only
     # if every non-handover AST node matches the currently running release.
     handover_only = owner_handover_only_change(previous/name,target/name)
+    drive_cookie_only = reviewed_drive_cookie_only_change(previous/name,target/name)
     smoke_cmd = ['/usr/sbin/runuser','-u','ubuntu','--',python,'-m',
                  'production.video_merger_import_smoke','--source',target/name,
                  '--state',state,'--proxy-config',proxy_config]
-    if handover_only:
+    if handover_only or drive_cookie_only:
         smoke_cmd.append('--allow-known-external-auth')
     smoke_text = run(smoke_cmd,cwd=REPO,timeout=1800,quiet=False)
     try:
@@ -310,11 +334,13 @@ def install(revision):
             'Video Merger real Drive and Library smoke must pass')
     youtube_state = smoke_result.get('youtube')
     youtube_degraded = (youtube_state == 'UPSTREAM_AUTH_BLOCKED' and
-                        handover_only and
+                        (handover_only or drive_cookie_only) and
                         smoke_result.get('youtube_external_auth_blocked') is True)
     require(youtube_state=='PASS' or youtube_degraded,
             'Video Merger YouTube smoke failed; do not promote')
-    result_label = ('PASS_VIDEO_MERGER_OWNER_HANDOVER_YOUTUBE_AUTH_BLOCKED'
+    result_label = ('PASS_VIDEO_MERGER_REVIEWED_GDOWN_YOUTUBE_AUTH_BLOCKED'
+                    if youtube_degraded and drive_cookie_only else
+                    'PASS_VIDEO_MERGER_OWNER_HANDOVER_YOUTUBE_AUTH_BLOCKED'
                     if youtube_degraded else 'PASS_VIDEO_MERGER_IMPORTS')
     if activation:
         require(proxy_config.read_bytes()==activation['before'],
@@ -353,9 +379,11 @@ def install(revision):
                     b'id="tab-queue"' in page and b'class="vm-merge-layout"' in page,
                     'authenticated Queue/two-column UI readback failed')
         atomic_json(journal/'result.json',{'status':'ACTIVE','youtube':youtube_state,
-                  'drive':'PASS','data':'PRESERVED','owner_handover_only':handover_only})
+                  'drive':'PASS','data':'PRESERVED','owner_handover_only':handover_only,
+                  'reviewed_drive_cookie_only':drive_cookie_only})
         event(app=app,result=result_label,revision=revision,data='PRESERVED',
               youtube=youtube_state,drive='PASS',
+              reviewed_drive_cookie_only=drive_cookie_only,
               proxy_activation='ENABLED' if proxy_changed else 'UNCHANGED',
               rollback=str(journal))
     except BaseException:
