@@ -289,6 +289,7 @@ async def standalone_auth(request: Request, call_next):
     ):
         return JSONResponse({"detail": "Automatic uploader engine is disabled for Copyright Studio"}, status_code=404)
     if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" and request.method not in {"GET", "HEAD"} and path in {
+        route("/actions/google-oauth/configure"), route("/actions/channels/json-upload"),
         route("/actions/pause-after-current"), route("/actions/resume"), route("/actions/stop-current"),
     }:
         return JSONResponse({"detail": "Copyright queues are owner-scoped; global controls are disabled"}, status_code=404)
@@ -332,7 +333,8 @@ async def standalone_auth(request: Request, call_next):
                 route("/actions/copyright/queue/bulk"),route("/actions/copyright/queue/remove"),
                 route("/actions/channels/status"),route("/actions/channels/delete-manual"),
                 route("/actions/channels/rescan-tokens"),route("/actions/channels/test-connections"),
-                route("/actions/copyright/profile")}
+                route("/actions/copyright/profile"),route("/actions/copyright/profile/update"),
+                route("/actions/copyright/profile/delete")}
             allowed_prefixes=(route("/actions/retry/"),route("/actions/authorize-fresh/"),
                 route("/actions/cancel/"),route("/actions/channel-network/"),
                 route("/actions/copyright/metadata/"))
@@ -791,6 +793,33 @@ async def copyright_add_profile(
         return redirect("/app?tab=profiles", message="Upload profile saved")
     except ValueError as exc:
         return redirect("/app?tab=profiles", error=str(exc))
+
+
+@app.post(route("/actions/copyright/profile/update"))
+def copyright_update_profile(
+    request: Request, csrf_token: str = Form(...), profile_id: int = Form(...),
+    profile_name: str = Form(...), group_name: str = Form(""),
+    metadata_source: str = Form("manual"),
+):
+    user = current_user(request); require_csrf(request, csrf_token)
+    if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+        raise HTTPException(404,"Not found")
+    try:
+        if not store.update_copyright_profile(str(user["username"]),profile_id,profile_name,group_name,metadata_source):
+            raise PermissionError("Profile does not belong to this account")
+        return redirect("/app?tab=profiles",message="Your profile updated")
+    except (ValueError, PermissionError) as exc:
+        return redirect("/app?tab=profiles",error=str(exc))
+
+
+@app.post(route("/actions/copyright/profile/delete"))
+def copyright_delete_profile(request: Request,csrf_token: str = Form(...), profile_id: int = Form(...)):
+    user = current_user(request); require_csrf(request,csrf_token)
+    if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+        raise HTTPException(404,"Not found")
+    if not store.delete_copyright_profile(str(user["username"]),profile_id):
+        return redirect("/app?tab=profiles",error="Profile does not belong to this account")
+    return redirect("/app?tab=profiles",message="Saved profile deleted; queued videos and upload history preserved")
 
 
 @app.post(route("/actions/add-video"))
