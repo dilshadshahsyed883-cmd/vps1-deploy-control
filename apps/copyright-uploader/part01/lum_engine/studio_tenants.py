@@ -165,12 +165,10 @@ class StudioTenants:
                 (gid,owner))
             return gid
 
-    def sync_owned_sheet_rows(self, username, sheet_id, rows):
-        """Atomic tenant-safe first-tab reconciliation, no global group/token writes.
-
-        Google Drive, token files and existing OAuth remain unchanged. Legacy
-        or another account's channel ID always blocks the entire transaction.
-        Groups are managed by the owner's separate group UI.
+    def sync_owned_sheet_rows(self, username, sheet_id, rows, *, sync_sheet_groups=False):
+        """Atomically reconcile only this account's Sheet channels and, for
+        Copyright, the groups listed in the same rows. Never modify other
+        owners' memberships, OAuth, token files, queues or manual groups.
         """
         owner=self.username(username)
         source_id=int(sheet_id)
@@ -193,7 +191,17 @@ class StudioTenants:
             elif not re.fullmatch(r"UC[A-Za-z0-9_-]{22}",channel_id):
                 raise ValueError("Sheet channel ID must be a verified UC ID or a provisional row")
             notes=str(getattr(raw,"notes","") or "").strip()[:500]
-            prepared.append((key,channel_id,name,email,notes))
+            group_names=()
+            if sync_sheet_groups:
+                parts=[re.sub(r"\\s+"," ",part).strip() for part in
+                       re.split(r"[,;|]+",str(getattr(raw,"group","") or ""))]
+                group_names=tuple(dict.fromkeys(
+                    part for part in parts if part and
+                    part.casefold() not in {"none","no","na","n/a","-"}))
+                if any(len(part)>70 or any(ord(ch)<32 for ch in part)
+                       for part in group_names):
+                    raise ValueError("Sheet group name must be 1-70 printable characters")
+            prepared.append((key,channel_id,name,email,notes,group_names))
         if not prepared:
             raise ValueError("Google Sheet returned zero usable rows; no changes applied")
 
@@ -207,7 +215,8 @@ class StudioTenants:
             if not source or not assigned or str(assigned[0]).casefold()!=owner:
                 raise PermissionError("Sheet source is not owned by this account")
             updates=0
-            for key,ucid,name,email,notes in prepared:
+            sheet_group_targets=[]
+            for key,ucid,name,email,notes,group_names in prepared:
                 by_row=con.execute(
                     "SELECT id,channel_id FROM channels WHERE sheet_source_id=? AND sheet_row_key=?",
                     (source_id,key)).fetchone()
@@ -254,18 +263,97 @@ class StudioTenants:
                         (entity_kind,entity_id,owner_username) VALUES ('channel',?,?)""",
                         (cid,owner))
                 updates+=1
+                if sync_sheet_groups:
+                    sheet_group_targets.extend((cid,name) for name in group_names)
             keys=[entry[0] for entry in prepared]
             placeholders=",".join("?" for _ in keys)
-            # No queue/history deletion, token rotation or group mutation.
+            # No queue/history deletion or token rotation.
             removed=con.execute("""UPDATE channels SET sheet_present=0
                 WHERE sheet_source_id=? AND COALESCE(sheet_row_key,'') NOT IN ("""+
                 placeholders+""") AND COALESCE(sheet_present,1)<>0""",
                 (source_id,*keys)).rowcount
+            groups_touched=0
+            memberships_updated=0
+            if sync_sheet_groups and sheet_group_targets:
+                # Track ONLY memberships created by this Sheet, so a later sync
+                # cannot delete manually assigned or another Sheet's groups.
+                con.execute("""CREATE TABLE IF NOT EXISTS studio_sheet_group_links (
+                    sheet_id INTEGER NOT NULL,
+                    group_id INTEGER NOT NULL,
+                    channel_db_id INTEGER NOT NULL,
+                    PRIMARY KEY(sheet_id,group_id,channel_db_id)
+                )""")
+                from desktop_core.modules.google_sheet_sync import smart_group_name
+                known_owned=[str(r[0]) for r in con.execute("""
+                    SELECT g.group_name FROM channel_groups g
+                    JOIN studio_entity_owners o ON o.entity_kind='group'
+                      AND o.entity_id=g.id AND o.owner_username=? COLLATE NOCASE
+                    ORDER BY g.id""",(owner,))]
+                cache={}
+                desired=set()
+                for channel_db_id,raw_name in sheet_group_targets:
+                    canonical,_=smart_group_name(raw_name,known_owned)
+                    if not canonical:
+                        continue
+                    label=canonical
+                    if len(label)>80:
+                        raise ValueError("Sheet group name exceeds 80 characters")
+                    for _attempt in range(2):
+                        existing=con.execute("""SELECT g.id,o.owner_username FROM channel_groups g
+                            LEFT JOIN studio_entity_owners o ON
+                              o.entity_kind='group' AND o.entity_id=g.id
+                            WHERE g.group_name=? COLLATE NOCASE""",(label,)).fetchone()
+                        if not existing or (existing[1] and str(existing[1]).casefold()==owner):
+                            break
+                        # Group names are globally unique in legacy SQLite.
+                        # A same-named foreign/legacy group must never be claimed.
+                        suffix=" ("+owner[:18]+")"
+                        label=canonical[:80-len(suffix)]+suffix
+                    else:
+                        raise PermissionError("Sheet group name conflicts with a foreign group")
+                    key_name=label.casefold()
+                    if key_name not in cache:
+                        if existing:
+                            group_id=int(existing[0])
+                        else:
+                            cur=con.execute("""INSERT INTO channel_groups(group_name,notes)
+                                VALUES (?,?)""",(label,"Created from owned Copyright Sheet sync"))
+                            group_id=int(cur.lastrowid)
+                            con.execute("""INSERT INTO studio_entity_owners
+                                (entity_kind,entity_id,owner_username) VALUES ('group',?,?)""",
+                                (group_id,owner))
+                        cache[key_name]=group_id
+                        known_owned.append(label)
+                    desired.add((cache[key_name],int(channel_db_id)))
+                previous={(int(r[0]),int(r[1])) for r in con.execute("""
+                    SELECT group_id,channel_db_id FROM studio_sheet_group_links
+                    WHERE sheet_id=?""",(source_id,))}
+                for gid,cid in previous-desired:
+                    used_elsewhere=con.execute("""SELECT 1 FROM studio_sheet_group_links
+                        WHERE sheet_id<>? AND group_id=? AND channel_db_id=?""",
+                        (source_id,gid,cid)).fetchone()
+                    if not used_elsewhere:
+                        con.execute("""DELETE FROM channel_group_members
+                            WHERE group_id=? AND channel_db_id=?""",(gid,cid))
+                        memberships_updated+=1
+                tracked=previous & desired
+                for gid,cid in desired:
+                    cur=con.execute("""INSERT OR IGNORE INTO channel_group_members
+                        (group_id,channel_db_id) VALUES (?,?)""",(gid,cid))
+                    if cur.rowcount:
+                        tracked.add((gid,cid))
+                        memberships_updated+=1
+                con.execute("DELETE FROM studio_sheet_group_links WHERE sheet_id=?",(source_id,))
+                con.executemany("""INSERT INTO studio_sheet_group_links
+                    (sheet_id,group_id,channel_db_id) VALUES (?,?,?)""",
+                    [(source_id,gid,cid) for gid,cid in sorted(tracked)])
+                groups_touched=len({gid for gid,_ in desired})
             con.execute("""UPDATE sheet_sources SET last_sync_at=CURRENT_TIMESTAMP,
                 last_sync_status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?""",
-                (f"OWNED_SYNC: rows={updates} hidden={removed}",source_id))
+                (f"OWNED_SYNC: rows={updates} hidden={removed} groups={groups_touched}",source_id))
             return {"ok":True,"rows":updates,"updated":updates,"hidden_removed":removed,
-                    "groups_touched":0,"source_id":source_id}
+                    "groups_touched":groups_touched,
+                    "memberships_updated":memberships_updated,"source_id":source_id}
 
     def delete_owned_sheet(self, username, sheet_id):
         """Detach only owned channels; do not delete media, groups or tokens."""
