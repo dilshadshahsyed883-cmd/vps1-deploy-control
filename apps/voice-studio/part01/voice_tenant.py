@@ -16,7 +16,8 @@ from fastapi import HTTPException
 
 _USER: ContextVar[str] = ContextVar("voice_owner", default="")
 _ADMIN: ContextVar[bool] = ContextVar("voice_admin", default=False)
-_IDENTITY_URL = "http://127.0.0.1:8888/api/session/identity"
+# Read the real Scene app, NOT the legacy Basic-Auth gateway on 8888.
+_IDENTITY_URL = "http://127.0.0.1:18080/api/session/identity"
 _OWNER_PATTERN = re.compile(r"[A-Za-z0-9_.-]{3,40}")
 
 
