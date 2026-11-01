@@ -78,6 +78,22 @@ class SongUploaderSettingsContract(TestCase):
             self.assertEqual(store.saved["drive_delete_source_after_verified"], "0")
             self.assertEqual(response[0], "/app?tab=dashboard")
 
+    def test_song_release_verifies_current_dashboard_without_retired_save_modes(self):
+        release = (ROOT / "production/song_uploader_group_summary_release.py").read_text(
+            encoding="utf-8")
+        source = TEMPLATE.read_text(encoding="utf-8")
+        dashboard = source[source.index("{% elif tab == 'dashboard' %}"):
+                           source.index("{% elif tab == 'channels' %}")]
+        self.assertIn('<h2>Serial engine</h2>', dashboard)
+        self.assertIn('class="lum-metrics"', dashboard)
+        self.assertIn("'data-engine-instance=\"song\"' in dashboard_html", release)
+        self.assertIn("'class=\"lum-metrics\"' in dashboard_html", release)
+        self.assertIn("'>Save modes</button>' not in dashboard_html", release)
+        self.assertIn("'<h2>Uploader modes</h2>' not in dashboard_html", release)
+        self.assertNotIn("'>Save modes</button>' in dashboard_html", release)
+        self.assertIn("Song Uploader Dashboard still displays VPS Reports", release)
+        self.assertIn("anonymous route protection failed", release)
+
     def test_scene_candidate_permits_only_real_song_settings_post(self):
         tree = ast.parse(POLICY.read_text(encoding="utf-8"))
         namespace = {}
