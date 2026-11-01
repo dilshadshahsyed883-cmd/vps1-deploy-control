@@ -1314,6 +1314,8 @@ def channels_rescan_tokens(
             studio_tenants.require("channel",channel_id,user)
         ids=(sorted(studio_tenants.allowed_ids("channel",user)) if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio" and str(scope).lower()=="all_missing" else
              None if str(scope).lower()=="all_missing" else channel_ids)
+        if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio" and not ids:
+            return redirect("/app?tab=channels",message="No owned channels selected for token scan.")
         result=rescan_channel_tokens(db, ids)
         return redirect(
             "/app?tab=channels",
@@ -1794,15 +1796,17 @@ def auto_v6_profile_resume(request: Request,csrf_token: str=Form(...),profile_id
 def auto_v6_job_upload_now(request: Request,csrf_token: str=Form(...),video_id: int=Form(...)):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
     vid=int(video_id); meta=v6_store.channel_job_meta(vid)
-    member=(os.getenv("LUM_ENGINE_INSTANCE")=="song" and not int(user.get("is_admin") or 0))
+    short_owner=os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio"
+    member=short_owner or (os.getenv("LUM_ENGINE_INSTANCE")=="song" and not int(user.get("is_admin") or 0))
     if member:
         try:
-            verified=_song_member_queue_jobs(request,[vid])
+            verified=(_short_owned_queue_jobs(request,[vid]) if short_owner
+                      else _song_member_queue_jobs(request,[vid]))
             if len(verified)!=1:
                 raise PermissionError("Job is not available to this account")
             if not meta or int(meta.get("profile_id") or 0)!=int(verified[0].get("auto_engine_profile_id") or 0):
                 raise PermissionError("Job metadata does not match its owned profile")
-            _song_member_engine_guard()
+            if not short_owner: _song_member_engine_guard()
         except Exception as exc:
             return redirect("/app?tab=auto_engine",error=str(exc))
     if meta: _v6_profile(int(meta["profile_id"]),request)
@@ -1818,7 +1822,8 @@ def auto_v6_job_upload_now(request: Request,csrf_token: str=Form(...),video_id: 
         con.execute("UPDATE videos SET status='QUEUED',app_upload_at=NULL,created_at='1970-01-01 00:00:00',error_message='',updated_at=CURRENT_TIMESTAMP WHERE id=?",(vid,))
     if member:
         try:
-            _song_member_start_scoped(request,{int(meta["profile_id"])})
+            if short_owner: _short_owner_start_scoped(request,{int(meta["profile_id"])})
+            else: _song_member_start_scoped(request,{int(meta["profile_id"])})
         except Exception as exc:
             return redirect("/app?tab=auto_engine",error=str(exc))
     else:
