@@ -29,6 +29,10 @@ def extracted(name: str, env: dict):
         type_ignores=[])
     scope = dict(env)
     scope.setdefault("Form", lambda value: value)
+    tenant = scope.get("studio_tenants")
+    if tenant is not None:
+        scope.setdefault("_studio_require", lambda kind, eid, user: tenant.require(kind, eid, user))
+        scope.setdefault("_studio_allowed_ids", lambda kind, user: tenant.allowed_ids(kind, user))
     ast.fix_missing_locations(module)
     exec(compile(module, str(BACKEND), "exec"), scope)
     return scope[name]
