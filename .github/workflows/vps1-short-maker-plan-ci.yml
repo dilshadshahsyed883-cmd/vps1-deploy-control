@@ -5,6 +5,7 @@ on:
       - 'apps/short-maker/**'
       - 'tests/test_short_maker_plan_ui.py'
       - 'tests/test_short_maker_ready_video_uploads.py'
+      - 'tests/test_short_maker_verified_inventory.py'
       - '.github/workflows/vps1-short-maker-plan-ci.yml'
   workflow_dispatch:
 permissions:
@@ -25,6 +26,7 @@ jobs:
           python -m py_compile apps/short-maker/part01/app.py apps/short-maker/part01/ready_video_uploads.py
           python -m unittest discover -s tests -p 'test_short_maker_plan_ui.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_ready_video_uploads.py' -v
+          python -m unittest discover -s tests -p 'test_short_maker_verified_inventory.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_handover.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_resume.py' -v
       - name: Auto Script remains offline
