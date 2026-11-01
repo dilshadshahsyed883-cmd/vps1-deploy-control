@@ -461,6 +461,31 @@ class ProjectStore:
                 raise ValueError("Profile name already exists") from exc
             return int(cur.lastrowid)
 
+    def update_copyright_profile(self, owner: str, profile_id: int, name: str,
+                                 group: str, metadata_source: str) -> bool:
+        if not name.strip() or len(name) > 100 or len(group) > 120:
+            raise ValueError("Valid profile name and group are required")
+        if metadata_source not in {"manual", "sheets"}:
+            raise ValueError("Unsupported metadata source")
+        with self.connect() as conn:
+            try:
+                changed = conn.execute("""
+                    UPDATE copyright_profiles
+                    SET profile_name=?,group_name=?,metadata_source=?
+                    WHERE id=? AND owner_username=? COLLATE NOCASE
+                """, (name.strip(), group.strip(), metadata_source,int(profile_id),owner)).rowcount
+            except sqlite3.IntegrityError as exc:
+                raise ValueError("Profile name already exists") from exc
+        return changed == 1
+
+    def delete_copyright_profile(self, owner: str, profile_id: int) -> bool:
+        """Only remove saved configuration; queued/uploaded projects remain intact."""
+        with self.connect() as conn:
+            changed=conn.execute(
+                "DELETE FROM copyright_profiles WHERE id=? AND owner_username=? COLLATE NOCASE",
+                (int(profile_id),owner)).rowcount
+        return changed == 1
+
     def copyright_profile(self, owner: str, profile_id: int) -> dict[str, Any] | None:
         with self.connect() as conn:
             row = conn.execute(
