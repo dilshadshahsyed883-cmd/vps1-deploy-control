@@ -1194,6 +1194,19 @@ def _omnivoice_design_endpoint() -> tuple[str, dict[str, str], int]:
     return worker, {"Content-Type": "application/json", **omnivoice_auth_headers()}, int(cfg.get("request_timeout") or 300)
 
 
+def _require_design_preview_owner(preview_id: str) -> str:
+    preview_id = _safe_omnivoice_preview_id(preview_id)
+    init_storage()
+    with db() as con:
+        row = con.execute(
+            "SELECT 1 FROM voice_design_preview_owners WHERE preview_id=? AND owner_username=?",
+            (preview_id, owner()),
+        ).fetchone()
+    if not row:
+        raise HTTPException(404, "Voice design preview not found")
+    return preview_id
+
+
 @router.post("/tts/api/clone/omnivoice/design/preview")
 def create_omnivoice_design_preview(payload: OmniVoiceDesignPreviewPayload):
     init_storage()
@@ -1221,12 +1234,22 @@ def create_omnivoice_design_preview(payload: OmniVoiceDesignPreviewPayload):
         if resp.status_code == 404:
             detail = "Updated OmniVoice runtime with Voice Design API is not deployed yet"
         raise HTTPException(status_code=502, detail=detail or f"OmniVoice preview HTTP {resp.status_code}")
-    return resp.json()
+    result = resp.json()
+    candidate = result.get("preview") if isinstance(result, dict) else None
+    candidate = candidate if isinstance(candidate, dict) else {}
+    preview_id = str(result.get("preview_id") or candidate.get("preview_id") or candidate.get("id") or "") if isinstance(result, dict) else ""
+    preview_id = _safe_omnivoice_preview_id(preview_id)
+    with db() as con:
+        con.execute(
+            "INSERT INTO voice_design_preview_owners(preview_id,owner_username) VALUES(?,?)",
+            (preview_id,owner()),
+        )
+    return result
 
 
 @router.get("/tts/api/clone/omnivoice/design/previews/{preview_id}")
 def get_omnivoice_design_preview(preview_id: str):
-    preview_id = _safe_omnivoice_preview_id(preview_id)
+    preview_id = _require_design_preview_owner(preview_id)
     worker, headers, _ = _omnivoice_design_endpoint()
     resp = requests.get(worker + f"/v1/voice-design/previews/{preview_id}", headers=headers, timeout=20)
     if resp.status_code >= 400:
@@ -1236,7 +1259,7 @@ def get_omnivoice_design_preview(preview_id: str):
 
 @router.get("/tts/api/clone/omnivoice/design/previews/{preview_id}/audio")
 def get_omnivoice_design_preview_audio(preview_id: str):
-    preview_id = _safe_omnivoice_preview_id(preview_id)
+    preview_id = _require_design_preview_owner(preview_id)
     worker, headers, _ = _omnivoice_design_endpoint()
     resp = requests.get(worker + f"/v1/voice-design/previews/{preview_id}/audio", headers=headers, timeout=60)
     if resp.status_code >= 400:
@@ -1246,18 +1269,20 @@ def get_omnivoice_design_preview_audio(preview_id: str):
 
 @router.delete("/tts/api/clone/omnivoice/design/previews/{preview_id}")
 def delete_omnivoice_design_preview(preview_id: str):
-    preview_id = _safe_omnivoice_preview_id(preview_id)
+    preview_id = _require_design_preview_owner(preview_id)
     worker, headers, _ = _omnivoice_design_endpoint()
     resp = requests.delete(worker + f"/v1/voice-design/previews/{preview_id}", headers=headers, timeout=20)
     if resp.status_code not in {200, 204, 404}:
         raise HTTPException(status_code=502, detail=_omnivoice_remote_detail(resp) or "Preview cleanup failed")
+    with db() as con:
+        con.execute("DELETE FROM voice_design_preview_owners WHERE preview_id=? AND owner_username=?", (preview_id,owner()))
     return {"ok": True, "deleted": resp.status_code != 404, "preview_id": preview_id}
 
 
 @router.post("/tts/api/clone/omnivoice/design/previews/{preview_id}/approve")
 def approve_omnivoice_design_preview(preview_id: str, payload: OmniVoiceDesignApprovePayload):
     init_storage()
-    preview_id = _safe_omnivoice_preview_id(preview_id)
+    preview_id = _require_design_preview_owner(preview_id)
     worker, headers, timeout = _omnivoice_design_endpoint()
 
     meta_resp = requests.get(worker + f"/v1/voice-design/previews/{preview_id}", headers=headers, timeout=20)
@@ -1290,8 +1315,8 @@ def approve_omnivoice_design_preview(preview_id: str, payload: OmniVoiceDesignAp
         with db() as con:
             con.execute(
                 "INSERT INTO profiles(profile_id,name,source_filename,sample_file,sample_sha256,duration_seconds,"
-                "provenance_note,consent_confirmed,created_at,reference_language,reference_text,engine_pref,profile_type,design_prompt) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "provenance_note,consent_confirmed,created_at,reference_language,reference_text,engine_pref,profile_type,design_prompt,owner_username) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     profile_id,
                     payload.name.strip(),
@@ -1307,6 +1332,7 @@ def approve_omnivoice_design_preview(preview_id: str, payload: OmniVoiceDesignAp
                     "omnivoice",
                     "designed",
                     design_prompt,
+                    owner(),
                 ),
             )
             row = con.execute("SELECT * FROM profiles WHERE profile_id=?", (profile_id,)).fetchone()
