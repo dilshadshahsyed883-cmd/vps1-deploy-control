@@ -1,0 +1,9 @@
+VPS_1 Short Uploader-only owner-private OAuth/PC token JSON Vault guarded production activation
+Source PR: #623 (main 0ce77d44d30fdffe194be01ef8647d062c00ff3d)
+Release selector: [vps1-short-studio-release] [vps1-shortstudio-oauth-vault]
+Scope: local-upload-manager isolated Short Uploader instance, port 8019; install only template/standalone/oauth_web/song_vault/browser vault uploader.
+Security: admin/member same controls, own-account tokens only; server shared service client remains a read-only fallback. No 50-token file-count cap; browser chunks large selections into requests, with per-file validation and owner checks.
+Preflight: protected main; mandatory offline CI; serialized pinned Tailscale identity; no busy uploads; sufficient disk; existing Short units; immutable source.
+Guarded release: SQLite backup, existing systemd metadata, authenticated page readback, health; rollback units/source/data from backup if failed. No automatic upload start.
+No Song/Copyright/Short Maker/other unit deployment. Auto Script OFFLINE.
+Live separate admin/member authenticated readback remains explicitly required after release.
