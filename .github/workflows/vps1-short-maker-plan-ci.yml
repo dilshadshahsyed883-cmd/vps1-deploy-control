@@ -29,5 +29,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_short_maker_verified_inventory.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_handover.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_resume.py' -v
+      - name: Check browser resumable uploader JavaScript syntax
+        run: node --check apps/short-maker/part01/ready_video_client.js
       - name: Auto Script remains offline
         run: grep -q 'Auto Script stays OFFLINE' apps/short-maker/part01/app.py
