@@ -14,12 +14,13 @@ from urllib import request
 from production.runtime import BASE, DATA, REPO, atomic_json, backup_databases
 
 FILES=("lum_engine/auto_engine_v6.py", "lum_engine/standalone_app.py",
-       "lum_engine/studio_tenants.py", "lum_engine/project_store.py",
+       "lum_engine/studio_tenants.py", "lum_engine/oauth_web.py",
+       "lum_engine/song_vault.py", "lum_engine/project_store.py",
        "lum_engine/channels_web.py",
        "lum_engine/auto_engine_v6_worker.py", "desktop_core/modules/db/queue_repository.py",
        "templates/app.html", "templates/base.html", "static/auto_engine_v6.js",
        "static/local_upload_manager.css", "static/song_uploader_kokoro_ui.css")
-NEW_FILES=frozenset({"lum_engine/studio_tenants.py"})
+NEW_FILES=frozenset({"lum_engine/studio_tenants.py","lum_engine/song_vault.py","static/short_vault_upload.js"})
 UNITS=tuple(f"vps1-production-lum-shortstudio-{kind}.service" for kind in ("scheduler","worker","web"))
 STATE=DATA/'local-upload-manager/lum-shortstudio'
 UNIT_DIR=Path('/etc/systemd/system')
@@ -62,7 +63,7 @@ def idle(*, allow_waiting_network=False):
             lum_parked_network_idle(con)
 
 
-def verify_live(*, ui_only=False, assignment_only=False, fixed_modes_only=False, member_controls_only=False, owner_parity_only=False):
+def verify_live(*, ui_only=False, assignment_only=False, fixed_modes_only=False, member_controls_only=False, owner_parity_only=False, vault_only=False):
     from production.route_uploader_scene_https import https_get, scene_cookie
     for _ in range(40):
         try:
@@ -74,6 +75,17 @@ def verify_live(*, ui_only=False, assignment_only=False, fixed_modes_only=False,
     status,_,body=https_get('/short-uploader/app?tab=auto_engine&new_profile=1',cookie)
     require(status==200,'authenticated Short Uploader GET failed')
     html=body.decode('utf-8')
+    if vault_only:
+        status,_,body=https_get("/short-uploader/app?tab=channels",cookie)
+        channels=body.decode("utf-8")
+        for marker in ("data-short-shared-client","Permanent OAuth &amp; Token Vault",
+                       "/short-uploader/actions/short/credentials/upload",
+                       "/short-uploader/actions/oauth-client","My channel tokens"):
+            require(status==200 and marker in channels,"Short vault live control missing: "+marker)
+        require(https_get("/short-uploader/app")[0] in (302,303,401,403),
+                "Short vault anonymous auth regressed")
+        print("SHORT_VAULT_LIVE=PASS OWNER_PRIVATE=REQUIRED TWO_ROLE_READBACK=REQUIRED NO_UPLOAD_STARTED",flush=True)
+        return
     if owner_parity_only:
         status,_,body=https_get('/short-uploader/app?tab=channels',cookie)
         require(status==200,'owner parity Channels readback failed')
@@ -233,8 +245,8 @@ def verify_final_ui(html, form, cookie, https_get):
     print('SHORT_FINAL_UI=PASS DEFAULTS=PASS SHEETS=PASS BULK_HIDDEN=PASS CSS=PASS SONG_HEALTH=PASS',flush=True)
 
 
-def install(revision, *, ui_only=False, network_only=False, assignment_only=False, fixed_modes_only=False, member_controls_only=False, owner_parity_only=False):
-    require(sum(bool(x) for x in (ui_only, network_only, assignment_only, fixed_modes_only, member_controls_only, owner_parity_only)) <= 1,
+def install(revision, *, ui_only=False, network_only=False, assignment_only=False, fixed_modes_only=False, member_controls_only=False, owner_parity_only=False, vault_only=False):
+    require(sum(bool(x) for x in (ui_only, network_only, assignment_only, fixed_modes_only, member_controls_only, owner_parity_only, vault_only)) <= 1,
             'release modes are exclusive')
     require(re.fullmatch('[a-f0-9]{40}',revision),'invalid revision')
     require(shutil.disk_usage('/').free>=5_000_000_000,'disk reserve')
@@ -253,13 +265,14 @@ def install(revision, *, ui_only=False, network_only=False, assignment_only=Fals
         active=subprocess.run(['systemctl','is-active','--quiet',name],capture_output=True,timeout=10).returncode==0
         previous[name]={'text':text,'active':active}
     require(len(old_dirs)==1,'Short Uploader units use different releases')
-    suffix=('-short-owner-parity' if owner_parity_only else '-short-member-controls' if member_controls_only else '-short-fixed-modes' if fixed_modes_only else '-short-owner-form' if assignment_only else '-short-network-fairness' if network_only else '-short-ui-intro' if ui_only else '-short-group-metadata')
+    suffix=('-short-oauth-vault' if vault_only else '-short-owner-parity' if owner_parity_only else '-short-member-controls' if member_controls_only else '-short-fixed-modes' if fixed_modes_only else '-short-owner-form' if assignment_only else '-short-network-fairness' if network_only else '-short-ui-intro' if ui_only else '-short-group-metadata')
     target=BASE/'releases/local-upload-manager'/(revision+suffix)
-    journal=BASE/'transactions'/('short-uploader-owner-parity' if owner_parity_only else 'short-uploader-member-controls' if member_controls_only else 'short-uploader-fixed-modes' if fixed_modes_only else 'short-uploader-owner-form' if assignment_only else 'short-uploader-network-fairness' if network_only else 'short-uploader-ui-intro' if ui_only else 'short-uploader-group-metadata')/revision
+    journal=BASE/'transactions'/('short-uploader-oauth-vault' if vault_only else 'short-uploader-owner-parity' if owner_parity_only else 'short-uploader-member-controls' if member_controls_only else 'short-uploader-fixed-modes' if fixed_modes_only else 'short-uploader-owner-form' if assignment_only else 'short-uploader-network-fairness' if network_only else 'short-uploader-ui-intro' if ui_only else 'short-uploader-group-metadata')/revision
     require(not target.exists() and not target.is_symlink() and not journal.exists(),'immutable release already exists')
     shutil.copytree(next(iter(old_dirs)).parent,target,symlinks=True)
     hashes={}
-    for relative in (NETWORK_ONLY_FILES if network_only else
+    for relative in (("templates/app.html", "lum_engine/standalone_app.py", "lum_engine/oauth_web.py", "lum_engine/song_vault.py", "static/short_vault_upload.js") if vault_only else
+                     NETWORK_ONLY_FILES if network_only else
                      ('templates/app.html','lum_engine/standalone_app.py','static/auto_engine_v6.js') if member_controls_only else
                      ('templates/app.html', 'lum_engine/standalone_app.py') if fixed_modes_only else
                      ("templates/app.html",) if (ui_only or assignment_only) else FILES):
@@ -296,11 +309,12 @@ def install(revision, *, ui_only=False, network_only=False, assignment_only=Fals
         elif fixed_modes_only:verify_live(fixed_modes_only=True)
         elif member_controls_only:verify_live(member_controls_only=True)
         elif owner_parity_only:verify_live(owner_parity_only=True)
+        elif vault_only:verify_live(vault_only=True)
         elif ui_only:verify_live(ui_only=True)
         else:verify_live()
         atomic_json(journal/'state.json',dict(status='ACTIVE',revision=revision,source=str(target),files=hashes,
                                            sqlite_backups=len(backups),scheduler='PRESERVED',auto_script='UNTOUCHED'))
-        print(('SHORT_OWNER_PARITY_RELEASE' if owner_parity_only else 'SHORT_MEMBER_CONTROLS_RELEASE' if member_controls_only else 'SHORT_FIXED_MODES_RELEASE' if fixed_modes_only else 'SHORT_ASSIGNMENT_UI_RELEASE' if assignment_only else 'SHORT_GROUP_RELEASE')
+        print(('SHORT_VAULT_RELEASE' if vault_only else 'SHORT_OWNER_PARITY_RELEASE' if owner_parity_only else 'SHORT_MEMBER_CONTROLS_RELEASE' if member_controls_only else 'SHORT_FIXED_MODES_RELEASE' if fixed_modes_only else 'SHORT_ASSIGNMENT_UI_RELEASE' if assignment_only else 'SHORT_GROUP_RELEASE')
               +'=PASS OTHER_ENGINES=UNTOUCHED ROLLBACK=READY',flush=True)
     except BaseException:
         if changed:
