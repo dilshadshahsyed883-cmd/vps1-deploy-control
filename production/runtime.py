@@ -1567,6 +1567,13 @@ def main():
             from production.short_uploader_group_release import install as install_network_fix
             install_network_fix(args.revision, network_only=True)
             return
+        # Short Uploader profile folder NameError: web-only imported helper.
+        if '[vps1-shortstudio-profile-folder-fix]' in intent:
+            if args.action != 'install' or args.apps != ['local-upload-manager']:
+                raise RuntimeError('Short profile fix requires isolated Short Uploader lane')
+            from production.short_uploader_group_release import install as install_short_profile_fix
+            install_short_profile_fix(args.revision, profile_folder_only=True)
+            return
         # Restore owner-private OAuth/PC JSON vault in Short Uploader only.
         if '[vps1-shortstudio-oauth-vault]' in intent:
             if args.action != 'install' or args.apps != ['local-upload-manager']:

@@ -62,6 +62,8 @@ jobs:
           python -m unittest discover -s tests -p 'test_shared_uploader_admin_controls_ui.py' -v
       - name: Short Uploader member Automation control and ownership regressions
         run: python -m unittest discover -s tests -p 'test_short_uploader_nonadmin_automation_controls.py' -v
+      - name: Short Uploader profile folder NameError and tenant ownership regression
+        run: python -m unittest discover -s tests -p 'test_short_uploader_profile_folder_fix.py' -v
       - name: Short Uploader admin/member own-data parity and queue safety
         run: python -m unittest discover -s tests -p 'test_short_uploader_owner_parity.py' -v
       - name: Install real Short Uploader OAuth HTTP test dependencies
