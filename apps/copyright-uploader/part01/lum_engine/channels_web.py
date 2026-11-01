@@ -51,6 +51,8 @@ def _client_keys(gmail: str) -> set[str]:
 
 
 def config_status_for_gmail(gmail: str, web_clients: Iterable[Dict[str, Any]] | None = None) -> Tuple[str, str]:
+    if web_clients:
+        return "OK", "OAuth client is available for this account"
     shared = list_oauth_client_files(CONFIG_DIR)
     if shared:
         return "OK", f"Shared OAuth client: config/{shared[0].name}"

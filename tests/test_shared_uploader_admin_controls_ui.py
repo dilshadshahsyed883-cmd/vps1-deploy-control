@@ -35,12 +35,14 @@ def test_uploader_templates_compile_and_preserve_owned_actions() -> None:
             "/actions/retry/",
         ):
             assert owned in source, (path, owned)
-        assert 'Shared OAuth client is managed by an administrator' in source
-        assert '{% if user.is_admin' in source
         if "copyright-uploader" in path:
-            # Copyright has no modes settings card for either role.
+            # Copyright grants identical owner-scoped OAuth controls to both roles.
+            assert "Set / Replace My OAuth Client" in source
+            assert 'Shared OAuth client is managed by an administrator' not in source
             assert "Save modes" not in source
         else:
+            assert 'Shared OAuth client is managed by an administrator' in source
+            assert '{% if user.is_admin' in source
             assert 'Save modes</button></form></section>{% endif %}' in source
 
 
@@ -99,15 +101,19 @@ def test_copyright_queue_global_controls_hidden_but_personal_actions_preserved()
     context = {
         "base_path": "/copyright-uploader",
         "projects": [],
-        "stats": {"engine_enabled": True, "settings": {"pause_after_current": "0"}},
+        "stats": {"engine_enabled": True, "owner_queue_paused": False, "settings": {"pause_after_current": "0"}},
         "health": {"active_project_id": None},
         "csrf": "test",
     }
     nonadmin = template.render(user={"is_admin": 0}, **context)
     admin = template.render(user={"is_admin": 1}, **context)
     assert "/actions/pause-after-current" not in nonadmin
+    assert "/actions/pause-after-current" not in admin
     assert "/actions/resume" not in nonadmin
-    assert "/actions/pause-after-current" in admin
+    assert "/actions/resume" not in admin
+    assert "/actions/copyright/queue/pause" in admin
+    assert "/actions/copyright/queue/pause" in nonadmin
+    assert admin == nonadmin
     for personal in ("/actions/retry/", "/actions/cancel/", "/actions/authorize-fresh/"):
         assert personal in source
 

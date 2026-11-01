@@ -20,7 +20,9 @@ from .config import (
     API_VERSION, BASE_PATH, BUILD, COOKIE_SECURE, DATA_ROOT, REPORTS_ROOT, SESSION_SECRET, STAGING_ROOT,
     SUITE_AUTH_ENABLED, SUITE_LOGIN_URL, THUMBNAIL_ROOT, ensure_dirs,
 )
-from .oauth_web import complete_oauth, list_clients, save_client_json, save_shared_client_json, start_oauth
+from .oauth_web import (complete_oauth, list_clients, list_owner_clients,
+    owner_client_for_oauth, save_client_json, save_owner_client_json,
+    save_shared_client_json, start_oauth)
 from .project_store import ProjectStore
 from .copyright_handoff import available_videos, owner_root
 from .copyright_ui import schedule_pkt
@@ -243,30 +245,38 @@ def project_view(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def get_projects(user: dict[str, Any], limit: int = 500) -> list[dict[str, Any]]:
-    owner = None if int(user.get("is_admin") or 0) else str(user["username"])
+    owner = (str(user["username"]) if os.getenv("LUM_ENGINE_INSTANCE") == "copyright"
+             else (None if int(user.get("is_admin") or 0) else str(user["username"])))
     return [project_view(p) for p in store.list(owner=owner, limit=limit)]
 
 
 def get_logs(user: dict[str, Any], limit: int = 300) -> list[dict[str, Any]]:
-    owner = None if int(user.get("is_admin") or 0) else str(user["username"])
+    owner = (str(user["username"]) if os.getenv("LUM_ENGINE_INSTANCE") == "copyright"
+             else (None if int(user.get("is_admin") or 0) else str(user["username"])))
     return store.events(owner=owner, limit=limit)
 
 
 def stats_payload(user: dict[str, Any] | None = None) -> dict[str, Any]:
     channels = all_channels(user)
-    owner = str(user.get("username") or "") if user is not None and not int(user.get("is_admin") or 0) else None
+    owner = (str(user.get("username") or "") if user is not None and
+             (os.getenv("LUM_ENGINE_INSTANCE") == "copyright" or not int(user.get("is_admin") or 0))
+             else None)
     counts=store.counts(owner=owner)
     return {
         "counts": counts,
         "owner_queue_paused": store.owner_queue_paused(str(user["username"])) if user is not None and os.getenv("LUM_ENGINE_INSTANCE") == "copyright" else False,
         "channels": len(channels),
         "authenticated_channels": sum(1 for c in channels if str(c.get("token_status") or "").lower().startswith("valid")),
-        "active_project_id": worker.active_project_id if user is None or int(user.get("is_admin") or 0) else None,
+        "active_project_id": (worker.active_project_id if user is None or
+            (int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") != "copyright")
+            else None),
         "engine_enabled": store.setting("engine_enabled", "1") == "1",
         "pause_after_current": store.setting("pause_after_current", "0") == "1",
-        "settings": (store.settings() if user is None or int(user.get("is_admin") or 0)
-                     else ({"sheets_sync_enabled": "1", "auto_engine_enabled": "1"}
-                           if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" else {})),
+        "settings": ({"sheets_sync_enabled": "1", "auto_engine_enabled": "1",
+                       "pause_after_current": store.setting("pause_after_current", "0"),
+                       "engine_enabled": store.setting("engine_enabled", "1")}
+                     if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" and user is not None
+                     else (store.settings() if user is None or int(user.get("is_admin") or 0) else {})),
     }
 
 
@@ -280,6 +290,16 @@ async def standalone_auth(request: Request, call_next):
         path.startswith(route("/actions/pc-sync/"))
     ):
         return JSONResponse({"detail": "Automatic uploader engine is disabled for Copyright Studio"}, status_code=404)
+    if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" and (
+        path.startswith(route("/reports/")) or path == route("/actions/report-health")
+    ):
+        return JSONResponse({"detail": "Global health reports are unavailable in owner-scoped Copyright Studio"},status_code=404)
+    if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" and request.method not in {"GET", "HEAD"} and path in {
+        route("/actions/google-oauth/configure"), route("/actions/channels/json-upload"),
+        route("/actions/pc-sync/upload"), route("/actions/pc-sync/apply"),
+        route("/actions/pause-after-current"), route("/actions/resume"), route("/actions/stop-current"),
+    }:
+        return JSONResponse({"detail": "Copyright queues are owner-scoped; global controls are disabled"}, status_code=404)
     if path.startswith(route("/static/")) or path == route("/health"):
         return await call_next(request)
 
@@ -307,7 +327,7 @@ async def standalone_auth(request: Request, call_next):
         request.state.lum_user = user
         # TENANT_SAFE_WRITES: no unscoped global tokens, worker or queue changes.
         if not is_admin and request.method not in {"GET","HEAD"}:
-            allowed_exact={route("/logout"),route("/actions/add-video"),
+            allowed_exact={route("/logout"),route("/actions/add-video"),route("/actions/oauth-client"),
                 route("/actions/oauth-start"),route("/actions/oauth-complete"),
                 route("/actions/google-oauth/connect"),
                 route("/actions/studio-tenant/channel-create"),
@@ -317,10 +337,11 @@ async def standalone_auth(request: Request, call_next):
                 route("/actions/sheets/save"),route("/actions/sheets/delete"),
                 route("/actions/sheets/sync"),route("/actions/sheets/sync-all"),
                 route("/actions/copyright/queue/pause"),route("/actions/copyright/queue/start"),
-                route("/actions/copyright/queue/bulk"),
+                route("/actions/copyright/queue/bulk"),route("/actions/copyright/queue/remove"),
                 route("/actions/channels/status"),route("/actions/channels/delete-manual"),
                 route("/actions/channels/rescan-tokens"),route("/actions/channels/test-connections"),
-                route("/actions/copyright/profile")}
+                route("/actions/copyright/profile"),route("/actions/copyright/profile/update"),
+                route("/actions/copyright/profile/delete")}
             allowed_prefixes=(route("/actions/retry/"),route("/actions/authorize-fresh/"),
                 route("/actions/cancel/"),route("/actions/channel-network/"),
                 route("/actions/copyright/metadata/"))
@@ -467,7 +488,7 @@ def root() -> RedirectResponse:
 
 
 @app.get(route("/app"), response_class=HTMLResponse)
-def app_page(request: Request, tab: str = "", message: str = "", error: str = "", embedded: int = 0, source_id: int = 0, auto_profile_id: int = 0, new_profile: int = 0, auto_mode: str = "engine1"):
+def app_page(request: Request, tab: str = "", message: str = "", error: str = "", embedded: int = 0, source_id: int = 0, auto_profile_id: int = 0, new_profile: int = 0, auto_mode: str = "engine1", profile_id: int = 0):
     user = current_user(request)
     if SUITE_AUTH_ENABLED and embedded:
         request.session["lum_embedded"] = "1"
@@ -489,7 +510,8 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         if selected_sheet_source and int(selected_sheet_source["id"]) not in permitted_sheets:
             selected_sheet_source=None
     permitted_channels=studio_tenants.allowed_ids("channel",user)
-    web_clients = list_clients() if permitted_channels is None else []
+    web_clients = (list_owner_clients(str(user["username"])) if os.getenv("LUM_ENGINE_INSTANCE") == "copyright"
+                   else (list_clients() if permitted_channels is None else []))
     channel_context = channels_page_context(
         db, web_clients, permitted_channels, permitted_sheets,
         inventory_channels=channels if os.getenv("LUM_ENGINE_INSTANCE") in
@@ -505,13 +527,14 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
                                    if int(item.get("id") or 0) in permitted_groups]
         channel_context["sheets"]=[item for item in channel_context["sheets"]
                                    if int(item.get("id") or 0) in permitted_sheets]
-        channel_context["summary"]={"total":len(channel_context["rows"])}
+        if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+            channel_context["summary"]={"total":len(channel_context["rows"])}
+            web_clients=[]  # Other instances expose the shared client only to global admins
         channel_context["oauth_inventory"]={}  # Never enumerate global token files
-        web_clients=[]  # Client config belongs to the shared service, not the tenant
     # PC Sync is a global administrator operation; its history may contain
     # private channel identifiers and source paths from other accounts.
     pc_sync_history = (list_sync_history() if selected == "channels" and
-                       int(user.get("is_admin") or 0) else [])
+                       int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") != "copyright" else [])
     try:
         selected_auto_mode = validate_auto_mode(auto_mode)
     except ValueError:
@@ -649,6 +672,7 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         "suite_auth": SUITE_AUTH_ENABLED,
         "embedded_view": embedded_view,
         "copyright_profiles": store.copyright_profiles(str(user["username"])),
+        "selected_copyright_profile_id": (int(profile_id) if profile_id > 0 and store.copyright_profile(str(user["username"]),int(profile_id)) else 0),
         "copyright_files": copyright_folder_files(str(user["username"])),
     })
 
@@ -779,6 +803,33 @@ async def copyright_add_profile(
         return redirect("/app?tab=profiles", error=str(exc))
 
 
+@app.post(route("/actions/copyright/profile/update"))
+def copyright_update_profile(
+    request: Request, csrf_token: str = Form(...), profile_id: int = Form(...),
+    profile_name: str = Form(...), group_name: str = Form(""),
+    metadata_source: str = Form("manual"),
+):
+    user = current_user(request); require_csrf(request, csrf_token)
+    if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+        raise HTTPException(404,"Not found")
+    try:
+        if not store.update_copyright_profile(str(user["username"]),profile_id,profile_name,group_name,metadata_source):
+            raise PermissionError("Profile does not belong to this account")
+        return redirect("/app?tab=profiles",message="Your profile updated")
+    except (ValueError, PermissionError) as exc:
+        return redirect("/app?tab=profiles",error=str(exc))
+
+
+@app.post(route("/actions/copyright/profile/delete"))
+def copyright_delete_profile(request: Request,csrf_token: str = Form(...), profile_id: int = Form(...)):
+    user = current_user(request); require_csrf(request,csrf_token)
+    if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+        raise HTTPException(404,"Not found")
+    if not store.delete_copyright_profile(str(user["username"]),profile_id):
+        return redirect("/app?tab=profiles",error="Profile does not belong to this account")
+    return redirect("/app?tab=profiles",message="Saved profile deleted; queued videos and upload history preserved")
+
+
 @app.post(route("/actions/add-video"))
 async def add_video(
     request: Request, csrf_token: str = Form(...), drive_url: str = Form(""), title: str = Form(...),
@@ -883,9 +934,15 @@ async def add_video(
 async def upload_oauth_client(request: Request, csrf_token: str = Form(...), client_json: UploadFile = File(...)):
     user = current_user(request); require_csrf(request, csrf_token)
     try:
-        result = save_shared_client_json(await client_json.read())
+        if os.getenv("LUM_ENGINE_INSTANCE") == "copyright":
+            result = save_owner_client_json(str(user["username"]), await client_json.read())
+            message = f"Your private OAuth client is ready: {result['filename']}"
+        else:
+            require_admin(user)
+            result = save_shared_client_json(await client_json.read())
+            message = f"Shared OAuth client ready: {result['filename']}"
         tab = "authentication" if user_mode(user) == "simple" else "channels"
-        return redirect(f"/app?tab={tab}", message=f"Shared OAuth client ready: {result['filename']}")
+        return redirect(f"/app?tab={tab}", message=message)
     except Exception as exc:
         tab = "authentication" if user_mode(user) == "simple" else "channels"
         return redirect(f"/app?tab={tab}", error=str(exc))
@@ -932,6 +989,9 @@ def oauth_start_action(
             profile_name=profile_name,
             target_channel_db_id=target_id,
             target_email=target_email,
+            client_path=(owner_client_for_oauth(str(user["username"]))
+                         if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" else None),
+            owner_username=str(user["username"]),
         )
         request.session["lum_oauth_url"] = result["authorization_url"]
         request.session["lum_oauth_session_id"] = result["session_id"]
@@ -955,7 +1015,7 @@ def oauth_complete_action(request: Request, csrf_token: str = Form(...), callbac
         return redirect(f"/app?tab={tab}", error="Start authentication first")
     try:
         studio_tenants.require("channel",int(request.session.get("lum_oauth_target_channel_db_id") or 0),user)
-        result = complete_oauth(db, session_id, callback_url)
+        result = complete_oauth(db, session_id, callback_url, owner_username=str(user["username"]))
         request.session.pop("lum_oauth_url", None); request.session.pop("lum_oauth_session_id", None)
         request.session.pop("lum_oauth_target_channel_db_id", None); request.session.pop("lum_oauth_target_channel_id", None); request.session.pop("lum_oauth_target_channel_name", None)
         return redirect(f"/app?tab={tab}", message=f"Authenticated: {result['channel_name']} ({result['channel_id']})")
@@ -978,7 +1038,7 @@ def _owned_or_admin(user: dict[str, Any], project_id: int) -> dict[str, Any]:
     project = store.get(project_id)
     if not project:
         raise HTTPException(404, "Project not found")
-    if not int(user.get("is_admin") or 0) and str(project.get("owner_username") or "").lower() != str(user.get("username") or "").lower():
+    if (os.getenv("LUM_ENGINE_INSTANCE") == "copyright" or not int(user.get("is_admin") or 0)) and str(project.get("owner_username") or "").lower() != str(user.get("username") or "").lower():
         raise HTTPException(403, "Project does not belong to this user")
     return project
 
@@ -1053,7 +1113,7 @@ async def copyright_bulk_queue(request: Request):
     require_csrf(request, str(form.get("csrf_token") or ""))
     selected = form.getlist("project_ids")
     action = str(form.get("action") or "").strip()
-    if action not in {"cancel", "retry"} or not 1 <= len(selected) <= 100:
+    if action not in {"cancel", "retry", "remove"} or not 1 <= len(selected) <= 100:
         return redirect("/app?tab=queue", error="Choose up to 100 jobs and a valid bulk action")
     try:
         ids = sorted({int(value) for value in selected})
@@ -1070,7 +1130,12 @@ async def copyright_bulk_queue(request: Request):
     failed = 0
     for pid, project in zip(ids, owned):
         try:
-            if action == "cancel":
+            if action == "remove":
+                if store.archive_terminal(pid,str(user["username"])):
+                    count += 1
+                else:
+                    failed += 1
+            elif action == "cancel":
                 if store.cancel_waiting(pid, str(user["username"])):
                     count += 1
                 else:
@@ -1083,6 +1148,17 @@ async def copyright_bulk_queue(request: Request):
     return redirect("/app?tab=queue",
                     message=f"Own queue: {action} applied to {count} job(s); {failed} skipped. Files and history retained.")
 
+
+@app.post(route("/actions/copyright/queue/remove"))
+def copyright_remove_terminal_job(request: Request, csrf_token: str = Form(...), project_id: int = Form(...)):
+    user = current_user(request)
+    require_csrf(request,csrf_token)
+    if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+        raise HTTPException(404, "Not found")
+    _owned_or_admin(user,project_id)
+    if store.archive_terminal(project_id,str(user["username"])):
+        return redirect("/app?tab=queue",message="Removed from queue; upload history and media preserved.")
+    return redirect("/app?tab=queue",error="Only completed or cancelled jobs can be removed.")
 
 @app.post(route("/actions/retry/{project_id}"))
 def retry_project(project_id: int, request: Request, csrf_token: str = Form(...)):
@@ -1161,7 +1237,7 @@ def sheets_save(
         sid = int(source_id) if str(source_id or "").strip() else None
         if sid:
             studio_tenants.require("sheet",sid,user)
-        elif not int(user.get("is_admin") or 0):
+        elif os.getenv("LUM_ENGINE_INSTANCE") == "copyright" or not int(user.get("is_admin") or 0):
             existing={str(row.get("sheet_url_or_id") or "").strip()
                       for row in db.list_sheet_sources()}
             if str(sheet_url_or_id or "").strip() in existing:
@@ -1173,7 +1249,7 @@ def sheets_save(
             sheet_url_or_id=sheet_url_or_id,
             enabled=str(enabled).lower() in {"1", "true", "on", "yes"},
         )
-        if not int(user.get("is_admin") or 0):
+        if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" or not int(user.get("is_admin") or 0):
             studio_tenants.bind("sheet",int(saved_id),user["username"])
         return redirect(
             f"/app?tab=sheets&source_id={saved_id}",
@@ -1195,10 +1271,10 @@ def sheets_delete(
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
         studio_tenants.require("sheet",int(source_id),user)
-        if int(user.get("is_admin") or 0):
-            web_delete_sheet_source(db,int(source_id))
-        else:
+        if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" or not int(user.get("is_admin") or 0):
             studio_tenants.delete_owned_sheet(user["username"],int(source_id))
+        else:
+            web_delete_sheet_source(db,int(source_id))
         return redirect(
             "/app?tab=sheets",
             message="Sheet source removed from current inventory. Saved token/history data was retained.",
@@ -1223,7 +1299,7 @@ def sheets_sync(
             error="Enable Sheets Sync on Dashboard before running synchronization.",
         )
     try:
-        if int(user.get("is_admin") or 0):
+        if os.getenv("LUM_ENGINE_INSTANCE") != "copyright" and int(user.get("is_admin") or 0):
             result=web_sync_sheet_source_by_id(db,int(source_id))
         else:
             studio_tenants.require("sheet",int(source_id),user)
@@ -1260,7 +1336,7 @@ def sheets_sync_all(request: Request, csrf_token: str = Form(...)):
             error="Enable Sheets Sync on Dashboard before running synchronization.",
         )
     try:
-        if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" and not int(user.get("is_admin") or 0):
+        if os.getenv("LUM_ENGINE_INSTANCE") == "copyright":
             allowed = studio_tenants.allowed_ids("sheet", user)
             sources = [src for src in db.list_sheet_sources()
                        if int(src.get("id") or 0) in (allowed or set())
@@ -1347,6 +1423,8 @@ def studio_tenant_grant(
 ):
     """Admin explicitly assigns an idle legacy resource without touching media."""
     user=current_user(request); require_admin(user); require_csrf(request,csrf_token)
+    if os.getenv("LUM_ENGINE_INSTANCE") == "copyright":
+        raise HTTPException(404, "Copyright Uploader uses independent user-owned resources")
     try:
         kind,entity_id=studio_tenants.identity(entity_kind,entity_id)
         owner=studio_tenants.username(owner_username)
@@ -1456,11 +1534,16 @@ def channels_rescan_tokens(
 ):
     user=current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
-        if str(scope).lower()=="all_missing" and not int(user.get("is_admin") or 0):
-            raise PermissionError("Global token scan is administrator-only")
-        for channel_id in channel_ids:
+        if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" and str(scope).lower()=="all_missing":
+            ids=sorted(studio_tenants.allowed_ids("channel",user) or [])
+        else:
+            if str(scope).lower()=="all_missing" and not int(user.get("is_admin") or 0):
+                raise PermissionError("Global token scan is administrator-only")
+            ids=None if str(scope).lower()=="all_missing" else channel_ids
+        for channel_id in (ids or []):
             studio_tenants.require("channel",channel_id,user)
-        ids=None if str(scope).lower()=="all_missing" else channel_ids
+        if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" and not ids:
+            return redirect("/app?tab=channels",message="No owned channels need scanning.")
         result=rescan_channel_tokens(db, ids)
         return redirect(
             "/app?tab=channels",
