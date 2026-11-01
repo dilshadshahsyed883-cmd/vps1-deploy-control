@@ -91,7 +91,7 @@ class ShortOwnerParityTests(unittest.TestCase):
             "os":os,"current_user":lambda request:current,
             "_short_owned_automation_profiles":lambda request:[{"id":1}],
             "db":SimpleNamespace(list_auto_engine_jobs=lambda limit=5000:jobs),
-            "studio_tenants":SimpleNamespace(owner=lambda kind,entity_id:owners.get(entity_id,""))
+            "studio_tenants":SimpleNamespace(allowed_ids=lambda kind,user:{11}, owner=lambda kind,entity_id:owners.get(entity_id,""))
         })
         with patch.dict(os.environ,{"LUM_ENGINE_INSTANCE":"shortstudio"}):
             for admin in (True,False):
