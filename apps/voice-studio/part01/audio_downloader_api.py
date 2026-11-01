@@ -278,7 +278,7 @@ def audio_identity(request: Request):
     if request is None:
         raise HTTPException(403,"Authenticated Audio Downloader account required")
     owner=_preferences_owner(request)
-    admin=str(request.headers.get("x-is-admin") or "").strip()=="1"
+    admin=bool(getattr(request.state, "scene_admin", False))
     return owner,admin
 
 
