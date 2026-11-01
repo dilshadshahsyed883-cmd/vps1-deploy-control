@@ -1315,12 +1315,13 @@ def sheets_sync(
                 raise ValueError("Sheet returned zero rows; no existing records changed")
             prepared=tenant_rows_to_sheet_rows(raw,str(tenant_token_dir))
             result=studio_tenants.sync_owned_sheet_rows(
-                user["username"],int(source_id),prepared)
+                user["username"],int(source_id),prepared,
+                sync_sheet_groups=os.getenv("LUM_ENGINE_INSTANCE") == "copyright")
         if result.get("ok"):
             return redirect(
                 f"/app?tab=sheets&source_id={int(source_id)}",
                 message=f"Sheet synced · {int(result.get('rows') or 0)} row(s). "
-                        "Group memberships and existing OAuth remain unchanged.",
+                        "Owned Sheet groups synchronized; existing OAuth unchanged.",
             )
         return redirect(
             f"/app?tab=sheets&source_id={int(source_id)}",
@@ -1355,7 +1356,8 @@ def sheets_sync_all(request: Request, csrf_token: str = Form(...)):
                         raise ValueError("Sheet returned zero rows")
                     prepared = tenant_rows_to_sheet_rows(raw, str(tenant_token_dir))
                     outcome = studio_tenants.sync_owned_sheet_rows(
-                        str(user["username"]), int(source["id"]), prepared)
+                        str(user["username"]), int(source["id"]), prepared,
+                        sync_sheet_groups=True)
                     if not outcome.get("ok"):
                         raise ValueError(str(outcome.get("error") or "Sync failed"))
                     count += 1
@@ -1366,7 +1368,7 @@ def sheets_sync_all(request: Request, csrf_token: str = Form(...)):
                 return redirect("/app?tab=sheets",
                     error=f"Updated {count} owned sheet(s); {len(failures)} failed: " + "; ".join(failures[:3]))
             return redirect("/app?tab=sheets",
-                message=f"Updated {count} owned sheet(s), {rows} row(s); other users unchanged.")
+                message=f"Updated {count} owned sheet(s), {rows} row(s) and Sheet groups; other users unchanged.")
         result = web_sync_all_sheet_sources(db)
     except Exception as exc:
         return redirect("/app?tab=sheets", error=str(exc))
