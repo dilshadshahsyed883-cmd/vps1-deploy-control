@@ -81,7 +81,11 @@ def exercise(mode):
             html = viewer.get("/test/app?tab=channels").text
             assert own in html and foreign not in html
         html = admin.get("/test/app?tab=channels").text
-        assert "ALICE_PRIVATE_CHANNEL" in html and "BOB_PRIVATE_CHANNEL" in html
+        if mode == "shortstudio":
+            # Short admin uses the SAME private workspace rules as a member.
+            assert "ALICE_PRIVATE_CHANNEL" not in html and "BOB_PRIVATE_CHANNEL" not in html
+        else:
+            assert "ALICE_PRIVATE_CHANNEL" in html and "BOB_PRIVATE_CHANNEL" in html
 
         duplicate = post(bob, b_token, "studio-tenant/channel-create",
                          channel_id="UC" + "a" * 22, channel_name="Hijack")
@@ -123,8 +127,13 @@ def exercise(mode):
         assert "LEGACY_PRIVATE_CHANNEL" not in alice.get("/test/app?tab=channels").text
         grant = post(admin, admin_token, "studio-tenant/grant", entity_kind="channel",
                      entity_id=legacy_id, owner_username="Alice")
-        assert "error=" not in grant.headers["location"], grant.headers["location"]
-        assert app.studio_tenants.owner("channel", legacy_id) == "alice"
+        if mode == "shortstudio":
+            assert grant.status_code == 403 or "error=" in grant.headers.get("location", "")
+            assert app.studio_tenants.owner("channel", legacy_id) == ""
+            app.studio_tenants.bind("channel",legacy_id,"Alice")  # test fixture only
+        else:
+            assert "error=" not in grant.headers["location"], grant.headers["location"]
+            assert app.studio_tenants.owner("channel", legacy_id) == "alice"
         transfer = post(admin, admin_token, "studio-tenant/grant", entity_kind="channel",
                         entity_id=b_id, owner_username="Alice")
         assert "error=" in transfer.headers["location"]
