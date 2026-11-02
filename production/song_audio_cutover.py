@@ -37,7 +37,8 @@ SCENE_ENV = service.SCENE_ENV
 SONG_ENV = service.SONG_ENV
 SONG_UNIT_PATH = Path("/etc/systemd/system") / service.SONG_UNIT
 JOURNALS = BASE / "transactions/song-audio-separation"
-VOICE_FILES = ("part01/vps1_omnivoice_app.py", "part01/audio_downloader_api.py")
+VOICE_FILES = ("part01/vps1_omnivoice_app.py", "part01/audio_downloader_api.py",
+               "part01/voice_tenant.py")
 
 
 def _verify_pointer(pointer: Path, releases: Path) -> Path:
@@ -109,20 +110,28 @@ def _clone_overlay(previous: Path, target: Path, changes: dict[str, bytes],
                     hashlib.sha256(path.read_bytes()).hexdigest() != digest):
                 raise RuntimeError("Immutable staged overlay drift")
         return
-    # Require every edited file to be owned by the currently active release.
-    for name in changes:
-        old = previous / name
-        if old.is_symlink() or not old.is_file():
-            raise RuntimeError("Previous release overlay target missing/linked")
+    # An older Voice release may predate the frozen Scene SSO identity module.
+    # Its absence must not make us boot a new Voice entrypoint without the
+    # required import. This is the sole reviewed ADDITION allowed to an overlay.
     manifest_path = previous / manifest_name
     if manifest_path.is_symlink() or not manifest_path.is_file():
         raise RuntimeError("Previous release manifest missing/linked")
     manifest = json.loads(manifest_path.read_text())
-    if manifest.get("app") != app_name:
+    if manifest.get("app") != app_name or not isinstance(manifest.get("files"), dict):
         raise RuntimeError("Previous release manifest ownership mismatch")
     for name in changes:
-        if name not in manifest.get("files", {}):
-            raise RuntimeError("Overlay would edit untracked source")
+        old = previous / name
+        if old.is_symlink():
+            raise RuntimeError("Previous release overlay target linked")
+        reviewed_new_voice_identity = (
+            app_name == "voice-studio" and name == "part01/voice_tenant.py"
+            and not old.exists() and name not in manifest["files"])
+        if reviewed_new_voice_identity:
+            continue
+        if not old.is_file() or name not in manifest["files"]:
+            raise RuntimeError("Overlay would edit missing or untracked source")
+        if hashlib.sha256(old.read_bytes()).hexdigest() != manifest["files"][name]:
+            raise RuntimeError("Previous release overlay source drift")
     shutil.copytree(previous, target, symlinks=True)
     for name, data in changes.items():
         (target / name).write_bytes(data)
@@ -130,6 +139,23 @@ def _clone_overlay(previous: Path, target: Path, changes: dict[str, bytes],
     manifest["revision"] = revision
     manifest["song_audio_separation_overlay"] = str(previous)
     runtime.atomic_json(target / manifest_name, manifest, 0o644)
+
+
+def _verify_voice_candidate_modules(candidate: Path) -> None:
+    """Source-only preflight: never stop Voice for missing local code.
+
+    The frozen Voice entrypoint imports these same-directory modules. Check
+    the staged immutable candidate, not the repository checkout. No imports,
+    queue writes, credentials or external API calls happen during this check.
+    """
+    for module in ("vps1_omnivoice_app", "voice_clone_api", "kokoro_api",
+                   "edge_api", "voice_tenant"):
+        path = candidate / "part01" / (module + ".py")
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError("Voice candidate required local module missing")
+        if not path.resolve(strict=True).is_relative_to(candidate.resolve(strict=True)):
+            raise RuntimeError("Voice candidate module escapes immutable release")
+        compile(path.read_bytes(), str(path), "exec")
 
 
 def _patch_scene_source(live: bytes, reviewed: bytes) -> bytes:
@@ -373,6 +399,8 @@ def install(revision: str) -> None:
         (previous_scene / "part01/app.py").read_bytes(), reviewed_scene.read_bytes())
     _clone_overlay(previous_voice, voice_candidate, voice_data,
                    "_production_manifest.json", "voice-studio", revision)
+    # Validate candidate source before stopping the original worker.
+    _verify_voice_candidate_modules(voice_candidate)
     _clone_overlay(previous_scene, scene_candidate,
                    {"part01/app.py": patched_scene},
                    "_scene_candidate_manifest.json", "scene-builder", revision)
