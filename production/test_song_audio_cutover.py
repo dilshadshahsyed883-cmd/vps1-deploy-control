@@ -52,6 +52,24 @@ class SongAudioCutoverTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             cutover._patch_env(original, {"SONG_AUDIO_SPLIT_UPSTREAM": "evil\nINJECT=yes"})
 
+    def test_song_env_migrates_only_legacy_audio_settings_not_voice_secrets(self):
+        root = Path("/var/lib/fresh-website/voice-studio/audio-downloader")
+        old = (b"AUDIO_DOWNLOADER_ROOT=/var/lib/fresh-website/voice-studio/audio-downloader\n"
+               b"AUDIO_DOWNLOADER_PROXY_POOL=host-private-fixture\n"
+               b"AUDIO_DOWNLOADER_YTDLP_BIN=/obsolete/yt-dlp\n"
+               b"WEB_ACCESS_KEY=never-export-this\n"
+               b"VOICE_CLONE_ROOT=/private/voice\n")
+        new = cutover._song_environment(root, "a" * 40, old)
+        self.assertIn(b"AUDIO_DOWNLOADER_PROXY_POOL=host-private-fixture\n", new)
+        self.assertEqual(new.count(b"AUDIO_DOWNLOADER_ROOT="), 1)
+        self.assertEqual(new.count(b"AUDIO_DOWNLOADER_YTDLP_BIN="), 1)
+        self.assertNotIn(b"WEB_ACCESS_KEY", new)
+        self.assertNotIn(b"VOICE_CLONE_ROOT", new)
+        with self.assertRaisesRegex(RuntimeError, "Duplicated"):
+            cutover._song_environment(root, "a" * 40,
+                                      b"AUDIO_DOWNLOADER_PROXY_POOL=one\n"
+                                      b"AUDIO_DOWNLOADER_PROXY_POOL=two\n")
+
     def test_manifest_scoped_overlay_keeps_unrelated_files_unchanged(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
