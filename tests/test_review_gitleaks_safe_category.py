@@ -59,6 +59,32 @@ class PublicGitleaksClassificationTests(unittest.TestCase):
         self.assertNotIn("test_legacy.py", bucket)
         self.assertNotIn("a" * 40, bucket)
 
+    def test_known_stream_dummy_fixture_is_only_diagnostic_evidence(self):
+        source = (
+            "def test_rtmps_command_places_ingest_url_before_key(self):\n"
+            "    job = make_job()\n"
+            "    args = engine.command(job, key='key_abcdefghij')\n"
+            "    self.assertEqual(args[-1], 'key_abcdefghij')\n"
+        ).encode()
+        finding = {"File": "/repo/production/test_auto_stream_engine.py",
+                   "Commit": "b" * 40, "StartLine": 3}
+        with mock.patch.object(module.subprocess, "check_output", return_value=source):
+            result = module.safe_test_evidence(finding, Path("/tmp/repo"))
+        self.assertEqual(result, "known_stream_dummy_key_candidate")
+        self.assertNotIn("key_abcdefghij", result)
+
+    def test_nonmatching_stream_test_is_not_exact_candidate(self):
+        source = (
+            "def test_rtmps_command_places_ingest_url_before_key(self):\n"
+            "    job = make_job()\n"
+            "    token = external_parameter\n"
+        ).encode()
+        finding = {"File": "/repo/production/test_auto_stream_engine.py",
+                   "Commit": "b" * 40, "StartLine": 3}
+        with mock.patch.object(module.subprocess, "check_output", return_value=source):
+            result = module.safe_test_evidence(finding, Path("/tmp/repo"))
+        self.assertEqual(result, "test_function_context")
+
     def test_unknown_commit_evidence_is_never_trusted(self):
         finding = {"File": "/repo/tests/test_legacy.py",
                    "Commit": "malformed", "StartLine": 4}
