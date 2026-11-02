@@ -73,6 +73,45 @@ class ReadOnlyFailedRollbackTests(unittest.TestCase):
             current.symlink_to(root / "outside")
             self.assertEqual(diag._pointer(current, releases), "OUTSIDE_OWNER")
 
+    def test_song_startup_journal_classification_redacts_sensitive_content(self):
+        raw = (
+            "private_credentials=never-report\n"
+            "Traceback (most recent call last):\n"
+            "ModuleNotFoundError: No module named 'song_audio_downloader_api'\n"
+            "FileNotFoundError: [Errno 2] /secret/users/media.mp3\n"
+            "sqlite3.OperationalError: private information\n"
+            "Application startup complete.\n"
+        )
+        with patch.object(diag.subprocess, "run",
+                          return_value=Mock(stdout=raw, returncode=0)) as runner, \
+             patch.object(diag, "_unit", return_value={"active": "inactive"}):
+            proof = diag._song_startup_evidence()
+            self.assertTrue(proof["journal_available"])
+            self.assertTrue(proof["recent_error_classes"]["module_missing"])
+            self.assertTrue(proof["recent_error_classes"]["file_missing"])
+            self.assertTrue(proof["recent_error_classes"]["sqlite_error"])
+            self.assertTrue(proof["recent_error_classes"]["uvicorn_started"])
+            self.assertEqual(proof["missing_module"], "song_audio_downloader_api")
+            self.assertNotIn("private", str(proof))
+            self.assertNotIn("/secret/", str(proof))
+            self.assertEqual(runner.call_args.args[0][0], "journalctl")
+        with patch.object(diag.subprocess, "run",
+                          return_value=Mock(stdout="sensitive", returncode=1)), \
+             patch.object(diag, "_unit", return_value={"active": "inactive"}):
+            proof = diag._song_startup_evidence()
+            self.assertFalse(proof["journal_available"])
+            self.assertEqual(proof["missing_module"], "UNKNOWN")
+            self.assertFalse(any(proof["recent_error_classes"].values()))
+
+    def test_song_journal_rejects_untrusted_module_name(self):
+        raw = ("ModuleNotFoundError: No module named "
+               "'sensitive/name/../../payload'\n")
+        with patch.object(diag.subprocess, "run",
+                          return_value=Mock(stdout=raw, returncode=0)), \
+             patch.object(diag, "_unit", return_value={"active": "inactive"}):
+            proof = diag._song_startup_evidence()
+            self.assertEqual(proof["missing_module"], "UNKNOWN")
+
     def test_implementation_contains_no_mutation_helpers(self):
         source = Path(diag.__file__).read_text()
         for unsafe in ('systemctl", "start"', 'systemctl", "stop"',

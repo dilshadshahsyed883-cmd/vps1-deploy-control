@@ -111,6 +111,46 @@ def _missing_module() -> str:
         text)
     return matches[-1] if matches else "UNKNOWN"
 
+
+def _song_startup_evidence() -> dict:
+    """Read only the dedicated worker journal, exporting safe error classes.
+
+    The unit may already have been removed by a successful fail-closed rollback.
+    Never return journal text, private paths, tokens, owners or media filenames.
+    """
+    outcome = subprocess.run(
+        ["journalctl", "-u", service.SONG_UNIT, "-n", "240",
+         "--no-pager", "--output=cat"],
+        capture_output=True, text=True, timeout=10, check=False)
+    data = outcome.stdout[-180000:] if outcome.returncode == 0 else ""
+    patterns = {
+        "module_missing": r"\bModuleNotFoundError\b",
+        "import_error": r"\bImportError\b",
+        "permission_denied": r"\bPermissionError\b|\[Errno 13\]",
+        "file_missing": r"\bFileNotFoundError\b|\[Errno 2\]",
+        "sqlite_error": r"\bsqlite3\.\w+Error\b",
+        "runtime_error": r"\bRuntimeError\b",
+        "address_in_use": r"Address already in use|\[Errno 98\]",
+        "worker_lock": r"worker.{0,32}lock|resource temporarily unavailable",
+        "start_limit_hit": r"start request repeated too quickly|start-limit-hit",
+        "no_space": r"No space left on device|\[Errno 28\]",
+        "traceback": r"Traceback \(most recent call last\)",
+        "uvicorn_started": r"Uvicorn running on|Application startup complete",
+    }
+    classes = {key: bool(re.search(pattern, data, re.IGNORECASE))
+               for key, pattern in patterns.items()}
+    names = re.findall(
+        r"(?:ModuleNotFoundError|ImportError):\s*No module named\s+['\"]"
+        r"([A-Za-z_][A-Za-z0-9_.]{0,79})['\"]",
+        data)
+    return {
+        "journal_available": outcome.returncode == 0 and bool(data.strip()),
+        "recent_error_classes": classes,
+        "missing_module": names[-1] if names else "UNKNOWN",
+        "service_unit_now": _unit(service.SONG_UNIT),
+    }
+
+
 def report() -> dict:
     recent = "NONE"
     root = runtime.BASE / "transactions/song-audio-separation"
@@ -135,6 +175,7 @@ def report() -> dict:
         "voice_unit": _unit(service.VOICE_UNIT),
         "scene_unit": _unit(service.SCENE_UNIT),
         "song_unit": _unit(service.SONG_UNIT),
+        "song_startup": _song_startup_evidence(),
         "voice_pointer": _pointer(cutover.VOICE_CURRENT, cutover.VOICE_RELEASES),
         "scene_pointer": _pointer(cutover.SCENE_CURRENT, cutover.SCENE_RELEASES),
         "song_pointer": _pointer(cutover.SONG_CURRENT, cutover.SONG_RELEASES),
