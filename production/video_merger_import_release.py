@@ -99,6 +99,15 @@ def idle_database(state):
                 f"SELECT COUNT(*) FROM {table} WHERE lower(coalesce(status,'')) NOT IN ({placeholder})",
                 allowed).fetchone()[0]
             require(count==0, 'Video Merger '+table+' has unfinished jobs')
+    # A VPS-ready item can still have a separate optional Drive copy running.
+    # Releasing during that copy could interrupt it; fail closed before restart.
+    with sqlite3.connect('file:'+str(path)+'?mode=ro',uri=True,timeout=6) as db:
+        fields={row[1] for row in db.execute('PRAGMA table_info(library_items)')}
+        if 'drive_status' in fields:
+            uploading=db.execute(
+                "SELECT COUNT(*) FROM library_items WHERE drive_status='uploading'"
+            ).fetchone()[0]
+            require(uploading==0,'Active optional Library Drive copy; release blocked')
     event(app='video-merger',idle='SQLITE_READ_ONLY_PASS',owner_media_mutated=False)
 
 
@@ -108,7 +117,15 @@ def overlay_failed_import_retry_ui(live, source):
     added='''${x.status==='failed'?`<button class="btn secondary mini" onclick="retryLibrary('${x.id}')" ${x.in_use?'disabled':''}>Retry</button>`:''}'''
     function="function renderProxy(){"
     new_handler='''async function retryLibrary(id){let x=state.library.find(v=>v.id===id);if(!x||x.status!=='failed')return;if(!confirm(`Retry failed Library import “${x.name}” from the saved original URL?`))return;try{await api(`/api/library/${id}/retry`,{method:'POST',body:'{}'});toast('Retry started using saved source');await refresh()}catch(e){toast(e.message)}}\n'''
-    require(source.count(added+action)==1 and source.count(new_handler+function)==1,
+    # The frozen 2026-11-02 Library redesign retains retry support but
+    # moves its button into a multi-line, owner-scoped actions renderer.
+    # Keep the old active-live overlay unchanged; verify the new source's
+    # actual retry control explicitly rather than matching old adjacency.
+    frozen_retry = (source.count('function renderLibrary(){') == 1
+                    and source.count("onclick=\"retryLibrary('${x.id}')\"") == 1
+                    and source.count('>Retry Import</button>') == 1)
+    require((source.count(added+action)==1 or frozen_retry)
+            and source.count(new_handler+function)==1,
             'retry source UI contract changed')
     if added+action not in live:
         require(live.count(action)==1,'active Library action UI changed; refuse overwrite')
@@ -255,6 +272,33 @@ def reviewed_drive_cookie_only_change(previous_source, candidate_source):
     return protected_ast(previous_text)==protected_ast(candidate_text.replace(fixed,old,1))
 
 
+LIBRARY_V1_REVIEWED_NODES = frozenset({
+    'init_db', 'library_name_exists', 'sync_library_drive',
+    'process_library_import', 'create_library_item', '_create_library_item_locked',
+    'retry_library_item', 'retry_library_drive', 'rename_library_item',
+    'delete_library_item', 'library_to_file', 'add_job',
+    '_add_job_with_library_lock', 'Handler',
+})
+
+
+def reviewed_library_only_change(previous_source, candidate_source):
+    """Known YouTube auth challenges can be reported as degraded ONLY when
+    every non-Library AST node, including downloaders and proxy, is identical.
+    Drive and Library must each independently PASS the real-source canary.
+    """
+    def outside_library(path):
+        path=Path(path)
+        require(path.is_file() and not path.is_symlink(),
+                'Untrusted Video Merger source in Library parity guard')
+        tree=ast.parse(path.read_text(encoding='utf-8'))
+        other=[node for node in tree.body if not (
+            isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef,ast.ClassDef))
+            and node.name in LIBRARY_V1_REVIEWED_NODES)]
+        return ast.dump(ast.Module(body=other,type_ignores=[]),
+                        include_attributes=False)
+    return outside_library(previous_source)==outside_library(candidate_source)
+
+
 def install(revision):
     require(re.fullmatch('[a-f0-9]{40}',revision),'invalid revision')
     app='video-merger'
@@ -293,7 +337,11 @@ def install(revision):
     template='part01/templates/index.html'
     live_template=target/template
     source_html=(REPO/'apps'/app/template).read_text(encoding='utf-8')
-    patched=overlay_failed_import_retry_ui(live_template.read_text(encoding='utf-8'),source_html)
+    library_v1='id="libraryUploadDrive" type="checkbox"' in source_html
+    # Frozen Library replaces its full renderer; do not inject a second legacy
+    # Retry button before the strict reviewed panel comparison.
+    patched=(live_template.read_text(encoding='utf-8') if library_v1 else
+             overlay_failed_import_retry_ui(live_template.read_text(encoding='utf-8'),source_html))
     if 'VIDEO_MERGER_TWO_COLUMN_QUEUE_V2' in source_html:
         # The immutable deployment checkout is shallow and has no revision^.
         # Use the audited pre-Queue panel anchor stored in this exact Git SHA.
@@ -303,6 +351,15 @@ def install(revision):
         baseline=baseline_path.read_text(encoding='utf-8')
         patched=overlay_queue_layout_ui(patched,source_html,baseline)
     patched=overlay_owner_handover_ui(patched,source_html)
+    # Frozen V1 Library changes are separate from the historic import/Queue patch.
+    # Exact-match replacement refuses any active Library customization/drift.
+    if library_v1:
+        from production.video_merger_library_release import frozen_library_overlay
+        baseline_path=REPO/'production/video_merger_library_20261102_baseline.html'
+        require(baseline_path.is_file() and not baseline_path.is_symlink(),
+                'Reviewed Video Merger Library UI baseline missing')
+        patched=frozen_library_overlay(patched,source_html,
+                                      baseline_path.read_text(encoding='utf-8'))
     live_template.write_text(patched,encoding='utf-8')
     manifest=json.loads((target/'_production_manifest.json').read_text())
     require(manifest.get('app')==app,'wrong manifest owner')
@@ -319,10 +376,11 @@ def install(revision):
     # if every non-handover AST node matches the currently running release.
     handover_only = owner_handover_only_change(previous/name,target/name)
     drive_cookie_only = reviewed_drive_cookie_only_change(previous/name,target/name)
+    library_only = reviewed_library_only_change(previous/name,target/name)
     smoke_cmd = ['/usr/sbin/runuser','-u','ubuntu','--',python,'-m',
                  'production.video_merger_import_smoke','--source',target/name,
                  '--state',state,'--proxy-config',proxy_config]
-    if handover_only or drive_cookie_only:
+    if handover_only or drive_cookie_only or library_only:
         smoke_cmd.append('--allow-known-external-auth')
     smoke_text = run(smoke_cmd,cwd=REPO,timeout=1800,quiet=False)
     try:
@@ -334,11 +392,13 @@ def install(revision):
             'Video Merger real Drive and Library smoke must pass')
     youtube_state = smoke_result.get('youtube')
     youtube_degraded = (youtube_state == 'UPSTREAM_AUTH_BLOCKED' and
-                        (handover_only or drive_cookie_only) and
+                        (handover_only or drive_cookie_only or library_only) and
                         smoke_result.get('youtube_external_auth_blocked') is True)
     require(youtube_state=='PASS' or youtube_degraded,
             'Video Merger YouTube smoke failed; do not promote')
-    result_label = ('PASS_VIDEO_MERGER_REVIEWED_GDOWN_YOUTUBE_AUTH_BLOCKED'
+    result_label = ('PASS_VIDEO_MERGER_LIBRARY_V1_YOUTUBE_AUTH_BLOCKED'
+                    if youtube_degraded and library_only else
+                    'PASS_VIDEO_MERGER_REVIEWED_GDOWN_YOUTUBE_AUTH_BLOCKED'
                     if youtube_degraded and drive_cookie_only else
                     'PASS_VIDEO_MERGER_OWNER_HANDOVER_YOUTUBE_AUTH_BLOCKED'
                     if youtube_degraded else 'PASS_VIDEO_MERGER_IMPORTS')
@@ -374,16 +434,23 @@ def install(revision):
         from production.route_uploader_scene_https import https_get, scene_cookie
         code,kind,page=https_get('/video-merger/',scene_cookie())
         require(code==200 and 'html' in kind.lower(),'authenticated UI readback failed')
+        if library_v1:
+            require(b'id="libraryUploadDrive"' in page
+                    and b'id="libraryPreviewDialog"' in page
+                    and b'function viewLibrary(id)' in page,
+                    'authenticated frozen Library UI readback failed')
         if 'VIDEO_MERGER_TWO_COLUMN_QUEUE_V2' in source_html:
             require(b'VIDEO_MERGER_TWO_COLUMN_QUEUE_V2' in page and
                     b'id="tab-queue"' in page and b'class="vm-merge-layout"' in page,
                     'authenticated Queue/two-column UI readback failed')
         atomic_json(journal/'result.json',{'status':'ACTIVE','youtube':youtube_state,
                   'drive':'PASS','data':'PRESERVED','owner_handover_only':handover_only,
-                  'reviewed_drive_cookie_only':drive_cookie_only})
+                  'reviewed_drive_cookie_only':drive_cookie_only,
+                  'reviewed_library_only':library_only})
         event(app=app,result=result_label,revision=revision,data='PRESERVED',
               youtube=youtube_state,drive='PASS',
               reviewed_drive_cookie_only=drive_cookie_only,
+              reviewed_library_only=library_only,
               proxy_activation='ENABLED' if proxy_changed else 'UNCHANGED',
               rollback=str(journal))
     except BaseException:

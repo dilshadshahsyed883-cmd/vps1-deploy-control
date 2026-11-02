@@ -191,9 +191,38 @@ def smoke(app):
         log = (state / 'runtime.log').open('w+')
         proc = subprocess.Popen(command, cwd=source, env=env,
                                 stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
+        scene_fixture = None
         try:
+            if app == 'voice-studio':
+                # Isolated CI-only stand-in for the LIVE Scene SSO endpoint.
+                # It is never installed in production and cannot grant access
+                # unless the real Voice app receives the explicit test cookie.
+                from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+                from threading import Thread
+
+                class SceneIdentityFixture(BaseHTTPRequestHandler):
+                    def do_GET(self):
+                        valid = (self.path == '/api/session/identity' and
+                                 self.headers.get('Cookie', '') == 'vps1-isolated-scene=valid')
+                        data = ({'authenticated': True, 'username': 'runtime-test',
+                                 'is_admin': True, 'allowed_studios': ['voice', 'song']}
+                                if valid else {'authenticated': False})
+                        body = json.dumps(data).encode('utf-8')
+                        self.send_response(200 if valid else 401)
+                        self.send_header('Content-Type', 'application/json')
+                        self.send_header('Content-Length', str(len(body)))
+                        self.end_headers()
+                        self.wfile.write(body)
+
+                    def log_message(self, *_args):
+                        pass
+
+                # Fail closed if the expected private Scene port is occupied.
+                scene_fixture = ThreadingHTTPServer(('127.0.0.1', 18080), SceneIdentityFixture)
+                Thread(target=scene_fixture.serve_forever, daemon=True).start()
             with httpx.Client(base_url=f'http://127.0.0.1:{port}', timeout=5, trust_env=False,
-                              headers={'X-Auth-User': 'runtime-test', 'X-App-Access': 'both', 'X-Is-Admin': '1'},
+                              headers={'X-Auth-User': 'runtime-test', 'X-App-Access': 'both', 'X-Is-Admin': '1',
+                                       **({'Cookie': 'vps1-isolated-scene=valid'} if app == 'voice-studio' else {})},
                               follow_redirects=False) as client:
                 deadline = time.monotonic() + 45
                 while time.monotonic() < deadline:
@@ -300,6 +329,11 @@ def smoke(app):
                     result['auto_engine_read_only_ui'] = 'PASS'
                     result['web_queue_worker'] = 'PASS'
                 if app == 'voice-studio':
+                    # A spoofed X-Auth-User alone never authenticates the Voice app.
+                    denied = client.get(spec['ui'], headers={'Cookie': ''})
+                    if denied.status_code != 401:
+                        raise RuntimeError('Voice Studio accepted an unverified Scene session')
+                    result['unverified_scene_denied'] = 'PASS_401'
                     downloader = client.get('/tts/api/audio-downloader/status')
                     downloader.raise_for_status()
                     if not downloader.json().get('ready') or not downloader.json().get('worker'):
@@ -329,6 +363,9 @@ def smoke(app):
                     result['omnivoice_external_gpu_tested'] = False
                 return result
         finally:
+            if scene_fixture is not None:
+                scene_fixture.shutdown()
+                scene_fixture.server_close()
             proc.terminate()
             try:
                 proc.wait(timeout=10)

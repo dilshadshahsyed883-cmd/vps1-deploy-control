@@ -13,6 +13,8 @@ from queue_actions import migrate as migrate_queue, apply as apply_queue, job_vi
 
 ROOT=Path(os.environ.get('EDGE_STUDIO_ROOT','/home/ubuntu/apps/edge_tts_voice_studio'))
 DATA=ROOT/'data'; DB=DATA/'edge_jobs.sqlite3'; VOICES=DATA/'voice_catalog.json'; HB=DATA/'heartbeat.json'
+from voice_tenant import owner
+
 router=APIRouter(prefix='/tts/api/edge',tags=['Edge TTS Studio'])
 ID_RE=re.compile(r'^EDJ-[A-F0-9]{16}$')
 LANG_RE=re.compile(r'^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){1,3}$')
@@ -38,6 +40,9 @@ def init_storage():
           drive_txt text,drive_mp3 text,drive_wav text,drive_srt text)''')
         c.execute('create index if not exists edge_job_queue on jobs(status,retry_at,created_at)')
         migrate_output_metadata(c)
+        if 'owner_username' not in {r[1] for r in c.execute('PRAGMA table_info(jobs)')}:
+            c.execute("ALTER TABLE jobs ADD COLUMN owner_username TEXT NOT NULL DEFAULT ''")
+        c.execute('CREATE INDEX IF NOT EXISTS idx_edge_owner_jobs ON jobs(owner_username,created_at)')
     with db() as c:
         migrate_queue(c, 'edge')
 
@@ -129,15 +134,16 @@ def create_job(text,filename,voice,locale,rate,pitch,volume,batch_name,stem=None
     folder.mkdir(mode=0o750,parents=True,exist_ok=False)
     src=folder/(base+'.txt')
     src.write_text(text+'\n',encoding='utf-8')
+    user=owner()
     with db() as c:
-        c.execute('''insert into jobs(job_id,batch_id,source_filename,output_basename,voice,locale,rate,pitch,volume,status,delivery_status,created_at,updated_at,input_file,naming_method)
-             values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',(jid,batch_name,filename,base,voice,locale,rate,pitch,volume,'queued','waiting_generation',now(),now(),str(src),naming_method))
+        c.execute('''insert into jobs(job_id,batch_id,source_filename,output_basename,voice,locale,rate,pitch,volume,status,delivery_status,created_at,updated_at,input_file,naming_method,owner_username)
+             values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',(jid,batch_name,filename,base,voice,locale,rate,pitch,volume,'queued','waiting_generation',now(),now(),str(src),naming_method,user))
     return jid
 
 @router.get('/status')
 def status():
     init_storage();ready,reason=readiness()
-    with db() as c:rows=c.execute('select status,count(*) n from jobs group by status').fetchall()
+    with db() as c:rows=c.execute('select status,count(*) n from jobs where owner_username=? group by status',(owner(),)).fetchall()
     return {'ready':ready,'reason':reason,'mode':'edge-tts-online','queue':{r['status']:r['n'] for r in rows},'output_formats':['mp3','wav','txt','srt'],'controls':['pause','resume','cancel','skip','retry','delete']}
 
 @router.get('/voices')
@@ -190,7 +196,7 @@ async def batch(request:Request):
 @router.get('/jobs')
 def jobs(limit:int=100):
     init_storage();limit=min(250,max(1,limit))
-    with db() as c:rows=c.execute('select * from jobs where hidden_at is null order by created_at desc,job_id desc limit ?',(limit,)).fetchall()
+    with db() as c:rows=c.execute('select * from jobs where owner_username=? and hidden_at is null order by created_at desc,job_id desc limit ?',(owner(),limit)).fetchall()
     answer=[]
     for r in rows:
         v=job_view(r, 'edge')
@@ -208,6 +214,8 @@ def control(job_id:str,action:str):
     init_storage()
     try:
         with db() as c:
+            if not c.execute('SELECT 1 FROM jobs WHERE job_id=? AND owner_username=?',(job_id,owner())).fetchone():
+                raise HTTPException(404,'Job not found')
             return apply_queue(c, 'edge', job_id, action)
     except QueueActionError as exc:
         raise HTTPException(exc.code, exc.detail) from exc
@@ -218,7 +226,7 @@ def retry_delivery(job_id: str):
     if not ID_RE.fullmatch(job_id):
         raise HTTPException(404, 'Job not found')
     with db() as c:
-        row = c.execute('SELECT status,delivery_status,input_file,mp3_file FROM jobs WHERE job_id=?', (job_id,)).fetchone()
+        row = c.execute('SELECT status,delivery_status,input_file,mp3_file FROM jobs WHERE job_id=? AND owner_username=?', (job_id,owner())).fetchone()
         if not row:
             raise HTTPException(404, 'Job not found')
         if row['status'] != 'completed' or row['delivery_status'] in ('delivered', 'cleaned'):
@@ -233,7 +241,7 @@ def file(job_id:str,ext:str):
     init_storage()
     if not ID_RE.fullmatch(job_id) or ext not in ('mp3','wav','txt','srt'):raise HTTPException(404,'File not found')
     key={'mp3':'mp3_file','wav':'wav_file','srt':'srt_file','txt':'input_file'}[ext]
-    with db() as c:r=c.execute('select '+key+',output_basename from jobs where job_id=?',(job_id,)).fetchone()
+    with db() as c:r=c.execute('select '+key+',output_basename from jobs where job_id=? and owner_username=?',(job_id,owner())).fetchone()
     if not r or not r[key] or not Path(r[key]).is_file():raise HTTPException(404,'File not available')
     return FileResponse(r[key],media_type={'mp3':'audio/mpeg','wav':'audio/wav','srt':'text/plain','txt':'text/plain'}[ext],filename=r['output_basename']+'.'+ext)
 

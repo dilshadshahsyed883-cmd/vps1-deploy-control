@@ -35,6 +35,12 @@ class AudioProxyTests(unittest.TestCase):
                         'username': 'u@ser', 'password': 'p:a ss'}
         self.config(enabled=True)
         app = FastAPI()
+        @app.middleware("http")
+        async def verified_scene_fixture(request, call_next):
+            # Only a test shim: production uses the Scene session verifier.
+            request.state.scene_owner = request.headers.get("x-auth-user", "")
+            request.state.scene_admin = request.headers.get("x-is-admin") == "1"
+            return await call_next(request)
         app.include_router(self.m.router)
         self.client = TestClient(app,headers={'X-Auth-User':'tester','X-Is-Admin':'1'})
 

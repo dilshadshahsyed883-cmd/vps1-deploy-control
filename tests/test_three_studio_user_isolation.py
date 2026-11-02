@@ -115,7 +115,10 @@ class UserIsolationContracts(unittest.TestCase):
                       "ADD COLUMN owner_username", "owner_username<>",
                       "Shared global controls are administrator-only"):
             self.assertIn(guard, merger)
-        self.assertEqual(merger.count("self.require_library_owner("), 4)
+        # The Library preview and optional Drive retry routes add two owner guards.
+        self.assertEqual(merger.count("self.require_library_owner("), 6)
+        self.assertIn("r'/api/library/([A-Za-z0-9]+)/view'", merger)
+        self.assertIn("r'/api/library/([A-Za-z0-9]+)/retry-drive'", merger)
         # All Video Merger queue mutations must remain owner-only, including admin.
         for snippet in (
             "cancel_job(m.group(1),self.principal(),admin=False)",

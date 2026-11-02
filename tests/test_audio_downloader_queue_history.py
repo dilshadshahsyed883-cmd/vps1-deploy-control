@@ -29,6 +29,12 @@ class AudioDownloaderQueueHistoryTests(unittest.TestCase):
         self.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.module)
         app = FastAPI()
+        @app.middleware("http")
+        async def verified_scene_fixture(request, call_next):
+            # Only a test shim: production uses the Scene session verifier.
+            request.state.scene_owner = request.headers.get("x-auth-user", "")
+            request.state.scene_admin = request.headers.get("x-is-admin") == "1"
+            return await call_next(request)
         app.include_router(self.module.router)
         self.client = TestClient(app,headers={'X-Auth-User':'tester'})
         self.module.init_storage()
@@ -106,7 +112,7 @@ class AudioDownloaderQueueHistoryTests(unittest.TestCase):
         # resolve postponed type annotations for the isolated Pydantic model.
         self.module.BatchRequest.model_rebuild(_types_namespace=vars(self.module))
         with patch.object(self.module, 'deps', return_value={'ready': True, 'upload_ready': True}):
-            result = self.module.enqueue(self.module.BatchRequest(**data),request=SimpleNamespace(headers={'x-auth-user':'tester'}))
+            result = self.module.enqueue(self.module.BatchRequest(**data),request=SimpleNamespace(state=SimpleNamespace(scene_owner='tester',scene_admin=False)))
         self.assertEqual(result['created'], 1)
         with self.module.db() as con:
             row = con.execute('SELECT video_id,project,folder FROM jobs').fetchone()
@@ -208,7 +214,7 @@ class AudioDownloaderQueueHistoryTests(unittest.TestCase):
             links=['https://youtu.be/BaW_jenozKc'] * 2,
             permission_confirmed=True)
         with patch.object(self.module, 'deps', return_value={'ready': True, 'upload_ready': True}):
-            authenticated=SimpleNamespace(headers={'x-auth-user':'tester'})
+            authenticated=SimpleNamespace(state=SimpleNamespace(scene_owner='tester',scene_admin=False))
             first = self.module.enqueue(payload,request=authenticated)
             second = self.module.enqueue(payload,request=authenticated)
         self.assertEqual(first['created'], 1)

@@ -8,7 +8,7 @@
 
 <section class="um-create-card">
   <div class="um-section-heading">
-    <div><h2>Create user</h2><p>Assign Song, Short and Copyright Studio to each user. Experiment Studio and Admin stay administrator-only.</p></div>
+    <div><h2>Create user</h2><p>Assign Song, Short, Copyright and Voice Studio to each user. Experiment Studio and Admin stay administrator-only.</p></div>
   </div>
   <form method="post" class="um-create-form um-two-role-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -21,6 +21,7 @@
       <label><input type="checkbox" name="studio_song" value="on" checked> Song Studio</label>
       <label><input type="checkbox" name="studio_short" value="on" checked> Short Studio</label>
       <label><input type="checkbox" name="studio_copyright" value="on" checked> Copyright Studio</label>
+      <label><input type="checkbox" name="studio_voice" value="on"> Voice Studio</label>
     </fieldset>
     <button class="button um-create-button" type="submit">Create user</button>
   </form>
@@ -69,7 +70,7 @@
     </div>
     <div class="um-modal-summary um-role-summary">
       <div><small>Role</small><strong>{{ 'Admin' if user.is_admin else 'Non-admin' }}</strong></div>
-      <div><small>Studio access</small><strong>{% if user.is_admin %}All three (Admin){% elif user.allowed_studios %}{{ user.allowed_studios|join(', ')|title }}{% else %}None{% endif %}</strong></div>
+      <div><small>Studio access</small><strong>{% if user.is_admin %}All four (Admin){% elif user.allowed_studios %}{{ user.allowed_studios|join(', ')|title }}{% else %}None{% endif %}</strong></div>
       <div><small>Jobs</small><strong>{{ user.job_count }}</strong></div>
     </div>
     <div class="um-modal-section">
@@ -94,6 +95,7 @@
           <label><input type="checkbox" name="studio_song" value="on" {% if 'song' in user.allowed_studios %}checked{% endif %}> Song Studio</label>
           <label><input type="checkbox" name="studio_short" value="on" {% if 'short' in user.allowed_studios %}checked{% endif %}> Short Studio</label>
           <label><input type="checkbox" name="studio_copyright" value="on" {% if 'copyright' in user.allowed_studios %}checked{% endif %}> Copyright Studio</label>
+          <label><input type="checkbox" name="studio_voice" value="on" {% if 'voice' in user.allowed_studios %}checked{% endif %}> Voice Studio</label>
         </fieldset>
         <p>Experiment Studio and Administration are reserved for Admin users.</p>
         <button class="button" type="submit">Save Studio Access</button>

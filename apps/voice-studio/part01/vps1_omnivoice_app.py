@@ -9,6 +9,9 @@ import voice_clone_api as vc
 import kokoro_api as ko
 import edge_api as ed
 import audio_downloader_api as ad
+import asyncio
+from fastapi.responses import JSONResponse
+from voice_tenant import scene_identity, set_identity, reset_identity, owner
 BASE=Path(__file__).resolve().parent
 templates=Jinja2Templates(directory=str(BASE/"templates"))
 app=FastAPI(title="VPS1 OmniVoice Voice Studio",docs_url=None,redoc_url=None)
@@ -16,6 +19,55 @@ app.include_router(vc.router)
 app.include_router(ko.router)
 app.include_router(ed.router)
 app.include_router(ad.router)
+@app.middleware("http")
+async def voice_session_and_permissions(request: Request, call_next):
+    """Live SSO for all public Voice API routes, not just sidebar links.
+
+    Health probes remain anonymous. Legacy Audio Downloader retains Song grant.
+    """
+    path = request.url.path
+    if path == "/healthz":
+        return await call_next(request)
+    try:
+        identity = await asyncio.to_thread(scene_identity, request.headers.get("cookie", ""))
+    except HTTPException as exc:
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+    username = identity["username"]
+    admin = identity["is_admin"]
+    grants = identity["allowed_studios"]
+    audio_path = (path == "/audio-downloader/app" or
+                  path == "/tts/api/audio-downloader" or
+                  path.startswith("/tts/api/audio-downloader/"))
+    required = "song" if audio_path else "voice"
+    if not admin and required not in grants:
+        return JSONResponse({"detail": required + " Studio access required"}, status_code=403)
+    # Exact privileged endpoints only. User-owned "test-generation" is an
+    # existing Voice operation, not a shared provider-configuration mutation.
+    # GET config exposes shared worker endpoints/settings and is admin-only too.
+    shared_config_paths = {
+        "/tts/api/clone/worker/config",
+        "/tts/api/clone/omnivoice/config",
+    }
+    shared_connection_actions = {
+        "/tts/api/clone/worker/test",
+        "/tts/api/clone/worker/connect",
+        "/tts/api/clone/worker/disconnect",
+        "/tts/api/clone/omnivoice/test",
+        "/tts/api/clone/omnivoice/connect",
+        "/tts/api/clone/omnivoice/disconnect",
+    }
+    protected = (path in shared_config_paths or
+                 (request.method not in ("GET", "HEAD") and path in shared_connection_actions))
+    if protected and not admin:
+        return JSONResponse({"detail": "Shared provider configuration requires Admin"}, status_code=403)
+    request.state.scene_owner = username
+    request.state.scene_admin = admin
+    tokens = set_identity(username, admin)
+    try:
+        return await call_next(request)
+    finally:
+        reset_identity(tokens)
+
 @app.on_event("startup")
 def _startup():
     vc.init_storage()
@@ -28,6 +80,7 @@ def _startup():
         ad.start_worker()
 @app.get("/",response_class=HTMLResponse)
 @app.get("/app",response_class=HTMLResponse)
+@app.get("/audio-downloader/app",response_class=HTMLResponse)
 def studio(request:Request):
     response = templates.TemplateResponse(request, "voice_studio.html", {})
     response.headers["Cache-Control"] = "private, no-store, max-age=0, must-revalidate"
@@ -40,7 +93,9 @@ def drive_folders():
     try:
         result = rclone(["lsjson", f"{REMOTE}:{DRIVE_ROOT}", "--dirs-only", "--max-depth", "1"], timeout=20)
         rows = json.loads(result.stdout or "[]")
-        return {"ok": True, "root": DRIVE_ROOT, "folders": sorted(str(r["Name"]) for r in rows if r.get("IsDir") and r.get("Name"))}
+        prefix = ("vs_" + owner() + "__").casefold()
+        folders = sorted(str(r["Name"]) for r in rows if r.get("IsDir") and r.get("Name") and str(r["Name"]).casefold().startswith(prefix))
+        return {"ok": True, "root": DRIVE_ROOT, "folders": folders}
     except Exception as exc:
         raise HTTPException(503, "Voice Drive folder listing unavailable. Check the Voice Studio Drive connection and retry.") from exc
 

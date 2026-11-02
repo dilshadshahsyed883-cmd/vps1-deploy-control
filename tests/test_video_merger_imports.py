@@ -388,7 +388,7 @@ class Imports(unittest.TestCase):
         with patch.object(self.app,'source_to_file',side_effect=source),patch.object(self.app,'probe',return_value={}), \
              patch.object(self.app,'media_duration',return_value=2),patch.object(self.app,'transcode_library',side_effect=transcode), \
              patch.object(self.app,'verify_library_media',return_value=2),patch.object(self.app,'rclone',side_effect=remote):
-            self.app.process_library_import('new','https://drive.google.com/file/d/abcdefghijk/view',{'url':'https://example.com/video.mp4','trim_enabled':False})
+            self.app.process_library_import('new','https://drive.google.com/file/d/abcdefghijk/view',{'url':'https://example.com/video.mp4','trim_enabled':False},upload_to_drive=True)
         item=self.app.get_library_item('new')
         self.assertEqual(item['status'],'ready');self.assertEqual(item['size_bytes'],11)
         self.assertEqual(self.app.get_library_item('existing'),before)
@@ -399,8 +399,12 @@ class Imports(unittest.TestCase):
         with patch.object(self.app,'source_to_file'),patch.object(self.app,'probe',return_value={}), \
              patch.object(self.app,'media_duration',return_value=2),patch.object(self.app,'transcode_library',side_effect=lambda s,d,*a:d.write_bytes(b'abc')), \
              patch.object(self.app,'verify_library_media',return_value=2),patch.object(self.app,'rclone',return_value=json.dumps({'ID':'x','Size':99})):
-            self.app.process_library_import('new','https://example.com/file',{'url':'https://example.com/video.mp4','trim_enabled':False})
-        self.assertEqual(self.app.get_library_item('new')['status'],'failed')
+            self.app.process_library_import('new','https://example.com/file',{'url':'https://example.com/video.mp4','trim_enabled':False},upload_to_drive=True)
+        item=self.app.get_library_item('new')
+        self.assertEqual(item['status'],'ready')
+        self.assertEqual(item['drive_status'],'failed')
+        self.assertTrue(self.app.library_cache_path('new').is_file())
+        self.assertFalse(item['drive_id'])
 
 
 class VideoMergerSavedProxyActivationTests(unittest.TestCase):

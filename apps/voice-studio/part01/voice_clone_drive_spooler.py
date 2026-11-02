@@ -210,6 +210,29 @@ def _local_text_path(rel: str) -> Path:
     return p
 
 
+def destination_folder_for_job(row: sqlite3.Row | dict) -> str:
+    """Preserve historical Drive paths; isolate only new owned Auto deliveries.
+
+    The existing empty folder selection means language/engine auto-routing.
+    Previous legacy jobs (no verified owner) retain their exact historic path.
+    """
+    folder = exact_one_level_folder(str(row["drive_folder"] or ""))
+    if folder:
+        return f"{DRIVE_ROOT}/{folder}"
+    lang = safe_auto_component(str(row["language"] or "auto"), "auto")
+    engine = safe_auto_component(str(row["engine"] or "gpu"), "gpu")
+    auto_root = f"{DRIVE_ROOT}/{lang}/gpu-{engine}"
+    # Existing jobs retain their old path even if an owner is later verified.
+    # Only newly queued Auto jobs carry this explicit, additive routing flag.
+    auto_scoped = bool(row["auto_owner_scoped"]) if "auto_owner_scoped" in row.keys() else False
+    if not auto_scoped:
+        return auto_root
+    username = str(row["owner_username"] or "").strip() if "owner_username" in row.keys() else ""
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{3,40}", username):
+        raise RuntimeError("Invalid verified Voice owner for Drive delivery")
+    return f"{auto_root}/vs_{username}__default"
+
+
 def process_one() -> bool:
     if not DB_PATH.exists():
         return False
@@ -252,13 +275,7 @@ def process_one() -> bool:
 
         source_filename = exact_filename(str(row["source_filename"]))
         output_basename = exact_filename(str(row["output_basename"]))
-        folder = exact_one_level_folder(str(row["drive_folder"] or ""))
-        if folder:
-            remote_folder = f"{DRIVE_ROOT}/{folder}"
-        else:
-            lang = safe_auto_component(str(row["language"] or "auto"), "auto")
-            engine = safe_auto_component(str(row["engine"] or "gpu"), "gpu")
-            remote_folder = f"{DRIVE_ROOT}/{lang}/gpu-{engine}"
+        remote_folder = destination_folder_for_job(row)
 
         audio_remote = f"{remote_folder}/{exact_filename(output_basename, audio.suffix.lower())}"
         text_remote = f"{remote_folder}/{source_filename}"

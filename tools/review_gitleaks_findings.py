@@ -86,6 +86,83 @@ def reviewed_legacy_fixture(finding, mode, root):
         return False
 
 
+
+def safe_category(finding):
+    """Expose only coarse diagnostic buckets, never source, secrets, paths or IDs."""
+    if not isinstance(finding, dict):
+        return "invalid", "other"
+    path = str(finding.get("File", "")).removeprefix("/repo/").removeprefix("./")
+    norm = path.lower().replace("\\", "/")
+    if "/tests/" in "/" + norm or norm.startswith("test_") or "/test_" in norm:
+        location = "test"
+    elif norm.startswith((".github/", "docs/", "documentation/")):
+        location = "config_or_docs"
+    elif norm.startswith(("production/", "apps/", "rebuild/")):
+        location = "application"
+    else:
+        location = "other"
+    # Allowlisted bucket labels; arbitrary scanner strings are NOT logged.
+    rule = "generic-api-key" if finding.get("RuleID") == "generic-api-key" else "other_rule"
+    return location, rule
+
+
+def safe_test_evidence(finding, root):
+    """Classify old test context without logging its source, commit, or path."""
+    if safe_category(finding)[0] != "test":
+        return "not_test"
+    path = str(finding.get("File", "")).removeprefix("/repo/").removeprefix("./")
+    commit = str(finding.get("Commit", ""))
+    try:
+        line = int(finding.get("StartLine", -1))
+    except (ValueError, TypeError):
+        return "uninspectable"
+    if (not re.fullmatch(r"[0-9a-f]{40}", commit)
+            or path.startswith(("/", "-")) or ".." in Path(path).parts or line < 1):
+        return "uninspectable"
+    try:
+        source = subprocess.check_output(
+            ["git", "-C", str(root), "show", f"{commit}:{path}"],
+            stderr=subprocess.DEVNULL, timeout=12).decode("utf-8").splitlines()
+    except (subprocess.SubprocessError, OSError, UnicodeError):
+        return "uninspectable"
+    if line > len(source):
+        return "uninspectable"
+    before = "\n".join(source[max(0, line - 45):line])
+    after = "\n".join(source[line:min(len(source), line + 24)])
+    # This is ONLY diagnostic evidence; it can NEVER review a finding.
+    in_test = bool(re.search(r"(?m)^\s*(?:async\s+)?def test_[A-Za-z0-9_]*\s*\(", before))
+    mentions_synthetic = bool(re.search(
+        r"\b(?:fake|dummy|invalid|synthetic|fixture|placeholder)\b",
+        before + "\n" + after, re.IGNORECASE))
+    expects_failure = any(term in after for term in (
+        "assertRaises", "pytest.raises", "raises(ValueError)", "raises(TypeError)"))
+    # Narrow *evidence* labels only; they do not review or suppress findings.
+    # No source text or identifier is emitted by this code.
+    if in_test and path == "production/test_auto_stream_engine.py":
+        if "key_abcdefghij" in source[line - 1] and (
+            "def test_rtmps_command_places_ingest_url_before_key" in before
+            or "def test_fixed_and_unlimited_loop_arguments_are_explicit" in before
+        ):
+            return "known_stream_dummy_key_candidate"
+    if in_test and path == FIXTURE:
+        if ("synthetic_value" in source[line - 1] and
+                "def test_reject_static_credential_literals_but_not_identifiers" in before):
+            return "known_builder_dummy_value_candidate"
+    if in_test and path == FIXTURE:
+        if ("def test_env_credential_lookup_allowed_but_literals_rejected" in before and
+                expects_failure):
+            return "known_builder_negative_test_candidate"
+    if in_test and mentions_synthetic and expects_failure:
+        return "test_synthetic_failure_context"
+    if in_test and expects_failure:
+        return "test_failure_context"
+    if in_test and mentions_synthetic:
+        return "test_synthetic_context"
+    if in_test:
+        return "test_function_context"
+    return "test_data_or_other_context"
+
+
 def main():
     temp = Path(sys.argv[1])
     root = Path(os.environ["GITHUB_WORKSPACE"])
@@ -102,6 +179,19 @@ def main():
                 raise ValueError("Invalid scanner JSON")
             ignored = sum(reviewed_legacy_fixture(item, mode, root) for item in data)
             unresolved = len(data) - ignored
+            if unresolved:
+                buckets = {}
+                for item in data:
+                    if not reviewed_legacy_fixture(item, mode, root):
+                        bucket = safe_category(item)
+                        buckets[bucket] = buckets.get(bucket, 0) + 1
+                # Public logs show only fixed enum buckets and integer counts.
+                for (location, rule), count in sorted(buckets.items()):
+                    print(f"GITLEAKS_UNRESOLVED_CLASS={location}; RULE_CLASS={rule}; COUNT={count}")
+                for item in data:
+                    if not reviewed_legacy_fixture(item, mode, root):
+                        evidence = safe_test_evidence(item, root)
+                        print(f"GITLEAKS_UNRESOLVED_TEST_EVIDENCE={evidence}")
             valid_exit = (status == 0 and len(data) == 0) or (status == 1 and len(data) > 0)
             passed = (unresolved == 0 and valid_exit)
             lines.append(

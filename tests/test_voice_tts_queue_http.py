@@ -36,6 +36,9 @@ class RealQueueRoutesTest(unittest.TestCase):
         os.environ["EDGE_STUDIO_ROOT"] = str(Path(self.temp.name) / "edge")
         if str(APP_ROOT) not in sys.path:
             sys.path.insert(0,str(APP_ROOT))
+        import voice_tenant
+        self._identity_tokens = voice_tenant.set_identity("testvoice", False)
+        self.addCleanup(lambda: voice_tenant.reset_identity(self._identity_tokens))
         self.ko = load("kokoro")
         self.ed = load("edge")
         self.ko.init_storage()
@@ -43,6 +46,13 @@ class RealQueueRoutesTest(unittest.TestCase):
         app = FastAPI()
         app.include_router(self.ko.router)
         app.include_router(self.ed.router)
+        @app.middleware("http")
+        async def fixture_identity(request, call_next):
+            tokens = voice_tenant.set_identity("testvoice", False)
+            try:
+                return await call_next(request)
+            finally:
+                voice_tenant.reset_identity(tokens)
         self.client = TestClient(app)
         self.kid = self.ko.create_job("Hello production tests", "demo.txt", "en-us", "af_heart", 1.0, "test-batch")
         self.eid = self.ed.create_job("Hello production tests", "demo.txt", "en-US-JennyNeural", "en-US", 0, 0, 0, "test-batch")
