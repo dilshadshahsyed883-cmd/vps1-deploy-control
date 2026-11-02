@@ -155,6 +155,18 @@ class ShortProfileStore:
                 raise HTTPException(409, detail="Profile name already exists for this user")
         return self.get(owner, profile_id)
 
+    def enable(self, owner, profile_id):
+        # A profile can be enabled only by its owner. A separate guarded
+        # scheduler activation gate decides whether Start is available.
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            self._owned(db, profile_id, owner)
+            db.execute(
+                "UPDATE short_profiles SET enabled=1,updated_at=? WHERE id=? AND owner=?",
+                (_now(), profile_id, owner),
+            )
+        return self.get(owner, profile_id)
+
     def stop(self, owner, profile_id):
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -216,7 +228,7 @@ class ShortProfileStore:
 
 
 def register_short_profile_store(app, data_root, short_identity, short_folder_owned,
-                                 verify_source_import=None):
+                                 verify_source_import=None, start_callback=None):
     """Register authenticated record routes, with fail-closed source verification."""
     store = ShortProfileStore(Path(data_root))
     def owner(request):
@@ -228,7 +240,8 @@ def register_short_profile_store(app, data_root, short_identity, short_folder_ow
 
     @app.get("/api/short-profiles")
     def list_profiles(request: Request):
-        return {"profiles": store.list(owner(request)), "scheduler_active": False}
+        return {"profiles": store.list(owner(request)),
+                "scheduler_active": start_callback is not None}
 
     @app.post("/api/short-profiles")
     async def create_profile(request: Request):
@@ -249,10 +262,11 @@ def register_short_profile_store(app, data_root, short_identity, short_folder_ow
 
     @app.post("/api/short-profiles/{profile_id}/start")
     def start_profile(profile_id: str, request: Request):
-        store.get(owner(request), profile_id)
-        # Do not imply that enabled scheduling exists before verified media and
-        # the renderer reconciliation worker are wired.
-        raise HTTPException(503, detail="Short Profiles scheduler not yet activated")
+        who = owner(request)
+        store.get(who, profile_id)
+        if start_callback is None:
+            raise HTTPException(503, detail="Short Profiles scheduler not yet activated")
+        return start_callback(who, profile_id)
 
     @app.delete("/api/short-profiles/{profile_id}")
     async def delete_profile(profile_id: str, request: Request):
