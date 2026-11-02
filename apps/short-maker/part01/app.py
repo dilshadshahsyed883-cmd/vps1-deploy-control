@@ -1598,10 +1598,31 @@ async function loadOwnerFolderNames(){
    const row=document.createElement('tr');
    const cell=document.createElement('td');cell.textContent=name;row.appendChild(cell);
    const entry=byName.get(name);
-   for(const value of [String(entry.available_videos), 'Pending uploader-profile verification']){
-    const td=document.createElement('td');td.textContent=value;row.appendChild(td);
-   }
-   const action=document.createElement('td');action.textContent='Preflight required';row.appendChild(action);inventory.appendChild(row);
+   const countCell=document.createElement('td');countCell.textContent=String(entry.available_videos);row.appendChild(countCell);
+   const linkedCell=document.createElement('td');linkedCell.textContent='Pending uploader-profile verification';row.appendChild(linkedCell);
+   const action=document.createElement('td');
+   const preview=document.createElement('button');preview.type='button';preview.className='secondary';
+   preview.textContent='Review dependencies';
+   preview.addEventListener('click',async()=>{
+    preview.disabled=true;linkedCell.textContent='Checking owned profile references…';
+    try{
+     const response=await fetch('api/vps-folders/'+encodeURIComponent(name)+'/delete-preflight',{cache:'no-store'});
+     const report=await response.json();
+     if(!response.ok)throw Error(report.detail||'Dependency verification failed');
+     const ownerLinks=[...(report.linked_short_profiles||[]).map(p=>'Maker: '+p.name),
+       ...(report.linked_profiles||[]).map(p=>'Uploader: '+p.name+(p.enabled?'':' (paused)'))];
+     linkedCell.textContent=ownerLinks.length?ownerLinks.join(' · '):
+       report.uploader_dependency_verified?'No owned profile links':'Uploader verification unavailable';
+     const detail=document.createElement('div');detail.className='hint';
+     detail.textContent=(report.issues||[]).length?(report.issues||[]).join(' · '):
+       'No dependency conflicts found; deletion still locked until full transaction and queue safety approval.';
+     action.replaceChildren(preview,detail);
+    }catch(error){linkedCell.textContent='Dependency verification blocked';const detail=document.createElement('div');detail.className='hint';
+     detail.textContent=error.message;action.replaceChildren(preview,detail);}
+    finally{preview.disabled=false;}
+   });
+   action.appendChild(preview);
+   row.appendChild(action);inventory.appendChild(row);
   }
   if(!list.length){const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=4;cell.textContent='No owner-owned VPS folders found.';row.appendChild(cell);inventory.appendChild(row);}
  }catch(e){inventory.replaceChildren();const row=document.createElement('tr'),td=document.createElement('td');td.colSpan=4;td.textContent='Could not verify owner-owned VPS folders: '+e.message;row.appendChild(td);inventory.appendChild(row);}
