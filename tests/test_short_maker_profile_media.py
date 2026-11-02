@@ -138,6 +138,15 @@ class ShortProfileMediaTests(unittest.TestCase):
         self.assertIsNone(self.verify("alice",sid))
         self.assertEqual(list((self.root/"short_profile_library").rglob("*.png")),[])
 
+    def test_disk_reserve_accounts_for_publish_copy(self):
+        # Peak usage includes source staging plus output bytes.
+        total = len(self.voice) + len(self.picture)
+        free = self.module.DISK_RESERVE_BYTES + total + 512
+        with patch.object(self.module.shutil, "disk_usage",
+                          return_value=SimpleNamespace(free=free)):
+            response = self.begin()
+        self.assertEqual(response.status_code, 507, response.text)
+
     def test_source_filename_traversal_and_missing_types_rejected(self):
         bad=self.client.post("/api/short-profile-media/sessions",headers=self.alice,
             json={"files":[{"name":"../audio.mp3","size":1024},
