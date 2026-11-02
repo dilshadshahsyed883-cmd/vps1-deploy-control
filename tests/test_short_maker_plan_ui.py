@@ -68,6 +68,17 @@ class ShortMakerLockedPlanUITests(unittest.TestCase):
         proc = subprocess.run(["node", "-e", script], text=True, capture_output=True, timeout=10)
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
+    def test_ready_video_cancel_and_parallel_failure_recovery(self):
+        client = (ROOT / "apps/short-maker/part01/ready_video_client.js").read_text(
+            encoding="utf-8")
+        self.assertIn("cancel.disabled=!session", client)
+        self.assertIn("Promise.allSettled", client)
+        self.assertIn("fileErrors.set(i", client)
+        self.assertIn("completed", client)
+        self.assertIn("failed", client)
+        self.assertIn("waiting", client)
+        self.assertIn("input.dispatchEvent(new Event('change'))", self.html)
+
     def test_existing_maker_pipeline_was_not_replaced(self):
         for tag in ('id="makerPanel"', 'id="images"', 'id="audio"', 'id="render"',
                     'id="queueRows"', 'id="settingsPanel"', 'id="shortVpsFolder"'):
