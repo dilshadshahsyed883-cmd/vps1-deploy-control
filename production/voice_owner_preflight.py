@@ -48,7 +48,7 @@ def audit(path: Path, engine: str) -> dict:
             # different user's profile would disappear in the scoped join.
             job_cols = {row[1] for row in con.execute("PRAGMA table_info(jobs)")}
             profile_cols = {row[1] for row in con.execute("PRAGMA table_info(profiles)")}
-            if "owner_username" in job_cols and "owner_username" in profile_cols:
+            if {"owner_username", "profile_id"}.issubset(job_cols) and {"owner_username", "profile_id"}.issubset(profile_cols):
                 result["job_profile_owner_conflicts"] = int(con.execute(
                     "SELECT COUNT(*) FROM jobs j LEFT JOIN profiles p ON j.profile_id=p.profile_id "
                     "WHERE p.profile_id IS NULL OR j.owner_username<>p.owner_username"
