@@ -1738,6 +1738,15 @@ def main():
             else:
                 raise RuntimeError('Unsupported Copyright operation')
             return
+        # Approved Short Studio cooperative source code, flags OFF.
+        # This lane may update only the isolated Short Uploader web/worker/
+        # scheduler source, preserving all other engines, OAuth and UI.
+        if '[vps1-shortstudio-cooperation-code-only]' in intent:
+            if args.action != 'install' or args.apps != ['local-upload-manager']:
+                raise RuntimeError('Short cooperation source requires isolated uploader lane')
+            from production.short_uploader_group_release import install as install_short_coop
+            install_short_coop(args.revision, cooperation_only=True)
+            return
         # Preserve active protected-main Short Uploader network fairness release.
         if ('[vps1-shortstudio-network-fairness]' in intent or
                 '[vps1-shortstudio-final-ui]' in intent):
