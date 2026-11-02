@@ -2599,6 +2599,34 @@ def discard_resumable_upload(job_id: str, request: Request):
 # The browser upload UI stays disabled until all cross-service folder safety gates
 # and two-user integration tests are proven. No scheduler or Auto Script is started.
 import importlib.util as _sm_importlib
+_sm_cooperation_spec = _sm_importlib.spec_from_file_location(
+    "short_maker_folder_cooperation",
+    Path(__file__).with_name("short_folder_cooperation.py"))
+_sm_cooperation_module = _sm_importlib.module_from_spec(_sm_cooperation_spec)
+_sm_cooperation_spec.loader.exec_module(_sm_cooperation_module)
+_sm_cooperation_enabled = os.environ.get("SHORT_MAKER_COOPERATIVE_LOCK_ENABLED", "0") == "1"
+_sm_folder_cooperation = _sm_cooperation_module.ShortStudioFolderLease(
+    SHORT_VPS_ROOT, enabled=_sm_cooperation_enabled)
+
+if _sm_cooperation_enabled:
+    # Protect all authenticated Maker modifications and the entire detached
+    # render worker lifetime. The same path MUST be adopted by every Short
+    # Uploader web/scheduler/claim/cleanup writer before any retirement.
+    _sm_original_render_job = render_job
+
+    def _sm_render_with_folder_lease(job_id, cfg):
+        with _sm_folder_cooperation.producer():
+            return _sm_original_render_job(job_id, cfg)
+
+    render_job = _sm_render_with_folder_lease
+
+    @app.middleware("http")
+    async def _sm_protect_folder_writes(request: Request, call_next):
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+            with _sm_folder_cooperation.producer():
+                return await call_next(request)
+        return await call_next(request)
+
 _sm_ready_spec = _sm_importlib.spec_from_file_location(
     "short_maker_ready_uploads", Path(__file__).with_name("ready_video_uploads.py"))
 _sm_ready_module = _sm_importlib.module_from_spec(_sm_ready_spec)
