@@ -41,13 +41,24 @@ async def voice_session_and_permissions(request: Request, call_next):
     required = "song" if audio_path else "voice"
     if not admin and required not in grants:
         return JSONResponse({"detail": required + " Studio access required"}, status_code=403)
-    # Endpoint guards are enforced server-side, never merely hidden in the UI.
-    protected = (
-        path.startswith("/tts/api/clone/worker/") or
-        (path.startswith("/tts/api/clone/omnivoice/") and
-         any(path.endswith("/" + item) for item in ("config", "connect", "disconnect", "test")))
-    )
-    if request.method not in ("GET", "HEAD") and protected and not admin:
+    # Exact privileged endpoints only. User-owned "test-generation" is an
+    # existing Voice operation, not a shared provider-configuration mutation.
+    # GET config exposes shared worker endpoints/settings and is admin-only too.
+    shared_config_paths = {
+        "/tts/api/clone/worker/config",
+        "/tts/api/clone/omnivoice/config",
+    }
+    shared_connection_actions = {
+        "/tts/api/clone/worker/test",
+        "/tts/api/clone/worker/connect",
+        "/tts/api/clone/worker/disconnect",
+        "/tts/api/clone/omnivoice/test",
+        "/tts/api/clone/omnivoice/connect",
+        "/tts/api/clone/omnivoice/disconnect",
+    }
+    protected = (path in shared_config_paths or
+                 (request.method not in ("GET", "HEAD") and path in shared_connection_actions))
+    if protected and not admin:
         return JSONResponse({"detail": "Shared provider configuration requires Admin"}, status_code=403)
     request.state.scene_owner = username
     request.state.scene_admin = admin
