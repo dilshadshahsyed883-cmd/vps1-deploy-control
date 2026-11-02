@@ -251,7 +251,7 @@ def verify_voice_release_auth_source(release: Path) -> None:
         raise RuntimeError('VOICE_RELEASE_AUTH_SOURCE_UNREADABLE') from exc
     if (source.count('def voice_session_and_permissions(') != 1
             or source.count('@app.middleware("http")') != 1
-            or 'scene_identity(request.headers.get("cookie", ""))' not in source
+            or 'scene_identity, request.headers.get("cookie", "")' not in source
             or 'set_identity(username, admin)' not in source
             or 'reset_identity(tokens)' not in source
             or '_IDENTITY_URL = "http://127.0.0.1:18080/api/session/identity"' not in identity):
