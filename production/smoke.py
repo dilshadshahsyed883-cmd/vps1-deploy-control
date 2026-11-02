@@ -189,8 +189,7 @@ def smoke(app):
         if app == 'auto-caption-studio':
             env['AUTO_CAPTION_CODE_ROOT'] = str(source)
         log = (state / 'runtime.log').open('w+')
-        proc = subprocess.Popen(command, cwd=source, env=env,
-                                stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
+        proc = None
         scene_fixture = None
         try:
             if app == 'voice-studio':
@@ -217,9 +216,23 @@ def smoke(app):
                     def log_message(self, *_args):
                         pass
 
-                # Fail closed if the expected private Scene port is occupied.
-                scene_fixture = ThreadingHTTPServer(('127.0.0.1', 18080), SceneIdentityFixture)
+                # A disposable loopback listener must never claim Scene's live
+                # 18080 port. The test-only identity override exists ONLY in this
+                # isolated subprocess; production Voice identity remains pinned.
+                scene_fixture = ThreadingHTTPServer(('127.0.0.1', 0), SceneIdentityFixture)
                 Thread(target=scene_fixture.serve_forever, daemon=True).start()
+                env['VPS1_VOICE_SMOKE_SSO_PORT'] = str(scene_fixture.server_port)
+                env['VPS1_VOICE_SMOKE_APP_PORT'] = str(port)
+                command = [
+                    sys.executable, '-c',
+                    "import os, voice_tenant, uvicorn; "
+                    "voice_tenant._IDENTITY_URL = 'http://127.0.0.1:' + "
+                    "os.environ['VPS1_VOICE_SMOKE_SSO_PORT'] + '/api/session/identity'; "
+                    "uvicorn.run('vps1_omnivoice_app:app', host='127.0.0.1', "
+                    "port=int(os.environ['VPS1_VOICE_SMOKE_APP_PORT']))",
+                ]
+            proc = subprocess.Popen(command, cwd=source, env=env,
+                                    stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
             with httpx.Client(base_url=f'http://127.0.0.1:{port}', timeout=5, trust_env=False,
                               headers={'X-Auth-User': 'runtime-test', 'X-App-Access': 'both', 'X-Is-Admin': '1',
                                        **({'Cookie': 'vps1-isolated-scene=valid'} if app == 'voice-studio' else {})},
@@ -366,12 +379,13 @@ def smoke(app):
             if scene_fixture is not None:
                 scene_fixture.shutdown()
                 scene_fixture.server_close()
-            proc.terminate()
-            try:
-                proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait(timeout=5)
+            if proc is not None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=5)
             log.close()
 
 
