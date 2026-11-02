@@ -43,7 +43,7 @@ class SongAudioServiceTests(unittest.TestCase):
             patch.object(service, "VOICE_ENV") as voice_env,
             patch.object(service, "SCENE_ENV") as scene_env,
             patch.object(service.subprocess, "run") as run,
-            patch.object(service.runtime, "require_voice_release_idle") as idle,
+            patch("production.song_audio_handoff_preflight.require_drain") as drain,
             patch.object(service.runtime, "free_port") as free,
         ):
             voice_env.is_file.return_value = True
@@ -52,11 +52,11 @@ class SongAudioServiceTests(unittest.TestCase):
             scene_env.is_symlink.return_value = False
             run.return_value.returncode = 0
             result = service.preflight()
-            idle.assert_called_once_with(service.runtime.DATA / "voice-studio",
-                                         audio_db=canonical / "data/jobs.sqlite3")
+            drain.assert_called_once_with(service.runtime.DATA / "voice-studio",
+                                         canonical / "data/jobs.sqlite3")
             free.assert_called_once_with(8152)
             self.assertFalse(result["route_cutover_performed"])
-            idle.side_effect = RuntimeError("Audio Downloader has active jobs")
+            drain.side_effect = RuntimeError("Audio Downloader has active jobs")
             with self.assertRaisesRegex(RuntimeError, "active jobs"):
                 service.preflight()
 
