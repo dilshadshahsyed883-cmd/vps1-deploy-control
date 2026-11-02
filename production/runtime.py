@@ -1158,6 +1158,12 @@ def main():
     check_host(args.revision)
     with deployment_lock():
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-song-audio-voice-readonly-diagnose]' in intent:
+            if args.action != 'install' or args.apps != ['voice-studio']:
+                raise RuntimeError('Voice rollback read-only audit requires exact Voice lane')
+            from production.song_audio_voice_diagnostic import report
+            event(**report())
+            return  # No install, restart, rollback, queue or environment mutation.
         # Scoped Audio Downloader first-owner audit/claim: no service restart,
         # no media/prefs/queue mutation and no Song/Short Maker deployment.
         if '[vps1-haseeb1-audio-readonly]' in intent:
@@ -1624,6 +1630,12 @@ def main():
     check_host(args.revision)
     with deployment_lock():
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-song-audio-voice-readonly-diagnose]' in intent:
+            if args.action != 'install' or args.apps != ['voice-studio']:
+                raise RuntimeError('Voice rollback read-only audit requires exact Voice lane')
+            from production.song_audio_voice_diagnostic import report
+            event(**report())
+            return  # No install, restart, rollback, queue or environment mutation.
         # Scoped Audio Downloader first-owner audit/claim: no service restart,
         # no media/prefs/queue mutation and no Song/Short Maker deployment.
         if '[vps1-haseeb1-audio-readonly]' in intent:
