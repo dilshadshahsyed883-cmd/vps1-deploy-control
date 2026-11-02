@@ -1972,6 +1972,11 @@ async def create_short_vps_folder(request: Request):
 @app.delete("/api/vps-folders/{folder_name}")
 def delete_short_vps_folder(folder_name: str, request: Request):
     owner, _admin = short_identity(request)
+    if _sm_unused_retirement_enabled:
+        # Do not permit the historical empty-only route to bypass the
+        # new full cross-service dependency review and confirmation.
+        raise HTTPException(status_code=409,
+            detail="Use verified unused-folder review and confirmed deletion")
     try:
         if folder_name == SHORT_VPS_DEFAULT or folder_name == short_personal_default(owner):
             raise HTTPException(status_code=403, detail="Default folder is protected.")
