@@ -12,7 +12,7 @@ Status: **STAGED / NOT CUT OVER / NO PRODUCTION DEPLOYMENT**.
 1. Legacy Voice still serves downloader and holds its worker by default. `SONG_AUDIO_BACKEND_SPLIT` defaults OFF. No live behavior changes unless an explicit guarded deployment sets it to `1`.
 2. A standalone `song_audio_app:app` accepts **Song** grants only, exports no Voice synthesis APIs, and refuses to start without `SONG_AUDIO_CUTOVER_ACTIVE=1` and an explicit absolute canonical `AUDIO_DOWNLOADER_ROOT`.
 3. The existing Audio Downloader worker now takes a single OS file lock inside its durable data directory **before any queue recovery**, held for its process lifetime. A second server fails to start rather than duplicating downloads/uploads or Song Maker handoffs.
-4. The Song-only server currently reuses the reviewed UI template and existing downloader API code. Scene now supports an exact, protected `SONG_AUDIO_SPLIT_UPSTREAM=http://127.0.0.1:8152` switch for **Song** APIs and HTML only. Unset is legacy-compatible; any other configured URL is rejected rather than proxied. This switch is not activated in production. A separate service process and guarded route change are still required to finish the isolation; copy/migrate data is forbidden.
+4. The Song-only server now owns independent `apps/song-studio/part01/` source copies of the reviewed UI template, downloader API, and Scene session verifier, with a uniquely named Song API module (no import from Voice Studio). Scene now supports an exact, protected `SONG_AUDIO_SPLIT_UPSTREAM=http://127.0.0.1:8152` switch for **Song** APIs and HTML only. Unset is legacy-compatible; any other configured URL is rejected rather than proxied. This switch is not activated in production. A separate service process and guarded route change are still required to finish the isolation; copy/migrate data is forbidden.
 5. No protected CI, Gitleaks rules, branch rules, authorization or workflow release conditions are weakened.
 
 ## Guarded cutover checklist — fail closed
@@ -25,4 +25,6 @@ Status: **STAGED / NOT CUT OVER / NO PRODUCTION DEPLOYMENT**.
 - CI alone never proves the VPS cutover. Record exact protected merge SHA, actual installer conclusion, and post-deploy two-account acceptance after a guarded release.
 
 ## Acceptance state
-This branch adds the isolated entrypoint and worker mutual exclusion, plus offline isolation/SSO tests. It **does not** currently register a production unit, alter Scene routing, move the live queue or declare either studio separated in production. Remaining wiring is deliberately withheld until the guarded cutover transaction can be verified end-to-end.
+This branch adds Song Studio-owned source modules, the isolated entrypoint, an exclusive worker lock, a default-off legacy Voice split switch, an exact Scene loopback proxy selector, plus offline isolation/SSO tests. It **does not** currently register a production unit, alter Scene routing, move the live queue or declare either studio separated in production. Remaining wiring is deliberately withheld until the guarded cutover transaction can be verified end-to-end.
+
+**Important:** The legacy Voice service still has its own Audio Downloader API and its old worker until an approved release. Do not run the standalone Song service against live data until the complete guarded cutover transaction is validated.
