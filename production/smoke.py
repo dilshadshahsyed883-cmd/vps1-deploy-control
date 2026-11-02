@@ -12,7 +12,7 @@ import sys
 import tempfile
 import time
 
-from production.runtime import CATALOG, REPO, environment
+from production.runtime import CATALOG, SONG_AUDIO_SPEC, REPO, environment
 
 
 def render_short(client):
@@ -161,7 +161,7 @@ def smoke_isolated_uploader_pages(state):
 
 def smoke(app):
     import httpx
-    spec = CATALOG[app]
+    spec = SONG_AUDIO_SPEC if app == 'song-studio' else CATALOG[app]
     with tempfile.TemporaryDirectory(prefix='vps1-runtime-') as tmp:
         state = Path(tmp)
         env = {**os.environ, **environment(app, state), 'FRESH_WEBSITE_SMOKE_TEST': '1'}
@@ -408,7 +408,7 @@ def smoke(app):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--app', required=True, choices=sorted(CATALOG))
+    parser.add_argument('--app', required=True, choices=sorted(CATALOG) + ['song-studio'])
     args = parser.parse_args()
     print(json.dumps(smoke(args.app), sort_keys=True))
 
