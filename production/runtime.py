@@ -223,7 +223,7 @@ def http_check(app, timeout=45):
     raise RuntimeError('app health failed: ' + app)
 
 
-def require_voice_release_idle(state: Path) -> None:
+def require_voice_release_idle(state: Path, audio_db: Path | None = None) -> None:
     """Fail closed on Voice synthesis and active uploads before any worker restart.
 
     Completed, failed and cancelled historical rows are preserved. A pending
@@ -247,19 +247,40 @@ def require_voice_release_idle(state: Path) -> None:
                     OR delivery_status='transferring'""").fetchone()[0]
             if count:
                 raise RuntimeError(label + ' has pending/in-flight synthesis or upload; release postponed')
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    url = 'http://127.0.0.1:8143/tts/api/audio-downloader/status'
+    # Voice SSO correctly rejects anonymous /status (HTTP 403). The trusted
+    # deploy helper uses an immutable read-only snapshot of the local queue DB
+    # instead of bypassing Scene authentication or trusting caller headers.
+    audio_db = audio_db if audio_db is not None else (
+        Path(os.environ.get('AUDIO_DOWNLOADER_ROOT',
+                            '/home/ubuntu/apps/audio_downloader_voice_studio'))
+        / 'data/jobs.sqlite3'
+    )
+    if audio_db.is_symlink() or not audio_db.is_file():
+        raise RuntimeError('Audio Downloader preflight DB unavailable')
     try:
-        with opener.open(url, timeout=5) as response:
-            status = json.loads(response.read(32768))
-            if response.status != 200 or not isinstance(status, dict) or not isinstance(status.get('queue'), dict):
-                raise RuntimeError('Audio Downloader preflight malformed')
-            queue = status['queue']
-            if any(int(queue.get(x) or 0) for x in (
-                    'queued','downloading','downloaded','processing','converting','uploading','retry_pending')):
+        from urllib.parse import quote
+        uri = 'file:' + quote(str(audio_db.resolve()), safe='/') + '?mode=ro'
+        with sqlite3.connect(uri, uri=True, timeout=5) as db:
+            db.execute('PRAGMA query_only=ON')
+            columns = {row[1] for row in db.execute('PRAGMA table_info(jobs)')}
+            if not {'job_id', 'status'} <= columns:
+                raise RuntimeError('Audio Downloader preflight schema invalid')
+            # Fail closed for ANY nonterminal or unrecognized status; do not
+            # select a single owner's visible queue or silently ignore orphans.
+            statuses = db.execute('SELECT status, COUNT(*) FROM jobs GROUP BY status').fetchall()
+            terminal = {'completed', 'delivered', 'failed', 'cancelled'}
+            if any(status not in terminal and count for status, count in statuses):
                 raise RuntimeError('Audio Downloader has active/pending jobs; release postponed')
-    except (OSError, ValueError) as exc:
-        raise RuntimeError('Audio Downloader preflight unreachable') from exc
+            # A completed download may still be handing off to Song Maker.
+            if 'song_maker_status' not in columns and statuses:
+                raise RuntimeError('Audio Downloader legacy handoff schema not verified')
+            if 'song_maker_status' in columns:
+                handoffs = db.execute("""SELECT COUNT(*) FROM jobs
+                    WHERE song_maker_status IN ('pending','sending')""").fetchone()[0]
+                if handoffs:
+                    raise RuntimeError('Audio Downloader has active Song Maker handoffs; release postponed')
+    except sqlite3.Error as exc:
+        raise RuntimeError('Audio Downloader preflight DB unreadable') from exc
 
 
 def backup_databases(state, destination):
