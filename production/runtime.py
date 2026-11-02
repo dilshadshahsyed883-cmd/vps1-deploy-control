@@ -1158,6 +1158,12 @@ def main():
     check_host(args.revision)
     with deployment_lock():
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-voice-tenant-recovery-only]' in intent:
+            if args.action != 'install' or args.apps != ['voice-studio']:
+                raise RuntimeError('Voice tenant recovery requires exact Voice lane')
+            from production.voice_tenant_recovery import install as restore_tenant
+            restore_tenant(args.revision)
+            return
         if '[vps1-song-audio-voice-readonly-diagnose]' in intent:
             if args.action != 'install' or args.apps != ['voice-studio']:
                 raise RuntimeError('Voice rollback read-only audit requires exact Voice lane')
@@ -1630,6 +1636,12 @@ def main():
     check_host(args.revision)
     with deployment_lock():
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-voice-tenant-recovery-only]' in intent:
+            if args.action != 'install' or args.apps != ['voice-studio']:
+                raise RuntimeError('Voice tenant recovery requires exact Voice lane')
+            from production.voice_tenant_recovery import install as restore_tenant
+            restore_tenant(args.revision)
+            return
         if '[vps1-song-audio-voice-readonly-diagnose]' in intent:
             if args.action != 'install' or args.apps != ['voice-studio']:
                 raise RuntimeError('Voice rollback read-only audit requires exact Voice lane')
