@@ -176,6 +176,37 @@ class LiveVoiceMiddlewareContract(unittest.IsolatedAsyncioTestCase):
                     denied = await middleware(self.request(path, method="POST"), next_handler)
                     self.assertEqual(denied.status_code, 403)
 
+            # Non-admin keeps existing self-owned generation controls; these
+            # endpoints are not shared worker configuration.
+            for path in (
+                "/tts/api/clone/worker/test-generation",
+                "/tts/api/clone/omnivoice/test-generation",
+            ):
+                with self.subTest(path=path):
+                    allowed = await middleware(self.request(path, method="POST"), next_handler)
+                    self.assertEqual(allowed, {"accepted": path})
+            for path in (
+                "/tts/api/clone/worker/config",
+                "/tts/api/clone/omnivoice/config",
+            ):
+                with self.subTest(path=path):
+                    denied = await middleware(self.request(path, method="GET"), next_handler)
+                    self.assertEqual(denied.status_code, 403)
+
+            # Admin can manage shared worker connections.
+            with patch.dict(middleware.__globals__, {
+                "scene_identity": lambda cookie: {
+                    "username": "adminuser", "is_admin": True,
+                    "allowed_studios": ["voice"],
+                }
+            }):
+                for path in (
+                    "/tts/api/clone/worker/config",
+                    "/tts/api/clone/omnivoice/config",
+                ):
+                    allowed = await middleware(self.request(path, method="GET"), next_handler)
+                    self.assertEqual(allowed, {"accepted": path})
+
             # Song-only route survives without the additional Voice grant.
             with patch.dict(middleware.__globals__, {
                 "scene_identity": lambda cookie: {
