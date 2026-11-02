@@ -223,6 +223,31 @@ def http_check(app, timeout=45):
     raise RuntimeError('app health failed: ' + app)
 
 
+def voice_audio_db_from_live_config() -> Path:
+    """Use the actual root-owned Voice service env, not the installer process env.
+
+    The Voice unit's AUDIO_DOWNLOADER_ROOT may differ from the historical app
+    default. Never guess another database when an explicit path is configured.
+    """
+    config = CONFIG / 'production-voice-studio.env'
+    if config.is_symlink() or not config.is_file():
+        raise RuntimeError('Audio Downloader preflight Voice environment unavailable')
+    try:
+        matches = [line.split('=', 1)[1].strip() for line in config.read_text().splitlines()
+                   if line.startswith('AUDIO_DOWNLOADER_ROOT=')]
+    except (OSError, UnicodeError) as exc:
+        raise RuntimeError('Audio Downloader preflight Voice environment unreadable') from exc
+    if len(matches) != 1:
+        # Every generated Voice service env defines this key.  Never infer a
+        # second queue location when the canonical value is absent or duplicated.
+        raise RuntimeError('Audio Downloader preflight Voice environment ambiguous')
+    value = matches[0]
+    root = Path(value)
+    if not root.is_absolute() or '..' in root.parts or not value.strip():
+        raise RuntimeError('Audio Downloader preflight Voice root invalid')
+    return root / 'data/jobs.sqlite3'
+
+
 def require_voice_release_idle(state: Path, audio_db: Path | None = None) -> None:
     """Fail closed on Voice synthesis and active uploads before any worker restart.
 
@@ -250,11 +275,7 @@ def require_voice_release_idle(state: Path, audio_db: Path | None = None) -> Non
     # Voice SSO correctly rejects anonymous /status (HTTP 403). The trusted
     # deploy helper uses an immutable read-only snapshot of the local queue DB
     # instead of bypassing Scene authentication or trusting caller headers.
-    audio_db = audio_db if audio_db is not None else (
-        Path(os.environ.get('AUDIO_DOWNLOADER_ROOT',
-                            '/home/ubuntu/apps/audio_downloader_voice_studio'))
-        / 'data/jobs.sqlite3'
-    )
+    audio_db = audio_db if audio_db is not None else voice_audio_db_from_live_config()
     if audio_db.is_symlink() or not audio_db.is_file():
         raise RuntimeError('Audio Downloader preflight DB unavailable')
     try:

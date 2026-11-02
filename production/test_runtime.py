@@ -188,6 +188,63 @@ class RuntimeTests(unittest.TestCase):
             with sqlite3.connect(audio_db) as con:
                 self.assertEqual(con.execute('SELECT COUNT(*) FROM jobs').fetchone()[0], 1)
 
+    def test_voice_preflight_db_path_tracks_live_protected_environment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            conf = Path(tmp) / 'config'
+            conf.mkdir()
+            actual_root = Path(tmp) / 'voice-data' / 'audio-downloader'
+            (actual_root / 'data').mkdir(parents=True)
+            audio_db = actual_root / 'data/jobs.sqlite3'
+            with sqlite3.connect(audio_db) as conn:
+                conn.execute('CREATE TABLE jobs(job_id TEXT PRIMARY KEY, status TEXT, song_maker_status TEXT)')
+                conn.execute("INSERT INTO jobs VALUES ('done','completed','off')")
+            (conf / 'production-voice-studio.env').write_text(
+                'PYTHONDONTWRITEBYTECODE=1\nAUDIO_DOWNLOADER_ROOT=' + str(actual_root) + '\n'
+            )
+            state = Path(tmp) / 'voice-state'
+            for engine in ('kokoro', 'edge'):
+                database = state / engine / 'data' / (engine + '_jobs.sqlite3')
+                database.parent.mkdir(parents=True)
+                with sqlite3.connect(database) as con:
+                    con.execute('CREATE TABLE jobs(status TEXT, delivery_status TEXT)')
+            with patch.object(runtime, 'CONFIG', conf), patch.dict(
+                runtime.os.environ,
+                {'AUDIO_DOWNLOADER_ROOT': str(Path(tmp) / 'WRONG-process-env')},
+            ):
+                self.assertEqual(runtime.voice_audio_db_from_live_config(), audio_db)
+                runtime.require_voice_release_idle(state)
+                with sqlite3.connect(audio_db) as con:
+                    con.execute("INSERT INTO jobs VALUES ('busy','uploading','off')")
+                with self.assertRaisesRegex(RuntimeError, 'active/pending'):
+                    runtime.require_voice_release_idle(state)
+            with sqlite3.connect(audio_db) as con:
+                self.assertEqual(con.execute('SELECT status FROM jobs WHERE job_id=?',
+                                             ('busy',)).fetchone()[0], 'uploading')
+
+    def test_voice_preflight_rejects_missing_ambiguous_and_unsafe_root(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(runtime, 'CONFIG', Path(tmp)):
+            file = Path(tmp) / 'production-voice-studio.env'
+            with self.assertRaisesRegex(RuntimeError, 'environment unavailable'):
+                runtime.voice_audio_db_from_live_config()
+            file.write_text('SESSION_SECRET=fixture\n')
+            with self.assertRaisesRegex(RuntimeError, 'environment ambiguous'):
+                runtime.voice_audio_db_from_live_config()
+            file.write_text('AUDIO_DOWNLOADER_ROOT=/safe/a\nAUDIO_DOWNLOADER_ROOT=/safe/b\n')
+            with self.assertRaisesRegex(RuntimeError, 'environment ambiguous'):
+                runtime.voice_audio_db_from_live_config()
+            file.write_text('AUDIO_DOWNLOADER_ROOT=relative-path\n')
+            with self.assertRaisesRegex(RuntimeError, 'root invalid'):
+                runtime.voice_audio_db_from_live_config()
+            file.write_text('AUDIO_DOWNLOADER_ROOT=/some/../unsafe/path\n')
+            with self.assertRaisesRegex(RuntimeError, 'root invalid'):
+                runtime.voice_audio_db_from_live_config()
+            file.unlink()
+            target = Path(tmp) / 'untrusted.env'
+            target.write_text('AUDIO_DOWNLOADER_ROOT=/tmp/other\n')
+            file.symlink_to(target)
+            with self.assertRaisesRegex(RuntimeError, 'environment unavailable'):
+                runtime.voice_audio_db_from_live_config()
+
     def test_source_drift_rejected_without_overwriting_release(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(runtime, 'BASE', Path(tmp)):
             with patch('rebuild.fresh_vps.sources', return_value=[('part01/app.py', b'original')]):
