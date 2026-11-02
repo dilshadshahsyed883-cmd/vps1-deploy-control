@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 from pathlib import Path
 
 SERVICES = {
@@ -118,6 +119,108 @@ def inspect(unit_dir: Path = Path("/etc/systemd/system")) -> dict:
         "production_activation_ready":False,
         "status":"HOST_CONFIGURATION_READY_FOR_LIVE_GATES"
             if host_root_match and lock_flags_consistent and all_enabled else "BLOCKED",
+    }
+
+
+
+def _systemd_main_pid(unit_name):
+    """Read only MainPID, not service environment or any private paths."""
+    result = subprocess.run(
+        ["systemctl", "show", unit_name, "--property=MainPID", "--value"],
+        capture_output=True, text=True, timeout=4, check=False)
+    candidate = result.stdout.strip()
+    if result.returncode != 0 or not re.fullmatch(r"[0-9]{1,9}", candidate):
+        raise ValueError("Service MainPID could not be verified")
+    pid = int(candidate)
+    if pid < 2:
+        raise ValueError("Service is not running")
+    return pid
+
+
+def _process_env(proc_root, pid):
+    """Consume process environment privately; never return raw values."""
+    content = (Path(proc_root) / str(pid) / "environ").read_bytes()
+    result = {}
+    for chunk in content.split(b"\x00"):
+        if not chunk or b"=" not in chunk:
+            continue
+        key, value = chunk.split(b"=", 1)
+        if key in (b"SHORT_STUDIO_VPS_FOLDER_ROOT",
+                   b"SHORT_MAKER_COOPERATIVE_LOCK_ENABLED",
+                   b"LUM_SHORT_STUDIO_COOPERATIVE_LOCK_ENABLED",
+                   b"LUM_ENGINE_INSTANCE"):
+            if key in result:
+                raise ValueError("Duplicate process environment setting")
+            result[key] = value
+    return result
+
+
+def inspect_live_processes(unit_dir=Path("/etc/systemd/system"),
+                           proc_root=Path("/proc"), pid_lookup=None):
+    """Read-only evidence of actual four-process mount identity and flags.
+
+    Does NOT authorize deleting folders or prove uploads are idle. On a host
+    with unavailable /proc permissions, returns a fail-closed boolean report.
+    Never prints PIDs, paths, unit text, credentials, or environment values.
+    """
+    unit_dir = Path(unit_dir)
+    proc_root = Path(proc_root)
+    pid_lookup = pid_lookup or _systemd_main_pid
+    out = {key: {"running_process_verified": False,
+                 "process_lock_flag_verified": False,
+                 "process_root_verified": False}
+           for key in SERVICES}
+    mounted = []
+    for kind, unit in SERVICES.items():
+        item = out[kind]
+        try:
+            explicit = _read_explicit_environment(unit_dir / unit)
+            root_value = explicit.get(ROOT_KEY, "")
+            folder = Path(root_value)
+            if not root_value or not folder.is_absolute() or folder.is_symlink() or not folder.is_dir():
+                continue
+            pid = pid_lookup(unit)
+            if not isinstance(pid, int) or pid < 2:
+                continue
+            running = _process_env(proc_root, pid)
+            marker = REQUIRED_KEYS[kind].encode("ascii")
+            flag = running.get(marker) == b"1" and explicit.get(REQUIRED_KEYS[kind]) == "1"
+            root_matches = running.get(ROOT_KEY.encode("ascii")) == os.fsencode(root_value)
+            if kind != "maker":
+                flag = flag and running.get(b"LUM_ENGINE_INSTANCE") == b"shortstudio"
+            item["running_process_verified"] = True
+            item["process_lock_flag_verified"] = bool(flag)
+            if not (flag and root_matches):
+                continue
+            # /proc/<pid>/root/<path> resolves inside that service's own
+            # mount namespace. Same st_dev+st_ino proves identical directory,
+            # not just equal text configuration or symbolic lock filenames.
+            candidate = proc_root / str(pid) / "root" / root_value.lstrip("/")
+            actual = os.stat(candidate)
+            host = os.stat(folder)
+            correct = actual.st_dev == host.st_dev and actual.st_ino == host.st_ino
+            item["process_root_verified"] = bool(correct)
+            if correct:
+                mounted.append((actual.st_dev, actual.st_ino))
+            # Fail if systemd MainPID changed during the read (except injected
+            # deterministic test resolver).
+            if pid_lookup is _systemd_main_pid and _systemd_main_pid(unit) != pid:
+                item["running_process_verified"] = False
+                item["process_root_verified"] = False
+                mounted.pop() if correct else None
+        except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+            continue
+    all_verified = len(mounted) == len(SERVICES) and len(set(mounted)) == 1
+    all_flags = all(x["process_lock_flag_verified"] for x in out.values())
+    return {
+        "mode": "READ_ONLY", "scope": "short-studio-running-services",
+        "units": out,
+        "four_processes_same_mount_verified": bool(all_verified),
+        "four_processes_lock_flags_verified": bool(all_flags),
+        "active_upload_drain_verified": False,
+        "production_activation_ready": False,
+        "status": "LIVE_MOUNT_AND_FLAGS_PROVEN"
+          if all_verified and all_flags else "BLOCKED",
     }
 
 
