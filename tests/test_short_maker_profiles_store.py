@@ -96,7 +96,7 @@ class ShortProfileStoreTests(unittest.TestCase):
                          headers=self.bob).status_code, 404)
         self.assertEqual(self.client.post(f"/api/short-profiles/{pid}/stop",
                          headers=self.bob).status_code, 404)
-        self.assertEqual(self.client.delete(f"/api/short-profiles/{pid}",
+        self.assertEqual(self.client.request("DELETE", f"/api/short-profiles/{pid}",
                          headers=self.bob,
                          json={"confirm_name":"پاکستانی شارٹس"}).status_code, 404)
         self.assertEqual(self.client.get("/api/short-profiles",
@@ -111,10 +111,10 @@ class ShortProfileStoreTests(unittest.TestCase):
         self.assertEqual(edit.status_code, 200, edit.text)
         self.assertEqual(edit.json()["source_import_id"], self.alice_import)
         self.assertEqual(edit.json()["videos_per_day"], 7)
-        self.assertEqual(self.client.delete(f"/api/short-profiles/{pid}",
+        self.assertEqual(self.client.request("DELETE", f"/api/short-profiles/{pid}",
                           headers=self.alice,
                           json={"confirm_name":"Wrong"}).status_code, 409)
-        deleted = self.client.delete(f"/api/short-profiles/{pid}",
+        deleted = self.client.request("DELETE", f"/api/short-profiles/{pid}",
                           headers=self.alice,
                           json={"confirm_name":"Custom Name"})
         self.assertTrue(deleted.json()["media_preserved"])
