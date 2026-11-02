@@ -327,7 +327,30 @@ def install(revision: str) -> None:
     if "[vps1-song-audio-separate]" not in runtime.run(
             ["git", "log", "-1", "--format=%B"], cwd=REPO, quiet=True):
         raise RuntimeError("Protected main Song Audio release intent not present")
+    if runtime.song_audio_independent_live():
+        # A repeated protected release is a verified read-only no-op.
+        if (_verify_pointer(VOICE_CURRENT, VOICE_RELEASES) !=
+                VOICE_RELEASES / (revision + "-song-audio") or
+                _verify_pointer(SCENE_CURRENT, SCENE_RELEASES) !=
+                SCENE_RELEASES / (revision + "-song-audio") or
+                _verify_pointer(SONG_CURRENT, SONG_RELEASES) !=
+                SONG_RELEASES / revision):
+            raise RuntimeError("Song cutover active at a different release; no implicit retarget")
+        _health_scene()
+        acceptance = _live_http_acceptance()
+        runtime.event(song_audio_cutover="PASS_ALREADY_ACTIVE", commit=revision,
+                      acceptance=acceptance, original_database="PRESERVED")
+        return
     state = service.preflight()
+    # Refuse to stop a Voice process that loads app code from a fixed old
+    # release instead of the audited active pointer: that could restart a
+    # second downloader without our split switch or OS file lock.
+    voice_unit = Path("/etc/systemd/system") / service.VOICE_UNIT
+    if voice_unit.is_symlink() or not voice_unit.is_file():
+        raise RuntimeError("Voice service unit ownership unavailable")
+    unit_text = voice_unit.read_text()
+    if "WorkingDirectory=/srv/fresh-website/current/voice-studio/part01" not in unit_text:
+        raise RuntimeError("Voice service does not use active release pointer")
     root = Path(state["audio_db"]).parent.parent
     previous_voice = _verify_pointer(VOICE_CURRENT, VOICE_RELEASES)
     previous_scene = _verify_pointer(SCENE_CURRENT, SCENE_RELEASES)
