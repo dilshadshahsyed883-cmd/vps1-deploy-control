@@ -70,15 +70,15 @@ function renderProxy(){old}
                 if 'production.video_merger_import_smoke' in args:
                     if failure=='smoke':raise RuntimeError('source failure')
                     return json.dumps({'youtube':('UPSTREAM_AUTH_BLOCKED' if failure in
-                                         ('auth-degraded','auth-mismatch','auth-gdown') else 'PASS'),
+                                         ('auth-degraded','auth-mismatch','auth-gdown','auth-library') else 'PASS'),
                         'drive':'PASS','library_persistence':'PASS',
                         'youtube_external_auth_blocked':failure in
-                                         ('auth-degraded','auth-mismatch','auth-gdown')})+'\n'
+                                         ('auth-degraded','auth-mismatch','auth-gdown','auth-library')})+'\n'
                 return ''
             checks=[None,RuntimeError('health failure'),None,None] if failure=='health' else [None,None,None]
             with patch.object(release,'BASE',base),patch.object(release,'DATA',root/'data'),patch.object(release,'REPO',repo), \
                  patch.object(release,'SYSTEMD',units),patch.object(release,'idle_database'),patch.object(release,'event'), \
-                 patch.object(release,'install_js'),patch.object(release,'owner_handover_only_change',return_value=failure=='auth-degraded'),patch.object(release,'reviewed_drive_cookie_only_change',return_value=failure=='auth-gdown'),patch.object(release,'live_paths',return_value=(root/'data/video-merger/video-merger',root/'config/proxy_profiles.json')), \
+                 patch.object(release,'install_js'),patch.object(release,'owner_handover_only_change',return_value=failure=='auth-degraded'),patch.object(release,'reviewed_drive_cookie_only_change',return_value=failure=='auth-gdown'),patch.object(release,'reviewed_library_only_change',return_value=failure=='auth-library'),patch.object(release,'live_paths',return_value=(root/'data/video-merger/video-merger',root/'config/proxy_profiles.json')), \
                  patch.object(release,'run',side_effect=command) as commands,patch.object(release,'http_check',side_effect=checks), \
                  patch('production.route_uploader_scene_https.scene_cookie',return_value='cookie'), \
                  patch('production.route_uploader_scene_https.https_get',return_value=(200,'text/html',b'VIDEO_MERGER_TWO_COLUMN_QUEUE_V2 id="tab-queue" class="vm-merge-layout"')):
@@ -95,12 +95,35 @@ function renderProxy(){old}
                     self.assertIn('onclick="renameLibrary(',patched_html)
                     self.assertEqual((pointer/'part01/app.py').read_text(),'new = True')
                     self.assertIn('a'*40+'-imports/bin/python',unit.read_text())
-                    if failure in ('auth-degraded','auth-gdown'):
+                    if failure in ('auth-degraded','auth-gdown','auth-library'):
                         journal=json.loads((base/'transactions/video-merger-imports'/
                                             ('a'*40)/'result.json').read_text())
                         self.assertEqual(journal['youtube'],'UPSTREAM_AUTH_BLOCKED')
                         self.assertEqual(journal['owner_handover_only'],failure=='auth-degraded')
                         self.assertEqual(journal['reviewed_drive_cookie_only'],failure=='auth-gdown')
+                        self.assertEqual(journal['reviewed_library_only'],failure=='auth-library')
+
+    def test_exact_library_only_change_can_report_external_auth_but_not_youtube_pass(self):
+        self.exercise('auth-library')
+
+    def test_library_source_parity_rejects_changed_downloader_and_proxy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            previous=Path(directory)/'previous.py'
+            candidate=Path(directory)/'candidate.py'
+            previous.write_text("def source_to_file(): return 'safe'\n"
+                                "def test_proxy_profile(): return 'same'\n"
+                                "def process_library_import(): return 'old'\n")
+            candidate.write_text("def source_to_file(): return 'safe'\n"
+                                 "def test_proxy_profile(): return 'same'\n"
+                                 "def process_library_import(): return 'new'\n")
+            self.assertTrue(release.reviewed_library_only_change(previous,candidate))
+            candidate.write_text(candidate.read_text().replace(
+                "return 'safe'","return 'changed'",1))
+            self.assertFalse(release.reviewed_library_only_change(previous,candidate))
+            candidate.write_text(candidate.read_text().replace(
+                "return 'changed'","return 'safe'",1).replace(
+                "return 'same'","return 'changed'",1))
+            self.assertFalse(release.reviewed_library_only_change(previous,candidate))
 
     def test_retry_ui_guard_preserves_unrelated_active_markup(self):
         canonical=(Path(__file__).resolve().parents[1]/'apps/video-merger/part01/templates/index.html').read_text()

@@ -17,6 +17,14 @@ def exact_known_external_auth(results, config, candidate, allowed=False):
     )
 
 
+def bounded_library_sample_seconds(duration):
+    """Real-source validation always transcodes a bounded, nonempty clip."""
+    from math import isfinite
+    if not isinstance(duration,(int,float)) or not isfinite(duration) or duration<2:
+        raise ValueError('Real Drive video duration must be at least two seconds')
+    return min(8,max(1,int(duration-0.5)))
+
+
 def smoke(source, state, proxy_config=None, allow_known_external_auth=False):
     with tempfile.TemporaryDirectory(prefix='vm-import-smoke-') as directory:
         root = Path(directory)
@@ -84,27 +92,69 @@ def smoke(source, state, proxy_config=None, allow_known_external_auth=False):
             results['drive'] = 'PASS'
         except Exception as exc:
             results['drive'] = 'FAIL: '+app.scrub_proxy_error(exc)
-        # Persist a new Library entry against disposable storage, exercising the
-        # production import/transcode/verification path without Drive mutations.
+        # Exercise real Drive source bytes through the production Library
+        # transcode and persistence pipeline, without touching live records or
+        # Google Drive originals. Limit the sample to eight media seconds so a
+        # multi-hour legacy video cannot exceed this 180-second smoke budget.
         media = root/'drive.bin' if results['drive']=='PASS' else root/'youtube.bin'
-        if media.exists():
-            original_source = app.source_to_file
+        results['library_persistence']='FAIL'
+        results['library_vps_only']='FAIL'
+        results['library_optional_drive']='FAIL'
+        if media.is_file():
             import shutil
-            app.source_to_file = lambda url,dst,*a,**kw: shutil.copy2(media,dst)
-            remote = root/'remote'; remote.mkdir()
-            def local_remote(args, **kw):
-                if args[0]=='mkdir': return ''
-                if args[0]=='copyto': shutil.copy2(args[1],remote/'asset.mp4'); return ''
-                if args[0]=='lsjson': return json.dumps({'Size':(remote/'asset.mp4').stat().st_size,'ID':'disposable'})
-                raise AssertionError('unexpected remote operation')
-            app.rclone = local_remote
-            # Avoid asynchronous imports; call the actual worker synchronously.
-            now=app.utcnow()
-            with app.db() as conn:
-                conn.execute("INSERT INTO library_items(id,name,filename,created_at,updated_at) VALUES(?,?,?,?,?)",('smoke','smoke','smoke.mp4',now,now))
-            app.process_library_import('smoke','https://example.com/smoke.mp4',{'url':'https://example.com/video.mp4','trim_enabled':False})
-            item=app.get_library_item('smoke')
-            results['library_persistence'] = 'PASS' if item['status']=='ready' and item['size_bytes']>0 else 'FAIL'
+            duration=app.media_duration(app.probe(media))
+            if duration>=2:
+                segment=bounded_library_sample_seconds(duration)
+                trim={'url':'https://example.com/video.mp4','trim_enabled':True,
+                      'start_min':0,'start_sec':0,'end_min':0,'end_sec':segment}
+                # Only the source acquisition is substituted: its bytes came
+                # from an actual downloaded and validated Drive source above.
+                app.source_to_file=lambda url,dst,*a,**kw: shutil.copy2(media,dst)
+                remote=root/'remote';remote.mkdir()
+                upload_calls=[]
+                def local_remote(args,**kw):
+                    upload_calls.append(args[0])
+                    if args[0]=='mkdir': return ''
+                    if args[0]=='copyto':
+                        shutil.copy2(args[1],remote/'asset.mp4');return ''
+                    if args[0]=='lsjson':
+                        return json.dumps({'Size':(remote/'asset.mp4').stat().st_size,'ID':'disposable'})
+                    raise AssertionError('unexpected disposable remote operation')
+                app.rclone=local_remote
+                for item_id,upload in (('smoke_vps',False),('smoke_drive',True)):
+                    now=app.utcnow()
+                    with app.db() as conn:
+                        conn.execute("""INSERT INTO library_items(
+                            id,name,filename,created_at,updated_at,owner_username)
+                            VALUES(?,?,?,?,?,?)""",
+                            (item_id,item_id,item_id+'.mp4',now,now,'smoke'))
+                    app.process_library_import(item_id,'https://example.com/smoke.mp4',
+                                               trim,False,upload)
+                    item=app.get_library_item(item_id)
+                    verified=(item['status']=='ready' and item['size_bytes']>0
+                              and app.library_cache_path(item_id).is_file())
+                    if upload:
+                        verified=verified and item['drive_status']=='ready' and (
+                            item['drive_id']=='disposable')
+                        results['library_optional_drive']='PASS' if verified else 'FAIL'
+                    else:
+                        verified=verified and item['drive_status']=='not_requested' and (
+                            upload_calls==[])
+                        results['library_vps_only']='PASS' if verified else 'FAIL'
+                    if not verified:
+                        reason=str(item.get('error') or item.get('drive_error') or '').lower()
+                        results['library_error_class']=(
+                            'DISK_RESERVE' if 'reserve' in reason else
+                            'TRANSCODE_TIMEOUT' if 'timed out' in reason else
+                            'MEDIA_PROCESSING_OR_VERIFICATION')
+                        break
+                if (results['library_vps_only']=='PASS' and
+                        results['library_optional_drive']=='PASS'):
+                    results['library_persistence']='PASS'
+            else:
+                results['library_error_class']='REAL_DRIVE_MEDIA_TOO_SHORT'
+        else:
+            results['library_error_class']='REAL_SOURCE_MEDIA_MISSING'
         # An upstream authentication challenge is not a working YouTube download.
         # For an owner-handover-only release, the guarded installer can accept
         # this exact known external failure ONLY when the complete downloader
