@@ -35,6 +35,18 @@ jobs:
           python -m pip install --disable-pip-version-check \
             fastapi==0.115.12 uvicorn==0.34.2 python-multipart==0.0.20 \
             jinja2==3.1.6 itsdangerous==2.2.0 httpx==0.28.1 requests==2.32.3
+      - name: Package dedicated Song code without credentials or SQLite
+        run: |
+          python - <<'PY'
+          from rebuild.fresh_vps import sources
+          names = {path for path, _content in sources('song-studio')}
+          assert 'part01/song_audio_app.py' in names
+          assert 'part01/song_audio_downloader_api.py' in names
+          assert 'part01/song_tenant.py' in names
+          assert 'part01/templates/voice_studio.html' in names
+          assert not any(path.endswith(('.db', '.sqlite', '.sqlite3')) for path in names)
+          print('SONG_AUDIO_SOURCE_ONLY=PASS')
+          PY
       - name: Syntax and protected Song/Voice boundary contracts
         run: |
           python -m compileall -q apps/song-studio/part01
