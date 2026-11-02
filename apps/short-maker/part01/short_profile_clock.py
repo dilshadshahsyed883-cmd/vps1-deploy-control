@@ -9,8 +9,14 @@ from __future__ import annotations
 import logging
 import threading
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
-from .short_profile_daily import local_now
+PKT = ZoneInfo("Asia/Karachi")
+
+def local_now(when):
+    if when.tzinfo is None or when.utcoffset() is None:
+        raise ValueError("Clock requires timezone-aware UTC or local time")
+    return when.astimezone(PKT)
 
 LOG = logging.getLogger("short-maker.daily-profiles")
 
