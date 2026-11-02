@@ -1059,7 +1059,7 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
 #shortProfilesPanel input[type="file"]::file-selector-button,
 #foldersPanel input[type="file"]::file-selector-button{
   margin-right:10px;border:1px solid #d0d5dd;border-radius:7px;
-  background:#f8faff;padding:6px 10px;color:#344054;font:650 12px/1.4 inherit;
+  background:#f8faff;padding:6px 10px;color:#344054;font:650 12px/1.4 Inter,system-ui,sans-serif;
   cursor:pointer;
 }
 #shortProfilesPanel .field .hint{margin-top:7px;margin-bottom:0;}
