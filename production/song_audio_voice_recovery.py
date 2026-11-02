@@ -133,8 +133,10 @@ def recover(revision: str) -> None:
 
     state = _require_safe_live_state()
     if state["voice_health"] == "HTTP_200_OK":
+        acceptance = _public_acceptance()
         runtime.event(voice_recovery="PASS_ALREADY_HEALTHY",
-                      song_audio_cutover="NOT_RUN", data="PRESERVED")
+                      acceptance=acceptance, song_audio_cutover="NOT_RUN",
+                      data="PRESERVED")
         return
 
     previous, executable = _safe_source_and_unit()
