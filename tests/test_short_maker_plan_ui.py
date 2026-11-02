@@ -79,6 +79,18 @@ class ShortMakerLockedPlanUITests(unittest.TestCase):
         self.assertIn("waiting", client)
         self.assertIn("input.dispatchEvent(new Event('change'))", self.html)
 
+    def test_import_and_profile_controls_are_wired_to_verified_routes(self):
+        client = (ROOT / "apps/short-maker/part01/short_profile_client.js").read_text(
+            encoding="utf-8")
+        for term in ("indexedDB", "Promise.allSettled", "verifiedReceipt",
+                     "shortProfilePauseImport", "shortProfileCancelImport",
+                     "shortProfileResumeImport", "shortProfileRetryImport",
+                     "api/short-profile-media/sessions", "api/short-profiles",
+                     "fileErrors", "save.disabled", "scheduler"):
+            self.assertIn(term, client)
+        self.assertIn("Start (pending)", client)
+        self.assertNotIn("auto_engine/start", client)
+
     def test_existing_maker_pipeline_was_not_replaced(self):
         for tag in ('id="makerPanel"', 'id="images"', 'id="audio"', 'id="render"',
                     'id="queueRows"', 'id="settingsPanel"', 'id="shortVpsFolder"'):
