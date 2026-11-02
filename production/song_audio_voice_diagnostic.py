@@ -97,6 +97,20 @@ def _error_classes() -> dict[str, bool]:
             for name, pattern in patterns.items()}
 
 
+
+def _missing_module() -> str:
+    """Emit only a syntactically valid Python module identifier, not journal text."""
+    result = subprocess.run(
+        ["journalctl", "-u", service.VOICE_UNIT, "-n", "160",
+         "--no-pager", "--output=cat"],
+        capture_output=True, text=True, timeout=8, check=False)
+    text = result.stdout[-180000:]
+    matches = re.findall(
+        r"(?:ModuleNotFoundError|ImportError):\s*No module named\s+['\"]"
+        r"([A-Za-z_][A-Za-z0-9_.]{0,79})['\"]",
+        text)
+    return matches[-1] if matches else "UNKNOWN"
+
 def report() -> dict:
     recent = "NONE"
     root = runtime.BASE / "transactions/song-audio-separation"
@@ -133,6 +147,7 @@ def report() -> dict:
              "http://127.0.0.1:8152": "DEDICATED"}),
         "voice_health": _health(),
         "voice_recent_error_classes": _error_classes(),
+        "voice_missing_python_module": _missing_module(),
         "last_cutover_record": recent,
         "queue_mutations": "NONE",
         "service_mutations": "NONE",
