@@ -43,10 +43,10 @@ class ShortMakerLockedPlanUITests(unittest.TestCase):
     def test_phase1_short_maker_only_release_selector(self):
         workflow = (ROOT / ".github/workflows/vps1-short-studio-release.yml").read_text(
             encoding="utf-8")
-        marker = "elif [[ \\"$RELEASE_INTENT\\" == *'[vps1-short-maker-drain-release]'* ]]; then"
+        marker = """elif [[ "$RELEASE_INTENT" == *'[vps1-short-maker-drain-release]'* ]]; then"""
         self.assertEqual(workflow.count(marker), 1)
-        case = workflow.split(marker, 1)[1].split("\\n          elif ", 1)[0]
-        self.assertEqual(re.findall(r"(?m)^\\s*apps=\\(([^)]*)\\)\\s*$", case),
+        case = workflow.split(marker, 1)[1].split("\n          elif ", 1)[0]
+        self.assertEqual(re.findall(r"(?m)^\s*apps=\(([^)]*)\)\s*$", case),
                          ["short-maker"])
         self.assertIn("vps1-production-applications", workflow)
         self.assertIn("sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA $app",
