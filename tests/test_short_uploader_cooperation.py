@@ -124,6 +124,24 @@ class ShortUploaderCooperationTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     load(module,"uploader_without_root")
 
+    def test_short_uploader_immutable_overlay_includes_required_import(self):
+        release=(ROOT/"production/short_uploader_group_release.py").read_text(encoding="utf-8")
+        tree=ast.parse(release)
+        new_files=next(n for n in tree.body if isinstance(n,ast.Assign)
+          and any(isinstance(t,ast.Name) and t.id=="NEW_FILES" for t in n.targets))
+        self.assertIn("lum_engine/uploader_shortstudio_cooperation.py",
+                      ast.literal_eval(new_files.value.args[0]))
+        install=next(n for n in tree.body if isinstance(n,ast.FunctionDef)
+                     and n.name=="install")
+        copies=[n for n in ast.walk(install) if isinstance(n,ast.For)
+                and isinstance(n.target,ast.Name) and n.target.id=="relative"
+                and "uploader_shortstudio_cooperation.py" in ast.unparse(n.iter)]
+        self.assertEqual(len(copies),1)
+        # Narrow release modes that overlay only standalone_app.py still
+        # need the new helper or the import would crash before /health.
+        self.assertIn('("lum_engine/standalone_app.py",) if profile_folder_only',
+                      release)
+
     def test_entrypoints_cover_web_scheduler_worker_and_cleanup(self):
         web=ast.parse((UPLOADER/"standalone_app.py").read_text(encoding="utf-8"))
         scheduler=ast.parse((UPLOADER/"auto_engine_v6_scheduler.py").read_text(encoding="utf-8"))
