@@ -13,13 +13,14 @@ const cancel=$('foldersCancelUpload'),retry=$('foldersRetryUpload');
 if(!input||!dest||!start||!progress||!pause||!resume||!cancel||!retry)return;
 const nameDb='short-maker-ready-videos-v1';
 let busy=false,stop=false,paused=false,session=null,uploadFiles=[];
+const fileErrors=new Map();
 const status=$('foldersSelectedInfo');
 function write(text){status.textContent=text}
 function controls(){
  start.disabled=busy||!input.files.length||!dest.value||!!session;
  pause.disabled=!busy||paused;
  resume.disabled=busy||!session;
- cancel.disabled=busy||!session;
+ cancel.disabled=!session; // Cancelling an active transfer waits for its in-flight chunks.
  retry.disabled=busy||!session;
 }
 function openDb(){return new Promise((resolve,reject)=>{
@@ -51,13 +52,16 @@ function fileKey(sessionId,index){return sessionId+':'+index}
 function row(snapshot){
  progress.replaceChildren();
  const summary=document.createElement('div');summary.className='hint';
- summary.textContent=snapshot.status.toUpperCase()+' · '+snapshot.uploaded_bytes+' / '+snapshot.total_bytes+' bytes received by VPS';
+ const completed=snapshot.files.filter(f=>f.uploaded>=f.size).length;
+ const failed=snapshot.files.filter(f=>fileErrors.has(f.index)).length;
+ const waiting=snapshot.files.length-completed-failed;
+ summary.textContent=snapshot.status.toUpperCase()+' · '+snapshot.uploaded_bytes+' / '+snapshot.total_bytes+' bytes received by VPS · '+completed+' completed · '+failed+' failed · '+waiting+' waiting';
  progress.appendChild(summary);
  for(const file of snapshot.files){
   const container=document.createElement('div');container.className='song-item';
   const label=document.createElement('span');
   const percentage=file.size?Math.floor(100*file.uploaded/file.size):100;
-  label.textContent=file.name+' · '+percentage+'% · '+file.uploaded+'/'+file.size+' bytes';
+  label.textContent=file.name+' · '+percentage+'% · '+file.uploaded+'/'+file.size+' bytes'+(fileErrors.has(file.index)?' · Error: '+fileErrors.get(file.index):'');
   const bar=document.createElement('div');bar.className='progress';bar.style.flex='0 0 100px';bar.style.margin='0';
   const indicator=document.createElement('span');indicator.style.width=percentage+'%';bar.appendChild(indicator);
   container.append(label,bar);progress.appendChild(container);
@@ -110,11 +114,17 @@ async function runUploads(){
    restored.push(entry);
   }
   uploadFiles=restored;
+  fileErrors.clear();
   let index=0;
   async function worker(){
-   while(index<restored.length&&!paused&&!stop){const i=index++;await transferOne(i);}
+   while(index<restored.length&&!paused&&!stop){
+    const i=index++;
+    try{await transferOne(i);}
+    catch(error){fileErrors.set(i,String(error.message||error));throw error;}
+   }
   }
-  await Promise.all(Array.from({length:Math.min(WORKERS,restored.length)},worker));
+  // Drain every in-flight worker before allowing retry/cancel or publishing.
+  const outcomes=await Promise.allSettled(Array.from({length:Math.min(WORKERS,restored.length)},worker));
   if(stop){
    await json(await fetch(BASE+'/'+session.id,{method:'DELETE'}));
    await cleanup();write('Cancelled; staging files cleaned.');return;
@@ -123,6 +133,10 @@ async function runUploads(){
    const snap=await json(await fetch(BASE+'/'+session.id+'/pause',{method:'POST'}));
    row(snap);await dbPut('meta','current',{...session,paused:true});
    write('Paused. Resume when ready.');return;
+  }
+  if(outcomes.some(result=>result.status==='rejected')){
+   await currentSnapshot();
+   throw Error('Some videos failed; Retry resumes from verified VPS offsets.');
   }
   write('All bytes transferred. Verifying playable videos and publishing safely…');
   const finished=await json(await fetch(BASE+'/'+session.id+'/finalize',{method:'POST'}));
