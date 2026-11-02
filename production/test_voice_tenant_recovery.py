@@ -64,7 +64,7 @@ class VoiceTenantRecoveryTests(unittest.TestCase):
             with patch.object(recovery, "REPO", repo):
                 self.assertIn(b"def scene_identity(", recovery._source())
                 file.write_text("def scene_identity(: syntax error\n")
-                with self.assertRaises(RuntimeError):
+                with self.assertRaises(SyntaxError):
                     recovery._source()
 
     def test_only_voice_web_can_be_started_in_this_recovery(self):
