@@ -2626,7 +2626,7 @@ if _sm_cooperation_enabled:
     async def _sm_protect_folder_writes(request: Request, call_next):
         if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
             try:
-                with _sm_folder_cooperation.producer():
+                async with _sm_folder_cooperation.producer_async():
                     return await call_next(request)
             except HTTPException as exc:
                 # Middleware is outside FastAPI's route exception handler;
