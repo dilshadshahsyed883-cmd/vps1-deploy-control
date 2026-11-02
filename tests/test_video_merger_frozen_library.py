@@ -130,6 +130,40 @@ class FrozenLibraryTests(unittest.TestCase):
         self.assertNotEqual(denied["code"],206)
         self.assertFalse(payload)
 
+    def test_restart_keeps_preexisting_verified_vps_video_after_replace_interruption(self):
+        self.imported(drive=False)
+        self.assertEqual(self.app.get_library_item(self.id)['status'],'ready')
+        with self.app.db() as c:
+            c.execute("UPDATE library_items SET status='importing',progress=12,message='Replacing video' WHERE id=?",
+                      (self.id,))
+        # Startup recovery must remain local and never contact Drive.
+        with patch.object(self.app,'rclone',side_effect=AssertionError('Network in recovery')):
+            self.app.init_db()
+        item=self.app.get_library_item(self.id)
+        self.assertEqual(item['status'],'ready')
+        self.assertIn('Previous verified',item['message'])
+        self.assertEqual(self.app.library_cache_path(self.id).read_bytes(),self.data)
+
+    def test_restart_does_not_mark_incomplete_new_import_ready(self):
+        # A newly added item has no previously committed duration/size or media.
+        self.assertFalse(self.app.library_cache_path(self.id).exists())
+        with patch.object(self.app,'rclone',side_effect=AssertionError('Network in recovery')):
+            self.app.init_db()
+        self.assertEqual(self.app.get_library_item(self.id)['status'],'failed')
+
+    def test_restart_recovers_existing_drive_backed_library_without_local_cache(self):
+        # Original Library videos were Drive-backed and can restore VPS cache
+        # on demand; restarting a replacement must not erase that reference.
+        with self.app.db() as c:
+            c.execute("""UPDATE library_items SET size_bytes=123,drive_id='prior-drive-id',
+                         remote_path='Video Merger Library/assets/aliceclip.mp4',
+                         status='importing' WHERE id=?""",(self.id,))
+        with patch.object(self.app,'rclone',side_effect=AssertionError('Network in recovery')):
+            self.app.init_db()
+        item=self.app.get_library_item(self.id)
+        self.assertEqual(item['status'],'ready')
+        self.assertEqual(item['drive_id'],'prior-drive-id')
+
     def test_ui_has_unchecked_drive_choice_and_real_vps_preview(self):
         html=TEMPLATE.read_text(encoding="utf-8")
         self.assertIn('id="libraryUploadDrive" type="checkbox"',html)
