@@ -106,6 +106,13 @@ class DailyBatchPlanner:
         if not explicit_start and moment.strftime("%H:%M") < prior["schedule_hhmm"]:
             return {"due": False, "pkt_date": day}
 
+        # Existing daily intentions are immutable. Reconcile their already
+        # staged job IDs without rehashing an entire PC import every clock tick.
+        with self.store._connect() as db:
+            previous = self._result(db, owner, profile_id, day)
+            if previous:
+                return {"due": True, "created": False, **previous}
+
         # Reading an imported catalog is deliberately outside the SQLite write
         # lock: SHA256 on large audio/picture sources could take noticeable time.
         catalog = self.verified_catalog(owner, prior["source_import_id"])
@@ -178,7 +185,7 @@ class DailyBatchPlanner:
                    AND (? IS NULL OR pkt_date=?) ORDER BY created_at,job_id""",
                 (owner, profile_id, pkt_date, pkt_date))]
 
-    def reconcile(self, owner, profile_id, job_lookup, enqueue):
+    def reconcile(self, owner, profile_id, job_lookup, enqueue, *, pkt_date=None):
         """Reconcile durable intents, never submit an existing queue job twice.
 
         job_lookup returns current persisted Maker status or None. The enqueue
@@ -187,7 +194,7 @@ class DailyBatchPlanner:
         """
         owner = str(owner).strip().casefold()
         profile = self.store.get(owner, profile_id)
-        for claim in self.list_claims(owner, profile_id):
+        for claim in self.list_claims(owner, profile_id, pkt_date=pkt_date):
             if claim["status"] == "enqueued":
                 continue
             state = job_lookup(claim["job_id"])
