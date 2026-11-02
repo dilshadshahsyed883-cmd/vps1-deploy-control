@@ -221,10 +221,10 @@ def _live_http_acceptance() -> dict:
     # never a forged X-Auth-User claim or a synthetic production cookie.
     from production.route_uploader_scene_https import scene_cookie, https_get
     cookie = scene_cookie()
-    status, html = https_get("/audio-downloader/", cookie=cookie)
-    if status != 200 or b"Audio Downloader" not in html:
+    status, content_type, html = https_get("/audio-downloader/", cookie=cookie)
+    if status != 200 or "text/html" not in content_type.lower() or b"Audio Downloader" not in html:
         raise RuntimeError("Authenticated canonical Song Audio page not live")
-    anonymous, _ = https_get("/audio-downloader/")
+    anonymous, _content_type, _body = https_get("/audio-downloader/")
     if anonymous not in (401, 403, 303):
         raise RuntimeError("Anonymous Song Audio route was not denied")
     return {"canonical_page": "HTTP_200_SCENE_SSO",
@@ -308,6 +308,7 @@ def install(revision: str) -> None:
         runtime.http_check("voice-studio")
         # Existing Voice service keeps synthesis workers; Song owns only Audio.
         runtime.atomic_link(SONG_CURRENT, SONG_RELEASES / revision)
+        changed_song = True
         env_payload = service.render_env(root) + (
             "AUDIO_DOWNLOADER_YTDLP_BIN="
             + str(BASE / "venvs/song-studio" / revision / "bin/yt-dlp") + "\n"
@@ -317,7 +318,6 @@ def install(revision: str) -> None:
         SONG_ENV.chmod(0o600)
         SONG_UNIT_PATH.write_text(service.render_unit(revision, root))
         SONG_UNIT_PATH.chmod(0o644)
-        changed_song = True
         runtime.run(["systemctl", "daemon-reload"], quiet=True)
         runtime.run(["systemd-analyze", "verify", SONG_UNIT_PATH], quiet=True)
         runtime.run(["systemctl", "enable", service.SONG_UNIT], timeout=60, quiet=True)
@@ -344,8 +344,15 @@ def install(revision: str) -> None:
         # If a job arrived, keep the single Song process and fail closed for
         # human reconciliation, rather than corrupting a download or handoff.
         if changed_song:
-            runtime.require_voice_release_idle(runtime.DATA / "voice-studio",
-                                               audio_db=sqlite_src)
+            try:
+                runtime.require_voice_release_idle(runtime.DATA / "voice-studio",
+                                                   audio_db=sqlite_src)
+            except BaseException:
+                runtime.atomic_json(journal / "result.json", {
+                    "status": "RECOVERY_BLOCKED_ACTIVE_SONG_WORK",
+                    "original_database": "PRESERVED",
+                    "reason": "New Song jobs exist; leave the sole Song worker running"})
+                raise RuntimeError("Active Song jobs block destructive rollback; worker preserved")
         errors = []
         if changed_scene:
             try:
@@ -357,8 +364,8 @@ def install(revision: str) -> None:
                 errors.append("Scene rollback: " + type(exc).__name__)
         if changed_song:
             try:
-                runtime.run(["systemctl", "stop", service.SONG_UNIT], timeout=70, quiet=True)
-                runtime.run(["systemctl", "disable", service.SONG_UNIT], quiet=True)
+                subprocess.run(["systemctl", "stop", service.SONG_UNIT], capture_output=True, timeout=70)
+                subprocess.run(["systemctl", "disable", service.SONG_UNIT], capture_output=True, timeout=70)
                 SONG_UNIT_PATH.unlink(missing_ok=True)
                 SONG_ENV.unlink(missing_ok=True)
                 SONG_CURRENT.unlink(missing_ok=True)
