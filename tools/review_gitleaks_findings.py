@@ -66,6 +66,26 @@ def reviewed_legacy_fixture(finding, mode, root):
         return False
 
 
+
+def safe_category(finding):
+    """Expose only coarse diagnostic buckets, never source, secrets, paths or IDs."""
+    if not isinstance(finding, dict):
+        return "invalid", "other"
+    path = str(finding.get("File", "")).removeprefix("/repo/").removeprefix("./")
+    norm = path.lower().replace("\\", "/")
+    if "/tests/" in "/" + norm or norm.startswith("test_") or "/test_" in norm:
+        location = "test"
+    elif norm.startswith((".github/", "docs/", "documentation/")):
+        location = "config_or_docs"
+    elif norm.startswith(("production/", "apps/", "rebuild/")):
+        location = "application"
+    else:
+        location = "other"
+    # Allowlisted bucket labels; arbitrary scanner strings are NOT logged.
+    rule = "generic-api-key" if finding.get("RuleID") == "generic-api-key" else "other_rule"
+    return location, rule
+
+
 def main():
     temp = Path(sys.argv[1])
     root = Path(os.environ["GITHUB_WORKSPACE"])
@@ -82,6 +102,15 @@ def main():
                 raise ValueError("Invalid scanner JSON")
             ignored = sum(reviewed_legacy_fixture(item, mode, root) for item in data)
             unresolved = len(data) - ignored
+            if unresolved:
+                buckets = {}
+                for item in data:
+                    if not reviewed_legacy_fixture(item, mode, root):
+                        bucket = safe_category(item)
+                        buckets[bucket] = buckets.get(bucket, 0) + 1
+                # Public logs show only fixed enum buckets and integer counts.
+                for (location, rule), count in sorted(buckets.items()):
+                    print(f"GITLEAKS_UNRESOLVED_CLASS={location}; RULE_CLASS={rule}; COUNT={count}")
             valid_exit = (status == 0 and len(data) == 0) or (status == 1 and len(data) > 0)
             passed = (unresolved == 0 and valid_exit)
             lines.append(
