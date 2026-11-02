@@ -1127,16 +1127,16 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
   <div class="queue-head"><div><h2>Create / Edit Short Profile</h2><div class="hint">Persistent daily video generation · one batch per Pakistan day · uses imported VPS media, not an open PC session.</div></div></div>
   <div class="two">
    <div class="field"><label for="shortProfileName">Profile Name</label><input id="shortProfileName" name="short_profile_name" maxlength="120" autocomplete="off" placeholder="Choose a PC folder to suggest a name"></div>
-   <div class="field"><label for="shortProfileSource">PC Source Folder · voice and pictures</label><input id="shortProfileSource" type="file" multiple webkitdirectory directory accept="audio/*,image/*"><div class="hint" id="shortProfileMediaCount">No source files selected.</div></div>
+   <div class="field"><label for="shortProfileSource">PC Source Folder · voice and pictures</label><input id="shortProfileSource" type="file" multiple webkitdirectory directory accept="audio/*,image/*"><div class="hint" id="shortProfileMediaCount">No source files selected.</div><input id="shortProfileSourceFallback" type="file" multiple accept=".mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.jpg,.jpeg,.png,.webp,.jfif,.heic,.heif" hidden><div class="hint">For browsers without folder selection, select multiple voice and picture files using the fallback field.</div></div>
    <div class="field"><label for="shortProfileDestination">VPS Output Folder</label><select id="shortProfileDestination"><option value="">Choose your VPS folder</option></select></div>
    <div class="field"><label for="shortProfileDailyCount">Videos per Day</label><input id="shortProfileDailyCount" type="number" min="1" step="1" placeholder="Daily target"></div>
    <div class="field"><label for="shortProfileSchedule">Daily Start Time (Pakistan)</label><input id="shortProfileSchedule" type="time" value="00:00"></div>
   </div>
   <div class="note">Profile Name is suggested from the selected PC folder, remains editable, and is never silently replaced after you customize it. Source files must be uploaded and verified on VPS before unattended generation.</div>
-  <div class="queue-actions"><button type="button" id="shortProfileSave" disabled>Save Profile · pending verified media import</button><button class="secondary" type="button" id="shortProfileSync" disabled>Sync / Import Updates</button></div>
+  <div class="queue-actions"><button type="button" id="shortProfileSave" disabled>Save Profile</button><button class="secondary" type="button" id="shortProfileSync" disabled>Import / Sync Selected PC Folder</button><button class="secondary" type="button" id="shortProfilePauseImport" disabled>Pause</button><button class="secondary" type="button" id="shortProfileResumeImport" disabled>Resume</button><button class="secondary" type="button" id="shortProfileCancelImport" disabled>Cancel</button><button class="secondary" type="button" id="shortProfileRetryImport" disabled>Retry</button><button class="secondary" type="button" id="shortProfileNew">+ New Profile</button></div><div class="hint" id="shortProfileImportStatus" role="status" aria-live="polite">Select a PC folder of voice and pictures, verify on VPS, then save. Daily generation is not activated.</div><div id="shortProfileImportProgress" class="note" role="status" aria-live="polite">No media import in progress.</div>
  </section>
  <section class="panel"><h2>Created Short Profiles</h2>
-  <div class="hint">Start · Stop · Edit · Delete · History are available when persisted owner-scoped profile storage and scheduling have been verified.</div>
+  <div class="hint">Saved owner-owned profiles support Edit, Stop, Delete and History. Start is locked until dedicated daily PKT worker, recovery and media-exhaustion rules pass acceptance tests. Auto Script remains OFFLINE.</div>
   <div id="shortProfilesRows" class="note">No profile records were loaded. This feature is not activated on production.</div>
  </section>
 </section>
@@ -1631,6 +1631,7 @@ loadQueue();setInterval(loadQueue,2000);
 </script>
 <script src="/short-maker/resumable_client.js"></script>
 <script src="/short-maker/ready_video_client.js"></script>
+<script src="/short-maker/short_profile_client.js"></script>
 <script>
 (() => {
   const toggle=document.querySelector(".vps1-video-mobile-menu");
@@ -2567,6 +2568,12 @@ _sm_profiles_module.register_short_profile_store(
     app, data_root=DATA_ROOT, short_identity=short_identity,
     short_folder_owned=short_folder_owned,
     verify_source_import=_sm_verify_source_import)
+
+@app.get("/short_profile_client.js")
+def short_profile_client_script():
+    return FileResponse(Path(__file__).with_name("short_profile_client.js"),
+                        media_type="application/javascript",
+                        headers={"Cache-Control":"no-store"})
 
 @app.get("/ready_video_client.js")
 def ready_video_client_script():
