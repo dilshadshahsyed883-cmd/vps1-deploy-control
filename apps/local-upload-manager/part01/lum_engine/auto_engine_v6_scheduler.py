@@ -9,6 +9,7 @@ from desktop_core.modules.database import Database
 from desktop_core.modules.path_utils import DB_PATH as PC_DB_PATH
 
 from .auto_engine_v6 import V6Store, generate_queue, parse_schedule_times, target_channels, channel_profile_scheduler_tick
+from .uploader_shortstudio_cooperation import uploader_shortstudio_guard
 
 STOP=False
 GRACE_MINUTES=6  # Preserve existing Song and legacy scheduler behavior.
@@ -92,13 +93,17 @@ def main() -> None:
     while not STOP:
         try:
             store.heartbeat("scheduler")
-            if int(store.engine().get("scheduler_armed") or 0):
-                for profile in db.list_auto_engine_profiles():
-                    check_profile(db,store,profile)
-            today=datetime.now(SCHEDULE_TZ).date().isoformat()
-            if today!=last_trash_day:
-                store.purge_trash(7)
-                last_trash_day=today
+            # A scheduled profile may claim a Short Studio source or add a
+            # queue job. Serialize its complete tick with a future exclusive
+            # retirement. OFF by default; no schedule behavior changes.
+            with uploader_shortstudio_guard():
+                if int(store.engine().get("scheduler_armed") or 0):
+                    for profile in db.list_auto_engine_profiles():
+                        check_profile(db,store,profile)
+                today=datetime.now(SCHEDULE_TZ).date().isoformat()
+                if today!=last_trash_day:
+                    store.purge_trash(7)
+                    last_trash_day=today
         except Exception as exc:
             store.heartbeat("scheduler",str(exc))
         for _ in range(30):
