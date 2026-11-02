@@ -32,11 +32,11 @@ class SongStudioReleaseTests(unittest.TestCase):
                '_audio_downloader_hide_shared_proxy_controls':hide_proxy,
                '_VSResponse':response}
         exec(compile(ast.Module(body=[node],type_ignores=[]),'<route-test>','exec'),env)
-        request = types.SimpleNamespace(session={'is_admin': False})
+        request = types.SimpleNamespace(session={'is_admin': False}, headers={'cookie': 'fixture-session'})
         asyncio.run(env['audio_downloader_canonical_page'](request))
         hide_proxy.assert_called_once_with(b'canonical html', is_admin=False)
         auth.assert_called_once_with(request)
-        transport.get.assert_called_once_with('http://127.0.0.1:8143/app',timeout=30,allow_redirects=False)
+        transport.get.assert_called_once_with('http://127.0.0.1:8143/audio-downloader/app',headers={'Cookie':'fixture-session'},timeout=30,allow_redirects=False)
         render.assert_called_once_with(b'reviewed html')
         upstream.status_code = 503
         with self.assertRaises(HTTPException):
@@ -71,7 +71,7 @@ class SongStudioReleaseTests(unittest.TestCase):
                     b"if(location.pathname==='/audio-downloader/' || location.hash==='#vs-audio')choose(true);",
                     page)
                 self.assertNotIn(b"if(location.hash==='#vs-audio')choose(true);", page)
-                self.assertIn(b"'/voice-studio/tts/api/audio-downloader'", page)
+                self.assertIn(b"'/audio-downloader/tts/api/audio-downloader'", page)
                 self.assertIn(b'id="audio-downloader-v1-js"', page)
                 self.assertIn(b'id="vsaSongMaker"', page)
         # Unknown/missing and duplicated route bootstrap remain fail-closed.
@@ -87,7 +87,7 @@ class SongStudioReleaseTests(unittest.TestCase):
         scene = (root/"apps/scene-builder/part01/app.py").read_text()
         shell = (root/"apps/scene-builder/part01/static/vps1_native_site_shell.js").read_text()
         self.assertIn('@app.get("/audio-downloader/", response_class=HTMLResponse)', scene)
-        self.assertIn('_vs_requests.get, "http://127.0.0.1:8143/app", timeout=30', scene)
+        self.assertIn('_vs_requests.get, "http://127.0.0.1:8143/audio-downloader/app"', scene)
         self.assertIn('Audio Downloader upstream UI version mismatch', scene)
         self.assertIn('location.replace("/audio-downloader/")', shell)
         self.assertIn('if (/^\\/audio-downloader\\/?$/.test(location.pathname))', shell)

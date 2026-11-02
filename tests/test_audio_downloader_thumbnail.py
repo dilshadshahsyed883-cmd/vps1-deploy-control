@@ -34,6 +34,12 @@ class AudioThumbnailTests(unittest.TestCase):
         spec.loader.exec_module(self.m)
         self.m.init_storage()
         app = FastAPI()
+        @app.middleware("http")
+        async def verified_scene_fixture(request, call_next):
+            # Only a test shim: production uses the Scene session verifier.
+            request.state.scene_owner = request.headers.get("x-auth-user", "")
+            request.state.scene_admin = request.headers.get("x-is-admin") == "1"
+            return await call_next(request)
         app.include_router(self.m.router)
         self.client = TestClient(app,headers={'X-Auth-User':'tester'})
 
@@ -68,7 +74,7 @@ class AudioThumbnailTests(unittest.TestCase):
         with patch.object(self.m, "deps", return_value={"ready": True, "upload_ready": True}):
             response = self.m.enqueue(self.m.BatchRequest(
                 links=["https://youtu.be/" + VIDEO], auto_upload=False,
-                permission_confirmed=True),request=SimpleNamespace(headers={'x-auth-user':'tester'}))
+                permission_confirmed=True),request=SimpleNamespace(state=SimpleNamespace(scene_owner='tester',scene_admin=False)))
         self.assertEqual(response["created"], 1)
         jobs = self.client.get("/tts/api/audio-downloader/jobs").json()["jobs"]
         self.assertFalse(jobs[0]["download_thumbnail"])
@@ -82,7 +88,7 @@ class AudioThumbnailTests(unittest.TestCase):
         with patch.object(self.m, "deps", return_value={"ready": True, "upload_ready": True}):
             response = self.m.enqueue(self.m.BatchRequest(
                 links=["https://youtu.be/" + VIDEO], auto_upload=False,
-                download_thumbnail=True, permission_confirmed=True),request=SimpleNamespace(headers={'x-auth-user':'tester'}))
+                download_thumbnail=True, permission_confirmed=True),request=SimpleNamespace(state=SimpleNamespace(scene_owner='tester',scene_admin=False)))
         self.assertEqual(response["created"], 1)
         jid = response["job_ids"][0]
         self.assertTrue(self.client.get("/tts/api/audio-downloader/jobs/" + jid).json()["download_thumbnail"])

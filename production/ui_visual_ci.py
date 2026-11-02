@@ -186,9 +186,9 @@ def verify_song_navigation(browser, shell_js: str, shell_css: str) -> list[str]:
     canonical_html = html
     for old, new, count in (
         ("(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/audio-downloader'",
-         "'/voice-studio/tts/api/audio-downloader'", 1),
+         "'/audio-downloader/tts/api/audio-downloader'", 1),
         ("(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/audio-downloader/proxy'",
-         "'/voice-studio/tts/api/audio-downloader/proxy'", 1),
+         "'/audio-downloader/tts/api/audio-downloader/proxy'", 1),
         ("document.documentElement.dataset.vsEngine='audio-downloader';history.replaceState(null,'','#vs-audio');tab('downloader')",
          "document.documentElement.dataset.vsEngine='audio-downloader';history.replaceState(null,'','/audio-downloader/');tab('downloader')", 1),
         ("if(location.hash==='#vs-audio')choose(true);",
@@ -236,7 +236,7 @@ def verify_song_navigation(browser, shell_js: str, shell_css: str) -> list[str]:
             errors.append("song-studio: canonical URL changed unexpectedly")
         page.locator('.vps1-native-song-tabs').wait_for(state="visible")
         song = page.locator('#vps1-native-site-sidebar nav a[href="/song-studio/"]')
-        experiment = page.locator('#vps1-native-site-sidebar nav a[href="/experiment-studio/"]')
+        voice = page.locator('#vps1-native-site-sidebar nav a[href="/voice-studio/app#vps1-production"]')
         if song.get_attribute("aria-current") != "page":
             errors.append("song-studio: initial Audio Downloader selection missing")
         if page.locator('.vs-engine-selector').is_visible():
@@ -248,14 +248,12 @@ def verify_song_navigation(browser, shell_js: str, shell_css: str) -> list[str]:
         if page.locator('.vps1-native-song-tabs a').all_text_contents() != [
                 "Audio Downloader", "Song Maker", "Song Uploader"]:
             errors.append("song-studio: independent app tabs missing")
-        # This integration path requires a trusted administrator session:
-        # Experiment Studio is intentionally invisible to regular members.
-        experiment.wait_for(state="visible")
-        experiment.click()
-        page.wait_for_url(origin + "/experiment-studio/")
-        page.locator('nav[aria-label="Experiment Studio"] a[href^="/voice-studio/app"]').click()
+        # Frozen V1: Voice Studio is a primary sidebar destination,
+        # not an Experiment Studio child. The same Song-to-Voice switch
+        # must work without routing through the admin-only Experiment rail.
+        voice.wait_for(state="visible")
+        voice.click()
         page.wait_for_url(origin + "/voice-studio/app#vps1-production")
-        voice = page.locator('nav[aria-label="Experiment Studio"] a[href^="/voice-studio/app"]')
         page.wait_for_function("!document.body.classList.contains('vs-audio-active')")
         if not page.locator('.vs-engine-selector').is_visible():
             errors.append("voice-studio: Voice engine tabs missing after switching back")
@@ -358,7 +356,7 @@ def run(screenshots: Path | None) -> int:
                                     }""",
                                     native_js)
                                 names = page.locator("#app-sidebar > nav > a").all_text_contents()
-                                if names != ["Dashboard", "Song Studio", "Short Studio", "Copyright Studio", "Experiment Studio", "Admin"]:
+                                if names != ["Dashboard", "Song Studio", "Short Studio", "Copyright Studio", "Voice Studio", "Experiment Studio", "Admin"]:
                                     errors.append(f"{width}px {app}: sidebar drift {names!r}")
                             if app in NATIVE:
                                 workspace = {"auto-caption-studio": "acs",

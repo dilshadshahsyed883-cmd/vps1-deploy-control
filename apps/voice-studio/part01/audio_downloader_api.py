@@ -278,7 +278,7 @@ def audio_identity(request: Request):
     if request is None:
         raise HTTPException(403,"Authenticated Audio Downloader account required")
     owner=_preferences_owner(request)
-    admin=str(request.headers.get("x-is-admin") or "").strip()=="1"
+    admin=bool(getattr(request.state, "scene_admin", False))
     return owner,admin
 
 
@@ -312,8 +312,9 @@ def status(request: Request = None):
 
 
 def _preferences_owner(request: Request) -> str:
-    # The authenticated reverse proxy injects this identity, as for Song Maker.
-    owner = request.headers.get('x-auth-user', '').strip()
+    # Ownership comes only from the live Scene session verified by the Voice
+    # middleware. Browser-supplied X-Auth-* headers are never trusted.
+    owner = str(getattr(request.state, "scene_owner", "") or "").strip()
     if not owner or len(owner) > 160 or any(char in owner for char in '\r\n'):
         raise HTTPException(403, 'Authenticated Audio Downloader user required to save settings')
     return owner

@@ -671,12 +671,13 @@ def app_access_allows(account: dict[str, Any] | None, app_name: str) -> bool:
 
 
 
-# Only these three public Studio groups are configurable per user.
+# Four independent public Studio groups are configurable per user.
 # The pre-existing app_access column is retained for legacy integrations.
-STUDIO_KEYS = ("song", "short", "copyright")
+STUDIO_KEYS = ("song", "short", "copyright", "voice")
 STUDIO_SSO_APPS = {
     "song-maker": "song", "short-maker": "short", "video-merger": "copyright",
     "short-uploader": "short", "copyright-uploader": "copyright",
+    "voice-studio": "voice",
 }
 
 
@@ -688,7 +689,8 @@ def allowed_studios(account: dict[str, Any] | None) -> tuple[str, ...]:
     stored = account.get("studio_access")
     # Migration-safe: do not revoke existing user access.
     if stored is None:
-        return STUDIO_KEYS
+        # Old accounts keep their prior 3 Studio grants; Voice is opt-in.
+        return ("song", "short", "copyright")
     selected = {item.strip() for item in str(stored).split(",")}
     return tuple(item for item in STUDIO_KEYS if item in selected)
 
@@ -699,10 +701,15 @@ def studio_access_allows(account: dict[str, Any] | None, studio: str) -> bool:
 
 def studio_for_path(path: str) -> str:
     normalized = path.rstrip("/") or "/"
+    # Song's existing Audio Downloader engine is hosted by the Voice service.
+    # This narrow compatibility route uses Song permission, not Voice grant.
+    if normalized.startswith("/voice-studio/service/tts/api/audio-downloader"):
+        return "song"
     for studio, prefixes in (
         ("song", ("/song-studio", "/song-uploader", "/song-maker", "/audio-downloader")),
         ("short", ("/short-maker", "/short-uploader", "/short-studio")),
         ("copyright", ("/video-merger", "/copyright-uploader", "/copyright-studio")),
+        ("voice", ("/voice-studio",))
     ):
         if any(normalized == prefix or normalized.startswith(prefix + "/") for prefix in prefixes):
             return studio
@@ -2075,12 +2082,12 @@ def _audio_downloader_canonical_html(payload: bytes) -> bytes:
     rewrites = (
         (
             b"(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/audio-downloader'",
-            b"'/voice-studio/tts/api/audio-downloader'",
+            b"'/audio-downloader/tts/api/audio-downloader'",
             1,
         ),
         (
             b"(location.pathname.startsWith('/voice-studio/')?'/voice-studio':'')+'/'+'tts/api/audio-downloader/proxy'",
-            b"'/voice-studio/tts/api/audio-downloader/proxy'",
+            b"'/audio-downloader/tts/api/audio-downloader/proxy'",
             1,
         ),
         (
@@ -2140,8 +2147,9 @@ async def audio_downloader_canonical_page(request: Request):
     # The legacy Scene Voice proxy still targets the retired 8130 instance.
     # Fetch only its HTML after Scene authentication; no credentials or body forwarded.
     upstream = await _vs_asyncio.to_thread(
-        _vs_requests.get, "http://127.0.0.1:8143/app", timeout=30,
-        allow_redirects=False,
+        _vs_requests.get, "http://127.0.0.1:8143/audio-downloader/app",
+        headers={"Cookie": request.headers.get("cookie", "")},
+        timeout=30, allow_redirects=False,
     )
     if upstream.status_code != 200 or "text/html" not in upstream.headers.get("content-type", "").lower():
         raise HTTPException(status_code=502, detail="Audio Downloader service unavailable")
@@ -2156,6 +2164,16 @@ async def audio_downloader_canonical_page(request: Request):
         headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
     )
 
+
+
+@app.api_route("/audio-downloader/tts/api/audio-downloader", methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS"])
+@app.api_route("/audio-downloader/tts/api/audio-downloader/{subpath:path}", methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS"])
+async def song_audio_downloader_api(request: Request, subpath: str = ""):
+    """Keep the existing Audio Downloader accessible without a Voice grant."""
+    if len(subpath) > 256 or ".." in subpath.split("/") or not re.fullmatch(r"[A-Za-z0-9_./-]*", subpath):
+        raise HTTPException(404, "Audio Downloader route unavailable")
+    suffix = "/" + subpath if subpath else ""
+    return await _vps1_voice_studio_proxy(request, "tts/api/audio-downloader" + suffix)
 
 
 # SONG_UPLOADER_CANONICAL_URL_V1: Canonical URL is a trusted facade over the
@@ -4693,7 +4711,7 @@ def user_management_action(
     secret_key: str = Form(""), role: str = Form("non_admin"),
     csrf_token: str = Form(""),
     studio_song: str = Form(""), studio_short: str = Form(""),
-    studio_copyright: str = Form(""),
+    studio_copyright: str = Form(""), studio_voice: str = Form(""),
 ):
     require_admin(request)
     expected = str(request.session.get("user_management_csrf") or "")
@@ -4703,12 +4721,12 @@ def user_management_action(
     actor = str(request.session.get("username") or "")
     if action in {"create", "set_role"} and role not in {"admin", "non_admin"}:
         raise HTTPException(400, "Role must be Admin or Non-admin")
-    for value in (studio_song, studio_short, studio_copyright):
+    for value in (studio_song, studio_short, studio_copyright, studio_voice):
         if value not in ("", "on"):
             raise HTTPException(400, "Invalid studio checkbox")
     selected = ",".join(name for name, checked in (
         ("song", studio_song), ("short", studio_short),
-        ("copyright", studio_copyright),
+        ("copyright", studio_copyright), ("voice", studio_voice),
     ) if checked == "on")
     try:
         with db() as conn:
@@ -4722,7 +4740,7 @@ def user_management_action(
                        daily_render_limit,subscription_start_at,subscription_end_at,app_access,studio_access)
                        VALUES(?,?,?,?,?,?,?,?,?,?)""",
                     (clean, hash_secret(secret_key), 1, int(role == "admin"), now_iso(),
-                     0, "", "", "all", selected if role == "non_admin" else "song,short,copyright"),
+                     0, "", "", "all", selected if role == "non_admin" else "song,short,copyright,voice"),
                 )
                 message = f"User {clean} created as {'Admin' if role == 'admin' else 'Non-admin'}"
             else:
@@ -5281,17 +5299,25 @@ from starlette.responses import Response as _VSResponse
 import requests as _vs_requests
 import asyncio as _vs_asyncio
 
-_VS_UPSTREAM="http://127.0.0.1:8130"
+_VS_UPSTREAM="http://127.0.0.1:8143"
 
 @app.get("/voice-studio", response_class=HTMLResponse)
 async def vps1_voice_studio_host(request:_VSRequest):
     require_login(request)
+    account = user_account(str(request.session.get("username") or ""))
+    if not studio_access_allows(account, "voice"):
+        raise HTTPException(403, "Voice Studio access required")
     return RedirectResponse("/voice-studio/app", status_code=303)
 
 async def _vps1_voice_studio_proxy(request:_VSRequest,upstream_path:str):
+    account = user_account(str(request.session.get("username") or ""))
+    # Keep Song Studio's existing audio API available to Song-only accounts.
+    studio = "song" if upstream_path.startswith("tts/api/audio-downloader") else "voice"
+    if not studio_access_allows(account, studio):
+        raise HTTPException(403, studio.title() + " Studio access required")
     body=await request.body()
     url=_VS_UPSTREAM+"/"+upstream_path.lstrip("/")
-    headers={}
+    headers={"Cookie": request.headers.get("cookie", "")}
     ct=request.headers.get("content-type")
     if ct:
         headers["content-type"]=ct
@@ -5320,6 +5346,12 @@ async def _vps1_voice_studio_proxy(request:_VSRequest,upstream_path:str):
         ).replace(
             b"vps1_native_site_shell.css?v=1",
             b"vps1_native_site_shell.css?v=20261029-song-studio-v1",
+        )
+    if studio == "song" and "application/json" in rct.lower():
+        # Existing downloader job JSON advertises root-relative local media URLs.
+        # Keep them inside the Song-owned authenticated facade, not Voice SSO.
+        content=content.replace(
+            b'"/tts/api/audio-downloader', b'"/audio-downloader/tts/api/audio-downloader',
         )
     out={k:r.headers[k] for k in ("content-type","content-disposition","cache-control") if k in r.headers}
     return _VSResponse(content=content,status_code=r.status_code,headers=out)

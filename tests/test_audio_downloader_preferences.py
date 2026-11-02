@@ -30,6 +30,12 @@ class AudioPreferencesTests(unittest.TestCase):
         self.m.AudioPreferences.model_rebuild(_types_namespace=vars(self.m))
         self.m.init_storage()
         app = FastAPI()
+        @app.middleware("http")
+        async def verified_scene_fixture(request, call_next):
+            # Only a test shim: production uses the Scene session verifier.
+            request.state.scene_owner = request.headers.get("x-auth-user", "")
+            request.state.scene_admin = request.headers.get("x-is-admin") == "1"
+            return await call_next(request)
         app.include_router(self.m.router)
         self.client = TestClient(app,headers={'X-Auth-User':'owner-a'})
         self.owner_a = {"X-Auth-User": "owner-a"}
@@ -46,6 +52,18 @@ class AudioPreferencesTests(unittest.TestCase):
                   "auto_song_maker": True,"song_folder_id":""}
         result.update(changes)
         return result
+
+    def test_request_owner_cannot_be_overridden_by_browser_headers(self):
+        from types import SimpleNamespace
+        request = SimpleNamespace(
+            state=SimpleNamespace(scene_owner="owner-a", scene_admin=False),
+            headers={"x-auth-user": "owner-b", "x-is-admin": "1"},
+        )
+        self.assertEqual(self.m._preferences_owner(request), "owner-a")
+        self.assertEqual(self.m.audio_identity(request), ("owner-a", False))
+        with self.assertRaises(Exception) as blocked:
+            self.m.audio_admin(request)
+        self.assertEqual(getattr(blocked.exception, "status_code", None), 403)
 
     def test_saved_options_survive_new_db_connections_and_do_not_change_from_status(self):
         initial = self.client.get("/tts/api/audio-downloader/preferences", headers=self.owner_a)

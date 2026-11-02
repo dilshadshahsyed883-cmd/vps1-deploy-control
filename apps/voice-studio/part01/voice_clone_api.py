@@ -20,6 +20,7 @@ from urllib.parse import urlsplit
 import requests
 from fastapi import APIRouter, HTTPException, Query, Response
 from fastapi.responses import FileResponse
+from voice_tenant import owner
 from pydantic import BaseModel, Field
 
 ROOT = Path(os.environ.get("VOICE_CLONE_ROOT", "/home/ubuntu/apps/kokoro_tts_test/data/voice_clone"))
@@ -295,6 +296,8 @@ def init_storage() -> None:
             );
             """
         )
+        con.execute("CREATE TABLE IF NOT EXISTS voice_owner_categories (owner_username TEXT NOT NULL COLLATE NOCASE, name TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(owner_username,name))")
+        con.execute("CREATE TABLE IF NOT EXISTS voice_design_preview_owners (preview_id TEXT PRIMARY KEY, owner_username TEXT NOT NULL COLLATE NOCASE)")
         profile_cols = {str(r["name"]) for r in con.execute("PRAGMA table_info(profiles)").fetchall()}
         had_engine_pref = "engine_pref" in profile_cols
         for name, ddl in {
@@ -303,6 +306,7 @@ def init_storage() -> None:
             "engine_pref": "TEXT NOT NULL DEFAULT 'auto'",
             "profile_type": "TEXT NOT NULL DEFAULT 'cloned'",
             "design_prompt": "TEXT NOT NULL DEFAULT ''",
+            "owner_username": "TEXT NOT NULL DEFAULT ''",
         }.items():
             if name not in profile_cols:
                 con.execute(f"ALTER TABLE profiles ADD COLUMN {name} {ddl}")
@@ -336,6 +340,7 @@ def init_storage() -> None:
             # VOICE_STUDIO_BATCH_CONTROLS_API_V1
             "queue_paused": "INTEGER NOT NULL DEFAULT 0",
             "queue_order_at": "TEXT NOT NULL DEFAULT ''",
+            "owner_username": "TEXT NOT NULL DEFAULT ''",
         }
         for name, ddl in migrations.items():
             if name not in job_cols:
@@ -357,6 +362,8 @@ def init_storage() -> None:
         con.execute("CREATE INDEX IF NOT EXISTS idx_clone_jobs_delivery_retry ON jobs(delivery_status,delivery_next_retry,created_at)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_clone_jobs_batch ON jobs(batch_id,created_at)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_clone_jobs_queue_control ON jobs(status,queue_paused,queue_order_at,created_at)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_clone_jobs_owner ON jobs(owner_username,created_at)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_clone_profiles_owner ON profiles(owner_username,created_at)")
 
 
 def _safe_name(v: str, fallback: str = "reference") -> str:
@@ -702,27 +709,34 @@ def _validate_category_name(value: str) -> str:
 
 
 def _resolve_category(con: sqlite3.Connection, value: str) -> str:
-    value = (value or "").strip()
-    if value:
-        name = _validate_category_name(value)
-        row = con.execute("SELECT name FROM categories WHERE name=? COLLATE NOCASE", (name,)).fetchone()
-        if not row:
-            raise HTTPException(400, "Selected category no longer exists")
-        return str(row["name"])
-    row = con.execute("SELECT name FROM categories ORDER BY created_at,name LIMIT 1").fetchone()
+    username = owner()
+    con.execute(
+        "INSERT OR IGNORE INTO voice_owner_categories(owner_username,name,created_at) VALUES(?,?,?)",
+        (username, "General", utc_now()),
+    )
+    name = _validate_category_name(value) if (value or "").strip() else "General"
+    row = con.execute(
+        "SELECT name FROM voice_owner_categories WHERE owner_username=? AND name=? COLLATE NOCASE",
+        (username, name),
+    ).fetchone()
     if not row:
-        con.execute("INSERT INTO categories(name,created_at) VALUES('General',?)", (utc_now(),))
-        return "General"
+        raise HTTPException(400, "Selected category no longer exists")
     return str(row["name"])
 
 
 def _validate_drive_folder(value: str) -> str:
+    """New Voice outputs go to a tenant-specific Drive folder; old jobs stay unchanged."""
     value = (value or "").strip()
-    if not value:
-        return ""
-    if len(value) > 180 or value in {".", ".."} or "/" in value or "\\" in value or any(ord(ch) < 32 for ch in value):
+    if len(value) > 150 or value in {".", ".."} or "/" in value or chr(92) in value or any(ord(ch) < 32 for ch in value):
         raise HTTPException(400, "Output folder is invalid")
-    return value
+    prefix = "vs_" + owner() + "__"
+    if not value:
+        return prefix + "default"
+    if value.casefold().startswith(prefix.casefold()):
+        return value
+    if value.casefold().startswith("vs_"):
+        raise HTTPException(403, "Another Voice user's folder is unavailable")
+    return prefix + value
 
 
 def _validate_txt_filename(value: str) -> tuple[str, str]:
@@ -750,7 +764,7 @@ def _direct_filename(title: str, job_id: str) -> str:
 
 
 def _load_profile_for_job(con: sqlite3.Connection, profile_id: str, engine: str) -> sqlite3.Row:
-    profile = con.execute("SELECT * FROM profiles WHERE profile_id=?", (profile_id,)).fetchone()
+    profile = con.execute("SELECT * FROM profiles WHERE profile_id=? AND owner_username=?", (profile_id, owner())).fetchone()
     if not profile:
         raise HTTPException(404, "Clone profile not found")
     profile_engine = str(profile["engine_pref"] or "auto").strip().lower()
@@ -852,7 +866,7 @@ def test_worker_generation(profile_id: str = Query(min_length=8, max_length=64))
     if not probe["ok"]:
         return {"ok": False, "error": probe.get("error") or "worker_offline", **probe}
     with db() as con:
-        row = con.execute("SELECT * FROM profiles WHERE profile_id=?", (profile_id,)).fetchone()
+        row = con.execute("SELECT * FROM profiles WHERE profile_id=? AND owner_username=?", (profile_id,owner())).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Voice profile not found")
     sample = SAMPLES_DIR / str(row["sample_file"])
@@ -1180,6 +1194,19 @@ def _omnivoice_design_endpoint() -> tuple[str, dict[str, str], int]:
     return worker, {"Content-Type": "application/json", **omnivoice_auth_headers()}, int(cfg.get("request_timeout") or 300)
 
 
+def _require_design_preview_owner(preview_id: str) -> str:
+    preview_id = _safe_omnivoice_preview_id(preview_id)
+    init_storage()
+    with db() as con:
+        row = con.execute(
+            "SELECT 1 FROM voice_design_preview_owners WHERE preview_id=? AND owner_username=?",
+            (preview_id, owner()),
+        ).fetchone()
+    if not row:
+        raise HTTPException(404, "Voice design preview not found")
+    return preview_id
+
+
 @router.post("/tts/api/clone/omnivoice/design/preview")
 def create_omnivoice_design_preview(payload: OmniVoiceDesignPreviewPayload):
     init_storage()
@@ -1207,12 +1234,22 @@ def create_omnivoice_design_preview(payload: OmniVoiceDesignPreviewPayload):
         if resp.status_code == 404:
             detail = "Updated OmniVoice runtime with Voice Design API is not deployed yet"
         raise HTTPException(status_code=502, detail=detail or f"OmniVoice preview HTTP {resp.status_code}")
-    return resp.json()
+    result = resp.json()
+    candidate = result.get("preview") if isinstance(result, dict) else None
+    candidate = candidate if isinstance(candidate, dict) else {}
+    preview_id = str(result.get("preview_id") or candidate.get("preview_id") or candidate.get("id") or "") if isinstance(result, dict) else ""
+    preview_id = _safe_omnivoice_preview_id(preview_id)
+    with db() as con:
+        con.execute(
+            "INSERT INTO voice_design_preview_owners(preview_id,owner_username) VALUES(?,?)",
+            (preview_id,owner()),
+        )
+    return result
 
 
 @router.get("/tts/api/clone/omnivoice/design/previews/{preview_id}")
 def get_omnivoice_design_preview(preview_id: str):
-    preview_id = _safe_omnivoice_preview_id(preview_id)
+    preview_id = _require_design_preview_owner(preview_id)
     worker, headers, _ = _omnivoice_design_endpoint()
     resp = requests.get(worker + f"/v1/voice-design/previews/{preview_id}", headers=headers, timeout=20)
     if resp.status_code >= 400:
@@ -1222,7 +1259,7 @@ def get_omnivoice_design_preview(preview_id: str):
 
 @router.get("/tts/api/clone/omnivoice/design/previews/{preview_id}/audio")
 def get_omnivoice_design_preview_audio(preview_id: str):
-    preview_id = _safe_omnivoice_preview_id(preview_id)
+    preview_id = _require_design_preview_owner(preview_id)
     worker, headers, _ = _omnivoice_design_endpoint()
     resp = requests.get(worker + f"/v1/voice-design/previews/{preview_id}/audio", headers=headers, timeout=60)
     if resp.status_code >= 400:
@@ -1232,18 +1269,20 @@ def get_omnivoice_design_preview_audio(preview_id: str):
 
 @router.delete("/tts/api/clone/omnivoice/design/previews/{preview_id}")
 def delete_omnivoice_design_preview(preview_id: str):
-    preview_id = _safe_omnivoice_preview_id(preview_id)
+    preview_id = _require_design_preview_owner(preview_id)
     worker, headers, _ = _omnivoice_design_endpoint()
     resp = requests.delete(worker + f"/v1/voice-design/previews/{preview_id}", headers=headers, timeout=20)
     if resp.status_code not in {200, 204, 404}:
         raise HTTPException(status_code=502, detail=_omnivoice_remote_detail(resp) or "Preview cleanup failed")
+    with db() as con:
+        con.execute("DELETE FROM voice_design_preview_owners WHERE preview_id=? AND owner_username=?", (preview_id,owner()))
     return {"ok": True, "deleted": resp.status_code != 404, "preview_id": preview_id}
 
 
 @router.post("/tts/api/clone/omnivoice/design/previews/{preview_id}/approve")
 def approve_omnivoice_design_preview(preview_id: str, payload: OmniVoiceDesignApprovePayload):
     init_storage()
-    preview_id = _safe_omnivoice_preview_id(preview_id)
+    preview_id = _require_design_preview_owner(preview_id)
     worker, headers, timeout = _omnivoice_design_endpoint()
 
     meta_resp = requests.get(worker + f"/v1/voice-design/previews/{preview_id}", headers=headers, timeout=20)
@@ -1276,8 +1315,8 @@ def approve_omnivoice_design_preview(preview_id: str, payload: OmniVoiceDesignAp
         with db() as con:
             con.execute(
                 "INSERT INTO profiles(profile_id,name,source_filename,sample_file,sample_sha256,duration_seconds,"
-                "provenance_note,consent_confirmed,created_at,reference_language,reference_text,engine_pref,profile_type,design_prompt) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "provenance_note,consent_confirmed,created_at,reference_language,reference_text,engine_pref,profile_type,design_prompt,owner_username) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     profile_id,
                     payload.name.strip(),
@@ -1293,9 +1332,10 @@ def approve_omnivoice_design_preview(preview_id: str, payload: OmniVoiceDesignAp
                     "omnivoice",
                     "designed",
                     design_prompt,
+                    owner(),
                 ),
             )
-            row = con.execute("SELECT * FROM profiles WHERE profile_id=?", (profile_id,)).fetchone()
+            row = con.execute("SELECT * FROM profiles WHERE profile_id=? AND owner_username=?", (profile_id,owner())).fetchone()
     except Exception:
         sample_path.unlink(missing_ok=True)
         raise
@@ -1340,7 +1380,7 @@ def test_omnivoice_generation(profile_id: str = Query(min_length=8, max_length=6
     if not probe["ok"]:
         return {"ok": False, "error": probe.get("error") or "worker_offline", **probe}
     with db() as con:
-        row = con.execute("SELECT * FROM profiles WHERE profile_id=?", (profile_id,)).fetchone()
+        row = con.execute("SELECT * FROM profiles WHERE profile_id=? AND owner_username=?", (profile_id,owner())).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Voice profile not found")
     sample = SAMPLES_DIR / str(row["sample_file"])
@@ -1387,14 +1427,14 @@ def clone_status():
     counts = {s: 0 for s in ALLOWED_JOB_STATUSES}
     delivery_counts = {s: 0 for s in DELIVERY_STATUSES}
     with db() as con:
-        for row in con.execute("SELECT status,COUNT(*) n FROM jobs GROUP BY status"):
+        for row in con.execute("SELECT status,COUNT(*) n FROM jobs WHERE owner_username=? GROUP BY status",(owner(),)):
             if row["status"] in counts:
                 counts[str(row["status"])] = int(row["n"])
-        for row in con.execute("SELECT delivery_status,COUNT(*) n FROM jobs GROUP BY delivery_status"):
+        for row in con.execute("SELECT delivery_status,COUNT(*) n FROM jobs WHERE owner_username=? GROUP BY delivery_status",(owner(),)):
             if row["delivery_status"] in delivery_counts:
                 delivery_counts[str(row["delivery_status"])] = int(row["n"])
-        profiles = int(con.execute("SELECT COUNT(*) FROM profiles").fetchone()[0])
-        categories = int(con.execute("SELECT COUNT(*) FROM categories").fetchone()[0])
+        profiles = int(con.execute("SELECT COUNT(*) FROM profiles WHERE owner_username=?",(owner(),)).fetchone()[0])
+        categories = int(con.execute("SELECT COUNT(*) FROM voice_owner_categories WHERE owner_username=?",(owner(),)).fetchone()[0])
     return {
         "ok": True,
         "mode": "remote-gpu-worker",
@@ -1423,8 +1463,16 @@ def clone_status():
 @router.get("/tts/api/clone/categories")
 def list_categories():
     init_storage()
+    username = owner()
     with db() as con:
-        rows = con.execute("SELECT name,created_at FROM categories ORDER BY created_at,name COLLATE NOCASE").fetchall()
+        con.execute(
+            "INSERT OR IGNORE INTO voice_owner_categories(owner_username,name,created_at) VALUES(?,?,?)",
+            (username, "General", utc_now()),
+        )
+        rows = con.execute(
+            "SELECT name,created_at FROM voice_owner_categories WHERE owner_username=? ORDER BY created_at,name COLLATE NOCASE",
+            (username,),
+        ).fetchall()
     return {"ok": True, "categories": [{"name": str(r["name"]), "created_at": str(r["created_at"])} for r in rows]}
 
 
@@ -1432,11 +1480,12 @@ def list_categories():
 def create_category(payload: CategoryCreate):
     init_storage()
     name = _validate_category_name(payload.name)
+    username = owner()
     with db() as con:
-        exists = con.execute("SELECT name FROM categories WHERE name=? COLLATE NOCASE", (name,)).fetchone()
+        exists = con.execute("SELECT name FROM voice_owner_categories WHERE owner_username=? AND name=? COLLATE NOCASE",(username,name)).fetchone()
         if exists:
             return {"ok": True, "category": str(exists["name"]), "created": False}
-        con.execute("INSERT INTO categories(name,created_at) VALUES(?,?)", (name, utc_now()))
+        con.execute("INSERT INTO voice_owner_categories(owner_username,name,created_at) VALUES(?,?,?)", (username, name, utc_now()))
     return {"ok": True, "category": name, "created": True}
 
 
@@ -1444,15 +1493,16 @@ def create_category(payload: CategoryCreate):
 def delete_category(name: str):
     init_storage()
     name = _validate_category_name(name)
+    username = owner()
     with db() as con:
-        row = con.execute("SELECT name FROM categories WHERE name=? COLLATE NOCASE", (name,)).fetchone()
+        row = con.execute("SELECT name FROM voice_owner_categories WHERE owner_username=? AND name=? COLLATE NOCASE",(username,name)).fetchone()
         if not row:
             raise HTTPException(404, "Category not found")
-        total = int(con.execute("SELECT COUNT(*) FROM categories").fetchone()[0])
+        total = int(con.execute("SELECT COUNT(*) FROM voice_owner_categories WHERE owner_username=?", (username,)).fetchone()[0])
         if total <= 1:
             raise HTTPException(409, "At least one category must remain")
         canonical = str(row["name"])
-        con.execute("DELETE FROM categories WHERE name=?", (canonical,))
+        con.execute("DELETE FROM voice_owner_categories WHERE owner_username=? AND name=?", (username, canonical))
     return {"ok": True, "deleted": canonical, "note": "Existing jobs keep their saved category"}
 
 
@@ -1460,7 +1510,7 @@ def delete_category(name: str):
 def list_profiles():
     init_storage()
     with db() as con:
-        rows = con.execute("SELECT * FROM profiles ORDER BY created_at DESC").fetchall()
+        rows = con.execute("SELECT * FROM profiles WHERE owner_username=? ORDER BY created_at DESC",(owner(),)).fetchall()
     return {"ok": True, "profiles": [_profile_payload(r) for r in rows]}
 
 
@@ -1486,15 +1536,15 @@ def create_profile(payload: CloneProfileCreate):
         with db() as con:
             con.execute(
                 "INSERT INTO profiles(profile_id,name,source_filename,sample_file,sample_sha256,duration_seconds,"
-                "provenance_note,consent_confirmed,created_at,reference_language,reference_text,engine_pref) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                "provenance_note,consent_confirmed,created_at,reference_language,reference_text,engine_pref,owner_username) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     profile_id, payload.name.strip(), _safe_name(payload.source_filename),
                     sample_path.name, sha, duration, payload.provenance_note.strip(), 1, created,
-                    payload.reference_language.strip() or "auto", reference_text, engine_pref
+                    payload.reference_language.strip() or "auto", reference_text, engine_pref, owner()
                 )
             )
-            row = con.execute("SELECT * FROM profiles WHERE profile_id=?", (profile_id,)).fetchone()
+            row = con.execute("SELECT * FROM profiles WHERE profile_id=? AND owner_username=?", (profile_id,owner())).fetchone()
         return {"ok": True, "profile": _profile_payload(row)}
     except Exception:
         sample_path.unlink(missing_ok=True)
@@ -1505,17 +1555,17 @@ def create_profile(payload: CloneProfileCreate):
 def delete_profile(profile_id: str):
     init_storage()
     with db() as con:
-        row = con.execute("SELECT * FROM profiles WHERE profile_id=?", (profile_id,)).fetchone()
+        row = con.execute("SELECT * FROM profiles WHERE profile_id=? AND owner_username=?", (profile_id,owner())).fetchone()
         if not row:
             raise HTTPException(404, "Clone profile not found")
         active = int(con.execute(
-            "SELECT COUNT(*) FROM jobs WHERE profile_id=? AND (status IN ('waiting_worker','processing') "
+            "SELECT COUNT(*) FROM jobs WHERE profile_id=? AND owner_username=? AND (status IN ('waiting_worker','processing') "
             "OR delivery_status IN ('pending','uploading','upload_failed','drive_verified'))",
-            (profile_id,)
+            (profile_id,owner())
         ).fetchone()[0])
         if active:
             raise HTTPException(409, "Finish/delete active generation and Drive-delivery jobs before deleting this profile")
-        stale = con.execute("SELECT audio_file,text_file FROM jobs WHERE profile_id=?", (profile_id,)).fetchall()
+        stale = con.execute("SELECT audio_file,text_file FROM jobs WHERE profile_id=? AND owner_username=?", (profile_id,owner())).fetchall()
         con.execute("DELETE FROM jobs WHERE profile_id=?", (profile_id,))
         con.execute("DELETE FROM profiles WHERE profile_id=?", (profile_id,))
     for j in stale:
@@ -1549,12 +1599,12 @@ def _insert_job(
 ) -> sqlite3.Row:
     con.execute(
         "INSERT INTO jobs(job_id,profile_id,text,language,status,created_at,engine,preset,speed,settings_json,"
-        "batch_id,batch_name,title,source_filename,output_basename,category,drive_folder,text_file,delivery_status) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'waiting_generation')",
+        "batch_id,batch_name,title,source_filename,output_basename,category,drive_folder,text_file,delivery_status,owner_username) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'waiting_generation',?)",
         (
             job_id, profile_id, text, language, "waiting_worker", utc_now(), engine, preset, float(speed),
             json.dumps(settings, separators=(",", ":"), sort_keys=True), batch_id, batch_name, title, source_filename,
-            output_basename, category, drive_folder, text_file,
+            output_basename, category, drive_folder, text_file, owner(),
         )
     )
     return con.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,)).fetchone()
@@ -1656,12 +1706,12 @@ def list_clone_jobs(limit: int = Query(default=100, ge=0)):
     with db() as con:
         base_sql = (
             "SELECT j.*,p.name profile_name FROM jobs j JOIN profiles p ON p.profile_id=j.profile_id "
-            "ORDER BY j.created_at DESC"
+            "WHERE j.owner_username=? AND p.owner_username=? ORDER BY j.created_at DESC"
         )
         if int(limit) == 0:
-            rows = con.execute(base_sql).fetchall()
+            rows = con.execute(base_sql,(owner(),owner())).fetchall()
         else:
-            rows = con.execute(base_sql + " LIMIT ?", (int(limit),)).fetchall()
+            rows = con.execute(base_sql + " LIMIT ?", (owner(),owner(),int(limit))).fetchall()
     return {
         "ok": True,
         "jobs": [
@@ -1683,8 +1733,8 @@ def _batch_rows(con, batch_id: str):
     if not bid:
         raise HTTPException(400, "Batch id is required")
     rows = con.execute(
-        "SELECT * FROM jobs WHERE batch_id=? ORDER BY created_at, rowid",
-        (bid,),
+        "SELECT * FROM jobs WHERE batch_id=? AND owner_username=? ORDER BY created_at, rowid",
+        (bid,owner()),
     ).fetchall()
     if not rows:
         raise HTTPException(404, "Clone batch not found")
@@ -1700,7 +1750,7 @@ def pause_clone_batch(batch_id: str):
         queued = sum(1 for r in rows if str(r["status"] or "") in {"waiting_worker", "queued"})
         if queued < 1:
             raise HTTPException(409, "This batch has no queued jobs to pause")
-        con.execute("UPDATE jobs SET queue_paused=1 WHERE batch_id=?", (bid,))
+        con.execute("UPDATE jobs SET queue_paused=1 WHERE batch_id=? AND owner_username=?", (bid,owner()))
     return {"ok": True, "batch_id": bid, "paused": True, "queued_jobs": queued}
 
 
@@ -1713,7 +1763,7 @@ def resume_clone_batch(batch_id: str):
         queued = sum(1 for r in rows if str(r["status"] or "") in {"waiting_worker", "queued"})
         if queued < 1:
             raise HTTPException(409, "This batch has no queued jobs to resume")
-        con.execute("UPDATE jobs SET queue_paused=0 WHERE batch_id=?", (bid,))
+        con.execute("UPDATE jobs SET queue_paused=0 WHERE batch_id=? AND owner_username=?", (bid,owner()))
     return {"ok": True, "batch_id": bid, "paused": False, "queued_jobs": queued}
 
 
@@ -1729,8 +1779,8 @@ def skip_clone_batch(batch_id: str):
             raise HTTPException(409, "This batch has no queued jobs to skip")
         con.execute(
             "UPDATE jobs SET queue_paused=0,queue_order_at=? "
-            "WHERE batch_id=? AND status IN ('waiting_worker','queued')",
-            (moved_at, bid),
+            "WHERE batch_id=? AND owner_username=? AND status IN ('waiting_worker','queued')",
+            (moved_at, bid, owner()),
         )
     return {"ok": True, "batch_id": bid, "skipped_to_end_at": moved_at, "queued_jobs": queued}
 
@@ -1763,7 +1813,7 @@ def delete_clone_batch(batch_id: str):
                 409,
                 "Batch delete is allowed only before any job starts. " + "; ".join(unsafe[:5]),
             )
-        deleted = con.execute("DELETE FROM jobs WHERE batch_id=?", (bid,)).rowcount
+        deleted = con.execute("DELETE FROM jobs WHERE batch_id=? AND owner_username=?", (bid,owner())).rowcount
     for rel in text_files:
         if rel:
             _cleanup_text_rel(rel)
@@ -1774,7 +1824,7 @@ def delete_clone_batch(batch_id: str):
 def delete_clone_job(job_id: str):
     init_storage()
     with db() as con:
-        row = con.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,)).fetchone()
+        row = con.execute("SELECT * FROM jobs WHERE job_id=? AND owner_username=?", (job_id,owner())).fetchone()
         if not row:
             raise HTTPException(404, "Clone job not found")
         if str(row["status"]) == "processing":
@@ -1784,7 +1834,7 @@ def delete_clone_job(job_id: str):
             raise HTTPException(409, "Drive delivery is not safely cleaned yet")
         audio = str(row["audio_file"] or "")
         text_rel = str(row["text_file"] or "")
-        con.execute("DELETE FROM jobs WHERE job_id=?", (job_id,))
+        con.execute("DELETE FROM jobs WHERE job_id=? AND owner_username=?", (job_id,owner()))
     if audio:
         (AUDIO_DIR / audio).unlink(missing_ok=True)
     _cleanup_text_rel(text_rel)
@@ -1808,7 +1858,7 @@ def discard_clone_job(job_id: str):
         # Serialize against the Drive spooler. If the spooler already owns the
         # row it will be 'uploading' and this request is rejected.
         con.execute("BEGIN IMMEDIATE")
-        row = con.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,)).fetchone()
+        row = con.execute("SELECT * FROM jobs WHERE job_id=? AND owner_username=?", (job_id,owner())).fetchone()
         if not row:
             raise HTTPException(404, "Clone job not found")
         status = str(row["status"] or "")
@@ -1823,7 +1873,7 @@ def discard_clone_job(job_id: str):
         text_rel = str(row["text_file"] or "")
         # Deleting the row under an IMMEDIATE transaction prevents a pending
         # upload_failed retry from claiming it after confirmation.
-        con.execute("DELETE FROM jobs WHERE job_id=?", (job_id,))
+        con.execute("DELETE FROM jobs WHERE job_id=? AND owner_username=?", (job_id,owner()))
     if audio:
         (AUDIO_DIR / audio).unlink(missing_ok=True)
     _cleanup_text_rel(text_rel)
@@ -1835,7 +1885,9 @@ def clone_audio(filename: str):
     if not re.fullmatch(r"[A-Za-z0-9._-]{1,180}\.(?:wav|mp3|flac|ogg)", filename):
         raise HTTPException(404)
     path = AUDIO_DIR / filename
-    if not path.is_file():
+    with db() as con:
+        permitted = con.execute("SELECT 1 FROM jobs WHERE audio_file=? AND owner_username=?", (filename,owner())).fetchone()
+    if not permitted or not path.is_file():
         raise HTTPException(404)
     media = {
         ".wav": "audio/wav",
