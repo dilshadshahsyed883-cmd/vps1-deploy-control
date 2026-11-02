@@ -101,6 +101,18 @@ class ReadyVideoUploadsTests(unittest.TestCase):
         self.assertEqual(again.status_code, 200)
         self.assertEqual(self.seq, 2)
 
+    def test_disk_reserve_covers_upload_staging_and_verified_publish(self):
+        # Even with enough space to receive chunks, final publication needs
+        # temporary copy space until the verified receipt commits.
+        reserve = self.module.DISK_RESERVE_BYTES
+        free = reserve + 4096 + 512
+        with patch.object(self.module.shutil, "disk_usage",
+                          return_value=SimpleNamespace(free=free)):
+            response = self.begin()
+        self.assertEqual(response.status_code, 507, response.text)
+        self.assertFalse(any(self.root.joinpath("ready_video_uploads").glob(
+            "[0-9a-f]" * 32)))
+
     def test_foreign_user_cannot_read_transfer_or_publish(self):
         sid = self.begin().json()["session_id"]
         self.assertEqual(self.client.get(self.endpoint(sid), headers=self.other).status_code, 403)
