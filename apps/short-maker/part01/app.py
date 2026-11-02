@@ -1894,7 +1894,11 @@ async def retire_verified_unused_vps_folder(folder_name: str, request: Request):
     payload = await request.json()
     if not isinstance(payload, dict) or payload.get("confirm_name") != folder_name:
         raise HTTPException(status_code=409, detail="Type the exact folder name to confirm")
-    return _sm_unused_retirement.retire(
+    # Hashing full-size MP4s and waiting for the cross-service exclusive
+    # POSIX lock are synchronous disk work. Never block uvicorn's event loop.
+    from starlette.concurrency import run_in_threadpool
+    return await run_in_threadpool(
+        _sm_unused_retirement.retire,
         owner=owner, folder_name=folder_name, confirmation=payload["confirm_name"],
         digest=_sm_folder_deps_module._hash_file,
         preserve_defaults=(SHORT_VPS_DEFAULT, short_personal_default(owner)))
