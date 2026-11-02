@@ -150,7 +150,25 @@ def init_db():
         # Legacy, unassigned library media is preserved for admin recovery;
         # never speculate which current user owned it.
         c.execute("UPDATE jobs SET status='waiting', message='Recovered after service restart', updated_at=? WHERE status IN ('downloading','trimming','preparing','merging','verifying','uploading','processing')", (utcnow(),))
-        c.execute("UPDATE library_items SET status='failed', progress=100, message='Import interrupted by service restart', error='Import interrupted by service restart', updated_at=? WHERE status='importing'", (utcnow(),))
+        # An interrupted Replace must not hide/delete its previously verified
+        # Library video. Existing VPS bytes or a prior verified Drive mirror
+        # keep the old item usable; new unfinished imports still fail closed.
+        interrupted=c.execute("SELECT id,size_bytes,drive_id FROM library_items WHERE status='importing'").fetchall()
+        for item in interrupted:
+            cache=LIBRARY_CACHE / (item['id']+'.mp4')
+            previous_verified=int(item['size_bytes'] or 0)>0 and (
+                (cache.is_file() and not cache.is_symlink() and cache.stat().st_size>0)
+                or bool(item['drive_id']))
+            if previous_verified:
+                c.execute("""UPDATE library_items SET status='ready',progress=100,
+                    message='Previous verified Library video preserved after interrupted replace',
+                    error='Replacement interrupted by service restart',updated_at=? WHERE id=?""",
+                    (utcnow(),item['id']))
+            else:
+                c.execute("""UPDATE library_items SET status='failed',progress=100,
+                    message='Import interrupted by service restart',
+                    error='Import interrupted by service restart',updated_at=? WHERE id=?""",
+                    (utcnow(),item['id']))
         c.execute("""UPDATE library_items SET drive_status='failed',progress=100,
                      drive_error='Drive copy interrupted by service restart',
                      message='Ready on VPS · Drive copy interrupted' WHERE status='ready'
