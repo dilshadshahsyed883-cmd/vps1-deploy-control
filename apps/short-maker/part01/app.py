@@ -2707,7 +2707,8 @@ _sm_clock_spec = _sm_importlib.spec_from_file_location(
 _sm_clock_module = _sm_importlib.module_from_spec(_sm_clock_spec)
 _sm_clock_spec.loader.exec_module(_sm_clock_module)
 _sm_profile_clock = _sm_clock_module.ShortProfileDailyClock(
-    _sm_profile_store, _sm_profile_daily_planner, _sm_profile_queue_bridge)
+    _sm_profile_store, _sm_profile_daily_planner, _sm_profile_queue_bridge,
+    operation_guard=_sm_folder_cooperation.producer)
 _sm_clock_enabled = os.environ.get("SHORT_MAKER_DAILY_PROFILES_ENABLED", "0") == "1"
 
 _sm_profiles_module.register_short_profile_store(
