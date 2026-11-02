@@ -39,7 +39,7 @@ class ShortProfileMediaTests(unittest.TestCase):
         self.alice = {"x-auth-user": "Alice"}
         self.bob = {"x-auth-user": "bob"}
         with io.BytesIO() as image:
-            Image.new("RGB", (20, 20)).save(image, format="PNG")
+            Image.new("RGB", (200, 200)).save(image, format="PNG")
             self.picture = image.getvalue()
         self.voice = b"x" * 1024
         self.space = patch.object(self.module.shutil, "disk_usage",
