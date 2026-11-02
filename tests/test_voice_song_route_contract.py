@@ -82,5 +82,113 @@ class OwnerRoutes(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(called, ["tts/api/audio-downloader/jobs/KOJ-1"])
 
 
+class LiveVoiceMiddlewareContract(unittest.IsolatedAsyncioTestCase):
+    """Exercise the actual Voice middleware function without starting any worker."""
+
+    @staticmethod
+    def middleware():
+        from types import SimpleNamespace
+        from fastapi.responses import JSONResponse
+
+        source = VOICE / "vps1_omnivoice_app.py"
+        tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+        node = next(
+            n for n in tree.body
+            if isinstance(n, ast.AsyncFunctionDef) and n.name == "voice_session_and_permissions"
+        )
+        node.decorator_list = []
+        env = {
+            "asyncio": asyncio,
+            "HTTPException": HTTPException,
+            "JSONResponse": JSONResponse,
+            "scene_identity": voice_tenant.scene_identity,
+            "set_identity": voice_tenant.set_identity,
+            "reset_identity": voice_tenant.reset_identity,
+            "__name__": "voice_middleware_offline_contract",
+        }
+        exec(compile(ast.fix_missing_locations(ast.Module(body=[node], type_ignores=[])),
+                     str(source), "exec"), env)
+        return env["voice_session_and_permissions"]
+
+    @staticmethod
+    def request(path, cookie="valid-scene-cookie", method="GET"):
+        from types import SimpleNamespace
+        return SimpleNamespace(
+            url=SimpleNamespace(path=path),
+            headers={"cookie": cookie, "X-Auth-User": "forged-admin", "X-Is-Admin": "1"},
+            method=method,
+            state=SimpleNamespace(),
+        )
+
+    async def test_verified_session_overrides_spoofed_headers_and_revalidates_grants(self):
+        middleware = self.middleware()
+        current = {"username": "alpha", "is_admin": False, "allowed_studios": ["voice"]}
+        seen = []
+
+        def identity(cookie):
+            self.assertEqual(cookie, "valid-scene-cookie")
+            return current.copy()
+
+        async def next_handler(request):
+            seen.append((request.state.scene_owner, voice_tenant.owner()))
+            return {"ok": True}
+
+        with patch.dict(middleware.__globals__, {"scene_identity": identity}):
+            owned = await middleware(self.request("/tts/api/clone/jobs"), next_handler)
+            self.assertEqual(owned, {"ok": True})
+            self.assertEqual(seen, [("alpha", "alpha")])
+            with self.assertRaises(HTTPException) as exc:
+                voice_tenant.owner()
+            self.assertEqual(exc.exception.status_code, 401)
+
+            # Scene grants are checked on EVERY request, not cached at login.
+            current["allowed_studios"] = []
+            revoked = await middleware(self.request("/tts/api/clone/jobs"), next_handler)
+            self.assertEqual(revoked.status_code, 403)
+            self.assertEqual(len(seen), 1)
+            current["username"] = "beta"
+            current["allowed_studios"] = ["voice"]
+            restored = await middleware(self.request("/tts/api/clone/jobs"), next_handler)
+            self.assertEqual(restored, {"ok": True})
+            self.assertEqual(seen[-1], ("beta", "beta"))
+
+    async def test_expired_login_and_mutating_shared_provider_controls_fail_closed(self):
+        middleware = self.middleware()
+
+        def identity(cookie):
+            if cookie != "valid-scene-cookie":
+                raise HTTPException(401, "Scene login required")
+            return {"username": "alpha", "is_admin": False, "allowed_studios": ["voice"]}
+
+        async def next_handler(request):
+            return {"accepted": request.url.path}
+
+        with patch.dict(middleware.__globals__, {"scene_identity": identity}):
+            expired = await middleware(self.request("/tts/api/clone/jobs", cookie=""), next_handler)
+            self.assertEqual(expired.status_code, 401)
+            for path in (
+                "/tts/api/clone/worker/config",
+                "/tts/api/clone/worker/connect",
+                "/tts/api/clone/omnivoice/config",
+                "/tts/api/clone/omnivoice/disconnect",
+            ):
+                with self.subTest(path=path):
+                    denied = await middleware(self.request(path, method="POST"), next_handler)
+                    self.assertEqual(denied.status_code, 403)
+
+            # Song-only route survives without the additional Voice grant.
+            with patch.dict(middleware.__globals__, {
+                "scene_identity": lambda cookie: {
+                    "username": "songuser", "is_admin": False,
+                    "allowed_studios": ["song"],
+                }
+            }):
+                allowed = await middleware(self.request("/tts/api/audio-downloader/jobs"), next_handler)
+                self.assertEqual(allowed, {"accepted": "/tts/api/audio-downloader/jobs"})
+                blocked = await middleware(self.request("/tts/api/clone/jobs"), next_handler)
+                self.assertEqual(blocked.status_code, 403)
+
+
+
 if __name__ == "__main__":
     unittest.main()
