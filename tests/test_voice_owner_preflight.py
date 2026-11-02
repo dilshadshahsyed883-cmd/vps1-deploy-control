@@ -66,13 +66,43 @@ class VoiceLegacyOwnerPreflight(unittest.TestCase):
         self.assertTrue(blocked)
         self.assertEqual(result["engines"][0]["job_profile_owner_conflicts"], 1)
 
-    def test_missing_owner_column_is_blocked_even_if_empty(self):
+    def test_v11_empty_legacy_ownerless_db_does_not_block(self):
+        # The owner explicitly deleted the 13 legacy jobs, not migrated them.
         with sqlite3.connect(self.paths["edge"]) as conn:
             conn.execute("ALTER TABLE jobs RENAME TO jobs_old")
             conn.execute("CREATE TABLE jobs(job_id TEXT)")
         result,blocked = report(self.paths)
-        self.assertTrue(blocked)
+        self.assertFalse(blocked)
+        self.assertEqual(result["voice_owner_preflight"], "READY")
+        self.assertEqual(result["engines"][-1]["tables"]["jobs"]["total"], 0)
         self.assertFalse(result["engines"][-1]["tables"]["jobs"]["owner_column_present"])
+
+    def test_nonempty_legacy_table_with_missing_owner_column_still_blocks(self):
+        with sqlite3.connect(self.paths["edge"]) as conn:
+            conn.execute("ALTER TABLE jobs RENAME TO jobs_old")
+            conn.execute("CREATE TABLE jobs(job_id TEXT)")
+            conn.execute("INSERT INTO jobs(job_id) VALUES('remaining-legacy')")
+        result,blocked = report(self.paths)
+        self.assertTrue(blocked)
+        self.assertEqual(result["engines"][-1]["tables"]["jobs"]["unassigned"], 1)
+
+    def test_v11_empty_clone_schema_without_owner_columns_is_ready(self):
+        with sqlite3.connect(self.paths["clone"]) as conn:
+            conn.execute("ALTER TABLE jobs RENAME TO old_jobs")
+            conn.execute("ALTER TABLE profiles RENAME TO old_profiles")
+            conn.execute("CREATE TABLE jobs(job_id TEXT, profile_id TEXT)")
+            conn.execute("CREATE TABLE profiles(profile_id TEXT)")
+        result,blocked = report(self.paths)
+        self.assertFalse(blocked)
+        self.assertIsNone(result["engines"][0]["job_profile_owner_conflicts"])
+
+    def test_clone_legacy_profile_without_owner_column_still_blocks(self):
+        with sqlite3.connect(self.paths["clone"]) as conn:
+            conn.execute("ALTER TABLE profiles RENAME TO old_profiles")
+            conn.execute("CREATE TABLE profiles(profile_id TEXT)")
+            conn.execute("INSERT INTO profiles(profile_id) VALUES('orphan')")
+        result,blocked = report(self.paths)
+        self.assertTrue(blocked)
 
 
 if __name__=="__main__":
