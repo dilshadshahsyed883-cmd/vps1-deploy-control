@@ -120,6 +120,7 @@ def apply(root, original):
             require(db.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 0,
                     f"{engine}:VERIFICATION_FAILED")
             db.execute("COMMIT")
+            print(json.dumps({"engine_committed": engine, "deleted_rows": spec["count"]}), flush=True)
         except Exception:
             if db.in_transaction:
                 db.execute("ROLLBACK")
@@ -156,7 +157,7 @@ def main():
             print(json.dumps({"legacy_v11_cleanup": "COMPLETE", "deleted_rows": {"Kokoro": 7, "Edge": 6},
                               "removed_verified_job_folders": removed}, sort_keys=True))
     except (GuardError, sqlite3.Error, OSError) as exc:
-        print(json.dumps({"legacy_v11_cleanup": "BLOCKED", "reason": str(exc)}))
+        print(json.dumps({"legacy_v11_cleanup": ("INTERRUPTED_VERIFY_COUNTS" if args.apply else "BLOCKED"), "reason": str(exc)}))
         raise SystemExit(2)
 
 
