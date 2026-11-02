@@ -1,6 +1,9 @@
 """Guarded Video Merger frozen Library-only installer contract tests."""
 from pathlib import Path
 import unittest
+import re
+import shutil
+import subprocess
 from production.video_merger_library_release import (
     frozen_library_overlay, LibraryReleaseBlocked
 )
@@ -56,6 +59,19 @@ class FrozenLibraryRelease(unittest.TestCase):
         changed=self.live.replace(callback,callback+" /* unexpected */",1)
         with self.assertRaisesRegex(LibraryReleaseBlocked,"retry handler drift"):
             frozen_library_overlay(changed,self.source,self.live)
+
+    def test_entire_video_merger_inline_javascript_compiles(self):
+        node=shutil.which('node')
+        if not node:
+            self.skipTest('Node is not installed in this offline environment')
+        scripts=[m.group(2) for m in re.finditer(
+            r'<script([^>]*)>(.*?)</script>',self.source,re.S|re.I)
+            if 'src=' not in m.group(1)]
+        self.assertEqual(len(scripts),2)
+        for script in scripts:
+            result=subprocess.run([node,'--check','-'],input=script,text=True,
+                                  capture_output=True,timeout=20)
+            self.assertEqual(result.returncode,0,result.stderr[:2000])
 
     def test_live_library_drift_fails_closed(self):
         changed=self.live.replace('Add Library Video','Modified Other Library UI',1)
