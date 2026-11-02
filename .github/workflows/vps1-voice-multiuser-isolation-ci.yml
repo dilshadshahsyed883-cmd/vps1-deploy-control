@@ -8,6 +8,7 @@ on:
       - 'apps/scene-builder/part01/templates/user_management.html'
       - 'apps/scene-builder/part01/static/vps1_native_site_shell.js'
       - 'tests/test_voice_*'
+      - 'tests/test_song_audio_backend_separation.py'
       - 'production/test_unified_sidebar_navigation.py'
       - '.github/workflows/vps1-voice-multiuser-isolation-ci.yml'
 permissions:
@@ -27,6 +28,7 @@ jobs:
         run: |
           python -m unittest discover -s tests -p 'test_voice_tenant_isolation.py' -v
           python -m unittest discover -s tests -p 'test_voice_song_route_contract.py' -v
+          python -m unittest discover -s tests -p 'test_song_audio_backend_separation.py' -v
           python -m unittest discover -s tests -p 'test_audio_downloader_preferences.py' -v
           python -m unittest discover -s tests -p 'test_audio_downloader_queue_history.py' -v
           python -m unittest discover -s tests -p 'test_audio_downloader_thumbnail.py' -v
