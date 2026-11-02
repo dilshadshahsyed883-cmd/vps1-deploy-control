@@ -10,12 +10,13 @@ to OFF. Not a replacement for existing per-job and per-profile owner checks.
 """
 from __future__ import annotations
 
+import asyncio
 import errno
 import fcntl
 import os
 import stat
 import time
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -94,3 +95,31 @@ class ShortStudioFolderLease:
         """Candidate exclusive lease; NOT by itself a deployment approval."""
         with self._lease("exclusive"):
             yield
+    @asynccontextmanager
+    async def producer_async(self):
+        """Nonblocking shared lease, cancelled waiters never retain the lock."""
+        if not self.enabled:
+            yield
+            return
+        descriptor = self._open()
+        acquired = False
+        try:
+            deadline = time.monotonic() + self.timeout
+            while True:
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                    acquired = True
+                    break
+                except OSError as exc:
+                    if exc.errno not in (errno.EWOULDBLOCK, errno.EAGAIN):
+                        raise
+                    if time.monotonic() >= deadline:
+                        raise HTTPException(
+                            503, detail="Studio operation busy; retry after active work")
+                    await asyncio.sleep(0.025)
+            yield
+        finally:
+            if acquired:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
+
