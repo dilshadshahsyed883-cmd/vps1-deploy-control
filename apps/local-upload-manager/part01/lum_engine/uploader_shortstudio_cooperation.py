@@ -103,6 +103,8 @@ UPLOADER_COOPERATION_ENABLED = (
     os.environ.get("LUM_ENGINE_INSTANCE") == "shortstudio"
     and os.environ.get("LUM_SHORT_STUDIO_COOPERATIVE_LOCK_ENABLED", "0") == "1"
 )
+if UPLOADER_COOPERATION_ENABLED and not os.environ.get("SHORT_STUDIO_VPS_FOLDER_ROOT"):
+    raise RuntimeError("Shared Short Studio root must be explicitly configured before uploader lock activation")
 UPLOADER_SHORT_ROOT = Path(os.environ.get(
     "SHORT_STUDIO_VPS_FOLDER_ROOT",
     "/var/lib/fresh-website/short-maker/vps_short_folders",
