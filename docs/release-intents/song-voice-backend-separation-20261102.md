@@ -15,6 +15,15 @@ Status: **STAGED / NOT CUT OVER / NO PRODUCTION DEPLOYMENT**.
 4. The Song-only server now owns independent `apps/song-studio/part01/` source copies of the reviewed UI template, downloader API, and Scene session verifier, with a uniquely named Song API module (no import from Voice Studio). Scene now supports an exact, protected `SONG_AUDIO_SPLIT_UPSTREAM=http://127.0.0.1:8152` switch for **Song** APIs and HTML only. Unset is legacy-compatible; any other configured URL is rejected rather than proxied. This switch is not activated in production. A separate service process and guarded route change are still required to finish the isolation; copy/migrate data is forbidden.
 5. No protected CI, Gitleaks rules, branch rules, authorization or workflow release conditions are weakened.
 
+## Dedicated service implementation (not activated)
+- Source code and reviewed UI are Song-owned under `apps/song-studio/part01/`, with a separate `song_audio_downloader_api` namespace and `song_tenant` session verifier. Voice's audio code import is now legacy-only and skipped when split is active.
+- Immutable source-only packaging explicitly admits `song-studio` without enrolling it in the historical automatic ten-application release set.
+- Independent ASGI runtime is assigned loopback `127.0.0.1:8152`. The generic production installer **rejects** `song-studio` until an atomic cross-service transaction exists.
+- `production/song_audio_service.py` provides a single-process hardened systemd unit, canonical all-owner queue root validation, a read-only preflight requiring Voice/Scene service readiness, idle queues and a free port, and an environment template. It does **not** execute cutover.
+- The standalone server refuses a missing/renamed production SQLite queue and only reports healthy if its exclusive worker runs. Smoke/test startup uses disposable local data and never runs a downloader worker.
+- A dedicated CI workflow checks source-only packaging, real Song ASGI startup with isolated mock Scene SSO, admin/owner isolation, no Voice APIs, worker lock ownership and unit preflight. No CI/security gates have been disabled.
+- **Remaining blocker:** guarded staging of new systemd unit and atomic Voice/Scene proxy cutover with rollback and after-deploy two-user acceptance. Do not merge as a production release until these are implemented and verified.
+
 ## Guarded cutover checklist — fail closed
 - **Never run a legacy and new worker simultaneously.** First upgrade/verify the legacy Voice worker's lock, identify the real protected service env `AUDIO_DOWNLOADER_ROOT`, audit all-owner queued/running/retrying jobs and pending/sending Song Maker handoffs, and require zero in-flight jobs.
 - Confirm unused loopback port and provision the independent Song Audio Python/runtime/systemd service under the existing protected Tailscale + deployment lock. New service uses the existing canonical Audio root, not a new copy or empty DB.
