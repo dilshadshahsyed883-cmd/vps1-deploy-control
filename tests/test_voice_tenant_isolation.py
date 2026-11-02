@@ -144,6 +144,46 @@ class TenantBoundaryTest(unittest.TestCase):
             self.assertEqual(con.execute("SELECT COUNT(*) FROM profiles WHERE profile_id='CLV-OWNED'").fetchone()[0], 1)
             self.assertEqual(con.execute("SELECT COUNT(*) FROM jobs WHERE job_id='CLJ-FOREIGN'").fetchone()[0], 1)
 
+    def test_auto_drive_default_retained_with_owner_scoped_destination(self):
+        """Legacy output paths stay unchanged; new Auto jobs do not share files."""
+        spool = load("voice_clone_drive_spooler")
+
+        def job(username="", folder="", include_owner=True):
+            row = {"drive_folder": folder, "language": "en-GB", "engine": "omnivoice"}
+            if include_owner:
+                row["owner_username"] = username
+            return row
+
+        with as_user("alpha"):
+            self.assertEqual(self.clone._validate_drive_folder(""), "")
+            self.assertEqual(self.clone._validate_drive_folder("Series"), "vs_alpha__Series")
+            self.assertEqual(self.clone._validate_drive_folder("x" * 180), "vs_alpha__" + "x" * 180)
+        with as_user("beta"):
+            self.assertEqual(self.clone._validate_drive_folder(""), "")
+            self.assertEqual(self.clone._validate_drive_folder("Series"), "vs_beta__Series")
+            with self.assertRaises(HTTPException) as err:
+                self.clone._validate_drive_folder("vs_alpha__Series")
+            self.assertEqual(err.exception.status_code, 403)
+
+        legacy = "Kokora TTS Outputs/en-GB/gpu-omnivoice"
+        self.assertEqual(spool.destination_folder_for_job(job()), legacy)
+        self.assertEqual(spool.destination_folder_for_job(job(include_owner=False)), legacy)
+        alpha = spool.destination_folder_for_job(job(username="alpha"))
+        beta = spool.destination_folder_for_job(job(username="beta"))
+        self.assertEqual(alpha, legacy + "/vs_alpha__default")
+        self.assertEqual(beta, legacy + "/vs_beta__default")
+        self.assertNotEqual(alpha, beta)
+        self.assertEqual(
+            spool.destination_folder_for_job(job(username="alpha", folder="LegacyFolder")),
+            "Kokora TTS Outputs/LegacyFolder",
+        )
+        self.assertEqual(
+            spool.destination_folder_for_job(job(username="alpha", folder="vs_alpha__Series")),
+            "Kokora TTS Outputs/vs_alpha__Series",
+        )
+        with self.assertRaises(RuntimeError):
+            spool.destination_folder_for_job(job(username="../outside"))
+
     def test_no_identity_is_denied(self):
         with self.assertRaises(HTTPException) as ctx:
             voice_tenant.owner()
