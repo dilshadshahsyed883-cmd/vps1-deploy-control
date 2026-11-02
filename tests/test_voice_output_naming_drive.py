@@ -42,6 +42,10 @@ class VoiceOutputContract(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.tmp = Path(temp.name)
+        sys.path.insert(0, str(ROOT / "apps/voice-studio/part01"))
+        import voice_tenant
+        self._identity_tokens = voice_tenant.set_identity("testvoice", False)
+        self.addCleanup(lambda: voice_tenant.reset_identity(self._identity_tokens))
         self.mods = {}
         for engine, path in (('ko', K_API), ('ed', E_API)):
             mod = import_api(path, engine + '_output_test')

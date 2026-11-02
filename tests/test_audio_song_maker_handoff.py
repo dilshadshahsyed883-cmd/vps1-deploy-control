@@ -78,6 +78,13 @@ class AudioSongMakerAutoQueueTests(unittest.TestCase):
         self.m.init_storage()
         p=patch.object(self.m,"_song_folder",return_value={"id":"f"*32,"name":"Ronaldo"});p.start();self.addCleanup(p.stop)
         app = FastAPI()
+        @app.middleware("http")
+        async def verified_scene_fixture(request, call_next):
+            # Test-only Scene identity shim; browser headers are NEVER
+            # trusted by the production Voice middleware.
+            request.state.scene_owner = request.headers.get("x-auth-user", "")
+            request.state.scene_admin = False
+            return await call_next(request)
         app.include_router(self.m.router)
         self.client = TestClient(app)
         self.addCleanup(self.client.close)

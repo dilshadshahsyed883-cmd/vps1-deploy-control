@@ -41,20 +41,20 @@ class UniversalSidebarContracts(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertIn("vps1_native_site_shell.js", path.read_text(encoding="utf-8"))
 
-    def test_one_registry_for_three_primary_sidebar_destinations(self):
+    def test_one_registry_for_role_gated_primary_sidebar_destinations(self):
         src = SHELL_JS.read_text(encoding="utf-8")
         links = (
             '["Dashboard", "/", "dashboard"]',
             '["Song Studio", "/song-studio/", "song"]',
             '["Experiment Studio", "/experiment-studio/", "experiment"]',
+            '["Voice Studio", "/voice-studio/app#vps1-production", "voice"]',
         )
         for marker in links:
             self.assertEqual(src.count(marker), 1, marker)
         self.assertIn("addPrimaryLinks(navigation, current)", src)
-        self.assertIn("const voiceLink = secondLevel?.links.voice;", src)
+        self.assertIn("const voiceLink = primaryLinks.voice;", src)
         for forbidden in ('["Upload Studio", "/local-upload-manager", "upload"]',
-                          '["Video Studio", "/scene-builder/", "video"]',
-                          '["Voice Studio", "/voice-studio/app#vps1-production", "voice"]'):
+                          '["Video Studio", "/scene-builder/", "video"]',):
             self.assertNotIn(forbidden, src.split("const PRIMARY_NAV =", 1)[1].split("]);", 1)[0])
         self.assertIn("const songLink = primaryLinks.song;", src)
         self.assertIn("installLegacySidebar()", src)
@@ -127,9 +127,9 @@ class UniversalSidebarContracts(unittest.TestCase):
         self.assertIn('["acs", "voice", "uploader", "stream", "library", "song", "song-uploader", "short-uploader", "copyright-uploader"]', source)
         self.assertIn('app === "library"', source)
         self.assertIn('experiment-studio|self-media-library', source)
-        self.assertIn('["acs", "voice", "uploader", "stream", "library"].includes(app)', source)
+        self.assertIn('["acs", "uploader", "stream", "library"].includes(app)', source)
         for label in ("Antidetect Browser", "Self Media Library", "Auto Script",
-                      "Video Studio", "Voice Studio", "Upload Studio"):
+                      "Video Studio", "Upload Studio"):
             self.assertIn(f'["{label}",', source)
         self.assertIn("const createExperimentTabs =", source)
         self.assertIn("attachInnerTabs(tabs)", source)

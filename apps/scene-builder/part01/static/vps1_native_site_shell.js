@@ -34,6 +34,7 @@
     ["Song Studio", "/song-studio/", "song"],
     ["Short Studio", "/short-maker", "short"],
     ["Copyright Studio", "/video-merger/", "copyright"],
+    ["Voice Studio", "/voice-studio/app#vps1-production", "voice"],
     ["Experiment Studio", "/experiment-studio/", "experiment"]
   ]);
   // A verified Scene identity decides permissions. Never trust local storage
@@ -60,7 +61,7 @@
     if (/^\/(scene-builder|video-studio|auto-caption-studio|queue|settings|audit-media)(\/|$)/.test(pathname)) return "experiment";
     if (/^\/audio-downloader\/?$/.test(pathname)) return "song";
     if (/^\/(song-studio|song-maker|song-uploader)(\/|$)/.test(pathname)) return "song";
-    if (/^\/voice-studio(\/|$)/.test(pathname)) return window.location.hash === "#vs-audio" ? "song" : "experiment";
+    if (/^\/voice-studio(\/|$)/.test(pathname)) return window.location.hash === "#vs-audio" ? "song" : "voice";
     if (/^\/(experiment-studio|self-media-library|auto-script)(\/|$)/.test(pathname)) return "experiment";
     if (/^\/(admin|storage-manager|user-management)(\/|$)/.test(pathname)) return "admin";
     if (pathname === "/" || pathname === "/dashboard") return "dashboard";
@@ -73,14 +74,13 @@
     }
     return links;
   };
-  // The only top-level workspace for these three studios is Experiment Studio.
+  // Video and Upload remain Experiment Studio children; Voice is a primary Studio.
   // Their existing native app controls remain a third-level rail, not a new page.
   const EXPERIMENT_NAV = Object.freeze([
     ["Antidetect Browser", "/experiment-studio/antidetect-browser/", "antidetect"],
     ["Self Media Library", "/self-media-library/", "library"],
     ["Auto Script", "/experiment-studio/auto-script/", "auto-script"],
     ["Video Studio", "/scene-builder/", "video"],
-    ["Voice Studio", "/voice-studio/app#vps1-production", "voice"],
     ["Upload Studio", "/local-upload-manager/app?embedded=1&tab=dashboard", "upload"]
   ]);
   const experimentSection = pathname => {
@@ -257,7 +257,7 @@
     // Native pages and legacy Video Studio documents use the same menu.
     const current = app === "copyright-uploader" ? "copyright" : app === "short-uploader" ? "short" : (app === "song" || app === "song-uploader") ? "song" :
       (app === "voice" && (window.location?.hash === "#vs-audio" ||
-        /^\/audio-downloader\/?$/.test(window.location?.pathname || ""))) ? "song" : "experiment";
+        /^\/audio-downloader\/?$/.test(window.location?.pathname || ""))) ? "song" : app === "voice" ? "voice" : "experiment";
     const primaryLinks = addPrimaryLinks(navigation, current);
     applyStudioVisibility(primaryLinks, null);
     // All native app screens use the live Scene session role; no local-app
@@ -328,7 +328,7 @@
     const isSongAudio = app === "voice" &&
       (/^\/audio-downloader\/?$/.test(window.location?.pathname || "") ||
        document.body.classList.contains("vs-audio-active"));
-    const secondLevel = !isSongAudio && ["acs", "voice", "uploader", "stream", "library"].includes(app)
+    const secondLevel = !isSongAudio && ["acs", "uploader", "stream", "library"].includes(app)
       ? createExperimentTabs(false, app === "library" ? "library" :
           app === "acs" ? "video" : app === "voice" ? "voice" : "upload")
       : null;
@@ -338,13 +338,12 @@
       toggle.after(experimentTabs);
     }
     const attachInnerTabs = tabs => (secondLevel ? secondLevel.tabs : toggle).after(tabs);
-    const voiceLink = secondLevel?.links.voice;
+    const voiceLink = primaryLinks.voice;
     const songLink = primaryLinks.song;
-    const experimentLink = primaryLinks.experiment;
     const selectVoiceOrSong = () => {
       if (app !== "voice") return;
       const inSong = isSongAudio || document.body.classList.contains("vs-audio-active");
-      for (const [link, selected] of [[voiceLink, !inSong], [songLink, inSong], [experimentLink, !inSong]]) {
+      for (const [link, selected] of [[voiceLink, !inSong], [songLink, inSong]]) {
         if (!link) continue;
         link.classList.toggle("active", selected);
         if (selected) link.setAttribute("aria-current", "page");

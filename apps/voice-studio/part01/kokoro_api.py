@@ -14,6 +14,8 @@ ROOT=Path(os.environ.get('KOKORO_STUDIO_ROOT','/home/ubuntu/apps/kokoro_voice_st
 DATA=ROOT/'data'
 DB=DATA/'kokoro_jobs.sqlite3'
 MODELS=ROOT/'models'
+from voice_tenant import owner
+
 router=APIRouter(prefix='/tts/api/kokoro',tags=['Kokoro Voice Studio'])
 
 class GenerateRequest(BaseModel):
@@ -49,6 +51,9 @@ def init_storage():
             delivery_retries integer default 0, drive_wav text, drive_txt text)''')
         c.execute('create index if not exists kokoro_jobs_queue on jobs(status,created_at)')
         migrate_output_metadata(c)
+        if 'owner_username' not in {r[1] for r in c.execute('PRAGMA table_info(jobs)')}:
+            c.execute("ALTER TABLE jobs ADD COLUMN owner_username TEXT NOT NULL DEFAULT ''")
+        c.execute('CREATE INDEX IF NOT EXISTS idx_kokoro_owner_jobs ON jobs(owner_username,created_at)')
     with connection() as c:
         migrate_queue(c, 'kokoro')
 
@@ -120,9 +125,10 @@ def create_job(text:str,filename:str,language:str,voice:str,speed:float,batch:st
     where.mkdir(mode=0o750,parents=True,exist_ok=False)
     txt=where/(output+'.txt')
     txt.write_text(text+'\n',encoding='utf-8')
+    user=owner()
     with connection() as c:
-        c.execute('''insert into jobs(job_id,batch_id,source_filename,output_basename,language,voice,speed,status,delivery_status,created_at,input_file,naming_method) values(?,?,?,?,?,?,?,?,?,?,?,?)''',
-            (job_id,batch,filename,output,language,voice,speed,'queued','waiting_generation',utc(),str(txt),naming_method))
+        c.execute('''insert into jobs(job_id,batch_id,source_filename,output_basename,language,voice,speed,status,delivery_status,created_at,input_file,naming_method,owner_username) values(?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+            (job_id,batch,filename,output,language,voice,speed,'queued','waiting_generation',utc(),str(txt),naming_method,user))
     return job_id
 
 @router.get('/status')
@@ -130,7 +136,7 @@ def status():
     init_storage()
     ok,reason=worker_status()
     with connection() as c:
-        rows=c.execute('select status,count(*) as n from jobs group by status').fetchall()
+        rows=c.execute('select status,count(*) as n from jobs where owner_username=? group by status',(owner(),)).fetchall()
     return {'ready':ok,'reason':reason,'mode':'kokoro-onnx-cpu','queue':{r['status']:r['n'] for r in rows},'sample_rate':24000}
 
 @router.get('/voices')
@@ -191,7 +197,7 @@ def jobs(limit:int=100):
     init_storage()
     limit=max(1,min(limit,250))
     with connection() as c:
-        rows=c.execute('select * from jobs where hidden_at is null order by created_at desc,job_id desc limit ?',(limit,)).fetchall()
+        rows=c.execute('select * from jobs where owner_username=? and hidden_at is null order by created_at desc,job_id desc limit ?',(owner(),limit)).fetchall()
     result=[]
     for r in rows:
         d=job_view(r, 'kokoro')
@@ -208,6 +214,8 @@ def control(job_id:str,action:str):
     init_storage()
     try:
         with connection() as c:
+            if not c.execute('SELECT 1 FROM jobs WHERE job_id=? AND owner_username=?',(job_id,owner())).fetchone():
+                raise HTTPException(404,'Job not found')
             return apply_queue(c, 'kokoro', job_id, action)
     except QueueActionError as exc:
         raise HTTPException(exc.code, exc.detail) from exc
@@ -218,7 +226,7 @@ def retry_delivery(job_id: str):
     if not re.fullmatch(r'KOJ-[A-F0-9]{16}', job_id):
         raise HTTPException(404, 'Job not found')
     with connection() as c:
-        row = c.execute('SELECT status,delivery_status,input_file,wav_file FROM jobs WHERE job_id=?', (job_id,)).fetchone()
+        row = c.execute('SELECT status,delivery_status,input_file,wav_file FROM jobs WHERE job_id=? AND owner_username=?', (job_id,owner())).fetchone()
         if not row:
             raise HTTPException(404, 'Job not found')
         if row['status'] != 'completed' or row['delivery_status'] in ('delivered', 'cleaned'):
@@ -232,6 +240,6 @@ def retry_delivery(job_id: str):
 def audio(job_id:str):
     init_storage()
     if not re.fullmatch(r'KOJ-[A-F0-9]{16}',job_id):raise HTTPException(404,'Audio not found')
-    with connection() as c:row=c.execute('select wav_file,output_basename from jobs where job_id=?',(job_id,)).fetchone()
+    with connection() as c:row=c.execute('select wav_file,output_basename from jobs where job_id=? and owner_username=?',(job_id,owner())).fetchone()
     if not row or not row['wav_file'] or not Path(row['wav_file']).is_file():raise HTTPException(404,'Audio not available')
     return FileResponse(row['wav_file'],media_type='audio/wav',filename=row['output_basename']+'.wav')

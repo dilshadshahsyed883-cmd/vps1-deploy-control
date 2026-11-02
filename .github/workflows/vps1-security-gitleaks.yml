@@ -30,6 +30,10 @@ jobs:
           test "$(git rev-list --all --count)" -gt 0
           printf 'History scan scope: all locally fetched refs; no shallow checkout.\n'
 
+      - name: Test public-log-safe diagnostic classification
+        shell: bash
+        run: python3 -m unittest discover -s tests -p 'test_review_gitleaks_safe_category.py' -v
+
       - name: Scan all reachable commits and current source with redacted findings
         shell: bash
         run: |
