@@ -196,9 +196,9 @@ class CooperationReadOnlyTests(unittest.TestCase):
         self.assertFalse(result["units"]["scheduler"]["process_root_verified"])
         # Recreate the scheduler env with a path that differs from host root.
         scheduler=proc/str(pids["scheduler"])/"environ"
-        scheduler.write_bytes(b"SHORT_STUDIO_VPS_FOLDER_ROOT=/different-root\\x00"
-            b"LUM_SHORT_STUDIO_COOPERATIVE_LOCK_ENABLED=1\\x00"
-            b"LUM_ENGINE_INSTANCE=shortstudio\\x00")
+        scheduler.write_bytes(b"SHORT_STUDIO_VPS_FOLDER_ROOT=/different-root\x00"
+            b"LUM_SHORT_STUDIO_COOPERATIVE_LOCK_ENABLED=1\x00"
+            b"LUM_ENGINE_INSTANCE=shortstudio\x00")
         bad=self.module.inspect_live_processes(self.unit_dir,proc,pid_lookup=finder)
         self.assertEqual(bad["status"],"BLOCKED")
 
