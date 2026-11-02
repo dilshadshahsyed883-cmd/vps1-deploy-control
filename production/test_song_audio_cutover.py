@@ -227,6 +227,31 @@ class SongAudioCutoverTests(unittest.TestCase):
                     {"part01/vps1_omnivoice_app.py": b"updated"},
                     "_production_manifest.json", "voice-studio", "b" * 40)
 
+    def test_song_health_checks_worker_after_transient_connection_failure(self):
+        clock = [0.0]
+        good = MagicMock(status=200)
+        good.__enter__.return_value = good
+        good.read.return_value = (
+            b'{"ok":true,"app":"song-audio-downloader",'
+            b'"worker_active":true,"smoke":false}')
+        import urllib.error
+        unauthorized = urllib.error.HTTPError(
+            "http://127.0.0.1:8152/tts/api/clone/jobs", 401, "Denied", {}, None)
+        opener = Mock()
+        opener.open.side_effect = [urllib.error.URLError("refused"), good, unauthorized]
+        with patch.object(cutover.urllib.request, "build_opener", return_value=opener), \
+             patch.object(cutover.subprocess, "run",
+                          return_value=Mock(returncode=0)) as unit, \
+             patch.object(cutover.time, "monotonic",
+                          side_effect=lambda: clock[0]), \
+             patch.object(cutover.time, "sleep",
+                          side_effect=lambda x: clock.__setitem__(0, clock[0]+x)):
+            proof = cutover._health_song(max_wait_seconds=4, poll_seconds=1)
+        self.assertTrue(proof["worker_active"])
+        self.assertEqual(opener.open.call_count, 3)
+        self.assertEqual(unit.call_args.args[0],
+                         ["systemctl", "is-active", "--quiet", cutover.service.SONG_UNIT])
+
     def test_release_is_explicit_protected_voice_only_intent(self):
         runtime = (REPO / "production/runtime.py").read_text()
         workflow = (REPO / ".github/workflows/vps1-song-studio-release.yml").read_text()
