@@ -115,6 +115,79 @@ class RuntimeTests(unittest.TestCase):
             with sqlite3.connect(database) as conn:
                 self.assertEqual(conn.execute("SELECT value FROM preserved").fetchone(), ("keep",))
 
+    def test_voice_idle_preflight_uses_owner_agnostic_read_only_audio_database(self):
+        # An unauthenticated /status request now correctly returns 403. The
+        # root release gate must use exact local data, never bypass SSO.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state = root / 'voice'
+            for engine in ('kokoro', 'edge'):
+                db_path = state / engine / 'data' / (engine + '_jobs.sqlite3')
+                db_path.parent.mkdir(parents=True)
+                with sqlite3.connect(db_path) as con:
+                    con.execute('CREATE TABLE jobs(status TEXT, delivery_status TEXT)')
+            audio_db = root / 'audio' / 'data' / 'jobs.sqlite3'
+            audio_db.parent.mkdir(parents=True)
+            with sqlite3.connect(audio_db) as con:
+                con.execute('CREATE TABLE jobs(job_id TEXT PRIMARY KEY, status TEXT, song_maker_status TEXT)')
+                con.execute("INSERT INTO jobs VALUES ('terminal','completed','off')")
+
+            with patch.object(runtime.urllib.request, 'build_opener',
+                              side_effect=AssertionError('anonymous SSO bypass attempted')):
+                runtime.require_voice_release_idle(state, audio_db)
+
+                with sqlite3.connect(audio_db) as con:
+                    con.execute("INSERT INTO jobs VALUES ('active','uploading','off')")
+                with self.assertRaisesRegex(RuntimeError, 'active/pending jobs'):
+                    runtime.require_voice_release_idle(state, audio_db)
+                with sqlite3.connect(audio_db) as con:
+                    self.assertEqual(
+                        con.execute("SELECT status FROM jobs WHERE job_id='active'").fetchone()[0],
+                        'uploading',
+                    )
+                    con.execute("UPDATE jobs SET status='mystery-state' WHERE job_id='active'")
+                with self.assertRaisesRegex(RuntimeError, 'active/pending jobs'):
+                    runtime.require_voice_release_idle(state, audio_db)
+
+                with sqlite3.connect(audio_db) as con:
+                    con.execute("UPDATE jobs SET status='completed',song_maker_status='pending' WHERE job_id='active'")
+                with self.assertRaisesRegex(RuntimeError, 'active Song Maker handoffs'):
+                    runtime.require_voice_release_idle(state, audio_db)
+
+                with sqlite3.connect(audio_db) as con:
+                    con.execute("UPDATE jobs SET song_maker_status='queued' WHERE job_id='active'")
+                runtime.require_voice_release_idle(state, audio_db)
+
+                kokoro = state / 'kokoro/data/kokoro_jobs.sqlite3'
+                with sqlite3.connect(kokoro) as con:
+                    con.execute("INSERT INTO jobs VALUES ('processing','idle')")
+                with self.assertRaisesRegex(RuntimeError, 'Kokoro has pending'):
+                    runtime.require_voice_release_idle(state, audio_db)
+
+                with sqlite3.connect(kokoro) as con:
+                    con.execute('DELETE FROM jobs')
+                audio_db.unlink()
+                with self.assertRaisesRegex(RuntimeError, 'preflight DB unavailable'):
+                    runtime.require_voice_release_idle(state, audio_db)
+
+    def test_voice_preflight_rejects_legacy_nonterminal_schema_without_modification(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state = root / 'voice'
+            for engine in ('kokoro', 'edge'):
+                database = state / engine / 'data' / (engine + '_jobs.sqlite3')
+                database.parent.mkdir(parents=True)
+                with sqlite3.connect(database) as con:
+                    con.execute('CREATE TABLE jobs(status TEXT, delivery_status TEXT)')
+            audio_db = root / 'audio.sqlite3'
+            with sqlite3.connect(audio_db) as con:
+                con.execute('CREATE TABLE jobs(job_id TEXT, status TEXT)')
+                con.execute("INSERT INTO jobs VALUES ('old','completed')")
+            with self.assertRaisesRegex(RuntimeError, 'handoff schema not verified'):
+                runtime.require_voice_release_idle(state, audio_db)
+            with sqlite3.connect(audio_db) as con:
+                self.assertEqual(con.execute('SELECT COUNT(*) FROM jobs').fetchone()[0], 1)
+
     def test_source_drift_rejected_without_overwriting_release(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(runtime, 'BASE', Path(tmp)):
             with patch('rebuild.fresh_vps.sources', return_value=[('part01/app.py', b'original')]):
