@@ -108,7 +108,15 @@ def overlay_failed_import_retry_ui(live, source):
     added='''${x.status==='failed'?`<button class="btn secondary mini" onclick="retryLibrary('${x.id}')" ${x.in_use?'disabled':''}>Retry</button>`:''}'''
     function="function renderProxy(){"
     new_handler='''async function retryLibrary(id){let x=state.library.find(v=>v.id===id);if(!x||x.status!=='failed')return;if(!confirm(`Retry failed Library import “${x.name}” from the saved original URL?`))return;try{await api(`/api/library/${id}/retry`,{method:'POST',body:'{}'});toast('Retry started using saved source');await refresh()}catch(e){toast(e.message)}}\n'''
-    require(source.count(added+action)==1 and source.count(new_handler+function)==1,
+    # The frozen 2026-11-02 Library redesign retains retry support but
+    # moves its button into a multi-line, owner-scoped actions renderer.
+    # Keep the old active-live overlay unchanged; verify the new source's
+    # actual retry control explicitly rather than matching old adjacency.
+    frozen_retry = (source.count('function renderLibrary(){') == 1
+                    and source.count("""onclick="retryLibrary('${x.id}')"""") == 1
+                    and source.count('>Retry Import</button>') == 1)
+    require((source.count(added+action)==1 or frozen_retry)
+            and source.count(new_handler+function)==1,
             'retry source UI contract changed')
     if added+action not in live:
         require(live.count(action)==1,'active Library action UI changed; refuse overwrite')
