@@ -156,13 +156,13 @@ class SongAudioCutoverTests(unittest.TestCase):
             old = root / "releases" / "old"
             (old / "part01").mkdir(parents=True)
             existing = {
-                "part01/vps1_omnivoice_app.py": b"import voice_tenant\\n",
-                "part01/audio_downloader_api.py": b"# legacy downloader\\n",
+                "part01/vps1_omnivoice_app.py": b"import voice_tenant\n",
+                "part01/audio_downloader_api.py": b"# legacy downloader\n",
             }
             for name, contents in existing.items():
                 (old / name).write_bytes(contents)
             for module in ("voice_clone_api", "kokoro_api", "edge_api"):
-                (old / "part01" / (module + ".py")).write_text("# protected Voice source\\n")
+                (old / "part01" / (module + ".py")).write_text("# protected Voice source\n")
             manifest = {
                 "app": "voice-studio", "revision": "old",
                 "files": {name: hashlib.sha256(data).hexdigest()
@@ -171,9 +171,9 @@ class SongAudioCutoverTests(unittest.TestCase):
             (old / "_production_manifest.json").write_text(json.dumps(manifest))
             staged = root / "releases" / "new"
             reviewed = {
-                "part01/vps1_omnivoice_app.py": b"import voice_tenant\\n",
-                "part01/audio_downloader_api.py": b"# frozen source\\n",
-                "part01/voice_tenant.py": b"# Scene SSO identity context\\n",
+                "part01/vps1_omnivoice_app.py": b"import voice_tenant\n",
+                "part01/audio_downloader_api.py": b"# frozen source\n",
+                "part01/voice_tenant.py": b"# Scene SSO identity context\n",
             }
             cutover._clone_overlay(
                 old, staged, reviewed, "_production_manifest.json",
