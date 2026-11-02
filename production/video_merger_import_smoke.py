@@ -17,6 +17,14 @@ def exact_known_external_auth(results, config, candidate, allowed=False):
     )
 
 
+def bounded_library_sample_seconds(duration):
+    """Real-source validation always transcodes a bounded, nonempty clip."""
+    from math import isfinite
+    if not isinstance(duration,(int,float)) or not isfinite(duration) or duration<2:
+        raise ValueError('Real Drive video duration must be at least two seconds')
+    return min(8,max(1,int(duration-0.5)))
+
+
 def smoke(source, state, proxy_config=None, allow_known_external_auth=False):
     with tempfile.TemporaryDirectory(prefix='vm-import-smoke-') as directory:
         root = Path(directory)
@@ -96,7 +104,7 @@ def smoke(source, state, proxy_config=None, allow_known_external_auth=False):
             import shutil
             duration=app.media_duration(app.probe(media))
             if duration>=2:
-                segment=min(8,int(duration-0.5))
+                segment=bounded_library_sample_seconds(duration)
                 trim={'url':'https://example.com/video.mp4','trim_enabled':True,
                       'start_min':0,'start_sec':0,'end_min':0,'end_sec':segment}
                 # Only the source acquisition is substituted: its bytes came
