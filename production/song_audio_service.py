@@ -88,7 +88,7 @@ WantedBy=multi-user.target
 
 def render_env(root: Path) -> str:
     root = Path(root)
-    if not root.is_absolute() or ".." in root.parts or any(c.isspace() for c in str(root)):
+    if root == Path("/") or not root.is_absolute() or ".." in root.parts or any(c.isspace() for c in str(root)):
         raise ValueError("Unsafe Song Audio environment path")
     # Secrets remain in existing root-protected host files, never GitHub.
     return ("PYTHONDONTWRITEBYTECODE=1\n"
