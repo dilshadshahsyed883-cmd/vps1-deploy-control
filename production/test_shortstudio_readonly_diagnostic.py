@@ -94,4 +94,22 @@ class DiagnosticTests(unittest.TestCase):
                        "'deployment_performed':False"):
             self.assertIn(marker,workflow)
 
+
+    def test_protected_readonly_audit_unit_flags_are_boolean_only(self):
+        workflow=(Path(__file__).resolve().parents[1]/".github/workflows/vps1-short-studio-release.yml").read_text(encoding="utf-8")
+        self.assertIn("roles=('maker','web','worker','scheduler')",workflow)
+        self.assertIn("def role_booleans(source, keys):",workflow)
+        self.assertIn("bool((units.get(role) or {}).get(key,False))",workflow)
+        for marker in ("'unit_config_flags'","'unit_process_flags'",
+                       "'configuration_present'","'folder_root_safe'",
+                       "'lock_enabled'","'running_process_verified'",
+                       "'process_lock_flag_verified'","'process_root_verified'"):
+            self.assertIn(marker,workflow)
+        for forbidden in ("print(data)", "print(config)", "print(live)",
+                          "print(units)", "print(paths)"):
+            self.assertNotIn(forbidden,workflow)
+        self.assertIn("'active_upload_drain_verified':False",workflow)
+        self.assertIn("'retirement_enabled':False",workflow)
+        self.assertIn("'deployment_performed':False",workflow)
+
 if __name__ == "__main__": unittest.main()

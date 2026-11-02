@@ -102,7 +102,21 @@ jobs:
           config=data.get('cooperation') or {}
           live=data.get('live_cooperation') or {}
           snapshot=data.get('active_drain_snapshot') or {}
+          roles=('maker','web','worker','scheduler')
+          def role_booleans(source, keys):
+              units=source.get('units') or {}
+              if not isinstance(units,dict):
+                  raise SystemExit('READONLY_UNITS_INVALID')
+              return {
+                  role:{key:bool((units.get(role) or {}).get(key,False)) for key in keys}
+                  for role in roles
+              }
           safe={
+            'unit_config_flags':role_booleans(config,(
+                'configuration_present','folder_root_safe','lock_enabled')),
+            'unit_process_flags':role_booleans(live,(
+                'running_process_verified','process_lock_flag_verified',
+                'process_root_verified')),
             'mode':'READ_ONLY',
             'host_config_status':config.get('status','UNKNOWN'),
             'running_process_status':live.get('status','UNKNOWN'),
