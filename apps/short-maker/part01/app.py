@@ -2552,8 +2552,8 @@ _sm_ready_module.register_ready_video_uploads(
     short_folder_owned=short_folder_owned, short_vps_folder=short_vps_folder,
     reserve_short_output_names=reserve_short_output_names)
 
-# Staged owner-scoped Short Profiles persistence; importer and dedicated PKT
-# scheduler remain fail-closed. No user-facing controls or jobs are enabled yet.
+# Staged daily Short Profiles. The dedicated clock is NOT Auto Script.
+# No clock thread or Start action is enabled without the release feature gate.
 _sm_profiles_spec = _sm_importlib.spec_from_file_location(
     "short_maker_short_profiles", Path(__file__).with_name("short_profiles.py"))
 _sm_profiles_module = _sm_importlib.module_from_spec(_sm_profiles_spec)
@@ -2564,14 +2564,8 @@ _sm_profile_media_module = _sm_importlib.module_from_spec(_sm_profile_media_spec
 _sm_profile_media_spec.loader.exec_module(_sm_profile_media_module)
 _sm_verify_source_import = _sm_profile_media_module.register_short_profile_media_uploads(
     app, data_root=DATA_ROOT, short_identity=short_identity)
-_sm_profile_store = _sm_profiles_module.register_short_profile_store(
-    app, data_root=DATA_ROOT, short_identity=short_identity,
-    short_folder_owned=short_folder_owned,
-    verify_source_import=_sm_verify_source_import)
+_sm_profile_store = _sm_profiles_module.ShortProfileStore(DATA_ROOT)
 
-# Durable daily PKT claim planner and existing Maker queue adapter.
-# Both are staged but intentionally have no active clock loop / Start endpoint.
-# This preserves production until full owner, media and delivery gates pass.
 _sm_daily_spec = _sm_importlib.spec_from_file_location(
     "short_maker_profile_daily", Path(__file__).with_name("short_profile_daily.py"))
 _sm_daily_module = _sm_importlib.module_from_spec(_sm_daily_spec)
@@ -2605,6 +2599,31 @@ _sm_profile_queue_bridge = _sm_bridge_module.ExistingMakerQueueBridge(
     JOBS_ROOT, _sm_verify_source_import.media_catalog,
     _sm_check_daily_folder, reserve_short_output_names,
     _sm_profile_job_lookup, executor, render_job, jobs, jobs_lock)
+
+_sm_clock_spec = _sm_importlib.spec_from_file_location(
+    "short_maker_profile_clock", Path(__file__).with_name("short_profile_clock.py"))
+_sm_clock_module = _sm_importlib.module_from_spec(_sm_clock_spec)
+_sm_clock_spec.loader.exec_module(_sm_clock_module)
+_sm_profile_clock = _sm_clock_module.ShortProfileDailyClock(
+    _sm_profile_store, _sm_profile_daily_planner, _sm_profile_queue_bridge)
+_sm_clock_enabled = os.environ.get("SHORT_MAKER_DAILY_PROFILES_ENABLED", "0") == "1"
+
+_sm_profiles_module.register_short_profile_store(
+    app, data_root=DATA_ROOT, short_identity=short_identity,
+    short_folder_owned=short_folder_owned,
+    verify_source_import=_sm_verify_source_import,
+    existing_store=_sm_profile_store,
+    start_callback=_sm_profile_clock.start_profile if _sm_clock_enabled else None)
+
+if _sm_clock_enabled:
+    @app.on_event("startup")
+    def launch_dedicated_short_profile_clock():
+        # Earlier startup handler first recovers original Maker jobs.
+        _sm_profile_clock.launch()
+
+    @app.on_event("shutdown")
+    def stop_dedicated_short_profile_clock():
+        _sm_profile_clock.stop()
 
 @app.get("/short_profile_client.js")
 def short_profile_client_script():
