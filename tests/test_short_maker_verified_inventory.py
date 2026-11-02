@@ -71,6 +71,30 @@ class VerifiedShortFolderInventoryTests(unittest.TestCase):
         self.assertEqual(row["available_videos"],1)
         self.assertTrue(row["has_active_maker_jobs_or_uploads"])
 
+    def test_authenticated_dependency_preflight_never_deletes_or_exposes_foreign_data(self):
+        created=self.client.post("/api/vps-folders",headers=self.owner,
+            json={"name":"Owned Archive"})
+        self.assertEqual(created.status_code,200)
+        saved=self.maker.short_vps_folder("Owned Archive")
+        (saved/"video.mp4").write_bytes(b"v"*4096)
+        response=self.client.get("/api/vps-folders/Owned%20Archive/delete-preflight",
+                                 headers=self.owner)
+        self.assertEqual(response.status_code,200)
+        result=response.json()
+        self.assertEqual(result["folder"],"Owned Archive")
+        self.assertFalse(result["deletion_enabled"])
+        self.assertFalse(result["delete_preflight_ready"])
+        self.assertFalse(result["uploader_dependency_verified"])
+        self.assertIn("Short Uploader dependency verification unavailable",result["issues"])
+        self.assertTrue(saved.exists())
+        foreign=self.client.get("/api/vps-folders/Owned%20Archive/delete-preflight",
+                                 headers=self.foreign)
+        self.assertEqual(foreign.status_code,403)
+        protected=self.client.get(
+            "/api/vps-folders/"+self.folder+"/delete-preflight",headers=self.owner)
+        self.assertEqual(protected.status_code,403)
+        self.assertTrue((saved/"video.mp4").exists())
+
     def test_cross_user_sees_only_own_names(self):
         ours=self.inventory().json()
         theirs=self.inventory(self.foreign).json()
