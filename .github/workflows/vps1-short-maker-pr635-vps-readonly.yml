@@ -1,0 +1,111 @@
+name: VPS1 PR635 Short Studio read-only VPS idle probe
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/vps1-short-maker-pr635-vps-readonly.yml'
+permissions:
+  contents: read
+jobs:
+  readonly:
+    if: >-
+      github.event.pull_request.number == 635 &&
+      github.event.pull_request.head.repo.full_name == 'dilshadshahsyed883-cmd/vps1-deploy-control' &&
+      github.event.pull_request.head.ref == 'feat/short-maker-locked-plan-20261102'
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Join restricted production tailnet
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Read four service states and aggregate pending jobs without changing VPS
+        shell: bash
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          test -n "$PRIVATE_IDENTITY"
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/id"
+          unset PRIVATE_IDENTITY
+          chmod 0600 "$scratch/id"
+          ssh-keygen -y -P '' -f "$scratch/id" > "$scratch/pub"
+          test "$(ssh-keygen -lf "$scratch/pub" -E sha256 | awk '{print $2}')" = 'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/hosts"
+          # Existing UNPRIVILEGED account. No sudo, writes, service actions,
+          # queue commands, credentials, raw job data, or SSH output echoes.
+          timeout 95s ssh -T -p 22 -i "$scratch/id" \
+            -o UserKnownHostsFile="$scratch/hosts" -o StrictHostKeyChecking=yes \
+            -o UpdateHostKeys=no -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+            vps1deploy@100.87.55.92 'python3 -' > "$scratch/result.json" <<'PY'
+          import json,sqlite3,subprocess,urllib.request
+          from pathlib import Path
+          units={}
+          for role,service in {
+              "maker":"vps1-production-short-maker.service",
+              "web":"vps1-production-lum-shortstudio-web.service",
+              "worker":"vps1-production-lum-shortstudio-worker.service",
+              "scheduler":"vps1-production-lum-shortstudio-scheduler.service",
+          }.items():
+              try:
+                  s=subprocess.run(["systemctl","show",service,"-p","ActiveState","--value"],
+                                   capture_output=True,text=True,timeout=5)
+                  units[role]=s.returncode==0 and s.stdout.strip()=="active"
+              except (OSError,subprocess.SubprocessError):
+                  units[role]=False
+          maker={"verified":False,"idle":False}
+          try:
+              request=urllib.request.Request("http://127.0.0.1:8146/api/jobs",
+                                            headers={"Accept":"application/json"})
+              with urllib.request.urlopen(request,timeout=10) as stream:
+                  result=json.load(stream)
+              jobs=result.get("jobs")
+              if isinstance(jobs,list):
+                  terminal={"completed","failed","cancelled","canceled"}
+                  maker={"verified":True,"idle":all(isinstance(j,dict) and
+                         str(j.get("status") or "").strip().lower() in terminal
+                         for j in jobs)}
+          except (OSError,ValueError,TypeError,KeyError):
+              pass
+          uploader={"verified":False,"idle":False}
+          database=Path("/var/lib/fresh-website/local-upload-manager/lum-shortstudio/core/data/uploader.db")
+          try:
+              if database.is_file() and not database.is_symlink():
+                  with sqlite3.connect(database.as_uri()+"?mode=ro",uri=True,timeout=4) as db:
+                      cols={row[1] for row in db.execute("PRAGMA table_info(videos)")}
+                      if "status" in cols:
+                          active=db.execute(
+                            "SELECT COUNT(*) FROM videos WHERE UPPER(status) IN "
+                            "('CLAIMED','UPLOADING','THUMBNAIL_UPLOADING','PROCESSING','IN_PROGRESS','WAITING_NETWORK')"
+                          ).fetchone()[0]
+                          uploader={"verified":True,"idle":active==0}
+          except (OSError,sqlite3.Error,ValueError):
+              pass
+          print(json.dumps({"mode":"READ_ONLY","service_active":units,
+              "maker_idle":maker,"uploader_idle":uploader,
+              "four_process_lock_and_mount_proven":False,
+              "delete_activation_approved":False,
+              "deployment_performed":False},sort_keys=True))
+          PY
+          python3 - "$scratch/result.json" <<'PY'
+          import json,sys
+          r=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert r["mode"]=="READ_ONLY" and not r["deployment_performed"]
+          assert not r["delete_activation_approved"]
+          print("SHORT_STUDIO_LIVE_READONLY="+json.dumps(r,sort_keys=True))
+          print("FULL_IDLE_EVIDENCE="+str(
+              r["maker_idle"]["verified"] and r["maker_idle"]["idle"]
+              and r["uploader_idle"]["verified"] and r["uploader_idle"]["idle"]).upper())
+          PY
+          echo 'AUTO_SCRIPT=OFFLINE'
