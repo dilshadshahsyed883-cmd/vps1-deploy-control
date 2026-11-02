@@ -2613,7 +2613,8 @@ _sm_profiles_module.register_short_profile_store(
     short_folder_owned=short_folder_owned,
     verify_source_import=_sm_verify_source_import,
     existing_store=_sm_profile_store,
-    start_callback=_sm_profile_clock.start_profile if _sm_clock_enabled else None)
+    start_callback=_sm_profile_clock.start_profile if _sm_clock_enabled else None,
+    status_callback=_sm_profile_clock.profile_status if _sm_clock_enabled else None)
 
 if _sm_clock_enabled:
     @app.on_event("startup")
