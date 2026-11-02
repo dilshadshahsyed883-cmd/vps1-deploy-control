@@ -35,8 +35,15 @@ def _read_explicit_environment(unit):
     # Overrides from systemd Environment= or drop-in service files may
     # disagree with EnvironmentFile. Without a complete systemd merge proof,
     # fail closed instead of reporting an apparently consistent runtime.
-    if re.search(r"^Environment=", text, re.MULTILINE):
-        raise ValueError("Direct service environment overrides are not verified")
+    # Generated managed units legitimately set Environment=PATH=...;
+    # reject only a direct override of the security-sensitive coordination
+    # settings (including multiple quoted assignments on one line).
+    for definition in re.findall(r"^Environment=(.*)$", text, re.MULTILINE):
+        if any(re.search(r"(?<![A-Za-z0-9_])" + key + r"\s*=",
+                         definition) for key in (
+                             ROOT_KEY, "SHORT_MAKER_COOPERATIVE_LOCK_ENABLED",
+                             "LUM_SHORT_STUDIO_COOPERATIVE_LOCK_ENABLED")):
+            raise ValueError("Direct studio cooperation override is not verified")
     dropin = Path(str(unit) + ".d")
     if dropin.exists() or dropin.is_symlink():
         raise ValueError("Unverified systemd drop-in environment override")
