@@ -38,12 +38,14 @@ class SongAudioServiceTests(unittest.TestCase):
 
     def test_readonly_preflight_requires_real_busy_queues_to_be_idle(self):
         canonical = Path("/var/lib/fresh-website/voice-studio/audio-downloader")
-        with patch.object(service, "canonical_root", return_value=canonical), \\
-             patch.object(service, "VOICE_ENV") as voice_env, \\
-             patch.object(service, "SCENE_ENV") as scene_env, \\
-             patch.object(service.subprocess, "run") as run, \\
-             patch.object(service.runtime, "require_voice_release_idle") as idle, \\
-             patch.object(service.runtime, "free_port") as free:
+        with (
+            patch.object(service, "canonical_root", return_value=canonical),
+            patch.object(service, "VOICE_ENV") as voice_env,
+            patch.object(service, "SCENE_ENV") as scene_env,
+            patch.object(service.subprocess, "run") as run,
+            patch.object(service.runtime, "require_voice_release_idle") as idle,
+            patch.object(service.runtime, "free_port") as free,
+        ):
             voice_env.is_file.return_value = True
             scene_env.is_file.return_value = True
             voice_env.is_symlink.return_value = False
