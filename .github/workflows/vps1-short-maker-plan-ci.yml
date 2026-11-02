@@ -17,6 +17,7 @@ on:
       - 'tests/test_short_maker_cooperation.py'
       - 'tests/test_short_maker_profile_render_e2e.py'
       - 'tests/test_short_maker_folder_retirement.py'
+      - 'tests/test_short_maker_unused_delete_api.py'
       - 'tests/test_short_maker_folder_dependencies.py'
       - 'tests/test_short_maker_profile_clock.py'
       - 'tests/test_short_maker_profile_daily.py'
@@ -64,6 +65,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_short_maker_profile_clock.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_folder_dependencies.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_folder_retirement.py' -v
+          python -m unittest discover -s tests -p 'test_short_maker_unused_delete_api.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_profile_render_e2e.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_cooperation.py' -v
           python -m unittest discover -s tests -p 'test_short_uploader_cooperation.py' -v
