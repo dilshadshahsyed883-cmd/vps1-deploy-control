@@ -221,5 +221,58 @@ class LiveVoiceMiddlewareContract(unittest.IsolatedAsyncioTestCase):
 
 
 
+    async def test_parallel_sessions_do_not_cross_leak_owners_or_shared_admin(self):
+        """Two authenticated sessions are never allowed to inherit each other's context."""
+        middleware = self.middleware()
+        identities = {
+            "admin-cookie": {"username": "adminuser", "is_admin": True,
+                             "allowed_studios": ["song", "short", "copyright", "voice"]},
+            "alpha-cookie": {"username": "alpha", "is_admin": False,
+                             "allowed_studios": ["voice"]},
+            "beta-cookie": {"username": "beta", "is_admin": False,
+                            "allowed_studios": ["voice"]},
+            "revoked-cookie": {"username": "revoked", "is_admin": False,
+                               "allowed_studios": []},
+        }
+        observed = []
+
+        def lookup(cookie):
+            if cookie not in identities:
+                raise HTTPException(status_code=401, detail="Session unavailable")
+            return identities[cookie].copy()
+
+        async def next_handler(request):
+            before = voice_tenant.owner()
+            await asyncio.sleep(0)
+            after = voice_tenant.owner()
+            self.assertEqual(before, after)
+            self.assertEqual(request.state.scene_owner, after)
+            observed.append(after)
+            return {"owner": after}
+
+        with patch.dict(middleware.__globals__, {"scene_identity": lookup}):
+            responses = await asyncio.gather(*[
+                middleware(self.request("/tts/api/clone/jobs", cookie=cookie), next_handler)
+                for cookie in ("admin-cookie", "alpha-cookie", "beta-cookie", "revoked-cookie")
+            ])
+            self.assertEqual([result["owner"] for result in responses[:3]],
+                             ["adminuser", "alpha", "beta"])
+            self.assertEqual(responses[3].status_code, 403)
+            self.assertCountEqual(observed, ["adminuser", "alpha", "beta"])
+
+            # Only the real administrator can read/change shared worker configuration.
+            responses = await asyncio.gather(*[
+                middleware(self.request("/tts/api/clone/worker/config",
+                                        cookie=cookie, method="GET"), next_handler)
+                for cookie in ("admin-cookie", "alpha-cookie", "beta-cookie")
+            ])
+            self.assertEqual(responses[0], {"owner": "adminuser"})
+            self.assertEqual([r.status_code for r in responses[1:]], [403, 403])
+
+        with self.assertRaises(HTTPException) as exc:
+            voice_tenant.owner()
+        self.assertEqual(exc.exception.status_code, 401)
+
+
 if __name__ == "__main__":
     unittest.main()
