@@ -23,6 +23,11 @@ jobs:
         run: |
           python -m py_compile apps/local-upload-manager/part01/lum_engine/auto_engine_v6_scheduler.py apps/local-upload-manager/part01/lum_engine/auto_engine_v6_worker.py apps/local-upload-manager/part01/desktop_core/modules/db/queue_repository.py production/short_uploader_group_release.py
           python -m unittest discover -s tests -p 'test_short_uploader_network_schedule_fairness.py' -v
+      - name: Verify sanitized four-service running process and lock preflight
+        run: |
+          python -m py_compile production/shortstudio_cooperation_readonly.py production/shortstudio_readonly_diagnostic.py
+          python -m unittest discover -s tests -p 'test_shortstudio_cooperation_readonly.py' -v
+          python -m unittest production.test_shortstudio_readonly_diagnostic -v
       - name: Verify native Studio JavaScript syntax
         run: |
           node --check apps/scene-builder/part01/static/vps1_native_site_shell.js
