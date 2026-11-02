@@ -1793,6 +1793,17 @@ def list_verified_short_folder_inventory(request: Request):
             "profile_dependencies_checked": False}
 
 
+@app.get("/api/vps-folders/{folder_name}/delete-preflight")
+def inspect_owned_short_folder_deletion(folder_name: str, request: Request):
+    """Read-only dependency report. Deletion is deliberately not enabled."""
+    who, _ = short_identity(request)
+    folder = short_folder_owned(folder_name, request)
+    if folder_name in (SHORT_VPS_DEFAULT, short_personal_default(who)):
+        raise HTTPException(status_code=403, detail="Default folder is protected")
+    return _sm_folder_dependency_inspector.inspect(
+        owner=who, folder_name=folder_name, folder=folder)
+
+
 @app.get("/api/drive-folders")
 def list_short_drive_folders(request: Request):
     owner, _admin = short_identity(request)
@@ -2565,6 +2576,17 @@ _sm_profile_media_spec.loader.exec_module(_sm_profile_media_module)
 _sm_verify_source_import = _sm_profile_media_module.register_short_profile_media_uploads(
     app, data_root=DATA_ROOT, short_identity=short_identity)
 _sm_profile_store = _sm_profiles_module.ShortProfileStore(DATA_ROOT)
+
+_sm_folder_deps_spec = _sm_importlib.spec_from_file_location(
+    "short_maker_folder_dependencies",
+    Path(__file__).with_name("short_folder_dependencies.py"))
+_sm_folder_deps_module = _sm_importlib.module_from_spec(_sm_folder_deps_spec)
+_sm_folder_deps_spec.loader.exec_module(_sm_folder_deps_module)
+_sm_folder_dependency_inspector = _sm_folder_deps_module.ShortFolderPreflight(
+    _sm_profile_store, load_job_states, DATA_ROOT / "ready_video_uploads",
+    uploader_app_db=os.environ.get("SHORT_UPLOADER_APP_DB", ""),
+    uploader_engine_db=os.environ.get("SHORT_UPLOADER_ENGINE_DB", ""))
+
 
 _sm_daily_spec = _sm_importlib.spec_from_file_location(
     "short_maker_profile_daily", Path(__file__).with_name("short_profile_daily.py"))
