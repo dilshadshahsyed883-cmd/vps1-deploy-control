@@ -1,4 +1,4 @@
-"""Isolated YouTube audio extraction queue for the existing Voice Studio service.
+"""Isolated YouTube audio extraction queue for the independent Song Studio service.
 
 All job state and audio belong to AUDIO_DOWNLOADER_ROOT; other voice engines are untouched.
 Only explicitly authorized YouTube URLs are accepted. Optional owner-provided private cookies; no challenge bypass.
@@ -39,7 +39,7 @@ DRIVE_REMOTE = os.environ.get('AUDIO_DOWNLOADER_DRIVE_REMOTE', 'gdrive')
 DRIVE_BASE = 'Song Studio/Audio downloader'
 RCLONE_CONFIG = '/home/ubuntu/.config/masterctl/rclone.conf'
 YTDLP = os.environ.get('AUDIO_DOWNLOADER_YTDLP_BIN', str(ROOT / '.venv' / 'bin' / 'yt-dlp'))
-router = APIRouter(prefix='/tts/api/audio-downloader', tags=['Voice Studio Audio Downloader'])
+router = APIRouter(prefix='/tts/api/audio-downloader', tags=['Song Studio Audio Downloader'])
 VIDEO_ID = re.compile(r'^[a-zA-Z0-9_-]{11}$')
 JOB_ID = re.compile(r'^ADJ-[A-F0-9]{16}$')
 _worker: threading.Thread | None = None
@@ -314,7 +314,7 @@ def status(request: Request = None):
 
 
 def _preferences_owner(request: Request) -> str:
-    # Ownership comes only from the live Scene session verified by the Voice
+    # Ownership comes only from the live Scene session verified by Song Audio
     # middleware. Browser-supplied X-Auth-* headers are never trusted.
     owner = str(getattr(request.state, "scene_owner", "") or "").strip()
     if not owner or len(owner) > 160 or any(char in owner for char in '\r\n'):
