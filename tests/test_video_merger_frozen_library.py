@@ -168,6 +168,7 @@ class FrozenLibraryTests(unittest.TestCase):
         html=TEMPLATE.read_text(encoding="utf-8")
         self.assertIn('id="libraryUploadDrive" type="checkbox"',html)
         self.assertIn("libraryUploadDrive.checked=false",html)
+        self.assertIn("libraryUploadDrive.checked=!!x.drive_requested",html)
         self.assertIn("upload_to_drive:libraryUploadDrive.checked",html)
         self.assertIn("libraryPreviewPlayer",html)
         self.assertIn("library-drive-working",html)
