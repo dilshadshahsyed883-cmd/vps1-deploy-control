@@ -108,8 +108,11 @@ def preflight() -> dict:
         if subprocess.run(["systemctl", "is-active", "--quiet", service],
                           check=False, capture_output=True).returncode:
             raise RuntimeError(service + " inactive; cutover blocked")
-    runtime.require_voice_release_idle(runtime.DATA / "voice-studio",
-                                       audio_db=root / "data/jobs.sqlite3")
+    # Preserve every existing release/tenant safety gate. Pending Song Maker
+    # handoffs may be allowed to complete NATURALLY on the existing worker;
+    # no rows or statuses are ever modified by the release helper.
+    from production.song_audio_handoff_preflight import require_drain
+    require_drain(runtime.DATA / "voice-studio", root / "data/jobs.sqlite3")
     runtime.free_port(SONG_PORT)
     return {"audio_db": str(root / "data/jobs.sqlite3"),
             "port": SONG_PORT,
