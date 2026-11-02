@@ -863,6 +863,12 @@ def disconnect_worker():
 @router.post("/tts/api/clone/worker/test-generation")
 def test_worker_generation(profile_id: str = Query(min_length=8, max_length=64)):
     init_storage()
+    # Resolve tenant ownership BEFORE probing the shared provider. Foreign or
+    # guessed profile IDs always fail 404, including when the worker is offline.
+    with db() as con:
+        row = con.execute("SELECT * FROM profiles WHERE profile_id=? AND owner_username=?", (profile_id,owner())).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Voice profile not found")
     config = effective_worker_config()
     worker = str(config.get("endpoint_url") or "")
     if not worker:
@@ -870,10 +876,6 @@ def test_worker_generation(profile_id: str = Query(min_length=8, max_length=64))
     probe = _probe_worker_config(config, timeout_seconds=min(15, int(config.get("request_timeout") or 300)))
     if not probe["ok"]:
         return {"ok": False, "error": probe.get("error") or "worker_offline", **probe}
-    with db() as con:
-        row = con.execute("SELECT * FROM profiles WHERE profile_id=? AND owner_username=?", (profile_id,owner())).fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Voice profile not found")
     sample = SAMPLES_DIR / str(row["sample_file"])
     if not sample.is_file():
         raise HTTPException(status_code=409, detail="Reference sample is missing")
@@ -1377,6 +1379,11 @@ def approve_omnivoice_design_preview(preview_id: str, payload: OmniVoiceDesignAp
 @router.post("/tts/api/clone/omnivoice/test-generation")
 def test_omnivoice_generation(profile_id: str = Query(min_length=8, max_length=64)):
     init_storage()
+    # Reject foreign/unknown profiles before shared OmniVoice network probing.
+    with db() as con:
+        row = con.execute("SELECT * FROM profiles WHERE profile_id=? AND owner_username=?", (profile_id,owner())).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Voice profile not found")
     config = effective_omnivoice_config()
     worker = str(config.get("endpoint_url") or "")
     if not worker:
@@ -1384,10 +1391,6 @@ def test_omnivoice_generation(profile_id: str = Query(min_length=8, max_length=6
     probe = _probe_omnivoice_config(config, timeout_seconds=min(15, int(config.get("request_timeout") or 300)))
     if not probe["ok"]:
         return {"ok": False, "error": probe.get("error") or "worker_offline", **probe}
-    with db() as con:
-        row = con.execute("SELECT * FROM profiles WHERE profile_id=? AND owner_username=?", (profile_id,owner())).fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Voice profile not found")
     sample = SAMPLES_DIR / str(row["sample_file"])
     if not sample.is_file():
         raise HTTPException(status_code=409, detail="Reference sample is missing")
