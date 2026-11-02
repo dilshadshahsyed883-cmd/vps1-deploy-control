@@ -1555,9 +1555,19 @@ def create_profile(payload: CloneProfileCreate):
 def delete_profile(profile_id: str):
     init_storage()
     with db() as con:
+        # Lock the referenced owner graph before any destructive action.
+        con.execute("BEGIN IMMEDIATE")
         row = con.execute("SELECT * FROM profiles WHERE profile_id=? AND owner_username=?", (profile_id,owner())).fetchone()
         if not row:
             raise HTTPException(404, "Clone profile not found")
+        # A malformed legacy cross-owner reference must be reconciled, not
+        # deleted by another user's profile action.
+        foreign_refs = int(con.execute(
+            "SELECT COUNT(*) FROM jobs WHERE profile_id=? AND owner_username<>?",
+            (profile_id,owner())
+        ).fetchone()[0])
+        if foreign_refs:
+            raise HTTPException(409, "Profile has ownership conflicts requiring admin reconciliation")
         active = int(con.execute(
             "SELECT COUNT(*) FROM jobs WHERE profile_id=? AND owner_username=? AND (status IN ('waiting_worker','processing') "
             "OR delivery_status IN ('pending','uploading','upload_failed','drive_verified'))",
@@ -1566,8 +1576,8 @@ def delete_profile(profile_id: str):
         if active:
             raise HTTPException(409, "Finish/delete active generation and Drive-delivery jobs before deleting this profile")
         stale = con.execute("SELECT audio_file,text_file FROM jobs WHERE profile_id=? AND owner_username=?", (profile_id,owner())).fetchall()
-        con.execute("DELETE FROM jobs WHERE profile_id=?", (profile_id,))
-        con.execute("DELETE FROM profiles WHERE profile_id=?", (profile_id,))
+        con.execute("DELETE FROM jobs WHERE profile_id=? AND owner_username=?", (profile_id,owner()))
+        con.execute("DELETE FROM profiles WHERE profile_id=? AND owner_username=?", (profile_id,owner()))
     for j in stale:
         if str(j["audio_file"] or ""):
             (AUDIO_DIR / str(j["audio_file"])).unlink(missing_ok=True)
