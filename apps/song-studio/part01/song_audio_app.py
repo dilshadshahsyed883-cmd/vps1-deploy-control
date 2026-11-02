@@ -14,8 +14,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
-import audio_downloader_api as audio
-from voice_tenant import scene_identity, set_identity, reset_identity
+import song_audio_downloader_api as audio
+from song_tenant import scene_identity, set_identity, reset_identity
 
 BASE = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE / "templates"))
