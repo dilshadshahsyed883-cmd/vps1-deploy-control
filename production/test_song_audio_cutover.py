@@ -212,7 +212,7 @@ class SongAudioCutoverTests(unittest.TestCase):
                 cutover._clone_overlay(
                     old, root / "no-extra", {"part01/unreviewed.py": b"new"},
                     "_production_manifest.json", "voice-studio", "b" * 40)
-            with self.assertRaisesRegex(RuntimeError, "untracked"):
+            with self.assertRaisesRegex(RuntimeError, "ownership mismatch"):
                 cutover._clone_overlay(
                     old, root / "no-scene-extra", {"part01/voice_tenant.py": b"new"},
                     "_production_manifest.json", "scene-builder", "b" * 40)
