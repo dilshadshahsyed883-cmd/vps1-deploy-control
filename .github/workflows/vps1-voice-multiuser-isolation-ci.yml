@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'apps/voice-studio/**'
+      - 'apps/song-studio/**'
       - 'apps/scene-builder/part01/app.py'
       - 'apps/scene-builder/part01/templates/base.html'
       - 'apps/scene-builder/part01/templates/user_management.html'
