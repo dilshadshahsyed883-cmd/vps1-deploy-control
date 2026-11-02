@@ -8,12 +8,13 @@ live deployment toggle is enabled by this source change alone.
 """
 from __future__ import annotations
 
+import asyncio
 import errno
 import fcntl
 import os
 import stat
 import time
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -92,6 +93,34 @@ class ShortStudioFolderLease:
         """Candidate exclusive lease; NOT by itself a deployment approval."""
         with self._lease("exclusive"):
             yield
+    @asynccontextmanager
+    async def producer_async(self):
+        """Nonblocking shared lease, cancelled waiters never retain the lock."""
+        if not self.enabled:
+            yield
+            return
+        descriptor = self._open()
+        acquired = False
+        try:
+            deadline = time.monotonic() + self.timeout
+            while True:
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                    acquired = True
+                    break
+                except OSError as exc:
+                    if exc.errno not in (errno.EWOULDBLOCK, errno.EAGAIN):
+                        raise
+                    if time.monotonic() >= deadline:
+                        raise HTTPException(
+                            503, detail="Studio operation busy; retry after active work")
+                    await asyncio.sleep(0.025)
+            yield
+        finally:
+            if acquired:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
+
 
 # Public opt-in entrypoints. Nothing runs when disabled. The exact same
 # SHORT_STUDIO_VPS_FOLDER_ROOT (not just the same lock filename) is required
@@ -122,35 +151,6 @@ def uploader_shortstudio_guard():
 
 @asynccontextmanager
 async def uploader_shortstudio_guard_async():
-    """Cancellation-safe nonblocking OS shared lock for ASGI requests.
-
-    Do not run a potentially blocking flock acquisition in asyncio.to_thread:
-    cancelling the HTTP request cannot cancel its worker thread, which may
-    otherwise obtain an orphaned lease after the request has disappeared.
-    """
-    if not UPLOADER_COOPERATION_ENABLED:
+    """Use the identical cancellation-safe shared lease in HTTP middleware."""
+    async with _uploader_lease.producer_async():
         yield
-        return
-    fd = _uploader_lease._open()
-    acquired = False
-    try:
-        deadline = time.monotonic() + _uploader_lease.timeout
-        while True:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
-                acquired = True
-                break
-            except OSError as error:
-                if error.errno not in (errno.EWOULDBLOCK, errno.EAGAIN):
-                    raise
-                if time.monotonic() >= deadline:
-                    raise HTTPException(
-                        503, detail="Studio operation busy; retry after active work")
-                # Coroutine cancellation now immediately closes the descriptor.
-                # Never acquire a lock after a cancelled request.
-                await asyncio.sleep(0.025)
-        yield
-    finally:
-        if acquired:
-            fcntl.flock(fd, fcntl.LOCK_UN)
-        os.close(fd)
