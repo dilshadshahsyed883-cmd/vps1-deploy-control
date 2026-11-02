@@ -20,7 +20,7 @@ import voice_tenant
 
 class StandaloneSongSessionTests(unittest.TestCase):
     def test_api_boundary_contains_no_voice_synthesis_routes(self):
-        routes = {r.path for r in song.app.routes}
+        routes = {r.path for r in song.app.routes if hasattr(r, "path")}
         self.assertIn("/tts/api/audio-downloader/jobs", routes)
         self.assertIn("/audio-downloader/app", routes)
         self.assertNotIn("/tts/api/clone/jobs", routes)
