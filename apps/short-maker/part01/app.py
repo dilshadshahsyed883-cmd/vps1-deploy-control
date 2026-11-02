@@ -2623,8 +2623,13 @@ if _sm_cooperation_enabled:
     @app.middleware("http")
     async def _sm_protect_folder_writes(request: Request, call_next):
         if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
-            with _sm_folder_cooperation.producer():
-                return await call_next(request)
+            try:
+                with _sm_folder_cooperation.producer():
+                    return await call_next(request)
+            except HTTPException as exc:
+                # Middleware is outside FastAPI's route exception handler;
+                # expose a deliberate 503, never an incidental HTTP 500.
+                return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
         return await call_next(request)
 
 _sm_ready_spec = _sm_importlib.spec_from_file_location(
