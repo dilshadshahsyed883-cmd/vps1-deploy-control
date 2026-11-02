@@ -172,6 +172,12 @@ class ShortFolderRetirement:
             _fsync_dir(self.root)
         elif not original.is_dir() or original.is_symlink():
             raise HTTPException(503, detail="Retirement source is missing; manual recovery needed")
+        else:
+            # Crash may occur AFTER the journal is durable but BEFORE rename.
+            # Never mark that transaction recovered just because the original
+            # name exists: verify the exact owner/receipt inventory first.
+            self._verify_entries(original, journal["owner"], journal["media"],
+                                 self._recovery_digest)
         journal["phase"] = "recovered"
 
     def _gc_committed(self, journal, digest):
