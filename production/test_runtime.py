@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from production import runtime
+from production import runtime, workers
 
 
 class RuntimeTests(unittest.TestCase):
@@ -295,6 +295,43 @@ class RuntimeTests(unittest.TestCase):
             with patch.object(runtime.urllib.request, 'build_opener', return_value=failing):
                 with self.assertRaisesRegex(RuntimeError, 'VOICE_RELEASE_AUTH_NOT_ENFORCED'):
                     runtime.verify_voice_release_anonymous_denial()
+
+    def test_voice_worker_readiness_allows_systemd_activation_transition(self):
+        class Result:
+            def __init__(self, code, output):
+                self.returncode = code
+                self.stdout = output
+        calls = []
+        def systemctl(args, **_kwargs):
+            calls.append(args)
+            if len(calls) == 1:
+                return Result(3, 'activating\n')
+            return Result(0, 'active\n')
+        with patch.object(workers.subprocess, 'run', side_effect=systemctl), patch.object(
+            workers.time, 'sleep', return_value=None
+        ):
+            workers.wait_for_active_units(
+                ['vps1-production-edge-worker.service'],
+                attempts=3, interval=0, app_label='Voice Studio')
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(all(c[:2] == ['systemctl', 'is-active'] for c in calls))
+
+    def test_voice_worker_readiness_fails_closed_on_real_failure(self):
+        class Result:
+            def __init__(self, code, output):
+                self.returncode = code
+                self.stdout = output
+        def systemctl(args, **_kwargs):
+            if args[1] == 'show':
+                return Result(0, 'ActiveState=failed\nExecMainStatus=1\n')
+            return Result(3, 'failed\n')
+        with patch.object(workers.subprocess, 'run', side_effect=systemctl), patch.object(
+            workers.time, 'sleep', return_value=None
+        ):
+            with self.assertRaisesRegex(RuntimeError, 'Voice Studio systemd unit vps1-production-kokoro-worker.service did not stabilize'):
+                workers.wait_for_active_units(
+                    ['vps1-production-kokoro-worker.service'],
+                    attempts=3, interval=0, app_label='Voice Studio')
 
     def test_source_drift_rejected_without_overwriting_release(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(runtime, 'BASE', Path(tmp)):

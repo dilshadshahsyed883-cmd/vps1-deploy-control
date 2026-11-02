@@ -221,7 +221,8 @@ def prepare_kokoro(revision):
     event(kokoro_cpu_synthesis='PASS', model_bytes=sum(size for _, size in files), output_bytes=output.stat().st_size)
 
 
-def wait_for_active_units(names, *, attempts=18, interval=1.0) -> None:
+def wait_for_active_units(names, *, attempts=18, interval=1.0,
+                          app_label="Auto Uploader") -> None:
     """Check complete systemd readiness, identify the precise unit on failure.
 
     Restart=on-failure can briefly expose 'activating' between Python startup
@@ -247,7 +248,7 @@ def wait_for_active_units(names, *, attempts=18, interval=1.0) -> None:
                 capture_output=True, text=True, check=False,
             ).stdout.strip().replace("\n", " ")
             raise RuntimeError(
-                f"Auto Uploader systemd unit {name} did not stabilize "
+                f"{app_label} systemd unit {name} did not stabilize "
                 f"(state={last}; {detail[:240]})"
             )
 
@@ -270,8 +271,16 @@ def install(app, revision):
     for name in unit_names(app):
         run(['systemctl', 'enable', name], quiet=True)
         run(['systemctl', 'restart', name], quiet=True)
-    if app == 'local-upload-manager':
-        wait_for_active_units(unit_names(app))
+    if app in ('local-upload-manager', 'voice-studio'):
+        # Voice has four independent workers; the old fixed 2-second probe
+        # failed on a legitimate systemd activating→active transition, losing
+        # the entire safely staged release. Still fail closed on real failures.
+        wait_for_active_units(
+            unit_names(app),
+            attempts=30 if app == 'voice-studio' else 18,
+            interval=1.0,
+            app_label='Voice Studio' if app == 'voice-studio' else 'Auto Uploader',
+        )
     else:
         time.sleep(2)
         for name in unit_names(app):
