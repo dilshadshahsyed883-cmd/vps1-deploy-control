@@ -68,6 +68,19 @@ def frozen_library_overlay(live, source, baseline):
         require_exact(live.count(old) == 1, "live Library callback drift")
         live = live.replace(old, new, 1)
 
+    # Retry Import is a Library action. Legacy live releases may not
+    # have its callback yet; preserve the canonical handler or add it once.
+    retry=one_line(source,"async function retryLibrary(id){")
+    existing=[line for line in live.splitlines()
+              if line.startswith("async function retryLibrary(id){")]
+    if not existing:
+        proxy_anchor="function renderProxy(){"
+        require_exact(live.count(proxy_anchor)==1, "retry insertion anchor drift")
+        live=live.replace(proxy_anchor,retry+"\n"+proxy_anchor,1)
+    else:
+        require_exact(len(existing)==1 and existing[0]==retry,
+                      "active Library retry handler drift")
+
     require_exact(live.count('id="libraryUploadDrive"') == 1
                   and live.count('id="libraryPreviewDialog"') == 1
                   and live.count("function viewLibrary(id)") == 1
