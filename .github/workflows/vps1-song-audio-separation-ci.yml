@@ -9,6 +9,7 @@ on:
       - 'production/song_audio_service.py'
       - 'production/song_audio_handoff_preflight.py'
       - 'production/test_song_audio_handoff_preflight.py'
+      - 'production/test_song_audio_orphan_gate.py'
       - 'production/song_audio_cutover.py'
       - 'production/test_song_audio_cutover.py'
       - 'production/smoke.py'
@@ -58,6 +59,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_song_audio_backend_separation.py' -v
           python -m unittest discover -s production -p 'test_song_audio_service.py' -v
           python -m unittest discover -s production -p 'test_song_audio_handoff_preflight.py' -v
+          python -m unittest discover -s production -p 'test_song_audio_orphan_gate.py' -v
           python -m unittest discover -s production -p 'test_song_audio_cutover.py' -v
       - name: Actual standalone Song ASGI and disposable Scene SSO smoke
         run: |
