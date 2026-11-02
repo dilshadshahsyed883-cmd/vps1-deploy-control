@@ -105,6 +105,10 @@ class UnusedFolderRouteTests(unittest.TestCase):
             self.assertEqual(report.status_code,200,report.text)
             self.assertTrue(report.json()["deletion_enabled"])
             self.assertEqual(report.json()["deletion_policy"],"unused_only")
+            legacy=client.delete("/api/vps-folders/Unused Demo",
+                                 headers=self.headers("alice"))
+            self.assertEqual(legacy.status_code,409)
+            self.assertTrue((self.media/"Unused Demo").exists())
             wrong=client.post("/api/vps-folders/Unused Demo/retire-unused",
                 headers=self.headers("alice"),json={"confirm_name":"wrong"})
             self.assertEqual(wrong.status_code,409)
