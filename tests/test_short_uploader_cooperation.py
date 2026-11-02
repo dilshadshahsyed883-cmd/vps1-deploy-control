@@ -153,6 +153,12 @@ class ShortUploaderCooperationTests(unittest.TestCase):
                   y.context_expr.func.id=="uploader_shortstudio_guard"
                   for y in x.items)]
         self.assertGreaterEqual(len(blocks),3)
+        self.assertFalse(any(
+            isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute)
+            and isinstance(node.func.value,ast.Name)
+            and node.func.value.id=="time" and node.func.attr=="sleep"
+            for block in blocks for node in ast.walk(block)
+        ),"Uploader must not hold a shared lease while idling")
         chain={"recover_channel_jobs","retry_post_actions","retry_proxy_waits",
                "retry_network_waits","claim_available_jobs","process_one"}
         actual=set()
