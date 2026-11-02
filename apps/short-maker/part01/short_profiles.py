@@ -228,9 +228,9 @@ class ShortProfileStore:
 
 
 def register_short_profile_store(app, data_root, short_identity, short_folder_owned,
-                                 verify_source_import=None, start_callback=None):
+                                 verify_source_import=None, start_callback=None, existing_store=None):
     """Register authenticated record routes, with fail-closed source verification."""
-    store = ShortProfileStore(Path(data_root))
+    store = existing_store if existing_store is not None else ShortProfileStore(Path(data_root))
     def owner(request):
         return short_identity(request)[0].casefold()
     def verified(who, receipt):
