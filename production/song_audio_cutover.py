@@ -256,6 +256,21 @@ def _prepare_runtime(revision: str) -> None:
                 timeout=180, quiet=True)
 
 
+
+def _verify_voice_split() -> None:
+    """Prove the restarted live Voice process actually received split=1."""
+    output = runtime.run(["systemctl", "show", "--property=MainPID", "--value",
+                          service.VOICE_UNIT], quiet=True).strip()
+    if not re.fullmatch(r"[1-9][0-9]+", output):
+        raise RuntimeError("Voice unit lacks valid running main PID")
+    environ = (Path("/proc") / output / "environ")
+    if not environ.is_file():
+        raise RuntimeError("Voice process environment unavailable")
+    values = environ.read_bytes().split(b"\x00")
+    if values.count(b"SONG_AUDIO_BACKEND_SPLIT=1") != 1:
+        raise RuntimeError("Voice still owns or cannot prove Song worker disabled")
+
+
 def _health_song() -> dict:
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     with opener.open("http://127.0.0.1:8152/healthz", timeout=6) as response:
@@ -278,6 +293,7 @@ def _health_song() -> dict:
 def _health_scene() -> None:
     scene._health()
     runtime.http_check("voice-studio")
+    _verify_voice_split()
     _health_song()
 
 
@@ -371,6 +387,7 @@ def install(revision: str) -> None:
                                         {"SONG_AUDIO_BACKEND_SPLIT": "1"}))
         runtime.run(["systemctl", "start", service.VOICE_UNIT], timeout=60, quiet=True)
         runtime.http_check("voice-studio")
+        _verify_voice_split()
         # Existing Voice service keeps synthesis workers; Song owns only Audio.
         runtime.atomic_link(SONG_CURRENT, SONG_RELEASES / revision)
         changed_song = True
