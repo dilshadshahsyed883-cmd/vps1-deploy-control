@@ -16,7 +16,7 @@ def fixture(tab, paused=False, projects=None, is_admin=True):
     return env.get_template('app.html').render(engine_instance='copyright',mode='heavy',base_path='/copyright-uploader',embedded_view=True,tab=tab,user=dict(username='fixture',is_admin=is_admin),csrf='fixture-csrf',health=dict(worker_alive=True,active_project_id=None),stats=dict(engine_enabled=not paused,owner_queue_paused=paused,counts=dict(TOTAL=4,WAITING=1,COMPLETED=1,FAILED=1),channels=1,settings=dict(pause_after_current='0',sheets_sync_enabled='1',auto_engine_enabled='1')),copyright_files=['merge.mp4'],copyright_profiles=[dict(id=3,profile_name='Main profile',group_name='Group A',metadata_source='manual')],channels=[dict(id=7,channel_name='My Channel',channel_id='UCfixture',token_status='OK')],channel_rows=[dict(id=7,channel_name='My Channel',channel_id='UCfixture',token_status='OK',groups='Group A')],channel_groups=[dict(group_name='Group A')],projects=projects)
 
 def main():
-    from playwright.sync_api import sync_playwright
+    from playwright.sync_api import sync_playwright, expect
     writes=[]
     with sync_playwright() as p:
         # Use the installed runtime browser when running in Work Mode.
@@ -49,7 +49,9 @@ def main():
                     assert page.locator('[name=privacy_status]').input_value()=='public'
                     page.locator('#copyright-source-mode').select_option('folder')
                     assert page.locator('#copyright-folder-file').is_visible()
-                    assert page.locator('#copyright-folder-file').is_enabled()
+                    # Folder videos populate after the owner-scoped async fetch.
+                    # Do not mistake legitimate Loading state for disabled UI.
+                    expect(page.locator('#copyright-folder-file')).to_be_enabled(timeout=8000)
                     assert page.locator('[name=drive_url]').is_disabled()
                     page.locator('#copyright-source-mode').select_option('pc_upload')
                     assert page.locator('[name=video_file]').is_visible()

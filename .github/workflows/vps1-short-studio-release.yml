@@ -53,7 +53,11 @@ jobs:
           apps=(local-upload-manager short-maker)
           # UI-only intent uses the existing isolated Short Uploader installer;
           # it does not restart Song Uploader, Short Maker or any sibling worker.
-          if [[ "$RELEASE_INTENT" == *'[vps1-short-maker-only]'* ]]; then
+          if [[ "$RELEASE_INTENT" == *'[vps1-shortstudio-readonly-diagnose]'* ]]; then
+            # An existing protected-main root helper handles this marker
+            # as READ ONLY. Never install the Short Maker app or touch workers.
+            apps=(local-upload-manager)
+          elif [[ "$RELEASE_INTENT" == *'[vps1-short-maker-only]'* ]]; then
             apps=(short-maker)
           elif [[ "$RELEASE_INTENT" == *'[vps1-shortstudio-fixed-modes]'* ]]; then
             apps=(local-upload-manager)
@@ -78,7 +82,38 @@ jobs:
               -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=20 \
               -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
               vps1deploy@100.87.55.92 \
-              "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA $app"
-            echo "SHORT_STUDIO_RELEASE_PASS=$app"
+              "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA $app" \
+              | { if [[ "$RELEASE_INTENT" == *'[vps1-shortstudio-readonly-diagnose]'* ]]; then cat > "$scratch/readonly"; else cat; fi; }
+            if [[ "$RELEASE_INTENT" == *'[vps1-shortstudio-readonly-diagnose]'* ]]; then
+              python3 - "$scratch/readonly" <<'PY'
+          import json,sys
+          lines=open(sys.argv[1],encoding='utf-8').read().splitlines()
+          prefix='SHORT_STUDIO_READONLY_DIAGNOSTIC='
+          matches=[line[len(prefix):] for line in lines if line.startswith(prefix)]
+          if len(matches)!=1:
+              raise SystemExit('READONLY_DIAGNOSTIC_MISSING')
+          data=json.loads(matches[0])
+          if data.get('mode')!='READ_ONLY':
+              raise SystemExit('READONLY_DIAGNOSTIC_INVALID')
+          config=data.get('cooperation') or {}
+          live=data.get('live_cooperation') or {}
+          safe={
+            'mode':'READ_ONLY',
+            'host_config_status':config.get('status','UNKNOWN'),
+            'running_process_status':live.get('status','UNKNOWN'),
+            'all_guards_enabled':bool(config.get('all_guards_enabled',False)),
+            'same_host_root':bool(config.get('same_host_root_proven',False)),
+            'four_processes_same_mount':bool(live.get('four_processes_same_mount_verified',False)),
+            'four_processes_lock_flags':bool(live.get('four_processes_lock_flags_verified',False)),
+            'active_upload_drain_verified':False,
+            'retirement_enabled':False,
+            'deployment_performed':False,
+          }
+          print('SHORT_STUDIO_SANITIZED_VPS_READBACK='+json.dumps(safe,sort_keys=True))
+          PY
+              echo 'SHORT_STUDIO_DIAGNOSIS=READ_ONLY_NO_DEPLOY'
+            else
+              echo "SHORT_STUDIO_RELEASE_PASS=$app"
+            fi
           done
           echo 'AUTO_SCRIPT=OFFLINE'
