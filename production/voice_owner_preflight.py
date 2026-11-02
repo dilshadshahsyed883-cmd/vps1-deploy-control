@@ -35,6 +35,26 @@ def audit(path: Path, engine: str) -> dict:
                     f"SELECT COUNT(*) FROM {table} WHERE TRIM(COALESCE(owner_username,''))=''"
                 ).fetchone()[0])
             result["tables"][table] = counts
+        if engine == "clone":
+            # Old global categories had no owner. "General" is an
+            # automatically seeded system default; all other legacy entries
+            # need independent attribution before a tenant cutover.
+            category_cols = {row[1] for row in con.execute("PRAGMA table_info(categories)")}
+            result["unassigned_legacy_categories"] = (
+                int(con.execute("SELECT COUNT(*) FROM categories WHERE name<>'General' COLLATE NOCASE").fetchone()[0])
+                if "name" in category_cols else 0
+            )
+            # A nonempty owner string alone is not enough. Jobs referencing a
+            # different user's profile would disappear in the scoped join.
+            job_cols = {row[1] for row in con.execute("PRAGMA table_info(jobs)")}
+            profile_cols = {row[1] for row in con.execute("PRAGMA table_info(profiles)")}
+            if "owner_username" in job_cols and "owner_username" in profile_cols:
+                result["job_profile_owner_conflicts"] = int(con.execute(
+                    "SELECT COUNT(*) FROM jobs j LEFT JOIN profiles p ON j.profile_id=p.profile_id "
+                    "WHERE p.profile_id IS NULL OR j.owner_username<>p.owner_username"
+                ).fetchone()[0])
+            else:
+                result["job_profile_owner_conflicts"] = None
     return result
 
 
@@ -43,10 +63,16 @@ def report(databases: dict[str, Path]) -> tuple[dict, bool]:
     blocked = any(
         not entry["owner_column_present"] or entry["unassigned"] > 0
         for engine in findings for entry in engine["tables"].values()
+    ) or any(
+        item["engine"] == "clone" and (
+            item["unassigned_legacy_categories"] > 0 or
+            item["job_profile_owner_conflicts"] is None or
+            item["job_profile_owner_conflicts"] > 0
+        ) for item in findings
     )
     return {"voice_owner_preflight": "BLOCKED" if blocked else "READY",
             "engines": findings,
-            "action": "Verify legacy owners from independent records; do not autoassign or delete."}, blocked
+            "action": "Verify legacy owners/categories and job-profile links from independent evidence; do not autoassign or delete. Structural READY alone is not release approval."}, blocked
 
 
 def main() -> int:
