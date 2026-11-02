@@ -113,7 +113,7 @@ def overlay_failed_import_retry_ui(live, source):
     # Keep the old active-live overlay unchanged; verify the new source's
     # actual retry control explicitly rather than matching old adjacency.
     frozen_retry = (source.count('function renderLibrary(){') == 1
-                    and source.count("""onclick="retryLibrary('${x.id}')"""") == 1
+                    and source.count("onclick=\"retryLibrary('${x.id}')\"") == 1
                     and source.count('>Retry Import</button>') == 1)
     require((source.count(added+action)==1 or frozen_retry)
             and source.count(new_handler+function)==1,
