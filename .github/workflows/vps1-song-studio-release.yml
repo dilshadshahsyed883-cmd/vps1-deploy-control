@@ -39,6 +39,7 @@ jobs:
           VOICE_UI_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-song-audio-selector-only]') && '1' || '0' }}
           SONG_AUDIO_SEPARATE: ${{ contains(github.event.head_commit.message, '[vps1-song-audio-separate]') && '1' || '0' }}
           SONG_AUDIO_DIAG_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-song-audio-voice-readonly-diagnose]') && '1' || '0' }}
+          VOICE_TENANT_RECOVERY_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-voice-tenant-recovery-only]') && '1' || '0' }}
           SONG_UPLOADER_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-song-uploader-only]') && '1' || '0' }}
           SONG_MAKER_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-song-maker-only]') && '1' || '0' }}
           SONG_SETTINGS_FIX_ONLY: ${{ contains(github.event.head_commit.message, '[vps1-song-uploader-settings-fix]') && '1' || '0' }}
@@ -59,12 +60,15 @@ jobs:
           printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
           # Only one app selector may be set; never deploy another app implicitly.
           # The song-maker path uses its exact dedicated installer and idle fence.
-          if (( AUDIO_URL_ONLY + SONG_UPLOADER_ONLY + VOICE_UI_ONLY + SONG_MAKER_ONLY + SONG_SETTINGS_FIX_ONLY + SONG_AUDIO_SEPARATE + SONG_AUDIO_DIAG_ONLY > 1 )); then
+          if (( AUDIO_URL_ONLY + SONG_UPLOADER_ONLY + VOICE_UI_ONLY + SONG_MAKER_ONLY + SONG_SETTINGS_FIX_ONLY + SONG_AUDIO_SEPARATE + SONG_AUDIO_DIAG_ONLY + VOICE_TENANT_RECOVERY_ONLY > 1 )); then
             echo 'Conflicting Song Studio release selectors'; exit 1
           fi
           # Serialized, app-scoped installers retain their own idle/backup/rollback
           # checks. Voice uses its template-only path from the merge intent.
-          if [[ "$SONG_AUDIO_DIAG_ONLY" == "1" ]]; then
+          if [[ "$VOICE_TENANT_RECOVERY_ONLY" == "1" ]]; then
+            # Exactly one Voice web recovery; no independent Song cutover.
+            apps=(voice-studio)
+          elif [[ "$SONG_AUDIO_DIAG_ONLY" == "1" ]]; then
             # Serialized root helper only reports bounded, redacted unit state.
             # Do not restart services or run the incomplete cutover again.
             apps=(voice-studio)
