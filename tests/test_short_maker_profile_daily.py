@@ -138,7 +138,6 @@ class DailyBatchPlannerTests(unittest.TestCase):
         self.assertEqual(
             {x["status"] for x in self.planner.list_claims("alice",self.pid)},
             {"enqueued"})
-        self.assertEqual(self.planner.list_claims("bob",self.pid), []) if False else None
 
     def test_existing_job_is_recovered_but_stopped_profile_doesnt_create_new(self):
         self.enable()
