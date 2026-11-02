@@ -68,8 +68,10 @@ class StandaloneSongSessionTests(unittest.TestCase):
                 denied = client.get("/tts/api/audio-downloader/jobs",
                                     headers={"x-auth-user": "spoofed", "x-is-admin": "1"})
             self.assertEqual(denied.status_code, 401)
-            self.assertEqual(client.get("/healthz").json(),
-                             {"ok": True, "app": "song-audio-downloader"})
+            with patch.dict(os.environ, {"FRESH_WEBSITE_SMOKE_TEST": "1"}):
+                self.assertEqual(client.get("/healthz").json(),
+                                 {"ok": True, "app": "song-audio-downloader",
+                                  "worker_active": False, "smoke": True})
         finally:
             client.close()
 
