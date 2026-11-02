@@ -234,6 +234,52 @@ def http_check(app, timeout=45):
     raise RuntimeError('app health failed: ' + app)
 
 
+def verify_voice_release_auth_source(release: Path) -> None:
+    """Reject an old Voice bundle that omits the approved Scene tenant boundary.
+
+    This is checked against the staged immutable candidate before stopping the
+    running service, not inferred from a public gateway that may return 401.
+    """
+    entry = release / 'part01/vps1_omnivoice_app.py'
+    tenant = release / 'part01/voice_tenant.py'
+    if any(p.is_symlink() or not p.is_file() for p in (entry, tenant)):
+        raise RuntimeError('VOICE_RELEASE_AUTH_SOURCE_MISSING')
+    try:
+        source = entry.read_text(encoding='utf-8')
+        identity = tenant.read_text(encoding='utf-8')
+    except (OSError, UnicodeError) as exc:
+        raise RuntimeError('VOICE_RELEASE_AUTH_SOURCE_UNREADABLE') from exc
+    if (source.count('def voice_session_and_permissions(') != 1
+            or source.count('@app.middleware("http")') != 1
+            or 'scene_identity(request.headers.get("cookie", ""))' not in source
+            or 'set_identity(username, admin)' not in source
+            or 'reset_identity(tokens)' not in source
+            or '_IDENTITY_URL = "http://127.0.0.1:18080/api/session/identity"' not in identity):
+        raise RuntimeError('VOICE_RELEASE_AUTH_SOURCE_INVALID')
+
+
+def verify_voice_release_anonymous_denial() -> None:
+    """Fail the Voice install and activate its rollback if SSO is absent.
+
+    Never send Scene cookies or privileged headers to these exact direct-local
+    Voice API endpoints. A public-proxy 401 alone is insufficient evidence.
+    """
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    paths = ('/tts/api/kokoro/status', '/tts/api/edge/status',
+             '/tts/api/clone/status')
+    for path in paths:
+        try:
+            with opener.open('http://127.0.0.1:8143' + path, timeout=6) as response:
+                raise RuntimeError('VOICE_RELEASE_AUTH_NOT_ENFORCED: ' + path +
+                                   ' returned HTTP ' + str(response.status))
+        except urllib.error.HTTPError as exc:
+            if exc.code not in (401, 403):
+                raise RuntimeError('VOICE_RELEASE_AUTH_NOT_ENFORCED: ' + path +
+                                   ' returned HTTP ' + str(exc.code)) from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError('VOICE_RELEASE_AUTH_PROBE_UNAVAILABLE') from exc
+
+
 def voice_audio_db_from_live_config() -> Path:
     """Use the actual root-owned Voice service env, not the installer process env.
 
@@ -994,6 +1040,8 @@ def install_app(app, revision):
         event(app=app, result='PASS_ALREADY_INSTALLED', revision=revision)
         return
     release = stage_source(app, revision)
+    if app == 'voice-studio':
+        verify_voice_release_auth_source(release)
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chown(state, 1000, 1000)
     env_file = CONFIG / f'production-{app}.env'
@@ -1105,6 +1153,8 @@ def install_app(app, revision):
         run(['systemctl', 'enable', unit_name], timeout=60, quiet=True)
         run(['systemctl', 'restart', unit_name], timeout=60, quiet=True)
         health = http_check(app)
+        if app == 'voice-studio':
+            verify_voice_release_anonymous_denial()
         workers.install(app, revision)
         if app == 'self-media-library':
             intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
@@ -1474,6 +1524,8 @@ def install_app(app, revision):
         event(app=app, result='PASS_ALREADY_INSTALLED', revision=revision)
         return
     release = stage_source(app, revision)
+    if app == 'voice-studio':
+        verify_voice_release_auth_source(release)
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chown(state, 1000, 1000)
     env_file = CONFIG / f'production-{app}.env'
@@ -1585,6 +1637,8 @@ def install_app(app, revision):
         run(['systemctl', 'enable', unit_name], timeout=60, quiet=True)
         run(['systemctl', 'restart', unit_name], timeout=60, quiet=True)
         health = http_check(app)
+        if app == 'voice-studio':
+            verify_voice_release_anonymous_denial()
         workers.install(app, revision)
         if app == 'self-media-library':
             intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
