@@ -2551,6 +2551,16 @@ _sm_ready_module.register_ready_video_uploads(
     short_folder_owned=short_folder_owned, short_vps_folder=short_vps_folder,
     reserve_short_output_names=reserve_short_output_names)
 
+# Staged owner-scoped Short Profiles persistence; importer and dedicated PKT
+# scheduler remain fail-closed. No user-facing controls or jobs are enabled yet.
+_sm_profiles_spec = _sm_importlib.spec_from_file_location(
+    "short_maker_short_profiles", Path(__file__).with_name("short_profiles.py"))
+_sm_profiles_module = _sm_importlib.module_from_spec(_sm_profiles_spec)
+_sm_profiles_spec.loader.exec_module(_sm_profiles_module)
+_sm_profiles_module.register_short_profile_store(
+    app, data_root=DATA_ROOT, short_identity=short_identity,
+    short_folder_owned=short_folder_owned)
+
 @app.get("/ready_video_client.js")
 def ready_video_client_script():
     return FileResponse(Path(__file__).with_name("ready_video_client.js"),
