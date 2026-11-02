@@ -222,9 +222,12 @@ def destination_folder_for_job(row: sqlite3.Row | dict) -> str:
     lang = safe_auto_component(str(row["language"] or "auto"), "auto")
     engine = safe_auto_component(str(row["engine"] or "gpu"), "gpu")
     auto_root = f"{DRIVE_ROOT}/{lang}/gpu-{engine}"
-    username = str(row["owner_username"] or "").strip() if "owner_username" in row.keys() else ""
-    if not username:
+    # Existing jobs retain their old path even if an owner is later verified.
+    # Only newly queued Auto jobs carry this explicit, additive routing flag.
+    auto_scoped = bool(row["auto_owner_scoped"]) if "auto_owner_scoped" in row.keys() else False
+    if not auto_scoped:
         return auto_root
+    username = str(row["owner_username"] or "").strip() if "owner_username" in row.keys() else ""
     if not re.fullmatch(r"[A-Za-z0-9_.-]{3,40}", username):
         raise RuntimeError("Invalid verified Voice owner for Drive delivery")
     return f"{auto_root}/vs_{username}__default"
