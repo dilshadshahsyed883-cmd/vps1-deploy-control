@@ -16,6 +16,11 @@ class ShortMakerDrainReleaseTests(unittest.TestCase):
         self.assertIn('if not isinstance(jobs, list):', workflow)
         self.assertIn('"completed", "failed", "cancelled", "canceled"', workflow)
         self.assertIn("SHORT_MAKER_UNFINISHED_JOBS=", workflow)
+        wait_job = workflow.split("  wait-until-idle:", 1)[1].split("\n  deploy:", 1)[0]
+        deploy_job = workflow.split("\n  deploy:", 1)[1]
+        self.assertIn("environment: production", wait_job)
+        self.assertIn("environment: production", deploy_job)
+        self.assertIn("secrets.VPS1_SSH_PRIVATE_KEY", wait_job)
         self.assertIn("needs: wait-until-idle", workflow)
         self.assertIn("needs.wait-until-idle.result == 'success'", workflow)
         self.assertLess(workflow.index("wait-until-idle:"), workflow.index("\n  deploy:"))
