@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import ast
 from pathlib import Path
 import sys
 import tempfile
@@ -110,6 +111,35 @@ class ExclusiveWorkerTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "worker lock unavailable"):
                     audio._acquire_exclusive_worker_lock()
             self.assertEqual(target.read_text(), "do-not-change")
+
+
+class SceneSongProxySwitchTests(unittest.TestCase):
+    def test_exact_backend_only_and_fail_closed_on_bad_configuration(self):
+        scene_path = Path(__file__).resolve().parents[1] / "apps/scene-builder/part01/app.py"
+        tree = ast.parse(scene_path.read_text())
+        node = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                    and n.name == "_song_audio_upstream")
+        module = ast.fix_missing_locations(ast.Module(body=[node], type_ignores=[]))
+        env = {"os": os, "HTTPException": HTTPException,
+               "_VS_UPSTREAM": "http://127.0.0.1:8143",
+               "_SONG_AUDIO_DEDICATED_UPSTREAM": "http://127.0.0.1:8152"}
+        exec(compile(module, str(scene_path), "exec"), env)
+        switch = env["_song_audio_upstream"]
+        with patch.dict(os.environ, {"SONG_AUDIO_SPLIT_UPSTREAM": ""}):
+            self.assertEqual(switch(), "http://127.0.0.1:8143")
+        with patch.dict(os.environ, {"SONG_AUDIO_SPLIT_UPSTREAM": "http://127.0.0.1:8152"}):
+            self.assertEqual(switch(), "http://127.0.0.1:8152")
+        with patch.dict(os.environ, {"SONG_AUDIO_SPLIT_UPSTREAM": "http://evil.invalid"}):
+            with self.assertRaises(HTTPException) as exc:
+                switch()
+            self.assertEqual(exc.exception.status_code, 503)
+
+    def test_both_song_facades_use_dedicated_backend_without_voice_reroute(self):
+        source = (Path(__file__).resolve().parents[1] /
+                  "apps/scene-builder/part01/app.py").read_text()
+        self.assertIn('_song_audio_upstream() + "/audio-downloader/app"', source)
+        self.assertIn('(_song_audio_upstream() if studio == "song" else _VS_UPSTREAM)',
+                      source)
 
 
 class LegacyVoiceSplitGuardTests(unittest.TestCase):
