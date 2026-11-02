@@ -122,15 +122,35 @@ def uploader_shortstudio_guard():
 
 @asynccontextmanager
 async def uploader_shortstudio_guard_async():
-    """Use in the uploader web middleware without blocking the ASGI event loop."""
+    """Cancellation-safe nonblocking OS shared lock for ASGI requests.
+
+    Do not run a potentially blocking flock acquisition in asyncio.to_thread:
+    cancelling the HTTP request cannot cancel its worker thread, which may
+    otherwise obtain an orphaned lease after the request has disappeared.
+    """
     if not UPLOADER_COOPERATION_ENABLED:
         yield
         return
-    ctx = _uploader_lease.producer()
-    await asyncio.to_thread(ctx.__enter__)
+    fd = _uploader_lease._open()
+    acquired = False
     try:
+        deadline = time.monotonic() + _uploader_lease.timeout
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                acquired = True
+                break
+            except OSError as error:
+                if error.errno not in (errno.EWOULDBLOCK, errno.EAGAIN):
+                    raise
+                if time.monotonic() >= deadline:
+                    raise HTTPException(
+                        503, detail="Studio operation busy; retry after active work")
+                # Coroutine cancellation now immediately closes the descriptor.
+                # Never acquire a lock after a cancelled request.
+                await asyncio.sleep(0.025)
         yield
     finally:
-        # Release even when request is cancelled. The threadpool may choose a
-        # different worker for exit; flock protects the same open fd.
-        await asyncio.shield(asyncio.to_thread(ctx.__exit__, None, None, None))
+        if acquired:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
