@@ -149,6 +149,34 @@ def _patch_scene_source(live: bytes, reviewed: bytes) -> bytes:
     return src.encode("utf-8")
 
 
+
+def _song_environment(root: Path, revision: str, voice_payload: bytes) -> bytes:
+    """Preserve host-only Audio Downloader settings, not Voice synthesis secrets."""
+    text = voice_payload.decode("utf-8")
+    copied = []
+    seen = set()
+    for line in text.splitlines():
+        if not line or line.lstrip().startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if not re.fullmatch(r"AUDIO_DOWNLOADER_[A-Z0-9_]+", key):
+            continue
+        if key in seen:
+            raise RuntimeError("Duplicated legacy Audio Downloader configuration")
+        seen.add(key)
+        if key in {"AUDIO_DOWNLOADER_ROOT", "AUDIO_DOWNLOADER_YTDLP_BIN"}:
+            continue
+        if len(value) > 8192 or "\x00" in value or "\r" in value:
+            raise RuntimeError("Unsafe Audio Downloader setting in protected Voice env")
+        copied.append(key + "=" + value)
+    result = service.render_env(root)
+    result += "AUDIO_DOWNLOADER_YTDLP_BIN=" + str(
+        BASE / "venvs/song-studio" / revision / "bin/yt-dlp") + "\n"
+    if copied:
+        result += "\n".join(copied) + "\n"
+    return result.encode("utf-8")
+
+
 def _stage_song(revision: str) -> Path:
     from rebuild.fresh_vps import sources
     release = SONG_RELEASES / revision
@@ -309,12 +337,9 @@ def install(revision: str) -> None:
         # Existing Voice service keeps synthesis workers; Song owns only Audio.
         runtime.atomic_link(SONG_CURRENT, SONG_RELEASES / revision)
         changed_song = True
-        env_payload = service.render_env(root) + (
-            "AUDIO_DOWNLOADER_YTDLP_BIN="
-            + str(BASE / "venvs/song-studio" / revision / "bin/yt-dlp") + "\n"
-        )
+        env_payload = _song_environment(root, revision, voice_env_original)
         with SONG_ENV.open("xb") as fp:
-            fp.write(env_payload.encode("utf-8"))
+            fp.write(env_payload)
         SONG_ENV.chmod(0o600)
         SONG_UNIT_PATH.write_text(service.render_unit(revision, root))
         SONG_UNIT_PATH.chmod(0o644)
