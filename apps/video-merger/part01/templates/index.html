@@ -304,7 +304,8 @@ function renderLibrary(){
     <div class="list-cell"><small>Duration</small><strong>${x.duration?fmtDur(x.duration):'—'}</strong></div>
     <div class="list-cell"><small>Size</small><strong>${fmtSize(x.size_bytes)}</strong></div>
     <div class="row-actions"><span class="status ${esc(x.status)}">${esc(x.status)}</span>
-    <button class="btn success mini" onclick="viewLibrary('${x.id}')" ${x.status!=='ready'?'disabled':''}>View</button>
+    <button class="btn success mini" onclick="viewLibrary('${x.id}')" ${x.status!=='ready'?'disabled':''}>Preview</button>
+    ${x.status==='ready'&&/^https:\/\/drive\.google\.com\/(?:file\/d\/|open\?id=)/.test(x.drive_url||'')?`<a class="btn secondary mini" style="display:inline-flex;align-items:center;text-decoration:none" target="_blank" rel="noopener noreferrer" href="${esc(x.drive_url)}">View on Drive</a>`:''}
     ${x.status==='failed'?`<button class="btn secondary mini" onclick="retryLibrary('${x.id}')" ${locked?'disabled':''}>Retry Import</button>`:''}
     ${x.drive_status==='failed'?`<button class="btn secondary mini" onclick="retryLibraryDrive('${x.id}')">Retry Drive</button>`:''}
     <button class="btn secondary mini" onclick="renameLibrary('${x.id}')" ${locked?'disabled':''}>Rename</button>
