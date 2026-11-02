@@ -160,17 +160,20 @@ class ShortUploaderCooperationTests(unittest.TestCase):
                     load(module,"uploader_without_root")
 
     def test_song_copyright_and_legacy_do_not_require_short_only_module(self):
-        tree=ast.parse((UPLOADER/"standalone_app.py").read_text(encoding="utf-8"))
-        direct=[n for n in tree.body if isinstance(n,ast.ImportFrom)
-                and n.module=="uploader_shortstudio_cooperation"]
-        self.assertEqual(direct,[],"Shared LUM module must not import Short-only file globally")
-        conditional=[n for n in tree.body if isinstance(n,ast.If)
-                     and "LUM_ENGINE_INSTANCE" in ast.unparse(n.test)
-                     and "shortstudio" in ast.unparse(n.test)]
-        self.assertEqual(len(conditional),1)
-        self.assertTrue(any(isinstance(n,ast.ImportFrom)
-                and n.module=="uploader_shortstudio_cooperation"
-                for n in conditional[0].body))
+        for source in ("standalone_app.py", "auto_engine_v6_worker.py",
+                       "auto_engine_v6_scheduler.py"):
+            tree=ast.parse((UPLOADER/source).read_text(encoding="utf-8"))
+            direct=[n for n in tree.body if isinstance(n,ast.ImportFrom)
+                    and n.module=="uploader_shortstudio_cooperation"]
+            self.assertEqual(direct,[],
+                source+": shared LUM must not import Short-only file globally")
+            conditional=[n for n in tree.body if isinstance(n,ast.If)
+                         and "LUM_ENGINE_INSTANCE" in ast.unparse(n.test)
+                         and "shortstudio" in ast.unparse(n.test)]
+            self.assertEqual(len(conditional),1,source)
+            self.assertTrue(any(isinstance(n,ast.ImportFrom)
+                    and n.module=="uploader_shortstudio_cooperation"
+                    for n in conditional[0].body),source)
 
     def test_short_uploader_immutable_overlay_includes_required_import(self):
         release=(ROOT/"production/short_uploader_group_release.py").read_text(encoding="utf-8")
