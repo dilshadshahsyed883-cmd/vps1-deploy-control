@@ -32,6 +32,9 @@ def contender(role, folder_root, result):
     os.environ["SHORT_STUDIO_VPS_FOLDER_ROOT"]=str(folder_root)
     os.environ["LUM_SHORT_STUDIO_COOPERATIVE_LOCK_ENABLED"]="1"
     uploader=load(UPLOADER/"uploader_shortstudio_cooperation.py","isolated_uploader_contender")
+    # Test processes must exercise the exact production lock semantics but
+    # finish before the spawn/join watchdog. Production stays at 8 seconds.
+    uploader._uploader_lease.timeout=0.28
     try:
         with (uploader._uploader_lease.retire() if role=="exclusive"
               else uploader.uploader_shortstudio_guard()):
@@ -169,11 +172,13 @@ class ShortUploaderCooperationTests(unittest.TestCase):
                 source+": shared LUM must not import Short-only file globally")
             conditional=[n for n in tree.body if isinstance(n,ast.If)
                          and "LUM_ENGINE_INSTANCE" in ast.unparse(n.test)
-                         and "shortstudio" in ast.unparse(n.test)]
+                         and "shortstudio" in ast.unparse(n.test)
+                         and any(isinstance(child,ast.ImportFrom)
+                             and child.module=="uploader_shortstudio_cooperation"
+                             for child in n.body)]
+            # Other application-mode conditionals legitimately exist; check
+            # exactly one gated import, not exactly one mode check overall.
             self.assertEqual(len(conditional),1,source)
-            self.assertTrue(any(isinstance(n,ast.ImportFrom)
-                    and n.module=="uploader_shortstudio_cooperation"
-                    for n in conditional[0].body),source)
 
     def test_short_uploader_immutable_overlay_includes_required_import(self):
         release=(ROOT/"production/short_uploader_group_release.py").read_text(encoding="utf-8")
