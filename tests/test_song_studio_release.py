@@ -30,7 +30,7 @@ class SongStudioReleaseTests(unittest.TestCase):
                '_vs_asyncio':asyncio,'_vs_requests':transport,'require_login':auth,
                '_audio_downloader_canonical_html':render,
                '_audio_downloader_hide_shared_proxy_controls':hide_proxy,
-               '_VSResponse':response}
+               '_VSResponse':response, '_song_audio_upstream':lambda:'http://127.0.0.1:8143'}
         exec(compile(ast.Module(body=[node],type_ignores=[]),'<route-test>','exec'),env)
         request = types.SimpleNamespace(session={'is_admin': False}, headers={'cookie': 'fixture-session'})
         asyncio.run(env['audio_downloader_canonical_page'](request))
@@ -87,7 +87,8 @@ class SongStudioReleaseTests(unittest.TestCase):
         scene = (root/"apps/scene-builder/part01/app.py").read_text()
         shell = (root/"apps/scene-builder/part01/static/vps1_native_site_shell.js").read_text()
         self.assertIn('@app.get("/audio-downloader/", response_class=HTMLResponse)', scene)
-        self.assertIn('_vs_requests.get, "http://127.0.0.1:8143/audio-downloader/app"', scene)
+        self.assertIn('_vs_requests.get, _song_audio_upstream() + "/audio-downloader/app"', scene)
+        self.assertIn('return _VS_UPSTREAM  # Existing production behavior until cutover.', scene)
         self.assertIn('Audio Downloader upstream UI version mismatch', scene)
         self.assertIn('location.replace("/audio-downloader/")', shell)
         self.assertIn('if (/^\\/audio-downloader\\/?$/.test(location.pathname))', shell)
@@ -107,7 +108,9 @@ class SongStudioReleaseTests(unittest.TestCase):
                         'Conflicting Song Studio release selectors'):
             self.assertIn(marker,source)
         self.assertIn('if [[ "$SONG_MAKER_ONLY" == "1" ]]; then\n            apps=(song-maker)', source)
-        self.assertIn('AUDIO_URL_ONLY + SONG_UPLOADER_ONLY + VOICE_UI_ONLY + SONG_MAKER_ONLY + SONG_SETTINGS_FIX_ONLY > 1',source)
+        self.assertIn('AUDIO_URL_ONLY + SONG_UPLOADER_ONLY + VOICE_UI_ONLY + SONG_MAKER_ONLY + SONG_SETTINGS_FIX_ONLY + SONG_AUDIO_SEPARATE > 1',source)
+        self.assertIn('if [[ "$SONG_AUDIO_SEPARATE" == "1" ]]; then',source)
+        self.assertIn('apps=(voice-studio)',source)
         self.assertIn('vps1-production-deploy install $SOURCE_SHA $1',source)
         self.assertIn('run_single_app_release "$app"',source)
         self.assertNotIn('pull_request_target',source)

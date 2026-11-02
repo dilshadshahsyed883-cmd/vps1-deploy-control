@@ -12,7 +12,7 @@ import sys
 import tempfile
 import time
 
-from production.runtime import CATALOG, REPO, environment
+from production.runtime import CATALOG, SONG_AUDIO_SPEC, REPO, environment
 
 
 def render_short(client):
@@ -161,7 +161,7 @@ def smoke_isolated_uploader_pages(state):
 
 def smoke(app):
     import httpx
-    spec = CATALOG[app]
+    spec = SONG_AUDIO_SPEC if app == 'song-studio' else CATALOG[app]
     with tempfile.TemporaryDirectory(prefix='vps1-runtime-') as tmp:
         state = Path(tmp)
         env = {**os.environ, **environment(app, state), 'FRESH_WEBSITE_SMOKE_TEST': '1'}
@@ -173,6 +173,9 @@ def smoke(app):
         env['PATH'] = str(Path(sys.executable).parent) + os.pathsep + os.environ.get('PATH', '')
         if app == 'scene-builder':
             env.update(PYTHONPATH=str(REPO), WEB_USERNAME='runtime-test', WEB_ACCESS_KEY='runtime-test-only')
+        if app == 'song-studio':
+            # Disposable startup only: never point CI at production queues or Drive.
+            env['SONG_AUDIO_CUTOVER_ACTIVE'] = '1'
         if app == 'voice-studio':
             # Start the genuine empty-queue downloader worker; no network job is submitted.
             env['FRESH_WEBSITE_SMOKE_TEST'] = '0'
@@ -192,7 +195,7 @@ def smoke(app):
         proc = None
         scene_fixture = None
         try:
-            if app == 'voice-studio':
+            if app in {'voice-studio', 'song-studio'}:
                 # Isolated CI-only stand-in for the LIVE Scene SSO endpoint.
                 # It is never installed in production and cannot grant access
                 # unless the real Voice app receives the explicit test cookie.
@@ -223,19 +226,21 @@ def smoke(app):
                 Thread(target=scene_fixture.serve_forever, daemon=True).start()
                 env['VPS1_VOICE_SMOKE_SSO_PORT'] = str(scene_fixture.server_port)
                 env['VPS1_VOICE_SMOKE_APP_PORT'] = str(port)
+                tenant = 'song_tenant' if app == 'song-studio' else 'voice_tenant'
+                module = 'song_audio_app:app' if app == 'song-studio' else 'vps1_omnivoice_app:app'
                 command = [
                     sys.executable, '-c',
-                    "import os, voice_tenant, uvicorn; "
-                    "voice_tenant._IDENTITY_URL = 'http://127.0.0.1:' + "
+                    f"import os, {tenant}, uvicorn; "
+                    f"{tenant}._IDENTITY_URL = 'http://127.0.0.1:' + "
                     "os.environ['VPS1_VOICE_SMOKE_SSO_PORT'] + '/api/session/identity'; "
-                    "uvicorn.run('vps1_omnivoice_app:app', host='127.0.0.1', "
+                    f"uvicorn.run('{module}', host='127.0.0.1', "
                     "port=int(os.environ['VPS1_VOICE_SMOKE_APP_PORT']))",
                 ]
             proc = subprocess.Popen(command, cwd=source, env=env,
                                     stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
             with httpx.Client(base_url=f'http://127.0.0.1:{port}', timeout=5, trust_env=False,
                               headers={'X-Auth-User': 'runtime-test', 'X-App-Access': 'both', 'X-Is-Admin': '1',
-                                       **({'Cookie': 'vps1-isolated-scene=valid'} if app == 'voice-studio' else {})},
+                                       **({'Cookie': 'vps1-isolated-scene=valid'} if app in {'voice-studio', 'song-studio'} else {})},
                               follow_redirects=False) as client:
                 deadline = time.monotonic() + 45
                 while time.monotonic() < deadline:
@@ -341,6 +346,18 @@ def smoke(app):
                     result['auto_stream_independent_navigation'] = 'PASS'
                     result['auto_engine_read_only_ui'] = 'PASS'
                     result['web_queue_worker'] = 'PASS'
+                if app == 'song-studio':
+                    denied = client.get('/audio-downloader/app', headers={'Cookie': ''})
+                    if denied.status_code != 401:
+                        raise RuntimeError('Song Studio accepted unverified identity')
+                    api = client.get('/tts/api/audio-downloader/jobs')
+                    api.raise_for_status()
+                    if api.json() != {'jobs': []}:
+                        raise RuntimeError('Song audio disposable job queue is not empty')
+                    if client.get('/tts/api/clone/jobs').status_code != 404:
+                        raise RuntimeError('Song backend unexpectedly serves Voice routes')
+                    result['owner_scoped_audio'] = 'PASS'
+                    result['voice_routes_absent'] = 'PASS'
                 if app == 'voice-studio':
                     # A spoofed X-Auth-User alone never authenticates the Voice app.
                     denied = client.get(spec['ui'], headers={'Cookie': ''})
@@ -391,7 +408,7 @@ def smoke(app):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--app', required=True, choices=sorted(CATALOG))
+    parser.add_argument('--app', required=True, choices=sorted(CATALOG) + ['song-studio'])
     args = parser.parse_args()
     print(json.dumps(smoke(args.app), sort_keys=True))
 

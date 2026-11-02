@@ -57,6 +57,12 @@ CATALOG = {
 }
 
 
+# Deliberately outside the legacy CATALOG: Scene session/gateway app contracts
+# remain exact, while Song has its own guarded independent release lane.
+SONG_AUDIO_SPEC = dict(port=8152, module='song_audio_app:app', health='/healthz',
+                       ui='/audio-downloader/app', packages=CORE + ['yt-dlp[default]==2026.8.19'])
+
+
 def runtime_name(app):
     return CATALOG[app].get('runtime', app)
 
@@ -144,6 +150,11 @@ def environment(app, state):
         env.update(VIDEO_MERGER_ROOT=str(state / 'video-merger'),
                    VIDEO_MERGER_PROXY_CONFIG_DIR=str(state / 'video-merger/config'),
                    VIDEO_MERGER_PORT='8148')
+    elif app == 'song-studio':
+        # Disposable smoke configuration only. Live release MUST read and
+        # validate the existing root-owned Voice AUDIO_DOWNLOADER_ROOT.
+        env.update(AUDIO_DOWNLOADER_ROOT=str(state / 'audio-downloader'),
+                   SONG_AUDIO_CUTOVER_ACTIVE='0')
     elif app == 'voice-studio':
         for key, child in [('VOICE_CLONE_ROOT', 'omnivoice'), ('KOKORO_STUDIO_ROOT', 'kokoro'),
                            ('EDGE_STUDIO_ROOT', 'edge'), ('AUDIO_DOWNLOADER_ROOT', 'audio-downloader')]:
@@ -248,6 +259,59 @@ def voice_audio_db_from_live_config() -> Path:
     return root / 'data/jobs.sqlite3'
 
 
+
+def song_audio_independent_live() -> bool:
+    """Only skip Voice's legacy Audio drain after verified independent handoff.
+
+    A configured split with an unavailable Song worker blocks Voice release:
+    it must never re-enable two downloader workers or misreport independence.
+    """
+    voice = CONFIG / "production-voice-studio.env"
+    if not voice.is_file():
+        return False
+    if voice.is_symlink():
+        raise RuntimeError("Voice configuration symlink: split ownership untrusted")
+
+    def read_exact(path: Path, key: str) -> str:
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError("Independent Song configuration missing or linked")
+        lines = path.read_text().splitlines()
+        values = [x.split("=", 1)[1].strip() for x in lines if x.startswith(key + "=")]
+        if len(values) != 1:
+            raise RuntimeError("Independent Song configuration ambiguous: " + key)
+        return values[0]
+
+    flags = [x.split("=", 1)[1].strip() for x in voice.read_text().splitlines()
+             if x.startswith("SONG_AUDIO_BACKEND_SPLIT=")]
+    if len(flags) > 1:
+        raise RuntimeError("Voice Song split configuration is ambiguous")
+    if not flags or flags[0] == "0":
+        return False
+    if flags[0] != "1":
+        raise RuntimeError("Unrecognized Voice Song split value")
+    song = CONFIG / "production-song-studio.env"
+    scene = CONFIG / "scene-builder.env"
+    if read_exact(song, "SONG_AUDIO_CUTOVER_ACTIVE") != "1":
+        raise RuntimeError("Song Audio service not authorized to own worker")
+    if read_exact(scene, "SONG_AUDIO_SPLIT_UPSTREAM") != "http://127.0.0.1:8152":
+        raise RuntimeError("Scene Song Audio route does not use dedicated service")
+    if read_exact(song, "AUDIO_DOWNLOADER_ROOT") != read_exact(voice, "AUDIO_DOWNLOADER_ROOT"):
+        raise RuntimeError("Voice and Song Audio canonical storage identity mismatch")
+    if subprocess.run(["systemctl", "is-active", "--quiet", "vps1-production-song-studio.service"],
+                      capture_output=True).returncode:
+        raise RuntimeError("Independent Song Audio worker unit is not running")
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open("http://127.0.0.1:8152/healthz", timeout=5) as response:
+            payload = json.loads(response.read(4096))
+    except (OSError, ValueError, urllib.error.URLError) as exc:
+        raise RuntimeError("Independent Song Audio worker health unavailable") from exc
+    if (response.status != 200 or payload.get("ok") is not True or
+            payload.get("worker_active") is not True or payload.get("smoke") is not False):
+        raise RuntimeError("Independent Song Audio worker not proven active")
+    return True
+
+
 def require_voice_release_idle(state: Path, audio_db: Path | None = None) -> None:
     """Fail closed on Voice synthesis and active uploads before any worker restart.
 
@@ -275,6 +339,10 @@ def require_voice_release_idle(state: Path, audio_db: Path | None = None) -> Non
     # Voice SSO correctly rejects anonymous /status (HTTP 403). The trusted
     # deploy helper uses an immutable read-only snapshot of the local queue DB
     # instead of bypassing Scene authentication or trusting caller headers.
+    if audio_db is None and song_audio_independent_live():
+        # Voice synthesis is idle and Audio Downloader belongs to the verified
+        # independent Song process. Never block Voice deploy on Song jobs.
+        return
     audio_db = audio_db if audio_db is not None else voice_audio_db_from_live_config()
     if audio_db.is_symlink() or not audio_db.is_file():
         raise RuntimeError('Audio Downloader preflight DB unavailable')
@@ -744,6 +812,14 @@ def require_short_maker_idle(state):
 
 
 def install_app(app, revision):
+    if app == 'song-studio':
+        raise RuntimeError('Song Audio requires atomic Voice/Scene cutover; standalone generic install forbidden')
+    if app == 'voice-studio':
+        message = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-song-audio-separate]' in message:
+            from production.song_audio_cutover import install as install_song_audio
+            install_song_audio(revision)
+            return
     if app not in CATALOG:
         raise ValueError('app is not owned by this installer')
     if app == 'local-upload-manager':
@@ -1202,6 +1278,14 @@ def require_short_maker_idle(state):
 
 
 def install_app(app, revision):
+    if app == 'song-studio':
+        raise RuntimeError('Song Audio requires atomic Voice/Scene cutover; standalone generic install forbidden')
+    if app == 'voice-studio':
+        message = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-song-audio-separate]' in message:
+            from production.song_audio_cutover import install as install_song_audio
+            install_song_audio(revision)
+            return
     if app not in CATALOG:
         raise ValueError('app is not owned by this installer')
     if app == 'local-upload-manager':

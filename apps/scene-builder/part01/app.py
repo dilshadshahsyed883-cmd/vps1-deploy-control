@@ -2143,11 +2143,10 @@ def _audio_downloader_hide_shared_proxy_controls(payload: bytes, *, is_admin: bo
 @app.get("/audio-downloader/", response_class=HTMLResponse)
 async def audio_downloader_canonical_page(request: Request):
     require_login(request)
-    # This independent app runs on the production Voice service (8143).
-    # The legacy Scene Voice proxy still targets the retired 8130 instance.
-    # Fetch only its HTML after Scene authentication; no credentials or body forwarded.
+    # Song Audio may use its own loopback process only after a guarded cutover.
+    # Never permit user-provided URLs or an automatic fallback on failures.
     upstream = await _vs_asyncio.to_thread(
-        _vs_requests.get, "http://127.0.0.1:8143/audio-downloader/app",
+        _vs_requests.get, _song_audio_upstream() + "/audio-downloader/app",
         headers={"Cookie": request.headers.get("cookie", "")},
         timeout=30, allow_redirects=False,
     )
@@ -5300,6 +5299,18 @@ import requests as _vs_requests
 import asyncio as _vs_asyncio
 
 _VS_UPSTREAM="http://127.0.0.1:8143"
+_SONG_AUDIO_DEDICATED_UPSTREAM = "http://127.0.0.1:8152"
+
+
+def _song_audio_upstream():
+    """Read protected Scene process configuration only, never browser inputs."""
+    configured = os.environ.get("SONG_AUDIO_SPLIT_UPSTREAM", "").strip()
+    if not configured:
+        return _VS_UPSTREAM  # Existing production behavior until cutover.
+    if configured != _SONG_AUDIO_DEDICATED_UPSTREAM:
+        raise HTTPException(503, "Song Audio backend configuration invalid")
+    return configured
+
 
 @app.get("/voice-studio", response_class=HTMLResponse)
 async def vps1_voice_studio_host(request:_VSRequest):
@@ -5316,7 +5327,7 @@ async def _vps1_voice_studio_proxy(request:_VSRequest,upstream_path:str):
     if not studio_access_allows(account, studio):
         raise HTTPException(403, studio.title() + " Studio access required")
     body=await request.body()
-    url=_VS_UPSTREAM+"/"+upstream_path.lstrip("/")
+    url=(_song_audio_upstream() if studio == "song" else _VS_UPSTREAM)+"/"+upstream_path.lstrip("/")
     headers={"Cookie": request.headers.get("cookie", "")}
     ct=request.headers.get("content-type")
     if ct:

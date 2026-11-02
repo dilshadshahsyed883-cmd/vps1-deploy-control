@@ -17,7 +17,8 @@ ALIASES = {"kokoro": "voice-studio"}
 # builds/cutover or acquire intent-queue execution privileges implicitly.
 DEDICATED_APPS = {
     "song-maker": "production.song_maker_release; HOST_HELPER_UPGRADE_REQUIRED; real Drive acceptance pending",
-    "copyright-uploader": "isolated guarded production.runtime installer; not in legacy fixed 11-group inventory"
+    "copyright-uploader": "isolated guarded production.runtime installer; not in legacy fixed 11-group inventory",
+    "song-studio": "independent Song Audio source staged; guarded dual-service cutover and VPS helper registration required"
 }
 FLAGS = ("production_deploy_enabled", "fresh_install_enabled",
          "automatic_database_migrations", "legacy_database_import",
