@@ -24,7 +24,7 @@ class FrozenLibraryRelease(unittest.TestCase):
         self.assertEqual(result.count('id="libraryUploadDrive"'),1)
         self.assertEqual(result.count('id="libraryPreviewDialog"'),1)
         for start,end in [
-            ('    <div class="tabs"', '    <div id="tab-library"'),
+            ('  <div class="tabs"', '    <div id="tab-library"'),
             ('  <div id="tab-proxy"', 'const P='),
             ('function renderProxy(){', 'newMerge();')
         ]:
