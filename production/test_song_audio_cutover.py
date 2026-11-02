@@ -148,6 +148,85 @@ class SongAudioCutoverTests(unittest.TestCase):
                 cutover._clone_overlay(previous, target, {"part01/app.py": b"updated"},
                                        "_scene_candidate_manifest.json", "scene-builder", "a" * 40)
 
+    def test_legacy_voice_overlay_stages_only_reviewed_missing_identity_module(self):
+        # Older immutable Voice releases may not have Voice V1 Scene identity
+        # source. Never mutate the old release or add any unrelated file.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old = root / "releases" / "old"
+            (old / "part01").mkdir(parents=True)
+            existing = {
+                "part01/vps1_omnivoice_app.py": b"import voice_tenant\n",
+                "part01/audio_downloader_api.py": b"# legacy downloader\n",
+            }
+            for name, contents in existing.items():
+                (old / name).write_bytes(contents)
+            for module in ("voice_clone_api", "kokoro_api", "edge_api"):
+                (old / "part01" / (module + ".py")).write_text("# protected Voice source\n")
+            manifest = {
+                "app": "voice-studio", "revision": "old",
+                "files": {name: hashlib.sha256(data).hexdigest()
+                          for name, data in existing.items()},
+            }
+            (old / "_production_manifest.json").write_text(json.dumps(manifest))
+            staged = root / "releases" / "new"
+            reviewed = {
+                "part01/vps1_omnivoice_app.py": b"import voice_tenant\n",
+                "part01/audio_downloader_api.py": b"# frozen source\n",
+                "part01/voice_tenant.py": b"# Scene SSO identity context\n",
+                "part01/queue_actions.py": b"# frozen Edge/Kokoro queue actions\n",
+            }
+            cutover._clone_overlay(
+                old, staged, reviewed, "_production_manifest.json",
+                "voice-studio", "a" * 40)
+            cutover._verify_voice_candidate_modules(staged)
+            self.assertFalse((old / "part01/voice_tenant.py").exists())
+            self.assertFalse((old / "part01/queue_actions.py").exists())
+            self.assertEqual((old / "part01/audio_downloader_api.py").read_bytes(),
+                             existing["part01/audio_downloader_api.py"])
+            self.assertEqual((staged / "part01/voice_tenant.py").read_bytes(),
+                             reviewed["part01/voice_tenant.py"])
+            self.assertEqual((staged / "part01/queue_actions.py").read_bytes(),
+                             reviewed["part01/queue_actions.py"])
+            cutover._clone_overlay(
+                old, staged, reviewed, "_production_manifest.json",
+                "voice-studio", "a" * 40)
+            # A candidate missing the dependency cannot proceed to stop Voice.
+            (staged / "part01/voice_tenant.py").unlink()
+            with self.assertRaisesRegex(RuntimeError, "required local module missing"):
+                cutover._verify_voice_candidate_modules(staged)
+            with self.assertRaisesRegex(RuntimeError, "drift"):
+                cutover._clone_overlay(
+                    old, staged, reviewed, "_production_manifest.json",
+                    "voice-studio", "a" * 40)
+
+    def test_voice_overlay_rejects_any_other_untracked_or_drifting_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old = root / "old"
+            (old / "part01").mkdir(parents=True)
+            (old / "part01/vps1_omnivoice_app.py").write_bytes(b"original")
+            manifest = {
+                "app": "voice-studio", "revision": "old",
+                "files": {"part01/vps1_omnivoice_app.py":
+                          hashlib.sha256(b"original").hexdigest()},
+            }
+            (old / "_production_manifest.json").write_text(json.dumps(manifest))
+            with self.assertRaisesRegex(RuntimeError, "untracked"):
+                cutover._clone_overlay(
+                    old, root / "no-extra", {"part01/unreviewed.py": b"new"},
+                    "_production_manifest.json", "voice-studio", "b" * 40)
+            with self.assertRaisesRegex(RuntimeError, "ownership mismatch"):
+                cutover._clone_overlay(
+                    old, root / "no-scene-extra", {"part01/voice_tenant.py": b"new"},
+                    "_production_manifest.json", "scene-builder", "b" * 40)
+            (old / "part01/vps1_omnivoice_app.py").write_bytes(b"drift")
+            with self.assertRaisesRegex(RuntimeError, "drift"):
+                cutover._clone_overlay(
+                    old, root / "no-drift",
+                    {"part01/vps1_omnivoice_app.py": b"updated"},
+                    "_production_manifest.json", "voice-studio", "b" * 40)
+
     def test_release_is_explicit_protected_voice_only_intent(self):
         runtime = (REPO / "production/runtime.py").read_text()
         workflow = (REPO / ".github/workflows/vps1-song-studio-release.yml").read_text()
