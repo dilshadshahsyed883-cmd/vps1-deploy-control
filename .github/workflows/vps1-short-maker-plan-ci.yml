@@ -1,0 +1,86 @@
+name: Short Maker locked-plan staging CI
+on:
+  pull_request:
+    paths:
+      - 'apps/short-maker/**'
+      - 'tests/test_shortstudio_cooperation_readonly.py'
+      - 'production/shortstudio_cooperation_readonly.py'
+      - 'production/shortstudio_readonly_diagnostic.py'
+      - 'production/test_shortstudio_readonly_diagnostic.py'
+      - 'production/short_uploader_group_release.py'
+      - 'apps/short-maker/part01/short_profile_clock.py'
+      - 'tests/test_short_uploader_cooperation.py'
+      - 'apps/local-upload-manager/part01/lum_engine/uploader_shortstudio_cooperation.py'
+      - 'apps/local-upload-manager/part01/lum_engine/auto_engine_v6_worker.py'
+      - 'apps/local-upload-manager/part01/lum_engine/auto_engine_v6_scheduler.py'
+      - 'apps/local-upload-manager/part01/lum_engine/standalone_app.py'
+      - 'tests/test_short_maker_cooperation.py'
+      - 'tests/test_short_maker_profile_render_e2e.py'
+      - 'tests/test_short_maker_folder_retirement.py'
+      - 'tests/test_short_maker_unused_delete_api.py'
+      - 'tests/test_short_maker_folder_dependencies.py'
+      - 'tests/test_short_maker_profile_clock.py'
+      - 'tests/test_short_maker_profile_daily.py'
+      - 'tests/test_short_maker_profile_queue_bridge.py'
+      - 'tests/test_short_maker_profiles_integration.py'
+      - 'tests/test_short_maker_profiles_store.py'
+      - 'tests/test_short_maker_profile_media.py'
+      - 'tests/test_short_maker_plan_ui.py'
+      - 'tests/test_short_maker_ready_video_uploads.py'
+      - 'tests/test_short_maker_verified_inventory.py'
+      - '.github/workflows/vps1-short-maker-plan-ci.yml'
+  workflow_dispatch:
+# Only one staging run per PR. Superseded #635 commits must not occupy
+# GitHub-hosted runners while the current HEAD waits in the repository queue.
+# This never cancels deployment jobs or other workflows/PRs.
+concurrency:
+  group: short-maker-locked-plan-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  approved-ui-and-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install existing Short Maker dependencies
+        run: python -m pip install -r apps/short-maker/part01/requirements.txt httpx==0.28.1
+      - name: Verify real FFmpeg and FFprobe are available
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ffmpeg
+          fi
+          ffmpeg -version | head -1
+      - name: Syntax and existing queue/owner regression
+        run: |
+          python -m py_compile apps/short-maker/part01/app.py apps/short-maker/part01/ready_video_uploads.py apps/short-maker/part01/short_profiles.py apps/short-maker/part01/short_profile_media.py apps/short-maker/part01/short_profile_daily.py apps/short-maker/part01/short_profile_queue_bridge.py apps/short-maker/part01/short_profile_clock.py apps/short-maker/part01/short_folder_dependencies.py apps/short-maker/part01/short_folder_retirement.py apps/short-maker/part01/short_folder_cooperation.py apps/local-upload-manager/part01/lum_engine/uploader_shortstudio_cooperation.py apps/local-upload-manager/part01/lum_engine/auto_engine_v6_worker.py apps/local-upload-manager/part01/lum_engine/auto_engine_v6_scheduler.py apps/local-upload-manager/part01/lum_engine/standalone_app.py production/shortstudio_cooperation_readonly.py
+          python -m unittest discover -s tests -p 'test_short_maker_plan_ui.py' -v
+          python -m unittest discover -s tests -p 'test_short_maker_profiles_store.py' -v
+          python -m unittest discover -s tests -p 'test_short_maker_profile_daily.py' -v
+          python -m unittest discover -s tests -p 'test_short_maker_profile_clock.py' -v
+          python -m unittest discover -s tests -p 'test_short_maker_folder_dependencies.py' -v
+          python -m unittest discover -s tests -p 'test_short_maker_folder_retirement.py' -v
+          python -m unittest discover -s tests -p 'test_short_maker_unused_delete_api.py' -v
+          python -m unittest discover -s tests -p 'test_short_maker_profile_render_e2e.py' -v
+          python -m unittest discover -s tests -p 'test_short_maker_cooperation.py' -v
+          python -m unittest discover -s tests -p 'test_short_uploader_cooperation.py' -v
+          python -m unittest discover -s tests -p 'test_shortstudio_cooperation_readonly.py' -v
+          python -m unittest production.test_shortstudio_readonly_diagnostic -v
+          python -m unittest discover -s tests -p 'test_short_maker_profile_queue_bridge.py' -v
+          python -m unittest discover -s tests -p 'test_short_maker_profiles_integration.py' -v
+          python -m unittest discover -s tests -p 'test_short_maker_profile_media.py' -v
+          python -m unittest discover -s tests -p 'test_short_maker_ready_video_uploads.py' -v
+          python -m unittest discover -s tests -p 'test_short_maker_verified_inventory.py' -v
+          python -m unittest discover -s tests -p 'test_short_maker_handover.py' -v
+          python -m unittest discover -s tests -p 'test_short_maker_resume.py' -v
+      - name: Check browser resumable uploader JavaScript syntax
+        run: |
+          node --check apps/short-maker/part01/ready_video_client.js
+          node --check apps/short-maker/part01/short_profile_client.js
+      - name: Auto Script remains offline
+        run: grep -q 'Auto Script stays OFFLINE' apps/short-maker/part01/app.py

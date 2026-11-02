@@ -1,6 +1,7 @@
 """Sanitized cross-service Short Maker/Uploader production config preflight."""
 import importlib.util
 import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -201,6 +202,92 @@ class CooperationReadOnlyTests(unittest.TestCase):
             b"LUM_ENGINE_INSTANCE=shortstudio\x00")
         bad=self.module.inspect_live_processes(self.unit_dir,proc,pid_lookup=finder)
         self.assertEqual(bad["status"],"BLOCKED")
+
+    def _drain_fixture(self):
+        maker = self.root / "maker_data"
+        jobs = maker / "jobs"
+        jobs.mkdir(parents=True)
+        job = jobs / "job-001"
+        job.mkdir()
+        state = job / "state.json"
+        state.write_text(json.dumps({"status": "completed",
+                                     "owner": "PRIVATE_OWNER"}))
+        ready = maker / "ready_video_uploads"
+        ready.mkdir()
+        session = ready / "session-001"
+        session.mkdir()
+        manifest = session / "manifest.json"
+        manifest.write_text(json.dumps({"status": "completed",
+                                        "owner": "PRIVATE_OWNER"}))
+        appdb = self.root / "uploader_app.db"
+        enginedb = self.root / "uploader_engine.db"
+        with sqlite3.connect(appdb) as db:
+            db.execute("CREATE TABLE videos(id INTEGER, status TEXT)")
+            db.execute("INSERT INTO videos VALUES(1, 'COMPLETED')")
+        with sqlite3.connect(enginedb) as db:
+            db.execute("CREATE TABLE job_sources(id INTEGER, state TEXT)")
+            db.execute("INSERT INTO job_sources VALUES(1, 'COMPLETE')")
+        with self.envfiles["maker"].open("a") as out:
+            out.write("SHORT_MAKER_DATA=" + str(maker) + "\n")
+            out.write("SHORT_UPLOADER_APP_DB=" + str(appdb) + "\n")
+            out.write("SHORT_UPLOADER_ENGINE_DB=" + str(enginedb) + "\n")
+        return maker, state, manifest, appdb, enginedb
+
+    def test_drain_snapshot_sanitized_and_never_authorizes_production(self):
+        self._drain_fixture()
+        result = self.module.inspect_active_drain(self.unit_dir)
+        self.assertEqual(result["status"], "SNAPSHOT_NO_ACTIVE_UPLOADS")
+        self.assertTrue(result["active_upload_drain_snapshot_verified"])
+        self.assertTrue(result["maker_jobs_idle"])
+        self.assertTrue(result["ready_imports_idle"])
+        self.assertTrue(result["uploader_jobs_idle"])
+        self.assertTrue(result["uploader_source_claims_idle"])
+        self.assertFalse(result["active_upload_drain_verified"])
+        self.assertFalse(result["production_activation_ready"])
+        encoded = json.dumps(result)
+        self.assertNotIn("PRIVATE_OWNER", encoded)
+        self.assertNotIn(str(self.root), encoded)
+        self.assertNotIn("secret", encoded)
+
+    def test_drain_snapshot_blocks_running_maker_paused_import_and_uploader_work(self):
+        _, state, manifest, appdb, enginedb = self._drain_fixture()
+        def report():
+            return self.module.inspect_active_drain(self.unit_dir)
+        state.write_text('{"status":"running"}')
+        self.assertEqual(report()["status"], "BLOCKED")
+        state.write_text('{"status":"completed"}')
+        manifest.write_text('{"status":"paused"}')
+        self.assertEqual(report()["status"], "BLOCKED")
+        manifest.write_text('{"status":"completed"}')
+        with sqlite3.connect(appdb) as db:
+            db.execute("UPDATE videos SET status='UPLOADING'")
+        self.assertFalse(report()["uploader_jobs_idle"])
+        with sqlite3.connect(appdb) as db:
+            db.execute("UPDATE videos SET status='COMPLETED'")
+        with sqlite3.connect(enginedb) as db:
+            db.execute("UPDATE job_sources SET state='CLAIMED'")
+        self.assertFalse(report()["uploader_source_claims_idle"])
+        with sqlite3.connect(enginedb) as db:
+            db.execute("UPDATE job_sources SET state='COMPLETE'")
+        self.assertTrue(report()["active_upload_drain_snapshot_verified"])
+
+    def test_drain_snapshot_rejects_unknown_db_missing_state_and_path_override(self):
+        maker, state, _, appdb, _ = self._drain_fixture()
+        state.unlink()
+        self.assertFalse(self.module.inspect_active_drain(
+            self.unit_dir)["active_upload_drain_snapshot_verified"])
+        state.write_text('{"status":"completed"}')
+        appdb.unlink()
+        self.assertEqual(self.module.inspect_active_drain(self.unit_dir)["status"],
+                         "BLOCKED")
+        # A sensitive path override in a systemd unit invalidates the proof.
+        unit = self.unit_dir / self.module.SERVICES["maker"]
+        unit.write_text(unit.read_text() +
+                        "Environment=SHORT_UPLOADER_APP_DB=/tmp/untrusted\n")
+        self.assertEqual(self.module.inspect_active_drain(self.unit_dir)["status"],
+                         "BLOCKED")
+        self.assertFalse(self.module.inspect_active_drain(
+            self.unit_dir)["production_activation_ready"])
 
     def test_service_unit_names_match_canonical_runtime_and_shortstudio_release(self):
         runtime=(ROOT/"production/runtime.py").read_text(encoding="utf-8")

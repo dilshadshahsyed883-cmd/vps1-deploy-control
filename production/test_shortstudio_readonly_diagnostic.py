@@ -71,6 +71,27 @@ class DiagnosticTests(unittest.TestCase):
                 result=diag.collect(state,unit_dir=units)
             self.assertEqual(result["mode"],"READ_ONLY")
             self.assertEqual(result["scope"],"shortstudio")
+            self.assertEqual(result["cooperation"]["mode"],"READ_ONLY")
+            self.assertFalse(result["cooperation"]["production_activation_ready"])
+            self.assertFalse(result["cooperation"]["retirement_enabled"])
+            self.assertFalse(result["cooperation"]["same_host_root_proven"])
+            self.assertEqual(result["active_drain_snapshot"]["mode"], "READ_ONLY")
+            self.assertFalse(result["active_drain_snapshot"]["active_upload_drain_verified"])
+            self.assertFalse(result["active_drain_snapshot"]["production_activation_ready"])
+            self.assertEqual(result["active_drain_snapshot"]["status"], "BLOCKED")
             self.assertFalse(result["empty_first_install_proven"])
             self.assertEqual(list((state/"lum-shortstudio").iterdir()),[])
+    def test_protected_main_readonly_audit_reports_only_sanitized_drain_flags(self):
+        workflow=(Path(__file__).resolve().parents[1]/".github/workflows/vps1-short-studio-release.yml").read_text(encoding="utf-8")
+        for marker in ("data.get('active_drain_snapshot')",
+                       "'maker_jobs_idle_snapshot'",
+                       "'ready_imports_idle_snapshot'",
+                       "'uploader_jobs_idle_snapshot'",
+                       "'uploader_source_claims_idle_snapshot'",
+                       "'active_upload_drain_snapshot_verified'",
+                       "'active_upload_drain_verified':False",
+                       "'retirement_enabled':False",
+                       "'deployment_performed':False"):
+            self.assertIn(marker,workflow)
+
 if __name__ == "__main__": unittest.main()

@@ -57,6 +57,10 @@ jobs:
             # An existing protected-main root helper handles this marker
             # as READ ONLY. Never install the Short Maker app or touch workers.
             apps=(local-upload-manager)
+          elif [[ "$RELEASE_INTENT" == *'[vps1-short-maker-drain-release]'* ]]; then
+            # Frozen Phase 1: only Short Maker; root helper enforces idle and rollback.
+            # Feature flags remain OFF until later evidence-gated activation.
+            apps=(short-maker)
           elif [[ "$RELEASE_INTENT" == *'[vps1-short-maker-only]'* ]]; then
             apps=(short-maker)
           elif [[ "$RELEASE_INTENT" == *'[vps1-shortstudio-fixed-modes]'* ]]; then
@@ -97,6 +101,7 @@ jobs:
               raise SystemExit('READONLY_DIAGNOSTIC_INVALID')
           config=data.get('cooperation') or {}
           live=data.get('live_cooperation') or {}
+          snapshot=data.get('active_drain_snapshot') or {}
           safe={
             'mode':'READ_ONLY',
             'host_config_status':config.get('status','UNKNOWN'),
@@ -105,6 +110,11 @@ jobs:
             'same_host_root':bool(config.get('same_host_root_proven',False)),
             'four_processes_same_mount':bool(live.get('four_processes_same_mount_verified',False)),
             'four_processes_lock_flags':bool(live.get('four_processes_lock_flags_verified',False)),
+            'maker_jobs_idle_snapshot':bool(snapshot.get('maker_jobs_idle',False)),
+            'ready_imports_idle_snapshot':bool(snapshot.get('ready_imports_idle',False)),
+            'uploader_jobs_idle_snapshot':bool(snapshot.get('uploader_jobs_idle',False)),
+            'uploader_source_claims_idle_snapshot':bool(snapshot.get('uploader_source_claims_idle',False)),
+            'active_upload_drain_snapshot_verified':bool(snapshot.get('active_upload_drain_snapshot_verified',False)),
             'active_upload_drain_verified':False,
             'retirement_enabled':False,
             'deployment_performed':False,
