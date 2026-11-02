@@ -144,6 +144,30 @@ class TenantBoundaryTest(unittest.TestCase):
             self.assertEqual(con.execute("SELECT COUNT(*) FROM profiles WHERE profile_id='CLV-OWNED'").fetchone()[0], 1)
             self.assertEqual(con.execute("SELECT COUNT(*) FROM jobs WHERE job_id='CLJ-FOREIGN'").fetchone()[0], 1)
 
+    def test_test_generation_owner_gate_precedes_offline_worker_probe(self):
+        from unittest.mock import patch
+        clone = self.clone
+        with clone.db() as con:
+            con.execute(
+                "INSERT INTO profiles(profile_id,name,source_filename,sample_file,sample_sha256,"
+                "duration_seconds,created_at,owner_username) VALUES(?,?,?,?,?,?,?,?)",
+                ("CLV-ALPHA", "owned", "sample.wav", "sample.wav", "abc", 3.0, "2026-11-02", "alpha"),
+            )
+        with as_user("beta"):
+            # Never reveal worker state before rejecting another owner's ID.
+            with patch.object(clone, "effective_worker_config", side_effect=AssertionError("worker probed before ownership")):
+                self.assert_404(lambda: clone.test_worker_generation("CLV-ALPHA"))
+            with patch.object(clone, "effective_omnivoice_config", side_effect=AssertionError("OmniVoice probed before ownership")):
+                self.assert_404(lambda: clone.test_omnivoice_generation("CLV-ALPHA"))
+        with as_user("alpha"):
+            # Own profile still receives the pre-existing offline status.
+            with patch.object(clone, "effective_worker_config", return_value={"endpoint_url": ""}):
+                result = clone.test_worker_generation("CLV-ALPHA")
+            self.assertEqual(result, {"ok": False, "error": "worker_not_connected"})
+            with patch.object(clone, "effective_omnivoice_config", return_value={"endpoint_url": ""}):
+                result = clone.test_omnivoice_generation("CLV-ALPHA")
+            self.assertEqual(result, {"ok": False, "error": "worker_not_connected"})
+
     def test_auto_drive_default_retained_with_owner_scoped_destination(self):
         """Legacy output paths stay unchanged; new Auto jobs do not share files."""
         spool = load("voice_clone_drive_spooler")
