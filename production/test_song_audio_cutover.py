@@ -252,6 +252,12 @@ class SongAudioCutoverTests(unittest.TestCase):
         self.assertEqual(unit.call_args.args[0],
                          ["systemctl", "is-active", "--quiet", cutover.service.SONG_UNIT])
 
+    def test_song_readiness_has_hard_bounded_timing(self):
+        for wait, interval in ((0, 1), (61, 1), (5, 0), (5, 4)):
+            with self.subTest(wait=wait, interval=interval):
+                with self.assertRaises(ValueError):
+                    cutover._health_song(wait, interval)
+
     def test_release_is_explicit_protected_voice_only_intent(self):
         runtime = (REPO / "production/runtime.py").read_text()
         workflow = (REPO / ".github/workflows/vps1-song-studio-release.yml").read_text()
