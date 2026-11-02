@@ -12,7 +12,7 @@ Status: **STAGED / NOT CUT OVER / NO PRODUCTION DEPLOYMENT**.
 1. Legacy Voice still serves downloader and holds its worker by default. `SONG_AUDIO_BACKEND_SPLIT` defaults OFF. No live behavior changes unless an explicit guarded deployment sets it to `1`.
 2. A standalone `song_audio_app:app` accepts **Song** grants only, exports no Voice synthesis APIs, and refuses to start without `SONG_AUDIO_CUTOVER_ACTIVE=1` and an explicit absolute canonical `AUDIO_DOWNLOADER_ROOT`.
 3. The existing Audio Downloader worker now takes a single OS file lock inside its durable data directory **before any queue recovery**, held for its process lifetime. A second server fails to start rather than duplicating downloads/uploads or Song Maker handoffs.
-4. The Song-only server currently reuses the reviewed UI template and existing downloader API code. A separate service process and routing are required to finish the isolation; copy/migrate data is forbidden.
+4. The Song-only server currently reuses the reviewed UI template and existing downloader API code. Scene now supports an exact, protected `SONG_AUDIO_SPLIT_UPSTREAM=http://127.0.0.1:8152` switch for **Song** APIs and HTML only. Unset is legacy-compatible; any other configured URL is rejected rather than proxied. This switch is not activated in production. A separate service process and guarded route change are still required to finish the isolation; copy/migrate data is forbidden.
 5. No protected CI, Gitleaks rules, branch rules, authorization or workflow release conditions are weakened.
 
 ## Guarded cutover checklist — fail closed
