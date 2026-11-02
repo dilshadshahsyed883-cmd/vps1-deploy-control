@@ -158,6 +158,15 @@ def short_personal_default(owner: str) -> str:
     return name
 
 
+def sha256_verified_file(path: Path) -> str:
+    """Bounded-memory fingerprint for a committed studio MP4."""
+    digest = hashlib.sha256()
+    with path.open("rb") as reader:
+        for chunk in iter(lambda: reader.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def publish_short_to_vps(path: Path, folder_name: str, job_id: str, strict: bool = False) -> str:
     folder = short_vps_folder(folder_name)
     if not folder.is_dir():
@@ -170,8 +179,9 @@ def publish_short_to_vps(path: Path, folder_name: str, job_id: str, strict: bool
     tmp = folder / f".{uuid.uuid4().hex}.partial"
     try:
         shutil.copyfile(path, tmp)
-        if tmp.stat().st_size != path.stat().st_size or not tmp.stat().st_size:
-            raise RuntimeError("VPS output copy failed validation.")
+        if (tmp.stat().st_size != path.stat().st_size or not tmp.stat().st_size
+                or sha256_verified_file(tmp) != sha256_verified_file(path)):
+            raise RuntimeError("VPS output copy failed SHA256 validation.")
         # Atomic no-clobber publish; never overwrite another job/worker.
         os.link(tmp, final)
     finally:
@@ -801,6 +811,10 @@ def render_job(job_id: str, cfg: dict):
                 raise RuntimeError("Short Uploader destination requires a VPS folder.")
             for item in created:
                 item["short_vps_folder"] = folder_name
+                # Hash the original rendered file before Short Uploader can
+                # consume it. A permanent receipt allows folder retirement
+                # to reject any replacement or legacy unverified MP4.
+                item["short_vps_sha256"] = sha256_verified_file(Path(item["local_path"]))
                 item["short_vps_filename"] = publish_short_to_vps(
                     Path(item["local_path"]), folder_name, job_id,
                     strict=bool(cfg.get("output_names")),
