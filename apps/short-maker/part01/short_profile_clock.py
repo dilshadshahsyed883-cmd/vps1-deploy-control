@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from contextlib import nullcontext
 from datetime import datetime, timezone, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -23,12 +24,16 @@ LOG = logging.getLogger("short-maker.daily-profiles")
 
 class ShortProfileDailyClock:
     def __init__(self, store, planner, bridge, interval_seconds=30,
-                 now=lambda: datetime.now(timezone.utc)):
+                 now=lambda: datetime.now(timezone.utc), operation_guard=None):
         self.store = store
         self.planner = planner
         self.bridge = bridge
         self.interval_seconds = interval_seconds
         self.now = now
+        # The background scheduler is not protected by HTTP middleware.
+        # This MUST participate in the exact same shared folder protocol as
+        # renderers and uploader workers before retirement can be activated.
+        self.operation_guard = operation_guard or nullcontext
         self._stop_event = threading.Event()
         self._thread = None
 
@@ -36,22 +41,26 @@ class ShortProfileDailyClock:
         return local_now(when).date().isoformat()
 
     def _dispatch(self, owner, profile_id, when, *, explicit=False):
-        planned = self.planner.plan(owner, profile_id, when,
-                                    explicit_start=explicit)
-        if not planned.get("due"):
-            return {"status": "not_due", "pkt_date": planned["pkt_date"]}
-        # Only the current PKT date; no backlog of prior days after downtime.
-        claims = self.planner.reconcile(
-            owner, profile_id, self.bridge.lookup, self.bridge.enqueue,
-            pkt_date=self._current_day(when))
-        return {
-            "status": "planned" if not planned["shortage"] else "media_shortage",
-            "pkt_date": planned["pkt_date"],
-            "target": planned["target"],
-            "planned": planned["planned"],
-            "shortage": planned["shortage"],
-            "queued_or_existing": sum(c["status"] == "enqueued" for c in claims),
-        }
+        # Hold the lease throughout planning, persistent reservations and
+        # job staging; otherwise retirement could pass preflight between
+        # folder verification and writing a new queued Maker job.
+        with self.operation_guard():
+            planned = self.planner.plan(owner, profile_id, when,
+                                        explicit_start=explicit)
+            if not planned.get("due"):
+                return {"status": "not_due", "pkt_date": planned["pkt_date"]}
+            # Only the current PKT date; no backlog of prior days after downtime.
+            claims = self.planner.reconcile(
+                owner, profile_id, self.bridge.lookup, self.bridge.enqueue,
+                pkt_date=self._current_day(when))
+            return {
+                "status": "planned" if not planned["shortage"] else "media_shortage",
+                "pkt_date": planned["pkt_date"],
+                "target": planned["target"],
+                "planned": planned["planned"],
+                "shortage": planned["shortage"],
+                "queued_or_existing": sum(c["status"] == "enqueued" for c in claims),
+            }
 
     def start_profile(self, owner, profile_id):
         # Invoked only through the feature-gated, authenticated Start route.
