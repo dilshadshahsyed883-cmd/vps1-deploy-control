@@ -99,6 +99,15 @@ def idle_database(state):
                 f"SELECT COUNT(*) FROM {table} WHERE lower(coalesce(status,'')) NOT IN ({placeholder})",
                 allowed).fetchone()[0]
             require(count==0, 'Video Merger '+table+' has unfinished jobs')
+    # A VPS-ready item can still have a separate optional Drive copy running.
+    # Releasing during that copy could interrupt it; fail closed before restart.
+    with sqlite3.connect('file:'+str(path)+'?mode=ro',uri=True,timeout=6) as db:
+        fields={row[1] for row in db.execute('PRAGMA table_info(library_items)')}
+        if 'drive_status' in fields:
+            uploading=db.execute(
+                "SELECT COUNT(*) FROM library_items WHERE drive_status='uploading'"
+            ).fetchone()[0]
+            require(uploading==0,'Active optional Library Drive copy; release blocked')
     event(app='video-merger',idle='SQLITE_READ_ONLY_PASS',owner_media_mutated=False)
 
 
@@ -108,7 +117,15 @@ def overlay_failed_import_retry_ui(live, source):
     added='''${x.status==='failed'?`<button class="btn secondary mini" onclick="retryLibrary('${x.id}')" ${x.in_use?'disabled':''}>Retry</button>`:''}'''
     function="function renderProxy(){"
     new_handler='''async function retryLibrary(id){let x=state.library.find(v=>v.id===id);if(!x||x.status!=='failed')return;if(!confirm(`Retry failed Library import “${x.name}” from the saved original URL?`))return;try{await api(`/api/library/${id}/retry`,{method:'POST',body:'{}'});toast('Retry started using saved source');await refresh()}catch(e){toast(e.message)}}\n'''
-    require(source.count(added+action)==1 and source.count(new_handler+function)==1,
+    # The frozen 2026-11-02 Library redesign retains retry support but
+    # moves its button into a multi-line, owner-scoped actions renderer.
+    # Keep the old active-live overlay unchanged; verify the new source's
+    # actual retry control explicitly rather than matching old adjacency.
+    frozen_retry = (source.count('function renderLibrary(){') == 1
+                    and source.count("onclick=\"retryLibrary('${x.id}')\"") == 1
+                    and source.count('>Retry Import</button>') == 1)
+    require((source.count(added+action)==1 or frozen_retry)
+            and source.count(new_handler+function)==1,
             'retry source UI contract changed')
     if added+action not in live:
         require(live.count(action)==1,'active Library action UI changed; refuse overwrite')
@@ -293,7 +310,11 @@ def install(revision):
     template='part01/templates/index.html'
     live_template=target/template
     source_html=(REPO/'apps'/app/template).read_text(encoding='utf-8')
-    patched=overlay_failed_import_retry_ui(live_template.read_text(encoding='utf-8'),source_html)
+    library_v1='id="libraryUploadDrive" type="checkbox"' in source_html
+    # Frozen Library replaces its full renderer; do not inject a second legacy
+    # Retry button before the strict reviewed panel comparison.
+    patched=(live_template.read_text(encoding='utf-8') if library_v1 else
+             overlay_failed_import_retry_ui(live_template.read_text(encoding='utf-8'),source_html))
     if 'VIDEO_MERGER_TWO_COLUMN_QUEUE_V2' in source_html:
         # The immutable deployment checkout is shallow and has no revision^.
         # Use the audited pre-Queue panel anchor stored in this exact Git SHA.
@@ -303,6 +324,15 @@ def install(revision):
         baseline=baseline_path.read_text(encoding='utf-8')
         patched=overlay_queue_layout_ui(patched,source_html,baseline)
     patched=overlay_owner_handover_ui(patched,source_html)
+    # Frozen V1 Library changes are separate from the historic import/Queue patch.
+    # Exact-match replacement refuses any active Library customization/drift.
+    if library_v1:
+        from production.video_merger_library_release import frozen_library_overlay
+        baseline_path=REPO/'production/video_merger_library_20261102_baseline.html'
+        require(baseline_path.is_file() and not baseline_path.is_symlink(),
+                'Reviewed Video Merger Library UI baseline missing')
+        patched=frozen_library_overlay(patched,source_html,
+                                      baseline_path.read_text(encoding='utf-8'))
     live_template.write_text(patched,encoding='utf-8')
     manifest=json.loads((target/'_production_manifest.json').read_text())
     require(manifest.get('app')==app,'wrong manifest owner')
@@ -374,6 +404,11 @@ def install(revision):
         from production.route_uploader_scene_https import https_get, scene_cookie
         code,kind,page=https_get('/video-merger/',scene_cookie())
         require(code==200 and 'html' in kind.lower(),'authenticated UI readback failed')
+        if library_v1:
+            require(b'id="libraryUploadDrive"' in page
+                    and b'id="libraryPreviewDialog"' in page
+                    and b'function viewLibrary(id)' in page,
+                    'authenticated frozen Library UI readback failed')
         if 'VIDEO_MERGER_TWO_COLUMN_QUEUE_V2' in source_html:
             require(b'VIDEO_MERGER_TWO_COLUMN_QUEUE_V2' in page and
                     b'id="tab-queue"' in page and b'class="vm-merge-layout"' in page,
