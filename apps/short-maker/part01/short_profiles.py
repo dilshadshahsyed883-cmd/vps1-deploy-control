@@ -228,7 +228,8 @@ class ShortProfileStore:
 
 
 def register_short_profile_store(app, data_root, short_identity, short_folder_owned,
-                                 verify_source_import=None, start_callback=None, existing_store=None):
+                                 verify_source_import=None, start_callback=None, existing_store=None,
+                                 status_callback=None):
     """Register authenticated record routes, with fail-closed source verification."""
     store = existing_store if existing_store is not None else ShortProfileStore(Path(data_root))
     def owner(request):
@@ -240,7 +241,12 @@ def register_short_profile_store(app, data_root, short_identity, short_folder_ow
 
     @app.get("/api/short-profiles")
     def list_profiles(request: Request):
-        return {"profiles": store.list(owner(request)),
+        who = owner(request)
+        profiles = store.list(who)
+        if status_callback is not None:
+            for profile in profiles:
+                profile["daily_summary"] = status_callback(who, profile["id"])
+        return {"profiles": profiles,
                 "scheduler_active": start_callback is not None}
 
     @app.post("/api/short-profiles")
