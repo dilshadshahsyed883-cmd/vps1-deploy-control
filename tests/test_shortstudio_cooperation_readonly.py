@@ -59,6 +59,15 @@ class CooperationReadOnlyTests(unittest.TestCase):
         self.assertNotIn(str(self.folder),encoded)
         self.assertNotIn(str(self.unit_dir),encoded)
 
+    def test_generated_unit_path_environment_is_not_a_false_blocker(self):
+        for name in self.module.SERVICES.values():
+            unit=self.unit_dir/name
+            unit.write_text(unit.read_text()
+                +"Environment=PATH=/usr/local/bin:/usr/bin:/bin\\n")
+        result=self.result()
+        self.assertTrue(result["same_host_root_proven"])
+        self.assertEqual(result["status"],"HOST_CONFIGURATION_READY_FOR_LIVE_GATES")
+
     def test_all_disabled_consistent_guards_are_still_blocked(self):
         for kind,env in self.envfiles.items():
             text=env.read_text()
