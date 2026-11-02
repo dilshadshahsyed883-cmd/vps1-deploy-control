@@ -311,6 +311,16 @@ def install(revision):
         baseline=baseline_path.read_text(encoding='utf-8')
         patched=overlay_queue_layout_ui(patched,source_html,baseline)
     patched=overlay_owner_handover_ui(patched,source_html)
+    # Frozen V1 Library changes are separate from the historic import/Queue patch.
+    # Exact-match replacement refuses any active Library customization/drift.
+    library_v1='id="libraryUploadDrive" type="checkbox"' in source_html
+    if library_v1:
+        from production.video_merger_library_release import frozen_library_overlay
+        baseline_path=REPO/'production/video_merger_library_20261102_baseline.html'
+        require(baseline_path.is_file() and not baseline_path.is_symlink(),
+                'Reviewed Video Merger Library UI baseline missing')
+        patched=frozen_library_overlay(patched,source_html,
+                                      baseline_path.read_text(encoding='utf-8'))
     live_template.write_text(patched,encoding='utf-8')
     manifest=json.loads((target/'_production_manifest.json').read_text())
     require(manifest.get('app')==app,'wrong manifest owner')
@@ -382,6 +392,11 @@ def install(revision):
         from production.route_uploader_scene_https import https_get, scene_cookie
         code,kind,page=https_get('/video-merger/',scene_cookie())
         require(code==200 and 'html' in kind.lower(),'authenticated UI readback failed')
+        if library_v1:
+            require(b'id="libraryUploadDrive"' in page
+                    and b'id="libraryPreviewDialog"' in page
+                    and b'function viewLibrary(id)' in page,
+                    'authenticated frozen Library UI readback failed')
         if 'VIDEO_MERGER_TWO_COLUMN_QUEUE_V2' in source_html:
             require(b'VIDEO_MERGER_TWO_COLUMN_QUEUE_V2' in page and
                     b'id="tab-queue"' in page and b'class="vm-merge-layout"' in page,
