@@ -3,6 +3,11 @@ on:
   pull_request:
     paths:
       - 'apps/short-maker/**'
+      - 'tests/test_short_uploader_cooperation.py'
+      - 'apps/local-upload-manager/part01/lum_engine/uploader_shortstudio_cooperation.py'
+      - 'apps/local-upload-manager/part01/lum_engine/auto_engine_v6_worker.py'
+      - 'apps/local-upload-manager/part01/lum_engine/auto_engine_v6_scheduler.py'
+      - 'apps/local-upload-manager/part01/lum_engine/standalone_app.py'
       - 'tests/test_short_maker_cooperation.py'
       - 'tests/test_short_maker_profile_render_e2e.py'
       - 'tests/test_short_maker_folder_retirement.py'
@@ -40,7 +45,7 @@ jobs:
           ffmpeg -version | head -1
       - name: Syntax and existing queue/owner regression
         run: |
-          python -m py_compile apps/short-maker/part01/app.py apps/short-maker/part01/ready_video_uploads.py apps/short-maker/part01/short_profiles.py apps/short-maker/part01/short_profile_media.py apps/short-maker/part01/short_profile_daily.py apps/short-maker/part01/short_profile_queue_bridge.py apps/short-maker/part01/short_profile_clock.py apps/short-maker/part01/short_folder_dependencies.py apps/short-maker/part01/short_folder_retirement.py apps/short-maker/part01/short_folder_cooperation.py
+          python -m py_compile apps/short-maker/part01/app.py apps/short-maker/part01/ready_video_uploads.py apps/short-maker/part01/short_profiles.py apps/short-maker/part01/short_profile_media.py apps/short-maker/part01/short_profile_daily.py apps/short-maker/part01/short_profile_queue_bridge.py apps/short-maker/part01/short_profile_clock.py apps/short-maker/part01/short_folder_dependencies.py apps/short-maker/part01/short_folder_retirement.py apps/short-maker/part01/short_folder_cooperation.py apps/local-upload-manager/part01/lum_engine/uploader_shortstudio_cooperation.py apps/local-upload-manager/part01/lum_engine/auto_engine_v6_worker.py apps/local-upload-manager/part01/lum_engine/auto_engine_v6_scheduler.py apps/local-upload-manager/part01/lum_engine/standalone_app.py
           python -m unittest discover -s tests -p 'test_short_maker_plan_ui.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_profiles_store.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_profile_daily.py' -v
@@ -49,6 +54,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_short_maker_folder_retirement.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_profile_render_e2e.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_cooperation.py' -v
+          python -m unittest discover -s tests -p 'test_short_uploader_cooperation.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_profile_queue_bridge.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_profiles_integration.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_profile_media.py' -v
