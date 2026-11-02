@@ -55,6 +55,9 @@ jobs:
           python -m unittest production.test_uploader_mode_coordinator -v
           python -m unittest production.test_gateway -v
           python -m production.smoke --app "$APP"
+      - name: Voice isolated Scene fixture while live SSO port is occupied (no VPS)
+        if: matrix.app == 'voice-studio'
+        run: python -m unittest production.test_voice_smoke_scene_port -v
       - name: Real CPU speech using official immutable model release
         if: matrix.app == 'voice-studio'
         run: python -m production.worker_smoke
