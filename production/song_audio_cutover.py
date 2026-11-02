@@ -37,8 +37,9 @@ SCENE_ENV = service.SCENE_ENV
 SONG_ENV = service.SONG_ENV
 SONG_UNIT_PATH = Path("/etc/systemd/system") / service.SONG_UNIT
 JOURNALS = BASE / "transactions/song-audio-separation"
-VOICE_FILES = ("part01/vps1_omnivoice_app.py", "part01/audio_downloader_api.py",
-               "part01/voice_tenant.py")
+VOICE_FILES = ("part01/vps1_omnivoice_app.py", "part01/audio_downloader_api.py")
+# Frozen V1/V1.1 support modules: copy only if genuinely absent from legacy.
+VOICE_COMPANION_FILES = ("part01/voice_tenant.py", "part01/queue_actions.py")
 
 
 def _verify_pointer(pointer: Path, releases: Path) -> Path:
@@ -123,10 +124,10 @@ def _clone_overlay(previous: Path, target: Path, changes: dict[str, bytes],
         old = previous / name
         if old.is_symlink():
             raise RuntimeError("Previous release overlay target linked")
-        reviewed_new_voice_identity = (
-            app_name == "voice-studio" and name == "part01/voice_tenant.py"
+        reviewed_missing_voice_companion = (
+            app_name == "voice-studio" and name in VOICE_COMPANION_FILES
             and not old.exists() and name not in manifest["files"])
-        if reviewed_new_voice_identity:
+        if reviewed_missing_voice_companion:
             continue
         if not old.is_file() or name not in manifest["files"]:
             raise RuntimeError("Overlay would edit missing or untracked source")
@@ -149,7 +150,7 @@ def _verify_voice_candidate_modules(candidate: Path) -> None:
     queue writes, credentials or external API calls happen during this check.
     """
     for module in ("vps1_omnivoice_app", "voice_clone_api", "kokoro_api",
-                   "edge_api", "voice_tenant"):
+                   "edge_api", "voice_tenant", "queue_actions"):
         path = candidate / "part01" / (module + ".py")
         if path.is_symlink() or not path.is_file():
             raise RuntimeError("Voice candidate required local module missing")
@@ -387,7 +388,13 @@ def install(revision: str) -> None:
     voice_candidate = VOICE_RELEASES / (revision + "-song-audio")
     scene_candidate = SCENE_RELEASES / (revision + "-song-audio")
     voice_data = {}
-    for item in VOICE_FILES:
+    for item in VOICE_FILES + VOICE_COMPANION_FILES:
+        old = previous_voice / item
+        if old.is_symlink():
+            raise RuntimeError("Legacy Voice companion module linked")
+        if item in VOICE_COMPANION_FILES and old.is_file():
+            # Keep existing frozen Voice feature code exactly as installed.
+            continue
         reviewed = REPO / "apps/voice-studio" / item
         if reviewed.is_symlink() or not reviewed.is_file():
             raise RuntimeError("Reviewed Voice split source absent/linked")
