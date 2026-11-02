@@ -79,7 +79,7 @@ def browser_test():
             return r.fulfill(content_type='application/json', body=json.dumps({
                 'authenticated': True, 'username': 'fixture', 'is_admin': True,
                 'allowed_studios': ['song', 'short', 'copyright']}))
-        if path in ('/short-maker/resumable_client.js', '/short-maker/ready_video_client.js'):
+        if path in ('/short-maker/resumable_client.js', '/short-maker/ready_video_client.js', '/short-maker/short_profile_client.js'):
             # Serve actual browser modules; JSON fallback is not executable JavaScript.
             filename = path.rsplit('/', 1)[-1]
             js = (ROOT/'apps/short-maker/part01'/filename).read_text(encoding='utf-8')
