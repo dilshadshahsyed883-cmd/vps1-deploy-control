@@ -148,8 +148,9 @@ class TenantBoundaryTest(unittest.TestCase):
         """Legacy output paths stay unchanged; new Auto jobs do not share files."""
         spool = load("voice_clone_drive_spooler")
 
-        def job(username="", folder="", include_owner=True):
-            row = {"drive_folder": folder, "language": "en-GB", "engine": "omnivoice"}
+        def job(username="", folder="", include_owner=True, auto_scoped=False):
+            row = {"drive_folder": folder, "language": "en-GB", "engine": "omnivoice",
+                   "auto_owner_scoped": int(auto_scoped)}
             if include_owner:
                 row["owner_username"] = username
             return row
@@ -168,8 +169,10 @@ class TenantBoundaryTest(unittest.TestCase):
         legacy = "Kokora TTS Outputs/en-GB/gpu-omnivoice"
         self.assertEqual(spool.destination_folder_for_job(job()), legacy)
         self.assertEqual(spool.destination_folder_for_job(job(include_owner=False)), legacy)
-        alpha = spool.destination_folder_for_job(job(username="alpha"))
-        beta = spool.destination_folder_for_job(job(username="beta"))
+        # Historical records keep their destination after verified attribution.
+        self.assertEqual(spool.destination_folder_for_job(job(username="alpha")), legacy)
+        alpha = spool.destination_folder_for_job(job(username="alpha", auto_scoped=True))
+        beta = spool.destination_folder_for_job(job(username="beta", auto_scoped=True))
         self.assertEqual(alpha, legacy + "/vs_alpha__default")
         self.assertEqual(beta, legacy + "/vs_beta__default")
         self.assertNotEqual(alpha, beta)
@@ -182,7 +185,9 @@ class TenantBoundaryTest(unittest.TestCase):
             "Kokora TTS Outputs/vs_alpha__Series",
         )
         with self.assertRaises(RuntimeError):
-            spool.destination_folder_for_job(job(username="../outside"))
+            spool.destination_folder_for_job(job(username="../outside", auto_scoped=True))
+        with self.assertRaises(RuntimeError):
+            spool.destination_folder_for_job(job(auto_scoped=True))
 
     def test_no_identity_is_denied(self):
         with self.assertRaises(HTTPException) as ctx:
