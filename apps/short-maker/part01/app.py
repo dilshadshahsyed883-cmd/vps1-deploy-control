@@ -168,6 +168,16 @@ def sha256_verified_file(path: Path) -> str:
 
 
 def publish_short_to_vps(path: Path, folder_name: str, job_id: str, strict: bool = False) -> str:
+    # Keep the legacy handoff helper independently executable by its existing
+    # isolated release-contract test; bounded hashing is local to this helper.
+    import hashlib as _hashlib
+    def _digest(source):
+        digest = _hashlib.sha256()
+        with source.open("rb") as reader:
+            for part in iter(lambda: reader.read(1024 * 1024), b""):
+                digest.update(part)
+        return digest.hexdigest()
+
     folder = short_vps_folder(folder_name)
     if not folder.is_dir():
         raise RuntimeError("Chosen VPS folder was deleted. Select an existing folder.")
@@ -180,7 +190,7 @@ def publish_short_to_vps(path: Path, folder_name: str, job_id: str, strict: bool
     try:
         shutil.copyfile(path, tmp)
         if (tmp.stat().st_size != path.stat().st_size or not tmp.stat().st_size
-                or sha256_verified_file(tmp) != sha256_verified_file(path)):
+                or _digest(tmp) != _digest(path)):
             raise RuntimeError("VPS output copy failed SHA256 validation.")
         # Atomic no-clobber publish; never overwrite another job/worker.
         os.link(tmp, final)
