@@ -3,11 +3,15 @@ on:
   pull_request:
     paths:
       - 'apps/short-maker/**'
+      - 'tests/test_shortstudio_cooperation_readonly.py'
+      - 'production/shortstudio_cooperation_readonly.py'
+      - 'production/short_uploader_group_release.py'
+      - 'apps/short-maker/part01/short_profile_clock.py'
       - 'tests/test_short_uploader_cooperation.py'
       - 'apps/local-upload-manager/part01/lum_engine/uploader_shortstudio_cooperation.py'
       - 'apps/local-upload-manager/part01/lum_engine/auto_engine_v6_worker.py'
       - 'apps/local-upload-manager/part01/lum_engine/auto_engine_v6_scheduler.py'
-      - 'apps/local-upload-manager/part01/lum_engine/standalone_app.py'
+      - 'apps/local-upload-manager/part01/lum_engine/standalone_app.py production/shortstudio_cooperation_readonly.py'
       - 'tests/test_short_maker_cooperation.py'
       - 'tests/test_short_maker_profile_render_e2e.py'
       - 'tests/test_short_maker_folder_retirement.py'
@@ -55,6 +59,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_short_maker_profile_render_e2e.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_cooperation.py' -v
           python -m unittest discover -s tests -p 'test_short_uploader_cooperation.py' -v
+          python -m unittest discover -s tests -p 'test_shortstudio_cooperation_readonly.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_profile_queue_bridge.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_profiles_integration.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_profile_media.py' -v
