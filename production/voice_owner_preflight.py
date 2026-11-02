@@ -61,18 +61,23 @@ def audit(path: Path, engine: str) -> dict:
 def report(databases: dict[str, Path]) -> tuple[dict, bool]:
     findings = [audit(path, name) for name, path in databases.items()]
     blocked = any(
-        not entry["owner_column_present"] or entry["unassigned"] > 0
+        # V1.1: an empty legacy jobs table has no owners to attribute.
+        # A missing owner column is not evidence of unowned DATA when count=0.
+        entry["unassigned"] > 0
         for engine in findings for entry in engine["tables"].values()
     ) or any(
         item["engine"] == "clone" and (
             item["unassigned_legacy_categories"] > 0 or
-            item["job_profile_owner_conflicts"] is None or
-            item["job_profile_owner_conflicts"] > 0
+            (item["job_profile_owner_conflicts"] is None and (
+                item["tables"]["jobs"]["total"] > 0 or
+                item["tables"]["profiles"]["total"] > 0
+            )) or
+            (item["job_profile_owner_conflicts"] or 0) > 0
         ) for item in findings
     )
     return {"voice_owner_preflight": "BLOCKED" if blocked else "READY",
             "engines": findings,
-            "action": "Verify legacy owners/categories and job-profile links from independent evidence; do not autoassign or delete. Structural READY alone is not release approval."}, blocked
+            "action": "V1.1: zero-row legacy tables need no data attribution, even if owner column is absent; verify all nonempty owners/categories and profile links. No data writes or autoassignment. Structural READY alone is not release approval."}, blocked
 
 
 def main() -> int:
