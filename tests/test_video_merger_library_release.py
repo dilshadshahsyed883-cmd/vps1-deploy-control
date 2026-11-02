@@ -36,8 +36,8 @@ class FrozenLibraryRelease(unittest.TestCase):
             )
 
     def test_overlay_is_idempotent_and_preserves_unrelated_parallel_markup(self):
-        live=self.live.replace('  <div id="tab-proxy"',
-                               '<div class="parallel-safe-marker">Untouched</div>\n  <div id="tab-proxy"',1)
+        live=self.live.replace('  <div id="tab-proxy" class="tab-panel">',
+                               '  <div id="tab-proxy" class="tab-panel"><div class="parallel-safe-marker">Untouched</div>',1)
         updated=frozen_library_overlay(live,self.source,self.live)
         self.assertIn('parallel-safe-marker',updated)
         self.assertEqual(frozen_library_overlay(updated,self.source,self.live),updated)
