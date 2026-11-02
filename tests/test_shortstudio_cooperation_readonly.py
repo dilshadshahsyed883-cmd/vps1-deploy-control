@@ -142,6 +142,66 @@ class CooperationReadOnlyTests(unittest.TestCase):
                                                "EnvironmentFile=-"))
         self.assertFalse(self.result()["same_host_root_proven"])
 
+    def live_fake_proc(self):
+        proc=self.root/"proc"
+        proc.mkdir()
+        names=list(self.module.SERVICES)
+        pids=dict(zip(names,range(4100,4100+len(names))))
+        for kind in names:
+            pid=pids[kind]
+            p=proc/str(pid)
+            p.mkdir()
+            # /proc/PID/root points into a process mount namespace. A root
+            # symlink to "/" models same-mount identity without real processes.
+            (p/"root").symlink_to("/",target_is_directory=True)
+            chunks=[
+                b"DO_NOT_LOG_TOKEN=secret-binary-content",
+                b"SHORT_STUDIO_VPS_FOLDER_ROOT="+str(self.folder).encode("utf-8"),
+                self.module.REQUIRED_KEYS[kind].encode("ascii")+b"=1"]
+            if kind!="maker":
+                chunks.append(b"LUM_ENGINE_INSTANCE=shortstudio")
+            (p/"environ").write_bytes(b"\x00".join(chunks)+b"\x00")
+        finder=lambda unit: pids[next(k for k,v in self.module.SERVICES.items() if v==unit)]
+        return proc,pids,finder
+
+    def test_actual_process_mount_and_env_match_is_sanitized_but_not_activation(self):
+        proc,pids,finder=self.live_fake_proc()
+        result=self.module.inspect_live_processes(self.unit_dir,proc,pid_lookup=finder)
+        self.assertEqual(result["status"],"LIVE_MOUNT_AND_FLAGS_PROVEN")
+        self.assertTrue(result["four_processes_same_mount_verified"])
+        self.assertTrue(result["four_processes_lock_flags_verified"])
+        self.assertFalse(result["active_upload_drain_verified"])
+        self.assertFalse(result["production_activation_ready"])
+        serialized=json.dumps(result)
+        for sensitive in ("secret-binary-content",str(self.folder),str(self.unit_dir),
+                          str(pids["maker"])):
+            self.assertNotIn(sensitive,serialized)
+
+    def test_running_worker_with_disabled_guard_fails_closed(self):
+        proc,pids,finder=self.live_fake_proc()
+        worker=proc/str(pids["worker"])/"environ"
+        worker.write_bytes(worker.read_bytes().replace(
+            b"LUM_SHORT_STUDIO_COOPERATIVE_LOCK_ENABLED=1",
+            b"LUM_SHORT_STUDIO_COOPERATIVE_LOCK_ENABLED=0"))
+        result=self.module.inspect_live_processes(self.unit_dir,proc,pid_lookup=finder)
+        self.assertEqual(result["status"],"BLOCKED")
+        self.assertFalse(result["four_processes_same_mount_verified"])
+        self.assertFalse(result["four_processes_lock_flags_verified"])
+
+    def test_missing_process_or_mismatched_root_is_blocked(self):
+        proc,pids,finder=self.live_fake_proc()
+        (proc/str(pids["scheduler"])/"environ").unlink()
+        result=self.module.inspect_live_processes(self.unit_dir,proc,pid_lookup=finder)
+        self.assertEqual(result["status"],"BLOCKED")
+        self.assertFalse(result["units"]["scheduler"]["process_root_verified"])
+        # Recreate the scheduler env with a path that differs from host root.
+        scheduler=proc/str(pids["scheduler"])/"environ"
+        scheduler.write_bytes(b"SHORT_STUDIO_VPS_FOLDER_ROOT=/different-root\\x00"
+            b"LUM_SHORT_STUDIO_COOPERATIVE_LOCK_ENABLED=1\\x00"
+            b"LUM_ENGINE_INSTANCE=shortstudio\\x00")
+        bad=self.module.inspect_live_processes(self.unit_dir,proc,pid_lookup=finder)
+        self.assertEqual(bad["status"],"BLOCKED")
+
     def test_service_unit_names_match_canonical_runtime_and_shortstudio_release(self):
         runtime=(ROOT/"production/runtime.py").read_text(encoding="utf-8")
         short_release=(ROOT/"production/short_uploader_group_release.py").read_text(
