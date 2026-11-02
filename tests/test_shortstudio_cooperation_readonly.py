@@ -59,6 +59,29 @@ class CooperationReadOnlyTests(unittest.TestCase):
         self.assertNotIn(str(self.folder),encoded)
         self.assertNotIn(str(self.unit_dir),encoded)
 
+    def test_all_disabled_consistent_guards_are_still_blocked(self):
+        for kind,env in self.envfiles.items():
+            text=env.read_text()
+            env.write_text(text.replace(
+                self.module.REQUIRED_KEYS[kind]+"=1",
+                self.module.REQUIRED_KEYS[kind]+"=0"))
+        result=self.result()
+        self.assertTrue(result["same_host_root_proven"])
+        self.assertTrue(result["lock_flags_consistent"])
+        self.assertFalse(result["all_guards_enabled"])
+        self.assertEqual(result["status"],"BLOCKED")
+
+    def test_direct_systemd_environment_or_drop_in_cannot_override_ro_proof(self):
+        unit=self.unit_dir/self.module.SERVICES["worker"]
+        unit.write_text(unit.read_text()+"Environment=SHORT_STUDIO_VPS_FOLDER_ROOT=/tmp/other\\n")
+        self.assertEqual(self.result()["status"],"BLOCKED")
+        unit.write_text(unit.read_text().split("Environment=SHORT_STUDIO")[0])
+        dropin=Path(str(unit)+".d")
+        dropin.mkdir()
+        (dropin/"override.conf").write_text(
+            "[Service]\\nEnvironment=SHORT_STUDIO_VPS_FOLDER_ROOT=/tmp/other\\n")
+        self.assertEqual(self.result()["status"],"BLOCKED")
+
     def test_root_drift_blocks_and_cannot_be_overridden_by_enabled_flags(self):
         other=self.root/"foreign"
         other.mkdir()
