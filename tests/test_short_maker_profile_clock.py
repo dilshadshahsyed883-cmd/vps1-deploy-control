@@ -100,6 +100,19 @@ class ShortProfileClockTests(unittest.TestCase):
         self.assertEqual([r["status"] for r in result],["planned","error"])
         self.assertEqual(len(self.bridge.submits),1)
 
+    def test_owner_progress_and_next_run_never_exposes_other_user(self):
+        self.clock.tick(self.at("2026-11-01T22:16:00"))
+        result=self.clock.profile_status(
+            "alice",self.profiles[0]["id"],self.at("2026-11-01T23:00:00"))
+        self.assertEqual(result["today_target"],1)
+        self.assertEqual(result["today_planned"],1)
+        self.assertEqual(result["today_queued"],1)
+        self.assertEqual(result["today_completed"],0)
+        self.assertTrue(result["next_run"].startswith("2026-11-03T03:15:00+05:00"))
+        with self.assertRaises(HTTPException) as foreign:
+            self.clock.profile_status("bob",self.profiles[0]["id"])
+        self.assertEqual(foreign.exception.status_code,404)
+
     def test_future_dates_not_burst_after_missed_days(self):
         self.clock.tick(self.at("2026-11-01T22:16:00"))
         self.bridge.submits.clear()
