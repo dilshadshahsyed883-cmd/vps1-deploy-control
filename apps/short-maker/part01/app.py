@@ -1638,9 +1638,32 @@ async function loadOwnerFolderNames(){
      linkedCell.textContent=ownerLinks.length?ownerLinks.join(' · '):
        report.uploader_dependency_verified?'No owned profile links':'Uploader verification unavailable';
      const detail=document.createElement('div');detail.className='hint';
-     detail.textContent=(report.issues||[]).length?(report.issues||[]).join(' · '):
-       'No dependency conflicts found; deletion still locked until full transaction and queue safety approval.';
+     detail.textContent=(report.issues||[]).length?
+       (report.issues||[]).join(' · ')+' · Remove links through your own profiles/jobs, then recheck.':
+       (report.deletion_enabled?'No dependencies: verified unused-folder deletion available.':
+        'No dependencies found; unused-folder deletion remains OFF until guarded production activation.');
      action.replaceChildren(preview,detail);
+     if(report.deletion_enabled){
+       const deleteBtn=document.createElement('button');
+       deleteBtn.type='button';deleteBtn.className='danger';
+       deleteBtn.textContent='Delete unused folder';
+       deleteBtn.addEventListener('click',async()=>{
+         if(!confirm('Permanently delete all verified MP4s in unused folder "'+name+'"? Profile data, history and Drive originals will not be changed.'))return;
+         const exact=prompt('Type the exact VPS folder name to delete: '+name);
+         if(exact!==name){alert('Folder name confirmation did not match. Nothing deleted.');return;}
+         deleteBtn.disabled=true;
+         try{
+           const response=await fetch('api/vps-folders/'+encodeURIComponent(name)+'/retire-unused',{
+             method:'POST',headers:{'Content-Type':'application/json'},
+             body:JSON.stringify({confirm_name:exact})});
+           const result=await response.json();
+           if(!response.ok)throw Error(result.detail||'Folder deletion blocked');
+           alert('Deleted '+result.videos_deleted+' verified MP4(s). Profile links/history unchanged.');
+           await loadOwnerFolderNames();
+         }catch(error){alert('Deletion blocked: '+error.message);deleteBtn.disabled=false;}
+       });
+       action.appendChild(deleteBtn);
+     }
     }catch(error){linkedCell.textContent='Dependency verification blocked';const detail=document.createElement('div');detail.className='hint';
      detail.textContent=error.message;action.replaceChildren(preview,detail);}
     finally{preview.disabled=false;}
