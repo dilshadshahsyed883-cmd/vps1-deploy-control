@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'apps/short-maker/**'
+      - 'tests/test_short_maker_profiles_integration.py'
       - 'tests/test_short_maker_profiles_store.py'
       - 'tests/test_short_maker_profile_media.py'
       - 'tests/test_short_maker_plan_ui.py'
@@ -28,6 +29,7 @@ jobs:
           python -m py_compile apps/short-maker/part01/app.py apps/short-maker/part01/ready_video_uploads.py apps/short-maker/part01/short_profiles.py apps/short-maker/part01/short_profile_media.py
           python -m unittest discover -s tests -p 'test_short_maker_plan_ui.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_profiles_store.py' -v
+          python -m unittest discover -s tests -p 'test_short_maker_profiles_integration.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_profile_media.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_ready_video_uploads.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_verified_inventory.py' -v
