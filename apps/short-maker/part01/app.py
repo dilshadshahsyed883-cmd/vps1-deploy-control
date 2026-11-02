@@ -2605,6 +2605,8 @@ _sm_cooperation_spec = _sm_importlib.spec_from_file_location(
 _sm_cooperation_module = _sm_importlib.module_from_spec(_sm_cooperation_spec)
 _sm_cooperation_spec.loader.exec_module(_sm_cooperation_module)
 _sm_cooperation_enabled = os.environ.get("SHORT_MAKER_COOPERATIVE_LOCK_ENABLED", "0") == "1"
+if _sm_cooperation_enabled and not os.environ.get("SHORT_STUDIO_VPS_FOLDER_ROOT"):
+    raise RuntimeError("Shared Short Studio root must be explicitly configured before cooperative lock activation")
 _sm_folder_cooperation = _sm_cooperation_module.ShortStudioFolderLease(
     SHORT_VPS_ROOT, enabled=_sm_cooperation_enabled)
 
