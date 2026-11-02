@@ -26,6 +26,7 @@ REQUIRED_KEYS = {
     "scheduler": "LUM_SHORT_STUDIO_COOPERATIVE_LOCK_ENABLED",
 }
 ROOT_KEY = "SHORT_STUDIO_VPS_FOLDER_ROOT"
+DRAIN_PATH_KEYS = ("SHORT_MAKER_DATA", "SHORT_UPLOADER_APP_DB", "SHORT_UPLOADER_ENGINE_DB")
 
 
 def _read_explicit_environment(unit):
@@ -43,7 +44,7 @@ def _read_explicit_environment(unit):
         if any(re.search(r"(?<![A-Za-z0-9_])" + key + r"\s*=",
                          definition) for key in (
                              ROOT_KEY, "SHORT_MAKER_COOPERATIVE_LOCK_ENABLED",
-                             "LUM_SHORT_STUDIO_COOPERATIVE_LOCK_ENABLED")):
+                             "LUM_SHORT_STUDIO_COOPERATIVE_LOCK_ENABLED", *DRAIN_PATH_KEYS)):
             raise ValueError("Direct studio cooperation override is not verified")
     dropin = Path(str(unit) + ".d")
     if dropin.exists() or dropin.is_symlink():
@@ -67,7 +68,7 @@ def _read_explicit_environment(unit):
         key,value=line.split("=",1)
         key=key.strip()
         if key in (ROOT_KEY,"SHORT_MAKER_COOPERATIVE_LOCK_ENABLED",
-                   "LUM_SHORT_STUDIO_COOPERATIVE_LOCK_ENABLED"):
+                   "LUM_SHORT_STUDIO_COOPERATIVE_LOCK_ENABLED", *DRAIN_PATH_KEYS):
             if key in parsed:
                 raise ValueError("Ambiguous duplicate studio coordination setting")
             parsed[key]=value.strip().strip('"').strip("'")
@@ -222,6 +223,113 @@ def inspect_live_processes(unit_dir=Path("/etc/systemd/system"),
         "status": "LIVE_MOUNT_AND_FLAGS_PROVEN"
           if all_verified and all_flags else "BLOCKED",
     }
+
+
+
+def inspect_active_drain(unit_dir=Path("/etc/systemd/system")):
+    """Sanitized, read-only *snapshot* of all known Maker/Short Uploader work.
+
+    Requires explicitly configured paths; refuses incomplete or unsafe state.
+    This is NOT a durable drain/worker quiescence certificate: a concurrent
+    scheduler could start work after the read. The guarded installer must
+    independently hold the release/drain barrier before enabling deletion.
+    """
+    import sqlite3
+
+    result = {
+        "mode": "READ_ONLY",
+        "scope": "short-studio-upload-drain-snapshot",
+        "maker_jobs_idle": False,
+        "ready_imports_idle": False,
+        "uploader_jobs_idle": False,
+        "uploader_source_claims_idle": False,
+        "active_upload_drain_snapshot_verified": False,
+        "active_upload_drain_verified": False,
+        "production_activation_ready": False,
+        "status": "BLOCKED",
+    }
+    try:
+        values = _read_explicit_environment(
+            Path(unit_dir) / SERVICES["maker"])
+        paths = []
+        for key in DRAIN_PATH_KEYS:
+            value = values.get(key, "")
+            if not value:
+                return result
+            candidate = Path(value)
+            if not candidate.is_absolute() or candidate.is_symlink():
+                return result
+            paths.append(candidate)
+        maker, app_db, engine_db = paths
+        if not maker.is_dir() or maker.is_symlink():
+            return result
+        jobs = maker / "jobs"
+        if not jobs.is_dir() or jobs.is_symlink():
+            return result
+        terminal_maker = {"completed", "cancelled", "failed"}
+        for directory in jobs.iterdir():
+            if directory.is_symlink() or not directory.is_dir():
+                return result
+            state = directory / "state.json"
+            if state.is_symlink() or not state.is_file():
+                return result
+            payload = json.loads(state.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict) or str(
+                    payload.get("status", "")).lower() not in terminal_maker:
+                return result
+        result["maker_jobs_idle"] = True
+
+        imports = maker / "ready_video_uploads"
+        if imports.is_symlink() or (imports.exists() and not imports.is_dir()):
+            return result
+        if imports.is_dir():
+            for directory in imports.iterdir():
+                if directory.is_symlink() or not directory.is_dir():
+                    return result
+                manifest = directory / "manifest.json"
+                if manifest.is_symlink() or not manifest.is_file():
+                    return result
+                payload = json.loads(manifest.read_text(encoding="utf-8"))
+                if not isinstance(payload, dict) or str(
+                        payload.get("status", "")).lower() not in {
+                            "completed", "cancelled", "failed"}:
+                    return result
+        result["ready_imports_idle"] = True
+
+        def query_idle(filename, table, column, safe_states):
+            if filename.is_symlink() or not filename.is_file():
+                raise ValueError("Uploader evidence database unavailable")
+            with sqlite3.connect(filename.as_uri() + "?mode=ro",
+                                 uri=True, timeout=3) as db:
+                db.execute("PRAGMA query_only=ON")
+                columns = {row[1] for row in db.execute(
+                    'PRAGMA table_info("' + table + '")')}
+                if column not in columns:
+                    raise ValueError("Uploader evidence schema unknown")
+                row = db.execute(
+                    f'SELECT COUNT(*) FROM "{table}" WHERE '
+                    f'UPPER(COALESCE("{column}", "")) NOT IN ('
+                    + ",".join("?" for _ in safe_states) + ")",
+                    tuple(safe_states)).fetchone()
+                return row is not None and row[0] == 0
+
+        result["uploader_jobs_idle"] = query_idle(
+            app_db, "videos", "status",
+            ("COMPLETE", "COMPLETED", "UPLOADED", "CANCELLED",
+             "SKIPPED", "FAILED"))
+        if not result["uploader_jobs_idle"]:
+            return result
+        result["uploader_source_claims_idle"] = query_idle(
+            engine_db, "job_sources", "state", ("COMPLETE", "CANCELLED"))
+        if not result["uploader_source_claims_idle"]:
+            return result
+        result["active_upload_drain_snapshot_verified"] = True
+        result["status"] = "SNAPSHOT_NO_ACTIVE_UPLOADS"
+    except (OSError, ValueError, TypeError, json.JSONDecodeError,
+            sqlite3.Error, UnicodeError):
+        # No credentials, filenames, owners, DB paths or error text in report.
+        pass
+    return result
 
 
 def main() -> None:

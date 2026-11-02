@@ -79,8 +79,10 @@ def browser_test():
             return r.fulfill(content_type='application/json', body=json.dumps({
                 'authenticated': True, 'username': 'fixture', 'is_admin': True,
                 'allowed_studios': ['song', 'short', 'copyright']}))
-        if path == '/short-maker/resumable_client.js':
-            js = (ROOT/'apps/short-maker/part01/resumable_client.js').read_text(encoding='utf-8')
+        if path in ('/short-maker/resumable_client.js', '/short-maker/ready_video_client.js', '/short-maker/short_profile_client.js'):
+            # Serve actual browser modules; JSON fallback is not executable JavaScript.
+            filename = path.rsplit('/', 1)[-1]
+            js = (ROOT/'apps/short-maker/part01'/filename).read_text(encoding='utf-8')
             return r.fulfill(content_type='application/javascript', body=js)
         if path == '/short-maker/api/jobs':
             outputs=[{'name':f'Ronaldo {i:03d} b38632.mp4','url':f'outputs/0123456789abcdef/Ronaldo%20{i:03d}%20b38632.mp4','local_available':True} for i in range(1,151)]
