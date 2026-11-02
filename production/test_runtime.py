@@ -245,6 +245,57 @@ class RuntimeTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'environment unavailable'):
                 runtime.voice_audio_db_from_live_config()
 
+    def test_voice_release_source_requires_frozen_scene_middleware(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            release = Path(tmp)
+            entry = release / 'part01/vps1_omnivoice_app.py'
+            tenant = release / 'part01/voice_tenant.py'
+            entry.parent.mkdir()
+            entry.write_text(
+                '@app.middleware("http")\n'
+                'async def voice_session_and_permissions(request, call_next):\n'
+                '    identity = await asyncio.to_thread(scene_identity, request.headers.get("cookie", ""))\n'
+                '    tokens = set_identity(username, admin)\n'
+                '    reset_identity(tokens)\n'
+            )
+            tenant.write_text(
+                '_IDENTITY_URL = "http://127.0.0.1:18080/api/session/identity"\n')
+            runtime.verify_voice_release_auth_source(release)
+            entry.write_text('def health(): return {"ok": True}\n')
+            with self.assertRaisesRegex(RuntimeError, 'VOICE_RELEASE_AUTH_SOURCE_INVALID'):
+                runtime.verify_voice_release_auth_source(release)
+            entry.unlink()
+            with self.assertRaisesRegex(RuntimeError, 'VOICE_RELEASE_AUTH_SOURCE_MISSING'):
+                runtime.verify_voice_release_auth_source(release)
+
+    def test_voice_release_anonymous_direct_api_denial_gate(self):
+        class FakeOpener:
+            def __init__(self, codes):
+                self.codes = list(codes)
+                self.paths = []
+            def open(self, url, timeout=6):
+                self.paths.append(url)
+                code = self.codes.pop(0)
+                if code != 200:
+                    raise runtime.urllib.error.HTTPError(url, code, 'denied', None, None)
+                class Response:
+                    status = 200
+                    def __enter__(self): return self
+                    def __exit__(self, *_args): return False
+                return Response()
+        healthy = FakeOpener([401, 403, 401])
+        with patch.object(runtime.urllib.request, 'build_opener', return_value=healthy):
+            runtime.verify_voice_release_anonymous_denial()
+        self.assertEqual(healthy.paths, [
+            'http://127.0.0.1:8143/tts/api/kokoro/status',
+            'http://127.0.0.1:8143/tts/api/edge/status',
+            'http://127.0.0.1:8143/tts/api/clone/status'])
+        for code in (200, 404, 500):
+            failing = FakeOpener([code])
+            with patch.object(runtime.urllib.request, 'build_opener', return_value=failing):
+                with self.assertRaisesRegex(RuntimeError, 'VOICE_RELEASE_AUTH_NOT_ENFORCED'):
+                    runtime.verify_voice_release_anonymous_denial()
+
     def test_source_drift_rejected_without_overwriting_release(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(runtime, 'BASE', Path(tmp)):
             with patch('rebuild.fresh_vps.sources', return_value=[('part01/app.py', b'original')]):
