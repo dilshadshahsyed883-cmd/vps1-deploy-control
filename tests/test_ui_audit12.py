@@ -90,9 +90,11 @@ def browser_acceptance():
             expect(page).to_have_url('http://audit.test/experiment-studio/')
             # Frozen V1: Voice is a primary sidebar item, never an Experiment subtab.
             expect(page.locator('nav[aria-label="Experiment Studio"] a[href^="/voice-studio/app"]')).to_have_count(0)
+            # Experiment renders the native Scene sidebar, not Voice's
+            # cross-app .vps1-native-toggle element.
             if width < 761:
-                page.locator('.vps1-native-toggle').click()
-            page.locator('#vps1-native-site-sidebar nav a[href^="/voice-studio/"]').click()
+                page.locator('#mobile-nav-toggle').click()
+            page.locator('#app-sidebar nav a[href^="/voice-studio/"]').click()
             expect(page.locator('.vs-engine-selector')).to_be_visible()
             expect(page.locator('#vsaProxy')).not_to_be_visible()
             page.locator('[data-vps1-tab="clone"]').click()
