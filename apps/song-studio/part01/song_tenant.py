@@ -1,7 +1,7 @@
-"""Voice Studio identity context, always resolved from the live Scene session.
+"""Song Studio Audio Downloader identity context, always resolved from the live Scene session.
 
 Do not trust browser-provided usernames, role headers, or local storage.
-Voice is an independent upstream, so we introspect the same-origin Scene
+Song Audio is an independent upstream, so we introspect the same-origin Scene
 session over the loopback-only application listener.
 """
 from __future__ import annotations
@@ -63,11 +63,11 @@ def owner() -> str:
     """Use only the verified, per-request owner; fail closed for direct calls."""
     username = _USER.get()
     if not username:
-        raise HTTPException(status_code=401, detail="Verified Voice Studio identity required")
+        raise HTTPException(status_code=401, detail="Verified Song Studio identity required")
     return username
 
 
 def require_admin() -> None:
     owner()
     if not _ADMIN.get():
-        raise HTTPException(status_code=403, detail="Shared Voice worker settings require Admin")
+        raise HTTPException(status_code=403, detail="Shared Song Audio settings require Admin")
