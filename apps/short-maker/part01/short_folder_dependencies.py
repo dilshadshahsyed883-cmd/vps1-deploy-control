@@ -152,7 +152,8 @@ class ShortFolderPreflight:
                     "uploader_dependency_verified": True,
                 }
 
-    def inspect(self, *, owner: str, folder_name: str, folder: Path):
+    def inspect(self, *, owner: str, folder_name: str, folder: Path,
+                include_private=False):
         owner = str(owner).strip().casefold()
         if not owner or folder.is_symlink() or not folder.is_dir():
             raise HTTPException(403, detail="Verified owned folder is required")
@@ -253,6 +254,7 @@ class ShortFolderPreflight:
         unexpected_files = []
         unverified_mp4s = 0
         verified_mp4s = 0
+        matched_receipts = {}
         for entry in folder.iterdir():
             if entry.name == ".studio_owner":
                 continue
@@ -266,6 +268,7 @@ class ShortFolderPreflight:
                     unverified_mp4s += 1
                 else:
                     verified_mp4s += 1
+                    matched_receipts[entry.name] = next(iter(hashes))
             except OSError:
                 unverified_mp4s += 1
         if unexpected_files:
@@ -294,7 +297,7 @@ class ShortFolderPreflight:
             issues.append("Short Uploader has unresolved video claims")
         if uploader["indexed_uploader_videos"]:
             issues.append("Short Uploader still indexes source MP4s")
-        return {
+        response = {
             "folder": folder_name,
             "verified_media_count": verified_mp4s,
             "unverified_media_count": unverified_mp4s,
@@ -311,3 +314,8 @@ class ShortFolderPreflight:
             "deletion_enabled": False,
             "requires_confirmation": True,
         }
+        # Only the trusted internal coordinator may ask for exact filenames
+        # and digests. The public preflight API never receives this manifest.
+        if include_private:
+            response["verified_media"] = matched_receipts
+        return response
