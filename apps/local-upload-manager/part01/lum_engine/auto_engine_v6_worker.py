@@ -18,7 +18,13 @@ from desktop_core.modules.upload_pipeline import UploadStopped
 from desktop_core.modules.upload_status import UploadStatus
 
 from .auto_engine_v6 import (STAGING_ROOT, V6Store, drive_delete_source, drive_download, drive_move_uploaded, drive_move_uploaded_month, clean, download_channel_thumbnail_for_job, set_channel_job_post_state, emit_channel_sheet_writeback, SHORT_FOLDER_PREFIX, shortstudio_source_path, shortstudio_file_id)
-from .uploader_shortstudio_cooperation import uploader_shortstudio_guard
+# Shared Song/legacy worker code must not depend on a Short-only helper.
+# Only the independent Short Uploader instance participates.
+if os.environ.get("LUM_ENGINE_INSTANCE") == "shortstudio":
+    from .uploader_shortstudio_cooperation import uploader_shortstudio_guard
+else:
+    from contextlib import nullcontext
+    uploader_shortstudio_guard = nullcontext
 
 
 STOP=False
