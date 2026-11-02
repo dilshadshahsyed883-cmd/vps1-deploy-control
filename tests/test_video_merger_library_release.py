@@ -42,6 +42,21 @@ class FrozenLibraryRelease(unittest.TestCase):
         self.assertIn('parallel-safe-marker',updated)
         self.assertEqual(frozen_library_overlay(updated,self.source,self.live),updated)
 
+    def test_missing_library_retry_handler_is_inserted_once(self):
+        callback=next(line for line in self.live.splitlines()
+                      if line.startswith("async function retryLibrary(id){"))
+        old=self.live.replace(callback+"\n","",1)
+        updated=frozen_library_overlay(old,self.source,self.live)
+        self.assertEqual(updated.count(callback),1)
+        self.assertEqual(frozen_library_overlay(updated,self.source,self.live),updated)
+
+    def test_unreviewed_library_retry_handler_drift_is_rejected(self):
+        callback=next(line for line in self.live.splitlines()
+                      if line.startswith("async function retryLibrary(id){"))
+        changed=self.live.replace(callback,callback+" /* unexpected */",1)
+        with self.assertRaisesRegex(LibraryReleaseBlocked,"retry handler drift"):
+            frozen_library_overlay(changed,self.source,self.live)
+
     def test_live_library_drift_fails_closed(self):
         changed=self.live.replace('Add Library Video','Modified Other Library UI',1)
         with self.assertRaisesRegex(LibraryReleaseBlocked,"live Library panel drift"):
