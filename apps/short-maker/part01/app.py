@@ -2564,10 +2564,47 @@ _sm_profile_media_module = _sm_importlib.module_from_spec(_sm_profile_media_spec
 _sm_profile_media_spec.loader.exec_module(_sm_profile_media_module)
 _sm_verify_source_import = _sm_profile_media_module.register_short_profile_media_uploads(
     app, data_root=DATA_ROOT, short_identity=short_identity)
-_sm_profiles_module.register_short_profile_store(
+_sm_profile_store = _sm_profiles_module.register_short_profile_store(
     app, data_root=DATA_ROOT, short_identity=short_identity,
     short_folder_owned=short_folder_owned,
     verify_source_import=_sm_verify_source_import)
+
+# Durable daily PKT claim planner and existing Maker queue adapter.
+# Both are staged but intentionally have no active clock loop / Start endpoint.
+# This preserves production until full owner, media and delivery gates pass.
+_sm_daily_spec = _sm_importlib.spec_from_file_location(
+    "short_maker_profile_daily", Path(__file__).with_name("short_profile_daily.py"))
+_sm_daily_module = _sm_importlib.module_from_spec(_sm_daily_spec)
+_sm_daily_spec.loader.exec_module(_sm_daily_module)
+
+def _sm_check_daily_folder(owner: str, folder_name: str):
+    folder = short_vps_folder(folder_name)
+    if (not folder.is_dir() or short_folder_owner(folder_name) != owner.casefold()):
+        raise HTTPException(status_code=403, detail="Daily output folder is not owned")
+    return folder
+
+_sm_profile_daily_planner = _sm_daily_module.DailyBatchPlanner(
+    _sm_profile_store, _sm_verify_source_import.media_catalog,
+    _sm_check_daily_folder)
+
+_sm_bridge_spec = _sm_importlib.spec_from_file_location(
+    "short_maker_profile_queue_bridge",
+    Path(__file__).with_name("short_profile_queue_bridge.py"))
+_sm_bridge_module = _sm_importlib.module_from_spec(_sm_bridge_spec)
+_sm_bridge_spec.loader.exec_module(_sm_bridge_module)
+
+def _sm_profile_job_lookup(job_id: str):
+    try:
+        return get_state(job_id)
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        return None
+
+_sm_profile_queue_bridge = _sm_bridge_module.ExistingMakerQueueBridge(
+    JOBS_ROOT, _sm_verify_source_import.media_catalog,
+    _sm_check_daily_folder, reserve_short_output_names,
+    _sm_profile_job_lookup, executor, render_job, jobs, jobs_lock)
 
 @app.get("/short_profile_client.js")
 def short_profile_client_script():
