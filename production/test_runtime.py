@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from production import runtime
+from production import runtime, workers
 
 
 class RuntimeTests(unittest.TestCase):
@@ -244,6 +244,94 @@ class RuntimeTests(unittest.TestCase):
             file.symlink_to(target)
             with self.assertRaisesRegex(RuntimeError, 'environment unavailable'):
                 runtime.voice_audio_db_from_live_config()
+
+    def test_voice_release_source_requires_frozen_scene_middleware(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            release = Path(tmp)
+            entry = release / 'part01/vps1_omnivoice_app.py'
+            tenant = release / 'part01/voice_tenant.py'
+            entry.parent.mkdir()
+            entry.write_text(
+                '@app.middleware("http")\n'
+                'async def voice_session_and_permissions(request, call_next):\n'
+                '    identity = await asyncio.to_thread(scene_identity, request.headers.get("cookie", ""))\n'
+                '    tokens = set_identity(username, admin)\n'
+                '    reset_identity(tokens)\n'
+            )
+            tenant.write_text(
+                '_IDENTITY_URL = "http://127.0.0.1:18080/api/session/identity"\n')
+            runtime.verify_voice_release_auth_source(release)
+            entry.write_text('def health(): return {"ok": True}\n')
+            with self.assertRaisesRegex(RuntimeError, 'VOICE_RELEASE_AUTH_SOURCE_INVALID'):
+                runtime.verify_voice_release_auth_source(release)
+            entry.unlink()
+            with self.assertRaisesRegex(RuntimeError, 'VOICE_RELEASE_AUTH_SOURCE_MISSING'):
+                runtime.verify_voice_release_auth_source(release)
+
+    def test_voice_release_anonymous_direct_api_denial_gate(self):
+        class FakeOpener:
+            def __init__(self, codes):
+                self.codes = list(codes)
+                self.paths = []
+            def open(self, url, timeout=6):
+                self.paths.append(url)
+                code = self.codes.pop(0)
+                if code != 200:
+                    raise runtime.urllib.error.HTTPError(url, code, 'denied', None, None)
+                class Response:
+                    status = 200
+                    def __enter__(self): return self
+                    def __exit__(self, *_args): return False
+                return Response()
+        healthy = FakeOpener([401, 403, 401])
+        with patch.object(runtime.urllib.request, 'build_opener', return_value=healthy):
+            runtime.verify_voice_release_anonymous_denial()
+        self.assertEqual(healthy.paths, [
+            'http://127.0.0.1:8143/tts/api/kokoro/status',
+            'http://127.0.0.1:8143/tts/api/edge/status',
+            'http://127.0.0.1:8143/tts/api/clone/status'])
+        for code in (200, 404, 500):
+            failing = FakeOpener([code])
+            with patch.object(runtime.urllib.request, 'build_opener', return_value=failing):
+                with self.assertRaisesRegex(RuntimeError, 'VOICE_RELEASE_AUTH_NOT_ENFORCED'):
+                    runtime.verify_voice_release_anonymous_denial()
+
+    def test_voice_worker_readiness_allows_systemd_activation_transition(self):
+        class Result:
+            def __init__(self, code, output):
+                self.returncode = code
+                self.stdout = output
+        calls = []
+        def systemctl(args, **_kwargs):
+            calls.append(args)
+            if len(calls) == 1:
+                return Result(3, 'activating\n')
+            return Result(0, 'active\n')
+        with patch.object(workers.subprocess, 'run', side_effect=systemctl), patch.object(
+            workers.time, 'sleep', return_value=None
+        ):
+            workers.wait_for_active_units(
+                ['vps1-production-edge-worker.service'],
+                attempts=3, interval=0, app_label='Voice Studio')
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(all(c[:2] == ['systemctl', 'is-active'] for c in calls))
+
+    def test_voice_worker_readiness_fails_closed_on_real_failure(self):
+        class Result:
+            def __init__(self, code, output):
+                self.returncode = code
+                self.stdout = output
+        def systemctl(args, **_kwargs):
+            if args[1] == 'show':
+                return Result(0, 'ActiveState=failed\nExecMainStatus=1\n')
+            return Result(3, 'failed\n')
+        with patch.object(workers.subprocess, 'run', side_effect=systemctl), patch.object(
+            workers.time, 'sleep', return_value=None
+        ):
+            with self.assertRaisesRegex(RuntimeError, 'Voice Studio systemd unit vps1-production-kokoro-worker.service did not stabilize'):
+                workers.wait_for_active_units(
+                    ['vps1-production-kokoro-worker.service'],
+                    attempts=3, interval=0, app_label='Voice Studio')
 
     def test_source_drift_rejected_without_overwriting_release(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(runtime, 'BASE', Path(tmp)):

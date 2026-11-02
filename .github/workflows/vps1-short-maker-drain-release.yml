@@ -10,6 +10,7 @@ jobs:
       github.ref == 'refs/heads/main' &&
       github.actor == 'dilshadshahsyed883-cmd' &&
       contains(github.event.head_commit.message, '[vps1-short-maker-drain-release]')
+    environment: production
     runs-on: ubuntu-24.04
     timeout-minutes: 330
     permissions:
