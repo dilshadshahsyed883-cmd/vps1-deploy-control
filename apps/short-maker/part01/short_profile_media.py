@@ -372,4 +372,36 @@ def register_short_profile_media_uploads(app, data_root, short_identity):
                 staging(sid, index).unlink(missing_ok=True)
             return {"ok": True, "status": "cancelled"}
 
+    def media_catalog(owner, sid):
+        """Return verified, owner-owned media for the future daily renderer.
+
+        Scan the committed receipt and hash-check each file at dispatch time;
+        never trust a browser path or an unverified/stale manifest.
+        """
+        owner = str(owner).strip().casefold()
+        if verified_import(owner, sid) is None:
+            return None
+        try:
+            manifest = load(sid, owner)
+            result = {"audio": [], "picture": []}
+            seen = set()
+            for asset in manifest["verified_assets"]:
+                path = target_for(owner, asset)
+                key = (asset["kind"], asset["sha256"])
+                if key in seen:
+                    continue
+                if (path.is_symlink() or not path.is_file()
+                        or path.stat().st_size != asset["size"]
+                        or file_digest(path) != asset["sha256"]):
+                    return None
+                result[asset["kind"]].append({
+                    "sha256": asset["sha256"], "size": asset["size"],
+                    "path": str(path), "kind": asset["kind"]})
+                seen.add(key)
+            return result if result["audio"] and result["picture"] else None
+        except (HTTPException, OSError, ValueError, TypeError, KeyError):
+            return None
+
+    # Keep the previous callable contract for the profile store unchanged.
+    verified_import.media_catalog = media_catalog
     return verified_import
