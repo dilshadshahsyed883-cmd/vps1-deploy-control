@@ -31,7 +31,8 @@ def one_line(page, prefix):
 
 def frozen_library_overlay(live, source, baseline):
     """Apply the exact reviewed Library diff to current live HTML only."""
-    require_exact(source.count('id="libraryUploadDrive" type="checkbox"') == 1,
+    require_exact(source.count('id="libraryUploadDrive" type="checkbox"') == 1
+                  and source.count('id="libraryUploadDrive"') == 1,
                   "unchecked Drive control missing")
     require_exact(source.count('id="libraryPreviewDialog"') == 1,
                   "preview control missing")
