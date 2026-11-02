@@ -12,6 +12,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
+from .uploader_shortstudio_cooperation import (UPLOADER_COOPERATION_ENABLED,
+    uploader_shortstudio_guard_async)
 from .studio_tenants import StudioTenants
 from .auth_store import UserStore
 from .config import (
@@ -260,6 +262,24 @@ def stats_payload(user: dict[str, Any] | None = None) -> dict[str, Any]:
         "pause_after_current": store.setting("pause_after_current", "0") == "1",
         "settings": settings,
     }
+
+
+@app.middleware("http")
+async def shortstudio_folder_cooperation(request: Request, call_next):
+    # Opt-in only: every application request that could scan, claim, enqueue,
+    # change a source binding or delete a verified source participates.
+    # Exclude only static assets and the pure health endpoint.
+    if not UPLOADER_COOPERATION_ENABLED:
+        return await call_next(request)
+    if (request.url.path == route("/health")
+            or request.url.path.startswith(route("/static/"))):
+        return await call_next(request)
+    try:
+        async with uploader_shortstudio_guard_async():
+            return await call_next(request)
+    except HTTPException as exc:
+        # Middleware exceptions are outside FastAPI's route handler.
+        return JSONResponse({"detail":exc.detail},status_code=exc.status_code)
 
 
 @app.middleware("http")
