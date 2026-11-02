@@ -308,6 +308,36 @@ class RetirementTests(unittest.TestCase):
         self.assertTrue(self.video.exists())
         self.assertEqual(self.state(),before)
 
+    def test_pre_rename_recovery_refuses_replaced_original(self):
+        self.clean_dependencies()
+        self.worker.journal_root.mkdir()
+        identifier = "d" * 32
+        record = {
+            "id": identifier, "phase": "preparing",
+            "folder": "Owner Folder", "owner": "alice",
+            "quarantine": ".short-retirement-" + identifier,
+            "media": {self.video.name: self.sha},
+        }
+        journal_file = self.worker.journal_root / (identifier + ".json")
+        journal_file.write_text(json.dumps(record))
+        original_state = self.state()
+        # The original folder still exists, but the receipt no longer matches:
+        # the recovery path must never silently bless a replacement.
+        self.video.write_bytes(b"unverified replacement video")
+        with self.assertRaises(HTTPException) as blocked:
+            self.worker.recover(hash_file)
+        self.assertEqual(blocked.exception.status_code, 409)
+        self.assertEqual(json.loads(journal_file.read_text())["phase"],
+                         "preparing")
+        self.assertEqual(self.state(), original_state)
+        self.assertTrue(self.video.exists())
+        # Once the original verified media is restored, recovery can finish.
+        self.video.write_bytes(b"mp4-source" * 1024)
+        self.assertEqual(self.worker.recover(hash_file),
+                         [{"id": identifier, "phase": "recovered"}])
+        self.assertEqual(self.state(), original_state)
+        self.assertTrue(self.video.exists())
+
     def test_malicious_journal_path_traversal_is_rejected(self):
         self.clean_dependencies()
         self.worker.journal_root.mkdir()
