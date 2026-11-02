@@ -51,6 +51,9 @@ class FolderDeletePreflightTests(unittest.TestCase):
                 CREATE TABLE job_sources (
                     video_id INTEGER,profile_id INTEGER,
                     source_folder_id TEXT,filename TEXT,state TEXT);
+                CREATE TABLE drive_videos (
+                    profile_id INTEGER, filename TEXT,
+                    source_folder_id TEXT, present INTEGER);
                 INSERT INTO profile_sources VALUES (11,'Owner Folder');
                 INSERT INTO job_sources VALUES (
                   91,11,'shortstudio-local:Owner Folder','source.mp4','QUEUED');
@@ -176,6 +179,57 @@ class FolderDeletePreflightTests(unittest.TestCase):
         result=self.inspect()
         self.assertIn("Unowned ready-made import references folder",result["issues"])
         self.assertIn("Unreadable ready-made upload session",result["issues"])
+
+    def test_untracked_mp4_never_authorized_by_extension(self):
+        with sqlite3.connect(self.engine_db) as db:
+            db.execute("DELETE FROM job_sources")
+            db.execute("DELETE FROM profile_sources")
+        (self.folder/"untracked.mp4").write_bytes(b"mp4-content"*1000)
+        result=self.inspect()
+        self.assertIn("Folder contains unverified or changed MP4s",result["issues"])
+        self.assertEqual(result["unverified_media_count"],1)
+        self.assertFalse(result["delete_preflight_ready"])
+
+    def test_verified_receipt_must_match_mp4_digest(self):
+        import hashlib
+        with sqlite3.connect(self.engine_db) as db:
+            db.execute("DELETE FROM job_sources")
+            db.execute("DELETE FROM profile_sources")
+        video=self.folder/"My Short 001_aa22bb.mp4"
+        content=b"verified-video-test"*300
+        video.write_bytes(content)
+        sha=hashlib.sha256(content).hexdigest()
+        self.jobs.append({
+            "owner":"alice", "status":"completed",
+            "config":{"short_vps_folder":"Owner Folder"},
+            "outputs":[{
+                "short_vps_folder":"Owner Folder",
+                "short_vps_filename":video.name,
+                "short_vps_sha256":sha
+            }]
+        })
+        good=self.inspect()
+        self.assertEqual(good["verified_media_count"],1)
+        self.assertEqual(good["unverified_media_count"],0)
+        self.assertNotIn("Folder contains unverified or changed MP4s",good["issues"])
+        video.write_bytes(b"replacement"*1000)
+        bad=self.inspect()
+        self.assertEqual(bad["unverified_media_count"],1)
+        self.assertIn("Folder contains unverified or changed MP4s",bad["issues"])
+        self.assertFalse(bad["deletion_enabled"])
+
+    def test_stale_uploader_video_index_blocks_even_without_claim(self):
+        with sqlite3.connect(self.engine_db) as db:
+            db.execute("DELETE FROM job_sources")
+            db.execute("DELETE FROM profile_sources")
+            db.execute("""INSERT INTO drive_videos VALUES
+                (11,'previous.mp4','shortstudio-local:Owner Folder',1)""")
+        report=self.inspect()
+        self.assertEqual(report["indexed_uploader_videos"],1)
+        self.assertIn("Short Uploader still indexes source MP4s",report["issues"])
+        with sqlite3.connect(self.engine_db) as db:
+            db.execute("UPDATE drive_videos SET present=0")
+        self.assertEqual(self.inspect()["indexed_uploader_videos"],0)
 
     def test_missing_or_schema_incomplete_uploader_db_fails_closed(self):
         self.inspector.uploader_engine_db=""
