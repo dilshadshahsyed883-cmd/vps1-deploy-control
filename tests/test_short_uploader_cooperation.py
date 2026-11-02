@@ -113,8 +113,7 @@ class ShortUploaderCooperationTests(unittest.TestCase):
             self.assertFalse(module.UPLOADER_COOPERATION_ENABLED)
             with module.uploader_shortstudio_guard():
                 pass
-        self.assertTrue((self.root/self.maker.LOCK_FILENAME).is_file()
-            if (self.root/self.maker.LOCK_FILENAME).exists() else True)
+        self.assertFalse((self.root/self.maker.LOCK_FILENAME).exists())
 
     def test_opt_in_requires_explicit_canonical_shared_root(self):
         for module,env_flag in (
