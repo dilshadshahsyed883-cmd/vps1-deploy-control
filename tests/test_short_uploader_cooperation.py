@@ -245,5 +245,51 @@ class ShortUploaderCooperationTests(unittest.TestCase):
         self.assertFalse(chain-actual,"Unprotected uploader operation: "+str(chain-actual))
 
 
+
+class ShortCooperationSourceOnlyReleaseTests(unittest.TestCase):
+    """A dormant source overlay may not change UI, settings or shared engines."""
+
+    def test_protected_exact_selector_and_scope(self):
+        workflow=(ROOT/".github/workflows/vps1-short-studio-release.yml").read_text()
+        marker="elif [[ \"$RELEASE_INTENT\" == *'[vps1-shortstudio-cooperation-code-only]'* ]]; then"
+        self.assertEqual(workflow.count(marker),1)
+        block=workflow.split(marker,1)[1].split("\n          elif ",1)[0]
+        self.assertIn("apps=(local-upload-manager)",block)
+        self.assertNotIn("apps=(short-maker)",block)
+        runtime=(ROOT/"production/runtime.py").read_text()
+        self.assertIn("if '[vps1-shortstudio-cooperation-code-only]' in intent:",runtime)
+        self.assertIn("args.apps != ['local-upload-manager']",runtime)
+        self.assertIn("install_short_coop(args.revision, cooperation_only=True)",runtime)
+
+    def test_no_templates_or_global_engines_in_source_copy(self):
+        source=(ROOT/"production/short_uploader_group_release.py").read_text()
+        start=source.index('for relative in (("lum_engine/standalone_app.py",')
+        end=source.index('if cooperation_only else',start)
+        selected=source[start:end]
+        for name in ("lum_engine/standalone_app.py",
+                     "lum_engine/auto_engine_v6_worker.py",
+                     "lum_engine/auto_engine_v6_scheduler.py"):
+            self.assertIn(name,selected)
+        self.assertNotIn("templates/",selected)
+        self.assertNotIn("static/",selected)
+        self.assertNotIn("oauth",selected)
+        self.assertIn('"lum_engine/uploader_shortstudio_cooperation.py"',source)
+        self.assertIn("'short-uploader-cooperation-source'",source)
+        self.assertIn("SHORT_COOP_SOURCE_RELEASE",source)
+        self.assertIn("verify_live(cooperation_only=True)",source)
+        self.assertIn("'cooperation source cannot enable live lock'",source)
+        self.assertIn("SHORT_COOP_SOURCE=PASS FLAGS=OFF",source)
+        self.assertIn("SHORT_GROUP_ROLLBACK=PASS DATA=PRESERVED",source)
+
+    def test_dormant_flags_and_existing_ui_remain_protected(self):
+        maker=(MAKER/"app.py").read_text()
+        short=(UPLOADER/"uploader_shortstudio_cooperation.py").read_text()
+        self.assertIn('SHORT_MAKER_COOPERATIVE_LOCK_ENABLED", "0"',maker)
+        self.assertIn('LUM_SHORT_STUDIO_COOPERATIVE_LOCK_ENABLED',short)
+        source=(ROOT/"production/short_uploader_group_release.py").read_text()
+        self.assertIn("health();break",source)
+        self.assertIn("existing Short Uploader automation tab changed",source)
+        self.assertIn("cooperation source anonymous auth regressed",source)
+
 if __name__=="__main__":
     unittest.main()
