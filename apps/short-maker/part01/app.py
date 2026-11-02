@@ -1622,7 +1622,7 @@ document.getElementById('foldersVideoInput').addEventListener('change',event=>{
  const files=Array.from(event.target.files||[]);
  document.getElementById('foldersSelectedInfo').textContent=files.length+' files selected locally; no server upload started.';
 });
-document.getElementById('foldersClearFiles').onclick=()=>{document.getElementById('foldersVideoInput').value='';document.getElementById('foldersSelectedInfo').textContent='No videos selected.';};
+document.getElementById('foldersClearFiles').onclick=()=>{const input=document.getElementById('foldersVideoInput');input.value='';input.dispatchEvent(new Event('change'));document.getElementById('foldersSelectedInfo').textContent='No videos selected.';};
 loadQueue();setInterval(loadQueue,2000);
 
 // The refresh-safe uploader is loaded from resumable_client.js.
