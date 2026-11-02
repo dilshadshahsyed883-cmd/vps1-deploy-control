@@ -95,7 +95,10 @@ def init_db():
           error TEXT NOT NULL DEFAULT '', duration REAL NOT NULL DEFAULT 0, size_bytes INTEGER NOT NULL DEFAULT 0,
           source_url TEXT NOT NULL DEFAULT '', trim_json TEXT NOT NULL DEFAULT '{}',
           created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-          owner_username TEXT NOT NULL DEFAULT ''
+          owner_username TEXT NOT NULL DEFAULT '',
+          drive_requested INTEGER NOT NULL DEFAULT 0,
+          drive_status TEXT NOT NULL DEFAULT 'not_requested',
+          drive_error TEXT NOT NULL DEFAULT ''
         );
         INSERT OR IGNORE INTO settings(k,v) VALUES('paused','0');
         CREATE TABLE IF NOT EXISTS owner_queue_state (
@@ -134,6 +137,16 @@ def init_db():
         library_columns={row[1] for row in c.execute("PRAGMA table_info(library_items)")}
         if "owner_username" not in library_columns:
             c.execute("ALTER TABLE library_items ADD COLUMN owner_username TEXT NOT NULL DEFAULT ''")
+        for name, kind in (
+            ("drive_requested", "INTEGER NOT NULL DEFAULT 0"),
+            ("drive_status", "TEXT NOT NULL DEFAULT 'not_requested'"),
+            ("drive_error", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            if name not in library_columns:
+                c.execute(f"ALTER TABLE library_items ADD COLUMN {name} {kind}")
+        # Existing imported Library videos were always stored on Drive.
+        c.execute("""UPDATE library_items SET drive_requested=1, drive_status='ready'
+                     WHERE drive_id<>'' AND drive_status='not_requested'""")
         # Legacy, unassigned library media is preserved for admin recovery;
         # never speculate which current user owned it.
         c.execute("UPDATE jobs SET status='waiting', message='Recovered after service restart', updated_at=? WHERE status IN ('downloading','trimming','preparing','merging','verifying','uploading','processing')", (utcnow(),))
@@ -965,52 +978,119 @@ def verify_library_media(path):
     if dur<=0: raise RuntimeError('Library output duration could not be verified')
     return dur
 
-def process_library_import(item_id, source_url, trim_spec, replacing=False):
+def sync_library_drive(item_id):
+    """Optional Drive mirror; never makes a verified VPS Library copy unavailable."""
+    cache=library_cache_path(item_id)
+    try:
+        if cache.is_symlink() or not cache.is_file() or cache.stat().st_size <= 0:
+            raise RuntimeError('Verified VPS Library video is unavailable for Drive upload')
+        verify_library_media(cache)
+        ensure_library_root()
+        remote=library_remote_path(item_id)
+        rclone(['copyto',str(cache),f'{REMOTE}{remote}'],timeout=14400)
+        rawstat=rclone(['lsjson',f'{REMOTE}{remote}','--stat'],timeout=120)
+        obj=json.loads(rawstat or '{}')
+        size=int(obj.get('Size') or 0)
+        fid=str(obj.get('ID') or obj.get('Id') or obj.get('id') or '')
+        if size!=cache.stat().st_size or size<=0 or not fid:
+            raise RuntimeError('Library Drive upload verification failed')
+        update_library_item(item_id,drive_requested=1,drive_status='ready',drive_error='',
+            remote_path=remote,drive_id=fid,drive_url=f'https://drive.google.com/file/d/{fid}/view',
+            progress=100,message='Ready · VPS + Google Drive')
+    except Exception as e:
+        update_library_item(item_id,drive_requested=1,drive_status='failed',
+            drive_error=scrub_proxy_error(e),drive_id='',drive_url='',
+            progress=100,message='Ready on VPS · Google Drive copy failed')
+
+
+def process_library_import(item_id, source_url, trim_spec, replacing=False, upload_to_drive=False):
     ws=WORK/f'library_{item_id}_{uuid.uuid4().hex[:6]}'
     ws.mkdir(parents=True,exist_ok=True)
+    local_committed=False
     try:
         def cb(progress,msg): update_library_item(item_id,status='importing',progress=min(70,max(2,progress)),message=msg,error='')
         raw=ws/'source.bin'; source_to_file(source_url,raw,None,1,status_cb=cb)
         info=probe(raw); duration=media_duration(info); start,end,selected=trim_window(trim_spec,duration,1)
-        update_library_item(item_id,status='importing',progress=72,message='Saving final Library video')
+        update_library_item(item_id,status='importing',progress=72,message='Saving final video on VPS')
         final=ws/'library.mp4'; transcode_library(raw,final,start,end)
         final_duration=verify_library_media(final)
-        update_library_item(item_id,status='importing',progress=86,message='Uploading Library video to Google Drive')
-        ensure_library_root(); remote=library_remote_path(item_id)
-        rclone(['copyto',str(final),f'{REMOTE}{remote}'],timeout=14400)
-        rawstat=rclone(['lsjson',f'{REMOTE}{remote}','--stat'],timeout=120); obj=json.loads(rawstat or '{}')
-        size=int(obj.get('Size') or 0); fid=str(obj.get('ID') or obj.get('Id') or obj.get('id') or '')
-        if size!=final.stat().st_size or size<=0 or not fid: raise RuntimeError('Library Drive upload verification failed')
-        cache=library_cache_path(item_id); tmp=cache.with_suffix('.tmp.mp4'); shutil.copy2(final,tmp); os.replace(tmp,cache)
-        update_library_item(item_id,status='ready',progress=100,message='Ready',error='',duration=float(final_duration),size_bytes=size,remote_path=remote,drive_id=fid,drive_url=f'https://drive.google.com/file/d/{fid}/view',source_url=source_url,trim_json=json.dumps(trim_spec))
+        size=final.stat().st_size
+        cache=library_cache_path(item_id)
+        if cache.is_symlink():
+            raise RuntimeError('Unsafe Library storage path')
+        if shutil.disk_usage(LIBRARY_CACHE).free < MIN_FREE_BYTES:
+            raise RuntimeError('Operational free-space reserve is too low for Library import')
+        tmp=cache.with_suffix('.'+uuid.uuid4().hex+'.partial')
+        try:
+            shutil.copy2(final,tmp)
+            if tmp.stat().st_size!=size or size<=0:
+                raise RuntimeError('VPS Library copy size verification failed')
+            os.replace(tmp,cache)
+        finally:
+            tmp.unlink(missing_ok=True)
+        local_committed=True
+        update_library_item(item_id,status='ready',progress=90 if upload_to_drive else 100,
+            message='Ready on VPS · copying to Drive' if upload_to_drive else 'Ready on VPS',
+            error='',duration=float(final_duration),size_bytes=size,source_url=source_url,
+            trim_json=json.dumps(trim_spec),drive_requested=int(upload_to_drive),
+            drive_status='uploading' if upload_to_drive else 'not_requested',
+            drive_error='',remote_path=library_remote_path(item_id) if upload_to_drive else '',
+            drive_id='',drive_url='')
+        if upload_to_drive:
+            sync_library_drive(item_id)
     except Exception as e:
         msg=scrub_proxy_error(e)
-        if replacing:
-            update_library_item(item_id,status='ready',progress=100,message='Replace failed · previous video kept',error=msg)
+        if local_committed:
+            update_library_item(item_id,status='ready',progress=100,
+                drive_status='failed' if upload_to_drive else 'not_requested',
+                drive_error=msg if upload_to_drive else '',
+                message='Ready on VPS · optional delivery failed')
+        elif replacing:
+            update_library_item(item_id,status='ready',progress=100,
+                message='Replace failed · previous VPS video kept',error=msg)
         else:
             update_library_item(item_id,status='failed',progress=100,message='Import failed',error=msg)
     finally:
         shutil.rmtree(ws,ignore_errors=True)
 
+
 def create_library_item(payload, replace_id='', owner=''):
+    with LIBRARY_LOCK:
+        return _create_library_item_locked(payload,replace_id,owner)
+
+
+def _create_library_item_locked(payload, replace_id='', owner=''):
     if not str(owner).strip():
         raise ValueError('Authenticated account required')
-    replace_id=(replace_id or '').strip(); source=validate_url(payload.get('url',''))
-    trim=normalize_url_spec({'url':source,'trim_enabled':bool(payload.get('trim_enabled',False)),'start_min':payload.get('start_min'),'start_sec':payload.get('start_sec'),'end_min':payload.get('end_min'),'end_sec':payload.get('end_sec')},1)
+    replace_id=(replace_id or '').strip()
+    source=validate_url(payload.get('url',''))
+    requested=payload.get('upload_to_drive',False) is True
+    trim=normalize_url_spec({'url':source,'trim_enabled':bool(payload.get('trim_enabled',False)),
+        'start_min':payload.get('start_min'),'start_sec':payload.get('start_sec'),
+        'end_min':payload.get('end_min'),'end_sec':payload.get('end_sec')},1)
     if replace_id:
         item=get_library_item(replace_id)
         if not item or str(item.get('owner_username') or '').casefold()!=owner.casefold():
             raise KeyError('Library video not found')
-        if library_in_use(replace_id): raise ValueError('This Library video is currently used by a waiting or active merge')
+        if item['status']!='ready' or item.get('drive_status')=='uploading':
+            raise ValueError('Wait for the Library operation to finish')
+        if library_in_use(replace_id):
+            raise ValueError('This Library video is currently used by a waiting or active merge')
         update_library_item(replace_id,status='importing',progress=1,message='Replacing video',error='')
-        threading.Thread(target=process_library_import,args=(replace_id,source,trim,True),daemon=True).start(); return replace_id
+        threading.Thread(target=process_library_import,args=(replace_id,source,trim,True,requested),daemon=True).start()
+        return replace_id
     name=safe_library_name(payload.get('name',''))
     if library_name_exists(name): raise ValueError('A Library video with this name already exists')
-    item_id=uuid.uuid4().hex[:12]; now=utcnow(); remote=library_remote_path(item_id)
+    item_id=uuid.uuid4().hex[:12];now=utcnow()
     with DB_LOCK, db() as c:
-        c.execute('''INSERT INTO library_items(id,name,filename,remote_path,status,progress,message,source_url,trim_json,created_at,updated_at,owner_username) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
-                  (item_id,name,f'{item_id}.mp4',remote,'importing',1,'Queued for import',source,json.dumps(trim),now,now,owner))
-    threading.Thread(target=process_library_import,args=(item_id,source,trim,False),daemon=True).start(); return item_id
+        c.execute('''INSERT INTO library_items(id,name,filename,remote_path,status,progress,message,source_url,trim_json,created_at,updated_at,owner_username,drive_requested,drive_status)
+                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                  (item_id,name,f'{item_id}.mp4','','importing',1,'Queued for import',
+                   source,json.dumps(trim),now,now,owner,int(requested),
+                   'pending' if requested else 'not_requested'))
+    threading.Thread(target=process_library_import,args=(item_id,source,trim,False,requested),daemon=True).start()
+    return item_id
+
 
 def retry_library_item(item_id):
     """User-triggered retry of exactly the saved failed Library source, never a new entry."""
@@ -1028,34 +1108,60 @@ def retry_library_item(item_id):
                 "UPDATE library_items SET status='importing',progress=1,message='Retrying saved source',error='',updated_at=? WHERE id=? AND status='failed'",
                 (utcnow(),item_id)).rowcount
         if changed!=1: raise ValueError('Library item was already updated')
-        threading.Thread(target=process_library_import,args=(item_id,source,trim,False),daemon=True).start()
+        threading.Thread(target=process_library_import,args=(item_id,source,trim,False,bool(item['drive_requested'])),daemon=True).start()
+        return item_id
+
+
+def retry_library_drive(item_id):
+    with LIBRARY_LOCK:
+        item=get_library_item(item_id)
+        if not item or item['status']!='ready' or item.get('drive_status')!='failed':
+            raise ValueError('Only a failed optional Drive copy can be retried')
+        if library_cache_path(item_id).is_symlink() or not library_cache_path(item_id).is_file():
+            raise ValueError('Verified VPS Library video is unavailable')
+        update_library_item(item_id,drive_status='uploading',drive_error='',
+                            progress=90,message='Ready on VPS · retrying Drive copy')
+        threading.Thread(target=sync_library_drive,args=(item_id,),daemon=True).start()
         return item_id
 
 
 def rename_library_item(item_id, name):
-    item=get_library_item(item_id)
-    if not item: raise KeyError('Library video not found')
-    name=safe_library_name(name)
-    if library_name_exists(name,item_id): raise ValueError('A Library video with this name already exists')
-    update_library_item(item_id,name=name); return name
+    with LIBRARY_LOCK:
+        item=get_library_item(item_id)
+        if not item: raise KeyError('Library video not found')
+        if item['status']=='importing' or item.get('drive_status')=='uploading' or library_in_use(item_id):
+            raise ValueError('Library video is in use or still importing')
+        name=safe_library_name(name)
+        if library_name_exists(name,item_id): raise ValueError('A Library video with this name already exists')
+        update_library_item(item_id,name=name,filename=safe_component(name)+'.mp4')
+        return name
+
 
 def delete_library_item(item_id):
-    item=get_library_item(item_id)
-    if not item: raise KeyError('Library video not found')
-    if item.get('status')=='importing': raise ValueError('Wait for the Library import to finish before deleting it')
-    if library_in_use(item_id): raise ValueError('This Library video is currently used by a waiting or active merge')
-    remote=item.get('remote_path') or library_remote_path(item_id)
-    if item.get('drive_id'):
-        rclone(['deletefile',f'{REMOTE}{remote}'],timeout=120,check=False)
-    library_cache_path(item_id).unlink(missing_ok=True)
-    with DB_LOCK, db() as c: c.execute('DELETE FROM library_items WHERE id=?',(item_id,))
+    # VPS-only deletion. Never delete a Google Drive original or verified mirror.
+    with LIBRARY_LOCK:
+        item=get_library_item(item_id)
+        if not item: raise KeyError('Library video not found')
+        if item['status']=='importing' or item.get('drive_status')=='uploading':
+            raise ValueError('Wait for the Library operation to finish before deleting it')
+        if library_in_use(item_id):
+            raise ValueError('This Library video is currently used by a waiting or active merge')
+        cache=library_cache_path(item_id)
+        if cache.is_symlink():
+            raise ValueError('Unsafe Library storage path')
+        with DB_LOCK, db() as c:
+            c.execute('DELETE FROM library_items WHERE id=?',(item_id,))
+        cache.unlink(missing_ok=True)
+
 
 def library_to_file(item_id,dst,idx):
     item=get_library_item(item_id)
     if not item or item.get('status')!='ready': raise RuntimeError(f'Video {idx}: Library video is not ready')
     cache=library_cache_path(item_id)
     if not cache.exists() or cache.stat().st_size<=0:
-        remote=item.get('remote_path') or library_remote_path(item_id)
+        remote=item.get('remote_path')
+        if not item.get('drive_id') or not remote:
+            raise RuntimeError(f'Video {idx}: VPS Library video missing; no verified Drive mirror available')
         rclone(['copyto',f'{REMOTE}{remote}',str(cache)],timeout=7200)
         verify_library_media(cache)
     shutil.copy2(cache,dst); validate_downloaded_file(dst,idx)
@@ -1322,6 +1428,12 @@ def list_jobs(owner=None, admin=False):
     return out
 
 def add_job(payload, owner=''):
+    # Serialize queue admission against Library rename/replace/delete.
+    with LIBRARY_LOCK:
+        return _add_job_with_library_lock(payload,owner)
+
+
+def _add_job_with_library_lock(payload,owner=''):
     if not str(owner).strip(): raise ValueError('Authenticated account required')
     request_key=str(payload.get('request_key') or '').strip()
     if request_key and not re.fullmatch(r'[A-Za-z0-9_-]{16,128}',request_key):
@@ -1514,6 +1626,45 @@ class Handler(BaseHTTPRequestHandler):
                         if not chunk: break
                         self.wfile.write(chunk)
                 return
+            m=re.fullmatch(re.escape(PREFIX)+r'/api/library/([A-Za-z0-9]+)/view',p)
+            if m:
+                self.require_library_owner(m.group(1))
+                item=get_library_item(m.group(1))
+                media=library_cache_path(m.group(1))
+                if not item or item['status']!='ready' or media.is_symlink() or not media.is_file():
+                    return self.send_json(404,{'ok':False,'error':'VPS Library preview unavailable'})
+                total=media.stat().st_size
+                if total<=0: return self.send_json(404,{'ok':False,'error':'VPS Library preview unavailable'})
+                first,last=0,total-1
+                byte_range=self.headers.get('Range','')
+                if byte_range:
+                    match=re.fullmatch(r'bytes=(\\d*)-(\\d*)',byte_range.strip())
+                    if not match or (not match.group(1) and not match.group(2)):
+                        return self.send_json(416,{'ok':False,'error':'Invalid video range'})
+                    if match.group(1):
+                        first=int(match.group(1))
+                        if match.group(2): last=min(int(match.group(2)),total-1)
+                    else:
+                        first=max(0,total-int(match.group(2)))
+                    if first>=total or last<first:
+                        return self.send_json(416,{'ok':False,'error':'Invalid video range'})
+                self.send_response(206 if byte_range else 200)
+                self.send_header('Content-Type','video/mp4')
+                self.send_header('Accept-Ranges','bytes')
+                self.send_header('Cache-Control','private, no-store')
+                self.send_header('X-Content-Type-Options','nosniff')
+                self.send_header('Content-Length',str(last-first+1))
+                if byte_range: self.send_header('Content-Range',f'bytes {first}-{last}/{total}')
+                self.end_headers()
+                with media.open('rb') as handle:
+                    handle.seek(first)
+                    remaining=last-first+1
+                    while remaining:
+                        chunk=handle.read(min(1024*1024,remaining))
+                        if not chunk: break
+                        self.wfile.write(chunk)
+                        remaining-=len(chunk)
+                return
             if p==PREFIX+'/api/state':
                 owner=self.principal()
                 return self.send_json(200,{'ok':True,'jobs':list_jobs(owner),
@@ -1538,6 +1689,10 @@ class Handler(BaseHTTPRequestHandler):
             if m:
                 self.require_library_owner(m.group(1))
                 return self.send_json(202,{'ok':True,'id':retry_library_item(m.group(1))})
+            m=re.fullmatch(re.escape(PREFIX)+r'/api/library/([A-Za-z0-9]+)/retry-drive',p)
+            if m:
+                self.require_library_owner(m.group(1))
+                return self.send_json(202,{'ok':True,'id':retry_library_drive(m.group(1))})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/library/([A-Za-z0-9]+)/rename',p)
             if m:
                 self.require_library_owner(m.group(1))
