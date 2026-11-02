@@ -8,14 +8,17 @@ from fastapi.templating import Jinja2Templates
 import voice_clone_api as vc
 import kokoro_api as ko
 import edge_api as ed
-import audio_downloader_api as ad
+# Legacy-only compatibility. A split Voice runtime must never import Song's
+# downloader module, storage code, or worker.
+SONG_AUDIO_BACKEND_SPLIT = os.getenv("SONG_AUDIO_BACKEND_SPLIT") == "1"
+if not SONG_AUDIO_BACKEND_SPLIT:
+    import audio_downloader_api as ad
 import asyncio
 from fastapi.responses import JSONResponse
 from voice_tenant import scene_identity, set_identity, reset_identity, owner
 BASE=Path(__file__).resolve().parent
 templates=Jinja2Templates(directory=str(BASE/"templates"))
 app=FastAPI(title="VPS1 OmniVoice Voice Studio",docs_url=None,redoc_url=None)
-SONG_AUDIO_BACKEND_SPLIT = os.getenv("SONG_AUDIO_BACKEND_SPLIT") == "1"
 app.include_router(vc.router)
 app.include_router(ko.router)
 app.include_router(ed.router)
