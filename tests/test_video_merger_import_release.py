@@ -39,7 +39,11 @@ function renderProxy(){old}
             reviewed.parent.mkdir(parents=True,exist_ok=True)
             reviewed.write_text(baseline)
             (old/'part01/templates/index.html').write_text(old_html)
-            canonical=(Path(__file__).resolve().parents[1]/'apps/video-merger/part01/templates/index.html').read_text()
+            # Legacy import/queue installer fixture intentionally uses the
+            # audited pre-frozen Library baseline. Frozen V1 Library release
+            # overlay has its own strict full-HTML acceptance tests.
+            canonical=(Path(__file__).resolve().parents[1]/
+                       'production/video_merger_library_20261102_baseline.html').read_text()
             canonical_path=repo/'apps/video-merger/part01/templates/index.html'
             canonical_path.parent.mkdir(parents=True)
             canonical_path.write_text(canonical)
