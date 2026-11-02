@@ -2557,9 +2557,16 @@ _sm_profiles_spec = _sm_importlib.spec_from_file_location(
     "short_maker_short_profiles", Path(__file__).with_name("short_profiles.py"))
 _sm_profiles_module = _sm_importlib.module_from_spec(_sm_profiles_spec)
 _sm_profiles_spec.loader.exec_module(_sm_profiles_module)
+_sm_profile_media_spec = _sm_importlib.spec_from_file_location(
+    "short_maker_profile_media", Path(__file__).with_name("short_profile_media.py"))
+_sm_profile_media_module = _sm_importlib.module_from_spec(_sm_profile_media_spec)
+_sm_profile_media_spec.loader.exec_module(_sm_profile_media_module)
+_sm_verify_source_import = _sm_profile_media_module.register_short_profile_media_uploads(
+    app, data_root=DATA_ROOT, short_identity=short_identity)
 _sm_profiles_module.register_short_profile_store(
     app, data_root=DATA_ROOT, short_identity=short_identity,
-    short_folder_owned=short_folder_owned)
+    short_folder_owned=short_folder_owned,
+    verify_source_import=_sm_verify_source_import)
 
 @app.get("/ready_video_client.js")
 def ready_video_client_script():
