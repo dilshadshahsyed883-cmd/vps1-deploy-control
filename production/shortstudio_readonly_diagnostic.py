@@ -113,7 +113,8 @@ def secure_tree_types(path: Path) -> dict:
 
 def collect(state: Path, *, unit_dir: Path = Path("/etc/systemd/system")) -> dict:
     from production.runtime import shortstudio_rolled_back_empty
-    from production.shortstudio_cooperation_readonly import inspect as cooperation_inspect, inspect_live_processes
+    from production.shortstudio_cooperation_readonly import (inspect as cooperation_inspect,
+        inspect_live_processes, inspect_active_drain)
     root = state / "lum-shortstudio"
     marker = root / ".vps1-independent-engine"
     owned = False
@@ -127,6 +128,7 @@ def collect(state: Path, *, unit_dir: Path = Path("/etc/systemd/system")) -> dic
         # proof, approval, or live destructive folder deletion control.
         "cooperation": cooperation_inspect(unit_dir),
         "live_cooperation": inspect_live_processes(unit_dir),
+        "active_drain_snapshot": inspect_active_drain(unit_dir),
         "root_present": root.is_dir() and not root.is_symlink(),
         "owner_marker_valid": owned,
         "units": {name:unit_metadata(unit_dir,name) for name in ("web","worker","scheduler")},
