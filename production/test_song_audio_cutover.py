@@ -64,7 +64,9 @@ class SongAudioCutoverTests(unittest.TestCase):
         new = cutover._song_environment(root, "a" * 40, old)
         self.assertIn(b"AUDIO_DOWNLOADER_PROXY_POOL=host-private-fixture\n", new)
         self.assertEqual(new.count(b"AUDIO_DOWNLOADER_ROOT="), 1)
-        # A stale Voice-only yt-dlp override is NOT copied: the Song process\n        # prefers its canonical Song runtime, then its own venv PATH.\n        self.assertEqual(new.count(b"AUDIO_DOWNLOADER_YTDLP_BIN="), 0)
+        # A stale Voice-only yt-dlp override is NOT copied: the Song process
+        # prefers its canonical Song runtime, then its own venv PATH.
+        self.assertEqual(new.count(b"AUDIO_DOWNLOADER_YTDLP_BIN="), 0)
         self.assertNotIn(b"WEB_ACCESS_KEY", new)
         self.assertNotIn(b"VOICE_CLONE_ROOT", new)
         with self.assertRaisesRegex(RuntimeError, "Duplicated"):
