@@ -25,10 +25,10 @@ LEGACY_SCENE_STATES = {"LEGACY", "UNSET"}
 COMPANIONS = ("part01/voice_tenant.py", "part01/queue_actions.py")
 
 
-def _safe_source_and_unit() -> tuple[Path, Path]:
+def _safe_source_and_unit(unit: Path | None = None) -> tuple[Path, Path]:
     """Require a pointer-owned existing Voice release and its unmodified unit."""
     previous = cutover._verify_pointer(cutover.VOICE_CURRENT, cutover.VOICE_RELEASES)
-    unit = Path("/etc/systemd/system") / service.VOICE_UNIT
+    unit = unit if unit is not None else Path("/etc/systemd/system") / service.VOICE_UNIT
     if unit.is_symlink() or not unit.is_file():
         raise RuntimeError("Voice recovery unit missing or linked")
     lines = unit.read_text(encoding="utf-8").splitlines()
