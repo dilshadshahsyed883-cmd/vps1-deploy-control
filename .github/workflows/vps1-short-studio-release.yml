@@ -119,7 +119,21 @@ jobs:
                   role:{key:bool((units.get(role) or {}).get(key,False)) for key in keys}
                   for role in roles
               }
+          blocked_at=snapshot.get('blocked_at','UNKNOWN')
+          allowed={
+            'UNKNOWN','NONE','DRAIN_PATH_NOT_CONFIGURED','DRAIN_PATH_UNSAFE',
+            'MAKER_ROOT_UNAVAILABLE','MAKER_JOBS_DIRECTORY_UNAVAILABLE',
+            'MAKER_JOB_ENTRY_UNSAFE','MAKER_JOB_STATE_MISSING',
+            'MAKER_JOB_NOT_TERMINAL','READY_IMPORT_DIRECTORY_UNSAFE',
+            'READY_IMPORT_ENTRY_UNSAFE','READY_IMPORT_MANIFEST_MISSING',
+            'READY_IMPORT_NOT_TERMINAL','UPLOADER_APP_DB_UNAVAILABLE',
+            'UPLOADER_JOB_NOT_TERMINAL','UPLOADER_CLAIM_DB_UNAVAILABLE',
+            'UPLOADER_CLAIM_NOT_TERMINAL','INSPECTION_UNREADABLE',
+          }
+          if blocked_at not in allowed:
+            raise SystemExit('READONLY_DRAIN_REASON_INVALID')
           safe={
+            'drain_blocked_at':blocked_at,
             'unit_config_flags':role_booleans(config,(
                 'configuration_present','folder_root_safe','lock_enabled')),
             'unit_process_flags':role_booleans(live,(
