@@ -148,14 +148,14 @@ def init_db():
         # IDs, media paths, existing rows, or other apps. SQLite cannot drop
         # an inline UNIQUE constraint; clone only this table inside a savepoint.
         saved_schema=c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='library_items'").fetchone()['sql']
-        if re.search(r'\\bname\\s+TEXT\\s+NOT\\s+NULL\\s+UNIQUE\\b',saved_schema,re.I):
+        if re.search(r'\bname\s+TEXT\s+NOT\s+NULL\s+UNIQUE\b',saved_schema,re.I):
             custom=c.execute("""SELECT name FROM sqlite_master WHERE tbl_name='library_items'
                                  AND type IN ('index','trigger') AND sql IS NOT NULL""").fetchall()
             if custom:
                 raise RuntimeError('Unknown Library schema changes; refuse automatic name migration')
-            new_schema=re.sub(r'\\bname\\s+TEXT\\s+NOT\\s+NULL\\s+UNIQUE\\b',
+            new_schema=re.sub(r'\bname\s+TEXT\s+NOT\s+NULL\s+UNIQUE\b',
                               'name TEXT NOT NULL',saved_schema,count=1,flags=re.I)
-            new_schema=re.sub(r'\\bCREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?library_items\\b',
+            new_schema=re.sub(r'\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?library_items\b',
                               'CREATE TABLE library_items_owner_scope_tmp',new_schema,count=1,flags=re.I)
             if new_schema==saved_schema or 'library_items_owner_scope_tmp' not in new_schema:
                 raise RuntimeError('Unknown Library DDL; refuse automatic migration')
