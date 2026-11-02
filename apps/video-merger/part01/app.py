@@ -89,7 +89,7 @@ def init_db():
         );
         CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY, v TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS library_items(
-          id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, filename TEXT NOT NULL,
+          id TEXT PRIMARY KEY, name TEXT NOT NULL, filename TEXT NOT NULL,
           remote_path TEXT NOT NULL DEFAULT '', drive_id TEXT NOT NULL DEFAULT '', drive_url TEXT NOT NULL DEFAULT '',
           status TEXT NOT NULL DEFAULT 'ready', progress INTEGER NOT NULL DEFAULT 0, message TEXT NOT NULL DEFAULT '',
           error TEXT NOT NULL DEFAULT '', duration REAL NOT NULL DEFAULT 0, size_bytes INTEGER NOT NULL DEFAULT 0,
@@ -144,6 +144,35 @@ def init_db():
         ):
             if name not in library_columns:
                 c.execute(f"ALTER TABLE library_items ADD COLUMN {name} {kind}")
+        # Upgrade legacy global-name uniqueness without changing any Library
+        # IDs, media paths, existing rows, or other apps. SQLite cannot drop
+        # an inline UNIQUE constraint; clone only this table inside a savepoint.
+        saved_schema=c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='library_items'").fetchone()['sql']
+        if re.search(r'\\bname\\s+TEXT\\s+NOT\\s+NULL\\s+UNIQUE\\b',saved_schema,re.I):
+            custom=c.execute("""SELECT name FROM sqlite_master WHERE tbl_name='library_items'
+                                 AND type IN ('index','trigger') AND sql IS NOT NULL""").fetchall()
+            if custom:
+                raise RuntimeError('Unknown Library schema changes; refuse automatic name migration')
+            new_schema=re.sub(r'\\bname\\s+TEXT\\s+NOT\\s+NULL\\s+UNIQUE\\b',
+                              'name TEXT NOT NULL',saved_schema,count=1,flags=re.I)
+            new_schema=re.sub(r'\\bCREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?library_items\\b',
+                              'CREATE TABLE library_items_owner_scope_tmp',new_schema,count=1,flags=re.I)
+            if new_schema==saved_schema or 'library_items_owner_scope_tmp' not in new_schema:
+                raise RuntimeError('Unknown Library DDL; refuse automatic migration')
+            c.execute('SAVEPOINT vm_library_owner_scope')
+            try:
+                c.execute(new_schema)
+                c.execute('INSERT INTO library_items_owner_scope_tmp SELECT * FROM library_items')
+                c.execute('DROP TABLE library_items')
+                c.execute('ALTER TABLE library_items_owner_scope_tmp RENAME TO library_items')
+                c.execute('RELEASE SAVEPOINT vm_library_owner_scope')
+            except Exception:
+                c.execute('ROLLBACK TO SAVEPOINT vm_library_owner_scope')
+                c.execute('RELEASE SAVEPOINT vm_library_owner_scope')
+                raise
+        c.execute("""CREATE UNIQUE INDEX IF NOT EXISTS uq_vm_library_owner_name
+                     ON library_items(lower(owner_username),lower(name))
+                     WHERE owner_username<>''""")
         # Existing imported Library videos were always stored on Drive.
         c.execute("""UPDATE library_items SET drive_requested=1, drive_status='ready'
                      WHERE drive_id<>'' AND drive_status='not_requested'""")
@@ -941,10 +970,13 @@ def safe_library_name(v):
     if not v: raise ValueError('Library name is required')
     return v
 
-def library_name_exists(name, exclude_id=''):
+def library_name_exists(name, exclude_id='', owner=''):
     with DB_LOCK, db() as c:
-        rows=c.execute('SELECT id,name FROM library_items').fetchall()
-    return any(r['id']!=exclude_id and r['name'].lower()==name.lower() for r in rows)
+        if owner:
+            rows=c.execute('SELECT id,name FROM library_items WHERE lower(owner_username)=lower(?)',(owner,)).fetchall()
+        else:
+            rows=c.execute('SELECT id,name FROM library_items').fetchall()
+    return any(r['id']!=exclude_id and r['name'].casefold()==name.casefold() for r in rows)
 
 def library_in_use(item_id):
     with DB_LOCK, db() as c:
@@ -1102,7 +1134,7 @@ def _create_library_item_locked(payload, replace_id='', owner=''):
         threading.Thread(target=process_library_import,args=(replace_id,source,trim,True,requested),daemon=True).start()
         return replace_id
     name=safe_library_name(payload.get('name',''))
-    if library_name_exists(name): raise ValueError('A Library video with this name already exists')
+    if library_name_exists(name,owner=owner): raise ValueError('A Library video with this name already exists')
     item_id=uuid.uuid4().hex[:12];now=utcnow()
     with DB_LOCK, db() as c:
         c.execute('''INSERT INTO library_items(id,name,filename,remote_path,status,progress,message,source_url,trim_json,created_at,updated_at,owner_username,drive_requested,drive_status)
@@ -1154,7 +1186,7 @@ def rename_library_item(item_id, name):
         if item['status']=='importing' or item.get('drive_status')=='uploading' or library_in_use(item_id):
             raise ValueError('Library video is in use or still importing')
         name=safe_library_name(name)
-        if library_name_exists(name,item_id): raise ValueError('A Library video with this name already exists')
+        if library_name_exists(name,item_id,item['owner_username']): raise ValueError('A Library video with this name already exists')
         update_library_item(item_id,name=name,filename=safe_component(name)+'.mp4')
         return name
 
