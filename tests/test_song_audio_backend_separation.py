@@ -31,7 +31,7 @@ class StandaloneSongSessionTests(unittest.TestCase):
                         any(getattr(r, "path", "") == "/tts/api/audio-downloader/jobs"
                             for r in song.app.routes))
         self.assertIn("/tts/api/audio-downloader/jobs", routes)
-        self.assertIn("/audio-downloader/app", routes)
+        self.assertIn("/audio-downloader/app", {r.path for r in song.app.routes if hasattr(r, "path")})
         self.assertNotIn("/tts/api/clone/jobs", routes)
         self.assertNotIn("/tts/api/kokoro/jobs", routes)
         self.assertNotIn("/tts/api/edge/jobs", routes)
