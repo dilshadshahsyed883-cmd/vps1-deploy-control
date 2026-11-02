@@ -139,9 +139,35 @@ class ShortFolderPreflight:
         maker_profiles = [p for p in self.profiles.list(owner)
                           if p["output_folder"] == folder_name]
         # All own references—including stopped profiles—must be unlinked or
-        # explicitly migrated, not silently deleted.
+        # explicitly migrated, not silently deleted. Other owners' linked
+        # records must be blocked without exposing their names or IDs.
         if maker_profiles:
             issues.append("Short Profiles still link this folder")
+        with self.profiles._connect() as db:
+            foreign = db.execute(
+                """SELECT COUNT(*) FROM short_profiles
+                   WHERE output_folder=? AND deleted_at IS NULL AND owner<>?""",
+                (folder_name, owner)).fetchone()[0]
+            if foreign:
+                issues.append("Foreign or unassigned Short Profile references folder")
+            has_claims = db.execute(
+                """SELECT 1 FROM sqlite_master
+                   WHERE type='table' AND name='short_profile_jobs'""").fetchone()
+            if has_claims:
+                for claim in db.execute(
+                    """SELECT owner,status,job_id FROM short_profile_jobs
+                       WHERE output_folder=?""", (folder_name,)):
+                    if str(claim["owner"] or "").casefold() != owner:
+                        issues.append("Foreign or unassigned daily batch claim")
+                    if claim["status"] == "reserved":
+                        issues.append("Undispatched daily profile batch still reserves folder")
+                    elif claim["status"] == "enqueued":
+                        # A submitted claim without a persisted Maker job must
+                        # be reconciled, never silently discarded.
+                        state = next((job for job in self.short_jobs()
+                                      if job.get("job_id") == claim["job_id"]), None)
+                        if state is None:
+                            issues.append("Unreconciled daily render job claim")
         for state in self.short_jobs():
             if not isinstance(state, dict):
                 issues.append("Unverifiable Maker job")
