@@ -1158,6 +1158,14 @@ def main():
     check_host(args.revision)
     with deployment_lock():
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-song-audio-voice-recovery]' in intent:
+            if args.action != 'install' or args.apps != ['voice-studio']:
+                raise RuntimeError('Voice identity recovery requires exact protected Voice lane')
+            if '[vps1-song-audio-separate]' in intent:
+                raise RuntimeError('Voice recovery cannot combine with Song Audio cutover')
+            from production.song_audio_voice_recovery import recover
+            recover(args.revision)
+            return  # No generic install and no new Song/Scene service.
         if '[vps1-song-audio-voice-readonly-diagnose]' in intent:
             if args.action != 'install' or args.apps != ['voice-studio']:
                 raise RuntimeError('Voice rollback read-only audit requires exact Voice lane')
@@ -1630,6 +1638,14 @@ def main():
     check_host(args.revision)
     with deployment_lock():
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-song-audio-voice-recovery]' in intent:
+            if args.action != 'install' or args.apps != ['voice-studio']:
+                raise RuntimeError('Voice identity recovery requires exact protected Voice lane')
+            if '[vps1-song-audio-separate]' in intent:
+                raise RuntimeError('Voice recovery cannot combine with Song Audio cutover')
+            from production.song_audio_voice_recovery import recover
+            recover(args.revision)
+            return  # No generic install and no new Song/Scene service.
         if '[vps1-song-audio-voice-readonly-diagnose]' in intent:
             if args.action != 'install' or args.apps != ['voice-studio']:
                 raise RuntimeError('Voice rollback read-only audit requires exact Voice lane')

@@ -13,6 +13,8 @@ on:
       - 'production/song_audio_cutover.py'
       - 'production/song_audio_voice_diagnostic.py'
       - 'production/test_song_audio_voice_diagnostic.py'
+      - 'production/song_audio_voice_recovery.py'
+      - 'production/test_song_audio_voice_recovery.py'
       - 'production/test_song_audio_cutover.py'
       - 'production/smoke.py'
       - 'rebuild/fresh_vps.py'
@@ -24,6 +26,8 @@ on:
     paths:
       - 'apps/song-studio/**'
       - 'production/runtime.py'
+      - 'production/song_audio_voice_recovery.py'
+      - 'production/test_song_audio_voice_recovery.py'
       - 'production/smoke.py'
       - 'tests/test_song_audio_backend_separation.py'
       - '.github/workflows/vps1-song-audio-separation-ci.yml'
@@ -57,12 +61,13 @@ jobs:
           PY
       - name: Syntax and protected Song/Voice boundary contracts
         run: |
-          python -m compileall -q apps/song-studio/part01 production/song_audio_service.py production/song_audio_handoff_preflight.py production/song_audio_cutover.py
+          python -m compileall -q apps/song-studio/part01 production/song_audio_service.py production/song_audio_handoff_preflight.py production/song_audio_cutover.py production/song_audio_voice_recovery.py
           python -m unittest discover -s tests -p 'test_song_audio_backend_separation.py' -v
           python -m unittest discover -s production -p 'test_song_audio_service.py' -v
           python -m unittest discover -s production -p 'test_song_audio_handoff_preflight.py' -v
           python -m unittest discover -s production -p 'test_song_audio_orphan_gate.py' -v
           python -m unittest discover -s production -p 'test_song_audio_voice_diagnostic.py' -v
+          python -m unittest discover -s production -p 'test_song_audio_voice_recovery.py' -v
           python -m unittest discover -s production -p 'test_song_audio_cutover.py' -v
       - name: Actual standalone Song ASGI and disposable Scene SSO smoke
         run: |
