@@ -7,6 +7,8 @@ on:
       - 'apps/scene-builder/part01/app.py'
       - 'production/runtime.py'
       - 'production/song_audio_service.py'
+      - 'production/song_audio_handoff_preflight.py'
+      - 'production/test_song_audio_handoff_preflight.py'
       - 'production/song_audio_cutover.py'
       - 'production/test_song_audio_cutover.py'
       - 'production/smoke.py'
@@ -52,9 +54,10 @@ jobs:
           PY
       - name: Syntax and protected Song/Voice boundary contracts
         run: |
-          python -m compileall -q apps/song-studio/part01 production/song_audio_service.py production/song_audio_cutover.py
+          python -m compileall -q apps/song-studio/part01 production/song_audio_service.py production/song_audio_handoff_preflight.py production/song_audio_cutover.py
           python -m unittest discover -s tests -p 'test_song_audio_backend_separation.py' -v
           python -m unittest discover -s production -p 'test_song_audio_service.py' -v
+          python -m unittest discover -s production -p 'test_song_audio_handoff_preflight.py' -v
           python -m unittest discover -s production -p 'test_song_audio_cutover.py' -v
       - name: Actual standalone Song ASGI and disposable Scene SSO smoke
         run: |
