@@ -39,7 +39,11 @@ function renderProxy(){old}
             reviewed.parent.mkdir(parents=True,exist_ok=True)
             reviewed.write_text(baseline)
             (old/'part01/templates/index.html').write_text(old_html)
-            canonical=(Path(__file__).resolve().parents[1]/'apps/video-merger/part01/templates/index.html').read_text()
+            # Legacy import/queue installer fixture intentionally uses the
+            # audited pre-frozen Library baseline. Frozen V1 Library release
+            # overlay has its own strict full-HTML acceptance tests.
+            canonical=(Path(__file__).resolve().parents[1]/
+                       'production/video_merger_library_20261102_baseline.html').read_text()
             canonical_path=repo/'apps/video-merger/part01/templates/index.html'
             canonical_path.parent.mkdir(parents=True)
             canonical_path.write_text(canonical)
@@ -126,6 +130,22 @@ function renderProxy(){old}
                 db.execute("DELETE FROM library_items WHERE status='importing'")
                 db.execute("INSERT INTO jobs VALUES('waiting')")
             with self.assertRaisesRegex(RuntimeError,'unfinished'):
+                release.idle_database(root)
+
+    def test_idle_gate_blocks_optional_library_drive_copy_even_with_ready_vps_video(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory); dbpath=root/'data/video_merger.db'
+            dbpath.parent.mkdir()
+            with sqlite3.connect(dbpath) as db:
+                db.execute('CREATE TABLE jobs(status TEXT)')
+                db.execute('CREATE TABLE library_items(status TEXT, drive_status TEXT)')
+                db.execute("INSERT INTO jobs VALUES('complete')")
+                db.execute("INSERT INTO library_items VALUES('ready','uploading')")
+            with self.assertRaisesRegex(RuntimeError, 'optional Library Drive copy'):
+                release.idle_database(root)
+            with sqlite3.connect(dbpath) as db:
+                db.execute("UPDATE library_items SET drive_status='failed'")
+            with patch.object(release,'event'):
                 release.idle_database(root)
 
     def test_idle_gate_missing_or_incomplete_schema_fails_closed(self):

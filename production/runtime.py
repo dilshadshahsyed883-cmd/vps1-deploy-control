@@ -1567,6 +1567,13 @@ def main():
             from production.short_uploader_group_release import install as install_network_fix
             install_network_fix(args.revision, network_only=True)
             return
+        # Short-only presentation change: reuse existing form defaults and actions.
+        if '[vps1-shortstudio-profile-order-only]' in intent:
+            if args.action != 'install' or args.apps != ['local-upload-manager']:
+                raise RuntimeError('Short profile reorder requires isolated uploader lane')
+            from production.short_uploader_group_release import install as install_profile_order
+            install_profile_order(args.revision, reorder_only=True)
+            return
         # Short Uploader profile folder NameError: web-only imported helper.
         if '[vps1-shortstudio-profile-folder-fix]' in intent:
             if args.action != 'install' or args.apps != ['local-upload-manager']:

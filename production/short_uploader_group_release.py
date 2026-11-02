@@ -63,7 +63,7 @@ def idle(*, allow_waiting_network=False):
             lum_parked_network_idle(con)
 
 
-def verify_live(*, ui_only=False, assignment_only=False, fixed_modes_only=False, member_controls_only=False, owner_parity_only=False, vault_only=False, profile_folder_only=False):
+def verify_live(*, ui_only=False, assignment_only=False, fixed_modes_only=False, member_controls_only=False, owner_parity_only=False, vault_only=False, profile_folder_only=False, reorder_only=False):
     from production.route_uploader_scene_https import https_get, scene_cookie
     for _ in range(40):
         try:
@@ -75,6 +75,19 @@ def verify_live(*, ui_only=False, assignment_only=False, fixed_modes_only=False,
     status,_,body=https_get('/short-uploader/app?tab=auto_engine&new_profile=1',cookie)
     require(status==200,'authenticated Short Uploader GET failed')
     html=body.decode('utf-8')
+    if reorder_only:
+        js_status,_,js_body=https_get('/short-uploader/static/auto_engine_v6.js',cookie)
+        require(js_status==200 and b'SHORT_PROFILE_REORDER_ONLY_V1' in js_body,
+                'Short profile reorder script not deployed')
+        require('profile-order=20261102-v1' in html,
+                'Short profile cache version not deployed')
+        for required in ('name="category_name"', 'name="short_vps_folder"',
+                         'id="short-profile-metadata-source"'):
+            require(required in html, 'Existing Short profile field missing: '+required)
+        require(https_get('/short-uploader/app')[0] in (302,303,401,403),
+                'Short Uploader anonymous authentication regressed')
+        print('SHORT_PROFILE_ORDER=PASS EXISTING_DEFAULTS=UNCHANGED NO_PROFILE_WRITE',flush=True)
+        return
     if profile_folder_only:
         status,_,body=https_get('/short-uploader/app?tab=auto_engine',cookie)
         require(status==200 and 'Auto Engine' in body.decode('utf-8'),
@@ -253,8 +266,8 @@ def verify_final_ui(html, form, cookie, https_get):
     print('SHORT_FINAL_UI=PASS DEFAULTS=PASS SHEETS=PASS BULK_HIDDEN=PASS CSS=PASS SONG_HEALTH=PASS',flush=True)
 
 
-def install(revision, *, ui_only=False, network_only=False, assignment_only=False, fixed_modes_only=False, member_controls_only=False, owner_parity_only=False, vault_only=False, profile_folder_only=False):
-    require(sum(bool(x) for x in (ui_only, network_only, assignment_only, fixed_modes_only, member_controls_only, owner_parity_only, vault_only, profile_folder_only)) <= 1,
+def install(revision, *, ui_only=False, network_only=False, assignment_only=False, fixed_modes_only=False, member_controls_only=False, owner_parity_only=False, vault_only=False, profile_folder_only=False, reorder_only=False):
+    require(sum(bool(x) for x in (ui_only, network_only, assignment_only, fixed_modes_only, member_controls_only, owner_parity_only, vault_only, profile_folder_only, reorder_only)) <= 1,
             'release modes are exclusive')
     require(re.fullmatch('[a-f0-9]{40}',revision),'invalid revision')
     require(shutil.disk_usage('/').free>=5_000_000_000,'disk reserve')
@@ -273,13 +286,14 @@ def install(revision, *, ui_only=False, network_only=False, assignment_only=Fals
         active=subprocess.run(['systemctl','is-active','--quiet',name],capture_output=True,timeout=10).returncode==0
         previous[name]={'text':text,'active':active}
     require(len(old_dirs)==1,'Short Uploader units use different releases')
-    suffix=('-short-profile-folder' if profile_folder_only else '-short-oauth-vault' if vault_only else '-short-owner-parity' if owner_parity_only else '-short-member-controls' if member_controls_only else '-short-fixed-modes' if fixed_modes_only else '-short-owner-form' if assignment_only else '-short-network-fairness' if network_only else '-short-ui-intro' if ui_only else '-short-group-metadata')
+    suffix=('-short-profile-order' if reorder_only else '-short-profile-folder' if profile_folder_only else '-short-oauth-vault' if vault_only else '-short-owner-parity' if owner_parity_only else '-short-member-controls' if member_controls_only else '-short-fixed-modes' if fixed_modes_only else '-short-owner-form' if assignment_only else '-short-network-fairness' if network_only else '-short-ui-intro' if ui_only else '-short-group-metadata')
     target=BASE/'releases/local-upload-manager'/(revision+suffix)
-    journal=BASE/'transactions'/('short-uploader-profile-folder' if profile_folder_only else 'short-uploader-oauth-vault' if vault_only else 'short-uploader-owner-parity' if owner_parity_only else 'short-uploader-member-controls' if member_controls_only else 'short-uploader-fixed-modes' if fixed_modes_only else 'short-uploader-owner-form' if assignment_only else 'short-uploader-network-fairness' if network_only else 'short-uploader-ui-intro' if ui_only else 'short-uploader-group-metadata')/revision
+    journal=BASE/'transactions'/('short-uploader-profile-order' if reorder_only else 'short-uploader-profile-folder' if profile_folder_only else 'short-uploader-oauth-vault' if vault_only else 'short-uploader-owner-parity' if owner_parity_only else 'short-uploader-member-controls' if member_controls_only else 'short-uploader-fixed-modes' if fixed_modes_only else 'short-uploader-owner-form' if assignment_only else 'short-uploader-network-fairness' if network_only else 'short-uploader-ui-intro' if ui_only else 'short-uploader-group-metadata')/revision
     require(not target.exists() and not target.is_symlink() and not journal.exists(),'immutable release already exists')
     shutil.copytree(next(iter(old_dirs)).parent,target,symlinks=True)
     hashes={}
-    for relative in (("lum_engine/standalone_app.py",) if profile_folder_only else
+    for relative in (("static/auto_engine_v6.js", "templates/base.html") if reorder_only else
+                     ("lum_engine/standalone_app.py",) if profile_folder_only else
                      ("templates/app.html", "lum_engine/standalone_app.py", "lum_engine/oauth_web.py", "lum_engine/song_vault.py", "static/short_vault_upload.js") if vault_only else
                      NETWORK_ONLY_FILES if network_only else
                      ('templates/app.html','lum_engine/standalone_app.py','static/auto_engine_v6.js') if member_controls_only else
@@ -320,11 +334,12 @@ def install(revision, *, ui_only=False, network_only=False, assignment_only=Fals
         elif owner_parity_only:verify_live(owner_parity_only=True)
         elif vault_only:verify_live(vault_only=True)
         elif profile_folder_only:verify_live(profile_folder_only=True)
+        elif reorder_only:verify_live(reorder_only=True)
         elif ui_only:verify_live(ui_only=True)
         else:verify_live()
         atomic_json(journal/'state.json',dict(status='ACTIVE',revision=revision,source=str(target),files=hashes,
                                            sqlite_backups=len(backups),scheduler='PRESERVED',auto_script='UNTOUCHED'))
-        print(('SHORT_PROFILE_FOLDER_RELEASE' if profile_folder_only else 'SHORT_VAULT_RELEASE' if vault_only else 'SHORT_OWNER_PARITY_RELEASE' if owner_parity_only else 'SHORT_MEMBER_CONTROLS_RELEASE' if member_controls_only else 'SHORT_FIXED_MODES_RELEASE' if fixed_modes_only else 'SHORT_ASSIGNMENT_UI_RELEASE' if assignment_only else 'SHORT_GROUP_RELEASE')
+        print(('SHORT_PROFILE_ORDER_RELEASE' if reorder_only else 'SHORT_PROFILE_FOLDER_RELEASE' if profile_folder_only else 'SHORT_VAULT_RELEASE' if vault_only else 'SHORT_OWNER_PARITY_RELEASE' if owner_parity_only else 'SHORT_MEMBER_CONTROLS_RELEASE' if member_controls_only else 'SHORT_FIXED_MODES_RELEASE' if fixed_modes_only else 'SHORT_ASSIGNMENT_UI_RELEASE' if assignment_only else 'SHORT_GROUP_RELEASE')
               +'=PASS OTHER_ENGINES=UNTOUCHED ROLLBACK=READY',flush=True)
     except BaseException:
         if changed:
