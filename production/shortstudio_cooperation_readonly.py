@@ -32,6 +32,14 @@ def _read_explicit_environment(unit):
     if unit.is_symlink() or not unit.is_file():
         raise ValueError("Unsafe service unit")
     text = unit.read_text(encoding="utf-8")
+    # Overrides from systemd Environment= or drop-in service files may
+    # disagree with EnvironmentFile. Without a complete systemd merge proof,
+    # fail closed instead of reporting an apparently consistent runtime.
+    if re.search(r"^Environment=", text, re.MULTILINE):
+        raise ValueError("Direct service environment overrides are not verified")
+    dropin = Path(str(unit) + ".d")
+    if dropin.exists() or dropin.is_symlink():
+        raise ValueError("Unverified systemd drop-in environment override")
     matches = re.findall(r"^EnvironmentFile=(.+)$", text, re.MULTILINE)
     if len(matches) != 1:
         raise ValueError("Service unit must have one EnvironmentFile")
@@ -102,7 +110,7 @@ def inspect(unit_dir: Path = Path("/etc/systemd/system")) -> dict:
         "retirement_enabled":False,
         "production_activation_ready":False,
         "status":"HOST_CONFIGURATION_READY_FOR_LIVE_GATES"
-            if host_root_match and lock_flags_consistent else "BLOCKED",
+            if host_root_match and lock_flags_consistent and all_enabled else "BLOCKED",
     }
 
 
