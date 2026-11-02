@@ -174,16 +174,20 @@ class SongAudioCutoverTests(unittest.TestCase):
                 "part01/vps1_omnivoice_app.py": b"import voice_tenant\n",
                 "part01/audio_downloader_api.py": b"# frozen source\n",
                 "part01/voice_tenant.py": b"# Scene SSO identity context\n",
+                "part01/queue_actions.py": b"# frozen Edge/Kokoro queue actions\n",
             }
             cutover._clone_overlay(
                 old, staged, reviewed, "_production_manifest.json",
                 "voice-studio", "a" * 40)
             cutover._verify_voice_candidate_modules(staged)
             self.assertFalse((old / "part01/voice_tenant.py").exists())
+            self.assertFalse((old / "part01/queue_actions.py").exists())
             self.assertEqual((old / "part01/audio_downloader_api.py").read_bytes(),
                              existing["part01/audio_downloader_api.py"])
             self.assertEqual((staged / "part01/voice_tenant.py").read_bytes(),
                              reviewed["part01/voice_tenant.py"])
+            self.assertEqual((staged / "part01/queue_actions.py").read_bytes(),
+                             reviewed["part01/queue_actions.py"])
             cutover._clone_overlay(
                 old, staged, reviewed, "_production_manifest.json",
                 "voice-studio", "a" * 40)
