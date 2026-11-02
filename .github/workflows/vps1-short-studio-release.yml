@@ -97,6 +97,7 @@ jobs:
               raise SystemExit('READONLY_DIAGNOSTIC_INVALID')
           config=data.get('cooperation') or {}
           live=data.get('live_cooperation') or {}
+          snapshot=data.get('active_drain_snapshot') or {}
           safe={
             'mode':'READ_ONLY',
             'host_config_status':config.get('status','UNKNOWN'),
@@ -105,6 +106,11 @@ jobs:
             'same_host_root':bool(config.get('same_host_root_proven',False)),
             'four_processes_same_mount':bool(live.get('four_processes_same_mount_verified',False)),
             'four_processes_lock_flags':bool(live.get('four_processes_lock_flags_verified',False)),
+            'maker_jobs_idle_snapshot':bool(snapshot.get('maker_jobs_idle',False)),
+            'ready_imports_idle_snapshot':bool(snapshot.get('ready_imports_idle',False)),
+            'uploader_jobs_idle_snapshot':bool(snapshot.get('uploader_jobs_idle',False)),
+            'uploader_source_claims_idle_snapshot':bool(snapshot.get('uploader_source_claims_idle',False)),
+            'active_upload_drain_snapshot_verified':bool(snapshot.get('active_upload_drain_snapshot_verified',False)),
             'active_upload_drain_verified':False,
             'retirement_enabled':False,
             'deployment_performed':False,
