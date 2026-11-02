@@ -195,12 +195,16 @@ def register_short_profile_media_uploads(app, data_root, short_identity):
             if len(assets) != len(manifest["files"]):
                 return None
             counts = {"audio_count": 0, "image_count": 0}
+            unique_media = set()
             for asset in assets:
                 path = target_for(owner, asset)
                 if (path.is_symlink() or not path.is_file() or
                         path.stat().st_size != asset["size"]):
                     return None
-                counts["audio_count" if asset["kind"] == "audio" else "image_count"] += 1
+                media_key = (asset["kind"], asset["sha256"])
+                if media_key not in unique_media:
+                    counts["audio_count" if asset["kind"] == "audio" else "image_count"] += 1
+                    unique_media.add(media_key)
             return counts
         except (HTTPException, ValueError, OSError, KeyError, TypeError):
             return None
@@ -279,6 +283,7 @@ def register_short_profile_media_uploads(app, data_root, short_identity):
                 raise HTTPException(413, detail="Source chunk exceeds 8 MiB")
         if not body:
             raise HTTPException(400, detail="Empty media chunk")
+        load(sid, owner)  # authorize before touching another session directory
         with locked(sid_dir(sid) / ".lock"):
             manifest = load(sid, owner)
             if manifest["status"] != "uploading" or index >= len(manifest["files"]):
@@ -300,6 +305,7 @@ def register_short_profile_media_uploads(app, data_root, short_identity):
     @app.post("/api/short-profile-media/sessions/{sid}/finalize")
     def finish_import(sid: str, request: Request):
         owner = identity(request)
+        load(sid, owner)  # authorize before touching another session directory
         with locked(sid_dir(sid) / ".lock"):
             manifest = load(sid, owner)
             if manifest["status"] == "completed":
@@ -331,6 +337,7 @@ def register_short_profile_media_uploads(app, data_root, short_identity):
     @app.post("/api/short-profile-media/sessions/{sid}/pause")
     def pause_import(sid: str, request: Request):
         owner = identity(request)
+        load(sid, owner)  # authorize before touching another session directory
         with locked(sid_dir(sid) / ".lock"):
             manifest = load(sid, owner)
             if manifest["status"] == "uploading":
@@ -341,6 +348,7 @@ def register_short_profile_media_uploads(app, data_root, short_identity):
     @app.post("/api/short-profile-media/sessions/{sid}/resume")
     def resume_import(sid: str, request: Request):
         owner = identity(request)
+        load(sid, owner)  # authorize before touching another session directory
         with locked(sid_dir(sid) / ".lock"):
             manifest = load(sid, owner)
             if manifest["status"] == "paused":
@@ -351,6 +359,7 @@ def register_short_profile_media_uploads(app, data_root, short_identity):
     @app.delete("/api/short-profile-media/sessions/{sid}")
     def cancel_import(sid: str, request: Request):
         owner = identity(request)
+        load(sid, owner)  # authorize before touching another session directory
         with locked(sid_dir(sid) / ".lock"):
             manifest = load(sid, owner)
             if manifest["status"] in ("publishing", "completed"):
