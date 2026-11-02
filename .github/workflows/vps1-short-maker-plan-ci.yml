@@ -29,6 +29,12 @@ on:
       - 'tests/test_short_maker_verified_inventory.py'
       - '.github/workflows/vps1-short-maker-plan-ci.yml'
   workflow_dispatch:
+# Only one staging run per PR. Superseded #635 commits must not occupy
+# GitHub-hosted runners while the current HEAD waits in the repository queue.
+# This never cancels deployment jobs or other workflows/PRs.
+concurrency:
+  group: short-maker-locked-plan-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
