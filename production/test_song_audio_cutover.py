@@ -6,8 +6,10 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import Mock, patch
 
 from production import song_audio_cutover as cutover
+from production import runtime
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -69,6 +71,56 @@ class SongAudioCutoverTests(unittest.TestCase):
             cutover._song_environment(root, "a" * 40,
                                       b"AUDIO_DOWNLOADER_PROXY_POOL=one\n"
                                       b"AUDIO_DOWNLOADER_PROXY_POOL=two\n")
+
+    def test_only_verified_live_song_worker_exempts_voice_release_from_song_queue(self):
+        with tempfile.TemporaryDirectory() as td:
+            conf = Path(td)
+            voice = conf / "production-voice-studio.env"
+            song = conf / "production-song-studio.env"
+            scene = conf / "scene-builder.env"
+            with patch.object(runtime, "CONFIG", conf):
+                self.assertFalse(runtime.song_audio_independent_live())
+                voice.write_text("SONG_AUDIO_BACKEND_SPLIT=0\n")
+                self.assertFalse(runtime.song_audio_independent_live())
+                voice.write_text(
+                    "SONG_AUDIO_BACKEND_SPLIT=1\n"
+                    "AUDIO_DOWNLOADER_ROOT=/var/lib/fresh-website/voice-studio/audio-downloader\n")
+                with self.assertRaises(RuntimeError):
+                    runtime.song_audio_independent_live()
+                song.write_text(
+                    "SONG_AUDIO_CUTOVER_ACTIVE=1\n"
+                    "AUDIO_DOWNLOADER_ROOT=/var/lib/fresh-website/voice-studio/audio-downloader\n")
+                scene.write_text("SONG_AUDIO_SPLIT_UPSTREAM=http://127.0.0.1:8152\n")
+                opener = Mock()
+                response = Mock(status=200)
+                response.__enter__ = Mock(return_value=response)
+                response.__exit__ = Mock(return_value=False)
+                response.read.return_value = b'{"ok":true,"worker_active":true,"smoke":false}'
+                opener.open.return_value = response
+                with patch.object(runtime.subprocess, "run", return_value=Mock(returncode=0)), \
+                     patch.object(runtime.urllib.request, "build_opener", return_value=opener):
+                    self.assertTrue(runtime.song_audio_independent_live())
+                    response.read.return_value = b'{"ok":true,"worker_active":false,"smoke":false}'
+                    with self.assertRaisesRegex(RuntimeError, "not proven active"):
+                        runtime.song_audio_independent_live()
+                scene.write_text("SONG_AUDIO_SPLIT_UPSTREAM=http://127.0.0.1:8143\n")
+                with self.assertRaisesRegex(RuntimeError, "dedicated service"):
+                    runtime.song_audio_independent_live()
+
+    def test_voice_preflight_requires_synthesis_idle_but_not_song_idle_after_split(self):
+        import sqlite3
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for name in ("kokoro", "edge"):
+                db = root / name / "data" / (name + "_jobs.sqlite3")
+                db.parent.mkdir(parents=True)
+                with sqlite3.connect(db) as conn:
+                    conn.execute("CREATE TABLE jobs(status TEXT, delivery_status TEXT)")
+            with patch.object(runtime, "song_audio_independent_live", return_value=True) as verified:
+                runtime.require_voice_release_idle(root)
+                verified.assert_called_once_with()
+                with self.assertRaisesRegex(RuntimeError, "preflight DB unavailable"):
+                    runtime.require_voice_release_idle(root, audio_db=root / "missing.sqlite3")
 
     def test_manifest_scoped_overlay_keeps_unrelated_files_unchanged(self):
         with tempfile.TemporaryDirectory() as tmp:
