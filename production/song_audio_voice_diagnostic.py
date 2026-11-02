@@ -140,8 +140,9 @@ def _song_startup_evidence() -> dict:
     classes = {key: bool(re.search(pattern, data, re.IGNORECASE))
                for key, pattern in patterns.items()}
     names = re.findall(
-        r"(?:ModuleNotFoundError|ImportError):\s*No module named\s+['\\"]"
-        r"([A-Za-z_][A-Za-z0-9_.]{0,79})['\\"]", data)
+        r"(?:ModuleNotFoundError|ImportError):\s*No module named\s+['\"]"
+        r"([A-Za-z_][A-Za-z0-9_.]{0,79})['\"]",
+        data)
     return {
         "journal_available": outcome.returncode == 0 and bool(data.strip()),
         "recent_error_classes": classes,
