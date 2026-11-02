@@ -101,6 +101,41 @@ class ShortUploaderCooperationTests(unittest.TestCase):
         asyncio.run(exercise())
         self.assertEqual(self.child("exclusive"),"acquired")
 
+    def test_cancelled_async_waiter_never_acquires_or_leaks_lease(self):
+        async def scenario():
+            async def waiting_request():
+                async with self.uploader.uploader_shortstudio_guard_async():
+                    raise AssertionError("Cancelled web request must not acquire lock")
+            with self.maker_guard.retire():
+                task=asyncio.create_task(waiting_request())
+                await asyncio.sleep(0.04)
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+            # Cancellation while waiting must not later acquire a lock in
+            # a detached thread. A fresh exclusive lease must succeed.
+            with self.maker_guard.retire():
+                pass
+        asyncio.run(scenario())
+        self.assertEqual(self.child("exclusive"),"acquired")
+
+    def test_cancelled_async_holder_releases_lease(self):
+        async def scenario():
+            entered=asyncio.Event()
+            async def active_request():
+                async with self.uploader.uploader_shortstudio_guard_async():
+                    entered.set()
+                    await asyncio.sleep(5)
+            task=asyncio.create_task(active_request())
+            await asyncio.wait_for(entered.wait(),timeout=2)
+            # Independent subprocess must see this active shared guard.
+            self.assertEqual(self.child("exclusive"),"blocked-503")
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        asyncio.run(scenario())
+        self.assertEqual(self.child("exclusive"),"acquired")
+
     def test_disabled_default_does_not_create_lock_or_affect_other_modes(self):
         path=UPLOADER/"uploader_shortstudio_cooperation.py"
         for params in (
