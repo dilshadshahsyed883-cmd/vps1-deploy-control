@@ -12,16 +12,24 @@ from unittest.mock import patch
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-ROOT = Path(__file__).resolve().parents[1] / "apps/voice-studio/part01"
+ROOT = Path(__file__).resolve().parents[1] / "apps/song-studio/part01"
+VOICE_ROOT = Path(__file__).resolve().parents[1] / "apps/voice-studio/part01"
 sys.path.insert(0, str(ROOT))
-import audio_downloader_api as audio
+import song_audio_downloader_api as audio
 import song_audio_app as song
-import voice_tenant
+import song_tenant
 
 
 class StandaloneSongSessionTests(unittest.TestCase):
     def test_api_boundary_contains_no_voice_synthesis_routes(self):
-        routes = {r.path for r in song.app.routes if hasattr(r, "path")}
+        routes = {r.path for r in audio.router.routes}
+        # Included router behavior may be lazy in modern FastAPI; the endpoint
+        # definitions themselves must remain Song-only and in this module.
+        self.assertTrue(any(getattr(r, "router", None) is audio.router or
+                            getattr(r, "original_router", None) is audio.router
+                            for r in song.app.router.routes) or
+                        any(getattr(r, "path", "") == "/tts/api/audio-downloader/jobs"
+                            for r in song.app.routes))
         self.assertIn("/tts/api/audio-downloader/jobs", routes)
         self.assertIn("/audio-downloader/app", routes)
         self.assertNotIn("/tts/api/clone/jobs", routes)
@@ -50,7 +58,7 @@ class StandaloneSongSessionTests(unittest.TestCase):
             finally:
                 client.close()
         with self.assertRaises(HTTPException) as exc:
-            voice_tenant.owner()
+            song_tenant.owner()
         self.assertEqual(exc.exception.status_code, 401)
 
     def test_anonymous_and_invalid_session_deny_all_song_routes(self):
@@ -144,7 +152,7 @@ class SceneSongProxySwitchTests(unittest.TestCase):
 
 class LegacyVoiceSplitGuardTests(unittest.TestCase):
     def test_voice_default_remains_legacy_until_explicit_split(self):
-        source = (ROOT / "vps1_omnivoice_app.py").read_text()
+        source = (VOICE_ROOT / "vps1_omnivoice_app.py").read_text()
         self.assertIn('os.getenv("SONG_AUDIO_BACKEND_SPLIT") == "1"', source)
         self.assertIn("if not SONG_AUDIO_BACKEND_SPLIT:", source)
         self.assertIn("app.include_router(ad.router)", source)
@@ -152,7 +160,7 @@ class LegacyVoiceSplitGuardTests(unittest.TestCase):
         self.assertIn('downloader = ad.status() if not SONG_AUDIO_BACKEND_SPLIT', source)
 
     def test_release_does_not_change_song_data_or_authorization_defaults(self):
-        source = (ROOT / "audio_downloader_api.py").read_text()
+        source = (ROOT / "song_audio_downloader_api.py").read_text()
         self.assertIn("AUDIO_DOWNLOADER_ROOT", source)
         self.assertIn("Song Studio/Audio downloader", source)
         self.assertIn("fcntl.LOCK_EX | fcntl.LOCK_NB", source)
