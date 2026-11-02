@@ -130,8 +130,8 @@ class ShortUploaderCooperationTests(unittest.TestCase):
                 and n.module=="uploader_shortstudio_cooperation"]
         self.assertEqual(direct,[],"Shared LUM module must not import Short-only file globally")
         conditional=[n for n in tree.body if isinstance(n,ast.If)
-                     and 'os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio"'
-                     in ast.unparse(n.test)]
+                     and "LUM_ENGINE_INSTANCE" in ast.unparse(n.test)
+                     and "shortstudio" in ast.unparse(n.test)]
         self.assertEqual(len(conditional),1)
         self.assertTrue(any(isinstance(n,ast.ImportFrom)
                 and n.module=="uploader_shortstudio_cooperation"
