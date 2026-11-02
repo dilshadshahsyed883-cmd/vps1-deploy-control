@@ -33,6 +33,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_audio_downloader_proxy.py' -v
           python -m unittest discover -s tests -p 'test_song_studio_release.py' -v
           python -m unittest discover -s tests -p 'test_voice_owner_preflight.py' -v
+          python -m unittest discover -s tests -p 'test_voice_v11_legacy_delete.py' -v
           python -m unittest discover -s tests -p 'test_voice_tts_queue_http.py' -v
           python -m unittest discover -s tests -p 'test_voice_output_naming_drive.py' -v
       - name: Canonical Studio and Voice sidebar navigation
