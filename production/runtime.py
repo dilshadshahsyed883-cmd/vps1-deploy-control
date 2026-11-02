@@ -364,10 +364,35 @@ def require_voice_release_idle(state: Path, audio_db: Path | None = None) -> Non
             if 'song_maker_status' not in columns and statuses:
                 raise RuntimeError('Audio Downloader legacy handoff schema not verified')
             if 'song_maker_status' in columns:
-                handoffs = db.execute("""SELECT COUNT(*) FROM jobs
-                    WHERE song_maker_status IN ('pending','sending')""").fetchone()[0]
-                if handoffs:
+                # A legacy row can retain a stale 'pending' flag even though
+                # its job ended unsuccessfully and it has NO local audio or
+                # thumbnail pointer. The worker cannot ever hand off such a
+                # row: _handoff_song_maker requires status='completed' AND
+                # a local pair. Do not mutate history or block a safe cutover
+                # on this provably inactive orphan.
+                handoffs = db.execute("""SELECT status, song_maker_status
+                    FROM jobs WHERE song_maker_status IN ('pending','sending')""").fetchall()
+                orphan_count = 0
+                if handoffs and {'local_file', 'local_thumbnail'} <= columns:
+                    handoffs = db.execute("""SELECT status, song_maker_status,
+                           local_file, local_thumbnail FROM jobs
+                           WHERE song_maker_status IN ('pending','sending')""").fetchall()
+                    blocked = 0
+                    for status, phase, audio, thumbnail in handoffs:
+                        dormant = (phase == 'pending'
+                                   and status in ('failed','cancelled','delivered')
+                                   and not audio and not thumbnail)
+                        if dormant:
+                            orphan_count += 1
+                        else:
+                            blocked += 1
+                else:
+                    blocked = len(handoffs)
+                if blocked:
                     raise RuntimeError('Audio Downloader has active Song Maker handoffs; release postponed')
+                if orphan_count:
+                    event(app='song-studio', dormant_handoff_orphans=orphan_count,
+                          ownership='READ_ONLY_PROOF', original_jobs='PRESERVED')
     except sqlite3.Error as exc:
         raise RuntimeError('Audio Downloader preflight DB unreadable') from exc
 

@@ -413,6 +413,11 @@ def install(revision: str) -> None:
         runtime.require_voice_release_idle(runtime.DATA / "voice-studio", audio_db=sqlite_src)
         runtime.run(["systemctl", "stop", service.VOICE_UNIT], timeout=60, quiet=True)
         changed_voice = True
+        # Race-free final read after stopping the legacy downloader process.
+        # Any newly queued job or genuine sending handoff forces a rollback
+        # before the independent Song worker is started.
+        runtime.require_voice_release_idle(runtime.DATA / "voice-studio",
+                                           audio_db=sqlite_src)
         runtime.atomic_link(VOICE_CURRENT, voice_candidate)
         _atomic_env(VOICE_ENV, _patch_env(voice_env_original,
                                         {"SONG_AUDIO_BACKEND_SPLIT": "1"}))
