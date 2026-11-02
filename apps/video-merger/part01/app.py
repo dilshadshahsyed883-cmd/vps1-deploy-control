@@ -151,6 +151,10 @@ def init_db():
         # never speculate which current user owned it.
         c.execute("UPDATE jobs SET status='waiting', message='Recovered after service restart', updated_at=? WHERE status IN ('downloading','trimming','preparing','merging','verifying','uploading','processing')", (utcnow(),))
         c.execute("UPDATE library_items SET status='failed', progress=100, message='Import interrupted by service restart', error='Import interrupted by service restart', updated_at=? WHERE status='importing'", (utcnow(),))
+        c.execute("""UPDATE library_items SET drive_status='failed',progress=100,
+                     drive_error='Drive copy interrupted by service restart',
+                     message='Ready on VPS · Drive copy interrupted' WHERE status='ready'
+                     AND drive_status='uploading'""")
 
 def setting(k, default=''):
     with DB_LOCK, db() as c:
@@ -1158,6 +1162,7 @@ def library_to_file(item_id,dst,idx):
     item=get_library_item(item_id)
     if not item or item.get('status')!='ready': raise RuntimeError(f'Video {idx}: Library video is not ready')
     cache=library_cache_path(item_id)
+    if cache.is_symlink(): raise RuntimeError('Unsafe Library cache path')
     if not cache.exists() or cache.stat().st_size<=0:
         remote=item.get('remote_path')
         if not item.get('drive_id') or not remote:
@@ -1638,7 +1643,7 @@ class Handler(BaseHTTPRequestHandler):
                 first,last=0,total-1
                 byte_range=self.headers.get('Range','')
                 if byte_range:
-                    match=re.fullmatch(r'bytes=(\\d*)-(\\d*)',byte_range.strip())
+                    match=re.fullmatch(r'bytes=(\d*)-(\d*)',byte_range.strip())
                     if not match or (not match.group(1) and not match.group(2)):
                         return self.send_json(416,{'ok':False,'error':'Invalid video range'})
                     if match.group(1):
