@@ -21,6 +21,7 @@ from production.shortstudio_cooperation_readonly import (
 )
 
 ROOT = runtime.DATA / "short-maker" / "vps_short_folders"
+LOCK = ROOT / ".short-studio-folder-cooperation.lock"
 MAKER_DATA = runtime.DATA / "short-maker"
 UPLOADER = runtime.DATA / "local-upload-manager" / "lum-shortstudio"
 APP_DB = UPLOADER / "core/data/uploader.db"
@@ -97,12 +98,17 @@ def unit_patch(original: bytes, *, name: str, environment: Path) -> bytes:
     require(text.count("ReadWritePaths=") == 1, "unit sandbox is ambiguous")
     require("ProtectSystem=strict" in text and "User=ubuntu" in text,
             "unit protection/identity drift")
-    shared = str(ROOT)
-    if shared not in text.split("ReadWritePaths=", 1)[1].split("\n", 1)[0].split():
-        text = re.sub(r"(?m)^(ReadWritePaths=[^\n]+)$",
-                      lambda match: match.group(1) + " " + shared, text, count=1)
-    # This may increase the sandbox mount only for three named Short Uploader
-    # units. No unrelated worker's unit or effective running mount is changed.
+    existing = text.split("ReadWritePaths=", 1)[1].split("\n", 1)[0].split()
+    if name == "worker":
+        # Existing worker alone may mutate verified MP4 output after upload.
+        require(str(ROOT) in existing, "worker protected handoff mount drift")
+    else:
+        # Web and scheduler need only the coordination FILE, never MP4 write.
+        shared = str(LOCK)
+        if shared not in existing:
+            text = re.sub(r"(?m)^(ReadWritePaths=[^\n]+)$",
+                          lambda match: match.group(1) + " " + shared,
+                          text, count=1)
     require(text.count("ReadWritePaths=") == 1, "sandbox mutation ambiguous")
     return text.encode("utf-8")
 
@@ -194,7 +200,25 @@ def prepare(revision: str) -> None:
             stream.flush()
             os.fsync(stream.fileno())
     updated: list[Path] = []
+    lock_created = False
     try:
+        # Create only an empty, owner-private coordination inode. No MP4s,
+        # job files or uploader metadata are modified.
+        if not LOCK.exists() and not LOCK.is_symlink():
+            fd = os.open(LOCK, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                         0o600)
+            try:
+                os.fchown(fd, 1000, 1000)
+                os.fchmod(fd, 0o600)
+            finally:
+                os.close(fd)
+            lock_created = True
+        require(not LOCK.is_symlink() and LOCK.is_file()
+                and LOCK.stat().st_nlink == 1
+                and LOCK.stat().st_uid == 1000
+                and stat.S_IMODE(LOCK.stat().st_mode) == 0o600
+                and LOCK.stat().st_size == 0,
+                "shared coordination file ownership drift")
         for path, new in changed.items():
             if files[path] != new:
                 atomic_owned(path, new, 0o600 if path.suffix == ".env" else 0o644)
@@ -228,6 +252,15 @@ def prepare(revision: str) -> None:
                 atomic_owned(path, files[path],
                              0o600 if path.suffix == ".env" else 0o644)
             except (OSError, ValueError) as exc:
+                failed.append(type(exc).__name__)
+        if lock_created:
+            try:
+                require(LOCK.is_file() and not LOCK.is_symlink()
+                        and LOCK.stat().st_uid == 1000
+                        and LOCK.stat().st_size == 0,
+                        "new coordination file changed during rollback")
+                LOCK.unlink()
+            except (OSError, ValueError, RuntimeError) as exc:
                 failed.append(type(exc).__name__)
         try:
             runtime.run(["systemctl", "daemon-reload"], quiet=True)
