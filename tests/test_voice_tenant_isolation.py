@@ -123,6 +123,27 @@ class TenantBoundaryTest(unittest.TestCase):
         with as_user("alpha"):
             self.assertEqual(clone._require_design_preview_owner(preview_id), preview_id)
 
+    def test_foreign_legacy_job_cannot_be_deleted_with_owned_profile(self):
+        clone = self.clone
+        with clone.db() as con:
+            con.execute(
+                "INSERT INTO profiles(profile_id,name,source_filename,sample_file,sample_sha256,"
+                "duration_seconds,created_at,owner_username) VALUES(?,?,?,?,?,?,?,?)",
+                ("CLV-OWNED", "owned", "sample.wav", "sample.wav", "abc", 3.0, "2026-11-02", "alpha"),
+            )
+            # Legacy corruption: a beta job references alpha's profile.
+            con.execute(
+                "INSERT INTO jobs(job_id,profile_id,text,created_at,owner_username) VALUES(?,?,?,?,?)",
+                ("CLJ-FOREIGN", "CLV-OWNED", "source", "2026-11-02", "beta"),
+            )
+        with as_user("alpha"):
+            with self.assertRaises(HTTPException) as ctx:
+                clone.delete_profile("CLV-OWNED")
+            self.assertEqual(ctx.exception.status_code, 409)
+        with clone.db() as con:
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM profiles WHERE profile_id='CLV-OWNED'").fetchone()[0], 1)
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM jobs WHERE job_id='CLJ-FOREIGN'").fetchone()[0], 1)
+
     def test_no_identity_is_denied(self):
         with self.assertRaises(HTTPException) as ctx:
             voice_tenant.owner()
