@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, MagicMock, patch
 
 from production import song_audio_cutover as cutover
 from production import runtime
@@ -92,9 +92,8 @@ class SongAudioCutoverTests(unittest.TestCase):
                     "AUDIO_DOWNLOADER_ROOT=/var/lib/fresh-website/voice-studio/audio-downloader\n")
                 scene.write_text("SONG_AUDIO_SPLIT_UPSTREAM=http://127.0.0.1:8152\n")
                 opener = Mock()
-                response = Mock(status=200)
-                response.__enter__ = Mock(return_value=response)
-                response.__exit__ = Mock(return_value=False)
+                response = MagicMock(status=200)
+                response.__enter__.return_value = response
                 response.read.return_value = b'{"ok":true,"worker_active":true,"smoke":false}'
                 opener.open.return_value = response
                 with patch.object(runtime.subprocess, "run", return_value=Mock(returncode=0)), \
