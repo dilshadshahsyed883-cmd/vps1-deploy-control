@@ -44,6 +44,10 @@ CATALOG = {
     'self-media-library': dict(port=8147, module='app:app', health='/api/health', ui='/', packages=CORE + ['numpy==2.2.6', 'opencv-python-headless==4.11.0.86', 'onnxruntime==1.22.1', 'tokenizers==0.21.2', 'faster-whisper==1.1.1', 'yt-dlp[default]==2026.8.19']),
     'video-merger': dict(port=8148, script='app.py', health='/video-merger/health',
                          ui='/video-merger/', packages=['yt-dlp[default]', 'gdown==5.2.0', 'requests==2.32.3']),
+    # Dedicated Song Audio worker is NOT part of the legacy 10-app auto-deploy set.
+    # It is never started by the generic app installer before guarded cutover.
+    'song-studio': dict(port=8152, module='song_audio_app:app', health='/healthz',
+                        ui='/audio-downloader/app', packages=CORE + ['yt-dlp[default]==2026.8.19']),
     'voice-studio': dict(port=8143, module='vps1_omnivoice_app:app', health='/healthz',
                          ui='/', packages=CORE + ['edge-tts==7.3.1', 'kokoro-onnx==0.6.0', 'soundfile', 'numpy', 'yt-dlp']),
     'auto-caption-studio': dict(port=8144, module='web_backend.app:app', health='/health',
@@ -144,6 +148,11 @@ def environment(app, state):
         env.update(VIDEO_MERGER_ROOT=str(state / 'video-merger'),
                    VIDEO_MERGER_PROXY_CONFIG_DIR=str(state / 'video-merger/config'),
                    VIDEO_MERGER_PORT='8148')
+    elif app == 'song-studio':
+        # Disposable smoke configuration only. Live release MUST read and
+        # validate the existing root-owned Voice AUDIO_DOWNLOADER_ROOT.
+        env.update(AUDIO_DOWNLOADER_ROOT=str(state / 'audio-downloader'),
+                   SONG_AUDIO_CUTOVER_ACTIVE='0')
     elif app == 'voice-studio':
         for key, child in [('VOICE_CLONE_ROOT', 'omnivoice'), ('KOKORO_STUDIO_ROOT', 'kokoro'),
                            ('EDGE_STUDIO_ROOT', 'edge'), ('AUDIO_DOWNLOADER_ROOT', 'audio-downloader')]:
@@ -744,6 +753,8 @@ def require_short_maker_idle(state):
 
 
 def install_app(app, revision):
+    if app == 'song-studio':
+        raise RuntimeError('Song Audio requires atomic Voice/Scene cutover; standalone generic install forbidden')
     if app not in CATALOG:
         raise ValueError('app is not owned by this installer')
     if app == 'local-upload-manager':
@@ -1202,6 +1213,8 @@ def require_short_maker_idle(state):
 
 
 def install_app(app, revision):
+    if app == 'song-studio':
+        raise RuntimeError('Song Audio requires atomic Voice/Scene cutover; standalone generic install forbidden')
     if app not in CATALOG:
         raise ValueError('app is not owned by this installer')
     if app == 'local-upload-manager':
