@@ -99,6 +99,15 @@ def idle_database(state):
                 f"SELECT COUNT(*) FROM {table} WHERE lower(coalesce(status,'')) NOT IN ({placeholder})",
                 allowed).fetchone()[0]
             require(count==0, 'Video Merger '+table+' has unfinished jobs')
+    # A VPS-ready item can still have a separate optional Drive copy running.
+    # Releasing during that copy could interrupt it; fail closed before restart.
+    with sqlite3.connect('file:'+str(path)+'?mode=ro',uri=True,timeout=6) as db:
+        fields={row[1] for row in db.execute('PRAGMA table_info(library_items)')}
+        if 'drive_status' in fields:
+            uploading=db.execute(
+                "SELECT COUNT(*) FROM library_items WHERE drive_status='uploading'"
+            ).fetchone()[0]
+            require(uploading==0,'Active optional Library Drive copy; release blocked')
     event(app='video-merger',idle='SQLITE_READ_ONLY_PASS',owner_media_mutated=False)
 
 
