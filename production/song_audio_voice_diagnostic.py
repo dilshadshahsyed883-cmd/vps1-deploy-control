@@ -124,24 +124,24 @@ def _song_startup_evidence() -> dict:
         capture_output=True, text=True, timeout=10, check=False)
     data = outcome.stdout[-180000:] if outcome.returncode == 0 else ""
     patterns = {
-        "module_missing": r"\\bModuleNotFoundError\\b",
-        "import_error": r"\\bImportError\\b",
-        "permission_denied": r"\\bPermissionError\\b|\\[Errno 13\\]",
-        "file_missing": r"\\bFileNotFoundError\\b|\\[Errno 2\\]",
-        "sqlite_error": r"\\bsqlite3\\.\\w+Error\\b",
-        "runtime_error": r"\\bRuntimeError\\b",
-        "address_in_use": r"Address already in use|\\[Errno 98\\]",
+        "module_missing": r"\bModuleNotFoundError\b",
+        "import_error": r"\bImportError\b",
+        "permission_denied": r"\bPermissionError\b|\[Errno 13\]",
+        "file_missing": r"\bFileNotFoundError\b|\[Errno 2\]",
+        "sqlite_error": r"\bsqlite3\.\w+Error\b",
+        "runtime_error": r"\bRuntimeError\b",
+        "address_in_use": r"Address already in use|\[Errno 98\]",
         "worker_lock": r"worker.{0,32}lock|resource temporarily unavailable",
         "start_limit_hit": r"start request repeated too quickly|start-limit-hit",
-        "no_space": r"No space left on device|\\[Errno 28\\]",
-        "traceback": r"Traceback \\(most recent call last\\)",
+        "no_space": r"No space left on device|\[Errno 28\]",
+        "traceback": r"Traceback \(most recent call last\)",
         "uvicorn_started": r"Uvicorn running on|Application startup complete",
     }
     classes = {key: bool(re.search(pattern, data, re.IGNORECASE))
                for key, pattern in patterns.items()}
     names = re.findall(
-        r"(?:ModuleNotFoundError|ImportError):\\s*No module named\\s+['\\\"]"
-        r"([A-Za-z_][A-Za-z0-9_.]{0,79})['\\\"]", data)
+        r"(?:ModuleNotFoundError|ImportError):\s*No module named\s+['\\"]"
+        r"([A-Za-z_][A-Za-z0-9_.]{0,79})['\\"]", data)
     return {
         "journal_available": outcome.returncode == 0 and bool(data.strip()),
         "recent_error_classes": classes,
