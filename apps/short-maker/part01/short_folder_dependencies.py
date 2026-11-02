@@ -7,7 +7,9 @@ modify any DB, unlink an MP4, or infer ownership from a matching folder name.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import sqlite3
 from contextlib import closing
 from pathlib import Path
@@ -40,6 +42,20 @@ def _read_only_db(filename: str, required: dict[str, set[str]]):
     return conn
 
 
+def _hash_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as reader:
+        for block in iter(lambda: reader.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _safe_receipt_filename(filename):
+    return (isinstance(filename, str) and filename == Path(filename).name
+            and filename.lower().endswith(".mp4") and filename not in (".", "..")
+            and "\\x00" not in filename)
+
+
 class ShortFolderPreflight:
     def __init__(self, profile_store, short_jobs, ready_upload_root,
                  uploader_app_db="", uploader_engine_db=""):
@@ -63,6 +79,7 @@ class ShortFolderPreflight:
         v6_required = {
             "profile_sources": {"profile_id", "short_folder_name"},
             "job_sources": {"video_id", "profile_id", "source_folder_id", "filename", "state"},
+            "drive_videos": {"profile_id", "filename", "source_folder_id", "present"},
         }
         with closing(_read_only_db(self.uploader_app_db, app_required)) as app_db:
             with closing(_read_only_db(self.uploader_engine_db, v6_required)) as engine_db:
@@ -94,6 +111,13 @@ class ShortFolderPreflight:
                             "profile_id": pid,
                         })
                 source_id = SHORT_FOLDER_PREFIX + folder_name
+                # Cached indexed media can be queued later even when no upload
+                # has claimed it yet. A retirement must explicitly invalidate
+                # these entries under the same uploader-wide transaction.
+                indexed = int(engine_db.execute(
+                    """SELECT COUNT(*) FROM drive_videos
+                       WHERE source_folder_id=? AND present=1""",
+                    (source_id,)).fetchone()[0])
                 # If a queue claim survives deletion of its profile source,
                 # it must still block deleting the actual source MP4.
                 claims = list(engine_db.execute(
@@ -124,6 +148,7 @@ class ShortFolderPreflight:
                     "foreign_or_unassigned_references": foreign_or_ambiguous,
                     "active_uploader_claims": len(active_claims) + pending_app_jobs,
                     "source_claims_total": len(claims),
+                    "indexed_uploader_videos": indexed,
                     "uploader_dependency_verified": True,
                 }
 
@@ -136,6 +161,12 @@ class ShortFolderPreflight:
                 or marker.read_text(encoding="utf-8").strip().casefold() != owner):
             raise HTTPException(403, detail="Folder owner verification failed")
         issues = []
+        receipts: dict[str, set[str]] = {}
+        def remember(name, digest):
+            if (_safe_receipt_filename(name)
+                    and isinstance(digest, str)
+                    and re.fullmatch(r"[0-9a-f]{64}", digest)):
+                receipts.setdefault(name, set()).add(digest)
         maker_profiles = [p for p in self.profiles.list(owner)
                           if p["output_folder"] == folder_name]
         # All own references—including stopped profiles—must be unlinked or
@@ -177,8 +208,13 @@ class ShortFolderPreflight:
                 continue
             if str(state.get("owner") or "").casefold() != owner:
                 issues.append("Maker job has foreign/unassigned owner")
+                continue
             if state.get("status") in ACTIVE_MAKER:
                 issues.append("Active Short Maker render or queue job")
+            if state.get("status") == "completed":
+                for output in state.get("outputs") or []:
+                    if isinstance(output, dict) and output.get("short_vps_folder") == folder_name:
+                        remember(output.get("short_vps_filename"), output.get("short_vps_sha256"))
 
         # Import manifests are owner-bound and must be readable. Incomplete
         # uploads remain blockers even if paused or their staging is recoverable.
@@ -206,18 +242,36 @@ class ShortFolderPreflight:
                     issues.append("Unowned ready-made import references folder")
                 if manifest.get("status") in ACTIVE_UPLOAD:
                     issues.append("Ready-made video upload is in progress or paused")
+                if (manifest.get("status") == "completed"
+                        and str(manifest.get("owner") or "").casefold() == owner):
+                    for item in manifest.get("files") or []:
+                        if isinstance(item, dict):
+                            remember(item.get("verified_name"), item.get("sha256"))
 
         # All unknown files require review. Only visible verified MP4s and
         # owner marker may later be removed by a fully authenticated operation.
         unexpected_files = []
+        unverified_mp4s = 0
+        verified_mp4s = 0
         for entry in folder.iterdir():
             if entry.name == ".studio_owner":
                 continue
             if (entry.is_symlink() or not entry.is_file() or
                     entry.suffix.lower() != ".mp4"):
                 unexpected_files.append(entry.name)
+                continue
+            hashes = receipts.get(entry.name, set())
+            try:
+                if len(hashes) != 1 or _hash_file(entry) not in hashes:
+                    unverified_mp4s += 1
+                else:
+                    verified_mp4s += 1
+            except OSError:
+                unverified_mp4s += 1
         if unexpected_files:
             issues.append("Folder has unverified or non-MP4 entries")
+        if unverified_mp4s:
+            issues.append("Folder contains unverified or changed MP4s")
 
         try:
             uploader = self._uploader(owner, folder_name)
@@ -227,6 +281,7 @@ class ShortFolderPreflight:
                 "foreign_or_unassigned_references": 0,
                 "active_uploader_claims": None,
                 "source_claims_total": None,
+                "indexed_uploader_videos": None,
                 "uploader_dependency_verified": False,
             }
             issues.append("Short Uploader dependency verification unavailable")
@@ -237,8 +292,12 @@ class ShortFolderPreflight:
             issues.append("Foreign or unassigned uploader dependency")
         if uploader["active_uploader_claims"]:
             issues.append("Short Uploader has unresolved video claims")
+        if uploader["indexed_uploader_videos"]:
+            issues.append("Short Uploader still indexes source MP4s")
         return {
             "folder": folder_name,
+            "verified_media_count": verified_mp4s,
+            "unverified_media_count": unverified_mp4s,
             "linked_short_profiles": [
                 {"id": p["id"], "name": p["name"], "enabled": bool(p["enabled"])}
                 for p in maker_profiles
