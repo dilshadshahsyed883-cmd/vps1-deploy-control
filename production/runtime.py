@@ -757,6 +757,12 @@ def require_short_maker_idle(state):
 def install_app(app, revision):
     if app == 'song-studio':
         raise RuntimeError('Song Audio requires atomic Voice/Scene cutover; standalone generic install forbidden')
+    if app == 'voice-studio':
+        message = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-song-audio-separate]' in message:
+            from production.song_audio_cutover import install as install_song_audio
+            install_song_audio(revision)
+            return
     if app not in CATALOG:
         raise ValueError('app is not owned by this installer')
     if app == 'local-upload-manager':
@@ -1217,6 +1223,12 @@ def require_short_maker_idle(state):
 def install_app(app, revision):
     if app == 'song-studio':
         raise RuntimeError('Song Audio requires atomic Voice/Scene cutover; standalone generic install forbidden')
+    if app == 'voice-studio':
+        message = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        if '[vps1-song-audio-separate]' in message:
+            from production.song_audio_cutover import install as install_song_audio
+            install_song_audio(revision)
+            return
     if app not in CATALOG:
         raise ValueError('app is not owned by this installer')
     if app == 'local-upload-manager':
