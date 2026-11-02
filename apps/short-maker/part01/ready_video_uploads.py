@@ -186,7 +186,9 @@ def register_ready_video_uploads(app, *, data_root, short_identity,
                 raise HTTPException(400, detail="MP4 is too small to be valid")
             clean.append({"name": name, "size": size})
         total = sum(item["size"] for item in clean)
-        if total > max(0, shutil.disk_usage(root).free - DISK_RESERVE_BYTES):
+        # Staged bytes remain until all verified outputs are durably published;
+        # reserve peak staging + published data, not just the upload size.
+        if total * 2 > max(0, shutil.disk_usage(root).free - DISK_RESERVE_BYTES):
             raise HTTPException(507, detail="Insufficient VPS disk space; source files retained")
         key = str(payload.get("client_request_id") or "")
         if key and not re.fullmatch(r"[0-9a-f-]{36}", key):
