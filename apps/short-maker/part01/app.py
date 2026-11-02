@@ -1588,6 +1588,8 @@ async function loadOwnerFolderNames(){
   const byName=new Map(records.map(record=>[record.name,record]));
   for(const element of [profileDestination,foldersDestination]){
    const current=element.value;element.replaceChildren();
+   // Never silently select the first owned folder for uploads/profile output.
+   const placeholder=document.createElement('option');placeholder.value='';placeholder.textContent='Choose your VPS folder';element.appendChild(placeholder);
    for(const name of list){const option=document.createElement('option');option.value=name;option.textContent=name;element.appendChild(option);}
    if(list.includes(current))element.value=current;
   }
@@ -1605,8 +1607,15 @@ async function loadOwnerFolderNames(){
  }catch(e){inventory.replaceChildren();const row=document.createElement('tr'),td=document.createElement('td');td.colSpan=4;td.textContent='Could not verify owner-owned VPS folders: '+e.message;row.appendChild(td);inventory.appendChild(row);}
 }
 document.getElementById('foldersCreateVps').onclick=async()=>{
- document.getElementById('createShortFolder').click();
+ // Await the existing owner-scoped create handler before reloading inventory.
+ await document.getElementById('createShortFolder').onclick();
  await loadOwnerFolderNames();
+ const created=document.getElementById('shortVpsFolder').value;
+ const destination=document.getElementById('foldersVpsDestination');
+ if(Array.from(destination.options).some(option=>option.value===created)){
+  destination.value=created;
+  destination.dispatchEvent(new Event('change'));
+ }
 };
 document.getElementById('foldersVideoInput').addEventListener('change',event=>{
  const files=Array.from(event.target.files||[]);
