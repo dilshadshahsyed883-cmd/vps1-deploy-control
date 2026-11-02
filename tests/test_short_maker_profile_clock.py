@@ -113,6 +113,42 @@ class ShortProfileClockTests(unittest.TestCase):
             self.clock.profile_status("bob",self.profiles[0]["id"])
         self.assertEqual(foreign.exception.status_code,404)
 
+    def test_exclusive_retirement_blocks_background_daily_dispatch(self):
+        # Offline POSIX lock regression. The daily clock runs independently
+        # of HTTP middleware and must never enqueue while retirement holds
+        # the exclusive shared-root lease.
+        root=Path(self.tmp.name)/"shared-studio"
+        root.mkdir()
+        lease_class=load("short_folder_cooperation").ShortStudioFolderLease
+        lease=lease_class(root,enabled=True,timeout_seconds=0.15)
+        self.clock.operation_guard=lease.producer
+        when=self.at("2026-11-01T22:16:00")
+        with lease.retire():
+            refused=self.clock.tick(when)
+            self.assertEqual([x["status"] for x in refused],["error","error"])
+            self.assertEqual(self.bridge.submits,[])
+            self.assertEqual(self.store.history("alice",self.profiles[0]["id"]),[])
+        completed=self.clock.tick(when)
+        self.assertEqual([x["status"] for x in completed],["planned","planned"])
+        self.assertEqual(len(self.bridge.submits),2)
+
+    def test_exclusive_retirement_blocks_explicit_start_before_enable(self):
+        root=Path(self.tmp.name)/"shared-start"
+        root.mkdir()
+        lease=load("short_folder_cooperation").ShortStudioFolderLease(
+            root,enabled=True,timeout_seconds=0.15)
+        self.clock.operation_guard=lease.producer
+        pid=self.profiles[0]["id"]
+        self.store.stop("alice",pid)
+        with lease.retire():
+            with self.assertRaises(HTTPException) as denied:
+                self.clock.start_profile("alice",pid)
+            self.assertEqual(denied.exception.status_code,503)
+            self.assertFalse(self.store.get("alice",pid)["enabled"])
+        started=self.clock.start_profile("alice",pid)
+        self.assertEqual(started["status"],"planned")
+        self.assertEqual(len(self.bridge.submits),1)
+
     def test_future_dates_not_burst_after_missed_days(self):
         self.clock.tick(self.at("2026-11-01T22:16:00"))
         self.bridge.submits.clear()
