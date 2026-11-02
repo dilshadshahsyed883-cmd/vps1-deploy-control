@@ -237,9 +237,11 @@ def voice_audio_db_from_live_config() -> Path:
                    if line.startswith('AUDIO_DOWNLOADER_ROOT=')]
     except (OSError, UnicodeError) as exc:
         raise RuntimeError('Audio Downloader preflight Voice environment unreadable') from exc
-    if len(matches) > 1:
+    if len(matches) != 1:
+        # Every generated Voice service env defines this key.  Never infer a
+        # second queue location when the canonical value is absent or duplicated.
         raise RuntimeError('Audio Downloader preflight Voice environment ambiguous')
-    value = matches[0] if matches else '/home/ubuntu/apps/audio_downloader_voice_studio'
+    value = matches[0]
     root = Path(value)
     if not root.is_absolute() or '..' in root.parts or not value.strip():
         raise RuntimeError('Audio Downloader preflight Voice root invalid')
