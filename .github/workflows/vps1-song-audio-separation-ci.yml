@@ -11,6 +11,8 @@ on:
       - 'production/test_song_audio_handoff_preflight.py'
       - 'production/test_song_audio_orphan_gate.py'
       - 'production/song_audio_cutover.py'
+      - 'production/song_audio_voice_diagnostic.py'
+      - 'production/test_song_audio_voice_diagnostic.py'
       - 'production/test_song_audio_cutover.py'
       - 'production/smoke.py'
       - 'rebuild/fresh_vps.py'
@@ -60,6 +62,7 @@ jobs:
           python -m unittest discover -s production -p 'test_song_audio_service.py' -v
           python -m unittest discover -s production -p 'test_song_audio_handoff_preflight.py' -v
           python -m unittest discover -s production -p 'test_song_audio_orphan_gate.py' -v
+          python -m unittest discover -s production -p 'test_song_audio_voice_diagnostic.py' -v
           python -m unittest discover -s production -p 'test_song_audio_cutover.py' -v
       - name: Actual standalone Song ASGI and disposable Scene SSO smoke
         run: |
