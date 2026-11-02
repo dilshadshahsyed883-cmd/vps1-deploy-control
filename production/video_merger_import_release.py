@@ -310,7 +310,11 @@ def install(revision):
     template='part01/templates/index.html'
     live_template=target/template
     source_html=(REPO/'apps'/app/template).read_text(encoding='utf-8')
-    patched=overlay_failed_import_retry_ui(live_template.read_text(encoding='utf-8'),source_html)
+    library_v1='id="libraryUploadDrive" type="checkbox"' in source_html
+    # Frozen Library replaces its full renderer; do not inject a second legacy
+    # Retry button before the strict reviewed panel comparison.
+    patched=(live_template.read_text(encoding='utf-8') if library_v1 else
+             overlay_failed_import_retry_ui(live_template.read_text(encoding='utf-8'),source_html))
     if 'VIDEO_MERGER_TWO_COLUMN_QUEUE_V2' in source_html:
         # The immutable deployment checkout is shallow and has no revision^.
         # Use the audited pre-Queue panel anchor stored in this exact Git SHA.
@@ -322,7 +326,6 @@ def install(revision):
     patched=overlay_owner_handover_ui(patched,source_html)
     # Frozen V1 Library changes are separate from the historic import/Queue patch.
     # Exact-match replacement refuses any active Library customization/drift.
-    library_v1='id="libraryUploadDrive" type="checkbox"' in source_html
     if library_v1:
         from production.video_merger_library_release import frozen_library_overlay
         baseline_path=REPO/'production/video_merger_library_20261102_baseline.html'
