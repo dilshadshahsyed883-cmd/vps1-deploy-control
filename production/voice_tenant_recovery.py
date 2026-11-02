@@ -160,11 +160,15 @@ def install(revision: str) -> None:
                       independent_song_worker="OFFLINE", data="PRESERVED",
                       rollback=str(journal), auto_script="OFFLINE")
     except BaseException:
-        if switched:
+        voice_active = _active(VOICE_UNIT)
+        if switched and not voice_active:
             runtime.atomic_link(VOICE_CURRENT, previous)
         runtime.atomic_json(journal / "result.json", {
-            "status": "FAILED_LEGACY_STILL_UNHEALTHY",
+            "status": ("CANDIDATE_ACTIVE_UNVERIFIED" if voice_active
+                       else "FAILED_LEGACY_STILL_UNHEALTHY"),
             "queue": "PRESERVED", "previous_release": str(previous)})
-        # Do not restart the known-broken legacy module or claim rollback passed.
-        # Independent Voice synthesis workers and Song data are untouched.
+        # If the candidate web is running, never redirect its pointer back
+        # to the known-broken source merely because an HTTPS/SSO probe failed.
+        # If it failed to start, restore the old source pointer without a
+        # dangerous second restart loop. No claim of rollback success.
         raise
