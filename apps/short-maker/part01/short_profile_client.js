@@ -20,7 +20,7 @@ const PROFILES='/short-maker/api/short-profiles';
 const DB='short-maker-short-profile-media-v1',CHUNK=4*1024*1024,WORKERS=2;
 const accepted=/\.(mp3|wav|m4a|aac|flac|ogg|opus|jpg|jpeg|png|webp|jfif|heic|heif)$/i;
 let session=null,busy=false,paused=false,stop=false,verifiedReceipt='',editing=null;
-let files=[],fileErrors=new Map();
+let files=[],fileErrors=new Map(),schedulerActive=false;
 function message(value){status.textContent=value;}
 function selectFiles(){
  const selected=source.files&&source.files.length?[...source.files]:[...(fallback.files||[])];
@@ -221,12 +221,18 @@ async function listProfiles(){
  try{
   const data=await api(PROFILES);
   rows.replaceChildren();
+  schedulerActive=!!data.scheduler_active;
   if(!data.profiles?.length){rows.textContent='No Short Profiles saved yet.';return;}
   for(const profile of data.profiles){
    const item=document.createElement('div');item.className='song-item';
    const label=document.createElement('span');
+   const summary=profile.daily_summary;
+   const due=summary?.next_run?new Date(summary.next_run).toLocaleString('en-PK',{
+      timeZone:'Asia/Karachi',dateStyle:'medium',timeStyle:'short'}):'Not scheduled';
    label.textContent=profile.name+' · '+profile.output_folder+' · '+profile.videos_per_day+
-     '/day · '+(profile.enabled?'Enabled':'Stopped')+' · Daily generation not activated';
+     '/day · '+(profile.enabled?'Running schedule':'Stopped')+
+     (summary?' · Today '+summary.today_completed+'/'+summary.today_target+
+       ' completed · Next '+due:' · Daily generation pending activation');
    item.appendChild(label);
    const actions=document.createElement('div');actions.className='queue-actions';
    function action(title,handler,disabled=false){
@@ -235,8 +241,14 @@ async function listProfiles(){
     btn.addEventListener('click',async()=>{btn.disabled=true;try{await handler();}catch(e){message(e.message);}finally{btn.disabled=disabled;}});
     actions.appendChild(btn);return btn;
    }
-   action('Start (pending)',async()=>{},true);
-   action('Stop',async()=>{await api(PROFILES+'/'+profile.id+'/stop',{method:'POST'});await listProfiles();});
+   action(schedulerActive?'Start':'Start (pending)',async()=>{
+    const result=await api(PROFILES+'/'+profile.id+'/start',{method:'POST'});
+    message(profile.name+' · '+result.status+' · '+result.queued_or_existing+
+      ' queued/existing · '+result.shortage+' voice shortage');
+    await listProfiles();
+   },!schedulerActive);
+   action('Stop',async()=>{await api(PROFILES+'/'+profile.id+'/stop',{method:'POST'});
+     await listProfiles();},!profile.enabled);
    action('Edit',async()=>{
     editing=profile.id;name.value=profile.name;folder.value=profile.output_folder;
     count.value=profile.videos_per_day;schedule.value=profile.schedule_hhmm;
@@ -282,7 +294,8 @@ save.addEventListener('click',async()=>{
  const url=editing?PROFILES+'/'+editing:PROFILES;
  try{save.disabled=true;const result=await api(url,{method:editing?'PATCH':'POST',
   headers:{'Content-Type':'application/json'},body:JSON.stringify(target)});
-  message('Profile '+result.name+' saved with verified VPS media. Daily scheduler is not yet activated.');
+  message('Profile '+result.name+' saved with verified VPS media.'+
+    (schedulerActive?' Start the profile to generate today.':' Daily scheduler is not yet activated.'));
   resetForm();await listProfiles();
  }catch(e){message('Profile save blocked: '+e.message);}
  finally{controls();}
