@@ -1010,6 +1010,147 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
 @media(max-width:950px){main{margin-left:76px!important;padding:20px!important}}
 @media(max-width:600px){main{margin-left:0!important;padding:14px!important}.sm-tabs{overflow-x:auto!important;white-space:nowrap!important}}
 
+
+/* SHORT_MAKER_PROFILE_FOLDER_KOKORO_UI_V1
+ * App-local, visual-only adaptation of the approved Kokoro parity geometry.
+ * 1440px viewport quality gate; preserve the shell's 1400px content cap.
+ * No changes to JS, tab order, endpoints, upload states, workers or user data.
+ */
+#shortProfilesPanel,#foldersPanel{
+  box-sizing:border-box;width:100%;max-width:var(--vps1-studio-max,1400px);
+  min-width:0;margin-inline:auto;color:#17253c;
+  font:14px/1.5 Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
+  overflow-wrap:anywhere;
+}
+#shortProfilesPanel > .panel,#foldersPanel > .panel{
+  box-sizing:border-box;min-width:0;margin:0 0 16px;
+  padding:20px;border:1px solid #e2e7ef;
+  border-radius:16px;background:#fff;
+  box-shadow:0 2px 10px rgb(16 24 40 / 3%);
+}
+#shortProfilesPanel .queue-head,#foldersPanel .queue-head{
+  min-width:0;gap:12px;margin:0 0 16px;align-items:flex-start;flex-wrap:wrap;
+}
+#shortProfilesPanel .panel h2,#foldersPanel .panel h2{
+  margin:0 0 7px;font-size:18px;font-weight:750;line-height:1.4;
+  letter-spacing:normal;color:#101828;
+}
+#shortProfilesPanel .hint,#foldersPanel .hint{
+  margin:5px 0 12px;color:#667085;font-size:12px;line-height:1.55;
+}
+#shortProfilesPanel .two,#foldersPanel .two{
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 16px;
+}
+#shortProfilesPanel .field,#foldersPanel .field{min-width:0;margin:0;}
+#shortProfilesPanel .field > label,#foldersPanel .field > label,
+#foldersPanel .filebox > label{
+  display:block;margin:0 0 7px;color:#344054;
+  font-size:13px;font-weight:700;line-height:1.45;
+}
+#shortProfilesPanel :is(input:not([type="hidden"]),select),
+#foldersPanel :is(input:not([type="hidden"]),select){
+  box-sizing:border-box;min-width:0;max-width:100%;min-height:44px;
+  border:1px solid #d0d5dd;border-radius:9px;padding:10px 12px;
+  background:#fff;color:#101828;font-size:14px;line-height:1.45;
+}
+#shortProfilesPanel input[type="file"],#foldersPanel input[type="file"]{
+  width:100%;padding:8px;border-style:dashed;background:#fcfdff;
+}
+#shortProfilesPanel input[type="file"]::file-selector-button,
+#foldersPanel input[type="file"]::file-selector-button{
+  margin-right:10px;border:1px solid #d0d5dd;border-radius:7px;
+  background:#f8faff;padding:6px 10px;color:#344054;font:650 12px/1.4 inherit;
+  cursor:pointer;
+}
+#shortProfilesPanel .field .hint{margin-top:7px;margin-bottom:0;}
+#shortProfilesPanel .note,#foldersPanel .note{
+  box-sizing:border-box;min-width:0;margin-top:14px;padding:12px 14px;
+  background:#f8faff;border:1px solid #edf0f5;border-radius:10px;
+  color:#475467;font-size:12px;line-height:1.55;
+}
+#shortProfilesPanel .queue-actions,#foldersPanel .queue-actions{
+  display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:0;
+}
+#shortProfilesPanel > .panel:first-child > .queue-actions{margin:14px 0 8px;}
+#shortProfilesPanel :is(button),#foldersPanel :is(button){
+  box-sizing:border-box;min-height:44px;max-width:100%;border-radius:9px;
+  padding:9px 13px;background:#315edb;color:#fff;
+  font:700 13px/1.4 Inter,system-ui,"Segoe UI",sans-serif;
+}
+#shortProfilesPanel button.secondary,#foldersPanel button.secondary{
+  background:#fff;color:#34415b;border:1px solid #d6ddea;
+}
+#shortProfilesPanel button.danger,#foldersPanel button.danger{
+  background:#fff9f8;color:#b42318;border:1px solid #fecdca;
+}
+#shortProfilesPanel button:disabled,#foldersPanel button:disabled{opacity:.55;cursor:not-allowed;}
+#shortProfilesPanel :is(button,input,select,a):focus-visible,
+#foldersPanel :is(button,input,select,a):focus-visible{
+  outline:3px solid #8174eb;outline-offset:2px;
+}
+#shortProfilesPanel #shortProfileImportStatus{
+  margin:6px 0 0;font-size:12px;line-height:1.5;
+}
+#shortProfilesPanel #shortProfileImportProgress{margin-top:8px;}
+#shortProfilesPanel #shortProfilesRows{padding:10px 14px;}
+#shortProfilesPanel #shortProfilesRows .song-item{
+  display:grid;grid-template-columns:minmax(0,1fr) auto;
+  gap:10px 18px;align-items:center;min-width:0;padding:14px 0;
+  border-bottom:1px solid #e7eaf1;
+}
+#shortProfilesPanel #shortProfilesRows .song-item:last-child{border-bottom:0;}
+#shortProfilesPanel #shortProfilesRows .song-item > span{
+  min-width:0;font-size:13px;line-height:1.5;color:#344054;
+}
+#shortProfilesPanel #shortProfilesRows .short-profile-history{
+  grid-column:1/-1;min-width:0;color:#667085;font-size:12px;
+}
+#foldersPanel{
+  display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);
+  gap:16px;align-items:start;
+}
+#foldersPanel[hidden]{display:none;}
+#foldersPanel > .panel{margin:0;}
+#foldersPanel > .panel:last-child{grid-column:1/-1;}
+#foldersPanel > .panel:first-child .two{grid-template-columns:minmax(0,1fr);}
+#foldersPanel .filebox{
+  min-width:0;margin:10px 0;padding:12px;border:1px dashed #cbd5e1;
+  border-radius:10px;background:#fcfdff;
+}
+#foldersPanel .filebox input{margin-top:5px;}
+#foldersPanel #foldersSelectedInfo{margin:8px 0 12px;}
+#foldersPanel .queue-table-wrap{
+  width:100%;max-width:100%;overflow-x:auto;border:1px solid #e2e7ef;
+  border-radius:10px;
+}
+#foldersPanel .queue-table{width:100%;min-width:660px;border-collapse:collapse;}
+#foldersPanel .queue-table th{
+  background:#f8faff;font-weight:750;color:#475467;font-size:12px;
+}
+#foldersPanel .queue-table :is(th,td){
+  padding:12px 14px;text-align:left;vertical-align:middle;
+  border-bottom:1px solid #edf0f5;overflow-wrap:anywhere;
+}
+#foldersPanel .queue-table tbody tr:last-child td{border-bottom:0;}
+@media(max-width:1100px){
+  #foldersPanel{grid-template-columns:minmax(0,1fr);}
+  #foldersPanel > .panel:last-child{grid-column:auto;}
+}
+@media(max-width:760px){
+  #shortProfilesPanel > .panel,#foldersPanel > .panel{padding:16px;}
+  #shortProfilesPanel .two,#foldersPanel .two{grid-template-columns:minmax(0,1fr);}
+  #shortProfilesPanel #shortProfilesRows .song-item{grid-template-columns:minmax(0,1fr);}
+  #shortProfilesPanel :is(input:not([type="hidden"]),select),
+  #foldersPanel :is(input:not([type="hidden"]),select){font-size:16px;}
+  #shortProfilesPanel .queue-actions button,#foldersPanel .queue-actions button{min-height:44px;}
+}
+@media(max-width:390px){
+  #shortProfilesPanel > .panel,#foldersPanel > .panel{padding:12px;}
+}
+@media(prefers-reduced-motion:reduce){
+  #shortProfilesPanel *,#foldersPanel *{scroll-behavior:auto;transition:none;}
+}
+
 </style>
 <link rel="stylesheet" href="/&#115;tatic/vps1_native_site_shell.css?v=20261020-experiment-v1&layout=video-v2&song=20261029">
 <link rel="stylesheet" href="/&#115;tatic/vps1_video_studio_geometry.css?v=20261020-geometry-v1&layout=video-v2">
