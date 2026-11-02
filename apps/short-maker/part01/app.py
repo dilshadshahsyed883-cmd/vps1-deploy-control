@@ -1607,12 +1607,13 @@ async function loadOwnerFolderNames(){
  }catch(e){inventory.replaceChildren();const row=document.createElement('tr'),td=document.createElement('td');td.colSpan=4;td.textContent='Could not verify owner-owned VPS folders: '+e.message;row.appendChild(td);inventory.appendChild(row);}
 }
 document.getElementById('foldersCreateVps').onclick=async()=>{
- // Await the existing owner-scoped create handler before reloading inventory.
+ // A cancelled/failed create must not silently switch upload destinations.
+ const prior=document.getElementById('shortVpsFolder').value;
  await document.getElementById('createShortFolder').onclick();
  await loadOwnerFolderNames();
  const created=document.getElementById('shortVpsFolder').value;
  const destination=document.getElementById('foldersVpsDestination');
- if(Array.from(destination.options).some(option=>option.value===created)){
+ if(created!==prior && Array.from(destination.options).some(option=>option.value===created)){
   destination.value=created;
   destination.dispatchEvent(new Event('change'));
  }
