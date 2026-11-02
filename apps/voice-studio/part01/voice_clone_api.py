@@ -727,11 +727,14 @@ def _resolve_category(con: sqlite3.Connection, value: str) -> str:
 def _validate_drive_folder(value: str) -> str:
     """New Voice outputs go to a tenant-specific Drive folder; old jobs stay unchanged."""
     value = (value or "").strip()
-    if len(value) > 150 or value in {".", ".."} or "/" in value or chr(92) in value or any(ord(ch) < 32 for ch in value):
+    # Keep the pre-existing "Auto · language / engine" option and empty
+    # stored default. The delivery spooler isolates *new owned* auto outputs
+    # without rewriting historical job destinations or changing UI defaults.
+    if len(value) > 180 or value in {".", ".."} or "/" in value or chr(92) in value or any(ord(ch) < 32 for ch in value):
         raise HTTPException(400, "Output folder is invalid")
-    prefix = "vs_" + owner() + "__"
     if not value:
-        return prefix + "default"
+        return ""
+    prefix = "vs_" + owner() + "__"
     if value.casefold().startswith(prefix.casefold()):
         return value
     if value.casefold().startswith("vs_"):
