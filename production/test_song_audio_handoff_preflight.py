@@ -41,12 +41,28 @@ class HandoffDrainTests(unittest.TestCase):
         self.add(retry="invalid")
         expected = {"pending": 3, "sending": 1, "eligible": 3,
                     "ineligible": 1, "due": 1, "future_retry": 1,
-                    "invalid_retry": 1}
+                    "invalid_retry": 1,
+                    "job_not_completed": 1, "auto_handoff_off": 0,
+                    "drive_upload_on": 0, "thumbnail_off": 0,
+                    "song_owner_missing": 0, "audio_pointer_missing": 0,
+                    "thumbnail_pointer_missing": 0}
         self.assertEqual(guard.handoff_summary(self.db), expected)
         with sqlite3.connect(self.db) as con:
             self.assertEqual(con.execute("SELECT COUNT(*) FROM jobs").fetchone()[0], 4)
             self.assertEqual(con.execute("SELECT COUNT(*) FROM jobs "
                                          "WHERE song_maker_status='pending'").fetchone()[0], 3)
+
+    def test_every_stranded_condition_is_logged_as_aggregate_only(self):
+        self.add(status="failed", auto=0, upload=1, thumbnail=0,
+                 owner="", audio="", image="")
+        summary = guard.handoff_summary(self.db)
+        self.assertEqual(summary["ineligible"], 1)
+        self.assertEqual(summary["job_not_completed"], 1)
+        for key in ("auto_handoff_off", "drive_upload_on", "thumbnail_off",
+                    "song_owner_missing", "audio_pointer_missing",
+                    "thumbnail_pointer_missing"):
+            self.assertEqual(summary[key], 1)
+        self.assertNotIn("user_fixture", str(summary))
 
     def test_real_idle_gate_passes_without_ever_sleeping(self):
         with patch.object(guard.runtime, "require_voice_release_idle") as idle, \

@@ -42,14 +42,28 @@ def handoff_summary(audio_db: Path) -> dict[str, int]:
     now = datetime.now(timezone.utc)
     summary = {"pending": 0, "sending": 0, "eligible": 0,
                "ineligible": 0, "due": 0, "future_retry": 0,
-               "invalid_retry": 0}
+               "invalid_retry": 0,
+               # A row can have multiple reasons. Never log owner or path.
+               "job_not_completed": 0, "auto_handoff_off": 0,
+               "drive_upload_on": 0, "thumbnail_off": 0,
+               "song_owner_missing": 0, "audio_pointer_missing": 0,
+               "thumbnail_pointer_missing": 0}
     for status, phase, auto, upload, thumbnail, owner, audio, image, retry in rows:
         summary[phase] += 1
-        eligible = (status == "completed" and auto == 1 and upload == 0
-                    and thumbnail == 1 and bool(owner) and bool(audio)
-                    and bool(image))
-        if not eligible:
+        reasons = {
+            "job_not_completed": status != "completed",
+            "auto_handoff_off": auto != 1,
+            "drive_upload_on": upload != 0,
+            "thumbnail_off": thumbnail != 1,
+            "song_owner_missing": not bool(owner),
+            "audio_pointer_missing": not bool(audio),
+            "thumbnail_pointer_missing": not bool(image),
+        }
+        if any(reasons.values()):
             summary["ineligible"] += 1
+            for key, present in reasons.items():
+                if present:
+                    summary[key] += 1
             continue
         summary["eligible"] += 1
         if not retry:
