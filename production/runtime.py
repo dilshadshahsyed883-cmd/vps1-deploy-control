@@ -1792,6 +1792,14 @@ def main():
             else:
                 raise RuntimeError('Unsupported Copyright operation')
             return
+        # Four-unit passive root/sandbox configuration only. Existing jobs
+        # continue uninterrupted: NO service stop/start, NO feature flags ON.
+        if '[vps1-shortstudio-passive-four-unit-prepare]' in intent:
+            if args.action != 'install' or args.apps != ['local-upload-manager']:
+                raise RuntimeError('Short passive prepare requires exact isolated LUM lane')
+            from production.shortstudio_passive_config import prepare
+            prepare(args.revision)
+            return
         # Approved Short Studio cooperative source code, flags OFF.
         # This lane may update only the isolated Short Uploader web/worker/
         # scheduler source, preserving all other engines, OAuth and UI.
