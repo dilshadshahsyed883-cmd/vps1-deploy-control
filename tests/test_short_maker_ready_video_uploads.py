@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import tempfile
+import uuid
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -121,7 +122,7 @@ class ReadyVideoUploadsTests(unittest.TestCase):
         self.assertEqual(snap["uploaded_bytes"],4096)
 
     def test_request_id_idempotence_and_no_arbitrary_file_count_cap(self):
-        key = "123e4567-e89b-12d3-a456-426614174000"
+        key = str(uuid.UUID(int=1))  # deterministic synthetic test ID; not a credential
         first = self.begin(request_id=key)
         self.assertEqual(first.status_code, 200)
         second = self.begin(request_id=key)
