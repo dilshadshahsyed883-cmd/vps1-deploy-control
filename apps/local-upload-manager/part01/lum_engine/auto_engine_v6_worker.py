@@ -18,6 +18,7 @@ from desktop_core.modules.upload_pipeline import UploadStopped
 from desktop_core.modules.upload_status import UploadStatus
 
 from .auto_engine_v6 import (STAGING_ROOT, V6Store, drive_delete_source, drive_download, drive_move_uploaded, drive_move_uploaded_month, clean, download_channel_thumbnail_for_job, set_channel_job_post_state, emit_channel_sheet_writeback, SHORT_FOLDER_PREFIX, shortstudio_source_path, shortstudio_file_id)
+from .uploader_shortstudio_cooperation import uploader_shortstudio_guard
 
 
 STOP=False
@@ -601,44 +602,51 @@ def main() -> None:
     # Reconcile safe PC crash evidence on service start. This is the PC behavior;
     # ambiguous media-stage crashes remain REVIEW_REQUIRED.
     try:
-        db.recover_interrupted_uploads(auto_resume_safe=True)
+        with uploader_shortstudio_guard():
+            db.recover_interrupted_uploads(auto_resume_safe=True)
     except Exception:
         pass
     while not STOP:
         try:
             store.heartbeat("worker")
-            recover_channel_jobs(db,store)
-            retry_post_actions(db,store)
-            retry_proxy_waits(db,store)
-            retry_network_waits(db,store)
-            state=store.engine()
-            if not int(state.get("running") or 0):
-                time.sleep(2); continue
-            if int(state.get("pause_after_current") or 0):
-                store.set_engine(running=False,pause_after_current=False)
-                time.sleep(2); continue
+            # Hold a shared lease across the complete source lifecycle:
+            # recovery -> queue claim -> snapshot -> publish -> post-success
+            # source unlink. Exclusive retirement must never overlap it.
+            with uploader_shortstudio_guard():
+                recover_channel_jobs(db,store)
+                retry_post_actions(db,store)
+                retry_proxy_waits(db,store)
+                retry_network_waits(db,store)
+                state=store.engine()
+                if not int(state.get("running") or 0):
+                    time.sleep(2); continue
+                if int(state.get("pause_after_current") or 0):
+                    store.set_engine(running=False,pause_after_current=False)
+                    time.sleep(2); continue
 
-            db.activate_due_scheduled_jobs(auto_engine_only=True)
-            claim_scope={}
-            if os.environ.get("LUM_ENGINE_INSTANCE") in {"shortstudio","song"}:
-                # A paused profile cannot be claimed even when it has older queued jobs.
-                # Manual Start scopes the worker to just the requested profile(s).
-                enabled={int(p["id"]) for p in db.list_auto_engine_profiles() if int(p.get("enabled") or 0)==1}
-                manual=state.get("manual_profile_ids")
-                if manual is not None:
-                    selected={int(x) for x in str(manual).split(",") if x.strip().isdigit()}
-                    enabled.intersection_update(selected)
-                claim_scope["allowed_auto_engine_profile_ids"]=sorted(enabled)
-            claimed=db.claim_available_jobs(worker_id,1,auto_engine_only=True,lease_seconds=900,**claim_scope)
-            if not claimed:
-                time.sleep(2); continue
-            process_one(db,store,claimed[0],worker_id)
-            if int(store.engine().get("pause_after_current") or 0):
-                store.set_engine(running=False,pause_after_current=False)
+                db.activate_due_scheduled_jobs(auto_engine_only=True)
+                claim_scope={}
+                if os.environ.get("LUM_ENGINE_INSTANCE") in {"shortstudio","song"}:
+                    # A paused profile cannot be claimed even when it has older queued jobs.
+                    # Manual Start scopes the worker to just the requested profile(s).
+                    enabled={int(p["id"]) for p in db.list_auto_engine_profiles() if int(p.get("enabled") or 0)==1}
+                    manual=state.get("manual_profile_ids")
+                    if manual is not None:
+                        selected={int(x) for x in str(manual).split(",") if x.strip().isdigit()}
+                        enabled.intersection_update(selected)
+                    claim_scope["allowed_auto_engine_profile_ids"]=sorted(enabled)
+                claimed=db.claim_available_jobs(worker_id,1,auto_engine_only=True,lease_seconds=900,**claim_scope)
+                if not claimed:
+                    time.sleep(2); continue
+                process_one(db,store,claimed[0],worker_id)
+                if int(store.engine().get("pause_after_current") or 0):
+                    store.set_engine(running=False,pause_after_current=False)
         except Exception as exc:
             store.heartbeat("worker",str(exc))
             time.sleep(3)
-    try: db.release_worker_claims(worker_id,requeue_claimed=True)
+    try:
+        with uploader_shortstudio_guard():
+            db.release_worker_claims(worker_id,requeue_claimed=True)
     except Exception: pass
 
 
