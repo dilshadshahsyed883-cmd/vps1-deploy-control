@@ -175,6 +175,19 @@ class RetirementTests(unittest.TestCase):
         self.assertEqual(json.loads(journals[0].read_text())["phase"],"complete")
         self.assertEqual(self.worker.recover(hash_file),[])
 
+    def test_active_maker_shared_lease_blocks_unused_retirement(self):
+        self.clean_dependencies()
+        lease=load("short_folder_cooperation").ShortStudioFolderLease(
+            self.folders,enabled=True,timeout_seconds=0.12)
+        self.worker.lease_factory=lease.retire
+        with lease.producer():
+            with self.assertRaises(HTTPException) as denied:
+                self.retire()
+            self.assertEqual(denied.exception.status_code,503)
+            self.assertTrue(self.video.is_file())
+        self.assertTrue(self.retire()["ok"])
+        self.assertFalse(self.target.exists())
+
     def test_missing_verified_exclusive_lease_refuses_even_empty_folder(self):
         self.clean_dependencies()
         with self.assertRaises(HTTPException) as denied:
