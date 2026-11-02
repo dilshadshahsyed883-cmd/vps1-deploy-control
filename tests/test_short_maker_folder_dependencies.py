@@ -103,6 +103,46 @@ class FolderDeletePreflightTests(unittest.TestCase):
         self.assertFalse(result["linked_short_profiles"][0]["enabled"])
         self.assertIn("Short Profiles still link this folder",result["issues"])
 
+    def test_foreign_maker_profile_link_is_not_exposed(self):
+        self.profile_store.create("bob", {
+            "name":"Hidden Foreign Generator","source_import_id":"a"*32,
+            "output_folder":"Owner Folder","videos_per_day":1,
+            "schedule_hhmm":"00:00",
+        }, lambda owner,receipt:{"audio_count":1,"image_count":1},
+           lambda name:name)
+        report=self.inspect()
+        self.assertIn("Foreign or unassigned Short Profile references folder",
+                      report["issues"])
+        self.assertNotIn("Hidden Foreign Generator",json.dumps(report))
+
+    def test_reserved_or_orphaned_daily_claim_blocks_deletion(self):
+        daily=module("short_profile_daily")
+        profile=self.profile_store.create("alice",{
+            "name":"Queued","source_import_id":"a"*32,
+            "output_folder":"Owner Folder","videos_per_day":1,
+            "schedule_hhmm":"00:00",
+        }, lambda owner,receipt:{"audio_count":1,"image_count":1},
+           lambda name:name)
+        with self.profile_store._connect() as db:
+            db.execute("UPDATE short_profiles SET enabled=1 WHERE id=?",
+                       (profile["id"],))
+        planner=daily.DailyBatchPlanner(
+            self.profile_store,
+            lambda owner,sid:{"audio":[{"sha256":"a"*64,"path":"/source/a.mp3"}],
+                              "picture":[{"sha256":"f"*64,"path":"/source/a.png"}]},
+            lambda owner,name:None)
+        from datetime import datetime,timezone
+        when=datetime(2026,11,1,19,0,tzinfo=timezone.utc)
+        result=planner.plan("alice",profile["id"],when)
+        self.assertEqual(len(result["jobs"]),1)
+        report=self.inspect()
+        self.assertIn("Undispatched daily profile batch still reserves folder",
+                      report["issues"])
+        with self.profile_store._connect() as db:
+            db.execute("UPDATE short_profile_jobs SET status='enqueued'")
+        report=self.inspect()
+        self.assertIn("Unreconciled daily render job claim",report["issues"])
+
     def test_busy_maker_job_and_foreign_job_block(self):
         self.jobs.extend([
             {"owner":"alice","status":"running",
