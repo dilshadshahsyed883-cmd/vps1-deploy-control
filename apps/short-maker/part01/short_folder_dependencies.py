@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -63,8 +64,8 @@ class ShortFolderPreflight:
             "profile_sources": {"profile_id", "short_folder_name"},
             "job_sources": {"video_id", "profile_id", "source_folder_id", "filename", "state"},
         }
-        with _read_only_db(self.uploader_app_db, app_required) as app_db:
-            with _read_only_db(self.uploader_engine_db, v6_required) as engine_db:
+        with closing(_read_only_db(self.uploader_app_db, app_required)) as app_db:
+            with closing(_read_only_db(self.uploader_engine_db, v6_required)) as engine_db:
                 profiles = {int(row["id"]): dict(row) for row in app_db.execute(
                     "SELECT id,category_name,enabled,schedule_enabled FROM auto_engine_profiles")}
                 owners = {}
