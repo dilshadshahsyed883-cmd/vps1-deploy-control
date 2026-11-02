@@ -12,8 +12,19 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from .uploader_shortstudio_cooperation import (UPLOADER_COOPERATION_ENABLED,
-    uploader_shortstudio_guard_async)
+# This module is also imported by Song, Copyright and legacy LUM services.
+# Never make those existing releases depend on a new Short Studio-only file.
+if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio":
+    from .uploader_shortstudio_cooperation import (UPLOADER_COOPERATION_ENABLED,
+        uploader_shortstudio_guard_async)
+else:
+    from contextlib import asynccontextmanager
+    UPLOADER_COOPERATION_ENABLED = False
+
+    @asynccontextmanager
+    async def uploader_shortstudio_guard_async():
+        yield
+
 from .studio_tenants import StudioTenants
 from .auth_store import UserStore
 from .config import (
