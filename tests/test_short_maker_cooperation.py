@@ -94,6 +94,34 @@ class CooperationTests(unittest.TestCase):
                 with self.Lease(candidate,enabled=True).producer():
                     pass
 
+    def test_opted_in_maker_post_returns_503_not_500_when_exclusive_held(self):
+        source=ROOT/"app.py"
+        with patch.dict(os.environ, {
+            "SHORT_MAKER_DATA": str(Path(self.temp.name)/"lock-enabled-data"),
+            "SHORT_STUDIO_VPS_FOLDER_ROOT": str(self.root),
+            "SHORT_MAKER_COOPERATIVE_LOCK_ENABLED":"1",
+            "SHORT_MAKER_DAILY_PROFILES_ENABLED":"0",
+        }):
+            spec=importlib.util.spec_from_file_location("maker_lease_enabled",source)
+            maker=importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(maker)
+        try:
+            self.assertTrue(maker._sm_cooperation_enabled)
+            self.assertIsNot(maker.render_job,maker._sm_original_render_job)
+            maker._sm_folder_cooperation.timeout=0.2
+            with TestClient(maker.app) as client:
+                with maker._sm_folder_cooperation.retire():
+                    response=client.post("/api/vps-folders",
+                        headers={"x-auth-user":"alice"},json={"name":"Blocked"})
+                self.assertEqual(response.status_code,503,response.text)
+                self.assertFalse((self.root/"Blocked").exists())
+                allowed=client.post("/api/vps-folders",
+                    headers={"x-auth-user":"alice"},json={"name":"Allowed"})
+                self.assertEqual(allowed.status_code,200,allowed.text)
+                self.assertTrue((self.root/"Allowed").is_dir())
+        finally:
+            maker.executor.shutdown(wait=True)
+
     def test_real_app_has_cooperation_disabled_by_default(self):
         source=ROOT/"app.py"
         with patch.dict(os.environ, {
