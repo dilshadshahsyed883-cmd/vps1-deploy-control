@@ -345,7 +345,9 @@ def inspect_active_drain(unit_dir=Path("/etc/systemd/system")):
     except (OSError, ValueError, TypeError, json.JSONDecodeError,
             sqlite3.Error, UnicodeError):
         # No credentials, filenames, owners, DB paths or error text in report.
-        result["blocked_at"] = "INSPECTION_UNREADABLE"
+        if result["blocked_at"] not in (
+                "UPLOADER_APP_DB_UNAVAILABLE", "UPLOADER_CLAIM_DB_UNAVAILABLE"):
+            result["blocked_at"] = "INSPECTION_UNREADABLE"
     return result
 
 
