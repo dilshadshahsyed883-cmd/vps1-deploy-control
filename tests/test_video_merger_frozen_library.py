@@ -164,6 +164,39 @@ class FrozenLibraryTests(unittest.TestCase):
         self.assertEqual(item['status'],'ready')
         self.assertEqual(item['drive_id'],'prior-drive-id')
 
+    def test_different_owners_can_use_same_name_without_seeing_other_items(self):
+        with patch.object(self.app.threading,'Thread'):
+            alice=self.app.create_library_item({'url':self.url,'name':'Same Intro'},owner='alice')
+            bob=self.app.create_library_item({'url':self.url,'name':'Same Intro'},owner='bob')
+            self.assertNotEqual(alice,bob)
+            with self.assertRaisesRegex(ValueError,'already exists'):
+                self.app.create_library_item({'url':self.url,'name':'Same Intro'},owner='alice')
+        self.assertIn(alice,[r['id'] for r in self.app.list_library_items('alice')])
+        self.assertNotIn(bob,[r['id'] for r in self.app.list_library_items('alice')])
+        self.assertIn(bob,[r['id'] for r in self.app.list_library_items('bob')])
+        self.assertNotIn(alice,[r['id'] for r in self.app.list_library_items('bob')])
+
+    def test_old_global_unique_name_db_upgrades_without_deleting_legacy_media(self):
+        with self.app.db() as c:
+            schema=c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='library_items'").fetchone()['sql']
+            self.assertIn('name TEXT NOT NULL,',schema)
+            c.execute('DROP TABLE library_items')
+            c.execute(schema.replace('name TEXT NOT NULL,','name TEXT NOT NULL UNIQUE,',1))
+            c.execute("""INSERT INTO library_items(id,name,filename,owner_username,
+                         status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)""",
+                      ('legacy','Same Intro','legacy.mp4','alice','ready',self.app.utcnow(),self.app.utcnow()))
+        self.app.init_db()
+        old=self.app.get_library_item('legacy')
+        self.assertEqual(old['name'],'Same Intro')
+        self.assertEqual(old['owner_username'],'alice')
+        with patch.object(self.app.threading,'Thread'):
+            other=self.app.create_library_item({'url':self.url,'name':'Same Intro'},owner='bob')
+        self.assertEqual(self.app.get_library_item(other)['owner_username'],'bob')
+        # Idempotent recovery should not rebuild the schema or mutate owners.
+        self.app.init_db()
+        self.assertEqual(self.app.get_library_item('legacy')['name'],'Same Intro')
+        self.assertEqual(self.app.get_library_item(other)['name'],'Same Intro')
+
     def test_ui_has_unchecked_drive_choice_and_real_vps_preview(self):
         html=TEMPLATE.read_text(encoding="utf-8")
         self.assertIn('id="libraryUploadDrive" type="checkbox"',html)
