@@ -181,14 +181,22 @@ def _song_environment(root: Path, revision: str, voice_payload: bytes) -> bytes:
         if key in seen:
             raise RuntimeError("Duplicated legacy Audio Downloader configuration")
         seen.add(key)
-        if key in {"AUDIO_DOWNLOADER_ROOT", "AUDIO_DOWNLOADER_YTDLP_BIN"}:
+        if key == "AUDIO_DOWNLOADER_ROOT":
             continue
         if len(value) > 8192 or "\x00" in value or "\r" in value:
             raise RuntimeError("Unsafe Audio Downloader setting in protected Voice env")
+        if key == "AUDIO_DOWNLOADER_YTDLP_BIN":
+            # Retain an original Song-owned yt-dlp executable when present.
+            # Never make standalone Song depend on a Voice Studio venv path.
+            selected = Path(value)
+            if (not selected.is_absolute() or not selected.is_file() or
+                    selected.is_symlink() or
+                    not selected.resolve(strict=True).is_relative_to(root)):
+                continue
         copied.append(key + "=" + value)
     result = service.render_env(root)
-    result += "AUDIO_DOWNLOADER_YTDLP_BIN=" + str(
-        BASE / "venvs/song-studio" / revision / "bin/yt-dlp") + "\n"
+    # No override by default: existing ROOT/runtimes/yt-dlp remains preferred
+    # by the engine, with standalone Song venv's yt-dlp available on PATH.
     if copied:
         result += "\n".join(copied) + "\n"
     return result.encode("utf-8")
