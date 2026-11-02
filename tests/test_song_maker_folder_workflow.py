@@ -158,7 +158,14 @@ class FolderWorkflowTests(unittest.TestCase):
         module.BatchRequest.model_rebuild(_types_namespace=vars(module));module.AudioPreferences.model_rebuild(_types_namespace=vars(module))
         self.start(patch.object(module,'deps',return_value={'ready':True,'upload_ready':False}))
         self.start(patch.object(module,'_song_folder',side_effect=lambda owner,fid:self.get(owner,'/song-maker/api/folders/'+fid)))
-        app=FastAPI();app.include_router(module.router)
+        app=FastAPI()
+        @app.middleware("http")
+        async def verified_scene_fixture(request, call_next):
+            # Standalone test fixture; production owner comes from the Scene SSO session.
+            request.state.scene_owner = request.headers.get('x-auth-user', '')
+            request.state.scene_admin = False
+            return await call_next(request)
+        app.include_router(module.router)
         with TestClient(app) as client:
             data=dict(links=['https://youtu.be/'+VIDEO],format='wav',permission_confirmed=True,download_thumbnail=True,
                       auto_upload=False,auto_song_maker=True,song_folder_id=self.folder['id'])
