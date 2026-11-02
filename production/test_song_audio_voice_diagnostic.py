@@ -47,6 +47,20 @@ class ReadOnlyFailedRollbackTests(unittest.TestCase):
             self.assertNotIn("private_module", str(result))
             self.assertNotIn("never-print", str(result))
 
+    def test_missing_module_only_emits_safe_identifier_not_log_details(self):
+        raw = ("WEB_ACCESS_KEY=sensitive-fixture\\n"
+               "ModuleNotFoundError: No module named 'voice_missing_fixture'\\n"
+               "Call from /var/secret/users/record")
+        with patch.object(diag.subprocess, "run",
+                          return_value=Mock(stdout=raw)):
+            name = diag._missing_module()
+            self.assertEqual(name, "voice_missing_fixture")
+            self.assertNotIn("sensitive", name)
+            self.assertNotIn("/var/", name)
+        with patch.object(diag.subprocess, "run",
+                          return_value=Mock(stdout="ModuleNotFoundError: unsafe private data")):
+            self.assertEqual(diag._missing_module(), "UNKNOWN")
+
     def test_pointer_reveals_only_owned_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
