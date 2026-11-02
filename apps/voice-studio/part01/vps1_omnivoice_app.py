@@ -8,7 +8,11 @@ from fastapi.templating import Jinja2Templates
 import voice_clone_api as vc
 import kokoro_api as ko
 import edge_api as ed
-import audio_downloader_api as ad
+# Legacy-only compatibility. A split Voice runtime must never import Song's
+# downloader module, storage code, or worker.
+SONG_AUDIO_BACKEND_SPLIT = os.getenv("SONG_AUDIO_BACKEND_SPLIT") == "1"
+if not SONG_AUDIO_BACKEND_SPLIT:
+    import audio_downloader_api as ad
 import asyncio
 from fastapi.responses import JSONResponse
 from voice_tenant import scene_identity, set_identity, reset_identity, owner
@@ -18,7 +22,9 @@ app=FastAPI(title="VPS1 OmniVoice Voice Studio",docs_url=None,redoc_url=None)
 app.include_router(vc.router)
 app.include_router(ko.router)
 app.include_router(ed.router)
-app.include_router(ad.router)
+if not SONG_AUDIO_BACKEND_SPLIT:
+    # Legacy path remains until guarded Song worker/data cutover completes.
+    app.include_router(ad.router)
 @app.middleware("http")
 async def voice_session_and_permissions(request: Request, call_next):
     """Live SSO for all public Voice API routes, not just sidebar links.
@@ -73,11 +79,12 @@ def _startup():
     vc.init_storage()
     ko.init_storage()
     ed.init_storage()
-    if os.getenv("FRESH_WEBSITE_SMOKE_TEST", "0") == "1":
-        # Exercise genuine storage initialization but prevent external extraction.
-        ad.init_storage()
-    else:
-        ad.start_worker()
+    if not SONG_AUDIO_BACKEND_SPLIT:
+        if os.getenv("FRESH_WEBSITE_SMOKE_TEST", "0") == "1":
+            # Exercise genuine storage initialization but prevent external extraction.
+            ad.init_storage()
+        else:
+            ad.start_worker()
 @app.get("/",response_class=HTMLResponse)
 @app.get("/app",response_class=HTMLResponse)
 @app.get("/audio-downloader/app",response_class=HTMLResponse)
@@ -117,7 +124,7 @@ def studio_readiness():
     omni = vc.effective_omnivoice_config()
     connected = bool(omni.get("enabled") and omni.get("endpoint_url"))
     online, error = vc.omnivoice_worker_health(timeout_seconds=3.0) if connected else (False, "not_configured")
-    downloader = ad.status()
+    downloader = ad.status() if not SONG_AUDIO_BACKEND_SPLIT else {"ready": False, "worker": False}
     return {
         "ok": True,
         "engines": {

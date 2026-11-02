@@ -6,6 +6,7 @@ Only explicitly authorized YouTube URLs are accepted. Optional owner-provided pr
 from __future__ import annotations
 
 import json
+import fcntl
 import importlib.util
 import http.client
 import shlex
@@ -42,6 +43,7 @@ router = APIRouter(prefix='/tts/api/audio-downloader', tags=['Voice Studio Audio
 VIDEO_ID = re.compile(r'^[a-zA-Z0-9_-]{11}$')
 JOB_ID = re.compile(r'^ADJ-[A-F0-9]{16}$')
 _worker: threading.Thread | None = None
+_worker_lock_fd: int | None = None
 UPLOAD_GAP_SECONDS = 60
 THUMBNAIL_GAP_SECONDS = 30
 UPLOAD_RETRY_SECONDS = 180
@@ -1138,14 +1140,44 @@ def worker_loop():
             time.sleep(5)
 
 
+def _acquire_exclusive_worker_lock() -> int:
+    """A Song cutover must NEVER run two download/handoff workers on one queue."""
+    if ROOT.is_symlink() or DATA.is_symlink():
+        raise RuntimeError('Audio Downloader data root is unsafe for worker ownership')
+    DATA.mkdir(parents=True, exist_ok=True)
+    lock_path = DATA / '.audio-downloader-worker.lock'
+    flags = os.O_CREAT | os.O_RDWR | os.O_CLOEXEC | os.O_NOFOLLOW
+    try:
+        fd = os.open(lock_path, flags, 0o600)
+    except OSError as exc:
+        raise RuntimeError('Audio Downloader worker lock unavailable') from exc
+    try:
+        identity = os.fstat(fd)
+        if not stat.S_ISREG(identity.st_mode) or identity.st_nlink != 1:
+            raise RuntimeError('Audio Downloader worker lock is unsafe')
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return fd
+    except (OSError, RuntimeError) as exc:
+        os.close(fd)
+        raise RuntimeError('Audio Downloader already has an active worker or unsafe lock') from exc
+
+
 def start_worker():
-    global _worker
-    init_storage()
-    if _worker is None or not _worker.is_alive():
+    global _worker, _worker_lock_fd
+    if _worker is not None and _worker.is_alive():
+        return
+    if _worker_lock_fd is None:
+        _worker_lock_fd = _acquire_exclusive_worker_lock()
+    try:
+        init_storage()
         recover_interrupted_jobs()
         _bootstrap_audio_proxy_config()
-        _worker = threading.Thread(target=worker_loop, name='voice-studio-audio-downloader', daemon=True)
+        _worker = threading.Thread(target=worker_loop, name='song-audio-downloader', daemon=True)
         _worker.start()
+    except BaseException:
+        os.close(_worker_lock_fd)
+        _worker_lock_fd = None
+        raise
 
 
 # AUDIO_DOWNLOADER_PROXY_V1 — private proxy profiles, copied once from Video Merger.
