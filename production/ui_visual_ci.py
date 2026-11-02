@@ -125,6 +125,7 @@ def verify_actual_short_maker_identity(browser, shell_js: str, shell_css: str,
                 elif url.split("?", 1)[0] in (
                     origin + "/short-maker/resumable_client.js",
                     origin + "/short-maker/ready_video_client.js",
+                    origin + "/short-maker/short_profile_client.js",
                 ):
                     # Match the production Short Maker JS assets, not the API JSON fallback.
                     filename = url.split("?", 1)[0].rsplit("/", 1)[-1]
