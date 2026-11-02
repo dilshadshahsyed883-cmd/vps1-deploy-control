@@ -199,7 +199,7 @@ class RuntimeTests(unittest.TestCase):
                 conn.execute('CREATE TABLE jobs(job_id TEXT PRIMARY KEY, status TEXT, song_maker_status TEXT)')
                 conn.execute("INSERT INTO jobs VALUES ('done','completed','off')")
             (conf / 'production-voice-studio.env').write_text(
-                'PYTHONDONTWRITEBYTECODE=1\\nAUDIO_DOWNLOADER_ROOT=' + str(actual_root) + '\\n'
+                'PYTHONDONTWRITEBYTECODE=1\nAUDIO_DOWNLOADER_ROOT=' + str(actual_root) + '\n'
             )
             state = Path(tmp) / 'voice-state'
             for engine in ('kokoro', 'edge'):
@@ -226,21 +226,21 @@ class RuntimeTests(unittest.TestCase):
             file = Path(tmp) / 'production-voice-studio.env'
             with self.assertRaisesRegex(RuntimeError, 'environment unavailable'):
                 runtime.voice_audio_db_from_live_config()
-            file.write_text('SESSION_SECRET=fixture\\n')
+            file.write_text('SESSION_SECRET=fixture\n')
             with self.assertRaisesRegex(RuntimeError, 'environment ambiguous'):
                 runtime.voice_audio_db_from_live_config()
-            file.write_text('AUDIO_DOWNLOADER_ROOT=/safe/a\\nAUDIO_DOWNLOADER_ROOT=/safe/b\\n')
+            file.write_text('AUDIO_DOWNLOADER_ROOT=/safe/a\nAUDIO_DOWNLOADER_ROOT=/safe/b\n')
             with self.assertRaisesRegex(RuntimeError, 'environment ambiguous'):
                 runtime.voice_audio_db_from_live_config()
-            file.write_text('AUDIO_DOWNLOADER_ROOT=relative-path\\n')
+            file.write_text('AUDIO_DOWNLOADER_ROOT=relative-path\n')
             with self.assertRaisesRegex(RuntimeError, 'root invalid'):
                 runtime.voice_audio_db_from_live_config()
-            file.write_text('AUDIO_DOWNLOADER_ROOT=/some/../unsafe/path\\n')
+            file.write_text('AUDIO_DOWNLOADER_ROOT=/some/../unsafe/path\n')
             with self.assertRaisesRegex(RuntimeError, 'root invalid'):
                 runtime.voice_audio_db_from_live_config()
             file.unlink()
             target = Path(tmp) / 'untrusted.env'
-            target.write_text('AUDIO_DOWNLOADER_ROOT=/tmp/other\\n')
+            target.write_text('AUDIO_DOWNLOADER_ROOT=/tmp/other\n')
             file.symlink_to(target)
             with self.assertRaisesRegex(RuntimeError, 'environment unavailable'):
                 runtime.voice_audio_db_from_live_config()
