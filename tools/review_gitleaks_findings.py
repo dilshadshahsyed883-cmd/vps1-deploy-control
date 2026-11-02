@@ -24,6 +24,26 @@ def reviewed_legacy_fixture(finding, mode, root):
     if mode != "git" or not isinstance(finding, dict):
         return False  # Current source must have zero findings.
     path = str(finding.get("File", "")).removeprefix("/repo/").removeprefix("./")
+    # PR #635 once committed a deterministic UUID in a test idempotency fixture.
+    # It has been removed from the current tree. Permit only that exact
+    # historical synthetic line (and its neighboring assertion), never
+    # arbitrary credentials or any current-source finding.
+    if (path == "tests/test_short_maker_ready_video_uploads.py"
+            and finding.get("RuleID") == "generic-api-key"
+            and finding.get("StartLine") == 124):
+        commit = str(finding.get("Commit", ""))
+        if not re.fullmatch(r"[0-9a-f]{40}", commit):
+            return False
+        try:
+            source = subprocess.check_output(
+                ["git", "-C", str(root), "show", f"{commit}:{path}"],
+                stderr=subprocess.DEVNULL, timeout=15).decode("utf-8").splitlines()
+            return (digest(source[123]) ==
+                    "a3587587db10da77cc5bebbb1fc5b0db1197b49fdf72d3370dad754bbe071753"
+                    and source[124].strip() == "first = self.begin(request_id=key)")
+        except (subprocess.SubprocessError, IndexError, UnicodeError, OSError):
+            return False
+
     # Exact pre-existing FFmpeg loop idempotency fixture, not a credential.
     # Current source uses a low-entropy test identifier; historical context
     # must match the complete original line and its neighboring assertion.
