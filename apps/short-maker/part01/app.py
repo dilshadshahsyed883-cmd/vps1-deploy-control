@@ -1845,8 +1845,36 @@ def inspect_owned_short_folder_deletion(folder_name: str, request: Request):
     folder = short_folder_owned(folder_name, request)
     if folder_name in (SHORT_VPS_DEFAULT, short_personal_default(who)):
         raise HTTPException(status_code=403, detail="Default folder is protected")
-    return _sm_folder_dependency_inspector.inspect(
+    report = _sm_folder_dependency_inspector.inspect(
         owner=who, folder_name=folder_name, folder=folder)
+    # An unused folder is removable ONLY when this independently guarded
+    # feature is activated on the verified cooperating production release.
+    # The public route never receives the private verified SHA256 manifest.
+    available = (bool(_sm_unused_retirement_enabled)
+        and not report["issues"] and report["uploader_dependency_verified"]
+        and report.get("source_claims_total") == 0)
+    report["delete_preflight_ready"] = available
+    report["deletion_enabled"] = available
+    report["deletion_policy"] = "unused_only"
+    return report
+
+
+@app.post("/api/vps-folders/{folder_name}/retire-unused")
+async def retire_verified_unused_vps_folder(folder_name: str, request: Request):
+    """Owner-only, confirmed, cross-service-locked unused folder deletion."""
+    owner, _ = short_identity(request)
+    if not _sm_unused_retirement_enabled:
+        raise HTTPException(status_code=503, detail="Unused-folder deletion is not activated")
+    if folder_name in (SHORT_VPS_DEFAULT, short_personal_default(owner)):
+        raise HTTPException(status_code=403, detail="Default folder is protected")
+    short_folder_owned(folder_name, request)
+    payload = await request.json()
+    if not isinstance(payload, dict) or payload.get("confirm_name") != folder_name:
+        raise HTTPException(status_code=409, detail="Type the exact folder name to confirm")
+    return _sm_unused_retirement.retire(
+        owner=owner, folder_name=folder_name, confirmation=payload["confirm_name"],
+        digest=_sm_folder_deps_module._hash_file,
+        preserve_defaults=(SHORT_VPS_DEFAULT, short_personal_default(owner)))
 
 
 @app.get("/api/drive-folders")
@@ -2625,6 +2653,10 @@ if _sm_cooperation_enabled:
     @app.middleware("http")
     async def _sm_protect_folder_writes(request: Request, call_next):
         if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+            # Retirement obtains the EXCLUSIVE lease itself. Holding an
+            # outer SHARED HTTP lease here would deadlock its own upgrade.
+            if request.url.path.endswith("/retire-unused"):
+                return await call_next(request)
             try:
                 async with _sm_folder_cooperation.producer_async():
                     return await call_next(request)
@@ -2666,6 +2698,26 @@ _sm_folder_dependency_inspector = _sm_folder_deps_module.ShortFolderPreflight(
     _sm_profile_store, load_job_states, DATA_ROOT / "ready_video_uploads",
     uploader_app_db=os.environ.get("SHORT_UPLOADER_APP_DB", ""),
     uploader_engine_db=os.environ.get("SHORT_UPLOADER_ENGINE_DB", ""))
+
+# Explicitly staged, default OFF: do not enable from ordinary app settings.
+# Guarded VPS release must first certify all four actual services share the
+# same mount, exclusive lock protocol, and clean active upload/drain state.
+_sm_unused_retirement_enabled = (
+    os.environ.get("SHORT_MAKER_UNUSED_FOLDER_DELETE_ENABLED", "0") == "1"
+    and _sm_cooperation_enabled
+    and bool(os.environ.get("SHORT_UPLOADER_APP_DB"))
+    and bool(os.environ.get("SHORT_UPLOADER_ENGINE_DB")))
+_sm_unused_retirement_spec = _sm_importlib.spec_from_file_location(
+    "short_maker_unused_folder_retirement",
+    Path(__file__).with_name("short_folder_retirement.py"))
+_sm_unused_retirement_module = _sm_importlib.module_from_spec(_sm_unused_retirement_spec)
+_sm_unused_retirement_spec.loader.exec_module(_sm_unused_retirement_module)
+_sm_unused_retirement = _sm_unused_retirement_module.ShortFolderRetirement(
+    root=SHORT_VPS_ROOT,
+    journal_root=DATA_ROOT / "short_unused_retirement_journals",
+    profile_store=_sm_profile_store, inspector=_sm_folder_dependency_inspector,
+    lease_factory=_sm_folder_cooperation.retire if _sm_unused_retirement_enabled else None)
+
 
 
 _sm_daily_spec = _sm_importlib.spec_from_file_location(
