@@ -86,6 +86,47 @@ def safe_category(finding):
     return location, rule
 
 
+def safe_test_evidence(finding, root):
+    """Classify old test context without logging its source, commit, or path."""
+    if safe_category(finding)[0] != "test":
+        return "not_test"
+    path = str(finding.get("File", "")).removeprefix("/repo/").removeprefix("./")
+    commit = str(finding.get("Commit", ""))
+    try:
+        line = int(finding.get("StartLine", -1))
+    except (ValueError, TypeError):
+        return "uninspectable"
+    if (not re.fullmatch(r"[0-9a-f]{40}", commit)
+            or path.startswith(("/", "-")) or ".." in Path(path).parts or line < 1):
+        return "uninspectable"
+    try:
+        source = subprocess.check_output(
+            ["git", "-C", str(root), "show", f"{commit}:{path}"],
+            stderr=subprocess.DEVNULL, timeout=12).decode("utf-8").splitlines()
+    except (subprocess.SubprocessError, OSError, UnicodeError):
+        return "uninspectable"
+    if line > len(source):
+        return "uninspectable"
+    before = "\n".join(source[max(0, line - 45):line])
+    after = "\n".join(source[line:min(len(source), line + 24)])
+    # This is ONLY diagnostic evidence; it can NEVER review a finding.
+    in_test = bool(re.search(r"(?m)^\s*(?:async\s+)?def test_[A-Za-z0-9_]*\s*\(", before))
+    mentions_synthetic = bool(re.search(
+        r"\b(?:fake|dummy|invalid|synthetic|fixture|placeholder)\b",
+        before + "\n" + after, re.IGNORECASE))
+    expects_failure = any(term in after for term in (
+        "assertRaises", "pytest.raises", "raises(ValueError)", "raises(TypeError)"))
+    if in_test and mentions_synthetic and expects_failure:
+        return "test_synthetic_failure_context"
+    if in_test and expects_failure:
+        return "test_failure_context"
+    if in_test and mentions_synthetic:
+        return "test_synthetic_context"
+    if in_test:
+        return "test_function_context"
+    return "test_data_or_other_context"
+
+
 def main():
     temp = Path(sys.argv[1])
     root = Path(os.environ["GITHUB_WORKSPACE"])
@@ -111,6 +152,10 @@ def main():
                 # Public logs show only fixed enum buckets and integer counts.
                 for (location, rule), count in sorted(buckets.items()):
                     print(f"GITLEAKS_UNRESOLVED_CLASS={location}; RULE_CLASS={rule}; COUNT={count}")
+                for item in data:
+                    if not reviewed_legacy_fixture(item, mode, root):
+                        evidence = safe_test_evidence(item, root)
+                        print(f"GITLEAKS_UNRESOLVED_TEST_EVIDENCE={evidence}")
             valid_exit = (status == 0 and len(data) == 0) or (status == 1 and len(data) > 0)
             passed = (unresolved == 0 and valid_exit)
             lines.append(
