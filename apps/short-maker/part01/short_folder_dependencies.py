@@ -307,9 +307,12 @@ class ShortFolderPreflight:
             ],
             **uploader,
             "issues": sorted(set(issues)),
-            # This is read-only evidence, NOT an authorization to delete:
-            # user-confirmed unlink, cross-service locks, refresh-safe
-            # transactional deletion and rollback are still required.
+            # Read-only evidence, NOT itself authorization to delete.
+            # Approved UNUSED-ONLY policy: links, claims and indexed media
+            # must be cleared using ordinary owner-scoped operations; the
+            # retirement action never unlinks/updates another app's tables.
+            # Exclusive cross-service lease, exact-name confirmation and
+            # verified receipt-based recovery are separate release gates.
             "delete_preflight_ready": False,
             "deletion_enabled": False,
             "requires_confirmation": True,
