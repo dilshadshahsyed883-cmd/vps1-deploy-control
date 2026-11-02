@@ -46,6 +46,16 @@ ReadWritePaths=/var/lib/fresh-website/local-upload-manager -/home/ubuntu/.config
 """.format(env=mod.UPLOADER_ENV).encode()
         patched=mod.unit_patch(base,name="web",environment=mod.UPLOADER_ENV)
         self.assertEqual(patched.count(str(mod.ROOT).encode()),1)
+        self.assertIn(str(mod.LOCK).encode(),patched)
+        self.assertNotIn((str(mod.ROOT)+"\n").encode(),patched)
+        worker_mount=base.replace(
+            b"ReadWritePaths=/var/lib/fresh-website/local-upload-manager -/home/ubuntu/.config/masterctl",
+            ("ReadWritePaths=/var/lib/fresh-website/local-upload-manager -/home/ubuntu/.config/masterctl "+str(mod.ROOT)).encode())
+        self.assertEqual(
+            mod.unit_patch(worker_mount,name="worker",environment=mod.UPLOADER_ENV),
+            worker_mount)
+        with self.assertRaises(RuntimeError):
+            mod.unit_patch(base,name="worker",environment=mod.UPLOADER_ENV)
         self.assertIn(b"ProtectSystem=strict",patched)
         self.assertEqual(mod.unit_patch(patched,name="web",environment=mod.UPLOADER_ENV),patched)
         self.assertNotIn(b"Environment=SHORT_MAKER_COOPERATIVE_LOCK_ENABLED=1",patched)
