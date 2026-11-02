@@ -61,7 +61,8 @@ class SongAudioServiceTests(unittest.TestCase):
                 service.preflight()
 
     def test_generic_installer_cannot_start_song_without_coordinated_cutover(self):
-        from production.runtime import CATALOG, install_app
-        self.assertEqual(CATALOG["song-studio"]["port"], 8152)
+        from production.runtime import CATALOG, SONG_AUDIO_SPEC, install_app
+        self.assertNotIn("song-studio", CATALOG)
+        self.assertEqual(SONG_AUDIO_SPEC["port"], 8152)
         with self.assertRaisesRegex(RuntimeError, "atomic Voice/Scene cutover"):
             install_app("song-studio", SHA)
