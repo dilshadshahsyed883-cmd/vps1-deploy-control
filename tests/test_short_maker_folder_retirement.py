@@ -1,4 +1,4 @@
-"""Isolated transactional Short Folder retirement; no live deletion endpoint."""
+"""Unused-only folder retirement: no profile/index/queue mutation, no live calls."""
 from __future__ import annotations
 
 import hashlib
@@ -13,12 +13,12 @@ from unittest.mock import patch
 
 from fastapi import HTTPException
 
-ROOT = Path(__file__).resolve().parents[1] / "apps/short-maker/part01"
+ROOT=Path(__file__).resolve().parents[1]/"apps/short-maker/part01"
 
 
 def load(name):
-    spec = importlib.util.spec_from_file_location(name, ROOT/(name+".py"))
-    module = importlib.util.module_from_spec(spec)
+    spec=importlib.util.spec_from_file_location(name,ROOT/(name+".py"))
+    module=importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
@@ -26,8 +26,8 @@ def load(name):
 def hash_file(path):
     h=hashlib.sha256()
     with path.open("rb") as source:
-        for part in iter(lambda:source.read(1024*1024),b""):
-            h.update(part)
+        for block in iter(lambda:source.read(1024*1024),b""):
+            h.update(block)
     return h.hexdigest()
 
 
@@ -43,13 +43,12 @@ class RetirementTests(unittest.TestCase):
         self.video=self.target/"Owner Folder 001_ff0000.mp4"
         self.video.write_bytes(b"mp4-source"*1024)
         self.sha=hash_file(self.video)
-        self.stored=self.root/"store"
-        self.profiles=load("short_profiles").ShortProfileStore(self.stored)
+        self.profiles=load("short_profiles").ShortProfileStore(self.root/"store")
         self.profile=self.profiles.create("alice",{
             "name":"Generator","source_import_id":"a"*32,
             "output_folder":"Owner Folder","videos_per_day":1,
-            "schedule_hhmm":"02:15"},
-            lambda who,sid:{"audio_count":1,"image_count":1},lambda name:name)
+            "schedule_hhmm":"02:15"},lambda owner,sid:{
+                "audio_count":1,"image_count":1},lambda name:name)
         with self.profiles._connect() as db:
             db.execute("UPDATE short_profiles SET enabled=1 WHERE id=?",
                        (self.profile["id"],))
@@ -65,203 +64,249 @@ class RetirementTests(unittest.TestCase):
                 CREATE TABLE videos(id INTEGER PRIMARY KEY,status TEXT,
                                     auto_engine_profile_id INTEGER);
                 INSERT INTO auto_engine_profiles VALUES
-                  (7,'Paused Short Profile',1,1,'09:00'),
-                  (8,'Foreign Unchanged',1,1,'10:00');
+                   (7,'Paused Short Profile',0,1,'09:00'),
+                   (8,'Foreign Unchanged',1,1,'10:00');
                 INSERT INTO studio_entity_owners VALUES
-                  ('profile',7,'alice'),('profile',8,'bob');
+                   ('profile',7,'alice'),('profile',8,'bob');
             """)
         with sqlite3.connect(self.engine) as db:
             db.executescript("""
                 CREATE TABLE profile_sources(
-                  profile_id INTEGER PRIMARY KEY,short_folder_name TEXT);
+                   profile_id INTEGER PRIMARY KEY,short_folder_name TEXT);
                 CREATE TABLE job_sources(video_id INTEGER PRIMARY KEY,
-                  profile_id INTEGER,source_folder_id TEXT,filename TEXT,state TEXT);
+                   profile_id INTEGER,source_folder_id TEXT,filename TEXT,state TEXT);
                 CREATE TABLE drive_videos(id INTEGER PRIMARY KEY,
-                  profile_id INTEGER,filename TEXT,source_folder_id TEXT,present INTEGER);
-                INSERT INTO profile_sources VALUES (7,'Owner Folder');
-                INSERT INTO profile_sources VALUES (8,'Another Folder');
+                   profile_id INTEGER,filename TEXT,source_folder_id TEXT,present INTEGER);
+                INSERT INTO profile_sources VALUES (7,'Owner Folder'),(8,'Another Folder');
                 INSERT INTO drive_videos VALUES(
                   300,7,'Owner Folder 001_ff0000.mp4','shortstudio-local:Owner Folder',1);
             """)
         self.jobs=[{
-            "job_id":"a"*16,"owner":"alice","status":"completed",
+            "job_id":"b"*16,"owner":"alice","status":"completed",
             "config":{"short_vps_folder":"Owner Folder"},
-            "outputs":[{
-                "short_vps_folder":"Owner Folder",
-                "short_vps_filename":self.video.name,
-                "short_vps_sha256":self.sha
-            }]
+            "outputs":[{"short_vps_folder":"Owner Folder",
+                        "short_vps_filename":self.video.name,
+                        "short_vps_sha256":self.sha}]
         }]
-        inspector=load("short_folder_dependencies").ShortFolderPreflight(
+        self.inspector=load("short_folder_dependencies").ShortFolderPreflight(
             self.profiles,lambda:self.jobs,self.root/"ready",
             uploader_app_db=str(self.app),uploader_engine_db=str(self.engine))
-        self.inspect=inspector
+        self.worker_module=load("short_folder_retirement")
         self.leases=0
         @contextmanager
-        def lease():
+        def exclusive_lease():
             self.leases+=1
             yield
-        cls=load("short_folder_retirement").ShortFolderRetirement
-        self.worker=cls(root=self.folders,journal_root=self.root/"journals",
-                        profile_store=self.profiles,inspector=inspector,
-                        lease_factory=lease)
-        self.disabled=cls(root=self.folders,journal_root=self.root/"no-lease",
-                          profile_store=self.profiles,inspector=inspector)
+        klass=self.worker_module.ShortFolderRetirement
+        self.worker=klass(root=self.folders,journal_root=self.root/"journals",
+            profile_store=self.profiles,inspector=self.inspector,
+            lease_factory=exclusive_lease)
+        self.disabled=klass(root=self.folders,journal_root=self.root/"no-lease",
+            profile_store=self.profiles,inspector=self.inspector)
 
     def tearDown(self):
         self.temp.cleanup()
 
-    def retire(self):
-        return self.worker.retire(
-            owner="alice",folder_name="Owner Folder",
-            confirmation="Owner Folder",digest=hash_file,
-            preserve_defaults=("Default","My_reserved"))
+    def clean_dependencies(self):
+        # Represents separately approved owner-scoped profile management,
+        # not a side effect of the retirement action.
+        with self.profiles._connect() as db:
+            db.execute("UPDATE short_profiles SET output_folder='' WHERE id=?",
+                       (self.profile["id"],))
+        with sqlite3.connect(self.engine) as db:
+            db.execute("UPDATE profile_sources SET short_folder_name='' WHERE profile_id=7")
+            db.execute("UPDATE drive_videos SET present=0 WHERE id=300")
 
     def state(self):
         with self.profiles._connect() as maker, sqlite3.connect(self.app) as app, \
-                sqlite3.connect(self.engine) as engine:
+             sqlite3.connect(self.engine) as engine:
             return {
                 "maker":maker.execute("SELECT enabled,output_folder,schedule_hhmm FROM short_profiles WHERE id=?",
-                                      (self.profile["id"],)).fetchone(),
+                    (self.profile["id"],)).fetchone(),
                 "app":app.execute("SELECT enabled,schedule_enabled,schedule_times FROM auto_engine_profiles WHERE id=7").fetchone(),
                 "engine":engine.execute("SELECT short_folder_name FROM profile_sources WHERE profile_id=7").fetchone(),
                 "index":engine.execute("SELECT present FROM drive_videos WHERE id=300").fetchone(),
                 "other":app.execute("SELECT enabled FROM auto_engine_profiles WHERE id=8").fetchone(),
             }
 
-    def test_verified_retirement_detaches_only_own_and_preserves_history_schedule(self):
+    def retire(self,confirmation="Owner Folder"):
+        return self.worker.retire(owner="alice",folder_name="Owner Folder",
+            confirmation=confirmation,digest=hash_file,
+            preserve_defaults=("Default","My_reserved"))
+
+    def assert_denied_unchanged(self):
+        before=self.state()
+        with self.assertRaises(HTTPException) as denied:
+            self.retire()
+        self.assertEqual(denied.exception.status_code,409)
+        self.assertTrue(self.video.is_file())
+        self.assertEqual(self.state(),before)
+        self.assertEqual(list((self.root/"journals").glob("*.json")),[])
+
+    def test_profile_links_block_even_when_stopped_and_preserve_all_records(self):
+        self.assert_denied_unchanged()
+        with self.profiles._connect() as db:
+            db.execute("UPDATE short_profiles SET enabled=0 WHERE id=?",(self.profile["id"],))
+        self.assert_denied_unchanged()
+        with self.profiles._connect() as db:
+            db.execute("UPDATE short_profiles SET output_folder='' WHERE id=?",
+                       (self.profile["id"],))
+        # Even disabled/paused Short Uploader profile links block deletion.
+        self.assert_denied_unchanged()
+
+    def test_clean_unused_folder_deletes_only_verified_mp4_and_preserves_dbs(self):
+        self.clean_dependencies()
+        before=self.state()
+        report=self.inspector.inspect(owner="alice",folder_name="Owner Folder",
+                                      folder=self.target)
+        self.assertEqual(report["issues"],[])
         result=self.retire()
         self.assertTrue(result["ok"])
         self.assertEqual(result["videos_deleted"],1)
-        self.assertEqual(result["linked_profiles_detached"],2)
+        self.assertEqual(result["linked_profiles_detached"],0)
+        self.assertFalse(result["profiles_modified"])
+        self.assertTrue(result["history_preserved"])
+        self.assertEqual(self.state(),before)
         self.assertFalse(self.target.exists())
         self.assertEqual(self.leases,1)
         self.assertEqual(list(self.folders.glob(".short-retirement-*")),[])
-        data=self.state()
-        self.assertEqual(data["maker"][0:2],(0,""))
-        self.assertEqual(data["maker"][2],"02:15")
-        self.assertEqual(data["app"],(0,1,"09:00"))
-        self.assertEqual(data["engine"],("",))
-        self.assertEqual(data["index"],(0,))
-        self.assertEqual(data["other"],(1,))
-        self.assertEqual(self.profiles.get("alice",self.profile["id"])["name"],"Generator")
         journals=list((self.root/"journals").glob("*.json"))
         self.assertEqual(len(journals),1)
         self.assertEqual(json.loads(journals[0].read_text())["phase"],"complete")
         self.assertEqual(self.worker.recover(hash_file),[])
 
-    def test_real_action_is_unavailable_without_verified_cooperative_lease(self):
-        with self.assertRaises(HTTPException) as err:
+    def test_missing_verified_exclusive_lease_refuses_even_empty_folder(self):
+        self.clean_dependencies()
+        with self.assertRaises(HTTPException) as denied:
             self.disabled.retire(owner="alice",folder_name="Owner Folder",
-                                 confirmation="Owner Folder",digest=hash_file)
-        self.assertEqual(err.exception.status_code,503)
-        self.assertTrue(self.video.exists())
+                confirmation="Owner Folder",digest=hash_file)
+        self.assertEqual(denied.exception.status_code,503)
+        self.assertTrue(self.video.is_file())
 
-    def test_wrong_confirmation_never_changes_media(self):
-        with self.assertRaises(HTTPException) as err:
+    def test_confirmation_and_default_are_protected(self):
+        self.clean_dependencies()
+        with self.assertRaises(HTTPException) as denied:
+            self.retire(confirmation="Wrong")
+        self.assertEqual(denied.exception.status_code,409)
+        with self.assertRaises(HTTPException) as denied:
             self.worker.retire(owner="alice",folder_name="Owner Folder",
-                               confirmation="Wrong",digest=hash_file)
-        self.assertEqual(err.exception.status_code,409)
-        self.assertTrue(self.video.exists())
+               confirmation="Owner Folder",digest=hash_file,
+               preserve_defaults=("Owner Folder",))
+        self.assertEqual(denied.exception.status_code,403)
+        self.assertTrue(self.video.is_file())
 
-    def test_replaced_mp4_blocks_retirement_and_link_mutation(self):
-        self.video.write_bytes(b"changed"*1200)
-        with self.assertRaises(HTTPException) as err:
-            self.retire()
-        self.assertEqual(err.exception.status_code,409)
-        self.assertTrue(self.target.exists())
-        self.assertEqual(self.state()["maker"][0:2],(1,"Owner Folder"))
-        self.assertEqual(list((self.root/"journals").glob("*.json")),[])
-
-    def test_unfinished_source_claim_never_detached(self):
+    def test_unresolved_or_even_completed_source_claim_blocks(self):
+        self.clean_dependencies()
         with sqlite3.connect(self.engine) as db:
-            db.execute("""INSERT INTO job_sources VALUES(
-               123,7,'shortstudio-local:Owner Folder',
-               'Owner Folder 001_ff0000.mp4','QUEUED')""")
-        with self.assertRaises(HTTPException) as err:
-            self.retire()
-        self.assertEqual(err.exception.status_code,409)
-        self.assertEqual(self.state()["engine"],("Owner Folder",))
-        self.assertTrue(self.video.exists())
+            db.execute("INSERT INTO job_sources VALUES(123,7,?,?,?)",
+                       ("shortstudio-local:Owner Folder",self.video.name,"QUEUED"))
+        self.assert_denied_unchanged()
+        with sqlite3.connect(self.engine) as db:
+            db.execute("UPDATE job_sources SET state='COMPLETE' WHERE video_id=123")
+        # Completely unused means *no* residual claim still referencing MP4.
+        self.assert_denied_unchanged()
 
-    def test_foreign_reference_never_leaked_or_detached(self):
+    def test_indexed_video_without_profile_reference_blocks(self):
+        self.clean_dependencies()
+        with sqlite3.connect(self.engine) as db:
+            db.execute("UPDATE drive_videos SET present=1 WHERE id=300")
+        self.assert_denied_unchanged()
+
+    def test_foreign_or_unassigned_reference_never_exposed_or_mutated(self):
+        self.clean_dependencies()
         with sqlite3.connect(self.engine) as db:
             db.execute("UPDATE profile_sources SET short_folder_name='Owner Folder' WHERE profile_id=8")
-        with self.assertRaises(HTTPException) as err:
+        before=self.state()
+        with self.assertRaises(HTTPException) as denied:
             self.retire()
-        self.assertEqual(err.exception.status_code,409)
-        self.assertNotIn("Foreign Unchanged",str(err.exception.detail))
-        self.assertEqual(self.state()["other"],(1,))
+        self.assertEqual(denied.exception.status_code,409)
+        self.assertNotIn("Foreign Unchanged",str(denied.exception.detail))
+        self.assertEqual(self.state(),before)
         self.assertTrue(self.video.exists())
 
-    def test_partial_database_commit_is_restored_from_journal(self):
-        original=self.worker._commit_all
-        seen=[False]
-        def fail_once(databases):
-            if not seen[0]:
-                seen[0]=True
-                databases[0].commit()
-                raise OSError("Simulated crash after Maker DB commit")
-            return original(databases)
-        with patch.object(self.worker,"_commit_all",side_effect=fail_once):
+    def test_active_maker_job_still_blocks(self):
+        self.clean_dependencies()
+        self.jobs[0]["status"]="running"
+        self.assert_denied_unchanged()
+
+    def test_unverified_or_replaced_mp4_never_removed(self):
+        self.clean_dependencies()
+        self.video.write_bytes(b"modified"*1500)
+        self.assert_denied_unchanged()
+        self.video.write_bytes(b"mp4-source"*1024)
+        (self.target/"UNKNOWN.txt").write_text("preserve")
+        self.assert_denied_unchanged()
+
+    def test_missing_uploader_db_refuses(self):
+        self.clean_dependencies()
+        self.inspector.uploader_engine_db=""
+        self.assert_denied_unchanged()
+
+    def test_interrupted_quarantine_restores_original_without_any_db_write(self):
+        self.clean_dependencies()
+        before=self.state()
+        original_sync=self.worker_module._sync_json
+        first=[True]
+        def break_during_quarantine(path,payload):
+            if payload.get("phase")=="quarantined" and first[0]:
+                first[0]=False
+                raise OSError("Simulated crash before durable commit")
+            return original_sync(path,payload)
+        with patch.object(self.worker_module,"_sync_json",side_effect=break_during_quarantine):
             with self.assertRaises(OSError):
                 self.retire()
         self.assertTrue(self.video.exists())
-        self.assertEqual(self.state()["maker"][0:2],(1,"Owner Folder"))
-        self.assertEqual(self.state()["engine"],("Owner Folder",))
-        self.assertEqual(self.state()["app"],(1,1,"09:00"))
-        journals=list((self.root/"journals").glob("*.json"))
-        self.assertEqual(len(journals),1)
-        self.assertEqual(json.loads(journals[0].read_text())["phase"],"recovered")
+        self.assertEqual(self.state(),before)
+        journal=list((self.root/"journals").glob("*.json"))
+        self.assertEqual(len(journal),1)
+        self.assertEqual(json.loads(journal[0].read_text())["phase"],"recovered")
 
     def test_committed_partial_cleanup_recovery_is_idempotent(self):
         self.worker.journal_root.mkdir()
-        filename="f"*32
-        name=".short-retirement-"+filename
+        identifier="f"*32
+        name=".short-retirement-"+identifier
         hidden=self.folders/name
         self.target.rename(hidden)
-        # Simulate a crash after first MP4 unlink.
         (hidden/self.video.name).unlink()
-        journal={"id":filename,"phase":"committed","folder":"Owner Folder",
+        journal={"id":identifier,"phase":"committed","folder":"Owner Folder",
                  "owner":"alice","quarantine":name,
-                 "media":{self.video.name:self.sha},"snapshots":{
-                   "maker_profiles":[],"uploader_profiles":[],
-                   "uploader_sources":[],"indexed":[]}}
-        j=self.worker.journal_root/(filename+".json")
+                 "media":{self.video.name:self.sha}}
+        j=self.worker.journal_root/(identifier+".json")
         j.write_text(json.dumps(journal))
-        result=self.worker.recover(hash_file)
-        self.assertEqual(result,[{"id":filename,"phase":"complete"}])
+        original=self.state()
+        self.assertEqual(self.worker.recover(hash_file),
+                         [{"id":identifier,"phase":"complete"}])
         self.assertFalse(hidden.exists())
+        self.assertEqual(self.state(),original)
         self.assertEqual(self.worker.recover(hash_file),[])
 
-    def test_uncommitted_quarantine_is_recovered_without_media_loss(self):
+    def test_incomplete_quarantine_recovery_restores_media_without_db_writes(self):
+        self.worker.journal_root.mkdir()
+        identifier="e"*32
+        name=".short-retirement-"+identifier
+        self.target.rename(self.folders/name)
+        journal={"id":identifier,"phase":"quarantined","folder":"Owner Folder",
+                 "owner":"alice","quarantine":name,
+                 "media":{self.video.name:self.sha}}
+        (self.worker.journal_root/(identifier+".json")).write_text(json.dumps(journal))
+        before=self.state()
+        self.assertEqual(self.worker.recover(hash_file),
+                         [{"id":identifier,"phase":"recovered"}])
+        self.assertTrue(self.video.exists())
+        self.assertEqual(self.state(),before)
+
+    def test_malicious_journal_path_traversal_is_rejected(self):
+        self.clean_dependencies()
         self.worker.journal_root.mkdir()
         filename="e"*32
-        name=".short-retirement-"+filename
-        self.target.rename(self.folders/name)
-        originals={"maker_profiles":[{
-            "id":self.profile["id"],"owner":"alice","enabled":1,
-            "output_folder":"Owner Folder"}],
-            "uploader_profiles":[{"id":7,"enabled":1}],
-            "uploader_sources":[{"profile_id":7,"short_folder_name":"Owner Folder"}],
-            "indexed":[{"id":300,"present":1}]}
-        with self.profiles._connect() as maker, sqlite3.connect(self.app) as app, \
-                sqlite3.connect(self.engine) as engine:
-            maker.execute("UPDATE short_profiles SET output_folder='',enabled=0")
-            app.execute("UPDATE auto_engine_profiles SET enabled=0 WHERE id=7")
-            engine.execute("UPDATE profile_sources SET short_folder_name='' WHERE profile_id=7")
-            engine.execute("UPDATE drive_videos SET present=0 WHERE id=300")
-        j=self.worker.journal_root/(filename+".json")
-        j.write_text(json.dumps({
-            "id":filename,"phase":"quarantined","owner":"alice",
-            "folder":"Owner Folder","quarantine":name,
-            "media":{self.video.name:self.sha},"snapshots":originals}))
-        result=self.worker.recover(hash_file)
-        self.assertEqual(result,[{"id":filename,"phase":"recovered"}])
+        journal={"id":filename,"phase":"quarantined",
+                 "folder":"../outside","owner":"alice",
+                 "quarantine":".short-retirement-"+filename,"media":{}}
+        (self.worker.journal_root/(filename+".json")).write_text(json.dumps(journal))
+        with self.assertRaises(HTTPException) as denied:
+            self.retire()
+        self.assertEqual(denied.exception.status_code,409)
         self.assertTrue(self.video.exists())
-        self.assertEqual(self.state()["maker"][0:2],(1,"Owner Folder"))
-        self.assertEqual(self.state()["engine"],("Owner Folder",))
-        self.assertEqual(self.state()["app"],(1,1,"09:00"))
 
 
 if __name__=="__main__":
