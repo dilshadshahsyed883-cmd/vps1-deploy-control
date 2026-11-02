@@ -341,6 +341,8 @@ def init_storage() -> None:
             "queue_paused": "INTEGER NOT NULL DEFAULT 0",
             "queue_order_at": "TEXT NOT NULL DEFAULT ''",
             "owner_username": "TEXT NOT NULL DEFAULT ''",
+            # Zero for historical jobs even after independent owner attribution.
+            "auto_owner_scoped": "INTEGER NOT NULL DEFAULT 0",
         }
         for name, ddl in migrations.items():
             if name not in job_cols:
@@ -1612,12 +1614,12 @@ def _insert_job(
 ) -> sqlite3.Row:
     con.execute(
         "INSERT INTO jobs(job_id,profile_id,text,language,status,created_at,engine,preset,speed,settings_json,"
-        "batch_id,batch_name,title,source_filename,output_basename,category,drive_folder,text_file,delivery_status,owner_username) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'waiting_generation',?)",
+        "batch_id,batch_name,title,source_filename,output_basename,category,drive_folder,text_file,delivery_status,owner_username,auto_owner_scoped) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'waiting_generation',?,?)",
         (
             job_id, profile_id, text, language, "waiting_worker", utc_now(), engine, preset, float(speed),
             json.dumps(settings, separators=(",", ":"), sort_keys=True), batch_id, batch_name, title, source_filename,
-            output_basename, category, drive_folder, text_file, owner(),
+            output_basename, category, drive_folder, text_file, owner(), int(not drive_folder),
         )
     )
     return con.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,)).fetchone()
