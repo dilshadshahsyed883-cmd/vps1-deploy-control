@@ -53,6 +53,18 @@ class AudioPreferencesTests(unittest.TestCase):
         result.update(changes)
         return result
 
+    def test_request_owner_cannot_be_overridden_by_browser_headers(self):
+        from types import SimpleNamespace
+        request = SimpleNamespace(
+            state=SimpleNamespace(scene_owner="owner-a", scene_admin=False),
+            headers={"x-auth-user": "owner-b", "x-is-admin": "1"},
+        )
+        self.assertEqual(self.m._preferences_owner(request), "owner-a")
+        self.assertEqual(self.m.audio_identity(request), ("owner-a", False))
+        with self.assertRaises(Exception) as blocked:
+            self.m.audio_admin(request)
+        self.assertEqual(getattr(blocked.exception, "status_code", None), 403)
+
     def test_saved_options_survive_new_db_connections_and_do_not_change_from_status(self):
         initial = self.client.get("/tts/api/audio-downloader/preferences", headers=self.owner_a)
         self.assertEqual(initial.status_code, 200)
