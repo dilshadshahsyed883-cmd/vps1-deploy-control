@@ -1,4 +1,5 @@
 """Guarded opt-in Short Maker cross-process lease; NEVER a production approval."""
+import asyncio
 import importlib.util
 import multiprocessing
 import os
@@ -83,6 +84,44 @@ class CooperationTests(unittest.TestCase):
         with self.assertRaises(OSError):
             with lease.producer(): pass
         self.assertEqual(victim.read_text(),"protected")
+
+    def test_async_http_lease_wait_allows_other_event_loop_work(self):
+        lease=self.Lease(self.root,enabled=True,timeout_seconds=0.15)
+        async def exercise():
+            ticks=[]
+            async def heartbeat():
+                for _ in range(7):
+                    await asyncio.sleep(0.02)
+                    ticks.append(1)
+            async def blocked_write():
+                async with lease.producer_async():
+                    raise AssertionError("Must not enter during retirement")
+            with lease.retire():
+                task=asyncio.create_task(heartbeat())
+                with self.assertRaises(HTTPException) as error:
+                    await blocked_write()
+                self.assertEqual(error.exception.status_code,503)
+                await task
+            self.assertGreaterEqual(len(ticks),4)
+        asyncio.run(exercise())
+        with lease.retire():
+            pass
+
+    def test_async_cancelled_producer_does_not_leak_lock(self):
+        lease=self.Lease(self.root,enabled=True,timeout_seconds=0.4)
+        async def exercise():
+            async def acquire():
+                async with lease.producer_async():
+                    raise AssertionError("Cancelled request acquired busy lock")
+            with lease.retire():
+                task=asyncio.create_task(acquire())
+                await asyncio.sleep(0.035)
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+            with lease.retire():
+                pass
+        asyncio.run(exercise())
 
     def test_no_cooperation_when_root_is_missing_or_symlinked(self):
         victim=Path(self.temp.name)/"other-root"
