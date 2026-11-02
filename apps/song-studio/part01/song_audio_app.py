@@ -54,6 +54,11 @@ def song_audio_startup():
         raise RuntimeError("Song Audio canonical data root missing or unsafe")
     if root != audio.ROOT:
         raise RuntimeError("Song Audio data root changed after module import")
+    if root.exists() and root.resolve(strict=True) != root:
+        raise RuntimeError("Song Audio data root contains linked directories")
+    if os.environ.get("FRESH_WEBSITE_SMOKE_TEST") != "1":
+        if not root.is_dir() or not (root / "data/jobs.sqlite3").is_file():
+            raise RuntimeError("Existing Song Audio queue is missing; refusing empty replacement")
     if os.environ.get("FRESH_WEBSITE_SMOKE_TEST") == "1":
         audio.init_storage()
     else:
@@ -73,4 +78,7 @@ def downloader_page(request: Request):
 @app.get("/healthz")
 def health():
     # Anonymous health intentionally exposes no queues, identities or media.
-    return {"ok": True, "app": "song-audio-downloader"}
+    smoke = os.environ.get("FRESH_WEBSITE_SMOKE_TEST") == "1"
+    worker_running = bool(audio._worker is not None and audio._worker.is_alive())
+    return {"ok": smoke or worker_running, "app": "song-audio-downloader",
+            "worker_active": worker_running, "smoke": smoke}
