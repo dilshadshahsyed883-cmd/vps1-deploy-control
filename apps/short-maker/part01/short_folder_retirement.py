@@ -309,7 +309,7 @@ class ShortFolderRetirement:
                 for db in databases:
                     db.execute("BEGIN IMMEDIATE")
                 report = self.inspector.inspect(
-                    owner=owner, folder_name=folder, folder=folder, include_private=True)
+                    owner=owner, folder_name=folder_name, folder=folder, include_private=True)
                 unexpected = set(report["issues"]) - ALLOWED_DETACH_ISSUES
                 if unexpected or not report["uploader_dependency_verified"]:
                     raise HTTPException(409, detail="Outstanding folder or uploader dependencies")
