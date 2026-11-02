@@ -64,8 +64,11 @@ class ShortProfileDailyClock:
 
     def start_profile(self, owner, profile_id):
         # Invoked only through the feature-gated, authenticated Start route.
-        self.store.enable(owner, profile_id)
-        return self._dispatch(owner, profile_id, self.now(), explicit=True)
+        # Keep enable + first daily claim under one lease; otherwise an
+        # exclusive retirement could detach the folder between these steps.
+        with self.operation_guard():
+            self.store.enable(owner, profile_id)
+            return self._dispatch(owner, profile_id, self.now(), explicit=True)
 
     def tick(self, when=None):
         moment = when or self.now()
