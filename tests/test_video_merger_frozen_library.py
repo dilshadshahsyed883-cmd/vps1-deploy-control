@@ -170,6 +170,8 @@ class FrozenLibraryTests(unittest.TestCase):
         self.assertIn("libraryUploadDrive.checked=false",html)
         self.assertIn("upload_to_drive:libraryUploadDrive.checked",html)
         self.assertIn("libraryPreviewPlayer",html)
+        self.assertIn("library-drive-working",html)
+        self.assertIn("Uploading optional Google Drive copy",html)
         self.assertIn("/api/library/",html)
         self.assertIn("x.in_use",html)
 
