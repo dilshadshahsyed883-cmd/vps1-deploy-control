@@ -247,6 +247,7 @@ def inspect_active_drain(unit_dir=Path("/etc/systemd/system")):
         "active_upload_drain_verified": False,
         "production_activation_ready": False,
         "status": "BLOCKED",
+        "blocked_at": "UNKNOWN",  # Fixed vocabulary; no private paths or owners
     }
     try:
         values = _read_explicit_environment(
@@ -255,44 +256,55 @@ def inspect_active_drain(unit_dir=Path("/etc/systemd/system")):
         for key in DRAIN_PATH_KEYS:
             value = values.get(key, "")
             if not value:
+                result["blocked_at"] = "DRAIN_PATH_NOT_CONFIGURED"
                 return result
             candidate = Path(value)
             if not candidate.is_absolute() or candidate.is_symlink():
+                result["blocked_at"] = "DRAIN_PATH_UNSAFE"
                 return result
             paths.append(candidate)
         maker, app_db, engine_db = paths
         if not maker.is_dir() or maker.is_symlink():
+            result["blocked_at"] = "MAKER_ROOT_UNAVAILABLE"
             return result
         jobs = maker / "jobs"
         if not jobs.is_dir() or jobs.is_symlink():
+            result["blocked_at"] = "MAKER_JOBS_DIRECTORY_UNAVAILABLE"
             return result
         terminal_maker = {"completed", "cancelled", "failed"}
         for directory in jobs.iterdir():
             if directory.is_symlink() or not directory.is_dir():
+                result["blocked_at"] = "MAKER_JOB_ENTRY_UNSAFE"
                 return result
             state = directory / "state.json"
             if state.is_symlink() or not state.is_file():
+                result["blocked_at"] = "MAKER_JOB_STATE_MISSING"
                 return result
             payload = json.loads(state.read_text(encoding="utf-8"))
             if not isinstance(payload, dict) or str(
                     payload.get("status", "")).lower() not in terminal_maker:
+                result["blocked_at"] = "MAKER_JOB_NOT_TERMINAL"
                 return result
         result["maker_jobs_idle"] = True
 
         imports = maker / "ready_video_uploads"
         if imports.is_symlink() or (imports.exists() and not imports.is_dir()):
+            result["blocked_at"] = "READY_IMPORT_DIRECTORY_UNSAFE"
             return result
         if imports.is_dir():
             for directory in imports.iterdir():
                 if directory.is_symlink() or not directory.is_dir():
+                    result["blocked_at"] = "READY_IMPORT_ENTRY_UNSAFE"
                     return result
                 manifest = directory / "manifest.json"
                 if manifest.is_symlink() or not manifest.is_file():
+                    result["blocked_at"] = "READY_IMPORT_MANIFEST_MISSING"
                     return result
                 payload = json.loads(manifest.read_text(encoding="utf-8"))
                 if not isinstance(payload, dict) or str(
                         payload.get("status", "")).lower() not in {
                             "completed", "cancelled", "failed"}:
+                    result["blocked_at"] = "READY_IMPORT_NOT_TERMINAL"
                     return result
         result["ready_imports_idle"] = True
 
@@ -313,22 +325,27 @@ def inspect_active_drain(unit_dir=Path("/etc/systemd/system")):
                     tuple(safe_states)).fetchone()
                 return row is not None and row[0] == 0
 
+        result["blocked_at"] = "UPLOADER_APP_DB_UNAVAILABLE"
         result["uploader_jobs_idle"] = query_idle(
             app_db, "videos", "status",
             ("COMPLETE", "COMPLETED", "UPLOADED", "CANCELLED",
              "SKIPPED", "FAILED"))
         if not result["uploader_jobs_idle"]:
+            result["blocked_at"] = "UPLOADER_JOB_NOT_TERMINAL"
             return result
+        result["blocked_at"] = "UPLOADER_CLAIM_DB_UNAVAILABLE"
         result["uploader_source_claims_idle"] = query_idle(
             engine_db, "job_sources", "state", ("COMPLETE", "CANCELLED"))
         if not result["uploader_source_claims_idle"]:
+            result["blocked_at"] = "UPLOADER_CLAIM_NOT_TERMINAL"
             return result
         result["active_upload_drain_snapshot_verified"] = True
         result["status"] = "SNAPSHOT_NO_ACTIVE_UPLOADS"
+        result["blocked_at"] = "NONE"
     except (OSError, ValueError, TypeError, json.JSONDecodeError,
             sqlite3.Error, UnicodeError):
         # No credentials, filenames, owners, DB paths or error text in report.
-        pass
+        result["blocked_at"] = "INSPECTION_UNREADABLE"
     return result
 
 
