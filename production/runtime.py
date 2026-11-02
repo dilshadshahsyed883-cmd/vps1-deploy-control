@@ -44,10 +44,6 @@ CATALOG = {
     'self-media-library': dict(port=8147, module='app:app', health='/api/health', ui='/', packages=CORE + ['numpy==2.2.6', 'opencv-python-headless==4.11.0.86', 'onnxruntime==1.22.1', 'tokenizers==0.21.2', 'faster-whisper==1.1.1', 'yt-dlp[default]==2026.8.19']),
     'video-merger': dict(port=8148, script='app.py', health='/video-merger/health',
                          ui='/video-merger/', packages=['yt-dlp[default]', 'gdown==5.2.0', 'requests==2.32.3']),
-    # Dedicated Song Audio worker is NOT part of the legacy 10-app auto-deploy set.
-    # It is never started by the generic app installer before guarded cutover.
-    'song-studio': dict(port=8152, module='song_audio_app:app', health='/healthz',
-                        ui='/audio-downloader/app', packages=CORE + ['yt-dlp[default]==2026.8.19']),
     'voice-studio': dict(port=8143, module='vps1_omnivoice_app:app', health='/healthz',
                          ui='/', packages=CORE + ['edge-tts==7.3.1', 'kokoro-onnx==0.6.0', 'soundfile', 'numpy', 'yt-dlp']),
     'auto-caption-studio': dict(port=8144, module='web_backend.app:app', health='/health',
@@ -59,6 +55,12 @@ CATALOG = {
                                health='/copyright-uploader/health', ui='/copyright-uploader/app?tab=add_video',
                                requirements='part01/requirements.txt'),
 }
+
+
+# Deliberately outside the legacy CATALOG: Scene session/gateway app contracts
+# remain exact, while Song has its own guarded independent release lane.
+SONG_AUDIO_SPEC = dict(port=8152, module='song_audio_app:app', health='/healthz',
+                       ui='/audio-downloader/app', packages=CORE + ['yt-dlp[default]==2026.8.19'])
 
 
 def runtime_name(app):
