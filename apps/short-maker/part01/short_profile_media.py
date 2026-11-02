@@ -243,7 +243,9 @@ def register_short_profile_media_uploads(app, data_root, short_identity):
                 f["kind"] == "picture" for f in clean):
             raise HTTPException(400, detail="Import must contain voice audio and pictures")
         total = sum(f["size"] for f in clean)
-        if total > max(0, shutil.disk_usage(sessions).free - DISK_RESERVE_BYTES):
+        # Staged bytes remain until all verified outputs are durably published;
+        # reserve peak staging + published data, not just the upload size.
+        if total * 2 > max(0, shutil.disk_usage(sessions).free - DISK_RESERVE_BYTES):
             raise HTTPException(507, detail="Insufficient space for source import")
         request_id = str(data.get("client_request_id") or "")
         if request_id and not re.fullmatch(r"[0-9a-f-]{36}", request_id):
