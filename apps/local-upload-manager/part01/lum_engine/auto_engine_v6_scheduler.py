@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import signal
 import time
 from datetime import datetime
@@ -9,7 +10,13 @@ from desktop_core.modules.database import Database
 from desktop_core.modules.path_utils import DB_PATH as PC_DB_PATH
 
 from .auto_engine_v6 import V6Store, generate_queue, parse_schedule_times, target_channels, channel_profile_scheduler_tick
-from .uploader_shortstudio_cooperation import uploader_shortstudio_guard
+# Shared Song/legacy worker code must not depend on a Short-only helper.
+# Only the independent Short Uploader instance participates.
+if os.environ.get("LUM_ENGINE_INSTANCE") == "shortstudio":
+    from .uploader_shortstudio_cooperation import uploader_shortstudio_guard
+else:
+    from contextlib import nullcontext
+    uploader_shortstudio_guard = nullcontext
 
 STOP=False
 GRACE_MINUTES=6  # Preserve existing Song and legacy scheduler behavior.
