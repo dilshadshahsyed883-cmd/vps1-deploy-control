@@ -250,10 +250,23 @@ class ShortFolderRetirement:
         if quarantine.is_symlink():
             raise HTTPException(409, detail="Retirement quarantine symlink is forbidden")
         if quarantine.is_dir():
-            self._verify_entries(quarantine, journal["owner"], journal["media"], digest)
+            # Crash-safe idempotent cleanup: previously removed MP4s stay
+            # absent, while every remaining file must match its old receipt.
+            marker = quarantine / ".studio_owner"
+            if (marker.is_symlink() or not marker.is_file()
+                    or marker.read_text(encoding="utf-8").strip().casefold()
+                    != journal["owner"]):
+                raise HTTPException(409, detail="Retirement quarantine owner mismatch")
+            for entry in quarantine.iterdir():
+                if entry.name == ".studio_owner":
+                    continue
+                if (entry.name not in journal["media"] or
+                        entry.is_symlink() or not entry.is_file() or
+                        digest(entry) != journal["media"][entry.name]):
+                    raise HTTPException(409, detail="Retirement media verification changed")
             for filename in sorted(journal["media"]):
-                (quarantine / filename).unlink()
-            (quarantine / ".studio_owner").unlink()
+                (quarantine / filename).unlink(missing_ok=True)
+            marker.unlink()
             quarantine.rmdir()
         journal["phase"] = "complete"
 
