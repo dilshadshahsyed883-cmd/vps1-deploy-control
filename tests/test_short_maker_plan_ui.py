@@ -40,6 +40,14 @@ class ShortMakerLockedPlanUITests(unittest.TestCase):
         self.assertIn("fetch('api/vps-folders'", self.html)
         self.assertIn('await loadOwnerFolderNames()', self.html)
 
+    def test_folder_selection_and_create_are_explicit_and_race_free(self):
+        # Empty selection must remain empty rather than auto-claiming first folder.
+        self.assertIn("placeholder.value=''", self.html)
+        self.assertIn("element.appendChild(placeholder)", self.html)
+        self.assertIn("await document.getElementById('createShortFolder').onclick()", self.html)
+        self.assertIn("created!==prior", self.html)
+        self.assertIn("destination.dispatchEvent(new Event('change'))", self.html)
+
     def test_editable_profile_name_suggestion_cases(self):
         if not shutil.which("node"):
             self.skipTest("Node.js required for the extracted browser function test")
