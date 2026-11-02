@@ -90,8 +90,25 @@ def _atomic_env(path: Path, content: bytes) -> None:
 
 def _clone_overlay(previous: Path, target: Path, changes: dict[str, bytes],
                    manifest_name: str, app_name: str, revision: str) -> None:
-    if target.exists() or target.is_symlink():
-        raise RuntimeError("Immutable target already exists; refusing overwrite")
+    if target.is_symlink():
+        raise RuntimeError("Immutable target is unexpectedly linked")
+    if target.exists():
+        manifest_file = target / manifest_name
+        if manifest_file.is_symlink() or not manifest_file.is_file():
+            raise RuntimeError("Immutable target exists without owned manifest")
+        recorded = json.loads(manifest_file.read_text())
+        if (recorded.get("app") != app_name or
+                recorded.get("revision") != revision or
+                recorded.get("song_audio_separation_overlay") != str(previous)):
+            raise RuntimeError("Immutable target belongs to different release")
+        for name, data in changes.items():
+            path = target / name
+            digest = hashlib.sha256(data).hexdigest()
+            if (path.is_symlink() or not path.is_file() or
+                    recorded.get("files", {}).get(name) != digest or
+                    hashlib.sha256(path.read_bytes()).hexdigest() != digest):
+                raise RuntimeError("Immutable staged overlay drift")
+        return
     # Require every edited file to be owned by the currently active release.
     for name in changes:
         old = previous / name
@@ -180,22 +197,35 @@ def _song_environment(root: Path, revision: str, voice_payload: bytes) -> bytes:
 def _stage_song(revision: str) -> Path:
     from rebuild.fresh_vps import sources
     release = SONG_RELEASES / revision
-    if release.exists() or release.is_symlink():
-        raise RuntimeError("Song Audio immutable release already exists")
+    if release.is_symlink():
+        raise RuntimeError("Song Audio immutable release symlink denied")
     files = sources("song-studio")
     required = {"part01/song_audio_app.py", "part01/song_audio_downloader_api.py",
                 "part01/song_tenant.py", "part01/templates/voice_studio.html"}
     if not required <= {name for name, _ in files}:
         raise RuntimeError("Song Audio source manifest incomplete")
+    manifest = {"app": "song-studio", "revision": revision,
+                "files": {name: hashlib.sha256(content).hexdigest()
+                          for name, content in files}}
+    if release.exists():
+        stored = release / "_production_manifest.json"
+        if stored.is_symlink() or not stored.is_file():
+            raise RuntimeError("Existing Song Audio release is unowned")
+        if json.loads(stored.read_text()) != manifest:
+            raise RuntimeError("Existing Song Audio manifest mismatch")
+        for name, data in files:
+            path = release / name
+            if (path.is_symlink() or not path.is_file() or
+                    hashlib.sha256(path.read_bytes()).hexdigest() !=
+                    hashlib.sha256(data).hexdigest()):
+                raise RuntimeError("Existing Song Audio source drift")
+        return release
     release.mkdir(parents=True, mode=0o755)
     for name, content in files:
         path = release / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
         path.chmod(0o644)
-    manifest = {"app": "song-studio", "revision": revision,
-                "files": {name: hashlib.sha256(content).hexdigest()
-                          for name, content in files}}
     runtime.atomic_json(release / "_production_manifest.json", manifest, 0o644)
     return release
 
@@ -203,7 +233,14 @@ def _stage_song(revision: str) -> Path:
 def _prepare_runtime(revision: str) -> None:
     venv = BASE / "venvs/song-studio" / revision
     if (venv / "bin/python").is_file():
-        raise RuntimeError("Song Audio venv unexpectedly pre-exists")
+        # A failed pre-cutover attempt may have staged a complete venv.
+        # Revalidate by running the same disposable real startup smoke.
+        runtime.run(["runuser", "-u", "ubuntu", "--", venv / "bin/python",
+                     "-m", "production.smoke", "--app", "song-studio"], cwd=REPO,
+                    timeout=180, quiet=True)
+        return
+    if venv.exists() or venv.is_symlink():
+        raise RuntimeError("Song Audio partial or unowned venv exists")
     venv.parent.mkdir(parents=True, exist_ok=True)
     venv.mkdir(mode=0o755)
     os.chown(venv, 1000, 1000)
