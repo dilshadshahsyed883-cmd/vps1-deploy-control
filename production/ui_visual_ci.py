@@ -122,8 +122,13 @@ def verify_actual_short_maker_identity(browser, shell_js: str, shell_css: str,
                 url = route.request.url
                 if url.split("?", 1)[0] == origin + "/short-maker/":
                     route.fulfill(status=200, content_type="text/html", body=html)
-                elif url.split("?", 1)[0] == origin + "/short-maker/resumable_client.js":
-                    script = (ROOT / "apps/short-maker/part01/resumable_client.js").read_text(encoding="utf-8")
+                elif url.split("?", 1)[0] in (
+                    origin + "/short-maker/resumable_client.js",
+                    origin + "/short-maker/ready_video_client.js",
+                ):
+                    # Match the production Short Maker JS assets, not the API JSON fallback.
+                    filename = url.split("?", 1)[0].rsplit("/", 1)[-1]
+                    script = (ROOT / "apps/short-maker/part01" / filename).read_text(encoding="utf-8")
                     route.fulfill(status=200, content_type="application/javascript", body=script)
                 elif "/static/vps1_native_site_shell.js" in url:
                     route.fulfill(status=200, content_type="application/javascript",
