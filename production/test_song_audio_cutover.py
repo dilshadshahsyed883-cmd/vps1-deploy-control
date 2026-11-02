@@ -138,7 +138,11 @@ class SongAudioCutoverTests(unittest.TestCase):
             self.assertEqual((previous / "part01/app.py").read_bytes(), b"original")
             self.assertEqual((target / "part01/app.py").read_bytes(), b"updated")
             self.assertEqual((target / "part01/other.py").read_bytes(), b"preserve")
-            with self.assertRaisesRegex(RuntimeError, "already exists"):
+            # An identical staging retry is safe; unreviewed drift is blocked.
+            cutover._clone_overlay(previous, target, {"part01/app.py": b"updated"},
+                                   "_scene_candidate_manifest.json", "scene-builder", "a" * 40)
+            (target / "part01/app.py").write_bytes(b"corrupt")
+            with self.assertRaisesRegex(RuntimeError, "drift"):
                 cutover._clone_overlay(previous, target, {"part01/app.py": b"updated"},
                                        "_scene_candidate_manifest.json", "scene-builder", "a" * 40)
 
