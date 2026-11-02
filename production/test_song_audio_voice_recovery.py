@@ -139,6 +139,38 @@ class VoiceRecoveryTests(unittest.TestCase):
                 recovery.recover("a" * 40)
             link.assert_not_called()
 
+    def test_already_healthy_requires_real_public_sso_not_a_silent_pass(self):
+        state = original_state()
+        state["voice_health"] = "HTTP_200_OK"
+        state["voice_unit"]["active"] = "active"
+        with patch.object(recovery.runtime, "check_host"), \
+             patch.object(recovery.runtime, "run",
+                          return_value="[vps1-song-audio-voice-recovery]"), \
+             patch.object(recovery, "_require_safe_live_state",
+                          return_value=state), \
+             patch.object(recovery, "_public_acceptance",
+                          side_effect=RuntimeError("Scene SSO failed")) as public, \
+             patch.object(recovery.runtime, "atomic_link") as link:
+            with self.assertRaisesRegex(RuntimeError, "Scene SSO failed"):
+                recovery.recover("a" * 40)
+            public.assert_called_once_with()
+            link.assert_not_called()
+        with patch.object(recovery.runtime, "check_host"), \
+             patch.object(recovery.runtime, "run",
+                          return_value="[vps1-song-audio-voice-recovery]"), \
+             patch.object(recovery, "_require_safe_live_state",
+                          return_value=state), \
+             patch.object(recovery, "_public_acceptance",
+                          return_value={"voice_scene_sso": "PASS"}), \
+             patch.object(recovery.runtime, "event") as event, \
+             patch.object(recovery.runtime, "atomic_link") as link:
+            recovery.recover("a" * 40)
+            self.assertEqual(event.call_args.kwargs["voice_recovery"],
+                             "PASS_ALREADY_HEALTHY")
+            self.assertEqual(event.call_args.kwargs["acceptance"]["voice_scene_sso"],
+                             "PASS")
+            link.assert_not_called()
+
     def test_unit_ownership_rejects_incorrect_workdir_before_any_restart(self):
         with tempfile.TemporaryDirectory() as tmp:
             unit = Path(tmp) / "voice.service"
