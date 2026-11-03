@@ -193,7 +193,7 @@ test("Experiment Studio second-level tabs stay hidden for nonadmins and appear f
   assert.ok(tabs);
   assert.equal(tabs.hidden, true, "non-admin Experiment navigation must be hidden");
   assert.deepEqual(tabs.children.map(e=>e.textContent),["Antidetect Browser","Self Media Library","Auto Script","Video Studio","Upload Studio","Cloud Render"]);
-  assert.deepEqual(tabs.children.map(e=>e.href),["/experiment-studio/antidetect-browser/","/self-media-library/","/experiment-studio/auto-script/","/scene-builder/","/local-upload-manager/app?embedded=1&tab=dashboard"]);
+  assert.deepEqual(tabs.children.map(e=>e.href),["/experiment-studio/antidetect-browser/","/self-media-library/","/experiment-studio/auto-script/","/scene-builder/","/local-upload-manager/app?embedded=1&tab=dashboard","/cloud-render/"]);
   assert.equal(tabs.children.filter(e=>e.attrs["aria-current"]==="page").length,1);
   assert.equal(h.links().filter(e=>e.href==="/admin").length,0);
   await h.update({authenticated:true,is_admin:true,username:"owner"});
