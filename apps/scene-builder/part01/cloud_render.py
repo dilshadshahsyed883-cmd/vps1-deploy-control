@@ -17,6 +17,7 @@ import sqlite3
 import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -100,10 +101,18 @@ class CloudRender:
         for job in pending:
             self.pool.submit(self._upload, job)
 
+    @contextmanager
     def connection(self):
         con = sqlite3.connect(self.path, timeout=30)
         con.row_factory = sqlite3.Row
-        return con
+        try:
+            yield con
+            con.commit()
+        except BaseException:
+            con.rollback()
+            raise
+        finally:
+            con.close()
 
     def get(self, con, key):
         row = con.execute("SELECT val FROM config WHERE key=?", (key,)).fetchone()
