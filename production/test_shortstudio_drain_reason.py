@@ -1,5 +1,6 @@
 """Reason-coded, secret-free read-only Short Studio drain evidence."""
 import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -86,6 +87,46 @@ class ReadonlyBlockedReasonTests(unittest.TestCase):
             self.assertEqual(linked["blocked_at"], "MAKER_JOB_ENTRY_UNSAFE")
             self.assertFalse(linked["maker_jobs_idle"])
 
+    def test_published_is_terminal_and_pending_state_output_is_sanitized(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            units = root / "units"
+            units.mkdir()
+            maker = root / "maker"
+            (maker / "jobs").mkdir(parents=True)
+            app = root / "app.sqlite"
+            engine = root / "engine.sqlite"
+            with sqlite3.connect(app) as db:
+                db.execute("CREATE TABLE videos (status TEXT NOT NULL)")
+                db.execute("INSERT INTO videos VALUES ('PUBLISHED')")
+            with sqlite3.connect(engine) as db:
+                db.execute("CREATE TABLE job_sources (state TEXT NOT NULL)")
+            env = root / "private.env"
+            env.write_text(
+                "SHORT_MAKER_DATA=" + str(maker) + "\n"
+                "SHORT_UPLOADER_APP_DB=" + str(app) + "\n"
+                "SHORT_UPLOADER_ENGINE_DB=" + str(engine) + "\n"
+            )
+            (units / SERVICES["maker"]).write_text(
+                "[Service]\nEnvironmentFile=" + str(env) + "\n"
+            )
+            finished = inspect_active_drain(units)
+            self.assertTrue(finished["uploader_jobs_idle"])
+            self.assertEqual(finished["blocked_at"], "NONE")
+            self.assertEqual(finished["uploader_job_nonterminal_categories"], [])
+            self.assertFalse(finished["active_upload_drain_verified"])
+            with sqlite3.connect(app) as db:
+                db.execute("INSERT INTO videos VALUES ('QUEUED')")
+                db.execute("INSERT INTO videos VALUES ('OWNER_PRIVATE_UNKNOWN_STATE')")
+                db.execute("INSERT INTO videos VALUES ('WAITING_NETWORK')")
+            blocked = inspect_active_drain(units)
+            self.assertEqual(blocked["blocked_at"], "UPLOADER_JOB_NOT_TERMINAL")
+            self.assertEqual(blocked["uploader_job_nonterminal_categories"],
+                             ["QUEUED", "UNKNOWN", "WAITING_NETWORK"])
+            self.assertFalse(blocked["uploader_jobs_idle"])
+            self.assertFalse(blocked["active_upload_drain_snapshot_verified"])
+            self.assertNotIn("OWNER_PRIVATE_UNKNOWN_STATE", str(blocked))
+
     def test_workflow_reason_is_static_allowlisted_and_no_raw_payload(self):
         source=(Path(__file__).resolve().parents[1]/
                 ".github/workflows/vps1-short-studio-release.yml").read_text()
@@ -93,6 +134,7 @@ class ReadonlyBlockedReasonTests(unittest.TestCase):
         self.assertIn("'drain_blocked_at':blocked_at",source)
         self.assertIn("if blocked_at not in allowed:",source)
         self.assertIn("READONLY_DRAIN_REASON_INVALID",source)
+        self.assertIn("READONLY_JOB_CATEGORIES_INVALID",source)
         self.assertNotIn("print(snapshot)",source)
         self.assertNotIn("print(config)",source)
         self.assertNotIn("print(data)",source)
