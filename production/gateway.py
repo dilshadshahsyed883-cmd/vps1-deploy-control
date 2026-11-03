@@ -156,13 +156,13 @@ def open_during_reload(opener, request, *, timeout, retries=12, pause=0.6):
         time.sleep(pause)
 
 
-def verify_voice_scene_sso_ui():
-    """Prove the real Scene session, never substitute Basic Auth for Voice UI.
+def verify_voice_scene_sso_ui(*, readonly_gateway=False):
+    """Prove signed Scene access, never downgrade a protected Voice UI 401.
 
-    The loopback legacy gateway keeps Basic Auth for historical apps, while
-    Voice's native page requires the independent Scene session. A 401 from
-    that obsolete Basic UI probe is acceptable ONLY after all authenticated
-    Scene HTTPS and direct anonymous-denial checks pass.
+    A Voice-only release must not rewrite the historical Basic gateway. For
+    that *read-only* path, validate the exact owned Voice SSO snippet instead
+    of matching the entire unrelated Scene vhost against old site snapshots.
+    Runtime HTTPS/session/anonymous probes remain mandatory in both modes.
     """
     from production.scene_public_https import SITE as scene_site
     from production import scene_session_routes as scene_sso
@@ -170,7 +170,22 @@ def verify_voice_scene_sso_ui():
 
     if scene_site.is_symlink() or not scene_site.is_file():
         raise RuntimeError('Voice Scene SSO site is unavailable')
-    if not scene_sso.active('voice-studio', scene_site.read_text()):
+    site = scene_site.read_text()
+    if readonly_gateway:
+        from production import nginx_route_only as routes
+        names = routes.managed_re().findall(site)
+        if (names.count('voice-studio') != 1
+                or len(names) != len(set(names))
+                or any(name not in routes.APPS for name in names)
+                or routes.standalone(site, 'voice-studio')):
+            raise RuntimeError('Voice Scene SSO include ownership invalid')
+        fragment = routes.snippet_path('voice-studio')
+        if (fragment.is_symlink() or not fragment.is_file()
+                or fragment.read_text() not in (
+                    scene_sso.config('voice-studio'),
+                    scene_sso.legacy_voice_config())):
+            raise RuntimeError('Voice Scene SSO snippet drift')
+    elif not scene_sso.active('voice-studio', site):
         raise RuntimeError('Voice Scene SSO route is not active')
     cookie = scene_sso.ready_cookie('voice-studio')
     scene_sso.verify('voice-studio', cookie)
@@ -381,6 +396,27 @@ def main():
               anonymous_access=acceptance['anonymous_access'])
         return
 
+    # Voice V1.1 owns an independent, signed Scene HTTPS route. After the
+    # app-scoped runtime release finishes, DO NOT republish the unrelated
+    # legacy Basic gateway, whose UI probe cannot carry a Scene cookie.
+    # Exact Voice-only intent and currently installed revision are mandatory;
+    # this branch makes no Nginx or session-policy mutations.
+    if '[vps1-production-release:voice-studio]' in intent:
+        if 'voice-studio' not in args.apps or '[vps1-song-studio-release]' in intent:
+            raise RuntimeError('conflicting Voice-only gateway release intent')
+        with deployment_lock():
+            record = BASE / 'control/state/voice-studio.json'
+            if record.is_symlink() or not record.is_file():
+                raise RuntimeError('Voice release record unavailable')
+            state = json.loads(record.read_text())
+            if state.get('status') != 'ACTIVE' or state.get('revision') != args.revision:
+                raise RuntimeError('Voice release record revision mismatch')
+            http_check('voice-studio')
+            run(['nginx', '-t'], quiet=True)
+            verify_voice_scene_sso_ui(readonly_gateway=True)
+            event(app='voice-studio', gateway='NO_MUTATION',
+                  scene_sso='LIVE_VERIFIED', anonymous='DENIED')
+        return
     with deployment_lock():
         selected = public_apps_for_revision(args.apps, args.revision)
         install(selected)
