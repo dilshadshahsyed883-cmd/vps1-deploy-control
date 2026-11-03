@@ -105,7 +105,7 @@ class CloudRenderTests(unittest.TestCase):
         with patch.object(self.mgr,"queue") as q:
             self.receive("new")
         q.assert_called_once_with("new")
-        self.assertEqual(self.mgr.listing()["items"][-1]["id"],"old")
+        self.assertEqual({item["id"] for item in self.mgr.listing()["items"]}, {"old","new"})
 
     def test_candidate_policy_is_scoped(self):
         from precutover_policy import mutation_allowed
