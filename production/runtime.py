@@ -1692,6 +1692,15 @@ def main():
     check_host(args.revision)
     with deployment_lock():
         intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+        # Voice V1.1 acceptance: protected install selector, read-only behavior.
+        if '[vps1-voice-readonly-acceptance]' in intent:
+            if (args.action != 'install' or args.apps != ['voice-studio']
+                    or '[vps1-song-audio-separate]' in intent
+                    or '[vps1-song-studio-release]' in intent):
+                raise RuntimeError('Voice read-only acceptance requires exact Voice lane')
+            from production.voice_v11_readonly_acceptance import report
+            event(**report())
+            return  # No restart, source switch, jobs, databases or Drive writes.
         if '[vps1-song-audio-voice-recovery]' in intent:
             if args.action != 'install' or args.apps != ['voice-studio']:
                 raise RuntimeError('Voice identity recovery requires exact protected Voice lane')
