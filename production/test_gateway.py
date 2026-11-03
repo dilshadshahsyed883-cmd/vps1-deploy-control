@@ -210,6 +210,126 @@ class GatewayVoiceSceneSSOTests(unittest.TestCase):
                         gateway.verify_voice_scene_sso_ui()
 
 
+class ShortMakerNoRewriteGatewayTests(unittest.TestCase):
+    """Require actual scoped HTTPS proof, not a global Nginx republish."""
+
+    def _layout(self, root, *, fragment="basic"):
+        from production import nginx_route_only as routes
+        from production import scene_session_routes as sso
+        path = root / 'snippets'
+        path.mkdir()
+        site = root / 'scene.conf'
+        site.write_text('UNRELATED SCENE VHOST DRIFT\\n include '
+                        + str(path / 'vps1-route-short-maker.conf') + ';\\n')
+        snippet = path / 'vps1-route-short-maker.conf'
+        snippet.write_text(routes.route_config('short-maker') if fragment == 'basic'
+                           else sso.config('short-maker') if fragment == 'sso'
+                           else 'MALFORMED')
+        return site, path, snippet
+
+    def test_existing_basic_route_is_verified_without_site_mutation(self):
+        from unittest.mock import patch
+        from production import gateway
+        from production import nginx_route_only as routes
+        import production.scene_public_https as https
+        revision = 'a' * 40
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            state = root / 'control/state/short-maker.json'
+            state.parent.mkdir(parents=True)
+            state.write_text(json.dumps({'status':'ACTIVE','revision':revision}))
+            site, snippets, _ = self._layout(root)
+            before = site.read_bytes()
+            with patch.object(gateway, 'BASE', root), \\
+                 patch.object(gateway, 'http_check') as health, \\
+                 patch.object(gateway, 'run') as run, \\
+                 patch.object(https, 'SITE', site), \\
+                 patch.object(routes, 'SNIPPET_DIR', snippets), \\
+                 patch.object(routes, 'credentials', return_value='Basic real') as creds, \\
+                 patch.object(routes, 'check_app') as check_app, \\
+                 patch.object(routes, 'check_scene') as check_scene:
+                mode = gateway.verify_short_maker_existing_https(revision)
+            self.assertEqual(mode, 'EXISTING_BASIC_VERIFIED')
+            self.assertEqual(site.read_bytes(), before)
+            health.assert_called_once_with('short-maker')
+            run.assert_called_once_with(['nginx', '-t'], quiet=True)
+            creds.assert_called_once_with()
+            check_app.assert_called_once_with('short-maker', 'Basic real')
+            check_scene.assert_called_once_with()
+
+    def test_scene_sso_route_must_verify_real_cookie(self):
+        from unittest.mock import patch
+        from production import gateway, nginx_route_only as routes
+        from production import scene_session_routes as sso
+        import production.scene_public_https as https
+        revision = 'a' * 40
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            record = root / 'control/state/short-maker.json'
+            record.parent.mkdir(parents=True)
+            record.write_text(json.dumps({'status':'ACTIVE','revision':revision}))
+            site, snippets, _ = self._layout(root, fragment='sso')
+            with patch.object(gateway, 'BASE', root), \\
+                 patch.object(gateway, 'http_check'), \\
+                 patch.object(gateway, 'run'), \\
+                 patch.object(https, 'SITE', site), \\
+                 patch.object(routes, 'SNIPPET_DIR', snippets), \\
+                 patch.object(routes, 'check_scene'), \\
+                 patch.object(routes, 'check_app') as basic, \\
+                 patch.object(sso, 'ready_cookie', return_value='signed-cookie') as login, \\
+                 patch.object(sso, 'verify') as verified:
+                mode = gateway.verify_short_maker_existing_https(revision)
+            self.assertEqual(mode, 'SCENE_SSO_VERIFIED')
+            login.assert_called_once_with('short-maker')
+            verified.assert_called_once_with('short-maker','signed-cookie')
+            basic.assert_not_called()
+
+    def test_unknown_snippet_and_revision_mismatch_fail_closed(self):
+        from unittest.mock import patch
+        from production import gateway, nginx_route_only as routes
+        import production.scene_public_https as https
+        revision='a'*40
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)
+            record=root/'control/state/short-maker.json'
+            record.parent.mkdir(parents=True)
+            record.write_text(json.dumps({'status':'ACTIVE','revision':revision}))
+            site,snippets,snippet=self._layout(root,fragment='unknown')
+            with patch.object(gateway,'BASE',root), \\
+                 patch.object(gateway,'http_check'), \\
+                 patch.object(gateway,'run'), \\
+                 patch.object(https,'SITE',site), \\
+                 patch.object(routes,'SNIPPET_DIR',snippets), \\
+                 patch.object(routes,'check_scene') as scene, \\
+                 patch.object(routes,'check_app') as basic:
+                with self.assertRaisesRegex(RuntimeError,'snippet drift'):
+                    gateway.verify_short_maker_existing_https(revision)
+                record.write_text(json.dumps({'status':'ACTIVE','revision':'b'*40}))
+                with self.assertRaisesRegex(RuntimeError,'revision mismatch'):
+                    gateway.verify_short_maker_existing_https(revision)
+            scene.assert_not_called()
+            basic.assert_not_called()
+
+    def test_short_maker_only_dispatch_never_calls_legacy_install(self):
+        from contextlib import nullcontext
+        from unittest.mock import patch
+        from production import gateway
+        intent='[vps1-short-studio-release] [vps1-short-maker-only]'
+        revision='a'*40
+        with patch('sys.argv',['gateway','--revision',revision,'--apps','short-maker']), \\
+             patch.object(gateway,'check_host'), \\
+             patch.object(gateway,'run',return_value=intent), \\
+             patch.object(gateway,'deployment_lock',return_value=nullcontext()), \\
+             patch.object(gateway,'verify_short_maker_existing_https',
+                          return_value='EXISTING_BASIC_VERIFIED') as verify, \\
+             patch.object(gateway,'install') as legacy, \\
+             patch.object(gateway,'event') as event:
+            gateway.main()
+        legacy.assert_not_called()
+        verify.assert_called_once_with(revision)
+        self.assertEqual(event.call_args.kwargs['gateway'],'NO_MUTATION')
+
+
 class VoiceReadOnlyGatewayDispatchTests(unittest.TestCase):
     """Do not rebuild legacy Nginx after a signed Scene Voice release."""
 
