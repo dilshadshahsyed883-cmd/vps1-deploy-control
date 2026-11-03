@@ -354,7 +354,7 @@ class CloudRender:
 
 def register_cloud_render(app, templates, root, require_admin, require_login):
     from fastapi import Request
-    from fastapi.responses import HTMLResponse
+    from fastapi.responses import HTMLResponse, FileResponse
     manager = CloudRender(Path(root)/"cloud-render")
 
     def admin(req):
