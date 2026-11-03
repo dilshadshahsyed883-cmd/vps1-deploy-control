@@ -47,6 +47,45 @@ class ReadonlyBlockedReasonTests(unittest.TestCase):
             self.assertEqual(second["blocked_at"],"UPLOADER_APP_DB_UNAVAILABLE")
             self.assertFalse(second["active_upload_drain_snapshot_verified"])
 
+    def test_known_maker_control_lock_does_not_masquerade_as_job(self):
+        # Short Maker upload_create_lock uses precisely this regular file.
+        # Unknown files and symlinks must still prevent an idle claim.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            unit_dir = root / "units"
+            unit_dir.mkdir()
+            maker = root / "private-maker"
+            job = maker / "jobs" / "PRIVATE_JOB_DO_NOT_PRINT"
+            job.mkdir(parents=True)
+            (job / "state.json").write_text('{"status":"completed"}')
+            lock = maker / "jobs" / ".resumable-create.lock"
+            lock.touch()
+            env = root / "secret.env"
+            env.write_text(
+                "SHORT_MAKER_DATA=" + str(maker) + "\n"
+                "SHORT_UPLOADER_APP_DB=" + str(root / "missing-app.sqlite3") + "\n"
+                "SHORT_UPLOADER_ENGINE_DB=" + str(root / "missing-v6.sqlite3") + "\n"
+            )
+            (unit_dir / SERVICES["maker"]).write_text(
+                "[Service]\nEnvironmentFile=" + str(env) + "\n"
+            )
+            clean = inspect_active_drain(unit_dir)
+            self.assertTrue(clean["maker_jobs_idle"])
+            self.assertEqual(clean["blocked_at"], "UPLOADER_APP_DB_UNAVAILABLE")
+            self.assertFalse(clean["active_upload_drain_verified"])
+            self.assertNotIn("PRIVATE_JOB", str(clean))
+            unknown = maker / "jobs" / ".unknown-file"
+            unknown.touch()
+            unsafe = inspect_active_drain(unit_dir)
+            self.assertEqual(unsafe["blocked_at"], "MAKER_JOB_ENTRY_UNSAFE")
+            self.assertFalse(unsafe["maker_jobs_idle"])
+            unknown.unlink()
+            lock.unlink()
+            lock.symlink_to(job / "state.json")
+            linked = inspect_active_drain(unit_dir)
+            self.assertEqual(linked["blocked_at"], "MAKER_JOB_ENTRY_UNSAFE")
+            self.assertFalse(linked["maker_jobs_idle"])
+
     def test_workflow_reason_is_static_allowlisted_and_no_raw_payload(self):
         source=(Path(__file__).resolve().parents[1]/
                 ".github/workflows/vps1-short-studio-release.yml").read_text()

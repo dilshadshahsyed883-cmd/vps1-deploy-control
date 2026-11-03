@@ -273,6 +273,15 @@ def inspect_active_drain(unit_dir=Path("/etc/systemd/system")):
             return result
         terminal_maker = {"completed", "cancelled", "failed"}
         for directory in jobs.iterdir():
+            # Short Maker itself creates this persistent, root-level
+            # interprocess session-allocation lock. It is not a job record.
+            # Accept ONLY the exact regular control file, never a symlink.
+            # All unrecognized entries still fail closed without exposing names.
+            if directory.name == ".resumable-create.lock":
+                if directory.is_symlink() or not directory.is_file():
+                    result["blocked_at"] = "MAKER_JOB_ENTRY_UNSAFE"
+                    return result
+                continue
             if directory.is_symlink() or not directory.is_dir():
                 result["blocked_at"] = "MAKER_JOB_ENTRY_UNSAFE"
                 return result
