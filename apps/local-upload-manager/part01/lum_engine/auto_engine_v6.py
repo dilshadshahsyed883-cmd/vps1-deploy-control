@@ -2611,27 +2611,116 @@ def _channel_queue_valid_rows(pc_db: Any, store: V6Store, profile: Dict[str,Any]
     return {"created":len(created),"video_ids":created,"blocked":blocked}
 
 
-def auto_start_new_jobs(store: V6Store, profile: Dict[str, Any], created: int) -> bool:
-    """Arm eligible Song/Short jobs at admission, without bypassing manual pauses.
+def shortstudio_verified_profile_ids(pc_db: Any, store: V6Store) -> Dict[int, bool]:
+    """Return enabled state for strictly owner-bound Short profiles across ALL tenants.
 
-    Keep Start-one-profile isolation: include only the newly queued profile in
-    an existing manual scope instead of unscoping older unrelated jobs.
-    Future scheduled rows still wait for their due time in the claim layer.
+    Shared worker scheduling legitimately serves multiple owners. A profile is
+    eligible only if its owner also owns every live channel in its target.
+    Unassigned legacy profiles and mixed-owner groups fail closed; never
+    infer ownership from a folder, OAuth token or the signed-in UI account.
     """
-    if os.environ.get("LUM_ENGINE_INSTANCE") not in {"song", "shortstudio"}:
+    if os.environ.get("LUM_ENGINE_INSTANCE") != "shortstudio":
+        raise PermissionError("Short owner scope requires the Short Uploader instance")
+    from .studio_tenants import StudioTenants
+    acl=StudioTenants(pc_db)
+    verified={}
+    for profile in pc_db.list_auto_engine_profiles():
+        pid=int(profile.get("id") or 0)
+        owner=acl.owner("profile",pid) if pid>0 else None
+        if not owner:
+            continue
+        owner=str(owner).casefold()
+        try:
+            folder_owner=str(store.group_settings(pid).get("song_folder_owner") or "").casefold()
+            if folder_owner and folder_owner!=owner:
+                continue
+            gid=int(profile.get("channel_group_id") or 0)
+            if gid:
+                if str(acl.owner("group",gid) or "").casefold()!=owner:
+                    continue
+                with pc_db.connect() as con:
+                    members=[int(row[0]) for row in con.execute(
+                        "SELECT channel_db_id FROM channel_group_members WHERE group_id=?",(gid,)
+                    ).fetchall()]
+                if not members or any(str(acl.owner("channel",cid) or "").casefold()!=owner for cid in members):
+                    continue
+            binding=store.channel_binding(pid)
+            direct_ids={int(value) for value in (
+                profile.get("channel_db_id"),binding.get("channel_db_id")
+            ) if str(value or "").isdigit() and int(value)>0}
+            if any(str(acl.owner("channel",cid) or "").casefold()!=owner for cid in direct_ids):
+                continue
+            if not gid and not direct_ids:
+                continue  # An unbound legacy profile must never select all channels.
+            verified[pid]=int(profile.get("enabled") or 0)==1
+        except (OSError, ValueError, TypeError, KeyError, sqlite3.Error):
+            continue
+    return verified
+
+
+def ensure_shortstudio_owner_scope(pc_db: Any, store: V6Store,
+                                   required_profile_ids: Iterable[int]=()) -> List[int]:
+    """Atomically repair legacy NULL scope without dropping other owners' jobs.
+
+    NULL on a running engine historically meant *all enabled profiles*.
+    Reconcile that set against verified owner+channel bindings instead of
+    replacing it with only the clicking user's profiles. For a stopped
+    engine, add only explicitly requested profiles. The compare/read/write
+    happens in one IMMEDIATE SQLite transaction to prevent lost scope joins.
+    """
+    verified=shortstudio_verified_profile_ids(pc_db,store)
+    required={int(pid) for pid in required_profile_ids}
+    if any(pid<=0 for pid in required) or not required.issubset(verified):
+        raise PermissionError("Unowned or unsafe Short profile in engine scope")
+    with store.connect() as con:
+        con.execute("BEGIN IMMEDIATE")
+        state=con.execute(
+            "SELECT running,pause_after_current,manual_profile_ids FROM engine_state WHERE singleton=1"
+        ).fetchone()
+        if not state:
+            raise RuntimeError("Short Auto Engine state unavailable")
+        if int(state["pause_after_current"] or 0):
+            raise PermissionError("Shared engine is paused; cannot force a global resume")
+        manual=state["manual_profile_ids"]
+        if manual is None:
+            # Preserve the previously runnable, *verified* profiles for every
+            # account when recovering an already-running legacy engine.
+            scope={pid for pid,enabled in verified.items() if enabled} if int(state["running"] or 0) else set()
+        else:
+            scope={int(value) for value in str(manual).split(",") if value.strip().isdigit()}
+            scope.intersection_update(verified)
+        scope.update(required)
+        con.execute(
+            "UPDATE engine_state SET manual_profile_ids=?,updated_at=CURRENT_TIMESTAMP WHERE singleton=1",
+            (",".join(str(pid) for pid in sorted(scope)),)
+        )
+    return sorted(scope)
+
+
+def auto_start_new_jobs(store: V6Store, profile: Dict[str, Any], created: int,
+                        pc_db: Any=None) -> bool:
+    """Auto-start newly admitted Song/Short jobs without widening tenant scope."""
+    mode=os.environ.get("LUM_ENGINE_INSTANCE")
+    if mode not in {"song","shortstudio"}:
         return False
-    if int(created or 0) <= 0 or int(profile.get("enabled") or 0) != 1:
+    if int(created or 0)<=0 or int(profile.get("enabled") or 0)!=1:
         return False
-    state = store.engine()
+    state=store.engine()
     if int(state.get("pause_after_current") or 0):
         return False
-    manual = state.get("manual_profile_ids")
-    if manual is not None:
-        selected = {int(value) for value in str(manual).split(",") if value.strip().isdigit()}
-        pid = int(profile["id"])
-        if pid not in selected:
-            store.set_manual_profile_ids(sorted(selected | {pid}))
-    store.set_engine(running=True, pause_after_current=False)
+    if mode=="shortstudio":
+        if pc_db is None:
+            raise RuntimeError("Short Auto Engine needs owner-verified profile inventory")
+        ensure_shortstudio_owner_scope(pc_db,store,{int(profile["id"])})
+    else:
+        # Keep existing Song Uploader semantics unchanged.
+        manual=state.get("manual_profile_ids")
+        if manual is not None:
+            selected={int(value) for value in str(manual).split(",") if value.strip().isdigit()}
+            pid=int(profile["id"])
+            if pid not in selected:
+                store.set_manual_profile_ids(sorted(selected | {pid}))
+    store.set_engine(running=True,pause_after_current=False)
     return True
 
 
@@ -2642,7 +2731,7 @@ def sync_channel_profile(pc_db: Any, store: V6Store, profile: Dict[str,Any], *, 
         queued=_channel_queue_valid_rows(pc_db,store,profile,result,only_video_key=only_video_key)
         if queued["created"]:
             if os.environ.get("LUM_ENGINE_INSTANCE") in {"song", "shortstudio"}:
-                auto_start_new_jobs(store, profile, queued["created"])
+                auto_start_new_jobs(store, profile, queued["created"],pc_db=pc_db)
             else:
                 store.set_engine(running=True,pause_after_current=False)
     store.mark_channel_synced(int(profile["id"]))
@@ -2668,7 +2757,7 @@ def planner(pc_db: Any, store: V6Store, profile: Dict[str,Any], *, max_jobs_over
 def generate_queue(pc_db: Any, store: V6Store, profile: Dict[str,Any], *, run_key:str|None=None, max_jobs_override:int|None=None) -> Dict[str,Any]:
     if not store.is_channel_profile(int(profile.get("id") or 0)):
         result=_CHANNEL_LEGACY_GENERATE(pc_db,store,profile,run_key=run_key,max_jobs_override=max_jobs_override)
-        auto_start_new_jobs(store, profile, int(result.get("created") or 0))
+        auto_start_new_jobs(store, profile, int(result.get("created") or 0),pc_db=pc_db)
         return result
     result=sync_channel_profile(pc_db,store,profile,queue_valid=True)
     return {"created":int(result.get("created") or 0),"video_ids":result.get("video_ids") or [],"duplicates_blocked":0,"already_claimed":False}
