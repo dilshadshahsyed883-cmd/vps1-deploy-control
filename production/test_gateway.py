@@ -280,8 +280,9 @@ class VoiceReadOnlyGatewayDispatchTests(unittest.TestCase):
             snippet_dir = root / 'snippets'
             snippet_dir.mkdir()
             site = root / 'scene.conf'
-            site.write_text('UNRELATED REVIEW REQUIRED\\n include ' +
-                            str(snippet_dir) + '/vps1-route-voice-studio.conf;\\n')
+            site.write_text('UNRELATED REVIEW REQUIRED' + chr(10) +
+                            ' include ' + str(snippet_dir) +
+                            '/vps1-route-voice-studio.conf;' + chr(10))
             route = snippet_dir / 'vps1-route-voice-studio.conf'
             route.write_text(sso.config('voice-studio'))
             with patch.object(https, 'SITE', site), \
@@ -312,7 +313,7 @@ class VoiceReadOnlyGatewayDispatchTests(unittest.TestCase):
             snippets.mkdir()
             site = root / 'scene.conf'
             site.write_text(' include ' + str(snippets) +
-                            '/vps1-route-voice-studio.conf;\\n')
+                            '/vps1-route-voice-studio.conf;' + chr(10))
             (snippets / 'vps1-route-voice-studio.conf').write_text(
                 sso.config('voice-studio'))
             with patch.object(https, 'SITE', site), \
