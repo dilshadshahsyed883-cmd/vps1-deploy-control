@@ -660,10 +660,16 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         auto_v6["queue"]=[j for j in auto_v6.get("queue",[])
                           if int(j.get("auto_engine_profile_id") or 0) in valid_ids
                           and int(j.get("channel_db_id") or 0) in owned_channels]
-        auto_v6["records"]=[row for row in auto_v6.get("records",[])
-                            if int(row.get("profile_id") or 0) in valid_ids
-                            and (not row.get("channel_db_id") or
-                                 int(row["channel_db_id"]) in owned_channels)]
+        if engine_instance == "shortstudio":
+            # Use the final live profile/group/channel ACL before querying
+            # owner receipts and uncapped counters. Never slice global history.
+            auto_v6["records"]=v6_store.owner_records(valid_ids,owned_channels,limit=500)
+            auto_v6["record_stats"]=v6_store.owner_record_stats(valid_ids,owned_channels)
+        else:
+            auto_v6["records"]=[row for row in auto_v6.get("records",[])
+                                if int(row.get("profile_id") or 0) in valid_ids
+                                and (not row.get("channel_db_id") or
+                                     int(row["channel_db_id"]) in owned_channels)]
         chosen=auto_v6.get("selected") or {}
         if chosen and int(chosen.get("id") or 0) not in valid_ids:
             auto_v6.update(selected=None,source={},videos=[],thumbnails=[],
