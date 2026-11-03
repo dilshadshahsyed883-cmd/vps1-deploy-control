@@ -325,5 +325,81 @@ class WorkspaceHttpsTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
 
 
+class SongAudioGatewayDispatchTests(unittest.TestCase):
+    """Song's protected Scene SSO must never be replaced by legacy Basic Auth."""
+
+    def test_readonly_diagnostic_does_not_republish_or_touch_legacy_gateway(self):
+        from unittest.mock import patch
+        from production import gateway
+        argv = ['gateway', '--revision', 'a' * 40, '--apps', 'voice-studio']
+        intent = 'audit [vps1-song-studio-release] [vps1-song-audio-voice-readonly-diagnose]'
+        with patch('sys.argv', argv), \
+             patch.object(gateway, 'check_host'), \
+             patch.object(gateway, 'run', return_value=intent), \
+             patch.object(gateway, 'deployment_lock') as lock, \
+             patch.object(gateway, 'install') as legacy, \
+             patch.object(gateway, 'event') as event:
+            gateway.main()
+        lock.assert_not_called()
+        legacy.assert_not_called()
+        self.assertEqual(event.call_args.kwargs['mode'], 'READ_ONLY_DIAGNOSTIC')
+
+    def test_cutover_verifies_real_scene_sso_without_legacy_gateway_mutation(self):
+        from contextlib import nullcontext
+        from unittest.mock import patch
+        from production import gateway
+        argv = ['gateway', '--revision', 'a' * 40, '--apps', 'voice-studio']
+        intent = 'release [vps1-song-studio-release] [vps1-song-audio-separate]'
+        with patch('sys.argv', argv), \
+             patch.object(gateway, 'check_host'), \
+             patch.object(gateway, 'run', return_value=intent), \
+             patch.object(gateway, 'deployment_lock', return_value=nullcontext()) as lock, \
+             patch.object(gateway, 'install') as legacy, \
+             patch.object(gateway, 'event') as event, \
+             patch('production.song_audio_cutover._health_scene') as health, \
+             patch('production.song_audio_cutover._live_http_acceptance',
+                   return_value={'canonical_page': 'HTTP_200_SCENE_SSO',
+                                 'anonymous_access': 'DENIED'}) as acceptance:
+            gateway.main()
+        lock.assert_called_once()
+        health.assert_called_once()
+        acceptance.assert_called_once()
+        legacy.assert_not_called()
+        self.assertEqual(event.call_args.kwargs['mode'], 'SCENE_SSO_VERIFIED')
+
+    def test_cutover_authentication_failure_remains_fail_closed(self):
+        from contextlib import nullcontext
+        from unittest.mock import patch
+        from production import gateway
+        argv = ['gateway', '--revision', 'a' * 40, '--apps', 'voice-studio']
+        intent = 'release [vps1-song-studio-release] [vps1-song-audio-separate]'
+        with patch('sys.argv', argv), \
+             patch.object(gateway, 'check_host'), \
+             patch.object(gateway, 'run', return_value=intent), \
+             patch.object(gateway, 'deployment_lock', return_value=nullcontext()), \
+             patch.object(gateway, 'install') as legacy, \
+             patch('production.song_audio_cutover._health_scene',
+                   side_effect=RuntimeError('Scene verification unavailable')), \
+             patch('production.song_audio_cutover._live_http_acceptance') as acceptance:
+            with self.assertRaisesRegex(RuntimeError, 'verification unavailable'):
+                gateway.main()
+        acceptance.assert_not_called()
+        legacy.assert_not_called()
+
+    def test_conflicting_song_audio_intents_fail_before_gateway_mutation(self):
+        from unittest.mock import patch
+        from production import gateway
+        argv = ['gateway', '--revision', 'a' * 40, '--apps', 'voice-studio']
+        intent = ('[vps1-song-audio-separate] '
+                  '[vps1-song-audio-voice-readonly-diagnose]')
+        with patch('sys.argv', argv), \
+             patch.object(gateway, 'check_host'), \
+             patch.object(gateway, 'run', return_value=intent), \
+             patch.object(gateway, 'install') as legacy:
+            with self.assertRaisesRegex(RuntimeError, 'conflicting Song Audio'):
+                gateway.main()
+        legacy.assert_not_called()
+
+
 if __name__ == '__main__':
     unittest.main()
