@@ -219,8 +219,8 @@ class ShortMakerNoRewriteGatewayTests(unittest.TestCase):
         path = root / 'snippets'
         path.mkdir()
         site = root / 'scene.conf'
-        site.write_text('UNRELATED SCENE VHOST DRIFT\\n include '
-                        + str(path / 'vps1-route-short-maker.conf') + ';\\n')
+        site.write_text('UNRELATED SCENE VHOST DRIFT\n include '
+                        + str(path / 'vps1-route-short-maker.conf') + ';\n')
         snippet = path / 'vps1-route-short-maker.conf'
         snippet.write_text(routes.route_config('short-maker') if fragment == 'basic'
                            else sso.config('short-maker') if fragment == 'sso'
