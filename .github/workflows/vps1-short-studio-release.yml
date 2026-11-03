@@ -143,7 +143,18 @@ jobs:
               any(type(item) is not str or item not in allowed_categories
                   for item in categories)):
               raise SystemExit('READONLY_JOB_CATEGORIES_INVALID')
+          pause_categories=snapshot.get('uploader_paused_reason_categories',[])
+          allowed_pause_categories={
+              'CHANNEL_INACTIVE','CHANNEL_ID_UNVERIFIED',
+              'CHANNEL_TOKEN_UNAVAILABLE','UNKNOWN'
+          }
+          if (not isinstance(pause_categories,list) or
+              len(pause_categories)>len(allowed_pause_categories) or
+              any(type(item) is not str or item not in allowed_pause_categories
+                  for item in pause_categories)):
+              raise SystemExit('READONLY_PAUSE_CATEGORIES_INVALID')
           safe={
+            'uploader_paused_reason_categories':sorted(set(pause_categories)),
             'uploader_job_nonterminal_categories':sorted(set(categories)),
             'drain_blocked_at':blocked_at,
             'unit_config_flags':role_booleans(config,(
