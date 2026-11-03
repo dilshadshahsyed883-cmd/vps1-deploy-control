@@ -118,9 +118,13 @@
     $("cr-salad-key").value="";$("cr-worker-key").value="";
     await loadConfig();
   });
-  $("cr-test").onclick=()=>operations("Connection tested",async()=>{
-    const result=await send("/gpu/test");msg(result.ok?"GPU worker reachable":"Worker "+result.status,!result.ok);
-  });
+  $("cr-test").onclick=async()=>{
+    try {
+      msg("Testing worker connection...");
+      const result=await send("/gpu/test");
+      msg(result.ok?"GPU worker reachable":"GPU worker unavailable: "+result.status,!result.ok);
+    }catch(e){msg(e.message,true);}
+  };
   $("cr-connect").onclick=()=>operations("Worker connection",async()=>{
     const result=await send("/gpu/connect");if(!result.ok)throw Error("Worker "+result.status);
     await loadConfig();
