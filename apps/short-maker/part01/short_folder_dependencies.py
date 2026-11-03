@@ -142,7 +142,7 @@ class ShortFolderPreflight:
                         pending_app_jobs += int(app_db.execute(
                             "SELECT COUNT(*) FROM videos WHERE id IN ("+marks+") "
                             "AND UPPER(status) NOT IN ('COMPLETED','COMPLETE',"
-                            "'UPLOADED','CANCELLED','SKIPPED')", ids).fetchone()[0])
+                            "'UPLOADED','PUBLISHED','CANCELLED','SKIPPED')", ids).fetchone()[0])
                 return {
                     "linked_profiles": sorted(links, key=lambda x: x["name"].casefold()),
                     "foreign_or_unassigned_references": foreign_or_ambiguous,
