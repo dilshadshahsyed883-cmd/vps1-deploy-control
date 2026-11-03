@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Cloud Render{% endblock %}
+{% block subtitle %}Concat output receiver and independent SaladCloud GPU connection{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/cloud_render.css?v=20261104-v1">
+<section id="cloud-render" data-csrf="{{ csrf_token }}" aria-labelledby="cloud-heading">
+  <header class="cr-header">
+    <div><div class="cr-eyebrow">EXPERIMENT STUDIO / ADMIN ONLY</div><h2 id="cloud-heading">Cloud Render</h2><p>Receive Concat MP4 outputs, manage local media and connect your independent SaladCloud render worker.</p></div>
+    <span id="cr-health" class="cr-pill">Worker not connected</span>
+  </header>
+  <nav class="cr-tabs" aria-label="Cloud Render tabs">
+    <button class="active" type="button" data-tab="media" aria-selected="true">Media</button>
+    <button type="button" data-tab="gpu" aria-selected="false">GPU Config</button>
+  </nav>
+  <p id="cr-message" role="status" aria-live="polite"></p>
+  <section class="cr-section" id="cr-media">
+    <div class="cr-statline">
+      <div class="cr-card"><span>Received files</span><b id="cr-count">0</b></div>
+      <div class="cr-card"><span>Ready on VPS</span><b id="cr-ready">0</b></div>
+      <div class="cr-card"><span>Verified Drive deliveries</span><b id="cr-delivered">0</b></div>
+    </div>
+    <div class="cr-card cr-autoline">
+      <label class="cr-check"><input type="checkbox" id="cr-auto"><b>Auto Upload New Jobs to Google Drive</b></label>
+      <p>OFF by default. When enabled, only newly received, verified MP4 jobs upload automatically. After remote size and MD5 verification, the VPS copy is removed. Failures retain the VPS file.</p>
+      <button class="cr-btn secondary" id="cr-save-auto" type="button">Save preference</button>
+    </div>
+    <div class="cr-row cr-row-wrap">
+      <div><h3>Media library</h3><p>Completed Concat outputs stored on VPS_1</p></div>
+      <button class="cr-btn secondary" id="cr-refresh" type="button">Refresh</button>
+    </div>
+    <div class="cr-list" id="cr-media-list"><p>Loading media...</p></div>
+    <p class="cr-note">Each item has manual Upload to Drive, Rename, Preview, Download, and Delete controls. Deletion during an active Drive transfer is blocked.</p>
+  </section>
+  <section class="cr-section" id="cr-gpu" hidden>
+    <div class="cr-card">
+      <div class="cr-row"><div><h3>SaladCloud GPU Configuration</h3><p>OmniVoice-style independent connection. Concat renderer image, not the OmniVoice image.</p></div><span id="cr-connection" class="cr-pill">Not connected</span></div>
+      <div class="cr-field"><label>Docker image (planned tag; verify in GHCR before activation)</label><input id="cr-image" disabled></div>
+      <div class="cr-technical" id="cr-requirements"></div>
+      <div class="cr-field"><label for="cr-endpoint">SaladCloud Gateway HTTPS URL</label><input id="cr-endpoint" placeholder="https://your-renderer.salad.cloud" inputmode="url" autocomplete="off"></div>
+      <div class="cr-fields">
+        <div class="cr-field"><label for="cr-salad-key">Salad API Key</label><input id="cr-salad-key" type="password" autocomplete="new-password" placeholder="Leave blank to keep saved key"><small id="cr-salad-key-state">Not saved</small></div>
+        <div class="cr-field"><label for="cr-worker-key">RENDERER_API_TOKEN</label><input id="cr-worker-key" type="password" autocomplete="new-password" placeholder="Leave blank to keep saved token"><small id="cr-worker-key-state">Not saved</small></div>
+      </div>
+      <div class="cr-fields">
+        <div class="cr-field"><label for="cr-priority">Salad priority</label><select id="cr-priority"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div>
+        <div class="cr-field"><label for="cr-timeout">Request timeout (seconds)</label><input id="cr-timeout" type="number" min="10" max="1800"></div>
+      </div>
+      <div class="cr-field"><label for="cr-health-path">Health path</label><input id="cr-health-path" value="/health/ready"></div>
+      <div class="cr-row cr-row-wrap">
+        <button class="cr-btn primary" id="cr-save-gpu" type="button">Save GPU Config</button>
+        <button class="cr-btn secondary" id="cr-test" type="button">Test Connection</button>
+        <button class="cr-btn secondary" id="cr-connect" type="button">Connect Worker</button>
+        <button class="cr-btn danger" id="cr-disconnect" type="button">Disconnect</button>
+      </div>
+      <p class="cr-note">GPU allocation, VRAM, CPU/RAM, registry image and priority are applied in SaladCloud deployment. Saving here does not purchase, resize or restart a SaladCloud container.</p>
+    </div>
+    <div class="cr-card">
+      <h3>GPU → VPS Output Receiver</h3>
+      <p>The renderer must upload chunks to <code>/api/cloud-render/ingest/{job_id}/chunk</code>, using <code>X-Cloud-Render-Token</code>. The receiver verifies MP4 signature and SHA256 before accepting the completed file.</p>
+      <button class="cr-btn secondary" id="cr-rotate" type="button">Generate / Rotate Receiver Token</button>
+      <pre id="cr-token" class="cr-token" hidden></pre>
+      <p class="cr-note">Token is displayed only after rotation. Configure the same token as RENDER_OUTPUT_TOKEN in the Salad worker; keep it secret. Rotation invalidates old worker access.</p>
+    </div>
+  </section>
+</section>
+<script defer src="/static/cloud_render.js?v=20261104-v1"></script>
+{% endblock %}

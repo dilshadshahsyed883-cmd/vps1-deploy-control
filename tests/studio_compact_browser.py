@@ -23,8 +23,13 @@ def main():
         req=handle.request;path=urlsplit(req.url).path
         if req.method!='GET':writes.append((path,req.method))
         if path in pages:return handle.fulfill(content_type='text/html',body=pages[path])
-        if path == '/short-maker/resumable_client.js':
-            script=(ROOT/'apps/short-maker/part01/resumable_client.js').read_text()
+        if path in (
+            '/short-maker/resumable_client.js',
+            '/short-maker/ready_video_client.js',
+            '/short-maker/short_profile_client.js',
+        ):
+            filename=path.rsplit('/', 1)[-1]
+            script=(ROOT/'apps/short-maker/part01'/filename).read_text()
             return handle.fulfill(content_type='application/javascript',body=script)
         if path.startswith('/static/'):
             file=STATIC/path.removeprefix('/static/')

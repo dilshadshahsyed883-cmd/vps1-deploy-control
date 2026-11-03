@@ -767,6 +767,9 @@ async def authentication(request: Request, call_next):
         or _af_path == "/api/master-controller/health"
     ):
         return await call_next(request)
+    # Separate short-lived Salad worker token guards only the MP4 receiver.
+    if request.url.path.startswith("/api/cloud-render/ingest/"):
+        return await call_next(request)
     if request.url.path in {"/internal/auto-caption-auth", "/internal/local-upload-manager-auth", "/internal/audio-engine-auth", "/internal/workspace-auth"}:
         return await call_next(request)
     public_paths = {"/login", "/health", "/internal/auto-caption-auth", "/internal/local-upload-manager-auth", "/internal/audio-engine-auth", "/internal/workspace-auth"}
@@ -790,6 +793,9 @@ async def authentication(request: Request, call_next):
     studio = studio_for_path(request.url.path)
     if studio and not studio_access_allows(account, studio):
         return Response(status_code=403, content="Studio access not granted")
+    if (request.url.path.rstrip("/") == "/cloud-render" or
+            request.url.path.startswith("/api/cloud-render/")) and not account.get("is_admin"):
+        return Response(status_code=403, content="Administrator access required")
     if (request.url.path == "/experiment-studio" or
             request.url.path.startswith("/experiment-studio/") or
             request.url.path.startswith("/api/experiment-browser/")) and not account.get("is_admin"):
@@ -804,6 +810,9 @@ app.add_middleware(
     max_age=60 * 60 * 12,
 )
 
+
+from cloud_render import register_cloud_render
+CLOUD_RENDER = register_cloud_render(app, templates, DATA_DIR, require_admin, require_login)
 
 @app.get("/api/session/identity")
 def scene_session_identity(request: Request):

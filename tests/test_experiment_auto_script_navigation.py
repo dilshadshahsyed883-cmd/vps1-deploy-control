@@ -23,7 +23,7 @@ class AutoScriptTabTests(unittest.TestCase):
     def test_legacy_auto_script_uses_experiment_subtab(self):
         base = (SCENE / "templates/base.html").read_text()
         rail = base.split('class="vps1-experiment-tabs"', 1)[1].split("</nav>", 1)[0]
-        self.assertEqual(rail.count("<a "), 5)
+        self.assertEqual(rail.count("<a "), 6)
         for label in ("Antidetect Browser", "Self Media Library", "Auto Script",
                       "Video Studio", "Upload Studio"):
             self.assertEqual(rail.count(">" + label + "</a>"), 1)
