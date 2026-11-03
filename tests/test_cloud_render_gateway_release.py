@@ -77,9 +77,11 @@ class CloudRenderGatewayProof(unittest.TestCase):
         source=(Path(__file__).resolve().parents[1]/"production/gateway.py").read_text()
         self.assertIn("[vps1-cloud-render-scene-only]",source)
         self.assertIn("[vps1-experiment-management-release]",source)
-        self.assertIn("'scene-builder' not in args.apps",source)
+        self.assertIn('state.get("revision") == revision',source)
+        self.assertIn('state.get("status") != "ACTIVE"',source)
         guard=source.split("if '[vps1-cloud-render-scene-only]' in intent:",1)[1].split("return",1)[0]
         self.assertIn("verify_cloud_render_scene_only_https(args.revision)",guard)
+        self.assertNotIn("'scene-builder' not in args.apps",guard)
         self.assertNotIn("install(selected)",guard)
 
 if __name__=="__main__": unittest.main()

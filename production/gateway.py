@@ -474,11 +474,13 @@ def main():
     # the read-only HTTPS proof. The root deploy helper has already installed
     # the Scene candidate with its own idle-job, SSO and rollback transaction.
     # Crucially, do not regenerate the unrelated legacy Nginx gateway.
+    # The root helper's gateway phase receives only legacy production-* units,
+    # not the independently managed Scene candidate. Proof of Scene installation
+    # comes from its root-owned ACTIVE revision record inside the scoped checker.
     if '[vps1-cloud-render-scene-only]' in intent:
         if ('[vps1-experiment-management-release]' not in intent or
                 '[vps1-production-release:voice-studio]' in intent or
-                '[vps1-auto-script-online]' in intent or
-                'scene-builder' not in args.apps):
+                '[vps1-auto-script-online]' in intent):
             raise RuntimeError('conflicting or unauthorized Cloud Render gateway intent')
         with deployment_lock():
             proof = verify_cloud_render_scene_only_https(args.revision)
