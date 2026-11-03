@@ -33,3 +33,21 @@ Linux worker command:
     python3 -m cloud_render.concat.project_bundle restore INPUT_PROJECT.zip NEW_WORKER_PROJECT_DIR
 
 The ZIP remains local until an authenticated transport is implemented. Missing media aborts packaging; archive corruption and path traversal abort restore; existing output paths are never overwritten. Custom fonts, plugins and external script dependencies need separate handling. This package does not render or send jobs to Salad.
+
+## Two deliverables — shared feature rules (2026-11-04)
+
+Cloud Render contains two coordinated deliverables:
+
+1. Desktop editor: Windows Concat `.exe` for project authoring.
+2. GPU image: Linux Docker container running Concat native `concat-cli` rendering engine on Salad Cloud GPU.
+
+Shared pinned release: `cloud_render/concat/source.lock.json`.
+Desktop package workflow: `.github/workflows/vps1-cloud-render-concat-package.yml`.
+GPU image recipe: `cloud_render/concat/gpu/Dockerfile`.
+Dual-target contract CI: `.github/workflows/vps1-cloud-render-dual-validation.yml`.
+
+**Any change to the shared editing/rendering engine, effects, output settings or project file schema must be implemented on BOTH targets from the SAME source commit.** Both platform builds and end-to-end output parity are required before promoting a release. A compatible desktop project bundle must render on the GPU without semantic loss.
+
+CURRENT LIMITATION: The Windows `.exe` is an untouched, SHA-256-verified upstream release. The Linux image is only an experimental pinned-source build recipe. Original `.exe` packaging does not automatically incorporate custom feature changes. Before changing Concat functionality, migrate the Windows build to the same maintained source fork/commit as the Linux builder and verify both builds and a 30-second MP4 with audio, frames and duration. No custom feature parity, tested Salad acceleration, live Cloud Render UI, Drive integration, or production deployment is claimed yet.
+
+Keep desktop source media and the Rajudesktop package intact. Do not put personal media, OAuth tokens or credentials in Git. Auto Script remains unchanged.
