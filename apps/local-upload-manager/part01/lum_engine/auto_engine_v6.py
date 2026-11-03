@@ -1103,6 +1103,77 @@ class V6Store:
         with self.connect() as con:
             return [dict(r) for r in con.execute("SELECT * FROM upload_records ORDER BY uploaded_at DESC,id DESC LIMIT ?",(int(limit),)).fetchall()]
 
+
+    def owner_records(self, profile_ids: Iterable[int], channel_db_ids: Iterable[int],
+                      limit: int = 500) -> List[Dict[str, Any]]:
+        """List verified receipts AFTER tenant filtering, never after a global LIMIT.
+
+        Legacy script_history has no profile ownership and remains excluded until
+        an explicitly verified migration can safely assign its original owner.
+        """
+        profiles = sorted({int(value) for value in (profile_ids or ()) if int(value) > 0})
+        channels = sorted({int(value) for value in (channel_db_ids or ()) if int(value) > 0})
+        if not profiles or not channels:
+            return []
+        pmarks = ",".join("?" for _ in profiles)
+        cmarks = ",".join("?" for _ in channels)
+        sql = (f"SELECT * FROM upload_records WHERE profile_id IN ({pmarks}) "
+               f"AND channel_db_id IN ({cmarks}) "
+               "ORDER BY uploaded_at DESC, id DESC LIMIT ?")
+        with self.connect() as con:
+            return [dict(row) for row in con.execute(
+                sql, (*profiles, *channels, max(1, min(int(limit), 5000)))
+            ).fetchall()]
+
+    def owner_record_stats(self, profile_ids: Iterable[int], channel_db_ids: Iterable[int],
+                           *, now: Optional[datetime] = None) -> Dict[str, int]:
+        """Uncapped aggregate of the SAME verified tenant receipts as owner_records.
+
+        SQLite CURRENT_TIMESTAMP values are UTC; datetime/julianday also supports
+        UTC offsets. Today and yesterday use Asia/Karachi calendar boundaries.
+        """
+        keys = ("today", "yesterday", "days7", "days30", "days90", "days365", "total")
+        empty = {key: 0 for key in keys}
+        profiles = sorted({int(value) for value in (profile_ids or ()) if int(value) > 0})
+        channels = sorted({int(value) for value in (channel_db_ids or ()) if int(value) > 0})
+        if not profiles or not channels:
+            return empty
+        utc_now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        pkt_now = utc_now.astimezone(ZoneInfo("Asia/Karachi"))
+        pkt_start = datetime(pkt_now.year, pkt_now.month, pkt_now.day,
+                             tzinfo=ZoneInfo("Asia/Karachi"))
+        today_start = pkt_start.astimezone(timezone.utc)
+        yesterday_start = (pkt_start - timedelta(days=1)).astimezone(timezone.utc)
+        tomorrow_start = (pkt_start + timedelta(days=1)).astimezone(timezone.utc)
+        stamp = lambda dt: dt.strftime("%Y-%m-%d %H:%M:%S")
+        dates = (stamp(today_start), stamp(tomorrow_start),
+                 stamp(yesterday_start), stamp(today_start),
+                 *(stamp(utc_now - timedelta(days=days)) for days in (7, 30, 90, 365)))
+        pmarks = ",".join("?" for _ in profiles)
+        cmarks = ",".join("?" for _ in channels)
+        sql = f"""
+            SELECT COUNT(*) AS total,
+                   COALESCE(SUM(CASE WHEN julianday(uploaded_at) >= julianday(?)
+                                    AND julianday(uploaded_at) < julianday(?)
+                                    THEN 1 ELSE 0 END),0) AS today,
+                   COALESCE(SUM(CASE WHEN julianday(uploaded_at) >= julianday(?)
+                                    AND julianday(uploaded_at) < julianday(?)
+                                    THEN 1 ELSE 0 END),0) AS yesterday,
+                   COALESCE(SUM(CASE WHEN julianday(uploaded_at) >= julianday(?)
+                                    THEN 1 ELSE 0 END),0) AS days7,
+                   COALESCE(SUM(CASE WHEN julianday(uploaded_at) >= julianday(?)
+                                    THEN 1 ELSE 0 END),0) AS days30,
+                   COALESCE(SUM(CASE WHEN julianday(uploaded_at) >= julianday(?)
+                                    THEN 1 ELSE 0 END),0) AS days90,
+                   COALESCE(SUM(CASE WHEN julianday(uploaded_at) >= julianday(?)
+                                    THEN 1 ELSE 0 END),0) AS days365
+              FROM upload_records
+             WHERE profile_id IN ({pmarks}) AND channel_db_id IN ({cmarks})
+        """
+        with self.connect() as con:
+            row = con.execute(sql, (*dates, *profiles, *channels)).fetchone()
+        return {key: int(row[key] or 0) for key in keys}
+
     def history_records(self, limit:int=1000) -> List[Dict[str,Any]]:
         # LUM_UPLOAD_RECORDS_DEDUPE_V1
         # upload_records is the canonical V6 upload receipt. script_history is a second,
@@ -2693,9 +2764,15 @@ def profile_context(pc_db: Any, store: V6Store, profile_id:int=0, *, owner:str="
                      int(row.get("auto_engine_profile_id") or row.get("profile_id") or 0)
                      in allowed_profiles)]
     if owner:
-        # Dashboard aggregate counters can contain cross-tenant history.
-        stats=ctx.get("record_stats") or {}
-        ctx["record_stats"]={key:0 for key in stats}
+        # Per-user receipts/counters must be computed inside the authorized SQL
+        # scope, not calculated globally and then zeroed or sliced.
+        if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio":
+            ctx["records"]=store.owner_records(allowed_profiles, allowed_channels, limit=500)
+            ctx["record_stats"]=store.owner_record_stats(allowed_profiles, allowed_channels)
+        else:
+            # Other uploader modes retain their existing fail-closed policy.
+            stats=ctx.get("record_stats") or {}
+            ctx["record_stats"]={key:0 for key in stats}
         ctx["missed"]=[]
     selected=ctx.get("selected")
     if selected:
