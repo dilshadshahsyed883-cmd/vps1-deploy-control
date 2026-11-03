@@ -242,6 +242,78 @@ def verify_short_maker_existing_https(revision):
     return auth_mode
 
 
+def verify_cloud_render_scene_only_https(revision):
+    """Scoped Cloud Render app-only release: inspect live HTTPS, never edit Nginx.
+
+    This is intentionally NOT an Nginx drift whitelist. A separately managed
+    Scene SSO vhost may contain unknown additions; the app release must neither
+    normalize nor replace them. Only the already-installed Scene candidate and
+    its existing catch-all HTTPS route are being read/probed.
+    """
+    from production import nginx_route_only as routes
+    from production.route_uploader_scene_https import scene_cookie
+    from production.scene_public_https import SITE as scene_site
+
+    record = BASE / "control/state/scene-candidate.json"
+    if record.is_symlink() or not record.is_file():
+        raise RuntimeError("Cloud Render Scene candidate release record unavailable")
+    state = json.loads(record.read_text())
+    if state.get("status") != "ACTIVE":
+        raise RuntimeError("Cloud Render Scene candidate is not active")
+    if scene_site.is_symlink() or not scene_site.is_file():
+        raise RuntimeError("Cloud Render Scene HTTPS vhost unavailable")
+
+    # Strictly read-only gateway inspection; a scoped Scene source update does
+    # not need to regenerate a Basic gateway or silently accept configuration drift.
+    before = scene_site.read_bytes()
+    site = before.decode("utf-8")
+    if site.count("location / {\n    proxy_pass http://127.0.0.1:18080;") != 1:
+        raise RuntimeError("Cloud Render Scene HTTPS fallback ownership changed")
+    if ("location = /cloud-render " in site or
+            "location ^~ /cloud-render/" in site or
+            "location /cloud-render/" in site):
+        raise RuntimeError("Cloud Render HTTPS route shadows Scene fallback")
+    run(["nginx", "-t"], quiet=True)
+    routes.check_scene()
+    # No anonymous browser or API access, including when rollback restored
+    # an older Scene revision with no Cloud Render app installed.
+    anon_page, _, _ = routes.tls_get("/cloud-render/", accept="text/html")
+    if anon_page not in (302, 303, 401, 403, 404):
+        raise RuntimeError("Cloud Render anonymous browser route exposed")
+    anon_api, _, _ = routes.tls_get("/api/cloud-render/media")
+    if anon_api not in (302, 303, 401, 403, 404):
+        raise RuntimeError("Cloud Render anonymous API exposed")
+
+    if state.get("revision") == revision:
+        cookie = scene_cookie()
+        status, content_type, html = routes.tls_get("/cloud-render/", cookie=cookie,
+                                                    accept="text/html")
+        if status != 200 or "html" not in content_type.lower() or not (
+                b"Cloud Render" in html and b"GPU Config" in html and b"Media" in html):
+            raise RuntimeError("Cloud Render authenticated admin HTML proof failed")
+        for resource in ("/api/cloud-render/media", "/api/cloud-render/config"):
+            code, content_type, body = routes.tls_get(resource, cookie=cookie)
+            if code != 200 or "json" not in content_type.lower():
+                raise RuntimeError("Cloud Render authenticated admin API proof failed")
+            result = json.loads(body)
+            if resource.endswith("/media") and not isinstance(result.get("items"), list):
+                raise RuntimeError("Cloud Render media API response invalid")
+            if resource.endswith("/config") and not (
+                    result.get("source_lock") == "cloud_render/concat/source.lock.json"
+                    and result.get("image_ready") is False):
+                raise RuntimeError("Cloud Render GPU image/source contract invalid")
+        evidence = "ADMIN_HTML_API_VERIFIED"
+    else:
+        # The root helper rechecks the gateway after an app rollback. Require
+        # a live old Scene app and anonymous denial without claiming new UI.
+        evidence = "PRIOR_SCENE_REVISION_SAFE_ROLLBACK"
+
+    if scene_site.read_bytes() != before:
+        raise RuntimeError("Cloud Render read-only gateway vhost changed concurrently")
+    return {"mode": "NO_NGINX_MUTATION", "scene": evidence,
+            "anonymous": "DENIED", "nginx_syntax": "PASS"}
+
+
 def verify_gateway(apps, credentials, port=8888):
     auth = base64.b64encode((credentials['username'] + ':' + credentials['password']).encode()).decode()
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -398,6 +470,21 @@ def main():
     check_host(args.revision)
     # Inspect protected-main release intent before any route mutation.
     intent = run(['git', 'log', '-1', '--format=%B'], cwd=REPO, quiet=True)
+    # Only the exact reviewed admin-only Cloud Render Scene release may use
+    # the read-only HTTPS proof. The root deploy helper has already installed
+    # the Scene candidate with its own idle-job, SSO and rollback transaction.
+    # Crucially, do not regenerate the unrelated legacy Nginx gateway.
+    if '[vps1-cloud-render-scene-only]' in intent:
+        if ('[vps1-experiment-management-release]' not in intent or
+                '[vps1-production-release:voice-studio]' in intent or
+                '[vps1-auto-script-online]' in intent or
+                'scene-builder' not in args.apps):
+            raise RuntimeError('conflicting or unauthorized Cloud Render gateway intent')
+        with deployment_lock():
+            proof = verify_cloud_render_scene_only_https(args.revision)
+            event(app='scene-builder', gateway='NO_MUTATION',
+                  cloud_render=proof)
+        return
     # The Three-Studio transaction owns and verifies the existing SSO Nginx site.
     if '[vps1-studio-permissions-release]' in intent:
         # remote_deploy passes only legacy production-* units here. The live
