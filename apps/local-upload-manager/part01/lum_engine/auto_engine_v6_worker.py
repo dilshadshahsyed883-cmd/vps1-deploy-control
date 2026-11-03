@@ -17,7 +17,7 @@ from desktop_core.modules.youtube_uploader import YouTubeUploader
 from desktop_core.modules.upload_pipeline import UploadStopped
 from desktop_core.modules.upload_status import UploadStatus
 
-from .auto_engine_v6 import (STAGING_ROOT, V6Store, drive_delete_source, drive_download, drive_move_uploaded, drive_move_uploaded_month, clean, download_channel_thumbnail_for_job, set_channel_job_post_state, emit_channel_sheet_writeback, SHORT_FOLDER_PREFIX, shortstudio_source_path, shortstudio_file_id)
+from .auto_engine_v6 import (STAGING_ROOT, V6Store, drive_delete_source, drive_download, drive_move_uploaded, drive_move_uploaded_month, clean, download_channel_thumbnail_for_job, set_channel_job_post_state, emit_channel_sheet_writeback, SHORT_FOLDER_PREFIX, shortstudio_source_path, shortstudio_file_id, shortstudio_verified_profile_ids, ensure_shortstudio_owner_scope)
 # Shared Song/legacy worker code must not depend on a Short-only helper.
 # Only the independent Short Uploader instance participates.
 if os.environ.get("LUM_ENGINE_INSTANCE") == "shortstudio":
@@ -638,6 +638,17 @@ def main() -> None:
                         # Manual Start scopes the worker to just the requested profile(s).
                         enabled={int(p["id"]) for p in db.list_auto_engine_profiles() if int(p.get("enabled") or 0)==1}
                         manual=state.get("manual_profile_ids")
+                        if os.environ.get("LUM_ENGINE_INSTANCE")=="shortstudio":
+                            # Legacy RUNNING+NULL must be reconciled *before* any
+                            # claim; never lease an unowned or mixed-owner job.
+                            if manual is None:
+                                ensure_shortstudio_owner_scope(db,store)
+                                state=store.engine()
+                                manual=state.get("manual_profile_ids")
+                            verified=shortstudio_verified_profile_ids(db,store)
+                            enabled.intersection_update(pid for pid,active in verified.items() if active)
+                            if manual is None:
+                                raise RuntimeError("Short worker owner scope is unset")
                         if manual is not None:
                             selected={int(x) for x in str(manual).split(",") if x.strip().isdigit()}
                             enabled.intersection_update(selected)

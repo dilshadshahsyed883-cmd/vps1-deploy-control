@@ -122,6 +122,7 @@ class ShortMemberControls(TestCase):
             "db":SimpleNamespace(list_auto_engine_profiles=lambda:(_ for _ in ()).throw(
                  AssertionError("Short admin must not use global profiles"))),
             "v6_store":Store(),"v6_generate_queue":lambda db,st,p:{"created":1},
+            "v6_ensure_shortstudio_owner_scope":lambda db,st,ids:st.set_manual_profile_ids(sorted({99}|set(ids))),
             "v6_mark_schedule_skipped_today":lambda *a:None,
             "redirect":lambda path,**kw:(path,kw)})
         with patch.dict(os.environ,{"LUM_ENGINE_INSTANCE":"shortstudio"}):
@@ -165,6 +166,8 @@ class ShortMemberControls(TestCase):
             "_short_owned_automation_profiles":lambda req:[own],
             "db":SimpleNamespace(list_auto_engine_profiles=lambda:(_ for _ in ()).throw(AssertionError("global profile query"))),
             "v6_store":store,"v6_generate_queue":lambda db,s,pr:{"created":1,"duplicates_blocked":0},
+            "v6_ensure_shortstudio_owner_scope":lambda db,st,ids:st.set_manual_profile_ids(
+                sorted(set(ids)|({99} if st.manual is None else {int(x) for x in st.manual.split(",") if x}))),
             "v6_mark_schedule_skipped_today":lambda db,p:None,
             "redirect":lambda path,**kw:(path,kw)})
         with patch.dict(os.environ,{"LUM_ENGINE_INSTANCE":"shortstudio"}):
@@ -173,8 +176,9 @@ class ShortMemberControls(TestCase):
             self.assertEqual(store.calls[1][0],"engine")
             store.calls.clear();store.manual=None;store.running=True
             result=fn(object(),"csrf","START ALL")
-            self.assertIn("without an owner scope",result[1]["error"])
-            self.assertEqual(store.calls,[])
+            self.assertIn("owned profile",result[1]["message"])
+            self.assertEqual(store.calls[0],("scope",[10,99]))
+            self.assertEqual(store.calls[1][0],"engine")
 
     def test_preview_and_queue_preflight_exclude_foreign_jobs(self):
         own={"id":10,"enabled":1,"category_name":"Mine"}

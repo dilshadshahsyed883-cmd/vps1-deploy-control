@@ -119,6 +119,7 @@ from .auto_engine_v6 import (
     sync_channel_profile as v6_sync_channel_profile, resume_channel_profile as v6_resume_channel_profile,
     shortstudio_list_folders as v6_shortstudio_list_folders,
     shortstudio_folder_path as v6_shortstudio_folder_path,
+    ensure_shortstudio_owner_scope as v6_ensure_shortstudio_owner_scope,
 )
 
 app = FastAPI(title="Short Uploader" if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio" else "Auto Uploader", version=BUILD, docs_url=None, redoc_url=None)
@@ -1820,19 +1821,15 @@ def _short_owned_queue_jobs(request: Request, selected_ids=None, statuses=None) 
 
 
 def _short_owner_start_scoped(request: Request, profile_ids) -> None:
-    """Preserve other owners' running scope while starting own jobs only."""
+    """Resume only owned Short profiles, preserving other users' live scope."""
     owned={int(p["id"]) for p in _short_owned_automation_profiles(request)}
     ids={int(pid) for pid in profile_ids if int(pid)>0}
     if not ids or not ids.issubset(owned):
         raise PermissionError("Unowned Short profile")
-    state=v6_store.engine()
-    if int(state.get("pause_after_current") or 0):
-        raise PermissionError("Shared engine is paused; cannot force a global resume")
-    manual=state.get("manual_profile_ids")
-    if manual is None and int(state.get("running") or 0):
-        raise PermissionError("Shared engine running without owner scope")
-    scope={int(pid) for pid in str(manual or "").split(",") if pid.strip().isdigit()} if manual is not None else set()
-    v6_store.set_manual_profile_ids(sorted(scope | ids))
+    # Recovery is an atomic compare/read/write. If the shared engine was
+    # RUNNING with a legacy NULL scope, retain all safely verified enabled
+    # profiles, not just the account which clicked Resume Paused.
+    v6_ensure_shortstudio_owner_scope(db,v6_store,ids)
     v6_store.set_engine(running=True,pause_after_current=False,error="")
 
 
@@ -2358,17 +2355,21 @@ def auto_v6_start_all(request: Request,csrf_token: str=Form(...),confirmation: s
     if member:
         if not enabled:
             return redirect("/app?tab=auto_engine",error="No enabled owned profiles to start.")
-        state=v6_store.engine()
-        # Never clear a shared engine's existing profile scope or undo a
-        # global pause. This is Start All *my* profiles, not global Start All.
-        if int(state.get("pause_after_current") or 0):
-            return redirect("/app?tab=auto_engine",error="Engine is paused by the administrator.")
-        manual=state.get("manual_profile_ids")
-        if manual is None and int(state.get("running") or 0):
-            return redirect("/app?tab=auto_engine",error="Shared engine is running without an owner scope; ask administrator to set a safe profile scope.")
-        scope={int(x) for x in str(manual or "").split(",") if x.strip().isdigit()} if manual is not None else set()
-        scope.update(int(p["id"]) for p in enabled)
-        v6_store.set_manual_profile_ids(sorted(scope))
+        if mode=="shortstudio":
+            try:
+                v6_ensure_shortstudio_owner_scope(db,v6_store,{int(p["id"]) for p in enabled})
+            except Exception as exc:
+                return redirect("/app?tab=auto_engine",error=str(exc))
+        else:
+            state=v6_store.engine()
+            if int(state.get("pause_after_current") or 0):
+                return redirect("/app?tab=auto_engine",error="Engine is paused by the administrator.")
+            manual=state.get("manual_profile_ids")
+            if manual is None and int(state.get("running") or 0):
+                return redirect("/app?tab=auto_engine",error="Shared engine is running without an owner scope; ask administrator to set a safe profile scope.")
+            scope={int(x) for x in str(manual or "").split(",") if x.strip().isdigit()} if manual is not None else set()
+            scope.update(int(p["id"]) for p in enabled)
+            v6_store.set_manual_profile_ids(sorted(scope))
     created=0; skipped=[]
     for profile in enabled:
         folder_owner=v6_store.group_settings(int(profile.get("id") or 0)).get("song_folder_owner")
