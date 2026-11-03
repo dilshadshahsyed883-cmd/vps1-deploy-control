@@ -1,0 +1,66 @@
+name: Cloud Render Concat Windows EXE (verified upstream)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - feature/cloud-render-concat-migration-20261104
+    paths:
+      - .github/workflows/vps1-cloud-render-concat-package.yml
+      - cloud_render/concat/**
+  pull_request:
+    paths:
+      - .github/workflows/vps1-cloud-render-concat-package.yml
+      - cloud_render/concat/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: concat-original-windows-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package-windows:
+    name: Verify and publish Cloud Render Concat desktop installer
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Checkout VPS1 repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python for verification
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run checksum-verifier tests
+        shell: pwsh
+        run: python -m unittest discover -s cloud_render/concat/tests -v
+
+      - name: Download Concat v0.2.8 Windows x64 setup from official release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          gh release download v0.2.8 --repo jub0t/Concat --pattern "Concat-0.2.8-windows-x86_64-setup.exe" --pattern "SHA256SUMS" --dir dist
+          if ($LASTEXITCODE -ne 0) { throw "Upstream download failed" }
+
+      - name: Verify SHA256, Windows PE header and installer size
+        shell: pwsh
+        run: |
+          python cloud_render/concat/verify_release.py --installer dist/Concat-0.2.8-windows-x86_64-setup.exe --checksums dist/SHA256SUMS
+          if ($LASTEXITCODE -ne 0) { throw "Upstream installer verification failed" }
+
+      - name: Upload verified installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cloud-Render-Concat-v0.2.8-Windows-x64
+          path: |
+            dist/Concat-0.2.8-windows-x86_64-setup.exe
+            dist/SHA256SUMS
+            cloud_render/concat/README.md
+          if-no-files-found: error
+          retention-days: 30
