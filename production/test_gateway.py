@@ -99,6 +99,47 @@ class GatewaySelectionTest(unittest.TestCase):
 
 
 
+class SongAudioSceneGatewayOwnershipTests(unittest.TestCase):
+    def test_protected_scene_owned_song_intents_skip_legacy_gateway_only_on_install(self):
+        from production.remote_deploy import song_audio_scene_owns_gateway
+        for marker in (
+            '[vps1-song-audio-separate]',
+            '[vps1-song-audio-voice-readonly-diagnose]',
+            '[vps1-song-audio-voice-recovery]',
+        ):
+            intent = '[vps1-song-studio-release] ' + marker
+            with self.subTest(marker=marker):
+                self.assertTrue(song_audio_scene_owns_gateway('install', 'voice-studio', intent))
+                self.assertFalse(song_audio_scene_owns_gateway('rollback', 'voice-studio', intent))
+                self.assertFalse(song_audio_scene_owns_gateway('install', 'short-maker', intent))
+                self.assertFalse(song_audio_scene_owns_gateway('install', 'scene-builder', intent))
+        self.assertFalse(song_audio_scene_owns_gateway(
+            'install', 'voice-studio', '[vps1-production-release:voice-studio]'))
+        self.assertFalse(song_audio_scene_owns_gateway(
+            'install', 'voice-studio', 'ordinary production release'))
+
+    def test_unprotected_or_conflicting_song_selector_is_rejected(self):
+        from production.remote_deploy import song_audio_scene_owns_gateway
+        with self.assertRaisesRegex(RuntimeError, 'exclusive protected intent'):
+            song_audio_scene_owns_gateway(
+                'install', 'voice-studio', '[vps1-song-audio-separate]')
+        with self.assertRaisesRegex(RuntimeError, 'exclusive protected intent'):
+            song_audio_scene_owns_gateway(
+                'install', 'voice-studio',
+                '[vps1-song-studio-release] [vps1-song-audio-separate] '
+                '[vps1-song-audio-voice-readonly-diagnose]')
+
+    def test_gateway_bypass_happens_only_after_protected_runtime_success(self):
+        source = (Path(__file__).resolve().parents[1] /
+                  'production/remote_deploy.py').read_text()
+        runtime = source.index("'-m', 'production.runtime'")
+        helper = source.index('if song_audio_scene_owns_gateway(operation, selected, release_intent):')
+        legacy = source.index("'-m', 'production.gateway'")
+        self.assertLess(runtime, helper)
+        self.assertLess(helper, legacy)
+        self.assertIn("print('SONG_AUDIO_SCENE_GATEWAY=UNCHANGED'", source)
+
+
 class GatewayReloadRetryTests(unittest.TestCase):
     def test_transient_404_recovers_to_authentication_challenge(self):
         from urllib.error import HTTPError
