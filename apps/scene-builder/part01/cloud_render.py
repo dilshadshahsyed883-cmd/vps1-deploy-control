@@ -292,7 +292,7 @@ class CloudRender:
     def queue(self, job):
         local = self.local(job)
         with self.lock, self.connection() as con:
-            row = con.execute("SELECT state FROM files WHERE id=?", (job,)).fetchone()
+            row = con.execute("SELECT state,size FROM files WHERE id=?", (job,)).fetchone()
             if not row: raise HTTPException(404, "File not found")
             if row["state"] not in ("ready","failed"):
                 raise HTTPException(409, "File is not ready for upload")
