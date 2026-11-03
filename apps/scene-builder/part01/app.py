@@ -767,7 +767,7 @@ async def authentication(request: Request, call_next):
         or _af_path == "/api/master-controller/health"
     ):
         return await call_next(request)
-    if request.url.path in {"/internal/auto-caption-auth", "/internal/local-upload-manager-auth", "/internal/audio-engine-auth", "/internal/workspace-auth"}:
+    # Separate short-lived Salad worker token guards only the MP4 receiver.\n    if request.url.path.startswith("/api/cloud-render/ingest/"):\n        return await call_next(request)\n    if request.url.path in {"/internal/auto-caption-auth", "/internal/local-upload-manager-auth", "/internal/audio-engine-auth", "/internal/workspace-auth"}:
         return await call_next(request)
     public_paths = {"/login", "/health", "/internal/auto-caption-auth", "/internal/local-upload-manager-auth", "/internal/audio-engine-auth", "/internal/workspace-auth"}
     if request.url.path.startswith("/static/") or request.url.path in public_paths:
@@ -790,7 +790,7 @@ async def authentication(request: Request, call_next):
     studio = studio_for_path(request.url.path)
     if studio and not studio_access_allows(account, studio):
         return Response(status_code=403, content="Studio access not granted")
-    if (request.url.path == "/experiment-studio" or
+    if (request.url.path.rstrip("/") == "/cloud-render" or\n            request.url.path.startswith("/api/cloud-render/")) and not account.get("is_admin"):\n        return Response(status_code=403, content="Administrator access required")\n    if (request.url.path == "/experiment-studio" or
             request.url.path.startswith("/experiment-studio/") or
             request.url.path.startswith("/api/experiment-browser/")) and not account.get("is_admin"):
         return Response(status_code=403, content="Administrator access required")
@@ -805,7 +805,7 @@ app.add_middleware(
 )
 
 
-@app.get("/api/session/identity")
+from cloud_render import register_cloud_render\nCLOUD_RENDER = register_cloud_render(app, templates, DATA_DIR, require_admin, require_login)\n\n@app.get("/api/session/identity")
 def scene_session_identity(request: Request):
     """Current Scene database role for native independent-app navigation.
 
