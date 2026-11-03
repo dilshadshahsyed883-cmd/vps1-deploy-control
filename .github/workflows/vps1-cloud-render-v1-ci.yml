@@ -11,7 +11,7 @@ on:
       - 'apps/scene-builder/part01/static/vps1_native_site_shell.js'
       - 'tests/test_cloud_render_v1.py'
       - '.github/workflows/vps1-cloud-render-v1-ci.yml'
-      - '.github/workflows/vps1-cloud-render-v1-release.yml'
+      - '.github/workflows/vps1-experiment-management-release.yml'
 permissions:
   contents: read
 jobs:
@@ -38,9 +38,9 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          text = Path('.github/workflows/vps1-cloud-render-v1-release.yml').read_text()
+          text = Path('.github/workflows/vps1-experiment-management-release.yml').read_text()
           for marker in ('tailscale/github-action@v4','vps1-production-deploy install','vps1-production-deploy rollback',
-                         'AUTO_SCRIPT=OFFLINE_UNCHANGED','[vps1-cloud-render-release]','github.actor =='):
+                         'AUTO_SCRIPT=OFFLINE_UNCHANGED','[vps1-experiment-management-release]','github.actor =='):
               assert marker in text, marker
           print('CLOUD_RENDER_RELEASE_LANE=GUARDED')
           PY
