@@ -26,6 +26,22 @@ _ADMIN_USER_MANAGEMENT = ("POST", "/user-management")
 
 
 def mutation_allowed(method: str, path: str, editing_enabled: bool, auto_script_enabled: bool = False) -> bool:
+    # Cloud Render: scoped admin+CSRF actions and token-authenticated chunk receiver.
+    # This does not grant generic editing or modify Auto Script.
+    if (method,path) in {
+        ("POST","/api/cloud-render/config"),
+        ("POST","/api/cloud-render/token/rotate"),
+        ("POST","/api/cloud-render/gpu/test"),
+        ("POST","/api/cloud-render/gpu/connect"),
+        ("POST","/api/cloud-render/gpu/disconnect"),
+    }:
+        return True
+    if method == "POST" and re.fullmatch(r"/api/cloud-render/media/[A-Za-z0-9_-]{1,80}/(?:rename|drive)",path):
+        return True
+    if method == "DELETE" and re.fullmatch(r"/api/cloud-render/media/[A-Za-z0-9_-]{1,80}",path):
+        return True
+    if method == "POST" and re.fullmatch(r"/api/cloud-render/ingest/[A-Za-z0-9_-]{1,80}/chunk",path):
+        return True
     # Owner-approved Auto Script writes are scoped to its own APIs only.
     if auto_script_enabled and method == "POST":
         if path in ("/api/auto-script/channels", "/api/auto-script/tick"):
