@@ -193,6 +193,55 @@ def verify_voice_scene_sso_ui(*, readonly_gateway=False):
     verify_voice_release_anonymous_denial()
 
 
+def verify_short_maker_existing_https(revision):
+    """Scoped Maker-only post-install proof; never mutate an unrelated gateway.
+
+    The app is already installed by the guarded root helper. Require its
+    exact current release record and one reviewed, unchanged public route.
+    Do not reinterpret arbitrary Scene vhost drift as permission to rewrite.
+    """
+    from production import nginx_route_only as routes
+    from production import scene_session_routes as sso
+    from production.scene_public_https import SITE as scene_site
+
+    record = BASE / 'control/state/short-maker.json'
+    if record.is_symlink() or not record.is_file():
+        raise RuntimeError('Short Maker release record unavailable')
+    state = json.loads(record.read_text())
+    if state.get('status') != 'ACTIVE' or state.get('revision') != revision:
+        raise RuntimeError('Short Maker release record revision mismatch')
+    http_check('short-maker')
+    run(['nginx', '-t'], quiet=True)
+    if scene_site.is_symlink() or not scene_site.is_file():
+        raise RuntimeError('Short Maker Scene HTTPS site unavailable')
+    site = scene_site.read_text()
+    names = routes.managed_re().findall(site)
+    if (names.count('short-maker') != 1 or len(names) != len(set(names))
+            or any(name not in routes.APPS for name in names)):
+        raise RuntimeError('Short Maker managed HTTPS ownership invalid')
+    base = routes.managed_re().sub('', site)
+    if ('location = /short-maker ' in base or
+            'location ^~ /short-maker/' in base):
+        raise RuntimeError('Short Maker duplicate direct HTTPS route')
+    fragment = routes.snippet_path('short-maker')
+    if fragment.is_symlink() or not fragment.is_file():
+        raise RuntimeError('Short Maker managed HTTPS snippet missing')
+    current = fragment.read_text()
+    if current == sso.config('short-maker'):
+        cookie = sso.ready_cookie('short-maker')
+        sso.verify('short-maker', cookie)
+        auth_mode = 'SCENE_SSO_VERIFIED'
+    elif current == routes.route_config('short-maker'):
+        # Read the established Basic credential record; never create or
+        # rotate it. Real HTTPS checks require anonymous 401 and admin 200.
+        routes.check_app('short-maker', routes.credentials())
+        auth_mode = 'EXISTING_BASIC_VERIFIED'
+    else:
+        raise RuntimeError('Short Maker HTTPS snippet drift')
+    routes.check_scene()
+    return auth_mode
+
+
 def verify_gateway(apps, credentials, port=8888):
     auth = base64.b64encode((credentials['username'] + ':' + credentials['password']).encode()).decode()
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -427,6 +476,19 @@ def main():
             verify_voice_scene_sso_ui(readonly_gateway=True)
             event(app='voice-studio', gateway='NO_MUTATION',
                   scene_sso='LIVE_VERIFIED', anonymous='DENIED')
+        return
+    # Short Maker-only source updates must not regenerate the unrelated
+    # legacy Basic gateway or overwrite the Scene-owned HTTPS vhost.
+    if ('[vps1-short-studio-release]' in intent and
+            '[vps1-short-maker-only]' in intent):
+        if ('short-maker' not in args.apps or
+                '[vps1-shortstudio-readonly-diagnose]' in intent or
+                '[vps1-short-maker-drain-release]' in intent):
+            raise RuntimeError('conflicting Short Maker gateway release intent')
+        with deployment_lock():
+            mode = verify_short_maker_existing_https(args.revision)
+            event(app='short-maker', gateway='NO_MUTATION',
+                  existing_https=mode, anonymous='DENIED')
         return
     with deployment_lock():
         selected = public_apps_for_revision(args.apps, args.revision)
