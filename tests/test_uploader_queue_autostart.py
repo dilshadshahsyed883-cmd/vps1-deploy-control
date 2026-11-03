@@ -18,7 +18,21 @@ def load_autostart():
     source = (LUM / "auto_engine_v6.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "auto_start_new_jobs")
-    env = {"os": os, "V6Store": object, "Dict": dict, "Any": object}
+    def mocked_owner_scope(pc_db, store, required_ids):
+        # The real owner/SQLite reconciliation is exercised in
+        # test_short_uploader_owner_scope_resume.py.
+        if pc_db is None:
+            raise AssertionError("Short auto-start must receive profile inventory")
+        verified = set(pc_db["verified"])
+        required = set(required_ids)
+        if not required.issubset(verified):
+            raise PermissionError("Unowned Short profile")
+        manual = store.engine().get("manual_profile_ids")
+        current = (verified if store.engine().get("running") else set()) if manual is None else {
+            int(value) for value in manual.split(",") if value.isdigit()}
+        store.set_manual_profile_ids(sorted((current & verified) | required))
+    env = {"os": os, "V6Store": object, "Dict": dict, "Any": object,
+           "ensure_shortstudio_owner_scope": mocked_owner_scope}
     exec(compile(ast.Module(body=[fn], type_ignores=[]), str(LUM / "auto_engine_v6.py"), "exec"), env)
     return env["auto_start_new_jobs"]
 
@@ -47,7 +61,7 @@ class QueueAutostartTests(unittest.TestCase):
         for mode in ("song", "shortstudio", "copyright", "engine1"):
             with self.subTest(mode=mode), patch.dict(os.environ, {"LUM_ENGINE_INSTANCE": mode}):
                 store = FakeStore()
-                result = fn(store, {"id": 7, "enabled": 1}, 2)
+                result = fn(store, {"id": 7, "enabled": 1}, 2, pc_db={"verified": [7]})
                 self.assertEqual(result, mode in {"song", "shortstudio"})
                 self.assertEqual(bool(store.engine_changes), result)
 
@@ -55,12 +69,13 @@ class QueueAutostartTests(unittest.TestCase):
         fn = load_autostart()
         with patch.dict(os.environ, {"LUM_ENGINE_INSTANCE": "shortstudio"}):
             store = FakeStore(manual="2,4")
-            self.assertTrue(fn(store, {"id": 7, "enabled": 1}, 1))
+            self.assertTrue(fn(store, {"id": 7, "enabled": 1}, 1, pc_db={"verified": [2, 4, 7]}))
             self.assertEqual(store.scope_changes, [[2, 4, 7]])
             self.assertEqual(store.engine_changes, [{"running": True, "pause_after_current": False}])
-            all_enabled = FakeStore(manual=None)
-            self.assertTrue(fn(all_enabled, {"id": 7, "enabled": 1}, 1))
-            self.assertEqual(all_enabled.scope_changes, [])
+            stopped_unscoped = FakeStore(manual=None)
+            self.assertTrue(fn(stopped_unscoped, {"id": 7, "enabled": 1}, 1,
+                               pc_db={"verified": [2, 4, 7]}))
+            self.assertEqual(stopped_unscoped.scope_changes, [[7]])
 
     def test_no_replay_on_duplicate_disabled_profile_or_explicit_pause(self):
         fn = load_autostart()
@@ -75,8 +90,8 @@ class QueueAutostartTests(unittest.TestCase):
     def test_all_auto_engine_admission_paths_delegate_to_autostart(self):
         source = (LUM / "auto_engine_v6.py").read_text(encoding="utf-8")
         source = source[source.index("def auto_start_new_jobs("):]
-        self.assertIn("auto_start_new_jobs(store, profile, queued[\"created\"])", source)
-        self.assertIn("auto_start_new_jobs(store, profile, int(result.get(\"created\") or 0))", source)
+        self.assertIn("auto_start_new_jobs(store, profile, queued[\"created\"],pc_db=pc_db)", source)
+        self.assertIn("auto_start_new_jobs(store, profile, int(result.get(\"created\") or 0),pc_db=pc_db)", source)
         self.assertIn("return result", source)
         worker = (LUM / "auto_engine_v6_worker.py").read_text(encoding="utf-8")
         self.assertIn("db.activate_due_scheduled_jobs(auto_engine_only=True)", worker)
