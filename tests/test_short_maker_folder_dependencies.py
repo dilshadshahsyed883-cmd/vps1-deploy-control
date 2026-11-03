@@ -83,6 +83,22 @@ class FolderDeletePreflightTests(unittest.TestCase):
         self.assertFalse(result["deletion_enabled"])
         self.assertFalse(result["delete_preflight_ready"])
 
+    def test_published_video_is_terminal_but_profile_and_claim_still_block_delete(self):
+        # PUBLISHED is canonical Short Uploader successful terminal state.
+        # Do not miscount it as an active upload; never ignore remaining
+        # profile bindings or history/source claims for folder retirement.
+        with sqlite3.connect(self.app_db) as db:
+            db.execute("UPDATE videos SET status='PUBLISHED' WHERE id=91")
+        with sqlite3.connect(self.engine_db) as db:
+            db.execute("UPDATE job_sources SET state='COMPLETE' WHERE video_id=91")
+        result = self.inspect()
+        self.assertEqual(result["active_uploader_claims"],0)
+        self.assertEqual(result["source_claims_total"],1)
+        self.assertTrue(result["linked_profiles"])
+        self.assertIn("Short Uploader profiles still link folder",result["issues"])
+        self.assertFalse(result["delete_preflight_ready"])
+        self.assertFalse(result["deletion_enabled"])
+
     def test_foreign_and_unassigned_profile_links_are_private_blockers(self):
         with sqlite3.connect(self.engine_db) as db:
             db.execute("INSERT INTO profile_sources VALUES(12,'Owner Folder')")
