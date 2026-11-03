@@ -390,7 +390,7 @@ def register_cloud_render(app, templates, root, require_admin, require_login):
         if not request.session.get("cloud_render_csrf"):
             request.session["cloud_render_csrf"] = secrets.token_urlsafe(32)
         return templates.TemplateResponse("cloud_render.html",
-                 {"request": request, "page": "experiment_studio",
+                 {"request": request, "page": "cloud_render",
                   "username": request.session.get("username","team"),
                   "csrf_token": request.session["cloud_render_csrf"]})
 
