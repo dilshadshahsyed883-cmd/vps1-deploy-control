@@ -44,7 +44,7 @@ class VoiceReadOnlyTests(unittest.TestCase):
                 self.assertEqual([authenticated for _, authenticated in calls],
                                  [False, True, False, True])
                 self.assertNotIn("completed", str(result))
-                self.assertNotIn("test", str(result))
+                self.assertNotIn("'id':", str(result))
 
     def test_clone_unconfigured_is_reported_not_falsely_ready(self):
         fetch, calls = self.live_status_fetcher()
