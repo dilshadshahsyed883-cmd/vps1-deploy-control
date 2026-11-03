@@ -32,7 +32,7 @@
     config = await api("/config");
     configured=true;
     $("cr-auto").checked=!!config.auto_upload;
-    $("cr-image").value=config.image||"";
+    $("cr-image").value=config.image||"Not published — cloud_render/concat/gpu/Dockerfile";
     $("cr-endpoint").value=config.endpoint||"";
     $("cr-health-path").value=config.health_path||"/health/ready";
     $("cr-timeout").value=config.timeout||300;
@@ -40,7 +40,7 @@
     $("cr-salad-key-state").textContent=config.salad_key_saved?"Saved":"Not saved";
     $("cr-worker-key-state").textContent=config.worker_key_saved?"Saved":"Not saved";
     const details=[
-      ["GPU",config.gpu],["VRAM",(config.vram_gb||8)+" GB"],
+      ["Engine",config.engine],["GPU",config.gpu],["VRAM",(config.vram_gb||8)+" GB"],
       ["CPU",config.cpu+" vCPU"],["RAM",config.ram_gb+" GB"],
       ["Storage",config.storage_gb+" GB"],["Replicas",String(config.replicas)],
       ["Architecture",config.architecture],["Port",String(config.port)],
@@ -53,7 +53,7 @@
     });
     const online=!!config.enabled;
     $("cr-health").textContent=online?"Worker enabled":"Worker not connected";
-    $("cr-connection").textContent=online?"Enabled — verify status":"Not connected";
+    $("cr-connection").textContent=online?"Enabled — verify worker":"Image not GPU-verified";
   }
   const operations = async (label,callback) => {
     try {msg(label+"..."); await callback();msg(label+" successful");await refresh();}
