@@ -326,6 +326,30 @@ def main():
             raise RuntimeError('cancel-only release cannot modify application gateway')
         print('SCENE_TARGET_CANCEL_GATEWAY_MUTATIONS=NONE', flush=True)
         return
+    # Song Audio's coordinated cutover already verifies the live Scene SSO
+    # route, the sole 8152 worker, and the split Voice service. The older
+    # Basic-Auth shared-shell publisher cannot authenticate a Scene session
+    # and must NOT rewrite an unrelated Nginx gateway after this transaction.
+    # The separate read-only diagnostic must never publish a gateway either.
+    song_audio_cutover = '[vps1-song-audio-separate]' in intent
+    song_audio_audit = '[vps1-song-audio-voice-readonly-diagnose]' in intent
+    if song_audio_cutover and song_audio_audit:
+        raise RuntimeError('conflicting Song Audio gateway release intentions')
+    if song_audio_audit:
+        event(song_audio_gateway='NO_MUTATION', mode='READ_ONLY_DIAGNOSTIC')
+        return
+    if song_audio_cutover:
+        from production.song_audio_cutover import _health_scene, _live_http_acceptance
+        with deployment_lock():
+            _health_scene()
+            acceptance = _live_http_acceptance()
+        # Never turn a failed health / owner-scoped Scene authentication probe
+        # into success. The source transaction retains its own rollback gates.
+        event(song_audio_gateway='NO_MUTATION', mode='SCENE_SSO_VERIFIED',
+              canonical_page=acceptance['canonical_page'],
+              anonymous_access=acceptance['anonymous_access'])
+        return
+
     with deployment_lock():
         selected = public_apps_for_revision(args.apps, args.revision)
         install(selected)
