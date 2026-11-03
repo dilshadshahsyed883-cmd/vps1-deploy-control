@@ -7,6 +7,7 @@ on:
       - 'production/shortstudio_cooperation_readonly.py'
       - 'production/shortstudio_readonly_diagnostic.py'
       - 'production/test_shortstudio_readonly_diagnostic.py'
+      - 'production/test_shortstudio_drain_reason.py'
       - 'production/short_uploader_group_release.py'
       - 'apps/short-maker/part01/short_profile_clock.py'
       - 'tests/test_short_uploader_cooperation.py'
@@ -72,6 +73,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_short_uploader_cooperation.py' -v
           python -m unittest discover -s tests -p 'test_shortstudio_cooperation_readonly.py' -v
           python -m unittest production.test_shortstudio_readonly_diagnostic -v
+          python -m unittest production.test_shortstudio_drain_reason -v
           python -m unittest discover -s tests -p 'test_short_maker_profile_queue_bridge.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_profiles_integration.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_profile_media.py' -v
