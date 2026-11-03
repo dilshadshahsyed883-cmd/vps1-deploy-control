@@ -99,6 +99,117 @@ class GatewaySelectionTest(unittest.TestCase):
 
 
 
+class GatewayVoiceSceneSSOTests(unittest.TestCase):
+    """A legacy Basic UI 401 is never a substitute for signed Scene SSO."""
+
+    @staticmethod
+    def legacy_response(url, *, ui_status=401):
+        from urllib.error import HTTPError
+        from io import BytesIO
+
+        if isinstance(url, str):  # anonymous health must be denied by Basic
+            raise HTTPError(url, 401, 'Basic required', {}, None)
+        if url.full_url.endswith('/healthz'):
+            response = BytesIO(b'{"ok": true}')
+            response.status = 200
+            response.headers = {'Content-Type': 'application/json'}
+            return response
+        raise HTTPError(url.full_url, ui_status, 'Voice needs Scene session', {}, None)
+
+    def test_basic_voice_ui_401_needs_real_scene_sso_proof(self):
+        from unittest.mock import patch
+        from production import gateway
+        from urllib.error import HTTPError
+
+        def open_legacy(opener, url, **kwargs):
+            return self.legacy_response(url)
+        with patch.object(gateway.urllib.request, 'build_opener'), \
+             patch.object(gateway, 'open_during_reload', side_effect=open_legacy), \
+             patch.object(gateway, 'verify_voice_scene_sso_ui') as verify, \
+             patch.object(gateway, 'event') as event:
+            gateway.verify_gateway(['voice-studio'], {'username': 'admin', 'password': 'test'})
+        verify.assert_called_once_with()
+        self.assertEqual(event.call_args.kwargs['html_ui'], 'SCENE_SSO_VERIFIED')
+
+    def test_scene_verification_failure_does_not_accept_basic_401(self):
+        from unittest.mock import patch
+        from production import gateway
+
+        def open_legacy(opener, url, **kwargs):
+            return self.legacy_response(url)
+        with patch.object(gateway.urllib.request, 'build_opener'), \
+             patch.object(gateway, 'open_during_reload', side_effect=open_legacy), \
+             patch.object(gateway, 'verify_voice_scene_sso_ui',
+                          side_effect=RuntimeError('Scene login invalid')), \
+             patch.object(gateway, 'event') as event:
+            with self.assertRaisesRegex(RuntimeError, 'Scene login invalid'):
+                gateway.verify_gateway(['voice-studio'], {'username': 'admin', 'password': 'test'})
+        event.assert_not_called()
+
+    def test_unrelated_app_401_must_not_be_accepted(self):
+        from unittest.mock import patch
+        from urllib.error import HTTPError
+        from production import gateway
+
+        def open_legacy(opener, url, **kwargs):
+            if isinstance(url, str):
+                raise HTTPError(url, 401, 'Basic required', {}, None)
+            from io import BytesIO
+            if '/health' in url.full_url:
+                response = BytesIO(b'{"ok": true}')
+                response.status = 200
+                response.headers = {'Content-Type': 'application/json'}
+                return response
+            raise HTTPError(url.full_url, 401, 'denied', {}, None)
+
+        with patch.object(gateway.urllib.request, 'build_opener'), \
+             patch.object(gateway, 'open_during_reload', side_effect=open_legacy), \
+             patch.object(gateway, 'verify_voice_scene_sso_ui') as verify:
+            with self.assertRaises(HTTPError) as caught:
+                gateway.verify_gateway(['short-maker'], {'username': 'admin', 'password': 'test'})
+        self.assertEqual(caught.exception.code, 401)
+        verify.assert_not_called()
+
+    def test_signed_scene_proof_checks_route_https_and_direct_anonymous(self):
+        from unittest.mock import patch
+        from production import gateway
+        import production.scene_session_routes as sso
+        import production.scene_public_https as https
+        import production.runtime as runtime
+
+        with tempfile.TemporaryDirectory() as tmp:
+            site = Path(tmp) / 'scene.conf'
+            site.write_text('known scene owned snippet')
+            with patch.object(https, 'SITE', site), \
+                 patch.object(sso, 'active', return_value=True) as active, \
+                 patch.object(sso, 'ready_cookie', return_value='signed=test') as cookie, \
+                 patch.object(sso, 'verify') as verified, \
+                 patch.object(sso, 'verify_voice_shell') as shell, \
+                 patch.object(runtime, 'verify_voice_release_anonymous_denial') as denial:
+                gateway.verify_voice_scene_sso_ui()
+            active.assert_called_once_with('voice-studio', 'known scene owned snippet')
+            cookie.assert_called_once_with('voice-studio')
+            verified.assert_called_once_with('voice-studio', 'signed=test')
+            shell.assert_called_once_with('signed=test')
+            denial.assert_called_once_with()
+
+    def test_absent_or_unowned_scene_route_fails_closed(self):
+        from unittest.mock import patch
+        from production import gateway
+        import production.scene_session_routes as sso
+        import production.scene_public_https as https
+
+        with tempfile.TemporaryDirectory() as tmp:
+            site = Path(tmp) / 'scene.conf'
+            with patch.object(https, 'SITE', site):
+                with self.assertRaisesRegex(RuntimeError, 'site is unavailable'):
+                    gateway.verify_voice_scene_sso_ui()
+                site.write_text('not owned')
+                with patch.object(sso, 'active', return_value=False):
+                    with self.assertRaisesRegex(RuntimeError, 'route is not active'):
+                        gateway.verify_voice_scene_sso_ui()
+
+
 class GatewayReloadRetryTests(unittest.TestCase):
     def test_transient_404_recovers_to_authentication_challenge(self):
         from urllib.error import HTTPError
