@@ -396,6 +396,17 @@ def main():
               anonymous_access=acceptance['anonymous_access'])
         return
 
+    # Protected Voice acceptance ran real SSO checks in runtime's read-only
+    # lane. Do not republish or edit the unrelated legacy Basic gateway.
+    if '[vps1-voice-readonly-acceptance]' in intent:
+        if ('voice-studio' not in args.apps
+                or '[vps1-song-audio-separate]' in intent
+                or '[vps1-song-studio-release]' in intent):
+            raise RuntimeError('conflicting Voice read-only gateway intent')
+        event(app='voice-studio', gateway='NO_MUTATION',
+              mode='READ_ONLY_ENGINE_ACCEPTANCE')
+        return
+
     # Voice V1.1 owns an independent, signed Scene HTTPS route. After the
     # app-scoped runtime release finishes, DO NOT republish the unrelated
     # legacy Basic gateway, whose UI probe cannot carry a Scene cookie.
