@@ -1,0 +1,46 @@
+name: VPS1 Cloud Render Admin Media GPU CI
+on:
+  pull_request:
+    paths:
+      - 'apps/scene-builder/part01/app.py'
+      - 'apps/scene-builder/part01/cloud_render.py'
+      - 'apps/scene-builder/part01/precutover_policy.py'
+      - 'apps/scene-builder/part01/templates/cloud_render.html'
+      - 'apps/scene-builder/part01/templates/base.html'
+      - 'apps/scene-builder/part01/static/cloud_render.*'
+      - 'apps/scene-builder/part01/static/vps1_native_site_shell.js'
+      - 'tests/test_cloud_render_v1.py'
+      - '.github/workflows/vps1-cloud-render-v1-ci.yml'
+      - '.github/workflows/vps1-cloud-render-v1-release.yml'
+permissions:
+  contents: read
+jobs:
+  cloud-render-security-and-cleanup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test imports only
+        run: python -m pip install "fastapi>=0.110,<1" "requests>=2.31,<3"
+      - name: Syntax verify Scene and Concat receiver
+        run: |
+          python -m py_compile apps/scene-builder/part01/app.py apps/scene-builder/part01/cloud_render.py apps/scene-builder/part01/precutover_policy.py
+          node --check apps/scene-builder/part01/static/cloud_render.js
+          node --check apps/scene-builder/part01/static/vps1_native_site_shell.js
+      - name: Admin-only, integrity, Drive verification and release contract
+        run: |
+          python -m unittest tests.test_cloud_render_v1 -v
+          python -m unittest cloud_render.concat.tests.test_dual_target_contract -v
+      - name: Confirm release protected lane and no Auto Script activation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('.github/workflows/vps1-cloud-render-v1-release.yml').read_text()
+          for marker in ('tailscale/github-action@v4','vps1-production-deploy install','vps1-production-deploy rollback',
+                         'AUTO_SCRIPT=OFFLINE_UNCHANGED','[vps1-cloud-render-release]','github.actor =='):
+              assert marker in text, marker
+          print('CLOUD_RENDER_RELEASE_LANE=GUARDED')
+          PY
