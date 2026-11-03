@@ -435,7 +435,7 @@ def register_cloud_render(app, templates, root, require_admin, require_login):
             row = con.execute("SELECT name,state FROM files WHERE id=?",(job,)).fetchone()
         if not row or row["state"] not in ("ready","failed","queued") or not local.is_file() or local.is_symlink():
             raise HTTPException(404,"Local MP4 unavailable")
-        return FileResponse(local,media_type="video/mp4",filename=row["name"],content_disposition_type="inline",
+        return FileResponse(local,media_type="video/mp4",filename=row["name"],content_disposition_type=("attachment" if request.query_params.get("download") == "1" else "inline"),
                             headers={"Cache-Control":"private,no-store","X-Content-Type-Options":"nosniff"})
 
     @app.post("/api/cloud-render/ingest/{job}/chunk")
