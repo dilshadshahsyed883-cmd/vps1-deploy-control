@@ -269,7 +269,7 @@ class CloudRender:
         self.local(job)
         new_name = filename(new_name)
         with self.lock, self.connection() as con:
-            row = con.execute("SELECT state FROM files WHERE id=?", (job,)).fetchone()
+            row = con.execute("SELECT state,size FROM files WHERE id=?", (job,)).fetchone()
             if not row: raise HTTPException(404, "File not found")
             if row["state"] not in ("ready","failed"):
                 raise HTTPException(409, "File busy or already delivered")
