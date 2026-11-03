@@ -240,13 +240,13 @@ class ShortMakerNoRewriteGatewayTests(unittest.TestCase):
             state.write_text(json.dumps({'status':'ACTIVE','revision':revision}))
             site, snippets, _ = self._layout(root)
             before = site.read_bytes()
-            with patch.object(gateway, 'BASE', root), \\
-                 patch.object(gateway, 'http_check') as health, \\
-                 patch.object(gateway, 'run') as run, \\
-                 patch.object(https, 'SITE', site), \\
-                 patch.object(routes, 'SNIPPET_DIR', snippets), \\
-                 patch.object(routes, 'credentials', return_value='Basic real') as creds, \\
-                 patch.object(routes, 'check_app') as check_app, \\
+            with patch.object(gateway, 'BASE', root), \
+                 patch.object(gateway, 'http_check') as health, \
+                 patch.object(gateway, 'run') as run, \
+                 patch.object(https, 'SITE', site), \
+                 patch.object(routes, 'SNIPPET_DIR', snippets), \
+                 patch.object(routes, 'credentials', return_value='Basic real') as creds, \
+                 patch.object(routes, 'check_app') as check_app, \
                  patch.object(routes, 'check_scene') as check_scene:
                 mode = gateway.verify_short_maker_existing_https(revision)
             self.assertEqual(mode, 'EXISTING_BASIC_VERIFIED')
@@ -269,14 +269,14 @@ class ShortMakerNoRewriteGatewayTests(unittest.TestCase):
             record.parent.mkdir(parents=True)
             record.write_text(json.dumps({'status':'ACTIVE','revision':revision}))
             site, snippets, _ = self._layout(root, fragment='sso')
-            with patch.object(gateway, 'BASE', root), \\
-                 patch.object(gateway, 'http_check'), \\
-                 patch.object(gateway, 'run'), \\
-                 patch.object(https, 'SITE', site), \\
-                 patch.object(routes, 'SNIPPET_DIR', snippets), \\
-                 patch.object(routes, 'check_scene'), \\
-                 patch.object(routes, 'check_app') as basic, \\
-                 patch.object(sso, 'ready_cookie', return_value='signed-cookie') as login, \\
+            with patch.object(gateway, 'BASE', root), \
+                 patch.object(gateway, 'http_check'), \
+                 patch.object(gateway, 'run'), \
+                 patch.object(https, 'SITE', site), \
+                 patch.object(routes, 'SNIPPET_DIR', snippets), \
+                 patch.object(routes, 'check_scene'), \
+                 patch.object(routes, 'check_app') as basic, \
+                 patch.object(sso, 'ready_cookie', return_value='signed-cookie') as login, \
                  patch.object(sso, 'verify') as verified:
                 mode = gateway.verify_short_maker_existing_https(revision)
             self.assertEqual(mode, 'SCENE_SSO_VERIFIED')
@@ -295,12 +295,12 @@ class ShortMakerNoRewriteGatewayTests(unittest.TestCase):
             record.parent.mkdir(parents=True)
             record.write_text(json.dumps({'status':'ACTIVE','revision':revision}))
             site,snippets,snippet=self._layout(root,fragment='unknown')
-            with patch.object(gateway,'BASE',root), \\
-                 patch.object(gateway,'http_check'), \\
-                 patch.object(gateway,'run'), \\
-                 patch.object(https,'SITE',site), \\
-                 patch.object(routes,'SNIPPET_DIR',snippets), \\
-                 patch.object(routes,'check_scene') as scene, \\
+            with patch.object(gateway,'BASE',root), \
+                 patch.object(gateway,'http_check'), \
+                 patch.object(gateway,'run'), \
+                 patch.object(https,'SITE',site), \
+                 patch.object(routes,'SNIPPET_DIR',snippets), \
+                 patch.object(routes,'check_scene') as scene, \
                  patch.object(routes,'check_app') as basic:
                 with self.assertRaisesRegex(RuntimeError,'snippet drift'):
                     gateway.verify_short_maker_existing_https(revision)
@@ -316,13 +316,13 @@ class ShortMakerNoRewriteGatewayTests(unittest.TestCase):
         from production import gateway
         intent='[vps1-short-studio-release] [vps1-short-maker-only]'
         revision='a'*40
-        with patch('sys.argv',['gateway','--revision',revision,'--apps','short-maker']), \\
-             patch.object(gateway,'check_host'), \\
-             patch.object(gateway,'run',return_value=intent), \\
-             patch.object(gateway,'deployment_lock',return_value=nullcontext()), \\
+        with patch('sys.argv',['gateway','--revision',revision,'--apps','short-maker']), \
+             patch.object(gateway,'check_host'), \
+             patch.object(gateway,'run',return_value=intent), \
+             patch.object(gateway,'deployment_lock',return_value=nullcontext()), \
              patch.object(gateway,'verify_short_maker_existing_https',
-                          return_value='EXISTING_BASIC_VERIFIED') as verify, \\
-             patch.object(gateway,'install') as legacy, \\
+                          return_value='EXISTING_BASIC_VERIFIED') as verify, \
+             patch.object(gateway,'install') as legacy, \
              patch.object(gateway,'event') as event:
             gateway.main()
         legacy.assert_not_called()
