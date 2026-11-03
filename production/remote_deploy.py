@@ -25,6 +25,30 @@ def command(args, *, cwd=None):
     return subprocess.run(args, cwd=cwd, check=True, text=True, capture_output=True).stdout.strip()
 
 
+SONG_SCENE_OWNED_INTENTS = (
+    '[vps1-song-audio-separate]',
+    '[vps1-song-audio-voice-readonly-diagnose]',
+    '[vps1-song-audio-voice-recovery]',
+)
+
+
+def song_audio_scene_owns_gateway(operation, selected, intent):
+    """Scene owns Song route + SSO; do not rewrite the legacy Basic-auth gateway.
+
+    This is only a post-success install exception. Runtime itself already
+    performs the exact protected release and authenticated Scene checks.
+    Normal application installs and all rollbacks retain the old gateway path.
+    """
+    matched = [marker for marker in SONG_SCENE_OWNED_INTENTS if marker in intent]
+    if not matched:
+        return False
+    if operation != 'install' or selected != 'voice-studio':
+        return False
+    if '[vps1-song-studio-release]' not in intent or len(matched) != 1:
+        raise RuntimeError('Song Audio Scene-owned gateway requires exclusive protected intent')
+    return True
+
+
 def main():
     if os.geteuid() != 0 or socket.gethostname() != 'vps-01a23801':
         raise RuntimeError('approved VPS_1 root command required')
@@ -104,6 +128,17 @@ def main():
     # Changing its engines must not republish Nginx or other applications.
     if selected == 'local-upload-manager' and operation == 'install':
         return
+    # Song Audio cutover, Voice recovery, and read-only diagnostic operate
+    # through the authenticated Scene SSO site. Rebuilding the legacy Basic-
+    # auth gateway would probe those Scene-owned routes without a Scene
+    # session and falsely fail HTTP 401 AFTER a successful atomic cutover.
+    # Never skip the legacy gateway on a rollback or unrelated app release.
+    if selected == 'voice-studio' and operation == 'install':
+        release_intent = command(['git', 'log', '-1', '--format=%B'],
+                                 cwd=checkout)
+        if song_audio_scene_owns_gateway(operation, selected, release_intent):
+            print('SONG_AUDIO_SCENE_GATEWAY=UNCHANGED', flush=True)
+            return
     # Keep every still-active app in the gateway when updating one app.
     active = [app for app in APPS if subprocess.run(
         ['systemctl', 'is-active', '--quiet', f'vps1-production-{app}.service']).returncode == 0]
