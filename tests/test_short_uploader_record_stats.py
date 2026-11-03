@@ -27,7 +27,8 @@ def load_owner_methods():
     if len(methods) != 2:
         raise AssertionError("Owner records and stats methods are both required")
     isolated = ast.ClassDef(name="ReadOnlyStore", bases=[], keywords=[], body=methods, decorator_list=[])
-    module = ast.Module(body=[isolated], type_ignores=[])
+    future = ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0)
+    module = ast.Module(body=[future, isolated], type_ignores=[])
     ast.fix_missing_locations(module)
     env = {"datetime": datetime, "timezone": timezone,
            "timedelta": timedelta, "ZoneInfo": ZoneInfo}
