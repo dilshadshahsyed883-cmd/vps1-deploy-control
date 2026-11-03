@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "product": "Cloud Render / Concat",
+  "upstream": "jub0t/Concat",
+  "upstream_tag": "v0.2.8",
+  "upstream_commit": "79116bd0f9a103c633d888603ad27890e929dbdc",
+  "desktop": {
+    "platform": "windows-x86_64",
+    "installer": "Concat-0.2.8-windows-x86_64-setup.exe",
+    "mode": "verified-upstream-binary",
+    "source_tag": "v0.2.8"
+  },
+  "gpu": {
+    "platform": "linux-x86_64",
+    "binary": "concat-cli",
+    "source_commit": "79116bd0f9a103c633d888603ad27890e929dbdc",
+    "status": "experimental-not-gpu-verified"
+  },
+  "project_schema": {
+    "file": "concat.json",
+    "bundle_version": 1
+  },
+  "release_rule": "Shared-engine or project-format changes require rebuilding BOTH Windows desktop editor and Linux GPU worker from SAME source commit and completing desktop/GPU render parity acceptance. Upstream Windows EXE repackaging is valid ONLY for the unmodified v0.2.8 baseline."
+}
