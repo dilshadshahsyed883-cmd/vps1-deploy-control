@@ -81,9 +81,11 @@
     ["Self Media Library", "/self-media-library/", "library"],
     ["Auto Script", "/experiment-studio/auto-script/", "auto-script"],
     ["Video Studio", "/scene-builder/", "video"],
-    ["Upload Studio", "/local-upload-manager/app?embedded=1&tab=dashboard", "upload"]
+    ["Upload Studio", "/local-upload-manager/app?embedded=1&tab=dashboard", "upload"],
+    ["Cloud Render", "/cloud-render/", "cloud-render"]
   ]);
   const experimentSection = pathname => {
+    if (/^\/cloud-render(\/|$)/.test(pathname)) return "cloud-render";
     if (/^\/(scene-builder|video-studio|auto-caption-studio|short-maker|queue|settings|audit-media)(\/|$)/.test(pathname)) return "video";
     if (/^\/(local-upload-manager|auto-stream)(\/|$)/.test(pathname)) return "upload";
     if (/^\/voice-studio(\/|$)/.test(pathname)) return "voice";
