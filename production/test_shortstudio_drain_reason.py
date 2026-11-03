@@ -62,12 +62,12 @@ class ReadonlyBlockedReasonTests(unittest.TestCase):
             lock.touch()
             env = root / "secret.env"
             env.write_text(
-                "SHORT_MAKER_DATA=" + str(maker) + "\\n"
-                "SHORT_UPLOADER_APP_DB=" + str(root / "missing-app.sqlite3") + "\\n"
-                "SHORT_UPLOADER_ENGINE_DB=" + str(root / "missing-v6.sqlite3") + "\\n"
+                "SHORT_MAKER_DATA=" + str(maker) + "\n"
+                "SHORT_UPLOADER_APP_DB=" + str(root / "missing-app.sqlite3") + "\n"
+                "SHORT_UPLOADER_ENGINE_DB=" + str(root / "missing-v6.sqlite3") + "\n"
             )
             (unit_dir / SERVICES["maker"]).write_text(
-                "[Service]\\nEnvironmentFile=" + str(env) + "\\n"
+                "[Service]\nEnvironmentFile=" + str(env) + "\n"
             )
             clean = inspect_active_drain(unit_dir)
             self.assertTrue(clean["maker_jobs_idle"])
