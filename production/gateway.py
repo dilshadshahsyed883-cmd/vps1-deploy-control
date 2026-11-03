@@ -156,6 +156,28 @@ def open_during_reload(opener, request, *, timeout, retries=12, pause=0.6):
         time.sleep(pause)
 
 
+def verify_voice_scene_sso_ui():
+    """Prove the real Scene session, never substitute Basic Auth for Voice UI.
+
+    The loopback legacy gateway keeps Basic Auth for historical apps, while
+    Voice's native page requires the independent Scene session. A 401 from
+    that obsolete Basic UI probe is acceptable ONLY after all authenticated
+    Scene HTTPS and direct anonymous-denial checks pass.
+    """
+    from production.scene_public_https import SITE as scene_site
+    from production import scene_session_routes as scene_sso
+    from production.runtime import verify_voice_release_anonymous_denial
+
+    if scene_site.is_symlink() or not scene_site.is_file():
+        raise RuntimeError('Voice Scene SSO site is unavailable')
+    if not scene_sso.active('voice-studio', scene_site.read_text()):
+        raise RuntimeError('Voice Scene SSO route is not active')
+    cookie = scene_sso.ready_cookie('voice-studio')
+    scene_sso.verify('voice-studio', cookie)
+    scene_sso.verify_voice_shell(cookie)
+    verify_voice_release_anonymous_denial()
+
+
 def verify_gateway(apps, credentials, port=8888):
     auth = base64.b64encode((credentials['username'] + ':' + credentials['password']).encode()).decode()
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -174,10 +196,19 @@ def verify_gateway(apps, credentials, port=8888):
             if response.status != 200 or json.loads(response.read()).get('ok') is not True:
                 raise RuntimeError('authenticated route failed: ' + app)
         ui_path = spec['ui'] if app in {'video-merger', 'local-upload-manager'} else '/' + app + spec['ui']
-        with open_during_reload(opener, urllib.request.Request(f'http://127.0.0.1:{port}' + ui_path,
-                                              headers={'Authorization': 'Basic ' + auth}), timeout=10) as response:
-            if response.status != 200 or 'text/html' not in response.headers.get('Content-Type', ''):
-                raise RuntimeError('browser document route failed: ' + app)
+        try:
+            with open_during_reload(opener, urllib.request.Request(f'http://127.0.0.1:{port}' + ui_path,
+                                                  headers={'Authorization': 'Basic ' + auth}), timeout=10) as response:
+                if response.status != 200 or 'text/html' not in response.headers.get('Content-Type', ''):
+                    raise RuntimeError('browser document route failed: ' + app)
+        except urllib.error.HTTPError as exc:
+            if app != 'voice-studio' or exc.code != 401:
+                raise
+            # Never turn 401 into a bypass: prove the independent, signed
+            # Scene session on live HTTPS, native HTML, and direct API denial.
+            verify_voice_scene_sso_ui()
+            event(app=app, gateway='PASS', anonymous='DENIED', html_ui='SCENE_SSO_VERIFIED')
+            continue
         event(app=app, gateway='PASS', anonymous='DENIED', html_ui='PASS')
 
 
