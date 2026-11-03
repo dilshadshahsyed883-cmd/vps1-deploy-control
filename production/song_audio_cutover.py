@@ -306,14 +306,46 @@ def _verify_voice_split() -> None:
         raise RuntimeError("Voice still owns or cannot prove Song worker disabled")
 
 
-def _health_song() -> dict:
+def _health_song(max_wait_seconds: float = 55.0,
+                 poll_seconds: float = 1.0) -> dict:
+    """Bounded 8152 startup grace; NEVER accept invalid worker/SSO identity.
+
+    systemctl start on Type=simple proves only that the process was spawned,
+    not that uvicorn finished importing and listening. The previous production
+    cutover checked HTTP immediately and rolled back on ECONNREFUSED. Retry
+    ONLY transient connection failure/HTTP 503 while the exact Song unit is
+    still ACTIVE. Bad app identity or wrong worker flags fail immediately.
+    """
+    if not (0 < max_wait_seconds <= 60 and 0 < poll_seconds <= 3):
+        raise ValueError("Song Audio readiness timing must remain bounded")
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    with opener.open("http://127.0.0.1:8152/healthz", timeout=6) as response:
-        payload = json.loads(response.read(4096))
-        if (response.status != 200 or payload.get("ok") is not True or
-                payload.get("app") != "song-audio-downloader" or
-                payload.get("worker_active") is not True or payload.get("smoke") is not False):
-            raise RuntimeError("Independent Song worker did not become healthy")
+    deadline = time.monotonic() + max_wait_seconds
+    while True:
+        try:
+            with opener.open("http://127.0.0.1:8152/healthz", timeout=4) as response:
+                payload = json.loads(response.read(4096))
+                if (response.status != 200 or payload.get("ok") is not True or
+                        payload.get("app") != "song-audio-downloader" or
+                        payload.get("worker_active") is not True or
+                        payload.get("smoke") is not False):
+                    raise RuntimeError("Independent Song worker did not become healthy")
+            break
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+            # 401/403/500 are not startup delays: fail the protected release.
+            if isinstance(exc, urllib.error.HTTPError) and exc.code != 503:
+                raise RuntimeError("Song Audio readiness HTTP failure") from exc
+            if time.monotonic() >= deadline:
+                raise RuntimeError(
+                    "Song Audio health unavailable after bounded startup window"
+                ) from exc
+            alive = subprocess.run(
+                ["systemctl", "is-active", "--quiet", service.SONG_UNIT],
+                capture_output=True, check=False, timeout=5)
+            if alive.returncode != 0:
+                raise RuntimeError(
+                    "Song Audio unit exited before becoming healthy"
+                ) from exc
+            time.sleep(min(poll_seconds, max(0.01, deadline - time.monotonic())))
     # Fail closed if Song exposes Voice-only synthesis APIs.
     try:
         opener.open("http://127.0.0.1:8152/tts/api/clone/jobs", timeout=3)
