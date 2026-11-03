@@ -1,0 +1,48 @@
+name: Cloud Render Concat dual-target contract
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - cloud_render/concat/**
+      - .github/workflows/vps1-cloud-render-concat-package.yml
+      - .github/workflows/vps1-cloud-render-dual-validation.yml
+  push:
+    branches: [main]
+    paths:
+      - cloud_render/concat/**
+      - .github/workflows/vps1-cloud-render-concat-package.yml
+      - .github/workflows/vps1-cloud-render-dual-validation.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-render-concat-contract
+  cancel-in-progress: false
+
+jobs:
+  version-and-transfer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check two-target source lock and transfer tests
+        run: python -m unittest discover -s cloud_render/concat/tests -v
+
+  # No automatic production image publish. An operator can test build manually
+  # before Salad GPU benchmark/approval.
+  experimental-gpu-image:
+    if: github.event_name == 'workflow_dispatch'
+    needs: version-and-transfer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Linux Concat GPU-worker container
+        run: docker build --progress=plain -f cloud_render/concat/gpu/Dockerfile -t cloud-render-concat-gpu:staging .
+      - name: Smoke test Linux headless engine
+        run: docker run --rm --network none cloud-render-concat-gpu:staging --version
