@@ -27,8 +27,15 @@ CHUNK_MAX = 8 * 1024 * 1024
 MEDIA_MAX = 20 * 1024 * 1024 * 1024
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
-IMAGE = "ghcr.io/dilshadshahsyed883-cmd/cloud-video-rendere:sha-36fd9afb2e4f199779f1c0dd064879feaba7e9bf"
-GPU = {"image": IMAGE, "architecture": "linux/amd64", "gpu": "RTX 3060 Ti", "vram_gb": 8, "cpu": 4,
+# The native Linux Concat source lock in main is authoritative.
+# Dockerfile exists, but registry availability and runtime acceptance are unverified.
+IMAGE = os.getenv("CLOUD_RENDER_GPU_IMAGE_REF", "")
+GPU = {"image": IMAGE, "image_ready": False,
+       "image_status": "EXPERIMENTAL — image build, GPU render and HTTP API acceptance pending",
+       "recipe": "cloud_render/concat/gpu/Dockerfile",
+       "source_lock": "cloud_render/concat/source.lock.json",
+       "engine": "Concat v0.2.8 native Rust concat-cli + FFmpeg",
+       "architecture": "linux/amd64", "gpu": "RTX 3060 Ti", "vram_gb": 8, "cpu": 4,
        "ram_gb": 8, "storage_gb": 30, "replicas": 1, "port": 8080, "codec": "h264_nvenc",
        "concurrency": 1, "render": "1080p H.264"}
 
@@ -428,7 +435,7 @@ def register_cloud_render(app, templates, root, require_admin, require_login):
             row = con.execute("SELECT name,state FROM files WHERE id=?",(job,)).fetchone()
         if not row or row["state"] not in ("ready","failed","queued") or not local.is_file() or local.is_symlink():
             raise HTTPException(404,"Local MP4 unavailable")
-        return FileResponse(local,media_type="video/mp4",filename=row["name"],
+        return FileResponse(local,media_type="video/mp4",filename=row["name"],content_disposition_type="inline",
                             headers={"Cache-Control":"private,no-store","X-Content-Type-Options":"nosniff"})
 
     @app.post("/api/cloud-render/ingest/{job}/chunk")
