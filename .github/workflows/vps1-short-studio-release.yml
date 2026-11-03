@@ -132,7 +132,19 @@ jobs:
           }
           if blocked_at not in allowed:
             raise SystemExit('READONLY_DRAIN_REASON_INVALID')
+          categories=snapshot.get('uploader_job_nonterminal_categories',[])
+          allowed_categories={
+              'QUEUED','SCHEDULED','WAITING_SLOT','CLAIMED',
+              'UPLOADING','WAITING_NETWORK','THUMBNAIL_UPLOADING',
+              'PAUSED','UNKNOWN',
+          }
+          if (not isinstance(categories,list) or
+              len(categories)>len(allowed_categories) or
+              any(type(item) is not str or item not in allowed_categories
+                  for item in categories)):
+              raise SystemExit('READONLY_JOB_CATEGORIES_INVALID')
           safe={
+            'uploader_job_nonterminal_categories':sorted(set(categories)),
             'drain_blocked_at':blocked_at,
             'unit_config_flags':role_booleans(config,(
                 'configuration_present','folder_root_safe','lock_enabled')),
