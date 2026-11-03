@@ -1292,6 +1292,22 @@
 {% endif %}
       </div>
       <div class="lum-ae-queue-summary">Showing {{ ae.queue|length }} Auto Engine job(s). Engine: <strong>{{ 'RUNNING' if ae.engine.running else 'STOPPED' }}</strong>. Worker: <strong>{{ ae.worker_service or 'unknown' }}</strong>. Requested concurrency: <strong>{{ ae.engine.concurrency or 1 }}</strong> · Effective: <strong>1</strong>. Permanent duplicate/upload records remain active even when queue rows are cleared.</div>
+      {% if engine_instance == 'shortstudio' %}
+        {% set short_paused = ae.queue|selectattr('status','equalto','PAUSED')|list %}
+        {% set short_review = short_paused|selectattr('recovery_state','equalto','REVIEW_REQUIRED')|list %}
+        {% if short_paused %}
+        <div class="lum-note" role="status">
+          <strong>{{ short_paused|length }} paused Short job(s).</strong>
+          Resume Paused only retries jobs with safe recovery evidence.
+          {% if short_review %}
+            <strong>{{ short_review|length }} require manual YouTube Studio review:</strong>
+            check that no video was published, then select those jobs in the queue below and use
+            <strong>Authorize Fresh Retry for Selected Review Jobs</strong> with its confirmation.
+            This prevents duplicate uploads.
+          {% endif %}
+        </div>
+        {% endif %}
+      {% endif %}
       
     </section>
 

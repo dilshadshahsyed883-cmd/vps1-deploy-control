@@ -2651,11 +2651,31 @@ def auto_v6_resume_paused(request: Request,csrf_token: str=Form(...)):
     if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio":
         try:
             jobs=_short_owned_queue_jobs(request,statuses={"PAUSED"})
-            if not jobs: return redirect("/app?tab=auto_engine",message="No paused owned Short jobs.")
-            _short_owner_start_scoped(request,{int(job["auto_engine_profile_id"]) for job in jobs})
-            count=db.resume_paused(auto_engine_only=True,video_ids=[int(job["id"]) for job in jobs])
-            return redirect("/app?tab=auto_engine",message=f"Resumed {count} owned Short job(s).")
-        except Exception as exc: return redirect("/app?tab=auto_engine",error=str(exc))
+            if not jobs:
+                return redirect("/app?tab=auto_engine",message="No paused owned Short jobs.")
+            # The queue displays PAUSED even when crash evidence requires
+            # manual YouTube Studio review. Database.resume_paused deliberately
+            # excludes REVIEW_REQUIRED; never report success for those rows.
+            # Missing/unknown legacy recovery evidence must fail closed too.
+            safe=[j for j in jobs if str(j.get("recovery_state") or "").strip().upper() in {"NONE","AUTO_RESUME"}]
+            review=[j for j in jobs if str(j.get("recovery_state") or "").strip().upper()=="REVIEW_REQUIRED"]
+            unknown=len(jobs)-len(safe)-len(review)
+            detail=(f"{len(review)} require YouTube Studio recovery review; "
+                    f"{unknown} have unclassified legacy recovery state. "
+                    "Review the paused rows below; do not retry an uncertain remote upload.")
+            if not safe:
+                return redirect("/app?tab=auto_engine",
+                    error=f"No safely resumable paused jobs. {detail}")
+            _short_owner_start_scoped(request,{int(job["auto_engine_profile_id"]) for job in safe})
+            count=db.resume_paused(auto_engine_only=True,video_ids=[int(job["id"]) for job in safe])
+            if not count:
+                return redirect("/app?tab=auto_engine",
+                    error=f"0 safe jobs resumed; queue state changed or recovery is blocked. {detail}")
+            suffix=(f" {detail}" if review or unknown else "")
+            return redirect("/app?tab=auto_engine",
+                message=f"Resumed {count} safe owned Short job(s).{suffix}")
+        except Exception as exc:
+            return redirect("/app?tab=auto_engine",error=str(exc))
     if os.getenv("LUM_ENGINE_INSTANCE")=="song":
         try:
             jobs=_song_member_queue_jobs(request,statuses={"PAUSED"})
@@ -2726,9 +2746,19 @@ async def auto_v6_recovery_clear(request: Request):
     if str(form.get("confirmation") or "").strip()!="I CHECKED YOUTUBE":
         return redirect("/app?tab=auto_engine",error='Type I CHECKED YOUTUBE exactly after checking YouTube Studio.')
     ids=_v6_selected_ids(form)
+    short_review_profiles=set()
     if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio":
         try:
-            ids=[int(job["id"]) for job in _short_owned_queue_jobs(request,ids)] if ids else []
+            if not ids:
+                raise ValueError("Select your REVIEW_REQUIRED paused jobs first.")
+            owned=_short_owned_queue_jobs(request,ids,statuses={"PAUSED"})
+            if len(owned)!=len(ids) or any(
+                str(job.get("recovery_state") or "").upper()!="REVIEW_REQUIRED"
+                for job in owned
+            ):
+                raise PermissionError("Only your REVIEW_REQUIRED paused jobs may be authorized.")
+            short_review_profiles={int(job["auto_engine_profile_id"]) for job in owned}
+            ids=[int(job["id"]) for job in owned]
         except Exception as exc:
             return redirect("/app?tab=auto_engine",error=str(exc))
     if os.getenv("LUM_ENGINE_INSTANCE")=="song":
@@ -2739,10 +2769,18 @@ async def auto_v6_recovery_clear(request: Request):
     for selected_id in ids:
         source=v6_store.job_source(selected_id)
         if source: _v6_profile(int(source["profile_id"]),request)
+    if short_review_profiles:
+        try:
+            # Validate/arm the owned scope before making a reviewed row
+            # claimable. Preserve all other owners' valid running profiles.
+            _short_owner_start_scoped(request,short_review_profiles)
+        except Exception as exc:
+            return redirect("/app?tab=auto_engine",error=str(exc))
     count=db.resolve_recovery_review(ids)
-    with v6_store.connect() as con:
-        for vid in ids:
-            con.execute("UPDATE job_sources SET state='QUEUED',last_error='',updated_at=CURRENT_TIMESTAMP WHERE video_id=?",(vid,))
+    if count:
+        with v6_store.connect() as con:
+            for vid in ids:
+                con.execute("UPDATE job_sources SET state='QUEUED',last_error='',updated_at=CURRENT_TIMESTAMP WHERE video_id=?",(vid,))
     return redirect("/app?tab=auto_engine",message=f"Recovery review cleared for {count} job(s).")
 
 
