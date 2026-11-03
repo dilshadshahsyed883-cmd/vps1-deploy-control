@@ -80,7 +80,7 @@
       const local=["ready","failed","queued","uploading"].includes(file.state);
       if(local){
         actions.append(button("Preview",()=>window.open("/api/cloud-render/media/"+encodeURIComponent(file.id)+"/file","_blank","noopener,noreferrer")));
-        actions.append(button("Download",()=>{window.location.href="/api/cloud-render/media/"+encodeURIComponent(file.id)+"/file";}));
+        actions.append(button("Download",()=>{window.location.href="/api/cloud-render/media/"+encodeURIComponent(file.id)+"/file?download=1";}));
       }
       if(["ready","failed"].includes(file.state)){
         actions.append(button(file.state==="failed"?"Retry Drive Upload":"Upload to Drive",
