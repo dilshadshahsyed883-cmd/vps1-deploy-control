@@ -71,6 +71,10 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_short_uploader_profile_folder_fix.py' -v
       - name: Short Uploader admin/member own-data parity and queue safety
         run: python -m unittest discover -s tests -p 'test_short_uploader_owner_parity.py' -v
+      - name: Short Uploader NULL owner-scope reconciliation and Resume Paused regression
+        run: |
+          python -m py_compile apps/local-upload-manager/part01/lum_engine/auto_engine_v6.py apps/local-upload-manager/part01/lum_engine/auto_engine_v6_worker.py apps/local-upload-manager/part01/lum_engine/standalone_app.py
+          python -m unittest discover -s tests -p 'test_short_uploader_owner_scope_resume.py' -v
       - name: Short Uploader owner records and PKT counters regression
         run: python -m unittest discover -s tests -p 'test_short_uploader_record_stats.py' -v
       - name: Install real Short Uploader OAuth HTTP test dependencies
