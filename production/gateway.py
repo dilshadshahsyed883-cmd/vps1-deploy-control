@@ -267,7 +267,7 @@ def verify_cloud_render_scene_only_https(revision):
     # not need to regenerate a Basic gateway or silently accept configuration drift.
     before = scene_site.read_bytes()
     site = before.decode("utf-8")
-    if site.count("location / {") != 1 or site.count("proxy_pass http://127.0.0.1:18080;") < 1:
+    if site.count("location / {\n    proxy_pass http://127.0.0.1:18080;") != 1:
         raise RuntimeError("Cloud Render Scene HTTPS fallback ownership changed")
     if ("location = /cloud-render " in site or
             "location ^~ /cloud-render/" in site or
