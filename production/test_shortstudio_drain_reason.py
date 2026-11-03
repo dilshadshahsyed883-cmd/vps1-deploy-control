@@ -127,6 +127,48 @@ class ReadonlyBlockedReasonTests(unittest.TestCase):
             self.assertFalse(blocked["active_upload_drain_snapshot_verified"])
             self.assertNotIn("OWNER_PRIVATE_UNKNOWN_STATE", str(blocked))
 
+    def test_paused_reason_classification_is_exact_and_never_exposes_error(self):
+        # Classify exact known safety pauses; an owner's arbitrary private
+        # message stays UNKNOWN, not a raw output or permission to resume.
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)
+            units=root/"units"
+            units.mkdir()
+            maker=root/"maker"
+            (maker/"jobs").mkdir(parents=True)
+            app=root/"app.sqlite"
+            engine=root/"engine.sqlite"
+            with sqlite3.connect(app) as db:
+                db.execute("CREATE TABLE videos (status TEXT, error_message TEXT)")
+                db.executemany("INSERT INTO videos VALUES (?,?)", [
+                    ("PUBLISHED",""),
+                    ("PAUSED","Channel profile is offline/inactive. Manual Resume is required after it returns."),
+                    ("PAUSED","Channel ID is not verified."),
+                    ("PAUSED","Channel token is unavailable/invalid."),
+                    ("PAUSED","SENSITIVE_PRIVATE_ERROR_DO_NOT_ECHO"),
+                ])
+            with sqlite3.connect(engine) as db:
+                db.execute("CREATE TABLE job_sources (state TEXT NOT NULL)")
+            env=root/"secret.env"
+            env.write_text(
+                "SHORT_MAKER_DATA="+str(maker)+"\n"
+                "SHORT_UPLOADER_APP_DB="+str(app)+"\n"
+                "SHORT_UPLOADER_ENGINE_DB="+str(engine)+"\n"
+            )
+            (units/SERVICES["maker"]).write_text(
+                "[Service]\nEnvironmentFile="+str(env)+"\n"
+            )
+            outcome=inspect_active_drain(units)
+            self.assertEqual(outcome["blocked_at"],"UPLOADER_JOB_NOT_TERMINAL")
+            self.assertEqual(outcome["uploader_job_nonterminal_categories"],["PAUSED"])
+            self.assertEqual(outcome["uploader_paused_reason_categories"],[
+                "CHANNEL_ID_UNVERIFIED","CHANNEL_INACTIVE",
+                "CHANNEL_TOKEN_UNAVAILABLE","UNKNOWN"
+            ])
+            self.assertNotIn("SENSITIVE_PRIVATE_ERROR",str(outcome))
+            self.assertFalse(outcome["uploader_jobs_idle"])
+            self.assertFalse(outcome["active_upload_drain_verified"])
+
     def test_workflow_reason_is_static_allowlisted_and_no_raw_payload(self):
         source=(Path(__file__).resolve().parents[1]/
                 ".github/workflows/vps1-short-studio-release.yml").read_text()

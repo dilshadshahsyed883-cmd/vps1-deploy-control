@@ -243,6 +243,7 @@ def inspect_active_drain(unit_dir=Path("/etc/systemd/system")):
         "ready_imports_idle": False,
         "uploader_jobs_idle": False,
         "uploader_job_nonterminal_categories": [],
+        "uploader_paused_reason_categories": [],
         "uploader_source_claims_idle": False,
         "active_upload_drain_snapshot_verified": False,
         "active_upload_drain_verified": False,
@@ -351,6 +352,31 @@ def inspect_active_drain(unit_dir=Path("/etc/systemd/system")):
                         value if value in categories else "UNKNOWN"
                         for (value,) in values
                     })
+                    if "PAUSED" in result["uploader_job_nonterminal_categories"]:
+                        # Read-only and fixed-vocabulary. Never select, log or
+                        # return raw error_message, owner, video ID or token.
+                        # Only exact existing channel-safety errors are
+                        # classified. Every other manual/legacy pause remains
+                        # UNKNOWN and still blocks the all-owner drain.
+                        if "error_message" not in columns:
+                            result["uploader_paused_reason_categories"] = ["UNKNOWN"]
+                        else:
+                            reasons = db.execute(
+                                'SELECT DISTINCT CASE COALESCE("error_message", \'\') '
+                                "WHEN ? THEN 'CHANNEL_INACTIVE' "
+                                "WHEN ? THEN 'CHANNEL_ID_UNVERIFIED' "
+                                "WHEN ? THEN 'CHANNEL_TOKEN_UNAVAILABLE' "
+                                "ELSE 'UNKNOWN' END "
+                                'FROM "videos" WHERE UPPER(COALESCE("status", \'\')) = \'PAUSED\'',
+                                (
+                                    "Channel profile is offline/inactive. Manual Resume is required after it returns.",
+                                    "Channel ID is not verified.",
+                                    "Channel token is unavailable/invalid.",
+                                ),
+                            ).fetchall()
+                            result["uploader_paused_reason_categories"] = sorted({
+                                reason for (reason,) in reasons
+                            })
                 return row is not None and row[0] == 0
 
         result["blocked_at"] = "UPLOADER_APP_DB_UNAVAILABLE"
