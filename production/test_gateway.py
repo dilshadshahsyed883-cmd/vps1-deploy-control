@@ -210,6 +210,120 @@ class GatewayVoiceSceneSSOTests(unittest.TestCase):
                         gateway.verify_voice_scene_sso_ui()
 
 
+class VoiceReadOnlyGatewayDispatchTests(unittest.TestCase):
+    """Do not rebuild legacy Nginx after a signed Scene Voice release."""
+
+    def test_voice_release_proves_live_sso_without_gateway_mutation(self):
+        from contextlib import nullcontext
+        from unittest.mock import patch
+        from production import gateway
+
+        revision = 'a' * 40
+        argv = ['gateway', '--revision', revision, '--apps', 'voice-studio']
+        intent = 'guarded Voice [vps1-production-release:voice-studio]'
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record = root / 'control/state/voice-studio.json'
+            record.parent.mkdir(parents=True)
+            record.write_text(json.dumps({'status': 'ACTIVE', 'revision': revision}))
+            with patch('sys.argv', argv), \
+                 patch.object(gateway, 'BASE', root), \
+                 patch.object(gateway, 'check_host'), \
+                 patch.object(gateway, 'run', return_value=intent) as command, \
+                 patch.object(gateway, 'deployment_lock', return_value=nullcontext()), \
+                 patch.object(gateway, 'http_check') as health, \
+                 patch.object(gateway, 'verify_voice_scene_sso_ui') as sso, \
+                 patch.object(gateway, 'install') as legacy, \
+                 patch.object(gateway, 'event') as event:
+                gateway.main()
+        legacy.assert_not_called()
+        health.assert_called_once_with('voice-studio')
+        sso.assert_called_once_with(readonly_gateway=True)
+        self.assertEqual(event.call_args.kwargs['gateway'], 'NO_MUTATION')
+        self.assertEqual(event.call_args.kwargs['scene_sso'], 'LIVE_VERIFIED')
+        self.assertTrue(any(c.args[0] == ['nginx', '-t'] for c in command.call_args_list))
+
+    def test_voice_release_rejects_missing_current_revision(self):
+        from contextlib import nullcontext
+        from unittest.mock import patch
+        from production import gateway
+
+        argv = ['gateway', '--revision', 'a' * 40, '--apps', 'voice-studio']
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record = root / 'control/state/voice-studio.json'
+            record.parent.mkdir(parents=True)
+            record.write_text(json.dumps({'status': 'ACTIVE', 'revision': 'b' * 40}))
+            with patch('sys.argv', argv), \
+                 patch.object(gateway, 'BASE', root), \
+                 patch.object(gateway, 'check_host'), \
+                 patch.object(gateway, 'run',
+                              return_value='[vps1-production-release:voice-studio]'), \
+                 patch.object(gateway, 'deployment_lock', return_value=nullcontext()), \
+                 patch.object(gateway, 'install') as legacy, \
+                 patch.object(gateway, 'verify_voice_scene_sso_ui') as sso:
+                with self.assertRaisesRegex(RuntimeError, 'revision mismatch'):
+                    gateway.main()
+        legacy.assert_not_called()
+        sso.assert_not_called()
+
+    def test_unrelated_vhost_drift_never_rewrites_and_voice_fragment_exact(self):
+        from unittest.mock import patch
+        from production import gateway
+        from production import nginx_route_only as routes
+        from production import scene_session_routes as sso
+        import production.scene_public_https as https
+        import production.runtime as runtime
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snippet_dir = root / 'snippets'
+            snippet_dir.mkdir()
+            site = root / 'scene.conf'
+            site.write_text('UNRELATED REVIEW REQUIRED\\n include ' +
+                            str(snippet_dir) + '/vps1-route-voice-studio.conf;\\n')
+            route = snippet_dir / 'vps1-route-voice-studio.conf'
+            route.write_text(sso.config('voice-studio'))
+            with patch.object(https, 'SITE', site), \
+                 patch.object(routes, 'SNIPPET_DIR', snippet_dir), \
+                 patch.object(sso, 'ready_cookie', return_value='real-session') as cookie, \
+                 patch.object(sso, 'verify') as verify, \
+                 patch.object(sso, 'verify_voice_shell') as shell, \
+                 patch.object(runtime, 'verify_voice_release_anonymous_denial') as denial:
+                gateway.verify_voice_scene_sso_ui(readonly_gateway=True)
+                route.write_text('INVALID')
+                with self.assertRaisesRegex(RuntimeError, 'snippet drift'):
+                    gateway.verify_voice_scene_sso_ui(readonly_gateway=True)
+        cookie.assert_called_once_with('voice-studio')
+        verify.assert_called_once_with('voice-studio', 'real-session')
+        shell.assert_called_once_with('real-session')
+        denial.assert_called_once_with()
+
+    def test_scene_session_denial_still_fails_closed(self):
+        from unittest.mock import patch
+        from production import gateway
+        from production import nginx_route_only as routes
+        from production import scene_session_routes as sso
+        import production.scene_public_https as https
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snippets = root / 'snippets'
+            snippets.mkdir()
+            site = root / 'scene.conf'
+            site.write_text(' include ' + str(snippets) +
+                            '/vps1-route-voice-studio.conf;\\n')
+            (snippets / 'vps1-route-voice-studio.conf').write_text(
+                sso.config('voice-studio'))
+            with patch.object(https, 'SITE', site), \
+                 patch.object(routes, 'SNIPPET_DIR', snippets), \
+                 patch.object(sso, 'ready_cookie', return_value='real-session'), \
+                 patch.object(sso, 'verify',
+                              side_effect=RuntimeError('Scene login rejected')):
+                with self.assertRaisesRegex(RuntimeError, 'Scene login rejected'):
+                    gateway.verify_voice_scene_sso_ui(readonly_gateway=True)
+
+
 class GatewayReloadRetryTests(unittest.TestCase):
     def test_transient_404_recovers_to_authentication_challenge(self):
         from urllib.error import HTTPError
