@@ -242,6 +242,7 @@ def inspect_active_drain(unit_dir=Path("/etc/systemd/system")):
         "maker_jobs_idle": False,
         "ready_imports_idle": False,
         "uploader_jobs_idle": False,
+        "uploader_job_nonterminal_categories": [],
         "uploader_source_claims_idle": False,
         "active_upload_drain_snapshot_verified": False,
         "active_upload_drain_verified": False,
@@ -332,13 +333,31 @@ def inspect_active_drain(unit_dir=Path("/etc/systemd/system")):
                     f'UPPER(COALESCE("{column}", "")) NOT IN ('
                     + ",".join("?" for _ in safe_states) + ")",
                     tuple(safe_states)).fetchone()
+                if table == "videos" and row and row[0] > 0:
+                    # Fixed-vocabulary categories only, never leak raw DB
+                    # states, video metadata, owners or identifying row data.
+                    categories = {
+                        "QUEUED", "SCHEDULED", "WAITING_SLOT", "CLAIMED",
+                        "UPLOADING", "WAITING_NETWORK",
+                        "THUMBNAIL_UPLOADING", "PAUSED",
+                    }
+                    values = db.execute(
+                        f'SELECT DISTINCT UPPER(COALESCE("{column}", "")) '
+                        f'FROM "{table}" WHERE '
+                        f'UPPER(COALESCE("{column}", "")) NOT IN ('
+                        + ",".join("?" for _ in safe_states) + ")",
+                        tuple(safe_states)).fetchall()
+                    result["uploader_job_nonterminal_categories"] = sorted({
+                        value if value in categories else "UNKNOWN"
+                        for (value,) in values
+                    })
                 return row is not None and row[0] == 0
 
         result["blocked_at"] = "UPLOADER_APP_DB_UNAVAILABLE"
         result["uploader_jobs_idle"] = query_idle(
             app_db, "videos", "status",
-            ("COMPLETE", "COMPLETED", "UPLOADED", "CANCELLED",
-             "SKIPPED", "FAILED"))
+            ("COMPLETE", "COMPLETED", "UPLOADED", "PUBLISHED",
+             "CANCELLED", "SKIPPED", "FAILED"))
         if not result["uploader_jobs_idle"]:
             result["blocked_at"] = "UPLOADER_JOB_NOT_TERMINAL"
             return result
