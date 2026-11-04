@@ -15,6 +15,7 @@ class DualTargetContractTests(unittest.TestCase):
         cls.docker = (CONCAT / "gpu/Dockerfile").read_text(encoding="utf-8")
         cls.windows = (ROOT / ".github/workflows/vps1-cloud-render-concat-package.yml").read_text(encoding="utf-8")
         cls.dual = (ROOT / ".github/workflows/vps1-cloud-render-dual-validation.yml").read_text(encoding="utf-8")
+        cls.image = (ROOT / ".github/workflows/vps1-cloud-render-gpu-image.yml").read_text(encoding="utf-8")
 
     def test_desktop_and_gpu_pinned_to_same_version(self):
         self.assertEqual(self.lock["upstream_tag"], self.lock["desktop"]["source_tag"])
@@ -24,9 +25,20 @@ class DualTargetContractTests(unittest.TestCase):
         self.assertIn('test "$(git rev-parse HEAD)" = "$CONCAT_COMMIT"', self.docker)
         self.assertIn("gh release download " + self.lock["upstream_tag"], self.windows)
 
-    def test_gpu_recipe_does_not_expose_service_or_modify_production(self):
-        self.assertIn('ENTRYPOINT ["/usr/local/bin/concat-cli"]', self.docker)
+    def test_gpu_worker_is_nonroot_authenticated_and_candidate_only(self):
+        self.assertIn('ENTRYPOINT ["python3", "-m", "cloud_render.concat.gpu.worker"]', self.docker)
         self.assertIn("USER 10001:10001", self.docker)
+        self.assertIn("EXPOSE 8080", self.docker)
+        self.assertIn("COPY cloud_render/concat/gpu/worker.py", self.docker)
+        worker = (CONCAT / "gpu/worker.py").read_text(encoding="utf-8")
+        self.assertIn("RENDERER_API_TOKEN", worker)
+        self.assertIn('"/health/ready"', worker)
+        self.assertIn('"export.run"', worker)
+        self.assertIn("delivery_failed", worker)
+        self.assertIn("candidate-", self.image)
+        self.assertIn("packages: write", self.image)
+        self.assertNotIn("kubectl", self.image)
+        self.assertNotIn("salad deploy", self.image)
         self.assertIn("github.event_name == 'workflow_dispatch'", self.dual)
         self.assertNotIn("docker push", self.dual)
         self.assertNotIn("kubectl", self.dual)
