@@ -302,8 +302,66 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
     {
         let weak=ui.as_weak();let state=state.clone();
         ui.on_select_asset(move |id|if let Some(app)=weak.upgrade(){
-            app.set_selected_asset(id);
+            app.set_selected_asset(id.clone());
+            if let Ok(assets)=Catalog::open(&state.borrow().catalog_file).and_then(|c|c.assets()){
+                if let Some(asset)=assets.iter().find(|a|a.id==id.as_str()){
+                    if asset.kind=="image" && asset.exists {
+                        app.set_selected_preview(slint::Image::load_from_path(&asset.path).unwrap_or_default());
+                    }else{app.set_selected_preview(slint::Image::default());}
+                }
+            }
             refresh_assets(&app,&state.borrow().catalog_file);
+        });
+    }
+    {
+        let weak=ui.as_weak();
+        ui.on_select_scene(move |id|if let Some(app)=weak.upgrade(){
+            app.set_selected_scene(id);
+        });
+    }
+    {
+        let weak=ui.as_weak();let state=state.clone();
+        ui.on_assign_selected_to_scene(move ||if let Some(app)=weak.upgrade(){
+            let asset_id=app.get_selected_asset().to_string();
+            let scene_id=app.get_selected_scene().to_string();
+            let assets=Catalog::open(&state.borrow().catalog_file).and_then(|c|c.assets());
+            match assets {
+                Ok(assets)=>{
+                    let Some(asset)=assets.iter().find(|a|a.id==asset_id) else{
+                        err(&app,"Select a Media Library item");return;
+                    };
+                    let mut state=state.borrow_mut();
+                    let Some(plan)=state.plan.as_mut() else{
+                        err(&app,"Load Scene Plan first");return;
+                    };
+                    let Some(index)=plan.shots.iter().position(|s|s.section==scene_id) else{
+                        err(&app,"Select a scene row in Step 1 or Step 3");return;
+                    };
+                    match plan::manual_match(plan,index,asset){
+                        Ok(_)=>{show_scene_rows(&app,plan);info(&app,"Manual media match saved in current plan");}
+                        Err(e)=>err(&app,e),
+                    }
+                }
+                Err(e)=>err(&app,e),
+            }
+        });
+    }
+    {
+        let weak=ui.as_weak();let state=state.clone();
+        ui.on_open_selected_media(move ||if let Some(app)=weak.upgrade(){
+            let id=app.get_selected_asset().to_string();
+            match Catalog::open(&state.borrow().catalog_file).and_then(|c|c.assets()){
+                Ok(assets)=>{
+                    if let Some(asset)=assets.iter().find(|a|a.id==id){
+                        if !asset.exists{err(&app,"Selected source media is missing");return;}
+                        match opener::open(&asset.path){
+                            Ok(_)=>info(&app,"Opened media with the Windows default viewer/player"),
+                            Err(e)=>err(&app,e),
+                        }
+                    }else{err(&app,"Select a Media Library row first");}
+                }
+                Err(e)=>err(&app,e),
+            }
         });
     }
     {
