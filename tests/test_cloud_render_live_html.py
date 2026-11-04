@@ -50,6 +50,12 @@ class CloudRenderHtmlTest(unittest.TestCase):
         self.assertIn('href="/cloud-render/"',res.text)
         self.assertEqual(res.text.count('data-tab="gpu"'),1)
         self.assertEqual(res.text.count('data-tab="media"'),1)
+        # Cloud Render owns its page heading and inner tabs; not Video Studio's shell.
+        self.assertNotIn('data-video-studio-subnav="1"', res.text)
+        self.assertNotIn('<h1>Cloud Render</h1>', res.text)
+        self.assertEqual(res.text.count('id="cloud-heading"'), 1)
+        self.assertIn('href="/cloud-render/">Cloud Render</a>', res.text)
+        self.assertNotIn('class="active" aria-current="page" href="/scene-builder/">Video Studio</a>', res.text)
         cfg = self.client.get("/api/cloud-render/config")
         self.assertEqual(cfg.status_code,200)
         self.assertFalse(cfg.json()["image_ready"])
