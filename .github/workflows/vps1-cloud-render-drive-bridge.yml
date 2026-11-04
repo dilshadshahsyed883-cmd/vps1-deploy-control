@@ -1,0 +1,33 @@
+name: VPS1 Cloud Render Drive Bridge regression (no VPS deployment)
+
+on:
+  pull_request:
+    paths:
+      - apps/scene-builder/part01/cloud_render.py
+      - apps/scene-builder/tests/test_cloud_render_drive.py
+      - .github/workflows/vps1-cloud-render-drive-bridge.yml
+  push:
+    branches: [main]
+    paths:
+      - apps/scene-builder/part01/cloud_render.py
+      - apps/scene-builder/tests/test_cloud_render_drive.py
+      - .github/workflows/vps1-cloud-render-drive-bridge.yml
+
+permissions:
+  contents: read
+
+jobs:
+  drive-bridge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated test dependencies
+        run: python -m pip install --disable-pip-version-check fastapi requests
+      - name: Compile and run Drive Bridge safety regression tests
+        run: |
+          python -m py_compile apps/scene-builder/part01/cloud_render.py
+          python -m unittest discover -s apps/scene-builder/tests -p test_cloud_render_drive.py -v

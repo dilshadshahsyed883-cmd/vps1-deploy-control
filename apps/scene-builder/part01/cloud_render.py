@@ -67,6 +67,45 @@ def worker_path(raw):
     return value
 
 
+class RcloneFailure(RuntimeError):
+    """Sanitized rclone error; raw stderr may contain sensitive URLs or tokens."""
+
+    def __init__(self, operation, code, category):
+        self.operation, self.code, self.category = operation, code, category
+        super().__init__(f"Drive Bridge {operation} failed (exit {code}): {category}")
+
+
+def classify_rclone_error(operation, returncode, stderr):
+    msg = str(stderr or "").lower()[-8000:]
+    if any(x in msg for x in ("didn't find section in config file", "config file not found",
+            "configuration file not found", "not found in config file", "unknown remote")):
+        cause = "remote configuration unavailable to Cloud Render service"
+    elif any(x in msg for x in ("invalid_grant", "token has been expired",
+            "token has been revoked", "failed to refresh token",
+            "invalid credentials", "401 unauthorized")):
+        cause = "Drive authentication expired or unauthorized"
+    elif any(x in msg for x in ("insufficientpermissions", "insufficient permission",
+            "permission denied", "access denied", "403 forbidden")):
+        cause = "Google Drive destination permission denied"
+    elif any(x in msg for x in ("quota exceeded", "rate limit exceeded", "storage quota")):
+        cause = "Google Drive quota or rate limit reached"
+    elif any(x in msg for x in ("immutable", "file already exists", "destination already exists")):
+        cause = "immutable destination already exists or conflicts"
+    elif any(x in msg for x in ("connection timed out", "i/o timeout", "no such host",
+            "network is unreachable", "connection refused", "tls handshake timeout")):
+        cause = "network or DNS connectivity failure"
+    elif operation == "lsjson" and (returncode in (3, 4) or any(x in msg for x in
+            ("directory not found", "object not found", "file not found", "doesn't exist"))):
+        cause = "remote_file_absent"
+    elif returncode == 5:
+        cause = "temporary remote failure"
+    elif returncode == 7:
+        cause = "fatal remote error"
+    else:
+        cause = "unclassified remote failure; check service-side rclone logs"
+    return RcloneFailure(operation, returncode, cause)
+
+
 class CloudRender:
     def __init__(self, root):
         self.root = Path(root)
@@ -313,19 +352,26 @@ class CloudRender:
 
     @staticmethod
     def execute(cmd, timeout=1200):
+        operation = cmd[1] if len(cmd) > 1 else "command"
         try:
             res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
-        except (OSError, subprocess.TimeoutExpired):
-            raise RuntimeError("rclone unavailable or timed out") from None
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"Drive Bridge {operation} timed out; VPS original retained") from None
+        except OSError:
+            raise RuntimeError(f"Drive Bridge {operation} unavailable; VPS original retained") from None
         if res.returncode:
-            raise RuntimeError("rclone returned nonzero exit status")
+            raise classify_rclone_error(operation, res.returncode, res.stderr)
         return res.stdout
 
     def remote_stat(self, remote):
         try:
             return json.loads(self.execute(["rclone","lsjson",remote,"--stat","--hash"],60))
-        except (RuntimeError, ValueError):
-            return None
+        except RcloneFailure as exc:
+            if exc.operation == "lsjson" and exc.category == "remote_file_absent":
+                return None
+            raise
+        except ValueError:
+            raise RuntimeError("Drive Bridge lsjson returned invalid JSON; VPS original retained") from None
 
     def _upload(self, job):
         local = self.local(job)
@@ -340,7 +386,12 @@ class CloudRender:
             if not re.fullmatch(r"[A-Za-z0-9_-]{1,40}",remote_name) or not re.fullmatch(r"[A-Za-z0-9_ /-]{1,120}",folder):
                 raise RuntimeError("Invalid Drive Bridge destination")
             if not shutil.which("rclone"):
-                raise RuntimeError("Canonical Drive Bridge is not available")
+                raise RuntimeError("Canonical Drive Bridge rclone executable is not available")
+            # Only use the configured canonical remote, under this process identity.
+            remotes = {line.strip().rstrip(":") for line in
+                       self.execute(["rclone","listremotes"],30).splitlines()}
+            if remote_name not in remotes:
+                raise RuntimeError(f'Canonical Drive Bridge remote "{remote_name}" is not configured for Cloud Render service')
             if local.is_symlink() or not local.is_file() or local.stat().st_size != row["size"]:
                 raise RuntimeError("Source file absent or changed")
             remote = f"{remote_name}:{folder}/{job}_{filename(row['name'])}"
