@@ -119,6 +119,13 @@ fn picked_file(extension:&str)->Option<PathBuf>{
 }
 
 fn main()->Result<(),Box<dyn std::error::Error + Send + Sync>>{
+    if std::env::args().any(|arg|arg=="--portable-check") {
+        let official=packaged_concat().ok_or("Bundled official Concat.exe missing")?;
+        let result=std::process::Command::new(&official).arg("--version").output()?;
+        if !result.status.success(){return Err("Official bundled Concat.exe failed version probe".into());}
+        println!("Concat Studio portable engine detected: {}",official.display());
+        return Ok(());
+    }
     if std::env::args().any(|arg|arg=="--self-test") {
         assert_eq!(plan::seconds("01:02.500")?,62.5);
         let p=plan::parse("name=Native Test\n00:00 --> 00:01 | image | a.jpg")?;
