@@ -2,12 +2,13 @@
 
 Native Rust 2024/Slint 1.18 Windows desktop; no Python, Tkinter, PyInstaller or Node runtime. The official Concat v0.2.8 Rust editor remains the native editor and handles editing/preview/export via its documented MCP API. This project builds a separate Rust control centre, not a replacement rendering engine.
 
-## Four native tabs
+## Five native tabs (Auto Editing is second)
 
-1. **AI Builder:** Step 1 Scene Plan TXT + narration/SRT; Step 2 persistent Media Library; Step 3 match and generate editable native Concat projects; Media Summary read/export.
-2. **Editor:** launch original Concat and inspect its real project timeline.
-3. **Render Queue:** persistent SQLite queue; Add PC/GPU, Start, Pause, Resume, Skip, Cancel, Retry, Delete, Refresh. Only one queue job starts at once.
-4. **GPU Config:** HTTPS Salad Gateway, separate Salad and renderer API credentials stored in Windows Credential Manager, NVIDIA Vulkan diagnostics and worker job status.
+1. **AI Builder:** Scene Plan TXT, optional narration/SRT, Z Builder media import and matching, native Concat project generation.
+2. **Auto Editing:** Z Builder-style native Concat **Transitions / Animations / Scale**. Load real image/video clips, preview temporary effects (unsaved + undo), apply all/selected as an atomic native edit and save concat.json. Supported transition: cross-fade; picture motion: Zoom In/Out, Pan Left/Right, Combo Zoom+Pan; framing: Fit, Fill, 105%, 110%. Reset Presets resets selections only (never silently deletes saved edits). Unsupported original CapCut combos are not claimed.
+3. **Editor:** launch original Concat and inspect its real project timeline.
+4. **Render Queue:** persistent SQLite queue; Add PC/GPU, Start, Pause, Resume, Skip, Cancel, Retry, Delete, Refresh. Only one queue job starts at once.
+5. **GPU Config:** HTTPS Salad Gateway, separate Salad and renderer API credentials stored in Windows Credential Manager, NVIDIA Vulkan diagnostics and worker job status.
 
 ## Media Library and Used Media
 
@@ -38,8 +39,10 @@ Current Salad worker has no cancel-render endpoint. Studio cannot stop an alread
 GitHub Actions workflow: .github/workflows/vps1-concat-studio-native-windows.yml
 
 - Rust unit tests, release Windows EXE compilation, packaged self-test, live GUI launch smoke, SHA256SUMS artifact.
-- No VPS production deployment; original Concat EXE, GPU image and version lock unchanged; Auto Script stays OFFLINE.
+- **Combined portable ZIP:** `Concat-Studio-Portable-Windows-x64.zip` has one `Concat Studio/` folder containing `ConcatStudio.exe`, the *unchanged checksum-verified upstream Concat v0.2.8* `Concat.exe`, and its bundled FFmpeg/DLL support files. Studio detects the adjacent Concat.exe automatically. The original standalone native EXE remains available as a separate artifact.
+- The GitHub Windows runner verifies upstream's SHA256SUMS, stages the official Inno installer in an isolated temporary directory, checks both EXEs and auto-discovery, launches the Slint GUI, and uploads ZIP plus checksums. Nothing modifies VPS production or the user's existing Windows installation.
+- No VPS production deployment; official Concat binary, GPU image and source.lock.json version lock unchanged; Auto Script stays OFFLINE.
 
 ## Acceptance boundaries
 
-Actual PC editing/preview/export and Salad GPU end-to-end tests with real media are required for this new integration. Editor look presets, karaoke and advanced effects remain in Concat's own editor; do not present unimplemented features as part of the control centre.
+Actual PC editing/preview/export and Salad GPU end-to-end tests with real media are required for this new integration. Auto Editing uses official Concat MCP commands and produces saved native concat.json, not a separate GPU-only effects format. Editor look presets, karaoke and advanced effects remain in Concat's own editor; do not present unimplemented features as part of the control centre.
