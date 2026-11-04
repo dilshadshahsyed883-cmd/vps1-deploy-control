@@ -456,12 +456,17 @@ def install(apps):
 
 def verify_video_merger_existing_gateway(revision):
     """Read-only post-install proof; never republish unrelated Scene HTTPS."""
-    record = BASE / 'control/state/video-merger.json'
-    if record.is_symlink() or not record.is_file():
-        raise RuntimeError('Video Merger release record unavailable')
+    # The Video Merger imports installer records its ACTIVE result in an
+    # immutable transaction, not the legacy control/state app record.
+    record = BASE / 'transactions/video-merger-imports' / revision / 'result.json'
+    current = BASE / 'current/video-merger'
+    expected = BASE / 'releases/video-merger' / (revision + '-imports')
+    if (record.is_symlink() or not record.is_file()
+            or not current.is_symlink() or current.resolve() != expected):
+        raise RuntimeError('Video Merger active imports release unavailable')
     state = json.loads(record.read_text())
-    if state.get('status') != 'ACTIVE' or state.get('revision') != revision:
-        raise RuntimeError('Video Merger active revision mismatch')
+    if state.get('status') != 'ACTIVE' or state.get('drive') != 'PASS':
+        raise RuntimeError('Video Merger verified imports transaction missing')
     http_check('video-merger')
     # Preserve the existing gateway and HTTPS routes exactly; do not rewrite
     # Scene SSO, Basic auth, Nginx snippets or any other application's shell.
