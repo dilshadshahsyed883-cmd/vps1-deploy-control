@@ -362,7 +362,7 @@ mod tests {
     fn mp4_sha256_verification_works_on_small_windows_thread_stack() {
         let root=temp();
         let output=root.join("tiny-verified.mp4");
-        let mut mock=b"\\x00\\x00\\x00\\x20ftypisom".to_vec();
+        let mut mock=b"\x00\x00\x00\x20ftypisom".to_vec();
         mock.extend_from_slice(&vec![0x45;128*1024]);
         fs::write(&output,&mock).unwrap();
         // The old 1 MiB stack array caused a crash on the native Windows
