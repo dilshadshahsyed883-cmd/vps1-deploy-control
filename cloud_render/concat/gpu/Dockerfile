@@ -3,7 +3,7 @@
 FROM ubuntu:24.04 AS build
 ARG DEBIAN_FRONTEND=noninteractive
 ARG CONCAT_COMMIT=79116bd0f9a103c633d888603ad27890e929dbdc
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git build-essential pkg-config cmake clang libclang-dev libfontconfig1-dev libfreetype6-dev libxkbcommon-dev libxkbcommon-x11-0 libgl1-mesa-dev libgtk-3-dev libasound2-dev libvulkan-dev python3 xz-utils bzip2 tar && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git build-essential pkg-config libssl-dev cmake clang libclang-dev libfontconfig1-dev libfreetype6-dev libxkbcommon-dev libxkbcommon-x11-0 libgl1-mesa-dev libgtk-3-dev libasound2-dev libvulkan-dev python3 xz-utils bzip2 tar && rm -rf /var/lib/apt/lists/*
 RUN git init /src && cd /src && git remote add origin https://github.com/jub0t/Concat.git && git fetch --depth=1 origin "$CONCAT_COMMIT" && git checkout --detach FETCH_HEAD && test "$(git rev-parse HEAD)" = "$CONCAT_COMMIT"
 WORKDIR /src
 RUN scripts/ci/fetch.sh ffmpeg-linux64 ffmpeg.tar.xz && mkdir -p ffmpeg-dev && tar -xf ffmpeg.tar.xz -C ffmpeg-dev --strip-components=1
