@@ -1,0 +1,352 @@
+import { Button, LineEdit, ScrollView, ComboBox, CheckBox, TextEdit } from "std-widgets.slint";
+
+export struct ItemRow { id:string, title:string }
+
+export component App inherits Window {
+    title: "Concat Studio Native — Z Builder + Salad GPU";
+    preferred-width: 1380px;
+    preferred-height: 860px;
+    min-width: 1040px;
+    min-height: 650px;
+    background: #0e1726;
+    default-font-family: "Segoe UI";
+    default-font-size: 13px;
+
+    in-out property <int> tab: 0;
+    in-out property <int> step: 0;
+    in-out property <string> status: "Ready — Native Rust / Slint Concat Studio";
+    in-out property <string> plan-file: "";
+    in-out property <string> media-folder: "";
+    in-out property <string> voice-file: "";
+    in-out property <string> srt-file: "";
+    in-out property <string> project-folder: "";
+    in-out property <string> concat-exe: "";
+    in-out property <string> current-project: "";
+    in-out property <string> plan-info: "Import Scene Plan TXT (simple timed or SCENE_PLAN_VERSION=2).";
+    in-out property <[ItemRow]> scenes: [];
+    in-out property <[ItemRow]> assets: [];
+    in-out property <[ItemRow]> jobs: [];
+    in-out property <string> selected-asset: "";
+    in-out property <string> selected-scene: "";
+    in-out property <image> selected-preview;
+    in-out property <string> selected-job: "";
+    in-out property <string> media-filter: "All";
+    in-out property <string> library-info: "No media loaded";
+    in-out property <string> media-tags: "";
+    in-out property <string> summary-text: "Import media and generate a summary.";
+    in-out property <string> editor-info: "Native Concat will open in its original Rust/Slint editor.";
+    in-out property <string> render-mode: "PC";
+    in-out property <string> render-output: "";
+    in-out property <string> queue-info: "Queue paused by default. Start / Resume to process saved items.";
+    in-out property <string> gpu-url: "";
+    in-out property <string> gpu-salad-key: "";
+    in-out property <string> gpu-renderer-key: "";
+    in-out property <string> gpu-info: "Save HTTPS Gateway URL and your two credentials once.";
+
+    callback browse-plan();
+    callback browse-media();
+    callback browse-voice();
+    callback browse-srt();
+    callback browse-project-dir();
+    callback browse-concat();
+    callback parse-plan();
+    callback auto-match();
+    callback create-project();
+    callback import-media();
+    callback import-z-library();
+    callback refresh-assets();
+    callback select-asset(string);
+    callback select-scene(string);
+    callback assign-selected-to-scene();
+    callback open-selected-media();
+    callback save-tags();
+    callback change-filter(string);
+    callback export-summary();
+    callback clear-library();
+    callback refresh-summary();
+    callback open-native-editor();
+    callback refresh-timeline();
+    callback browse-output();
+    callback add-pc-job();
+    callback add-gpu-job();
+    callback queue-start();
+    callback queue-pause();
+    callback queue-resume();
+    callback queue-skip();
+    callback queue-cancel();
+    callback queue-retry();
+    callback queue-delete();
+    callback select-job(string);
+    callback refresh-jobs();
+    callback save-gpu();
+    callback test-gpu();
+    callback show-gpu-job();
+
+    VerticalLayout {
+        padding: 14px;
+        spacing: 12px;
+        Rectangle {
+            background: #18283f;
+            border-radius: 10px;
+            height: 70px;
+            HorizontalLayout {
+                padding: 13px;
+                spacing: 14px;
+                VerticalLayout {
+                    spacing: 3px;
+                    Text { text: "CONCAT STUDIO"; color: #ffffff; font-size: 22px; font-weight: 800; }
+                    Text { text: "Native Rust + Slint  ·  Z Builder workflow  ·  Salad GPU"; color: #afc4e0; font-size: 12px; }
+                }
+                Rectangle { horizontal-stretch: 1; background: transparent; }
+                Text { text: "LOCAL / GPU"; color: #76d7ca; font-weight: 700; }
+            }
+        }
+        HorizontalLayout {
+            spacing: 9px;
+            Button { text: "1  AI BUILDER"; clicked => { root.tab = 0; } }
+            Button { text: "2  EDITOR"; clicked => { root.tab = 1; } }
+            Button { text: "3  RENDER QUEUE"; clicked => { root.tab = 2; } }
+            Button { text: "4  GPU CONFIG"; clicked => { root.tab = 3; } }
+            Rectangle { horizontal-stretch: 1; background: transparent; }
+            Text { text: "Z Studio workflow integrated"; color: #9db3d2; }
+        }
+
+        if root.tab == 0: VerticalLayout {
+            spacing: 10px;
+            HorizontalLayout {
+                spacing: 9px;
+                Button { text: "STEP 1  Scene Plan + Voice"; clicked => { root.step = 0; } }
+                Button { text: "STEP 2  Media Library"; clicked => { root.step = 1; } }
+                Button { text: "STEP 3  Match + Build"; clicked => { root.step = 2; } }
+                Button { text: "Media Summary"; clicked => { root.step = 3; root.refresh-summary(); } }
+            }
+            if root.step == 0: VerticalLayout {
+                spacing: 10px;
+                Text { text: "STEP 1 — Scene Plan / Voice / Project Settings"; color: #ffffff; font-size: 20px; font-weight: 700; }
+                HorizontalLayout {
+                    Text { text: "Scene Plan TXT"; width: 170px; color: #b8cbe6; }
+                    LineEdit { text <=> root.plan-file; horizontal-stretch: 1; }
+                    Button { text: "Browse"; clicked => {root.browse-plan();} }
+                    Button { text: "Load & Validate"; clicked => {root.parse-plan();} }
+                }
+                HorizontalLayout {
+                    Text { text: "Narration MP3 / WAV"; width: 170px; color: #b8cbe6; }
+                    LineEdit { text <=> root.voice-file; horizontal-stretch: 1; }
+                    Button { text: "Browse"; clicked => {root.browse-voice();} }
+                }
+                HorizontalLayout {
+                    Text { text: "Timed subtitles SRT"; width: 170px; color: #b8cbe6; }
+                    LineEdit { text <=> root.srt-file; horizontal-stretch: 1; }
+                    Button { text: "Browse"; clicked => {root.browse-srt();} }
+                }
+                Rectangle {
+                    background: #1a2b43; border-radius: 8px;
+                    Text { x: 14px; y: 12px; width: parent.width - 28px; height: parent.height - 24px;
+                           text: root.plan-info; color: #cde0f9; wrap: word-wrap; }
+                    min-height: 80px;
+                }
+                Text { text: "Scene List (timed, non-destructive source trims)"; color: #d8e7f8; font-weight: 700; }
+                ScrollView {
+                    vertical-stretch: 1;
+                    VerticalLayout {
+                        spacing: 3px;
+                        for scene[i] in root.scenes: Button {
+                            text: scene.title;
+                            clicked => {root.select-scene(scene.id);}
+                        }
+                    }
+                }
+            }
+            if root.step == 1: VerticalLayout {
+                spacing: 9px;
+                Text { text: "STEP 2 — Persistent Media Library"; color: #ffffff; font-size: 20px; font-weight: 700; }
+                HorizontalLayout {
+                    Text { text: "Media source folder"; width: 170px; color: #b8cbe6; }
+                    LineEdit { text <=> root.media-folder; horizontal-stretch: 1; }
+                    Button { text: "Browse"; clicked => {root.browse-media();} }
+                    Button { text: "Import Folder"; clicked => {root.import-media();} }
+                    Button { text: "Import Z Builder Library"; clicked => {root.import-z-library();} }
+                }
+                HorizontalLayout {
+                    Text { text: root.library-info; color: #86c2ee; horizontal-stretch: 1; }
+                    Button { text: "Refresh"; clicked => {root.refresh-assets();} }
+                }
+                HorizontalLayout {
+                    spacing: 7px;
+                    Button { text: "All"; clicked => {root.change-filter("All");} }
+                    Button { text: "Images"; clicked => {root.change-filter("Images");} }
+                    Button { text: "Videos"; clicked => {root.change-filter("Videos");} }
+                    Button { text: "Used"; clicked => {root.change-filter("Used");} }
+                    Button { text: "Unused"; clicked => {root.change-filter("Unused");} }
+                    Button { text: "Missing"; clicked => {root.change-filter("Missing");} }
+                    Text { text: "Filter: " + root.media-filter; color: #a7d9d2; }
+                }
+                ScrollView {
+                    vertical-stretch: 1;
+                    VerticalLayout {
+                        spacing: 3px;
+                        for asset[i] in root.assets: Button {
+                            text: asset.title;
+                            clicked => {root.select-asset(asset.id);}
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    Rectangle {
+                        background: #14263d; border-radius: 6px; width: 225px; height: 134px;
+                        Image { x: 5px; y: 5px; width: parent.width - 10px; height: parent.height - 10px;
+                            source: root.selected-preview; image-fit: contain; }
+                    }
+                    VerticalLayout {
+                        spacing: 7px;
+                        Text { text: "Selected: " + root.selected-asset; color: #adceef; }
+                        LineEdit { text <=> root.media-tags; horizontal-stretch: 1; }
+                        HorizontalLayout {
+                            Button { text: "Save Tags"; clicked => {root.save-tags();} }
+                            Button { text: "Open / Play Media"; clicked => {root.open-selected-media();} }
+                            Button { text: "Summary TXT"; clicked => {root.export-summary();} }
+                            Button { text: "Clear Catalog Only"; clicked => {root.clear-library();} }
+                        }
+                    }
+                }
+                Text { text: "Safety: records-only cleanup keeps all PC originals. Verified usage stays separated from legacy Z Builder draft usage.";
+                       color: #8eacca; font-size: 12px; wrap: word-wrap; }
+            }
+            if root.step == 2: VerticalLayout {
+                spacing: 12px;
+                Text { text: "STEP 3 — Automatic Media Match + Native Concat Project"; color: #ffffff; font-size: 20px; font-weight: 700; }
+                HorizontalLayout {
+                    Text { text: "Output Projects Folder"; width: 180px; color: #b8cbe6; }
+                    LineEdit { text <=> root.project-folder; horizontal-stretch: 1; }
+                    Button { text: "Browse"; clicked => {root.browse-project-dir();} }
+                }
+                HorizontalLayout {
+                    Text { text: "Native Concat.exe"; width: 180px; color: #b8cbe6; }
+                    LineEdit { text <=> root.concat-exe; horizontal-stretch: 1; }
+                    Button { text: "Browse"; clicked => {root.browse-concat();} }
+                }
+                HorizontalLayout {
+                    spacing: 9px;
+                    Button { text: "Auto Match from Library"; clicked => {root.auto-match();} }
+                    Button { text: "Assign Selected Media to Scene"; clicked => {root.assign-selected-to-scene();} }
+                    Button { text: "Generate Editable Concat Project"; clicked => {root.create-project();} }
+                }
+                Text { text: root.plan-info; color: #87bded; wrap: word-wrap; }
+                Text { text: "Selected scene: " + root.selected-scene + "  |  Selected asset: " + root.selected-asset; color: #9fc4eb; }
+                ScrollView {
+                    vertical-stretch: 1;
+                    VerticalLayout {
+                        spacing: 3px;
+                        for scene[i] in root.scenes: Button {
+                            text: scene.title;
+                            clicked => {root.select-scene(scene.id);}
+                        }
+                    }
+                }
+                Text { text: "Editable native concat.json · one visual track · optional narration and SRT · source files remain untouched.";
+                    color: #b7c8de; wrap: word-wrap; }
+            }
+            if root.step == 3: VerticalLayout {
+                spacing: 10px;
+                Text { text: "Media Summary / Usage Report"; color: #ffffff; font-size: 20px; font-weight: 700; }
+                HorizontalLayout {
+                    Button { text: "Refresh Report"; clicked => {root.refresh-summary();} }
+                    Button { text: "Save Summary .txt"; clicked => {root.export-summary();} }
+                }
+                ScrollView {
+                    vertical-stretch: 1;
+                    Text { text: root.summary-text; color: #c9e0f4; font-size: 12px;
+                           wrap: word-wrap; }
+                }
+            }
+        }
+        if root.tab == 1: VerticalLayout {
+            spacing: 13px;
+            Text { text: "EDITOR — Original Concat Rust Timeline"; color: #ffffff; font-size: 20px; font-weight: 700; }
+            HorizontalLayout {
+                Text { text: "Current project"; width: 140px; color: #b8cbe6; }
+                LineEdit { text <=> root.current-project; horizontal-stretch: 1; }
+                Button { text: "Open Native Concat"; clicked => {root.open-native-editor();} }
+                Button { text: "Read Timeline"; clicked => {root.refresh-timeline();} }
+            }
+            Rectangle {
+                background: #192c47; border-radius: 8px; vertical-stretch: 1;
+                Text { x: 22px; y: 18px; width: parent.width - 44px; height: parent.height - 36px;
+                    text: root.editor-info; wrap: word-wrap; color: #c6def8; }
+            }
+            Text { text: "Real clip editing, transitions, captions, audio and export remain in the official Concat editor; no incomplete second timeline is drawn.";
+                color: #91acc9; wrap: word-wrap; }
+        }
+        if root.tab == 2: VerticalLayout {
+            spacing: 9px;
+            Text { text: "RENDER QUEUE — Persistent, Safe Controls"; color: #ffffff; font-size: 20px; font-weight: 700; }
+            HorizontalLayout {
+                Text { text: "Output MP4"; width: 110px; color: #b8cbe6; }
+                LineEdit { text <=> root.render-output; horizontal-stretch: 1; }
+                Button { text: "Browse"; clicked => {root.browse-output();} }
+                Button { text: "+ PC Job"; clicked => {root.add-pc-job();} }
+                Button { text: "+ Salad GPU Job"; clicked => {root.add-gpu-job();} }
+            }
+            HorizontalLayout {
+                spacing: 7px;
+                Button { text: "Start"; clicked => {root.queue-start();} }
+                Button { text: "Pause Queue"; clicked => {root.queue-pause();} }
+                Button { text: "Resume Queue"; clicked => {root.queue-resume();} }
+                Button { text: "Skip"; clicked => {root.queue-skip();} }
+                Button { text: "Cancel"; clicked => {root.queue-cancel();} }
+                Button { text: "Retry"; clicked => {root.queue-retry();} }
+                Button { text: "Delete"; clicked => {root.queue-delete();} }
+                Button { text: "Refresh"; clicked => {root.refresh-jobs();} }
+            }
+            Text { text: root.queue-info; color: #93c9ee; wrap: word-wrap; }
+            Text { text: "Selected job: " + root.selected-job; color: #afc5e0; }
+            ScrollView {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    spacing: 3px;
+                    for job[i] in root.jobs: Button {
+                        text: job.title;
+                        clicked => {root.select-job(job.id);}
+                    }
+                }
+            }
+            Text { text: "Pause stops NEW jobs; active PC renders keep running. Skip/Cancel requests stop local work. Submitted Salad GPU jobs cannot be cancelled by current worker API, so the queue safely detaches instead.";
+                color: #f2c99a; wrap: word-wrap; }
+            Text { text: "Delete removes queue records only: never removes originals or verified output MP4.";
+                color: #a9d7cd; }
+        }
+        if root.tab == 3: VerticalLayout {
+            spacing: 13px;
+            Text { text: "GPU CONFIG — Salad Cloud"; color: #ffffff; font-size: 20px; font-weight: 700; }
+            HorizontalLayout {
+                Text { text: "Gateway HTTPS URL"; width: 175px; color: #b8cbe6; }
+                LineEdit { text <=> root.gpu-url; horizontal-stretch: 1; }
+            }
+            HorizontalLayout {
+                Text { text: "Salad-Api-Key"; width: 175px; color: #b8cbe6; }
+                LineEdit { text <=> root.gpu-salad-key; input-type: password; horizontal-stretch: 1; }
+            }
+            HorizontalLayout {
+                Text { text: "RENDERER_API_TOKEN"; width: 175px; color: #b8cbe6; }
+                LineEdit { text <=> root.gpu-renderer-key; input-type: password; horizontal-stretch: 1; }
+            }
+            HorizontalLayout {
+                Button { text: "Save GPU Profile"; clicked => {root.save-gpu();} }
+                Button { text: "Test NVIDIA Vulkan"; clicked => {root.test-gpu();} }
+                Button { text: "Check Selected GPU Job"; clicked => {root.show-gpu-job();} }
+            }
+            Rectangle {
+                background: #182b43; border-radius: 10px; vertical-stretch: 1;
+                Text { x: 18px; y: 18px; width: parent.width - 36px; height: parent.height - 36px;
+                     text: root.gpu-info; color: #cee7f9; wrap: word-wrap; }
+            }
+            Text { text: "Only HTTPS origin is saved to settings. Both API credentials use Windows Credential Manager. GPU diagnostics block Mesa-only fallback.";
+                color: #8fb3d6; wrap: word-wrap; }
+        }
+        Rectangle {
+            background: #1a2b43; border-radius: 6px; height: 38px;
+            Text { x: 13px; y: 9px; width: parent.width - 26px;
+                text: root.status; color: #a9dfd6; font-size: 12px; }
+        }
+    }
+}
