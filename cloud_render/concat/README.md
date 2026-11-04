@@ -148,3 +148,48 @@ RENDER_OUTPUT_TOKEN must be configured to match the actual VPS1 receiver.
 If delivery is not verified, the worker retains output and source.
 Update Salad to the NEW SHA-tagged image after protected-main image
 publishing; old workers cannot accept chunk uploads.
+
+
+## Salad GPU Vulkan rendering — hardware-first diagnosis
+
+An authenticated project upload can enter state=failed with:
+  no GPU or software renderer is available to draw with - install Mesa's Vulkan drivers (lavapipe)
+when the native wgpu compositor cannot open a Vulkan adapter. Docker's
+libvulkan1 is only the Vulkan loader; the Mesa software ICD had been missing.
+The updated runtime includes mesa-vulkan-drivers, vulkan-tools and the
+existing NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics setting.
+
+NVIDIA host graphics driver libraries and ICDs are furnished by the Salad
+container runtime when supported. Do NOT install an arbitrary nvidia-driver
+version into the application image: it could conflict with the driver on the
+selected consumer GPU host. NVIDIA_VISIBLE_DEVICES and
+NVIDIA_DRIVER_CAPABILITIES alone do not prove that Salad mounted the NVIDIA
+Vulkan ICD. CUDA/NVML access alone does not prove Vulkan availability.
+
+The worker now exposes an authenticated read-only endpoint:
+    GET /api/diagnostics/gpu
+Salad Gateway key and Authorization: Bearer RENDERER_API_TOKEN are BOTH
+required. The response includes vulkan_adapters, nvidia_vulkan_visible,
+nvidia_compute_visible, software_vulkan_visible, and renderer_hint.
+This is an adapter enumeration, not a successful frame export.
+- nvidia_vulkan_visible=true: try a real render, still verify GPU use/output.
+- software_vulkan_visible=true AND nvidia_vulkan_visible=false:
+  only Mesa Lavapipe CPU rendering is detected; this is NOT GPU acceleration.
+- no adapters: host GPU driver/ICD exposure remains unavailable; check Salad
+  GPU instance and graphics capabilities, not the Windows app.
+
+For user-facing Windows work, client/upload_job.ps1 preflights this endpoint
+before sending 107 MB or starting an expensive render. By default it
+REFUSES to submit to an instance with no detected NVIDIA Vulkan adapter.
+AllowSoftwareVulkan can be passed ONLY for an explicit slow fallback test.
+When no hardware adapter is available, stop the paid Salad container rather
+than repeatedly retrying full 1080p jobs.
+
+CI checks Mesa Vulkan ICD enumeration as the nonroot runtime user and a
+tiny two-frame decoder->wgpu Vulkan->MP4 encoder render on an ordinary
+non-GPU GitHub runner. It does not certify the remote NVIDIA host path.
+After protected CI and GHCR candidate publishing, update the Salad image
+to the NEW SHA-tagged candidate and run /api/diagnostics/gpu, then a
+30-second 1080p export plus VPS verified output transfer. A job that
+previously failed needs a NEW job ID on the refreshed container; keep
+original Concat-Test-GPU.zip and media unchanged.
