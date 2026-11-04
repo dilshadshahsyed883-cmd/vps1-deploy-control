@@ -1,6 +1,6 @@
 //! Concat Studio Native: Rust + Slint 4-tab Windows desktop.
 //! Intentionally no Python runtime, Tkinter, PyInstaller or fake timeline.
-use concat_studio_native::{gpu,library::Catalog,mcp,plan::{self,Plan},queue::{self,Queue}};
+use concat_studio_native::{auto_edit::{self,Options},gpu,library::Catalog,mcp,plan::{self,Plan},queue::{self,Queue}};
 use slint::{ComponentHandle,ModelRc,SharedString,VecModel};
 use std::{cell::RefCell,fs,path::{Path,PathBuf},rc::Rc,
     sync::{mpsc,Arc,atomic::{AtomicBool,Ordering}},
@@ -9,6 +9,7 @@ slint::include_modules!();
 
 enum Event{
     Status(String),Project(PathBuf),Editor(String),Gpu(String),RefreshLibrary,
+    AutoClips(serde_json::Value),AutoDone(String),AutoPreview(PathBuf),
 }
 struct State{
     plan:Option<Plan>,
@@ -108,6 +109,11 @@ fn save_settings(ui:&App,path:&Path)->std::result::Result<(),Box<dyn std::error:
     fs::rename(stage,path)?;
     Ok(())
 }
+/// The verified portable ZIP is the first choice; legacy installations remain a fallback.
+fn packaged_concat()->Option<PathBuf>{
+    let editor=std::env::current_exe().ok()?.parent()?.join("Concat.exe");
+    if editor.is_file(){Some(editor)}else{None}
+}
 fn picked_file(extension:&str)->Option<PathBuf>{
     rfd::FileDialog::new().add_filter(extension,&[extension]).pick_file()
 }
@@ -133,7 +139,8 @@ fn main()->Result<(),Box<dyn std::error::Error + Send + Sync>>{
     let ui=App::new()?;
     ui.set_project_folder(settings["projects_dir"].as_str().map(SharedString::from)
         .unwrap_or_else(||string(&projects_root)));
-    ui.set_concat_exe(settings["concat_exe"].as_str().map(SharedString::from)
+    ui.set_concat_exe(packaged_concat().as_ref().map(|p|string(p))
+        .or_else(||settings["concat_exe"].as_str().map(SharedString::from))
         .unwrap_or_else(||{
             let local=std::env::var_os("LOCALAPPDATA")
                 .map(PathBuf::from).unwrap_or_default();
@@ -403,6 +410,81 @@ fn main()->Result<(),Box<dyn std::error::Error + Send + Sync>>{
                 Err(e)=>err(&app,e)}
         });
     }
+    // Auto Editing: MCP runs in worker threads; GUI and media remain responsive.
+    {
+        let weak=ui.as_weak();let sender=send.clone();
+        ui.on_auto_refresh(move ||if let Some(app)=weak.upgrade(){
+            let editor=PathBuf::from(app.get_concat_exe().as_str());
+            let project=PathBuf::from(app.get_current_project().as_str());
+            let sender=sender.clone();
+            info(&app,"Reading native Concat visual clips...");
+            thread::spawn(move||{
+                let result=mcp::read_timeline(&editor,&project);
+                let _=sender.send(match result{
+                    Ok(timeline)=>Event::AutoClips(timeline),
+                    Err(e)=>Event::AutoDone(format!("Cannot read native clips: {e}. Close the same project in the official editor first."))
+                });
+            });
+        });
+    }
+    {
+        let weak=ui.as_weak();
+        ui.on_auto_select(move |clip|if let Some(app)=weak.upgrade(){
+            app.set_selected_auto_clip(clip.clone());
+            app.set_auto_info(format!("Selected native clip: {clip}").into());
+        });
+    }
+    {
+        let weak=ui.as_weak();
+        ui.on_auto_reset_presets(move ||if let Some(app)=weak.upgrade(){
+            app.set_auto_transition("None".into());
+            app.set_auto_animation("None".into());
+            app.set_auto_scale("Keep".into());
+            app.set_auto_info("Presets cleared; saved Concat project untouched.".into());
+        });
+    }
+    for scope in ["all","selected","preview"] {
+        let weak=ui.as_weak();let sender=send.clone();let home=home.clone();
+        let callback=move ||if let Some(app)=weak.upgrade(){
+            let options=Options{
+                transition:app.get_auto_transition().to_string(),
+                transition_seconds:app.get_auto_transition_seconds().parse().unwrap_or(f64::NAN),
+                animation:app.get_auto_animation().to_string(),
+                animation_seconds:app.get_auto_animation_seconds().parse().unwrap_or(f64::NAN),
+                scale:app.get_auto_scale().to_string()
+            };
+            if let Err(e)=options.check(){err(&app,e);return;}
+            let selected=if scope=="all"{None}else{
+                Some(app.get_selected_auto_clip().to_string())
+            };
+            if selected.as_deref()==Some(""){
+                err(&app,"Load native clips and select an image/video first");return;
+            }
+            let editor=PathBuf::from(app.get_concat_exe().as_str());
+            let project=PathBuf::from(app.get_current_project().as_str());
+            let preview=if scope=="preview"{Some(home.join("auto-preview.png"))}else{None};
+            let sender=sender.clone();
+            info(&app,if scope=="preview"{"Compositing temporary auto-edit preview..."}
+                  else{"Applying atomic native Concat edit batch and saving..."});
+            thread::spawn(move||{
+                let result=mcp::auto_edit_project(&editor,&project,&options,
+                    selected.as_deref(),preview.as_deref());
+                let event=match result{
+                    Ok(count)=>{
+                        if let Some(path)=preview{Event::AutoPreview(path)}
+                        else{Event::AutoDone(format!("Saved {count} native Concat edits; desktop and GPU share concat.json"))}
+                    },
+                    Err(e)=>Event::AutoDone(format!("Auto Editing failed: {e}. Project not overwritten."))
+                };
+                let _=sender.send(event);
+            });
+        };
+        match scope {
+            "all"=>ui.on_auto_apply_all(callback),
+            "selected"=>ui.on_auto_apply_selected(callback),
+            _=>ui.on_auto_preview_frame(callback),
+        }
+    }
     {
         let weak=ui.as_weak();
         ui.on_open_native_editor(move ||if let Some(app)=weak.upgrade(){
@@ -585,6 +667,32 @@ fn main()->Result<(),Box<dyn std::error::Error + Send + Sync>>{
                     }
                     Event::Editor(s)=>app.set_editor_info(s.into()),
                     Event::Gpu(s)=>app.set_gpu_info(s.into()),
+                    Event::AutoDone(message)=>{
+                        app.set_auto_info(message.clone().into());
+                        info(&app,message);
+                    }
+                    Event::AutoPreview(path)=>{
+                        match slint::Image::load_from_path(&path){
+                            Ok(picture)=>{
+                                app.set_auto_preview(picture);
+                                app.set_auto_info("Preview rendered by Concat MCP; no project changes saved.".into());
+                            }
+                            Err(e)=>err(&app,format!("Preview image unavailable: {e}"))
+                        }
+                    }
+                    Event::AutoClips(timeline)=>{
+                        let clips=auto_edit::visual_clips(&timeline);
+                        app.set_auto_clips(rows(&clips,|c|ItemRow{
+                            id:c["id"].as_str().unwrap_or("").into(),
+                            title:format!("{:.2}–{:.2}s  {}  {}  {}",
+                                c["start"].as_f64().unwrap_or_default(),
+                                c["end"].as_f64().unwrap_or_default(),
+                                c["kind"].as_str().unwrap_or("media"),
+                                c["name"].as_str().unwrap_or(""),
+                                c["id"].as_str().unwrap_or("")).into()
+                        }));
+                        app.set_auto_info(format!("{} native visual clips loaded. Select one or Apply All.",clips.len()).into());
+                    }
                     Event::RefreshLibrary=>{
                         refresh_assets(&app,&db);refresh_summary(&app,&db);
                     }
