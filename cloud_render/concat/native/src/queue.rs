@@ -214,12 +214,19 @@ fn process_job(queue:&Queue,job:&Job,concat_exe:&Path,gpu_endpoint:&str,library_
         Err("GPU render still pending; use Check GPU Job".into())
     }
 }
-pub fn spawn_scheduler(queue:Queue,exe:PathBuf,gpu_endpoint:String,library_db:PathBuf,
+pub fn spawn_scheduler(queue:Queue,settings_file:PathBuf,library_db:PathBuf,
                        shutdown:Arc<AtomicBool>) {
     thread::spawn(move ||{
         while !shutdown.load(Ordering::Relaxed){
             if let Ok(Some(job))=queue.claim(){
-                let result=process_job(&queue,&job,&exe,&gpu_endpoint,&library_db);
+                // Read latest saved UI config per job: no restart after setting
+                // Concat.exe or Salad credentials. Never persist secret tokens.
+                let config:serde_json::Value=fs::read(&settings_file).ok()
+                    .and_then(|bytes|serde_json::from_slice(&bytes).ok())
+                    .unwrap_or_else(||serde_json::json!({}));
+                let exe=PathBuf::from(config["concat_exe"].as_str().unwrap_or(""));
+                let gpu_endpoint=config["gpu_url"].as_str().unwrap_or("");
+                let result=process_job(&queue,&job,&exe,gpu_endpoint,&library_db);
                 if let Err(error)=result {
                     if let Ok(current)=queue.get(&job.id) {
                         let state=match current.state.as_str(){
