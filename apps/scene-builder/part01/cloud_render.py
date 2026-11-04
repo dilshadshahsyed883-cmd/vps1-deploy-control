@@ -22,7 +22,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import requests
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 
 CHUNK_MAX = 8 * 1024 * 1024
 MEDIA_MAX = 20 * 1024 * 1024 * 1024
@@ -369,7 +369,6 @@ class CloudRender:
 
 
 def register_cloud_render(app, templates, root, require_admin, require_login):
-    from fastapi import Request
     from fastapi.responses import HTMLResponse, FileResponse
     manager = CloudRender(Path(root)/"cloud-render")
 
