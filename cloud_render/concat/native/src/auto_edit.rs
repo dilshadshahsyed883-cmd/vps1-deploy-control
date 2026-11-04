@@ -134,7 +134,7 @@ mod tests {
         clip("a","image",0.0,3.0),
         clip("b","video",3.0,2.0),
         clip("c","image",5.0,4.0),
-        clip("v","audio",0.0,9.0)
+        json!({"id":"v","kind":"audio","track":"audio","start":0.0,"duration":9.0,"end":9.0})
     ]}})}
     fn opts()->Options{Options{transition:"cross-fade".into(),transition_seconds:0.4,
         animation:"Zoom In".into(),animation_seconds:2.0,scale:"Fit".into()}}
