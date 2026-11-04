@@ -10,6 +10,7 @@ RUN apt-get update \
 COPY cloud_render/concat/project_bundle.py /opt/app/cloud_render/concat/project_bundle.py
 COPY cloud_render/concat/gpu/worker.py /opt/app/cloud_render/concat/gpu/worker.py
 COPY cloud_render/concat/gpu/cuda_backend.py /opt/app/cloud_render/concat/gpu/cuda_backend.py
+COPY cloud_render/concat/gpu/hardware_smoke.py /opt/app/cloud_render/concat/gpu/hardware_smoke.py
 COPY cloud_render/concat/gpu/resumable.py /opt/app/cloud_render/concat/gpu/resumable.py
 COPY cloud_render/concat/gpu/vulkan_probe.py /opt/app/cloud_render/concat/gpu/vulkan_probe.py
 ENV PYTHONPATH=/opt/app
