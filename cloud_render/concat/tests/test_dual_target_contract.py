@@ -35,6 +35,7 @@ class DualTargetContractTests(unittest.TestCase):
         self.assertIn("scripts/ci/fetch.sh sherpa-onnx-linux-x64-static-lib", self.docker)
         self.assertNotIn("scripts/ci/fetch.sh sherpa-onnx-linux-x64 sherpa.tar.bz2", self.docker)
         self.assertIn("COPY cloud_render/concat/gpu/worker.py", self.docker)
+        self.assertIn("COPY cloud_render/concat/gpu/resumable.py /opt/app/cloud_render/concat/gpu/resumable.py", self.docker)
         worker = (CONCAT / "gpu/worker.py").read_text(encoding="utf-8")
         self.assertIn("RENDERER_API_TOKEN", worker)
         self.assertIn('"/health/ready"', worker)

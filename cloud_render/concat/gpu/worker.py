@@ -23,6 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from cloud_render.concat.project_bundle import restore
+from cloud_render.concat.gpu.resumable import ResumableUpload, UploadError
 
 IDS = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 DIGESTS = re.compile(r"^[a-f0-9]{64}$")
@@ -75,6 +76,7 @@ class RenderWorker:
                 raise RuntimeError("Worker folders must not be symlinks")
             folder.mkdir(parents=True, exist_ok=True)
             folder.chmod(0o700)
+        self.spool = ResumableUpload(self)
         # Do not pretend a stopped or interrupted render succeeded.
         for path in self.state.glob("*.json"):
             if not IDS.fullmatch(path.stem) or path.is_symlink():
@@ -318,6 +320,42 @@ class Handler(BaseHTTPRequestHandler):
             ok = self.worker.ready()
             return self._json(200 if ok else 503, {"ok": ok, "engine": "concat-cli"})
         self._authorize()
+        upload = re.fullmatch(
+            r"/api/uploads/([A-Za-z0-9_-]{1,80})(?:/chunks/([0-9]{1,4})|/(complete))?", path)
+        if upload:
+            job, part, complete = upload.groups()
+            if action == "GET" and part is None and complete is None:
+                return self._json(200, self.worker.spool.status(job))
+            if action == "POST" and part is None and complete is None:
+                if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
+                    raise WorkerError(415, "Start upload must be application/json")
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                except ValueError:
+                    raise WorkerError(400, "Invalid Content-Length") from None
+                if not 0 < length <= 1024:
+                    raise WorkerError(400, "Invalid upload manifest length")
+                try:
+                    manifest = json.loads(self.rfile.read(length))
+                except (ValueError, UnicodeDecodeError):
+                    raise WorkerError(400, "Invalid upload manifest JSON") from None
+                if not isinstance(manifest, dict):
+                    raise WorkerError(400, "Upload manifest must be an object")
+                return self._json(200, self.worker.spool.begin(
+                    job, manifest.get("size"), manifest.get("sha256")))
+            if action == "PUT" and part is not None:
+                if self.headers.get("Content-Type", "").split(";")[0] != "application/octet-stream":
+                    raise WorkerError(415, "Chunk must be application/octet-stream")
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                except ValueError:
+                    raise WorkerError(400, "Invalid Content-Length") from None
+                return self._json(200, self.worker.spool.put_chunk(
+                    job, int(part), self.rfile, length,
+                    self.headers.get("X-Content-SHA256", "")))
+            if action == "POST" and complete is not None:
+                return self._json(202, self.worker.spool.complete(job))
+            raise WorkerError(405, "Method not allowed")
         m = re.fullmatch(r"/api/jobs/([A-Za-z0-9_-]{1,80})(/output|/retry-delivery)?", path)
         if not m:
             raise WorkerError(404, "Unknown route")
@@ -358,11 +396,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         self._handle("POST")
 
+    def do_PUT(self):
+        self._handle("PUT")
+
     def _handle(self, action):
         self.connection.settimeout(180)
         try:
             self._route(action)
-        except WorkerError as exc:
+        except (WorkerError, UploadError) as exc:
             self.close_connection = True
             self._json(exc.status, {"ok": False, "error": str(exc)})
         except Exception:
