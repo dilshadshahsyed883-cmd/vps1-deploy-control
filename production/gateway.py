@@ -454,6 +454,43 @@ def install(apps):
         raise
 
 
+def verify_video_merger_existing_gateway(revision):
+    """Read-only post-install proof; never republish unrelated Scene HTTPS."""
+    # The Video Merger imports installer records its ACTIVE result in an
+    # immutable transaction, not the legacy control/state app record.
+    record = BASE / 'transactions/video-merger-imports' / revision / 'result.json'
+    current = BASE / 'current/video-merger'
+    expected = BASE / 'releases/video-merger' / (revision + '-imports')
+    if (record.is_symlink() or not record.is_file()
+            or not current.is_symlink() or current.resolve() != expected):
+        raise RuntimeError('Video Merger active imports release unavailable')
+    state = json.loads(record.read_text())
+    if state.get('status') != 'ACTIVE' or state.get('drive') != 'PASS':
+        raise RuntimeError('Video Merger verified imports transaction missing')
+    http_check('video-merger')
+    # Preserve the existing gateway and HTTPS routes exactly; do not rewrite
+    # Scene SSO, Basic auth, Nginx snippets or any other application's shell.
+    before = SITE.read_bytes()
+    from production.scene_public_https import SITE as scene_site
+    if scene_site.is_symlink() or not scene_site.is_file():
+        raise RuntimeError('Scene HTTPS site unavailable')
+    scene_before = scene_site.read_bytes()
+    # Read existing credentials only. auth_credentials() provisions missing
+    # files and mutates directory permissions, which is forbidden here.
+    if (AUTH.is_symlink() or not AUTH.is_file()
+            or LOGIN.is_symlink() or not LOGIN.is_file()):
+        raise RuntimeError('Video Merger existing gateway credentials unavailable')
+    credentials = json.loads(LOGIN.read_text())
+    if (not isinstance(credentials, dict)
+            or not credentials.get('username') or not credentials.get('password')):
+        raise RuntimeError('Video Merger gateway credentials invalid')
+    run(['nginx', '-t'], quiet=True)
+    verify_gateway(['video-merger'], credentials)
+    if SITE.read_bytes() != before or scene_site.read_bytes() != scene_before:
+        raise RuntimeError('Video Merger read-only gateway configuration changed')
+    return 'EXISTING_AUTHENTICATED_ROUTE_VERIFIED'
+
+
 def legacy_voice_publication_required(requested, selected, revision):
     """Run the old standalone publisher only for a current Voice release.
 
@@ -542,6 +579,19 @@ def main():
         event(song_audio_gateway='NO_MUTATION', mode='SCENE_SSO_VERIFIED',
               canonical_page=acceptance['canonical_page'],
               anonymous_access=acceptance['anonymous_access'])
+        return
+
+    # Video Merger source-only release: installed by the guarded helper with
+    # idle checks and rollback. Never republish the unrelated legacy shell.
+    if '[vps1-video-merger-gateway-readonly]' in intent:
+        if ('[vps1-video-merger-import-release]' not in intent
+                or 'video-merger' not in args.apps
+                or '[vps1-production-release:voice-studio]' in intent):
+            raise RuntimeError('conflicting Video Merger read-only gateway intent')
+        with deployment_lock():
+            proof = verify_video_merger_existing_gateway(args.revision)
+            event(app='video-merger', gateway='NO_MUTATION',
+                  existing_route=proof, anonymous='DENIED')
         return
 
     # Protected Voice acceptance ran real SSO checks in runtime's read-only
