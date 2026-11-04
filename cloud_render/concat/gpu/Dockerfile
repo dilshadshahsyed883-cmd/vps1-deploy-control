@@ -8,7 +8,7 @@ RUN git init /src && cd /src && git remote add origin https://github.com/jub0t/C
 WORKDIR /src
 RUN scripts/ci/fetch.sh ffmpeg-linux64 ffmpeg.tar.xz && mkdir -p ffmpeg-dev && tar -xf ffmpeg.tar.xz -C ffmpeg-dev --strip-components=1
 RUN scripts/ci/fetch.sh onnxruntime-linux-x64 onnxruntime.tgz && tar -xzf onnxruntime.tgz
-RUN set -eu; version="$(grep -A1 'name = "sherpa-onnx-sys"' src/Cargo.lock | sed -n 's/^version = "\([^"]*\)"/\1/p')"; scripts/ci/fetch.sh sherpa-onnx-linux-x64 sherpa.tar.bz2; mkdir -p sherpa; tar -xjf sherpa.tar.bz2 -C sherpa; test -d "sherpa/sherpa-onnx-v$version-linux-x64-static-lib/lib"
+RUN set -eu; version="$(grep -A1 'name = "sherpa-onnx-sys"' src/Cargo.lock | sed -n 's/^version = "\([^"]*\)"/\1/p')"; scripts/ci/fetch.sh sherpa-onnx-linux-x64-static-lib sherpa.tar.bz2; mkdir -p sherpa; tar -xjf sherpa.tar.bz2 -C sherpa; test -d "sherpa/sherpa-onnx-v$version-linux-x64-static-lib/lib"
 ENV FFMPEG_DIR=/src/ffmpeg-dev
 ENV ORT_LIB_LOCATION=/src/onnxruntime-linux-x64-1.28.0/lib
 ENV ORT_PREFER_DYNAMIC_LINK=1
