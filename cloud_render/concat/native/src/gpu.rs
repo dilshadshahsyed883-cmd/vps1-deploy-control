@@ -85,6 +85,10 @@ impl Gateway {
         if !valid_id(id){return Err("Invalid GPU job ID".into());}
         self.get(&format!("/api/jobs/{id}"))
     }
+    pub fn logs(&self,id:&str)->Result<Value>{
+        if !valid_id(id){return Err("Invalid GPU job ID".into());}
+        self.get(&format!("/api/jobs/{id}/logs"))
+    }
     pub fn upload(&self,project:&Path,id:&str,stop:&dyn Fn()->bool,
                   progress:&dyn Fn(&str))->Result<()> {
         if !valid_id(id){return Err("Unsafe GPU job ID".into());}
