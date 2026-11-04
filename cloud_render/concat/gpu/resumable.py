@@ -146,6 +146,9 @@ class ResumableUpload:
                     raise UploadError(409, "Existing chunk has different content")
                 return self._status(job)
             temp = root / f".part-{index:04d}.tmp"
+            # Remove an uncommitted part left by an interrupted write/restart.
+            # Only an atomically renamed .bin file counts as verified.
+            temp.unlink(missing_ok=True)
             try:
                 with temp.open("xb") as output:
                     output.write(body)
