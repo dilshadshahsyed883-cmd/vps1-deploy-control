@@ -36,3 +36,12 @@
 - Reuse existing protected main, guarded Tailscale Scene release lane with idle gate, rollback and UAT.
 - Tests cover auth restrictions, chunk resumability, checksum, Drive verification, cleanup and contracts.
 - Deploying Media UI does not prove Salad image or end-to-end GPU readiness.
+
+## Drive Bridge failure diagnosis (November 2026)
+- Cloud Render files with Drive upload state failed remain on VPS; successful Concat rendering and Salad-to-VPS delivery are independent of the Google Drive step.
+- Drive uses canonical deployment rclone remote set by CLOUD_RENDER_DRIVE_REMOTE (default gdrive), destination folder CLOUD_RENDER_DRIVE_FOLDER (default Cloud Render). Never create a new OAuth identity or guess an alternative remote.
+- Before Drive upload, rclone listremotes checks configured remote under the actual application service identity. An absent remote fails safely, preserving the MP4.
+- rclone lsjson --stat --hash now treats only remote object not found as missing. Authentication and permission failures must not be hidden as missing-file results.
+- User-facing failure messages are classified without exposing raw stderr, credentials, local paths or OAuth URLs.
+- Only after remote size and MD5 verification can Cloud Render unlink VPS original. Never delete the original merely because a copy command returned exit zero.
+- If remote is not configured for the service, inspect canonical Drive Bridge service permissions/config. Retry the same MP4 after repairing. Other users and other remotes must remain untouched.
