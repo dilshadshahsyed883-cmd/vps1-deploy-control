@@ -65,7 +65,13 @@ fn core(engine:&Path,root:&Path)->Result<()> {
     let preview=mcp::auto_edit_project(engine,&project,&options,Some(other),Some(&root.join("preview.png")));
     ensure(before==fs::read(project.join("concat.json"))?,"Preview modified the saved native project")?;
     let preview_result=match preview {
-        Ok(_)=>{ensure(fs::read(root.join("preview.png"))?.starts_with(b"\x89PNG\r\n\x1a\n"),"Preview is not PNG")?;json!({"state":"passed"})},
+        Ok(_)=>{
+            let picture=image::open(root.join("preview.png"))?.to_rgb8();
+            let shows_selected_media=picture.pixels().any(|pixel|
+                pixel[2]>80 && pixel[2]>pixel[0].saturating_add(20));
+            if shows_selected_media {json!({"state":"passed","selected_media_pixels":"verified"})}
+            else {json!({"state":"blocked","error":"Preview does not show the selected blue fixture media"})}
+        },
         Err(e)=>json!({"state":"blocked","error":e.to_string()})
     };
     options.transition="unsupported".into();
