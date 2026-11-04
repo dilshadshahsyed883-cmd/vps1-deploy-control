@@ -24,6 +24,7 @@ from pathlib import Path
 
 from cloud_render.concat.project_bundle import restore
 from cloud_render.concat.gpu.resumable import ResumableUpload, UploadError
+from cloud_render.concat.gpu.vulkan_probe import probe as probe_vulkan
 
 IDS = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 DIGESTS = re.compile(r"^[a-f0-9]{64}$")
@@ -320,6 +321,8 @@ class Handler(BaseHTTPRequestHandler):
             ok = self.worker.ready()
             return self._json(200 if ok else 503, {"ok": ok, "engine": "concat-cli"})
         self._authorize()
+        if action == "GET" and path == "/api/diagnostics/gpu":
+            return self._json(200, probe_vulkan())
         upload = re.fullmatch(
             r"/api/uploads/([A-Za-z0-9_-]{1,80})(?:/chunks/([0-9]{1,4})|/(complete))?", path)
         if upload:
