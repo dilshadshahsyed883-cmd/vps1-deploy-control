@@ -55,6 +55,19 @@ jobs:
           $exe = (Resolve-Path dist/ConcatStudio.exe).Path
           $process = Start-Process -FilePath $exe -ArgumentList "--self-test" -PassThru -Wait
           if ($process.ExitCode -ne 0) { throw "Packaged EXE smoke failed: $($process.ExitCode)" }
+      - name: Smoke actual four-tab Windows GUI startup
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path dist/ConcatStudio.exe).Path
+          $process = Start-Process -FilePath $exe -PassThru
+          try {
+            Start-Sleep -Seconds 6
+            $process.Refresh()
+            if ($process.HasExited) { throw "Concat Studio GUI exited before startup acceptance" }
+            Write-Host "Concat Studio GUI startup smoke PASS"
+          } finally {
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }
       - name: Download unchanged official Concat v0.2.8 installer
         shell: pwsh
         env:
