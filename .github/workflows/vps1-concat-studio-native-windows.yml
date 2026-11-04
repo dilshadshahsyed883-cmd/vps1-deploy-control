@@ -1,0 +1,198 @@
+name: Concat Studio Native Rust Slint Windows x64
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - cloud_render/concat/native/**
+      - .github/workflows/vps1-concat-studio-native-windows.yml
+  push:
+    branches: [main]
+    paths:
+      - cloud_render/concat/native/**
+      - .github/workflows/vps1-concat-studio-native-windows.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: concat-native-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-windows:
+    runs-on: windows-2025
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: cloud_render/concat/native
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: cloud_render/concat/native -> target
+          cache-on-failure: true
+      - name: Normalize Rust formatting for CI build
+        run: cargo fmt --all
+      - name: Rust tests (Scene Plan / Media Library / Queue / GPU)
+        run: cargo test --all-targets --verbose
+      - name: Build release Windows native Rust-Slint EXE
+        run: cargo build --release --verbose
+      - name: Packaged binary smoke
+        shell: pwsh
+        run: |
+          $exe = "target/release/concat-studio-native.exe"
+          if (!(Test-Path $exe)) { throw "Native EXE missing" }
+          & $exe --self-test
+          if ($LASTEXITCODE -ne 0) { throw "Native self test failed" }
+          $p = Start-Process -FilePath (Resolve-Path $exe).Path -PassThru
+          try {
+            Start-Sleep -Seconds 7
+            $p.Refresh()
+            if ($p.HasExited) { throw "Native Slint GUI closed during launch" }
+          } finally {
+            if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+          }
+      - name: Generate binary checksum
+        shell: pwsh
+        run: |
+          $path = (Resolve-Path "target/release/concat-studio-native.exe").Path
+          (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant() + "  concat-studio-native.exe" |
+            Out-File -Encoding ascii "target/release/SHA256SUMS"
+      - name: Download and verify official Concat v0.2.8 Windows release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Path upstream -Force | Out-Null
+          gh release download v0.2.8 --repo jub0t/Concat --pattern "Concat-0.2.8-windows-x86_64-setup.exe" --pattern "SHA256SUMS" --dir upstream
+          if ($LASTEXITCODE -ne 0) { throw "Official Concat v0.2.8 download failed" }
+          python ../../../cloud_render/concat/verify_release.py --installer upstream/Concat-0.2.8-windows-x86_64-setup.exe --checksums upstream/SHA256SUMS
+          if ($LASTEXITCODE -ne 0) { throw "Official Concat installer verification failed" }
+
+      - name: Build single-folder verified portable Concat Studio bundle
+        shell: pwsh
+        env:
+          CONCAT_GPU: software
+          CONCAT_LOG: info
+        run: |
+          $ErrorActionPreference = "Stop"
+          $upstream = (Resolve-Path "upstream/Concat-0.2.8-windows-x86_64-setup.exe").Path
+          $installed = Join-Path $env:RUNNER_TEMP "concat-inno-isolated"
+          $outDir = Join-Path (Get-Location) "portable/Concat Studio"
+          New-Item -ItemType Directory -Path $installed -Force | Out-Null
+          New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+          # Inno Setup's /DIR overrides the staging root. Installs only to an
+          # isolated ephemeral CI directory, never the user's machine.
+          $installLog = Join-Path $env:RUNNER_TEMP "concat-install.log"
+          $installer = Start-Process -FilePath $upstream -ArgumentList @(
+            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-',
+            ('/DIR="' + $installed + '"'), ('/LOG="' + $installLog + '"')
+          ) -Wait -PassThru
+          if ($installer.ExitCode -ne 0) {
+            if (Test-Path $installLog) { Get-Content $installLog -Tail 80 }
+            throw "Official Inno Setup failed with exit code $($installer.ExitCode)"
+          }
+          $official = Join-Path $installed "Concat.exe"
+          if (!(Test-Path $official)) {
+            $found = Get-ChildItem -LiteralPath $installed -Filter concat.exe -File -Recurse |
+              Select-Object -First 1
+            if (!$found) { throw "Official Concat.exe absent from verified installer staging" }
+            $official = $found.FullName
+          }
+          $runtime = Split-Path $official -Parent
+          Copy-Item -Path (Join-Path $runtime "*") -Destination $outDir -Recurse -Force
+          Copy-Item -LiteralPath "target/release/concat-studio-native.exe" -Destination (Join-Path $outDir "ConcatStudio.exe") -Force
+          Copy-Item -LiteralPath "README.md" -Destination (Join-Path $outDir "STUDIO_README.md") -Force
+          # Prove that relocation works without the staging installation.
+          Move-Item -LiteralPath $installed -Destination ($installed + '.unavailable')
+          Get-ChildItem -LiteralPath $outDir -Filter 'unins*' -File | Remove-Item
+          $engine = Join-Path $outDir "Concat.exe"
+          $studio = Join-Path $outDir "ConcatStudio.exe"
+          if (!(Test-Path $engine)) { throw "Portable Concat.exe missing" }
+          if (!(Test-Path $studio)) { throw "Portable ConcatStudio.exe missing" }
+          $probe = Start-Process -FilePath $engine -ArgumentList '--version' -Wait -PassThru
+          if ($probe.ExitCode -ne 0) { throw "Bundled official Concat.exe version probe failed" }
+          $engineSmoke = Start-Process -FilePath $engine -ArgumentList '--smoke' -PassThru -WorkingDirectory $outDir
+          try {
+            if (!$engineSmoke.WaitForExit(120000)) { throw "Official editor startup timed out" }
+            if ($engineSmoke.ExitCode -ne 0) { throw "Official editor startup failed: $($engineSmoke.ExitCode)" }
+          } finally {
+            if (!$engineSmoke.HasExited) { Stop-Process -Id $engineSmoke.Id -Force }
+          }
+          & $studio --self-test
+          if ($LASTEXITCODE -ne 0) { throw "Bundled ConcatStudio.exe self-test failed" }
+          & $studio --portable-check
+          if ($LASTEXITCODE -ne 0) { throw "Same-folder auto-discovery of Concat.exe failed" }
+          $process = Start-Process -FilePath $studio -WorkingDirectory $outDir -PassThru
+          try {
+            Start-Sleep -Seconds 7
+            $process.Refresh()
+            if ($process.HasExited) { throw "Portable native Slint GUI exited unexpectedly" }
+          } finally {
+            if (!$process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }
+          python ci_fixtures.py "portable/acceptance"
+          if ($LASTEXITCODE -ne 0) { throw "Synthetic media generation failed" }
+          $env:CONCAT_STUDIO_ENGINE_LOG = Join-Path (Get-Location) "portable/acceptance/engine.log"
+          $acceptance = Start-Process -FilePath $studio -ArgumentList @(
+            '--acceptance-test', ('"' + (Join-Path (Get-Location) 'portable/acceptance') + '"')
+          ) -PassThru -WorkingDirectory $outDir
+          try {
+            if (!$acceptance.WaitForExit(180000)) { throw "Native engine acceptance timed out" }
+            if ($acceptance.ExitCode -ne 0) { throw "Native project editing acceptance failed: $($acceptance.ExitCode)" }
+          } finally {
+            if (!$acceptance.HasExited) { Stop-Process -Id $acceptance.Id -Force }
+          }
+          Copy-Item "portable/acceptance/acceptance.json" (Join-Path $outDir "ACCEPTANCE.json")
+          New-Item -ItemType Directory -Path "portable" -Force | Out-Null
+          Compress-Archive -LiteralPath $outDir -DestinationPath "portable/Concat-Studio-Portable-Windows-x64.zip" -Force -CompressionLevel Optimal
+          $zip = "portable/Concat-Studio-Portable-Windows-x64.zip"
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $entryNames = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $zip).Path)
+          try {
+            $names = @($entryNames.Entries | ForEach-Object { $_.FullName.Replace("\", "/") })
+            if (-not ($names | Where-Object { $_ -like "Concat Studio/*ConcatStudio.exe" })) { throw "ZIP missing Studio EXE" }
+            if (-not ($names | Where-Object { $_ -like "Concat Studio/*Concat.exe" })) { throw "ZIP missing original Concat EXE" }
+          } finally { $entryNames.Dispose() }
+          $checksums = @(
+            "$( (Get-FileHash $engine -Algorithm SHA256).Hash.ToLowerInvariant() )  Concat.exe",
+            "$( (Get-FileHash $studio -Algorithm SHA256).Hash.ToLowerInvariant() )  ConcatStudio.exe",
+            "$( (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() )  Concat-Studio-Portable-Windows-x64.zip"
+          )
+          $checksums | Set-Content -LiteralPath "portable/SHA256SUMS" -Encoding ascii
+          Write-Host "PORTABLE_BUNDLE=PASS EDITOR=VERIFIED STUDIO=VERIFIED SAME_FOLDER=PASS"
+
+      - name: Upload combined portable Concat Studio and official editor ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: Concat-Studio-Portable-Windows-x64
+          path: |
+            cloud_render/concat/native/portable/Concat-Studio-Portable-Windows-x64.zip
+            cloud_render/concat/native/portable/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload native Windows application
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Concat-Studio-Native-Rust-Slint-Windows-x64
+          path: |
+            cloud_render/concat/native/target/release/concat-studio-native.exe
+            cloud_render/concat/native/target/release/SHA256SUMS
+            cloud_render/concat/native/README.md
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload acceptance evidence and installer diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Concat-Studio-Acceptance
+          path: |
+            cloud_render/concat/native/portable/acceptance/
+            ${{ runner.temp }}/concat-install.log
+          if-no-files-found: ignore
