@@ -145,6 +145,9 @@ class WorkerTests(unittest.TestCase):
             response = conn.getresponse()
             self.assertEqual(response.status, 401)
             response.read()
+            # 401 intentionally closes the unauthorized socket to avoid body desync.
+            conn.close()
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=10)
             conn.request("POST", "/api/jobs/job-1", body=self.data, headers={
                 "Authorization": "Bearer " + TOKEN,
                 "Content-Type": "application/zip",
