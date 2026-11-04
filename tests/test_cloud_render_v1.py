@@ -74,7 +74,7 @@ class CloudRenderTests(unittest.TestCase):
         stat={"Size":len(MP4),"Hashes":{"MD5":self.md5}}
         with patch("cloud_render.shutil.which",return_value="/usr/bin/rclone"):
             with patch.object(self.mgr,"remote_stat",side_effect=[None,stat]):
-                with patch.object(self.mgr,"execute",return_value=""):
+                with patch.object(self.mgr,"execute",side_effect=lambda cmd, timeout=1200: "gdrive:\n" if cmd[1] == "listremotes" else ""):
                     self.mgr._upload("job-A")
         self.assertFalse(self.mgr.local("job-A").exists())
         self.assertEqual(self.mgr.listing()["items"][0]["state"],"delivered")
@@ -86,7 +86,7 @@ class CloudRenderTests(unittest.TestCase):
         stat={"Size":len(MP4),"Hashes":{"MD5":"0"*32}}
         with patch("cloud_render.shutil.which",return_value="/usr/bin/rclone"):
             with patch.object(self.mgr,"remote_stat",side_effect=[None,stat]):
-                with patch.object(self.mgr,"execute",return_value=""):
+                with patch.object(self.mgr,"execute",side_effect=lambda cmd, timeout=1200: "gdrive:\n" if cmd[1] == "listremotes" else ""):
                     self.mgr._upload("job-A")
         self.assertTrue(self.mgr.local("job-A").is_file())
         self.assertEqual(self.mgr.listing()["items"][0]["state"],"failed")
