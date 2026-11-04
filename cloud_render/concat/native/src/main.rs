@@ -649,12 +649,13 @@ fn main()->Result<(),Box<dyn std::error::Error + Send + Sync>>{
         ui.on_test_gpu(move ||if let Some(app)=weak.upgrade(){
             let url=app.get_gpu_url().to_string();
             let sender=send.clone();
-            info(&app,"Checking Salad GPU and Vulkan drivers...");
+            info(&app,"Checking Salad backend: CUDA/NVENC or native Vulkan...");
             thread::spawn(move||{
                 let result=gpu::gateway_saved(&url).and_then(|g|g.check_nvidia());
                 let report=match result{
-                    Ok(d)=>format!("GPU ready\nNVIDIA Vulkan: {}\nNVIDIA Compute: {}\nAdapters: {}",
-                         d["nvidia_vulkan_visible"],d["nvidia_compute_visible"],d["vulkan_adapters"]),
+                    Ok(d)=>format!("GPU ready\nSelected backend: {}\nCUDA + NVENC: {}\nNVIDIA Vulkan: {}\nMissing: {}",
+                         d["selected_backend"],d["cuda_nvenc_ready"],
+                         d["nvidia_vulkan_visible"],d["missing"]),
                     Err(e)=>format!("GPU not ready: {e}")
                 };
                 let _=sender.send(Event::Gpu(report));
