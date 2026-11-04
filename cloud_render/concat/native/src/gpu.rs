@@ -71,8 +71,13 @@ impl Gateway {
     pub fn diagnose(&self)->Result<Value>{self.get("/api/diagnostics/gpu")}
     pub fn check_nvidia(&self)->Result<Value>{
         let d=self.diagnose()?;
-        if d["nvidia_vulkan_visible"]!=true{
-            return Err("NVIDIA Vulkan unavailable: paid GPU render blocked".into());
+        if d["selected_backend"]=="cuda_nvenc" {
+            if d["cuda_nvenc_ready"]!=true {
+                return Err(format!("Salad CUDA/NVENC unavailable: {}; no CPU fallback",
+                    d["missing"]).into());
+            }
+        } else if d["nvidia_vulkan_visible"]!=true {
+            return Err("NVIDIA Vulkan unavailable for native Concat render".into());
         }
         Ok(d)
     }
