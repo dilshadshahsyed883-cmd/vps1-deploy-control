@@ -193,3 +193,7 @@ to the NEW SHA-tagged candidate and run /api/diagnostics/gpu, then a
 30-second 1080p export plus VPS verified output transfer. A job that
 previously failed needs a NEW job ID on the refreshed container; keep
 original Concat-Test-GPU.zip and media unchanged.
+
+## Approved CUDA + NVENC GPU-only plan (2026-11-04)
+
+See [CUDA_GPU_ONLY_RENDER_PLAN.md](CUDA_GPU_ONLY_RENDER_PLAN.md) for the approved video-frame GPU-only architecture, unsupported optional-effect auto-skip with structured logs, no CPU visual fallback, 2-job parallel candidate, and validation/release gates. This is an approved plan only; the CUDA worker, full effect implementations and real Concat project acceptance are still pending.
