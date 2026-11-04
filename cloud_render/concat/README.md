@@ -218,3 +218,9 @@ First-project supported subset:
 - First acceptance is **one** real 30-second project. Do not enable 2-job parallelism (current pool is still `max_workers=1`) until first output's video and audio verification succeeds.
 
 **Operator acceptance sequence (candidate only):** build candidate image from reviewed GitHub PR, configure a *test* Salad container with `CONCAT_RENDER_BACKEND=cuda_nvenc` and existing auth secrets, verify `/health/ready` and authenticated `/api/diagnostics/gpu`, use the Windows Studio Render Queue to submit a supported real `concat.json`, then confirm `/api/jobs/{id}` and logs, MP4 audio/video streams, exact duration, visual motion, and verified VPS receiver. Keep original media and production untouched. Only after this may more editing features and 2-parallel GPU workers be enabled.
+
+**Salad one-command hardware acceptance** (after starting the published *test* CUDA candidate image):
+
+    python3 -m cloud_render.concat.gpu.hardware_smoke
+
+This creates two synthetic Concat still-image scenes, linear GPU pan, 30-second AAC audio, and an intentionally unsupported optional effect. It verifies MP4 duration, video/audio codecs and structured skip logs, then prints the output and log paths. This tests the image and engine, **not yet the Windows-to-Salad real personal project upload**. No credentials are printed or stored by the smoke test.
