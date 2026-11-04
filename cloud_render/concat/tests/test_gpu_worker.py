@@ -130,6 +130,31 @@ class WorkerTests(unittest.TestCase):
         with patch("cloud_render.concat.gpu.worker.subprocess.run", side_effect=simulate):
             self.worker._native_render(project, output)
 
+    def test_cuda_skipped_effect_logs_survive_verified_delivery(self):
+        self.worker.pool.shutdown(wait=True)
+
+        def cuda_report(project, output):
+            output.write_bytes(MP4)
+            (project.parent / "engine-events.jsonl").write_text(
+                json.dumps({"job_id": "cuda-1", "effect_id": "glitch",
+                            "decision": "skipped", "reason_code": "GPU_EFFECT_UNSUPPORTED"}) + "\\n")
+            return {"renderer": "cuda-nvenc-candidate-v1",
+                    "skipped_effects": 1, "event_log": "engine-events.jsonl"}
+
+        self.worker = RenderWorker(Path(self.temp.name), binary=Path(sys.executable),
+            token=TOKEN, backend="cuda_nvenc", renderer=cuda_report, deliver=self.deliver,
+            receiver="https://app.scenebuilder.online")
+        self.add("cuda-1")
+        self.wait()
+        entry = self.worker.status("cuda-1")
+        self.assertEqual(entry["state"], "delivered")
+        self.assertEqual(entry["backend"], "cuda_nvenc")
+        self.assertEqual(entry["skipped_effects"], 1)
+        self.assertFalse((self.worker.inputs / "cuda-1").exists())
+        event_file = self.worker.state / "cuda-1.events.jsonl"
+        self.assertTrue(event_file.is_file())
+        self.assertIn("GPU_EFFECT_UNSUPPORTED", event_file.read_text())
+
     def test_http_auth_health_and_ingest(self):
         server = SaladDualStackHTTPServer(("::", 0), Handler)
         server.worker = self.worker
