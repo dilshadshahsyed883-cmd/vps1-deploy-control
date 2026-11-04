@@ -31,13 +31,13 @@ pub struct Plan {
 impl Plan {pub fn duration(&self)->f64{self.shots.last().map(|s|s.end).unwrap_or_default()}}
 
 fn number(value:&str)->Result<f64>{
-    let n:f64=value.trim().replace(',','.').parse()?;
+    let n:f64=value.trim().replace(',',".").parse()?;
     if !n.is_finite(){return Err("Non-finite number".into())}
     Ok(n)
 }
 pub fn seconds(value:&str)->Result<f64>{
     let trimmed=value.trim();
-    let normalized=trimmed.replace(',','.');
+    let normalized=trimmed.replace(',',".");
     let fields=normalized.split(':').collect::<Vec<_>>();
     if fields.is_empty() || fields.len()>3{return Err(format!("Invalid time: {value}").into());}
     let mut total=0.0;
