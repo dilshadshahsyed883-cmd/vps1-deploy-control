@@ -6,6 +6,10 @@ on:
     paths:
       - cloud_render/concat/**
       - .github/workflows/vps1-cloud-render-gpu-image.yml
+  pull_request:
+    paths:
+      - cloud_render/concat/**
+      - .github/workflows/vps1-cloud-render-gpu-image.yml
   workflow_dispatch:
 
 permissions:
