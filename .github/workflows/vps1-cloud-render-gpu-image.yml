@@ -54,6 +54,9 @@ jobs:
             sleep 2
           done
           curl -fsS http://127.0.0.1:8080/health/ready
+          # GitHub CI has no NVIDIA card, but the Mesa Vulkan software adapter
+          # must be usable by the same unprivileged runtime as the Salad worker.
+          docker exec concat-gpu-smoke python3 -c 'from cloud_render.concat.gpu.vulkan_probe import probe; d=probe(); print(d); assert d["software_vulkan_visible"], "Mesa Lavapipe ICD not usable by nonroot worker"; assert not d["nvidia_vulkan_visible"], "Unexpected NVIDIA GPU on CI runner"'
           docker exec concat-gpu-smoke python3 -c 'import socket; s=socket.create_connection(("::1", 8080), timeout=5); s.sendall(b"GET /health/ready HTTP/1.1\r\nHost: [::1]\r\nConnection: close\r\n\r\n"); assert b"200 OK" in s.recv(4096)'
           test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/api/jobs/test)" = "401"
           docker rm -f concat-gpu-smoke
