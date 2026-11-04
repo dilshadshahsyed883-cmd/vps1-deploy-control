@@ -15,6 +15,23 @@ spec.loader.exec_module(module)
 
 
 class DriveBridgeErrorTests(unittest.TestCase):
+    def test_every_rclone_call_uses_canonical_config_even_with_decoy_env(self):
+        import os
+        from unittest.mock import patch
+        with patch.dict(os.environ, {"RCLONE_CONFIG": "/tmp/decoy-rclone.conf", "HOME": "/tmp/decoy-home"}):
+            with patch.object(module.subprocess, "run", return_value=SimpleNamespace(
+                    returncode=0, stdout="gdrive:\\n", stderr="")) as execute:
+                result = module.CloudRender.execute(["rclone", "listremotes"], 15)
+        self.assertEqual(result, "gdrive:\\n")
+        self.assertEqual(execute.call_args.args[0], [
+            "rclone", "--config", "/home/ubuntu/.config/masterctl/rclone.conf", "listremotes"])
+        self.assertTrue(execute.call_args.kwargs["capture_output"])
+        self.assertEqual(execute.call_args.kwargs["timeout"], 15)
+
+    def test_canonical_bridge_path_matches_deployment_configuration(self):
+        runtime = (FILE.parents[3] / "production/runtime.py").read_text()
+        self.assertIn("RCLONE = '/home/ubuntu/.config/masterctl/rclone.conf'", runtime)
+        self.assertEqual(module.CANONICAL_RCLONE_CONFIG, "/home/ubuntu/.config/masterctl/rclone.conf")
     def test_rclone_error_categorization_never_leaks_stderr(self):
         cases = [
             ("Failed to refresh token: invalid_grant secret_access_token_xyz", "authentication"),
