@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   native-windows:
-    runs-on: windows-2022
+    runs-on: windows-2025
     timeout-minutes: 90
     defaults:
       run:
@@ -76,6 +76,7 @@ jobs:
         shell: pwsh
         env:
           CONCAT_GPU: software
+          CONCAT_LOG: info
         run: |
           $ErrorActionPreference = "Stop"
           $upstream = (Resolve-Path "upstream/Concat-0.2.8-windows-x86_64-setup.exe").Path
@@ -135,6 +136,7 @@ jobs:
           }
           python ci_fixtures.py "portable/acceptance"
           if ($LASTEXITCODE -ne 0) { throw "Synthetic media generation failed" }
+          $env:CONCAT_STUDIO_ENGINE_LOG = Join-Path (Get-Location) "portable/acceptance/engine.log"
           $acceptance = Start-Process -FilePath $studio -ArgumentList @(
             '--acceptance-test', ('"' + (Join-Path (Get-Location) 'portable/acceptance') + '"')
           ) -PassThru -WorkingDirectory $outDir
@@ -174,6 +176,7 @@ jobs:
           retention-days: 30
 
       - name: Upload native Windows application
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Concat-Studio-Native-Rust-Slint-Windows-x64

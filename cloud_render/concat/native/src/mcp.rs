@@ -22,6 +22,12 @@ impl Concat {
             use std::os::windows::process::CommandExt;
             cmd.creation_flags(0x08000000);
         }
+        // Optional local diagnostics for acceptance runs. Engine stderr never
+        // carries the Salad credentials or the MCP request stream.
+        if let Some(path)=std::env::var_os("CONCAT_STUDIO_ENGINE_LOG") {
+            let log=fs::OpenOptions::new().create(true).append(true).open(path)?;
+            cmd.stderr(Stdio::from(log));
+        }
         let mut child=cmd.spawn()?;
         let input=child.stdin.take().ok_or("Concat input pipe missing")?;
         let output=BufReader::new(child.stdout.take().ok_or("Concat output pipe missing")?);
