@@ -111,3 +111,40 @@ and `127.0.0.1` before publishing a SHA-pinned candidate. Set Gateway port
 Use the new SHA-tagged image after protected merge; earlier candidate tags
 with the IPv4-only listener must NOT be used for Salad Gateway deployment.
 The worker's Bearer token is separate from Salad gateway API-key auth.
+
+
+## Salad Gateway: resumable Windows project upload
+
+Salad Container Gateway request timeout is at most 100000 milliseconds.
+Large project ZIP uploads can fail before being accepted even while readiness
+passes. For uploads over a few MB, use the new authenticated 8 MiB chunk API:
+
+- POST /api/uploads/{id} with JSON containing size and sha256: begin or resume.
+- GET /api/uploads/{id}: list verified uploaded chunk indices.
+- PUT /api/uploads/{id}/chunks/{index}: raw application/octet-stream chunk
+  and X-Content-SHA256 of that specific chunk. Identical retries are safe.
+- POST /api/uploads/{id}/complete: assemble and verify full SHA256, then
+  queue a Concat render exactly once.
+- GET /api/jobs/{id}: check actual rendering and VPS delivery status.
+
+All endpoints except health require Salad Gateway API key and a separate
+Authorization Bearer RENDERER_API_TOKEN. Chunk files survive failed HTTP
+requests and restarts on the same container disk; the final ZIP is assembled
+only after all checksums match. Source ZIP and PC media are not modified.
+
+Windows PowerShell 5.1+ client, using the ORIGINAL ZIP made by project_bundle.py:
+
+    Invoke-WebRequest "https://raw.githubusercontent.com/dilshadshahsyed883-cmd/vps1-deploy-control/main/cloud_render/concat/client/upload_job.ps1" -OutFile "$env:TEMP\concat-upload.ps1"
+    powershell -ExecutionPolicy Bypass -File "$env:TEMP\concat-upload.ps1"
+
+The script prompts for domain, Salad API key and RENDERER_API_TOKEN.
+It writes only ZIP SHA256, domain and job ID in a local upload-state.json
+file beside the ZIP so repeated runs skip already-acknowledged parts.
+It never writes secrets to the state file or uploads the originals to Git.
+It does not modify the Windows Concat editor or its project schema.
+
+VPS receiver transfer is independent: CLOUD_RENDER_VPS_BASE_URL and
+RENDER_OUTPUT_TOKEN must be configured to match the actual VPS1 receiver.
+If delivery is not verified, the worker retains output and source.
+Update Salad to the NEW SHA-tagged image after protected-main image
+publishing; old workers cannot accept chunk uploads.
