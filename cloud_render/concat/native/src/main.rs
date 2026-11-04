@@ -567,11 +567,8 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
     refresh_summary(&ui,&catalog_file);
     refresh_jobs(&ui,&queue);
     let shutdown=Arc::new(AtomicBool::new(false));
-    // The worker uses saved credentials from Windows Credential Manager.
-    // Desktop settings are loaded once; restart Studio after changing gateway.
-    let configured_exe=PathBuf::from(ui.get_concat_exe().as_str());
-    let configured_gateway=ui.get_gpu_url().to_string();
-    queue::spawn_scheduler(queue.clone(),configured_exe,configured_gateway,
+    // Each job reads latest settings; credential values stay in the OS vault.
+    queue::spawn_scheduler(queue.clone(),settings_file.clone(),
                            catalog_file.clone(),shutdown.clone());
     let weak=ui.as_weak();
     let tick=slint::Timer::default();
