@@ -177,7 +177,7 @@ def parse_srt(source: str, total: float) -> list[dict]:
                 raise StudioError("SRT block has no time range")
             continue
         left, right = lines[when].split("-->", 1)
-        start, end = seconds(left), seconds(right.split(" ")[0])
+        start, end = seconds(left), seconds(right.strip().split()[0])
         words = " ".join(lines[when + 1:]).strip()
         if not words or start < 0 or end <= start or end > total + 0.01:
             raise StudioError("SRT caption has invalid text/timing")
