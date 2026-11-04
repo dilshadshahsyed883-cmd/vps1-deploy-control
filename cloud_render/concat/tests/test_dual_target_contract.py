@@ -28,6 +28,9 @@ class DualTargetContractTests(unittest.TestCase):
     def test_gpu_worker_is_nonroot_authenticated_and_candidate_only(self):
         self.assertIn('ENTRYPOINT ["python3", "-m", "cloud_render.concat.gpu.worker"]', self.docker)
         self.assertIn("USER 10001:10001", self.docker)
+        self.assertIn("ENV HOME=/worker", self.docker)
+        self.assertIn("ENV XDG_CONFIG_HOME=/worker/.config", self.docker)
+        self.assertIn("ENV XDG_DATA_HOME=/worker/.local/share", self.docker)
         self.assertIn("EXPOSE 8080", self.docker)
         self.assertIn("scripts/ci/fetch.sh sherpa-onnx-linux-x64-static-lib", self.docker)
         self.assertNotIn("scripts/ci/fetch.sh sherpa-onnx-linux-x64 sherpa.tar.bz2", self.docker)
