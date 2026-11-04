@@ -475,8 +475,17 @@ def verify_video_merger_existing_gateway(revision):
     if scene_site.is_symlink() or not scene_site.is_file():
         raise RuntimeError('Scene HTTPS site unavailable')
     scene_before = scene_site.read_bytes()
+    # Read existing credentials only. auth_credentials() provisions missing
+    # files and mutates directory permissions, which is forbidden here.
+    if (AUTH.is_symlink() or not AUTH.is_file()
+            or LOGIN.is_symlink() or not LOGIN.is_file()):
+        raise RuntimeError('Video Merger existing gateway credentials unavailable')
+    credentials = json.loads(LOGIN.read_text())
+    if (not isinstance(credentials, dict)
+            or not credentials.get('username') or not credentials.get('password')):
+        raise RuntimeError('Video Merger gateway credentials invalid')
     run(['nginx', '-t'], quiet=True)
-    verify_gateway(['video-merger'], auth_credentials())
+    verify_gateway(['video-merger'], credentials)
     if SITE.read_bytes() != before or scene_site.read_bytes() != scene_before:
         raise RuntimeError('Video Merger read-only gateway configuration changed')
     return 'EXISTING_AUTHENTICATED_ROUTE_VERIFIED'
