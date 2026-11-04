@@ -31,7 +31,7 @@ class StudioParseTests(unittest.TestCase):
             self.assertEqual((plan.width, plan.height, plan.fps), (1920, 1080, 30))
             self.assertEqual(plan.duration, 4.5)
             self.assertEqual(plan.shots[1].source_in, 1.0)
-            self.assertEqual(plan.shots[0].file, root / "first.jpg")
+            self.assertEqual(plan.shots[0].file, root.resolve() / "first.jpg")
 
     def test_missing_or_ambiguous_media_blocks(self):
         with tempfile.TemporaryDirectory() as td:
