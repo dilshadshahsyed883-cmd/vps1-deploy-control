@@ -29,6 +29,7 @@ COPY --from=build /src/LICENSE /usr/share/doc/concat/LICENSE
 COPY cloud_render/concat/project_bundle.py /opt/app/cloud_render/concat/project_bundle.py
 COPY cloud_render/concat/gpu/worker.py /opt/app/cloud_render/concat/gpu/worker.py
 COPY cloud_render/concat/gpu/cuda_backend.py /opt/app/cloud_render/concat/gpu/cuda_backend.py
+COPY cloud_render/concat/gpu/hardware_smoke.py /opt/app/cloud_render/concat/gpu/hardware_smoke.py
 COPY cloud_render/concat/gpu/resumable.py /opt/app/cloud_render/concat/gpu/resumable.py
 COPY cloud_render/concat/gpu/vulkan_probe.py /opt/app/cloud_render/concat/gpu/vulkan_probe.py
 ENV LD_LIBRARY_PATH=/opt/concat/ffmpeg/lib:/opt/concat/onnx/lib
