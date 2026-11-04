@@ -60,6 +60,88 @@ jobs:
           $path = (Resolve-Path "target/release/concat-studio-native.exe").Path
           (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant() + "  concat-studio-native.exe" |
             Out-File -Encoding ascii "target/release/SHA256SUMS"
+      - name: Download and verify official Concat v0.2.8 Windows release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Path upstream -Force | Out-Null
+          gh release download v0.2.8 --repo jub0t/Concat --pattern "Concat-0.2.8-windows-x86_64-setup.exe" --pattern "SHA256SUMS" --dir upstream
+          if ($LASTEXITCODE -ne 0) { throw "Official Concat v0.2.8 download failed" }
+          python ../../../../cloud_render/concat/verify_release.py --installer upstream/Concat-0.2.8-windows-x86_64-setup.exe --checksums upstream/SHA256SUMS
+          if ($LASTEXITCODE -ne 0) { throw "Official Concat installer verification failed" }
+
+      - name: Build single-folder verified portable Concat Studio bundle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $upstream = (Resolve-Path "upstream/Concat-0.2.8-windows-x86_64-setup.exe").Path
+          $installed = Join-Path $env:RUNNER_TEMP "concat-inno-isolated"
+          $outDir = Join-Path (Get-Location) "portable/Concat Studio"
+          New-Item -ItemType Directory -Path $installed -Force | Out-Null
+          New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+          # Inno Setup's /DIR overrides the staging root. Installs only to an
+          # isolated ephemeral CI directory, never the user's machine.
+          & $upstream "/VERYSILENT" "/SUPPRESSMSGBOXES" "/NORESTART" "/SP-" "/DIR=$installed"
+          if ($LASTEXITCODE -ne 0) { throw "Official Inno Setup installation failed" }
+          $official = Join-Path $installed "Concat.exe"
+          if (!(Test-Path $official)) {
+            $found = Get-ChildItem -LiteralPath $installed -Filter concat.exe -File -Recurse |
+              Select-Object -First 1
+            if (!$found) { throw "Official Concat.exe absent from verified installer staging" }
+            $official = $found.FullName
+          }
+          $runtime = Split-Path $official -Parent
+          Copy-Item -Path (Join-Path $runtime "*") -Destination $outDir -Recurse -Force
+          Copy-Item -LiteralPath "target/release/concat-studio-native.exe" -Destination (Join-Path $outDir "ConcatStudio.exe") -Force
+          Copy-Item -LiteralPath "README.md" -Destination (Join-Path $outDir "STUDIO_README.md") -Force
+          $engine = Join-Path $outDir "Concat.exe"
+          $studio = Join-Path $outDir "ConcatStudio.exe"
+          if (!(Test-Path $engine)) { throw "Portable Concat.exe missing" }
+          if (!(Test-Path $studio)) { throw "Portable ConcatStudio.exe missing" }
+          & $engine --version
+          if ($LASTEXITCODE -ne 0) { throw "Bundled official Concat.exe version probe failed" }
+          & $studio --self-test
+          if ($LASTEXITCODE -ne 0) { throw "Bundled ConcatStudio.exe self-test failed" }
+          & $studio --portable-check
+          if ($LASTEXITCODE -ne 0) { throw "Same-folder auto-discovery of Concat.exe failed" }
+          $process = Start-Process -FilePath $studio -WorkingDirectory $outDir -PassThru
+          try {
+            Start-Sleep -Seconds 7
+            $process.Refresh()
+            if ($process.HasExited) { throw "Portable native Slint GUI exited unexpectedly" }
+          } finally {
+            if (!$process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }
+          New-Item -ItemType Directory -Path "portable" -Force | Out-Null
+          Compress-Archive -LiteralPath $outDir -DestinationPath "portable/Concat-Studio-Portable-Windows-x64.zip" -Force -CompressionLevel Optimal
+          $zip = "portable/Concat-Studio-Portable-Windows-x64.zip"
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $entryNames = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $zip).Path)
+          try {
+            $names = @($entryNames.Entries | ForEach-Object FullName)
+            if (-not ($names | Where-Object { $_ -like "Concat Studio/*ConcatStudio.exe" })) { throw "ZIP missing Studio EXE" }
+            if (-not ($names | Where-Object { $_ -like "Concat Studio/*Concat.exe" })) { throw "ZIP missing original Concat EXE" }
+          } finally { $entryNames.Dispose() }
+          $checksums = @(
+            "$( (Get-FileHash $engine -Algorithm SHA256).Hash.ToLowerInvariant() )  Concat.exe",
+            "$( (Get-FileHash $studio -Algorithm SHA256).Hash.ToLowerInvariant() )  ConcatStudio.exe",
+            "$( (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() )  Concat-Studio-Portable-Windows-x64.zip"
+          )
+          $checksums | Set-Content -LiteralPath "portable/SHA256SUMS" -Encoding ascii
+          Write-Host "PORTABLE_BUNDLE=PASS EDITOR=VERIFIED STUDIO=VERIFIED SAME_FOLDER=PASS"
+
+      - name: Upload combined portable Concat Studio and official editor ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: Concat-Studio-Portable-Windows-x64
+          path: |
+            cloud_render/concat/native/portable/Concat-Studio-Portable-Windows-x64.zip
+            cloud_render/concat/native/portable/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Upload native Windows application
         uses: actions/upload-artifact@v4
         with:
