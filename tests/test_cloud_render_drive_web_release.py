@@ -49,7 +49,7 @@ class CloudRenderDriveReleaseTests(unittest.TestCase):
             (home / ".config").mkdir()
             with patch.object(lane, "WORKER_HOME", home):
                 with patch.object(lane.subprocess, "run", return_value=SimpleNamespace(
-                        returncode=0, stdout="gdrive:\\n", stderr="")) as spy:
+                        returncode=0, stdout="gdrive:\n", stderr="")) as spy:
                     lane.verify_rclone_context()
                 argv = spy.call_args.args[0]
                 self.assertEqual(argv[:5], ["runuser", "-u", "vps1scene", "--", "env"])
@@ -58,7 +58,7 @@ class CloudRenderDriveReleaseTests(unittest.TestCase):
                 self.assertIn("HOME=" + str(home), argv)
                 self.assertIn("XDG_CONFIG_HOME=" + str(home / ".config"), argv)
                 with patch.object(lane.subprocess, "run", return_value=SimpleNamespace(
-                        returncode=0, stdout="otherdrive:\\n", stderr="")):
+                        returncode=0, stdout="otherdrive:\n", stderr="")):
                     with self.assertRaisesRegex(RuntimeError, "no gdrive remote"):
                         lane.verify_rclone_context()
 
