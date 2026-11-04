@@ -1,0 +1,72 @@
+name: Concat Studio Native Rust Slint Windows x64
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - cloud_render/concat/native/**
+      - .github/workflows/vps1-concat-studio-native-windows.yml
+  push:
+    branches: [main]
+    paths:
+      - cloud_render/concat/native/**
+      - .github/workflows/vps1-concat-studio-native-windows.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: concat-native-windows-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  native-windows:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: cloud_render/concat/native
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: cloud_render/concat/native -> target
+          cache-on-failure: true
+      - name: Normalize Rust formatting for CI build
+        run: cargo fmt --all
+      - name: Rust tests (Scene Plan / Media Library / Queue / GPU)
+        run: cargo test --all-targets --verbose
+      - name: Build release Windows native Rust-Slint EXE
+        run: cargo build --release --verbose
+      - name: Packaged binary smoke
+        shell: pwsh
+        run: |
+          $exe = "target/release/concat-studio-native.exe"
+          if (!(Test-Path $exe)) { throw "Native EXE missing" }
+          & $exe --self-test
+          if ($LASTEXITCODE -ne 0) { throw "Native self test failed" }
+          $p = Start-Process -FilePath (Resolve-Path $exe).Path -PassThru
+          try {
+            Start-Sleep -Seconds 7
+            $p.Refresh()
+            if ($p.HasExited) { throw "Native Slint GUI closed during launch" }
+          } finally {
+            if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+          }
+      - name: Generate binary checksum
+        shell: pwsh
+        run: |
+          $path = (Resolve-Path "target/release/concat-studio-native.exe").Path
+          (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant() + "  concat-studio-native.exe" |
+            Out-File -Encoding ascii "target/release/SHA256SUMS"
+      - name: Upload native Windows application
+        uses: actions/upload-artifact@v4
+        with:
+          name: Concat-Studio-Native-Rust-Slint-Windows-x64
+          path: |
+            cloud_render/concat/native/target/release/concat-studio-native.exe
+            cloud_render/concat/native/target/release/SHA256SUMS
+            cloud_render/concat/native/README.md
+          if-no-files-found: error
+          retention-days: 30

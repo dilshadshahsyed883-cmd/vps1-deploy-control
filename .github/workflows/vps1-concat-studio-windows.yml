@@ -1,0 +1,91 @@
+name: Concat Studio Windows EXE — Z Builder + GPU Config
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - cloud_render/concat/studio/**
+      - cloud_render/concat/tests/test_studio.py
+      - run_concat_studio.py
+      - .github/workflows/vps1-concat-studio-windows.yml
+  push:
+    branches: [main]
+    paths:
+      - cloud_render/concat/studio/**
+      - cloud_render/concat/tests/test_studio.py
+      - run_concat_studio.py
+      - .github/workflows/vps1-concat-studio-windows.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: concat-studio-windows-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run all Concat adapter/renderer contract tests
+        shell: pwsh
+        run: |
+          python -m compileall -q cloud_render/concat/studio run_concat_studio.py
+          python -m unittest discover -s cloud_render/concat/tests -v
+          if ($LASTEXITCODE -ne 0) { throw "Concat regression tests failed" }
+          python run_concat_studio.py --self-test
+          if ($LASTEXITCODE -ne 0) { throw "Studio smoke failed" }
+      - name: Install Windows desktop packaging dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check "pyinstaller==6.16.0" "keyring==25.6.0"
+          if ($LASTEXITCODE -ne 0) { throw "Windows packaging dependencies failed" }
+      - name: Build functional ConcatStudio.exe
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name ConcatStudio --paths . --collect-submodules keyring.backends run_concat_studio.py
+          if ($LASTEXITCODE -ne 0) { throw "Windows EXE compilation failed" }
+          if (!(Test-Path dist/ConcatStudio.exe)) { throw "EXE missing" }
+          $exe = (Resolve-Path dist/ConcatStudio.exe).Path
+          $process = Start-Process -FilePath $exe -ArgumentList "--self-test" -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw "Packaged EXE smoke failed: $($process.ExitCode)" }
+      - name: Smoke actual four-tab Windows GUI startup
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path dist/ConcatStudio.exe).Path
+          $process = Start-Process -FilePath $exe -PassThru
+          try {
+            Start-Sleep -Seconds 6
+            $process.Refresh()
+            if ($process.HasExited) { throw "Concat Studio GUI exited before startup acceptance" }
+            Write-Host "Concat Studio GUI startup smoke PASS"
+          } finally {
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }
+      - name: Download unchanged official Concat v0.2.8 installer
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Path official -Force | Out-Null
+          gh release download v0.2.8 --repo jub0t/Concat --pattern "Concat-0.2.8-windows-x86_64-setup.exe" --pattern "SHA256SUMS" --dir official
+          if ($LASTEXITCODE -ne 0) { throw "Official Concat release unavailable" }
+          python cloud_render/concat/verify_release.py --installer official/Concat-0.2.8-windows-x86_64-setup.exe --checksums official/SHA256SUMS
+          if ($LASTEXITCODE -ne 0) { throw "Official installer checksum verification failed" }
+      - name: Upload tested Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Concat-Studio-ZBuilder-GPUConfig-Windows-x64
+          path: |
+            dist/ConcatStudio.exe
+            official/Concat-0.2.8-windows-x86_64-setup.exe
+            official/SHA256SUMS
+            cloud_render/concat/studio/README.md
+          if-no-files-found: error
+          retention-days: 30
