@@ -18,9 +18,11 @@ pub fn run(engine:&Path,root:&Path)->Result<()> {
     fs::create_dir_all(root)?;
     let result=core(engine,root);
     if let Err(error)=&result {
+      if !root.join("acceptance.json").exists() {
         fs::write(root.join("acceptance.json"),serde_json::to_vec_pretty(&json!({
             "native_editing":"failed","error":error.to_string(),"salad_gpu":"not_tested"
         }))?)?;
+      }
     }
     result
 }
@@ -90,11 +92,15 @@ fn core(engine:&Path,root:&Path)->Result<()> {
         },
         Err(e)=>json!({"state":"blocked","error":e.to_string()})
     };
+    let render_passed=render_result["state"]=="passed";
+    let preview_passed=preview_result["state"]=="passed";
     fs::write(root.join("acceptance.json"),serde_json::to_vec_pretty(&json!({
         "engine":"official Concat v0.2.8", "native_editing":"passed",
         "selected_scope":"passed","transitions":"passed","save_reopen":"passed",
         "queue_persistence":"passed","preview_preserves_saved_project":"passed",
         "preview":preview_result,"pc_render":render_result,"salad_gpu":"not_tested"
     }))?)?;
+    ensure(preview_passed,"Real engine preview failed; see acceptance.json")?;
+    ensure(render_passed,"Real PC render failed; see acceptance.json")?;
     Ok(())
 }

@@ -17,7 +17,7 @@ permissions:
 
 concurrency:
   group: concat-native-windows-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   native-windows:
@@ -103,6 +103,9 @@ jobs:
           Copy-Item -Path (Join-Path $runtime "*") -Destination $outDir -Recurse -Force
           Copy-Item -LiteralPath "target/release/concat-studio-native.exe" -Destination (Join-Path $outDir "ConcatStudio.exe") -Force
           Copy-Item -LiteralPath "README.md" -Destination (Join-Path $outDir "STUDIO_README.md") -Force
+          # Prove that relocation works without the staging installation.
+          Move-Item -LiteralPath $installed -Destination ($installed + '.unavailable')
+          Get-ChildItem -LiteralPath $outDir -Filter 'unins*' -File | Remove-Item
           $engine = Join-Path $outDir "Concat.exe"
           $studio = Join-Path $outDir "ConcatStudio.exe"
           if (!(Test-Path $engine)) { throw "Portable Concat.exe missing" }
