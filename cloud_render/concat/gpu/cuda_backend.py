@@ -28,7 +28,13 @@ class CUDACompatibilityError(RuntimeError):
 
 
 def _run(args: list[str], *, timeout=7200) -> subprocess.CompletedProcess:
-    return subprocess.run(args, capture_output=True, text=True, timeout=timeout, check=False)
+    # The native CLI needs bundled libav*. FFmpeg CUDA needs Ubuntu's own
+    # matching libav* package; never contaminate the system binary with the
+    # source-pinned native CLI's LD_LIBRARY_PATH.
+    env = os.environ.copy()
+    env.pop("LD_LIBRARY_PATH", None)
+    return subprocess.run(args, capture_output=True, text=True, timeout=timeout,
+                          check=False, env=env)
 
 
 def _finite(value, name: str) -> float:
