@@ -46,3 +46,17 @@ GitHub Actions workflow: .github/workflows/vps1-concat-studio-native-windows.yml
 ## Acceptance boundaries
 
 Actual PC editing/preview/export and Salad GPU end-to-end tests with real media are required for this new integration. Auto Editing uses official Concat MCP commands and produces saved native concat.json, not a separate GPU-only effects format. Editor look presets, karaoke and advanced effects remain in Concat's own editor; do not present unimplemented features as part of the control centre.
+
+
+## Automated acceptance evidence
+
+The portable build runs `ConcatStudio.exe --acceptance-test <fixture-directory>`
+against its adjacent, unmodified official engine. Fixtures are deterministic real
+PNG images and PCM audio. The test exercises scene import/matching, project
+creation, selected-only editing, real keyframes, transitions, scale, save/reopen,
+preview without saving, rejected effects, and queue restart persistence.
+It attempts local MP4 export and an image/video mixed render with verified media
+usage deduplication. `ACCEPTANCE.json` in the bundle records each result. A
+graphics/encoder failure is recorded as blocked and is not a render pass. Salad
+GPU acceptance requires the configured live gateway and remains separate.
+The workflow also uploads fixtures, outputs and installer diagnostics separately.

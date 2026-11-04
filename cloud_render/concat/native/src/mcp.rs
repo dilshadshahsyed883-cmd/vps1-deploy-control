@@ -54,8 +54,14 @@ impl Concat {
         if response["isError"]==true{
             return Err(format!("Concat {name}: {}",response["content"]).into());
         }
-        response.get("structuredContent").filter(|v|v.is_object()).cloned()
-            .ok_or_else(||format!("Concat {name} returned no structured response").into())
+        if let Some(value)=response.get("structuredContent").filter(|v|!v.is_null()) {
+            return Ok(value.clone());
+        }
+        // Catalogue methods return a JSON array in their MCP text block.
+        response["content"].as_array().into_iter().flatten()
+            .filter_map(|block|block["text"].as_str())
+            .find_map(|body|serde_json::from_str(body).ok())
+            .ok_or_else(||format!("Concat {name} returned no JSON response").into())
     }
 }
 impl Drop for Concat{
@@ -243,7 +249,28 @@ pub fn auto_edit_project(exe:&Path,project:&Path,options:&Options,
     let mut api=Concat::start(exe,&roots)?;
     let action=(||->Result<usize>{
         api.tool("project_open",json!({"path":project}))?;
-        let timeline=api.tool("timeline_read",json!({"path":project}))?;
+        if options.transition=="cross-fade" {
+            let available=api.tool("effects_list",json!({"kind":"transition"}))?;
+            if !available.as_array().is_some_and(|items|items.iter().any(|item|item["id"]=="cross-fade")) {
+                return Err("Official Concat catalogue does not provide cross-fade".into());
+            }
+        }
+        let mut timeline=api.tool("timeline_read",json!({"path":project}))?;
+        // Ask the official engine for framing scale before planning motion.
+        // Undo the staging batch; the final edits remain one atomic step.
+        if options.animation!="None" && ["Fit","Fill"].contains(&options.scale.as_str()) {
+            let frames:Vec<Value>=auto_edit::visual_clips(&timeline).iter()
+                .filter(|c|selected.is_none_or(|id|c["id"]==id))
+                .map(|c|json!({"op":"frameClip","clipId":c["id"],
+                    "framing":options.scale.to_ascii_lowercase()})).collect();
+            if !frames.is_empty(){
+                let staged=api.tool("edit_apply",json!({"path":project,
+                    "command":{"op":"batch","commands":frames}}))?;
+                let framed=api.tool("timeline_read",json!({"path":project}));
+                if staged["canUndo"]==true {api.tool("edit_undo",json!({"path":project}))?;}
+                timeline=framed?;
+            }
+        }
         let edits=auto_edit::commands(&timeline,options,selected)?;
         let amount=edits.len();
         api.tool("edit_apply",json!({"path":project,

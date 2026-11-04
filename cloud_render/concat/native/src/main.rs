@@ -1,4 +1,4 @@
-//! Concat Studio Native: Rust + Slint 4-tab Windows desktop.
+//! Concat Studio Native: Rust + Slint 5-tab Windows desktop.
 //! Intentionally no Python runtime, Tkinter, PyInstaller or fake timeline.
 use concat_studio_native::{auto_edit::{self,Options},gpu,library::Catalog,mcp,plan::{self,Plan},queue::{self,Queue}};
 use slint::{ComponentHandle,ModelRc,SharedString,VecModel};
@@ -119,6 +119,12 @@ fn picked_file(extension:&str)->Option<PathBuf>{
 }
 
 fn main()->Result<(),Box<dyn std::error::Error + Send + Sync>>{
+    let arguments:Vec<String>=std::env::args().collect();
+    if arguments.get(1).is_some_and(|arg|arg=="--acceptance-test") {
+        let root=PathBuf::from(arguments.get(2).ok_or("Acceptance folder required")?);
+        let engine=packaged_concat().ok_or("Adjacent official Concat.exe missing")?;
+        return concat_studio_native::acceptance::run(&engine,&root);
+    }
     if std::env::args().any(|arg|arg=="--portable-check") {
         let official=packaged_concat().ok_or("Bundled official Concat.exe missing")?;
         let result=std::process::Command::new(&official).arg("--version").output()?;
@@ -497,8 +503,11 @@ fn main()->Result<(),Box<dyn std::error::Error + Send + Sync>>{
         ui.on_open_native_editor(move ||if let Some(app)=weak.upgrade(){
             let exe=PathBuf::from(app.get_concat_exe().as_str());
             if !exe.is_file(){err(&app,"Official Concat.exe not found");return;}
-            match std::process::Command::new(&exe).spawn(){
-                Ok(_)=>info(&app,"Native Concat editor launched; open saved project from Home"),
+            let mut command=std::process::Command::new(&exe);
+            let project=PathBuf::from(app.get_current_project().as_str());
+            if project.join("concat.json").is_file(){command.arg("--project").arg(&project);}
+            match command.spawn(){
+                Ok(_)=>info(&app,"Native Concat editor launched with the selected saved project"),
                 Err(e)=>err(&app,e),
             }
         });

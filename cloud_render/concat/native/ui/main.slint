@@ -3,6 +3,7 @@ import { Button, LineEdit, ScrollView, ComboBox, CheckBox, TextEdit } from "std-
 export struct ItemRow { id:string, title:string }
 
 export component App inherits Window {
+    in-out property <bool> show-subtitles: false;
     title: "Concat Studio Native — Z Builder + Salad GPU";
     preferred-width: 1380px;
     preferred-height: 860px;
@@ -150,7 +151,8 @@ export component App inherits Window {
                     LineEdit { text <=> root.voice-file; horizontal-stretch: 1; }
                     Button { text: "Browse"; clicked => {root.browse-voice();} }
                 }
-                HorizontalLayout {
+                CheckBox { text: "Optional subtitle text (SRT)"; checked <=> root.show-subtitles; }
+                if root.show-subtitles: HorizontalLayout {
                     Text { text: "Timed subtitles SRT"; width: 170px; color: #b8cbe6; }
                     LineEdit { text <=> root.srt-file; horizontal-stretch: 1; }
                     Button { text: "Browse"; clicked => {root.browse-srt();} }
