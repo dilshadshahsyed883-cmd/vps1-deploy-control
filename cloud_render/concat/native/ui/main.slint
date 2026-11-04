@@ -34,6 +34,15 @@ export component App inherits Window {
     in-out property <string> library-info: "No media loaded";
     in-out property <string> media-tags: "";
     in-out property <string> summary-text: "Import media and generate a summary.";
+    in-out property <string> auto-transition: "cross-fade";
+    in-out property <string> auto-animation: "Zoom In";
+    in-out property <string> auto-scale: "Fit";
+    in-out property <string> auto-transition-seconds: "0.45";
+    in-out property <string> auto-animation-seconds: "2.0";
+    in-out property <[ItemRow]> auto-clips: [];
+    in-out property <string> selected-auto-clip: "";
+    in-out property <string> auto-info: "Open or generate a Concat project, then load its actual visual clips.";
+    in-out property <image> auto-preview;
     in-out property <string> editor-info: "Native Concat will open in its original Rust/Slint editor.";
     in-out property <string> render-mode: "PC";
     in-out property <string> render-output: "";
@@ -65,6 +74,12 @@ export component App inherits Window {
     callback clear-library();
     callback refresh-summary();
     callback open-native-editor();
+    callback auto-refresh();
+    callback auto-select(string);
+    callback auto-apply-all();
+    callback auto-apply-selected();
+    callback auto-preview-frame();
+    callback auto-reset-presets();
     callback refresh-timeline();
     callback browse-output();
     callback add-pc-job();
@@ -104,9 +119,10 @@ export component App inherits Window {
         HorizontalLayout {
             spacing: 9px;
             Button { text: "1  AI BUILDER"; clicked => { root.tab = 0; } }
-            Button { text: "2  EDITOR"; clicked => { root.tab = 1; } }
-            Button { text: "3  RENDER QUEUE"; clicked => { root.tab = 2; } }
-            Button { text: "4  GPU CONFIG"; clicked => { root.tab = 3; } }
+            Button { text: "2  AUTO EDITING"; clicked => { root.tab = 1; } }
+            Button { text: "3  EDITOR"; clicked => { root.tab = 2; } }
+            Button { text: "4  RENDER QUEUE"; clicked => { root.tab = 3; } }
+            Button { text: "5  GPU CONFIG"; clicked => { root.tab = 4; } }
             Rectangle { horizontal-stretch: 1; background: transparent; }
             Text { text: "Z Studio workflow integrated"; color: #9db3d2; }
         }
@@ -261,6 +277,77 @@ export component App inherits Window {
             }
         }
         if root.tab == 1: VerticalLayout {
+            spacing: 11px;
+            Text { text: "AUTO EDITING — Z Builder-style Concat Controls";
+                   color: #ffffff; font-size: 20px; font-weight: 700; }
+            Text { text: "Apply to the editable Concat project, not to the Scene Plan. Changes are saved to concat.json for PC and Salad GPU.";
+                   color: #adcfec; font-size: 12px; wrap: word-wrap; }
+            HorizontalLayout {
+                spacing: 8px;
+                Text { text: "Project folder"; width: 120px; color: #b8cbe6; }
+                LineEdit { text <=> root.current-project; horizontal-stretch: 1; }
+                Button { text: "Load Clips"; clicked => {root.auto-refresh();} }
+            }
+            Rectangle {
+                background: #15273c; border-radius: 8px; min-height: 185px;
+                VerticalLayout {
+                    padding: 14px; spacing: 11px;
+                    HorizontalLayout {
+                        Text { text: "TRANSITIONS"; width: 115px; color: #ffffff; font-weight: 700; }
+                        ComboBox { model: ["None", "cross-fade"]; current-value <=> root.auto-transition; horizontal-stretch: 1; }
+                        Text { text: "Duration (s)"; color: #c4d3e5; }
+                        LineEdit { text <=> root.auto-transition-seconds; width: 76px; }
+                    }
+                    HorizontalLayout {
+                        Text { text: "ANIMATIONS"; width: 115px; color: #ffffff; font-weight: 700; }
+                        ComboBox {
+                            model: ["None", "Zoom In", "Zoom Out", "Pan Left", "Pan Right", "Combo Zoom + Pan"];
+                            current-value <=> root.auto-animation; horizontal-stretch: 1;
+                        }
+                        Text { text: "Motion (s)"; color: #c4d3e5; }
+                        LineEdit { text <=> root.auto-animation-seconds; width: 76px; }
+                    }
+                    HorizontalLayout {
+                        Text { text: "SCALE"; width: 115px; color: #ffffff; font-weight: 700; }
+                        ComboBox { model: ["Keep", "Fit", "Fill", "105%", "110%"]; current-value <=> root.auto-scale; horizontal-stretch: 1; }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Button { text: "Apply All + Save"; clicked => {root.auto-apply-all();} }
+                        Button { text: "Apply Selected + Save"; clicked => {root.auto-apply-selected();} }
+                        Button { text: "Preview Selected"; clicked => {root.auto-preview-frame();} }
+                        Button { text: "Reset Presets"; clicked => {root.auto-reset-presets();} }
+                    }
+                }
+            }
+            Text { text: root.auto-info; color: #93c9ee; wrap: word-wrap; }
+            Text { text: "Visual clips (images / videos only). Select one for targeted editing.";
+                   color: #e1ebf7; font-weight: 700; }
+            HorizontalLayout {
+                spacing: 12px;
+                ScrollView {
+                    horizontal-stretch: 1; vertical-stretch: 1;
+                    VerticalLayout {
+                        spacing: 3px;
+                        for clip[i] in root.auto-clips: Button {
+                            text: clip.title;
+                            clicked => {root.auto-select(clip.id);}
+                        }
+                    }
+                }
+                Rectangle {
+                    width: 340px; background: #14263d; border-radius: 7px;
+                    Image {
+                        x: 6px; y: 6px; width: parent.width - 12px; height: parent.height - 12px;
+                        source: root.auto-preview; image-fit: contain;
+                    }
+                }
+            }
+            Text { text: "Preview uses unsaved temporary edits and restores the original. Apply is atomic and saved. Close the project in the official editor before automated edits.";
+                   font-size: 12px; color: #e0bd8f; wrap: word-wrap; }
+        }
+
+        if root.tab == 2: VerticalLayout {
             spacing: 13px;
             Text { text: "EDITOR — Original Concat Rust Timeline"; color: #ffffff; font-size: 20px; font-weight: 700; }
             HorizontalLayout {
@@ -277,7 +364,7 @@ export component App inherits Window {
             Text { text: "Real clip editing, transitions, captions, audio and export remain in the official Concat editor; no incomplete second timeline is drawn.";
                 color: #91acc9; wrap: word-wrap; }
         }
-        if root.tab == 2: VerticalLayout {
+        if root.tab == 3: VerticalLayout {
             spacing: 9px;
             Text { text: "RENDER QUEUE — Persistent, Safe Controls"; color: #ffffff; font-size: 20px; font-weight: 700; }
             HorizontalLayout {
@@ -315,7 +402,7 @@ export component App inherits Window {
             Text { text: "Delete removes queue records only: never removes originals or verified output MP4.";
                 color: #a9d7cd; }
         }
-        if root.tab == 3: VerticalLayout {
+        if root.tab == 4: VerticalLayout {
             spacing: 13px;
             Text { text: "GPU CONFIG — Salad Cloud"; color: #ffffff; font-size: 20px; font-weight: 700; }
             HorizontalLayout {
