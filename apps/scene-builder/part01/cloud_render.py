@@ -28,9 +28,27 @@ CHUNK_MAX = 8 * 1024 * 1024
 MEDIA_MAX = 20 * 1024 * 1024 * 1024
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
-# VPS1 Agent 1 / Drive Bridge V3: only the admin-managed canonical config.
-# Never create, copy, chmod, rotate or read its OAuth credentials in app code.
-CANONICAL_RCLONE_CONFIG = "/home/ubuntu/.config/masterctl/rclone.conf"
+# The established Scene production uploader runs with this private writable HOME.
+# Cloud Render must use the same rclone lookup context, not ubuntu's protected
+# home; neither renderer nor web service can traverse it (ProtectHome=yes).
+# Never read/copy/chmod/rotate OAuth material or alter any other service.
+SCENE_WORKER_HOME = Path("/var/lib/fresh-website/scene-builder/worker-home")
+
+
+def scene_rclone_env():
+    """Match the working Scene production worker's rclone lookup context.
+
+    A legacy RCLONE_CONFIG pointing to ubuntu's untraversable home must not
+    override the worker-owned XDG config. An accessible root-managed override
+    is kept; no credential file contents are read.
+    """
+    environment = os.environ.copy()
+    environment["HOME"] = str(SCENE_WORKER_HOME)
+    environment["XDG_CONFIG_HOME"] = str(SCENE_WORKER_HOME / ".config")
+    configured = environment.get("RCLONE_CONFIG", "").strip()
+    if configured and (not Path(configured).is_file() or not os.access(configured, os.R_OK)):
+        environment.pop("RCLONE_CONFIG", None)
+    return environment
 # The native Linux Concat source lock in main is authoritative.
 # Dockerfile exists, but registry availability and runtime acceptance are unverified.
 IMAGE = os.getenv("CLOUD_RENDER_GPU_IMAGE_REF", "")
@@ -356,12 +374,11 @@ class CloudRender:
     @staticmethod
     def execute(cmd, timeout=1200):
         operation = cmd[1] if len(cmd) > 1 else "command"
-        # Explicitly select the canonical Bridge config even if the service
-        # inherited HOME or RCLONE_CONFIG incorrectly. The service runs as
-        # ubuntu and is granted read access by the managed runtime.
-        actual_cmd = [cmd[0], "--config", CANONICAL_RCLONE_CONFIG, *cmd[1:]]
+        # Same XDG/HOME config lookup as Scene's production worker.
+        # Preserve rclone's command and checked transfer semantics.
         try:
-            res = subprocess.run(actual_cmd, capture_output=True, text=True, timeout=timeout, check=False)
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
+                                 check=False, env=scene_rclone_env())
         except subprocess.TimeoutExpired:
             raise RuntimeError(f"Drive Bridge {operation} timed out; VPS original retained") from None
         except OSError:
