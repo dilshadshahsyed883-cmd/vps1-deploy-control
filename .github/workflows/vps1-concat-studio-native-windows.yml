@@ -69,7 +69,7 @@ jobs:
           New-Item -ItemType Directory -Path upstream -Force | Out-Null
           gh release download v0.2.8 --repo jub0t/Concat --pattern "Concat-0.2.8-windows-x86_64-setup.exe" --pattern "SHA256SUMS" --dir upstream
           if ($LASTEXITCODE -ne 0) { throw "Official Concat v0.2.8 download failed" }
-          python ../../../../cloud_render/concat/verify_release.py --installer upstream/Concat-0.2.8-windows-x86_64-setup.exe --checksums upstream/SHA256SUMS
+          python ../../../cloud_render/concat/verify_release.py --installer upstream/Concat-0.2.8-windows-x86_64-setup.exe --checksums upstream/SHA256SUMS
           if ($LASTEXITCODE -ne 0) { throw "Official Concat installer verification failed" }
 
       - name: Build single-folder verified portable Concat Studio bundle
