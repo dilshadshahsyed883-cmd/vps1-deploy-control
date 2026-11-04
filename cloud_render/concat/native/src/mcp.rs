@@ -1,5 +1,5 @@
 //! Concat v0.2.8 native MCP JSON-RPC. No hand-edited concat.json.
-use crate::{library::{Catalog,Result},plan::{Plan,preflight,parse_srt}};
+use crate::{auto_edit::{self,Options},library::{Catalog,Result},plan::{Plan,preflight,parse_srt}};
 use serde_json::{json,Value};
 use std::{collections::BTreeMap,fs,io::{BufRead,BufReader,Write},path::{Path,PathBuf},
           process::{Child,ChildStdin,ChildStdout,Command,Stdio}};
@@ -225,4 +225,44 @@ pub fn read_timeline(exe:&Path,project:&Path)->Result<Value>{
     let result=api.tool("timeline_read",json!({"path":project}));
     let _=api.tool("project_close",json!({"path":project,"save":false}));
     result
+}
+
+
+/// Apply native atomic edits or render a temporary preview without saving.
+/// Both targets use the same native concat.json; no GPU-only JSON fork exists.
+pub fn auto_edit_project(exe:&Path,project:&Path,options:&Options,
+                         selected:Option<&str>,preview:Option<&Path>)->Result<usize>{
+    let project=fs::canonicalize(project)?;
+    if !project.join("concat.json").is_file(){return Err("Select a saved Concat project first".into());}
+    let mut roots=vec![project.clone(),fs::canonicalize(project.parent().ok_or("No project parent")?)?];
+    if let Some(file)=preview {
+        let parent=file.parent().ok_or("Preview output directory unavailable")?;
+        fs::create_dir_all(parent)?;
+        roots.push(fs::canonicalize(parent)?);
+    }
+    let mut api=Concat::start(exe,&roots)?;
+    let action=(||->Result<usize>{
+        api.tool("project_open",json!({"path":project}))?;
+        let timeline=api.tool("timeline_read",json!({"path":project}))?;
+        let edits=auto_edit::commands(&timeline,options,selected)?;
+        let amount=edits.len();
+        api.tool("edit_apply",json!({"path":project,
+            "command":{"op":"batch","commands":edits}}))?;
+        if let Some(file)=preview {
+            let clips=auto_edit::visual_clips(&timeline);
+            let reference=selected.and_then(|id|clips.iter().find(|c|c["id"]==id))
+                .or_else(||clips.first()).ok_or("Preview image/video not found")?;
+            let middle=reference["start"].as_f64().unwrap_or(0.0)
+                + reference["duration"].as_f64().unwrap_or(0.0)*0.5;
+            // Return a real Concat-composited frame, never a mock screenshot.
+            api.tool("preview_frame",json!({"path":project,"time":middle,
+                "width":800,"height":450,"output":file}))?;
+            api.tool("edit_undo",json!({"path":project}))?;
+        } else {
+            api.tool("project_save",json!({"path":project}))?;
+        }
+        Ok(amount)
+    })();
+    let _=api.tool("project_close",json!({"path":project,"save":false}));
+    action
 }
