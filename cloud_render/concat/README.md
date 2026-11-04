@@ -51,3 +51,52 @@ Dual-target contract CI: `.github/workflows/vps1-cloud-render-dual-validation.ym
 CURRENT LIMITATION: The Windows `.exe` is an untouched, SHA-256-verified upstream release. The Linux image is only an experimental pinned-source build recipe. Original `.exe` packaging does not automatically incorporate custom feature changes. Before changing Concat functionality, migrate the Windows build to the same maintained source fork/commit as the Linux builder and verify both builds and a 30-second MP4 with audio, frames and duration. No custom feature parity, tested Salad acceleration, live Cloud Render UI, Drive integration, or production deployment is claimed yet.
 
 Keep desktop source media and the Rajudesktop package intact. Do not put personal media, OAuth tokens or credentials in Git. Auto Script remains unchanged.
+
+
+## Candidate HTTP GPU worker (separate from unchanged Windows Concat)
+
+The worker now boots as a long-running, non-root Python standard-library HTTP
+service on port 8080. It delegates project editing/rendering to the *same
+pinned upstream* native Rust concat-cli v0.2.8 through the official JSON-RPC
+project.open and export.run calls. Its bridge is infrastructure-only: it does
+not add or change Concat editing effects or the desktop project schema.
+
+The image-publishing workflow is
+.github/workflows/vps1-cloud-render-gpu-image.yml. After protected-main CI and
+a local container startup/auth smoke, it publishes ONLY a SHA-tagged candidate:
+ghcr.io/dilshadshahsyed883-cmd/concat-gpu-worker:candidate-<40-character-commit>.
+Publishing a candidate is NOT a successful Salad GPU render, desktop parity
+acceptance, or permission to switch production to this image.
+
+Required Salad environment (configure in Salad; never commit secrets):
+- RENDERER_API_TOKEN: unique 32+ character secret for worker HTTP requests.
+- CLOUD_RENDER_VPS_BASE_URL: https://app.scenebuilder.online (optional while PC testing).
+- RENDER_OUTPUT_TOKEN: the rotating Cloud Render receiver token from VPS1 GPU Config
+  (required only if the above receiver URL is configured).
+- PORT: 8080 (default); CONCAT_RENDER_TIMEOUT: 7200 seconds (default).
+
+Endpoints:
+- GET /health/live and GET /health/ready: unauthenticated platform probes;
+  readiness checks the CLI executable, not GPU utilization.
+- POST /api/jobs/<id>: authenticated, Content-Type application/zip, raw bytes
+  of the portable project bundle, X-Content-SHA256 64-character hex digest.
+  Returns 202 immediately after integrity-checked spool; project IDs must
+  match [A-Za-z0-9_-]{1,80}; queue serializes rendering.
+- GET /api/jobs/<id>: authenticated state/error/output metadata.
+- GET /api/jobs/<id>/output: authenticated MP4 download while local output
+  is retained (e.g., no VPS receiver configured).
+- POST /api/jobs/<id>/retry-delivery: authenticated retry only after an
+  output exists and the previous VPS delivery failed.
+
+Every non-health endpoint requires Authorization: Bearer <RENDERER_API_TOKEN>.
+The Salad gateway's own networking.auth should ALSO remain enabled.
+Failed renders and transfers retain their source ZIP and any MP4 locally.
+Only after the VPS chunk receiver verifies full SHA256 and sends state=ready
+are GPU temp data and output deleted. VPS1 then manages independent
+Drive transfer, remote size/MD5 verification and guarded local cleanup;
+auto Drive upload remains OFF by default.
+
+Deployment acceptance outstanding: actual Linux image build/push must pass,
+Salad GPU 30-second 1080p render with synchronized audio must pass, and the
+unchanged Windows editor must be compatibility-checked against that result.
+Until then no worker-online or GPU acceleration claims are justified.

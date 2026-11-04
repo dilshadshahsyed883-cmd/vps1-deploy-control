@@ -1,0 +1,75 @@
+name: Concat GPU worker — build, smoke, publish candidate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - cloud_render/concat/**
+      - .github/workflows/vps1-cloud-render-gpu-image.yml
+  pull_request:
+    paths:
+      - cloud_render/concat/**
+      - .github/workflows/vps1-cloud-render-gpu-image.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: concat-gpu-candidate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify source lock, packaging and HTTP worker tests
+        run: |
+          python -m unittest discover -s cloud_render/concat/tests -v
+          python -m py_compile cloud_render/concat/gpu/worker.py
+      - name: Check free disk before native Concat toolchain build
+        run: df -h .
+      - name: Build candidate Linux image (not a Salad production deployment)
+        run: |
+          docker build --progress=plain -f cloud_render/concat/gpu/Dockerfile -t concat-gpu-worker:smoke .
+      - name: Smoke native Concat CLI
+        run: |
+          docker run --rm --entrypoint /usr/local/bin/concat-cli concat-gpu-worker:smoke --version
+      - name: Smoke HTTP readiness and authentication without GPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'docker logs concat-gpu-smoke || true; docker rm -f concat-gpu-smoke || true' EXIT
+          docker run --detach --name concat-gpu-smoke -p 127.0.0.1:8080:8080 \
+            -e RENDERER_API_TOKEN=ci_smoke_0123456789abcdefghijklmnopqrstuvwxyz \
+            concat-gpu-worker:smoke
+          for attempt in $(seq 1 40); do
+            if curl -fsS --max-time 3 http://127.0.0.1:8080/health/ready; then break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8080/health/ready
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/api/jobs/test)" = "401"
+          docker rm -f concat-gpu-smoke
+          trap - EXIT
+      - name: Publish checksum-addressable candidate to GHCR
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ github.sha }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          echo "$GITHUB_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          IMAGE="ghcr.io/${OWNER,,}/concat-gpu-worker:candidate-${SHA}"
+          docker tag concat-gpu-worker:smoke "$IMAGE"
+          docker push "$IMAGE"
+          docker inspect "$IMAGE" --format '{{json .RepoDigests}}'
+          echo "Published candidate: $IMAGE" >> "$GITHUB_STEP_SUMMARY"
+          echo "This is not Salad GPU validated or production ready." >> "$GITHUB_STEP_SUMMARY"
