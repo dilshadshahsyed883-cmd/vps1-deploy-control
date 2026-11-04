@@ -288,9 +288,19 @@ def verify_cloud_render_scene_only_https(revision):
         cookie = scene_cookie()
         status, content_type, html = routes.tls_get("/cloud-render/", cookie=cookie,
                                                     accept="text/html")
-        if status != 200 or "html" not in content_type.lower() or not (
-                b"Cloud Render" in html and b"GPU Config" in html and b"Media" in html):
-            raise RuntimeError("Cloud Render authenticated admin HTML proof failed")
+        markers = (b"Cloud Render" in html,
+                   b"GPU Config" in html,
+                   b"Media" in html)
+        if status != 200 or "html" not in content_type.lower() or not all(markers):
+            # Do not log the body, cookies, credentials or server details.
+            # Status/content-type/marker existence disambiguate auth vs route
+            # vs HTML template failures without weakening the proof.
+            kind = content_type.split(";", 1)[0].strip().lower()[:36]
+            raise RuntimeError(
+                "Cloud Render authenticated admin HTML proof failed "
+                f"status={status} kind={kind!r} "
+                f"markers={tuple(int(value) for value in markers)} bytes={len(html)}"
+            )
         for resource in ("/api/cloud-render/media", "/api/cloud-render/config"):
             code, content_type, body = routes.tls_get(resource, cookie=cookie)
             if code != 200 or "json" not in content_type.lower():
