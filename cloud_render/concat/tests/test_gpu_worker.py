@@ -137,7 +137,7 @@ class WorkerTests(unittest.TestCase):
             output.write_bytes(MP4)
             (project.parent / "engine-events.jsonl").write_text(
                 json.dumps({"job_id": "cuda-1", "effect_id": "glitch",
-                            "decision": "skipped", "reason_code": "GPU_EFFECT_UNSUPPORTED"}) + "\\n")
+                            "decision": "skipped", "reason_code": "GPU_EFFECT_UNSUPPORTED"}) + "\n")
             return {"renderer": "cuda-nvenc-candidate-v1",
                     "skipped_effects": 1, "event_log": "engine-events.jsonl"}
 
