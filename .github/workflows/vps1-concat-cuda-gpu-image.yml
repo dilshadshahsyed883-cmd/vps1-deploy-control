@@ -32,7 +32,7 @@ jobs:
       - name: Offline project parser and bridge unit tests
         run: |
           python -m unittest discover -s cloud_render/concat/tests -v
-          python -m py_compile cloud_render/concat/gpu/cuda_backend.py cloud_render/concat/gpu/worker.py
+          python -m py_compile cloud_render/concat/gpu/cuda_backend.py cloud_render/concat/gpu/worker.py cloud_render/concat/gpu/hardware_smoke.py
       - name: Build lightweight CUDA-only image
         run: docker build --progress=plain -f cloud_render/concat/gpu/Dockerfile.cuda -t concat-cuda-worker:candidate .
       - name: Assert hardware filter binaries exist without claiming GPU acceptance
