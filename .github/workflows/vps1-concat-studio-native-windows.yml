@@ -32,6 +32,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: cloud_render/concat/native -> target
+          cache-on-failure: true
       - name: Normalize Rust formatting for CI build
         run: cargo fmt --all
       - name: Rust tests (Scene Plan / Media Library / Queue / GPU)
