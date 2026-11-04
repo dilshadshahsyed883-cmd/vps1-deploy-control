@@ -1766,6 +1766,21 @@ def main():
             event(**audit_all(DATA))
             return
         # One reviewed Scene web overlay plus reversible uploader auth_request rules.
+        # Exact protected-main Cloud Render Drive web-only lane: no Scene
+        # renderer, unrelated studio, OAuth, gateway or state migration.
+        if '[vps1-cloud-render-drive-web-only]' in intent:
+            if (args.apps != ['scene-builder'] or
+                    args.action not in ('install', 'rollback') or
+                    '[vps1-cloud-render-scene-only]' not in intent or
+                    '[vps1-experiment-management-release]' not in intent or
+                    '[vps1-auto-script-online]' in intent):
+                raise RuntimeError('Cloud Render Drive web-only release requires exact protected Scene lane')
+            from production.cloud_render_drive_web_release import install, rollback
+            if args.action == 'install':
+                install(args.revision)
+            else:
+                rollback(args.revision)
+            return
         if '[vps1-studio-permissions-release]' in intent:
             if args.apps != ['scene-builder']:
                 raise RuntimeError('Three-Studio permissions require the Scene-only authorized lane')
