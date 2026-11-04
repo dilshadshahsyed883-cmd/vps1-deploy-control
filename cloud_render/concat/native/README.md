@@ -60,3 +60,7 @@ usage deduplication. `ACCEPTANCE.json` in the bundle records each result. A
 graphics/encoder failure is recorded as blocked and is not a render pass. Salad
 GPU acceptance requires the configured live gateway and remains separate.
 The workflow also uploads fixtures, outputs and installer diagnostics separately.
+
+Media Summary TXT can be exported and imported from the Media Library. Import restores available media paths, tags and separate legacy usage; it never imports unverified native render counts. Subtitle input is optional and collapsed until selected. The Editor button opens the selected saved project directly.
+
+Portable release gates require a real preview and real local exports after relocation. Live Salad GPU parity is still separate and must not be inferred from local CI success.
