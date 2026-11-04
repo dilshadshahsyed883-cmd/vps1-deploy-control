@@ -100,3 +100,14 @@ Deployment acceptance outstanding: actual Linux image build/push must pass,
 Salad GPU 30-second 1080p render with synchronized audio must pass, and the
 unchanged Windows editor must be compatibility-checked against that result.
 Until then no worker-online or GPU acceleration claims are justified.
+
+### Salad Container Gateway IPv6
+
+Salad Container Gateway delivers incoming requests to container IPv6 addresses.
+The worker must bind `[::]:8080` with `IPV6_V6ONLY=0` to retain IPv4
+local/CI health and support Salad IPv6 routing. CI smoke tests both `::1`
+and `127.0.0.1` before publishing a SHA-pinned candidate. Set Gateway port
+`8080`, Salad gateway authentication ON and one active request per replica.
+Use the new SHA-tagged image after protected merge; earlier candidate tags
+with the IPv4-only listener must NOT be used for Salad Gateway deployment.
+The worker's Bearer token is separate from Salad gateway API-key auth.

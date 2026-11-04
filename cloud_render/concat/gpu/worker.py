@@ -12,6 +12,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import threading
 import time
@@ -271,6 +272,20 @@ class RenderWorker:
             self._change(job, state="delivery_failed", error=str(exc)[:500])
 
 
+class SaladDualStackHTTPServer(ThreadingHTTPServer):
+    """Listen on IPv6 for Salad Gateway and IPv4 for local/CI clients.
+
+    Salad Gateway forwards requests over IPv6 to the container. Explicitly
+    clear IPV6_V6ONLY so the existing IPv4 health checks still work.
+    Fail startup instead of silently exposing a broken IPv4-only gateway.
+    """
+    address_family = socket.AF_INET6
+
+    def server_bind(self):
+        self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        super().server_bind()
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "ConcatGPU/1"
     protocol_version = "HTTP/1.1"
@@ -367,7 +382,7 @@ def main():
                           receiver=os.getenv("CLOUD_RENDER_VPS_BASE_URL", ""),
                           receiver_token=os.getenv("RENDER_OUTPUT_TOKEN", ""))
     port = int(os.getenv("PORT", "8080"))
-    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    server = SaladDualStackHTTPServer(("::", port), Handler)
     server.worker = worker
     try:
         server.serve_forever(poll_interval=0.5)
