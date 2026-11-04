@@ -26,13 +26,18 @@ class VideoMergerScopedGatewayTests(unittest.TestCase):
         cur = self.root / "current/video-merger"
         cur.parent.mkdir(parents=True)
         cur.symlink_to(target, target_is_directory=True)
+        self.auth = self.root / "existing.htpasswd"
+        self.auth.write_text("admin:existing-hash")
+        self.login = self.root / "existing-login.json"
+        self.login.write_text(json.dumps({"username": "test", "password": "test"}))
         self.patches = [
+            patch.object(gateway, "AUTH", self.auth),
+            patch.object(gateway, "LOGIN", self.login),
             patch.object(gateway, "BASE", self.root),
             patch.object(gateway, "SITE", self.site),
             patch("production.scene_public_https.SITE", self.scene),
             patch.object(gateway, "http_check"),
             patch.object(gateway, "run"),
-            patch.object(gateway, "auth_credentials", return_value={"username": "test", "password": "test"}),
             patch.object(gateway, "verify_gateway"),
         ]
         for p in self.patches:
@@ -46,6 +51,12 @@ class VideoMergerScopedGatewayTests(unittest.TestCase):
         self.assertEqual((self.site.read_bytes(), self.scene.read_bytes()), before)
         gateway.verify_gateway.assert_called_once_with(["video-merger"], {"username": "test", "password": "test"})
         gateway.run.assert_called_once_with(["nginx", "-t"], quiet=True)
+
+    def test_missing_credentials_does_not_provision(self):
+        self.login.unlink()
+        with self.assertRaisesRegex(RuntimeError, "existing gateway credentials unavailable"):
+            gateway.verify_video_merger_existing_gateway(self.revision)
+        self.assertFalse(self.login.exists())
 
     def test_refuse_unverified_release(self):
         (self.tx / "result.json").write_text(json.dumps({"status": "FAILED", "drive": "PASS"}))
