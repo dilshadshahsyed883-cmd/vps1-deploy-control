@@ -13,7 +13,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from cloud_render.concat.gpu.worker import Handler, RenderWorker, ThreadingHTTPServer, WorkerError
+from cloud_render.concat.gpu.worker import Handler, RenderWorker, SaladDualStackHTTPServer, WorkerError
 
 MP4 = b"\x00\x00\x00\x18ftypisom" + b"\x00" * 80
 TOKEN = "a" * 48
@@ -131,12 +131,21 @@ class WorkerTests(unittest.TestCase):
             self.worker._native_render(project, output)
 
     def test_http_auth_health_and_ingest(self):
-        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        server = SaladDualStackHTTPServer(("::", 0), Handler)
         server.worker = self.worker
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=10)
         try:
+            # IPv6 must accept Salad Gateway ingress, while IPv4 stays usable.
+            conn6 = http.client.HTTPConnection("::1", server.server_address[1], timeout=10)
+            try:
+                conn6.request("GET", "/health/ready")
+                response6 = conn6.getresponse()
+                self.assertEqual(response6.status, 200)
+                response6.read()
+            finally:
+                conn6.close()
             conn.request("GET", "/health/ready")
             response = conn.getresponse()
             self.assertEqual(response.status, 200)
