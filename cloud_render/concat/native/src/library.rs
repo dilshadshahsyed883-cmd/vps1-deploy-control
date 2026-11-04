@@ -343,6 +343,7 @@ mod tests {
         assert_eq!(lib.assets().unwrap().len(),1);
         lib.clear_records().unwrap();
         assert!(clip.is_file());
+        drop(lib); // Windows must close SQLite handle before deleting temp folder.
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
@@ -364,6 +365,7 @@ mod tests {
         assert_eq!(lib.record_verified_render(&project,&output).unwrap(),1);
         assert_eq!(lib.record_verified_render(&project,&output).unwrap(),0);
         assert_eq!(lib.assets().unwrap()[0].used,1);
+        drop(lib); // Avoid Windows sqlite/db-wal lock when cleaning fixtures.
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
