@@ -112,7 +112,7 @@ fn picked_file(extension:&str)->Option<PathBuf>{
     rfd::FileDialog::new().add_filter(extension,&[extension]).pick_file()
 }
 
-fn main()->Result<(),Box<dyn std::error::Error>>{
+fn main()->Result<(),Box<dyn std::error::Error + Send + Sync>>{
     if std::env::args().any(|arg|arg=="--self-test") {
         assert_eq!(plan::seconds("01:02.500")?,62.5);
         let p=plan::parse("name=Native Test\n00:00 --> 00:01 | image | a.jpg")?;
