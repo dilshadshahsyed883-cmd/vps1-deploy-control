@@ -251,7 +251,7 @@ pub fn auto_edit_project(exe:&Path,project:&Path,options:&Options,
         api.tool("project_open",json!({"path":project}))?;
         if options.transition=="cross-fade" {
             let available=api.tool("effects_list",json!({"kind":"transition"}))?;
-            if !available.as_array().is_some_and(|items|items.iter().any(|item|item["id"]=="cross-fade")) {
+            if !available.as_array().is_some_and(|items|items.iter().any(|item|item["id"]=="cross-fade" || item["id"]=="concat.dissolve")) {
                 return Err("Official Concat catalogue does not provide cross-fade".into());
             }
         }
