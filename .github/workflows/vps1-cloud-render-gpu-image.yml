@@ -54,6 +54,7 @@ jobs:
             sleep 2
           done
           curl -fsS http://127.0.0.1:8080/health/ready
+          docker exec concat-gpu-smoke python3 -c 'import socket; s=socket.create_connection(("::1", 8080), timeout=5); s.sendall(b"GET /health/ready HTTP/1.1\r\nHost: [::1]\r\nConnection: close\r\n\r\n"); assert b"200 OK" in s.recv(4096)'
           test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/api/jobs/test)" = "401"
           docker rm -f concat-gpu-smoke
           trap - EXIT
