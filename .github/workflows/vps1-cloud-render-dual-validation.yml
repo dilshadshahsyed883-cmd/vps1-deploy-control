@@ -33,8 +33,8 @@ jobs:
       - name: Check two-target source lock and transfer tests
         run: python -m unittest discover -s cloud_render/concat/tests -v
 
-  # No automatic production image publish. An operator can test build manually
-  # before Salad GPU benchmark/approval.
+  # No production deployment or registry push here. This manual legacy build
+  # overrides the HTTP worker entrypoint to test native concat-cli only.
   experimental-gpu-image:
     if: github.event_name == 'workflow_dispatch'
     needs: version-and-transfer
@@ -45,4 +45,4 @@ jobs:
       - name: Build Linux Concat GPU-worker container
         run: docker build --progress=plain -f cloud_render/concat/gpu/Dockerfile -t cloud-render-concat-gpu:staging .
       - name: Smoke test Linux headless engine
-        run: docker run --rm --network none cloud-render-concat-gpu:staging --version
+        run: docker run --rm --network none --entrypoint /usr/local/bin/concat-cli cloud-render-concat-gpu:staging --version
