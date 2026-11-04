@@ -2,7 +2,8 @@
 # Usage: powershell -ExecutionPolicy Bypass -File .\upload_job.ps1
 param(
     [string]$ZipPath = (Join-Path ([Environment]::GetFolderPath("Desktop")) "Concat-Test-GPU.zip"),
-    [string]$Domain = ""
+    [string]$Domain = "",
+    [switch]$AllowSoftwareVulkan
 )
 $ErrorActionPreference = "Stop"
 if (-not (Test-Path -LiteralPath $ZipPath -PathType Leaf)) {
@@ -30,6 +31,17 @@ try {
         throw "Both API credentials are required"
     }
     $headers = @{ "Salad-Api-Key" = $saladKey; "Authorization" = "Bearer $rendererKey" }
+    # Fail closed before an expensive GPU upload when Salad exposes only CUDA
+    # or Mesa's CPU renderer, not NVIDIA's Vulkan graphics adapter.
+    $gpu = Invoke-RestMethod -Uri "$Domain/api/diagnostics/gpu" -Headers $headers -TimeoutSec 35
+    Write-Host "Vulkan adapters: $($gpu.vulkan_adapters -join ', ')"
+    Write-Host "NVIDIA Vulkan visible: $($gpu.nvidia_vulkan_visible)"
+    if (-not $gpu.nvidia_vulkan_visible) {
+        if (-not $AllowSoftwareVulkan) {
+            throw "NVIDIA Vulkan adapter NOT visible inside Salad container. Stop the paid GPU instance. Check Salad NVIDIA graphics driver/ICD exposure before retrying. For an explicitly requested slow CPU fallback, use -AllowSoftwareVulkan."
+        }
+        Write-Warning "Rendering may use Mesa Lavapipe CPU, not your paid NVIDIA GPU."
+    }
     $file = Get-Item -LiteralPath $ZipPath
     $size = [int64]$file.Length
     $sha = (Get-FileHash -LiteralPath $ZipPath -Algorithm SHA256).Hash.ToLowerInvariant()
