@@ -423,6 +423,23 @@ fn main()->Result<(),Box<dyn std::error::Error + Send + Sync>>{
                 Err(e)=>err(&app,e)}
         });
     }
+    {
+        let weak=ui.as_weak();let state=state.clone();let sender=send.clone();
+        ui.on_import_summary(move ||if let Some(app)=weak.upgrade(){
+            let Some(file)=rfd::FileDialog::new().add_filter("Media Summary",&["txt"])
+                .pick_file()else{return;};
+            let db=state.borrow().catalog_file.clone();let sender=sender.clone();
+            thread::spawn(move||{
+                let result=Catalog::open(&db).and_then(|mut catalog|catalog.import_summary(&file));
+                let message=match result{
+                    Ok(n)=>format!("Imported {n} summary records; verified render counts preserved"),
+                    Err(e)=>format!("Summary import failed: {e}")
+                };
+                let _=sender.send(Event::Status(message));
+                let _=sender.send(Event::RefreshLibrary);
+            });
+        });
+    }
     // Auto Editing: MCP runs in worker threads; GUI and media remain responsive.
     {
         let weak=ui.as_weak();let sender=send.clone();

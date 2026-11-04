@@ -308,6 +308,35 @@ impl Catalog {
         Ok(text)
     }
 
+    /// Import this Studio's exported summary as catalog metadata. A text file
+    /// cannot certify a render, so native `used` counters are never imported.
+    pub fn import_summary(&mut self, path:&Path)->Result<usize> {
+        let content=fs::read_to_string(path)?;
+        let mut records=Vec::new();
+        for line in content.lines().filter(|line|line.starts_with("- ")) {
+            let Some((fields,raw_path))=line.rsplit_once(" | path=") else {continue};
+            let source=PathBuf::from(raw_path);
+            if !source.is_absolute() || !source.is_file() || kind_of(&source).is_none(){continue;}
+            let tags=fields.split_once(" | tags=").map(|(_,v)|v).unwrap_or("");
+            let legacy=fields.split(" | ").find_map(|field|field.strip_prefix("legacy_used="))
+                .map(str::parse::<i64>).transpose()?.unwrap_or(0);
+            if !(0..=1_000_000).contains(&legacy){return Err("Invalid legacy summary usage".into());}
+            records.push((source,tags.to_owned(),legacy));
+        }
+        if records.is_empty(){return Err("No available media paths in this Concat Studio summary".into());}
+        let mut count=0;
+        for (source,tags,legacy) in records {
+            let id=self.add(&source)?;
+            self.update_tags(&id,&tags)?;
+            self.conn.execute("INSERT INTO legacy_z_usage(asset_id,times_exported) VALUES(?1,?2)
+                ON CONFLICT(asset_id) DO UPDATE SET
+                times_exported=MAX(legacy_z_usage.times_exported,excluded.times_exported)",
+                params![id,legacy])?;
+            count+=1;
+        }
+        Ok(count)
+    }
+
     pub fn save_summary(&self, path: &Path) -> Result<()> {
         if path.exists() { return Err("Summary destination already exists".into()); }
         fs::write(path, self.summary()?)?;
@@ -367,6 +396,22 @@ mod tests {
         assert_eq!(lib.assets().unwrap()[0].used,1);
         drop(lib); // Avoid Windows sqlite/db-wal lock when cleaning fixtures.
         fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn summary_roundtrip_never_imports_unverified_native_counts() {
+        let root=temp();let photo=root.join("photo.png");fs::write(&photo,b"fixture").unwrap();
+        let mut source=Catalog::open(&root.join("source.sqlite")).unwrap();
+        let id=source.add(&photo).unwrap();source.update_tags(&id,"wood | nature").unwrap();
+        source.conn.execute("INSERT INTO legacy_z_usage(asset_id,times_exported) VALUES(?1,2)",[&id]).unwrap();
+        let summary=root.join("summary.txt");
+        fs::write(&summary,source.summary().unwrap().replace("used=0 | legacy_used=2","used=99 | legacy_used=2")).unwrap();
+        let mut target=Catalog::open(&root.join("target.sqlite")).unwrap();
+        assert_eq!(target.import_summary(&summary).unwrap(),1);
+        assert_eq!(target.import_summary(&summary).unwrap(),1);
+        let asset=target.assets().unwrap().remove(0);
+        assert_eq!(asset.used,0);assert_eq!(asset.legacy_used,2);
+        assert_eq!(asset.tags,"wood | nature");
+        assert!(photo.is_file());drop(source);drop(target);fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn unverified_mp4_never_counts() {

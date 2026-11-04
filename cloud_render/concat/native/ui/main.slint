@@ -72,6 +72,7 @@ export component App inherits Window {
     callback save-tags();
     callback change-filter(string);
     callback export-summary();
+    callback import-summary();
     callback clear-library();
     callback refresh-summary();
     callback open-native-editor();
@@ -222,7 +223,8 @@ export component App inherits Window {
                         HorizontalLayout {
                             Button { text: "Save Tags"; clicked => {root.save-tags();} }
                             Button { text: "Open / Play Media"; clicked => {root.open-selected-media();} }
-                            Button { text: "Summary TXT"; clicked => {root.export-summary();} }
+                            Button { text: "Export Summary TXT"; clicked => {root.export-summary();} }
+                            Button { text: "Import Summary TXT"; clicked => {root.import-summary();} }
                             Button { text: "Clear Catalog Only"; clicked => {root.clear-library();} }
                         }
                     }
