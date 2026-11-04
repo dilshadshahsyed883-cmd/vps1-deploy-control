@@ -41,6 +41,16 @@ jobs:
       - name: Smoke native Concat CLI
         run: |
           docker run --rm --entrypoint /usr/local/bin/concat-cli concat-gpu-worker:smoke --version
+      - name: Prepare 2-frame source for Vulkan software fallback test
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
+          ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=blue:s=64x64:r=5 \
+            -frames:v 2 -c:v mpeg4 -q:v 3 -y "$RUNNER_TEMP/concat-vulkan-smoke.mp4"
       - name: Smoke HTTP readiness and authentication without GPU
         shell: bash
         run: |
@@ -57,6 +67,12 @@ jobs:
           # GitHub CI has no NVIDIA card, but the Mesa Vulkan software adapter
           # must be usable by the same unprivileged runtime as the Salad worker.
           docker exec concat-gpu-smoke python3 -c 'from cloud_render.concat.gpu.vulkan_probe import probe; d=probe(); print(d); assert d["software_vulkan_visible"], "Mesa Lavapipe ICD not usable by nonroot worker"; assert not d["nvidia_vulkan_visible"], "Unexpected NVIDIA GPU on CI runner"'
+          # Exercise native wgpu->Vulkan compositor, decoder and MP4 encoder on
+          # Mesa's CPU adapter. This does NOT certify NVIDIA acceleration.
+          docker cp "$RUNNER_TEMP/concat-vulkan-smoke.mp4" concat-gpu-smoke:/worker/vulkan-input.mp4
+          docker exec concat-gpu-smoke timeout 120 /usr/local/bin/concat-cli render \
+            /worker/vulkan-input.mp4 /worker/vulkan-output.mp4 --frames 2 --fade 0
+          docker exec concat-gpu-smoke python3 -c 'from pathlib import Path; p=Path("/worker/vulkan-output.mp4"); assert p.is_file() and p.stat().st_size > 256, "CPU Vulkan smoke export missing"; print("Mesa Vulkan render smoke PASS", p.stat().st_size)'
           docker exec concat-gpu-smoke python3 -c 'import socket; s=socket.create_connection(("::1", 8080), timeout=5); s.sendall(b"GET /health/ready HTTP/1.1\r\nHost: [::1]\r\nConnection: close\r\n\r\n"); assert b"200 OK" in s.recv(4096)'
           test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/api/jobs/test)" = "401"
           docker rm -f concat-gpu-smoke
