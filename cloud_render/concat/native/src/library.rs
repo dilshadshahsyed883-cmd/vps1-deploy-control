@@ -230,7 +230,20 @@ impl Catalog {
             &fs::read(project_root.join("concat.json"))?)?;
         let media = doc.get("media").and_then(|v|v.as_array())
             .ok_or("Native Concat document has no media array")?;
+        // Only asset IDs actually placed on the exported active timeline count as used.
+        // A file imported to the bin but not placed in a clip is NEVER used.
+        let active = doc.get("activeTimelineId").and_then(|v|v.as_str());
+        let active_clips = doc.get("timelines").and_then(|v|v.as_array())
+            .and_then(|timelines| timelines.iter().find(|t|
+                t.get("id").and_then(|v|v.as_str()) == active))
+            .and_then(|t|t.get("clips").and_then(|v|v.as_array()))
+            .or_else(||doc.get("clips").and_then(|v|v.as_array()))
+            .ok_or("Native Concat document has no active clips")?;
+        let used_ids: BTreeSet<&str> = active_clips.iter().filter_map(|clip|
+            clip.get("mediaId").and_then(|v|v.as_str())).filter(|v|!v.is_empty()).collect();
         let unique_paths: BTreeSet<String> = media.iter()
+            .filter(|v|v.get("id").and_then(|id|id.as_str())
+                .is_some_and(|id|used_ids.contains(id)))
             .filter_map(|v| v.get("path").and_then(|v|v.as_str()))
             .filter(|p| !p.is_empty())
             .filter_map(|p| fs::canonicalize(p).ok())
@@ -341,7 +354,9 @@ mod tests {
         fs::create_dir(&project).unwrap();
         let mut lib=Catalog::open(&root.join("db.sqlite")).unwrap();
         lib.add(&pic).unwrap();
-        let doc=serde_json::json!({"media":[{"path":pic},{"path":pic}]});
+        let doc=serde_json::json!({"activeTimelineId":"TL1",
+            "timelines":[{"id":"TL1","clips":[{"mediaId":"m1"},{"mediaId":"m1"}]}],
+            "media":[{"id":"m1","path":pic},{"id":"m1","path":pic}]});
         fs::write(project.join("concat.json"),serde_json::to_vec(&doc).unwrap()).unwrap();
         let output=root.join("movie.mp4");
         let mut fake=vec![0u8;128];fake[4..8].copy_from_slice(b"ftyp");
