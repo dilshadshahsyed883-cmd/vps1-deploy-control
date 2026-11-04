@@ -15,23 +15,42 @@ spec.loader.exec_module(module)
 
 
 class DriveBridgeErrorTests(unittest.TestCase):
-    def test_every_rclone_call_uses_canonical_config_even_with_decoy_env(self):
+    def test_rclone_commands_reuse_scene_worker_home_not_ubuntu_config(self):
         import os
         from unittest.mock import patch
-        with patch.dict(os.environ, {"RCLONE_CONFIG": "/tmp/decoy-rclone.conf", "HOME": "/tmp/decoy-home"}):
+        with patch.dict(os.environ, {"RCLONE_CONFIG": "/tmp/decoy-rclone.conf",
+                                     "HOME": "/tmp/decoy-home",
+                                     "XDG_CONFIG_HOME": "/tmp/decoy-xdg"}):
             with patch.object(module.subprocess, "run", return_value=SimpleNamespace(
                     returncode=0, stdout="gdrive:\\n", stderr="")) as execute:
-                result = module.CloudRender.execute(["rclone", "listremotes"], 15)
+                with patch.object(module.os, "access", return_value=False):
+                    result = module.CloudRender.execute(["rclone", "listremotes"], 15)
         self.assertEqual(result, "gdrive:\\n")
-        self.assertEqual(execute.call_args.args[0], [
-            "rclone", "--config", "/home/ubuntu/.config/masterctl/rclone.conf", "listremotes"])
+        self.assertEqual(execute.call_args.args[0], ["rclone", "listremotes"])
+        env = execute.call_args.kwargs["env"]
+        self.assertEqual(env["HOME"], str(module.SCENE_WORKER_HOME))
+        self.assertEqual(env["XDG_CONFIG_HOME"], str(module.SCENE_WORKER_HOME / ".config"))
+        self.assertNotIn("RCLONE_CONFIG", env)
+        self.assertNotIn("/home/ubuntu/.config/masterctl/rclone.conf", repr(execute.call_args))
         self.assertTrue(execute.call_args.kwargs["capture_output"])
         self.assertEqual(execute.call_args.kwargs["timeout"], 15)
 
-    def test_canonical_bridge_path_matches_deployment_configuration(self):
-        runtime = (FILE.parents[3] / "production/runtime.py").read_text()
-        self.assertIn("RCLONE = '/home/ubuntu/.config/masterctl/rclone.conf'", runtime)
-        self.assertEqual(module.CANONICAL_RCLONE_CONFIG, "/home/ubuntu/.config/masterctl/rclone.conf")
+    def test_readable_explicit_config_remains_available(self):
+        import os
+        with tempfile.TemporaryDirectory() as d:
+            config = pathlib.Path(d) / "rclone.conf"
+            config.write_text("[gdrive]\\ntype=drive\\n")
+            with patch.dict(os.environ, {"RCLONE_CONFIG": str(config)}):
+                env = module.scene_rclone_env()
+            self.assertEqual(env["RCLONE_CONFIG"], str(config))
+
+    def test_scene_worker_home_matches_managed_runtime(self):
+        source = (FILE.parents[3] / "production/scene_production_worker.py").read_text()
+        self.assertIn("worker-home", source)
+        self.assertEqual(str(module.SCENE_WORKER_HOME),
+                         "/var/lib/fresh-website/scene-builder/worker-home")
+        self.assertNotIn("CANONICAL_RCLONE_CONFIG", FILE.read_text())
+
     def test_rclone_error_categorization_never_leaks_stderr(self):
         cases = [
             ("Failed to refresh token: invalid_grant secret_access_token_xyz", "authentication"),
