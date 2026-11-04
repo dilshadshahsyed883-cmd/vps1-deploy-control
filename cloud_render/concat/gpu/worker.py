@@ -175,6 +175,11 @@ class RenderWorker:
             extracted = directory / "project"
             restore(directory / "project.zip", extracted)
             report = self.renderer(extracted, output)
+            if isinstance(report, dict) and report.get("event_log"):
+                source_log = directory / report["event_log"]
+                if source_log.is_file() and not source_log.is_symlink():
+                    target_log = self.state / (job + ".events.jsonl")
+                    shutil.copyfile(source_log, target_log)
             if not output.is_file() or output.is_symlink() or output.stat().st_size < 12:
                 raise RuntimeError("Concat did not produce an MP4")
             with output.open("rb") as handle:
@@ -196,6 +201,14 @@ class RenderWorker:
         except Exception as exc:
             # Source bundle and output, if any, remain for diagnosis/retry.
             prior = self.status(job)
+            if self.backend == "cuda_nvenc":
+                log = self.state / (job + ".events.jsonl")
+                failure = {"timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                           "job_id": job, "renderer": "cuda-nvenc-candidate-v1",
+                           "decision": "failed", "reason_code": "CUDA_RENDER_FAILED",
+                           "message": str(exc)[:500]}
+                with log.open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(failure) + "\n")
             self._change(job, state="delivery_failed" if prior["state"] == "delivering" else "failed",
                          error=str(exc)[:500])
 
@@ -384,7 +397,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, self.worker.status(job))
         if action == "GET" and suffix == "/logs":
             self.worker.status(job)  # no logs for unknown job
-            file = self.worker.inputs / job / "engine-events.jsonl"
+            file = self.worker.state / (job + ".events.jsonl")
+            if not file.is_file():
+                file = self.worker.inputs / job / "engine-events.jsonl"
             if not file.is_file() or file.is_symlink():
                 return self._json(200, {"job": job, "events": []})
             # Bounded, authenticated structured events (no secrets).
