@@ -670,10 +670,18 @@ fn main()->Result<(),Box<dyn std::error::Error + Send + Sync>>{
             let sender=send.clone();
             let remote=q.get(&id).ok().and_then(|j|j.remote_id).unwrap_or(id);
             thread::spawn(move||{
-                let result=gpu::gateway_saved(&url).and_then(|g|g.status(&remote));
-                let msg=match result{Ok(v)=>format!("Salad GPU job {remote}:\n{}",
-                    serde_json::to_string_pretty(&v).unwrap_or_default()),
-                    Err(e)=>format!("GPU job check unavailable: {e}")};
+                let result=gpu::gateway_saved(&url).and_then(|g|{
+                    let state=g.status(&remote)?;
+                    let logs=g.logs(&remote).unwrap_or_else(|e|
+                        serde_json::json!({"error":format!("Logs unavailable: {e}")}));
+                    Ok((state,logs))
+                });
+                let msg=match result{
+                    Ok((state,logs))=>format!("Salad GPU job {remote}:\n{}\n\nEffect logs:\n{}",
+                        serde_json::to_string_pretty(&state).unwrap_or_default(),
+                        serde_json::to_string_pretty(&logs).unwrap_or_default()),
+                    Err(e)=>format!("GPU job check unavailable: {e}")
+                };
                 let _=sender.send(Event::Gpu(msg));
             });
         });
