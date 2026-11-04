@@ -111,6 +111,7 @@ def main() -> int:
         duration = float(streams["format"]["duration"])
         if (not video or video.get("codec_name") != "h264"
                 or video.get("width") != 1920 or video.get("height") != 1080
+                or int(video.get("nb_frames") or 0) != 900
                 or not audio or audio.get("codec_name") != "aac"
                 or abs(duration - 30) > .25
                 or details["skipped_effects"] != 1):
