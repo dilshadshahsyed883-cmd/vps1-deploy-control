@@ -49,7 +49,11 @@ pub fn verify_mp4(path: &Path) -> Result<String> {
     }
     let mut hasher = Sha256::new();
     hasher.update(head);
-    let mut buffer = [0u8; 1 << 20];
+    // Windows desktop processes commonly reserve only 1 MiB of thread stack.
+    // A 1 MiB stack array here overflowed directly after a verified PC render
+    // (STATUS_STACK_OVERFLOW, 0xC00000FD). Streaming needs only a small
+    // heap-backed buffer and keeps the SHA-256 digest identical.
+    let mut buffer = vec![0u8; 64 * 1024];
     loop {
         let count = file.read(&mut buffer)?;
         if count == 0 { break; }
@@ -353,6 +357,21 @@ mod tests {
             "concat-native-lib-{}-{}",std::process::id(),
             SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
         fs::create_dir_all(&p).unwrap(); p
+    }
+    #[test]
+    fn mp4_sha256_verification_works_on_small_windows_thread_stack() {
+        let root=temp();
+        let output=root.join("tiny-verified.mp4");
+        let mut mock=b"\\x00\\x00\\x00\\x20ftypisom".to_vec();
+        mock.extend_from_slice(&vec![0x45;128*1024]);
+        fs::write(&output,&mock).unwrap();
+        // The old 1 MiB stack array caused a crash on the native Windows
+        // acceptance process even though its rendered MP4 was complete.
+        let done=std::thread::Builder::new().stack_size(128*1024)
+            .spawn(move|| verify_mp4(&output)).unwrap();
+        let digest=done.join().expect("MP4 verification must not overflow stack").unwrap();
+        assert_eq!(digest,hex::encode(Sha256::digest(mock)));
+        fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn import_summary_and_forget_do_not_modify_originals() {
