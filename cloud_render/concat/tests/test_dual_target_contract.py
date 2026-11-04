@@ -29,6 +29,8 @@ class DualTargetContractTests(unittest.TestCase):
         self.assertIn('ENTRYPOINT ["python3", "-m", "cloud_render.concat.gpu.worker"]', self.docker)
         self.assertIn("USER 10001:10001", self.docker)
         self.assertIn("EXPOSE 8080", self.docker)
+        self.assertIn("scripts/ci/fetch.sh sherpa-onnx-linux-x64-static-lib", self.docker)
+        self.assertNotIn("scripts/ci/fetch.sh sherpa-onnx-linux-x64 sherpa.tar.bz2", self.docker)
         self.assertIn("COPY cloud_render/concat/gpu/worker.py", self.docker)
         worker = (CONCAT / "gpu/worker.py").read_text(encoding="utf-8")
         self.assertIn("RENDERER_API_TOKEN", worker)
