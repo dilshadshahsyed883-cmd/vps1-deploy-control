@@ -1236,9 +1236,18 @@ def source_display_filename(spec):
     url=spec.get('url','')
     if looks_youtube(url): label=youtube_title(url)
     elif looks_drive(url):
-        fid=drive_id_from_url(url); item=find_drive_item(fid) if fid else None
+        fid=drive_id_from_url(url)
+        if not fid:
+            raise ValueError('Invalid Google Drive video URL')
+        # Drive listing metadata is optional for output naming. The source
+        # download still validates media bytes separately before rendering.
+        try:
+            item=find_drive_item(fid)
+        except Exception:
+            item=None
         label=(item or {}).get('Name') or (item or {}).get('Path') or ''
-        if not label: raise RuntimeError('Could not determine the Google Drive filename')
+        if not label:
+            label='Drive-'+fid
     else:
         label=urllib.parse.unquote(Path(urllib.parse.urlparse(url).path).name)
         if not label: raise RuntimeError('Could not determine the source filename; use Manual filename')
