@@ -53,7 +53,7 @@ JOB_STOP_LOCK = threading.RLock()
 JOB_STOP_REQUESTS = set()
 JOB_THREAD = threading.local()
 
-class JobStopped(Exception):
+class JobStopped(BaseException):
     """The authenticated owner requested a stop for this merge."""
 
 def check_job_stop():
