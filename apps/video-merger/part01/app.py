@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, importlib.util, json, os, re, shutil, socket, sqlite3, subprocess, threading, time, uuid, urllib.parse, ipaddress, html, tempfile, shlex, stat
+import sys, importlib.util, json, os, re, shutil, socket, sqlite3, subprocess, threading, time, uuid, urllib.parse, ipaddress, html, tempfile, shlex, stat, signal
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -49,6 +49,37 @@ except Exception: pass
 DB_LOCK = threading.RLock()
 WORKER_WAKE = threading.Event()
 STOP_EVENT = threading.Event()
+JOB_STOP_LOCK = threading.RLock()
+JOB_STOP_REQUESTS = set()
+JOB_THREAD = threading.local()
+
+class JobStopped(BaseException):
+    """The authenticated owner requested a stop for this merge."""
+
+def check_job_stop():
+    jid = getattr(JOB_THREAD, 'job_id', None)
+    if jid:
+        with JOB_STOP_LOCK:
+            if jid in JOB_STOP_REQUESTS:
+                raise JobStopped('Stopped by user')
+
+def terminate_job_process(process):
+    """Terminate only the process group started by this merge command."""
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+
 FOLDER_CACHE = {'ts': 0.0, 'items': []}
 FOLDER_CACHE_LOCK = threading.Lock()
 PROXY_LOCK = threading.RLock()
@@ -594,7 +625,30 @@ def reject_private_host(u):
             raise ValueError('Private/local network URLs are not allowed')
 
 def run(args, timeout=None, cwd=None, check=True, env=None):
-    p=subprocess.run(args, cwd=cwd, timeout=timeout, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+    jid = getattr(JOB_THREAD, 'job_id', None)
+    if not jid:
+        p=subprocess.run(args, cwd=cwd, timeout=timeout, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+    else:
+        check_job_stop()
+        started=time.monotonic()
+        with subprocess.Popen(args, cwd=cwd, text=True, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, env=env, start_new_session=True) as process:
+            try:
+                while True:
+                    check_job_stop()
+                    remaining=None if timeout is None else timeout-(time.monotonic()-started)
+                    if remaining is not None and remaining<=0:
+                        raise subprocess.TimeoutExpired(args,timeout)
+                    try:
+                        stdout,_=process.communicate(timeout=min(0.3,remaining) if remaining is not None else 0.3)
+                        break
+                    except subprocess.TimeoutExpired:
+                        continue
+                check_job_stop()
+                p=subprocess.CompletedProcess(args,process.returncode,stdout)
+            except BaseException:
+                terminate_job_process(process)
+                raise
     if check and p.returncode!=0: raise RuntimeError(f'Command failed ({p.returncode}): {" ".join(args[:3])}\n{p.stdout[-3000:]}')
     return p.stdout
 
@@ -1317,6 +1371,8 @@ def get_job(job_id):
         return dict(r) if r else None
 
 def update_job(jid,status=None,progress=None,message=None,error=None,drive_url=None,drive_id=None):
+    if status not in ('cancelled','failed'):
+        check_job_stop()
     fields=[]; vals=[]
     for k,v in [('status',status),('progress',progress),('message',message),('error',error),('drive_url',drive_url),('drive_id',drive_id)]:
         if v is not None: fields.append(f'{k}=?'); vals.append(v)
@@ -1408,7 +1464,9 @@ def process_job(j):
     jid=j['id']; ws=WORK/jid
     if ws.exists(): shutil.rmtree(ws,ignore_errors=True)
     ws.mkdir(parents=True,exist_ok=True)
+    JOB_THREAD.job_id = jid
     try:
+        check_job_stop()
         raw_videos=json.loads(j['videos_json']); videos=[normalize_video_spec(v,i) for i,v in enumerate(raw_videos,1)]
         w,h=RES_MAP[(j['aspect'],j['quality'])]
         update_job(jid,'downloading',2,'Starting sources',error='')
@@ -1452,10 +1510,23 @@ def process_job(j):
         if int(j.get('drive_enabled',1)):
             update_job(jid,'uploading',96,'Uploading to Google Drive')
             fid,url=upload_drive(retained,j['folder'],j['filename'])
-        update_job(jid,'complete',100,f'Complete · {dur:.1f}s',drive_id=fid,drive_url=url,error='')
+        # Completion and stop requests must serialize; never resurrect a stopped job.
+        with DB_LOCK, JOB_STOP_LOCK, db() as c:
+            if jid in JOB_STOP_REQUESTS:
+                raise JobStopped('Stopped by user')
+            c.execute('''UPDATE jobs SET status='complete',progress=100,message=?,drive_id=?,
+                         drive_url=?,error='',updated_at=? WHERE id=? AND status!='stopping' ''',
+                      (f'Complete · {dur:.1f}s',fid,url,utcnow(),jid))
+        shutil.rmtree(ws,ignore_errors=True)
+    except JobStopped:
+        update_job(jid,'cancelled',0,'Stopped by user',error='')
         shutil.rmtree(ws,ignore_errors=True)
     except Exception as e:
         update_job(jid,'failed',100,'Failed',error=scrub_proxy_error(e))
+    finally:
+        JOB_THREAD.job_id = None
+        with JOB_STOP_LOCK:
+            JOB_STOP_REQUESTS.discard(jid)
 
 def next_waiting():
     # Atomically claim a waiting job before the worker leaves the DB lock.
@@ -1567,6 +1638,23 @@ def cancel_job(jid, owner='', admin=False):
             raise ValueError('This job does not belong to the current account')
         if j['status']!='waiting': raise ValueError('Only waiting jobs can be cancelled')
         c.execute("UPDATE jobs SET status='cancelled', progress=0, message='Cancelled before processing', updated_at=? WHERE id=? AND status='waiting'",
+                  (utcnow(),jid))
+
+
+def stop_job(jid, owner='', admin=False):
+    """Request cooperative cancellation of exactly one owner-scoped active merge."""
+    with DB_LOCK, JOB_STOP_LOCK, db() as c:
+        j=c.execute('SELECT id,status,owner_username FROM jobs WHERE id=?',(jid,)).fetchone()
+        if not j: raise KeyError('Job not found')
+        if not admin and (not owner or not j['owner_username'] or
+                          str(j['owner_username']).casefold()!=str(owner).casefold()):
+            raise ValueError('This job does not belong to the current account')
+        if j['status']=='stopping':
+            return
+        if j['status'] not in ('processing','downloading','trimming','preparing','merging','verifying','uploading'):
+            raise ValueError('Only an active merge can be stopped')
+        JOB_STOP_REQUESTS.add(jid)
+        c.execute("UPDATE jobs SET status='stopping',message='Stopping current job',updated_at=? WHERE id=?",
                   (utcnow(),jid))
 
 
@@ -1778,6 +1866,8 @@ class Handler(BaseHTTPRequestHandler):
             if p==PREFIX+'/api/proxy/test': return self.send_json(200,{'ok':True,**test_proxy_profile((payload.get('id') or '').strip())})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/cancel',p)
             if m: cancel_job(m.group(1),self.principal(),admin=False); return self.send_json(200,{'ok':True})
+            m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/stop',p)
+            if m: stop_job(m.group(1),self.principal(),admin=False); return self.send_json(202,{'ok':True})
             m=re.fullmatch(re.escape(PREFIX)+r'/api/jobs/([A-Za-z0-9]+)/retry',p)
             if m:
                 retry_id,filename=retry_job(m.group(1),self.principal(),admin=False)
