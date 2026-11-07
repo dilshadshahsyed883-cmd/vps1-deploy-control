@@ -25,7 +25,6 @@ from pathlib import Path
 from cloud_render.concat.project_bundle import restore
 from cloud_render.concat.gpu.resumable import ResumableUpload, UploadError
 from cloud_render.concat.gpu.vulkan_probe import probe as probe_vulkan
-from cloud_render.concat.gpu.simple_timeline_v1 import render as render_cuda_timeline
 
 IDS = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 DIGESTS = re.compile(r"^[a-f0-9]{64}$")
@@ -500,7 +499,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(manifest, dict):
                     raise WorkerError(400, "Upload manifest must be an object")
                 return self._json(200, self.worker.spool.begin(
-                    job, manifest.get("size"), manifest.get("sha256")))
+                    job, manifest.get("size"), manifest.get("sha256"),
+                    manifest.get("render_mode", "native")))
             if action == "PUT" and part is not None:
                 if self.headers.get("Content-Type", "").split(";")[0] != "application/octet-stream":
                     raise WorkerError(415, "Chunk must be application/octet-stream")
