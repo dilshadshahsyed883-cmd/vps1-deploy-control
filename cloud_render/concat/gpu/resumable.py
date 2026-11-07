@@ -92,11 +92,11 @@ class ResumableUpload:
         with self.worker.lock:
             return self._status(job)
 
-    def begin(self, job, size, sha256, render_mode="native"):
+    def begin(self, job, size, sha256, render_mode="cuda-stage1"):
         with self.worker.lock:
             self._id(job)
-            if render_mode not in ("native", "cuda-stage1"):
-                raise UploadError(400, "Unsupported render mode")
+            if render_mode != "cuda-stage1":
+                raise UploadError(400, "Native Vulkan engine retired; use cuda-stage1")
             if type(size) is not int or not 0 < size <= MAX_BYTES:
                 raise UploadError(400, "Invalid ZIP size")
             if not isinstance(sha256, str) or not SHA.fullmatch(sha256):
@@ -170,6 +170,10 @@ class ResumableUpload:
             if self.worker._path(job).exists():
                 return self.worker.status(job)  # Idempotent after lost HTTP response
             status = self._status(job)
+            # Do not silently convert an old native upload to CUDA. Keep
+            # its original verified parts and require a new CUDA job ID.
+            if status["render_mode"] != "cuda-stage1":
+                raise UploadError(409, "Legacy native Vulkan upload retired; existing chunks preserved")
             if status["remaining"]:
                 raise UploadError(409, f"Missing {status['remaining']} ZIP chunks")
             root = self._directory(job)
