@@ -1,6 +1,6 @@
 # Concat GPU Stage 1 — simple timeline and voiceover
 
-**Status:** experimental CUDA/NVENC source plus offline tests; no live Salad GPU acceptance yet. No production deployment or existing Concat worker changes.
+**Status (2026-11-07):** First 30-second **JPEG + audio** standalone Salad RTX 3060 Ti smoke **PASS**, reported from the user's actual existing Salad shell (30.000s output, H.264 and AAC, 809267 bytes; module selected h264_nvenc). This is **partial** hardware acceptance, NOT full Stage 1 acceptance: mixed MP4 sources, actual narration/playback synchronization, native Concat project compatibility, authenticated worker integration and VPS delivery remain unverified. Existing Salad group was updated by its owner; no VPS deployment performed by this PR.
 
 This is Stage 1 of the approved GPU-only plan. The v0.2.8 Windows Concat executable, existing authenticated GPU worker and existing Concat projects remain untouched. This experiment is a GPU video backend, not yet a full native Concat project renderer.
 
@@ -49,11 +49,20 @@ python3 -m unittest cloud_render.concat.tests.test_gpu_simple_timeline -v
 
 ## Acceptance gates before declaring Stage 1 done
 
-1. Build the **feature-branch candidate Concat image** with the packaged FFmpeg + Stage 1 module. Do not replace the running Salad/Concat image; use a separate test instance. In this image, clear the native Concat-only LD_LIBRARY_PATH when invoking system FFmpeg to avoid mixing incompatible linked libraries.
-2. On Salad RTX 3060 Ti run **30-second mixed image + video cut with voice**, and verify hardware decode, CUDA frame operations, H.264 NVENC, AAC track, exact 30 fps/1080p and audio sync. JPEG GPU decoder availability is a specific risk to verify.
+1. **PASS** — Built and published a checksum-addressable feature-branch Concat candidate image to GHCR. User updated the **existing working Salad instance** as requested in the operating rule. Do not create another group or change GPU/CPU/RAM/gateway settings. Clear the native Concat-only LD_LIBRARY_PATH when invoking system FFmpeg to avoid mixing incompatible linked libraries.
+2. **PARTIAL PASS** — Existing Salad RTX 3060 Ti rendered **two 15-second JPEGs + synthetic 30-second WAV** into 30.000s MP4 using the Stage 1 CUDA FFmpeg graph and NVENC, with H.264 and AAC verified by ffprobe. **NEXT:** a mixed JPEG + **H.264/HEVC source MP4** test, then genuine narration and first/middle/last-frame checks. The first smoke did not verify audio perception/sync against speech or native Concat project compatibility.
 3. Translate a real, sanitized **native concat.json** project to the same operations without changing the Windows editor's saved semantics. This standalone JSON test file is **not** native Concat project-format parity.
 4. Reuse the secure chunk uploader, idempotent job receiver and verified VPS transfer only after the native project adapter works. Never create a second unprotected upload path.
 5. Run a **5-minute** mixed-media real-project test, measure total PC-to-Salad transfer + rendering + VPS delivery against current 60-minute CapCut render/slow hotspot.
 6. Confirm Windows/editor-to-GPU source/version compatibility and rollback. Only then start **Stage 2: transitions**.
 
 This PR is only the first engineering slice; tests without a real NVIDIA GPU **cannot** certify rendering throughput or compatibility.
+
+## First actual RTX 3060 Ti smoke evidence (2026-11-07)
+
+- Environment: existing Salad shell; NVIDIA GeForce RTX 3060 Ti confirmed by `nvidia-smi`.
+- Inputs: two 1920×1080 single-frame JPEGs displayed 15 seconds each; 30-second 48 kHz generated WAV tone.
+- Renderer stdout reported: `duration=30.0`, `bytes=809267`, `video=h264_nvenc`, `audio=aac-cpu`.
+- FFprobe verified `codec_name=h264`, `codec_name=aac`, container duration `30.000000` and size `809267`.
+- No errors in the supplied terminal output. **Do not overclaim:** H.264 label alone does not prove hardware decode, tone is not narration, and output was not human-playback-checked. Source code selects CUDA device, `mjpeg_cuvid`, `scale_cuda` and `h264_nvenc` explicitly; actual command returned success.
+- Resume work on the **same** Salad group and correct observed errors in place. Do not clone by default or move to transitions until real-video and native-project acceptance passes.
