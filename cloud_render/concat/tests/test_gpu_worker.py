@@ -10,10 +10,11 @@ import time
 import unittest
 import zipfile
 from pathlib import Path
+from cloud_render.concat.project_bundle import pack
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from cloud_render.concat.gpu.worker import Handler, RenderWorker, SaladDualStackHTTPServer, WorkerError
+from cloud_render.concat.gpu.worker import Handler, RenderWorker, SaladDualStackHTTPServer, WorkerError, concat_stage1_plan
 
 MP4 = b"\x00\x00\x00\x18ftypisom" + b"\x00" * 80
 TOKEN = "a" * 48
@@ -180,6 +181,127 @@ class WorkerTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join(timeout=5)
+
+
+class ConcatCUDAIntegrationTests(unittest.TestCase):
+    """Editor-native v0.2.8 JSON -> GPU contract; no new PC editor/schema."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.src = self.root / "desktop"
+        self.src.mkdir()
+        self.video = self.src / "clip.mp4"
+        self.voice = self.src / "voice.wav"
+        self.video.write_bytes(b"video-contents")
+        self.voice.write_bytes(b"voice-contents")
+        self.doc = {
+            "concat": "0.2.8", "version": 1, "activeTimelineId": "TL1",
+            "media": [
+                {"id": "m1", "path": str(self.video), "kind": "video",
+                 "hasAudio": False},
+                {"id": "m2", "path": str(self.voice), "kind": "audio"}],
+            "timelines": [{
+                "id": "TL1", "video": {"width": 1920, "height": 1080,
+                                     "rateNum": 30, "rateDen": 1},
+                "tracks": [{"id": "T1", "visible": True},
+                           {"id": "T2", "muted": False}],
+                "clips": [
+                    {"id": "c1", "trackId": "T1", "mediaId": "m1",
+                     "kind": "video", "start": 0.0, "duration": 5.0,
+                     "sourceStart": 0.0, "speed": 1.0},
+                    {"id": "c2", "trackId": "T2", "mediaId": "m2",
+                     "kind": "audio", "start": 0.0, "duration": 5.0}
+                ]}]
+        }
+        self.save()
+
+    def save(self):
+        (self.src / "concat.json").write_text(json.dumps(self.doc), encoding="utf-8")
+
+    def test_native_concat_json_maps_to_cuda_without_schema_change(self):
+        plan = concat_stage1_plan(self.src)
+        saved = json.loads(plan.read_text())
+        self.assertEqual(saved["clips"], [{"path": "clip.mp4", "kind": "video",
+                                          "duration": 5.0, "source_start": 0.0}])
+        self.assertEqual(saved["voice"], "voice.wav")
+        self.assertEqual(saved["fps"], 30)
+        self.assertTrue((self.src / "concat.json").exists())
+
+    def test_rejects_unsupported_effect_instead_of_cpu_fallback(self):
+        self.doc["timelines"][0]["clips"][0]["transitionIn"] = {"id": "wipe"}
+        self.save()
+        with self.assertRaisesRegex(ValueError, "transitionIn"):
+            concat_stage1_plan(self.src)
+
+    def test_rejects_overlap_instead_of_silent_dropped_clip(self):
+        second = dict(self.doc["timelines"][0]["clips"][0])
+        second.update({"id": "c3", "start": 3.0, "duration": 2.0})
+        self.doc["timelines"][0]["clips"].append(second)
+        self.save()
+        with self.assertRaisesRegex(ValueError, "gaps/overlaps"):
+            concat_stage1_plan(self.src)
+
+    def test_rejects_embedded_video_audio_that_would_be_dropped(self):
+        self.doc["media"][0]["hasAudio"] = True
+        self.save()
+        with self.assertRaisesRegex(ValueError, "mute embedded"):
+            concat_stage1_plan(self.src)
+        self.doc["timelines"][0]["clips"][0]["muted"] = True
+        self.save()
+        self.assertTrue(concat_stage1_plan(self.src).exists())
+
+    def test_rejects_media_outside_restored_project(self):
+        self.doc["media"][0]["path"] = str(self.root / "external.mp4")
+        (self.root / "external.mp4").write_bytes(b"something")
+        self.save()
+        with self.assertRaisesRegex(ValueError, "escapes"):
+            concat_stage1_plan(self.src)
+
+    def test_resumable_cuda_mode_calls_same_worker_and_delivers(self):
+        z = self.root / "native.zip"
+        pack(self.src, z)
+        raw = z.read_bytes()
+        sha = hashlib.sha256(raw).hexdigest()
+        delivered = []
+        worker = RenderWorker(self.root / "worker", binary=Path(sys.executable),
+                              token=TOKEN, renderer=lambda *_: self.fail("Native called"),
+                              deliver=lambda job, out: delivered.append(job))
+        worker.receiver = "https://app.scenebuilder.online"
+        gpu_calls = []
+        def mock_cuda(project, output):
+            gpu_calls.append(project)
+            self.assertTrue((project / "concat.json").exists())
+            self.assertEqual(json.loads(concat_stage1_plan(project).read_text())["voice"],
+                             "media/" + next(x.name for x in (project / "media").iterdir()
+                             if x.read_bytes() == b"voice-contents"))
+            output.write_bytes(MP4)
+        worker._cuda_render = mock_cuda
+        try:
+            first = worker.spool.begin("cuda1", len(raw), sha, "cuda-stage1")
+            self.assertEqual(first["render_mode"], "cuda-stage1")
+            worker.spool.put_chunk("cuda1", 0, io.BytesIO(raw), len(raw), sha)
+            worker.spool.complete("cuda1")
+            worker.pool.shutdown(wait=True)
+            self.assertEqual(worker.status("cuda1")["state"], "delivered")
+            self.assertEqual(delivered, ["cuda1"])
+            self.assertEqual(len(gpu_calls), 1)
+            self.assertFalse((worker.outputs / "cuda1.mp4").exists())
+        finally:
+            worker.pool.shutdown(wait=True)
+
+    def test_resumable_mode_cannot_change_during_retry(self):
+        worker = RenderWorker(self.root / "worker2", binary=Path(sys.executable),
+                              token=TOKEN, renderer=lambda *_: None)
+        try:
+            data = b"valid-zip-future"
+            checksum = hashlib.sha256(data).hexdigest()
+            worker.spool.begin("a",len(data),checksum,"cuda-stage1")
+            with self.assertRaisesRegex(ValueError, "does not match"):
+                worker.spool.begin("a",len(data),checksum,"native")
+        finally:
+            worker.pool.shutdown(wait=True)
 
 
 if __name__ == "__main__":
