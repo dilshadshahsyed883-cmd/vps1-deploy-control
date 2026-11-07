@@ -132,6 +132,88 @@
   $("cr-disconnect").onclick=()=>operations("Worker disconnected",async()=>{
     await send("/gpu/disconnect");await loadConfig();
   });
+  // Same GPU Config connection controls Concat upload. Salad keys stay on VPS.
+  // The editor remains the source of native concat.json and its media bundle.
+  let lastGpuJob="";
+  const hex=bytes=>Array.from(new Uint8Array(bytes),x=>x.toString(16).padStart(2,"0")).join("");
+  async function currentJob(){
+    if(!lastGpuJob){msg("No CUDA project submitted in this browser session",true);return;}
+    const status=await api("/gpu/jobs/"+encodeURIComponent(lastGpuJob));
+    const detail=status.error ? " — "+status.error : "";
+    $("cr-project-status").textContent="GPU job "+lastGpuJob+": "+status.state+detail;
+    if(status.state==="delivered" || status.state==="rendered"){
+      await refresh();
+    }
+  }
+  $("cr-check-job").onclick=()=>currentJob().catch(e=>msg(e.message,true));
+  $("cr-submit-project").onclick=async()=>{
+    const control=$("cr-submit-project");
+    const file=$("cr-project-zip").files[0];
+    if(!file || !/\.zip$/i.test(file.name)){msg("Select a Concat project ZIP first",true);return;}
+    if(file.size<1 || file.size>512*1024*1024){
+      msg("Initial GPU Config upload supports ZIP files up to 512 MiB; no upload started",true);
+      return;
+    }
+    if(!config.enabled){msg("Connect existing Salad worker in GPU Config first",true);return;}
+    control.disabled=true;
+    try{
+      $("cr-project-status").textContent="Calculating full project SHA256 locally...";
+      // Browser WebCrypto calculates digest once. Each network request stays
+      // <=8 MiB; the already-established Salad worker handles resume safely.
+      let bytes=await file.arrayBuffer();
+      const checksum=hex(await crypto.subtle.digest("SHA-256",bytes));
+      bytes=null;
+      const job="concat-cuda-"+checksum.slice(0,24);
+      lastGpuJob=job;
+      let session;
+      try{
+        session=await send("/gpu/uploads/"+job,
+          {size:file.size,sha256:checksum,render_mode:"cuda-stage1"});
+      }catch(e){
+        // Same ZIP/job could already be submitted. Never create duplicate work.
+        if(String(e.message).includes("409")){
+          await currentJob();
+          return;
+        }
+        throw e;
+      }
+      if(!Array.isArray(session.uploaded) || !Number.isInteger(session.chunk_size) ||
+          session.chunk_size<1 || session.chunk_size>8388608){
+        throw Error("Salad worker returned invalid chunk manifest");
+      }
+      const done=new Set(session.uploaded);
+      const total=Math.ceil(file.size/session.chunk_size);
+      for(let index=0;index<total;index++){
+        if(done.has(index))continue;
+        const part=file.slice(index*session.chunk_size,(index+1)*session.chunk_size);
+        const content=await part.arrayBuffer();
+        const chunkHash=hex(await crypto.subtle.digest("SHA-256",content));
+        const response=await fetch(
+          "/api/cloud-render/gpu/uploads/"+encodeURIComponent(job)+"/chunks/"+index,{
+            method:"PUT",credentials:"same-origin",
+            headers:{"X-Cloud-Render-CSRF":csrf,"X-Content-SHA256":chunkHash,
+                     "Content-Type":"application/octet-stream"},
+            body:content
+          });
+        if(!response.ok){
+          const data=await response.json().catch(()=>({detail:"Upload failed"}));
+          throw Error(typeof data.detail==="string"?data.detail:"Chunk "+index+" rejected");
+        }
+        $("cr-project-status").textContent="Uploaded "+(index+1)+"/"+total+
+          " verified chunks (resumable).";
+      }
+      await send("/gpu/uploads/"+job+"/complete");
+      $("cr-project-status").textContent="Project verified; CUDA render queued: "+job;
+      await currentJob();
+    }catch(e){msg(e.message,true);
+      $("cr-project-status").textContent="Upload/render submission failed: "+e.message+
+        ". No Concat source media was modified.";
+    }finally{control.disabled=false;}
+  };
+  window.setInterval(()=>{
+    if(lastGpuJob&&!document.hidden && !$("cr-gpu").hidden)
+      currentJob().catch(e=>{ $("cr-project-status").textContent="Job status: "+e.message; });
+  },5000);
   $("cr-rotate").onclick=async()=>{
     if(!window.confirm("Generate a new receiver token? Existing Salad workers will need the new token."))return;
     try {const result=await send("/token/rotate");$("cr-token").hidden=false;
