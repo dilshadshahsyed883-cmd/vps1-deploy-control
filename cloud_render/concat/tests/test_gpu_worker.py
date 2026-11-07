@@ -11,8 +11,6 @@ import unittest
 import zipfile
 from pathlib import Path
 from cloud_render.concat.project_bundle import pack
-from types import SimpleNamespace
-from unittest.mock import patch
 
 from cloud_render.concat.gpu.worker import Handler, RenderWorker, SaladDualStackHTTPServer, WorkerError, concat_stage1_plan
 
@@ -34,7 +32,7 @@ class WorkerTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.rendered = []
         self.delivered = []
-        self.worker = RenderWorker(Path(self.temp.name), binary=Path(sys.executable),
+        self.worker = RenderWorker(Path(self.temp.name),
             token=TOKEN, renderer=self.render, deliver=self.deliver)
         self.data = bundle()
         self.sha = hashlib.sha256(self.data).hexdigest()
@@ -105,31 +103,50 @@ class WorkerTests(unittest.TestCase):
 
     def test_interrupted_render_requires_explicit_recovery(self):
         self.worker._save("old", {"job": "old", "state": "running"})
-        fresh = RenderWorker(Path(self.temp.name), binary=Path(sys.executable), token=TOKEN,
+        fresh = RenderWorker(Path(self.temp.name), token=TOKEN,
                              renderer=self.render)
         self.assertEqual(fresh.status("old")["state"], "failed")
         fresh.pool.shutdown(wait=True)
 
-    def test_native_cli_uses_upstream_project_open_and_export_run(self):
-        project = Path(self.temp.name) / "project"
-        project.mkdir()
-        output = Path(self.temp.name) / "output.mp4"
+    def test_retired_native_mode_fails_before_creating_job(self):
+        with self.assertRaisesRegex(WorkerError, "Native Vulkan engine retired"):
+            self.worker.accept("native1", io.BytesIO(self.data), len(self.data),
+                               self.sha, render_mode="native")
+        self.assertFalse((self.worker.inputs / "native1").exists())
+        self.assertFalse(self.worker._path("native1").exists())
+        self.assertEqual(self.rendered, [])
 
-        def simulate(cmd, **kwargs):
-            self.assertEqual(cmd[1], "api")
-            calls = [json.loads(line) for line in kwargs["input"].decode().splitlines()]
-            self.assertEqual([call["method"] for call in calls], ["project.open", "export.run"])
-            self.assertEqual(calls[1]["params"]["output"], str(output))
-            output.write_bytes(MP4)
-            for msg in (
-                {"jsonrpc": "2.0", "id": 1, "result": {"project": {}}},
-                {"jsonrpc": "2.0", "id": 2, "result": {"job": "j1"}},
-                {"jsonrpc": "2.0", "method": "export.done", "params": {"job": "j1"}}
-            ):
-                kwargs["stdout"].write((json.dumps(msg) + "\n").encode())
-            return SimpleNamespace(returncode=0)
-        with patch("cloud_render.concat.gpu.worker.subprocess.run", side_effect=simulate):
-            self.worker._native_render(project, output)
+    def test_persisted_old_native_job_never_renders_and_keeps_source(self):
+        source = self.worker.inputs / "oldnative"
+        source.mkdir()
+        (source / "project.zip").write_bytes(self.data)
+        self.worker._save("oldnative", {"job": "oldnative", "state": "queued",
+                                       "render_mode": "native", "error": ""})
+        self.worker._process("oldnative")
+        result = self.worker.status("oldnative")
+        self.assertEqual(result["state"], "failed")
+        self.assertIn("retired", result["error"])
+        self.assertTrue((source / "project.zip").is_file())
+        self.assertEqual(self.rendered, [])
+
+    def test_worker_health_reports_cuda_only(self):
+        server = SaladDualStackHTTPServer(("::", 0), Handler)
+        server.worker = self.worker
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=10)
+            conn.request("GET", "/health/ready")
+            response = conn.getresponse()
+            body = json.loads(response.read())
+            self.assertEqual(body["engine"], "cuda-nvenc-stage1")
+            self.assertTrue(body["cuda_stage1"])
+            self.assertFalse(body["native_vulkan"])
+            conn.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
 
     def test_http_auth_health_and_ingest(self):
         server = SaladDualStackHTTPServer(("::", 0), Handler)
@@ -265,8 +282,8 @@ class ConcatCUDAIntegrationTests(unittest.TestCase):
         raw = z.read_bytes()
         sha = hashlib.sha256(raw).hexdigest()
         delivered = []
-        worker = RenderWorker(self.root / "worker", binary=Path(sys.executable),
-                              token=TOKEN, renderer=lambda *_: self.fail("Native called"),
+        worker = RenderWorker(self.root / "worker",
+                              token=TOKEN, renderer=lambda *_: self.fail("Render unexpectedly called"),
                               deliver=lambda job, out: delivered.append(job))
         worker.receiver = "https://app.scenebuilder.online"
         gpu_calls = []
@@ -277,7 +294,7 @@ class ConcatCUDAIntegrationTests(unittest.TestCase):
                              "media/" + next(x.name for x in (project / "media").iterdir()
                              if x.read_bytes() == b"voice-contents"))
             output.write_bytes(MP4)
-        worker._cuda_render = mock_cuda
+        worker.renderer = mock_cuda
         try:
             first = worker.spool.begin("cuda1", len(raw), sha, "cuda-stage1")
             self.assertEqual(first["render_mode"], "cuda-stage1")
@@ -292,14 +309,15 @@ class ConcatCUDAIntegrationTests(unittest.TestCase):
             worker.pool.shutdown(wait=True)
 
     def test_resumable_mode_cannot_change_during_retry(self):
-        worker = RenderWorker(self.root / "worker2", binary=Path(sys.executable),
+        worker = RenderWorker(self.root / "worker2",
                               token=TOKEN, renderer=lambda *_: None)
         try:
             data = b"valid-zip-future"
             checksum = hashlib.sha256(data).hexdigest()
             worker.spool.begin("a",len(data),checksum,"cuda-stage1")
-            with self.assertRaisesRegex(ValueError, "does not match"):
+            with self.assertRaisesRegex(ValueError, "Native Vulkan engine retired"):
                 worker.spool.begin("a",len(data),checksum,"native")
+            self.assertTrue((worker.spool.uploads / "a" / "manifest.json").is_file())
         finally:
             worker.pool.shutdown(wait=True)
 
