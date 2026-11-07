@@ -17,34 +17,39 @@ class DualTargetContractTests(unittest.TestCase):
         cls.dual = (ROOT / ".github/workflows/vps1-cloud-render-dual-validation.yml").read_text(encoding="utf-8")
         cls.image = (ROOT / ".github/workflows/vps1-cloud-render-gpu-image.yml").read_text(encoding="utf-8")
 
-    def test_desktop_and_gpu_pinned_to_same_version(self):
+    def test_desktop_and_cuda_gpu_use_same_project_schema(self):
         self.assertEqual(self.lock["upstream_tag"], self.lock["desktop"]["source_tag"])
         self.assertEqual(self.lock["upstream_commit"], self.lock["gpu"]["source_commit"])
         self.assertRegex(self.lock["upstream_commit"], r"^[0-9a-f]{40}$")
-        self.assertIn("ARG CONCAT_COMMIT=" + self.lock["upstream_commit"], self.docker)
-        self.assertIn('test "$(git rev-parse HEAD)" = "$CONCAT_COMMIT"', self.docker)
+        self.assertIn('org.opencontainers.image.concat-upstream-commit="' +
+                      self.lock["upstream_commit"] + '"', self.docker)
+        self.assertIn('org.opencontainers.image.concat-project-schema="1"', self.docker)
         self.assertIn("gh release download " + self.lock["upstream_tag"], self.windows)
 
-    def test_gpu_worker_is_nonroot_authenticated_and_candidate_only(self):
+    def test_cuda_only_worker_is_nonroot_and_keeps_auth_delivery(self):
         self.assertIn('ENTRYPOINT ["python3", "-m", "cloud_render.concat.gpu.worker"]', self.docker)
-        self.assertIn("USER 10001:10001", self.docker)
-        self.assertIn("ENV HOME=/worker", self.docker)
-        self.assertIn("ENV XDG_CONFIG_HOME=/worker/.config", self.docker)
-        self.assertIn("ENV XDG_DATA_HOME=/worker/.local/share", self.docker)
-        self.assertIn("EXPOSE 8080", self.docker)
-        self.assertIn("scripts/ci/fetch.sh sherpa-onnx-linux-x64-static-lib", self.docker)
-        self.assertNotIn("scripts/ci/fetch.sh sherpa-onnx-linux-x64 sherpa.tar.bz2", self.docker)
-        self.assertIn("COPY cloud_render/concat/gpu/worker.py", self.docker)
-        self.assertIn("COPY cloud_render/concat/gpu/resumable.py /opt/app/cloud_render/concat/gpu/resumable.py", self.docker)
-        self.assertIn("COPY cloud_render/concat/gpu/vulkan_probe.py /opt/app/cloud_render/concat/gpu/vulkan_probe.py", self.docker)
-        self.assertIn("mesa-vulkan-drivers vulkan-tools", self.docker)
-        self.assertIn("NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics", self.docker)
+        for item in ("USER 10001:10001", "ENV HOME=/worker",
+                     "ENV XDG_CONFIG_HOME=/worker/.config",
+                     "ENV XDG_DATA_HOME=/worker/.local/share",
+                     "EXPOSE 8080", "NVIDIA_DRIVER_CAPABILITIES=compute,utility,video,graphics"):
+            self.assertIn(item, self.docker)
+        for item in ("COPY cloud_render/concat/gpu/worker.py",
+                     "COPY cloud_render/concat/gpu/resumable.py",
+                     "COPY cloud_render/concat/gpu/simple_timeline_v1.py"):
+            self.assertIn(item, self.docker)
+        # Never accidentally pull the retired Rust/wgpu/Vulkan renderer back.
+        for item in ("concat-cli /usr/local/bin/concat-cli",
+                     "mesa-vulkan-drivers", "vulkan-tools",
+                     "libvulkan1", "scripts/ci/fetch.sh",
+                     "cargo build --locked", "COPY cloud_render/concat/gpu/vulkan_probe.py"):
+            self.assertNotIn(item, self.docker)
         worker = (CONCAT / "gpu/worker.py").read_text(encoding="utf-8")
-        self.assertIn('"/api/diagnostics/gpu"', worker)
-        self.assertIn("RENDERER_API_TOKEN", worker)
-        self.assertIn('"/health/ready"', worker)
-        self.assertIn('"export.run"', worker)
-        self.assertIn("delivery_failed", worker)
+        for item in ('"/api/diagnostics/gpu"', "RENDERER_API_TOKEN",
+                     '"/health/ready"', "delivery_failed",
+                     '"native_vulkan": False', "cuda-stage1"):
+            self.assertIn(item, worker)
+        self.assertNotIn("def _native_render", worker)
+        self.assertNotIn("probe_vulkan", worker)
         self.assertIn("candidate-", self.image)
         self.assertIn("packages: write", self.image)
         self.assertNotIn("kubectl", self.image)
