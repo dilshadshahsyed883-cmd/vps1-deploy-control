@@ -84,7 +84,7 @@ def concat_stage1_plan(project: Path) -> Path:
         video.get("height") != 1080 or video.get("rateNum") != 30 or
         video.get("rateDen") != 1 or video.get("colorSpace", "sdr") != "sdr"):
         raise ValueError("CUDA Stage 1 requires 1080p30 SDR Concat timeline")
-    if timeline.get("background", {}).get("kind", "none") != "none":
+    if (timeline.get("background") or {}).get("kind", "none") != "none":
         raise ValueError("CUDA Stage 1: timeline background effect unsupported")
     tracks = timeline.get("tracks")
     clips = timeline.get("clips")
@@ -127,6 +127,8 @@ def concat_stage1_plan(project: Path) -> Path:
             raise ValueError("CUDA Stage 1: media escapes restored project")
         if media_item.get("placeholder"):
             raise ValueError("CUDA Stage 1: unfilled placeholder")
+        if kind == "video" and media_item.get("hasAudio") and clip.get("muted") is not True:
+            raise ValueError("CUDA Stage 1: mute embedded video audio before using one narration track")
 
         # Features not represented by simple_timeline_v1 are hard rejected.
         for key in ("keys", "filters", "videoEffects", "speedCurve",
@@ -170,10 +172,8 @@ def concat_stage1_plan(project: Path) -> Path:
         if abs(start - expected) > .001:
             raise ValueError("CUDA Stage 1: video gaps/overlaps unsupported")
         expected += clip["duration"]
-    if (sound[0][0] != 0 or abs(sound[0][1] - expected) > 1 / 30 + .001):
-        raise ValueError("CUDA Stage 1: narration must cover entire timeline from zero")
-    if any(x.get("kind") == "video" and x.get("muted") is False for x in clips if isinstance(x, dict)):
-        raise ValueError("CUDA Stage 1: embedded source audio cannot be mixed yet")
+    if sound[0][0] != 0 or sound[0][1] > expected + 1 / 30 + .001:
+        raise ValueError("CUDA Stage 1: one narration clip must start at zero and fit the video")
 
     spec = {"version": 1, "width": 1920, "height": 1080, "fps": 30,
             "clips": [clip for _, clip in ordered], "voice": sound[0][2]}
