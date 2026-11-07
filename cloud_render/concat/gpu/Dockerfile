@@ -21,7 +21,7 @@ RUN test -x src/target/release/concat-cli && ldd src/target/release/concat-cli |
 
 FROM ubuntu:24.04
 ARG DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 libfontconfig1 libfreetype6 libxkbcommon0 libxkbcommon-x11-0 libgl1 libgtk-3-0t64 libasound2t64 libvulkan1 mesa-vulkan-drivers vulkan-tools libgomp1 libstdc++6 && rm -rf /var/lib/apt/lists/* && mkdir -p /worker/jobs /worker/outputs /worker/state /worker/.config /worker/.local/share && chown -R 10001:10001 /worker
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 libfontconfig1 libfreetype6 libxkbcommon0 libxkbcommon-x11-0 libgl1 libgtk-3-0t64 libasound2t64 libvulkan1 mesa-vulkan-drivers vulkan-tools libgomp1 libstdc++6 ffmpeg && rm -rf /var/lib/apt/lists/* && mkdir -p /worker/jobs /worker/outputs /worker/state /worker/.config /worker/.local/share && chown -R 10001:10001 /worker
 COPY --from=build /src/src/target/release/concat-cli /usr/local/bin/concat-cli
 COPY --from=build /src/ffmpeg-dev/lib/ /opt/concat/ffmpeg/lib/
 COPY --from=build /src/onnxruntime-linux-x64-1.28.0/lib/ /opt/concat/onnx/lib/
@@ -30,6 +30,11 @@ COPY cloud_render/concat/project_bundle.py /opt/app/cloud_render/concat/project_
 COPY cloud_render/concat/gpu/worker.py /opt/app/cloud_render/concat/gpu/worker.py
 COPY cloud_render/concat/gpu/resumable.py /opt/app/cloud_render/concat/gpu/resumable.py
 COPY cloud_render/concat/gpu/vulkan_probe.py /opt/app/cloud_render/concat/gpu/vulkan_probe.py
+COPY cloud_render/concat/gpu/simple_timeline_v1.py /opt/app/cloud_render/concat/gpu/simple_timeline_v1.py
+# Fail candidate build if CUDA Stage 1 FFmpeg features are absent. Runtime GPU still unverified.
+RUN ffmpeg -hide_banner -decoders 2>/dev/null | grep -q mjpeg_cuvid && \
+    ffmpeg -hide_banner -filters 2>/dev/null | grep -q scale_cuda && \
+    ffmpeg -hide_banner -encoders 2>/dev/null | grep -q h264_nvenc
 ENV LD_LIBRARY_PATH=/opt/concat/ffmpeg/lib:/opt/concat/onnx/lib
 ENV PYTHONPATH=/opt/app
 ENV PYTHONUNBUFFERED=1
