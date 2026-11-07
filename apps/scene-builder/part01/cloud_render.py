@@ -267,6 +267,46 @@ class CloudRender:
             self.put(con, "enabled", "0")
         return {"ok": True}
 
+    def worker_request(self, method, route, *, payload=None, raw=None, content_sha=""):
+        """Admin-only dispatch using EXISTING GPU Config; no new credential store.
+
+        The Salad gateway and worker tokens never leave the server. Route is
+        synthesized by trusted handlers, never supplied as a URL by the client.
+        """
+        with self.connection() as con:
+            endpoint = endpoint_url(self.get(con, "endpoint"))
+            gateway = self.get(con, "salad_key")
+            worker_key = self.get(con, "worker_key")
+            enabled = self.get(con, "enabled") == "1"
+        if not enabled or not endpoint or not gateway or not worker_key:
+            raise HTTPException(409, "Connect Salad worker with saved GPU Config credentials first")
+        headers = {"Accept": "application/json", "Salad-Api-Key": gateway,
+                   "Authorization": "Bearer " + worker_key}
+        if content_sha:
+            if not SHA_RE.fullmatch(content_sha):
+                raise HTTPException(400, "Invalid chunk SHA256")
+            headers["X-Content-SHA256"] = content_sha
+        if raw is not None:
+            headers["Content-Type"] = "application/octet-stream"
+        try:
+            response = requests.request(method, endpoint + route, headers=headers,
+                         json=payload, data=raw, timeout=(12, 96), allow_redirects=False)
+        except requests.RequestException:
+            raise HTTPException(502, "Salad worker unavailable (connection or timeout)") from None
+        if not 200 <= response.status_code < 300:
+            # Never echo remote error bodies; they may contain untrusted data.
+            code = response.status_code
+            if code in (400, 401, 403, 404, 409, 413, 415, 422, 429):
+                raise HTTPException(code, "Salad worker HTTP " + str(code))
+            raise HTTPException(502, "Salad worker returned HTTP " + str(code))
+        try:
+            result = response.json()
+        except ValueError:
+            raise HTTPException(502, "Salad worker returned invalid response") from None
+        if not isinstance(result, dict):
+            raise HTTPException(502, "Salad worker response must be an object")
+        return result
+
     def local(self, job):
         if not ID_RE.fullmatch(str(job)):
             raise HTTPException(400, "Invalid job ID")
@@ -492,6 +532,72 @@ def register_cloud_render(app, templates, root, require_admin, require_login):
     @app.post("/api/cloud-render/gpu/disconnect")
     def gpu_disconnect(request: Request):
         csrf(request); return manager.disconnect()
+
+
+    # Existing GPU Config is the sole Salad connection source. The PC sends
+    # Concat's *existing* project bundle here; VPS proxies its original
+    # resumable chunk protocol to Salad, never exposing saved secrets to JS.
+    @app.post("/api/cloud-render/gpu/uploads/{job}")
+    async def gpu_begin(request: Request, job: str):
+        csrf(request)
+        if not ID_RE.fullmatch(job):
+            raise HTTPException(400, "Invalid job ID")
+        manifest = await request.json()
+        if (not isinstance(manifest, dict) or set(manifest) !=
+                {"size", "sha256", "render_mode"} or
+                manifest.get("render_mode") != "cuda-stage1" or
+                type(manifest.get("size")) is not int or
+                not 0 < manifest["size"] <= 4 * 1024 ** 3 or
+                not SHA_RE.fullmatch(str(manifest.get("sha256", "")))):
+            raise HTTPException(400, "Invalid CUDA Concat upload manifest")
+        from starlette.concurrency import run_in_threadpool
+        return await run_in_threadpool(manager.worker_request, "POST",
+                    "/api/uploads/" + job, payload=manifest)
+
+    @app.get("/api/cloud-render/gpu/uploads/{job}")
+    async def gpu_upload_status(request: Request, job: str):
+        admin(request)
+        if not ID_RE.fullmatch(job):
+            raise HTTPException(400, "Invalid job ID")
+        from starlette.concurrency import run_in_threadpool
+        return await run_in_threadpool(manager.worker_request, "GET", "/api/uploads/" + job)
+
+    @app.put("/api/cloud-render/gpu/uploads/{job}/chunks/{index}")
+    async def gpu_chunk(request: Request, job: str, index: int):
+        csrf(request)
+        if not ID_RE.fullmatch(job) or not 0 <= index <= 9999:
+            raise HTTPException(400, "Invalid chunk ID")
+        digest = request.headers.get("X-Content-SHA256", "")
+        if not SHA_RE.fullmatch(digest):
+            raise HTTPException(400, "Invalid chunk checksum")
+        data = bytearray()
+        async for piece in request.stream():
+            if len(data) + len(piece) > CHUNK_MAX:
+                raise HTTPException(413, "Chunk exceeds 8 MiB")
+            data.extend(piece)
+        if not data or hashlib.sha256(data).hexdigest() != digest:
+            raise HTTPException(422, "Chunk checksum mismatch")
+        from starlette.concurrency import run_in_threadpool
+        return await run_in_threadpool(manager.worker_request, "PUT",
+                    "/api/uploads/" + job + "/chunks/" + str(index),
+                    raw=bytes(data), content_sha=digest)
+
+    @app.post("/api/cloud-render/gpu/uploads/{job}/complete")
+    async def gpu_complete(request: Request, job: str):
+        csrf(request)
+        if not ID_RE.fullmatch(job):
+            raise HTTPException(400, "Invalid job ID")
+        from starlette.concurrency import run_in_threadpool
+        return await run_in_threadpool(manager.worker_request, "POST",
+                    "/api/uploads/" + job + "/complete")
+
+    @app.get("/api/cloud-render/gpu/jobs/{job}")
+    async def gpu_job_status(request: Request, job: str):
+        admin(request)
+        if not ID_RE.fullmatch(job):
+            raise HTTPException(400, "Invalid job ID")
+        from starlette.concurrency import run_in_threadpool
+        return await run_in_threadpool(manager.worker_request, "GET", "/api/jobs/" + job)
 
     @app.get("/api/cloud-render/media")
     def list_media(request: Request):
