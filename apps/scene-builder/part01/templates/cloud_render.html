@@ -55,6 +55,16 @@
       <p class="cr-note">GPU allocation, VRAM, CPU/RAM, registry image and priority are applied in SaladCloud deployment. Saving here does not purchase, resize or restart a SaladCloud container.</p>
     </div>
     <div class="cr-card">
+      <h3>Send Concat Project to GPU</h3>
+      <p>Use the existing Concat editor's project ZIP. Salad connection and credentials come from GPU Config above; no separate connection settings.</p>
+      <div class="cr-field"><label for="cr-project-zip">Concat project ZIP (existing verified project_bundle format)</label><input id="cr-project-zip" type="file" accept=".zip,application/zip"></div>
+      <div class="cr-row cr-row-wrap">
+        <button class="cr-btn primary" id="cr-submit-project" type="button">Upload + CUDA Render</button>
+        <button class="cr-btn secondary" id="cr-check-job" type="button">Check Last Job</button>
+      </div>
+      <p id="cr-project-status" role="status" aria-live="polite">Stage 1 supports simple cuts plus one narration track; unsupported Concat effects report a clear error, not silent CPU fallback.</p>
+    </div>
+    <div class="cr-card">
       <h3>GPU → VPS Output Receiver</h3>
       <p>The renderer must upload chunks to <code>/api/cloud-render/ingest/{job_id}/chunk</code>, using <code>X-Cloud-Render-Token</code>. The receiver verifies MP4 signature and SHA256 before accepting the completed file.</p>
       <button class="cr-btn secondary" id="cr-rotate" type="button">Generate / Rotate Receiver Token</button>
@@ -63,5 +73,5 @@
     </div>
   </section>
 </section>
-<script defer src="/static/cloud_render.js?v=20261104-v1"></script>
+<script defer src="/static/cloud_render.js?v=20261107-cuda1"></script>
 {% endblock %}
