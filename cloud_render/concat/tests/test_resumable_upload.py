@@ -37,7 +37,7 @@ class ResumableTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.dir = Path(self.temp.name)
-        self.worker = RenderWorker(self.dir, binary=Path(sys.executable), token=TOKEN,
+        self.worker = RenderWorker(self.dir, token=TOKEN,
                                    renderer=self.render)
         self.renders = []
 
@@ -82,7 +82,7 @@ class ResumableTests(unittest.TestCase):
         sha = hashlib.sha256(data).hexdigest()
         self.worker.spool.begin("test_b", len(data), sha)
         self.worker.spool.put_chunk("test_b", 0, io.BytesIO(data), len(data), sha)
-        resumed = RenderWorker(self.dir, binary=Path(sys.executable), token=TOKEN,
+        resumed = RenderWorker(self.dir, token=TOKEN,
                                renderer=self.render)
         self.assertEqual(resumed.spool.status("test_b")["uploaded"], [0])
         self.assertEqual(resumed.spool.begin("test_b", len(data), sha)["remaining"], 0)
