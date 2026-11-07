@@ -3,6 +3,10 @@
 # This image DOES NOT modify Salad configuration or deploy to VPS.
 FROM ubuntu:24.04
 ARG DEBIAN_FRONTEND=noninteractive
+# Native Concat project schema pin; Rust/Slint is compiled ONLY for Windows editor.
+LABEL org.opencontainers.image.concat-upstream-commit="79116bd0f9a103c633d888603ad27890e929dbdc"
+LABEL org.opencontainers.image.concat-project-schema="1"
+LABEL org.opencontainers.image.concat-renderer="cuda-nvenc-stage1"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates python3 ffmpeg \
