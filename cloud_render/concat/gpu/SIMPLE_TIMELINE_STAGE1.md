@@ -86,3 +86,16 @@ Next in-place test: 5-minute source video/image sequence with full-duration synt
 - **Next incomplete integration:** add a secure, explicitly selected Stage 1 CUDA timeline path to the existing authenticated HTTP worker, reusing the same VPS delivery and output checks; current standalone command does **not** automatically make native Concat jobs use CUDA.
 - Real narrated audio/clip quality, Windows editable project compatibility, and worker-started CUDA rendering remain unverified. Do not mark Stage 1 as fully production-ready.
 - No new Salad group, user resource setting change, token change, production replacement or Drive Bridge changes are requested.
+
+
+## Native Concat project -> existing GPU Config connection (PR prototype; NOT deployed)
+
+The user-approved connection is through **the existing VPS Cloud Render > GPU Config** tab, not through a new PC editor, new Salad container group or a separate settings module.
+
+- Native Concat v0.2.8 remains the **only PC editor**. Its unchanged `concat.json` and media are packaged by the existing `cloud_render.concat.project_bundle.pack` format.
+- The **existing GPU Config** now has an opt-in Concat project ZIP selector and **Upload + CUDA Render** action. The browser sends checksummed chunks to VPS, which forwards them to the existing Salad upload API using its **already saved** Salad gateway URL, Salad API key and `RENDERER_API_TOKEN`; credentials are not sent back to PC.
+- The existing Salad HTTP worker persists an explicit `cuda-stage1` render mode alongside its resumable job state. Old projects with no opt-in continue the **original native `concat-cli` path**.
+- The worker restores and checksum-verifies the Concat project bundle, validates a strict one-visual-lane / one-narration Stage 1 subset, derives a temporary simple-cut manifest, runs the already verified CUDA/NVENC renderer, then uses the **unchanged verified VPS receiver and original job states/cleanup gates**.
+- Transitions, filters, captions, animation, overlapping visuals, gaps, unsupported speed/transform, unsupported audio processing, video with unmuted embedded sound, and source leaks **fail with an explicit error**. They are not silently discarded, auto-replaced or CPU-rendered.
+- The original Concat files and source paths remain unchanged. No automatic Drive upload is enabled, no Salad credentials rotate and no production deployment occurs from PR CI.
+- Status: **GitHub branch code + CI tests only.** One-action native Concat project -> GPU Config -> Salad CUDA -> VPS must be verified against an actual editor-created simple project before completion can be claimed.
