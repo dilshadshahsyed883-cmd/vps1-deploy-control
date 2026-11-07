@@ -88,14 +88,16 @@ Next in-place test: 5-minute source video/image sequence with full-duration synt
 - No new Salad group, user resource setting change, token change, production replacement or Drive Bridge changes are requested.
 
 
-## Native Concat project -> existing GPU Config connection (PR prototype; NOT deployed)
+## CUDA-only replacement image (user-requested, 2026-11-07)
 
-The user-approved connection is through **the existing VPS Cloud Render > GPU Config** tab, not through a new PC editor, new Salad container group or a separate settings module.
+**New requirement:** there are **zero active legacy native Concat/Vulkan jobs**, so no native-job migration is needed. Build and publish a **new candidate image** with the retired native mode eliminated, rather than retaining it as an idle fallback.
 
-- Native Concat v0.2.8 remains the **only PC editor**. Its unchanged `concat.json` and media are packaged by the existing `cloud_render.concat.project_bundle.pack` format.
-- The **existing GPU Config** now has an opt-in Concat project ZIP selector and **Upload + CUDA Render** action. The browser sends checksummed chunks to VPS, which forwards them to the existing Salad upload API using its **already saved** Salad gateway URL, Salad API key and `RENDERER_API_TOKEN`; credentials are not sent back to PC.
-- The existing Salad HTTP worker persists an explicit `cuda-stage1` render mode alongside its resumable job state. Old projects with no opt-in continue the **original native `concat-cli` path**.
-- The worker restores and checksum-verifies the Concat project bundle, validates a strict one-visual-lane / one-narration Stage 1 subset, derives a temporary simple-cut manifest, runs the already verified CUDA/NVENC renderer, then uses the **unchanged verified VPS receiver and original job states/cleanup gates**.
-- Transitions, filters, captions, animation, overlapping visuals, gaps, unsupported speed/transform, unsupported audio processing, video with unmuted embedded sound, and source leaks **fail with an explicit error**. They are not silently discarded, auto-replaced or CPU-rendered.
-- The original Concat files and source paths remain unchanged. No automatic Drive upload is enabled, no Salad credentials rotate and no production deployment occurs from PR CI.
-- Status: **GitHub branch code + CI tests only.** One-action native Concat project -> GPU Config -> Salad CUDA -> VPS must be verified against an actual editor-created simple project before completion can be claimed.
+- Image contains only Python HTTP worker, Stage 1 Concat document-to-CUDA adapter, Python resumable ZIP upload and FFmpeg/FFprobe. It no longer builds or ships `concat-cli`, native Rust/wgpu, Vulkan ICD/probe, Lavapipe or Vulkan software fallback.
+- `/health/ready` now reports `engine=cuda-nvenc-stage1`, `cuda_stage1=true`, `native_vulkan=false`. FFmpeg availability is checked; RTX hardware capability still requires actual GPU acceptance.
+- Old `render_mode=native` is explicitly rejected for both direct and resumable uploads. Existing legacy job metadata/inputs, if encountered, are **not silently converted or deleted**. This is a defensive data safeguard despite the user confirming zero jobs.
+- Original Concat Windows v0.2.8 source remains the PC editor (Rajudesktop PR #65); it uses File > Send to GPU (CUDA) and submits `cuda-stage1` via the **existing** Salad Gateway. No new desktop editor or VPS UI/API is necessary.
+- Existing authenticated resumable chunks, complete-file checksum, job state, per-job input retention on failure, VPS receiver token + SHA256 verified delivery and verified cleanup are unchanged.
+- New candidate image must be built on GitHub CI and checked to have **no native CLI or Mesa Vulkan ICD**. **Do not claim deployment** to Salad from a GitHub image build; upgrading the existing Salad group is an operator action.
+- **Acceptance still pending:** actual user-owned Salad update to this exact candidate, native Concat Windows project ZIP upload, CUDA render and receiver status `ready · VPS`. No VPS production deployment.
+
+Historical test results above belong to earlier standalone CUDA/receiver acceptance; they are not a validation of the newly stripped image.
