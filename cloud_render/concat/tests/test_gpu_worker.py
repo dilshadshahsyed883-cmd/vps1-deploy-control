@@ -34,6 +34,9 @@ class WorkerTests(unittest.TestCase):
         self.delivered = []
         self.worker = RenderWorker(Path(self.temp.name),
             token=TOKEN, renderer=self.render, deliver=self.deliver)
+        # Offline runner has no requirement to have the NVIDIA-capable FFmpeg
+        # runtime installed; exercise HTTP routing with readiness mocked.
+        self.worker.ready = lambda: True
         self.data = bundle()
         self.sha = hashlib.sha256(self.data).hexdigest()
 
