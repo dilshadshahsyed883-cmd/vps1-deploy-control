@@ -1,7 +1,8 @@
-"""Isolated HTTP bridge for Concat v0.2.8's native project/export API.
+"""CUDA/NVENC-only HTTP worker for native Concat Stage 1 project bundles.
 
-The HTTP process persists; one native Concat export runs at a time. No shell
-commands, user-chosen output paths, secrets in git, or public GPU promotion.
+Retired: native concat-cli/Vulkan/wgpu renderer and CPU Vulkan fallback.
+Reuse existing authenticated uploads, job state and verified VPS delivery.
+Unsupported edits fail closed; retained source bundles are never removed.
 """
 from __future__ import annotations
 
@@ -24,7 +25,6 @@ from pathlib import Path
 
 from cloud_render.concat.project_bundle import restore
 from cloud_render.concat.gpu.resumable import ResumableUpload, UploadError
-from cloud_render.concat.gpu.vulkan_probe import probe as probe_vulkan
 
 IDS = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 DIGESTS = re.compile(r"^[a-f0-9]{64}$")
@@ -186,17 +186,17 @@ def concat_stage1_plan(project: Path) -> Path:
 
 
 class RenderWorker:
-    def __init__(self, root: Path, *, binary: Path, token: str,
+    def __init__(self, root: Path, *, token: str,
                  receiver: str = "", receiver_token: str = "", renderer=None,
                  deliver=None):
         if len(token) < 32:
             raise RuntimeError("RENDERER_API_TOKEN must have at least 32 characters")
         self.root = root.resolve()
-        self.binary = binary
         self.token = token
         self.receiver = receiver.rstrip("/")
         self.receiver_token = receiver_token
-        self.renderer = renderer or self._native_render
+        # The optional renderer override is for offline tests only.
+        self.renderer = renderer or self._cuda_render
         self.deliver = deliver or self._deliver
         self.lock = threading.RLock()
         self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="concat-export")
@@ -246,13 +246,14 @@ class RenderWorker:
             self._save(job, item)
 
     def ready(self) -> bool:
-        return self.binary.is_file() and os.access(self.binary, os.X_OK) and self.state.is_dir()
+        # Actual NVIDIA hardware capability is verified during the render.
+        return bool(shutil.which("ffmpeg") and shutil.which("ffprobe") and self.state.is_dir())
 
     def accept(self, job: str, stream, length: int, checksum: str,
-               render_mode: str = "native") -> dict:
+               render_mode: str = "cuda-stage1") -> dict:
         job = check_id(job)
-        if render_mode not in ("native", "cuda-stage1"):
-            raise WorkerError(400, "Unsupported render mode")
+        if render_mode != "cuda-stage1":
+            raise WorkerError(400, "Native Vulkan engine retired; only cuda-stage1 is supported")
         if not 0 < length <= MAX_BUNDLE or not DIGESTS.fullmatch(checksum):
             raise WorkerError(400, "Invalid bundle size or SHA256")
         with self.lock:
@@ -304,12 +305,9 @@ class RenderWorker:
             extracted = directory / "project"
             restore(directory / "project.zip", extracted)
             mode = self.status(job).get("render_mode", "native")
-            if mode == "cuda-stage1":
-                self._cuda_render(extracted, output)
-            elif mode == "native":
-                self.renderer(extracted, output)
-            else:
-                raise RuntimeError("Unsupported render mode")
+            if mode != "cuda-stage1":
+                raise RuntimeError("Legacy native Vulkan jobs are retired; use cuda-stage1. Source bundle retained")
+            self.renderer(extracted, output)
             if not output.is_file() or output.is_symlink() or output.stat().st_size < 12:
                 raise RuntimeError("Concat did not produce an MP4")
             with output.open("rb") as handle:
@@ -343,45 +341,6 @@ class RenderWorker:
                                  env=env, timeout=int(os.getenv("CONCAT_RENDER_TIMEOUT", "7200")))
         if outcome.returncode:
             raise RuntimeError("CUDA Stage 1 failed: " + outcome.stderr[-700:])
-
-    def _native_render(self, project: Path, output: Path):
-        # Upstream API preserves all project effects/settings and audio.
-        calls = [
-            {"jsonrpc": "2.0", "id": 1, "method": "project.open", "params": {"path": str(project)}},
-            {"jsonrpc": "2.0", "id": 2, "method": "export.run",
-             "params": {"path": str(project), "output": str(output)}},
-        ]
-        data = ("\n".join(json.dumps(item) for item in calls) + "\n").encode()
-        log = project.parent / "engine.jsonl"
-        err = project.parent / "engine.stderr"
-        with log.open("wb") as stdout, err.open("wb") as stderr:
-            result = subprocess.run([str(self.binary), "api"], input=data, stdout=stdout,
-                                    stderr=stderr, timeout=int(os.getenv("CONCAT_RENDER_TIMEOUT", "7200")),
-                                    check=False, cwd=str(project.parent))
-        seen_open = seen_start = seen_done = False
-        error = ""
-        with log.open("rb") as lines:
-            for raw in lines:
-                if len(raw) > 1024 * 1024:
-                    continue
-                try:
-                    msg = json.loads(raw)
-                except ValueError:
-                    continue
-                if msg.get("id") == 1:
-                    seen_open = "result" in msg and "error" not in msg
-                    if "error" in msg:
-                        error = "project.open: " + str(msg["error"])[:250]
-                if msg.get("id") == 2:
-                    seen_start = "result" in msg and "error" not in msg
-                    if "error" in msg:
-                        error = "export.run: " + str(msg["error"])[:250]
-                if msg.get("method") == "export.done":
-                    seen_done = True
-                if msg.get("method") == "export.failed":
-                    error = "Concat export.failed: " + str(msg.get("params", {}))[:250]
-        if result.returncode or error or not (seen_open and seen_start and seen_done):
-            raise RuntimeError(error or f"Concat API incomplete/exit {result.returncode}")
 
     def _deliver(self, job: str, output: Path):
         if not self.receiver.startswith("https://") or not self.receiver_token:
@@ -473,10 +432,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"ok": True})
         if action == "GET" and path == "/health/ready":
             ok = self.worker.ready()
-            return self._json(200 if ok else 503, {"ok": ok, "engine": "concat-cli", "cuda_stage1": True})
+            return self._json(200 if ok else 503, {"ok": ok, "engine": "cuda-nvenc-stage1", "cuda_stage1": True, "native_vulkan": False})
         self._authorize()
         if action == "GET" and path == "/api/diagnostics/gpu":
-            return self._json(200, probe_vulkan())
+            return self._json(200, {"engine": "cuda-nvenc-stage1",
+                                    "cuda_stage1": True, "native_vulkan": False,
+                                    "ffmpeg_available": bool(shutil.which("ffmpeg")),
+                                    "ffprobe_available": bool(shutil.which("ffprobe"))})
         upload = re.fullmatch(
             r"/api/uploads/([A-Za-z0-9_-]{1,80})(?:/chunks/([0-9]{1,4})|/(complete))?", path)
         if upload:
@@ -500,7 +462,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise WorkerError(400, "Upload manifest must be an object")
                 return self._json(200, self.worker.spool.begin(
                     job, manifest.get("size"), manifest.get("sha256"),
-                    manifest.get("render_mode", "native")))
+                    manifest.get("render_mode", "cuda-stage1")))
             if action == "PUT" and part is not None:
                 if self.headers.get("Content-Type", "").split(";")[0] != "application/octet-stream":
                     raise WorkerError(415, "Chunk must be application/octet-stream")
@@ -529,7 +491,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise WorkerError(400, "Invalid Content-Length") from None
             entry = self.worker.accept(job, self.rfile, length,
                                        self.headers.get("X-Content-SHA256", ""),
-                                       self.headers.get("X-Render-Mode", "native"))
+                                       self.headers.get("X-Render-Mode", "cuda-stage1"))
             return self._json(202, entry)
         if action == "POST" and suffix == "/retry-delivery":
             return self._json(202, self.worker.retry_delivery(job))
@@ -577,7 +539,6 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     token = os.getenv("RENDERER_API_TOKEN", "")
     worker = RenderWorker(Path(os.getenv("CONCAT_WORK_ROOT", "/worker")),
-                          binary=Path(os.getenv("CONCAT_BINARY", "/usr/local/bin/concat-cli")),
                           token=token,
                           receiver=os.getenv("CLOUD_RENDER_VPS_BASE_URL", ""),
                           receiver_token=os.getenv("RENDER_OUTPUT_TOKEN", ""))
