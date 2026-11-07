@@ -66,3 +66,14 @@ This PR is only the first engineering slice; tests without a real NVIDIA GPU **c
 - FFprobe verified `codec_name=h264`, `codec_name=aac`, container duration `30.000000` and size `809267`.
 - No errors in the supplied terminal output. **Do not overclaim:** H.264 label alone does not prove hardware decode, tone is not narration, and output was not human-playback-checked. Source code selects CUDA device, `mjpeg_cuvid`, `scale_cuda` and `h264_nvenc` explicitly; actual command returned success.
 - Resume work on the **same** Salad group and correct observed errors in place. Do not clone by default or move to transitions until real-video and native-project acceptance passes.
+
+
+## Verified existing Salad -> VPS Cloud Render delivery (2026-11-07)
+
+- The next standalone Stage 1 GPU render used a **mixed H.264 input video + JPEGs**, total **30 seconds at 1920×1080/30 fps**, H.264 NVENC/AAC. Existing Salad RTX 3060 Ti terminal reported **4.050 seconds** wall time for a **4,935,571-byte** MP4 and ffprobe verified codecs, dimensions and duration.
+- The output `/worker/stage1-mixed-ApNXVd/output.mp4` was transferred using the **existing authenticated VPS chunk receiver**; SHA-256 verified and receiver replied `{"ok": true, "state": "ready", "received": 4935571, "auto_queued": false}`.
+- The Cloud Render Media screenshot independently showed `stage1-mixed-20261107132819.mp4`, **4.9 MB**, `ready · VPS`, with Preview, Download, Upload to Drive, Rename and Delete controls.
+- **PASS**: existing Salad CUDA/NVENC mixed input render -> authenticated verified VPS media delivery (without any new container group, setting or credential rotation).
+- **Not yet proved**: representative narrated 5-minute output; natural voice synchronization and perceptual frame review; native Windows Concat project format/worker automation. Do not label entire Stage 1 production-ready.
+
+Next in-place test: 5-minute source video/image sequence with full-duration synthetic audio; verify rendered H.264/30 fps/AAC and successful **multi-chunk** receiver upload to VPS. Keep all source assets, never overwrite an existing VPS job.
