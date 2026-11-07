@@ -25,6 +25,7 @@ from pathlib import Path
 from cloud_render.concat.project_bundle import restore
 from cloud_render.concat.gpu.resumable import ResumableUpload, UploadError
 from cloud_render.concat.gpu.vulkan_probe import probe as probe_vulkan
+from cloud_render.concat.gpu.simple_timeline_v1 import render as render_cuda_timeline
 
 IDS = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 DIGESTS = re.compile(r"^[a-f0-9]{64}$")
@@ -52,6 +53,137 @@ def check_id(job: str) -> str:
     if not IDS.fullmatch(job):
         raise WorkerError(400, "Invalid job ID")
     return job
+
+
+
+def concat_stage1_plan(project: Path) -> Path:
+    """Strict adapter for v0.2.8 Concat cuts+one narration track.
+
+    Read the *restored* native concat.json; never mutate its original semantics.
+    Reject unsupported effects, gaps, overlays or audio processing, rather than
+    render something that differs from what the Windows editor shows.
+    """
+    root = project.resolve(strict=True)
+    docpath = next((root / n for n in ("concat.json", "wolfcut.json")
+                    if (root / n).is_file()), None)
+    if not docpath:
+        raise ValueError("CUDA Stage 1: Concat project manifest missing")
+    document = json.loads(docpath.read_text(encoding="utf-8-sig"))
+    if not isinstance(document, dict) or document.get("version", 1) != 1:
+        raise ValueError("CUDA Stage 1: unsupported Concat project version")
+    timelines = document.get("timelines")
+    if isinstance(timelines, list) and timelines:
+        active = document.get("activeTimelineId")
+        matches = [x for x in timelines if isinstance(x, dict) and x.get("id") == active]
+        timeline = matches[0] if len(matches) == 1 else timelines[0]
+    else:
+        timeline = document
+    if not isinstance(timeline, dict):
+        raise ValueError("CUDA Stage 1: invalid timeline")
+    video = timeline.get("video") or document.get("video") or {}
+    if (not isinstance(video, dict) or video.get("width") != 1920 or
+        video.get("height") != 1080 or video.get("rateNum") != 30 or
+        video.get("rateDen") != 1 or video.get("colorSpace", "sdr") != "sdr"):
+        raise ValueError("CUDA Stage 1 requires 1080p30 SDR Concat timeline")
+    if timeline.get("background", {}).get("kind", "none") != "none":
+        raise ValueError("CUDA Stage 1: timeline background effect unsupported")
+    tracks = timeline.get("tracks")
+    clips = timeline.get("clips")
+    media = document.get("media")
+    if not all(isinstance(x, list) for x in (tracks, clips, media)):
+        raise ValueError("CUDA Stage 1: incomplete Concat document")
+    track_map = {t["id"]: t for t in tracks if isinstance(t, dict) and isinstance(t.get("id"), str)}
+    media_map = {m["id"]: m for m in media if isinstance(m, dict) and isinstance(m.get("id"), str)}
+    if not track_map or not media_map or not clips:
+        raise ValueError("CUDA Stage 1: timeline has no playable media")
+
+    from math import isfinite
+    def number(value, default=0.0):
+        if value is None:
+            return default
+        if type(value) not in (int, float) or not isfinite(value):
+            raise ValueError("CUDA Stage 1: invalid clip number")
+        return float(value)
+
+    visuals, sound = [], []
+    visual_tracks = set()
+    for clip in clips:
+        if not isinstance(clip, dict):
+            raise ValueError("CUDA Stage 1: invalid clip")
+        kind = clip.get("kind")
+        if kind not in ("image", "video", "audio"):
+            raise ValueError("CUDA Stage 1: unsupported title/layer/shape clip")
+        track = track_map.get(clip.get("trackId"))
+        if track is None:
+            raise ValueError("CUDA Stage 1: missing clip track")
+        if kind in ("video", "image") and track.get("visible", True) is False:
+            raise ValueError("CUDA Stage 1: hidden visual track unsupported")
+        if kind == "audio" and track.get("muted", False):
+            raise ValueError("CUDA Stage 1: muted narration track unsupported")
+        media_item = media_map.get(clip.get("mediaId"))
+        if not media_item:
+            raise ValueError("CUDA Stage 1: missing media identity")
+        path = Path(str(media_item.get("path", ""))).resolve(strict=True)
+        if not path.is_relative_to(root) or not path.is_file():
+            raise ValueError("CUDA Stage 1: media escapes restored project")
+        if media_item.get("placeholder"):
+            raise ValueError("CUDA Stage 1: unfilled placeholder")
+
+        # Features not represented by simple_timeline_v1 are hard rejected.
+        for key in ("keys", "filters", "videoEffects", "speedCurve",
+                    "transitionIn", "crop", "cutout", "mask", "stabilize",
+                    "enhanced", "text", "shape", "background", "flipH", "flipV"):
+            if clip.get(key):
+                raise ValueError(f"CUDA Stage 1: unsupported Concat feature {key}")
+        for key, default in (("speed", 1), ("scale", 1), ("stretchX", 1),
+                             ("stretchY", 1), ("opacity", 1), ("volume", 1),
+                             ("offsetX", 0), ("offsetY", 0),
+                             ("rotation", 0), ("fadeIn", 0), ("fadeOut", 0)):
+            if abs(number(clip.get(key), default) - default) > 1e-7:
+                raise ValueError(f"CUDA Stage 1: unsupported Concat adjustment {key}")
+        if clip.get("blend") not in (None, "", "normal"):
+            raise ValueError("CUDA Stage 1: blend mode unsupported")
+        start = number(clip.get("start"))
+        duration = number(clip.get("duration"))
+        source_start = number(clip.get("sourceStart"))
+        if start < 0 or duration <= 0 or source_start < 0:
+            raise ValueError("CUDA Stage 1: invalid clip timing")
+        if any(abs(v * 30 - round(v * 30)) > .001 for v in (start, duration, source_start)):
+            raise ValueError("CUDA Stage 1: clip timing must align to 30 fps")
+        if clip.get("audioStream") not in (None, 0):
+            raise ValueError("CUDA Stage 1: alternate audio stream unsupported")
+        relative = path.relative_to(root).as_posix()
+        if kind in ("image", "video"):
+            visual_tracks.add(clip.get("trackId"))
+            visuals.append((start, {"path": relative, "kind": kind, "duration": duration,
+                                    **({"source_start": source_start} if kind == "video" else {})}))
+            if kind == "image" and source_start != 0:
+                raise ValueError("CUDA Stage 1: image in-point unsupported")
+        else:
+            if source_start:
+                raise ValueError("CUDA Stage 1: narration trim unsupported")
+            sound.append((start, duration, relative))
+    if len(visual_tracks) != 1 or len(sound) != 1 or len(visuals) > 80:
+        raise ValueError("CUDA Stage 1 supports one picture track and one narration clip")
+    ordered = sorted(visuals, key=lambda x: x[0])
+    expected = 0.0
+    for start, clip in ordered:
+        if abs(start - expected) > .001:
+            raise ValueError("CUDA Stage 1: video gaps/overlaps unsupported")
+        expected += clip["duration"]
+    if (sound[0][0] != 0 or abs(sound[0][1] - expected) > 1 / 30 + .001):
+        raise ValueError("CUDA Stage 1: narration must cover entire timeline from zero")
+    if any(x.get("kind") == "video" and x.get("muted") is False for x in clips if isinstance(x, dict)):
+        raise ValueError("CUDA Stage 1: embedded source audio cannot be mixed yet")
+
+    spec = {"version": 1, "width": 1920, "height": 1080, "fps": 30,
+            "clips": [clip for _, clip in ordered], "voice": sound[0][2]}
+    # Generated on the already-restored temporary project, never the PC project.
+    output = root / ".gpu-stage1-timeline.json"
+    if output.exists() or output.is_symlink():
+        raise ValueError("CUDA Stage 1: generated plan path already occupied")
+    output.write_text(json.dumps(spec, sort_keys=True), encoding="utf-8")
+    return output
 
 
 class RenderWorker:
@@ -117,8 +249,11 @@ class RenderWorker:
     def ready(self) -> bool:
         return self.binary.is_file() and os.access(self.binary, os.X_OK) and self.state.is_dir()
 
-    def accept(self, job: str, stream, length: int, checksum: str) -> dict:
+    def accept(self, job: str, stream, length: int, checksum: str,
+               render_mode: str = "native") -> dict:
         job = check_id(job)
+        if render_mode not in ("native", "cuda-stage1"):
+            raise WorkerError(400, "Unsupported render mode")
         if not 0 < length <= MAX_BUNDLE or not DIGESTS.fullmatch(checksum):
             raise WorkerError(400, "Invalid bundle size or SHA256")
         with self.lock:
@@ -147,7 +282,8 @@ class RenderWorker:
                 if not hmac.compare_digest(h.hexdigest(), checksum):
                     raise WorkerError(422, "Bundle SHA256 mismatch")
                 self._save(job, {"job": job, "state": "queued", "size": length,
-                                 "sha256": checksum, "created": int(time.time()), "error": ""})
+                                 "sha256": checksum, "created": int(time.time()), "error": "",
+                                 "render_mode": render_mode})
             except BaseException:
                 shutil.rmtree(directory)
                 raise
@@ -168,7 +304,13 @@ class RenderWorker:
             self._change(job, state="running")
             extracted = directory / "project"
             restore(directory / "project.zip", extracted)
-            self.renderer(extracted, output)
+            mode = self.status(job).get("render_mode", "native")
+            if mode == "cuda-stage1":
+                self._cuda_render(extracted, output)
+            elif mode == "native":
+                self.renderer(extracted, output)
+            else:
+                raise RuntimeError("Unsupported render mode")
             if not output.is_file() or output.is_symlink() or output.stat().st_size < 12:
                 raise RuntimeError("Concat did not produce an MP4")
             with output.open("rb") as handle:
@@ -189,6 +331,19 @@ class RenderWorker:
             prior = self.status(job)
             self._change(job, state="delivery_failed" if prior["state"] == "delivering" else "failed",
                          error=str(exc)[:500])
+
+    def _cuda_render(self, project: Path, output: Path):
+        plan = concat_stage1_plan(project)
+        # The native Concat FFmpeg shared libraries are intentionally incompatible
+        # with system FFmpeg CUDA. Clear ONLY in this subprocess, not globally.
+        env = os.environ.copy()
+        env.pop("LD_LIBRARY_PATH", None)
+        call = ["python3", "-m", "cloud_render.concat.gpu.simple_timeline_v1",
+                str(project), str(plan), str(output)]
+        outcome = subprocess.run(call, capture_output=True, text=True,
+                                 env=env, timeout=int(os.getenv("CONCAT_RENDER_TIMEOUT", "7200")))
+        if outcome.returncode:
+            raise RuntimeError("CUDA Stage 1 failed: " + outcome.stderr[-700:])
 
     def _native_render(self, project: Path, output: Path):
         # Upstream API preserves all project effects/settings and audio.
@@ -373,7 +528,8 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 raise WorkerError(400, "Invalid Content-Length") from None
             entry = self.worker.accept(job, self.rfile, length,
-                                       self.headers.get("X-Content-SHA256", ""))
+                                       self.headers.get("X-Content-SHA256", ""),
+                                       self.headers.get("X-Render-Mode", "native"))
             return self._json(202, entry)
         if action == "POST" and suffix == "/retry-delivery":
             return self._json(202, self.worker.retry_delivery(job))
