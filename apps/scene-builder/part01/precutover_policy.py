@@ -42,6 +42,16 @@ def mutation_allowed(method: str, path: str, editing_enabled: bool, auto_script_
         return True
     if method == "POST" and re.fullmatch(r"/api/cloud-render/ingest/[A-Za-z0-9_-]{1,80}/chunk",path):
         return True
+    # GPU Config project submit forwards only to the already configured,
+    # authenticated Salad worker; no generic URL/proxy or new writer mode.
+    if method == "POST" and re.fullmatch(
+        r"/api/cloud-render/gpu/uploads/[A-Za-z0-9_-]{1,80}(?:/complete)?", path
+    ):
+        return True
+    if method == "PUT" and re.fullmatch(
+        r"/api/cloud-render/gpu/uploads/[A-Za-z0-9_-]{1,80}/chunks/[0-9]{1,4}", path
+    ):
+        return True
     # Owner-approved Auto Script writes are scoped to its own APIs only.
     if auto_script_enabled and method == "POST":
         if path in ("/api/auto-script/channels", "/api/auto-script/tick"):
