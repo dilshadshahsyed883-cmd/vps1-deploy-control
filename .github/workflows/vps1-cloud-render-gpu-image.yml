@@ -26,6 +26,9 @@ jobs:
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Build the precise trusted PR head for a reproducible candidate tag.
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -78,18 +81,32 @@ jobs:
           docker rm -f concat-gpu-smoke
           trap - EXIT
       - name: Publish checksum-addressable candidate to GHCR
-        if: github.ref == 'refs/heads/main'
+        # main retains its existing release lane. One deliberately scoped,
+        # same-repository PR can publish a NON-PRODUCTION TEST tag without
+        # merging unfinished experimental GPU code into protected main.
+        # Fork PRs and every other PR are excluded from registry publishing.
+        if: >-
+          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+          (github.event_name == 'pull_request' &&
+           github.event.pull_request.number == 707 &&
+           github.event.pull_request.head.repo.full_name == github.repository &&
+           github.event.pull_request.head.ref == 'feature/concat-cuda-simple-timeline-v1-20261107')
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           OWNER: ${{ github.repository_owner }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           echo "$GITHUB_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          IMAGE="ghcr.io/${OWNER,,}/concat-gpu-worker:candidate-${SHA}"
+          if [ "$EVENT_NAME" = pull_request ]; then
+            IMAGE="ghcr.io/${OWNER,,}/concat-gpu-worker:candidate-pr707-${SOURCE_SHA}"
+          else
+            IMAGE="ghcr.io/${OWNER,,}/concat-gpu-worker:candidate-${SOURCE_SHA}"
+          fi
           docker tag concat-gpu-worker:smoke "$IMAGE"
           docker push "$IMAGE"
           docker inspect "$IMAGE" --format '{{json .RepoDigests}}'
           echo "Published candidate: $IMAGE" >> "$GITHUB_STEP_SUMMARY"
-          echo "This is not Salad GPU validated or production ready." >> "$GITHUB_STEP_SUMMARY"
+          echo "This is NOT Salad GPU validated or production ready." >> "$GITHUB_STEP_SUMMARY"
