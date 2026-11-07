@@ -36,7 +36,7 @@ Put a JSON file named simple_timeline.json beside a project directory containing
 To run on a GPU host where FFmpeg has scale_cuda, NVDEC (including mjpeg_cuvid) and NVENC:
 
 ~~~bash
-python3 -m cloud_render.concat.gpu.simple_timeline_v1 PROJECT_FOLDER PROJECT_FOLDER/simple_timeline.json /tmp/render.mp4
+env -u LD_LIBRARY_PATH python3 -m cloud_render.concat.gpu.simple_timeline_v1 PROJECT_FOLDER PROJECT_FOLDER/simple_timeline.json /tmp/render.mp4
 ~~~
 
 Use --dry-run to check the plan and built command without rendering.
@@ -49,7 +49,7 @@ python3 -m unittest cloud_render.concat.tests.test_gpu_simple_timeline -v
 
 ## Acceptance gates before declaring Stage 1 done
 
-1. Build a **separate candidate image** with a known working FFmpeg + GPU runtime and include this module. Do not replace the running Concat image yet.
+1. Build the **feature-branch candidate Concat image** with the packaged FFmpeg + Stage 1 module. Do not replace the running Salad/Concat image; use a separate test instance. In this image, clear the native Concat-only LD_LIBRARY_PATH when invoking system FFmpeg to avoid mixing incompatible linked libraries.
 2. On Salad RTX 3060 Ti run **30-second mixed image + video cut with voice**, and verify hardware decode, CUDA frame operations, H.264 NVENC, AAC track, exact 30 fps/1080p and audio sync. JPEG GPU decoder availability is a specific risk to verify.
 3. Translate a real, sanitized **native concat.json** project to the same operations without changing the Windows editor's saved semantics. This standalone JSON test file is **not** native Concat project-format parity.
 4. Reuse the secure chunk uploader, idempotent job receiver and verified VPS transfer only after the native project adapter works. Never create a second unprotected upload path.
