@@ -114,6 +114,54 @@ class CloudRenderTests(unittest.TestCase):
         self.assertFalse(mutation_allowed("POST","/api/cloud-render/ingest/a-123/bypass",False))
         self.assertFalse(mutation_allowed("DELETE","/api/cloud-render/config",False))
 
+    def test_existing_gpu_config_forwards_without_exposing_tokens(self):
+        self.mgr.save({"endpoint": "https://my-renderer.salad.cloud",
+                       "salad_key": "salad-secret", "worker_key": "worker-secret"})
+        with self.mgr.connection() as con:
+            self.mgr.put(con, "enabled", "1")
+        from unittest.mock import Mock
+        ok = Mock(status_code=200)
+        ok.json.return_value = {"job": "concat-cuda-abc", "state": "uploading"}
+        with patch("cloud_render.requests.request", return_value=ok) as outgoing:
+            result = self.mgr.worker_request(
+                "POST", "/api/uploads/concat-cuda-abc",
+                payload={"size": 123, "sha256": "a"*64,
+                         "render_mode": "cuda-stage1"})
+        self.assertEqual(result["state"], "uploading")
+        args, kwargs = outgoing.call_args
+        self.assertEqual(args, ("POST", "https://my-renderer.salad.cloud/api/uploads/concat-cuda-abc"))
+        self.assertEqual(kwargs["headers"]["Salad-Api-Key"], "salad-secret")
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer worker-secret")
+        self.assertNotIn("worker-secret", str(result))
+        self.assertFalse(kwargs["allow_redirects"])
+
+    def test_gpu_config_bridge_fails_closed_if_disconnected(self):
+        with patch("cloud_render.requests.request") as outgoing:
+            with self.assertRaisesRegex(HTTPException, "Connect Salad worker"):
+                self.mgr.worker_request("GET", "/api/jobs/test")
+            outgoing.assert_not_called()
+
+    def test_new_submit_policy_only_allows_exact_routes(self):
+        from precutover_policy import mutation_allowed
+        self.assertTrue(mutation_allowed(
+            "POST", "/api/cloud-render/gpu/uploads/concat-cuda-123", False))
+        self.assertTrue(mutation_allowed(
+            "PUT", "/api/cloud-render/gpu/uploads/concat-cuda-123/chunks/0", False))
+        self.assertTrue(mutation_allowed(
+            "POST", "/api/cloud-render/gpu/uploads/concat-cuda-123/complete", False))
+        self.assertFalse(mutation_allowed(
+            "PUT", "/api/cloud-render/gpu/uploads/../chunks/0", False))
+        self.assertFalse(mutation_allowed(
+            "DELETE", "/api/cloud-render/gpu/uploads/concat-cuda-123", False))
+
+    def test_existing_gpu_tab_has_concat_project_action(self):
+        html = (ROOT/"apps/scene-builder/part01/templates/cloud_render.html").read_text()
+        javascript = (ROOT/"apps/scene-builder/part01/static/cloud_render.js").read_text()
+        self.assertIn('id="cr-submit-project"',html)
+        self.assertIn('id="cr-project-zip"',html)
+        self.assertIn('render_mode:"cuda-stage1"',javascript)
+        self.assertIn('/gpu/uploads/',javascript)
+
     def test_scene_admin_gate_and_tabs_are_server_registered(self):
         app = (ROOT/"apps/scene-builder/part01/app.py").read_text()
         shell = (ROOT/"apps/scene-builder/part01/static/vps1_native_site_shell.js").read_text()
