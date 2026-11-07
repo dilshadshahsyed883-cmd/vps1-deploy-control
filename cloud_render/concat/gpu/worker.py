@@ -473,7 +473,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"ok": True})
         if action == "GET" and path == "/health/ready":
             ok = self.worker.ready()
-            return self._json(200 if ok else 503, {"ok": ok, "engine": "concat-cli"})
+            return self._json(200 if ok else 503, {"ok": ok, "engine": "concat-cli", "cuda_stage1": True})
         self._authorize()
         if action == "GET" and path == "/api/diagnostics/gpu":
             return self._json(200, probe_vulkan())
