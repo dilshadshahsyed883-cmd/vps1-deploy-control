@@ -16,6 +16,19 @@
 7. **Version parity:** Maintain a single compatible/versioned project and effect contract across Windows EXE and Linux GPU image. Apply `source.lock.json` release rules and test both deliverables before promotion.
 8. **Preserve original:** Keep original Windows Concat executable, saved projects, media and production service safe. No Auto Script changes; no unverified production switching.
 
+## Current operating rule — existing Salad instance, fix failures in place (2026-11-07)
+
+**Owner decision (overrides earlier optional separate-test-instance advice):**
+
+- Continue Concat GPU development using the **existing working Salad Cloud container group**. Do not propose a clone, duplicate group, fresh deployment, or extra GPU/CPU/RAM/gateway configuration as the default next step.
+- Keep working Salad configuration, NVIDIA GPU selection, allocated resources, gateway/authentication, environment settings, tokens, current media and VPS delivery unchanged unless a specific observed failure requires a narrowly scoped correction. Do not expose or commit credentials.
+- For a failure: collect the exact failed step and sanitized error → identify its root cause → patch **that one problem** → build the changed image → retest on the existing environment. Do not skip ahead to transitions, filters, captions or animations before Stage 1 passes.
+- **No unnecessary rollback or switching systems as the routine response to an ordinary test failure.** Troubleshoot and fix in place. Preserve known-good image tags and data for recovery if an actual safety or production-integrity problem occurs; never delete working inputs or bypass authentication, health checks, or required release safeguards.
+- Stage sequence is fixed: **(1) simple cut timeline + voice/NVENC, (2) transitions, (3) filters, (4) captions, (5) animations**. Complete and verify one stage before implementing the next.
+- A code/image build PASS is not a CUDA-render PASS: require a verified real output with visuals and synchronized audio. Keep the Windows editor and Linux renderer compatible, and be explicit about any unsupported feature.
+
+This changes the **operational testing preference**, not the existing security, data-retention, or verified-output requirements. It does not itself redeploy Salad or authorize unguarded VPS changes.
+
 ## 2. Clarification: CPU responsibilities versus GPU rendering
 
 “GPU-only” here is a **hard prohibition on CPU *video-frame processing***, not an assertion that a working computer can avoid the CPU altogether. CPU remains necessary for application control, file and network I/O, parsing configuration, job scheduling, GPU command submission and verification metadata. These activities must not conceal a CPU filter-processing fallback.
