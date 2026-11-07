@@ -77,3 +77,12 @@ This PR is only the first engineering slice; tests without a real NVIDIA GPU **c
 - **Not yet proved**: representative narrated 5-minute output; natural voice synchronization and perceptual frame review; native Windows Concat project format/worker automation. Do not label entire Stage 1 production-ready.
 
 Next in-place test: 5-minute source video/image sequence with full-duration synthetic audio; verify rendered H.264/30 fps/AAC and successful **multi-chunk** receiver upload to VPS. Keep all source assets, never overwrite an existing VPS job.
+
+
+## 5-minute existing-Salad GPU/VPS acceptance (user confirmed, 2026-11-07)
+
+- User reports **5-minute / 300-second** synthetic mixed video/image timeline rendered in approximately **40 seconds** on their existing Salad GPU worker (~7.5x realtime). Unlike a recorded benchmark log, this timing is **user-reported** and should not be represented as independently audited.
+- User explicitly confirms the completed 5-minute output appears in the VPS Cloud Render Media Library with **ready · VPS** status. Thus manual standalone CUDA/NVENC render **plus** the existing token-authenticated, SHA256-verified chunk receiver transfer passed the user-side acceptance.
+- **Next incomplete integration:** add a secure, explicitly selected Stage 1 CUDA timeline path to the existing authenticated HTTP worker, reusing the same VPS delivery and output checks; current standalone command does **not** automatically make native Concat jobs use CUDA.
+- Real narrated audio/clip quality, Windows editable project compatibility, and worker-started CUDA rendering remain unverified. Do not mark Stage 1 as fully production-ready.
+- No new Salad group, user resource setting change, token change, production replacement or Drive Bridge changes are requested.
