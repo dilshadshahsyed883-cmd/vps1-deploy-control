@@ -341,7 +341,7 @@ def verify_experiment_nav_no_gateway(revision):
     if scene_site.is_symlink() or not scene_site.is_file():
         raise RuntimeError("Experiment navigation Scene HTTPS vhost unavailable")
     before = scene_site.read_bytes()
-    if before.count(b"location / {\\n    proxy_pass http://127.0.0.1:18080;") != 1:
+    if before.count(b"location / {\n    proxy_pass http://127.0.0.1:18080;") != 1:
         raise RuntimeError("Experiment navigation Scene HTTPS fallback changed")
 
     run(["nginx", "-t"], quiet=True)
