@@ -1,6 +1,6 @@
 """Guarded Cloud Render Drive context web-only release.
 
-Clone the live Scene source, replace only its Cloud Render module, preserve all
+Clone the live Scene source, replace only its reviewed Cloud Render files, preserve all
 media/SQLite/OAuth and leave the independent render worker running. Fail closed
 on an active Cloud Render ingress/upload and on missing worker-owned rclone
 configuration. The approved SSH helper retains the production deployment lock.
@@ -26,6 +26,12 @@ SOURCE = REPO / "apps/scene-builder/part01/cloud_render.py"
 UNIT = "vps1-scene-candidate.service"
 RENDERER = "vps1-scene-production-worker.service"
 RELATIVE = "part01/cloud_render.py"
+PRODUCTION_FILES = (
+    "part01/cloud_render_production.py",
+    "part01/precutover_policy.py",
+    "part01/templates/cloud_render.html",
+    "part01/static/cloud_render.js",
+)
 DB = Path("/var/lib/fresh-website/scene-builder/web/cloud-render/cloud_render.sqlite3")
 WORKER_HOME = Path("/var/lib/fresh-website/scene-builder/worker-home")
 
@@ -45,6 +51,10 @@ def check_idle(db=DB):
                     "Cloud Render database integrity")
             states = {str(s): int(n) for s, n in con.execute(
                 "SELECT state, COUNT(*) FROM files GROUP BY state").fetchall()}
+            if con.execute("SELECT 1 FROM sqlite_master WHERE name='production_jobs' AND type='table'").fetchone():
+                busy = con.execute("""SELECT 1 FROM production_jobs
+                    WHERE state NOT IN ('Queued','Completed','Failed','Cancelled') LIMIT 1""").fetchone()
+                require(not busy, "Cloud Render Production has an active project")
     except (sqlite3.Error, OSError) as exc:
         raise RuntimeError("CLOUD_RENDER_DRIVE_WEB_BLOCKED: Cloud Render state unreadable") from exc
     active = {"receiving", "queued", "uploading", "verifying"}
@@ -122,24 +132,48 @@ def restart_web():
     _health()
 
 
-def verify_ui():
+def verify_ui(production=False):
     from production.route_uploader_scene_https import scene_cookie
     from production.scene_candidate_release import _request
     cookie = scene_cookie()
     status, _, body = _request("/cloud-render/", cookie)
     require(status == 200 and b"Cloud Render" in body,
             "authenticated Cloud Render UI unavailable")
+    if production:
+        require(b'data-tab="production" aria-selected="true"' in body,
+                "Production is not the default Cloud Render tab")
+        status, _, queue = _request("/api/cloud-render/production", cookie)
+        require(status == 200 and isinstance(json.loads(queue).get("items"), list),
+                "authenticated Production API unavailable")
+        status, _, asset = _request("/static/cloud_render.js")
+        require(status == 200 and b"loadProduction" in asset, "Production browser asset unavailable")
+        status, _, _ = _request("/api/cloud-render/production", follow_redirects=False)
+        require(status in (302, 303, 401, 403), "anonymous Production API exposed")
     status, _, body = _request("/api/cloud-render/media", cookie)
     require(status == 200 and isinstance(json.loads(body).get("items"), list),
             "authenticated media API unavailable")
 
 
-def install(revision):
+def install(revision, production=False):
     old, pid, blob, manifest = preflight(revision)
+    overlays = {RELATIVE: blob}
+    if production:
+        for name in PRODUCTION_FILES:
+            source = REPO / "apps/scene-builder" / name
+            installed = old / name
+            require(source.is_file() and not source.is_symlink(), "reviewed Production source absent")
+            if name in manifest["files"]:
+                require(installed.is_file() and not installed.is_symlink()
+                        and hashlib.sha256(installed.read_bytes()).hexdigest() == manifest["files"][name],
+                        "live Production overlay source drift")
+            else:
+                require(not installed.exists() and not installed.is_symlink()
+                        and name == PRODUCTION_FILES[0], "unmanaged Production overlay path")
+            overlays[name] = source.read_bytes()
     target = RELEASES / (revision + "-cloud-render-drive-web")
     receipt = TRANSACTIONS / (revision + ".json")
     if old == target:
-        verify_ui()
+        verify_ui(production)
         print("CLOUD_RENDER_DRIVE_WEB=ALREADY_INSTALLED", flush=True)
         return
     require(not target.exists() and not target.is_symlink() and not receipt.exists(),
@@ -148,17 +182,22 @@ def install(revision):
     try:
         shutil.copytree(old, target, symlinks=True)
         copied = True
-        destination = target / RELATIVE
-        require(not destination.is_symlink() and destination.is_file(),
-                "unmanaged candidate file")
-        destination.write_bytes(blob)
-        destination.chmod(0o644)
+        for name, content in overlays.items():
+            destination = target / name
+            require(not destination.is_symlink() and not destination.parent.is_symlink()
+                    and destination.parent.resolve().is_relative_to(target),
+                    "unmanaged candidate file")
+            destination.write_bytes(content)
+            destination.chmod(0o644)
         changed_manifest = dict(manifest)
-        changed_manifest["files"] = {**manifest["files"], RELATIVE: hashlib.sha256(blob).hexdigest()}
+        changed_manifest["files"] = {**manifest["files"], **{
+            name: hashlib.sha256(content).hexdigest() for name, content in overlays.items()
+        }}
         changed_manifest["revision"] = revision
         changed_manifest["overlay"] = "cloud-render-drive-web-only"
         atomic_json(target / "_scene_candidate_manifest.json", changed_manifest, 0o644)
-        result = subprocess.run(["python3", "-m", "py_compile", str(destination)],
+        python_sources = [str(target / name) for name in overlays if name.endswith(".py")]
+        result = subprocess.run(["python3", "-m", "py_compile", *python_sources],
                                 capture_output=True, timeout=25, check=False)
         require(result.returncode == 0, "Python compilation failed")
         check_idle()  # Recheck before web source switch; no active ingress/upload.
@@ -166,14 +205,14 @@ def install(revision):
         atomic_link(CURRENT, target)
         changed = True
         restart_web()
-        verify_ui()
+        verify_ui(production)
         require(worker_pid() == pid, "render worker restarted during web-only release")
         require(CURRENT.resolve(strict=True) == target, "Scene source pointer drift")
         receipt.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         atomic_json(receipt, {"revision": revision, "previous": str(old), "after": str(target),
                              "renderer_pid": pid, "status": "ACTIVE",
                              "media": "PRESERVED", "oauth": "UNCHANGED",
-                             "file": RELATIVE}, 0o600)
+                             "file": RELATIVE, "production": production}, 0o600)
         print("CLOUD_RENDER_DRIVE_WEB=PASS WORKER=UNTOUCHED MEDIA=PRESERVED", flush=True)
     except BaseException:
         if changed:

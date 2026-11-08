@@ -34,6 +34,19 @@ class CloudRenderDriveReleaseTests(unittest.TestCase):
                     with self.assertRaisesRegex(RuntimeError, "active incoming/upload"):
                         lane.check_idle(db)
 
+    def test_active_production_project_blocks_scoped_release(self):
+        with tempfile.TemporaryDirectory() as d:
+            db = pathlib.Path(d) / "cloud_render.sqlite3"
+            with sqlite3.connect(db) as con:
+                con.execute("CREATE TABLE files(state TEXT)")
+                con.execute("CREATE TABLE production_jobs(state TEXT)")
+                con.execute("INSERT INTO production_jobs VALUES('Queued')")
+            self.assertEqual(lane.check_idle(db), {})
+            with sqlite3.connect(db) as con:
+                con.execute("UPDATE production_jobs SET state='Rendering'")
+            with self.assertRaisesRegex(RuntimeError, "Production has an active project"):
+                lane.check_idle(db)
+
     def test_missing_or_corrupt_db_fails_closed(self):
         with tempfile.TemporaryDirectory() as d:
             db = pathlib.Path(d) / "cloud_render.sqlite3"
@@ -61,6 +74,21 @@ class CloudRenderDriveReleaseTests(unittest.TestCase):
                         returncode=0, stdout="otherdrive:\n", stderr="")):
                     with self.assertRaisesRegex(RuntimeError, "no gdrive remote"):
                         lane.verify_rclone_context()
+
+    def test_production_health_proof_checks_anonymous_redirect_without_following_it(self):
+        requests = {
+            ("/cloud-render/", "session=fixture", True): (200, b'Cloud Render data-tab="production" aria-selected="true"'),
+            ("/api/cloud-render/production", "session=fixture", True): (200, b'{"items":[]}'),
+            ("/static/cloud_render.js", "", True): (200, b"function loadProduction() {}"),
+            ("/api/cloud-render/production", "", False): (303, b""),
+            ("/api/cloud-render/media", "session=fixture", True): (200, b'{"items":[]}'),
+        }
+        def request(path, cookie="", *, follow_redirects=True):
+            status, body = requests[path, cookie, follow_redirects]
+            return status, {}, body
+        with patch("production.route_uploader_scene_https.scene_cookie", return_value="session=fixture"), \
+             patch("production.scene_candidate_release._request", side_effect=request):
+            lane.verify_ui(production=True)
 
     def test_exclusive_web_only_dispatch_and_rollback_markers(self):
         root = pathlib.Path(__file__).resolve().parents[1]

@@ -36,6 +36,10 @@ def mutation_allowed(method: str, path: str, editing_enabled: bool, auto_script_
         ("POST","/api/cloud-render/gpu/disconnect"),
     }:
         return True
+    if method == "POST" and re.fullmatch(
+        r"/api/cloud-render/production/(?:scan|queue/(?:start|pause|resume)|jobs/[0-9]+/(?:cancel|retry|delete))", path
+    ):
+        return True
     if method == "POST" and re.fullmatch(r"/api/cloud-render/media/[A-Za-z0-9_-]{1,80}/(?:rename|drive)",path):
         return True
     if method == "DELETE" and re.fullmatch(r"/api/cloud-render/media/[A-Za-z0-9_-]{1,80}",path):

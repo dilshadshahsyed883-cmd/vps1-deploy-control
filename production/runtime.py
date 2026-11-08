@@ -1777,7 +1777,7 @@ def main():
                 raise RuntimeError('Cloud Render Drive web-only release requires exact protected Scene lane')
             from production.cloud_render_drive_web_release import install, rollback
             if args.action == 'install':
-                install(args.revision)
+                install(args.revision, production='[vps1-cloud-render-production]' in intent)
             else:
                 rollback(args.revision)
             return

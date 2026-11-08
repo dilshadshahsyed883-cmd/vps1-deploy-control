@@ -3,12 +3,14 @@ import hashlib
 import importlib.util
 import pathlib
 import subprocess
+import sys
 import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
 FILE = pathlib.Path(__file__).resolve().parents[1] / "part01" / "cloud_render.py"
+sys.path.insert(0, str(FILE.parent))
 spec = importlib.util.spec_from_file_location("cloud_render_under_test", FILE)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)

@@ -1,5 +1,6 @@
 """Real HTML template and admin-role route acceptance for Cloud Render."""
 from __future__ import annotations
+import re
 import sys
 import tempfile
 import unittest
@@ -48,6 +49,10 @@ class CloudRenderHtmlTest(unittest.TestCase):
         for marker in ("Cloud Render", "GPU Config", "Media", 'data-tab="gpu"', 'data-tab="media"'):
             self.assertIn(marker,res.text)
         self.assertIn('href="/cloud-render/"',res.text)
+        tabs = re.findall(r'data-tab="([^"]+)" aria-selected="(true|false)"', res.text)
+        self.assertEqual(tabs, [("production", "true"), ("media", "false"), ("gpu", "false")])
+        self.assertIn('id="cr-media" hidden', res.text)
+        self.assertIn('id="cr-gpu" hidden', res.text)
         self.assertEqual(res.text.count('data-tab="gpu"'),1)
         self.assertEqual(res.text.count('data-tab="media"'),1)
         # Cloud Render owns its page heading and inner tabs; not Video Studio's shell.
@@ -68,11 +73,35 @@ class CloudRenderHtmlTest(unittest.TestCase):
             self.assertIn(res.status_code,(401,403))
             self.assertIn(self.client.get("/api/cloud-render/config").status_code,(401,403))
             self.assertIn(self.client.get("/api/cloud-render/media").status_code,(401,403))
+            self.assertIn(self.client.get("/api/cloud-render/production").status_code,(401,403))
+            self.assertIn(self.client.post("/api/cloud-render/production/queue/start").status_code,(401,403))
 
     def test_mutation_requires_admin_csrf(self):
         self.client.get("/_fixture/session/admin")
         self.assertEqual(self.client.post("/api/cloud-render/config",json={"auto_upload":True}).status_code,403)
         self.assertFalse(self.client.get("/api/cloud-render/config").json()["auto_upload"])
+
+    def test_production_admin_can_scan_control_and_cancel_with_csrf(self):
+        self.client.get("/_fixture/session/admin")
+        page = self.client.get("/cloud-render/")
+        token = re.search(r'data-csrf="([^"]+)"', page.text).group(1)
+        headers = {"X-Cloud-Render-CSRF": token}
+        path = "/api/cloud-render/production"
+        self.assertEqual(self.client.post(path+"/queue/start").status_code, 403)
+        self.assertEqual(self.client.post(path+"/scan", headers=headers, json={"link":"https://elsewhere.com"}).status_code, 422)
+        result = self.client.post(path+"/scan", headers=headers, json={
+            "link":"https://drive.google.com/file/d/linked-project/view?resourcekey=shared-key"
+        })
+        self.assertEqual(result.json(), {"added": 1, "duplicates": 0})
+        data = self.client.get(path).json()
+        self.assertEqual(data["state"], "stopped")
+        job = data["items"][0]
+        self.assertEqual(job["state"], "Queued")
+        self.assertNotIn("shared-key", str(data))
+        self.assertEqual(self.client.post(f"{path}/jobs/{job['id']}/cancel", headers=headers).status_code, 200)
+        self.assertEqual(self.client.get(path).json()["items"][0]["state"], "Cancelled")
+        self.assertEqual(self.client.post(path+"/queue/pause", headers=headers).json()["state"], "paused")
+
 
 if __name__ == "__main__":
     unittest.main()
