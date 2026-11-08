@@ -38,7 +38,8 @@ def require(ok: bool, message: str) -> None:
 def patch_base(existing: str) -> str:
     """Append a single page-scoped link after Auto Script's content block."""
     require(existing.count("vps1-experiment-tabs") >= 1
-            and "page=='auto_script'" in existing,
+            and "'auto_script'" in existing
+            and "href=\"/experiment-studio/\"" in existing,
             "existing Experiment/Auto Script layout unrecognized")
     require(existing.count(ANCHOR) == 1, "template content block not unique")
     if LINK in existing:
