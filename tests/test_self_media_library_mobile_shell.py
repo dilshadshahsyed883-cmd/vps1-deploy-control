@@ -25,7 +25,7 @@ class SharedShellMobile(unittest.TestCase):
         s=(SML/"static/index.html").read_text(encoding="utf-8")
         tags=Assets();tags.feed(s)
         scene_css="/static/vps1_native_site_shell.css?v=20261020-experiment-ui-v5&song=20261029"
-        scene_js="/static/vps1_native_site_shell.js?v=20261025-auto-script-nav-v1&song=20261029"
+        scene_js="/static/vps1_native_site_shell.js?v=20261025-auto-script-nav-v1&song=20261029&experiment-hide=20261109"
         sml_css="/self-media-library/static/sml_shared_theme.css?v=20261022-queue-fullwidth-v1"
         assert (SCENE/"static/vps1_native_site_shell.css").is_file()
         assert (SCENE/"static/vps1_native_site_shell.js").is_file()
@@ -59,7 +59,8 @@ class SharedShellMobile(unittest.TestCase):
         self.assertIn(".vps1-native-experiment-tabs",scene)
         self.assertIn('app === "library" ? "library"',js)
         self.assertIn('"Experiment Studio", "/experiment-studio/"',js)
-        self.assertIn('["Self Media Library", "/self-media-library/", "library"]',js)
+        self.assertNotIn('["Self Media Library", "/self-media-library/", "library"]',js)
+        self.assertIn('["Upload Studio",',js)
         self.assertIn('--vps1-sidebar-width:214px',scene)
         source=(SML/"static/index.html").read_text()
         self.assertNotIn('<aside class="sidebar">',source)
