@@ -120,8 +120,11 @@ jobs:
                   return response.read().decode('utf-8')
           shell=read('http://127.0.0.1:18080/static/vps1_native_site_shell.js')
           assert 'vps1-native-experiment-tabs' in shell
-          assert 'Self Media Library", "/self-media-library/"' in shell
-          assert 'Auto Script", "/experiment-studio/auto-script/"' in shell
+          experiment_nav=shell.split('const EXPERIMENT_NAV = Object.freeze([',1)[1].split(']);',1)[0]
+          for label in ('Antidetect Browser','Upload Studio','Cloud Render'):
+              assert '["'+label+'",' in experiment_nav
+          for label in ('Auto Script','Self Media Library','Video Studio'):
+              assert '["'+label+'",' not in experiment_nav
           assert 'vps1-native-nav-backdrop' in shell
           assert 'aria-expanded' in shell and 'setMenuOpen(false)' in shell
           index=read('http://127.0.0.1:8147/')
@@ -150,7 +153,7 @@ jobs:
           print('SML_HEALTH=PASS',flush=True)
           PY
           trap - ERR
-          echo 'EXPERIMENT_STUDIO_AUTO_SCRIPT_SUBTAB=PASS'
+          echo 'EXPERIMENT_STUDIO_HIDDEN_TABS=PASS'
           echo 'EXPERIMENT_LIBRARY_NAV_RELEASE=PASS'
           echo 'INDEPENDENT_APPS_OTHER_THAN_SCENE_AND_SML=UNTOUCHED'
           echo 'AUTO_SCRIPT_RUNTIME=UNCHANGED_BY_NAVIGATION_RELEASE'
