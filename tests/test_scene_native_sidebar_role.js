@@ -192,9 +192,9 @@ test("Experiment Studio second-level tabs stay hidden for nonadmins and appear f
   const tabs=all(h.body).find(e=>e.className==="vps1-native-experiment-tabs");
   assert.ok(tabs);
   assert.equal(tabs.hidden, true, "non-admin Experiment navigation must be hidden");
-  assert.deepEqual(tabs.children.map(e=>e.textContent),["Antidetect Browser","Self Media Library","Auto Script","Video Studio","Upload Studio","Cloud Render"]);
-  assert.deepEqual(tabs.children.map(e=>e.href),["/experiment-studio/antidetect-browser/","/self-media-library/","/experiment-studio/auto-script/","/scene-builder/","/local-upload-manager/app?embedded=1&tab=dashboard","/cloud-render/"]);
-  assert.equal(tabs.children.filter(e=>e.attrs["aria-current"]==="page").length,1);
+  assert.deepEqual(tabs.children.map(e=>e.textContent),["Antidetect Browser","Upload Studio","Cloud Render"]);
+  assert.deepEqual(tabs.children.map(e=>e.href),["/experiment-studio/antidetect-browser/","/local-upload-manager/app?embedded=1&tab=dashboard","/cloud-render/"]);
+  assert.equal(tabs.children.filter(e=>e.attrs["aria-current"]==="page").length,0);
   assert.equal(h.links().filter(e=>e.href==="/admin").length,0);
   await h.update({authenticated:true,is_admin:true,username:"owner"});
   assert.equal(tabs.hidden, false, "verified admin may see Experiment tabs");
@@ -248,9 +248,10 @@ for (const workspace of ["uploader","stream","acs"]) {
     assert.equal(nav.children.filter(e=>e.href==="/experiment-studio/"&&e.textContent==="Experiment Studio").length,1);
     const experiment=all(h.body).find(e=>e.className==="vps1-native-experiment-tabs");
     assert.ok(experiment);
-    assert.deepEqual(experiment.children.map(e=>e.textContent),["Antidetect Browser","Self Media Library","Auto Script","Video Studio","Upload Studio","Cloud Render"]);
-    const selected=workspace==="acs"?"Video Studio":"Upload Studio";
-    assert.equal(experiment.children.filter(e=>e.attrs["aria-current"]==="page"&&e.textContent===selected).length,1);
+    assert.deepEqual(experiment.children.map(e=>e.textContent),["Antidetect Browser","Upload Studio","Cloud Render"]);
+    // Direct Video Studio URL remains functional; no hidden tab can be selected.
+    const selected=workspace==="acs"?null:"Upload Studio";
+    assert.equal(experiment.children.filter(e=>e.attrs["aria-current"]==="page"&&e.textContent===selected).length,selected?1:0);
     assert.equal(nav.children.filter(e=>e.textContent==="Auto Uploader"||e.textContent==="Auto Stream").length,0);
     const tabs=all(h.body).find(e=>e.className==="vps1-native-upload-tabs");
     assert.equal(!!tabs,workspace==="uploader"||workspace==="stream");

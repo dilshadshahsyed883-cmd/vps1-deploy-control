@@ -22,7 +22,7 @@ class ExperimentNavigation(unittest.TestCase):
     def test_experiment_subtab_uses_existing_independent_service(self):
         base=(SCENE/"templates/base.html").read_text()
         route=(SCENE/"app.py").read_text()
-        self.assertEqual(base.count('href="/experiment-studio/self-media-library/"'),1)
+        self.assertEqual(base.count('href="/experiment-studio/self-media-library/"'),0)
         self.assertIn('return RedirectResponse("/self-media-library/", status_code=303)',route)
         self.assertIn('require_login(request)',route)
         self.assertIn('"/experiment-studio/antidetect-browser/"',route)
@@ -33,7 +33,7 @@ class ExperimentNavigation(unittest.TestCase):
         m.feed(page)
         scripts=[attrs for tag,attrs in m.tags if tag=="script" and attrs.get("data-workspace")=="library"]
         self.assertEqual(len(scripts),1)
-        self.assertEqual(scripts[0].get("src"),"/static/vps1_native_site_shell.js?v=20261025-auto-script-nav-v1&song=20261029")
+        self.assertEqual(scripts[0].get("src"),"/static/vps1_native_site_shell.js?v=20261025-auto-script-nav-v1&song=20261029&experiment-hide=20261109")
         styles=[attrs.get("href") for tag,attrs in m.tags if tag=="link"]
         self.assertIn("/static/vps1_native_site_shell.css?v=20261020-experiment-ui-v5&song=20261029",styles)
         self.assertIn("/self-media-library/static/styles.css", [p.split("?", 1)[0] for p in styles])
@@ -56,8 +56,11 @@ class ExperimentNavigation(unittest.TestCase):
         script=(SCENE/"static/vps1_native_site_shell.js").read_text()
         self.assertIn('app === "library" ? "library"',script)
         self.assertIn('["acs", "uploader", "stream", "library"].includes(app)',script)
-        self.assertIn('["Self Media Library", "/self-media-library/", "library"]',script)
-        self.assertIn('["Auto Script", "/experiment-studio/auto-script/", "auto-script"]',script)
+        # Routes still exist; only their menu entries are hidden.
+        for label in ("Self Media Library", "Auto Script", "Video Studio"):
+            self.assertNotIn(f'["{label}",', script)
+        for label in ("Antidetect Browser", "Upload Studio", "Cloud Render"):
+            self.assertIn(f'["{label}",', script)
         css=(SCENE/"static/vps1_native_site_shell.css").read_text()
         for selector in (".vps1-native-experiment-tabs","body.vps1-native-library .app-shell",
                          "body.vps1-native-library .sml-control-rail"):
