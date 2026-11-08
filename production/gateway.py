@@ -324,6 +324,62 @@ def verify_cloud_render_scene_only_https(revision):
             "anonymous": "DENIED", "nginx_syntax": "PASS"}
 
 
+def verify_experiment_nav_no_gateway(revision):
+    """Read-only acceptance for an exact navigation-only Scene/SML release.
+
+    Keep every installed Nginx route, session rule and unrelated Studio intact.
+    Both app installers and the calling workflow own their own rollback gates.
+    """
+    from production.scene_public_https import SITE as scene_site
+
+    record = BASE / "control/state/scene-candidate.json"
+    if record.is_symlink() or not record.is_file():
+        raise RuntimeError("Experiment navigation Scene release record unavailable")
+    state = json.loads(record.read_text())
+    if state.get("status") != "ACTIVE":
+        raise RuntimeError("Experiment navigation Scene candidate not ACTIVE")
+    if scene_site.is_symlink() or not scene_site.is_file():
+        raise RuntimeError("Experiment navigation Scene HTTPS vhost unavailable")
+    before = scene_site.read_bytes()
+    if before.count(b"location / {\\n    proxy_pass http://127.0.0.1:18080;") != 1:
+        raise RuntimeError("Experiment navigation Scene HTTPS fallback changed")
+
+    run(["nginx", "-t"], quiet=True)
+    for url in ("http://127.0.0.1:18080/health",
+                "http://127.0.0.1:8147/api/health"):
+        with urllib.request.urlopen(url, timeout=15) as response:
+            if response.status != 200 or json.load(response).get("ok") is not True:
+                raise RuntimeError("Experiment navigation app health unavailable")
+
+    # Do not demand the new menu when the root helper is verifying a rollback
+    # to a prior known-working Scene revision.
+    proof = "SAFE_PREVIOUS_SCENE_ROLLBACK"
+    if state.get("revision") == revision:
+        with urllib.request.urlopen(
+            "http://127.0.0.1:18080/static/vps1_native_site_shell.js",
+            timeout=15,
+        ) as response:
+            if response.status != 200:
+                raise RuntimeError("Experiment navigation shared script unavailable")
+            shell = response.read().decode("utf-8")
+        token = "const EXPERIMENT_NAV = Object.freeze(["
+        if shell.count(token) != 1:
+            raise RuntimeError("Experiment navigation registry missing or duplicated")
+        nav = shell.split(token, 1)[1].split("]);", 1)[0]
+        for label in ("Antidetect Browser", "Upload Studio", "Cloud Render"):
+            if '["' + label + '",' not in nav:
+                raise RuntimeError("Experiment navigation approved tab missing")
+        for label in ("Auto Script", "Self Media Library", "Video Studio"):
+            if '["' + label + '",' in nav:
+                raise RuntimeError("Experiment navigation hidden tab reappeared")
+        proof = "SCOPED_NAVIGATION_VERIFIED"
+
+    if scene_site.read_bytes() != before:
+        raise RuntimeError("Experiment navigation HTTPS vhost changed concurrently")
+    return {"mode": "NO_NGINX_MUTATION", "scene": proof,
+            "sml_health": "PASS", "nginx_syntax": "PASS"}
+
+
 def verify_gateway(apps, credentials, port=8888):
     auth = base64.b64encode((credentials['username'] + ':' + credentials['password']).encode()).decode()
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -496,6 +552,19 @@ def main():
             proof = verify_cloud_render_scene_only_https(args.revision)
             event(app='scene-builder', gateway='NO_MUTATION',
                   cloud_render=proof)
+        return
+    # The navigation-only release may update Scene/SML UI assets, never the
+    # unrelated legacy Basic gateway or Nginx/Scene SSO site.
+    if '[vps1-experiment-library-nav-release]' in intent:
+        if ('self-media-library' not in args.apps or
+                '[vps1-auto-script-online]' in intent or
+                '[vps1-production-release:voice-studio]' in intent or
+                '[vps1-cloud-render-scene-only]' in intent):
+            raise RuntimeError('conflicting Experiment navigation gateway release intent')
+        with deployment_lock():
+            proof = verify_experiment_nav_no_gateway(args.revision)
+            event(app='scene-builder', gateway='NO_MUTATION',
+                  experiment_navigation=proof)
         return
     # The Three-Studio transaction owns and verifies the existing SSO Nginx site.
     if '[vps1-studio-permissions-release]' in intent:
