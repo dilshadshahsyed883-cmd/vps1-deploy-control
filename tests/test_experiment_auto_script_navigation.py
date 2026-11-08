@@ -20,23 +20,26 @@ class AutoScriptTabTests(unittest.TestCase):
         self.assertIn('raise HTTPException(status_code=404', route)
         self.assertIn('RedirectResponse("/auto-script", status_code=303)', route)
 
-    def test_legacy_auto_script_uses_experiment_subtab(self):
+    def test_legacy_auto_script_hidden_from_experiment_subtab(self):
         base = (SCENE / "templates/base.html").read_text()
         rail = base.split('class="vps1-experiment-tabs"', 1)[1].split("</nav>", 1)[0]
-        self.assertEqual(rail.count("<a "), 6)
-        for label in ("Antidetect Browser", "Self Media Library", "Auto Script",
-                      "Video Studio", "Upload Studio"):
+        self.assertEqual(rail.count("<a "), 3)
+        for label in ("Antidetect Browser", "Upload Studio", "Cloud Render"):
             self.assertEqual(rail.count(">" + label + "</a>"), 1)
-        self.assertIn("page=='auto_script'", rail)
+        for label in ("Auto Script", "Self Media Library", "Video Studio"):
+            self.assertNotIn(">" + label + "</a>", rail)
+        self.assertIn("page=='auto_script'", base)
         self.assertIn("page in ['experiment_studio','auto_script','local_upload_manager'", base)
         self.assertNotIn("<iframe", base.lower())
 
     def test_library_navigation_and_cache_busting(self):
         shell = (SCENE / "static/vps1_native_site_shell.js").read_text()
         self.assertIn('experiment-studio|self-media-library|auto-script', shell)
-        self.assertIn('["Auto Script", "/experiment-studio/auto-script/", "auto-script"]', shell)
+        self.assertNotIn('["Auto Script", "/experiment-studio/auto-script/", "auto-script"]', shell)
+        self.assertIn('["Upload Studio",', shell)
         sml = (ROOT / "apps/self-media-library/part01/static/index.html").read_text()
         self.assertIn("vps1_native_site_shell.js?v=20261025-auto-script-nav-v1", sml)
+        self.assertIn("&experiment-hide=20261109", sml)
 
 if __name__ == "__main__":
     unittest.main()

@@ -12,6 +12,14 @@ class UnifiedUiGovernanceTests(unittest.TestCase):
     def test_current_shared_shell_and_apps_match_approved_source_contract(self):
         self.assertEqual([], violations(self.sources))
 
+    def test_hidden_experiment_navigation_regression_is_blocked(self):
+        modified = dict(self.sources)
+        marker = 'const EXPERIMENT_NAV = Object.freeze(['
+        modified["shell_js"] = modified["shell_js"].replace(
+            marker, marker + '\n    ["Video Studio", "/scene-builder/", "video"],', 1)
+        issues = violations(modified)
+        self.assertTrue(any("hidden Experiment Studio app" in issue for issue in issues), issues)
+
     def test_sidebar_width_drift_is_blocked(self):
         modified = dict(self.sources)
         modified["shell_css"] = modified["shell_css"].replace(
