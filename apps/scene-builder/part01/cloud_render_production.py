@@ -22,6 +22,7 @@ from fastapi import HTTPException
 LOG = logging.getLogger(__name__)
 MAX_ZIP = 4 * 1024 ** 3  # Concat GPU resumable upload limit
 MAX_MANIFEST = 64 * 1024 ** 2
+LEGACY_MANIFEST_LIMIT = 2 * 1024 ** 2
 MODE = "cuda-hybrid-v1"
 CHUNK = 8 * 1024 ** 2
 DRIVE_ID = re.compile(r"[A-Za-z0-9_-]{1,200}")
@@ -253,10 +254,12 @@ class Worker:
         checkpoint()
         self.request("GET", self.health)
         caps = self.request("GET", "/api/capabilities")
-        limit = caps.get("max_project_manifest_bytes")
+        # Earlier compatible CUDA workers validate manifests but do not
+        # advertise their fixed 2 MiB validation limit.
+        limit = caps.get("max_project_manifest_bytes", LEGACY_MANIFEST_LIMIT)
         if (caps.get("api_version") != 1 or caps.get("validation_version") != 1
                 or 1 not in (caps.get("bundle_versions") or [])
-                or MODE not in (caps.get("render_modes") or []) or type(limit) is not int):
+                or MODE not in (caps.get("render_modes") or []) or type(limit) is not int or limit <= 0):
             raise JobError("Configured worker lacks the Concat CUDA hybrid upload and validation API.")
         if len(manifest) > limit:
             raise JobError(f"Project JSON exceeds this worker's {limit:,}-byte validation limit.")

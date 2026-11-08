@@ -38,6 +38,7 @@ class WorkerFixture(Worker):
         self.jobs = {}
         self.output = MP4
         self.valid = True
+        self.manifest_limit = 64 * 1024 ** 2
         self.fail_put_once = False
         self.lose_complete_once = False
         self.requests = []
@@ -49,8 +50,11 @@ class WorkerFixture(Worker):
         if path == self.health:
             return {"ok": True}
         if path == "/api/capabilities":
-            return {"api_version": 1, "validation_version": 1, "bundle_versions": [1],
-                    "render_modes": [MODE], "max_project_manifest_bytes": 64 * 1024 ** 2}
+            caps = {"api_version": 1, "validation_version": 1, "bundle_versions": [1],
+                    "render_modes": [MODE]}
+            if self.manifest_limit is not None:
+                caps["max_project_manifest_bytes"] = self.manifest_limit
+            return caps
         if path == "/api/validate":
             json.loads(kwargs["data"])
             return {"ok": self.valid, "errors": ["Unsupported effect fixture"]}
@@ -202,6 +206,13 @@ class ProductionTest(unittest.TestCase):
         self.assertEqual(self.state(), "Failed")
         self.assertIn("Unsupported effect", self.row()["error"])
         self.assertFalse(self.worker.sessions)
+
+    def test_existing_worker_without_advertised_manifest_limit_can_render(self):
+        self.worker.manifest_limit = None
+        job = self.start_file()
+        self.worker.rendered(job)
+        self.queue.tick()
+        self.assertEqual(self.state(), "Completed")
 
     def test_pause_and_resume_survive_restart_and_cancel_queued_job(self):
         self.queue.scan(FOLDER)
