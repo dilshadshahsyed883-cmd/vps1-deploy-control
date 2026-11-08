@@ -693,7 +693,7 @@ def verify_runtime() -> None:
                 "local Voice document cache/revision headers absent")
         require(response.status == 200 and "html" in response.headers.get("Content-Type", "").lower(),
                 "Voice web UI HTTP response unavailable")
-        require(RESPONSIVE_ID in body and (NEW_ASSETS in body or SONG_STUDIO_ASSETS in body) and
+        require(RESPONSIVE_ID in body and (NEW_ASSETS in body or SONG_STUDIO_ASSETS in body or EXPERIMENT_HIDE_ASSETS in body) and
                 NEW_LIMITS in body and
                 OLD_LIMITS not in body and b'id="vsEngineOmni"' in body,
                 "Voice web UI template guard is not live")
@@ -784,7 +784,7 @@ def install(revision: str) -> None:
     require(source.is_file() and not source.is_symlink(),
             "trusted Voice template source missing")
     source_html = source.read_bytes()
-    require((NEW_ASSETS in source_html or SONG_STUDIO_ASSETS in source_html) and
+    require((NEW_ASSETS in source_html or SONG_STUDIO_ASSETS in source_html or EXPERIMENT_HIDE_ASSETS in source_html) and
             source_html.count(NEW_LIMITS) == 1,
             "approved GitHub Voice template markers missing")
     original_html = (previous / PAGE).read_bytes()
