@@ -42,6 +42,10 @@ COPYRIGHT_STUDIO_ASSETS = SONG_STUDIO_ASSETS.replace(
     b'vps1_native_site_shell.js?v=20261029-song-studio-v1"',
     b'vps1_native_site_shell.js?v=20261029-song-studio-v1&copyright-nav=20261030-v3"',
 )
+EXPERIMENT_HIDE_ASSETS = COPYRIGHT_STUDIO_ASSETS.replace(
+    b'copyright-nav=20261030-v3"',
+    b'copyright-nav=20261030-v3&experiment-hide=20261109"',
+)
 PREVIOUS_ASSETS = (
     b'<link rel="stylesheet" href="/&#115;tatic/vps1_native_site_shell.css?v=20261019-voice-nav-v2">\n'
     b'<script src="/&#115;tatic/vps1_native_site_shell.js?v=20261019-voice-nav-v2" data-workspace="voice" defer></script>'
@@ -62,9 +66,14 @@ def patch_template(payload: bytes) -> bytes:
     require(payload.count(TITLE) == 1, "existing Voice template title changed")
     # Admit exactly one approved pair; reject mixed versions or duplicate links.
     asset_pairs = (OLD_ASSETS, NEW_ASSETS, PREVIOUS_ASSETS,
-                   SONG_STUDIO_ASSETS, COPYRIGHT_STUDIO_ASSETS)
+                   SONG_STUDIO_ASSETS, COPYRIGHT_STUDIO_ASSETS, EXPERIMENT_HIDE_ASSETS)
     require(sum(payload.count(pair) for pair in asset_pairs) == 1,
             "unexpected duplicated or mixed Voice shell assets")
+    if payload.count(EXPERIMENT_HIDE_ASSETS) == 1:
+        require(payload.count(b'id="vsEngineOmni"') == 1 and
+                payload.count(b'id="vsEngineKokoro"') == 1,
+                "Experiment navigation shell controls invalid")
+        return payload
     if payload.count(COPYRIGHT_STUDIO_ASSETS) == 1:
         require(payload.count(b'id="vsEngineOmni"') == 1 and
                 payload.count(b'id="vsEngineKokoro"') == 1,
