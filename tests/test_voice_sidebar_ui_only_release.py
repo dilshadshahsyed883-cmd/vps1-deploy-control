@@ -121,7 +121,7 @@ class VoiceSidebarUIOnlyTests(unittest.TestCase):
         # permitting an explicit cache-busting query for Copyright navigation.
         expected_assets = song_assets.replace(
             b'vps1_native_site_shell.js?v=20261029-song-studio-v1"',
-            b'vps1_native_site_shell.js?v=20261029-song-studio-v1&copyright-nav=20261030-v3"',
+            b'vps1_native_site_shell.js?v=20261029-song-studio-v1&copyright-nav=20261030-v3&experiment-hide=20261109"',
         )
         self.assertIn(expected_assets, voice)
 

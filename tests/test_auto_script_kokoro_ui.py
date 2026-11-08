@@ -21,7 +21,7 @@ class AutoScriptKokoroUI(unittest.TestCase):
         self.assertIn("{% if page=='auto_script' %}<link rel=\"stylesheet\" href=\"/static/auto_script_kokoro_20261026.css?v=1\">{% endif %}", base)
         self.assertLess(base.index("{% block content %}{% endblock %}"), base.index("auto_script_kokoro_20261026.css?v=1"))
         self.assertIn('class="vps1-experiment-tabs"', base)
-        self.assertIn('href="/experiment-studio/auto-script/"', base)
+        self.assertNotIn('href="/experiment-studio/auto-script/"', base)
 
     def test_source_manifest_valid_and_semantics_preserved(self):
         from rebuild.stage_auto_script import validated_files

@@ -69,8 +69,12 @@ class UniversalSidebarContracts(unittest.TestCase):
         self.assertIn('href="/experiment-studio/"', template)
         self.assertIn('aria-label="Experiment Studio"', template)
         self.assertIn('href="/experiment-studio/antidetect-browser/"', template)
-        self.assertIn('href="/experiment-studio/self-media-library/"', template)
-        self.assertIn('href="/experiment-studio/auto-script/"', template)
+        # Hidden nav entries do not disable direct routes.
+        self.assertNotIn('href="/experiment-studio/self-media-library/"', template)
+        self.assertNotIn('href="/experiment-studio/auto-script/"', template)
+        self.assertNotIn('href="/scene-builder/">Video Studio</a>', template)
+        self.assertIn('href="/local-upload-manager/app?embedded=1&amp;tab=dashboard"', template)
+        self.assertIn('href="/cloud-render/"', template)
         self.assertIn("page in ['experiment_studio','auto_script','local_upload_manager'", template)
         self.assertEqual(template.count('aria-label="Experiment Studio"'), 1)
         routes = (SCENE / "app.py").read_text(encoding="utf-8")
@@ -122,15 +126,17 @@ class UniversalSidebarContracts(unittest.TestCase):
         self.assertIn('require_login(request)', scene)
         self.assertIn('Its processing service has not', slot)
 
-    def test_library_uses_native_experiment_shell_with_five_independent_inner_tabs(self):
+    def test_library_uses_native_experiment_shell_with_hidden_nav_items(self):
         source = SHELL_JS.read_text(encoding="utf-8")
         self.assertIn('["acs", "voice", "uploader", "stream", "library", "song", "song-uploader", "short-uploader", "copyright-uploader"]', source)
         self.assertIn('app === "library"', source)
         self.assertIn('experiment-studio|self-media-library', source)
         self.assertIn('["acs", "uploader", "stream", "library"].includes(app)', source)
-        for label in ("Antidetect Browser", "Self Media Library", "Auto Script",
-                      "Video Studio", "Upload Studio"):
-            self.assertIn(f'["{label}",', source)
+        visible_nav = source.split("const EXPERIMENT_NAV =", 1)[1].split("]);", 1)[0]
+        for label in ("Antidetect Browser", "Upload Studio", "Cloud Render"):
+            self.assertIn(f'["{label}",', visible_nav)
+        for label in ("Auto Script", "Self Media Library", "Video Studio"):
+            self.assertNotIn(f'["{label}",', visible_nav)
         self.assertIn("const createExperimentTabs =", source)
         self.assertIn("attachInnerTabs(tabs)", source)
         html = (ROOT / "apps/self-media-library/part01/static/index.html").read_text(encoding="utf-8")

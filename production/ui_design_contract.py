@@ -78,8 +78,19 @@ def violations(source: dict[str, str]) -> list[str]:
             "Auto Uploader primary tab missing")
     require("shell_js", 'addLink(tabs, "Auto Stream"',
             "Auto Stream independent primary tab missing")
-    require("shell_js", '["Video Studio", "/scene-builder/", "video"]',
-            "Video Studio sidebar grouping missing")
+    require("shell_js", '["Cloud Render", "/cloud-render/", "cloud-render"]',
+            "Cloud Render Experiment Studio navigation missing")
+    parts = source["shell_js"].split("const EXPERIMENT_NAV = Object.freeze([", 1)
+    if len(parts) != 2 or "]);" not in parts[1]:
+        issues.append("shell_js: Experiment Studio navigation registry missing")
+    else:
+        experiment_nav = parts[1].split("]);", 1)[0]
+        for label in ("Auto Script", "Self Media Library", "Video Studio"):
+            if f'["{label}",' in experiment_nav:
+                issues.append(f"shell_js: hidden Experiment Studio app still visible: {label}")
+        for label in ("Antidetect Browser", "Upload Studio", "Cloud Render"):
+            if f'["{label}",' not in experiment_nav:
+                issues.append(f"shell_js: approved Experiment Studio app missing: {label}")
     require("shell_js", 'refreshIdentity()',
             "native sidebar identity must come from live backend")
     for route, label in VIDEO_ROUTES:

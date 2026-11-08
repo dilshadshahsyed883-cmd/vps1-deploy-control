@@ -78,9 +78,6 @@
   // Their existing native app controls remain a third-level rail, not a new page.
   const EXPERIMENT_NAV = Object.freeze([
     ["Antidetect Browser", "/experiment-studio/antidetect-browser/", "antidetect"],
-    ["Self Media Library", "/self-media-library/", "library"],
-    ["Auto Script", "/experiment-studio/auto-script/", "auto-script"],
-    ["Video Studio", "/scene-builder/", "video"],
     ["Upload Studio", "/local-upload-manager/app?embedded=1&tab=dashboard", "upload"],
     ["Cloud Render", "/cloud-render/", "cloud-render"]
   ]);
