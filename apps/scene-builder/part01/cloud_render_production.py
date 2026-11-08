@@ -539,9 +539,10 @@ class ProductionQueue:
                 AND state NOT IN ('Failed','Cancelled')""", (digest, job)).fetchone()
         if same:
             raise JobError("An identical Concat ZIP is already in Production.")
-        self.update(job, state="Waiting for Worker", digest=digest, endpoint=worker.endpoint)
+        self.update(job, state="Waiting for Worker", digest=digest)
         worker.upload(remote_id, path, path.stat().st_size, digest, manifest,
-                      lambda: self.checkpoint(job), lambda: self.update(job, state="Uploading to GPU"),
+                      lambda: self.checkpoint(job),
+                      lambda: self.update(job, state="Uploading to GPU", endpoint=worker.endpoint),
                       lambda: self.checkpoint(job, submit=True))
         self.update(job, state="Rendering")
 

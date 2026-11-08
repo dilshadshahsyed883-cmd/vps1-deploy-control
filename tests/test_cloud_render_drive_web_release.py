@@ -75,6 +75,21 @@ class CloudRenderDriveReleaseTests(unittest.TestCase):
                     with self.assertRaisesRegex(RuntimeError, "no gdrive remote"):
                         lane.verify_rclone_context()
 
+    def test_production_health_proof_checks_anonymous_redirect_without_following_it(self):
+        requests = {
+            ("/cloud-render/", "session=fixture", True): (200, b'Cloud Render data-tab="production" aria-selected="true"'),
+            ("/api/cloud-render/production", "session=fixture", True): (200, b'{"items":[]}'),
+            ("/static/cloud_render.js", "", True): (200, b"function loadProduction() {}"),
+            ("/api/cloud-render/production", "", False): (303, b""),
+            ("/api/cloud-render/media", "session=fixture", True): (200, b'{"items":[]}'),
+        }
+        def request(path, cookie="", *, follow_redirects=True):
+            status, body = requests[path, cookie, follow_redirects]
+            return status, {}, body
+        with patch("production.route_uploader_scene_https.scene_cookie", return_value="session=fixture"), \
+             patch("production.scene_candidate_release._request", side_effect=request):
+            lane.verify_ui(production=True)
+
     def test_exclusive_web_only_dispatch_and_rollback_markers(self):
         root = pathlib.Path(__file__).resolve().parents[1]
         runtime = (root / "production/runtime.py").read_text()

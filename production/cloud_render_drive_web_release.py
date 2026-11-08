@@ -147,7 +147,7 @@ def verify_ui(production=False):
                 "authenticated Production API unavailable")
         status, _, asset = _request("/static/cloud_render.js")
         require(status == 200 and b"loadProduction" in asset, "Production browser asset unavailable")
-        status, _, _ = _request("/api/cloud-render/production")
+        status, _, _ = _request("/api/cloud-render/production", follow_redirects=False)
         require(status in (302, 303, 401, 403), "anonymous Production API exposed")
     status, _, body = _request("/api/cloud-render/media", cookie)
     require(status == 200 and isinstance(json.loads(body).get("items"), list),
