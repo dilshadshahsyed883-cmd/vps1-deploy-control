@@ -1,19 +1,44 @@
 {% extends "base.html" %}
 {% block title %}Cloud Render{% endblock %}
-{% block subtitle %}Concat output receiver and independent SaladCloud GPU connection{% endblock %}
+{% block subtitle %}Concat Production queue, rendered media and SaladCloud GPU connection{% endblock %}
 {% block content %}
 <link rel="stylesheet" href="/static/cloud_render.css?v=20261104-v1">
 <section id="cloud-render" data-csrf="{{ csrf_token }}" aria-labelledby="cloud-heading">
   <header class="cr-header">
-    <div><div class="cr-eyebrow">EXPERIMENT STUDIO / ADMIN ONLY</div><h2 id="cloud-heading">Cloud Render</h2><p>Receive Concat MP4 outputs, manage local media and connect your independent SaladCloud render worker.</p></div>
+    <div><div class="cr-eyebrow">EXPERIMENT STUDIO / ADMIN ONLY</div><h2 id="cloud-heading">Cloud Render</h2><p>Queue Concat projects from Google Drive, render on SaladCloud and manage the verified MP4s.</p></div>
     <span id="cr-health" class="cr-pill">Worker not connected</span>
   </header>
   <nav class="cr-tabs" aria-label="Cloud Render tabs">
-    <button class="active" type="button" data-tab="media" aria-selected="true">Media</button>
+    <button class="active" type="button" data-tab="production" aria-selected="true">Production</button>
+    <button type="button" data-tab="media" aria-selected="false">Media</button>
     <button type="button" data-tab="gpu" aria-selected="false">GPU Config</button>
   </nav>
   <p id="cr-message" role="status" aria-live="polite"></p>
-  <section class="cr-section" id="cr-media">
+  <section class="cr-section" id="cr-production">
+    <form class="cr-card" id="cr-production-form">
+      <h3>Add Concat projects</h3>
+      <div class="cr-field">
+        <label for="cr-drive-link">Google Drive folder or ZIP link</label>
+        <input id="cr-drive-link" type="url" placeholder="https://drive.google.com/..." autocomplete="off" required>
+      </div>
+      <p class="cr-note">Use a folder of Concat bundles or a single ZIP made with Prepare ZIP Only. Private links must be shared with the configured Drive account.</p>
+      <button class="cr-btn primary" id="cr-scan" type="submit">Scan &amp; Add to Queue</button>
+    </form>
+    <div class="cr-card">
+      <div class="cr-row cr-row-wrap">
+        <h3>Production queue</h3>
+        <span class="cr-pill" id="cr-queue-state">Stopped</span>
+      </div>
+      <div class="cr-actions">
+        <button class="cr-btn primary" id="cr-start-queue" type="button" disabled>Start Queue</button>
+        <button class="cr-btn secondary" id="cr-pause-queue" type="button" disabled>Pause Queue</button>
+        <button class="cr-btn primary" id="cr-resume-queue" type="button" disabled>Resume Queue</button>
+      </div>
+      <p class="cr-note">Projects render one at a time. Pausing holds new submissions. A project already accepted by the worker can finish and deliver its MP4.</p>
+    </div>
+    <div class="cr-list" id="cr-production-list"><p>Loading projects…</p></div>
+  </section>
+  <section class="cr-section" id="cr-media" hidden>
     <div class="cr-statline">
       <div class="cr-card"><span>Received files</span><b id="cr-count">0</b></div>
       <div class="cr-card"><span>Ready on VPS</span><b id="cr-ready">0</b></div>
@@ -63,5 +88,5 @@
     </div>
   </section>
 </section>
-<script defer src="/static/cloud_render.js?v=20261104-v1"></script>
+<script defer src="/static/cloud_render.js?v=20261109-production"></script>
 {% endblock %}

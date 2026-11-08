@@ -1,4 +1,4 @@
-/* Cloud Render V1 — admin-only Media and GPU Configuration */
+/* Admin-only Production queue, Media and GPU Configuration */
 (() => {
   "use strict";
   const root = document.getElementById("cloud-render");
@@ -99,11 +99,102 @@
       actions.append(remove);card.appendChild(actions);list.append(card);
     }
   };
+  let previousQueue = "";
+  let queueRequest = 0;
+  async function loadProduction(){
+    const request = ++queueRequest;
+    const data = await api("/production");
+    if (request !== queueRequest) return;
+    $("cr-queue-state").textContent = {stopped:"Stopped", running:"Running", paused:"Paused"}[data.state];
+    for (const [action, state] of [["start","stopped"],["pause","running"],["resume","paused"]]) {
+      $("cr-"+action+"-queue").disabled = data.state !== state;
+    }
+    const key = JSON.stringify(data.items);
+    if (key === previousQueue) return;
+    previousQueue = key;
+    const list = $("cr-production-list");
+    list.replaceChildren();
+    if (!data.items.length) {
+      const empty = document.createElement("p");
+      empty.textContent = "No Concat projects queued.";
+      list.append(empty);
+    }
+    for (const item of data.items) {
+      const card = document.createElement("article");
+      card.className = "cr-media-item";
+      const head = document.createElement("div");
+      head.className = "cr-media-head";
+      const name = document.createElement("strong");
+      name.textContent = item.name;
+      const status = document.createElement("small");
+      status.textContent = item.state + (item.cancel_requested && item.state !== "Cancelled" ? " · Cancel requested" : "");
+      head.append(name, status);
+      card.append(head);
+      if (item.error) {
+        const error = document.createElement("p");
+        error.className = "cr-error";
+        error.textContent = item.error;
+        card.append(error);
+      }
+      const actions = document.createElement("div");
+      actions.className = "cr-actions";
+      const mutate = (action, label) => productionAction("/jobs/"+item.id+"/"+action, label);
+      const terminal = ["Completed", "Failed", "Cancelled"].includes(item.state);
+      if (!terminal && !item.cancel_requested) {
+        actions.append(button("Cancel", () => mutate("cancel", "Cancellation requested")));
+      }
+      if (item.state === "Failed") {
+        actions.append(button("Retry", () => mutate("retry", "Project queued"), "primary"));
+      }
+      if (terminal || item.state === "Queued") {
+        actions.append(button("Delete", () => {
+          if (window.confirm("Delete this Production queue entry? The original Drive ZIP and any delivered MP4 are kept.")) {
+            mutate("delete", "Queue entry deleted");
+          }
+        }, "danger"));
+      }
+      card.append(actions);
+      list.append(card);
+    }
+  }
+  async function productionAction(path, label){
+    try {
+      await send("/production"+path);
+      msg(label);
+      await loadProduction();
+    } catch (e) {
+      msg(e.message, true);
+    }
+  }
+  for (const [action, label] of [["start","Queue started"],["pause","Queue paused"],["resume","Queue resumed"]]) {
+    $("cr-"+action+"-queue").onclick = () => productionAction("/queue/"+action, label);
+  }
+  $("cr-production-form").onsubmit = async event => {
+    event.preventDefault();
+    const input = $("cr-drive-link");
+    const submit = $("cr-scan");
+    submit.disabled = true;
+    try {
+      msg("Scanning Drive…");
+      const result = await send("/production/scan", {link:input.value.trim()});
+      msg(result.added || result.duplicates
+        ? result.added+" added · "+result.duplicates+" already in the queue"
+        : "No ZIP files found in this folder.");
+      input.value = "";
+      await loadProduction();
+    } catch (e) {
+      msg(e.message, true);
+    } finally {
+      submit.disabled = false;
+    }
+  };
   document.querySelectorAll(".cr-tabs button").forEach(b=>b.addEventListener("click",()=>{
     document.querySelectorAll(".cr-tabs button").forEach(x=>{
       const active=x===b;x.classList.toggle("active",active);x.setAttribute("aria-selected",String(active));
     });
-    $("cr-media").hidden=b.dataset.tab!=="media";$("cr-gpu").hidden=b.dataset.tab!=="gpu";
+    for (const tab of ["production","media","gpu"]) $("cr-"+tab).hidden = b.dataset.tab !== tab;
+    if (b.dataset.tab === "production") loadProduction().catch(e=>msg(e.message,true));
+    if (b.dataset.tab === "media") refresh().catch(e=>msg(e.message,true));
   }));
   $("cr-refresh").onclick=()=>refresh().catch(e=>msg(e.message,true));
   $("cr-save-auto").onclick=()=>operations("Preference saved",async()=>{
@@ -138,7 +229,9 @@
       $("cr-token").textContent=result.receiver_token;msg("New receiver token shown once. Copy securely to Salad worker.");
     }catch(e){msg(e.message,true);}
   };
-  Promise.all([loadConfig(),refresh()]).catch(e=>msg(e.message,true));
+  Promise.all([loadConfig(),loadProduction()]).catch(e=>msg(e.message,true));
+  // Refresh state labels while Production is visible.
+  window.setInterval(()=>{if(!document.hidden&&!$("cr-production").hidden)loadProduction().catch(()=>{});},5000);
   // Refresh the visible list to surface queued/verified delivery states.
   window.setInterval(()=>{if(configured&&!document.hidden&&!$("cr-media").hidden)refresh().catch(()=>{});},12000);
 })();

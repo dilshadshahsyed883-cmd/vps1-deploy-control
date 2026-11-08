@@ -23,6 +23,9 @@ from urllib.parse import urlsplit
 
 import requests
 from fastapi import HTTPException, Request
+from starlette.concurrency import run_in_threadpool
+
+from cloud_render_production import ProductionQueue, Worker, WorkerWait
 
 CHUNK_MAX = 8 * 1024 * 1024
 MEDIA_MAX = 20 * 1024 * 1024 * 1024
@@ -115,8 +118,8 @@ def classify_rclone_error(operation, returncode, stderr):
     elif any(x in msg for x in ("connection timed out", "i/o timeout", "no such host",
             "network is unreachable", "connection refused", "tls handshake timeout")):
         cause = "network or DNS connectivity failure"
-    elif operation == "lsjson" and (returncode in (3, 4) or any(x in msg for x in
-            ("directory not found", "object not found", "file not found", "doesn't exist"))):
+    elif operation in ("lsjson", "backend") and (returncode in (3, 4) or any(x in msg for x in
+            ("directory not found", "object not found", "file not found", "doesn't exist", "404 not found", "error 404"))):
         cause = "remote_file_absent"
     elif returncode == 5:
         cause = "temporary remote failure"
@@ -158,6 +161,7 @@ class CloudRender:
             con.execute("UPDATE files SET state='failed',error='Interrupted Drive transfer; retry' WHERE state='uploading'")
             pending = [r["id"] for r in con.execute("SELECT id FROM files WHERE state='queued'")]
         self.path.chmod(0o600)
+        self.production = ProductionQueue(self, self.production_worker)
         for job in pending:
             self.pool.submit(self._upload, job)
 
@@ -262,6 +266,60 @@ class CloudRender:
                 self.put(con, "enabled", int(healthy))
         return {"ok": healthy, "status": status, "connected": healthy if connect else self.config()["enabled"]}
 
+    def production_worker(self, pinned):
+        with self.connection() as con:
+            url = endpoint_url(self.get(con, "endpoint"))
+            enabled = self.get(con, "enabled") == "1"
+            token = self.get(con, "worker_key")
+            gateway = self.get(con, "salad_key")
+            health = worker_path(self.get(con, "health_path") or "/health/ready")
+            timeout = int(self.get(con, "timeout") or 300)
+        if pinned and url != pinned:
+            raise WorkerWait("Restore the original GPU endpoint to recover or cancel this project.")
+        if not enabled or not url or not token:
+            raise WorkerWait("Enable a worker with its endpoint and renderer token in GPU Config.")
+        return Worker(url, token, gateway, health, timeout)
+
+    def production_received(self, job):
+        with self.connection() as con:
+            row = con.execute("SELECT output_sha FROM production_jobs WHERE remote_id=?", (job,)).fetchone()
+            return bool(row and row["output_sha"])
+
+    def publish_production(self, job, name, source, size, sha, md5):
+        """Commit a verified pull to Media, including a racing push or restart."""
+        name = filename(name)
+        final = self.local(job)
+        with self.lock, self.connection() as con:
+            row = con.execute("SELECT state,size,sha256 FROM files WHERE id=?", (job,)).fetchone()
+            if row and (row["size"] != size or row["sha256"] != sha):
+                raise HTTPException(409, "Production MP4 disagrees with the existing Media record.")
+            verified = con.execute("SELECT output_sha FROM production_jobs WHERE remote_id=?", (job,)).fetchone()
+            if verified and verified["output_sha"] == sha:
+                return
+            if row and row["state"] != "receiving":
+                raise HTTPException(409, "Existing Media entry is not awaiting Production delivery.")
+            if final.is_symlink():
+                raise HTTPException(409, "Unsafe Production MP4 path.")
+            if final.exists():
+                # A process can stop after publishing the file and before
+                # committing SQLite. Verify the existing file before adoption.
+                with final.open("rb") as stream:
+                    if final.stat().st_size != size or hashlib.file_digest(stream, "sha256").hexdigest() != sha:
+                        raise HTTPException(409, "Production MP4 path is occupied.")
+            else:
+                os.replace(source, final)
+            con.execute("""INSERT INTO files(id,name,size,received,sha256,md5,state)
+                           VALUES(?,?,?,?,?,?,'ready')
+                           ON CONFLICT(id) DO UPDATE SET name=excluded.name,received=excluded.received,
+                               md5=excluded.md5,state='ready',error=''""", (job,name,size,size,sha,md5))
+            con.execute("UPDATE production_jobs SET output_sha=?,output_size=? WHERE remote_id=?", (sha, size, job))
+            (self.staging / (job + ".part")).unlink(missing_ok=True)
+            auto = self.get(con, "auto_upload") == "1"
+            if auto:
+                con.execute("UPDATE files SET state='queued' WHERE id=?", (job,))
+        if auto:
+            self.pool.submit(self._upload, job)
+
     def disconnect(self):
         with self.connection() as con:
             self.put(con, "enabled", "0")
@@ -289,6 +347,14 @@ class CloudRender:
         part = self.staging / (job + ".part")
         auto = False
         with self.lock, self.connection() as con:
+            production = con.execute("SELECT name,output_sha,output_size FROM production_jobs WHERE remote_id=?",
+                                     (job,)).fetchone()
+            if production and production["output_sha"]:
+                if production["output_sha"] != sha or production["output_size"] != size:
+                    raise HTTPException(409, "Job upload metadata mismatch")
+                return {"ok": True, "state": "ready", "received": size}
+            if production:
+                name = filename(Path(production["name"]).stem[:135] + ".mp4")
             row = con.execute("SELECT * FROM files WHERE id=?", (job,)).fetchone()
             if row is None:
                 if index != 0:
@@ -300,39 +366,61 @@ class CloudRender:
                 raise HTTPException(409, "Job upload metadata mismatch")
             if row["state"] != "receiving":
                 raise HTTPException(409, "Job is not receiving")
-            if index < row["chunks"]:
-                return {"ok": True, "duplicate": True, "next_chunk": row["chunks"], "received": row["received"]}
-            if index != row["chunks"] or part.is_symlink():
-                raise HTTPException(409, "Out-of-order or unsafe chunk")
-            actual = part.stat().st_size if part.exists() else 0
-            if actual != row["received"] or actual + len(data) > size:
-                raise HTTPException(409, "Unexpected staged file length")
-            with part.open("ab") as handle:
-                handle.write(data)
-                handle.flush()
-                os.fsync(handle.fileno())
-            received = actual + len(data)
-            con.execute("UPDATE files SET received=?,chunks=? WHERE id=?", (received,index+1,job))
-            if received != size:
-                return {"ok": True, "state": "receiving", "received": received, "next_chunk": index+1}
-            digest, md5 = hashlib.sha256(), hashlib.md5(usedforsecurity=False)
-            with part.open("rb") as handle:
-                header = handle.read(12)
-                if len(header) < 12 or header[4:8] != b"ftyp":
-                    raise HTTPException(422, "MP4 container signature invalid")
-                handle.seek(0)
-                for block in iter(lambda: handle.read(4*1024*1024), b""):
-                    digest.update(block); md5.update(block)
-            if digest.hexdigest() != sha:
-                raise HTTPException(422, "MP4 SHA256 mismatch; staged copy retained")
-            if final.exists() or final.is_symlink():
-                raise HTTPException(409, "Final media path is occupied")
-            os.replace(part, final)
-            con.execute("UPDATE files SET state='ready',md5=? WHERE id=?", (md5.hexdigest(),job))
+            if production and final.is_file() and not final.is_symlink():
+                # Recover a final rename that reached disk before SQLite commit.
+                md5 = self.verify_received_mp4(final, size, sha)
+            else:
+                if index < row["chunks"]:
+                    return {"ok": True, "duplicate": True, "next_chunk": row["chunks"], "received": row["received"]}
+                if index != row["chunks"] or part.is_symlink():
+                    raise HTTPException(409, "Out-of-order or unsafe chunk")
+                actual = part.stat().st_size if part.exists() else 0
+                if production and actual > row["received"]:
+                    # Discard a chunk written before an interrupted SQLite commit.
+                    with part.open("r+b") as handle:
+                        handle.truncate(row["received"])
+                    actual = row["received"]
+                if actual != row["received"] or actual + len(data) > size:
+                    raise HTTPException(409, "Unexpected staged file length")
+                with part.open("ab") as handle:
+                    handle.write(data)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                received = actual + len(data)
+                con.execute("UPDATE files SET received=?,chunks=? WHERE id=?", (received,index+1,job))
+                if received != size:
+                    return {"ok": True, "state": "receiving", "received": received, "next_chunk": index+1}
+                md5 = self.verify_received_mp4(part, size, sha)
+                if final.exists() or final.is_symlink():
+                    raise HTTPException(409, "Final media path is occupied")
+                os.replace(part, final)
+            con.execute("UPDATE files SET state='ready',received=?,md5=? WHERE id=?", (size,md5,job))
             auto = self.get(con, "auto_upload") == "1"
+            if production:
+                con.execute("UPDATE production_jobs SET output_sha=?,output_size=? WHERE remote_id=?", (sha, size, job))
+                if auto:
+                    con.execute("UPDATE files SET state='queued' WHERE id=?", (job,))
         if auto:
-            self.queue(job)
+            if production:
+                self.pool.submit(self._upload, job)
+            else:
+                self.queue(job)
         return {"ok": True, "state": "ready", "received": size, "auto_queued": auto}
+
+    @staticmethod
+    def verify_received_mp4(path, size, sha):
+        digest, md5 = hashlib.sha256(), hashlib.md5(usedforsecurity=False)
+        with path.open("rb") as handle:
+            header = handle.read(12)
+            if len(header) < 12 or header[4:8] != b"ftyp":
+                raise HTTPException(422, "MP4 container signature invalid")
+            handle.seek(0)
+            for block in iter(lambda: handle.read(4 * 1024 ** 2), b""):
+                digest.update(block)
+                md5.update(block)
+        if path.stat().st_size != size or digest.hexdigest() != sha:
+            raise HTTPException(422, "MP4 size or SHA256 mismatch; staged copy retained")
+        return md5.hexdigest()
 
     def rename(self, job, new_name):
         self.local(job)
@@ -446,6 +534,8 @@ class CloudRender:
 def register_cloud_render(app, templates, root, require_admin, require_login):
     from fastapi.responses import HTMLResponse, FileResponse
     manager = CloudRender(Path(root)/"cloud-render")
+    app.router.add_event_handler("startup", manager.production.start)
+    app.router.add_event_handler("shutdown", manager.production.close)
 
     def admin(req):
         require_login(req)
@@ -493,6 +583,32 @@ def register_cloud_render(app, templates, root, require_admin, require_login):
     def gpu_disconnect(request: Request):
         csrf(request); return manager.disconnect()
 
+    @app.get("/api/cloud-render/production")
+    def production(request: Request):
+        admin(request)
+        return manager.production.snapshot()
+
+    @app.post("/api/cloud-render/production/scan")
+    async def production_scan(request: Request):
+        csrf(request)
+        try:
+            payload = await request.json()
+        except ValueError:
+            raise HTTPException(400, "A Drive link is required.") from None
+        if not isinstance(payload, dict):
+            raise HTTPException(400, "A Drive link is required.")
+        return await run_in_threadpool(manager.production.scan, payload.get("link"))
+
+    @app.post("/api/cloud-render/production/queue/{action}")
+    def production_control(request: Request, action: str):
+        csrf(request)
+        return manager.production.control(action)
+
+    @app.post("/api/cloud-render/production/jobs/{job}/{action}")
+    def production_action(request: Request, job: int, action: str):
+        csrf(request)
+        return manager.production.action(job, action)
+
     @app.get("/api/cloud-render/media")
     def list_media(request: Request):
         admin(request); return manager.listing()
@@ -530,6 +646,6 @@ def register_cloud_render(app, templates, root, require_admin, require_login):
             if len(out)+len(chunk)>CHUNK_MAX:
                 raise HTTPException(413,"Chunk too large")
             out.extend(chunk)
-        return manager.receive(job,index,bytes(out),name=name,size=size,sha=sha256)
+        return await run_in_threadpool(manager.receive, job, index, bytes(out), name=name, size=size, sha=sha256)
 
     return manager

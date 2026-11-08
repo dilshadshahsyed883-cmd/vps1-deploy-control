@@ -34,6 +34,19 @@ class CloudRenderDriveReleaseTests(unittest.TestCase):
                     with self.assertRaisesRegex(RuntimeError, "active incoming/upload"):
                         lane.check_idle(db)
 
+    def test_active_production_project_blocks_scoped_release(self):
+        with tempfile.TemporaryDirectory() as d:
+            db = pathlib.Path(d) / "cloud_render.sqlite3"
+            with sqlite3.connect(db) as con:
+                con.execute("CREATE TABLE files(state TEXT)")
+                con.execute("CREATE TABLE production_jobs(state TEXT)")
+                con.execute("INSERT INTO production_jobs VALUES('Queued')")
+            self.assertEqual(lane.check_idle(db), {})
+            with sqlite3.connect(db) as con:
+                con.execute("UPDATE production_jobs SET state='Rendering'")
+            with self.assertRaisesRegex(RuntimeError, "Production has an active project"):
+                lane.check_idle(db)
+
     def test_missing_or_corrupt_db_fails_closed(self):
         with tempfile.TemporaryDirectory() as d:
             db = pathlib.Path(d) / "cloud_render.sqlite3"

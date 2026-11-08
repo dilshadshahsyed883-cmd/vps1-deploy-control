@@ -33,6 +33,7 @@ jobs:
         env:
           PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
           SOURCE_SHA: ${{ github.sha }}
+          CLOUD_RENDER_PRODUCTION: ${{ contains(github.event.head_commit.message, '[vps1-cloud-render-production]') }}
         run: |
           set -Eeuo pipefail
           set +x
@@ -71,6 +72,24 @@ jobs:
           echo 'ANTIDETECT_PROFILE_DATA=UNCHANGED'
           changed=1
           remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA scene-builder"
+          if [[ "$CLOUD_RENDER_PRODUCTION" == 'true' ]]; then
+            for attempt in $(seq 1 8); do
+              if curl -fsS --connect-timeout 8 --max-time 25 \
+                  'https://app.scenebuilder.online/static/cloud_render.js?v=20261109-production' \
+                  -o "$scratch/cloud-render.js" && grep -q 'loadProduction' "$scratch/cloud-render.js"; then
+                break
+              fi
+              sleep 5
+            done
+            grep -q 'loadProduction' "$scratch/cloud-render.js"
+            code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
+              'https://app.scenebuilder.online/api/cloud-render/production')"
+            [[ "$code" = '302' || "$code" = '303' || "$code" = '401' || "$code" = '403' ]]
+            echo 'AUTO_SCRIPT=OFFLINE_UNCHANGED'
+            echo 'CLOUD_RENDER_PRODUCTION=DEPLOYED'
+            trap - ERR
+            exit 0
+          fi
           echo 'PUBLIC_ASSET_READBACK'
           for attempt in $(seq 1 8); do
             if curl -fsS --connect-timeout 8 --max-time 25 \
