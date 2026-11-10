@@ -73,6 +73,7 @@
       <div class="cr-field"><label for="cr-concurrency">GPU render concurrency (1 Salad replica)</label>
         <select id="cr-concurrency"><option value="1">1 — Sequential (default)</option><option value="2">2 — Parallel renders</option></select>
         <small>Same GPU, maximum 2 simultaneous renders. Changes do not interrupt running jobs.</small>
+        <small id="cr-concurrency-status" role="status">Setting is applied when the worker is reachable.</small>
       </div>
       <div class="cr-field"><label for="cr-health-path">Health path</label><input id="cr-health-path" value="/health/ready"></div>
       <div class="cr-row cr-row-wrap">
@@ -92,5 +93,5 @@
     </div>
   </section>
 </section>
-<script defer src="/static/cloud_render.js?v=20261110-concurrency"></script>
+<script defer src="/static/cloud_render.js?v=20261110-concurrency-2"></script>
 {% endblock %}
