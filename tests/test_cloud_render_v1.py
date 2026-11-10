@@ -46,6 +46,7 @@ class CloudRenderTests(unittest.TestCase):
         with self.mgr.connection() as con:
             self.mgr.put(con, "enabled", "1")
         with patch.object(self.mgr.production, "worker_factory") as factory:
+            factory.return_value.timeout = 15
             result = self.mgr.save({
                 "endpoint": "https://fixture.salad.cloud",
                 "concurrency": 2
