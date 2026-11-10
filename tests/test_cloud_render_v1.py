@@ -41,6 +41,22 @@ class CloudRenderTests(unittest.TestCase):
         self.assertEqual(self.receive()["state"],"ready")
         self.assertTrue(self.mgr.local("job-A").exists())
 
+    def test_concurrency_change_preserves_connected_worker(self):
+        self.mgr.save({"endpoint": "https://fixture.salad.cloud"})
+        with self.mgr.connection() as con:
+            self.mgr.put(con, "enabled", "1")
+        with patch.object(self.mgr.production, "worker_factory") as factory:
+            result = self.mgr.save({
+                "endpoint": "https://fixture.salad.cloud",
+                "concurrency": 2
+            })
+        self.assertTrue(result["enabled"])
+        self.assertEqual(result["concurrency"], 2)
+        self.assertEqual(result["concurrency_sync"], "applied")
+        factory.return_value.configure_concurrency.assert_called_once_with(2)
+        self.mgr.save({"endpoint": "https://different.salad.cloud"})
+        self.assertFalse(self.mgr.config()["enabled"])
+
     def test_receiver_token_rotates_and_denies_invalid(self):
         with self.assertRaises(HTTPException): self.mgr.token_required("")
         token = self.mgr.rotate_token()["receiver_token"]
