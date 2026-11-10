@@ -77,9 +77,10 @@ class CloudRenderDriveReleaseTests(unittest.TestCase):
 
     def test_production_health_proof_checks_anonymous_redirect_without_following_it(self):
         requests = {
-            ("/cloud-render/", "session=fixture", True): (200, b'Cloud Render data-tab="production" aria-selected="true"'),
+            ("/cloud-render/", "session=fixture", True): (200, b'Cloud Render data-tab="production" aria-selected="true" id="cr-concurrency"'),
             ("/api/cloud-render/production", "session=fixture", True): (200, b'{"items":[]}'),
-            ("/static/cloud_render.js", "", True): (200, b"function loadProduction() {}"),
+            ("/static/cloud_render.js", "", True): (200, b'function loadProduction() {} document.getElementById("cr-concurrency");'),
+            ("/api/cloud-render/config", "session=fixture", True): (200, b'{"concurrency":1}'),
             ("/api/cloud-render/production", "", False): (303, b""),
             ("/api/cloud-render/media", "session=fixture", True): (200, b'{"items":[]}'),
         }
