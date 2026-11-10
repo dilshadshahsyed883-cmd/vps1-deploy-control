@@ -37,6 +37,8 @@
     $("cr-health-path").value=config.health_path||"/health/ready";
     $("cr-timeout").value=config.timeout||300;
     $("cr-priority").value=config.priority||"high";
+    $("cr-concurrency").value=String(config.concurrency||1);
+    $("cr-concurrency-status").textContent = "Saved limit: " + (config.concurrency||1) + " · synchronized on connection/dispatch";
     $("cr-salad-key-state").textContent=config.salad_key_saved?"Saved":"Not saved";
     $("cr-worker-key-state").textContent=config.worker_key_saved?"Saved":"Not saved";
     const details=[
@@ -105,7 +107,9 @@
     const request = ++queueRequest;
     const data = await api("/production");
     if (request !== queueRequest) return;
-    $("cr-queue-state").textContent = {stopped:"Stopped", running:"Running", paused:"Paused"}[data.state];
+    $("cr-queue-state").textContent =
+      ({stopped:"Stopped", running:"Running", paused:"Paused"}[data.state] || data.state)
+      + " · " + data.active + "/" + data.concurrency + " active";
     for (const [action, state] of [["start","stopped"],["pause","running"],["resume","paused"]]) {
       $("cr-"+action+"-queue").disabled = data.state !== state;
     }
@@ -202,12 +206,16 @@
   });
   $("cr-save-gpu").onclick=()=>operations("GPU config saved",async()=>{
     const obj={endpoint:$("cr-endpoint").value.trim(),health_path:$("cr-health-path").value.trim(),
-      timeout:Number($("cr-timeout").value),priority:$("cr-priority").value};
+      timeout:Number($("cr-timeout").value),priority:$("cr-priority").value,
+      concurrency:Number($("cr-concurrency").value)};
     if($("cr-salad-key").value) obj.salad_key=$("cr-salad-key").value;
     if($("cr-worker-key").value) obj.worker_key=$("cr-worker-key").value;
-    await send("/config",obj);
+    const saved = await send("/config",obj);
     $("cr-salad-key").value="";$("cr-worker-key").value="";
     await loadConfig();
+    $("cr-concurrency-status").textContent = saved.concurrency_sync === "applied"
+      ? "Applied to connected worker"
+      : "Saved · will apply when the worker is connected or the queue runs";
   });
   $("cr-test").onclick=async()=>{
     try {

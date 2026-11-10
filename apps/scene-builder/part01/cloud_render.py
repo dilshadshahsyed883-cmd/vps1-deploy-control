@@ -154,6 +154,7 @@ class CloudRender:
             con.execute("CREATE TABLE IF NOT EXISTS config(key TEXT PRIMARY KEY, val TEXT NOT NULL)")
             con.execute("INSERT OR IGNORE INTO config(key,val) VALUES('auto_upload','0')")
             con.execute("INSERT OR IGNORE INTO config(key,val) VALUES('priority','high')")
+            con.execute("INSERT OR IGNORE INTO config(key,val) VALUES('render_concurrency','1')")
             con.execute("INSERT OR IGNORE INTO config(key,val) VALUES('health_path','/health/ready')")
             con.execute("INSERT OR IGNORE INTO config(key,val) VALUES('timeout','300')")
             con.execute("INSERT OR IGNORE INTO config(key,val) VALUES('receiver_token',?)",
@@ -200,8 +201,9 @@ class CloudRender:
 
     def config(self):
         with self.connection() as con:
-            cfg = {k: self.get(con, k) for k in ("auto_upload","endpoint","priority","health_path","timeout","salad_key","worker_key","enabled")}
-        return {**GPU, "auto_upload": cfg["auto_upload"] == "1",
+            cfg = {k: self.get(con, k) for k in ("auto_upload","endpoint","priority","health_path","timeout","salad_key","worker_key","enabled","render_concurrency")}
+        return {**GPU, "concurrency": int(cfg["render_concurrency"] or "1"),
+                "auto_upload": cfg["auto_upload"] == "1",
                 "endpoint": cfg["endpoint"], "priority": cfg["priority"] or "high",
                 "health_path": cfg["health_path"] or "/health/ready",
                 "timeout": int(cfg["timeout"] or 300),
@@ -211,10 +213,14 @@ class CloudRender:
                 "drive_bridge_available": shutil.which("rclone") is not None}
 
     def save(self, obj):
-        accepted = {"auto_upload","endpoint","priority","health_path","timeout","salad_key","worker_key"}
+        accepted = {"auto_upload","endpoint","priority","health_path","timeout","salad_key","worker_key","concurrency"}
         if not isinstance(obj, dict) or set(obj) - accepted:
             raise HTTPException(400, "Unknown GPU configuration field")
         with self.lock, self.connection() as con:
+            if "concurrency" in obj:
+                if type(obj["concurrency"]) is not int or obj["concurrency"] not in (1, 2):
+                    raise HTTPException(400, "Render concurrency must be exactly 1 or 2")
+                self.put(con, "render_concurrency", obj["concurrency"])
             if "auto_upload" in obj:
                 if type(obj["auto_upload"]) is not bool:
                     raise HTTPException(400, "auto_upload must be boolean")
@@ -240,6 +246,19 @@ class CloudRender:
                     if len(value) > 1024 or "\n" in value or "\r" in value:
                         raise HTTPException(400, "Invalid key")
                     self.put(con, k, value)
+        if "concurrency" in obj:
+            # Apply immediately when the Salad worker is connected. If it is
+            # offline, the persisted setting is synchronized at next dispatch.
+            self.production.wake.set()
+            sync = "pending"
+            try:
+                worker = self.production.worker_factory("")
+                worker.timeout = min(worker.timeout, 10)
+                worker.configure_concurrency(obj["concurrency"])
+                sync = "applied"
+            except WorkerWait:
+                pass
+            return {**self.config(), "concurrency_sync": sync}
         return self.config()
 
     def probe(self, connect=False):

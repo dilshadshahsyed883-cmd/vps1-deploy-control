@@ -250,6 +250,19 @@ class Worker:
         except requests.RequestException:
             raise WorkerWait("Worker connection interrupted. Retrying when available.") from None
 
+    def configure_concurrency(self, value):
+        """Configure render slots on the connected worker; no GPU-memory gating."""
+        try:
+            response = self.request("POST", "/api/config/concurrency",
+                                    json={"concurrency": value})
+        except JobError as exc:
+            # Earlier workers are single-render only; preserve 1-job support.
+            if value == 1 and "HTTP 404" in str(exc):
+                return
+            raise WorkerWait("Worker image does not support render concurrency 2; deploy the updated Concat worker.") from None
+        if response.get("concurrency") != value:
+            raise WorkerWait("Worker did not confirm the requested render concurrency.")
+
     def upload(self, job, path, size, digest, manifest, checkpoint, uploading, submit):
         checkpoint()
         self.request("GET", self.health)
@@ -308,6 +321,7 @@ class ProductionQueue:
         self.wake = threading.Event()
         self.stop = threading.Event()
         self.thread = None
+        self.observation_cursor = 0
         with manager.connection() as con:
             con.execute("""CREATE TABLE IF NOT EXISTS production_jobs(
                 id INTEGER PRIMARY KEY AUTOINCREMENT, remote_id TEXT NOT NULL UNIQUE,
@@ -385,7 +399,10 @@ class ProductionQueue:
         with self.media.connection() as con:
             items = [dict(row) for row in con.execute(
                 "SELECT id,name,state,error,cancel_requested FROM production_jobs ORDER BY id")]
-            return {"state": self.media.get(con, "production_queue"), "items": items}
+            concurrency = int(self.media.get(con, "render_concurrency") or "1")
+            active = sum(item["state"] not in TERMINAL and item["state"] != "Queued" for item in items)
+            return {"state": self.media.get(con, "production_queue"),
+                    "concurrency": concurrency, "active": active, "items": items}
 
     def control(self, action):
         state = {"start": "running", "pause": "paused", "resume": "running"}.get(action)
@@ -443,13 +460,20 @@ class ProductionQueue:
 
     def tick(self):
         with self.media.lock, self.media.connection() as con:
-            row = con.execute("""SELECT * FROM production_jobs
+            # Nonterminal jobs occupy queue slots, including GPU rendering,
+            # download, retry and output delivery. No VRAM/CPU checks.
+            active = con.execute("""SELECT * FROM production_jobs
                 WHERE state NOT IN ('Completed','Failed','Cancelled','Queued')
-                ORDER BY id LIMIT 1""").fetchone()
-            if row is None and self.media.get(con, "production_queue") == "running":
+                ORDER BY id""").fetchall()
+            limit = int(self.media.get(con, "render_concurrency") or "1")
+            row = None
+            if len(active) < limit and self.media.get(con, "production_queue") == "running":
                 row = con.execute("SELECT * FROM production_jobs WHERE state='Queued' ORDER BY id LIMIT 1").fetchone()
                 if row is not None:
                     con.execute("UPDATE production_jobs SET state='Downloading' WHERE id=?", (row["id"],))
+            if row is None and active:
+                row = active[self.observation_cursor % len(active)]
+                self.observation_cursor += 1
         if row is None:
             # A crash between recording completion and unlinking the input is
             # safe. Reap only files whose jobs are durably completed.
@@ -498,6 +522,9 @@ class ProductionQueue:
             self.checkpoint(job)
 
         worker = self.worker_factory(row["endpoint"])
+        with self.media.connection() as con:
+            concurrency = int(self.media.get(con, "render_concurrency") or "1")
+        worker.configure_concurrency(concurrency)
         # Check before uploading or re-uploading. The same worker ID and
         # content checksum survive web restarts and ambiguous POST responses.
         if row["endpoint"]:

@@ -33,6 +33,7 @@ class WorkerFixture(Worker):
     def __init__(self):
         super().__init__("https://fixture.salad.cloud", "token", "gateway", "/health/ready", 15)
         self.online = True
+        self.concurrency = 1
         self.chunks = {}
         self.sessions = {}
         self.jobs = {}
@@ -49,6 +50,9 @@ class WorkerFixture(Worker):
             raise WorkerWait("Fixture offline.")
         if path == self.health:
             return {"ok": True}
+        if path == "/api/config/concurrency":
+            self.concurrency = kwargs["json"]["concurrency"]
+            return {"concurrency": self.concurrency}
         if path == "/api/capabilities":
             caps = {"api_version": 1, "validation_version": 1, "bundle_versions": [1],
                     "render_modes": [MODE]}
@@ -138,6 +142,44 @@ class ProductionTest(unittest.TestCase):
         self.queue.control("start")
         self.queue.tick()
         return self.row()["remote_id"]
+
+    def test_concurrency_two_dispatches_two_jobs_on_one_worker(self):
+        self.media.save({"concurrency": 2})
+        self.queue.scan(FOLDER)
+        self.queue.control("start")
+        self.queue.tick()
+        self.assertEqual(self.state(0), "Rendering")
+        self.assertEqual(self.state(1), "Queued")
+        self.queue.tick()
+        self.assertEqual(self.state(1), "Rendering")
+        self.assertEqual(len(self.worker.jobs), 2)
+        self.assertEqual(self.worker.concurrency, 2)
+        self.assertEqual(self.queue.snapshot()["active"], 2)
+        self.assertEqual(self.queue.snapshot()["concurrency"], 2)
+
+    def test_lower_concurrency_does_not_cancel_active_jobs(self):
+        self.media.save({"concurrency": 2})
+        self.queue.scan(FOLDER)
+        self.queue.control("start")
+        self.queue.tick()
+        self.queue.tick()
+        self.media.save({"concurrency": 1})
+        self.assertEqual(self.queue.snapshot()["active"], 2)
+        self.assertEqual(self.state(0), "Rendering")
+        self.assertEqual(self.state(1), "Rendering")
+        # The setting must persist across the web process restart.
+        self.reopen()
+        self.assertEqual(self.media.config()["concurrency"], 1)
+        self.assertEqual(self.queue.snapshot()["active"], 2)
+        self.queue.tick()
+        self.assertEqual(len(self.worker.jobs), 2)
+        self.assertEqual(self.worker.concurrency, 1)
+
+    def test_reject_invalid_concurrency(self):
+        for value in (0, 3, True, "2", None, 1.5):
+            with self.subTest(value=value), self.assertRaises(Exception):
+                self.media.save({"concurrency": value})
+        self.assertEqual(self.media.config()["concurrency"], 1)
 
     def test_links_require_google_origin_and_keep_resource_keys(self):
         self.assertEqual(drive_link(FOLDER), ("folder1", "folder-key", True))
