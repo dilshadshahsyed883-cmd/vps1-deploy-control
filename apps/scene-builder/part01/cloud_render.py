@@ -247,8 +247,18 @@ class CloudRender:
                         raise HTTPException(400, "Invalid key")
                     self.put(con, k, value)
         if "concurrency" in obj:
-            # Scheduler picks up the value without terminating active renders.
+            # Apply immediately when the Salad worker is connected. If it is
+            # offline, the persisted setting is synchronized at next dispatch.
             self.production.wake.set()
+            sync = "pending"
+            try:
+                worker = self.production.worker_factory("")
+                worker.timeout = min(worker.timeout, 10)
+                worker.configure_concurrency(obj["concurrency"])
+                sync = "applied"
+            except WorkerWait:
+                pass
+            return {**self.config(), "concurrency_sync": sync}
         return self.config()
 
     def probe(self, connect=False):
