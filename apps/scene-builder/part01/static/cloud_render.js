@@ -38,6 +38,7 @@
     $("cr-timeout").value=config.timeout||300;
     $("cr-priority").value=config.priority||"high";
     $("cr-concurrency").value=String(config.concurrency||1);
+    $("cr-concurrency-status").textContent = "Saved limit: " + (config.concurrency||1) + " · synchronized on connection/dispatch";
     $("cr-salad-key-state").textContent=config.salad_key_saved?"Saved":"Not saved";
     $("cr-worker-key-state").textContent=config.worker_key_saved?"Saved":"Not saved";
     const details=[
@@ -209,9 +210,12 @@
       concurrency:Number($("cr-concurrency").value)};
     if($("cr-salad-key").value) obj.salad_key=$("cr-salad-key").value;
     if($("cr-worker-key").value) obj.worker_key=$("cr-worker-key").value;
-    await send("/config",obj);
+    const saved = await send("/config",obj);
     $("cr-salad-key").value="";$("cr-worker-key").value="";
     await loadConfig();
+    $("cr-concurrency-status").textContent = saved.concurrency_sync === "applied"
+      ? "Applied to connected worker"
+      : "Saved · will apply when the worker is connected or the queue runs";
   });
   $("cr-test").onclick=async()=>{
     try {
