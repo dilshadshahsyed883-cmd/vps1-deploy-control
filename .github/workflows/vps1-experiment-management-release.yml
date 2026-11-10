@@ -75,8 +75,9 @@ jobs:
           if [[ "$CLOUD_RENDER_PRODUCTION" == 'true' ]]; then
             for attempt in $(seq 1 8); do
               if curl -fsS --connect-timeout 8 --max-time 25 \
-                  'https://app.scenebuilder.online/static/cloud_render.js?v=20261109-production' \
-                  -o "$scratch/cloud-render.js" && grep -q 'loadProduction' "$scratch/cloud-render.js"; then
+                  'https://app.scenebuilder.online/static/cloud_render.js?v=20261110-concurrency-2' \
+                  -o "$scratch/cloud-render.js" && grep -q 'loadProduction' "$scratch/cloud-render.js" &&
+                  grep -q 'cr-concurrency' "$scratch/cloud-render.js"; then
                 break
               fi
               sleep 5
