@@ -142,11 +142,18 @@ def verify_ui(production=False):
     if production:
         require(b'data-tab="production" aria-selected="true"' in body,
                 "Production is not the default Cloud Render tab")
+        require(b'id="cr-concurrency"' in body,
+                "GPU Config concurrency 1/2 control missing")
+        status, _, config = _request("/api/cloud-render/config", cookie)
+        require(status == 200 and type(json.loads(config).get("concurrency")) is int
+                and json.loads(config)["concurrency"] in (1, 2),
+                "GPU concurrency setting unavailable")
         status, _, queue = _request("/api/cloud-render/production", cookie)
         require(status == 200 and isinstance(json.loads(queue).get("items"), list),
                 "authenticated Production API unavailable")
         status, _, asset = _request("/static/cloud_render.js")
-        require(status == 200 and b"loadProduction" in asset, "Production browser asset unavailable")
+        require(status == 200 and b"loadProduction" in asset
+                and b"cr-concurrency" in asset, "Production concurrency browser asset unavailable")
         status, _, _ = _request("/api/cloud-render/production", follow_redirects=False)
         require(status in (302, 303, 401, 403), "anonymous Production API exposed")
     status, _, body = _request("/api/cloud-render/media", cookie)

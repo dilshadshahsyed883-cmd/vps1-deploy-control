@@ -226,8 +226,12 @@ class CloudRender:
                     raise HTTPException(400, "auto_upload must be boolean")
                 self.put(con, "auto_upload", int(obj["auto_upload"]))
             if "endpoint" in obj:
-                self.put(con, "endpoint", endpoint_url(obj["endpoint"]))
-                self.put(con, "enabled", "0")
+                endpoint = endpoint_url(obj["endpoint"])
+                # Re-saving an unchanged endpoint (e.g. only concurrency
+                # changed in GPU Config) must not disconnect a live worker.
+                if endpoint != self.get(con, "endpoint"):
+                    self.put(con, "endpoint", endpoint)
+                    self.put(con, "enabled", "0")
             if "priority" in obj:
                 if obj["priority"] not in ("low","medium","high"):
                     raise HTTPException(400, "Unsupported priority")
