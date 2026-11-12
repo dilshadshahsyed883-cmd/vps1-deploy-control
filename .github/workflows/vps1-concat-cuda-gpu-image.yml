@@ -1,0 +1,88 @@
+name: Concat CUDA NVENC — isolated candidate image
+
+on:
+  pull_request:
+    paths:
+      - cloud_render/concat/**
+      - .github/workflows/vps1-concat-cuda-gpu-image.yml
+  push:
+    branches: [main]
+    paths:
+      - cloud_render/concat/**
+      - .github/workflows/vps1-concat-cuda-gpu-image.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: concat-cuda-candidate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  cuda-candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Offline project parser and bridge unit tests
+        run: |
+          python -m unittest discover -s cloud_render/concat/tests -v
+          python -m py_compile cloud_render/concat/gpu/cuda_backend.py cloud_render/concat/gpu/worker.py cloud_render/concat/gpu/hardware_smoke.py
+      - name: Build lightweight CUDA-only image
+        run: docker build --progress=plain -f cloud_render/concat/gpu/Dockerfile.cuda -t concat-cuda-worker:candidate .
+      - name: Assert hardware filter binaries exist without claiming GPU acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint /bin/sh concat-cuda-worker:candidate -c '
+            ffmpeg -hide_banner -filters 2>&1 | grep -q scale_cuda
+            ffmpeg -hide_banner -filters 2>&1 | grep -q overlay_cuda
+            ffmpeg -hide_banner -encoders 2>&1 | grep -q h264_nvenc
+          '
+          docker run --rm --entrypoint python3 concat-cuda-worker:candidate -c '
+          from cloud_render.concat.gpu.cuda_backend import probe_cuda
+          report = probe_cuda()
+          assert report["backend"] == "cuda_nvenc"
+          assert not report["hardware_render_tested"]
+          print(report)
+          '
+      - name: Smoke HTTP auth, backend selection and honest GPU-not-present readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'docker logs concat-cuda-ci || true; docker rm -f concat-cuda-ci || true' EXIT
+          docker run -d --name concat-cuda-ci -p 127.0.0.1:18081:8080 \
+            -e RENDERER_API_TOKEN=ci_cuda_0123456789abcdefghijklmnopqrstuvwxyz \
+            concat-cuda-worker:candidate
+          for attempt in $(seq 1 35); do
+            if curl -fsS --max-time 2 http://127.0.0.1:18081/health/live; then break; fi
+            sleep 2
+          done
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:18081/health/live)" = "200"
+          # Shared GitHub runner has no NVIDIA hardware; must never fake ready.
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:18081/health/ready)" = "503"
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:18081/api/diagnostics/gpu)" = "401"
+          curl -fsS -H 'Authorization: Bearer ci_cuda_0123456789abcdefghijklmnopqrstuvwxyz' \
+            http://127.0.0.1:18081/api/diagnostics/gpu \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["selected_backend"]=="cuda_nvenc"; assert not d["cuda_nvenc_ready"]; print(d)'
+      - name: Publish SHA-only image candidate (main; NEVER deploy to Salad)
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ github.sha }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          echo "$GITHUB_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          IMAGE="ghcr.io/${OWNER,,}/concat-cuda-worker:candidate-${SHA}"
+          docker tag concat-cuda-worker:candidate "$IMAGE"
+          docker push "$IMAGE"
+          docker inspect "$IMAGE" --format '{{json .RepoDigests}}'
+          echo "Published isolated candidate: $IMAGE" >> "$GITHUB_STEP_SUMMARY"
+          echo "No NVIDIA GPU render tested, no Salad deployment performed." >> "$GITHUB_STEP_SUMMARY"

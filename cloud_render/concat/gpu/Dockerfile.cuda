@@ -1,0 +1,26 @@
+# CUDA + NVENC rendering worker; independent from the upstream Vulkan/native image.
+# This is a CANDIDATE only. No production deployment is performed by this file.
+FROM ubuntu:24.04
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates python3 ffmpeg \
+ && rm -rf /var/lib/apt/lists/* \
+ && mkdir -p /worker/jobs /worker/outputs /worker/state /worker/uploads \
+ && chown -R 10001:10001 /worker
+COPY cloud_render/concat/project_bundle.py /opt/app/cloud_render/concat/project_bundle.py
+COPY cloud_render/concat/gpu/worker.py /opt/app/cloud_render/concat/gpu/worker.py
+COPY cloud_render/concat/gpu/cuda_backend.py /opt/app/cloud_render/concat/gpu/cuda_backend.py
+COPY cloud_render/concat/gpu/hardware_smoke.py /opt/app/cloud_render/concat/gpu/hardware_smoke.py
+COPY cloud_render/concat/gpu/resumable.py /opt/app/cloud_render/concat/gpu/resumable.py
+COPY cloud_render/concat/gpu/vulkan_probe.py /opt/app/cloud_render/concat/gpu/vulkan_probe.py
+ENV PYTHONPATH=/opt/app
+ENV PYTHONUNBUFFERED=1
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+ENV CONCAT_RENDER_BACKEND=cuda_nvenc
+ENV PORT=8080
+ENV HOME=/worker
+WORKDIR /worker
+USER 10001:10001
+EXPOSE 8080
+ENTRYPOINT ["python3", "-m", "cloud_render.concat.gpu.worker"]

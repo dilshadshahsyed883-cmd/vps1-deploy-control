@@ -194,15 +194,16 @@ fn process_job(queue:&Queue,job:&Job,concat_exe:&Path,gpu_endpoint:&str,library_
             }
             let status=gateway.status(&job.id)?;
             let state=status["state"].as_str().unwrap_or("unknown");
-            queue.update(&job.id,&format!("Salad GPU: {state}"))?;
+            let skipped=status["skipped_effects"].as_u64().unwrap_or(0);
+            queue.update(&job.id,&format!("Salad GPU: {state} | skipped effects: {skipped}"))?;
             match state {
                 "delivered"=> {
-                    queue.finish(&job.id,"done","MP4 delivered and acknowledged by VPS Cloud Render")?;
+                    queue.finish(&job.id,"done",&format!("Verified VPS MP4; skipped GPU effects: {skipped}"))?;
                     return Ok(());
                 },
                 "rendered"|"delivery_failed"=> {
                     queue.finish(&job.id,"done",
-                        "MP4 available on GPU; download or retry VPS delivery manually")?;
+                        &format!("MP4 available on GPU; skipped GPU effects: {skipped}; download or retry delivery"))?;
                     return Ok(());
                 },
                 "failed" =>return Err(format!("Salad GPU failed: {}",status["error"]).into()),
