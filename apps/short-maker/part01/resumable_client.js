@@ -73,6 +73,20 @@ async function shortJson(response,fallback){
  if(!response.ok)throw Error(data.detail||fallback||'Request failed.');
  return data;
 }
+const SHORT_IMAGE_EXTENSION=/\.(?:png|jpg|jpeg|webp|gif|bmp|tif|tiff|jfif|heic|heif)$/i;
+function shortSupportedImageName(name){return SHORT_IMAGE_EXTENSION.test(String(name||''));}
+function shortSupportedImageSelection(files){
+ const accepted=[],skipped=[];
+ for(const file of Array.from(files||[])){
+  (shortSupportedImageName(file.name)?accepted:skipped).push(file);
+ }
+ return {accepted,skipped};
+}
+images.addEventListener('change',()=>{
+ const selected=shortSupportedImageSelection(images.files);
+ imageCount.textContent=selected.accepted.length+' image(s) selected'+
+  (selected.skipped.length?' · '+selected.skipped.length+' non-image file(s) skipped':'');
+});
 function shortSettings(){
  const cfg={};
  for(const name of ['video_duration','image_duration','output_count','order','fit','motion','fps','crf','base_name','input_mode','drive_output_path']){
@@ -115,7 +129,34 @@ async function pollShortJob(id){
   setTimeout(()=>pollShortJob(id),2500);
  }
 }
+// A rejected session can leave a mixed-folder snapshot in browser storage.
+// Reindex it atomically before creating a VPS job; preserve audio and originals.
+async function shortNormalizePendingImages(meta){
+ if(meta.job_id||meta.config.input_mode!=='upload')return meta;
+ const original=meta.files.images;
+ const accepted=original.map((entry,index)=>({entry,index}))
+  .filter(({entry})=>shortSupportedImageName(entry.name));
+ if(accepted.length===original.length)return meta;
+ if(!accepted.length)throw Error('Selected folder has no supported images. Discard paused upload and choose an image folder.');
+ const persisted=[];
+ for(const item of accepted){
+  const blob=await shortDBRead('files','images:'+item.index);
+  if(!blob||blob.size!==item.entry.size)throw Error('Saved PC image is missing. Discard paused upload and reselect images.');
+  persisted.push({kind:'images',index:persisted.length,blob});
+ }
+ for(let index=0;index<meta.files.audio.length;index++){
+  const info=meta.files.audio[index];
+  const blob=await shortDBRead('files','audio:'+index);
+  if(!blob||blob.size!==info.size)throw Error('Saved PC audio is missing. Discard paused upload and reselect audio.');
+  persisted.push({kind:'audio',index,blob});
+ }
+ const next={...meta,client_request_id:crypto.randomUUID(),
+  files:{images:accepted.map(({entry})=>entry),audio:meta.files.audio}};
+ await shortDBSave(next,persisted);
+ return next;
+}
 async function shortResumeInternal(meta){
+ meta=await shortNormalizePendingImages(meta);
  render.disabled=true;discardUpload.hidden=true;
  if(!meta.client_request_id&&!meta.job_id){
   meta.client_request_id=crypto.randomUUID();
@@ -206,12 +247,13 @@ async function shortSubmitOrResume(){
  const existing=await shortDBRead('meta','active');
  if(existing)return shortResumeInternal(existing);
  const paths=drivePaths();
- if(inputMode.value==='upload'&&!images.files.length)throw Error('Select an image folder first.');
+ const selectedImages=shortSupportedImageSelection(images.files);
+ if(inputMode.value==='upload'&&!selectedImages.accepted.length)throw Error('Select a folder containing supported images (JPG, PNG, WebP, etc.).');
  if(inputMode.value==='drive'&&!paths.length)throw Error('Add at least one Google Drive folder.');
  if(inputMode.value==='drive'&&new Set(paths).size!==paths.length)throw Error('Remove duplicate Drive folder links.');
  const files={images:[],audio:[]},blobs=[];
  if(inputMode.value==='upload'){
-  Array.from(images.files).forEach((file,index)=>{
+  selectedImages.accepted.forEach((file,index)=>{
    files.images.push({name:file.webkitRelativePath||file.name,size:file.size});
    blobs.push({kind:'images',index,blob:file});
   });
