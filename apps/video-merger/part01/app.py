@@ -1858,7 +1858,7 @@ def retry_job(jid, owner='', admin=False):
     A distinct work directory preserves the original verified output if the previous
     attempt failed after local retention or an optional destination delivery.
     """
-    with DB_LOCK, db() as c:
+    with PC_UPLOAD_LOCK, DB_LOCK, db() as c:
         j=c.execute('SELECT * FROM jobs WHERE id=?',(jid,)).fetchone()
         if not j: raise KeyError('Job not found')
         if not admin and (not owner or not j['owner_username'] or str(j['owner_username']).casefold()!=str(owner).casefold()):
@@ -1882,6 +1882,20 @@ def retry_job(jid, owner='', admin=False):
                    j['folder'],j['filename'],'waiting',0,'Retry queued','', '', '',int(maxord)+10,
                    j['drive_enabled'],j['copyright_enabled'],j['owner_username'],'',jid,now,now,
                    j['vps_output_folder'],j['vps_handoff_enabled'],j['filename_mode']))
+        assigned=[]
+        try:
+            for spec in json.loads(j['videos_json']):
+                if not isinstance(spec,dict) or spec.get('kind')!='pc':
+                    continue
+                session,meta,_=_merge_pc_session(j['owner_username'],spec['upload_id'])
+                old=dict(session)
+                session['assigned_job']=new_id
+                _write_pc_meta(meta,session)
+                assigned.append((meta,old))
+        except Exception:
+            for meta,old in assigned:
+                _write_pc_meta(meta,old)
+            raise
     WORKER_WAKE.set()
     return new_id,j['filename']
 
