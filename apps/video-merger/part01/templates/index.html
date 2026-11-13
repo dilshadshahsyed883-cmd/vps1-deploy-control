@@ -329,10 +329,10 @@ libraryPreviewPlayer.addEventListener('error',()=>toast('VPS preview unavailable
 let libraryUploading=false;
 function selectLibraryPcFile(){
  const file=libPcFile.files[0];if(!file)return;
- if(!libraryEditId&&!libName.value.trim())libName.value=file.name.replace(/\\.[^.]+$/,'');
+ if(!libraryEditId&&!libName.value.trim())libName.value=file.name.replace(/\.[^.]+$/,'');
  libUrl.value='PC: '+file.name;libUrl.readOnly=true;
  libPcInfo.textContent=file.name+' · '+fmtSize(file.size);libPcClear.style.display='inline-block';
- libPcProgress.style.display='none';mergerEligibility();
+ libPcProgress.style.display='none';if(typeof mergerEligibility==='function')mergerEligibility();
 }
 function clearLibraryPcFile(){
  libPcFile.value='';libUrl.value='';libUrl.readOnly=false;
@@ -362,7 +362,7 @@ async function saveLibraryPc(payload){
    libraryPcProgress(result.offset,file.size);
   }
   libPcProgressText.textContent='Upload complete · preparing Library video';
-  await api('/api/library/pc/finish',{method:'POST',body:JSON.stringify({...payload,upload_id:id,replace_id:libraryEditId})});
+  await api('/api/library/pc/finish',{method:'POST',body:JSON.stringify({...payload,upload_id:id,replace_id:payload.replace_id})});
  }catch(error){
   await api('/api/library/pc/cancel',{method:'POST',body:JSON.stringify({upload_id:id})}).catch(()=>{});
   throw error;
@@ -371,7 +371,7 @@ async function saveLibraryPc(payload){
 function toggleImportTrim(){let on=libTrimCheck.checked;importTrim.classList.toggle('trim-on',on);importTrim.querySelector('.trim-summary').textContent=on?'Save selected segment':'Full source will be saved'}
 function resetLibraryForm(){libraryEditId='';libName.disabled=false;libName.value='';clearLibraryPcFile();libTrimCheck.checked=false;libraryUploadDrive.checked=false;libStartMin.value=libStartSec.value=libEndMin.value=libEndSec.value='';toggleImportTrim();libraryFormTitle.textContent='Add Library Video';librarySaveBtn.textContent='Import & Save';libraryCancel.style.display='none';libraryFormBanner.textContent='Import once, optionally trim, and save the final reusable video. Merge Video 1 will use this saved copy without trim controls.'}
 function libraryTrimPayload(){let sm=intOrBlank(libStartMin),ss=intOrBlank(libStartSec),em=intOrBlank(libEndMin),es=intOrBlank(libEndSec);sm=sm??0;ss=ss??0;if(ss>59||es!==null&&es>59)throw new Error('Library trim seconds must be 0–59');return{trim_enabled:libTrimCheck.checked,start_min:sm,start_sec:ss,end_min:em,end_sec:es}}
-async function saveLibrary(){if(libraryUploading)return;try{if(!libraryEditId&&!libName.value.trim())throw new Error('Library name is required');let p={name:libName.value.trim(),upload_to_drive:libraryUploadDrive.checked,...libraryTrimPayload()},path=libraryEditId?`/api/library/${libraryEditId}/replace`:'/api/library';libraryUploading=true;librarySaveBtn.disabled=true;if(libPcFile.files.length){await saveLibraryPc(p)}else{if(!libUrl.value.trim())throw new Error('Source URL or PC video is required');p.url=libUrl.value.trim();await api(path,{method:'POST',body:JSON.stringify(p)})}toast(libraryEditId?'Replace started. Previous video is kept if replacement fails.':'Library import started');resetLibraryForm();await refresh()}catch(e){toast(e.message)}finally{libraryUploading=false;mergerEligibility()}}
+async function saveLibrary(){if(libraryUploading)return;try{if(!libraryEditId&&!libName.value.trim())throw new Error('Library name is required');let p={name:libName.value.trim(),replace_id:libraryEditId,upload_to_drive:libraryUploadDrive.checked,...libraryTrimPayload()},path=libraryEditId?`/api/library/${libraryEditId}/replace`:'/api/library';libraryUploading=true;librarySaveBtn.disabled=true;if(libPcFile.files.length){await saveLibraryPc(p)}else{if(!libUrl.value.trim())throw new Error('Source URL or PC video is required');p.url=libUrl.value.trim();await api(path,{method:'POST',body:JSON.stringify(p)})}toast(libraryEditId?'Replace started. Previous video is kept if replacement fails.':'Library import started');resetLibraryForm();await refresh()}catch(e){toast(e.message)}finally{libraryUploading=false;mergerEligibility()}}
 async function renameLibrary(id){let x=state.library.find(v=>v.id===id);if(!x)return;let n=prompt('New Library display name:',x.name);if(!n||n.trim()===x.name)return;try{await api(`/api/library/${id}/rename`,{method:'POST',body:JSON.stringify({name:n.trim()})});await refresh();toast('Library video renamed')}catch(e){toast(e.message)}}
 function replaceLibrary(id){let x=state.library.find(v=>v.id===id);if(!x)return;clearLibraryPcFile();libraryEditId=id;libName.value=x.name;libName.disabled=true;libUrl.value='';libTrimCheck.checked=false;libraryUploadDrive.checked=!!x.drive_requested;libStartMin.value=libStartSec.value=libEndMin.value=libEndSec.value='';toggleImportTrim();libraryFormTitle.textContent='Replace Library Video';librarySaveBtn.textContent='Replace Video';libraryCancel.style.display='inline-block';libraryFormBanner.textContent=`Replacing “${x.name}”. The existing saved video remains available if the new replacement fails.`;showTab('library');libUrl.focus()}
 async function deleteLibrary(id){let x=state.library.find(v=>v.id===id);if(!x)return;if(!confirm(`Delete VPS Library video “${x.name}”? Any existing Google Drive copy is preserved. Active renders are protected.`))return;try{await api(`/api/library/${id}/delete`,{method:'POST',body:'{}'});await refresh();toast('Library video deleted')}catch(e){toast(e.message)}}
