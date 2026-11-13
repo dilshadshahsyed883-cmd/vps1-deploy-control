@@ -202,9 +202,9 @@ function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&l
 function showTab(tab){document.querySelectorAll('.vm-app .tabs .tab').forEach(x=>{let on=x.dataset.tab===tab;x.classList.toggle('active',on);x.setAttribute('aria-selected',String(on))});document.querySelectorAll('.vm-app .tab-panel').forEach(x=>x.classList.toggle('active',x.id==='tab-'+tab))}
 function filenameMode(){return document.querySelector('input[name="filenameMode"]:checked').value}
 function filenameModeChanged(){let manual=filenameMode()==='manual',f=document.getElementById('fname');f.readOnly=!manual;f.classList.remove('invalid');fnameError.classList.remove('show');if(manual){f.value='';f.placeholder='Enter output filename';f.focus()}else{f.value='';f.placeholder='Will be based on Video 2 title / filename';scheduleAutoName()}}
-function urlRow(value='',spec={}){vcount++;let n=vcount,d=document.createElement('div');d.className='video-item'+(spec.trim_enabled?' trim-on':'');d.draggable=true;let sm=spec.start_min??'',ss=spec.start_sec??'',em=spec.end_min??'',es=spec.end_sec??'';d.innerHTML=`<div class="video-row"><div class="drag">⋮⋮</div><input class="video-url" data-video-num="${n}" placeholder="Video ${n} URL" value="${esc(value)}"><button class="icon" onclick="rmVideo(this)">×</button></div><div class="trim-panel"><div class="trim-head"><label class="trim-toggle"><input class="trim-check" type="checkbox" ${spec.trim_enabled?'checked':''} onchange="toggleTrim(this)"> Trim this video</label><span class="trim-summary">${spec.trim_enabled?'Using selected segment':'Full video will be merged'}</span></div><div class="trim-fields"><div><label>Start Time</label><div class="time-pair"><input class="trim-start-min" type="number" min="0" step="1" placeholder="Min" value="${sm}"><input class="trim-start-sec" type="number" min="0" max="59" step="1" placeholder="Sec" value="${ss}"></div><div class="inline-help">Blank = start from beginning</div></div><div><label>End Time</label><div class="time-pair"><input class="trim-end-min" type="number" min="0" step="1" placeholder="Min" value="${em}"><input class="trim-end-sec" type="number" min="0" max="59" step="1" placeholder="Sec" value="${es}"></div><div class="inline-help">Blank = continue to end</div></div><div class="trim-note"><b>Examples</b><br>Start 0 min 10 sec, End blank → remove first 10 sec.<br>Start blank, End 1 min 30 sec → keep first 1:30.<br>Minutes may be above 60.</div></div></div>`;let inp=d.querySelector('.video-url');inp.addEventListener('input',()=>{if(d===document.querySelector('#urlVideos .video-item'))scheduleAutoName()});d.addEventListener('dragstart',e=>{if(e.target.closest('input,button,label')){e.preventDefault();return}d.classList.add('dragging')});d.addEventListener('dragend',()=>d.classList.remove('dragging'));d.addEventListener('dragover',e=>{e.preventDefault();let a=document.querySelector('#urlVideos .video-item.dragging');if(!a||a===d)return;let r=d.getBoundingClientRect();urlVideos.insertBefore(a,e.clientY<r.top+r.height/2?d:d.nextSibling)});urlVideos.appendChild(d)}
+function urlRow(value='',spec={}){vcount++;let n=vcount,d=document.createElement('div');d.className='video-item'+(spec.trim_enabled?' trim-on':'');d.draggable=true;let sm=spec.start_min??'',ss=spec.start_sec??'',em=spec.end_min??'',es=spec.end_sec??'';d.innerHTML=`<div class="video-row"><div class="drag">⋮⋮</div><input class="video-url" data-video-num="${n}" placeholder="Video ${n} URL" value="${esc(value)}"><button class="icon" onclick="rmVideo(this)">×</button></div><div class="vm-pc-merge-source" style="padding:0 12px 11px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><label class="btn secondary mini" style="display:inline-flex;align-items:center;cursor:pointer;margin:0">Upload from PC <input class="vm-merge-pc-file" type="file" accept="video/*,.mp4,.mov,.mkv,.avi,.webm,.m4v,.mpeg,.mpg,.ts" style="display:none" onchange="selectMergePcFile(this)"></label><button class="btn secondary mini vm-merge-pc-clear" type="button" style="display:none" onclick="clearMergePcFile(this)">Use URL instead</button><small class="vm-merge-pc-status" role="status" aria-live="polite">URL or PC video</small><div class="vm-merge-pc-bar progress" role="progressbar" aria-label="Uploading PC video" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="display:none;flex-basis:100%;margin:0"><span style="width:0%"></span></div></div><div class="trim-panel"><div class="trim-head"><label class="trim-toggle"><input class="trim-check" type="checkbox" ${spec.trim_enabled?'checked':''} onchange="toggleTrim(this)"> Trim this video</label><span class="trim-summary">${spec.trim_enabled?'Using selected segment':'Full video will be merged'}</span></div><div class="trim-fields"><div><label>Start Time</label><div class="time-pair"><input class="trim-start-min" type="number" min="0" step="1" placeholder="Min" value="${sm}"><input class="trim-start-sec" type="number" min="0" max="59" step="1" placeholder="Sec" value="${ss}"></div><div class="inline-help">Blank = start from beginning</div></div><div><label>End Time</label><div class="time-pair"><input class="trim-end-min" type="number" min="0" step="1" placeholder="Min" value="${em}"><input class="trim-end-sec" type="number" min="0" max="59" step="1" placeholder="Sec" value="${es}"></div><div class="inline-help">Blank = continue to end</div></div><div class="trim-note"><b>Examples</b><br>Start 0 min 10 sec, End blank → remove first 10 sec.<br>Start blank, End 1 min 30 sec → keep first 1:30.<br>Minutes may be above 60.</div></div></div>`;let inp=d.querySelector('.video-url');inp.addEventListener('input',()=>{if(d===document.querySelector('#urlVideos .video-item'))scheduleAutoName()});d.addEventListener('dragstart',e=>{if(e.target.closest('input,button,label')){e.preventDefault();return}d.classList.add('dragging')});d.addEventListener('dragend',()=>d.classList.remove('dragging'));d.addEventListener('dragover',e=>{e.preventDefault();let a=document.querySelector('#urlVideos .video-item.dragging');if(!a||a===d)return;let r=d.getBoundingClientRect();urlVideos.insertBefore(a,e.clientY<r.top+r.height/2?d:d.nextSibling)});urlVideos.appendChild(d)}
 function relabelRows(){[...urlVideos.querySelectorAll('.video-item')].forEach((d,i)=>{let n=i+2;d.querySelector('.video-url').placeholder=`Video ${n} URL`;d.querySelector('.video-url').dataset.videoNum=n})}
-function toggleTrim(cb){let item=cb.closest('.video-item');item.classList.toggle('trim-on',cb.checked);item.querySelector('.trim-summary').textContent=cb.checked?'Using selected segment':'Full video will be merged'}function addVideo(){urlRow('');relabelRows()}function rmVideo(b){if(urlVideos.children.length<=1)return toast('Video 2 is required');b.closest('.video-item').remove();relabelRows();scheduleAutoName()}
+function toggleTrim(cb){let item=cb.closest('.video-item');item.classList.toggle('trim-on',cb.checked);item.querySelector('.trim-summary').textContent=cb.checked?'Using selected segment':'Full video will be merged'}function addVideo(){urlRow('');relabelRows()}function rmVideo(b){if(urlVideos.children.length<=1)return toast('Video 2 is required');if(b.closest('.video-item')._pcUploading)return toast('PC upload is in progress');b.closest('.video-item').remove();relabelRows();scheduleAutoName()}
 function resText(){let m={'16:9|720p':'1280 × 720','16:9|1080p':'1920 × 1080','9:16|720p':'720 × 1280','9:16|1080p':'1080 × 1920'};resolution.value=m[aspect.value+'|'+quality.value]}
 function newMerge(){librarySelect.value='';librarySelect.classList.remove('invalid');librarySelectError.classList.remove('show');urlVideos.innerHTML='';vcount=1;urlRow('');aspect.value='9:16';quality.value='1080p';fit.value='crop';document.querySelector('input[name="filenameMode"][value="auto"]').checked=true;filenameModeChanged();resText();showTab('merge')}
 function renderFolders(){let f=folder,cur=f.value;f.innerHTML=state.folders.map(x=>{let name=x.split('/').slice(2).join('/')||'My Drive Root';return `<option value="${esc(x)}">${esc(name)}</option>`}).join('');if([...f.options].some(o=>o.value===cur))f.value=cur;renderVpsFolders()}
@@ -231,12 +231,73 @@ async function deleteVpsFolder(){
  catch(error){toast(error.message)}
 }
 function intOrBlank(el){let v=el.value.trim();if(v==='')return null;let n=Number(v);if(!Number.isInteger(n)||n<0)throw new Error('Trim minutes/seconds must be non-negative whole numbers');return n}
-function specFromItem(item,i){let url=item.querySelector('.video-url').value.trim();if(!url)throw new Error(`Video ${i}: URL is required`);let trim=item.querySelector('.trim-check').checked,sm=intOrBlank(item.querySelector('.trim-start-min')),ss=intOrBlank(item.querySelector('.trim-start-sec')),em=intOrBlank(item.querySelector('.trim-end-min')),es=intOrBlank(item.querySelector('.trim-end-sec'));sm=sm??0;ss=ss??0;if(ss>59||es!==null&&es>59)throw new Error(`Video ${i}: seconds must be 0–59`);return {kind:'url',url,trim_enabled:trim,start_min:sm,start_sec:ss,end_min:em,end_sec:es}}
+
+function mergePcReady(item){
+ if(!item.dataset.pcLibraryId)return !!item.querySelector('.video-url').value.trim();
+ const saved=(state.library||[]).find(x=>x.id===item.dataset.pcLibraryId);
+ const status=item.querySelector('.vm-merge-pc-status');
+ if(saved&&status&&!item._pcUploading){
+  status.textContent=saved.status==='ready'?'PC video ready · '+(saved.name||'Saved'):
+   saved.status==='failed'?'Video processing failed · select PC file again':
+   'Preparing PC video · '+(saved.progress||0)+'%';
+ }
+ return !item._pcUploading&&!!saved&&saved.status==='ready';
+}
+function clearMergePcFile(control){
+ const item=control.closest('.video-item');
+ if(item._pcUploading){toast('PC video is uploading; keep this row until upload finishes');return}
+ item.dataset.pcLibraryId='';
+ item.querySelector('.vm-merge-pc-file').value='';
+ const url=item.querySelector('.video-url');url.value='';url.readOnly=false;url.placeholder='Video URL';
+ item.querySelector('.vm-merge-pc-clear').style.display='none';
+ item.querySelector('.vm-merge-pc-status').textContent='URL or PC video';
+ item.querySelector('.vm-merge-pc-bar').style.display='none';
+ scheduleAutoName();vmQueueButtonState();
+}
+async function selectMergePcFile(input){
+ const file=input.files[0];if(!file)return;
+ const item=input.closest('.video-item'),url=item.querySelector('.video-url');
+ if(item._pcUploading)return;
+ item._pcUploading=true;
+ item.dataset.pcLibraryId='';
+ url.value='PC: '+file.name;url.readOnly=true;
+ item.querySelector('.vm-merge-pc-clear').style.display='inline-block';
+ const status=item.querySelector('.vm-merge-pc-status'),bar=item.querySelector('.vm-merge-pc-bar'),fill=bar.querySelector('span');
+ bar.style.display='block';bar.setAttribute('aria-valuenow','0');fill.style.width='0%';
+ status.textContent='Preparing '+file.name+' ('+fmtSize(file.size)+')';
+ vmQueueButtonState();scheduleAutoName();
+ let uploadId='';
+ try{
+  const started=await api('/api/library/pc/start',{method:'POST',body:JSON.stringify({filename:file.name,size:file.size})});
+  uploadId=started.upload_id;
+  const step=started.chunk_size||4194304;
+  for(let offset=0;offset<file.size;offset+=step){
+   const part=file.slice(offset,offset+step);
+   const response=await fetch(P+'/api/library/pc/chunk',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Upload-ID':uploadId,'X-Upload-Offset':String(offset)},body:part});
+   const json=await response.json();
+   if(!response.ok||!json.ok||json.offset!==offset+part.size)throw new Error(json.error||'PC upload chunk failed');
+   const pct=Math.round(json.offset/file.size*100);
+   bar.setAttribute('aria-valuenow',String(pct));fill.style.width=pct+'%';
+   status.textContent='Uploaded '+fmtSize(json.offset)+' / '+fmtSize(file.size)+' ('+pct+'%)';
+  }
+  const name=file.name+' [PC-'+uploadId.slice(0,8)+']';
+  const result=await api('/api/library/pc/finish',{method:'POST',body:JSON.stringify({upload_id:uploadId,name,upload_to_drive:false})});
+  item.dataset.pcLibraryId=result.id;
+  status.textContent='Uploaded · preparing reusable PC video';
+  await refresh();
+ }catch(error){
+  if(uploadId)await api('/api/library/pc/cancel',{method:'POST',body:JSON.stringify({upload_id:uploadId})}).catch(()=>{});
+  status.textContent='PC upload failed: '+error.message;
+  item.dataset.pcLibraryId='';url.value='';url.readOnly=false;
+  toast('PC Video upload: '+error.message);
+ }finally{item._pcUploading=false;vmQueueButtonState()}
+}
+function specFromItem(item,i){let url=item.querySelector('.video-url').value.trim();if(!url)throw new Error(`Video ${i}: URL or PC video is required`);let trim=item.querySelector('.trim-check').checked,sm=intOrBlank(item.querySelector('.trim-start-min')),ss=intOrBlank(item.querySelector('.trim-start-sec')),em=intOrBlank(item.querySelector('.trim-end-min')),es=intOrBlank(item.querySelector('.trim-end-sec'));sm=sm??0;ss=ss??0;if(ss>59||es!==null&&es>59)throw new Error(`Video ${i}: seconds must be 0–59`);return item.dataset.pcLibraryId?{kind:'library',library_id:item.dataset.pcLibraryId,trim_enabled:trim,start_min:sm,start_sec:ss,end_min:em,end_sec:es}:{kind:'url',url,trim_enabled:trim,start_min:sm,start_sec:ss,end_min:em,end_sec:es}}
 let vmQueueAdding=false, vmQueueAdmissionTimer=null;
 function vmQueueButtonState(){
  const btn=document.getElementById('queueMergeButton');
  if(!btn)return;
- btn.disabled=vmQueueAdding || !document.getElementById('librarySelect')?.value || !Array.from(document.querySelectorAll('#urlVideos .video-url')).some(x=>x.value.trim());
+ btn.disabled=vmQueueAdding || !document.getElementById('librarySelect')?.value || !Array.from(document.querySelectorAll('#urlVideos .video-item')).length || !Array.from(document.querySelectorAll('#urlVideos .video-item')).every(mergePcReady);
  btn.textContent=vmQueueAdding?'⏳ Adding to Queue...':(btn.dataset.retry==='1'?'Retry Add to Queue':'Add to Queue');
  btn.setAttribute('aria-busy',String(vmQueueAdding));
 }
@@ -278,7 +339,7 @@ async function queueMerge(){
    vmQueueAdding=false;vmQueueButtonState();
  }
 }
-function scheduleAutoName(){if(filenameMode()!=='auto')return;clearTimeout(autoTimer);fname.value='';let first=document.querySelector('#urlVideos .video-url'),u=first?first.value.trim():'';if(!/^https?:\/\//i.test(u))return;autoTimer=setTimeout(async()=>{try{let j=await api('/api/source-name',{method:'POST',body:JSON.stringify({url:u})});if(filenameMode()==='auto'&&first.value.trim()===u)fname.value=j.filename}catch(e){if(filenameMode()==='auto')fname.placeholder='Auto filename will resolve when queued'}},900)}
+function scheduleAutoName(){if(filenameMode()!=='auto')return;clearTimeout(autoTimer);fname.value='';let first=document.querySelector('#urlVideos .video-url'),u=first?first.value.trim():'';if(first?.closest('.video-item')?.dataset.pcLibraryId){fname.value=first.value.replace(/^PC: /,'').replace(/\.[^.]+$/,'')+'.mp4';return}if(!/^https?:\/\//i.test(u))return;autoTimer=setTimeout(async()=>{try{let j=await api('/api/source-name',{method:'POST',body:JSON.stringify({url:u})});if(filenameMode()==='auto'&&first.value.trim()===u)fname.value=j.filename}catch(e){if(filenameMode()==='auto')fname.placeholder='Auto filename will resolve when queued'}},900)}
 function activeStatus(s){return !['waiting','complete','failed','cancelled'].includes(s)}function badge(s){if(s==='waiting')return 'waiting';if(s==='complete')return 'complete';if(s==='failed')return 'failed';if(s==='cancelled')return 'cancelled';return 'processing'}function trimmedCount(v){return(v||[]).filter(x=>x&&typeof x==='object'&&x.trim_enabled).length}
 function libNameForJob(j){let v=(j.videos||[])[0];if(!v||v.kind!=='library')return 'Legacy URL first video';let item=state.library.find(x=>x.id===v.library_id);return item?item.name:(v.name||'Library video')}
 function renderQueue(){let q=queue;if(!state.jobs.length)q.innerHTML='<div class="empty">No merges in queue.</div>';else q.innerHTML=state.jobs.map(j=>{let tc=trimmedCount(j.videos),lib=libNameForJob(j);return `<div class="qrow"><div class="qtitle"><strong>${esc(j.filename||j.name)}</strong><small>Video 1: ${esc(lib)} · ${j.videos.length} videos · ${tc} trimmed · ${esc(j.message||'')}</small>${activeStatus(j.status)?`<progress style="width:100%" aria-label="Working; exact percentage not available"></progress><small>Current stage: ${esc(j.message||j.status)} · measuring actual completion</small>`:''}${j.status==='complete'?`<progress style="width:100%" max="100" value="100" aria-label="Merge completed">100%</progress>`:''}${j.error?`<div class="err">${esc(j.error)}</div>`:''}</div><div class="qcell"><small>Output</small><strong>${esc(j.aspect)} · ${esc(j.quality)}</strong></div><div class="qcell"><small>Output VPS Folder</small><strong>${esc(j.vps_output_folder||'My VPS Root')}</strong><small>Drive: ${esc(j.folder||'Root')}</small></div><div><span class="status ${badge(j.status)}">${esc(j.status)}</span></div><div class="qactions">${j.status==='waiting'?`<button class="btn secondary mini" onclick="move('${j.id}','up')">↑</button><button class="btn secondary mini" onclick="move('${j.id}','down')">↓</button><button class="btn danger mini" onclick="cancelJob('${j.id}')">Cancel</button>`:''}${j.status==='complete'?`${j.drive_url?`<a class="btn success mini" style="display:inline-flex;align-items:center;text-decoration:none" target="_blank" rel="noopener" href="${esc(j.drive_url)}">View in Drive ↗</a>`:''}${j.local_path?`<a class="btn secondary mini" style="display:inline-flex;align-items:center;text-decoration:none" target="_blank" rel="noopener" href="${P}/api/jobs/${encodeURIComponent(j.id)}/view">View MP4</a><a class="btn secondary mini" style="display:inline-flex;align-items:center;text-decoration:none" href="${P}/api/jobs/${encodeURIComponent(j.id)}/download">Download MP4</a>`:''}${j.copyright_enabled?`<span class="status complete">Uploader folder</span>`:''}<button class="btn danger mini" onclick="del('${j.id}')">Delete</button>`:''}${j.status==='failed'?`<button class="btn secondary mini" onclick="retryJob('${j.id}')">Retry</button><button class="btn danger mini" onclick="del('${j.id}')">Delete</button>`:''}${j.status==='cancelled'?`<button class="btn danger mini" onclick="del('${j.id}')">Delete</button>`:''}</div></div>`}).join('');sTotal.textContent=state.jobs.length;sWaiting.textContent=state.jobs.filter(x=>x.status==='waiting').length;sActive.textContent=state.jobs.filter(x=>activeStatus(x.status)).length;sComplete.textContent=state.jobs.filter(x=>x.status==='complete').length;pauseBtn.textContent=state.paused?'Resume Queue':'Pause Queue';queueBadge.textContent=String(state.jobs.filter(x=>activeStatus(x.status)||x.status==='waiting').length)}
@@ -381,7 +442,7 @@ function resetProxyForm(){proxyEditing=false;proxyId.value=proxyName.value=proxy
 function editProxy(id){let x=(state.proxy.profiles||[]).find(v=>v.id===id);if(!x)return;proxyEditing=true;proxyId.value=x.id;proxyName.value=x.name;proxyHost.value=x.host;proxyPort.value=x.port;proxyUser.value=x.username;proxyPass.value='';proxyPass.placeholder=x.has_password?'Leave blank to keep saved password':'Password required';proxyFormTitle.textContent='Edit Proxy Profile';proxyCancel.style.display='inline-block';showTab('proxy');proxyName.focus()}
 async function saveProxy(){try{let p={id:proxyId.value,name:proxyName.value.trim(),host:proxyHost.value.trim(),port:proxyPort.value,username:proxyUser.value.trim(),password:proxyPass.value};await api('/api/proxy/save',{method:'POST',body:JSON.stringify(p)});resetProxyForm();await refresh();toast('Proxy profile saved')}catch(e){toast(e.message)}}
 async function toggleProxyEnabled(){try{await api('/api/proxy/toggle',{method:'POST',body:JSON.stringify({enabled:proxyEnabled.checked})});await refresh();toast(proxyEnabled.checked?'YouTube proxy enabled':'YouTube proxy disabled')}catch(e){proxyEnabled.checked=!proxyEnabled.checked;toast(e.message)}}async function setActiveProxy(id){try{await api('/api/proxy/active',{method:'POST',body:JSON.stringify({id})});await refresh();toast('Active proxy changed')}catch(e){toast(e.message)}}async function testProxy(id){try{toast('Testing proxy and YouTube…');let r=await api('/api/proxy/test',{method:'POST',body:JSON.stringify({id})});toast(`Proxy test passed · egress ${r.egress_ip} · YouTube OK`)}catch(e){toast('Proxy test failed: '+e.message)}}async function deleteProxy(id){if(!confirm('Delete this proxy profile?'))return;try{await api('/api/proxy/delete',{method:'POST',body:JSON.stringify({id})});await refresh();toast('Proxy profile deleted')}catch(e){toast(e.message)}}
-async function refresh(){try{let fresh=await api('/api/state');state=fresh;renderFolders();renderQueue();renderLibrary();renderProxy()}catch(e){toast(e.message)}}
+async function refresh(){try{let fresh=await api('/api/state');state=fresh;renderFolders();renderQueue();renderLibrary();renderProxy();vmQueueButtonState()}catch(e){toast(e.message)}}
 newMerge();resetLibraryForm();resetProxyForm();refresh();setInterval(refresh,3000);
 </script>
 <script>
@@ -394,7 +455,7 @@ newMerge();resetLibraryForm();resetProxyForm();refresh();setInterval(refresh,300
   toggle.addEventListener('click',()=>sidebar.classList.contains('mobile-open')?close():open());overlay.addEventListener('click',close);sidebar.querySelectorAll('nav a').forEach(a=>a.addEventListener('click',close));document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});window.addEventListener('resize',()=>{if(innerWidth>760)close()});window.addEventListener('pageshow',()=>{if(innerWidth>760)close()});
 })();
 
-function mergerEligibility(){const selected=document.getElementById('librarySelect');const button=document.getElementById('queueMergeButton');if(button)button.disabled=vmQueueAdding||!selected?.value||!Array.from(document.querySelectorAll('#urlVideos .video-url')).some(n=>n.value.trim());const save=document.getElementById('librarySaveBtn');if(save)save.disabled=!document.getElementById('libName')?.value.trim()||!document.getElementById('libUrl')?.value.trim();}
+function mergerEligibility(){vmQueueButtonState();const save=document.getElementById('librarySaveBtn');if(save)save.disabled=!document.getElementById('libName')?.value.trim()||!document.getElementById('libUrl')?.value.trim();}
 document.addEventListener('input',mergerEligibility);document.addEventListener('change',mergerEligibility);mergerEligibility();
 </script>
 </body></html>
