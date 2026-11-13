@@ -26,7 +26,7 @@ def section(page, start, end):
 
 def frozen_merge_pc_overlay(live, source, baseline):
     """Patch the exact reviewed merge controls, preserving every other byte."""
-    control='.vm-app .vm-pc-merge-choice{'
+    control='.vm-app .vm-pc-merge-choice{display:flex;align-items:center;gap:8px;min-width:0}'
     css_anchor='.vm-app .video-item{'
     exactly_one(source,control,'PC merge style missing')
     if control not in live:
