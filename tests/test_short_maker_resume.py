@@ -154,7 +154,7 @@ async function check(){
  assert.strictEqual(untouched,ctx.pending);
 }
 check().catch(error=>{console.error(error);process.exitCode=1;});
-""".replace("SOURCE", json.dumps(helpers+"\\n"+recovery))
+""".replace("SOURCE", json.dumps(helpers+"\n"+recovery))
         done = subprocess.run(["node", "-e", script], text=True,
                               capture_output=True, timeout=15, check=False)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
