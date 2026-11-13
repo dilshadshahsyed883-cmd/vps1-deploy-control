@@ -84,7 +84,8 @@ class MergePcVideoTests(unittest.TestCase):
 
     def test_pc_video2_loads_from_vps_library_without_network(self):
         app=self.app
-        with patch.object(app,"source_to_file",side_effect=AssertionError("must not fetch PC URL")):
+        with patch.object(app,"source_to_file",side_effect=AssertionError("must not fetch PC URL")), \
+             patch.object(app,"validate_downloaded_file"):
             with tempfile.TemporaryDirectory() as tmp:
                 path=Path(tmp)/"input.bin"
                 app.library_to_file("libsecond",path,2)
