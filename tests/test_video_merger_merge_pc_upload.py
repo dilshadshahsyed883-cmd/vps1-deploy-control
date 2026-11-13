@@ -114,6 +114,10 @@ class MergePcInputs(unittest.TestCase):
             self.assertEqual(out.read_bytes(),b"pc-direct-video")
         self.app.delete_job(job,owner="alice")
         self.assertTrue((self.app.PC_UPLOAD_DIR/(uid+".part")).is_file())
+        with patch.object(self.app,"validate_downloaded_file"):
+            moved=self.app.WORK/"retry_after_old_deleted.bin"
+            self.app._pc_merge_source_to_file("alice",uid,again,moved,2)
+            self.assertEqual(moved.read_bytes(),b"pc-direct-video")
         self.app.update_job(again,"complete",100,"Done")
         self.app._cleanup_merge_pc_uploads("alice",self.app.json.loads(
             self.app.get_job(again)["videos_json"]))
