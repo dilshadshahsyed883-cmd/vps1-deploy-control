@@ -41,6 +41,7 @@ def frozen_merge_pc_overlay(live, source, baseline):
     boundaries=(
         ('function urlRow(','function relabelRows(){'),
         ('function toggleTrim(','function resText(){'),
+        ('function newMerge','function renderFolders(){'),
         ('function specFromItem(','let vmQueueAdding=false'),
         ('async function queueMerge(){','function scheduleAutoName(){'),
         ('function scheduleAutoName(){','function activeStatus('),
