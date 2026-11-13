@@ -917,6 +917,17 @@ def normalize_video_spec(v, idx=0, owner=None):
             raise ValueError(f'Video {idx}: Library video belongs to another user')
         if item.get('status')!='ready': raise ValueError(f'Video {idx}: Library video is not ready')
         return {'kind':'library','library_id':lid,'name':item.get('name',''),'trim_enabled':False,'start_min':0,'start_sec':0,'end_min':None,'end_sec':None}
+    if isinstance(v,dict) and v.get('kind')=='pc':
+        upload_id=v.get('upload_id','')
+        if owner is not None:
+            session,_,_=_merge_pc_session(owner,upload_id)
+        else:
+            meta,_=_pc_upload_paths(upload_id)
+            if not meta.is_file() or meta.is_symlink():
+                raise ValueError(f'Video {idx}: PC input is no longer available')
+            session=json.loads(meta.read_text(encoding='utf-8'))
+        trim=normalize_url_spec({**v,'url':'https://pc-merge.invalid/source.mp4'},idx)
+        return {**trim,'kind':'pc','upload_id':upload_id,'filename':session['filename']}
     return normalize_url_spec(v,idx)
 
 def probe(path):
@@ -928,7 +939,7 @@ def media_duration(info):
     except Exception: return 0.0
 
 def trim_window(spec, duration, idx):
-    spec=normalize_video_spec(spec,idx) if not (isinstance(spec,dict) and 'trim_enabled' in spec and ('url' in spec or spec.get('kind')=='library')) else spec
+    spec=normalize_video_spec(spec,idx) if not (isinstance(spec,dict) and 'trim_enabled' in spec and ('url' in spec or spec.get('kind') in ('library','pc'))) else spec
     if not spec.get('trim_enabled'):
         return 0.0, None, duration
     if duration<=0: raise RuntimeError(f'Video {idx}: source duration could not be determined for trimming')
@@ -1095,6 +1106,11 @@ def _cleanup_old_pc_uploads():
         try:
             if meta.stat().st_mtime>=cutoff:
                 continue
+            try:
+                if json.loads(meta.read_text(encoding='utf-8')).get('assigned_job'):
+                    continue
+            except (OSError,ValueError):
+                pass
             _,part=_pc_upload_paths(meta.stem)
             if not part.is_symlink():
                 part.unlink(missing_ok=True)
@@ -1103,9 +1119,11 @@ def _cleanup_old_pc_uploads():
             continue
 
 
-def start_library_pc_upload(owner,filename,size):
+def start_library_pc_upload(owner,filename,size,purpose='library'):
     if not owner:
         raise ValueError('Authenticated account required')
+    if purpose not in ('library','merge'):
+        raise ValueError('Invalid PC upload purpose')
     if not isinstance(size,int) or isinstance(size,bool) or size<=0 or size>MAX_SOURCE_BYTES:
         raise ValueError('PC video must be between 1 byte and 12 GiB')
     filename=str(filename or '').replace('\\','/').split('/')[-1].strip()[:180]
@@ -1117,11 +1135,13 @@ def start_library_pc_upload(owner,filename,size):
         for meta in PC_UPLOAD_DIR.glob('*.json'):
             try:
                 obj=json.loads(meta.read_text(encoding='utf-8'))
-                pending+=int(str(obj.get('owner','')).casefold()==owner.casefold())
+                pending+=int(str(obj.get('owner','')).casefold()==owner.casefold() and
+                             obj.get('purpose','library')==purpose and not obj.get('assigned_job'))
             except (ValueError,OSError):
                 pass
-        if pending>=3:
-            raise ValueError('Finish or cancel an existing PC upload first (limit: 3)')
+        limit=MAX_VIDEOS if purpose=='merge' else 3
+        if pending>=limit:
+            raise ValueError(f'Finish or cancel an existing PC upload first (limit: {limit})')
         if shutil.disk_usage(PC_UPLOAD_DIR).free < size+MIN_FREE_BYTES:
             raise ValueError('Insufficient VPS disk space for PC video and operational reserve')
         upload_id=uuid.uuid4().hex
@@ -1130,7 +1150,7 @@ def start_library_pc_upload(owner,filename,size):
             os.chmod(part,0o600)
         try:
             with meta.open('x',encoding='utf-8') as f:
-                json.dump({'owner':owner,'filename':filename,'size':size},f)
+                json.dump({'owner':owner,'filename':filename,'size':size,'purpose':purpose,'assigned_job':''},f)
             os.chmod(meta,0o600)
         except Exception:
             part.unlink(missing_ok=True)
@@ -1143,6 +1163,8 @@ def append_library_pc_chunk(owner,upload_id,offset,n,stream):
         raise ValueError('Invalid PC upload chunk')
     with PC_UPLOAD_LOCK:
         session,meta,part=_pc_upload_session(owner,upload_id)
+        if session.get('assigned_job'):
+            raise ValueError('PC upload already belongs to a queued job')
         current=part.stat().st_size
         if current!=offset:
             raise ValueError(f'PC upload offset mismatch; received {current} bytes')
@@ -1164,7 +1186,9 @@ def append_library_pc_chunk(owner,upload_id,offset,n,stream):
 
 def cancel_library_pc_upload(owner,upload_id):
     with PC_UPLOAD_LOCK:
-        _,meta,part=_pc_upload_session(owner,upload_id)
+        session,meta,part=_pc_upload_session(owner,upload_id)
+        if session.get('assigned_job'):
+            raise ValueError('Cannot cancel video already assigned to merge job')
         part.unlink(missing_ok=True)
         meta.unlink(missing_ok=True)
 
@@ -1172,6 +1196,8 @@ def cancel_library_pc_upload(owner,upload_id):
 def finish_library_pc_upload(owner,upload_id,payload):
     with PC_UPLOAD_LOCK:
         session,meta,part=_pc_upload_session(owner,upload_id)
+        if session.get('purpose','library')!='library' or session.get('assigned_job'):
+            raise ValueError('PC upload is reserved for another workflow')
         if part.stat().st_size!=session['size']:
             raise ValueError('PC upload is incomplete')
         # Move to an internal, one-use path. The browser cannot select local paths.
@@ -1186,6 +1212,76 @@ def finish_library_pc_upload(owner,upload_id,payload):
     except Exception:
         local.unlink(missing_ok=True)
         raise
+
+
+
+def _merge_pc_session(owner, upload_id):
+    session,meta,part=_pc_upload_session(owner,upload_id)
+    if session.get('purpose')!='merge':
+        raise ValueError('This PC upload is not a merge input')
+    if part.stat().st_size!=session['size']:
+        raise ValueError('PC merge video upload is incomplete')
+    if not isinstance(session.get('filename'),str) or not session['filename']:
+        raise ValueError('PC merge video filename missing')
+    return session,meta,part
+
+
+def _write_pc_meta(meta, session):
+    tmp=meta.with_name('.'+meta.name+'.'+uuid.uuid4().hex+'.tmp')
+    try:
+        with tmp.open('x',encoding='utf-8') as f:
+            json.dump(session,f)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp,0o600)
+        os.replace(tmp,meta)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def _cleanup_merge_pc_uploads(owner, video_specs):
+    """Never delete sources referenced by waiting/active jobs or other accounts."""
+    ids={v.get('upload_id') for v in video_specs
+         if isinstance(v,dict) and v.get('kind')=='pc'}
+    if not ids: return
+    with PC_UPLOAD_LOCK:
+        with DB_LOCK, db() as c:
+            active=c.execute("""SELECT videos_json FROM jobs
+                                  WHERE status NOT IN ('complete','failed','cancelled')""").fetchall()
+        referenced=set()
+        for row in active:
+            try:
+                referenced.update(v.get('upload_id') for v in json.loads(row['videos_json'])
+                                  if isinstance(v,dict) and v.get('kind')=='pc')
+            except (ValueError,TypeError):
+                continue
+        for upload_id in ids-referenced:
+            try:
+                _,meta,part=_merge_pc_session(owner,upload_id)
+            except ValueError:
+                continue
+            part.unlink(missing_ok=True)
+            meta.unlink(missing_ok=True)
+
+
+def _pc_merge_source_to_file(owner, upload_id, assigned_job, dst, idx):
+    with PC_UPLOAD_LOCK:
+        session,_,part=_merge_pc_session(owner,upload_id)
+        if session.get('assigned_job')!=assigned_job:
+            # Retried jobs can reuse their original job's retained local source.
+            with DB_LOCK, db() as c:
+                original=c.execute('SELECT id,retry_of,owner_username FROM jobs WHERE id=?',(assigned_job,)).fetchone()
+                permitted=False
+                while original and original['retry_of']:
+                    if original['retry_of']==session.get('assigned_job') and original['owner_username'].casefold()==owner.casefold():
+                        permitted=True
+                        break
+                    original=c.execute('SELECT id,retry_of,owner_username FROM jobs WHERE id=?',
+                                       (original['retry_of'],)).fetchone()
+                if not permitted:
+                    raise ValueError('PC merge source is not assigned to this job')
+        shutil.copy2(part,dst)
+    validate_downloaded_file(dst,idx)
 
 
 def process_library_import(item_id, source_url, trim_spec, replacing=False, upload_to_drive=False, local_source=None):
@@ -1384,7 +1480,11 @@ def youtube_title(url):
     return lines[-1]
 
 def source_display_filename(spec):
-    if spec.get('kind')!='url': raise ValueError('Auto filename requires Video 2 to be a URL source')
+    if spec.get('kind')=='pc':
+        filename=safe_component(spec.get('filename') or 'PC video')
+        stem=safe_component(Path(filename).stem or 'PC video')
+        return stem+'.mp4'
+    if spec.get('kind')!='url': raise ValueError('Auto filename requires Video 2 to be a URL or PC source')
     url=spec.get('url','')
     if looks_youtube(url): label=youtube_title(url)
     elif looks_drive(url):
@@ -1561,7 +1661,7 @@ def process_job(j):
     if ws.exists(): shutil.rmtree(ws,ignore_errors=True)
     ws.mkdir(parents=True,exist_ok=True)
     try:
-        raw_videos=json.loads(j['videos_json']); videos=[normalize_video_spec(v,i) for i,v in enumerate(raw_videos,1)]
+        raw_videos=json.loads(j['videos_json']); videos=[normalize_video_spec(v,i,owner=j['owner_username']) for i,v in enumerate(raw_videos,1)]
         w,h=RES_MAP[(j['aspect'],j['quality'])]
         update_job(jid,'downloading',2,'Starting sources',error='')
         srcs=[]
@@ -1570,6 +1670,9 @@ def process_job(j):
             if spec.get('kind')=='library':
                 update_job(jid,'downloading',max(3,min(38,4+i*5)),f'Loading Library video {i}')
                 library_to_file(spec['library_id'],p,i)
+            elif spec.get('kind')=='pc':
+                update_job(jid,'downloading',max(3,min(38,4+i*5)),f'Loading PC video {i}')
+                _pc_merge_source_to_file(j['owner_username'],spec['upload_id'],jid,p,i)
             else:
                 source_to_file(spec['url'],p,jid,i)
             srcs.append(p)
@@ -1606,6 +1709,7 @@ def process_job(j):
             fid,url=upload_drive(retained,j['folder'],j['filename'])
         update_job(jid,'complete',100,f'Complete · {dur:.1f}s',drive_id=fid,drive_url=url,error='')
         shutil.rmtree(ws,ignore_errors=True)
+        _cleanup_merge_pc_uploads(j['owner_username'],raw_videos)
     except Exception as e:
         update_job(jid,'failed',100,'Failed',error=scrub_proxy_error(e))
 
@@ -1645,7 +1749,7 @@ def list_jobs(owner=None, admin=False):
 
 def add_job(payload, owner=''):
     # Serialize queue admission against Library rename/replace/delete.
-    with LIBRARY_LOCK:
+    with PC_UPLOAD_LOCK, LIBRARY_LOCK:
         return _add_job_with_library_lock(payload,owner)
 
 
@@ -1666,7 +1770,17 @@ def _add_job_with_library_lock(payload,owner=''):
     if not isinstance(videos,list) or len(videos)<2 or len(videos)>MAX_VIDEOS: raise ValueError(f'Use 2 to {MAX_VIDEOS} videos')
     videos=[normalize_video_spec(x,i,owner=owner) for i,x in enumerate(videos,1)]
     if videos[0].get('kind')!='library': raise ValueError('Video 1 must be selected from Library')
-    if any(v.get('kind')!='url' for v in videos[1:]): raise ValueError('Video 2 and later videos must use URLs')
+    if any(v.get('kind') not in ('url','pc') for v in videos[1:]):
+        raise ValueError('Video 2 and later videos must use URLs or PC uploads')
+    uploads=[v for v in videos[1:] if v.get('kind')=='pc']
+    seen=set()
+    for spec in uploads:
+        uid=spec['upload_id']
+        if uid in seen: raise ValueError('A PC upload can only be used once per merge')
+        seen.add(uid)
+        session,_,_=_merge_pc_session(owner,uid)
+        if session.get('assigned_job'):
+            raise ValueError('PC input is already assigned to another merge job')
     aspect=payload.get('aspect','9:16'); quality=payload.get('quality','1080p')
     if (aspect,quality) not in RES_MAP: raise ValueError('Invalid resolution selection')
     fit='fit' if payload.get('fit_mode')=='fit' else 'crop'; folder=resolve_owner_folder(owner,payload.get('folder',''))
@@ -1693,13 +1807,26 @@ def _add_job_with_library_lock(payload,owner=''):
             if not previous:
                 raise
             return previous['id'],previous['filename']
+        updated=[]
+        try:
+            for spec in uploads:
+                session,meta,_=_merge_pc_session(owner,spec['upload_id'])
+                if session.get('assigned_job'): raise ValueError('PC upload already queued')
+                old=dict(session)
+                session['assigned_job']=jid
+                _write_pc_meta(meta,session)
+                updated.append((meta,old))
+        except Exception:
+            for meta,old in updated:
+                _write_pc_meta(meta,old)
+            raise
     WORKER_WAKE.set(); return jid,filename
 
 def delete_job(jid, owner='', admin=False):
     # Status verification and deletion share one lock with the worker claim.
     # Deletion must never remove a job after it was claimed for processing.
     with DB_LOCK, db() as c:
-        j=c.execute('SELECT id,status,owner_username FROM jobs WHERE id=?',(jid,)).fetchone()
+        j=c.execute('SELECT id,status,owner_username,videos_json FROM jobs WHERE id=?',(jid,)).fetchone()
         if not j: raise KeyError('Job not found')
         if not admin and (not owner or not j['owner_username'] or str(j['owner_username']).casefold()!=str(owner).casefold()):
             raise ValueError('This job does not belong to the current account')
@@ -1707,19 +1834,22 @@ def delete_job(jid, owner='', admin=False):
             raise ValueError('Active job cannot be deleted')
         c.execute('DELETE FROM jobs WHERE id=? AND status=?',(jid,j['status']))
     if j['status']!='complete': shutil.rmtree(WORK/jid, ignore_errors=True)
+    if j['status'] in ('waiting','cancelled','failed'):
+        _cleanup_merge_pc_uploads(j['owner_username'],json.loads(j['videos_json']))
     # Preserve completed media even when a history row is removed; cleanup is a separate explicit action.
 
 
 def cancel_job(jid, owner='', admin=False):
     """Cancel only a still-waiting job; preserve its history and all source/output files."""
     with DB_LOCK, db() as c:
-        j=c.execute('SELECT id,status,owner_username FROM jobs WHERE id=?',(jid,)).fetchone()
+        j=c.execute('SELECT id,status,owner_username,videos_json FROM jobs WHERE id=?',(jid,)).fetchone()
         if not j: raise KeyError('Job not found')
         if not admin and (not owner or not j['owner_username'] or str(j['owner_username']).casefold()!=str(owner).casefold()):
             raise ValueError('This job does not belong to the current account')
         if j['status']!='waiting': raise ValueError('Only waiting jobs can be cancelled')
         c.execute("UPDATE jobs SET status='cancelled', progress=0, message='Cancelled before processing', updated_at=? WHERE id=? AND status='waiting'",
                   (utcnow(),jid))
+    _cleanup_merge_pc_uploads(j['owner_username'],json.loads(j['videos_json']))
 
 
 def retry_job(jid, owner='', admin=False):
@@ -1728,12 +1858,15 @@ def retry_job(jid, owner='', admin=False):
     A distinct work directory preserves the original verified output if the previous
     attempt failed after local retention or an optional destination delivery.
     """
-    with DB_LOCK, db() as c:
+    with PC_UPLOAD_LOCK, DB_LOCK, db() as c:
         j=c.execute('SELECT * FROM jobs WHERE id=?',(jid,)).fetchone()
         if not j: raise KeyError('Job not found')
         if not admin and (not owner or not j['owner_username'] or str(j['owner_username']).casefold()!=str(owner).casefold()):
             raise ValueError('This job does not belong to the current account')
         if j['status']!='failed': raise ValueError('Only failed jobs can be retried')
+        for v in json.loads(j['videos_json']):
+            if isinstance(v,dict) and v.get('kind')=='pc':
+                _merge_pc_session(j['owner_username'],v.get('upload_id',''))
         previous=c.execute('SELECT id,filename FROM jobs WHERE retry_of=? ORDER BY created_at LIMIT 1',(jid,)).fetchone()
         if previous:
             return previous['id'],previous['filename']
@@ -1749,6 +1882,20 @@ def retry_job(jid, owner='', admin=False):
                    j['folder'],j['filename'],'waiting',0,'Retry queued','', '', '',int(maxord)+10,
                    j['drive_enabled'],j['copyright_enabled'],j['owner_username'],'',jid,now,now,
                    j['vps_output_folder'],j['vps_handoff_enabled'],j['filename_mode']))
+        assigned=[]
+        try:
+            for spec in json.loads(j['videos_json']):
+                if not isinstance(spec,dict) or spec.get('kind')!='pc':
+                    continue
+                session,meta,_=_merge_pc_session(j['owner_username'],spec['upload_id'])
+                old=dict(session)
+                session['assigned_job']=new_id
+                _write_pc_meta(meta,session)
+                assigned.append((meta,old))
+        except Exception:
+            for meta,old in assigned:
+                _write_pc_meta(meta,old)
+            raise
     WORKER_WAKE.set()
     return new_id,j['filename']
 
@@ -1895,13 +2042,19 @@ class Handler(BaseHTTPRequestHandler):
             # Every mutation and source lookup must have verified Scene identity.
             # /health remains the only intentionally public operational probe.
             owner=self.principal()
-            if p==PREFIX+'/api/library/pc/chunk':
+            if p in (PREFIX+'/api/library/pc/chunk',PREFIX+'/api/merge/pc/chunk'):
                 length=int(self.headers.get('Content-Length','0') or 0)
                 offset=int(self.headers.get('X-Upload-Offset','-1') or -1)
                 upload_id=self.headers.get('X-Upload-ID','')
                 new_offset=append_library_pc_chunk(owner,upload_id,offset,length,self.rfile)
                 return self.send_json(200,{'ok':True,'offset':new_offset})
             payload=self.read_json()
+            if p==PREFIX+'/api/merge/pc/start':
+                uid=start_library_pc_upload(owner,payload.get('filename',''),payload.get('size'),purpose='merge')
+                return self.send_json(201,{'ok':True,'upload_id':uid,'chunk_size':PC_UPLOAD_CHUNK_MAX})
+            if p==PREFIX+'/api/merge/pc/cancel':
+                cancel_library_pc_upload(owner,payload.get('upload_id',''))
+                return self.send_json(200,{'ok':True})
             if p==PREFIX+'/api/library/pc/start':
                 uid=start_library_pc_upload(owner,payload.get('filename',''),payload.get('size'))
                 return self.send_json(201,{'ok':True,'upload_id':uid,'chunk_size':PC_UPLOAD_CHUNK_MAX})

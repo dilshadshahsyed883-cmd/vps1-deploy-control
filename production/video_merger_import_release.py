@@ -286,6 +286,14 @@ PC_LIBRARY_NODES = frozenset({
     'start_library_pc_upload', 'append_library_pc_chunk',
     'cancel_library_pc_upload', 'finish_library_pc_upload',
 })
+PC_MERGE_REVIEWED_NODES = frozenset({
+    '_merge_pc_session', '_write_pc_meta', '_cleanup_merge_pc_uploads',
+    '_pc_merge_source_to_file', 'normalize_video_spec', 'trim_window',
+    'source_display_filename', 'process_job', 'delete_job',
+    'cancel_job', 'retry_job',
+})
+
+
 PC_LIBRARY_GLOBALS_EXPECTED = {
     'PC_UPLOAD_LOCK': 'threading.RLock()',
     'PC_UPLOAD_DIR': "WORK / 'pc_library_uploads'",
@@ -307,7 +315,7 @@ def reviewed_library_only_change(previous_source, candidate_source):
         other=[]
         for node in tree.body:
             if (isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef,ast.ClassDef)) and
-                    node.name in LIBRARY_V1_REVIEWED_NODES | PC_LIBRARY_NODES):
+                    node.name in LIBRARY_V1_REVIEWED_NODES | PC_LIBRARY_NODES | PC_MERGE_REVIEWED_NODES):
                 continue
             if (isinstance(node,ast.Assign) and len(node.targets)==1 and
                     isinstance(node.targets[0],ast.Name) and
@@ -327,6 +335,11 @@ def reviewed_library_only_change(previous_source, candidate_source):
     if pc_nodes or pc_globals:
         if pc_nodes != PC_LIBRARY_NODES or pc_globals != PC_LIBRARY_GLOBALS_EXPECTED:
             return False
+    merge_nodes={node.name for node in candidate.body
+                 if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)) and
+                 node.name in PC_MERGE_REVIEWED_NODES}
+    if merge_nodes and merge_nodes!=PC_MERGE_REVIEWED_NODES:
+        return False
     return outside_library(previous_source)==outside_library(candidate_source)
 
 
@@ -395,6 +408,13 @@ def install(revision):
         patched=frozen_library_overlay(
             patched,source_html,baseline_path.read_text(encoding='utf-8'),
             previous=previous_path.read_text(encoding='utf-8'))
+    if 'vm-pc-merge-choice' in source_html:
+        from production.video_merger_merge_pc_release import frozen_merge_pc_overlay
+        prior_merge=REPO/'production/video_merger_merge_pc_pre_20261113.html'
+        require(prior_merge.is_file() and not prior_merge.is_symlink(),
+                'Reviewed pre-PC Merge control baseline missing')
+        patched=frozen_merge_pc_overlay(
+            patched,source_html,prior_merge.read_text(encoding='utf-8'))
     live_template.write_text(patched,encoding='utf-8')
     manifest=json.loads((target/'_production_manifest.json').read_text())
     require(manifest.get('app')==app,'wrong manifest owner')
@@ -499,6 +519,11 @@ def install(revision):
                     and b'id="libraryPreviewDialog"' in page
                     and b'function viewLibrary(id)' in page,
                     'authenticated frozen Library UI readback failed')
+        if 'vm-pc-merge-choice' in source_html:
+            require(b'class="vm-pc-merge-choice"' in page and
+                    b'class="video-pc-file"' in page and
+                    b'async function uploadMergePcRow(' in page,
+                    'authenticated Merge PC upload UI readback failed')
         if 'VIDEO_MERGER_TWO_COLUMN_QUEUE_V2' in source_html:
             require(b'VIDEO_MERGER_TWO_COLUMN_QUEUE_V2' in page and
                     b'id="tab-queue"' in page and b'class="vm-merge-layout"' in page,
