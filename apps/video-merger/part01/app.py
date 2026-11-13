@@ -921,9 +921,6 @@ def normalize_video_spec(v, idx=0, owner=None):
         upload_id=v.get('upload_id','')
         if owner is not None:
             session,_,_=_merge_pc_session(owner,upload_id)
-            if session.get('assigned_job') and not v.get('_internal_retry'):
-                # Admitted jobs read the exact same immutable source by their job ID.
-                pass
         else:
             meta,_=_pc_upload_paths(upload_id)
             if not meta.is_file() or meta.is_symlink():
@@ -1827,7 +1824,7 @@ def delete_job(jid, owner='', admin=False):
     # Status verification and deletion share one lock with the worker claim.
     # Deletion must never remove a job after it was claimed for processing.
     with DB_LOCK, db() as c:
-        j=c.execute('SELECT id,status,owner_username FROM jobs WHERE id=?',(jid,)).fetchone()
+        j=c.execute('SELECT id,status,owner_username,videos_json FROM jobs WHERE id=?',(jid,)).fetchone()
         if not j: raise KeyError('Job not found')
         if not admin and (not owner or not j['owner_username'] or str(j['owner_username']).casefold()!=str(owner).casefold()):
             raise ValueError('This job does not belong to the current account')
