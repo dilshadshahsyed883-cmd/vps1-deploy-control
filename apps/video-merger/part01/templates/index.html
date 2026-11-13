@@ -233,6 +233,7 @@ async function deleteVpsFolder(){
 function intOrBlank(el){let v=el.value.trim();if(v==='')return null;let n=Number(v);if(!Number.isInteger(n)||n<0)throw new Error('Trim minutes/seconds must be non-negative whole numbers');return n}
 
 function mergePcReady(item){
+ if(item._pcUploading)return false;
  if(!item.dataset.pcLibraryId)return !!item.querySelector('.video-url').value.trim();
  const saved=(state.library||[]).find(x=>x.id===item.dataset.pcLibraryId);
  const status=item.querySelector('.vm-merge-pc-status');
@@ -288,7 +289,7 @@ async function selectMergePcFile(input){
  }catch(error){
   if(uploadId)await api('/api/library/pc/cancel',{method:'POST',body:JSON.stringify({upload_id:uploadId})}).catch(()=>{});
   status.textContent='PC upload failed: '+error.message;
-  item.dataset.pcLibraryId='';url.value='';url.readOnly=false;
+  item.dataset.pcLibraryId='';input.value='';url.value='';url.readOnly=false;
   toast('PC Video upload: '+error.message);
  }finally{item._pcUploading=false;vmQueueButtonState()}
 }
