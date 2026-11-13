@@ -83,6 +83,19 @@ class FrozenLibraryRelease(unittest.TestCase):
         with self.assertRaisesRegex(LibraryReleaseBlocked,"live Library callback drift"):
             frozen_library_overlay(changed,self.source,self.live)
 
+    def test_reviewed_existing_v1_can_upgrade_to_pc_upload_without_other_changes(self):
+        prior=(ROOT/"production/video_merger_library_pre_pc_20261113.html").read_text(encoding="utf-8")
+        patched=frozen_library_overlay(prior,self.source,self.live,previous=prior)
+        self.assertEqual(patched,self.source)
+        self.assertEqual(patched.count('id="libPcFile"'),1)
+        self.assertEqual(frozen_library_overlay(patched,self.source,self.live,previous=prior),patched)
+
+    def test_reviewed_v1_upgrade_still_blocks_unrecognized_live_panel_changes(self):
+        prior=(ROOT/"production/video_merger_library_pre_pc_20261113.html").read_text(encoding="utf-8")
+        changed=prior.replace('Add Library Video','Unapproved parallel Library change',1)
+        with self.assertRaisesRegex(LibraryReleaseBlocked,"live Library panel drift"):
+            frozen_library_overlay(changed,self.source,self.live,previous=prior)
+
     def test_no_missing_controls_or_duplicated_markers_accepted(self):
         edited=self.source.replace('id="libraryUploadDrive" type="checkbox"',
                                    'id="libraryUploadDrive" type="checkbox" id="libraryUploadDrive"')
