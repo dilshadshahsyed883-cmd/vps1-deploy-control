@@ -209,7 +209,7 @@ function mergePcInfo(item,message){
  const el=item.querySelector('.vm-merge-pc-info');el.style.display='block';el.textContent=message;
 }
 function selectMergePcFile(input){
- const item=input.closest('.video-item'),file=input.files[0];if(!file)return;
+ const item=input.closest('.video-item'),file=input.files[0];if(!file)return;if(vmQueueAdding){toast('Finish adding the current queue item first');return}
  const previous=item.dataset.pcUploadId;
  if(previous)api('/api/merge/pc/cancel',{method:'POST',body:JSON.stringify({upload_id:previous})}).catch(()=>{});
  delete item.dataset.pcUploadId;
@@ -224,6 +224,7 @@ function selectMergePcFile(input){
  if(typeof mergerEligibility==='function')mergerEligibility();
 }
 function clearMergePcFile(item){
+ if(vmQueueAdding)return toast('Finish adding the current queue item first');
  const id=item.dataset.pcUploadId;
  if(id)api('/api/merge/pc/cancel',{method:'POST',body:JSON.stringify({upload_id:id})}).catch(()=>{});
  delete item.dataset.pcUploadId;
@@ -266,7 +267,7 @@ async function uploadMergePcRow(item){
  }
 }
 function relabelRows(){[...urlVideos.querySelectorAll('.video-item')].forEach((d,i)=>{let n=i+2;d.querySelector('.video-url').placeholder=`Video ${n} URL`;d.querySelector('.video-url').dataset.videoNum=n})}
-function toggleTrim(cb){let item=cb.closest('.video-item');item.classList.toggle('trim-on',cb.checked);item.querySelector('.trim-summary').textContent=cb.checked?'Using selected segment':'Full video will be merged'}function addVideo(){urlRow('');relabelRows()}function rmVideo(b){if(urlVideos.children.length<=1)return toast('Video 2 is required');const row=b.closest('.video-item');if(row.dataset.pcUploadId)api('/api/merge/pc/cancel',{method:'POST',body:JSON.stringify({upload_id:row.dataset.pcUploadId})}).catch(()=>{});row.remove();relabelRows();scheduleAutoName()}
+function toggleTrim(cb){let item=cb.closest('.video-item');item.classList.toggle('trim-on',cb.checked);item.querySelector('.trim-summary').textContent=cb.checked?'Using selected segment':'Full video will be merged'}function addVideo(){urlRow('');relabelRows()}function rmVideo(b){if(vmQueueAdding)return toast('Finish adding to Queue first');if(urlVideos.children.length<=1)return toast('Video 2 is required');const row=b.closest('.video-item');if(row.dataset.pcUploadId)api('/api/merge/pc/cancel',{method:'POST',body:JSON.stringify({upload_id:row.dataset.pcUploadId})}).catch(()=>{});row.remove();relabelRows();scheduleAutoName()}
 function resText(){let m={'16:9|720p':'1280 × 720','16:9|1080p':'1920 × 1080','9:16|720p':'720 × 1280','9:16|1080p':'1080 × 1920'};resolution.value=m[aspect.value+'|'+quality.value]}
 function newMerge(){librarySelect.value='';librarySelect.classList.remove('invalid');librarySelectError.classList.remove('show');urlVideos.innerHTML='';vcount=1;urlRow('');aspect.value='9:16';quality.value='1080p';fit.value='crop';document.querySelector('input[name="filenameMode"][value="auto"]').checked=true;filenameModeChanged();resText();showTab('merge')}
 function renderFolders(){let f=folder,cur=f.value;f.innerHTML=state.folders.map(x=>{let name=x.split('/').slice(2).join('/')||'My Drive Root';return `<option value="${esc(x)}">${esc(name)}</option>`}).join('');if([...f.options].some(o=>o.value===cur))f.value=cur;renderVpsFolders()}
