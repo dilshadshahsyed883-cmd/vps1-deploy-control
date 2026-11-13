@@ -1259,6 +1259,8 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
 <section class="panel" aria-label="Render controls">
  <h2>Render</h2>
  <button id="render" class="render" type="submit">Start Rendering</button>
+ <div id="pendingUploadStatus" class="hint" role="status" aria-live="polite" style="margin-top:8px">New projects join the VPS render queue automatically</div>
+ <button id="resumeUpload" class="secondary" type="button" hidden style="margin-top:10px">Resume paused upload</button>
  <button id="discardUpload" class="secondary" type="button" hidden style="margin-top:10px">Discard paused upload</button>
  <div class="sm-stage-progress">
   <div><div class="sm-stage-label"><span>Upload</span><strong id="uploadPctLabel">0%</strong></div><div class="progress" id="progressTrack" role="progressbar" aria-label="Upload progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="bar"></span></div></div>

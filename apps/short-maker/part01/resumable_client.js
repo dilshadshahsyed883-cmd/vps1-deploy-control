@@ -10,7 +10,9 @@ const renderProgressBar=document.getElementById('renderProgressBar');
 const uploadPctLabel=document.getElementById('uploadPctLabel');
 const renderPctLabel=document.getElementById('renderPctLabel');
 const discardUpload=document.getElementById('discardUpload');
-let trackedShortJob=null, activeShortUpload=null;
+const resumeUpload=document.getElementById('resumeUpload');
+const pendingUploadStatus=document.getElementById('pendingUploadStatus');
+let trackedShortJob=null, activeShortUpload=null,shortSubmitBusy=false;
 
 function showShortProgress(uploadPercent,renderPercent,stage){
  const up=Math.min(100,Math.max(0,Number(uploadPercent)||0));
@@ -22,10 +24,11 @@ function showShortProgress(uploadPercent,renderPercent,stage){
  progressInfo.textContent=stage==='upload'?'Uploading · '+Math.round(up)+'%':'VPS rendering · '+Math.round(rp)+'%';
 }
 function shortDB(){return new Promise((resolve,reject)=>{
- const req=indexedDB.open(SHORT_UPLOAD_DB,1);
+ const req=indexedDB.open(SHORT_UPLOAD_DB,2);
  req.onupgradeneeded=()=>{
-  req.result.createObjectStore('meta');
-  req.result.createObjectStore('files');
+  for(const store of ['meta','files','pending']){
+   if(!req.result.objectStoreNames.contains(store))req.result.createObjectStore(store);
+  }
  };
  req.onsuccess=()=>resolve(req.result);
  req.onerror=()=>reject(req.error||Error('Browser storage unavailable.'));
@@ -51,6 +54,99 @@ async function shortDBSave(meta,files){
   tx.onerror=()=>{db.close();reject(tx.error||Error('Not enough browser storage to protect this upload.'));};
   tx.onabort=()=>{db.close();reject(tx.error||Error('Not enough browser storage to protect this upload.'));};
  });}
+// Additional submissions are durably staged separately from the single active
+// resumable transfer. They cannot overwrite its byte offsets or source Blobs.
+async function shortDBStageUpload(meta,blobs){
+ const db=await shortDB();
+ return new Promise((resolve,reject)=>{
+  const tx=db.transaction('pending','readwrite');
+  const key=String(Date.now()).padStart(13,'0')+':'+meta.client_request_id;
+  tx.objectStore('pending').put({meta,blobs},key);
+  tx.oncomplete=()=>{db.close();resolve(key);};
+  tx.onerror=()=>{db.close();reject(tx.error||Error('Browser upload queue could not be saved.'));};
+  tx.onabort=()=>{db.close();reject(tx.error||Error('Browser upload queue storage is full.'));};
+ });
+}
+async function shortDBPendingCount(){
+ const db=await shortDB();
+ return new Promise((resolve,reject)=>{
+  const tx=db.transaction('pending','readonly'),req=tx.objectStore('pending').count();
+  req.onsuccess=()=>resolve(req.result);
+  req.onerror=()=>reject(req.error);
+  tx.oncomplete=()=>db.close();tx.onerror=()=>db.close();
+ });
+}
+async function shortDBNextPending(){
+ const db=await shortDB();
+ return new Promise((resolve,reject)=>{
+  const tx=db.transaction('pending','readonly');
+  const req=tx.objectStore('pending').openCursor();
+  req.onsuccess=()=>resolve(req.result?{key:req.result.key,record:req.result.value}:null);
+  req.onerror=()=>reject(req.error);
+  tx.oncomplete=()=>db.close();tx.onerror=()=>db.close();
+ });
+}
+async function shortDBActivatePending(next){
+ const db=await shortDB();
+ return new Promise((resolve,reject)=>{
+  const tx=db.transaction(['meta','files','pending'],'readwrite');
+  let activated=null;
+  const metaStore=tx.objectStore('meta'),fileStore=tx.objectStore('files');
+  const existing=metaStore.get('active');
+  existing.onsuccess=()=>{
+   if(existing.result){tx.abort();return;}
+   const request=tx.objectStore('pending').get(next.key);
+   request.onsuccess=()=>{
+    const entry=request.result;
+    if(!entry){tx.abort();return;}
+    fileStore.clear();
+    for(const f of entry.blobs)fileStore.put(f.blob,f.kind+':'+f.index);
+    metaStore.put(entry.meta,'active');
+    tx.objectStore('pending').delete(next.key);
+    activated=entry.meta;
+   };
+  };
+  tx.oncomplete=()=>{db.close();resolve(activated);};
+  tx.onerror=()=>{db.close();reject(tx.error||Error('Cannot activate saved upload.'));};
+  tx.onabort=()=>{db.close();reject(tx.error||Error('Active upload changed. Reload to resume.'));};
+ });
+}
+async function shortRefreshUploadControls(){
+ if(!shortSubmitBusy)render.disabled=false;
+ render.textContent=activeShortUpload?'Add Another Job to Queue':'Start Rendering';
+ try{
+  const count=await shortDBPendingCount();
+  pendingUploadStatus.textContent=count?
+   count+' additional project(s) saved in browser upload queue · uploads run one at a time':
+   (activeShortUpload?'Current upload in progress · you can add another project':'New projects join the VPS render queue automatically');
+ }catch(error){pendingUploadStatus.textContent='Browser upload queue temporarily unavailable.';}
+}
+function shortUploadError(error){
+ render.disabled=false;
+ statusEl.textContent='Upload paused: '+error.message+' — use Resume paused upload to retry.';
+ discardUpload.hidden=false;
+ resumeUpload.hidden=false;
+ shortRefreshUploadControls();
+}
+async function shortDrainQueuedUploads(){
+ return withShortUploadLock(async()=>{
+  while(true){
+   let meta=await shortDBRead('meta','active');
+   if(!meta){
+    const next=await shortDBNextPending();
+    if(!next)break;
+    meta=await shortDBActivatePending(next);
+   }
+   await shortResumeInternal(meta);
+  }
+ });
+}
+function shortKickUploadDrain(){
+ const previous=activeShortUpload;
+ const run=()=>shortDrainQueuedUploads().catch(shortUploadError);
+ if(previous)previous.then(run,()=>{});
+ else run();
+}
 async function shortDBDelete(store,key){
  const db=await shortDB();
  return new Promise((resolve,reject)=>{
@@ -157,7 +253,7 @@ async function shortNormalizePendingImages(meta){
 }
 async function shortResumeInternal(meta){
  meta=await shortNormalizePendingImages(meta);
- render.disabled=true;discardUpload.hidden=true;
+ discardUpload.hidden=true;resumeUpload.hidden=true;
  if(!meta.client_request_id&&!meta.job_id){
   meta.client_request_id=crypto.randomUUID();
   await shortDBSave(meta,null);
@@ -216,9 +312,7 @@ async function shortResumeInternal(meta){
  }
  statusEl.textContent='All source files uploaded. Queuing VPS render...';
  await shortJson(await fetch('/short-maker/api/upload-sessions/'+meta.job_id+'/finalize',{method:'POST'}),'Could not finalize job');
- await shortDBClear();discardUpload.hidden=true;
- images.value='';audio.value='';selectedAudioFiles.length=0;
- imageCount.textContent='0 images selected';renderSelectedAudio();
+ await shortDBClear();discardUpload.hidden=true;resumeUpload.hidden=true;
  render.disabled=false;outputs.replaceChildren();
  statusEl.textContent='Job '+meta.job_id.slice(0,8)+' queued; rendering continues on VPS.';
  showShortProgress(100,0,'render');
@@ -228,7 +322,8 @@ function withShortUploadLock(run){
  if(activeShortUpload)return activeShortUpload;
  activeShortUpload=(navigator.locks&&navigator.locks.request
   ?navigator.locks.request('short-maker-one-upload',run)
-  :run()).finally(()=>{activeShortUpload=null;});
+  :run()).finally(()=>{activeShortUpload=null;shortRefreshUploadControls();});
+ shortRefreshUploadControls();
  return activeShortUpload;
 }
 function shortResume(meta){
@@ -243,11 +338,14 @@ function shortResume(meta){
  });
 }
 async function shortSubmitOrResume(){
- return withShortUploadLock(async()=>{
- const existing=await shortDBRead('meta','active');
- if(existing)return shortResumeInternal(existing);
  const paths=drivePaths();
  const selectedImages=shortSupportedImageSelection(images.files);
+ const noNewInputs=inputMode.value==='upload'&&!selectedImages.accepted.length&&!selectedAudioFiles.length;
+ if(noNewInputs){
+  const active=await shortDBRead('meta','active');
+  const waiting=await shortDBPendingCount();
+  if(active||waiting){shortKickUploadDrain();return;}
+ }
  if(inputMode.value==='upload'&&!selectedImages.accepted.length)throw Error('Select a folder containing supported images (JPG, PNG, WebP, etc.).');
  if(inputMode.value==='drive'&&!paths.length)throw Error('Add at least one Google Drive folder.');
  if(inputMode.value==='drive'&&new Set(paths).size!==paths.length)throw Error('Remove duplicate Drive folder links.');
@@ -263,23 +361,26 @@ async function shortSubmitOrResume(){
   blobs.push({kind:'audio',index,blob:file});
  });
  const meta={job_id:null,client_request_id:crypto.randomUUID(),files,config:shortSettings()};
- statusEl.textContent='Saving selected files for safe resume after refresh...';
- showShortProgress(0,0,'upload');
- // Do not start network uploads if the browser cannot save source files durably.
- await shortDBSave(meta,blobs);
- return shortResumeInternal(meta);
- });
+ // Persist the entire second project before clearing its form selections.
+ // The active upload, if any, remains untouched in separate IndexedDB stores.
+ await shortDBStageUpload(meta,blobs);
+ images.value='';audio.value='';selectedAudioFiles.length=0;
+ imageCount.textContent='0 images selected';renderSelectedAudio();
+ if(!activeShortUpload)statusEl.textContent='Project saved in upload queue; starting VPS transfer.';
+ shortKickUploadDrain();
 }
 form.addEventListener('submit',async event=>{
  event.preventDefault();
- if(activeShortUpload)return;
- render.disabled=true;outputs.replaceChildren();
+ if(shortSubmitBusy)return;
+ shortSubmitBusy=true;
+ render.disabled=true;
  try{await shortSubmitOrResume();}
- catch(error){
-  render.disabled=false;
-  statusEl.textContent='Upload paused: '+error.message+' — click Start Rendering to retry.';
-  discardUpload.hidden=false;
- }
+ catch(error){statusEl.textContent='Could not queue project: '+error.message;}
+ finally{shortSubmitBusy=false;shortRefreshUploadControls();}
+});
+resumeUpload.addEventListener('click',()=>{
+ resumeUpload.hidden=true;
+ shortKickUploadDrain();
 });
 (async()=>{
  try{
@@ -287,16 +388,13 @@ form.addEventListener('submit',async event=>{
   if(pending){
    statusEl.textContent='Recovering interrupted file upload...';
    discardUpload.hidden=false;
-   await shortResume(pending);
   }else{
    const lastJob=sessionStorage.getItem('shortMakerLastJob');
    if(lastJob){trackedShortJob=lastJob;pollShortJob(lastJob);}
   }
- }catch(error){
-  render.disabled=false;
-  statusEl.textContent='Upload paused: '+error.message+' — click Start Rendering to retry.';
-  discardUpload.hidden=false;
- }
+  await shortRefreshUploadControls();
+  shortKickUploadDrain();
+ }catch(error){shortUploadError(error);}
 })();
 
 discardUpload.addEventListener('click',async()=>{
@@ -309,10 +407,10 @@ discardUpload.addEventListener('click',async()=>{
    if(!r.ok&&r.status!==404)await shortJson(r,'Could not discard upload');
   }
   await shortDBClear();
-  discardUpload.hidden=true;render.disabled=false;trackedShortJob=null;
+  discardUpload.hidden=true;resumeUpload.hidden=true;render.disabled=false;trackedShortJob=null;
   sessionStorage.removeItem('shortMakerLastJob');
   showShortProgress(0,0,'upload');
-  statusEl.textContent='Incomplete upload discarded. Select files for a new job.';
-  loadQueue();
+  statusEl.textContent='Incomplete upload discarded. Saved next projects remain queued.';
+  loadQueue();shortRefreshUploadControls();shortKickUploadDrain();
  }catch(error){statusEl.textContent='Discard failed: '+error.message;}
 });
