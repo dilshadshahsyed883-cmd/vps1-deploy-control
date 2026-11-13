@@ -358,8 +358,12 @@ def install(revision):
         baseline_path=REPO/'production/video_merger_library_20261102_baseline.html'
         require(baseline_path.is_file() and not baseline_path.is_symlink(),
                 'Reviewed Video Merger Library UI baseline missing')
-        patched=frozen_library_overlay(patched,source_html,
-                                      baseline_path.read_text(encoding='utf-8'))
+        previous_path=REPO/'production/video_merger_library_pre_pc_20261113.html'
+        require(previous_path.is_file() and not previous_path.is_symlink(),
+                'Reviewed prior Video Merger Library V1 snapshot missing')
+        patched=frozen_library_overlay(
+            patched,source_html,baseline_path.read_text(encoding='utf-8'),
+            previous=previous_path.read_text(encoding='utf-8'))
     live_template.write_text(patched,encoding='utf-8')
     manifest=json.loads((target/'_production_manifest.json').read_text())
     require(manifest.get('app')==app,'wrong manifest owner')
