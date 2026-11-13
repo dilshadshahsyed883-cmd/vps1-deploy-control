@@ -2,6 +2,8 @@
 import ast
 import json
 import re
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -102,6 +104,61 @@ class ShortMakerResumeTests(unittest.TestCase):
                          "renderProgressBar.style.width", "client_request_id:meta.client_request_id"):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, js)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js unavailable")
+    def test_mixed_folder_filters_mp3_and_repairs_paused_upload(self):
+        js = CLIENT.read_text(encoding="utf-8")
+        helpers = js[js.index("const SHORT_IMAGE_EXTENSION="):js.index("function shortSettings(){")]
+        recovery = js[js.index("async function shortNormalizePendingImages(meta){"):
+                      js.index("async function shortResumeInternal(meta){")]
+        script = """
+const assert=require('node:assert/strict'),vm=require('node:vm');
+let changeHandler, saved;
+const data={
+ 'images:0':{size:3},'images:1':{size:4},'images:2':{size:8},'audio:0':{size:5}
+};
+const ctx={
+ images:{files:[],addEventListener:(event,cb)=>{if(event==='change')changeHandler=cb;}},
+ imageCount:{textContent:''},
+ crypto:{randomUUID:()=> 'fresh-request-id'},
+ shortDBRead:async(store,key)=>{assert.equal(store,'files');return data[key];},
+ shortDBSave:async(meta,blobs)=>{saved={meta,blobs};}
+};
+vm.createContext(ctx);
+vm.runInContext(SOURCE,ctx);
+async function check(){
+ const mixed=[{name:'photos/first.JPG',size:3},
+  {name:'1_song.mp3 0600 wali video.mp3',size:4},
+  {name:'sub/second.HEIC',size:8}];
+ ctx.sample=mixed;ctx.images.files=mixed;changeHandler();
+ assert.equal(ctx.imageCount.textContent,'2 image(s) selected · 1 non-image file(s) skipped');
+ const selection=vm.runInContext('shortSupportedImageSelection(sample)',ctx);
+ assert.equal(selection.accepted.map(f=>f.name).join(','),'photos/first.JPG,sub/second.HEIC');
+ assert.equal(selection.skipped.length,1);
+ ctx.pending={job_id:null,client_request_id:'old-id',config:{input_mode:'upload'},
+  files:{images:mixed.map(f=>({name:f.name,size:f.size})),
+   audio:[{name:'song.mp3',size:5}]}};
+ const normalized=await vm.runInContext('shortNormalizePendingImages(pending)',ctx);
+ assert.equal(normalized.client_request_id,'fresh-request-id');
+ assert.equal(normalized.files.images.length,2);
+ assert.equal(normalized.files.audio[0].name,'song.mp3');
+ assert.equal(saved.blobs.map(b=>b.kind+':'+b.index).join(','),'images:0,images:1,audio:0');
+ assert.strictEqual(saved.blobs[0].blob,data['images:0']);
+ assert.strictEqual(saved.blobs[1].blob,data['images:2']);
+ assert.strictEqual(saved.blobs[2].blob,data['audio:0']);
+ ctx.pending={...ctx.pending,files:{images:[{name:'track.mp3',size:4}],audio:[]}};
+ await assert.rejects(()=>vm.runInContext('shortNormalizePendingImages(pending)',ctx),
+  /no supported images/i);
+ ctx.pending={...ctx.pending,job_id:'existing-session'};
+ const untouched=await vm.runInContext('shortNormalizePendingImages(pending)',ctx);
+ assert.strictEqual(untouched,ctx.pending);
+}
+check().catch(error=>{console.error(error);process.exitCode=1;});
+""".replace("SOURCE", json.dumps(helpers+"\n"+recovery))
+        done = subprocess.run(["node", "-e", script], text=True,
+                              capture_output=True, timeout=15, check=False)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
 
 
 if __name__ == "__main__":
