@@ -129,12 +129,12 @@ function renderProxy(){old}
         with tempfile.TemporaryDirectory() as directory:
             previous=Path(directory)/'old.py'
             candidate=Path(directory)/'new.py'
-            prior="def source_to_file(): return 'same'\\n" + \
-                  "def test_proxy_profile(): return 'same'\\n"
+            prior="def source_to_file(): return 'same'\n" + \
+                  "def test_proxy_profile(): return 'same'\n"
             previous.write_text(prior)
-            pc_globals="".join(f"{name} = {expr}\\n" for name,expr in
+            pc_globals="".join(f"{name} = {expr}\n" for name,expr in
                                release.PC_LIBRARY_GLOBALS_EXPECTED.items())
-            pc_nodes="".join(f"def {name}(): return 'pc'\\n"
+            pc_nodes="".join(f"def {name}(): return 'pc'\n"
                              for name in sorted(release.PC_LIBRARY_NODES))
             candidate.write_text(prior+pc_globals+pc_nodes)
             self.assertTrue(release.reviewed_library_only_change(previous,candidate))
