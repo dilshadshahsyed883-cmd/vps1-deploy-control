@@ -1392,7 +1392,8 @@ def youtube_title(url):
 
 def source_display_filename(spec):
     if spec.get('kind')=='library':
-        label=re.sub(r' \[PC-[a-f0-9]{8}\]
+        label=re.sub(r' \[PC-[a-f0-9]{8}\]$', '', spec.get('name') or 'Video 2')
+        base=safe_component(label)
         stem=Path(base).stem if Path(base).suffix else base
         return safe_component(stem)+'.mp4'
     if spec.get('kind')!='url': raise ValueError('Auto filename requires a URL or saved PC video')
