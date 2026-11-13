@@ -1090,7 +1090,7 @@ def _cleanup_old_pc_uploads():
     PC_UPLOAD_DIR.mkdir(parents=True,exist_ok=True)
     cutoff=time.time()-PC_UPLOAD_TTL_SECONDS
     for meta in PC_UPLOAD_DIR.glob('*.json'):
-        if meta.is_symlink() or not re.fullmatch(r'[a-f0-9]{32}\\.json',meta.name):
+        if meta.is_symlink() or not re.fullmatch(r'[a-f0-9]{32}\.json',meta.name):
             continue
         try:
             if meta.stat().st_mtime>=cutoff:
@@ -1108,7 +1108,7 @@ def start_library_pc_upload(owner,filename,size):
         raise ValueError('Authenticated account required')
     if not isinstance(size,int) or isinstance(size,bool) or size<=0 or size>MAX_SOURCE_BYTES:
         raise ValueError('PC video must be between 1 byte and 12 GiB')
-    filename=str(filename or '').replace('\\\\','/').split('/')[-1].strip()[:180]
+    filename=str(filename or '').replace('\\','/').split('/')[-1].strip()[:180]
     if not filename or Path(filename).suffix.lower() not in ('.mp4','.mov','.mkv','.webm','.avi','.m4v','.mpeg','.mpg','.ts'):
         raise ValueError('Choose a supported video file (MP4, MOV, MKV, WEBM, AVI, M4V, MPEG or TS)')
     with PC_UPLOAD_LOCK:
