@@ -17,6 +17,53 @@ def exact_known_external_auth(results, config, candidate, allowed=False):
     )
 
 
+
+def strict_preexisting_proxy_auth_failure(results):
+    """Only an active proxy's exact rejected-credentials failure, never generic network errors."""
+    return bool(
+        results.get('proxy_enabled') is True and
+        results.get('candidate_saved_proxy') is False and
+        str(results.get('proxy_test','')).startswith('FAIL: Command failed (22): /usr/bin/curl') and
+        str(results.get('youtube','')).startswith(
+            'FAIL: PROXY_AUTH_FAILED: Selected YouTube proxy rejected authentication.')
+    )
+
+
+def read_only_proxy_auth_probe(source, proxy_config):
+    """Re-check the currently running release without modifying live config or DB."""
+    if proxy_config is None or not Path(proxy_config).is_file():
+        raise RuntimeError('Existing proxy config missing')
+    with tempfile.TemporaryDirectory(prefix='vm-live-proxy-probe-') as directory:
+        root=Path(directory)
+        os.environ['VIDEO_MERGER_ROOT']=str(root)
+        os.environ['VIDEO_MERGER_PROXY_CONFIG_DIR']=str(root/'config')
+        os.environ['DENO_DIR']=str(root/'deno_cache')
+        spec=importlib.util.spec_from_file_location('vm_live_proxy_probe',source)
+        app=importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(app)
+        app.PROXY_CONFIG_PATH=Path(proxy_config)
+        app.init_db()
+        config=app.load_proxy_config()
+        results={'proxy_enabled':config.get('enabled') is True,
+                 'candidate_saved_proxy':False}
+        if config.get('enabled') is not True:
+            raise RuntimeError('Live proxy is not enabled; no pre-existing failure exemption')
+        profile=app.active_proxy_profile()
+        if not profile:
+            raise RuntimeError('No active proxy; no pre-existing failure exemption')
+        try:
+            tested=app.test_proxy_profile(profile['id'])
+            results['proxy_test']='REAL_DOWNLOAD_PASS' if tested.get('download_verified') else 'NOT_VERIFIED'
+        except Exception as exc:
+            results['proxy_test']='FAIL: '+app.scrub_proxy_error(exc)
+        try:
+            app.source_to_file('https://youtu.be/jNQXAC9IVRw',root/'youtube.bin',None,1)
+            results['youtube']='PASS'
+        except Exception as exc:
+            results['youtube']='FAIL: '+app.scrub_proxy_error(exc)
+        return results
+
+
 def bounded_library_sample_seconds(duration):
     """Real-source validation always transcodes a bounded, nonempty clip."""
     from math import isfinite
@@ -25,7 +72,7 @@ def bounded_library_sample_seconds(duration):
     return min(8,max(1,int(duration-0.5)))
 
 
-def smoke(source, state, proxy_config=None, allow_known_external_auth=False):
+def smoke(source, state, proxy_config=None, allow_known_external_auth=False, allow_preexisting_proxy_auth=False):
     with tempfile.TemporaryDirectory(prefix='vm-import-smoke-') as directory:
         root = Path(directory)
         os.environ['VIDEO_MERGER_ROOT'] = str(root)
@@ -162,10 +209,16 @@ def smoke(source, state, proxy_config=None, allow_known_external_auth=False):
         external_auth_blocked = exact_known_external_auth(
             results, config, candidate, allow_known_external_auth)
         results['youtube_external_auth_blocked'] = external_auth_blocked
+        existing_proxy_auth = bool(
+            allow_preexisting_proxy_auth and candidate is None and
+            strict_preexisting_proxy_auth_failure(results))
+        results['youtube_preexisting_proxy_auth'] = existing_proxy_auth
         if external_auth_blocked:
             results['youtube'] = 'UPSTREAM_AUTH_BLOCKED'
+        elif existing_proxy_auth:
+            results['youtube'] = 'PREEXISTING_PROXY_AUTH_FAILED'
         print(json.dumps(results,sort_keys=True),flush=True)
-        if (results.get('youtube') not in ('PASS','UPSTREAM_AUTH_BLOCKED') or
+        if (results.get('youtube') not in ('PASS','UPSTREAM_AUTH_BLOCKED','PREEXISTING_PROXY_AUTH_FAILED') or
                 results.get('drive')!='PASS' or
                 results.get('library_persistence')!='PASS'):
             raise RuntimeError('Real-source smoke failed; candidate not promoted')
@@ -180,5 +233,14 @@ if __name__=='__main__':
     parser.add_argument('--proxy-config',type=Path)
     parser.add_argument('--allow-known-external-auth',action='store_true',
                         help='Only after installer has verified strict downloader parity')
+    parser.add_argument('--allow-preexisting-proxy-auth',action='store_true',
+                        help='Only after live proxy probe and strict PC-only source parity')
+    parser.add_argument('--proxy-probe-only',action='store_true',
+                        help='Read-only old-release proxy authentication comparison')
     args=parser.parse_args()
-    smoke(args.source,args.state,args.proxy_config,args.allow_known_external_auth)
+    if args.proxy_probe_only:
+        print(json.dumps(read_only_proxy_auth_probe(args.source,args.proxy_config),
+                         sort_keys=True),flush=True)
+    else:
+        smoke(args.source,args.state,args.proxy_config,args.allow_known_external_auth,
+              args.allow_preexisting_proxy_auth)
