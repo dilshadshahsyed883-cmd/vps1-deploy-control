@@ -86,6 +86,9 @@ class FrozenLibraryRelease(unittest.TestCase):
     def test_reviewed_existing_v1_can_upgrade_to_pc_upload_without_other_changes(self):
         prior=(ROOT/"production/video_merger_library_pre_pc_20261113.html").read_text(encoding="utf-8")
         patched=frozen_library_overlay(prior,self.source,self.live,previous=prior)
+        from production.video_merger_merge_pc_release import apply_merge_pc_overlay
+        before_merge=(ROOT/"production/video_merger_merge_pre_pc_20261113.html").read_text(encoding="utf-8")
+        patched=apply_merge_pc_overlay(patched,self.source,before_merge)
         self.assertEqual(patched,self.source)
         self.assertEqual(patched.count('id="libPcFile"'),1)
         self.assertEqual(frozen_library_overlay(patched,self.source,self.live,previous=prior),patched)
