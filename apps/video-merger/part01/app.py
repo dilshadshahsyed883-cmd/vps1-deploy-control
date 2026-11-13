@@ -1135,11 +1135,13 @@ def start_library_pc_upload(owner,filename,size,purpose='library'):
         for meta in PC_UPLOAD_DIR.glob('*.json'):
             try:
                 obj=json.loads(meta.read_text(encoding='utf-8'))
-                pending+=int(str(obj.get('owner','')).casefold()==owner.casefold())
+                pending+=int(str(obj.get('owner','')).casefold()==owner.casefold() and
+                             obj.get('purpose','library')==purpose and not obj.get('assigned_job'))
             except (ValueError,OSError):
                 pass
-        if pending>=3:
-            raise ValueError('Finish or cancel an existing PC upload first (limit: 3)')
+        limit=MAX_VIDEOS if purpose=='merge' else 3
+        if pending>=limit:
+            raise ValueError(f'Finish or cancel an existing PC upload first (limit: {limit})')
         if shutil.disk_usage(PC_UPLOAD_DIR).free < size+MIN_FREE_BYTES:
             raise ValueError('Insufficient VPS disk space for PC video and operational reserve')
         upload_id=uuid.uuid4().hex
