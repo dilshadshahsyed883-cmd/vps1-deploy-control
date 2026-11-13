@@ -281,6 +281,19 @@ LIBRARY_V1_REVIEWED_NODES = frozenset({
 })
 
 
+PC_LIBRARY_NODES = frozenset({
+    '_pc_upload_paths', '_pc_upload_session', '_cleanup_old_pc_uploads',
+    'start_library_pc_upload', 'append_library_pc_chunk',
+    'cancel_library_pc_upload', 'finish_library_pc_upload',
+})
+PC_LIBRARY_GLOBALS_EXPECTED = {
+    'PC_UPLOAD_LOCK': 'threading.RLock()',
+    'PC_UPLOAD_DIR': "WORK / 'pc_library_uploads'",
+    'PC_UPLOAD_CHUNK_MAX': '8 * 1024 * 1024',
+    'PC_UPLOAD_TTL_SECONDS': '24 * 3600',
+}
+
+
 def reviewed_library_only_change(previous_source, candidate_source):
     """Known YouTube auth challenges can be reported as degraded ONLY when
     every non-Library AST node, including downloaders and proxy, is identical.
@@ -291,11 +304,29 @@ def reviewed_library_only_change(previous_source, candidate_source):
         require(path.is_file() and not path.is_symlink(),
                 'Untrusted Video Merger source in Library parity guard')
         tree=ast.parse(path.read_text(encoding='utf-8'))
-        other=[node for node in tree.body if not (
-            isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef,ast.ClassDef))
-            and node.name in LIBRARY_V1_REVIEWED_NODES)]
+        other=[]
+        for node in tree.body:
+            if (isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef,ast.ClassDef)) and
+                    node.name in LIBRARY_V1_REVIEWED_NODES | PC_LIBRARY_NODES):
+                continue
+            if (isinstance(node,ast.Assign) and len(node.targets)==1 and
+                    isinstance(node.targets[0],ast.Name) and
+                    node.targets[0].id in PC_LIBRARY_GLOBALS_EXPECTED):
+                continue
+            other.append(node)
         return ast.dump(ast.Module(body=other,type_ignores=[]),
                         include_attributes=False)
+    candidate=ast.parse(Path(candidate_source).read_text(encoding='utf-8'))
+    pc_nodes={node.name for node in candidate.body
+              if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)) and
+              node.name in PC_LIBRARY_NODES}
+    pc_globals={node.targets[0].id:ast.unparse(node.value) for node in candidate.body
+                if isinstance(node,ast.Assign) and len(node.targets)==1 and
+                isinstance(node.targets[0],ast.Name) and
+                node.targets[0].id in PC_LIBRARY_GLOBALS_EXPECTED}
+    if pc_nodes or pc_globals:
+        if pc_nodes != PC_LIBRARY_NODES or pc_globals != PC_LIBRARY_GLOBALS_EXPECTED:
+            return False
     return outside_library(previous_source)==outside_library(candidate_source)
 
 
@@ -381,11 +412,31 @@ def install(revision):
     handover_only = owner_handover_only_change(previous/name,target/name)
     drive_cookie_only = reviewed_drive_cookie_only_change(previous/name,target/name)
     library_only = reviewed_library_only_change(previous/name,target/name)
+    # A pre-existing, already-enabled bad proxy must not silently block a
+    # Library-PC-only release. Reproduce that exact auth error against the
+    # *running* immutable source and old venv, with no live DB/config writes.
+    # The complete YouTube/proxy downloader AST is required to match.
+    from production.video_merger_import_smoke import strict_preexisting_proxy_auth_failure
+    previous_proxy_auth=False
+    if library_only:
+        live_proxy_config=json.loads(proxy_config.read_text(encoding='utf-8'))
+        if live_proxy_config.get('enabled') is True:
+            live_probe_cmd=['/usr/sbin/runuser','-u','ubuntu','--',old_python,'-m',
+                            'production.video_merger_import_smoke','--source',previous/name,
+                            '--state',state,'--proxy-config',proxy_config,'--proxy-probe-only']
+            probe_text=run(live_probe_cmd,cwd=REPO,timeout=360,quiet=False)
+            try:
+                probe_result=json.loads(probe_text.strip().splitlines()[-1])
+            except (IndexError,ValueError,TypeError):
+                raise RuntimeError('Read-only live proxy probe missing') from None
+            previous_proxy_auth=strict_preexisting_proxy_auth_failure(probe_result)
     smoke_cmd = ['/usr/sbin/runuser','-u','ubuntu','--',python,'-m',
                  'production.video_merger_import_smoke','--source',target/name,
                  '--state',state,'--proxy-config',proxy_config]
     if handover_only or drive_cookie_only or library_only:
         smoke_cmd.append('--allow-known-external-auth')
+    if previous_proxy_auth:
+        smoke_cmd.append('--allow-preexisting-proxy-auth')
     smoke_text = run(smoke_cmd,cwd=REPO,timeout=1800,quiet=False)
     try:
         smoke_result = json.loads(smoke_text.strip().splitlines()[-1])
@@ -398,9 +449,14 @@ def install(revision):
     youtube_degraded = (youtube_state == 'UPSTREAM_AUTH_BLOCKED' and
                         (handover_only or drive_cookie_only or library_only) and
                         smoke_result.get('youtube_external_auth_blocked') is True)
-    require(youtube_state=='PASS' or youtube_degraded,
+    proxy_degraded=(youtube_state=='PREEXISTING_PROXY_AUTH_FAILED' and
+                    library_only and previous_proxy_auth and
+                    smoke_result.get('youtube_preexisting_proxy_auth') is True)
+    require(youtube_state=='PASS' or youtube_degraded or proxy_degraded,
             'Video Merger YouTube smoke failed; do not promote')
-    result_label = ('PASS_VIDEO_MERGER_LIBRARY_V1_YOUTUBE_AUTH_BLOCKED'
+    result_label = ('PASS_VIDEO_MERGER_LIBRARY_PC_PREEXISTING_PROXY_AUTH'
+                    if proxy_degraded else
+                    'PASS_VIDEO_MERGER_LIBRARY_V1_YOUTUBE_AUTH_BLOCKED'
                     if youtube_degraded and library_only else
                     'PASS_VIDEO_MERGER_REVIEWED_GDOWN_YOUTUBE_AUTH_BLOCKED'
                     if youtube_degraded and drive_cookie_only else
